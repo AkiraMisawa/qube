@@ -107,7 +107,11 @@ its citation:
 The values the PoC uses are Basel III's (bank ECRA 20%, 30%, 50%, 100%, 150%; short-term 20%, 20%, 20%, 50%, 150%;
 SCRA A 40%, B 75%, C 150%), checked against a jurisdiction's published implementation on 2026-11-07. The paragraph
 numbers of CRE20 are confirmed against the current text before the tables are coded, and a national rule's
-differences are configuration, not code.
+differences are configuration, not code. (Confirmed on 2026-11-07 against CRE20 as in force from 2023-01-01, for
+every class but retail, whose paragraphs were not in the text read and are cited by section until they are; the use
+of ratings is CRE21.9–11.) An attribute the decision needs and the counterparty does not carry (its SCRA grade, the
+due diligence outcome of a rated bank or corporate, whether a securities firm is supervised as a bank, whether an
+unrated corporate is an SME) refuses the measure by name; it is never assumed.
 
 Central counterparties are out of this measure: exposures to a CCP follow CRE54, and a trade cleared through one is
 out of `ccr.spotCapital`'s membership with that reason.
@@ -143,3 +147,5 @@ out of `ccr.spotCapital`'s membership with that reason.
 - Which products come first (asked 2026-11-07: IRS, CCS and FX forwards proposed).
 - What the engine's drill-down output returns, and to which depth: the format proposal's questions.
 - National rules (the domestic regulation's differences from Basel), as configuration.
+- A counterparty in default (CRE20's defaulted exposures, 100% or 150% by specific provisions): the resolver does not
+  read default status yet, so whether such a counterparty is weighted or refused is open.
