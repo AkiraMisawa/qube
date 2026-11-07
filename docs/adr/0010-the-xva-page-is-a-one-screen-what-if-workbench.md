@@ -51,11 +51,31 @@ follows `docs/design-guidelines.md`.
   - **Common**, applied to both sides. This is where every edit goes by default: in practice every edit other than
     trade membership applies to both sides (owner).
   - **Before only** and **After only**, reached through the Advanced switch. Advanced shows a `Before | After` choice
-    of where the next edit goes. A side-only value is marked in its cell (`10m → 5m`) and in the changes panel;
-    turning Advanced off keeps such changes and their marks.
+    of where the next edit goes. A side-only value is marked by its cell's highlight (below) and in the changes
+    panel; turning Advanced off keeps such changes and their marks.
 - Before and After still differ mainly by the trades' B and A membership.
 - "Use as Diff" is not offered. A section with it on is the After-only layer for that section's fields; off is
   Common. Any editable field can now be side-only, not a whole section.
+
+**A value that differs from Original is highlighted in its cell** (owner, 2026-11-07). The cell is filled with the
+Before colour when only Before differs, with the After colour when only After differs, and split diagonally, Before
+above left and After below right, when both differ. A Common change differs on both sides, so in normal use a changed
+cell is split.
+
+- The test is the value, not the edit: a value edited back to its Original is not highlighted, and a value a rule
+  changed (a CSA's discount curve carried to the trades that reference it) is.
+- The rule reaches every value Original holds: the input tabs' grids and fields and the trade grids. A trade's B and A
+  membership is shown by its boxes and is not highlighted, and neither is the context itself (value date,
+  counterparty), which chooses Original rather than differing from it (DEFAULT).
+- When the two sides hold different values, the cell shows the side the Advanced choice points at, and After while
+  Advanced is off (DEFAULT).
+- The two colours have no other meaning on the page and are not among those design guidelines §7 already gives (DEFAULT
+  violet for Before, cyan for After, light tints that keep the text's contrast in both themes). They are the same
+  colours wherever the page shows a side, the result dock's B and A columns included.
+- Colour is never the only signal (design guidelines §7): the cell's description gives Original and each side's value,
+  and the changes panel lists every change in words.
+- Drawing it needs ExGrid. Its Cell State today has one `modified`, drawn as a corner mark, and ex-grid ADR-0029 sends
+  a state that maps to none of its five to a Template Column or to amending its ADR-0006. Which route is OPEN.
 
 Before = Original + Common + Before-only; After = Original + Common + After-only. Price freezes each side as its own
 complete input, as Before and After are already independent requests (docs/03 §5.1).
@@ -212,3 +232,5 @@ none today. Opening a tab, Download and Copy quote are the page's own and are no
 - MVA (with SIMM) and the Risks and Profile contents are not specified here.
 - The case cap (DEFAULT 50).
 - Whether a coarse pointer gets larger controls (ADR-0009's OPEN) applies here too.
+- How ExGrid draws §2's highlight: a two-sided mark added to ExGrid's own vocabulary (an ex-grid ADR amending its
+  ADR-0006), or Template Columns drawn by this page. Put to the owner 2026-11-07.
