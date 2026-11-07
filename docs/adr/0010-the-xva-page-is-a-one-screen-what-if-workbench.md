@@ -183,7 +183,7 @@ the first case of a measure's membership, which every measure now declares (§10
   With Margin empty PV Adj is typed. Price freezes PV Adj with the PV01 and Margin it came from; a later PV01 does not
   change a frozen Run.
 - Existing trades show their official PV from the source as the PV that adjustment uses. The official PV is shared
-  trade data, not XVA's: SA-CCR's replacement cost reads it too (ADR-0013).
+  trade data, not XVA's: SA-CCR's replacement cost reads it too for an existing trade (ADR-0013).
 - A selected measure that declares membership (§10) adds its read-only membership column to both grids, with its
   reason and an *in <measure>* filter, as FVA's of §5.
 
@@ -195,7 +195,9 @@ the first case of a measure's membership, which every measure now declares (§10
   A failed case says `unavailable`, never 0 (EX06), and a failed measure leaves the others standing. The metrics
   shown are chosen per user and kept (DEFAULT).
 - **A Metrics cell opens its calculation trace** where the measure has one (ADR-0011): the measure, the case and the
-  side are the trace's root. Spot IM and spot CCR capital have one, to trade level (owner, 2026-11-07).
+  scenario in view are the trace's root, and a Before, After or Diff cell opens the same view, which pairs Before,
+  After and Diff term by term (ADR-0011 §4). Spot IM and spot CCR capital have one, to trade level (owner,
+  2026-11-07).
 - **Collapsed**, one line per case with each selected measure's headline Diff: CVA Diff and FVA Diff when XVA is
   selected (owner), MVA when it exists.
 - A result older than the workspace says so in yellow: `revision 5 · workspace now 7`.
@@ -245,7 +247,7 @@ that owns a measure registers it with:
 - **membership**: for each trade, whether the measure prices it and why, decided on the server. FVA's rule (§5) is the
   first. A trade a measure cannot classify is out with its reason, never dropped silently;
 - **inputs**: the tabs and Settings section it needs, and the columns it adds to shared grids (XVA's CVA recovery on
-  Netting). A tab, section or column shows while a selected measure needs it, and a hidden one keeps its changes;
+  Netting; SA-CCR's counterparty inputs for the risk weight and its CSA and netting-set columns, ADR-0013). A tab, section or column shows while a selected measure needs it, and a hidden one keeps its changes;
 - **trade columns**: what it adds to the trade grids (XVA's PV01, Margin and PV Adj);
 - **results**: its Metrics columns, any result tab of its own, and whether a Metrics cell opens a trace (ADR-0011);
 - **validation**: what Price needs from it, refused by name. A measure that cannot be priced blocks only itself: a
