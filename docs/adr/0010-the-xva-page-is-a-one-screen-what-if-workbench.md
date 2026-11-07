@@ -234,3 +234,7 @@ none today. Opening a tab, Download and Copy quote are the page's own and are no
 - Whether a coarse pointer gets larger controls (ADR-0009's OPEN) applies here too.
 - How ExGrid draws §2's highlight: a two-sided mark added to ExGrid's own vocabulary (an ex-grid ADR amending its
   ADR-0006), or Template Columns drawn by this page. Put to the owner 2026-11-07.
+- Whether spot SIMM and spot CCR capital join this workbench as metrics of the same portfolio (owner, 2026-11-07:
+  their configuration largely overlaps and all are portfolio calculations). Until that is decided, the input tabs,
+  the layers, cases and scenarios, the Run and the dock's metric choice are written for a portfolio and its metrics,
+  and only §5 and the FVA column are XVA's own.
