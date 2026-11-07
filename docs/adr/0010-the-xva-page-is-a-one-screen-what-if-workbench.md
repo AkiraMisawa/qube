@@ -111,6 +111,11 @@ variants the workspace is one case.
   stated in every case, a candidate in Before is refused rather than unchecked.
 - **The changes panel** lists the Common and side-only changes and each case's own, and edits or removes them there,
   so nobody has to find a changed cell in a wide grid.
+- **A Price without Before prices After alone** (owner, 2026-11-07: with B not selected only After has a result, no
+  Before/After comparison is wanted, and the drill-down must still work). A side with no trade in it is not priced,
+  never priced as zero: with every B box clear the case is After only (DEFAULT reading of "B not selected"), and the
+  same holds for a Price with every A box clear. Price says so before it runs (`Price After only · CVA FVA IM`); a
+  case with no trade on either side is refused by name. Metrics and the trace for such a case are in §7.
 - One Price is one Run with one case per (case, scenario) (§4). Their number is capped (DEFAULT 50, configured); over
   the cap Price is refused and says by how much.
 
@@ -194,9 +199,14 @@ the first case of a measure's membership, which every measure now declares (§10
 - **Metrics**: a row per case; per selected measure Before, After and Diff (After − Before) in the display currency.
   A failed case says `unavailable`, never 0 (EX06), and a failed measure leaves the others standing. The metrics
   shown are chosen per user and kept (DEFAULT).
+- **A one-sided case** (§3) shows the priced side alone: no Diff, and the other side's cell says `not priced`, never 0
+  or `unavailable`, because nothing failed. When no case of the Run has the other side, its column and Diff are not
+  drawn and the dock says once `After only: Before was not priced`. The collapsed line shows the priced side's figure
+  in place of a Diff, and Copy quote quotes it and says which side it is (DEFAULT).
 - **A Metrics cell opens its calculation trace** where the measure has one (ADR-0011): the measure, the case and the
   scenario in view are the trace's root, and a Before, After or Diff cell opens the same view, which pairs Before,
-  After and Diff term by term (ADR-0011 §4). Spot IM and spot CCR capital have one, to trade level (owner,
+  After and Diff term by term (ADR-0011 §4). A one-sided case is traced on its priced side alone, with the same
+  root and depth (owner, 2026-11-07; ADR-0011 §4). Spot IM and spot CCR capital have one, to trade level (owner,
   2026-11-07).
 - **Collapsed**, one line per case with each selected measure's headline Diff: CVA Diff and FVA Diff when XVA is
   selected (owner), MVA when it exists.
