@@ -1,9 +1,15 @@
-# ADR-0010: The XVA page is a one-screen what-if workbench of layers, cases and scenarios
+# ADR-0010: The pricer is a one-screen what-if workbench, shared by the measures that register into it
 
 Status: PROPOSED 2026-11-07. Decided with the owner question by question on 2026-11-06 and 2026-11-07 ("let's grill
 every part"); each decision below says whether the owner confirmed it or it is a default for review. Builds on
 docs/03 (the XVA domain), ADR-0003 (the server owns the rules; edits in an append-only log) and ADR-0009 (design
 guidelines). Resolves the OPEN side-specific editing of docs/03 §4.1 and replaces the page built in slice 02.
+
+*Rewritten on 2026-11-07, the day it was proposed, when the owner folded spot SIMM and spot CCR capital into the same
+page ("1ページに統合", one page). It was "The XVA page is a one-screen what-if workbench of layers, cases and
+scenarios". What changed: the page is no longer XVA's. Measures register into it (§10), and the parts that were
+XVA's are XVA's registration (§11). Section numbers are kept, so references to them still hold. Nothing the owner
+confirmed was dropped. T-1 CRIF left Settings: the owner said it is not in this application.*
 
 ## Context
 
@@ -24,6 +30,12 @@ better layout"). What it gets in the way of is the what-if loop itself:
   collateralised CSAs.
 - A second After (the same trade under another threshold) needs a second Price and a manual comparison.
 
+Spot SIMM and spot CCR capital share most of this configuration (counterparty, netting sets, CSAs, trades, Before and
+After), and all three are calculations over one portfolio (owner, 2026-11-07). Both are regulatory figures, and the
+owner wants every term of their formulas traceable, down to trade level. In production the XVA analytics request
+computes them too: with MVA on it returns spot SIMM and a SIMM profile, and with KVA on spot CCR capital and a capital
+profile; only the spot figures are drilled down (owner, 2026-11-07).
+
 ## Decision
 
 ### 1. One screen (CONFIRMED, owner 2026-11-06)
@@ -32,12 +44,14 @@ From top to bottom:
 
 1. **The context bar**, fixed: value date, counterparty registration (searched as `code | entity | name | flag`;
    a dummy counterparty adds a required Project name beside it), main netting set with its enforceability, display
-   currency, the Advanced switch (§2), Refresh, and Price, which says what it will run (`Price 3 cases × 2
-   scenarios`). Under it one line of status: source version, revision, `SIMULATED` while a provider is.
-2. **The input tabs**, full width: `Credit | Netting | CSA | Settings | Scenarios`, one open at a time, collapsible
-   to their tab row, with a drag handle for their height. A tab with changes says how many (`CSA ●2`). They are full
-   width because the CDS and CSA grids are wide (tenors from 3M to 20Y; a CSA's general terms plus both parties'
-   threshold, MTA and currency). A left pane was proposed first and rejected for that reason (owner, 2026-11-06).
+   currency, the Advanced switch (§2), Refresh, the measures to price (§10), and Price, which says what it will run
+   (`Price CVA FVA IM · 3 cases × 2 scenarios`). Under it one line of status: source version, revision, `SIMULATED`
+   while a provider is.
+2. **The input tabs**, full width: the shared `Netting | CSA | Settings | Scenarios`, and the tabs the selected
+   measures register, such as XVA's `Credit` (§11). One is open at a time, collapsible to their tab row, with a drag
+   handle for their height. A tab with changes says how many (`CSA ●2`). They are full width because the CDS and CSA
+   grids are wide (tenors from 3M to 20Y; a CSA's general terms plus both parties' threshold, MTA and currency). A left
+   pane was proposed first and rejected for that reason (owner, 2026-11-06).
 3. **The trades**: New above Existing (§6).
 4. **The result dock** (§7), collapsible to one line, drag-resizable.
 
@@ -107,7 +121,8 @@ variants the workspace is one case.
   same scenario name are one scenario. Beside it, the list of scenarios with their shift counts and an include box.
 - Two shifts that touch one risk factor in one scenario are refused at Price, naming the rows.
 - Price always prices the unshifted market. Each included scenario is **crossed with every case**: three cases and two
-  scenarios are nine Before/After pairs (owner: "crossing is right").
+  scenarios are nine Before/After pairs (owner: "crossing is right"). Every selected measure is priced for every pair
+  (DEFAULT).
 - Scenario sets are saved by name, and the user chooses who sees each (themselves, their desk, everyone), as saved
   workflows are shared (C31). Example: many scenarios built for a cross-gamma simulation.
 - **Scenarios are defined by command and by the AI as well as in the grid** (owner, 2026-11-07). Defining, changing,
@@ -135,7 +150,7 @@ variants the workspace is one case.
   - *The AI* uses these same commands, so one request ("cross JPY OIS ±50bp with USDJPY ±10%") is one generator
     call, not a shift at a time.
 
-### 5. FVA prices only imperfectly collateralised CSAs (CONFIRMED, owner 2026-11-06)
+### 5. FVA prices only imperfectly collateralised CSAs (CONFIRMED, owner 2026-11-06; XVA's registration)
 
 A CSA is **imperfectly collateralised** when any of these holds:
 
@@ -150,7 +165,8 @@ is the XVA module's, on the server, once; the page never decides it.
 
 On screen: a read-only FVA column on both trade grids, with its reason (`CSA-A: daily, MTA+threshold 0.4mm GBP`), an
 *FVA only* filter, and in the result dock each measure's trade counts (`FVA 300 → 301`). A side-only CSA change can
-move a trade in or out on one side, and the column marks that. There is no XVA/FVA switch.
+move a trade in or out on one side, and the column marks that. There is no XVA/FVA switch. This is
+the first case of a measure's membership, which every measure now declares (§10).
 
 ### 6. The trade grids (CONFIRMED, owner 2026-11-06 and 2026-11-07)
 
@@ -158,6 +174,7 @@ move a trade in or out on one side, and the column marks that. There is no XVA/F
   IDs pasted and Enter, or XML dropped or uploaded (also `add trades <ids>`).
 - **Existing trades** take the rest of the height and filter from their column headers.
 - Both have B and A columns whose header selects or clears every row of the grid, not only those drawn (docs/03 §4).
+- XVA's columns (§11):
 - **PV01** of a new trade is a result, requested when the trade loads, read-only: pending, its figure, or why it
   failed; never 0. A retry is the failed cell's action and the command `pv01 retry`, not a standing button: it is
   rarely needed.
@@ -165,64 +182,127 @@ move a trade in or out on one side, and the column marks that. There is no XVA/F
   with its own sign, whenever Margin is entered: Margin wins, PV Adj is then read-only and says it came from Margin.
   With Margin empty PV Adj is typed. Price freezes PV Adj with the PV01 and Margin it came from; a later PV01 does not
   change a frozen Run.
-- Existing trades show their official PV from the source as the PV that adjustment uses.
+- Existing trades show their official PV from the source as the PV that adjustment uses. The official PV is shared
+  trade data, not XVA's: SA-CCR's replacement cost reads it too (ADR-0013).
+- A selected measure that declares membership (§10) adds its read-only membership column to both grids, with its
+  reason and an *in <measure>* filter, as FVA's of §5.
 
 ### 7. The result dock (CONFIRMED, owner 2026-11-07, unless marked)
 
-- Tabs `Metrics | Risks | Profile` and a scenario selector.
-- **Metrics**: a row per case; per measure Before, After and Diff (After − Before) in the display currency. A failed
-  case says `unavailable`, never 0 (EX06). The measures shown are chosen per user and kept (DEFAULT).
-- **Collapsed**, one line per case with CVA Diff and FVA Diff; MVA joins when it exists.
+- Tabs `Metrics` and those the selected measures register (XVA's `Risks` and `Profile`, §11), and a scenario
+  selector.
+- **Metrics**: a row per case; per selected measure Before, After and Diff (After − Before) in the display currency.
+  A failed case says `unavailable`, never 0 (EX06), and a failed measure leaves the others standing. The metrics
+  shown are chosen per user and kept (DEFAULT).
+- **A Metrics cell opens its calculation trace** where the measure has one (ADR-0011): the measure, the case and the
+  side are the trace's root. Spot IM and spot CCR capital have one, to trade level (owner, 2026-11-07).
+- **Collapsed**, one line per case with each selected measure's headline Diff: CVA Diff and FVA Diff when XVA is
+  selected (owner), MVA when it exists.
 - A result older than the workspace says so in yellow: `revision 5 · workspace now 7`.
 - The inputs it priced (counterparty, netting set, recovery, CDS, cost of capital, value date, currency) come from
   the Run, not from the screen.
 - **Download** saves the Run as a zip: its frozen inputs, results, lineage and diagnostic artifacts. It is a Run's
   action, so it is also on the Pricing DB and is the command `download run`.
-- **Copy quote** puts on the clipboard what a trader sends sales to charge: the Run's header and each case's CVA
-  Charge and PV, as HTML and plain text.
+- **Copy quote** (XVA's, §11) puts on the clipboard what a trader sends sales to charge: the Run's header and each
+  case's CVA Charge and PV, as HTML and plain text.
 
 ### 8. The input tabs' contents (DEFAULT, for the owner's review)
 
 The input grids, with the layers of §2 instead of a "Use as Diff" switch, and Validate and Reset as commands and
-tab actions rather than a button pair per section.
+tab actions rather than a button pair per section. Netting, CSA and Settings are shared; what a measure adds to them
+is marked with the measure.
 
-- **Credit**: CDS type (single name, proxy). Single name: the reference searched as `ticker | ccy | seniority | doc
-  clause | name`. Proxy: Sector, Region, Rating. The grid: type, ticker, currency, seniority, doc clause, CDS recovery
-  and the tenor spreads in basis points; spreads editable.
-- **Netting**: main, netting set ID, CVA recovery, enforceability. Enforceability is the source's and read-only
-  (docs/03 §2.2 DEFAULT). The CVA recovery is the netting set's; empty stays empty and the
-  CDS recovery applies (XV15).
+- **Credit** (XVA's): CDS type (single name, proxy). Single name: the reference searched as `ticker | ccy |
+  seniority | doc clause | name`. Proxy: Sector, Region, Rating. The grid: type, ticker, currency, seniority, doc
+  clause, CDS recovery and the tenor spreads in basis points; spreads editable.
+- **Netting**: main, netting set ID, enforceability, and XVA's CVA recovery. Enforceability is the source's and
+  read-only (docs/03 §2.2 DEFAULT). The CVA recovery is the netting set's; empty stays
+  empty and the CDS recovery applies (XV15).
 - **CSA**: main, ID, type, master agreement, currency, discount curve, FVA discount curve, frequency, exchange; then
-  Counterparty and Self, each threshold, MTA and currency; then the derived *Imperfect* column of §5. *Add CSA* makes
+  Counterparty and Self, each threshold, MTA and currency; then FVA's derived *Imperfect* column of §5. *Add CSA* makes
   a hypothetical CSA with a workspace identity (docs/03 §2.4). Eligible collateral and SPV collateral are read-only
   sub-grids, collapsed.
-- **Settings**: MPOR override, cost of capital, charge ratio, PV adjustment, risks included, T-1 CRIF, advanced
-  configuration. Typed and validated on the server like any other input.
+- **Settings**: one section per selected measure. XVA's: MPOR override, cost of capital, charge ratio, PV adjustment,
+  risks included, advanced configuration (§11). Typed and validated on the server like any other input. The MPOR here
+  is XVA's model override; SA-CCR's MPOR is regulatory and its own (ADR-0013).
 
 ### 9. Every action is a command (ADR-0006)
 
-`price`, `refresh`, `vary`, `add trades`, `pv01 retry`, `advanced on`/`off`, `scenario …` (§4), `download run`,
-`copy quote`, and one to open each input tab. Chords are not assigned here.
+`price`, `measures <list>` (§10), `refresh`, `vary`, `add trades`, `pv01 retry`, `advanced on`/`off`, `scenario …`
+(§4), `download run`, `copy quote`, and one to open each input tab. A measure's own commands are its registration's.
+Chords are not assigned here.
 
-Those that change the workspace (an edit in any layer, `vary`, `add trades`, the scenario commands) and Price are
-registered as command capabilities (ADR-0005), so the AI calls them as it calls the Rates commands; XVA registers
-none today. Opening a tab, Download and Copy quote are the page's own and are not the AI's.
+Those that change the workspace (an edit in any layer, `measures`, `vary`, `add trades`, the scenario commands) and
+Price are registered as command capabilities (ADR-0005), so the AI calls them as it calls the Rates commands; XVA
+registers none today. Opening a tab, Download and Copy quote are the page's own and are not the AI's.
+
+### 10. Measures register into the page (CONFIRMED, owner 2026-11-07: one page, a Price that selects the measures, each measure with its own trade scope, input tabs and results; the rest DEFAULT)
+
+A **measure** is a figure family a Price can be asked for: CVA, FVA, MVA and KVA (XVA's, §11), spot initial margin
+(SIMM's, ADR-0012) and spot CCR capital (SA-CCR's, ADR-0013). The page knows no measure's rules. The domain module
+that owns a measure registers it with:
+
+- **membership**: for each trade, whether the measure prices it and why, decided on the server. FVA's rule (§5) is the
+  first. A trade a measure cannot classify is out with its reason, never dropped silently;
+- **inputs**: the tabs and Settings section it needs, and the columns it adds to shared grids (XVA's CVA recovery on
+  Netting). A tab, section or column shows while a selected measure needs it, and a hidden one keeps its changes;
+- **trade columns**: what it adds to the trade grids (XVA's PV01, Margin and PV Adj);
+- **results**: its Metrics columns, any result tab of its own, and whether a Metrics cell opens a trace (ADR-0011);
+- **validation**: what Price needs from it, refused by name. A measure that cannot be priced blocks only itself: a
+  missing CDS blocks CVA, not spot IM;
+- **options and commands** of its own.
+
+Around that:
+
+- **The calculations stay capabilities of their own** (C12, C27). XVA, spot SIMM and spot SA-CCR can be called from
+  the command line, the AI and workflows without the page; the page composes them.
+- **Price prices the selected measures.** The selection is part of the workspace, so Price freezes it, and a user's
+  last selection is the default for a new workspace (DEFAULT). `measures cva fva im` sets it.
+- **Which request computes a measure is the provider's, not the page's.** In production one XVA analytics request
+  computes CVA, FVA, MVA and KVA, its MVA option also returns spot SIMM and its KVA option spot CCR capital; in the
+  PoC SIMM also has a request of its own. One Price is still one Run, holding every request it made. Each measure's
+  figures show as its request answers, so a figure computed on its own does not wait for an XVA simulation, and a
+  failed request leaves only its own measures `unavailable`.
+- **Shared, in a portfolio domain module** that XVA, SIMM and SA-CCR build on (DEFAULT name and place: beside the XVA
+  module, never in the composition kernel): the context, netting sets, CSAs, trades with their B and A
+  membership, the layers (§2), cases (§3), scenarios (§4), the Run's cases × scenarios, and the page itself. The
+  kernel gains only domain-free pieces: the edit's opaque layer and case key (Consequences) and the calculation
+  trace's contract (ADR-0011).
+
+### 11. XVA's registration
+
+What was XVA's in this ADR, gathered:
+
+- **Measures**: CVA (with CVA Charge), FVA, MVA and KVA. MVA's spot SIMM and KVA's spot CCR capital are shown by
+  SIMM's and SA-CCR's registrations (ADR-0012, ADR-0013), whichever request computes them.
+- **Membership**: FVA's (§5).
+- **Inputs**: the Credit tab, CVA recovery on Netting, the *Imperfect* column on CSA (§8), and the Settings section:
+  MPOR override, cost of capital (for CVA Charge and KVA), charge ratio, PV adjustment, risks included, advanced
+  configuration.
+- **Trade columns**: PV01, Margin and PV Adj (§6).
+- **Results**: CVA Charge in Metrics, the Risks and Profile tabs (the SIMM and capital profiles MVA and KVA return
+  included, without a trace: only spot figures are drilled down), and Copy quote (§7).
+- **Validation**: a missing CDS blocks CVA and CVA Charge (DEFAULT).
 
 ## Consequences
 
 - The kernel's edit gains an optional **layer** and **case** key, opaque to it, as scope keys are (ADR-0003 §7): XVA
   declares Common, Before-only, After-only and its cases; the carry check and conflict groups apply per key. Rates is
   unaffected.
-- A Run holds cases × scenarios; the Pricing DB lists one row per Run and opens its cases.
-- The fake XVA provider follows §5 (no FVA for an uncollateralised trade) and the synthetic CSAs gain frequency,
-  one-way, and both parties' threshold, MTA and currency.
+- A Run holds the selected measures for cases × scenarios, and every request they took; the Pricing DB lists one row
+  per Run and opens its cases.
+- The portfolio domain module of §10 is new. XVA's module moves onto it, and SIMM's and SA-CCR's are built on it.
+- The fake XVA provider follows §5 (no FVA for an uncollateralised trade). The synthetic CSAs gain frequency,
+  one-way, and both parties' threshold, MTA and currency; the spot CCR capital thread adds them with the trade, CSA
+  and netting-set fields SA-CCR needs, so they are added once.
 - The slice-02 page is replaced. The changes made to it on 2026-11-06 (one Control Height, an empty CVA recovery that
   shows empty, the latest Price on the page) carry into the new one.
 
 ### Delivery order (DEFAULT)
 
-1. The screen of §1 with Common edits only; Netting and CSA tabs; the FVA rule; New/Existing grids with PV01, Margin
-   and PV Adj; the Metrics dock with Download and Copy quote.
+1. The screen of §1 with Common edits only and the registration of §10, with XVA's CVA and FVA as its first
+   measures; Netting and CSA tabs; the FVA rule; New/Existing grids with PV01, Margin and PV Adj; the Metrics dock
+   with Download and Copy quote. Spot IM and spot CCR capital join as ADR-0012 and ADR-0013 deliver them.
 2. Cases: Vary, iterative individual addition, the changes panel.
 3. Advanced: Before-only and After-only layers.
 4. Scenarios.
@@ -238,10 +318,4 @@ none today. Opening a tab, Download and Copy quote are the page's own and are no
 - §2's diagonal split: ex-grid ADR-0490 (proposed 2026-11-07, AkiraMisawa/ex-grid#545) adds a Split Fill to
   ExGrid's `cellAppearance` (`lowerRightFill`), needed by Delivery step 3. Template Columns were rejected:
   a Template cell is not edited or copied as an ordinary cell (ex-grid ADR-0020).
-- Whether spot SIMM and spot CCR capital join this workbench as metrics of the same portfolio (owner, 2026-11-07:
-  their configuration largely overlaps and all are portfolio calculations). Until that is decided, the input tabs,
-  the layers, cases and scenarios, the Run and the dock's metric choice are written for a portfolio and its metrics,
-  and only §5 and the FVA column are XVA's own. In production, a KVA option on the XVA analytics request also returns
-  CCR capital, spot and profile, and only spot capital needs a drill-down, to trade level (owner, 2026-11-07). So
-  the XVA request is kept open to that option: CCR capital may arrive in the same response as CVA and FVA, as a
-  measure of its own. Its design is the spot CCR capital thread's.
+- Whether CVA and FVA get a calculation trace too: only if the engine returns their terms (ADR-0011).
