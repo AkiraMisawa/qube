@@ -185,7 +185,7 @@ the first case of a measure's membership, which every measure now declares (§10
 - Existing trades show their official PV from the source as the PV that adjustment uses. The official PV is shared
   trade data, not XVA's: SA-CCR's replacement cost reads it too for an existing trade (ADR-0013).
 - A selected measure that declares membership (§10) adds its read-only membership column to both grids, with its
-  reason and an *in <measure>* filter, as FVA's of §5.
+  reasons and an *in <measure>* filter (by scope where it has several), as FVA's of §5.
 
 ### 7. The result dock (CONFIRMED, owner 2026-11-07, unless marked)
 
@@ -245,7 +245,9 @@ A **measure** is a figure family a Price can be asked for: CVA, FVA, MVA and KVA
 that owns a measure registers it with:
 
 - **membership**: for each trade, whether the measure prices it and why, decided on the server. FVA's rule (§5) is the
-  first. A trade a measure cannot classify is out with its reason, never dropped silently;
+  first. A measure may declare several named scopes, each in or out with its own reason: spot IM's are per direction
+  and regime (IM-R and IM-P, each under JFSA, CFTC and the others, ADR-0012), shown compactly in its column
+  (`R: JFSA, CFTC · P: JFSA`). A trade a measure cannot classify is out with its reason, never dropped silently;
 - **inputs**: the tabs and Settings section it needs, and the columns it adds to shared grids (XVA's CVA recovery on
   Netting; SA-CCR's counterparty inputs for the risk weight and its CSA and netting-set columns, ADR-0013). A tab,
   section or column shows while a selected measure needs it, and a hidden one keeps its changes;
