@@ -2,6 +2,8 @@ using System.Text.Json.Nodes;
 using Workbench.Composition.Application;
 using Workbench.Composition.Contracts;
 
+using Workbench.Samples.Portfolio;
+
 namespace Workbench.Samples.Xva;
 
 /// <summary>
@@ -11,7 +13,7 @@ namespace Workbench.Samples.Xva;
 /// </summary>
 public sealed class XvaHistoryProjection : IHistoryProjection
 {
-    public string Domain => XvaEditRules.App;
+    public string Domain => PortfolioEditRules.App;
     public string Title => "XVA";
     public IReadOnlyList<string> ResultContracts { get; } = [XvaContracts.CaseResult];
 

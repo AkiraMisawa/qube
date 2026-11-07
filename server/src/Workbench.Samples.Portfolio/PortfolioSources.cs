@@ -2,9 +2,9 @@ using System.Globalization;
 using System.Text.Json.Nodes;
 using Workbench.Composition.Application.Workspaces;
 
-namespace Workbench.Samples.Xva;
+namespace Workbench.Samples.Portfolio;
 
-// Synthetic XVA sources (slice 02). Every name, identifier and number here is made up; nothing is a real
+// Synthetic portfolio sources (slice 02; shared by the measures since ADR-0010 §10). Every name, identifier and number here is made up; nothing is a real
 // counterparty, agreement, curve or convention.
 
 /// <summary>A counterparty registration. The code alone is not an identity: the legal entity is part of it.</summary>
@@ -38,7 +38,7 @@ public sealed record SourceTrade(
 /// <summary>The configured baseline profile: the curve an uncollateralised trade starts on (docs/03 §2.4).</summary>
 public sealed record BaselineProfile(string ProfileVersion, string UncollateralisedCurve);
 
-public static class XvaCatalog
+public static class PortfolioCatalog
 {
     public static readonly IReadOnlyList<Registration> Registrations =
     [
@@ -70,7 +70,7 @@ public static class XvaCatalog
 /// same request gives the same trades. A trade past its maturity is absent, and a trade's last fixing moves
 /// when a fixing date has passed, so another value date is another version of the same trades.
 /// </summary>
-public sealed class XvaSourceVersion : ISourceVersion
+public sealed class PortfolioSourceVersion : ISourceVersion
 {
     public Registration Registration { get; }
     public Agreement Agreement { get; }
@@ -85,10 +85,10 @@ public sealed class XvaSourceVersion : ISourceVersion
     readonly int existingCount;
     readonly Dictionary<string, SourceTrade> trades;
 
-    public XvaSourceVersion(string registrationKey, DateOnly valueDate, int existingCount)
+    public PortfolioSourceVersion(string registrationKey, DateOnly valueDate, int existingCount)
     {
-        Registration = XvaCatalog.Find(registrationKey);
-        Agreement = XvaCatalog.AgreementOf(registrationKey);
+        Registration = PortfolioCatalog.Find(registrationKey);
+        Agreement = PortfolioCatalog.AgreementOf(registrationKey);
         ValueDate = valueDate;
         Existing = [.. Enumerable.Range(1, existingCount).Select(i => Generate(Registration, $"{Registration.Code}-{Registration.LegalEntity}-E{i:D5}", false, valueDate)).OfType<SourceTrade>()];
         this.existingCount = existingCount;
@@ -102,7 +102,7 @@ public sealed class XvaSourceVersion : ISourceVersion
     }
 
     /// <summary>Acquires the version a descriptor names again. The synthetic source is deterministic, so it is the same.</summary>
-    public static XvaSourceVersion Resolve(JsonObject descriptor) => new(
+    public static PortfolioSourceVersion Resolve(JsonObject descriptor) => new(
         descriptor["registration"]!.GetValue<string>(),
         DateOnly.ParseExact(descriptor["valueDate"]!.GetValue<string>(), "yyyy-MM-dd", CultureInfo.InvariantCulture),
         descriptor["existingCount"]!.GetValue<int>());
@@ -157,7 +157,7 @@ public sealed class XvaSourceVersion : ISourceVersion
         var swap = random.NextDouble() < 0.7;
         var currency = random.NextDouble() < 0.6 ? "JPY" : "USD";
         var notional = Math.Round((decimal)(1 + random.Next(1, 100)) * (currency == "JPY" ? 100_000_000m : 1_000_000m), 0);
-        var agreement = XvaCatalog.AgreementOf(registration.Key);
+        var agreement = PortfolioCatalog.AgreementOf(registration.Key);
         string? csa = isNew ? null : agreement.Collateralised ? agreement.Csas[random.Next(agreement.Csas.Count)].CsaId : agreement.NoCsa;
         if (!swap)
             return new(tradeId, isNew, "FXForward", currency, notional, maturity, null, null, null, csa);
@@ -179,7 +179,7 @@ public sealed class XvaSourceVersion : ISourceVersion
     }
 }
 
-/// <summary>Entity names in XVA edit targets: <c>trade:ID</c>, <c>csa:ID</c>, <c>credit:CODE/LE</c>.</summary>
+/// <summary>Entity names in portfolio edit targets: <c>trade:ID</c>, <c>csa:ID</c>, <c>credit:CODE/LE</c>.</summary>
 public static class Entity
 {
     public const string Trade = "trade";

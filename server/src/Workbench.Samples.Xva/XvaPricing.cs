@@ -5,6 +5,8 @@ using Workbench.Composition.Application;
 using Workbench.Composition.Application.Workspaces;
 using Workbench.Composition.Contracts;
 
+using Workbench.Samples.Portfolio;
+
 namespace Workbench.Samples.Xva;
 
 public static class XvaContracts
@@ -24,9 +26,9 @@ public static class AcceptedInput
     public static JsonObject Build(WorkspaceFreeze freeze)
     {
         var state = freeze.State;
-        var source = (XvaSourceVersion)state.Source;
-        var credit = XvaMaterialiser.Credit(state);
-        var trades = XvaMaterialiser.Trades(state).Where(t => t.Before || t.After).ToList();
+        var source = (PortfolioSourceVersion)state.Source;
+        var credit = PortfolioMaterialiser.Credit(state);
+        var trades = PortfolioMaterialiser.Trades(state).Where(t => t.Before || t.After).ToList();
         var invalid = trades.Where(t => t.Issues.Count > 0).ToList();
         if (invalid.Count > 0)
             throw new WorkspaceRefused("InvalidInput", $"{invalid.Count} trade(s) to price have validation issues, first {invalid[0].TradeId}: {invalid[0].Issues[0]}");
@@ -36,7 +38,7 @@ public static class AcceptedInput
             ["revision"] = freeze.Revision,
             ["context"] = freeze.Context.DeepClone(),
             ["sourceVersion"] = freeze.SourceVersion,
-            ["profileVersion"] = XvaCatalog.Profile.ProfileVersion,
+            ["profileVersion"] = PortfolioCatalog.Profile.ProfileVersion,
             ["registration"] = source.Registration.Key,
             ["agreement"] = source.Agreement.MaId,
             ["nettingSet"] = source.Agreement.NettingSetId,
@@ -121,13 +123,20 @@ public static class XvaPrice
     public static RunSubmission Submission(WorkspaceService workspaces, IDataStore store, string workspaceId, long expectedRevision, string idempotencyKey,
         string owner, RunOrigin origin = RunOrigin.Pricer, RunRelations? relations = null)
     {
-        var freeze = workspaces.Freeze(workspaceId, expectedRevision, XvaMaterialiser.PricedEntities);
+        var freeze = workspaces.Freeze(workspaceId, expectedRevision, PortfolioMaterialiser.PricedEntities);
         var input = AcceptedInput.Build(freeze);
         var reference = store.Put($"xva-input-{freeze.WorkspaceId}-r{freeze.Revision}", XvaContracts.AcceptedInput, XvaContracts.Version, input);
         return new RunSubmission(XvaModule.Workflow(reference), freeze.Context,
             new JsonObject { ["workspaceId"] = freeze.WorkspaceId, ["revision"] = freeze.Revision }, idempotencyKey, owner, origin,
             (relations ?? RunRelations.None) with { WorkspaceId = freeze.WorkspaceId, WorkspaceRevision = freeze.Revision });
     }
+}
+
+/// <summary>XVA prices the portfolio workspace's Price (ADR-0010 §11).</summary>
+public sealed class XvaPortfolioPricing(IDataStore store) : IPortfolioPricing
+{
+    public RunSubmission Submission(WorkspaceService workspaces, string workspaceId, long revision, string idempotencyKey, string owner) =>
+        XvaPrice.Submission(workspaces, store, workspaceId, revision, idempotencyKey, owner);
 }
 
 /// <summary>Registers the XVA sample: its price capability, contracts, the price workflow and the result view.</summary>

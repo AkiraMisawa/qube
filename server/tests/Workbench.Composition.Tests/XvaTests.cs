@@ -2,6 +2,7 @@ using System.Text.Json.Nodes;
 using Workbench.Composition.Application;
 using Workbench.Composition.Application.Workspaces;
 using Workbench.Composition.Contracts;
+using Workbench.Samples.Portfolio;
 using Workbench.Samples.Xva;
 
 namespace Workbench.Composition.Tests;
@@ -12,18 +13,18 @@ public class XvaTests
     static readonly DateOnly Day1 = new(2026, 10, 26);
 
     static WorkspaceService Service() =>
-        new(new Dictionary<string, IEditRules> { [XvaEditRules.App] = new XvaEditRules() }, TimeProvider.System);
+        new(new Dictionary<string, IEditRules> { [PortfolioEditRules.App] = new PortfolioEditRules() }, TimeProvider.System);
 
     static JsonObject Context(DateOnly valueDate, string registration) =>
         new() { ["valueDate"] = valueDate.ToString("yyyy-MM-dd"), ["registration"] = registration };
 
     static WorkspaceState Open(WorkspaceService service, string registration = "ABC/LE-01", int existing = 40) =>
-        service.Create("akira", XvaEditRules.App, Context(Day1, registration), new XvaSourceVersion(registration, Day1, existing));
+        service.Create("akira", PortfolioEditRules.App, Context(Day1, registration), new PortfolioSourceVersion(registration, Day1, existing));
 
     static WorkspaceState Set(WorkspaceService service, WorkspaceState ws, string entity, string field, JsonNode? value) =>
-        service.Set(ws.WorkspaceId, ws.Revision, "akira", XvaEditRules.Target((XvaSourceVersion)ws.Source, entity, field), value);
+        service.Set(ws.WorkspaceId, ws.Revision, "akira", PortfolioEditRules.Target((PortfolioSourceVersion)ws.Source, entity, field), value);
 
-    static EffectiveTrade Row(WorkspaceState ws, string tradeId) => XvaMaterialiser.Trades(ws).Single(t => t.TradeId == tradeId);
+    static EffectiveTrade Row(WorkspaceState ws, string tradeId) => PortfolioMaterialiser.Trades(ws).Single(t => t.TradeId == tradeId);
 
     [Fact] // docs/03: a new trade takes the main CSA automatically, and its curve follows that CSA
     public void A_new_trade_takes_the_main_csa_and_its_curve()
@@ -42,7 +43,7 @@ public class XvaTests
     {
         var ws = Open(Service(), "XYZ/LE-03");
 
-        Assert.All(XvaMaterialiser.Trades(ws), t => Assert.Equal(("nocsa_MA-003", "jpy_ois"), (t.Csa, t.Curve)));
+        Assert.All(PortfolioMaterialiser.Trades(ws), t => Assert.Equal(("nocsa_MA-003", "jpy_ois"), (t.Csa, t.Curve)));
     }
 
     [Fact] // Akira: changing CSA B's curve moves every trade on B, except one whose curve the user set
@@ -76,13 +77,13 @@ public class XvaTests
     [Fact] // ADR-0003 §7: a new trade's own content belongs to that trade; its assignment belongs to the counterparty
     public void Scopes_are_decided_by_the_module()
     {
-        var source = new XvaSourceVersion("ABC/LE-01", Day1, 5);
+        var source = new PortfolioSourceVersion("ABC/LE-01", Day1, 5);
         var existing = source.Existing[0].TradeId;
 
-        Assert.Equal("new:DRAFT-1", XvaEditRules.Target(source, "trade:DRAFT-1", "notional").Scope);
-        Assert.Equal("cp:ABC/LE-01", XvaEditRules.Target(source, "trade:DRAFT-1", "csa").Scope);
-        Assert.Equal("cp:ABC/LE-01", XvaEditRules.Target(source, $"trade:{existing}", "notional").Scope);
-        Assert.Equal("xva.assignment", new XvaEditRules().KindOf(XvaEditRules.Target(source, "trade:DRAFT-1", "curve")));
+        Assert.Equal("new:DRAFT-1", PortfolioEditRules.Target(source, "trade:DRAFT-1", "notional").Scope);
+        Assert.Equal("cp:ABC/LE-01", PortfolioEditRules.Target(source, "trade:DRAFT-1", "csa").Scope);
+        Assert.Equal("cp:ABC/LE-01", PortfolioEditRules.Target(source, $"trade:{existing}", "notional").Scope);
+        Assert.Equal("xva.assignment", new PortfolioEditRules().KindOf(PortfolioEditRules.Target(source, "trade:DRAFT-1", "curve")));
     }
 
     [Fact] // Akira: another value date is another version; a trade that matured in between takes its edits with it, listed
@@ -91,8 +92,8 @@ public class XvaTests
         var service = Service();
         var ws = Open(service);
         var day2 = Day1.AddYears(1);
-        var later = new XvaSourceVersion("ABC/LE-01", day2, 40);
-        var matured = ws.Source is XvaSourceVersion s ? s.Existing.First(t => later.Trade(t.TradeId) is null) : throw new InvalidOperationException();
+        var later = new PortfolioSourceVersion("ABC/LE-01", day2, 40);
+        var matured = ws.Source is PortfolioSourceVersion s ? s.Existing.First(t => later.Trade(t.TradeId) is null) : throw new InvalidOperationException();
         var surviving = later.Existing[0];
         ws = Set(service, ws, $"trade:{matured.TradeId}", "notional", 1m);
         ws = Set(service, ws, $"trade:{surviving.TradeId}", "notional", 2m);
@@ -107,10 +108,10 @@ public class XvaTests
     [Fact] // docs/03: the last fixing moves with the value date, so the same trade is another version
     public void A_passed_fixing_date_changes_the_trade()
     {
-        var first = new XvaSourceVersion("ABC/LE-01", Day1, 40);
+        var first = new PortfolioSourceVersion("ABC/LE-01", Day1, 40);
         var irs = first.Existing.First(t => t.Product == "IRS" && t.Maturity > Day1.AddYears(1));
 
-        var later = new XvaSourceVersion("ABC/LE-01", Day1.AddYears(1), 40).Trade(irs.TradeId)!;
+        var later = new PortfolioSourceVersion("ABC/LE-01", Day1.AddYears(1), 40).Trade(irs.TradeId)!;
 
         Assert.NotEqual(irs.LastFixing, later.LastFixing);
         Assert.Equal((irs.FixedRate, irs.Schedule, irs.Notional), (later.FixedRate, later.Schedule, later.Notional));

@@ -3,6 +3,7 @@ using Workbench.Composition.Application;
 using Workbench.Composition.Application.Workspaces;
 using Workbench.Composition.Contracts;
 using Workbench.Persistence.Sqlite;
+using Workbench.Samples.Portfolio;
 using Workbench.Samples.Xva;
 
 namespace Workbench.Composition.Tests;
@@ -23,8 +24,8 @@ public sealed class SqliteRunStoreTests : IDisposable
     (WorkspaceService Workspaces, SqliteRunStore Store, RunService Runs) Process()
     {
         var store = new SqliteRunStore(path);
-        var workspaces = new WorkspaceService(new Dictionary<string, IEditRules> { [XvaEditRules.App] = new XvaEditRules() }, TimeProvider.System,
-            new SqliteWorkspaceStore(path, new Dictionary<string, SourceResolver> { [XvaEditRules.App] = XvaSourceVersion.Resolve }));
+        var workspaces = new WorkspaceService(new Dictionary<string, IEditRules> { [PortfolioEditRules.App] = new PortfolioEditRules() }, TimeProvider.System,
+            new SqliteWorkspaceStore(path, new Dictionary<string, SourceResolver> { [PortfolioEditRules.App] = PortfolioSourceVersion.Resolve }));
         return (workspaces, store, new RunService(registry, store, TimeProvider.System, store));
     }
 
@@ -32,7 +33,7 @@ public sealed class SqliteRunStoreTests : IDisposable
     public async Task A_run_and_its_result_survive_a_restart()
     {
         var (workspaces, store, runs) = Process();
-        var ws = workspaces.Create("akira", XvaEditRules.App, new JsonObject { ["valueDate"] = "2026-10-26" }, new XvaSourceVersion("ABC/LE-01", Day1, 20));
+        var ws = workspaces.Create("akira", PortfolioEditRules.App, new JsonObject { ["valueDate"] = "2026-10-26" }, new PortfolioSourceVersion("ABC/LE-01", Day1, 20));
         var accepted = Assert.IsType<SubmissionResult.Accepted>(runs.Submit(XvaPrice.Submission(workspaces, store, ws.WorkspaceId, ws.Revision, "k1", "akira")));
         await runs.Completion(accepted.Run.RunId);
 
@@ -48,7 +49,7 @@ public sealed class SqliteRunStoreTests : IDisposable
     public async Task A_retried_key_finds_its_run_after_a_restart()
     {
         var (workspaces, store, runs) = Process();
-        var ws = workspaces.Create("akira", XvaEditRules.App, new JsonObject { ["valueDate"] = "2026-10-26" }, new XvaSourceVersion("ABC/LE-01", Day1, 20));
+        var ws = workspaces.Create("akira", PortfolioEditRules.App, new JsonObject { ["valueDate"] = "2026-10-26" }, new PortfolioSourceVersion("ABC/LE-01", Day1, 20));
         var submission = XvaPrice.Submission(workspaces, store, ws.WorkspaceId, ws.Revision, "k1", "akira");
         var first = Assert.IsType<SubmissionResult.Accepted>(runs.Submit(submission));
         await runs.Completion(first.Run.RunId);

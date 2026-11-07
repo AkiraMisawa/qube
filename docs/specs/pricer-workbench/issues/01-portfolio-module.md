@@ -7,9 +7,9 @@ contracts and builds on the portfolio module. Nothing a user or a caller sees ch
 
 **Blocked by:** None (can start immediately).
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] The server builds with the portfolio module beside the XVA module, outside the composition kernel, and the
+- [x] The server builds with the portfolio module beside the XVA module, outside the composition kernel, and the
       kernel references neither.
-- [ ] Every existing server test and the XVA browser test pass unchanged in what they assert.
-- [ ] The wire paths and the stored app id are unchanged, so a workspace saved before still opens.
+- [x] Every existing server test and the XVA browser test pass unchanged in what they assert.
+- [x] The wire paths and the stored app id are unchanged, so a workspace saved before still opens.
