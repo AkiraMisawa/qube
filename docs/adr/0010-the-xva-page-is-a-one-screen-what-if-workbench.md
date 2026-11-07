@@ -1,9 +1,11 @@
 # ADR-0010: The pricer is a one-screen what-if workbench, shared by the measures that register into it
 
-Status: PROPOSED 2026-11-07. Decided with the owner question by question on 2026-11-06 and 2026-11-07 ("let's grill
-every part"); each decision below says whether the owner confirmed it or it is a default for review. Builds on
-docs/03 (the XVA domain), ADR-0003 (the server owns the rules; edits in an append-only log) and ADR-0009 (design
-guidelines). Resolves the OPEN side-specific editing of docs/03 §4.1 and replaces the page built in slice 02.
+Status: ACCEPTED 2026-11-07 by the owner. Decided with the owner question by question on 2026-11-06 and 2026-11-07
+("let's grill every part"); each decision below says whether the owner confirmed it or it was a default. Asked to
+review the defaults (§8's tab contents, §10's DEFAULT parts, the case cap), the owner took them as recommended
+("おすすめでいいよ", 2026-11-07), so every DEFAULT here stands as written until a slice gives a reason to change
+it. Builds on docs/03 (the XVA domain), ADR-0003 (the server owns the rules; edits in an append-only log) and ADR-0009
+(design guidelines). Resolves the OPEN side-specific editing of docs/03 §4.1 and replaces the page built in slice 02.
 
 *Rewritten on 2026-11-07, the day it was proposed, when the owner folded spot SIMM and spot CCR capital into the same
 page ("1ページに統合", one page). It was "The XVA page is a one-screen what-if workbench of layers, cases and
@@ -181,6 +183,10 @@ the first case of a measure's membership, which every measure now declares (§10
   IDs pasted and Enter, or XML dropped or uploaded (also `add trades <ids>`).
 - **Existing trades** take the rest of the height and filter from their column headers.
 - Both have B and A columns whose header selects or clears every row of the grid, not only those drawn (docs/03 §4).
+  *Note of 2026-11-07, writing Delivery step 1's spec:* ExGrid has no header action a Consumer can give a column, so
+  until it has one the all/none controls for B and A sit on the grid's caption, beside its title, and are the commands
+  `before all|none` and `after all|none` for the grid in view. Setting every row is one edit on the grid, not one per
+  row; a row's own edit made later wins over it.
 - XVA's columns (§11):
 - **PV01** of a new trade is a result, requested when the trade loads, read-only: pending, its figure, or why it
   failed; never 0. A retry is the failed cell's action and the command `pv01 retry`, not a standing button: it is
@@ -188,7 +194,8 @@ the first case of a measure's membership, which every measure now declares (§10
 - **Margin (bps)** is an input. **PV Adj** (the exposure's adjustment at time 0, docs/03 §2.5) is PV01 × Margin, each
   with its own sign, whenever Margin is entered: Margin wins, PV Adj is then read-only and says it came from Margin.
   With Margin empty PV Adj is typed. Price freezes PV Adj with the PV01 and Margin it came from; a later PV01 does not
-  change a frozen Run.
+  change a frozen Run. With Margin entered and PV01 pending or failed, XVA's measures are refused by name at Price
+  (DEFAULT, note of 2026-11-07), since the adjustment they would price is unknown.
 - Existing trades show their official PV from the source as the PV that adjustment uses. The official PV is shared
   trade data, not XVA's: SA-CCR's replacement cost reads it too for an existing trade (ADR-0013).
 - A selected measure that declares membership (§10) adds its read-only membership column to both grids, with its
@@ -218,7 +225,9 @@ the first case of a measure's membership, which every measure now declares (§10
 - **Download** saves the Run as a zip: its frozen inputs, results, lineage and diagnostic artifacts. It is a Run's
   action, so it is also on the Pricing DB and is the command `download run`.
 - **Copy quote** (XVA's, §11) puts on the clipboard what a trader sends sales to charge: the Run's header and each
-  case's CVA Charge and PV, as HTML and plain text.
+  case's CVA Charge and PV, as HTML and plain text. *Note of 2026-11-07 (DEFAULT):* both are the case's Diff (After −
+  Before), the charge and the value the case adds; a one-sided case quotes its priced side and names it. The quote is
+  read from the Run's retained result, never from the screen.
 
 ### 8. The input tabs' contents (DEFAULT, for the owner's review)
 
@@ -340,7 +349,7 @@ What was XVA's in this ADR, gathered:
 - MVA (with SIMM) and the Risks and Profile contents are not specified here.
 - The case cap (DEFAULT 50).
 - Whether a coarse pointer gets larger controls (ADR-0009's OPEN) applies here too.
-- §2's diagonal split: ex-grid ADR-0490 (proposed 2026-11-07, AkiraMisawa/ex-grid#545) adds a Split Fill to
+- §2's diagonal split: ex-grid ADR-0490 (accepted 2026-11-07, AkiraMisawa/ex-grid#545) adds a Split Fill to
   ExGrid's `cellAppearance` (`lowerRightFill`), needed by Delivery step 3. Template Columns were rejected:
   a Template cell is not edited or copied as an ordinary cell (ex-grid ADR-0020).
 - Whether CVA and FVA get a calculation trace too: only if the engine returns their terms (ADR-0011).
