@@ -1,9 +1,10 @@
+using Workbench.Composition.Application.Traces;
 using Workbench.Composition.Contracts;
 
 namespace Workbench.Composition.Application;
 
 /// <summary>
-/// A module adds capabilities, contracts, workflows, views and actions. The kernel knows modules only
+/// A module adds capabilities, contracts, workflows, views, actions and calculation-trace catalogues. The kernel knows modules only
 /// through this interface; it never references one (acceptance CO01).
 /// </summary>
 public interface IWorkbenchModule
@@ -19,6 +20,7 @@ public sealed class CompositionRegistryBuilder
     internal readonly Dictionary<(string, string), ViewDefinition> Views = [];
     internal readonly Dictionary<string, ActionDefinition> Actions = [];
     internal readonly Dictionary<string, IHistoryProjection> HistoryProjections = [];
+    internal readonly Dictionary<(string, string), TraceCatalog> TraceCatalogs = [];
 
     public CompositionRegistryBuilder AddCapability(ICapabilityHandler handler) =>
         Add(Capabilities, (handler.Descriptor.CapabilityId, handler.Descriptor.Version), handler, "capability");
@@ -42,6 +44,10 @@ public sealed class CompositionRegistryBuilder
     public CompositionRegistryBuilder AddHistoryProjection(IHistoryProjection projection) =>
         Add(HistoryProjections, projection.Domain, projection, "history view");
 
+    /// <summary>The kinds and leaf sets of one method version (ADR-0011 §2).</summary>
+    public CompositionRegistryBuilder AddTraceCatalog(TraceCatalog catalog) =>
+        Add(TraceCatalogs, (catalog.Method.Id, catalog.Method.Version), catalog, "trace catalogue");
+
     CompositionRegistryBuilder Add<TKey, TValue>(Dictionary<TKey, TValue> into, TKey key, TValue value, string what) where TKey : notnull
     {
         if (!into.TryAdd(key, value)) throw new InvalidOperationException($"The {what} {key} is registered twice.");
@@ -58,6 +64,7 @@ public sealed class CompositionRegistry
     readonly IReadOnlyDictionary<(string, string), ViewDefinition> views;
     readonly IReadOnlyDictionary<string, ActionDefinition> actions;
     readonly IReadOnlyDictionary<string, IHistoryProjection> historyProjections;
+    readonly IReadOnlyDictionary<(string, string), TraceCatalog> traceCatalogs;
 
     public CompositionRegistry(IEnumerable<IWorkbenchModule> modules)
     {
@@ -69,12 +76,14 @@ public sealed class CompositionRegistry
         views = builder.Views;
         actions = builder.Actions;
         historyProjections = builder.HistoryProjections;
+        traceCatalogs = builder.TraceCatalogs;
 
         var validator = new CompositionValidator(this);
         var issues = contracts.Values.SelectMany(ContractChecks.SchemaProblems)
             .Concat(workflows.Values.SelectMany(w => validator.Validate(w).Select(i => $"{w.DefinitionId}: {i}")))
             .Concat(views.Values.SelectMany(v => validator.Validate(v, boundNames: null).Select(i => $"{v.DefinitionId}: {i}")))
             .Concat(actions.Values.SelectMany(a => validator.Validate(a).Select(i => $"{a.ActionId}: {i}")))
+            .Concat(traceCatalogs.Values.SelectMany(Traces.TraceCatalogs.Problems))
             .ToList();
         if (issues.Count > 0)
             throw new InvalidOperationException("Registered definitions are invalid:\n" + string.Join("\n", issues));
@@ -92,4 +101,5 @@ public sealed class CompositionRegistry
     public WorkflowDefinition? FindWorkflow(string id, string version) => workflows.GetValueOrDefault((id, version));
     public ViewDefinition? FindView(string id, string version) => views.GetValueOrDefault((id, version));
     public ActionDefinition? FindAction(string id) => actions.GetValueOrDefault(id);
+    public TraceCatalog? FindTraceCatalog(string method, string version) => traceCatalogs.GetValueOrDefault((method, version));
 }

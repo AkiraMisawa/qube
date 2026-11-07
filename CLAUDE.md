@@ -62,6 +62,37 @@ This handoff has no `.sln`, web app or native worker yet. `python3 tools/validat
 
 After creating the solution, document actual commands in the repository README. Expected categories are `dotnet restore`, `dotnet build`, `dotnet test`, worker startup, and browser tests; do not report these as completed before implementation.
 
+## Agent skills
+
+Project skills from [mattpocock/skills](https://github.com/mattpocock/skills) (commit 4ae2317, 2026-10-31) live in
+`.claude/skills/`: `/implement`, `tdd` (with `codebase-design`), `code-review`, `/grill-with-docs` (with `grilling`
+and `domain-modeling`), `/to-spec`, `/to-tickets`, `/research` and `/setup-matt-pocock-skills`. They are ordinary files;
+where one disagrees with this document, this document wins.
+
+### Implement
+
+`/implement` works a spec or ticket under `docs/specs/` through `tdd`. Its generic steps map onto this repository:
+
+- **Typechecking** is `nix develop -c dotnet build server/Workbench.slnx` for the server and
+  `nix develop -c bash -c 'cd client && npm run typecheck'` for the client.
+- **A single test file** is `nix develop -c dotnet test server/Workbench.slnx --filter <Class>`, or
+  `nix develop -c bash -c 'cd client && npx vitest run <file>'`.
+- **The full suite** is the server's `dotnet test`, the client's `npm run typecheck && npm test`, and the Playwright
+  specs the change bears on (README "Commands").
+- **Seams are agreed with the owner before the first test** (`tdd`), and a test names the ADR it holds, as the
+  existing tests do.
+- **A ticket that turns out to need a decision stops there**: record the ADR first, under "Decision handling" above.
+- **Invoking `/implement` is the request to commit** its work to the current branch. Pushing follows the branch rules
+  of the session.
+
+### Issue tracker
+
+Specs and tickets are markdown files under `docs/specs/<feature-slug>/`. See `docs/agents/issue-tracker.md`.
+
+### Domain docs
+
+Single-context: `docs/adr/` and the numbered documents at the repository root. See `docs/agents/domain.md`.
+
 ## Completion reporting
 
 For each slice report what runs, the exact verification performed, which providers are real versus simulated, the next concrete gap and any necessary user decision. Keep these facts in `IMPLEMENTATION_STATUS.md` once implementation begins.
