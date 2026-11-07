@@ -31,7 +31,8 @@ What the owner said about initial margin (2026-11-07):
   column. IM-P is what we post, under its IM-P CSA. The two can differ, because each direction counts the regimes of
   its own side.
 - **Per regime, the largest governs.** In each direction, SIMM is computed once for each regulatory regime that the
-  CRIF lines name (`CollectRegulations` for IM-R, `PostRegulations` for IM-P). The direction's IM is the largest of
+  CRIF lines name (`CollectRegulations` for IM-R, `PostRegulations` for IM-P) and the direction's IM CSA serves. A
+  direction with no such regime has no IM, rather than an IM of 0. The direction's IM is the largest of
   them, and the governing regime is named wherever the figure is shown.
 - **No IM threshold is applied.** The figure is SIMM before any threshold. The regulatory threshold applies across a
   group of entities, so subtracting it on a page about one counterparty would mislead.
