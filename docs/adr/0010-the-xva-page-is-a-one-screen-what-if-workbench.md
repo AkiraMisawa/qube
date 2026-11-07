@@ -235,8 +235,8 @@ none today. Opening a tab, Download and Copy quote are the page's own and are no
 - MVA (with SIMM) and the Risks and Profile contents are not specified here.
 - The case cap (DEFAULT 50).
 - Whether a coarse pointer gets larger controls (ADR-0009's OPEN) applies here too.
-- §2's diagonal split: proposed to the owner 2026-11-07 as a two-colour diagonal Fill added to ExGrid's
-  `cellAppearance` (an ex-grid ADR amending ADR-0071), needed by Delivery step 3. Template Columns were rejected:
+- §2's diagonal split: ex-grid ADR-0490 (proposed 2026-11-07, AkiraMisawa/ex-grid#545) adds a Split Fill to
+  ExGrid's `cellAppearance` (`lowerRightFill`), needed by Delivery step 3. Template Columns were rejected:
   a Template cell is not edited or copied as an ordinary cell (ex-grid ADR-0020).
 - Whether spot SIMM and spot CCR capital join this workbench as metrics of the same portfolio (owner, 2026-11-07:
   their configuration largely overlaps and all are portfolio calculations). Until that is decided, the input tabs,
