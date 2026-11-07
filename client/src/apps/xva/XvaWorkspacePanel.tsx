@@ -220,8 +220,8 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api }: { readonly pane
       {pricedRun !== undefined && <XvaResult runId={pricedRun} pricedRevision={pricedRevision} revision={ws.revision} onOpen={() => openRun(pricedRun)} />}
       <HeldEdits conflicts={ws.conflicts} lost={ws.lost} resolve={(edit, resolution) => void queue.push({ entity: edit.entity, field: edit.field, resolution })} />
       {failure !== undefined && <Alert color="red" variant="light" withCloseButton onClose={() => setFailure(undefined)} title="The trades could not be read">{failure}</Alert>}
-      <div className="qwb-xva-trades" aria-label="Trades">
-        <WorkbenchGrid<Row> ref={grid} columns={columns} source={source} onEdit={onEdit} cellState={cellState} cellMessage={cellMessage}
+      <div aria-label="Trades">
+        <WorkbenchGrid<Row> className="qwb-xva-trades" ref={grid} columns={columns} source={source} onEdit={onEdit} cellState={cellState} cellMessage={cellMessage}
           density="compact" viewportWidth="stretch" viewportHeight="stretch" pinnedColumnCount={1} locale="en-US" />
       </div>
       <Modal opened={confirm !== undefined} onClose={() => setConfirm(undefined)} title="Change counterparty" trapFocus transitionProps={{ duration: 0 }}>

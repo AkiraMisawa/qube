@@ -35,6 +35,9 @@ const CSA = 8;
 test('docs/03, ADR-0003: a new trade takes the main CSA, a CSA typed in moves its curve, and Price lands in the Pricing DB', async ({ page }) => {
   await open(page);
   await newWorkspace(page, 'ABC/LE-01', 0);
+  // XV15: an empty CVA recovery stays empty on screen (it once read "undefined"); the CDS recovery is its placeholder.
+  await expect(page.getByLabel('CVA recovery', { exact: true })).toHaveValue('');
+  await expect(page.getByLabel('CVA recovery', { exact: true })).toHaveAttribute('placeholder', /^empty: CDS /);
   await expect(trade(page, 'DRAFT-1').getByRole('gridcell').nth(CSA)).toHaveText('CSA-A');
   await expect(trade(page, 'DRAFT-1').getByRole('gridcell').nth(CSA + 1)).toHaveText('jpy_ois');
 
@@ -47,6 +50,12 @@ test('docs/03, ADR-0003: a new trade takes the main CSA, a CSA typed in moves it
   await expect(page.getByTestId('workspace-summary')).toContainText('1 edit(s)');
 
   await command(page, 'price');
+  // The figures land on the page itself; the Run opens in its own panel only when asked.
+  const result = page.getByTestId('xva-result');
+  await expect(result.getByTestId('xva-result-status')).toHaveText('succeeded');
+  await expect(result.getByRole('row', { name: /^CVA / })).toBeVisible();
+  await expect(result.getByTestId('xva-result-revision')).toHaveText(/^revision \d+$/);
+  await result.getByRole('button', { name: 'Open run' }).click();
   await expect(page.getByTestId('run-status')).toHaveText('succeeded');
   await expect(page.getByLabel('CVA and FVA (simulated)').getByRole('row', { name: /^CVA / })).toBeVisible();
   const runId = await page.locator('[data-testid=run-status] + p').textContent();

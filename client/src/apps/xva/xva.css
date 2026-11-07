@@ -2,7 +2,7 @@
 
 /* The trades grid takes the room the window has left below the page's controls, so that it is the grid that scrolls
    and not the page (§9). The rows above it are a few lines whose height the page does not measure (P4 of ExGrid), so
-   the room is given as a share of the window, never less than a dozen rows. ExGrid fills it (`viewportHeight="stretch"`). */
+   the room is given as a share of the window, never less than a dozen rows. ExGrid fills it (`viewportHeight="stretch"`): the class is on the Mantine Wrapper's paper, the grid's parent. */
 .qwb-xva-trades {
   height: max(20rem, calc(100dvh - 20rem));
 }
