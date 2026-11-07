@@ -35,7 +35,8 @@ What the owner said about initial margin (2026-11-07):
   them, and the governing regime is named wherever the figure is shown.
 - **No IM threshold is applied.** The figure is SIMM before any threshold. The regulatory threshold applies across a
   group of entities, so subtracting it on a page about one counterparty would mislead.
-- Before and After are independent, per case and per scenario, as every measure's are (ADR-0010 §3, §4).
+- Before and After are independent, per case and per scenario, as every measure's are (ADR-0010 §3, §4). A Price
+  that leaves Before out has After alone, and spot IM is then complete on that one side (§6, §7).
 
 ### 2. Membership: which trades count (CONFIRMED; the scope reasons are DEFAULT)
 
@@ -85,7 +86,7 @@ counterparty came into a regime's scope is out of that regime only. The trade gr
 - **CRIF for the synthetic trades** (DEFAULT): IRS, CCS and FX forwards, from the Rates module's pricing at the value
   date. The FX forward is physically settled, so it is exempt in every scope.
 
-### 6. The drill-down (CONFIRMED, owner 2026-11-07; how the tree is drawn is OPEN)
+### 6. The drill-down (CONFIRMED, owner 2026-11-07, unless marked)
 
 The trace is ADR-0011's, and spot IM registers its kinds there. A kind carries its formula, as an evaluation tree and
 a TeX template, once per methodology version. The engine sends only the values. The workbench reconciles each term
@@ -112,6 +113,13 @@ against its kind, and a term the engine did not return says so.
   row.
 - **Before, After and Diff** at every term, paired by the term's path. A term on one side only is `new` or `gone`. An
   absent term is never drawn as 0.
+- **After only** (CONFIRMED, owner 2026-11-07: priced without Before there is nothing to compare, and the
+  drill-down must still work in full). A Run priced without Before has a trace with one side. The drill-down
+  then draws no Before and no Diff at all, rather than empty columns or `new` on every term, and says once that
+  Before was not priced. Everything else works as it does with both sides: every term opens to its formula with
+  After's values, its contribution to the regime's SIMM, its reconciliation, and the trades and CRIF lines under
+  it; "largest first" orders by contribution instead of by change; `explain` answers the same. The sample has a
+  switch that shows this case.
 - **Formulas are typeset** (CONFIRMED). The symbolic line comes first, then each side with its values substituted.
   A value inside the formula opens its term.
 - **`explain simm <direction> <regime> <path…>`** opens a term from the command line, and the AI reads the same
@@ -121,15 +129,19 @@ against its kind, and a term the engine did not return says so.
   CRIF lines under it, as the sample does. On a phone, it drills in one level at a time. The alternative, drilling in
   one level at a time everywhere, was not taken. SIMM is seven levels deep, and finding where a Diff came from means
   comparing a path and its siblings at once.
-- **How the tree is drawn (OPEN, put to the owner 2026-11-07).** ExGrid has Row Kind, but no row toggle and no
-  indentation. Recommended: add them to ExGrid by an ex-grid ADR, in the manner of its Header Group toggle (ex-grid
-  ADR-0400: the grid draws the toggle and notifies, and the Consumer pushes the rows that open or close). The
-  alternative is a tree drawn beside the grid, which would be a homemade table with numeric columns next to ExGrid.
+- **The tree is an ExGrid** (DEFAULT, 2026-11-07, told to the owner). The term column is a pinned Template Column
+  (ex-grid ADR-0020; `templateColumn` in `@ex-grid/react`) whose cell carries the indent and the open / close
+  button, as ExPivot draws its Compact form (ex-grid ADR-0063). The workbench holds which terms are open and gives
+  the grid the rows that are showing; the grid neither holds nor orders the tree. ExGrid needs no change. *(The
+  first draft of this ADR said ExGrid had no way to draw a row toggle and indentation, and put an ex-grid ADR to
+  the owner for them. That was wrong: ExPivot's Compact form already does it this way, and the question was
+  withdrawn.)* A tree-grid is the common form for this: Excel's row outline and PivotTable, WAI-ARIA's `treegrid`.
 
 ### 7. Results on the page
 
-- **Metrics**: IM-R and IM-P, each Before, After and Diff in the display currency, with the governing regime. SIMM is
-  computed in its calculation currency (USD) and converted at the workspace's pinned FX, which the Run records.
+- **Metrics**: IM-R and IM-P, each Before, After and Diff in the display currency, or After alone when Before was
+  not priced, with the governing regime. SIMM is computed in its calculation currency (USD) and converted at the
+  workspace's pinned FX, which the Run records.
 - **The SIMM tab**: the two directions' summaries, then the drill-down (§6).
 - **The SIMM profile** that MVA returns is shown in XVA's Profile tab, with no trace (ADR-0010 §11).
 
@@ -144,8 +156,8 @@ is this one.
 - A portfolio domain module (ADR-0010 §10) gains the IM CSAs and the trades' IM-R and IM-P assignments. A new SIMM
   module registers the measure, the two capabilities, the kinds and the scopes. The kernel learns no SIMM term.
 - The synthetic sources gain IM CSAs, regimes, phase-in dates and IM-exempt trades.
-- The Pricing DB's history projection for spot IM lists IM-R and IM-P Before, After and Diff, with the governing
-  regime.
+- The Pricing DB's history projection for spot IM lists IM-R and IM-P Before, After and Diff (After alone when
+  Before was not priced), with the governing regime.
 
 ### Delivery order (DEFAULT)
 
@@ -157,6 +169,5 @@ is this one.
 
 ## OPEN
 
-- How the term tree is drawn (§6).
 - Whether IM CSAs can be edited as a what-if (for example, adding a regime).
 - The synthetic phase-in dates and exemptions are illustrative. Company data decides them in production.
