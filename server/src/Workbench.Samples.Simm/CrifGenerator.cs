@@ -11,7 +11,8 @@ public sealed record SimmTrade(string Id, PricingLine? Pricing, string? Exemptio
 /// <summary>A trade that gave no CRIF line, and why.</summary>
 public sealed record CrifExclusion(string TradeId, string Reason);
 
-public sealed record CrifResult(IReadOnlyList<CrifLine> Lines, IReadOnlyList<CrifExclusion> Excluded);
+/// <summary>The CRIF lines, the trades that gave none and why, and the calculation mode the provider answered in.</summary>
+public sealed record CrifResult(IReadOnlyList<CrifLine> Lines, IReadOnlyList<CrifExclusion> Excluded, string CalculationMode);
 
 /// <summary>
 /// CRIF from the Rates pricing at the value date (ADR-0012 §5). IR curve deltas are the provider's, per curve pillar,
@@ -38,8 +39,13 @@ public sealed class CrifGenerator(IRatesPricingProvider provider)
             else priced.Add(trade);
         }
 
-        async Task<IReadOnlyDictionary<string, RowResult>> Price(MarketSnapshot m, IEnumerable<PricingLine> lines) =>
-            (await provider.PriceBatchAsync(new RatesBatchInput(0, valueDate, m, [.. lines]), cancellationToken)).Rows.ToDictionary(r => r.RowKey);
+        var modes = new HashSet<string>(StringComparer.Ordinal);
+        async Task<IReadOnlyDictionary<string, RowResult>> Price(MarketSnapshot m, IEnumerable<PricingLine> lines)
+        {
+            var batch = await provider.PriceBatchAsync(new RatesBatchInput(0, valueDate, m, [.. lines]), cancellationToken);
+            modes.Add(batch.CalculationMode);
+            return batch.Rows.ToDictionary(r => r.RowKey);
+        }
 
         var risk = await Price(market, priced.Select(t => t.Pricing! with { Risk = true }));
         var bare = priced.ToDictionary(t => t.Id, t => t.Pricing! with { Risk = false, Legs = [.. t.Pricing.Legs.Select(l => l with { Exchanges = [] })] });
@@ -108,7 +114,10 @@ public sealed class CrifGenerator(IRatesPricingProvider provider)
                     g.Key.Currency, amount * UsdPer(g.Key.Currency, market), trade.CollectRegulations, trade.PostRegulations));
             }
         }
-        return new CrifResult(lines, excluded);
+        // One CRIF is made in one mode: a provider that answers its batches in different ones is a defect, not a mixture to label.
+        if (modes.Count != 1)
+            throw new InvalidOperationException($"The provider {provider.Name} answered in the calculation modes {string.Join(", ", modes.Order(StringComparer.Ordinal))}.");
+        return new CrifResult(lines, excluded, modes.Single());
     }
 
     static IEnumerable<string> Currencies(PricingLine line) => line.Legs.Select(l => l.Terms.Currency).Distinct();

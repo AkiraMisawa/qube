@@ -6,6 +6,7 @@ using Workbench.Composition.Application.Workspaces;
 using Workbench.Composition.Contracts;
 using Workbench.Persistence.Sqlite;
 using Workbench.Samples.Rates;
+using Workbench.Samples.Simm;
 using Workbench.Samples.Synthetic;
 using Workbench.Samples.Xva;
 using Workbench.Web;
@@ -36,6 +37,10 @@ builder.Services.AddSingleton(sp => new RatesLiveService(sp.GetRequiredService<I
 builder.Services.AddSingleton(sp => new MarketFeed(syntheticMarket, sp.GetRequiredService<RatesLiveService>()));
 builder.Services.AddSingleton<IWorkbenchModule>(sp => new RatesModule(sp.GetRequiredService<IRatesPricingProvider>(), syntheticMarket.Resolve));
 builder.Services.AddSingleton<RatesWorkspaces>();
+// Spot SIMM (ADR-0012): CRIF from the same Rates provider and market, and the reference engine on the DEMO table only.
+// ISDA's calibration is licensed; a table loaded from outside the repository would be added here.
+builder.Services.AddSingleton<IWorkbenchModule>(sp => new SimmModule(sp.GetRequiredService<IRatesPricingProvider>(), syntheticMarket.Resolve, conventions,
+    [SimmParameters.Demo]));
 // The commands reach the workspace service only when invoked: it is built from the registry they are part of.
 builder.Services.AddSingleton<IWorkbenchModule>(sp => new RatesCommandsModule(sp.GetRequiredService<RatesWorkspaces>));
 // Products are descriptions from catalogs (ADR-0008 §7); the kernel's entity.create reads them. Rates describes its IRS and CCS.
