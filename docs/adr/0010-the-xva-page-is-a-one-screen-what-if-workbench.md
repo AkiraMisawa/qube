@@ -104,8 +104,10 @@ variants the workspace is one case.
 
 - **A case is the workspace plus the case's own changes.** A case's change applies to both of its sides
   (owner, 2026-11-06); After-only within a case is reached through Advanced.
-- **Vary from a cell.** On any editable value, *Vary values…* takes a list (`10m, 5m, 0`) and makes one case per
-  value, named from what it changed (`CSA-A threshold 5m`). The command line does the same (`vary`).
+- **Vary from a cell.** On any editable value, *Vary values…* takes a list (`10mm, 5mm, 0`) and makes one case per
+  value, named from what it changed (`CSA-A threshold 5mm`). The command line does the same, naming the cell by its
+  row and column: `vary CSA-A threshold 10mm, 5mm, 0` makes three cases (DEFAULT form; amounts as ADR-0008 writes
+  them, `mm` and never `m`).
 - **Iterative individual addition** (docs/03 §5) is a generated set of cases, one `add <trade>` per eligible new
   trade with After checked, with docs/03 §5's rules unchanged: not cumulative, a common change to existing trades is
   stated in every case, a candidate in Before is refused rather than unchecked.
@@ -113,7 +115,7 @@ variants the workspace is one case.
   so nobody has to find a changed cell in a wide grid.
 - **A Price without Before prices After alone** (owner, 2026-11-07: with B not selected only After has a result, no
   Before/After comparison is wanted, and the drill-down must still work). A side with no trade in it is not priced,
-  never priced as zero: with every B box clear the case is After only (DEFAULT reading of "B not selected"), and the
+  never priced as zero: with every B box clear the case is After only (the owner confirmed this reading), and the
   same holds for a Price with every A box clear. Price says so before it runs (`Price After only · CVA FVA IM`); a
   case with no trade on either side is refused by name. Metrics and the trace for such a case are in §7.
 - One Price is one Run with one case per (case, scenario) (§4). Their number is capped (DEFAULT 50, configured); over
