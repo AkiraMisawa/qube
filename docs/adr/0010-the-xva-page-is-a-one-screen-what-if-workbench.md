@@ -74,8 +74,11 @@ cell is split.
   colours wherever the page shows a side, the result dock's B and A columns included.
 - Colour is never the only signal (design guidelines §7): the cell's description gives Original and each side's value,
   and the changes panel lists every change in words.
-- Drawing it needs ExGrid. Its Cell State today has one `modified`, drawn as a corner mark, and ex-grid ADR-0029 sends
-  a state that maps to none of its five to a Template Column or to amending its ADR-0006. Which route is OPEN.
+- ExGrid draws a one-sided highlight already: `cellAppearance` (ex-grid ADR-0050 item 15, ADR-0071) gives a cell a
+  solid Fill by (row, column), as `0xRRGGBB`, so the page answers the colour of the scheme in force and hands a new
+  function when the scheme changes. The diagonal split is not drawable: a Fill is one solid colour. Until ExGrid can
+  draw it, a cell that differs on both sides wears ExGrid's `modified` corner mark instead. Before Advanced
+  (Delivery step 3) every changed cell differs on both sides, so the mark tells nothing wrong meanwhile.
 
 Before = Original + Common + Before-only; After = Original + Common + After-only. Price freezes each side as its own
 complete input, as Before and After are already independent requests (docs/03 §5.1).
@@ -232,8 +235,9 @@ none today. Opening a tab, Download and Copy quote are the page's own and are no
 - MVA (with SIMM) and the Risks and Profile contents are not specified here.
 - The case cap (DEFAULT 50).
 - Whether a coarse pointer gets larger controls (ADR-0009's OPEN) applies here too.
-- How ExGrid draws §2's highlight: a two-sided mark added to ExGrid's own vocabulary (an ex-grid ADR amending its
-  ADR-0006), or Template Columns drawn by this page. Put to the owner 2026-11-07.
+- §2's diagonal split: proposed to the owner 2026-11-07 as a two-colour diagonal Fill added to ExGrid's
+  `cellAppearance` (an ex-grid ADR amending ADR-0071), needed by Delivery step 3. Template Columns were rejected:
+  a Template cell is not edited or copied as an ordinary cell (ex-grid ADR-0020).
 - Whether spot SIMM and spot CCR capital join this workbench as metrics of the same portfolio (owner, 2026-11-07:
   their configuration largely overlaps and all are portfolio calculations). Until that is decided, the input tabs,
   the layers, cases and scenarios, the Run and the dock's metric choice are written for a portfolio and its metrics,
