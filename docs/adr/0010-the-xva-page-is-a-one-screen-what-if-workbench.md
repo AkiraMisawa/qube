@@ -237,4 +237,7 @@ none today. Opening a tab, Download and Copy quote are the page's own and are no
 - Whether spot SIMM and spot CCR capital join this workbench as metrics of the same portfolio (owner, 2026-11-07:
   their configuration largely overlaps and all are portfolio calculations). Until that is decided, the input tabs,
   the layers, cases and scenarios, the Run and the dock's metric choice are written for a portfolio and its metrics,
-  and only §5 and the FVA column are XVA's own.
+  and only §5 and the FVA column are XVA's own. In production, a KVA option on the XVA analytics request also returns
+  CCR capital, spot and profile, and only spot capital needs a drill-down, to trade level (owner, 2026-11-07). So
+  the XVA request is kept open to that option: CCR capital may arrive in the same response as CVA and FVA, as a
+  measure of its own. Its design is the spot CCR capital thread's.
