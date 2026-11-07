@@ -137,8 +137,9 @@ whose two do not match one for one is refused at registration.
 
 **The kernel checks that each term reconciles.** Where a term and all its operands have values, the kernel evaluates
 its kind's expression and checks `|computed − value| ≤ tolerance × max(1, |value|)`, with the tolerance the provider
-declares (DEFAULT: 1e-9). An `absent` operand contributes nothing to a `sum`, `difference` or `sumLeaves`; any other
-operand without a value leaves the term not checked, and the view says so. A term that does not reconcile is marked
+declares (DEFAULT: 1e-9). An `absent` operand contributes nothing to a `sum`, `difference`, `max`, `min` or
+`sumLeaves` (a `max` of an absent margined figure and a present one is the present one); any other operand without a
+value leaves the term not checked, and the view says so. A term that does not reconcile is marked
 `inconsistent` with both figures. Its value is never replaced: the check exists to say that a tree does not add up,
 not to correct it. A decision term is not evaluated; its `lookup` is checked against the table parameter.
 
@@ -165,11 +166,21 @@ A Diff of a non-additive term (the multiplier, a square root of a sum) is the ch
 suggests that the children's Diffs add up to their parent's. Only an allocation (§1), when the provider gives it, is
 additive; the view shows it as its own column.
 
+**A case priced on one side is explained on that side alone (CONFIRMED, owner 2026-11-07: "computing without
+selecting B gives only the After result, so I do not want a Before/After comparison, but the drill-down must still
+work").** Such a case has one trace per measure and nothing to pair. The tree, the formula, the leaf rows, the
+reconciliation, the decision steps, the read endpoint and `trace.read` all work on it as on a pair; the view shows
+the one side's values, and draws no Before or Diff column at all (not empty ones) and no Before lines in the formula.
+The order by the change becomes an order by the allocation where the provider gives one (SIMM's contributions,
+ADR-0012), else by the size of the value; the formula's order remains. The side that was not priced is not `absent`, which would say that nothing
+contributes to it: it does not exist in the Run, and the view says so once ("After only: Before was not priced"),
+not on every row. A term that is `absent` on the side that was priced is still drawn as absent.
+
 ### 5. Fetched by term, never whole
 
 A trace is stored whole with the Run and read a term at a time:
-`GET /api/runs/{run}/cases/{case}/traces/{measure}?scenario=…&path=…` answers the term on both sides with its Diff,
-its kind, the parameters in its scope and its children (paged when there are many), and a leaf set is paged and
+`GET /api/runs/{run}/cases/{case}/traces/{measure}?scenario=…&path=…` answers the term on each side the case priced,
+with its Diff when it priced both, its kind, the parameters in its scope and its children (paged when there are many), and a leaf set is paged and
 sorted by the server like any other dataset (ADR-0003 §4). The catalogue of kinds is read once per method version.
 The browser holds the terms on the path it has opened and the page of children in view.
 
@@ -179,40 +190,54 @@ The kernel's view components gain `trace`, drawn by one renderer for every measu
 registers a trace (ADR-0010 §7) opens it at the root for the case and scenario in view; the Before, After and Diff
 cells open the same paired view.
 
-- **A breadcrumb** of the path from the root (`K › RWA › EAD › NS-002 › PFE › AddOn › IR › USD`), each step a link back.
-- **The formula** of the term in focus, typeset: first its kind's TeX, then the same formula with the values
-  substituted, once for Before and once for After, then the term's Diff. An absent operand keeps its symbol, drawn
+**The layout (CONFIRMED, owner 2026-11-07, for SIMM and CCR alike): on desktop, a tree of every level beside the
+formula of the selected term; on a phone, drilling in one level at a time.** The owner chose it from the two samples
+of that day; the CCR sample was ported to it the same day (links in §6's last paragraph).
+
+- **The tree** has a row per term, indented by its depth, with a toggle that opens its children. Its columns are
+  term and symbol, Before, After, Diff, unit, state, governed mark and citation, and the allocation when the provider
+  gives one; a case priced on one side has that side's column and no Diff (§4). Children keep the formula's order, or sort by the absolute Diff on request, so the term that moved most is
+  first. An absent term stays in the tree, faint, so the reader sees what does not contribute. Opening a term fetches
+  its children (§5); the tree holds only the terms on the paths opened. Up and Down move between rows, Right opens and
+  Left closes or goes to the parent, Enter selects.
+- **A breadcrumb** of the path from the root (`K › RWA › EAD › NS-002 › PFE › AddOn › IR › USD`), each step a link,
+  above the tree and the formula; it is what a phone shows instead of the tree.
+- **The formula** of the selected term, typeset: first its kind's TeX, then the same formula with the values
+  substituted, once for each side the case priced, then the term's Diff when it priced both. An absent operand keeps its symbol, drawn
   faint, and is never written as 0. Its citation, the operand that governed, and its parameters with their sources
-  sit beside it; a matrix parameter is typeset as a matrix. Each operand of the formula opens that term or parameter.
-- **Its children in a grid** (`WorkbenchGrid`): term, symbol, Before, After, Diff, unit, state, governed mark and
-  citation, and the allocation when there is one. Rows sort by the absolute Diff, so the term that moved most is first.
-  Enter or a double click opens a child; Alt+Up or the breadcrumb goes back. A leaf set is the same grid over its
-  rows, with the trade's membership on each side and an action that goes to the trade's row on its page; opening a row
-  typesets its leaf set's column formulas with the row's values.
+  sit beside it; a matrix parameter is typeset as a matrix. Each operand of the formula selects that term in the tree.
+- **A leaf set** is a grid (`WorkbenchGrid`) below the tree for the selected term's rows, with the trade's membership
+  on each side and an action that goes to the trade's row on its page; opening a row typesets its leaf set's column
+  formulas with the row's values.
 - **A decision** (SA's risk weight) is drawn as its steps in order, each with its outcome, its reasons, the inputs it
   read and their source, and its citation, and then the table with the row the lookup took marked.
-- **The reconciliation** of the term in focus: "matches", "does not reconcile: 12.40mm by its terms, 12.38mm returned",
-  or "not checked" with the reason.
+- **The reconciliation** of the selected term: "matches", "does not reconcile: 12.40mm by its terms, 12.38mm
+  returned", or "not checked" with the reason.
 - States are words as well as colours (design guidelines §7): `absent`, `unavailable: <reason>`, `not returned by
   <provider>`, `does not reconcile`. The provider and the depth it declared are always on screen, and a simulated
   provider says so.
-- Below `sm` the breadcrumb and the formula sit above the list, and the grid shows term, Diff and state.
+- **Below `sm`**, drilling in: the breadcrumb, the formula, then the selected term's children as a list of term, Diff
+  and state, each opening the next level.
 
 Mathematics is set by KaTeX at an exact pinned version, in strict mode, with trust granted only to `\htmlData`, which
 the renderer itself writes around each `\slot` to make the operand selectable. Templates come from the registered
 catalogue only.
 
-DEFAULT: drilling in, one level at a time, as the sample of 2026-11-07 shows
-(https://claude.ai/artifact/U6XtjAisqPAyT3zSCB1QW6). The SIMM sample of the same day draws a persistent tree of all
-levels beside the formula instead, and the choice is with the owner (OPEN, below).
+The tree is ExGrid (`WorkbenchGrid`), drawn as ExPivot draws its Compact form: the term column is a pinned Template
+Column carrying the label, its indent and the open / close button, the grid reports the press, and the page holds what
+is open and pushes the rows (ex-grid ADR-0059's table of what ExPivot asks, ADR-0020). It needs no change to ExGrid.
+The samples of 2026-11-07 are the SIMM one (https://claude.ai/artifact/S1P64xEfAW4WNonthA6Hf8) and the CCR one
+(https://claude.ai/artifact/Sij1rR9eh3a89RpzBCivv6); the CCR sample's first, drill-in version was
+https://claude.ai/artifact/U6XtjAisqPAyT3zSCB1QW6.
 
 ### 7. Commands and the AI read the same tree
 
 - `explain <measure> [path]` opens the trace of the focused case, scenario and side at that term.
 - `trace.read` is a command capability with effect `ReadData` (ADR-0005): given a Run, case, scenario, measure and
-  path, it answers the term on both sides with its kind, its parameters and its children. The AI pane (ADR-0007) calls
-  it to answer "why did capital go down": it walks down the largest Diffs and quotes the terms, the decisions' reasons
-  and their citations. The AI reads the provider's terms and never computes one; a term that is `notReturned` is
+  path, it answers the term on each side the case priced with its kind, its parameters and its children. The AI pane
+  (ADR-0007) calls it to answer "why did capital go down": it walks down the largest Diffs and quotes the terms, the
+  decisions' reasons and their citations; on a case priced on one side it answers "what drives capital" by the largest
+  values instead. The AI reads the provider's terms and never computes one; a term that is `notReturned` is
   reported as such.
 
 ## Consequences
@@ -235,7 +260,4 @@ levels beside the formula instead, and the choice is with the owner (OPEN, below
 - Whether the company engines return intermediate terms, and down to which level. The engine team is building the
   output now (owner, 2026-11-07), and the client's format proposal asks twelve questions of it. Until known, a
   provider declares its depth and the page says it.
-- Drill-in or a persistent tree of all levels on desktop (put to the owner 2026-11-07 by the SIMM work). A tree in one
-  grid needs an ExGrid row toggle and indentation that it does not draw today (it has Row Kind, not a row tree): an
-  ex-grid ADR, or a tree drawn beside the grid with the leaf rows still in it.
 - Whether an Euler allocation is wanted beside the literal terms (asked 2026-11-07).

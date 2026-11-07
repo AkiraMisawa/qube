@@ -9,7 +9,8 @@ alone will come later and does not exist yet; KVA is shown too. Builds on ADR-00
 pricer page), ADR-0011 (the calculation trace) and docs/08 (provider boundaries). The client's proposal of the
 engine's output format is the Claude Doc "ドリルダウン形式の提案：スポットCCRキャピタル（SA-CCR / SA-RW）", which
 follows this ADR and ADR-0011; the look was shown to the owner as an interactive sample
-(https://claude.ai/artifact/U6XtjAisqPAyT3zSCB1QW6).
+(https://claude.ai/artifact/Sij1rR9eh3a89RpzBCivv6, the tree layout the owner chose; the first, drill-in version was
+https://claude.ai/artifact/U6XtjAisqPAyT3zSCB1QW6).
 
 ## Context
 
@@ -32,7 +33,8 @@ output lands.
 - **K = κ · RWA**, with **RWA = RW · EAD**, where EAD is the counterparty's sum over its netting sets and RW is the
   counterparty's SA risk weight. κ is a configured value, not a constant (DEFAULT 8%; whether it is 8% and where it
   is configured is OPEN, asked 2026-11-07).
-- Results: Before, After and Diff in Metrics, opening the trace (ADR-0011 §6). The capital profile is XVA's Profile
+- Results: Before, After and Diff in Metrics, opening the trace (ADR-0011 §6); a Price without Before has After
+  alone, and its trace is explained on that side (ADR-0011 §4, CONFIRMED, owner 2026-11-07). The capital profile is XVA's Profile
   tab, without a trace (ADR-0010 §11). KVA is XVA's measure and comes from that profile.
 - Commands: `measures … ccr` selects it, `explain ccr.spotCapital [path]` opens its trace.
 
