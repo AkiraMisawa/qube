@@ -94,7 +94,7 @@ variants the workspace is one case.
   grid before anything is priced. A request whose index, risk factor or shift type does not resolve is refused by
   name and asked for, never guessed.
 - **A scenario of several shifts is defined whole, never one shift per step** (owner's question, 2026-11-07; the
-  forms below are DEFAULT, proposed the same day):
+  forms below were proposed the same day and the owner agreed to them for now):
   - *Grid.* Rows are typed or pasted many at a time (a block copied from a spreadsheet is a paste); the rows that share
     a name are one scenario. Duplicate copies a scenario's shifts under a new name, to be edited.
   - *One command, every shift.* `scenario s1 jpy_ois +10bp; usdjpy -5%; jpy_ois 5y +3bp` is one scenario of three
