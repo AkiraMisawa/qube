@@ -247,7 +247,8 @@ that owns a measure registers it with:
 - **membership**: for each trade, whether the measure prices it and why, decided on the server. FVA's rule (§5) is the
   first. A trade a measure cannot classify is out with its reason, never dropped silently;
 - **inputs**: the tabs and Settings section it needs, and the columns it adds to shared grids (XVA's CVA recovery on
-  Netting; SA-CCR's counterparty inputs for the risk weight and its CSA and netting-set columns, ADR-0013). A tab, section or column shows while a selected measure needs it, and a hidden one keeps its changes;
+  Netting; SA-CCR's counterparty inputs for the risk weight and its CSA and netting-set columns, ADR-0013). A tab,
+  section or column shows while a selected measure needs it, and a hidden one keeps its changes;
 - **trade columns**: what it adds to the trade grids (XVA's PV01, Margin and PV Adj);
 - **results**: its Metrics columns, any result tab of its own, and whether a Metrics cell opens a trace (ADR-0011);
 - **validation**: what Price needs from it, refused by name. A measure that cannot be priced blocks only itself: a
