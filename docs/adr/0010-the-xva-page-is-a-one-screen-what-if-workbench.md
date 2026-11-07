@@ -246,6 +246,12 @@ is marked with the measure.
 (§4), `download run`, `copy quote`, and one to open each input tab. A measure's own commands are its registration's.
 Chords are not assigned here.
 
+**`set` changes a value without making a case** (owner's question, 2026-11-07; form DEFAULT). It names the cell as
+`vary` does and takes one value: `set CSA-A threshold 5mm`, `set cds 5y 120bp`, `set NS-1 cvaRecovery 40%`. It is
+the same edit a typed cell makes, in the Common layer, or in the side Advanced points at (`set after CSA-A threshold
+5mm` names it). `vary` with a list makes cases; `set` changes the workspace. Like `entity.create` (ADR-0008), it is
+one generic command in the kernel, and each domain registers the rows and fields it reaches and how a value is read.
+
 Those that change the workspace (an edit in any layer, `measures`, `vary`, `add trades`, the scenario commands) and
 Price are registered as command capabilities (ADR-0005), so the AI calls them as it calls the Rates commands; XVA
 registers none today. Opening a tab, Download and Copy quote are the page's own and are not the AI's.
