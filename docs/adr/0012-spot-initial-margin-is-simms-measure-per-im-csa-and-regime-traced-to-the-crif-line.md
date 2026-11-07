@@ -111,8 +111,8 @@ against its kind, and a term the engine did not return says so.
   is the sum of its lines' contributions; this answers "which trades drive this bucket".
 - **The risk weight says why** it is what it is: the currency's volatility group, then the tenor, then the table
   row.
-- **Before, After and Diff** at every term, paired by the term's path. A term on one side only is `new` or `gone`. An
-  absent term is never drawn as 0.
+- **Before, After and Diff** at every term, paired by the term's path (ADR-0011 §4). A term on one side only has the
+  other side's value as its Diff, with its sign, and is marked `New` or `Gone`. An absent term is never drawn as 0.
 - **After only** (CONFIRMED, owner 2026-11-07: priced without Before there is nothing to compare, and the
   drill-down must still work in full). A Run priced without Before has a trace with one side. The drill-down
   then draws no Before and no Diff at all, rather than empty columns or `new` on every term, and says once that
