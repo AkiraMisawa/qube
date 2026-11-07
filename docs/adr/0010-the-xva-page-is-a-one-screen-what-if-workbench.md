@@ -82,18 +82,35 @@ variants the workspace is one case.
 - A **scenario** is a named set of market-data shifts; one scenario may shift several data at once. The Scenarios tab
   is one grid of shifts, `Scenario | Category | Index | Risk factor | Shift type | Size | Description`; rows with the
   same scenario name are one scenario. Beside it, the list of scenarios with their shift counts and an include box.
-- Two shifts of one risk factor in one scenario are refused at Price, naming the rows.
+- Two shifts that touch one risk factor in one scenario are refused at Price, naming the rows.
 - Price always prices the unshifted market. Each included scenario is **crossed with every case**: three cases and two
   scenarios are nine Before/After pairs (owner: "crossing is right").
 - Scenario sets are saved by name, and the user chooses who sees each (themselves, their desk, everyone), as saved
   workflows are shared (C31). Example: many scenarios built for a cross-gamma simulation.
 - **Scenarios are defined by command and by the AI as well as in the grid** (owner, 2026-11-07). Defining, changing,
   including, saving and loading a scenario are command capabilities (ADR-0005), so the command line and the AI pane
-  (ADR-0007) reach them as tools: `scenario <name> <category> <index> <risk factor> <shift type> <size>` adds a shift
-  to a named scenario (a new name starts one), `scenario include <name>`, `scenario save <set> [desk|all]`,
-  `scenario load <set>`. The AI writes the same shifts the grid does: "ten scenarios shifting JPY OIS in parallel
-  from −50bp to +50bp" becomes ten scenarios of one shift each, shown in the grid before anything is priced. A
-  request whose index, risk factor or shift type does not resolve is refused by name and asked for, never guessed.
+  (ADR-0007) reach them as tools: `scenario <name> <shift>; <shift>; …`, `scenario include <name>`,
+  `scenario save <set> [desk|all]`, `scenario load <set>`. The AI writes the same shifts the grid does, shown in the
+  grid before anything is priced. A request whose index, risk factor or shift type does not resolve is refused by
+  name and asked for, never guessed.
+- **A scenario of several shifts is defined whole, never one shift per step** (owner's question, 2026-11-07; the
+  forms below are DEFAULT, proposed the same day):
+  - *Grid.* Rows are typed or pasted many at a time (a block copied from a spreadsheet is a paste); the rows that share
+    a name are one scenario. Duplicate copies a scenario's shifts under a new name, to be edited.
+  - *One command, every shift.* `scenario s1 jpy_ois +10bp; usdjpy -5%; jpy_ois 5y +3bp` is one scenario of three
+    shifts. A shift's tokens are in free order and recognised by their form, as a trade's are (ADR-0008): the index
+    gives the category; an index alone is the whole index, a tenor (`5y`) narrows it to that point; the size's unit
+    gives the shift type (`bp` absolute, `%` relative), and a shift type the unit does not settle is written
+    (`abs`, `rel`). The example above is refused, because its first and third shifts both touch JPY OIS 5Y.
+  - *Generators make a set of scenarios at once.* `scenario ladder jpy_ois -50bp..+50bp step 10bp` makes one scenario
+    per size. `scenario cross jpy_ois -50bp, 0, +50bp x usdjpy -10%, 0, +10%` makes one scenario per combination,
+    each shifting both factors, as a cross-gamma simulation needs; more than two lists cross the same way. A zero
+    size is no shift, so the all-zero combination is the base, which Price prices anyway, and is not made again; a
+    combination with one zero is a scenario of the other shift alone. Each generated scenario is named from its
+    shifts (`jpy_ois +50bp · usdjpy -10%`). The number made and the cap on cases × scenarios (§3) are shown before
+    anything is made; what is made is ordinary rows, edited in the grid like any other.
+  - *The AI* uses these same commands, so one request ("cross JPY OIS ±50bp with USDJPY ±10%") is one generator
+    call, not a shift at a time.
 
 ### 5. FVA prices only imperfectly collateralised CSAs (CONFIRMED, owner 2026-11-06)
 
