@@ -1,3 +1,4 @@
+using Workbench.Composition.Application.Products;
 using System.Runtime.CompilerServices;
 using System.Text.Json.Nodes;
 using System.Threading.Channels;
@@ -12,7 +13,8 @@ public static class RatesApi
 {
     public sealed record CreateRequest(DateOnly ValuationDate);
     public sealed record AddLineRequest(long Revision, RatesProduct Product);
-    public sealed record LineTermsRequest(long Revision, JsonObject Terms);
+    public sealed record NewLineRequest(long Revision, string Product, string Terms);
+    public sealed record DefaultsRequest(long Revision, string? Currency, double? Notional, string? Direction);
     public sealed record ConventionView(string Currency, string Index, string Profile);
     public sealed record AddedLine(string Line, RatesWorkspaceView Workspace);
     public sealed record RevisionRequest(long Revision);
@@ -57,10 +59,18 @@ public static class RatesApi
 
         ws.MapGet("/{id}", (string id, CurrentUser user, RatesWorkspaces service) => Guard(() => Results.Ok(service.View(id, user.Id))));
 
-        ws.MapPost("/{id}/lines/terms", (string id, LineTermsRequest request, CurrentUser user, RatesWorkspaces service) => Guard(() =>
+        // `new irs …`, `new ccs …` (ADR-0008): the kernel reads the terms against the product's description at the
+        // revision the page saw, and the page gets its view back, as for every other edit.
+        ws.MapPost("/{id}/lines/new", (string id, NewLineRequest request, CurrentUser user, ProductService products, RatesWorkspaces service) => Guard(() =>
         {
-            var (_, line) = service.CreateLine(id, user.Id, request.Terms, RunOrigin.Pricer, request.Revision);
+            var (_, line, _) = products.Create(id, request.Revision, user.Id, request.Product, request.Terms, RunOrigin.Pricer);
             return Results.Ok(new AddedLine(line, service.View(id, user.Id)));
+        }));
+
+        ws.MapPost("/{id}/defaults", (string id, DefaultsRequest request, CurrentUser user, RatesWorkspaces service) => Guard(() =>
+        {
+            service.ChangeDefaults(id, request.Revision, user.Id, new LineDefaults(request.Currency, request.Notional, request.Direction));
+            return Results.Ok(service.View(id, user.Id));
         }));
 
         ws.MapPost("/{id}/lines", (string id, AddLineRequest request, CurrentUser user, RatesWorkspaces service) => Guard(() =>
@@ -163,6 +173,10 @@ public static class RatesApi
         {
             return Results.Json(new Api.ErrorEnvelope("InvalidTerms", refused.Message,
                 [.. refused.Issues.Select(i => new CompositionIssue("InvalidTerms", "/terms", i))]), statusCode: 422);
+        }
+        catch (ProductTermsRefused refused)
+        {
+            return Results.Json(ProductsApi.Envelope(refused), statusCode: 422);
         }
         catch (WorkspaceRefused refused)
         {

@@ -132,9 +132,11 @@ The shell is the header, the panels under their tabs, and the AI pane (ADR-0007 
 
 - **Both themes are acceptance requirements** (UX03). Dark is the default. Every change is looked at in both.
 - **MUST** take colour from the theme and Mantine's variables. CSS that differs by theme uses `light-dark()` or
-  Mantine's scheme attribute. ExGrid's colours come only from `@ex-grid/mantine/styles.css`, which maps its `--ex-`
-  tokens onto Mantine's variables; this repository sets no `--ex-` token (ex-grid ADR-0030 limits what a Consumer
-  may set, and the font is metrics-bearing: see §10).
+  Mantine's scheme attribute. ExGrid's colours come from `@ex-grid/mantine/styles.css`, which maps its `--ex-`
+  tokens onto Mantine's variables. Paint an owner decision asks for beyond that (the Rates Header Groups' ruled edges
+  and primary toggle, 2026-11-04) goes in `client/src/theme.css` on `WorkbenchGrid`'s class `qwb-grid`, with the
+  decision named: colour and paint only, never `--ex-font-family` (metrics-bearing: see §10) and never a geometry
+  (ex-grid ADR-0027/0030).
 - **Meaning of colour** — one meaning each, everywhere:
 
   | Colour | Means | Examples |
@@ -227,9 +229,10 @@ A UI change is not done when it compiles (CLAUDE.md, "Completion reporting"):
 
 Seen while writing this, and not fixed by ADR-0009's change:
 
-- The Rates grid's column headers are cut to `L…`, `C…`, `P…` at their default widths; a header that does not fit
-  should widen its column or say its name in a tooltip.
-- On a phone, the Rates toolbar wraps to three rows; a phone may want its secondary actions in a menu.
+- On a phone, the Rates toolbar wraps to several rows; a phone may want its secondary actions in a menu.
+- A grid's Action Column buttons (Rates' `Flows` and `✕`) are drawn by ExGrid's core, not by the Wrapper, and read
+  as the browser's own grey buttons in both themes. Seen after the switch to `@ex-grid/mantine`; to be raised with
+  ex-grid.
 - A required context field's message repeats its name (`As of: asOf is required.`), because `validate` names the
   field and the message is shown without its label.
 - Touch sizes have not been checked on an iPhone (UX02).

@@ -1,7 +1,24 @@
 /* ExGrid's colours come from its Mantine Wrapper's stylesheet (@ex-grid/mantine/styles.css, loaded in main.tsx), which
-   maps its --ex- Visual Tokens onto the variables MantineProvider writes (ex-grid ADR-0390 §5). Nothing here sets an
-   --ex- token: the hand-written bridge this file held until ADR-0009 also set --ex-font-family to the theme's font,
-   whose widths the grid did not know, so its `####` judgement was made for another face (ex-grid ADR-0027/0390 §9). */
+   maps its --ex- Visual Tokens onto the variables MantineProvider writes (ex-grid ADR-0390 §5). The hand-written
+   bridge this file held until ADR-0009 also set --ex-font-family to the theme's font, whose widths the grid did not
+   know, so its `####` judgement was made for another face (ex-grid ADR-0027/0390 §9). What stays here is paint an
+   owner decision asked for, on WorkbenchGrid's own class, never a font or a geometry (docs/design-guidelines.md §7). */
+
+/* A Header Group (ex-grid ADR-0029's stable class) reads from its left edge, beside its toggle, and its edges are
+   ruled, so where Trade ends and a leg begins shows even when the group is wider than the screen; the toggle is in the
+   primary colour so it can be found (owner, 2026-11-04). Paint only: a rule is a background image, never a border, so
+   no geometry moves (ex-grid ADR-0027). `.qwb-grid.mantine-ex-grid` outranks the Wrapper's `.mantine-ex-grid`
+   whatever order the stylesheets load in. */
+.qwb-grid.mantine-ex-grid {
+  --ex-header-group-toggle-color: var(--mantine-primary-color-filled);
+}
+.qwb-grid .ex-header-group {
+  text-align: left;
+  color: var(--mantine-color-text);
+  background-image:
+    linear-gradient(to right, var(--mantine-color-default-border) 0 1px, transparent 1px),
+    linear-gradient(to top, var(--mantine-color-default-border) 0 1px, transparent 1px);
+}
 
 :root { color-scheme: light dark; }
 [data-mantine-color-scheme='light'] { color-scheme: light; }

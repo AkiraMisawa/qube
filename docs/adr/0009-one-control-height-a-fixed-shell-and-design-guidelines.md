@@ -61,5 +61,4 @@ toward 44px, decided on the iPhone journey (UX02) on a real device.
   `client/package.json`; `@ex-grid/mantine` moves with the ExGrid family's version.
 - The grids' headers are the body's colour at weight 600, Mantine's Table look, instead of the grey band the
   hand-written bridge drew; their menus and filter panel are Mantine's buttons, selects and radios.
-- The guidelines list what was seen and left (§12): truncated Rates column headers, the Rates toolbar's three rows on
-  a phone, a context message that repeats its field's name, touch sizes unchecked on an iPhone.
+- The guidelines list what was seen and left (§12): the Rates toolbar's rows on a phone, the Action Column's buttons, a context message that repeats its field's name, touch sizes unchecked on an iPhone.

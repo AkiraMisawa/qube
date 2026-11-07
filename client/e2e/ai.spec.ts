@@ -34,15 +34,15 @@ test('ADR-0007 §1, §7, ADR-0006 §7: `ai` on the command line makes a line and
   await expect(cards(page).first()).toHaveAttribute('data-status', 'done');
   await expect(pane(page).getByTestId('ai-runtime')).toHaveText('scripted · no model');
   const steps = cards(page).first().getByTestId('ai-step');
-  await expect(steps).toHaveCount(2);
-  await expect(steps.nth(0)).toHaveAttribute('data-outcome', 'done');
-  await expect(steps.nth(1)).toHaveAttribute('data-outcome', 'done');
+  // The workspace, the line in it through the generic create (ADR-0008 §5), and the ticking.
+  await expect(steps).toHaveCount(3);
+  for (let i = 0; i < 3; i++) await expect(steps.nth(i)).toHaveAttribute('data-outcome', 'done');
   await expect(cards(page).first().getByTestId('ai-reply')).toContainText('is ticking live');
 
   const types = (await agUiEvents(page, await posted)).map((e) => e.type);
   expect(types[0]).toBe('RUN_STARTED');
   expect(types.at(-1)).toBe('RUN_FINISHED');
-  expect(types.filter((t) => t === 'TOOL_CALL_RESULT')).toHaveLength(2);
+  expect(types.filter((t) => t === 'TOOL_CALL_RESULT')).toHaveLength(3);
 
   // What the AI opened waits behind the panel in use, and the keyboard was not moved into the pane.
   await expect(page.getByRole('tab', { name: 'Pricing DB' })).toHaveAttribute('aria-selected', 'true');
@@ -56,7 +56,7 @@ test('ADR-0007 §1, §7, ADR-0006 §7: `ai` on the command line makes a line and
   await expect(page.getByTestId('live-toggle')).toHaveText('Stop live');
 });
 
-test('ADR-0005 §4, ADR-0006 §2: in the chat `/` opens its own commands, and a missing term is asked for, not filled in', async ({ page }) => {
+test('ADR-0005 §4, ADR-0006 §2, ADR-0008 §5: in the chat `/` opens its own commands, and a missing term is asked for, not filled in', async ({ page }) => {
   await open(page);
   await page.getByRole('button', { name: 'Show the AI pane' }).click();
   await chat(page).click();
@@ -70,11 +70,13 @@ test('ADR-0005 §4, ADR-0006 §2: in the chat `/` opens its own commands, and a 
   await page.keyboard.type('make a 10y JPY TONA swap, 1bn, valuation date 2026-10-27');
   await page.keyboard.press('Enter');
   await expect(cards(page).first()).toHaveAttribute('data-status', 'done');
-  await expect(cards(page).first().getByTestId('ai-step')).toHaveAttribute('data-outcome', 'refused');
+  // The workspace is made and opened; the line is refused for its direction alone, which no default supplies (the
+  // frequencies come from the JPY profile's template, the quotes from C47), and asked for.
+  await expect(cards(page).first().getByTestId('ai-step').last()).toHaveAttribute('data-outcome', 'refused');
   await expect(cards(page).first().getByTestId('ai-reply')).toContainText('direction');
-  await expect(page.getByRole('tab', { name: /^Rates / })).toHaveCount(0);
+  await expect(page.getByRole('tab', { name: 'Rates 2026-10-27' })).toHaveCount(1);
 
-  await page.keyboard.type('pay fixed, fixed 12m float 12m, spread 0');
+  await page.keyboard.type('pay fixed');
   await page.keyboard.press('Enter');
   await expect(cards(page)).toHaveCount(2);
   await expect(cards(page).nth(1)).toHaveAttribute('data-status', 'done');
@@ -104,4 +106,30 @@ test('ADR-0007 §7, UX03: on a phone-width screen the pane covers the panels, it
   await cards(page).first().getByRole('button', { name: 'Show Rates 2026-10-27' }).click();
   await page.getByRole('button', { name: 'Close the AI pane' }).click();
   await expect(page.getByRole('tab', { name: 'Rates 2026-10-27' })).toHaveAttribute('aria-selected', 'true');
+});
+
+test('ADR-0003, spine 6: a line the AI adds to the open workspace does not make the next edit on the page refused', async ({ page }) => {
+  await open(page);
+  await command(page, 'new rates');
+  await expect(page.getByRole('dialog', { name: 'New Rates workspace' }).getByLabel('Valuation date')).toBeFocused();
+  await page.keyboard.press('Enter');
+  await settled(page, 'Lines');
+
+  // The AI acts on the workspace open in the active panel, so the workspace moves on without this page's queue.
+  await command(page, 'ai', 'make a 10y JPY TONA swap, pay fixed, 1bn, fixed 12m float 12m, spread 0');
+  await expect(cards(page).first()).toHaveAttribute('data-status', 'done');
+  await expect(page.getByTestId('workspace-summary')).toContainText('1 line(s)');
+  await settled(page, 'Lines');
+
+  const row = page.getByLabel('Lines', { exact: true }).getByRole('row', { name: /^L\d+ / }).first();
+  const end = row.locator('[role=gridcell][aria-colindex="5"]');
+  await expect(end).toHaveText('10y');
+  await page.keyboard.press('ControlOrMeta+Shift+G');
+  await page.keyboard.press('ControlOrMeta+Home');
+  for (let i = 0; i < 4; i++) await page.keyboard.press('ArrowRight');
+  await page.keyboard.type('7y');
+  await page.keyboard.press('Enter');
+
+  await expect(end).toHaveText('7y');
+  await expect(page.getByText(/was not changed/)).toHaveCount(0);
 });

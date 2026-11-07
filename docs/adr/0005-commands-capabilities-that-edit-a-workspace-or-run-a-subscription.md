@@ -42,12 +42,14 @@ Three things stop these from being ordinary capabilities:
 4. **No invented terms.** A command that creates something checks its required inputs and refuses with every
    missing one by name ("currency", "notional", "direction"), and the AI asks the user. It does not fill a default
    the user did not choose; the only defaults are those the user's own data already defines (ADR-0003: a new
-   trade's main CSA), or that a confirmed decision names (C40: an empty quote is solved at par).
+   trade's main CSA), or that a confirmed decision names (C40: an empty quote is solved at par). *(2026-11-06: C47 is such a decision: an IRS given no quote is at the money, spread 0 and the fixed leg at par.)*
 5. **The page and the AI share the service.** The fixed page's endpoints and the commands call the same
    application methods, so neither can do what the other cannot.
 
 The Rates commands are `rates.line.create` (one line from its terms, in a workspace of the caller's, created if
-none is named, with the valuation date given), `rates.live.start` and `rates.live.stop`. Pricing once stays
+none is named, with the valuation date given), `rates.live.start` and `rates.live.stop`. *(2026-11-06, ADR-0008 §5:
+`rates.line.create` is replaced by the kernel's `entity.create`, which takes the command line's short terms for an
+existing workspace, and `rates.workspace.create`, which makes an empty workspace at a valuation date.)* Pricing once stays
 `rates.price`, a Run, reached through a workflow over the frozen accepted input, as now.
 
 ## Consequences
