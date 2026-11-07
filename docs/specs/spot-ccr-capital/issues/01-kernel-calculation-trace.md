@@ -1,0 +1,8 @@
+# 01 The kernel's calculation trace
+
+Status: ready-for-agent
+
+ADR-0011 §1–§5: the contract types, kind and leaf-set registration with the TeX marker check, the operation set and
+its evaluator, the reconciliation check, the pairing of Before and After by term id with the Diff rules, the case
+priced on one side, and reading a term with its path, children, parameters and leaf rows. Proven over a synthetic
+trace that is not a regulation.
