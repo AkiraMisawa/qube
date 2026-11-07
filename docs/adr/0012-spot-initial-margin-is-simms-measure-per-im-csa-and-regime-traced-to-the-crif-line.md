@@ -85,7 +85,7 @@ counterparty came into a regime's scope is out of that regime only. The trade gr
 - **CRIF for the synthetic trades** (DEFAULT): IRS, CCS and FX forwards, from the Rates module's pricing at the value
   date. The FX forward is physically settled, so it is exempt in every scope.
 
-### 6. The drill-down (CONFIRMED, owner 2026-11-07; the layout is OPEN)
+### 6. The drill-down (CONFIRMED, owner 2026-11-07; how the tree is drawn is OPEN)
 
 The trace is ADR-0011's, and spot IM registers its kinds there. A kind carries its formula, as an evaluation tree and
 a TeX template, once per methodology version. The engine sends only the values. The workbench reconciles each term
@@ -116,10 +116,15 @@ against its kind, and a term the engine did not return says so.
   A value inside the formula opens its term.
 - **`explain simm <direction> <regime> <path…>`** opens a term from the command line, and the AI reads the same
   trace as data (docs/09), not the screen.
-- **Layout (OPEN, put to the owner 2026-11-07).** There are two options, for SIMM and CCR alike. One is a tree of
-  every level beside the selected term's formula, with drill-in on a phone, as the sample does. The other drills in
-  one level at a time everywhere (ADR-0011 §6's default). The tree needs either a row toggle and indentation in
-  ExGrid, which ExGrid does not have today and would take an ex-grid ADR, or a tree drawn beside the grid.
+- **Layout: the whole tree beside the formula** (CONFIRMED, owner 2026-11-07, for SIMM and CCR alike). On a desktop,
+  every level of the term tree can be open at once, with the selected term's formula beside it and the trades and
+  CRIF lines under it, as the sample does. On a phone, it drills in one level at a time. The alternative, drilling in
+  one level at a time everywhere, was not taken. SIMM is seven levels deep, and finding where a Diff came from means
+  comparing a path and its siblings at once.
+- **How the tree is drawn (OPEN, put to the owner 2026-11-07).** ExGrid has Row Kind, but no row toggle and no
+  indentation. Recommended: add them to ExGrid by an ex-grid ADR, in the manner of its Header Group toggle (ex-grid
+  ADR-0400: the grid draws the toggle and notifies, and the Consumer pushes the rows that open or close). The
+  alternative is a tree drawn beside the grid, which would be a homemade table with numeric columns next to ExGrid.
 
 ### 7. Results on the page
 
@@ -152,6 +157,6 @@ is this one.
 
 ## OPEN
 
-- The drill-down's layout (§6).
+- How the term tree is drawn (§6).
 - Whether IM CSAs can be edited as a what-if (for example, adding a regime).
 - The synthetic phase-in dates and exemptions are illustrative. Company data decides them in production.
