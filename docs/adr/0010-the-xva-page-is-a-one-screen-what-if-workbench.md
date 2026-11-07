@@ -249,7 +249,9 @@ Chords are not assigned here.
 **`set` changes a value without making a case** (owner's question, 2026-11-07; form DEFAULT). It names the cell as
 `vary` does and takes one value: `set CSA-A threshold 5mm`, `set cds 5y 120bp`, `set NS-1 cvaRecovery 40%`. It is
 the same edit a typed cell makes, in the Common layer, or in the side Advanced points at (`set after CSA-A threshold
-5mm` names it). `vary` with a list makes cases; `set` changes the workspace. Like `entity.create` (ADR-0008), it is
+5mm` names it). Trades take the same form: `set T-1001 margin 2bp`, `set T-1001, T-1002 csa CSA-B`, and the B and A
+boxes as `set T-1001 A off`. A value the grid would refuse is refused the same way, by name (a PV Adj while Margin is
+entered, §6). `vary` with a list makes cases; `set` changes the workspace. Like `entity.create` (ADR-0008), it is
 one generic command in the kernel, and each domain registers the rows and fields it reaches and how a value is read.
 
 Those that change the workspace (an edit in any layer, `measures`, `vary`, `add trades`, the scenario commands) and
