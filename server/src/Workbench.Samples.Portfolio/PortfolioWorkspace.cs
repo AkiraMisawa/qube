@@ -72,6 +72,7 @@ public sealed class PortfolioEditRules : IEditRules
         (Entity.Netting, _) => "portfolio.netting",
         (Entity.Credit, _) => "xva.credit",
         (Entity.Selection, _) => "portfolio.selection",
+        (Entity.Settings, _) => "portfolio.settings",
         _ => throw new ArgumentException($"No portfolio edit kind for {target.Entity}.{target.Field}."),
     };
 
@@ -86,8 +87,8 @@ public sealed class PortfolioEditRules : IEditRules
     public static EditTarget Target(PortfolioSourceVersion source, string entity, string field)
     {
         var (kind, id) = Entity.Split(entity);
-        // The selection of measures is the workspace's, whichever counterparty it is on.
-        if (kind == Entity.Selection) return new EditTarget(WorkspaceScope, entity, field);
+        // The selection of measures and the settings are the workspace's, whichever counterparty it is on.
+        if (kind is Entity.Selection or Entity.Settings) return new EditTarget(WorkspaceScope, entity, field);
         var tradeContent = kind == Entity.Trade && field is not ("before" or "after" or "csa" or "curve");
         var isNew = kind == Entity.Trade && source.Trade(id)?.IsNew == true;
         return new EditTarget(tradeContent && isNew ? $"new:{id}" : $"cp:{source.Registration.Key}", entity, field);
@@ -171,6 +172,7 @@ public static class PortfolioMaterialiser
             .Append(Entity.Of(Entity.Grid, Entity.ExistingGrid))
             .Append(Entity.Of(Entity.Credit, source.Registration.Key))
             .Append(Entity.Measures)
+            .Append(Entity.WorkspaceSettings)
             .ToHashSet();
         return entities.Contains;
     }
@@ -180,6 +182,12 @@ public static class PortfolioMaterialiser
         state.Overrides.Values.SingleOrDefault(o => o.Target.Entity == Entity.Measures && o.Target.Field == Entity.MeasuresField) is { Value: JsonArray chosen }
             ? [.. register.Ids.Where(id => chosen.Any(c => c!.GetValue<string>() == id))]
             : register.Ids;
+
+    /// <summary>The currency the figures are shown in (ADR-0010 §1): the user's choice, else the profile's.</summary>
+    public static string DisplayCurrency(WorkspaceState state) =>
+        state.Overrides.Values.SingleOrDefault(o => o.Target.Entity == Entity.WorkspaceSettings && o.Target.Field == Entity.DisplayCurrency) is { Value: { } chosen }
+            ? chosen.GetValue<string>()
+            : PortfolioCatalog.Profile.DisplayCurrency;
 
     public static IReadOnlyList<EffectiveCsa> Csas(WorkspaceState state)
     {

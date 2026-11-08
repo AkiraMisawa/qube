@@ -1,4 +1,4 @@
-import { useEffect, useId, useState, type ReactNode } from 'react';
+import { useEffect, useId, useState, type ReactNode, type Ref } from 'react';
 import { Text, TextInput } from '@mantine/core';
 import type { Parsed } from './editing';
 
@@ -19,7 +19,7 @@ export function ToolbarField({ label, wide, children }: { readonly label: string
  * A toolbar field that sends its value on Enter or when left, and only when it changed and reads correctly. A value
  * it cannot read marks the input invalid and is said once below the toolbars, so the row keeps its height.
  */
-export function CommitField({ label, value, placeholder, modified, description, parse, onCommit, onIssue }: {
+export function CommitField({ label, value, placeholder, modified, description, parse, onCommit, onIssue, inputRef }: {
   readonly label: string;
   readonly value: string;
   readonly placeholder?: string;
@@ -29,6 +29,8 @@ export function CommitField({ label, value, placeholder, modified, description, 
   readonly parse: (text: string) => Parsed;
   readonly onCommit: (value: unknown) => void;
   readonly onIssue: (message: string | undefined) => void;
+  /** The input, for a command that puts the keyboard on it. */
+  readonly inputRef?: Ref<HTMLInputElement>;
 }) {
   const [draft, setDraft] = useState(value);
   const [invalid, setInvalid] = useState(false);
@@ -45,7 +47,7 @@ export function CommitField({ label, value, placeholder, modified, description, 
     <ToolbarField label={label}>
       {(id) => (
         <TextInput id={id} size="xs" className="qwb-toolbar-input qwb-toolbar-input--text" value={draft} error={invalid}
-          {...(placeholder === undefined ? {} : { placeholder })}
+          {...(placeholder === undefined ? {} : { placeholder })} {...(inputRef === undefined ? {} : { ref: inputRef })}
           {...(modified === true ? { 'data-modified': true, title: description ?? 'Set by you', classNames: { input: 'qwb-modified' } } : {})}
           onChange={(e) => setDraft(e.currentTarget.value)} onBlur={commit}
           onKeyDown={(e) => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') { setDraft(value); if (invalid) settle(undefined); } }} />

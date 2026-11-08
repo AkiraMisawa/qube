@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { RegisteredMeasure } from './contracts';
-import { metricsGrid, metricsTable, pricedMeasures, priceLabel, tradeCounts, type ModuleResult } from './metrics';
+import { headlines, metricsGrid, metricsTable, pricedMeasures, priceLabel, tradeCounts, type ModuleResult } from './metrics';
 
 // The Metrics dock as a pure reading of the Run (ADR-0010 §7): a line per case and measure metric, Before, After and
 // Diff, and a status in words where there is no figure. Every name and figure is synthetic.
@@ -136,3 +136,20 @@ describe('priceLabel', () => {
     expect(priceLabel(register, ['cva'], 1, { before: true, after: false })).toBe('Price Before only · CVA · 1 case');
   });
 });
+
+describe('headlines', () => {
+  it('ADR-0010 §7: the collapsed dock gives each case each measure\'s headline Diff', () => {
+    const table = metricsTable(register, ['cva', 'fva'], { xva: answered([row('cva', 'cva', -100, -150), row('cva', 'cvaCharge', -125, -187.5), row('fva', 'fva', -10, -12)]) });
+
+    expect(headlines(register, table)).toEqual([{ key: 'base', text: 'Workspace · CVA Diff -50.00 · FVA Diff -2.00' }]);
+  });
+
+  it('ADR-0010 §7: a one-sided case shows its priced side, named, and a failed measure its word, never 0', () => {
+    const oneSided = metricsTable(register, ['cva'], { xva: answered([row('cva', 'cva', null, -150), row('cva', 'cvaCharge', null, -187.5)]) });
+    const failed = metricsTable(register, ['cva'], { xva: { kind: 'unavailable', reason: 'The engine is down.' } });
+
+    expect(headlines(register, oneSided).map((l) => l.text)).toEqual(['Workspace · CVA After -150.00']);
+    expect(headlines(register, failed).map((l) => l.text)).toEqual(['All cases · CVA unavailable']);
+  });
+});
+

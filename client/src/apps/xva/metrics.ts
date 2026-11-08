@@ -143,6 +143,27 @@ export function metricsGrid(table: MetricsTable): MetricsGrid {
 }
 
 /**
+ * The collapsed dock (ADR-0010 §7): one line per case, each priced measure's headline metric as its Diff, or the priced
+ * side, named, where the case is one-sided (`Workspace · CVA After -150.00 · FVA After -12.00`); a figure there is
+ * not is its word, never 0.
+ */
+export function headlines(register: readonly RegisteredMeasure[], table: MetricsTable): readonly { readonly key: string; readonly text: string }[] {
+  const grid = metricsGrid(table);
+  return grid.rows.map((row) => {
+    const parts = register.flatMap((measure) => {
+      const line = row.cells[`${measure.id}.${measure.headline}`];
+      if (line === undefined) return [];
+      if (line.diff.status === 'priced') return [`${line.metricTitle} Diff ${line.diff.text}`];
+      if (line.after.status === 'priced' && line.before.status === 'notPriced') return [`${line.metricTitle} After ${line.after.text}`];
+      if (line.before.status === 'priced' && line.after.status === 'notPriced') return [`${line.metricTitle} Before ${line.before.text}`];
+      const word = [line.diff, line.after, line.before].find((c) => c.status !== 'priced' && c.status !== 'notPriced') ?? line.diff;
+      return [`${line.metricTitle} ${word.text === '' ? 'not priced' : word.text}`];
+    });
+    return { key: row.key, text: [row.title, ...parts].join(' · ') };
+  });
+}
+
+/**
  * Each measure's trade counts, Before → After (ADR-0010 §5: `FVA 300 → 301`), from its first line that counted both.
  * A measure with a membership rule counts its members, so FVA's may differ from CVA's.
  */

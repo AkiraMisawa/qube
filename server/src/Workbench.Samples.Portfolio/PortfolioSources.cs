@@ -46,8 +46,9 @@ public sealed record SourceTrade(
     // The official PV the books hold for an existing trade (ADR-0010 §6), in its currency; a new trade has none.
     decimal? OfficialPv = null);
 
-/// <summary>The configured baseline profile: the curve an uncollateralised trade starts on (docs/03 §2.4).</summary>
-public sealed record BaselineProfile(string ProfileVersion, string UncollateralisedCurve);
+/// <summary>The configured baseline profile: the curve an uncollateralised trade starts on (docs/03 §2.4), and the
+/// currency figures are shown in until the user chooses another (ADR-0010 §1).</summary>
+public sealed record BaselineProfile(string ProfileVersion, string UncollateralisedCurve, string DisplayCurrency);
 
 public static class PortfolioCatalog
 {
@@ -74,7 +75,7 @@ public static class PortfolioCatalog
         new("MA-003", "NS-003", "XYZ/LE-03", [], null, Enforceable: false),
     ];
 
-    public static readonly BaselineProfile Profile = new("profile-2026-10", "jpy_ois");
+    public static readonly BaselineProfile Profile = new("profile-2026-10", "jpy_ois", "JPY");
 
     public static Registration Find(string key) =>
         Registrations.SingleOrDefault(r => r.Key == key) ?? throw new ArgumentException($"No registration {key}.");
@@ -179,6 +180,9 @@ public sealed class PortfolioSourceVersion : ISourceVersion
             // The measures Price runs (ADR-0010 §10). The source has no choice of its own: empty means every measure registered.
             case Entity.Selection when id == Entity.MeasuresId:
                 return field == Entity.MeasuresField ? new((JsonNode?)null) : null;
+            // The workspace's own settings (ADR-0010 §1): the display currency starts as the profile's.
+            case Entity.Settings when id == Entity.WorkspaceId:
+                return field == Entity.DisplayCurrency ? new(PortfolioCatalog.Profile.DisplayCurrency) : null;
             case Entity.Credit when id == Registration.Key:
                 return field switch
                 {
@@ -239,11 +243,17 @@ public static class Entity
     public const string ExistingGrid = "existing";
     public const string Credit = "credit";
     public const string Selection = "selection";
+    public const string Settings = "settings";
 
     /// <summary>The selection of measures Price runs: <c>selection:measures</c>, field <c>measures</c> (ADR-0010 §10).</summary>
     public const string MeasuresId = "measures";
     public const string MeasuresField = "measures";
     public static readonly string Measures = Of(Selection, MeasuresId);
+
+    /// <summary>The workspace's settings, <c>settings:workspace</c>: its display currency (ADR-0010 §1).</summary>
+    public const string WorkspaceId = "workspace";
+    public const string DisplayCurrency = "displayCurrency";
+    public static readonly string WorkspaceSettings = Of(Settings, WorkspaceId);
 
     public static string Of(string kind, string id) => $"{kind}:{id}";
 

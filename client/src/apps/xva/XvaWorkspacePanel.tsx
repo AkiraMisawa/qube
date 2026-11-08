@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import './xva.css';
-import { Alert, Badge, Button, Group, Modal, Select, Stack, Table, Text, TextInput } from '@mantine/core';
+import { Alert, Badge, Button, Group, Modal, SegmentedControl, Select, Stack, Table, Text, TextInput } from '@mantine/core';
 import { GridSource, type CellState, type GridColumn, type GridContextMenuContext, type GridEditIntent } from '@ex-grid/core';
 import type { ExGridApi } from '@ex-grid/react';
 import { WorkbenchGrid } from '../../platform/grid/WorkbenchGrid';
@@ -10,12 +10,13 @@ import { useWorkspaceContext } from '../../platform/workspace/WorkspaceProvider'
 import { keyOf } from '../../platform/workspace/workspaceStore';
 import { registerGridFocus } from '../../shell/focus';
 import type { XvaApi } from './api';
-import type { EffectiveTrade, HeldEdit, RegisteredColumn, Resolution, ScopeDrop, XvaWorkspaceView } from './contracts';
+import type { EffectiveTrade, HeldEdit, RegisteredColumn, RegisteredMeasure, Resolution, ScopeDrop, XvaWorkspaceView } from './contracts';
 import { registerXvaPage } from './commands';
 import { XvaResult } from './XvaResult';
-import { EditQueue, MEASURES_ENTITY, tradeFields, type PendingEdit } from './editing';
+import { EditQueue, MEASURES_ENTITY, SETTINGS_ENTITY, tradeFields, type PendingEdit } from './editing';
 import { ToolbarField } from './fields';
-import { XvaInputs } from './XvaInputs';
+import { XvaInputs, type InputTab } from './XvaInputs';
+import { Resizer } from './layout';
 import { priceLabel } from './metrics';
 import { differs, originalMessage } from './original';
 import { copyRich, downloadRun } from '../../platform/runs';
@@ -57,28 +58,43 @@ const assignment: readonly GridColumn<Row>[] = [
   column('after', 'After', 'boolean', 80, { editable: true }),
 ];
 // The selected modules' columns stand between B and A and these (ADR-0010 §6, §10): on the New grid, XVA's PV01,
-// Margin and PV Adj.
+// Margin and PV Adj; then a membership column per selected measure that declares one, such as FVA's.
 const derived: readonly GridColumn<Row>[] = [
-  // FVA's membership, read-only and decided on the server (ADR-0010 §5): in or out, with its reason.
-  { name: 'fva', header: 'FVA', type: 'text', width: 340, value: (row) => fvaOf(row), format: text },
   { name: 'issues', header: 'Issues', type: 'text', width: 260, value: (row) => (row.issues.length === 0 ? undefined : row.issues.join(' ')), format: text },
 ];
-const existingColumns: readonly GridColumn<Row>[] = [
+const existingTerms: readonly GridColumn<Row>[] = [
   ...leading,
   column('lastFixing', 'Last fixing', 'number', 116, { format: (v) => rate.format(v as number) }),
   // The books' PV, the source's and read-only (ADR-0010 §6): the PV an adjustment uses.
   column('officialPv', 'Official PV', 'number', 152, { format: (v) => amount.format(v as number) }),
   ...assignment,
-  ...derived,
 ];
 
 export type TradeGrid = 'new' | 'existing';
 
-/** A trade's FVA membership as the server decided it: `In · CSA-B: one-way`, or `Out` with its reason. */
-export function fvaOf(row: Row): string | undefined {
-  const m = row.membership?.fva;
+/** A trade's membership of a measure as the server decided it: `In · CSA-B: one-way`, or `Out` with its reason. */
+export function membershipOf(row: Row, measure: string): string | undefined {
+  const m = row.membership?.[measure];
   return m === undefined ? undefined : `${m.in ? 'In' : 'Out'} · ${m.reason}`;
 }
+
+/** The read-only membership column of a measure that declares one (ADR-0010 §10), titled by the measure. */
+const membershipColumn = (measure: RegisteredMeasure): GridColumn<Row> =>
+  ({ name: `membership.${measure.id}`, header: measure.title, type: 'text', width: 340, value: (row) => membershipOf(row, measure.id), format: text });
+
+/**
+ * The heights of the page's own parts (ADR-0010 §1), in pixels the page sets and never reads back. The input tabs fit
+ * their content until the handle is dragged: Netting's one row, or the CSA grid's rows up to about seven. The dock's
+ * Metrics take up to about four cases. What the context bar, the status line, the tab rows and the captions take
+ * together is TAKEN; the Existing grid has the window's rest.
+ */
+const RESIZER = 12;
+const DOCK_HEIGHT = 136;
+const TAKEN = 260;
+const inputsFit = (tab: InputTab, csas: number) => (tab === 'netting' ? 84 : csas === 0 ? 40 : Math.min(48 + csas * 28, 240) + 12);
+
+/** The page's parts, which below `sm` are three tabs (ADR-0010 §1). */
+type Section = 'inputs' | 'trades' | 'results';
 
 // A value that differs from Original is marked (ADR-0010 §2), by value and not by edit: one a rule moved is marked, one
 // edited back is not. ExGrid's `modified` mark stands in for the Before and After fills until its Split Fill ships.
@@ -165,7 +181,27 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api }: { readonly pane
   const columnsKey = tradeColumns === undefined ? '' : tradeColumns.map((c) => c.field).join('|');
   const registered = useRef<readonly RegisteredColumn[]>([]);
   registered.current = tradeColumns ?? [];
-  const newColumns = useMemo<readonly GridColumn<Row>[]>(() => [...leading, ...assignment, ...moduleColumns(registered.current), ...derived], [columnsKey]);
+  // A membership column per selected measure that declares one (ADR-0010 §10), on both grids.
+  const declared = (view.data?.measures ?? []).filter((m) => m.declaresMembership && view.data?.selectedMeasures.includes(m.id) === true);
+  const declaredKey = declared.map((m) => m.id).join('|');
+  const declaring = useRef<readonly RegisteredMeasure[]>([]);
+  declaring.current = declared;
+  const membership = useMemo(() => declaring.current.map(membershipColumn), [declaredKey]);
+  const newColumns = useMemo<readonly GridColumn<Row>[]>(() => [...leading, ...assignment, ...moduleColumns(registered.current), ...membership, ...derived], [columnsKey, membership]);
+  const existingColumns = useMemo<readonly GridColumn<Row>[]>(() => [...existingTerms, ...membership, ...derived], [membership]);
+
+  // The layout (ADR-0010 §1): the input tabs open, or collapsed to their row, at a height the user drags; the dock the
+  // same at the bottom; and below `sm` the part in view.
+  const [section, setSection] = useState<Section>('trades');
+  const [inputTab, setInputTab] = useState<InputTab>('netting');
+  const [inputsOpen, setInputsOpen] = useState(true);
+  // The input tabs are as high as the open tab's content until the handle is dragged; from then on, as high as it set.
+  const [inputsDragged, setInputsDragged] = useState<number | undefined>(undefined);
+  const [dockOpen, setDockOpen] = useState(true);
+  const [dockHeight, setDockHeight] = useState(DOCK_HEIGHT);
+  const [focusRequest, setFocusRequest] = useState(0);
+  /** `open netting`, `open csa`: the tab open and in view, with the keyboard in it (ADR-0010 §9). */
+  const openTab = (tab: InputTab) => { setInputTab(tab); setInputsOpen(true); setSection('inputs'); setFocusRequest((n) => n + 1); };
 
   // A result that arrives changes the New grid's rows with no edit: they are read again when the count waiting moves.
   const pendingCells = view.data?.pendingCells;
@@ -202,11 +238,15 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api }: { readonly pane
   }, [panelId]);
 
   /** A command that re-reads the source: the order may move, so the grid starts over (ExGrid ADR-0011). */
-  const reacquire = async (label: string, run: () => Promise<{ readonly workspace: XvaWorkspaceView; readonly carried: { readonly carried: number; readonly conflicted: number; readonly lost: number } }>) => {
+  const reacquire = async (label: string, run: (revision: number) => Promise<{ readonly workspace: XvaWorkspaceView; readonly carried: { readonly carried: number; readonly conflicted: number; readonly lost: number } }>) => {
     setBusy(label);
     try {
-      const { workspace: next, carried } = await run();
-      queue.rebase(next.revision);
+      // After the edits already sent, so that what they changed carries (spine 6).
+      const { workspace: next, carried } = await queue.after(async (revision) => {
+        const answer = await run(revision);
+        queue.rebase(answer.workspace.revision);
+        return answer;
+      });
       show(next);
       sources.requery();
       workspace.notify(`${label}: ${carried.carried} edit(s) carried, ${carried.conflicted} in conflict, ${carried.lost} lost.`);
@@ -223,7 +263,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api }: { readonly pane
   const chooseCounterparty = async (registration: string | null) => {
     if (registration === null || view.data === undefined || registration === view.data.registration.key) return;
     const drop = await api.previewCounterpartyChange(workspaceId);
-    if (drop.count === 0) await reacquire('Counterparty changed', () => api.changeCounterparty(workspaceId, queue.revision, registration, 0));
+    if (drop.count === 0) await reacquire('Counterparty changed', (revision) => api.changeCounterparty(workspaceId, revision, registration, 0));
     else setConfirm({ registration, drop });
   };
 
@@ -232,7 +272,9 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api }: { readonly pane
   const price = async () => {
     setBusy('Pricing');
     try {
-      const run = await api.price(workspaceId, queue.revision, crypto.randomUUID());
+      // Price prices the edits already sent, once they have landed (spine 6).
+      const key = crypto.randomUUID();
+      const run = await queue.after((revision) => api.price(workspaceId, revision, key));
       setPriced(run.runId);
       void queryClient.invalidateQueries({ queryKey: ['xva', workspaceId] });
       void queryClient.invalidateQueries({ queryKey: ['history'] });
@@ -287,9 +329,12 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api }: { readonly pane
   const setSide = (side: 'before' | 'after', value: boolean, grid: TradeGrid = lastGrid.current) =>
     void queue.push({ entity: `grid:${grid}`, field: side, value });
 
+  const refresh = () => reacquire('Refreshed', (revision) => api.refresh(workspaceId, revision));
+  const setCurrency = (currency: string) => void queue.push({ entity: SETTINGS_ENTITY, field: 'displayCurrency', value: currency });
+
   // The commands run what the page's own controls run, as the page stands when they run (ADR-0010 §9).
-  const pageRef = useRef({ price, setMeasures, setSide, retry, copyQuote, download, measures: () => view.data?.measures ?? [] });
-  pageRef.current = { price, setMeasures, setSide, retry, copyQuote, download, measures: () => view.data?.measures ?? [] };
+  const pageRef = useRef({ price, setMeasures, setSide, retry, copyQuote, download, refresh, setCurrency, openTab, measures: () => view.data?.measures ?? [], currencies: () => view.data?.currencies ?? [] });
+  pageRef.current = { price, setMeasures, setSide, retry, copyQuote, download, refresh, setCurrency, openTab, measures: () => view.data?.measures ?? [], currencies: () => view.data?.currencies ?? [] };
   useEffect(() => {
     registerXvaPage(panelId, {
       price: () => void pageRef.current.price(),
@@ -298,7 +343,11 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api }: { readonly pane
       retry: () => void pageRef.current.retry(),
       downloadRun: () => pageRef.current.download(),
       copyQuote: () => void pageRef.current.copyQuote(),
+      refresh: () => void pageRef.current.refresh(),
+      setCurrency: (currency) => pageRef.current.setCurrency(currency),
+      openTab: (tab) => pageRef.current.openTab(tab),
       measures: () => pageRef.current.measures(),
+      currencies: () => pageRef.current.currencies(),
     });
     return () => registerXvaPage(panelId, undefined);
   }, [panelId]);
@@ -312,19 +361,38 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api }: { readonly pane
   const pricedRevision = ws.runs.find((r) => r.runId === pricedRun)?.revision;
   const notBusy = busy === undefined;
 
+  const enforceable = ws.agreement.enforceable ? 'enforceable' : 'not enforceable';
+  const inputsHeight = inputsDragged ?? inputsFit(inputTab, ws.csas.length);
+  const newHeight = 48 + Math.max(1, Math.min(ws.newTrades, 8)) * 28;
+  // What the parts other than Existing take, from the heights the page set (never measured): Existing has the rest.
+  const taken = TAKEN + (inputsOpen ? inputsHeight + RESIZER : 0) + newHeight
+    + (pricedRun === undefined ? 24 : dockOpen ? dockHeight + RESIZER + 32 : 48);
   return (
-    <Stack gap="sm" className="qwb-xva">
-      {/* The toolbar (docs/design-guidelines.md §3, §4): one 30px Control Height, each label beside its input. */}
+    <Stack gap="sm" className="qwb-xva" data-section={section} style={{ ['--qwb-xva-taken' as string]: `${taken}px` }}>
+      {/* The context bar (ADR-0010 §1; docs/design-guidelines.md §3, §4): one 30px Control Height, each label beside its input. */}
       <div className="qwb-toolbar" role="toolbar" aria-label="Workspace">
+        <ValueDate value={ws.context.valueDate} disabled={!notBusy}
+          onCommit={(date) => void reacquire('Value date moved', (revision) => api.changeValueDate(workspaceId, revision, date))} />
         <ToolbarField label="Counterparty" wide>
           {(id) => (
-            <Select id={id} size="xs" className="qwb-toolbar-input qwb-toolbar-input--wide" allowDeselect={false} value={ws.registration.key}
-              data={(registrations.data ?? [ws.registration]).map((r) => ({ value: r.key, label: `${r.key} · ${r.name}` }))}
+            <Select id={id} size="xs" className="qwb-toolbar-input qwb-toolbar-input--wide" allowDeselect={false} searchable value={ws.registration.key}
+              data={(registrations.data ?? [ws.registration]).map((r) => ({ value: r.key, label: `${r.code} | ${r.legalEntity} | ${r.name}` }))}
               onChange={(value) => void chooseCounterparty(value)} disabled={!notBusy} comboboxProps={{ withinPortal: true }} />
           )}
         </ToolbarField>
-        <ValueDate value={ws.context.valueDate} disabled={!notBusy}
-          onCommit={(date) => void reacquire('Value date moved', () => api.changeValueDate(workspaceId, queue.revision, date))} />
+        <div className="qwb-toolbar-field" data-testid="netting-set">
+          <Text size="xs" c="dimmed" className="qwb-toolbar-label">Netting set</Text>
+          <Badge variant="light" color={ws.agreement.enforceable ? 'gray' : 'yellow'} size="lg" radius="sm"
+            title={`${ws.agreement.maId}, the main netting set, is ${enforceable} (the source's).`}>{ws.agreement.nettingSetId} · {enforceable}</Badge>
+        </div>
+        <ToolbarField label="Currency">
+          {(id) => (
+            <Select id={id} size="xs" className="qwb-toolbar-input qwb-toolbar-input--currency" allowDeselect={false} value={ws.displayCurrency}
+              data={ws.currencies} onChange={(value) => { if (value !== null) setCurrency(value); }} disabled={!notBusy} comboboxProps={{ withinPortal: true }} />
+          )}
+        </ToolbarField>
+        <Button size="xs" variant="default" onClick={() => void refresh()} loading={busy === 'Refreshed'} disabled={!notBusy && busy !== 'Refreshed'}
+          title="Acquire the trades again for this value date; your edits carry or are held.">Refresh</Button>
         <div className="qwb-toolbar-field" role="group" aria-label="Measures">
           <Text size="xs" c="dimmed" className="qwb-toolbar-label" aria-hidden>Measures</Text>
           {ws.measures.map((m) => {
@@ -339,29 +407,52 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api }: { readonly pane
         <Button size="xs" onClick={() => void price()} loading={busy === 'Pricing'} disabled={!notBusy && busy !== 'Pricing'} data-testid="price"
           {...(blocking > 0 ? { title: `${blocking} held edit(s) on priced trades must be resolved first.` } : {})}>{priceLabel(ws.measures, ws.selectedMeasures, 1, { before: ws.inBefore > 0, after: ws.inAfter > 0 })}</Button>
       </div>
-      <XvaInputs ws={ws} onIssue={setIssue} push={(entity, field, value) => void queue.push({ entity, field, value })} />
-      <Group gap="xs" wrap="wrap">
-        <Badge variant="light" color="gray">{ws.agreement.maId} · {ws.agreement.nettingSetId}</Badge>
-        <Badge variant="light" color="gray">{ws.agreement.collateralised ? `main CSA ${ws.agreement.mainCsaId}` : ws.agreement.noCsa}</Badge>
-        <Text size="xs" c="dimmed" data-testid="workspace-summary">{ws.trades} trades · {ws.overrides} edit(s) · revision {ws.revision} · {ws.sourceVersion}</Text>
+      {/* The status line: what the figures stand on, and SIMULATED while a provider is. */}
+      <Group gap="xs" wrap="wrap" className="qwb-xva-status">
+        <Text size="xs" data-testid="workspace-summary">{ws.trades} trades · {ws.overrides} edit(s) · revision {ws.revision} · {ws.sourceVersion}</Text>
+        <Text size="xs">{ws.agreement.maId} · {ws.agreement.collateralised ? `main CSA ${ws.agreement.mainCsaId}` : ws.agreement.noCsa}</Text>
+        {ws.simulated.length > 0 && (
+          <Badge variant="light" color="yellow" data-testid="simulated" title={`Figures from a simulated provider: ${ws.simulated.join(', ')}. They are not a model of anything.`}>SIMULATED</Badge>
+        )}
       </Group>
+      {/* Below `sm` the screen is three tabs (ADR-0010 §1), with the context bar above them. */}
+      <SegmentedControl hiddenFrom="sm" size="xs" fullWidth aria-label="Part of the page" value={section} onChange={(v) => setSection(v as Section)}
+        data={[{ value: 'inputs', label: 'Inputs' }, { value: 'trades', label: 'Trades' }, { value: 'results', label: 'Results' }]} />
+      <div data-part="inputs" className="qwb-xva-part">
+        <XvaInputs ws={ws} onIssue={setIssue} push={(entity, field, value) => void queue.push({ entity, field, value })}
+          tab={inputTab} onTab={(tab) => { setInputTab(tab); setInputsOpen(true); }} open={inputsOpen} onOpen={setInputsOpen} height={inputsHeight} focusRequest={focusRequest} />
+        {inputsOpen && <Resizer label="Height of the input tabs" value={inputsHeight} min={48} max={640} grows="down" onChange={setInputsDragged} />}
+      </div>
       {issue !== undefined && <Text size="xs" c="red" role="alert" data-testid="field-issue">{issue}</Text>}
-      {pricedRun !== undefined && <XvaResult runId={pricedRun} pricedRevision={pricedRevision} revision={ws.revision} register={ws.measures} onOpen={() => openRun(pricedRun)} onCopyQuote={() => void copyQuote()} />}
-      <HeldEdits conflicts={ws.conflicts} lost={ws.lost} resolve={(edit, resolution) => void queue.push({ entity: edit.entity, field: edit.field, resolution })} />
-      {failure !== undefined && <Alert color="red" variant="light" withCloseButton onClose={() => setFailure(undefined)} title="The trades could not be read">{failure}</Alert>}
-      {/* New trades above Existing (ADR-0010 §6): New as high as its rows, about eight at most; Existing takes the rest. */}
-      <div className="qwb-xva-grids">
-        <TradeCaption title="New trades" count={ws.newTrades} grid="new" setSide={setSide} disabled={!notBusy} />
-        <div aria-label="New trades" onFocusCapture={() => { lastGrid.current = 'new'; }}>
-          <WorkbenchGrid<Row> ref={newGrid} columns={newColumns} source={sources.new} onEdit={onEdit} cellState={cellState} cellMessage={cellMessage}
-            contextCommands={contextCommands} commandLabel={commandLabel}
-            density="compact" viewportWidth="stretch" viewportHeight={48 + Math.max(1, Math.min(ws.newTrades, 8)) * 28} pinnedColumnCount={1} locale="en-US" />
+      <div data-part="trades" className="qwb-xva-part">
+        <HeldEdits conflicts={ws.conflicts} lost={ws.lost} resolve={(edit, resolution) => void queue.push({ entity: edit.entity, field: edit.field, resolution })} />
+        {failure !== undefined && <Alert color="red" variant="light" withCloseButton onClose={() => setFailure(undefined)} title="The trades could not be read">{failure}</Alert>}
+        {/* New trades above Existing (ADR-0010 §6): New as high as its rows, about eight at most; Existing takes the rest. */}
+        <div className="qwb-xva-grids">
+          <TradeCaption title="New trades" count={ws.newTrades} grid="new" setSide={setSide} disabled={!notBusy} />
+          <div aria-label="New trades" onFocusCapture={() => { lastGrid.current = 'new'; }}>
+            <WorkbenchGrid<Row> ref={newGrid} columns={newColumns} source={sources.new} onEdit={onEdit} cellState={cellState} cellMessage={cellMessage}
+              contextCommands={contextCommands} commandLabel={commandLabel}
+              density="compact" viewportWidth="stretch" viewportHeight={newHeight} pinnedColumnCount={1} locale="en-US" />
+          </div>
+          <TradeCaption title="Existing trades" count={ws.trades - ws.newTrades} grid="existing" setSide={setSide} disabled={!notBusy} />
+          <div aria-label="Existing trades" onFocusCapture={() => { lastGrid.current = 'existing'; }}>
+            <WorkbenchGrid<Row> className="qwb-xva-trades" columns={existingColumns} source={sources.existing} onEdit={onEdit} cellState={cellState} cellMessage={cellMessage}
+              density="compact" viewportWidth="stretch" viewportHeight="stretch" pinnedColumnCount={1} locale="en-US" />
+          </div>
         </div>
-        <TradeCaption title="Existing trades" count={ws.trades - ws.newTrades} grid="existing" setSide={setSide} disabled={!notBusy} />
-        <div aria-label="Existing trades" onFocusCapture={() => { lastGrid.current = 'existing'; }}>
-          <WorkbenchGrid<Row> className="qwb-xva-trades" columns={existingColumns} source={sources.existing} onEdit={onEdit} cellState={cellState} cellMessage={cellMessage}
-            density="compact" viewportWidth="stretch" viewportHeight="stretch" pinnedColumnCount={1} locale="en-US" />
-        </div>
+      </div>
+      {/* The result dock (ADR-0010 §7) at the bottom, in view while the trades scroll: one line a case collapsed. */}
+      <div data-part="results" className="qwb-xva-part qwb-xva-dock">
+        {pricedRun === undefined
+          ? <Text size="sm" data-testid="xva-result-none">Nothing is priced yet. Price shows its figures here.</Text>
+          : (
+            <>
+              {dockOpen && <Resizer label="Height of the result dock" value={dockHeight} min={48} max={560} grows="up" onChange={setDockHeight} />}
+              <XvaResult runId={pricedRun} pricedRevision={pricedRevision} revision={ws.revision} register={ws.measures} onOpen={() => openRun(pricedRun)}
+                onCopyQuote={() => void copyQuote()} open={dockOpen} onOpenChange={setDockOpen} height={dockHeight} />
+            </>
+          )}
       </div>
       <Modal opened={confirm !== undefined} onClose={() => setConfirm(undefined)} title="Change counterparty" trapFocus transitionProps={{ duration: 0 }}>
         {confirm !== undefined && (
@@ -375,7 +466,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api }: { readonly pane
               <Button data-autofocus color="red" onClick={() => {
                 const { registration, drop } = confirm;
                 setConfirm(undefined);
-                void reacquire('Counterparty changed', () => api.changeCounterparty(workspaceId, queue.revision, registration, drop.count));
+                void reacquire('Counterparty changed', (revision) => api.changeCounterparty(workspaceId, revision, registration, drop.count));
               }}>Drop {confirm.drop.count} and change</Button>
             </Group>
           </Stack>

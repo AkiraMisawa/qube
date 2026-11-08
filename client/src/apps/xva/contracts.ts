@@ -152,6 +152,11 @@ export interface XvaWorkspaceView {
   readonly tradeColumns: readonly RegisteredColumn[];
   /** How many of those cells on the new trades still wait for a result: the page asks again while any does. */
   readonly pendingCells: number;
+  /** The currency the figures are shown in, and those it may be (ADR-0010 §1). */
+  readonly displayCurrency: string;
+  readonly currencies: readonly string[];
+  /** The selected modules whose figures come from a simulated provider: the page says `SIMULATED` while any is. */
+  readonly simulated: readonly string[];
 }
 
 export interface RowPage {

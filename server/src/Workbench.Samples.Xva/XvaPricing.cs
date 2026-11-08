@@ -36,6 +36,9 @@ public sealed class XvaMeasures(Pv01Provider pv01, decimal fvaLimitGbp = 1_000_0
 
     public string Id => Module;
 
+    /// <summary>Its step is the fake engine's (<see cref="FakeXvaPrice"/>), and its PV01 the simulated one's.</summary>
+    public bool Simulated => true;
+
     public static IReadOnlyList<MeasureDefinition> Definitions { get; } =
     [
         // The request that prices CVA also values the portfolio: its PV is the value a case adds, which Copy quote quotes
@@ -211,7 +214,10 @@ public sealed class FakeXvaPrice : ICapabilityHandler
         var recovery = credit["cvaRecovery"]?.GetValue<decimal>() ?? credit["cdsRecovery"]!.GetValue<decimal>();
         var trades = input["trades"]!.AsArray().Select(t => t!).ToList();
         var definitions = XvaMeasures.Definitions.ToDictionary(m => m.Id);
-        const string currency = "JPY";
+        // The toy figures are made in JPY and reported in the display currency Price froze (ADR-0010 §1, §7), at the
+        // value date's synthetic FX.
+        var currency = (input["displayCurrency"] ?? throw new CapabilityFailure("InvalidInput", "The accepted input names no display currency.")).GetValue<string>();
+        decimal Shown(decimal jpy) => Math.Round(PortfolioMarket.ToGbp(jpy, "JPY", valueDate) * PortfolioMarket.UnitsPerGbp(currency, valueDate), 2);
 
         // FVA prices only its members (ADR-0010 §5), as the accepted input froze them; a trade without its membership is
         // an input this provider cannot read, never a trade it guesses about.
@@ -229,13 +235,13 @@ public sealed class FakeXvaPrice : ICapabilityHandler
             return cell["value"] is { } typed ? typed.GetValue<decimal>() : 0m;
         }
 
-        // A trade's PV as the engine is given it (docs/03 §2.5), in the result's currency at the value date's FX: an
+        // A trade's PV as the engine is given it (docs/03 §2.5), in JPY at the value date's FX: an
         // existing trade's official PV, a new trade's PV Adj. A new trade with neither is dealt at market: PV 0 (a toy).
         decimal Value(JsonNode t)
         {
             var own = t["isNew"]!.GetValue<bool>() ? Adjustment(t)
                 : (t["officialPv"] ?? throw new CapabilityFailure("InvalidInput", $"Existing trade {t["tradeId"]} carries no official PV.")).GetValue<decimal>();
-            return PortfolioMarket.ToGbp(own, t["currency"]!.GetValue<string>(), valueDate) * PortfolioMarket.UnitsPerGbp(currency, valueDate);
+            return PortfolioMarket.ToGbp(own, t["currency"]!.GetValue<string>(), valueDate) * PortfolioMarket.UnitsPerGbp("JPY", valueDate);
         }
 
         SideFigures Side(string side)
@@ -257,7 +263,7 @@ public sealed class FakeXvaPrice : ICapabilityHandler
                 fva -= exposure * 0.003m * curveFactor;
                 fvaCount++;
             }
-            return new(Math.Round(cva, 2), Math.Round(fva, 2), Math.Round(pv, 2), members.Count, fvaCount);
+            return new(Shown(cva), Shown(fva), Shown(pv), members.Count, fvaCount);
         }
 
         // Read only when a measure is priced: a measure refused at Price is reported, never computed.

@@ -564,5 +564,41 @@ public class PricerTests
 
         Assert.Equal("NothingToQuote", Assert.Throws<WorkspaceRefused>(() => XvaQuote.Of(run, store)).Code);
     }
+
+    [Fact] // ADR-0010 §1: figures are shown in the display currency the workspace sets, which Price freezes
+    public async Task Price_reports_in_the_display_currency_the_workspace_sets()
+    {
+        var (service, runs, store, _) = Priced();
+        var ws = service.Create("akira", "ABC/LE-01", Day1, 5);
+        Assert.Equal("JPY", service.View(ws.WorkspaceId, "akira").DisplayCurrency);
+        var (_, inJpy) = await Price(runs, store, service, ws);
+
+        ws = service.SetDisplayCurrency(ws.WorkspaceId, ws.Revision, "akira", "USD");
+        var (input, inUsd) = await Price(runs, store, service, ws);
+
+        Assert.Equal("USD", input["displayCurrency"]!.GetValue<string>());
+        Assert.All(inUsd, r => Assert.Equal("USD", r["currency"]!.GetValue<string>()));
+        var jpy = Row(inJpy, "cva")["after"]!.GetValue<decimal>();
+        var usd = Row(inUsd, "cva")["after"]!.GetValue<decimal>();
+        Assert.InRange(usd - PortfolioMarket.ToGbp(jpy, "JPY", Day1) * PortfolioMarket.UnitsPerGbp("USD", Day1), -0.01m, 0.01m);
+        // A setting is the page's, not an edit to the portfolio's data.
+        Assert.Equal(0, service.View(ws.WorkspaceId, "akira").Overrides);
+        Assert.Equal("InvalidValue", Assert.Throws<WorkspaceRefused>(() => service.SetDisplayCurrency(ws.WorkspaceId, ws.Revision, "akira", "CHF")).Code);
+    }
+
+    [Fact] // ADR-0010 §1: Refresh acquires the trades again for the same value date, and the edits carry
+    public void Refresh_acquires_again_and_the_edits_carry()
+    {
+        var service = Service();
+        var ws = service.Create("akira", "ABC/LE-01", Day1, 5);
+        ws = service.Edit(ws.WorkspaceId, ws.Revision, "akira", "trade:DRAFT-1", "notional", 9_000_000_000m);
+        ws = service.SetDisplayCurrency(ws.WorkspaceId, ws.Revision, "akira", "EUR");
+
+        var (refreshed, carried) = service.Refresh(ws.WorkspaceId, ws.Revision, "akira");
+
+        Assert.Equal((1, 0, 0), (carried.Carried, carried.Conflicted, carried.Lost));
+        Assert.Equal("EUR", service.View(refreshed.WorkspaceId, "akira").DisplayCurrency);
+        Assert.Equal(["xva"], service.View(refreshed.WorkspaceId, "akira").Simulated);
+    }
 }
 

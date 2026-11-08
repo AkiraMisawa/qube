@@ -1,4 +1,5 @@
 import type { RegisteredMeasure } from './contracts';
+import type { InputTab } from './XvaInputs';
 
 // What an open XVA workspace page offers to commands, by panel: its Price and its measures (ADR-0010 §9). The page
 // registers them while it is mounted, so a command and the page's own button run the same function.
@@ -15,8 +16,16 @@ export interface XvaPage {
   copyQuote(): void;
   /** Asks again for every failed result on the new trades, such as a PV01 (`pv01 retry`, ADR-0010 §6). */
   retry(): void;
+  /** Acquires the trades again for the value date (`refresh`, ADR-0010 §1). */
+  refresh(): void;
+  /** Sets the currency the figures are shown in (`currency USD`, ADR-0010 §1). */
+  setCurrency(currency: string): void;
+  /** Opens an input tab, showing the inputs if they were collapsed (`open netting`, ADR-0010 §9). */
+  openTab(tab: InputTab): void;
   /** The registered measures, for the command line to offer. */
   measures(): readonly RegisteredMeasure[];
+  /** The currencies the figures can be shown in, for the command line to offer. */
+  currencies(): readonly string[];
 }
 
 const pages = new Map<string, XvaPage>();

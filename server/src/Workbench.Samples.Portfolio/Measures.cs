@@ -72,6 +72,12 @@ public interface IMeasureModule
     /// <summary>The measures it owns, in the order the page shows them.</summary>
     IReadOnlyList<MeasureDefinition> Measures { get; }
 
+    /// <summary>
+    /// Whether its figures come from a simulated provider, which the page says (`SIMULATED`, ADR-0010 §1). A module
+    /// that does not say is shown simulated: a figure is never presented as a real provider's by default.
+    /// </summary>
+    bool Simulated => true;
+
     /// <summary>The module's own part of the accepted input, read from the frozen state.</summary>
     JsonObject Input(WorkspaceState state);
 

@@ -152,7 +152,11 @@ The shell is the header, the panels under their tabs, and the AI pane (ADR-0007 
   a negative figure keeps its minus sign.
 - **Contrast**: text at least 4.5:1 against its background, and the edges of controls and focus indicators at
   least 3:1 ([WCAG 1.4.3, 1.4.11](#references)). `c="dimmed"` is for secondary text, never for a figure the user
-  must read.
+  must read. The theme holds this, not each page: a filled control's label is dark or light by its fill
+  (`autoContrast`), and in the light scheme a colour's text and a light variant's label are its ninth shade darkened
+  by a third, and dimmed is grey 7 (`cssVariablesResolver` in `theme.ts`). Mantine's own light scheme read at 2.7:1
+  for a yellow badge and 3.3:1 for a dimmed label (measured 2026-11-08); the XVA page's browser test measures every
+  text in both themes.
 - **Dark surfaces** are dark grey, not black, with lighter surfaces for what is raised (the `dark` palette in
   `theme.ts`), and saturated colours are used sparingly on them ([Material, dark theme](#references)).
 

@@ -94,6 +94,9 @@ export function parseRecovery(text: string): Parsed {
   return n === undefined || n < 0 || n >= 1 ? fail('Type a recovery from 0 up to 1, or leave it empty.') : { ok: true, value: n };
 }
 
+/** The workspace's settings, as an edit names them: its display currency (ADR-0010 §1). */
+export const SETTINGS_ENTITY = 'settings:workspace';
+
 /** The workspace's selection of measures, as an edit names it (ADR-0010 §10). */
 export const MEASURES_ENTITY = 'selection:measures';
 
