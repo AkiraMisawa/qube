@@ -176,7 +176,7 @@ public sealed class TraceEvaluator(TraceIndex index, TraceCatalog catalog)
     {
         ConstExpr c => new Ev.Num(c.Value),
         SlotExpr s => Slot(s.Name, scope),
-        ChildrenExpr c => Children(c.Kind, scope),
+        ChildrenExpr c => Children(c.Kind, c.Of, scope),
         ParamExpr p => Param(p.Name, scope),
         FieldExpr f => Field(f.Name, scope),
         SumExpr s => Fold(s.Args, scope, dropAbsent: true, Sum),
@@ -201,17 +201,21 @@ public sealed class TraceEvaluator(TraceIndex index, TraceCatalog catalog)
 
     static double Sum(IReadOnlyList<double> values) => values.Sum();
 
-    Ev Slot(string name, Scope scope)
+    Ev Slot(string name, Scope scope) => SlotTerm(name, scope) switch
+    {
+        ({ } target, _) => ValueOf(target),
+        (_, { } missing) => missing,
+        _ => throw new InvalidOperationException("A slot resolves to a term or to why there is none."),
+    };
+
+    /// <summary>The term playing a role: the one the term's slots name, else <c>{term}/{name}</c>, or why there is none.</summary>
+    (TraceTerm? Term, Ev.Missing? Missing) SlotTerm(string name, Scope scope)
     {
         var term = scope.Term ?? throw new InvalidOperationException("A slot is read in a term's scope.");
         var id = term.Slots?.GetValueOrDefault(name) ?? $"{term.Id}/{name}";
-        var target = index.Find(id);
-        if (target is null)
-        {
-            var state = index.StateOfMissing(term);
-            return new Ev.Missing(state, state == TermState.Absent ? $"{id} is absent" : $"{id} was not returned");
-        }
-        return ValueOf(target);
+        if (index.Find(id) is { } target) return (target, null);
+        var state = index.StateOfMissing(term);
+        return (null, new Ev.Missing(state, state == TermState.Absent ? $"{id} is absent" : $"{id} was not returned"));
     }
 
     static Ev ValueOf(TraceTerm term) => term.State switch
@@ -223,9 +227,16 @@ public sealed class TraceEvaluator(TraceIndex index, TraceCatalog catalog)
         _ => new Ev.Missing(term.State, $"{term.Id} is {term.State}: {term.Reason}"),
     };
 
-    Ev Children(string? kind, Scope scope)
+    Ev Children(string? kind, string? of, Scope scope)
     {
         var term = scope.Term ?? throw new InvalidOperationException("Children are read in a term's scope.");
+        if (of is not null)
+            switch (SlotTerm(of, scope))
+            {
+                case ({ } role, _): term = role; break;
+                case (_, { } missing): return missing;
+                default: throw new InvalidOperationException("A slot resolves to a term or to why there is none.");
+            }
         var list = index.Children(term.Id).Where(c => kind is null || c.Kind == kind).Select(c => (c, ValueOf(c))).ToList();
         if (index.StateOfMissing(term) == TermState.NotReturned)
             return new Ev.Missing(TermState.NotReturned, $"some children of {term.Id} were not returned");
