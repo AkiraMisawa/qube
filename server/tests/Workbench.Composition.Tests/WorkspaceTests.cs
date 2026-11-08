@@ -116,6 +116,58 @@ public class WorkspaceTests
         Assert.Contains(ws.Log, e => e.Kind == EditKind.Set && e.Target == Csa);
     }
 
+    [Fact] // ADR-0010 Consequences: an edit's layer key is part of its target, so one field holds a Common value and a layer's at once
+    public void A_layered_edit_and_a_common_one_on_one_field_are_two_overrides()
+    {
+        var service = Service();
+        var ws = Created(service);
+        var inCase = Notional with { Layer = "case:c1" };
+
+        ws = service.Set(ws.WorkspaceId, ws.Revision, "akira", Notional, 120);
+        ws = service.Set(ws.WorkspaceId, ws.Revision, "akira", inCase, 150);
+
+        Assert.Equal((120, 150), (ws.Overrides[Notional].Value!.GetValue<int>(), ws.Overrides[inCase].Value!.GetValue<int>()));
+        Assert.Equal("case:c1", ws.Log[^1].Target!.Layer);
+    }
+
+    [Fact] // ADR-0010 Consequences, ADR-0003 §7: the carry check applies per layer: a moved source conflicts each edit on its own key
+    public void A_moved_source_conflicts_a_layered_edit_on_its_own_key()
+    {
+        var service = Service();
+        var ws = Created(service);
+        var inCase = Rate with { Layer = "case:c1" };
+        ws = service.Set(ws.WorkspaceId, ws.Revision, "akira", Rate, 0.02);
+        ws = service.Set(ws.WorkspaceId, ws.Revision, "akira", inCase, 0.03);
+        var day2 = new Source("d2", new() { [("T1", "fixedRate")] = 0.01, [("T1", "schedule")] = "3M", [("T1", "notional")] = 100, [("T2", "csa")] = "CSA-A" });
+
+        var (next, summary) = service.Reacquire(ws.WorkspaceId, ws.Revision, "akira", new JsonObject { ["valueDate"] = "2026-10-27" }, day2);
+
+        Assert.Equal(new CarrySummary(0, 2, 0), summary);
+        Assert.Equal(0.03, next.Conflicts[inCase].Override.Value!.GetValue<double>());
+        next = service.KeepOverride(next.WorkspaceId, next.Revision, "akira", inCase);
+        Assert.True(next.Overrides.ContainsKey(inCase));
+        Assert.True(next.Conflicts.ContainsKey(Rate));
+    }
+
+    [Fact] // ADR-0010 §3's note of 2026-11-08: removing an entity with its layer removes every edit in that layer, in one entry
+    public void Removing_an_entity_with_its_layer_removes_the_layers_edits_in_one_entry()
+    {
+        var service = Service();
+        var ws = Created(service);
+        ws = service.Create(ws.WorkspaceId, ws.Revision, "akira", "cp:ABC/LE-01", "case:c1", new JsonObject { ["title"] = "T1 notional 150" });
+        ws = service.Set(ws.WorkspaceId, ws.Revision, "akira", Notional with { Layer = "case:c1" }, 150);
+        ws = service.Set(ws.WorkspaceId, ws.Revision, "akira", Csa with { Layer = "case:c1" }, "CSA-B");
+        ws = service.Set(ws.WorkspaceId, ws.Revision, "akira", Notional, 120);
+        var before = ws.Log.Count;
+
+        ws = service.Remove(ws.WorkspaceId, ws.Revision, "akira", "case:c1", layer: "case:c1");
+
+        Assert.Empty(ws.Created);
+        Assert.Equal([Notional], ws.Overrides.Keys);
+        Assert.Equal(before + 1, ws.Log.Count);
+        Assert.Equal((EditKind.Remove, "2 edits"), (ws.Log[^1].Kind, ws.Log[^1].Note));
+    }
+
     [Fact] // Spine 6: a command taken against an older revision is refused, whatever the timing
     public void A_command_against_a_moved_revision_is_refused()
     {

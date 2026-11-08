@@ -61,6 +61,20 @@ public sealed class SqliteWorkspaceStoreTests : IDisposable
         Assert.Equal("eur_estr", PortfolioMaterialiser.Trades(restored).Single(t => t.TradeId == "DRAFT-1").Curve);
     }
 
+    [Fact] // ADR-0010 Consequences: an edit's layer survives a restart, in the state and in the log
+    public void A_layered_edit_is_restored_with_its_layer()
+    {
+        var service = Service(Store());
+        var ws = service.Create("akira", PortfolioEditRules.App, Context(Day1), new PortfolioSourceVersion("ABC/LE-01", Day1, 40));
+        var target = PortfolioEditRules.Target((PortfolioSourceVersion)ws.Source, "csa:CSA-A", "counterpartyThreshold") with { Layer = "case:c1" };
+        ws = service.Set(ws.WorkspaceId, ws.Revision, "akira", target, 5_000_000m);
+
+        var restored = Service(Store()).Find(ws.WorkspaceId)!;
+
+        Assert.Equal(5_000_000m, restored.Overrides[target].Value!.GetValue<decimal>());
+        Assert.Equal("case:c1", restored.Log[^1].Target!.Layer);
+    }
+
     [Fact] // Spine 6: two servers on one file cannot both commit against the same revision
     public void A_second_writer_on_a_moved_revision_is_refused()
     {

@@ -123,6 +123,26 @@ variants the workspace is one case.
 - One Price is one Run with one case per (case, scenario) (§4). Their number is capped (DEFAULT 50, configured); over
   the cap Price is refused and says by how much.
 
+*Note of 2026-11-08 (DEFAULT, writing Delivery step 2's spec; told to the owner the same day):*
+
+- **The Base is always priced.** The workspace with no case's change is the case `Base`, the first row, as Price always
+  prices the unshifted market (§4). A `vary` value equal to the one the workspace holds makes no case, as a zero size
+  makes no scenario. In iterative addition the Base holds every candidate, so the package and each trade alone are
+  read together.
+- **A second `vary` adds its cases** beside those already made, never crossed with them: crossing is the scenarios'
+  (§4). A case whose changes are those of a case already made is not made again; `vary` says so.
+- **Iterative addition's set is made once.** `add trades` makes one case per New row with A checked, at that moment.
+  Price refuses, by name, a set that no longer matches the New rows with A checked (docs/03 §5: never another set
+  quietly), and `add trades` again makes the set anew. A case of the set is not a `vary` case: its change is the
+  membership, not a value, so it has no cell to be edited from.
+- **A case's change is an edit with the case's key** (Consequences), so it is carried and refused like any other, and
+  is marked against Original in the case's own reading. Removing a case removes its changes in one entry of the log.
+- **The changes panel is an input tab, `Changes`**, last in the row, which says how many changes it holds as every tab
+  does: the Common changes, then each case with its own. Each change is edited or removed there, and a case removed
+  whole.
+- **Every measure is priced for every case**, as for every scenario (§4): one request per module still, holding every
+  case, so a provider prices them as it prices Before and After, independently.
+
 ### 4. Scenarios (CONFIRMED, owner 2026-11-07)
 
 - A **scenario** is a named set of market-data shifts; one scenario may shift several data at once. The Scenarios tab
@@ -270,6 +290,12 @@ is marked with the measure.
 (§4), `download run`, `copy quote`, and one to open each input tab. A measure's own commands are its registration's.
 Chords are not assigned here.
 
+*Note of 2026-11-08 (DEFAULT, writing Delivery step 2's spec):* a cell is named `<row> <column>`. The row is a CSA's id,
+the netting set's id, or a trade's id; the column is the field's title or a short name the domain registers for it,
+case ignored (`threshold` is the counterparty's, `self threshold` the self's, `mta`, `curve`, `recovery`). An amount is
+written as ADR-0008 writes it, a rate in `%` or `bp`. A row or a column that does not resolve, or resolves to more than
+one, is refused and lists what it could mean, never guessed. `vary` takes the values after the cell, comma-separated.
+
 **`set` changes a value without making a case** (owner's question, 2026-11-07; form DEFAULT). It names the cell as
 `vary` does and takes one value: `set CSA-A threshold 5mm`, `set cds 5y 120bp`, `set NS-1 cvaRecovery 40%`. It is
 the same edit a typed cell makes, in the Common layer, or in the side Advanced points at (`set after CSA-A threshold
@@ -363,11 +389,17 @@ What was XVA's in this ADR, gathered:
 4. Scenarios.
 5. Credit tab with CDS term structures; Risks and Profile.
 
+*Owner, 2026-11-08:* steps 2, 4 and 5 are built now, in that order, and step 3 (Advanced) later. Until it lands a case's
+change applies to both of its sides (§3), and the Settings tab of §8 joins step 5.
+
 ## OPEN
 
 - What CVA Charge is computed from (charge ratio, cost of capital) is the engine's; the fake provider will show it
   as simulated until the owner says what it should approximate.
-- MVA (with SIMM) and the Risks and Profile contents are not specified here.
+- MVA (with SIMM) is not specified here. *The Risks and Profile contents were decided by the owner on 2026-11-08*:
+  Risks shows, per selected measure, its credit, interest-rate and FX deltas,
+  each Before, After and Diff; Profile shows the exposure profiles EE and ENE with the capital and SIMM profiles, as a
+  table and as a chart. They are built in Delivery step 5.
 - The case cap (DEFAULT 50).
 - Whether a coarse pointer gets larger controls (ADR-0009's OPEN) applies here too.
 - §2's diagonal split: ex-grid ADR-0490 (accepted 2026-11-07, AkiraMisawa/ex-grid#545) adds a Split Fill to

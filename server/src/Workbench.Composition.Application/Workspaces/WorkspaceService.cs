@@ -220,16 +220,17 @@ public sealed class WorkspaceService(IReadOnlyDictionary<string, IEditRules> rul
     /// <summary>
     /// Removes a created entity. Its own overrides and conflicts end with it, counted in the log entry's note: the
     /// user removed them, so they are not lost targets to acknowledge. What was derived from it is checked when the
-    /// derivation runs.
+    /// derivation runs. Where the entity owns a layer, as a case owns its changes (ADR-0010 Consequences), the caller
+    /// names it and every edit in it ends in the same entry.
     /// </summary>
-    public WorkspaceState Remove(string workspaceId, long expectedRevision, string user, string entity, RunOrigin? origin = null) =>
+    public WorkspaceState Remove(string workspaceId, long expectedRevision, string user, string entity, RunOrigin? origin = null, string? layer = null) =>
         Apply(workspaceId, expectedRevision, state =>
         {
             if (!state.Created.TryGetValue(entity, out var created))
                 throw new WorkspaceRefused("UnknownEntity", $"{entity} was not created in this workspace.");
             var seq = state.Revision + 1;
             var gone = state.Overrides.Keys.Concat(state.Conflicts.Keys).Concat(state.Lost.Keys)
-                .Where(t => t.Entity == entity && !state.Derived.ContainsKey(t.Scope)).Distinct().ToList();
+                .Where(t => (t.Entity == entity && !state.Derived.ContainsKey(t.Scope)) || (layer is not null && t.Layer == layer)).Distinct().ToList();
             return state with
             {
                 Created = state.Created.Remove(entity),
