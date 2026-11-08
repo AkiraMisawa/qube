@@ -28,7 +28,9 @@ public sealed record TermAllocation(string Method, double Value);
 
 /// <summary>
 /// One term of a regulatory formula. <c>Value</c> is a number or, for a decision, a text. <c>Governed</c> names the
-/// operand of a max, min or clamp that the value took, by slot name or position.
+/// operand of a max, min or clamp that the value took, by slot name or position. A decision says what it read
+/// (<c>Inputs</c>), why (<c>Because</c>) and, in <c>Citation</c>, the rule it applied, which is narrower than its
+/// kind's (one step of a risk weight cites the paragraph that decided it).
 /// </summary>
 public sealed record TraceTerm(
     string Id,
@@ -44,7 +46,8 @@ public sealed record TraceTerm(
     TermLeaves? Leaves = null,
     TermAllocation? Allocation = null,
     IReadOnlyDictionary<string, JsonNode?>? Inputs = null,
-    IReadOnlyList<string>? Because = null);
+    IReadOnlyList<string>? Because = null,
+    string? Citation = null);
 
 public enum ParameterSource { Regulation, Configuration, Input, Data, Derived }
 

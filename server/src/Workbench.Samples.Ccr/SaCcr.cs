@@ -98,7 +98,7 @@ public sealed record SaCcrNettingSet(
 /// <summary>The bank's choices SA-CCR leaves open, as configuration with a version.</summary>
 public sealed record SaCcrSettings(string Version, bool IrOffsetAcrossBuckets = true);
 
-/// <summary>One exposure's terms: <c>D = δ · d · MF</c> (CRE52.30), with what each read.</summary>
+/// <summary>One exposure's terms: <c>D = δ · d · MF</c> (CRE52.30), with what each read; <c>D1</c> is an option's d₁.</summary>
 public sealed record ExposureRow(
     SaCcrExposure Exposure,
     double AdjustedNotional,
@@ -109,7 +109,8 @@ public sealed record ExposureRow(
     double EffectiveNotional,
     double SupervisoryFactor,
     double? OptionVolatility,
-    int? Bucket);
+    int? Bucket,
+    double? D1 = null);
 
 /// <summary>An interest rate hedging set's maturity bucket (CRE52.57): 1 under one year, 2 one to five, 3 over five.</summary>
 public sealed record MaturityBucket(int Bucket, double EffectiveNotional, IReadOnlyList<ExposureRow> Rows);
@@ -134,8 +135,11 @@ public sealed record HedgingSetAddOn(
 
 public sealed record AssetClassAddOn(AssetClass AssetClass, double AddOn, IReadOnlyList<HedgingSetAddOn> HedgingSets);
 
-/// <summary>A collateral balance as one basis counts it: the haircuts it took and its signed value.</summary>
-public sealed record CollateralRow(CollateralBalance Balance, double Haircut, double CurrencyHaircut, double Value, bool InCollateral, bool InNica);
+/// <summary>
+/// A collateral balance as one basis counts it: the haircuts it took, scaled from ten business days by <c>Scale</c>,
+/// and its signed value.
+/// </summary>
+public sealed record CollateralRow(CollateralBalance Balance, double Scale, double Haircut, double CurrencyHaircut, double Value, bool InCollateral, bool InNica);
 
 /// <summary>
 /// The EAD on one basis, margined or unmargined. <c>Nica</c> and <c>ThresholdAndMta</c> are given on the margined
@@ -161,10 +165,12 @@ public sealed record MarginPeriod(int Days, IReadOnlyList<string> Because);
 
 /// <summary>
 /// A netting set's EAD: the unmargined figure, and for a margined netting set the margined one, which the unmargined
-/// one caps (CRE52.2).
+/// one caps (CRE52.2). <c>Set</c> is the netting set as calculated: one trade's own, when the netting set it came from
+/// is not legally enforceable.
 /// </summary>
 public sealed record NettingSetExposure(
     string Id,
+    SaCcrNettingSet Set,
     double Ead,
     ExposureBasis Unmargined,
     ExposureBasis? Margined = null,
@@ -174,8 +180,8 @@ public sealed record NettingSetExposure(
     public bool MarginedGoverns => Margined is { } margined && margined.Ead <= Unmargined.Ead;
 }
 
-/// <summary>The counterparty's EAD, the sum over its netting sets (CRE52.1).</summary>
-public sealed record SaCcrResult(double Ead, IReadOnlyList<NettingSetExposure> NettingSets);
+/// <summary>The counterparty's EAD, the sum over its netting sets (CRE52.1), and the settings it was calculated with.</summary>
+public sealed record SaCcrResult(double Ead, IReadOnlyList<NettingSetExposure> NettingSets, SaCcrSettings Settings);
 
 /// <summary>SA-CCR cannot read a trade or a netting set, and says which (ADR-0013 §6: the measure is refused by name).</summary>
 public sealed class SaCcrRefused(string message) : Exception(message);
@@ -219,7 +225,7 @@ public static class SaCcr
                 results.Add(Calculate(alone, settings) with { Note = note });
             }
         }
-        return new SaCcrResult(results.Sum(r => r.Ead), results);
+        return new SaCcrResult(results.Sum(r => r.Ead), results, settings);
     }
 
     /// <summary>One legally enforceable netting set.</summary>
@@ -234,11 +240,11 @@ public static class SaCcr
         var longest = set.Trades.SelectMany(t => t.Exposures).Select(e => e.MaturityYears).DefaultIfEmpty(0).Max();
         var unmargined = Basis(set, settings, mpor: null, longest);
         if (set.Margin is not { } margin)
-            return new NettingSetExposure(set.Id, unmargined.Ead, unmargined);
+            return new NettingSetExposure(set.Id, set, unmargined.Ead, unmargined);
 
         var mpor = Mpor(set, margin);
         var margined = Basis(set, settings, mpor.Days, longest);
-        return new NettingSetExposure(set.Id, Math.Min(margined.Ead, unmargined.Ead), unmargined, margined, mpor);
+        return new NettingSetExposure(set.Id, set, Math.Min(margined.Ead, unmargined.Ead), unmargined, margined, mpor);
     }
 
     /// <summary>CRE52.50-51.</summary>
@@ -319,11 +325,11 @@ public static class SaCcr
         var currencyHaircut = balance.Currency == set.Currency ? 0 : Math.Min(1, CurrencyMismatchHaircut * scale);
         var independent = balance.Purpose == CollateralPurpose.IndependentAmount;
         if (balance.Direction == CollateralDirection.Received)
-            return new CollateralRow(balance, haircut, currencyHaircut, balance.Amount * Math.Max(0, 1 - haircut - currencyHaircut), true, independent);
+            return new CollateralRow(balance, scale, haircut, currencyHaircut, balance.Amount * Math.Max(0, 1 - haircut - currencyHaircut), true, independent);
         var posted = -balance.Amount * (1 + haircut + currencyHaircut);
         return balance.Segregated
-            ? new CollateralRow(balance, haircut, currencyHaircut, posted, false, false)
-            : new CollateralRow(balance, haircut, currencyHaircut, posted, true, independent);
+            ? new CollateralRow(balance, scale, haircut, currencyHaircut, posted, false, false)
+            : new CollateralRow(balance, scale, haircut, currencyHaircut, posted, true, independent);
     }
 
     // Trade level: the adjusted notional, the supervisory delta and the maturity factor.
@@ -369,12 +375,12 @@ public static class SaCcr
         if (e.AssetClass == AssetClass.Commodity && e.HedgingSetType == HedgingSetType.Regular && !CommoditySets.Contains(e.HedgingSet))
             throw new SaCcrRefused($"{e.TradeId}: the commodity hedging set {e.HedgingSet} is not energy, metals, agricultural or other (CRE52.70).");
 
-        var (delta, because) = Delta(e, volatility);
+        var (delta, because, d1) = Delta(e, volatility);
         var maturityFactor = mpor is { } days
             ? 1.5 * Math.Sqrt(days / BusinessDaysPerYear) // CRE52.52
             : Math.Sqrt(Math.Min(Math.Max(e.MaturityYears, TenBusinessDays), 1)); // CRE52.48
         return new ExposureRow(e, adjusted, duration, delta, because, maturityFactor, delta * adjusted * maturityFactor,
-            factor * scale, e.Delta is OptionTerms ? volatility : null, bucket);
+            factor * scale, e.Delta is OptionTerms ? volatility : null, bucket, d1);
     }
 
     static readonly string[] CommoditySets = ["energy", "metals", "agricultural", "other"];
@@ -410,12 +416,12 @@ public static class SaCcr
     };
 
     /// <summary>CRE52.39-41.</summary>
-    static (double Delta, string Because) Delta(SaCcrExposure e, double volatility)
+    static (double Delta, string Because, double? D1) Delta(SaCcrExposure e, double volatility)
     {
         switch (e.Delta)
         {
             case LinearTerms linear:
-                return linear.Long ? (1, "Long in the primary risk factor (CRE52.39).") : (-1, "Short in the primary risk factor (CRE52.39).");
+                return linear.Long ? (1, "Long in the primary risk factor (CRE52.39).", null) : (-1, "Short in the primary risk factor (CRE52.39).", null);
             case OptionTerms o:
                 var price = o.Underlying + o.Shift;
                 var strike = o.Strike + o.Shift;
@@ -432,7 +438,7 @@ public static class SaCcr
                     _ => NormalDistribution.Cdf(-d1),
                 };
                 var side = o.Bought ? "bought" : "sold";
-                return (delta, $"A {side} {o.Type.ToString().ToLowerInvariant()}, with the supervisory volatility of its class (CRE52.40).");
+                return (delta, $"A {side} {o.Type.ToString().ToLowerInvariant()}, with the supervisory volatility of its class (CRE52.40).", d1);
             case TrancheTerms t:
                 if (e.AssetClass != AssetClass.Credit)
                     throw new SaCcrRefused($"{e.TradeId}: a CDO tranche is a credit exposure.");
@@ -440,8 +446,8 @@ public static class SaCcr
                     throw new SaCcrRefused($"{e.TradeId}: the tranche's attachment {t.Attachment} and detachment {t.Detachment} are not 0 ≤ A < D ≤ 1 (CRE52.41).");
                 var size = 15 / ((1 + 14 * t.Attachment) * (1 + 14 * t.Detachment));
                 return t.ProtectionBought
-                    ? (size, "A tranche with protection bought (CRE52.41).")
-                    : (-size, "A tranche with protection sold (CRE52.41).");
+                    ? (size, "A tranche with protection bought (CRE52.41).", null)
+                    : (-size, "A tranche with protection sold (CRE52.41).", null);
             default:
                 throw new SaCcrRefused($"{e.TradeId}: no supervisory delta for {e.Delta.GetType().Name}.");
         }

@@ -256,6 +256,26 @@ public class TraceTests
         Assert.Equal(CheckStatus.Matches, reader.Read("rate")!.After!.Check.Status);
     }
 
+    [Fact] // ADR-0011 §1: a decision carries, on each side, the inputs it read, its reasons and the rule it applied
+    public void A_decision_is_read_with_its_inputs_reasons_and_rule_on_each_side()
+    {
+        TraceTerm Decided(TraceTerm t, string soil, string rule) => t.Id == "rate/soil"
+            ? t with
+            {
+                Value = JsonValue.Create(soil),
+                Inputs = new Dictionary<string, JsonNode?> { ["survey"] = JsonValue.Create(soil) },
+                Because = [$"The survey found {soil}."],
+                Citation = rule,
+            }
+            : t.Id == "rate" ? t with { Value = JsonValue.Create(soil == "clay" ? 0.4 : 0.7) } : t;
+        var reader = new TraceReader(Catalog(), Garden(edit: t => Decided(t, "loam", "Garden rules §3")), Garden(after: true, edit: t => Decided(t, "clay", "Garden rules §4")));
+        var soil = reader.Read("rate/soil")!;
+        Assert.Equal("Garden rules §1", soil.Citation);
+        Assert.Equal(("Garden rules §3", "Garden rules §4"), (soil.Before!.Citation, soil.After!.Citation));
+        Assert.Equal(["The survey found clay."], soil.After.Because);
+        Assert.Equal("clay", soil.After.Inputs!["survey"]!.GetValue<string>());
+    }
+
     [Fact] // ADR-0011 §4 (owner 2026-11-07): a case priced without Before is read on After alone, and every term still opens
     public void A_case_priced_on_one_side_is_read_on_that_side_with_no_diff()
     {

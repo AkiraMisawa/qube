@@ -72,8 +72,10 @@ Each term has:
   (`{"v": "NS-002/v", "c": "NS-002/c", "addon": "NS-002/pfe/addon"}`);
 - for a `max`, `min` or `clamp`, which operand **governed** (`RC = max(V − C, 0)` took its first operand; the governing
   regime of a margin is the largest);
-- for a decision, **inputs** (the counterparty attributes it read, with their values) and **because** (the reasons, in
-  words);
+- for a decision, **inputs** (the counterparty attributes it read, with their values), **because** (the reasons, in
+  words) and its own **citation**, the rule it applied, which is narrower than its kind's (DEFAULT, 2026-11-08: one
+  kind serves a step of SA's risk weight for every exposure class, and the paragraph that decided it is the
+  term's, as ADR-0013 §5 asks). Each is the side's own, since each side decided on its own;
 - optionally **leaves**: the leaf set and the number of rows below it;
 - optionally an **allocation**: the share of the root attributed to the term by a named method (Euler), whose shares
   sum to their parent's. It is only shown when the provider gives it, and is labelled with its method; it never
