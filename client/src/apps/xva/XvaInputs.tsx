@@ -1,36 +1,33 @@
 import { useCallback, useEffect, useId, useMemo, useRef, type Ref } from 'react';
-import { Button, Group, Table, Tabs, Text } from '@mantine/core';
+import { Button, Group, Table, Tabs, Text, useMantineTheme } from '@mantine/core';
 import { GridSource, type CellState, type GridColumn, type GridEditIntent } from '@ex-grid/core';
 import type { ExGridApi } from '@ex-grid/react';
 import { WorkbenchGrid } from '../../platform/grid/WorkbenchGrid';
-import type { EffectiveCsa, XvaWorkspaceView } from './contracts';
+import type { Agreement, EffectiveCsa, RegisteredMeasure, XvaWorkspaceView } from './contracts';
 import { csaFields, parseRecovery } from './editing';
 import { CommitField } from './fields';
-import { partHeight } from './layout';
+import { compactGridHeight, GRID_FRAME, partHeight, pixels } from './layout';
+import { declaring, membershipColumn } from './membership';
 import { changes, differs, originalMessage } from './original';
 
 // The shared input tabs (ADR-0010 §1, §8): Netting and CSA. The server holds every term and every rule; these send what
-// the user changed and show what the server answers, FVA's Imperfect column included (§5), which the page never decides.
+// the user changed and show what the server answers. What a measure adds to them is its registration's (§10): a field
+// it needs, such as CVA's recovery, shows while the measure is selected, and a rule that reads CSAs, such as FVA's
+// imperfect-CSA rule (§5), has its column on the CSA grid, which the page never decides.
 
 const amount = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 });
 const money = (v: unknown) => amount.format(v as number);
 
 type CsaRow = EffectiveCsa;
 
-/** FVA's standing on a CSA, with its reason, as the server decided it. */
-export function standing(row: { readonly membership?: Readonly<Record<string, { readonly in: boolean; readonly reason: string }>> }, measure: string): string | undefined {
-  const m = row.membership?.[measure];
-  return m === undefined ? undefined : `${m.in ? 'Imperfect' : 'Perfect'} · ${m.reason}`;
-}
-
 const term = (name: keyof CsaRow & string, header: string, type: GridColumn<CsaRow>['type'], width: number, extra: Partial<GridColumn<CsaRow>> = {}): GridColumn<CsaRow> => ({
   name, header, type, width, value: (row) => row[name] ?? undefined, ...extra,
 });
 
-/** Made once (ExGrid ADR-0003): the CSA's general terms, then each party's, then FVA's derived column (ADR-0010 §8). */
-const csaColumns: readonly GridColumn<CsaRow>[] = [
-  term('csaId', 'CSA', 'text', 88),
-  term('type', 'Type', 'text', 84),
+const csaId = term('csaId', 'CSA', 'text', 88);
+const csaType = term('type', 'Type', 'text', 84);
+/** Made once (ExGrid ADR-0003): the CSA's general terms after its agreement, then each party's (ADR-0010 §8). */
+const csaTerms: readonly GridColumn<CsaRow>[] = [
   term('currency', 'Ccy', 'text', 80, { editable: true }),
   term('curve', 'Curve', 'text', 104, { editable: true }),
   term('fvaCurve', 'FVA curve', 'text', 112, { editable: true }),
@@ -43,7 +40,18 @@ const csaColumns: readonly GridColumn<CsaRow>[] = [
   term('selfThreshold', 'Self threshold', 'number', 156, { editable: true, format: money }),
   term('selfMta', 'Self MTA', 'number', 128, { editable: true, format: money }),
   term('selfCurrency', 'Self ccy', 'text', 108, { editable: true }),
-  { name: 'fva', header: 'FVA imperfect', type: 'text', width: 360, value: (row) => standing(row, 'fva'), format: (v) => String(v) },
+];
+
+/**
+ * The CSA grid's columns (ADR-0010 §8): Main (the CSA a new trade takes), the ID and type, the master agreement, the
+ * terms, and a column per selected measure whose rule reads CSAs. Main and the agreement are the source's, read-only.
+ */
+const csaColumnsOf = (agreement: Agreement, reading: readonly RegisteredMeasure[]): readonly GridColumn<CsaRow>[] => [
+  { name: 'main', header: 'Main', type: 'text', width: 80, value: (row) => (row.csaId === agreement.mainCsaId ? 'Yes' : 'No'), format: (v) => String(v) },
+  csaId, csaType,
+  { name: 'ma', header: 'MA', type: 'text', width: 96, value: () => agreement.maId, format: (v) => String(v) },
+  ...csaTerms,
+  ...reading.map((m) => membershipColumn<CsaRow>(m)),
 ];
 
 // A term that differs from the source's is marked and described (ADR-0010 §2); one set back to it is not.
@@ -76,6 +84,16 @@ export function XvaInputs({ ws, push, onIssue, tab, onTab, open, onOpen, height,
   const bodyId = useId();
   const recovery = useRef<HTMLInputElement>(null);
   const csaGrid = useRef<ExGridApi<CsaRow>>(null);
+  const gap = pixels(useMantineTheme().spacing.xs);
+  // The fields of these tabs the selected measures need (§10): CVA's recovery while CVA is selected.
+  const needed = (tab: InputTab, field: string) => ws.inputs.some((i) => i.tab === tab && i.field === field);
+  const recoveryShown = needed('netting', 'cvaRecovery');
+  // The CSA grid's columns, made again only when the agreement or the measures reading CSAs change (ExGrid ADR-0003).
+  const reading = declaring(ws.measures, ws.selectedMeasures).filter((m) => ws.csas.some((c) => c.membership?.[m.id] !== undefined));
+  const columnsKey = [ws.agreement.maId, String(ws.agreement.mainCsaId), ...reading.map((m) => m.id)].join('|');
+  const columnsNow = useRef({ agreement: ws.agreement, reading });
+  columnsNow.current = { agreement: ws.agreement, reading };
+  const csaColumns = useMemo(() => csaColumnsOf(columnsNow.current.agreement, columnsNow.current.reading), [columnsKey]);
   useEffect(() => {
     if (focusRequest === 0) return;
     if (tab === 'netting') recovery.current?.focus();
@@ -103,9 +121,12 @@ export function XvaInputs({ ws, push, onIssue, tab, onTab, open, onOpen, height,
         <div id={bodyId} className="qwb-xva-inputs-body" data-testid="xva-inputs-body" style={partHeight(height)}>
           <Tabs.Panel value="netting" pt="xs">
             <div className="qwb-xva-scroll">
-              <Table withTableBorder withColumnBorders verticalSpacing={4} horizontalSpacing="sm" fz="sm" aria-label="Netting" className="qwb-xva-netting">
+              <Table withTableBorder withColumnBorders verticalSpacing="xs" horizontalSpacing="sm" fz="sm" aria-label="Netting" className="qwb-xva-netting">
                 <Table.Thead>
-                  <Table.Tr><Table.Th>Main</Table.Th><Table.Th>Netting set</Table.Th><Table.Th>Agreement</Table.Th><Table.Th>Enforceable</Table.Th><Table.Th>CVA recovery (CVA)</Table.Th></Table.Tr>
+                  <Table.Tr>
+                    <Table.Th>Main</Table.Th><Table.Th>Netting set</Table.Th><Table.Th>Agreement</Table.Th><Table.Th>Enforceable</Table.Th>
+                    {recoveryShown && <Table.Th>CVA recovery (CVA)</Table.Th>}
+                  </Table.Tr>
                 </Table.Thead>
                 <Table.Tbody>
                   <Table.Tr>
@@ -113,12 +134,12 @@ export function XvaInputs({ ws, push, onIssue, tab, onTab, open, onOpen, height,
                     <Table.Td>{ws.agreement.nettingSetId}</Table.Td>
                     <Table.Td>{ws.agreement.maId}</Table.Td>
                     <Table.Td>{ws.agreement.enforceable ? 'Yes' : 'No'}</Table.Td>
-                    <Table.Td>
+                    {recoveryShown && <Table.Td>
                       <CommitField label="CVA recovery" placeholder={`empty: CDS ${ws.credit.cdsRecovery}`}
                         value={ws.credit.cvaRecovery == null ? '' : String(ws.credit.cvaRecovery)} modified={differs(ws.credit, 'cvaRecovery')} description={originalMessage(ws.credit, 'cvaRecovery', ws.credit.cvaRecovery)}
                         parse={parseRecovery} onIssue={onIssue} inputRef={recovery}
                         onCommit={(value) => push(`netting:${ws.agreement.nettingSetId}`, 'cvaRecovery', value)} />
-                    </Table.Td>
+                    </Table.Td>}
                   </Table.Tr>
                 </Table.Tbody>
               </Table>
@@ -127,7 +148,7 @@ export function XvaInputs({ ws, push, onIssue, tab, onTab, open, onOpen, height,
           <Tabs.Panel value="csa" pt="xs">
             {ws.csas.length === 0
               ? <Text size="sm">{ws.agreement.maId} has no CSA: its trades are uncollateralised ({ws.agreement.noCsa}).</Text>
-              : <CsaGrid csas={ws.csas} push={push} height={height} gridRef={csaGrid} />}
+              : <CsaGrid csas={ws.csas} columns={csaColumns} push={push} height={height - gap - GRID_FRAME} gridRef={csaGrid} />}
           </Tabs.Panel>
         </div>
       )}
@@ -135,9 +156,13 @@ export function XvaInputs({ ws, push, onIssue, tab, onTab, open, onOpen, height,
   );
 }
 
-/** The CSA terms, as high as their rows within the tab's height (the panel's top padding, 10px, is outside it). */
-function CsaGrid({ csas, push, height, gridRef }: {
+/**
+ * The CSA terms, as high as their rows within `height`, what the tab's height leaves under the panel's top gap and the
+ * grid's frame. It shows no Selection Summary: a sum or an average of terms in different currencies is no figure.
+ */
+function CsaGrid({ csas, columns, push, height, gridRef }: {
   readonly csas: readonly EffectiveCsa[];
+  readonly columns: readonly GridColumn<CsaRow>[];
   readonly push: (entity: string, field: string, value: unknown) => void;
   readonly height: number;
   readonly gridRef: Ref<ExGridApi<CsaRow>>;
@@ -156,8 +181,8 @@ function CsaGrid({ csas, push, height, gridRef }: {
 
   return (
     <div aria-label="CSA terms">
-      <WorkbenchGrid<CsaRow> ref={gridRef} columns={csaColumns} source={source} onEdit={onEdit} cellState={csaCellState} cellMessage={csaCellMessage}
-        density="compact" viewportWidth="stretch" viewportHeight={Math.max(76, Math.min(48 + csas.length * 28, height - 10))} pinnedColumnCount={1} locale="en-US" />
+      <WorkbenchGrid<CsaRow> ref={gridRef} columns={columns} source={source} onEdit={onEdit} cellState={csaCellState} cellMessage={csaCellMessage}
+        density="compact" viewportWidth="stretch" viewportHeight={Math.max(compactGridHeight(1), Math.min(compactGridHeight(csas.length), height))} pinnedColumnCount={2} showSelectionSummary={false} locale="en-US" />
     </div>
   );
 }

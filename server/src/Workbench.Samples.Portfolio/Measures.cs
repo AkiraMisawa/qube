@@ -13,9 +13,17 @@ public sealed record MetricDefinition(string Id, string Title);
 /// <summary>
 /// A measure as its module registers it. <paramref name="Headline"/> is the metric the collapsed result line shows.
 /// <paramref name="DeclaresMembership"/> says whether it prices only some trades and says per trade why (FVA's rule is the
-/// first, ADR-0010 §5); <paramref name="Traced"/> whether a Metrics cell opens its calculation trace (ADR-0011).
+/// first, ADR-0010 §5); <paramref name="Traced"/> whether a Metrics cell opens its calculation trace (ADR-0011);
+/// <paramref name="Quoted"/> whether a Run that priced it has a quote to copy (XVA's Copy quote, from CVA, §7, §11).
 /// </summary>
-public sealed record MeasureDefinition(string Id, string Title, IReadOnlyList<MetricDefinition> Metrics, string Headline, bool DeclaresMembership, bool Traced);
+public sealed record MeasureDefinition(string Id, string Title, IReadOnlyList<MetricDefinition> Metrics, string Headline, bool DeclaresMembership, bool Traced, bool Quoted = false);
+
+/// <summary>
+/// A field of a shared input tab that a measure needs (ADR-0010 §10), such as CVA's recovery on Netting: it shows while a
+/// selected measure needs it, and a hidden one keeps its changes. <paramref name="Tab"/> names the tab, as the page's
+/// tabs are named (<c>netting</c>, <c>csa</c>), and <paramref name="Field"/> the field as its edits name it.
+/// </summary>
+public sealed record MeasureInput(string Tab, string Field, string Measure);
 
 /// <summary>Whether a measure prices a trade, and why (ADR-0010 §5, §10). Out is never silent: it says why.</summary>
 public sealed record Membership(bool In, string Reason);
@@ -61,7 +69,7 @@ public sealed record TradeCell(JsonNode? Value, string State, string? Note, bool
 }
 
 /// <summary>A measure in the workspace view: its definition and the module that owns it.</summary>
-public sealed record RegisteredMeasure(string Id, string Title, string Module, IReadOnlyList<MetricDefinition> Metrics, string Headline, bool DeclaresMembership, bool Traced);
+public sealed record RegisteredMeasure(string Id, string Title, string Module, IReadOnlyList<MetricDefinition> Metrics, string Headline, bool DeclaresMembership, bool Traced, bool Quoted);
 
 /// <summary>A domain module's registration into the pricer (ADR-0010 §10). XVA's is the first (§11).</summary>
 public interface IMeasureModule
@@ -96,6 +104,9 @@ public interface IMeasureModule
     /// <summary>The columns it adds to the trade grids (ADR-0010 §10), in order; none unless it says.</summary>
     IReadOnlyList<TradeColumn> TradeColumns => [];
 
+    /// <summary>The fields of the shared input tabs its measures need (ADR-0010 §10); none unless it says.</summary>
+    IReadOnlyList<MeasureInput> Inputs => [];
+
     /// <summary>Its cells on each trade, by column id, in the trades' order; null for a trade it adds none to.</summary>
     IReadOnlyList<IReadOnlyDictionary<string, TradeCell>?> Cells(WorkspaceState state, IReadOnlyList<EffectiveTrade> trades) => [.. trades.Select(_ => (IReadOnlyDictionary<string, TradeCell>?)null)];
 
@@ -118,7 +129,7 @@ public sealed class MeasureRegister
     public MeasureRegister(IEnumerable<IMeasureModule> modules)
     {
         Modules = [.. modules];
-        Measures = [.. Modules.SelectMany(m => m.Measures.Select(d => new RegisteredMeasure(d.Id, d.Title, m.Id, d.Metrics, d.Headline, d.DeclaresMembership, d.Traced)))];
+        Measures = [.. Modules.SelectMany(m => m.Measures.Select(d => new RegisteredMeasure(d.Id, d.Title, m.Id, d.Metrics, d.Headline, d.DeclaresMembership, d.Traced, d.Quoted)))];
         var duplicate = Measures.GroupBy(m => m.Id).FirstOrDefault(g => g.Count() > 1);
         if (duplicate is not null)
             throw new InvalidOperationException($"Measure {duplicate.Key} is registered by {string.Join(" and ", duplicate.Select(m => m.Module))}.");
@@ -128,6 +139,13 @@ public sealed class MeasureRegister
 
     /// <summary>Every module's trade columns, by field (<c>{module}.{id}</c>), in module order.</summary>
     public IReadOnlyList<RegisteredColumn> TradeColumns => [.. Modules.SelectMany(m => m.TradeColumns.Select(c => new RegisteredColumn($"{m.Id}.{c.Id}", c.Title, c.Type, c.Editable, m.Id)))];
+
+    /// <summary>The shared input fields the selected measures need, in module order: only they show (ADR-0010 §10).</summary>
+    public IReadOnlyList<MeasureInput> Inputs(WorkspaceState state)
+    {
+        var selected = PortfolioMaterialiser.SelectedMeasures(state, this);
+        return [.. Modules.SelectMany(m => m.Inputs).Where(i => selected.Contains(i.Measure))];
+    }
 
     /// <summary>The module and column a trade field names, or null where it is not a module's column.</summary>
     public (IMeasureModule Module, TradeColumn Column)? ColumnOf(string field) =>
@@ -144,12 +162,14 @@ public sealed class MeasureRegister
     /// <summary>
     /// The trades with the cells of every selected module's columns on them, keyed by field. Asked each time it is
     /// read, never kept with the state: a result cell such as PV01 changes with no edit. A module's input starts empty,
-    /// as no source holds it, so a value typed into one differs from Original (ADR-0010 §2).
+    /// as no source holds it, so a value in one differs from Original (ADR-0010 §2), whether it was typed or a rule
+    /// filled it, as PV Adj from Margin. A result column, such as PV01, is no one's change and is never marked.
     /// </summary>
     public IReadOnlyList<EffectiveTrade> WithCells(WorkspaceState state, IReadOnlyList<EffectiveTrade> trades)
     {
         var modules = Selected(state).Where(m => m.TradeColumns.Count > 0).ToList();
         if (modules.Count == 0 || trades.Count == 0) return trades;
+        var inputs = modules.SelectMany(m => m.TradeColumns.Where(c => c.Editable).Select(c => $"{m.Id}.{c.Id}")).ToHashSet();
         var cells = modules.Select(m =>
         {
             var own = m.Cells(state, trades);
@@ -163,9 +183,9 @@ public sealed class MeasureRegister
                 if (own[i] is { } mine)
                     foreach (var (id, cell) in mine) row[$"{module.Id}.{id}"] = cell;
             if (row.Count == 0) return t;
-            var typed = row.Where(c => c.Value.Editable && c.Value.Value is not null).Select(c => c.Key).ToList();
-            var original = typed.Count == 0 ? t.Original
-                : (t.Original ?? new Dictionary<string, JsonNode?>()).Concat(typed.Select(f => KeyValuePair.Create(f, (JsonNode?)null))).ToDictionary();
+            var held = row.Where(c => inputs.Contains(c.Key) && c.Value.Value is not null).Select(c => c.Key).ToList();
+            var original = held.Count == 0 ? t.Original
+                : (t.Original ?? new Dictionary<string, JsonNode?>()).Concat(held.Select(f => KeyValuePair.Create(f, (JsonNode?)null))).ToDictionary();
             return t with { Cells = row, Original = original };
         })];
     }

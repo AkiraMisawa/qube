@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import './xva.css';
-import { Alert, Badge, Button, Group, Modal, SegmentedControl, Select, Stack, Table, Text, TextInput } from '@mantine/core';
+import { Alert, Badge, Button, Group, Modal, SegmentedControl, Select, Stack, Table, Text, TextInput, useMantineTheme } from '@mantine/core';
 import { GridSource, type CellState, type GridColumn, type GridContextMenuContext, type GridEditIntent } from '@ex-grid/core';
 import type { ExGridApi } from '@ex-grid/react';
 import { WorkbenchGrid } from '../../platform/grid/WorkbenchGrid';
@@ -16,7 +16,8 @@ import { XvaResult } from './XvaResult';
 import { EditQueue, MEASURES_ENTITY, SETTINGS_ENTITY, tradeFields, type PendingEdit } from './editing';
 import { ToolbarField } from './fields';
 import { XvaInputs, type InputTab } from './XvaInputs';
-import { Resizer } from './layout';
+import { compactGridHeight, GRID_FRAME, pixels, Resizer } from './layout';
+import { declaring, membershipColumn } from './membership';
 import { priceLabel } from './metrics';
 import { differs, originalMessage } from './original';
 import { copyRich, downloadRun } from '../../platform/runs';
@@ -72,16 +73,6 @@ const existingTerms: readonly GridColumn<Row>[] = [
 
 export type TradeGrid = 'new' | 'existing';
 
-/** A trade's membership of a measure as the server decided it: `In · CSA-B: one-way`, or `Out` with its reason. */
-export function membershipOf(row: Row, measure: string): string | undefined {
-  const m = row.membership?.[measure];
-  return m === undefined ? undefined : `${m.in ? 'In' : 'Out'} · ${m.reason}`;
-}
-
-/** The read-only membership column of a measure that declares one (ADR-0010 §10), titled by the measure. */
-const membershipColumn = (measure: RegisteredMeasure): GridColumn<Row> =>
-  ({ name: `membership.${measure.id}`, header: measure.title, type: 'text', width: 340, value: (row) => membershipOf(row, measure.id), format: text });
-
 /**
  * The heights of the page's own parts (ADR-0010 §1), in pixels the page sets and never reads back. The input tabs fit
  * their content until the handle is dragged: Netting's one row, or the CSA grid's rows up to about seven. The dock's
@@ -91,7 +82,11 @@ const membershipColumn = (measure: RegisteredMeasure): GridColumn<Row> =>
 const RESIZER = 12;
 const DOCK_HEIGHT = 136;
 const TAKEN = 260;
-const inputsFit = (tab: InputTab, csas: number) => (tab === 'netting' ? 84 : csas === 0 ? 40 : Math.min(48 + csas * 28, 240) + 12);
+const CSA_ROWS = 7;
+/** The open tab's height as its content: Netting's row, the sentence that says there is no CSA, or the CSA grid in its
+ * frame under the panel's top gap (`gap`, the theme's `xs`). */
+const inputsFit = (tab: InputTab, csas: number, gap: number) =>
+  (tab === 'netting' ? 84 : csas === 0 ? 40 : gap + GRID_FRAME + compactGridHeight(Math.min(csas, CSA_ROWS)));
 
 /** The page's parts, which below `sm` are three tabs (ADR-0010 §1). */
 type Section = 'inputs' | 'trades' | 'results';
@@ -126,6 +121,7 @@ const describe = (error: unknown) => (error instanceof Error ? error.message : S
 export function XvaWorkspacePanel({ panelId, workspaceId, api }: { readonly panelId: string; readonly workspaceId: string; readonly api: XvaApi }) {
   const workspace = useWorkspaceContext();
   const queryClient = useQueryClient();
+  const theme = useMantineTheme();
   // While a module's cell on a new trade waits for its result, such as PV01, the view is read again until none does.
   const view = useQuery({
     queryKey: ['xva', workspaceId], queryFn: () => api.view(workspaceId),
@@ -182,11 +178,11 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api }: { readonly pane
   const registered = useRef<readonly RegisteredColumn[]>([]);
   registered.current = tradeColumns ?? [];
   // A membership column per selected measure that declares one (ADR-0010 §10), on both grids.
-  const declared = (view.data?.measures ?? []).filter((m) => m.declaresMembership && view.data?.selectedMeasures.includes(m.id) === true);
+  const declared = view.data === undefined ? [] : declaring(view.data.measures, view.data.selectedMeasures);
   const declaredKey = declared.map((m) => m.id).join('|');
-  const declaring = useRef<readonly RegisteredMeasure[]>([]);
-  declaring.current = declared;
-  const membership = useMemo(() => declaring.current.map(membershipColumn), [declaredKey]);
+  const declaredNow = useRef<readonly RegisteredMeasure[]>([]);
+  declaredNow.current = declared;
+  const membership = useMemo(() => declaredNow.current.map((m) => membershipColumn<Row>(m)), [declaredKey]);
   const newColumns = useMemo<readonly GridColumn<Row>[]>(() => [...leading, ...assignment, ...moduleColumns(registered.current), ...membership, ...derived], [columnsKey, membership]);
   const existingColumns = useMemo<readonly GridColumn<Row>[]>(() => [...existingTerms, ...membership, ...derived], [membership]);
 
@@ -362,8 +358,8 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api }: { readonly pane
   const notBusy = busy === undefined;
 
   const enforceable = ws.agreement.enforceable ? 'enforceable' : 'not enforceable';
-  const inputsHeight = inputsDragged ?? inputsFit(inputTab, ws.csas.length);
-  const newHeight = 48 + Math.max(1, Math.min(ws.newTrades, 8)) * 28;
+  const inputsHeight = inputsDragged ?? inputsFit(inputTab, ws.csas.length, pixels(theme.spacing.xs));
+  const newHeight = compactGridHeight(Math.max(1, Math.min(ws.newTrades, 8)));
   // What the parts other than Existing take, from the heights the page set (never measured): Existing has the rest.
   const taken = TAKEN + (inputsOpen ? inputsHeight + RESIZER : 0) + newHeight
     + (pricedRun === undefined ? 24 : dockOpen ? dockHeight + RESIZER + 32 : 48);
@@ -491,8 +487,8 @@ function TradeCaption({ title, count, grid, setSide, disabled }: {
   return (
     <Group gap="xs" wrap="wrap" className="qwb-grid-caption">
       <Text size="sm" fw={600}>{title}</Text>
-      <Text size="xs" c="dimmed">{count}</Text>
-      <Group gap={4} ml="auto" role="group" aria-label={`Before and After for every ${one}`}>
+      <Text size="xs">{count}</Text>
+      <Group gap="xs" ml="auto" role="group" aria-label={`Before and After for every ${one}`}>
         {(['before', 'after'] as const).flatMap((side) => [true, false].map((value) => (
           <Button key={`${side}.${value}`} size="compact-xs" variant="default" disabled={disabled}
             aria-label={`${value ? 'Tick' : 'Clear'} ${side === 'before' ? 'Before' : 'After'} on every ${one}`}
@@ -526,7 +522,7 @@ function HeldEdits({ conflicts, lost, resolve }: {
   const value = (v: unknown) => (v === null || v === undefined ? 'empty' : String(v));
   return (
     <Alert color="yellow" variant="light" title={`${conflicts.length} conflict(s), ${lost.length} lost edit(s)`} data-testid="held-edits">
-      <Stack gap={4}>
+      <Stack gap="xs">
         {conflicts.map((c) => (
           <Group key={`${c.entity}.${c.field}`} gap="xs" wrap="wrap">
             <Text size="xs" ff="monospace">{c.entity} {c.field}</Text>

@@ -43,7 +43,7 @@ public sealed class XvaMeasures(Pv01Provider pv01, decimal fvaLimitGbp = 1_000_0
     [
         // The request that prices CVA also values the portfolio: its PV is the value a case adds, which Copy quote quotes
         // beside the charge (ADR-0010 §7).
-        new(Cva, "CVA", [new("cva", "CVA"), new("cvaCharge", "CVA Charge"), new("pv", "PV")], "cva", DeclaresMembership: false, Traced: false),
+        new(Cva, "CVA", [new("cva", "CVA"), new("cvaCharge", "CVA Charge"), new("pv", "PV")], "cva", DeclaresMembership: false, Traced: false, Quoted: true),
         new(Fva, "FVA", [new("fva", "FVA")], "fva", DeclaresMembership: true, Traced: false),
     ];
 
@@ -51,6 +51,9 @@ public sealed class XvaMeasures(Pv01Provider pv01, decimal fvaLimitGbp = 1_000_0
 
     public IReadOnlyList<TradeColumn> TradeColumns { get; } =
         [new(Pv01, "PV01", "number", false), new(Margin, "Margin (bp)", "number", true), new(PvAdj, "PV Adj", "number", true)];
+
+    /// <summary>CVA's recovery on the Netting tab (ADR-0010 §8, §11): empty, the CDS recovery applies (XV15).</summary>
+    public IReadOnlyList<MeasureInput> Inputs { get; } = [new("netting", "cvaRecovery", Cva)];
 
     /// <summary>A trade's field for one of XVA's columns, as the trade grids and the frozen input name it.</summary>
     public static string Field(string column) => $"{Module}.{column}";
@@ -174,8 +177,8 @@ public sealed class ImperfectCsa : IMembershipRule
         if (counterparty > limitGbp) why.Add($"counterparty MTA+threshold {Mm(counterparty)}mm GBP over {Mm(limitGbp)}mm");
         if (self > limitGbp) why.Add($"self MTA+threshold {Mm(self)}mm GBP over {Mm(limitGbp)}mm");
         return why.Count > 0
-            ? new(true, $"{c.CsaId}: {string.Join(", ", why)}")
-            : new(false, $"{c.CsaId}: {c.Frequency}, MTA+threshold {Mm(Math.Max(counterparty, self))}mm GBP");
+            ? new(true, $"{c.CsaId} imperfect: {string.Join(", ", why)}")
+            : new(false, $"{c.CsaId} perfect: {c.Frequency}, MTA+threshold {Mm(Math.Max(counterparty, self))}mm GBP");
     }
 
     static string Mm(decimal gbp) => (gbp / 1_000_000m).ToString("0.0#", CultureInfo.InvariantCulture);

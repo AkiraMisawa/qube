@@ -124,7 +124,12 @@ export interface RegisteredMeasure {
   readonly headline: string;
   readonly declaresMembership: boolean;
   readonly traced: boolean;
+  /** Whether a Run that priced it has a quote to copy (ADR-0010 §7, §11: XVA's, from CVA). */
+  readonly quoted: boolean;
 }
+
+/** A shared input tab's field a selected measure needs (ADR-0010 §10), such as CVA's recovery on Netting. */
+export interface MeasureInput { readonly tab: string; readonly field: string; readonly measure: string }
 
 export interface XvaWorkspaceView {
   readonly workspaceId: string;
@@ -150,6 +155,8 @@ export interface XvaWorkspaceView {
   readonly selectedMeasures: readonly string[];
   /** The selected modules' trade columns, such as XVA's PV01, Margin and PV Adj (ADR-0010 §6, §10). */
   readonly tradeColumns: readonly RegisteredColumn[];
+  /** The shared input tabs' fields the selected measures need: only these show, and a hidden one keeps its value. */
+  readonly inputs: readonly MeasureInput[];
   /** How many of those cells on the new trades still wait for a result: the page asks again while any does. */
   readonly pendingCells: number;
   /** The currency the figures are shown in, and those it may be (ADR-0010 §1). */

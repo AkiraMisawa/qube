@@ -60,7 +60,7 @@
   z-index: 3;
   background: var(--mantine-color-body);
   border-top: 1px solid var(--mantine-color-default-border);
-  padding-block: 4px;
+  padding-block: var(--mantine-spacing-xs);
 }
 .qwb-xva-result-body {
   max-height: var(--qwb-part-height);
@@ -82,7 +82,7 @@
   content: '';
   width: 48px;
   height: 4px;
-  border-radius: 2px;
+  border-radius: var(--mantine-radius-xs);
   background: var(--mantine-color-dimmed);
 }
 .qwb-resizer:hover::before { background: var(--mantine-color-text); }
