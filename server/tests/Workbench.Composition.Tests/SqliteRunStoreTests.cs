@@ -58,7 +58,7 @@ public sealed class SqliteRunStoreTests : IDisposable
         var (_, _, restarted) = Process();
 
         Assert.Equal(first.Run.RunId, Assert.IsType<SubmissionResult.Accepted>(restarted.Submit(submission)).Run.RunId);
-        var other = submission with { Relations = submission.Relations with { AnalysisGroupId = "study-1" } };
+        var other = PortfolioPrice.Submission(workspaces, store, Register, ws.WorkspaceId, ws.Revision, "k1", "akira", relations: new(AnalysisGroupId: "study-1"));
         Assert.Equal("IdempotencyConflict", Assert.IsType<SubmissionResult.Rejected>(restarted.Submit(other)).Code);
     }
 

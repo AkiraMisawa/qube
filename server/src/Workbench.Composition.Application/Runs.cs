@@ -62,6 +62,12 @@ public sealed record RunRecord(
 /// A request to execute a workflow against a context and an input, on behalf of <paramref name="Owner"/>. The
 /// origin and relations are set by the server-side caller, never taken from a client as given.
 /// </summary>
+/// <param name="IdempotencyBasis">
+/// What makes two submissions under one key the same business submission (XV13). Without it the whole submission
+/// is compared. A caller whose frozen content can change with no edit, such as a cell an engine answers later, names
+/// the submission by what the user asked instead, such as a workspace and its revision: a retry is then the first
+/// Run, and the key on another basis is refused as before.
+/// </param>
 public sealed record RunSubmission(
     WorkflowDefinition Workflow,
     JsonObject Context,
@@ -69,4 +75,5 @@ public sealed record RunSubmission(
     string IdempotencyKey,
     string Owner,
     RunOrigin Origin,
-    RunRelations Relations);
+    RunRelations Relations,
+    JsonObject? IdempotencyBasis = null);
