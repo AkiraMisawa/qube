@@ -19,6 +19,7 @@ public sealed record EffectiveTrade(
     decimal? FixedRate,
     string? Schedule,
     decimal? LastFixing,
+    decimal? OfficialPv,
     string Csa,
     Ownership CsaOwner,
     string Curve,
@@ -57,7 +58,7 @@ public sealed class PortfolioEditRules : IEditRules
 
     public string KindOf(EditTarget target) => (Entity.Split(target.Entity).Kind, target.Field) switch
     {
-        (Entity.Trade, "before" or "after") => "xva.membership",
+        (Entity.Trade or Entity.Grid, "before" or "after") => "xva.membership",
         (Entity.Trade, "csa" or "curve") => "xva.assignment",
         (Entity.Trade, _) => "xva.trade",
         (Entity.Csa, _) => "xva.csa",
@@ -98,17 +99,18 @@ public static class PortfolioMaterialiser
     public static IReadOnlyList<EffectiveTrade> Trades(WorkspaceState state)
     {
         var source = (PortfolioSourceVersion)state.Source;
-        var overrides = state.Overrides.Values.ToDictionary(o => (o.Target.Entity, o.Target.Field), o => o.Value);
+        var overrides = state.Overrides.Values.ToDictionary(o => (o.Target.Entity, o.Target.Field));
         var held = state.Conflicts.Keys.Select(t => (t, "conflict")).Concat(state.Lost.Keys.Select(t => (t, "lost")))
             .ToLookup(x => x.t.Entity, x => $"{x.t.Field}: {x.Item2}");
-        // Most rows carry no edit of their own: they are the source under the rules and the CSA curves, which
-        // are computed once per source version and set of CSA curve edits. Only the rows the user touched, or
-        // that hold an edit back, are worked out again.
-        var csaCurves = overrides.Where(o => Entity.Split(o.Key.Entity).Kind == Entity.Csa).OrderBy(o => o.Key.Entity, StringComparer.Ordinal)
+        // Most rows carry no edit of their own: they are the source under the rules, the CSA terms and B or A set for a
+        // whole grid, which are computed once per source version and set of those edits. Only the rows the user
+        // touched, or that hold an edit back, are worked out again.
+        var shared = overrides.Where(o => Entity.Split(o.Key.Entity).Kind is Entity.Csa or Entity.Grid)
+            .OrderBy(o => o.Key.Entity, StringComparer.Ordinal).ThenBy(o => o.Key.Field, StringComparer.Ordinal)
             .ToDictionary(o => o.Key, o => o.Value);
-        var fingerprint = string.Join("|", csaCurves.Select(o => $"{o.Key.Entity}.{o.Key.Field}={o.Value?.ToJsonString()}"));
+        var fingerprint = string.Join("|", shared.Select(o => $"{o.Key.Entity}.{o.Key.Field}={o.Value.Value?.ToJsonString()}#{o.Value.Seq}"));
         var untouched = Untouched.GetOrCreateValue(source).GetOrAdd(fingerprint, _ =>
-            [.. source.Existing.Concat(source.New).Select(t => Trade(source, t, csaCurves, Nothing))]);
+            [.. source.Existing.Concat(source.New).Select(t => Trade(source, t, shared, Nothing))]);
         var touched = overrides.Keys.Select(k => k.Entity).Concat(held.Select(h => h.Key))
             .Where(e => Entity.Split(e).Kind == Entity.Trade).ToHashSet();
         if (touched.Count == 0) return untouched;
@@ -131,6 +133,8 @@ public static class PortfolioMaterialiser
         var entities = trades.Select(t => Entity.Of(Entity.Trade, t.TradeId))
             .Concat(trades.Select(t => Entity.Of(Entity.Csa, t.Csa)))
             .Append(Entity.Of(Entity.Netting, source.Agreement.NettingSetId))
+            .Append(Entity.Of(Entity.Grid, Entity.NewGrid))
+            .Append(Entity.Of(Entity.Grid, Entity.ExistingGrid))
             .Append(Entity.Of(Entity.Credit, source.Registration.Key))
             .Append(Entity.Measures)
             .ToHashSet();
@@ -173,10 +177,24 @@ public static class PortfolioMaterialiser
             : new(o.Value?.GetValue<decimal>(), Ownership.User, source.CdsRecovery);
     }
 
-    static EffectiveTrade Trade(PortfolioSourceVersion source, SourceTrade t, IReadOnlyDictionary<(string, string), JsonNode?> overrides, ILookup<string, string> held)
+    static EffectiveTrade Trade(PortfolioSourceVersion source, SourceTrade t, IReadOnlyDictionary<(string, string), Override> overrides, ILookup<string, string> held)
     {
         var entity = Entity.Of(Entity.Trade, t.TradeId);
-        bool Has(string field, out JsonNode? value) => overrides.TryGetValue((entity, field), out value);
+        bool Has(string field, out JsonNode? value)
+        {
+            var found = overrides.TryGetValue((entity, field), out var o);
+            value = o?.Value;
+            return found;
+        }
+        // B or A: the latest of the row's own edit and its grid's (ADR-0010 §6). A grid's edit sets every row; a row's
+        // own edit made after it wins over it.
+        bool Side(string field, bool original)
+        {
+            var own = overrides.GetValueOrDefault((entity, field));
+            var grid = overrides.GetValueOrDefault((Entity.Of(Entity.Grid, t.IsNew ? Entity.NewGrid : Entity.ExistingGrid), field));
+            var latest = own is null ? grid : grid is null || own.Seq > grid.Seq ? own : grid;
+            return latest is null ? original : latest.Value!.GetValue<bool>();
+        }
         var agreement = source.Agreement;
         var issues = new List<string>();
 
@@ -194,7 +212,7 @@ public static class PortfolioMaterialiser
         if (Has("curve", out var curveValue)) (curve, curveOwner) = (curveValue!.GetValue<string>(), Ownership.User);
         else if (csa == agreement.NoCsa) (curve, curveOwner) = (PortfolioCatalog.Profile.UncollateralisedCurve, Ownership.Automatic);
         else if (source.CsaOf(csa) is { } c)
-            (curve, curveOwner) = (overrides.TryGetValue((Entity.Of(Entity.Csa, c.CsaId), "curve"), out var csaCurve) ? csaCurve!.GetValue<string>() : c.Curve, Ownership.Automatic);
+            (curve, curveOwner) = (overrides.TryGetValue((Entity.Of(Entity.Csa, c.CsaId), "curve"), out var csaCurve) ? csaCurve.Value!.GetValue<string>() : c.Curve, Ownership.Automatic);
         else (curve, curveOwner) = ("", Ownership.Automatic);
         if (!PortfolioCatalog.Curves.Contains(curve)) issues.Add(curve == "" ? "No discount curve: the CSA is not eligible." : $"Curve {curve} is not available.");
 
@@ -205,9 +223,10 @@ public static class PortfolioMaterialiser
             Has("fixedRate", out var r) ? r?.GetValue<decimal>() : t.FixedRate,
             Has("schedule", out var s) ? s?.GetValue<string>() : t.Schedule,
             t.LastFixing,
+            t.OfficialPv,
             csa, csaOwner, curve, curveOwner,
-            Has("before", out var b) ? b!.GetValue<bool>() : !t.IsNew,
-            Has("after", out var a) ? a!.GetValue<bool>() : true,
+            Side("before", !t.IsNew),
+            Side("after", true),
             issues,
             [.. held[entity]],
             [.. EditableFields.Where(f => overrides.ContainsKey((entity, f)))]);

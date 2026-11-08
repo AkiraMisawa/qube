@@ -187,4 +187,91 @@ public class PricerTests
 
         Assert.Contains(refused.Code, new[] { "InvalidValue", "NotEditable" });
     }
+
+    [Fact] // ADR-0010 §6: clearing B for every existing trade is one edit, and a row ticked afterwards stays ticked
+    public void Clearing_before_for_a_grid_is_one_edit_and_a_later_row_edit_wins()
+    {
+        var service = Service();
+        var ws = service.Create("akira", "ABC/LE-01", Day1, 20);
+        var log = ws.Log.Count;
+
+        ws = service.Edit(ws.WorkspaceId, ws.Revision, "akira", "grid:existing", "before", false);
+        Assert.Equal(log + 1, ws.Log.Count);
+        var existing = service.Page(ws.WorkspaceId, "akira", 0, 100, [], "existing").Rows;
+        Assert.All(existing, t => Assert.False(t.Before));
+        Assert.All(service.Page(ws.WorkspaceId, "akira", 0, 100, [], "new").Rows, t => Assert.True(t.IsNew));
+
+        var first = existing[0].TradeId;
+        ws = service.Edit(ws.WorkspaceId, ws.Revision, "akira", $"trade:{first}", "before", true);
+
+        var rows = service.Page(ws.WorkspaceId, "akira", 0, 100, [], "existing").Rows;
+        Assert.True(rows.Single(t => t.TradeId == first).Before);
+        Assert.All(rows.Where(t => t.TradeId != first), t => Assert.False(t.Before));
+        Assert.Equal(1, service.View(ws.WorkspaceId, "akira").InBefore);
+    }
+
+    [Fact] // ADR-0010 §6: the grid's edit made after a row's sets that row too
+    public void A_grid_edit_after_a_row_edit_sets_that_row()
+    {
+        var service = Service();
+        var ws = service.Create("akira", "ABC/LE-01", Day1, 5);
+        ws = service.Edit(ws.WorkspaceId, ws.Revision, "akira", "trade:DRAFT-1", "after", false);
+
+        ws = service.Edit(ws.WorkspaceId, ws.Revision, "akira", "grid:new", "after", true);
+
+        Assert.All(service.Page(ws.WorkspaceId, "akira", 0, 10, [], "new").Rows, t => Assert.True(t.After));
+    }
+
+    [Fact] // ADR-0010 §3, §7: with every B box clear, Price prices After alone: Before not priced, no Diff, never 0
+    public async Task With_every_before_clear_price_prices_after_alone()
+    {
+        var (service, runs, store, _) = Priced();
+        var ws = service.Create("akira", "ABC/LE-01", Day1, 20);
+        ws = service.Edit(ws.WorkspaceId, ws.Revision, "akira", "grid:existing", "before", false);
+        Assert.Equal(0, service.View(ws.WorkspaceId, "akira").InBefore);
+
+        var (_, rows) = await Price(runs, store, service, ws);
+
+        Assert.All(rows, r =>
+        {
+            Assert.Equal(("notPriced", "priced"), (r["beforeStatus"]!.GetValue<string>(), r["afterStatus"]!.GetValue<string>()));
+            Assert.Null(r["before"]);
+            Assert.Null(r["diff"]);
+        });
+    }
+
+    [Fact] // ADR-0010 §3: a Price with no trade on either side is refused by name
+    public void A_price_with_no_trade_on_either_side_is_refused()
+    {
+        var service = Service();
+        var ws = service.Create("akira", "ABC/LE-01", Day1, 0);
+        ws = service.Edit(ws.WorkspaceId, ws.Revision, "akira", "grid:new", "after", false);
+
+        var refused = Assert.Throws<WorkspaceRefused>(() => service.Price(ws.WorkspaceId, ws.Revision, "akira", "k1"));
+
+        Assert.Equal("NothingToPrice", refused.Code);
+    }
+
+    [Fact] // ADR-0010 §6: an existing trade shows its official PV from the source; a new trade has none
+    public void An_existing_trade_shows_the_sources_official_pv()
+    {
+        var service = Service();
+        var ws = service.Create("akira", "ABC/LE-01", Day1, 10);
+        var source = new PortfolioSourceVersion("ABC/LE-01", Day1, 10);
+
+        var existing = service.Page(ws.WorkspaceId, "akira", 0, 100, [], "existing").Rows;
+
+        Assert.All(existing, t => Assert.Equal(source.Trade(t.TradeId)!.OfficialPv, t.OfficialPv));
+        Assert.All(existing, t => Assert.NotNull(t.OfficialPv));
+        Assert.All(service.Page(ws.WorkspaceId, "akira", 0, 10, [], "new").Rows, t => Assert.Null(t.OfficialPv));
+    }
+
+    [Fact] // ADR-0010 §6: a grid nobody named is refused, never read as all
+    public void An_unknown_grid_is_refused()
+    {
+        var service = Service();
+        var ws = service.Create("akira", "ABC/LE-01", Day1, 10);
+
+        Assert.Equal("UnknownGrid", Assert.Throws<WorkspaceRefused>(() => service.Page(ws.WorkspaceId, "akira", 0, 10, [], "old")).Code);
+    }
 }

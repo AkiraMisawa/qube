@@ -160,8 +160,13 @@ export function pricedMeasures(input: Readonly<Record<string, unknown>>): readon
   return typeof measures === 'string' ? measures.split(' ').filter((m) => m !== '') : undefined;
 }
 
-/** What Price will run (ADR-0010 §1): `Price CVA FVA · 1 case`. */
-export function priceLabel(register: readonly RegisteredMeasure[], selected: readonly string[], cases: number): string {
+/**
+ * What Price will run (ADR-0010 §1, §3): `Price CVA FVA · 1 case`, and `Price After only · CVA FVA · 1 case` when no
+ * trade is in Before, since that side will not be priced. With neither side holding a trade, Price is refused.
+ */
+export function priceLabel(register: readonly RegisteredMeasure[], selected: readonly string[], cases: number,
+  sides: { readonly before: boolean; readonly after: boolean } = { before: true, after: true }): string {
   const titles = selected.map((id) => register.find((m) => m.id === id)?.title ?? id);
-  return `Price ${titles.join(' ')} · ${cases} ${cases === 1 ? 'case' : 'cases'}`;
+  const only = sides.before && !sides.after ? 'Before only · ' : !sides.before && sides.after ? 'After only · ' : '';
+  return `Price ${only}${titles.join(' ')} · ${cases} ${cases === 1 ? 'case' : 'cases'}`;
 }

@@ -138,6 +138,21 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
       }],
       run: (a) => xvaPage().setMeasures(measuresTyped(a.measures ?? '')),
     },
+    // B or A for every row of a trade grid, as one edit (ADR-0010 §6): the grid the keyboard was last in, or the one named.
+    ...(['before', 'after'] as const).map((side): Command => ({
+      id: `xva.${side}.all`,
+      words: side,
+      title: `Tick or clear ${side === 'before' ? 'Before' : 'After'} on every trade of a grid`,
+      group: 'XVA',
+      ...(xva === undefined ? { unavailable: 'Open an XVA workspace first.' } : { target: active!.title }),
+      args: [
+        { name: 'which', required: true, complete: () => [{ value: 'all', detail: 'tick every row' }, { value: 'none', detail: 'clear every row' }],
+          check: (v) => (v === 'all' || v === 'none' ? undefined : 'all or none') },
+        { name: 'grid', required: false, hint: 'new or existing; the grid you were last in when left out',
+          complete: () => [{ value: 'new' }, { value: 'existing' }], check: (v) => (v === 'new' || v === 'existing' ? undefined : 'new or existing') },
+      ],
+      run: (a) => xvaPage().setSide(side, a.which === 'all', a.grid === undefined ? undefined : a.grid as 'new' | 'existing'),
+    })),
     {
       id: 'rates.new',
       words: 'new rates',

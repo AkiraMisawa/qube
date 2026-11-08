@@ -25,6 +25,9 @@ public sealed record PortfolioWorkspaceView(
     IReadOnlyList<EffectiveCsa> Csas,
     EffectiveCredit Credit,
     int Trades,
+    int NewTrades,
+    int InBefore,
+    int InAfter,
     int Overrides,
     IReadOnlyList<HeldEdit> Conflicts,
     IReadOnlyList<HeldEdit> Lost,
@@ -51,9 +54,10 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
     // Effective rows per immutable state: a page request at the same revision does not materialise again.
     readonly ConditionalWeakTable<WorkspaceState, IReadOnlyList<EffectiveTrade>> materialised = new();
     readonly ConditionalWeakTable<WorkspaceState, ConcurrentDictionary<string, IReadOnlyList<EffectiveTrade>>> sorted = new();
+    readonly ConditionalWeakTable<WorkspaceState, ConcurrentDictionary<string, IReadOnlyList<EffectiveTrade>>> grouped = new();
 
     public static readonly IReadOnlyList<string> SortableColumns =
-        ["tradeId", "isNew", "product", "currency", "notional", "maturity", "fixedRate", "schedule", "lastFixing", "csa", "curve", "before", "after"];
+        ["tradeId", "isNew", "product", "currency", "notional", "maturity", "fixedRate", "schedule", "lastFixing", "officialPv", "csa", "curve", "before", "after"];
 
     /// <summary>A new workspace, on its owner's last selection of measures (ADR-0010 §10, DEFAULT).</summary>
     public WorkspaceState Create(string user, string registration, DateOnly valueDate, int existingCount)
@@ -88,7 +92,7 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
             .Select(r => new RunLink(r.RunId, r.Relations.WorkspaceRevision ?? throw new InvalidOperationException($"Run {r.RunId} names a workspace but no revision.")))
             .ToList();
         return new(state.WorkspaceId, state.Revision, state.Context, source.Version, source.Registration, source.Agreement,
-            register.WithMembership(state, PortfolioMaterialiser.Csas(state)), PortfolioMaterialiser.Credit(state), Rows(state).Count, state.Overrides.Keys.Count(t => t.Entity != Entity.Measures),
+            register.WithMembership(state, PortfolioMaterialiser.Csas(state)), PortfolioMaterialiser.Credit(state), Rows(state).Count, Rows(state).Count(t => t.IsNew), Rows(state).Count(t => t.Before), Rows(state).Count(t => t.After), state.Overrides.Keys.Count(t => t.Entity != Entity.Measures),
             [.. state.Conflicts.Values.OrderBy(c => c.Override.Seq).Select(c => new HeldEdit(c.Override.Target.Scope, c.Override.Target.Entity, c.Override.Target.Field, c.Override.Value, c.Source, false))],
             [.. state.Lost.Values.OrderBy(l => l.Override.Seq).Select(l => new HeldEdit(l.Override.Target.Scope, l.Override.Target.Entity, l.Override.Target.Field, l.Override.Value, null, l.Acknowledged))],
             links, register.Measures, PortfolioMaterialiser.SelectedMeasures(state, register));
@@ -97,10 +101,15 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
     public IReadOnlyList<WorkspaceState> OwnedBy(string user) =>
         [.. workspaces.OwnedBy(user).Where(w => w.App == PortfolioEditRules.App)];
 
-    /// <summary>A page of effective rows under a sort. Refused for an unknown column, never sorted by a guess.</summary>
-    public RowPage Page(string workspaceId, string user, int start, int count, IReadOnlyList<RowSort> sorts)
+    /// <summary>
+    /// A page of effective rows under a sort, of one trade grid (<c>new</c> or <c>existing</c>, ADR-0010 §6) or of all.
+    /// Refused for an unknown column or grid, never sorted or filtered by a guess.
+    /// </summary>
+    public RowPage Page(string workspaceId, string user, int start, int count, IReadOnlyList<RowSort> sorts, string? grid = null)
     {
         if (start < 0 || count < 1) throw new WorkspaceRefused("InvalidRange", "A range starts at 0 or later and holds at least one row.");
+        if (grid is not (null or Entity.NewGrid or Entity.ExistingGrid))
+            throw new WorkspaceRefused("UnknownGrid", $"No trade grid {grid}; the grids are {Entity.NewGrid} and {Entity.ExistingGrid}.");
         var state = Owned(workspaceId, user);
         var keys = sorts.Select(sort =>
         {
@@ -115,8 +124,9 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
             return (sort.Column, Descending: descending);
         }).ToList();
         // A stable sort, kept per state and sort while the state is alive: scrolling asks for many pages of one order.
-        var all = keys.Count == 0 ? Rows(state) : sorted.GetOrCreateValue(state).GetOrAdd(string.Join(",", keys.Select(k => $"{k.Column}:{k.Descending}")), _ =>
-            [.. Rows(state).Order(Comparer<EffectiveTrade>.Create((a, b) =>
+        var rows = grid is null ? Rows(state) : grouped.GetOrCreateValue(state).GetOrAdd(grid, g => [.. Rows(state).Where(t => t.IsNew == (g == Entity.NewGrid))]);
+        var all = keys.Count == 0 ? rows : sorted.GetOrCreateValue(state).GetOrAdd($"{grid}|{string.Join(",", keys.Select(k => $"{k.Column}:{k.Descending}"))}", _ =>
+            [.. rows.Order(Comparer<EffectiveTrade>.Create((a, b) =>
             {
                 foreach (var (column, descending) in keys)
                     if (Compare(Key(a, column), Key(b, column), descending) is var c && c != 0) return c;
@@ -221,6 +231,8 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
         (Entity.Csa, var f) => PortfolioMaterialiser.CsaFields.Contains(f),
         // The CVA recovery is the netting set's since ADR-0010 §8; one set on the counterparty before still applies.
         (Entity.Netting, "cvaRecovery") => true,
+        // B or A for every row of a grid at once (ADR-0010 §6).
+        (Entity.Grid, "before" or "after") => Entity.Split(entity).Id is Entity.NewGrid or Entity.ExistingGrid,
         _ => false,
     };
 
@@ -262,6 +274,7 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
         "fixedRate" => row.FixedRate,
         "schedule" => row.Schedule,
         "lastFixing" => row.LastFixing,
+        "officialPv" => row.OfficialPv,
         "csa" => row.Csa,
         "curve" => row.Curve,
         "before" => row.Before,

@@ -16,10 +16,12 @@ async function newWorkspace(page: Page, registration: string, trades: number): P
   await dialog.getByLabel('Existing trades (synthetic)').fill(String(trades));
   await page.keyboard.press('Enter');
   await expect(page.getByRole('tab', { name: `XVA ${registration}` })).toHaveAttribute('aria-selected', 'true');
-  await settled(page, 'Trades');
+  await settled(page, 'New trades');
+  await settled(page, 'Existing trades');
 }
 
-const trade = (page: Page, id: string) => page.getByLabel('Trades').getByRole('row', { name: new RegExp(`^${id} `) });
+// New trades and existing trades are in grids of their own (ADR-0010 §6); a trade's id names its row in either.
+const trade = (page: Page, id: string) => page.getByRole('row', { name: new RegExp(`^${id} `) });
 
 /** Puts the grid's Focus on a cell of the first row, `right` columns from the first. */
 async function focusCell(page: Page, right: number): Promise<void> {
@@ -30,7 +32,8 @@ async function focusCell(page: Page, right: number): Promise<void> {
   for (let i = 0; i < right; i++) await page.keyboard.press('ArrowRight');
 }
 
-const CSA = 8;
+// The CSA's column in the New grid, which has no last fixing (ADR-0010 §6).
+const CSA = 7;
 
 test('docs/03, ADR-0003: a new trade takes the main CSA, a CSA typed in moves its curve, and Price lands in the Pricing DB', async ({ page }) => {
   await open(page);
@@ -98,7 +101,7 @@ test('ADR-0003 §6: a counterparty change asks before dropping its edits, and ke
   await confirm.getByRole('button', { name: 'Drop 1 and change' }).click();
 
   await expect(page.getByTestId('notice')).toContainText('1 edit(s) carried');
-  await settled(page, 'Trades');
+  await settled(page, 'New trades');
   await expect(trade(page, 'DRAFT-1').getByRole('gridcell').nth(3)).toHaveText('7,000,000');
   await expect(trade(page, 'DRAFT-1').getByRole('gridcell').nth(CSA)).toHaveText('CSA-C');
 });
@@ -124,8 +127,9 @@ test('ADR-0010 §10: `measures fva` leaves CVA out of the Price, and a new works
   await measures.getByRole('button', { name: 'CVA' }).click();
   await expect(page.getByTestId('price')).toHaveText('Price CVA FVA · 1 case');
 
+  // No existing trade there: Before has nothing to price, and Price says so.
   await newWorkspace(page, 'ABC/LE-02', 0);
-  await expect(page.getByTestId('price')).toHaveText('Price CVA FVA · 1 case');
+  await expect(page.getByTestId('price')).toHaveText('Price After only · CVA FVA · 1 case');
 });
 
 test('ADR-0010 §5, §8: raising a CSA threshold past 1mm GBP makes it imperfect and moves its trades into FVA', async ({ page }) => {
@@ -160,4 +164,25 @@ test('ADR-0010 §5, §8: raising a CSA threshold past 1mm GBP makes it imperfect
   const result = page.getByTestId('xva-result');
   await expect(result.getByTestId('xva-result-status')).toHaveText('succeeded');
   await expect(result.getByTestId('xva-result-trades')).toHaveText('Trades: CVA 0 → 3 · FVA 0 → 3');
+});
+
+test('ADR-0010 §3, §6: `before none` clears Before on every existing trade at once, and Price then prices After alone', async ({ page }) => {
+  await open(page);
+  await newWorkspace(page, 'ABC/LE-01', 5);
+  await expect(page.getByTestId('price')).toHaveText('Price CVA FVA · 1 case');
+
+  await command(page, 'before', 'none grid=existing');
+  await expect(page.getByTestId('price')).toHaveText('Price After only · CVA FVA · 1 case');
+  // One edit for the whole grid, whatever its size.
+  await expect(page.getByTestId('workspace-summary')).toContainText('1 edit(s)');
+
+  await command(page, 'price');
+  const result = page.getByTestId('xva-result');
+  await expect(result.getByTestId('xva-result-status')).toHaveText('succeeded');
+  await expect(result.getByTestId('xva-result-note')).toHaveText('After only: Before was not priced');
+  await expect(result.getByRole('columnheader', { name: 'CVA Diff' })).toHaveCount(0);
+
+  // The caption's own control does the same, back again.
+  await page.getByRole('button', { name: 'Tick Before on every existing trade' }).click();
+  await expect(page.getByTestId('price')).toHaveText('Price CVA FVA · 1 case');
 });

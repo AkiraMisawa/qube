@@ -10,7 +10,8 @@ namespace Workbench.Web;
 public static class XvaApi
 {
     public sealed record CreateRequest(string Registration, DateOnly ValueDate, int PortfolioSize);
-    public sealed record PageRequest(int Start, int Count, IReadOnlyList<RowSort> Sorts);
+    /// <summary>A page of trades; <c>Grid</c> names the New or Existing grid (ADR-0010 §6), or all when absent.</summary>
+    public sealed record PageRequest(int Start, int Count, IReadOnlyList<RowSort> Sorts, string? Grid = null);
     public sealed record EditRequest(long Revision, string Entity, string Field, JsonNode? Value);
     public sealed record ResolveRequest(long Revision, string Entity, string Field, string Resolution);
     public sealed record ValueDateRequest(long Revision, DateOnly ValueDate);
@@ -50,7 +51,7 @@ public static class XvaApi
         ws.MapPost("/{id}/rows", (string id, PageRequest request, CurrentUser user, PortfolioWorkspaces service) => Guard(() =>
         {
             if (request.Count > MaxPage) throw new WorkspaceRefused("InvalidRange", $"A page holds at most {MaxPage} rows.");
-            return Results.Ok(service.Page(id, user.Id, request.Start, request.Count, request.Sorts));
+            return Results.Ok(service.Page(id, user.Id, request.Start, request.Count, request.Sorts, request.Grid));
         }));
 
         ws.MapPost("/{id}/edits", (string id, EditRequest request, CurrentUser user, PortfolioWorkspaces service) => Guard(() =>

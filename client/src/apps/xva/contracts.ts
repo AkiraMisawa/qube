@@ -14,6 +14,8 @@ export interface EffectiveTrade {
   readonly fixedRate?: number | null;
   readonly schedule?: string | null;
   readonly lastFixing?: number | null;
+  /** The books' PV of an existing trade, the source's (ADR-0010 §6); absent for a new trade. */
+  readonly officialPv?: number | null;
   readonly csa: string;
   readonly csaOwner: Ownership;
   readonly curve: string;
@@ -107,6 +109,10 @@ export interface XvaWorkspaceView {
   readonly csas: readonly EffectiveCsa[];
   readonly credit: EffectiveCredit;
   readonly trades: number;
+  readonly newTrades: number;
+  /** How many trades are in Before and in After: a side with none is not priced (ADR-0010 §3). */
+  readonly inBefore: number;
+  readonly inAfter: number;
   readonly overrides: number;
   readonly conflicts: readonly HeldEdit[];
   readonly lost: readonly HeldEdit[];

@@ -130,4 +130,9 @@ describe('priceLabel', () => {
     expect(priceLabel(register, ['cva', 'fva'], 1)).toBe('Price CVA FVA · 1 case');
     expect(priceLabel(register, ['fva'], 3)).toBe('Price FVA · 3 cases');
   });
+
+  it('ADR-0010 §3: says when a side has no trade and will not be priced', () => {
+    expect(priceLabel(register, ['cva', 'fva'], 1, { before: false, after: true })).toBe('Price After only · CVA FVA · 1 case');
+    expect(priceLabel(register, ['cva'], 1, { before: true, after: false })).toBe('Price Before only · CVA · 1 case');
+  });
 });

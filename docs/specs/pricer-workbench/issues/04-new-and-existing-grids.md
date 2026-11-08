@@ -9,8 +9,13 @@ refused by name.
 
 **Blocked by:** 02.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Clearing B for all existing trades is one edit, and a row ticked afterwards stays ticked.
-- [ ] A Price with every B box clear shows `not priced` for Before and no Diff, never 0.
-- [ ] The official PV of an existing trade is the source's.
+- [x] Clearing B for all existing trades is one edit, and a row ticked afterwards stays ticked.
+- [x] A Price with every B box clear shows `not priced` for Before and no Diff, never 0.
+- [x] The official PV of an existing trade is the source's.
+
+*Done 2026-11-08.* B or A for a grid is one edit on `grid:new` or `grid:existing`; the later of it and a row's own
+edit wins, by the log's order. `before all|none` and `after all|none` act on the grid the keyboard was last in, or
+the one named (`grid=existing`). Not done here: filtering from the column headers and the *in FVA* filter (§5, §6)
+need the server to read ExGrid's filters, and both grids still refuse a filter by name rather than ignore it.

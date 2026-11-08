@@ -35,9 +35,10 @@ const column = (name: keyof Row & string, header: string, type: GridColumn<Row>[
 
 /**
  * Made once: a new column is a new declaration, and every row paints again (ExGrid ADR-0003). Each width holds its
- * header and its widest value: the largest synthetic notional, 10,000,000,000, must not fall to `####`.
+ * header and its widest value: the largest synthetic notional, 10,000,000,000, must not fall to `####`. The New and
+ * Existing grids (ADR-0010 §6) share them; only an existing trade has a last fixing and an official PV.
  */
-const columns: readonly GridColumn<Row>[] = [
+const leading: readonly GridColumn<Row>[] = [
   column('tradeId', 'Trade', 'text', 168),
   column('product', 'Product', 'text', 104),
   column('currency', 'Ccy', 'text', 76),
@@ -45,7 +46,8 @@ const columns: readonly GridColumn<Row>[] = [
   column('maturity', 'Maturity', 'text', 112),
   column('fixedRate', 'Fixed rate', 'number', 112, { editable: true, format: (v) => rate.format(v as number) }),
   column('schedule', 'Schedule', 'text', 104, { editable: true }),
-  column('lastFixing', 'Last fixing', 'number', 116, { format: (v) => rate.format(v as number) }),
+];
+const trailing: readonly GridColumn<Row>[] = [
   column('csa', 'CSA', 'text', 120, { editable: true }),
   column('curve', 'Curve', 'text', 112, { editable: true }),
   column('before', 'Before', 'boolean', 88, { editable: true }),
@@ -54,6 +56,16 @@ const columns: readonly GridColumn<Row>[] = [
   { name: 'fva', header: 'FVA', type: 'text', width: 340, value: (row) => fvaOf(row), format: text },
   { name: 'issues', header: 'Issues', type: 'text', width: 260, value: (row) => (row.issues.length === 0 ? undefined : row.issues.join(' ')), format: text },
 ];
+const newColumns: readonly GridColumn<Row>[] = [...leading, ...trailing];
+const existingColumns: readonly GridColumn<Row>[] = [
+  ...leading,
+  column('lastFixing', 'Last fixing', 'number', 116, { format: (v) => rate.format(v as number) }),
+  // The books' PV, the source's and read-only (ADR-0010 §6): the PV an adjustment uses.
+  column('officialPv', 'Official PV', 'number', 152, { format: (v) => amount.format(v as number) }),
+  ...trailing,
+];
+
+export type TradeGrid = 'new' | 'existing';
 
 /** A trade's FVA membership as the server decided it: `In · CSA-B: one-way`, or `Out` with its reason. */
 export function fvaOf(row: Row): string | undefined {
@@ -85,19 +97,31 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api }: { readonly pane
   const queryClient = useQueryClient();
   const view = useQuery({ queryKey: ['xva', workspaceId], queryFn: () => api.view(workspaceId) });
   const registrations = useQuery({ queryKey: ['xva', 'registrations'], queryFn: () => api.registrations(), staleTime: Infinity });
-  const grid = useRef<ExGridApi<Row>>(null);
+  const newGrid = useRef<ExGridApi<Row>>(null);
+  // The grid the keyboard was last in: `before all` and `after all` act on it, Existing until one was.
+  const lastGrid = useRef<TradeGrid>('existing');
   const [busy, setBusy] = useState<string | undefined>(undefined);
   const [confirm, setConfirm] = useState<{ readonly registration: string; readonly drop: ScopeDrop } | undefined>(undefined);
   const [failure, setFailure] = useState<string | undefined>(undefined);
   const [issue, setIssue] = useState<string | undefined>(undefined);
 
-  const source = useMemo(() => GridSource.fetch<Row>(async (query, signal) => {
-    // Filtering is not offered by the server yet; a filter set anyway is refused, never ignored.
-    if (query.filter !== undefined) throw new Error('This grid cannot filter yet. Clear the filter to see the trades.');
-    const page = await api.rows(workspaceId, { start: query.range.start, count: query.range.count, sorts: query.sorts }, signal);
-    return { rows: page.rows, start: page.start, totalCount: page.totalCount, orderToken: page.orderToken };
-  }, { rowKey: (row) => row.tradeId, onFetchFailed: (event) => setFailure(describe(event.error)) }), [api, workspaceId]);
-  useEffect(() => () => source.dispose(), [source]);
+  // One source per grid, each paged and sorted on the server (ADR-0010 §6); an edit may move a row in either.
+  const sources = useMemo(() => {
+    const of = (grid: TradeGrid) => GridSource.fetch<Row>(async (query, signal) => {
+      // Filtering is not offered by the server yet; a filter set anyway is refused, never ignored.
+      if (query.filter !== undefined) throw new Error('This grid cannot filter yet. Clear the filter to see the trades.');
+      const page = await api.rows(workspaceId, { start: query.range.start, count: query.range.count, sorts: query.sorts, grid }, signal);
+      return { rows: page.rows, start: page.start, totalCount: page.totalCount, orderToken: page.orderToken };
+    }, { rowKey: (row) => row.tradeId, onFetchFailed: (event) => setFailure(describe(event.error)) });
+    const grids = { new: of('new'), existing: of('existing') };
+    return {
+      ...grids,
+      changed: () => { grids.new.notifyChanged([]); grids.existing.notifyChanged([]); },
+      requery: () => { grids.new.requery(); grids.existing.requery(); },
+      dispose: () => { grids.new.dispose(); grids.existing.dispose(); },
+    };
+  }, [api, workspaceId]);
+  useEffect(() => () => sources.dispose(), [sources]);
 
   const show = useCallback((next: XvaWorkspaceView) => queryClient.setQueryData(['xva', workspaceId], next), [queryClient, workspaceId]);
 
@@ -107,11 +131,11 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api }: { readonly pane
       : edit.resolution === undefined
         ? api.edit(workspaceId, revision, edit.entity, edit.field, edit.value)
         : api.resolve(workspaceId, revision, edit.entity, edit.field, edit.resolution),
-    (next) => { show(next); source.notifyChanged([]); },
+    (next) => { show(next); sources.changed(); },
     (edit, error) => {
       workspace.notify(`${edit.entity} ${edit.field} was not changed: ${describe(error)}`);
-      void api.view(workspaceId).then((fresh) => { queue.rebase(fresh.revision); show(fresh); source.notifyChanged([]); });
-    }), [api, workspaceId, show, source, workspace]);
+      void api.view(workspaceId).then((fresh) => { queue.rebase(fresh.revision); show(fresh); sources.changed(); });
+    }), [api, workspaceId, show, sources, workspace]);
   // The queue follows the revision on screen: the one first read, and any read since that someone else moved
   // (the AI, another page), so the next edit is not refused for a change the user can already see.
   const shownRevision = view.data?.revision;
@@ -127,7 +151,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api }: { readonly pane
   }, [queue]);
 
   useEffect(() => {
-    registerGridFocus(panelId, () => grid.current?.focus());
+    registerGridFocus(panelId, () => newGrid.current?.focus());
     return () => registerGridFocus(panelId, undefined);
   }, [panelId]);
 
@@ -138,7 +162,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api }: { readonly pane
       const { workspace: next, carried } = await run();
       queue.rebase(next.revision);
       show(next);
-      source.requery();
+      sources.requery();
       workspace.notify(`${label}: ${carried.carried} edit(s) carried, ${carried.conflicted} in conflict, ${carried.lost} lost.`);
     } catch (error) {
       workspace.notify(`${label} failed: ${describe(error)}`);
@@ -180,14 +204,18 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api }: { readonly pane
   };
 
   const setMeasures = (measures: readonly string[]) => void queue.push({ entity: MEASURES_ENTITY, field: 'measures', measures });
+  /** B or A for every row of a grid, as one edit (ADR-0010 §6); a row's own edit made later wins over it. */
+  const setSide = (side: 'before' | 'after', value: boolean, grid: TradeGrid = lastGrid.current) =>
+    void queue.push({ entity: `grid:${grid}`, field: side, value });
 
   // The commands run what the page's own controls run, as the page stands when they run (ADR-0010 §9).
-  const pageRef = useRef({ price, setMeasures, measures: () => view.data?.measures ?? [] });
-  pageRef.current = { price, setMeasures, measures: () => view.data?.measures ?? [] };
+  const pageRef = useRef({ price, setMeasures, setSide, measures: () => view.data?.measures ?? [] });
+  pageRef.current = { price, setMeasures, setSide, measures: () => view.data?.measures ?? [] };
   useEffect(() => {
     registerXvaPage(panelId, {
       price: () => void pageRef.current.price(),
       setMeasures: (measures) => pageRef.current.setMeasures(measures),
+      setSide: (side, value, grid) => pageRef.current.setSide(side, value, grid),
       measures: () => pageRef.current.measures(),
     });
     return () => registerXvaPage(panelId, undefined);
@@ -227,7 +255,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api }: { readonly pane
           })}
         </div>
         <Button size="xs" onClick={() => void price()} loading={busy === 'Pricing'} disabled={!notBusy && busy !== 'Pricing'} data-testid="price"
-          {...(blocking > 0 ? { title: `${blocking} held edit(s) on priced trades must be resolved first.` } : {})}>{priceLabel(ws.measures, ws.selectedMeasures, 1)}</Button>
+          {...(blocking > 0 ? { title: `${blocking} held edit(s) on priced trades must be resolved first.` } : {})}>{priceLabel(ws.measures, ws.selectedMeasures, 1, { before: ws.inBefore > 0, after: ws.inAfter > 0 })}</Button>
       </div>
       <XvaInputs ws={ws} onIssue={setIssue} push={(entity, field, value) => void queue.push({ entity, field, value })} />
       <Group gap="xs" wrap="wrap">
@@ -239,9 +267,18 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api }: { readonly pane
       {pricedRun !== undefined && <XvaResult runId={pricedRun} pricedRevision={pricedRevision} revision={ws.revision} register={ws.measures} onOpen={() => openRun(pricedRun)} />}
       <HeldEdits conflicts={ws.conflicts} lost={ws.lost} resolve={(edit, resolution) => void queue.push({ entity: edit.entity, field: edit.field, resolution })} />
       {failure !== undefined && <Alert color="red" variant="light" withCloseButton onClose={() => setFailure(undefined)} title="The trades could not be read">{failure}</Alert>}
-      <div aria-label="Trades">
-        <WorkbenchGrid<Row> className="qwb-xva-trades" ref={grid} columns={columns} source={source} onEdit={onEdit} cellState={cellState} cellMessage={cellMessage}
-          density="compact" viewportWidth="stretch" viewportHeight="stretch" pinnedColumnCount={1} locale="en-US" />
+      {/* New trades above Existing (ADR-0010 §6): New as high as its rows, about eight at most; Existing takes the rest. */}
+      <div className="qwb-xva-grids">
+        <TradeCaption title="New trades" count={ws.newTrades} grid="new" setSide={setSide} disabled={!notBusy} />
+        <div aria-label="New trades" onFocusCapture={() => { lastGrid.current = 'new'; }}>
+          <WorkbenchGrid<Row> ref={newGrid} columns={newColumns} source={sources.new} onEdit={onEdit} cellState={cellState} cellMessage={cellMessage}
+            density="compact" viewportWidth="stretch" viewportHeight={48 + Math.max(1, Math.min(ws.newTrades, 8)) * 28} pinnedColumnCount={1} locale="en-US" />
+        </div>
+        <TradeCaption title="Existing trades" count={ws.trades - ws.newTrades} grid="existing" setSide={setSide} disabled={!notBusy} />
+        <div aria-label="Existing trades" onFocusCapture={() => { lastGrid.current = 'existing'; }}>
+          <WorkbenchGrid<Row> className="qwb-xva-trades" columns={existingColumns} source={sources.existing} onEdit={onEdit} cellState={cellState} cellMessage={cellMessage}
+            density="compact" viewportWidth="stretch" viewportHeight="stretch" pinnedColumnCount={1} locale="en-US" />
+        </div>
       </div>
       <Modal opened={confirm !== undefined} onClose={() => setConfirm(undefined)} title="Change counterparty" trapFocus transitionProps={{ duration: 0 }}>
         {confirm !== undefined && (
@@ -262,6 +299,33 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api }: { readonly pane
         )}
       </Modal>
     </Stack>
+  );
+}
+
+/**
+ * A trade grid's caption: its title and count, and B and A for every row of it (ADR-0010 §6). ExGrid gives a Consumer
+ * no header action, so the all/none controls sit here, and are the commands `before all|none` and `after all|none`.
+ */
+function TradeCaption({ title, count, grid, setSide, disabled }: {
+  readonly title: string;
+  readonly count: number;
+  readonly grid: TradeGrid;
+  readonly setSide: (side: 'before' | 'after', value: boolean, grid: TradeGrid) => void;
+  readonly disabled: boolean;
+}) {
+  const one = grid === 'new' ? 'new trade' : 'existing trade';
+  return (
+    <Group gap="xs" wrap="wrap" className="qwb-grid-caption">
+      <Text size="sm" fw={600}>{title}</Text>
+      <Text size="xs" c="dimmed">{count}</Text>
+      <Group gap={4} ml="auto" role="group" aria-label={`Before and After for every ${one}`}>
+        {(['before', 'after'] as const).flatMap((side) => [true, false].map((value) => (
+          <Button key={`${side}.${value}`} size="compact-xs" variant="default" disabled={disabled}
+            aria-label={`${value ? 'Tick' : 'Clear'} ${side === 'before' ? 'Before' : 'After'} on every ${one}`}
+            onClick={() => setSide(side, value, grid)}>{side === 'before' ? 'B' : 'A'} {value ? 'all' : 'none'}</Button>
+        )))}
+      </Group>
+    </Group>
   );
 }
 

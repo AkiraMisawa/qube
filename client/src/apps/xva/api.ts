@@ -6,6 +6,8 @@ export interface RowQuery {
   readonly start: number;
   readonly count: number;
   readonly sorts: readonly { readonly column: string; readonly direction: 'ascending' | 'descending' }[];
+  /** The New or the Existing grid (ADR-0010 §6). */
+  readonly grid: 'new' | 'existing';
 }
 
 const base = (workspaceId: string) => `/api/xva/workspaces/${encodeURIComponent(workspaceId)}`;

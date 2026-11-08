@@ -86,6 +86,9 @@ public static class PortfolioInput
         var state = freeze.State;
         var source = (PortfolioSourceVersion)state.Source;
         var trades = register.WithMembership(state, PortfolioMaterialiser.Trades(state)).Where(t => t.Before || t.After).ToList();
+        // A side with no trade is not priced (ADR-0010 §3); with no trade on either side there is nothing to price.
+        if (trades.Count == 0)
+            throw new WorkspaceRefused("NothingToPrice", "No trade is in Before or After: tick B or A on a trade to price it.");
         var invalid = trades.Where(t => t.Issues.Count > 0).ToList();
         if (invalid.Count > 0)
             throw new WorkspaceRefused("InvalidInput", $"{invalid.Count} trade(s) to price have validation issues, first {invalid[0].TradeId}: {invalid[0].Issues[0]}");

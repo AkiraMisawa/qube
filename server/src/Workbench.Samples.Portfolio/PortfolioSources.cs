@@ -42,7 +42,9 @@ public sealed record SourceTrade(
     decimal? FixedRate,
     string? Schedule,
     decimal? LastFixing,
-    string? Csa);
+    string? Csa,
+    // The official PV the books hold for an existing trade (ADR-0010 §6), in its currency; a new trade has none.
+    decimal? OfficialPv = null);
 
 /// <summary>The configured baseline profile: the curve an uncollateralised trade starts on (docs/03 §2.4).</summary>
 public sealed record BaselineProfile(string ProfileVersion, string UncollateralisedCurve);
@@ -140,6 +142,7 @@ public sealed class PortfolioSourceVersion : ISourceVersion
                     "fixedRate" => new(t.FixedRate),
                     "schedule" => new(t.Schedule),
                     "lastFixing" => new(t.LastFixing),
+                    "officialPv" => new(t.OfficialPv),
                     // A new trade has no CSA of its own: it takes the main CSA automatically.
                     "csa" => new(t.Csa),
                     // A trade's curve follows its CSA unless the user sets one.
@@ -165,6 +168,9 @@ public sealed class PortfolioSourceVersion : ISourceVersion
                     "selfCurrency" => new(csa.SelfCurrency),
                     _ => null,
                 };
+            // B or A set for every row of a grid (ADR-0010 §6): the source sets no grid at once.
+            case Entity.Grid when id is Entity.NewGrid or Entity.ExistingGrid:
+                return field is "before" or "after" ? new((JsonNode?)null) : null;
             // The CVA recovery is the netting set's (ADR-0010 §8); empty stays empty and the CDS recovery applies.
             case Entity.Netting when id == Agreement.NettingSetId:
                 return field == "cvaRecovery" ? new(CvaRecovery) : null;
@@ -196,8 +202,10 @@ public sealed class PortfolioSourceVersion : ISourceVersion
         var notional = Math.Round((decimal)(1 + random.Next(1, 100)) * (currency == "JPY" ? 100_000_000m : 1_000_000m), 0);
         var agreement = PortfolioCatalog.AgreementOf(registration.Key);
         string? csa = isNew ? null : agreement.Collateralised ? agreement.Csas[random.Next(agreement.Csas.Count)].CsaId : agreement.NoCsa;
+        // Drawn from a generator of its own, so the trades' other values stay as they were before it existed.
+        decimal? officialPv = isNew ? null : Math.Round((decimal)(new Random(seed ^ 0x5bd1e995).NextDouble() - 0.5) * notional * 0.02m, 0);
         if (!swap)
-            return new(tradeId, isNew, "FXForward", currency, notional, maturity, null, null, null, csa);
+            return new(tradeId, isNew, "FXForward", currency, notional, maturity, null, null, null, csa, officialPv);
         var schedule = random.NextDouble() < 0.5 ? "6M" : "3M";
         var fixedRate = Math.Round((decimal)(0.001 + random.NextDouble() * 0.04), 5);
         // The last fixing is set on the latest fixing date not after the value date.
@@ -205,7 +213,7 @@ public sealed class PortfolioSourceVersion : ISourceVersion
         var since = valueDate.DayNumber - start.DayNumber;
         var fixings = since < 0 ? 0 : since / period + 1;
         decimal? lastFixing = isNew ? null : Math.Round((decimal)(0.001 + new Random(seed ^ fixings).NextDouble() * 0.04), 5);
-        return new(tradeId, isNew, "IRS", currency, notional, maturity, fixedRate, schedule, lastFixing, csa);
+        return new(tradeId, isNew, "IRS", currency, notional, maturity, fixedRate, schedule, lastFixing, csa, officialPv);
     }
 
     static int Seed(string text)
@@ -223,6 +231,10 @@ public static class Entity
     public const string Trade = "trade";
     public const string Csa = "csa";
     public const string Netting = "netting";
+    /// <summary>A trade grid as a whole, <c>grid:new</c> or <c>grid:existing</c>: B or A set for every row by one edit.</summary>
+    public const string Grid = "grid";
+    public const string NewGrid = "new";
+    public const string ExistingGrid = "existing";
     public const string Credit = "credit";
     public const string Selection = "selection";
 

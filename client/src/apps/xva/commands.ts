@@ -7,6 +7,8 @@ export interface XvaPage {
   price(): void;
   /** Sets the measures Price prices; the server refuses an unknown one, or none, by name. */
   setMeasures(measures: readonly string[]): void;
+  /** B or A for every row of a grid (ADR-0010 §6); the grid the keyboard was last in when none is named. */
+  setSide(side: 'before' | 'after', value: boolean, grid?: 'new' | 'existing'): void;
   /** The registered measures, for the command line to offer. */
   measures(): readonly RegisteredMeasure[];
 }
