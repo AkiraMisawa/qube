@@ -45,17 +45,29 @@ public static class Api
         // once per method version from the catalogue.
         api.MapGet("/runs/{runId}/cases/{caseId}/traces/{measure}", (string runId, string caseId, string measure, string? scenario, string? path,
             string? order, int? offset, int? limit, TraceService traces, CurrentUser user) =>
-            Traced(() => traces.Read(new(runId, caseId, scenario ?? TraceService.BaseScenario, measure), user.Id, path, OrderOf(order), offset ?? 0, limit ?? 200)));
+            Traced(() => traces.Read(new(runId, caseId, scenario ?? TraceService.BaseScenario, measure), user.Id, path, TraceService.OrderOf(order), offset ?? 0, limit ?? TraceService.DefaultPage)));
 
         api.MapGet("/runs/{runId}/cases/{caseId}/traces/{measure}/leaves", (string runId, string caseId, string measure, string? scenario, string? path,
             int? offset, int? limit, string? sort, bool? descending, TraceService traces, CurrentUser user) =>
             Traced(() => traces.Leaves(new(runId, caseId, scenario ?? TraceService.BaseScenario, measure), user.Id,
-                path ?? throw new TraceRefused("Required", "path names the term whose leaf rows are read."), offset ?? 0, limit ?? 200, sort, descending ?? false)));
+                path ?? throw new TraceRefused("Required", "path names the term whose leaf rows are read."), offset ?? 0, limit ?? TraceService.DefaultPage, sort, descending ?? false)));
 
         api.MapGet("/traces/catalogs/{method}/{version}", (string method, string version, CompositionRegistry registry) =>
             registry.FindTraceCatalog(method, version) is { } catalog
                 ? Results.Ok(catalog)
                 : NotFound("UnknownMethod", $"No module registered the kinds of {method} {version}."));
+
+        // Download (ADR-0010 §7): a finished Run as a zip of its record, its frozen inputs, its results and its lineage.
+        api.MapGet("/runs/{runId}/archive", (string runId, RunService runs, IDataStore store, CurrentUser user) =>
+        {
+            if (runs.Find(runId) is not { } run) return NotFound("UnknownRun", $"Run {runId} does not exist.");
+            if (run.Owner != user.Id) return Results.Json(new ErrorEnvelope("NotOwner", $"Run {runId} belongs to another user.", []), statusCode: 403);
+            if (run.Status == RunStatus.Running) return Results.Json(new ErrorEnvelope("RunRunning", $"Run {runId} is still running; download it once it finishes.", []), statusCode: 409);
+            var zip = new MemoryStream();
+            RunArchive.Write(run, store, zip);
+            zip.Position = 0;
+            return Results.File(zip, "application/zip", $"{runId}.zip");
+        });
 
         api.MapPost("/data/read", (TypedDataRef reference, IDataStore store) => store.Read(reference) switch
         {
@@ -115,13 +127,6 @@ public static class Api
             Results.Ok(new CompositionValidator(registry).Validate(request.View, request.BoundNames.ToHashSet()).ToList()));
     }
 
-    static ChildOrder OrderOf(string? order) => order switch
-    {
-        null or "formula" => ChildOrder.Formula,
-        "size" => ChildOrder.Size,
-        _ => throw new TraceRefused("InvalidOrder", $"order is formula or size, not {order}."),
-    };
-
     /// <summary>A trace's answer, or its refusal with the status that says whose it is to act on.</summary>
     static IResult Traced<T>(Func<T> read)
     {
@@ -138,7 +143,9 @@ public static class Api
                 "RunRunning" => 409,
                 "TraceExpired" or "TraceUnavailable" => 410,
                 "UnknownMethod" or "TraceInvalid" => 500,
-                _ => 422,
+                "InvalidOrder" or "InvalidRange" or "Required" => 422,
+                // A refusal no status was chosen for is a defect here, said as one, never answered as the caller's.
+                var code => throw new InvalidOperationException($"No status is set for the trace refusal {code}."),
             };
             return Results.Json(new ErrorEnvelope(refused.Code, refused.Message, [], refused.Retryable), statusCode: status);
         }

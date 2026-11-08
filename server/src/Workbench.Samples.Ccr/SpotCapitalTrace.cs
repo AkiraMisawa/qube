@@ -536,7 +536,8 @@ public static class SpotCapitalTrace
                     {
                         AssetClass.Credit => ("saccr.creditHedgingSet", "saccr.creditEntity"),
                         AssetClass.Equity => ("saccr.equityHedgingSet", "saccr.equityEntity"),
-                        _ => ("saccr.commodityHedgingSet", "saccr.commodityType"),
+                        AssetClass.Commodity => ("saccr.commodityHedgingSet", "saccr.commodityType"),
+                        _ => throw new InvalidOperationException($"No kind is registered for a hedging set of {set.AssetClass}."),
                     };
                     Term(id, setKind, set.AddOn, parent, set.RiskFactors.Count, key);
                     foreach (var factor in set.RiskFactors)
@@ -627,7 +628,8 @@ public static class SpotCapitalTrace
             AssetClass.ForeignExchange => "FX",
             AssetClass.Credit => "credit",
             AssetClass.Equity => "equity",
-            _ => "commodity",
+            AssetClass.Commodity => "commodity",
+            _ => throw new ArgumentOutOfRangeException(nameof(c), c, "An asset class SA-CCR does not name."),
         };
 
         static string Pct(double ratio) => (ratio * 100).ToString("0.####", CultureInfo.InvariantCulture) + "%";

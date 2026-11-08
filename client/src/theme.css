@@ -12,6 +12,13 @@
 .qwb-grid.mantine-ex-grid {
   --ex-header-group-toggle-color: var(--mantine-primary-color-filled);
 }
+/* A marked heading's words are drawn in the mark's colour, which the Wrapper takes from the primary, a colour made to
+   read at 3:1 as a line: in the light scheme the amber read at 2.05:1 on the marked heading's grey (the trace tree's
+   Term with the Focus in its column, 2026-11-08). Words need 4.5:1 (docs/design-guidelines.md §7), so in the light
+   scheme the mark is the primary's text colour, which holds for the words and for the line; the dark scheme holds. */
+[data-mantine-color-scheme='light'] .qwb-grid.mantine-ex-grid {
+  --ex-heading-mark: var(--mantine-primary-color-light-color);
+}
 .qwb-grid .ex-header-group {
   text-align: left;
   color: var(--mantine-color-text);

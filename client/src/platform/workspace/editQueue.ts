@@ -61,4 +61,20 @@ export class EditQueue<Edit, View extends { readonly revision: number }> {
     });
     return this.#tail;
   }
+
+  /**
+   * Runs a command, such as Price or a value date moved, against the workspace as the edits sent before it leave it
+   * (spine 6): Price pressed or typed while an edit is on its way prices that edit, and is never refused for a revision
+   * its own page moved. Edits sent after it wait for it. After a refused edit it is refused too, as those edits are.
+   * A command that moves the revision rebases the queue inside `command`, before the next edit is sent.
+   */
+  after<T>(command: (revision: number) => Promise<T>): Promise<T> {
+    const run = this.#tail.then(() => {
+      if (this.#broken) throw new Error('An earlier edit was refused; this was not sent. Look at the workspace again.');
+      return command(this.#revision);
+    });
+    // The next edit follows the command whether it was taken or refused; its outcome is the caller's.
+    this.#tail = run.then(() => undefined, () => undefined);
+    return run;
+  }
 }

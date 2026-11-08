@@ -15,8 +15,9 @@ public sealed record RowPage(IReadOnlyList<EffectiveTrade> Rows, int Start, int 
 
 /// <summary>What the workspace panel shows beside the grid. <c>Overrides</c> counts the edits to the portfolio's data;
 /// the selection of measures is the page's choice, shown on its own. <c>TradeColumns</c> are the selected modules'
-/// (ADR-0010 §10), and <c>PendingCells</c> counts their cells on the new trades still waiting for a result, so the page
-/// asks again while any is.</summary>
+/// (ADR-0010 §10), as are the shared tabs' <c>Inputs</c> they need, and <c>PendingCells</c> counts their cells on the new trades still waiting for a result, so the page
+/// asks again while any is. <c>DisplayCurrency</c> is the workspace's setting, and <c>Simulated</c> names the modules whose
+/// figures come from a simulated provider, which the page says (ADR-0010 §1).</summary>
 public sealed record PortfolioWorkspaceView(
     string WorkspaceId,
     long Revision,
@@ -37,7 +38,11 @@ public sealed record PortfolioWorkspaceView(
     IReadOnlyList<RegisteredMeasure> Measures,
     IReadOnlyList<string> SelectedMeasures,
     IReadOnlyList<RegisteredColumn> TradeColumns,
-    int PendingCells);
+    IReadOnlyList<MeasureInput> Inputs,
+    int PendingCells,
+    string DisplayCurrency,
+    IReadOnlyList<string> Currencies,
+    IReadOnlyList<string> Simulated);
 
 /// <summary>An edit held back for the user: a conflict (with the source's new values) or a lost target.</summary>
 public sealed record HeldEdit(string Scope, string Entity, string Field, JsonNode? Value, IReadOnlyDictionary<string, JsonNode?>? Source, bool Acknowledged);
@@ -96,13 +101,24 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
             .Select(r => new RunLink(r.RunId, r.Relations.WorkspaceRevision ?? throw new InvalidOperationException($"Run {r.RunId} names a workspace but no revision.")))
             .ToList();
         return new(state.WorkspaceId, state.Revision, state.Context, source.Version, source.Registration, source.Agreement,
-            register.WithMembership(state, PortfolioMaterialiser.Csas(state)), PortfolioMaterialiser.Credit(state), Rows(state).Count, Rows(state).Count(t => t.IsNew), Rows(state).Count(t => t.Before), Rows(state).Count(t => t.After), state.Overrides.Keys.Count(t => t.Entity != Entity.Measures),
+            register.WithMembership(state, PortfolioMaterialiser.Csas(state)), PortfolioMaterialiser.Credit(state), Rows(state).Count, Rows(state).Count(t => t.IsNew), Rows(state).Count(t => t.Before), Rows(state).Count(t => t.After), state.Overrides.Keys.Count(t => t.Scope != PortfolioEditRules.WorkspaceScope),
             [.. state.Conflicts.Values.OrderBy(c => c.Override.Seq).Select(c => new HeldEdit(c.Override.Target.Scope, c.Override.Target.Entity, c.Override.Target.Field, c.Override.Value, c.Source, false))],
             [.. state.Lost.Values.OrderBy(l => l.Override.Seq).Select(l => new HeldEdit(l.Override.Target.Scope, l.Override.Target.Entity, l.Override.Target.Field, l.Override.Value, null, l.Acknowledged))],
             links, register.Measures, PortfolioMaterialiser.SelectedMeasures(state, register),
-            [.. register.TradeColumns.Where(c => register.Selected(state).Any(m => m.Id == c.Module))],
-            register.WithCells(state, [.. Rows(state).Where(t => t.IsNew)]).Sum(t => t.Cells?.Values.Count(c => c.State == TradeCell.Pending) ?? 0));
+            [.. register.TradeColumns.Where(c => register.Selected(state).Any(m => m.Id == c.Module))], register.Inputs(state),
+            register.WithCells(state, [.. Rows(state).Where(t => t.IsNew)]).Sum(t => t.Cells?.Values.Count(c => c.State == TradeCell.Pending) ?? 0),
+            PortfolioMaterialiser.DisplayCurrency(state), PortfolioMarket.Currencies, [.. register.Selected(state).Where(m => m.Simulated).Select(m => m.Id)]);
     }
+
+    /// <summary>Sets the currency the figures are shown in (ADR-0010 §1): the edit of <c>settings:workspace</c>
+    /// <c>displayCurrency</c>. One the market cannot convert to is refused.</summary>
+    public WorkspaceState SetDisplayCurrency(string workspaceId, long revision, string user, string currency) =>
+        Edit(workspaceId, revision, user, Entity.WorkspaceSettings, Entity.DisplayCurrency, currency);
+
+    /// <summary>Refresh (ADR-0010 §1): acquires the same counterparty's trades for the same value date again; edits carry
+    /// or are held as for any new version.</summary>
+    public (WorkspaceState State, CarrySummary Summary) Refresh(string workspaceId, long revision, string user) =>
+        ChangeValueDate(workspaceId, revision, user, Source(Owned(workspaceId, user)).ValueDate);
 
     public IReadOnlyList<WorkspaceState> OwnedBy(string user) =>
         [.. workspaces.OwnedBy(user).Where(w => w.App == PortfolioEditRules.App)];
@@ -210,12 +226,10 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
             new PortfolioSourceVersion(source.Registration.Key, valueDate, count)));
     }
 
-    // The selection of measures is in the workspace's own scope, so it always carries; the summary counts the edits
-    // to the portfolio's data, as the view does.
+    // The selection of measures and the settings are in the workspace's own scope, so they always carry; the summary
+    // counts the edits to the portfolio's data, as the view does.
     static (WorkspaceState State, CarrySummary Summary) DataEdits((WorkspaceState State, CarrySummary Summary) moved) =>
-        moved.State.Overrides.Keys.Any(t => t.Entity == Entity.Measures)
-            ? (moved.State, moved.Summary with { Carried = moved.Summary.Carried - 1 })
-            : moved;
+        (moved.State, moved.Summary with { Carried = moved.Summary.Carried - moved.State.Overrides.Keys.Count(t => t.Scope == PortfolioEditRules.WorkspaceScope) });
 
     /// <summary>What leaving the current counterparty would drop, for the confirmation (ADR-0003 §6).</summary>
     public ScopeDrop PreviewCounterpartyChange(string workspaceId, string user)
@@ -274,6 +288,8 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
         (Entity.Netting, "cvaRecovery") => true,
         // B or A for every row of a grid at once (ADR-0010 §6).
         (Entity.Grid, "before" or "after") => Entity.Split(entity).Id is Entity.NewGrid or Entity.ExistingGrid,
+        // The workspace's display currency (ADR-0010 §1).
+        (Entity.Settings, Entity.DisplayCurrency) => entity == Entity.WorkspaceSettings,
         _ => false,
     };
 
@@ -293,7 +309,7 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
             "exchange" or "oneWay" => value is JsonValue e && e.TryGetValue<bool>(out _) ? null : $"{field} is true or false.",
             "counterpartyThreshold" or "counterpartyMta" or "selfThreshold" or "selfMta" =>
                 value is JsonValue a && a.TryGetValue<decimal>(out var amount) && amount >= 0 ? null : "A threshold or MTA is an amount of 0 or more.",
-            "currency" or "counterpartyCurrency" or "selfCurrency" => value is JsonValue c3 && c3.TryGetValue<string>(out var code) && PortfolioMarket.Currencies.Contains(code)
+            "currency" or "counterpartyCurrency" or "selfCurrency" or Entity.DisplayCurrency => value is JsonValue c3 && c3.TryGetValue<string>(out var code) && PortfolioMarket.Currencies.Contains(code)
                 ? null : $"A currency is {string.Join(", ", PortfolioMarket.Currencies)}.",
             _ => null,
         };

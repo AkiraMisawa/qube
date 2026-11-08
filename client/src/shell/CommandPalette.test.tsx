@@ -2,6 +2,7 @@ import { buildCommands } from './CommandPalette';
 import { catalog, view, workflow } from '../test/catalog';
 import type { RunRecord } from '../platform/contracts';
 import type { WorkspaceState } from '../platform/workspace/workspaceStore';
+import { termRequests } from '../platform/traces/open';
 
 const state = (overrides: Partial<WorkspaceState> = {}) => ({
   panels: [],
@@ -37,5 +38,26 @@ describe('palette commands', () => {
     const record = (status: RunRecord['status']) => ({ runId: 'r', workflow: w, status }) as RunRecord;
     expect(build(cat, s, record('running')).filter((c) => c.group === 'Views')).toEqual([]);
     expect(build(cat, s, record('partiallySucceeded')).filter((c) => c.group === 'Views').map((c) => c.title)).toEqual(['Show as Summary']);
+  });
+
+  it('ADR-0011 §7: `explain` is offered on a trace, and shows the term named in its panel or another measure in its own', () => {
+    const params = { runId: 'run-1', case: 'base', scenario: 'base', measure: 'ccr.spotCapital' };
+    const showApp = vi.fn(() => 'p2');
+    const s = state({ panels: [{ id: 'p', kind: 'app', title: 'Trace', app: 'trace.view', params }], activePanelId: 'p', showApp, openAppDialog: vi.fn() });
+    const explain = build(catalog([], []), s).find((c) => c.id === 'trace.explain')!;
+
+    expect(explain.unavailable).toBeUndefined();
+    explain.run({ measure: 'ccr.spotCapital NS-001 CSA-A/m' });
+    expect(termRequests.getState().requests.p?.path).toBe('NS-001 CSA-A/m');
+    expect(showApp).not.toHaveBeenCalled();
+
+    explain.run({ measure: 'simm.spotIm' });
+    expect(showApp).toHaveBeenCalledWith('trace.view', 'Trace simm.spotIm', { ...params, measure: 'simm.spotIm' });
+    expect(termRequests.getState().requests.p2?.path).toBeUndefined();
+  });
+
+  it('ADR-0011 §7: `explain` says why it cannot run where nothing is open to explain', () => {
+    const explain = build(catalog([], []), state({ showApp: vi.fn(), openAppDialog: vi.fn() })).find((c) => c.id === 'trace.explain')!;
+    expect(explain.unavailable).toBe('Open an XVA workspace that has been priced, or a trace, first.');
   });
 });

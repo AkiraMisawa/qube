@@ -41,9 +41,14 @@ public sealed class XvaMeasures(Pv01Provider pv01, decimal fvaLimitGbp = 1_000_0
 
     public string Id => Module;
 
+    /// <summary>Its step is the fake engine's (<see cref="FakeXvaPrice"/>), and its PV01 the simulated one's.</summary>
+    public bool Simulated => true;
+
     public static IReadOnlyList<MeasureDefinition> Definitions { get; } =
     [
-        new(Cva, "CVA", [new("cva", "CVA"), new("cvaCharge", "CVA Charge")], "cva", DeclaresMembership: false, Traced: false),
+        // The request that prices CVA also values the portfolio: its PV is the value a case adds, which Copy quote quotes
+        // beside the charge (ADR-0010 §7).
+        new(Cva, "CVA", [new("cva", "CVA"), new("cvaCharge", "CVA Charge"), new("pv", "PV")], "cva", DeclaresMembership: false, Traced: false, Quoted: true),
         new(Fva, "FVA", [new("fva", "FVA")], "fva", DeclaresMembership: true, Traced: false),
         // The cost of holding spot CCR capital's profile (ADR-0010 §11, ADR-0013 §1); the profile has no trace.
         new(Kva, "KVA", [new("kva", "KVA")], "kva", DeclaresMembership: false, Traced: false),
@@ -53,6 +58,9 @@ public sealed class XvaMeasures(Pv01Provider pv01, decimal fvaLimitGbp = 1_000_0
 
     public IReadOnlyList<TradeColumn> TradeColumns { get; } =
         [new(Pv01, "PV01", "number", false), new(Margin, "Margin (bp)", "number", true), new(PvAdj, "PV Adj", "number", true)];
+
+    /// <summary>CVA's recovery on the Netting tab (ADR-0010 §8, §11): empty, the CDS recovery applies (XV15).</summary>
+    public IReadOnlyList<MeasureInput> Inputs { get; } = [new("netting", "cvaRecovery", Cva)];
 
     /// <summary>A trade's field for one of XVA's columns, as the trade grids and the frozen input name it.</summary>
     public static string Field(string column) => $"{Module}.{column}";
@@ -182,8 +190,8 @@ public sealed class ImperfectCsa : IMembershipRule
         if (counterparty > limitGbp) why.Add($"counterparty MTA+threshold {Mm(counterparty)}mm GBP over {Mm(limitGbp)}mm");
         if (self > limitGbp) why.Add($"self MTA+threshold {Mm(self)}mm GBP over {Mm(limitGbp)}mm");
         return why.Count > 0
-            ? new(true, $"{c.CsaId}: {string.Join(", ", why)}")
-            : new(false, $"{c.CsaId}: {c.Frequency}, MTA+threshold {Mm(Math.Max(counterparty, self))}mm GBP");
+            ? new(true, $"{c.CsaId} imperfect: {string.Join(", ", why)}")
+            : new(false, $"{c.CsaId} perfect: {c.Frequency}, MTA+threshold {Mm(Math.Max(counterparty, self))}mm GBP");
     }
 
     static string Mm(decimal gbp) => (gbp / 1_000_000m).ToString("0.0#", CultureInfo.InvariantCulture);
@@ -191,7 +199,7 @@ public sealed class ImperfectCsa : IMembershipRule
 
 /// <summary>
 /// The fake analytics provider. Its CVA and FVA are a deterministic toy formula over notional, time to maturity and
-/// recovery, chosen only so that edits visibly move the figures. They are not a model of anything and every result
+/// recovery, and its PV the sum of the PVs it is given, chosen only so that edits visibly move the figures. They are not a model of anything and every result
 /// says so (executionMode simulated). Before and After are computed independently; a side with no trade in it is not
 /// priced, never priced as zero (ADR-0010 §3). It prices only the selected XVA measures, and a refused one is reported
 /// with its reason and not computed.
@@ -211,6 +219,9 @@ public sealed class FakeXvaPrice : ICapabilityHandler
          new("traces", TraceSet.ContractId, TraceSet.ContractVersion, Cardinality.One),
          new("profile", XvaContracts.CapitalProfile, XvaContracts.Version, Cardinality.One)],
         ExecutionKind.RequestResponse, [CapabilityEffect.Compute]);
+
+    /// <summary>One side's toy figures, in the result's currency, and how many trades it priced and FVA counted.</summary>
+    readonly record struct SideFigures(decimal Cva, decimal Fva, decimal Pv, int Count, int FvaCount);
 
     static readonly IReadOnlyList<DatasetColumn> ProfileColumns =
     [
@@ -235,7 +246,10 @@ public sealed class FakeXvaPrice : ICapabilityHandler
         var recovery = credit["cvaRecovery"]?.GetValue<decimal>() ?? credit["cdsRecovery"]!.GetValue<decimal>();
         var trades = input["trades"]!.AsArray().Select(t => t!).ToList();
         var definitions = XvaMeasures.Definitions.ToDictionary(m => m.Id);
-        const string currency = "JPY";
+        // The toy figures are made in JPY and reported in the display currency Price froze (ADR-0010 §1, §7), at the
+        // value date's synthetic FX.
+        var currency = (input["displayCurrency"] ?? throw new CapabilityFailure("InvalidInput", "The accepted input names no display currency.")).GetValue<string>();
+        decimal Shown(decimal jpy) => Math.Round(PortfolioMarket.ToGbp(jpy, "JPY", valueDate) * PortfolioMarket.UnitsPerGbp(currency, valueDate), 2);
 
         // FVA prices only its members (ADR-0010 §5), as the accepted input froze them; a trade without its membership is
         // an input this provider cannot read, never a trade it guesses about.
@@ -253,10 +267,19 @@ public sealed class FakeXvaPrice : ICapabilityHandler
             return cell["value"] is { } typed ? typed.GetValue<decimal>() : 0m;
         }
 
-        (decimal Cva, decimal Fva, int Count, int FvaCount) Side(string side)
+        // A trade's PV as the engine is given it (docs/03 §2.5), in JPY at the value date's FX: an
+        // existing trade's official PV, a new trade's PV Adj. A new trade with neither is dealt at market: PV 0 (a toy).
+        decimal Value(JsonNode t)
+        {
+            var own = t["isNew"]!.GetValue<bool>() ? Adjustment(t)
+                : (t["officialPv"] ?? throw new CapabilityFailure("InvalidInput", $"Existing trade {t["tradeId"]} carries no official PV.")).GetValue<decimal>();
+            return PortfolioMarket.ToGbp(own, t["currency"]!.GetValue<string>(), valueDate) * PortfolioMarket.UnitsPerGbp("JPY", valueDate);
+        }
+
+        SideFigures Side(string side)
         {
             var members = trades.Where(t => t[side]!.GetValue<bool>()).ToList();
-            decimal cva = 0, fva = 0;
+            decimal cva = 0, fva = 0, pv = 0;
             var fvaCount = 0;
             foreach (var t in members)
             {
@@ -267,17 +290,18 @@ public sealed class FakeXvaPrice : ICapabilityHandler
                 var uncollateralised = t["csa"]!.GetValue<string>().StartsWith("nocsa_", StringComparison.Ordinal);
                 var curveFactor = t["curve"]!.GetValue<string>() == "usd_sofr" ? 1.1m : 1m;
                 cva -= exposure * (1 - recovery) * (uncollateralised ? 0.02m : 0.004m) * curveFactor;
+                pv += Value(t);
                 if (!InFva(t)) continue;
                 fva -= exposure * 0.003m * curveFactor;
                 fvaCount++;
             }
-            return (Math.Round(cva, 2), Math.Round(fva, 2), members.Count, fvaCount);
+            return new(Shown(cva), Shown(fva), Shown(pv), members.Count, fvaCount);
         }
 
         // Read only when a measure is priced: a measure refused at Price is reported, never computed.
-        var sides = new Lazy<((decimal Cva, decimal Fva, int Count, int FvaCount) Before, (decimal Cva, decimal Fva, int Count, int FvaCount) After)>(() => (Side("before"), Side("after")));
+        var sides = new Lazy<(SideFigures Before, SideFigures After)>(() => (Side("before"), Side("after")));
         // A side with no trade is not priced; a side whose trades are all outside FVA is priced, and its FVA is 0 (§5).
-        MeasureResult.Side Figure((decimal Cva, decimal Fva, int Count, int FvaCount) side, Func<(decimal Cva, decimal Fva, int Count, int FvaCount), decimal> value, bool fva) =>
+        MeasureResult.Side Figure(SideFigures side, Func<SideFigures, decimal> value, bool fva) =>
             side.Count == 0 ? MeasureResult.Side.NotPricedWith(0) : MeasureResult.Side.Of(value(side), fva ? side.FvaCount : side.Count);
 
         var provenance = new DatasetProvenance(ExecutionMode.Simulated, DataOrigin.Synthetic, invocation.InvocationId);
@@ -320,10 +344,11 @@ public sealed class FakeXvaPrice : ICapabilityHandler
                     rows.Add(MeasureResult.Row("base", "Workspace", definition.Id, metric, currency, Kva(capital!.Before), Kva(capital.After)));
                     continue;
                 }
-                Func<(decimal Cva, decimal Fva, int Count, int FvaCount), decimal> value = metric.Id switch
+                Func<SideFigures, decimal> value = metric.Id switch
                 {
                     "cva" => s => s.Cva,
                     "cvaCharge" => s => Math.Round(s.Cva * ChargeRatio, 2),
+                    "pv" => s => s.Pv,
                     "fva" => s => s.Fva,
                     _ => throw new InvalidOperationException($"XVA has no metric {metric.Id}."),
                 };
@@ -340,7 +365,7 @@ public sealed class FakeXvaPrice : ICapabilityHandler
                 {
                     ["case"] = SpotCapitalResults.Case, ["side"] = p.Key, ["years"] = x.Years,
                     ["date"] = x.Date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), ["trades"] = x.Trades,
-                    ["ead"] = Math.Round(x.Ead, 2), ["capital"] = Math.Round(x.Capital, 2), ["currency"] = CcrMeasures.ReportingCurrency,
+                    ["ead"] = Math.Round(x.Ead, 2), ["capital"] = Math.Round(x.Capital, 2), ["currency"] = capital!.Portfolio!.ReportingCurrency,
                 })), provenance),
         });
     }

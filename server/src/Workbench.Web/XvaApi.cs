@@ -18,6 +18,7 @@ public static class XvaApi
     public sealed record CounterpartyRequest(long Revision, string Registration, int ConfirmedCount);
     public sealed record PriceRequest(long Revision, string IdempotencyKey);
     public sealed record MeasuresRequest(long Revision, IReadOnlyList<string> Measures);
+    public sealed record RefreshRequest(long Revision);
     /// <summary>Asks again for the failed results on one trade, or on every trade when none is named (ADR-0010 §6).</summary>
     public sealed record RetryRequest(string? TradeId = null);
     public sealed record Retried(PortfolioWorkspaceView Workspace, int Asked);
@@ -34,6 +35,14 @@ public static class XvaApi
         api.MapGet("/registrations", () => PortfolioCatalog.Registrations.Select(r => new
         {
             r.Key, r.Code, r.LegalEntity, r.Name, Agreement = PortfolioCatalog.AgreementOf(r.Key),
+        }));
+
+        // Copy quote (ADR-0010 §7, §11): read from the Run's retained input and result, never from a screen.
+        api.MapGet("/runs/{runId}/quote", (string runId, RunService runs, IDataStore store, CurrentUser user) => Guard(() =>
+        {
+            if (runs.Find(runId) is not { } run) throw new WorkspaceRefused("UnknownRun", $"Run {runId} does not exist.");
+            if (run.Owner != user.Id) throw new WorkspaceRefused("NotOwner", $"Run {runId} belongs to another user.");
+            return Results.Ok(XvaQuote.Of(run, store));
         }));
 
         var ws = api.MapGroup("/workspaces");
@@ -67,6 +76,12 @@ public static class XvaApi
         {
             service.SetMeasures(id, request.Revision, user.Id, request.Measures);
             return Results.Ok(service.View(id, user.Id));
+        }));
+
+        ws.MapPost("/{id}/refresh", (string id, RefreshRequest request, CurrentUser user, PortfolioWorkspaces service) => Guard(() =>
+        {
+            var (_, carried) = service.Refresh(id, request.Revision, user.Id);
+            return Results.Ok(new Reacquired(service.View(id, user.Id), carried));
         }));
 
         ws.MapPost("/{id}/retry", (string id, RetryRequest request, CurrentUser user, PortfolioWorkspaces service) => Guard(() =>
@@ -122,9 +137,9 @@ public static class XvaApi
             var issues = refused.Targets.Select(t => new CompositionIssue(refused.Code, $"/{t.Entity}/{t.Field}", refused.Message)).ToList();
             var status = refused.Code switch
             {
-                "UnknownWorkspace" => 404,
+                "UnknownWorkspace" or "UnknownRun" => 404,
                 "NotOwner" => 403,
-                "RevisionMoved" or "ConfirmationStale" or "UnresolvedEdits" or "ConflictUnresolved" => 409,
+                "RevisionMoved" or "ConfirmationStale" or "UnresolvedEdits" or "ConflictUnresolved" or "RunRunning" => 409,
                 _ => 422,
             };
             return Results.Json(new Api.ErrorEnvelope(refused.Code, refused.Message, issues), statusCode: status);

@@ -279,6 +279,73 @@ The guidelines' §12: the Rates toolbar's rows on a phone, the Action Column's b
 | `npx playwright test` (Chromium, headless, Linux) | 18 passed; `xva.spec.ts` with `--repeat-each=3` (6 passed) |
 | Screenshots at 390, 768, 992 and 1440px, dark and light | No sideways scroll; looked at by hand |
 
+## The pricer page, ADR-0010 Delivery step 1 (tickets 01–08, 2026-11-08)
+
+### What runs
+
+- **A portfolio domain module** (`Workbench.Samples.Portfolio`) holds what XVA, SIMM and SA-CCR will share: the context,
+  netting set, CSAs with their terms, trades with B and A, Original, and the **measures register** (§10). XVA registers
+  CVA (with CVA Charge and PV) and FVA (§11). The composition kernel gained nothing domain-specific.
+- **Measures**: `measures cva fva` (or the page's toggles) selects what Price prices; Price says what it will run
+  (`Price CVA FVA · 1 case`) and freezes the selection; a new workspace takes its owner's last one. A refused measure
+  blocks only itself. What a measure adds to the page is read from its registration: its trade columns, its membership
+  column on the trade and CSA grids, the shared inputs it needs (CVA's recovery shows on Netting only while CVA is
+  selected), and whether it has a quote (Copy quote, CVA's). The page names no measure.
+- **Netting and CSA tabs**: CSA terms editable (type and Main are the source's), Main and MA columns; FVA's
+  imperfect-CSA rule decided on the server with a reason per CSA and per trade (`In · CSA-B imperfect: one-way`), its
+  version frozen into the Run; an uncollateralised trade is out with FVA 0. An empty CVA recovery stays empty (XV15).
+- **New trades above Existing trades**; B and A for a whole grid (`before all|none`, one edit); After-only Price
+  (Before not priced, no Diff, never 0).
+- **Original**: a value that differs from it is marked and says what Original held; a value edited back is not. A PV
+  Adj that Margin filled is marked like a typed one; PV01, a result, never is.
+- **PV01, Margin, PV Adj** on new trades: PV01 pending, its figure, or failed with `pv01 retry`; PV Adj = PV01 × Margin,
+  read-only then and saying so; Price refuses XVA's measures by name while a Margin's PV01 is pending or failed.
+- **The result dock**: per case Before, After and Diff per priced measure, in the currency the Run froze (named on the
+  dock); collapsed to a line a case; `download run` (a zip of the Run's record, input, result and lineage) and `copy
+  quote` (HTML and text, read from the Run's retained result on the server).
+- **One screen** on every width: context bar, input tabs, New and Existing grids and the dock; part heights set by drag
+  or keys and never read back; below `sm` three tabs. A command opens each input tab; `refresh` and `currency` too.
+- **Fixed on the way**: a command that carries a revision (Price, Refresh, a value-date move, Rates' Price) now waits
+  for the edits already sent (`EditQueue.after`), since Price could overtake an edit and be refused with 409; the light
+  theme's coloured and dimmed text now reads at 4.5:1 (`autoContrast` and `cssVariablesResolver`, design-guidelines §7).
+
+### Verification performed
+
+| Suite | Result |
+|---|---|
+| `dotnet test server/Workbench.slnx` | 210 passed |
+| `npm run typecheck`, `npx vitest run` | passed, 83 tests |
+| `npx playwright test` (Chromium, headless, Linux) | 26 passed; the three `xva.spec.ts` tests the review changed with `--repeat-each=3` (9 passed) |
+| Screenshots at 1440, 992, 768 and 390px, dark and light, before the review's fixes; at 1440 in the dark theme after them | no sideways scroll; at 1440 × 900 no page scroll; looked at by hand |
+
+Code review (`/code-review`, a Standards and a Spec reviewer in parallel) found theme spacing written as literals,
+dimmed text the user must read, a made-up `?? ''` and eight `!` in the command list, measure ids written into the page,
+a PV Adj from Margin left unmarked, no currency on the dock, and the CSA grid without Main and MA; all fixed. The new
+check that a tab is as high as its content found the CSA tab scrolling by 24px since ticket 03: the grid's Selection
+Summary sat under its viewport. The CSA grid shows none (a sum of terms in different currencies is no figure).
+
+### Providers
+
+Every figure is simulated and says so: XVA's pricing (`FakeXvaPrice`, a toy formula), PV01 and the FX. No real
+provider is wired.
+
+### Known limits
+
+- No column filters, and no *in FVA* filter, on the trade grids yet (§6).
+- The Before and After fills wait on ExGrid's Split Fill (ex-grid ADR-0490, PR #545); until step 3 every change
+  differs on both sides and wears `modified`.
+- No Credit tab or Settings section (step 5); no *Add CSA*; the CSA type is the source's and read-only (DEFAULT); the
+  trades show no start date.
+- PV is a metric of CVA's (DEFAULT): the request that prices CVA values the portfolio.
+- The module columns (PV01, Margin, PV Adj) are on the New grid only; an existing trade shows its official PV.
+- docs/03 §2.5 OPEN: a new trade with no PV Adj is priced without an adjustment, and the Run does not yet say so.
+- `TAKEN` (260px) is the page's estimate of its fixed parts, and a grid's Selection Summary line is outside its
+  viewport with a height ExGrid's Grid Metrics do not give, so the Existing grid's height is approximate (no page
+  scroll at 1440 × 900; some room is left under the dock).
+- Left from the review as they are: statuses and "no curve" as strings, the field switches repeated across the
+  portfolio module, `RegisteredMeasure` and `RegisteredColumn` repeating their definitions, the two-argument `Validate`
+  used only by Price, and `Pv01Provider.Settled` used only by tests.
+
 ## Spot CCR capital, KVA and the calculation trace (ADR-0011, ADR-0013, proposed 2026-11-07)
 
 ### What runs
@@ -288,8 +355,9 @@ The guidelines' §12: the Rates toolbar's rows on a phone, the Action Column's b
   measure) as the `calculation-traces` contract.
 - SA-CCR in full (CRE52 as of 2023-01-01) and SA's risk weight resolved at run time from the counterparty (CRE20,
   CRE21), in `Workbench.Samples.Ccr`, writing a trace to trade level in which every term reconciles.
-- `ccr.spotCapital` registers into the pricer page: membership (a trade SA-CCR can decompose), its inputs, an SA-CCR
-  class column on new trades, and validation that refuses it by name while CVA and FVA stand. KVA registers as XVA's
+- `ccr.spotCapital` registers into the pricer page: membership (a trade SA-CCR can decompose), its part of the
+  request (the counterparty's reference data, the CSAs' margining, the collateral, the FX and the settings, read from
+  the synthetic sources), an SA-CCR class column on new trades, and validation that refuses it by name while CVA and FVA stand. KVA registers as XVA's
   measure. Selecting either asks XVA's request with its KVA option on (ADR-0013 §2), which returns spot capital and
   its trace per side, a capital profile, and KVA from that profile, all marked simulated. After alone is priced and
   traced on After.
@@ -299,27 +367,48 @@ The guidelines' §12: the Rates toolbar's rows on a phone, the Action Column's b
   `…/leaves` pages and sorts a term's leaf rows; `GET /api/traces/catalogs/{method}/{version}` gives the kinds'
   formulas. `trace.read` (effect `ReadRun`, a command, ADR-0005's note of 2026-11-08) answers the same for the AI.
   Only the Run's owner reads it.
+- The trace view (ADR-0011 §6, ticket 07) opens from a traced figure of the result dock, and by `explain <measure>
+  [path]` on the XVA page or on a trace. On desktop the tree of terms is a `WorkbenchGrid` with a pinned Template
+  Column (indent and open/close), its Before, After, Diff, unit, state, governed and citation columns, beside the
+  selected term's formula typeset by KaTeX 0.19.1 (pinned exactly, strict, trust for `\htmlData` alone, fonts bundled
+  by Vite): the symbols, then each priced side's values, then the Diff, each operand selecting its term. A decision
+  shows its steps and reasons, a parameter its source, a matrix the row the lookup took. A term with leaf rows shows
+  them in a grid paged and sorted by the server, a side at a time, with each row's membership and reconciliation; the
+  row at the Focus has its column formulas typeset. Alt+→ and Alt+← open and close (ADR-0011 §6's note), and
+  `focus grid` gives the tree the keyboard. Below `sm` the view drills in: the breadcrumb, the formula, then the
+  children as a list. A case priced on After alone has no Before or Diff column and says so once.
 
 ### Providers
 
 - Simulated: the fake XVA provider's KVA option, through the reference SA-CCR and SA-RW. The PoC's choices where the
-  rule leaves it to the bank are ADR-0013 §7's DEFAULTs (netting sets by CSA, remargining days, haircuts, V = 0 for a
-  new trade, the profile's dates, KVA's formula and a 10% cost of capital). The counterparties' reference data and
+  rule leaves it to the bank are ADR-0013 §7's DEFAULTs (netting sets by CSA, remargining days, haircuts, JPY as the
+  bank's domestic currency, V = 0 for a new trade, the profile's dates, KVA's formula and a 10% cost of capital). The counterparties' reference data and
   collateral are synthetic (`PortfolioCredit`).
 
 ### Verification performed
 
 | Suite | Result |
 |---|---|
-| `dotnet test server/Workbench.slnx` | 363 passed, among them the BCBS SA-CCR worked examples, a case per rule, the KVA option and the trace read over HTTP |
-| `npm run typecheck`, `npm test` (Vitest) | Clean; 81 passed |
-| `npx playwright test` (Chromium, headless, Linux) | 22 passed |
+| `dotnet test server/Workbench.slnx` | 375 passed, among them the BCBS SA-CCR worked examples, a case per rule, the KVA option and the trace read over HTTP. `XvaApiTests.Price_submits_one_run_for_the_revision` failed once in about 13 runs, before this slice's changes touched it, and is open |
+| `npm run typecheck`, `npm test` (Vitest) | Clean; 119 passed, among them the formula's typesetting (strict, untrusted commands refused), the tree's rows and `explain` |
+| `npx playwright test` (Chromium, headless, Linux) | 29 passed; `trace.spec.ts` with `--repeat-each=10` (30 passed), and again with `--repeat-each=5` after the review fixes (15 passed): both sides by pointer, keyboard and `explain`, After alone, and 390px drill-in with 4.5:1 text in both themes |
 | Screenshot of a Price with every measure selected, 1600px, dark | Spot capital, RWA, EAD and KVA in the dock, Trades 5 → 8; looked at by hand |
+| Screenshots of the trace at 390, 768, 992 and 1440px, dark and light | Root, risk weight's steps, its table, a netting set's collateral with its rows, PFE; no sideways scroll; looked at by hand |
 
 ### Known limits
 
-- The trace is not yet drawn on screen, and `explain` does not exist yet (ticket 07).
+- The trace view is a panel the page and `explain` open. It is not yet a component a declarative view can name
+  (ADR-0011 §6's first sentence), nor opened from the Pricing DB, and a leaf row has no action to its trade's row on
+  the page yet (§6's leaf set): the XVA page cannot yet be asked to show a trade.
+- In the light theme ExGrid Mantine draws a marked heading's words in the primary, a colour made for a 3:1 line; the
+  workbench sets the mark to the primary's text colour (`theme.css`). The Wrapper's default fails 4.5:1 with an
+  amber primary, which is ex-grid's to fix.
 - The SA-CCR class column is on the New grid only: the Existing grid takes no module columns yet.
+- SA-CCR's inputs are not yet sections of the page (ADR-0013 §6): the counterparty's risk weight facts, the CSA terms
+  only SA-CCR reads and the collateral come from the synthetic sources and cannot be edited, until the Credit tab
+  (ADR-0010 Delivery step 5) takes them.
+- A leaf row's `tradeInstanceId` is empty: XVA's request carries trades by their source id alone, though
+  `contracts/xva-submission.schema.json` defines an instance id.
 - κ (8%) and which products come first are OPEN with the owner (ADR-0013). Only IRS and FX forwards are decomposed
   (the synthetic portfolio has no other product); any other would be out of the measure's membership with its reason.
 
@@ -364,7 +453,8 @@ The Rates pricing provider is the fake one, so every CRIF and SIMM figure is `si
 
 ## Next
 
-1. The owner's review of ADR-0003 §7 (scopes, carry and conflict), then a synthetic source change that can produce a conflict, and the browser cases still open above (reload, failed case unavailable).
-2. MVA with SIMM (`docs/12-implementation-plan.md` P2), then Rates.
-3. ME-ID sign-in through MSAL (C30) and the visibility rules (C31, C32); AI over AG-UI with the company's Copilot behind the adapter port (C34).
-4. Slice 01b: Save and Pin (CO06), and the browser parts of CO03 and CO04.
+1. ADR-0010 Delivery step 2: cases (`vary`, iterative individual addition, the changes panel).
+2. The owner's review of ADR-0003 §7 (scopes, carry and conflict), then a synthetic source change that can produce a conflict, and the browser cases still open above (reload, failed case unavailable).
+3. MVA with SIMM (`docs/12-implementation-plan.md` P2), then Rates.
+4. ME-ID sign-in through MSAL (C30) and the visibility rules (C31, C32); AI over AG-UI with the company's Copilot behind the adapter port (C34).
+5. Slice 01b: Save and Pin (CO06), and the browser parts of CO03 and CO04.

@@ -10,6 +10,7 @@ import { viewsFor } from '../../platform/views/binding';
 import { useWorkspaceContext } from '../../platform/workspace/WorkspaceProvider';
 import { keyOf } from '../../platform/workspace/workspaceStore';
 import { registerGridFocus } from '../../shell/focus';
+import { downloadRun } from '../../platform/runs';
 
 // The Pricing DB (docs/05 §7): every Run whatever started it, newest first, and one domain's figures when
 // that domain is active. The server pages it; the grid shows it and neither sorts nor filters it.
@@ -21,6 +22,7 @@ interface HistoryPage { readonly rows: readonly Row[]; readonly start: number; r
 
 const ALL = 'all';
 const OPEN = 'open';
+const DOWNLOAD = 'download';
 const amount = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 const label = (field: string) => field.replace(/([A-Z])/g, ' $1').replace(/^./, (c) => c.toUpperCase());
@@ -87,12 +89,14 @@ function HistoryGrid({ panelId, domain, columns, notify }: {
   }, [panelId]);
 
   const gridColumns = useMemo(() => [
-    actionColumn<Row>('Actions', [{ name: OPEN, label: 'Open' }], { width: 80 }),
+    // Download is a Run's action, here as on the page that priced it (ADR-0010 §7).
+    actionColumn<Row>('Actions', [{ name: OPEN, label: 'Open' }, { name: DOWNLOAD, label: 'Download' }], { width: 176 }),
     ...columns.map(gridColumn),
   ], [columns]);
 
   const onAction = useCallback((event: GridActionEvent<Row>) => {
     const runId = event.row.runId as string;
+    if (event.action === DOWNLOAD) { downloadRun(runId); return; }
     void workspace.api.run(runId).then((run) => {
       const view = viewsFor(run.workflow, workspace.catalog.views)[0];
       workspace.store.getState().openPanel({ kind: 'run', title: run.workflow.title, runId, viewKey: view === undefined ? undefined : keyOf(view) });

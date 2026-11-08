@@ -1,0 +1,65 @@
+/* The trace view (ADR-0011 §6; docs/design-guidelines.md). Geometry and the faint absent term only; colour comes from
+   the theme, and every state is also said in words. */
+
+/* From `md` the tree and the formula sit side by side; from `sm` to `md` the formula is below the tree. The formula
+   takes what the tree leaves, and a wide formula scrolls inside its part, never the page (§9). */
+.qwb-trace-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--mantine-spacing-sm);
+  align-items: start;
+}
+@media (min-width: 62em) {
+  .qwb-trace-body { grid-template-columns: minmax(0, 3fr) minmax(20rem, 2fr); }
+}
+.qwb-trace-tree-part, .qwb-trace-detail-part { min-width: 0; }
+.qwb-trace-detail-part {
+  border: 1px solid var(--mantine-color-default-border);
+  padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm);
+}
+
+/* The term cell: indent, the 22px open/close button or the space it would take, then the label, centred on the row. */
+.qwb-trace-term {
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-xs);
+  height: 100%;
+  min-width: 0;
+}
+.qwb-trace-leaf { display: inline-block; width: 22px; flex: none; }
+.qwb-trace-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* A formula, its lines labelled on the left; a line wider than its part scrolls inside it. */
+.qwb-trace-formula { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: var(--mantine-spacing-xs); align-items: center; }
+.qwb-trace-formula-line { display: contents; }
+.qwb-trace-formula .qwb-tex-display { overflow-x: auto; overflow-y: hidden; max-width: 100%; }
+.qwb-tex-display .katex-display { margin: 0.25em 0; text-align: left; }
+.qwb-tex-display .katex-display > .katex { text-align: left; }
+
+/* Each operand selects its term; one with no value on the side keeps its symbol, faint, and the words below say why. */
+.qwb-tex [data-operand] { cursor: pointer; border-radius: var(--mantine-radius-xs); }
+.qwb-tex [data-operand]:hover { background: var(--mantine-color-default-hover); }
+.qwb-tex [data-state='absent'], .qwb-tex [data-state='pending'] { color: var(--mantine-color-dimmed); }
+.qwb-tex [data-state='unavailable'], .qwb-tex [data-state='notReturned'] { text-decoration: underline wavy var(--mantine-color-red-text); }
+.qwb-tex-error { color: var(--mantine-color-red-text); font-size: var(--mantine-font-size-xs); }
+
+.qwb-trace-steps { margin: 0; padding-inline-start: var(--mantine-spacing-lg); display: grid; gap: var(--mantine-spacing-xs); }
+
+/* Below `sm`: a child is a row of the list, at least 44px for a finger (§8), its figure right-aligned. */
+.qwb-trace-children { border-top: 1px solid var(--mantine-color-default-border); }
+.qwb-trace-child {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: var(--mantine-spacing-sm);
+  align-items: center;
+  min-height: 44px;
+  padding: var(--mantine-spacing-xs);
+  border-bottom: 1px solid var(--mantine-color-default-border);
+  font-size: var(--mantine-font-size-sm);
+}
+.qwb-trace-child:focus-visible, .qwb-trace-child:hover { background: var(--mantine-color-default-hover); }
+.qwb-trace-child-lead { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.qwb-trace-child-state { grid-column: 1 / -1; font-size: var(--mantine-font-size-xs); font-style: italic; }
+.qwb-trace-child-label { overflow-wrap: anywhere; }
+
+.qwb-trace-path { flex-wrap: wrap; row-gap: var(--mantine-spacing-xs); }

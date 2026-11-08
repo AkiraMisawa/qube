@@ -105,7 +105,7 @@ public class PricerTests
 
         Assert.Equal(RunStatus.Succeeded, run.Status);
         var cva = rows.Where(r => r["measure"]!.GetValue<string>() == "cva").ToList();
-        Assert.Equal(2, cva.Count);
+        Assert.Equal(3, cva.Count);
         Assert.All(cva, r => Assert.Equal(("refused", "No CDS curve for ABC/LE-01."), (r["afterStatus"]!.GetValue<string>(), r["reason"]!.GetValue<string>())));
         Assert.All(cva, r => Assert.Null(r["after"]));
         var fva = Assert.Single(rows, r => r["measure"]!.GetValue<string>() == "fva");
@@ -120,8 +120,8 @@ public class PricerTests
 
         var csas = service.View(ws.WorkspaceId, "akira").Csas.ToDictionary(c => c.CsaId, c => c.Membership![XvaMeasures.Fva]);
 
-        Assert.Equal(new Membership(false, "CSA-A: daily, MTA+threshold 0.27mm GBP"), csas["CSA-A"]);
-        Assert.Equal(new Membership(true, "CSA-B: counterparty MTA+threshold 1.19mm GBP over 1.0mm"), csas["CSA-B"]);
+        Assert.Equal(new Membership(false, "CSA-A perfect: daily, MTA+threshold 0.27mm GBP"), csas["CSA-A"]);
+        Assert.Equal(new Membership(true, "CSA-B imperfect: counterparty MTA+threshold 1.19mm GBP over 1.0mm"), csas["CSA-B"]);
     }
 
     [Fact] // ADR-0010 §5: raising a threshold past 1mm GBP moves the CSA's trades into FVA, and the next Price counts them
@@ -136,7 +136,7 @@ public class PricerTests
 
         var onA = input["trades"]!.AsArray().Where(t => t!["csa"]!.GetValue<string>() == "CSA-A").ToList();
         Assert.NotEmpty(onA);
-        Assert.All(onA, t => Assert.Equal((true, "CSA-A: counterparty MTA+threshold 1.33mm GBP over 1.0mm"),
+        Assert.All(onA, t => Assert.Equal((true, "CSA-A imperfect: counterparty MTA+threshold 1.33mm GBP over 1.0mm"),
             (t!["membership"]!["fva"]!["in"]!.GetValue<bool>(), t["membership"]!["fva"]!["reason"]!.GetValue<string>())));
         var afterA = onA.Count(t => t!["after"]!.GetValue<bool>());
         Assert.Equal(Row(plain, "fva")["tradesAfter"]!.GetValue<int>() + afterA, Row(raised, "fva")["tradesAfter"]!.GetValue<int>());
@@ -158,6 +158,21 @@ public class PricerTests
         var fva = Row(rows, "fva");
         Assert.Equal(("priced", 0m, 0), (fva["afterStatus"]!.GetValue<string>(), fva["after"]!.GetValue<decimal>(), fva["tradesAfter"]!.GetValue<int>()));
         Assert.True(Row(rows, "cva")["tradesAfter"]!.GetValue<int>() > 0);
+    }
+
+    [Fact] // ADR-0010 §10, §11: CVA's recovery is a field of the Netting tab only while CVA is selected, and keeps its value hidden
+    public void The_cva_recovery_shows_only_while_cva_is_selected()
+    {
+        var service = Service();
+        var ws = service.Create("akira", "ABC/LE-02", Day1, 10);
+        Assert.Equal([new MeasureInput("netting", "cvaRecovery", XvaMeasures.Cva)], service.View(ws.WorkspaceId, "akira").Inputs);
+        ws = service.Edit(ws.WorkspaceId, ws.Revision, "akira", "netting:NS-002", "cvaRecovery", 0.3m);
+
+        ws = service.SetMeasures(ws.WorkspaceId, ws.Revision, "akira", ["fva"]);
+        var hidden = service.View(ws.WorkspaceId, "akira");
+
+        Assert.Empty(hidden.Inputs);
+        Assert.Equal(0.3m, hidden.Credit.CvaRecovery);
     }
 
     [Fact] // ADR-0010 §8, XV15: the CVA recovery is the netting set's, and empty stays empty
@@ -391,6 +406,21 @@ public class PricerTests
         Assert.Equal(("NotEditable", "PV Adj of DRAFT-1 is read-only: From Margin: 2 bp × PV01 -1,500"), (refused.Code, refused.Message));
     }
 
+    [Fact] // ADR-0010 §2, §6: a PV Adj that Margin filled differs from its empty Original; PV01, a result, is never marked
+    public async Task A_pv_adj_filled_from_margin_differs_from_original()
+    {
+        var pv01 = new Pv01Provider((_, _) => Task.FromResult(-1_500m));
+        var service = Service(new XvaMeasures(pv01));
+        var ws = service.Create("akira", "ABC/LE-01", Day1, 5);
+
+        ws = service.Edit(ws.WorkspaceId, ws.Revision, "akira", "trade:DRAFT-1", "xva.margin", 2m);
+        await Settled(service, pv01, ws, "DRAFT-1", XvaMeasures.PvAdj);
+
+        var row = service.Page(ws.WorkspaceId, "akira", 0, 10, [], "new").Rows.Single(t => t.TradeId == "DRAFT-1");
+        Assert.Equal(["xva.margin", "xva.pvAdj"], row.Original!.Keys.Where(k => k.StartsWith("xva.", StringComparison.Ordinal)).Order());
+        Assert.All(row.Original.Where(o => o.Key.StartsWith("xva.", StringComparison.Ordinal)), o => Assert.Null(o.Value));
+    }
+
     [Fact] // ADR-0010 §6, §2: with Margin empty PV Adj is typed, marked against an empty Original, and Margin wins while entered
     public async Task With_margin_empty_pv_adj_is_typed()
     {
@@ -444,7 +474,7 @@ public class PricerTests
 
         // XVA's own measures; spot capital, which reads no PV Adj, stands (ADR-0010 §10: a refusal blocks its own).
         var rows = all.Where(r => r["measure"]!.GetValue<string>() != CcrMeasures.SpotCapital).ToList();
-        Assert.Equal(4, rows.Count);
+        Assert.Equal(5, rows.Count);
         Assert.All(all.Except(rows), r => Assert.Equal("priced", r["afterStatus"]!.GetValue<string>()));
         Assert.All(rows, r => Assert.Equal(("refused", "PV Adj of DRAFT-2 is unknown: From Margin: PV01 is pending."),
             (r["afterStatus"]!.GetValue<string>(), r["reason"]!.GetValue<string>())));
@@ -488,4 +518,124 @@ public class PricerTests
 
         Assert.Equal(code, refused.Code);
     }
+
+    /// <summary>Prices the revision and answers the finished Run.</summary>
+    static async Task<RunRecord> Finished(RunService runs, PortfolioWorkspaces service, WorkspaceState ws)
+    {
+        var accepted = Assert.IsType<SubmissionResult.Accepted>(service.Price(ws.WorkspaceId, ws.Revision, "akira", Guid.NewGuid().ToString()));
+        await runs.Completion(accepted.Run.RunId);
+        return runs.Find(accepted.Run.RunId)!;
+    }
+
+    [Fact] // ADR-0010 §7, docs/05: Download is the Run's record, its frozen input and its result, each saying what it is
+    public async Task A_runs_download_holds_its_record_input_and_result()
+    {
+        var (service, runs, store, _) = Priced();
+        var ws = service.Create("akira", "ABC/LE-01", Day1, 5);
+        var run = await Finished(runs, service, ws);
+
+        var zip = new MemoryStream();
+        RunArchive.Write(run, store, zip);
+        using var archive = new System.IO.Compression.ZipArchive(new MemoryStream(zip.ToArray()));
+        JsonNode Read(string path) { using var s = archive.GetEntry(path)!.Open(); return JsonNode.Parse(s)!; }
+
+        Assert.Equal(run.RunId, Read("run.json")["runId"]!.GetValue<string>());
+        var entries = Read("manifest.json")["entries"]!.AsArray().Select(e => e!).ToList();
+        var input = Assert.Single(entries, e => e["roles"]!.AsArray().Any(r => r!.GetValue<string>() == "input:xva/acceptedInput"));
+        var result = Assert.Single(entries, e => e["roles"]!.AsArray().Any(r => r!.GetValue<string>() == "output:xva"));
+        Assert.All(entries, e => Assert.Equal("retained", e["state"]!.GetValue<string>()));
+        var pinned = ((DataReferenceBinding)run.Workflow.Steps[0].Bindings["acceptedInput"]).Reference;
+        Assert.True(JsonNode.DeepEquals(store.ReadRequired(pinned), Read(input["path"]!.GetValue<string>())));
+        Assert.True(JsonNode.DeepEquals(store.ReadRequired(run.Outputs[XvaMeasures.Module]), Read(result["path"]!.GetValue<string>())));
+    }
+
+    [Fact] // ADR-0010 §7 (DEFAULT note of 2026-11-07): Copy quote gives the Run's header and each case's CVA Charge and PV Diff
+    public async Task Copy_quote_reads_the_header_and_each_cases_diffs_from_the_run()
+    {
+        var pv01 = new Pv01Provider((_, _) => Task.FromResult(-1_500m));
+        var (service, runs, store, _) = Priced(new XvaMeasures(pv01));
+        var ws = service.Create("akira", "ABC/LE-01", Day1, 5);
+        ws = service.Edit(ws.WorkspaceId, ws.Revision, "akira", "trade:DRAFT-1", "xva.margin", 2m);
+        await Settled(service, pv01, ws, "DRAFT-1", XvaMeasures.Pv01);
+        var run = await Finished(runs, service, ws);
+        var rows = store.ReadRequired(run.Outputs[XvaMeasures.Module])["rows"]!.AsArray().Select(r => r!).ToList();
+        string Diff(string metric) => Row(rows, metric)["diff"]!.GetValue<decimal>().ToString("#,0.00", System.Globalization.CultureInfo.InvariantCulture);
+
+        var quote = XvaQuote.Of(run, store);
+
+        Assert.Equal([
+            $"XVA quote (simulated) · {run.RunId}",
+            $"Counterparty ABC/LE-01 · Netting set NS-001 · Value date 2026-10-26 · Revision {ws.Revision} · JPY",
+            $"Workspace: CVA Charge {Diff("cvaCharge")} · PV {Diff("pv")}",
+        ], quote.Text.Split('\n').Select(l => l.TrimEnd('\r')));
+        // The PV a case adds is its new trades' value: DRAFT-1's PV Adj, in the result's currency.
+        var draft = service.Page(ws.WorkspaceId, "akira", 0, 10, [], "new").Rows.Single(t => t.TradeId == "DRAFT-1");
+        var expected = Math.Round(PortfolioMarket.ToGbp(-3_000m, draft.Currency, Day1) * PortfolioMarket.UnitsPerGbp("JPY", Day1), 2);
+        Assert.Equal(expected, Row(rows, "pv")["diff"]!.GetValue<decimal>());
+        Assert.Contains("<td style=\"text-align:right\">" + Diff("cvaCharge") + "</td>", quote.Html);
+    }
+
+    [Fact] // ADR-0010 §7: a one-sided case quotes its priced side and names it, never a Diff against nothing
+    public async Task A_one_sided_case_quotes_its_priced_side_and_names_it()
+    {
+        var (service, runs, store, _) = Priced();
+        var ws = service.Create("akira", "ABC/LE-01", Day1, 0);
+        var run = await Finished(runs, service, ws);
+        var rows = store.ReadRequired(run.Outputs[XvaMeasures.Module])["rows"]!.AsArray().Select(r => r!).ToList();
+        var charge = Row(rows, "cvaCharge")["after"]!.GetValue<decimal>().ToString("#,0.00", System.Globalization.CultureInfo.InvariantCulture);
+
+        var quote = XvaQuote.Of(run, store);
+
+        Assert.EndsWith($"Workspace (After only): CVA Charge {charge} · PV 0.00", quote.Text);
+        Assert.Contains("<td>After only</td>", quote.Html);
+    }
+
+    [Fact] // ADR-0010 §7, spine 1: a Run that did not price CVA has no CVA Charge to quote, and says so
+    public async Task A_run_without_cva_has_nothing_to_quote()
+    {
+        var (service, runs, store, _) = Priced();
+        var ws = service.Create("akira", "ABC/LE-01", Day1, 5);
+        ws = service.SetMeasures(ws.WorkspaceId, ws.Revision, "akira", ["fva"]);
+        var run = await Finished(runs, service, ws);
+
+        Assert.Equal("NothingToQuote", Assert.Throws<WorkspaceRefused>(() => XvaQuote.Of(run, store)).Code);
+    }
+
+    [Fact] // ADR-0010 §1: figures are shown in the display currency the workspace sets, which Price freezes
+    public async Task Price_reports_in_the_display_currency_the_workspace_sets()
+    {
+        var (service, runs, store, _) = Priced();
+        var ws = service.Create("akira", "ABC/LE-01", Day1, 5);
+        Assert.Equal("JPY", service.View(ws.WorkspaceId, "akira").DisplayCurrency);
+        var (_, inJpy) = await Price(runs, store, service, ws);
+
+        ws = service.SetDisplayCurrency(ws.WorkspaceId, ws.Revision, "akira", "USD");
+        var (input, inUsd) = await Price(runs, store, service, ws);
+
+        Assert.Equal("USD", input["displayCurrency"]!.GetValue<string>());
+        Assert.All(inUsd, r => Assert.Equal("USD", r["currency"]!.GetValue<string>()));
+        var jpy = Row(inJpy, "cva")["after"]!.GetValue<decimal>();
+        var usd = Row(inUsd, "cva")["after"]!.GetValue<decimal>();
+        Assert.InRange(usd - PortfolioMarket.ToGbp(jpy, "JPY", Day1) * PortfolioMarket.UnitsPerGbp("USD", Day1), -0.01m, 0.01m);
+        // A setting is the page's, not an edit to the portfolio's data.
+        Assert.Equal(0, service.View(ws.WorkspaceId, "akira").Overrides);
+        Assert.Equal("InvalidValue", Assert.Throws<WorkspaceRefused>(() => service.SetDisplayCurrency(ws.WorkspaceId, ws.Revision, "akira", "CHF")).Code);
+    }
+
+    [Fact] // ADR-0010 §1: Refresh acquires the trades again for the same value date, and the edits carry
+    public void Refresh_acquires_again_and_the_edits_carry()
+    {
+        var service = Service();
+        var ws = service.Create("akira", "ABC/LE-01", Day1, 5);
+        ws = service.Edit(ws.WorkspaceId, ws.Revision, "akira", "trade:DRAFT-1", "notional", 9_000_000_000m);
+        ws = service.SetDisplayCurrency(ws.WorkspaceId, ws.Revision, "akira", "EUR");
+
+        var (refreshed, carried) = service.Refresh(ws.WorkspaceId, ws.Revision, "akira");
+
+        Assert.Equal((1, 0, 0), (carried.Carried, carried.Conflicted, carried.Lost));
+        Assert.Equal("EUR", service.View(refreshed.WorkspaceId, "akira").DisplayCurrency);
+        // Spot capital, selected with the rest by default, is simulated too (ADR-0013 §2).
+        Assert.Equal(["xva", "ccr"], service.View(refreshed.WorkspaceId, "akira").Simulated);
+    }
 }
+

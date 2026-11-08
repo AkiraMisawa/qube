@@ -1,4 +1,4 @@
-import { createTheme, type MantineColorsTuple } from '@mantine/core';
+import { createTheme, type CSSVariablesResolver, type MantineColorsTuple } from '@mantine/core';
 import { mantineDefaultFont } from '@ex-grid/mantine';
 
 // Quant Workbench's own look: dense, dark-first, with a signal amber for focus and primary actions and
@@ -31,4 +31,26 @@ export const theme = createTheme({
   // (ADR-0009). ExGrid draws its own Focus inside the grid.
   focusRing: 'auto',
   cursorType: 'pointer',
+  // A filled control's label is dark or light by its fill (docs/design-guidelines.md §7, 4.5:1): white on the dark
+  // theme's amber Price read at 2.1:1.
+  autoContrast: true,
+});
+
+/**
+ * Text in a colour reads at 4.5:1 or more on its surface in either scheme (docs/design-guidelines.md §7). Mantine's
+ * light scheme writes coloured text in the palette's ninth shade, or its filled shade, on white or on the colour's
+ * lightest tint, and dimmed text in grey 6: measured on the XVA page (2026-11-08) a yellow `SIMULATED` read at
+ * 2.7:1, the pressed measures at 3.8:1 and every field label at 3.3:1. In the light scheme a colour's text is that
+ * ninth shade darkened by a third, which keeps its hue, and dimmed is grey 7. The dark scheme already holds.
+ */
+export const cssVariablesResolver: CSSVariablesResolver = (resolved) => ({
+  variables: {},
+  light: {
+    '--mantine-color-dimmed': 'var(--mantine-color-gray-7)',
+    ...Object.fromEntries(Object.keys(resolved.colors).flatMap((name) => {
+      const ink = `color-mix(in srgb, var(--mantine-color-${name}-9) 70%, black)`;
+      return [[`--mantine-color-${name}-text`, ink], [`--mantine-color-${name}-light-color`, ink]];
+    })),
+  },
+  dark: {},
 });

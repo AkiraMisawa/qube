@@ -217,7 +217,10 @@ of that day; the CCR sample was ported to it the same day (links in §6's last p
   gives one; a case priced on one side has that side's column and no Diff (§4). Children keep the formula's order, or sort by the absolute Diff on request, so the term that moved most is
   first. An absent term stays in the tree, faint, so the reader sees what does not contribute. Opening a term fetches
   its children (§5); the tree holds only the terms on the paths opened. Up and Down move between rows, Right opens and
-  Left closes or goes to the parent, Enter selects.
+  Left closes or goes to the parent, Enter selects. *(Alt+→ opens and Alt+← closes or goes to the parent, and the term
+  at the Focus is the selected one, DEFAULT 2026-11-08. In ExGrid → and ← move the Focus between columns, and the
+  tree's columns are wider than its part of a laptop's screen, so the tree takes the two keys with Alt, as declared
+  keys; the formula follows the Focus as it moves, so no Enter is needed. `focus grid` gives the tree the keyboard.)*
 - **A breadcrumb** of the path from the root (`K › RWA › EAD › NS-002 › PFE › AddOn › IR › USD`), each step a link,
   above the tree and the formula; it is what a phone shows instead of the tree.
 - **The formula** of the selected term, typeset: first its kind's TeX, then the same formula with the values

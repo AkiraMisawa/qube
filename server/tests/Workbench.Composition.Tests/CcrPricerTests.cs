@@ -110,6 +110,25 @@ public class CcrPricerTests
         Reconciles(entry.Trace);
     }
 
+    [Fact] // ADR-0010 §1, ADR-0013 §1: spot capital is in the display currency the workspace sets, and its trace with it
+    public async Task Spot_capital_follows_the_display_currency()
+    {
+        var (service, runs, store) = Priced();
+        var ws = Select(service, service.Create("akira", "ABC/LE-01", Day1, 20), "kva", "ccr.spotCapital");
+        var inJpy = await Price(runs, store, service, ws);
+        ws = service.SetDisplayCurrency(ws.WorkspaceId, ws.Revision, "akira", "USD");
+
+        var inUsd = await Price(runs, store, service, ws);
+
+        var usd = Row(inUsd.Rows, "ccr.spotCapital", "capital");
+        Assert.Equal("USD", usd["currency"]!.GetValue<string>());
+        var jpy = Row(inJpy.Rows, "ccr.spotCapital", "capital")["after"]!.GetValue<decimal>();
+        // Every amount SA-CCR reads is converted at the same rates, so the figure is the JPY one, converted.
+        Assert.InRange(usd["after"]!.GetValue<decimal>() - PortfolioMarket.ToGbp(jpy, "JPY", Day1) * PortfolioMarket.UnitsPerGbp("USD", Day1), -0.01m, 0.01m);
+        Assert.All(inUsd.Traces.Traces, t => Assert.Equal("USD", t.Trace.ReportingCurrency));
+        Assert.Equal("USD", Row(inUsd.Rows, "kva", "kva")["currency"]!.GetValue<string>());
+    }
+
     [Fact] // ADR-0013 §1: KVA is the cost of the capital profile, which starts at spot capital; spot capital is not shown unless selected
     public async Task KVA_comes_from_the_capital_profile()
     {

@@ -45,7 +45,7 @@ public static class Decompose
     /// carries none), and one FX exposure on the pair (CRE52.35).
     /// </summary>
     public static IReadOnlyList<SaCcrExposure> CrossCurrencySwap(string tradeId, SwapLeg pay, SwapLeg receive, DateOnly valuation, DateOnly start, DateOnly end,
-        string reportingCurrency, IReadOnlyDictionary<string, double> toReporting)
+        string domesticCurrency, IReadOnlyDictionary<string, double> toReporting)
     {
         var s = Start(valuation, start);
         var e = Years(valuation, end);
@@ -56,14 +56,14 @@ public static class Decompose
             exposures.Add(new SaCcrExposure(tradeId, $"{leg.Currency} fixed leg", AssetClass.InterestRate, leg.Currency, new LinearTerms(paid), e,
                 leg.Notional * Rate(tradeId, leg.Currency, toReporting), StartYears: s, EndYears: e));
         }
-        exposures.Add(Fx(tradeId, "FX", receive.Currency, receive.Notional, pay.Currency, pay.Notional, e, reportingCurrency, toReporting));
+        exposures.Add(Fx(tradeId, "FX", receive.Currency, receive.Notional, pay.Currency, pay.Notional, e, domesticCurrency, toReporting));
         return exposures;
     }
 
     /// <summary>An FX forward, or one leg of an FX swap: it buys one currency and sells the other at settlement.</summary>
     public static SaCcrExposure FxForward(string tradeId, string boughtCurrency, double boughtAmount, string soldCurrency, double soldAmount,
-        DateOnly valuation, DateOnly settlement, string reportingCurrency, IReadOnlyDictionary<string, double> toReporting) =>
-        Fx(tradeId, "FX", boughtCurrency, boughtAmount, soldCurrency, soldAmount, Years(valuation, settlement), reportingCurrency, toReporting);
+        DateOnly valuation, DateOnly settlement, string domesticCurrency, IReadOnlyDictionary<string, double> toReporting) =>
+        Fx(tradeId, "FX", boughtCurrency, boughtAmount, soldCurrency, soldAmount, Years(valuation, settlement), domesticCurrency, toReporting);
 
     /// <summary>
     /// A European swaption on a swap from its exercise date to <c>swapEnd</c>. A payer is a call on the swap rate and a
@@ -83,16 +83,16 @@ public static class Decompose
             ? rate
             : throw new SaCcrRefused($"{tradeId}: no FX rate to the netting set's currency for {currency}.");
 
-    /// <summary>CRE52.35: the foreign leg in the reporting currency, or with both legs foreign the larger; long the pair's first currency when receiving it.</summary>
+    /// <summary>CRE52.35: the foreign leg (the one not in the bank's domestic currency) in the reporting currency, or with both legs foreign the larger; long the pair's first currency when receiving it.</summary>
     static SaCcrExposure Fx(string tradeId, string component, string receivedCurrency, double receivedAmount, string paidCurrency, double paidAmount,
-        double maturity, string reportingCurrency, IReadOnlyDictionary<string, double> toReporting)
+        double maturity, string domesticCurrency, IReadOnlyDictionary<string, double> toReporting)
     {
         if (receivedCurrency == paidCurrency)
             throw new SaCcrRefused($"{tradeId}: both legs are in {receivedCurrency}, so it has no FX exposure.");
         var received = receivedAmount * Rate(tradeId, receivedCurrency, toReporting);
         var paid = paidAmount * Rate(tradeId, paidCurrency, toReporting);
-        var notional = receivedCurrency == reportingCurrency ? paid
-            : paidCurrency == reportingCurrency ? received
+        var notional = receivedCurrency == domesticCurrency ? paid
+            : paidCurrency == domesticCurrency ? received
             : Math.Max(received, paid);
         var first = string.CompareOrdinal(receivedCurrency, paidCurrency) < 0 ? receivedCurrency : paidCurrency;
         var second = first == receivedCurrency ? paidCurrency : receivedCurrency;

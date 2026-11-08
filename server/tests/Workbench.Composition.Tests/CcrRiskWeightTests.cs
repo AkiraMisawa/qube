@@ -108,6 +108,22 @@ public class CcrRiskWeightTests
         Assert.False(Step(Resolve(Bank(R("B-"))), "dueDiligence").Applies);
     }
 
+    [Fact] // ADR-0013 §5, CRE20.20: a bucket is a weight, so a short-term bank rated AA- or A goes up to 50%, not to the next 20% row
+    public void Due_diligence_on_a_short_term_bank_takes_the_next_higher_weight()
+    {
+        foreach (var rating in new[] { "AA-", "A" })
+        {
+            var decision = Resolve(Bank(R(rating)) with { DueDiligenceBucketsUp = 1 }, ShortUntil(new(2027, 2, 9)));
+            Assert.Equal("Short-term", decision.Lookup.Column);
+            Assert.Equal(0.50, decision.RiskWeight);
+            Assert.Equal("BB+ to B-", decision.Lookup.Row);
+            Assert.Contains("to BB+ to B- at 50%", Step(decision, "dueDiligence").Because);
+        }
+        var worst = Resolve(Bank(R("CCC")) with { DueDiligenceBucketsUp = 1 }, ShortUntil(new(2027, 2, 9)));
+        Assert.Equal(1.50, worst.RiskWeight);
+        Assert.Contains("already the highest weight", Step(worst, "dueDiligence").Because);
+    }
+
     [Fact] // ADR-0013 §5, CRE20.20: due diligence never lowers a weight, and a rated weight is not given without it
     public void A_rated_bank_without_a_due_diligence_outcome_or_with_a_lowering_one_is_refused()
     {

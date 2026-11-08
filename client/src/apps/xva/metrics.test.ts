@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import type { RegisteredMeasure } from './contracts';
-import { metricsGrid, metricsTable, pricedMeasures, priceLabel, tradeCounts, type ModuleResult } from './metrics';
+import { headlines, metricsGrid, metricsTable, pricedMeasures, priceLabel, tradeCounts, type ModuleResult } from './metrics';
 
 // The Metrics dock as a pure reading of the Run (ADR-0010 §7): a line per case and measure metric, Before, After and
 // Diff, and a status in words where there is no figure. Every name and figure is synthetic.
 
 const register: readonly RegisteredMeasure[] = [
-  { id: 'cva', title: 'CVA', module: 'xva', request: 'xva', metrics: [{ id: 'cva', title: 'CVA' }, { id: 'cvaCharge', title: 'CVA Charge' }], headline: 'cva', declaresMembership: false, traced: false },
-  { id: 'fva', title: 'FVA', module: 'xva', request: 'xva', metrics: [{ id: 'fva', title: 'FVA' }], headline: 'fva', declaresMembership: false, traced: false },
+  { id: 'cva', title: 'CVA', module: 'xva', request: 'xva', metrics: [{ id: 'cva', title: 'CVA' }, { id: 'cvaCharge', title: 'CVA Charge' }], headline: 'cva', declaresMembership: false, traced: false, quoted: true },
+  { id: 'fva', title: 'FVA', module: 'xva', request: 'xva', metrics: [{ id: 'fva', title: 'FVA' }], headline: 'fva', declaresMembership: false, traced: false, quoted: false },
 ];
 
 const row = (measure: string, metric: string, before: number | null, after: number | null, extra: Record<string, unknown> = {}) => ({
@@ -39,7 +39,7 @@ describe('metricsTable', () => {
 
   it("ADR-0013 §2: a measure another module's request prices reads that request's rows, After alone included", () => {
     const capital: RegisteredMeasure = { id: 'ccr.spotCapital', title: 'Spot CCR capital', module: 'ccr', request: 'xva',
-      metrics: [{ id: 'capital', title: 'Capital' }], headline: 'capital', declaresMembership: true, traced: true };
+      metrics: [{ id: 'capital', title: 'Capital' }], headline: 'capital', declaresMembership: true, traced: true, quoted: false };
 
     const table = metricsTable([...register, capital], ['ccr.spotCapital'], { xva: answered([row('ccr.spotCapital', 'capital', null, 1_234.5)]) });
 
@@ -146,3 +146,20 @@ describe('priceLabel', () => {
     expect(priceLabel(register, ['cva'], 1, { before: true, after: false })).toBe('Price Before only · CVA · 1 case');
   });
 });
+
+describe('headlines', () => {
+  it('ADR-0010 §7: the collapsed dock gives each case each measure\'s headline Diff', () => {
+    const table = metricsTable(register, ['cva', 'fva'], { xva: answered([row('cva', 'cva', -100, -150), row('cva', 'cvaCharge', -125, -187.5), row('fva', 'fva', -10, -12)]) });
+
+    expect(headlines(register, table)).toEqual([{ key: 'base', text: 'Workspace · CVA Diff -50.00 · FVA Diff -2.00' }]);
+  });
+
+  it('ADR-0010 §7: a one-sided case shows its priced side, named, and a failed measure its word, never 0', () => {
+    const oneSided = metricsTable(register, ['cva'], { xva: answered([row('cva', 'cva', null, -150), row('cva', 'cvaCharge', null, -187.5)]) });
+    const failed = metricsTable(register, ['cva'], { xva: { kind: 'unavailable', reason: 'The engine is down.' } });
+
+    expect(headlines(register, oneSided).map((l) => l.text)).toEqual(['Workspace · CVA After -150.00']);
+    expect(headlines(register, failed).map((l) => l.text)).toEqual(['All cases · CVA unavailable']);
+  });
+});
+
