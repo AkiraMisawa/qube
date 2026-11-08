@@ -97,10 +97,13 @@ public static class SimmDatasets
 
     public static string Name(ImDirection direction) => direction.ToString().ToLowerInvariant();
 
+    /// <summary>CRIF's own name for a risk type (<c>Risk_IRCurve</c>).</summary>
+    public static string Name(CrifRiskType riskType) => RiskTypeNames[riskType];
+
     public static JsonObject Crif(IEnumerable<CrifLine> lines, string title, DatasetProvenance provenance) => Datasets.Create(title, CrifColumns,
         lines.Select(l => new JsonObject
         {
-            ["line"] = l.Line, ["tradeId"] = l.TradeId, ["riskType"] = RiskTypeNames[l.RiskType], ["qualifier"] = l.Qualifier,
+            ["line"] = l.Line, ["tradeId"] = l.TradeId, ["riskType"] = Name(l.RiskType), ["qualifier"] = l.Qualifier,
             ["label1"] = l.Label1, ["label2"] = l.Label2, ["amount"] = l.Amount, ["amountCurrency"] = l.AmountCurrency, ["amountUsd"] = l.AmountUsd,
             ["collectRegulations"] = List(l.CollectRegulations), ["postRegulations"] = List(l.PostRegulations),
         }), provenance);
@@ -189,8 +192,8 @@ public sealed class CrifGenerate(IRatesPricingProvider provider, Func<string, Ma
 
 /// <summary>
 /// <c>margin.simm.calculate</c> (ADR-0012 §4): a CRIF, the registration's IM CSAs and a parameter table in; spot SIMM per
-/// direction and regime, and each line's Euler contribution, out. Figures computed with a DEMO table, or from a
-/// simulated CRIF, are simulated and say <c>SIMM PARAMETERS DEMO</c>.
+/// direction and regime, each line's Euler contribution and the engine's calculation trace, out. Figures computed with a
+/// DEMO table, or from a simulated CRIF, are simulated and say <c>SIMM PARAMETERS DEMO</c>.
 /// </summary>
 public sealed class SimmCalculate(IReadOnlyList<SimmParameters> tables) : ICapabilityHandler
 {
@@ -200,7 +203,8 @@ public sealed class SimmCalculate(IReadOnlyList<SimmParameters> tables) : ICapab
          new("parameters", SimmContracts.ParameterTable, SimmContracts.Version, Cardinality.One)],
         [new("im", SimmContracts.Im, SimmContracts.Version, Cardinality.One),
          new("regimes", SimmContracts.RegimeResult, SimmContracts.Version, Cardinality.One),
-         new("contributions", SimmContracts.LineContribution, SimmContracts.Version, Cardinality.One)],
+         new("contributions", SimmContracts.LineContribution, SimmContracts.Version, Cardinality.One),
+         new("trace", CalculationTrace.ContractId, CalculationTrace.ContractVersion, Cardinality.One)],
         ExecutionKind.RequestResponse, [CapabilityEffect.Compute]);
 
     public Task<IReadOnlyDictionary<string, JsonNode?>> InvokeAsync(CapabilityInvocation invocation, CancellationToken cancellationToken)
@@ -253,13 +257,15 @@ public sealed class SimmCalculate(IReadOnlyList<SimmParameters> tables) : ICapab
                     ["direction"] = SimmDatasets.Name(d.Direction), ["regime"] = r.Regime, ["line"] = l.Line, ["tradeId"] = l.TradeId,
                     ["amountUsd"] = l.AmountUsd, ["contribution"] = l.Contribution,
                 }))), provenance),
+            // The trace the engine wrote as it computed (ADR-0011 §3), labelled as its figures are.
+            ["trace"] = JsonSerializer.SerializeToNode(result.Trace with { Subject = new("registration", registration), Provenance = provenance }, WireJson.Options),
         });
     }
 }
 
 /// <summary>
-/// Registers spot SIMM's step 1 (ADR-0012 delivery order): the two capabilities, their input contracts, and the CRIF
-/// workflow, which runs from a form. SIMM alone runs on a CRIF a caller retained, so its workflow names that CRIF.
+/// Registers spot SIMM's step 1 (ADR-0012 delivery order): the two capabilities, their input contracts, the trace
+/// catalogue of each loaded table, and the CRIF workflow, which runs from a form. SIMM alone runs on a CRIF a caller retained, so its workflow names that CRIF.
 /// </summary>
 public sealed class SimmModule(IRatesPricingProvider provider, Func<string, MarketSnapshot?> resolveMarket, ConventionRegistry conventions,
     IReadOnlyList<SimmParameters> tables) : IWorkbenchModule
@@ -276,6 +282,7 @@ public sealed class SimmModule(IRatesPricingProvider provider, Func<string, Mark
     {
         builder.AddCapability(new CrifGenerate(provider, resolveMarket, conventions));
         builder.AddCapability(new SimmCalculate(tables));
+        foreach (var table in tables) builder.AddTraceCatalog(SimmTraceCatalog.For(table));
         builder.AddContract(new ContractDefinition(SimmContracts.CrifInput, SimmContracts.Version, "CRIF input", new JsonObject
         {
             ["type"] = "object",
@@ -323,5 +330,6 @@ public sealed class SimmModule(IRatesPricingProvider provider, Func<string, Mark
         new Dictionary<string, Binding>
         {
             ["im"] = new OutputBinding("simm", "im"), ["regimes"] = new OutputBinding("simm", "regimes"), ["contributions"] = new OutputBinding("simm", "contributions"),
+            ["trace"] = new OutputBinding("simm", "trace"),
         });
 }

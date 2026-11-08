@@ -215,7 +215,7 @@ public class SimmEngineTests
     }
 
     // Two currencies with a bounded bucket sum, a concentrated currency, cross-currency basis and two FX currencies.
-    static readonly CrifLine[] Mixed =
+    internal static readonly CrifLine[] Mixed =
     [
         Ir("L1", "T1", "JPY", "5y", 150e6, ["JFSA"]), Ir("L2", "T2", "JPY", "10y", 40e6, ["JFSA"]),
         new("L3", "T2", CrifRiskType.XCcyBasis, "JPY", null, null, -3e6, "USD", -3e6, ["JFSA"], ["JFSA"]),
@@ -275,7 +275,7 @@ public class SimmSampleTests
     static readonly System.Text.Json.Nodes.JsonObject Sample =
         System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Fixtures", "simm-sample.json")))!.AsObject();
 
-    static IReadOnlyList<CrifLine> Crif() => [.. Sample["crif"]!.AsArray().Select(n => new CrifLine(
+    internal static IReadOnlyList<CrifLine> Crif() => [.. Sample["crif"]!.AsArray().Select(n => new CrifLine(
         n!["line"]!.GetValue<string>(), n["trade"]!.GetValue<string>(), Enum.Parse<CrifRiskType>(n["riskType"]!.GetValue<string>()),
         n["qualifier"]!.GetValue<string>(), n["label1"]?.GetValue<string>(), n["label2"]?.GetValue<string>(),
         n["amountUsd"]!.GetValue<double>(), "USD", n["amountUsd"]!.GetValue<double>(),

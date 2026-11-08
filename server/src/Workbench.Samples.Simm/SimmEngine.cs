@@ -1,3 +1,5 @@
+using Workbench.Composition.Contracts;
+
 namespace Workbench.Samples.Simm;
 
 /// <summary>One direction's IM: the largest of its regimes' SIMM, and which regime that is (ADR-0012 §1).</summary>
@@ -24,7 +26,8 @@ public sealed record SimmTerm(string Name, string Kind, double Value, double Con
         Lines().GroupBy(l => l.TradeId, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.Sum(l => l.Contribution), StringComparer.Ordinal);
 }
 
-public sealed record SimmResult(string ParametersVersion, IReadOnlyList<DirectionIm> Directions)
+/// <summary>The IM of each direction, and the calculation trace the engine wrote as it computed them (ADR-0011, ADR-0012 §6).</summary>
+public sealed record SimmResult(string ParametersVersion, IReadOnlyList<DirectionIm> Directions, CalculationTrace Trace)
 {
     public DirectionIm Direction(ImDirection direction) =>
         Directions.SingleOrDefault(d => d.Direction == direction) ?? throw new KeyNotFoundException($"The result has no {direction} direction.");
@@ -40,11 +43,12 @@ public sealed record SimmResult(string ParametersVersion, IReadOnlyList<Directio
 /// concentration factor held at its value. So held, the SIMM is homogeneous of degree one in the sensitivities, and the
 /// contributions add up to it exactly. A term whose value is 0 passes no derivative down: its lines contribute 0.
 /// </remarks>
-public static class SimmEngine
+public static partial class SimmEngine
 {
     public static SimmResult Calculate(IReadOnlyList<CrifLine> crif, IReadOnlyList<ImCsa> csas, SimmParameters parameters)
     {
         Validate(crif, parameters);
+        var trace = new TraceWriter(parameters);
         var directions = csas.Select(csa =>
         {
             // A regime is computed when the CSA serves it and a line it holds names it (ADR-0012 §1). With none, the
@@ -54,12 +58,14 @@ public static class SimmEngine
             var regimes = csa.Regimes
                 .Select(regime => (regime, lines: inScope.Where(l => Regulations(l, csa.Direction).Contains(regime)).ToList()))
                 .Where(r => r.lines.Count > 0)
-                .Select(r => new RegimeSimm(r.regime, Regime(r.regime, r.lines, parameters)))
+                .Select(r => (r.regime, calc: Regime(r.regime, r.lines, parameters)))
                 .ToList();
-            var governing = regimes.MaxBy(r => r.Total.Value);
-            return new DirectionIm(csa.Direction, csa.Id, governing?.Total.Value, governing?.Regime, regimes);
+            var governing = regimes.Count == 0 ? -1 : regimes.IndexOf(regimes.MaxBy(r => r.calc.Term.Value));
+            trace.Direction(csa, regimes, governing);
+            return new DirectionIm(csa.Direction, csa.Id, governing < 0 ? null : regimes[governing].calc.Term.Value,
+                governing < 0 ? null : regimes[governing].regime, [.. regimes.Select(r => new RegimeSimm(r.regime, r.calc.Term))]);
         }).ToList();
-        return new SimmResult(parameters.Version, directions);
+        return new SimmResult(parameters.Version, directions, trace.Build());
     }
 
     /// <summary>Refuses a line the table cannot weigh, naming it: a currency it places in no volatility group, a tenor it lacks.</summary>
@@ -83,9 +89,13 @@ public static class SimmEngine
 
     // The forward pass keeps what the backward pass needs; the terms are built last, once the lines' contributions are known.
 
-    sealed class Factor(string name, CrifRiskType riskType, string? tenor, string? subCurve, IReadOnlyList<CrifLine> lines, double rw, double cr)
+    sealed class Factor(string name, CrifRiskType riskType, string? tenor, string? subCurve, IReadOnlyList<CrifLine> lines, double rw, double cr,
+        IReadOnlyList<string> rwBecause)
     {
         public string Name { get; } = name;
+        public double Rw { get; } = rw;
+        public double Cr { get; } = cr;
+        public IReadOnlyList<string> RwBecause { get; } = rwBecause;
         public CrifRiskType RiskType { get; } = riskType;
         public string? Tenor { get; } = tenor;
         public string? SubCurve { get; } = subCurve;
@@ -95,13 +105,24 @@ public static class SimmEngine
         public double Gradient { get; set; }
     }
 
-    sealed record Bucket(string Name, IReadOnlyList<Factor> Factors, double[,] Correlation, double K, double S, int Bound, double Cr);
+    /// <summary>
+    /// One bucket as computed: its factors, the tenor correlation ρ and the sub-curve one φ between them (their product is
+    /// the correlation used), K_b, S_b with the bound it took, and the concentration factor with the figures it came from.
+    /// </summary>
+    sealed record Bucket(string Name, IReadOnlyList<Factor> Factors, double[,] Rho, double[,] Phi, double K, double S, int Bound, double Cr,
+        IReadOnlyList<string> CrBecause)
+    {
+        public double Correlation(int k, int l) => Rho[k, l] * Phi[k, l];
+    }
+
+    /// <summary>One regime's calculation: its term tree, and the buckets and margins the trace writes from.</summary>
+    sealed record RegimeCalc(SimmTerm Term, IReadOnlyList<Bucket> IrBuckets, Bucket? Fx);
 
     /// <summary>
     /// SIMM under one regime: Σ_p SIMM_p over the product classes the lines reach. The PoC's risks are all in Rates/FX,
     /// whose SIMM is √(Σ_r IM_r² + Σ_{r≠s} ψ_rs IM_r IM_s) over IR and FX; a risk class with no line is absent.
     /// </summary>
-    static SimmTerm Regime(string regime, IReadOnlyList<CrifLine> lines, SimmParameters parameters)
+    static RegimeCalc Regime(string regime, IReadOnlyList<CrifLine> lines, SimmParameters parameters)
     {
         var ir = lines.Where(l => l.RiskType is CrifRiskType.IrCurve or CrifRiskType.XCcyBasis).ToList();
         var fx = lines.Where(l => l.RiskType == CrifRiskType.Fx).ToList();
@@ -149,7 +170,7 @@ public static class SimmEngine
         if (irBuckets.Count > 0) classTerms.Add(Class("IR", Delta(irDelta, [.. irBuckets.Select(BucketTerm)])));
         if (fxBucket is not null) classTerms.Add(Class("FX", Delta(fxBucket.K, [BucketTerm(fxBucket)])));
         var productTerm = Term("RatesFX", "simm.product", product, classTerms);
-        return Term(regime, "simm.regime", product, [productTerm]);
+        return new(Term(regime, "simm.regime", product, [productTerm]), irBuckets, fxBucket);
     }
 
     /// <summary>∂SIMM/∂WS_k from the bucket's K_b and S_b: ∂K_b/∂WS_k = Σ_l ρ_kl WS_l / K_b; S_b moves one for one inside ±K_b, with the bound outside it.</summary>
@@ -161,7 +182,7 @@ public static class SimmEngine
             double dK = 0;
             if (bucket.K > 0)
             {
-                for (var l = 0; l < n; l++) dK += bucket.Correlation[k, l] * bucket.Factors[l].Ws;
+                for (var l = 0; l < n; l++) dK += bucket.Correlation(k, l) * bucket.Factors[l].Ws;
                 dK /= bucket.K;
             }
             var dS = bucket.Bound == 0 ? 1 : bucket.Bound * dK;
@@ -194,19 +215,29 @@ public static class SimmEngine
     {
         var group = parameters.VolatilityGroups[currency];
         var curveSum = lines.Where(l => l.RiskType == CrifRiskType.IrCurve).Sum(l => l.AmountUsd);
-        var cr = Math.Max(1, Math.Sqrt(Math.Abs(curveSum) / parameters.IrConcentrationThresholds[group]));
-        var factors = lines.GroupBy(l => (l.RiskType, l.Label1, l.Label2)).Select(g => g.Key.RiskType == CrifRiskType.XCcyBasis
-            ? new Factor("XCcyBasis", g.Key.RiskType, null, null, [.. g], parameters.XCcyBasisRiskWeight, cr)
-            : new Factor($"{g.Key.Label2} {g.Key.Label1}", g.Key.RiskType, g.Key.Label1, g.Key.Label2, [.. g],
-                parameters.IrRiskWeights[group][Index(parameters.Tenors, g.Key.Label1!)], cr)).ToList();
-        var rho = new double[factors.Count, factors.Count];
+        var threshold = parameters.IrConcentrationThresholds[group];
+        var cr = Math.Max(1, Math.Sqrt(Math.Abs(curveSum) / threshold));
+        var factors = lines.GroupBy(l => (l.RiskType, l.Label1, l.Label2)).Select(g =>
+        {
+            if (g.Key.RiskType == CrifRiskType.XCcyBasis)
+                return new Factor("XCcyBasis", g.Key.RiskType, null, null, [.. g], parameters.XCcyBasisRiskWeight, cr,
+                    [$"Cross-currency basis has one risk weight in {parameters.Version}: {parameters.XCcyBasisRiskWeight}."]);
+            var tenor = g.Key.Label1 ?? throw new InvalidOperationException("An IR curve line without a tenor passed validation."); // Validate refuses it first
+            var rw = parameters.IrRiskWeights[group][Index(parameters.Tenors, tenor)];
+            return new Factor($"{g.Key.Label2} {tenor}", g.Key.RiskType, tenor, g.Key.Label2, [.. g], rw, cr,
+                [$"{currency} is in the {group} volatility group.", $"The tenor is {tenor}.", $"{parameters.Version}'s IR risk weight for {group} volatility at {tenor} is {rw}."]);
+        }).ToList();
+        var (rho, phi) = (new double[factors.Count, factors.Count], new double[factors.Count, factors.Count]);
         for (var i = 0; i < factors.Count; i++)
             for (var j = 0; j < factors.Count; j++)
-                rho[i, j] = i == j ? 1 : Correlation(factors[i], factors[j], parameters);
-        var k = Norm(factors, rho);
+                (rho[i, j], phi[i, j]) = i == j ? (1, 1) : Correlation(factors[i], factors[j], parameters);
+        var k = Norm(factors, rho, phi);
         var sum = factors.Sum(f => f.Ws);
         var bound = sum > k ? 1 : sum < -k ? -1 : 0;
-        return new(currency, factors, rho, k, bound == 0 ? sum : bound * k, bound, cr);
+        return new(currency, factors, rho, phi, k, bound == 0 ? sum : bound * k, bound, cr,
+            ["CR_b = max(1, √(|Σ s_k| / T_b)).",
+             $"Σ s_k = {Usd(curveSum)} over {currency}'s IR curve lines; cross-currency basis is not in it.",
+             $"T_b = {Usd(threshold)} for the {group} volatility group in {parameters.Version}."]);
     }
 
     /// <summary>
@@ -218,33 +249,40 @@ public static class SimmEngine
         var factors = lines.GroupBy(l => l.Qualifier, StringComparer.Ordinal).OrderBy(g => g.Key, StringComparer.Ordinal).Select(g =>
         {
             var cr = Math.Max(1, Math.Sqrt(Math.Abs(g.Sum(l => l.AmountUsd)) / parameters.FxConcentrationThreshold));
-            return new Factor(g.Key, CrifRiskType.Fx, null, null, [.. g], parameters.FxRiskWeight, cr);
+            return new Factor(g.Key, CrifRiskType.Fx, null, null, [.. g], parameters.FxRiskWeight, cr,
+                [$"FX has one risk weight in {parameters.Version}: {parameters.FxRiskWeight}."]);
         }).ToList();
-        var rho = new double[factors.Count, factors.Count];
+        var (rho, phi) = (new double[factors.Count, factors.Count], new double[factors.Count, factors.Count]);
         for (var i = 0; i < factors.Count; i++)
             for (var j = 0; j < factors.Count; j++)
-                rho[i, j] = i == j ? 1 : parameters.FxCorrelation;
-        var k = Norm(factors, rho);
-        return new("FX", factors, rho, k, k, 0, 1);
+                (rho[i, j], phi[i, j]) = (i == j ? 1 : parameters.FxCorrelation, 1); // FX has no sub-curves
+        var k = Norm(factors, rho, phi);
+        // One bucket: S is never read, since no other bucket crosses it. Each currency's CR is its own.
+        return new("FX", factors, rho, phi, k, k, 0, 1, []);
     }
 
-    static double Norm(IReadOnlyList<Factor> factors, double[,] rho)
+    static double Norm(IReadOnlyList<Factor> factors, double[,] rho, double[,] phi)
     {
         double sum = 0;
         for (var i = 0; i < factors.Count; i++)
             for (var j = 0; j < factors.Count; j++)
-                sum += rho[i, j] * factors[i].Ws * factors[j].Ws;
+                sum += rho[i, j] * phi[i, j] * factors[i].Ws * factors[j].Ws;
         return Math.Sqrt(Math.Max(sum, 0));
     }
 
-    /// <summary>ρ_kl φ_kl between two risk factors of one currency: the tenor correlation times the sub-curve one, or the basis one.</summary>
-    static double Correlation(Factor a, Factor b, SimmParameters parameters)
+    static string Usd(double amount) => $"{amount.ToString("N0", System.Globalization.CultureInfo.InvariantCulture)} USD";
+
+    /// <summary>
+    /// ρ_kl and φ_kl between two risk factors of one currency: the tenor correlation and the sub-curve one, or the basis
+    /// correlation against anything, where no sub-curve applies.
+    /// </summary>
+    static (double Rho, double Phi) Correlation(Factor a, Factor b, SimmParameters parameters)
     {
-        if (a.RiskType == CrifRiskType.XCcyBasis || b.RiskType == CrifRiskType.XCcyBasis) return parameters.XCcyBasisCorrelation;
-        var rho = a.Tenor == b.Tenor ? 1
-            : Math.Max(0.30, Math.Exp(-0.35 * Math.Abs(Math.Log(SimmParameters.TenorYears[a.Tenor!] / SimmParameters.TenorYears[b.Tenor!]))));
+        if (a.RiskType == CrifRiskType.XCcyBasis || b.RiskType == CrifRiskType.XCcyBasis) return (parameters.XCcyBasisCorrelation, 1);
+        static double Years(Factor f) => SimmParameters.TenorYears[f.Tenor ?? throw new InvalidOperationException($"The IR curve factor {f.Name} has no tenor.")];
+        var rho = a.Tenor == b.Tenor ? 1 : Math.Max(0.30, Math.Exp(-0.35 * Math.Abs(Math.Log(Years(a) / Years(b)))));
         var phi = a.SubCurve == b.SubCurve ? 1 : parameters.SubCurveCorrelation;
-        return rho * phi;
+        return (rho, phi);
     }
 
     /// <summary>ψ between two risk classes, which the table holds once for either order.</summary>

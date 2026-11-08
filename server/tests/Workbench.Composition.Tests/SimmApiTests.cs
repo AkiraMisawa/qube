@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.Extensions.DependencyInjection;
 using Workbench.Composition.Application;
+using Workbench.Composition.Application.Traces;
 using Workbench.Composition.Contracts;
 using Workbench.Samples.Simm;
 
@@ -126,6 +127,14 @@ public class SimmApiTests(WorkbenchFactory factory) : IClassFixture<WorkbenchFac
             Assert.Equal(regime["simm"]!.GetValue<double>(), contributions["rows"]!.AsArray()
                 .Where(c => c!["direction"]!.GetValue<string>() == regime["direction"]!.GetValue<string>() && c["regime"]!.GetValue<string>() == regime["regime"]!.GetValue<string>())
                 .Sum(c => c!["contribution"]!.GetValue<double>()), 6);
+
+        // ADR-0011 §3, ADR-0012 §6: the Run keeps the engine's trace, labelled as its figures, and every term reconciles.
+        var trace = (await Read(run["outputs"]!["trace"]!)).Deserialize<CalculationTrace>(WireJson.Options)!;
+        Assert.Equal((ExecutionMode.Simulated, "ABC/LE-01"), (trace.Provenance!.ExecutionMode, trace.Subject!.Id));
+        Assert.Equal(["collect", "post"], trace.Roots);
+        var catalog = factory.Services.GetRequiredService<CompositionRegistry>().FindTraceCatalog(SimmTraceCatalog.Method, "DEMO-2.x")!;
+        var evaluator = new TraceEvaluator(new TraceIndex(trace), catalog);
+        Assert.All(trace.Terms.Where(t => t.State == TermState.Value), t => Assert.Equal(CheckStatus.Matches, evaluator.Check(t).Status));
 
         var history = await Ok(await client.PostAsJsonAsync("/api/history/rows", new { domain = (string?)null, start = 0, count = 2000 }));
         Assert.Contains(history["rows"]!.AsArray(), r => r!["runId"]!.GetValue<string>() == run["runId"]!.GetValue<string>());
