@@ -22,6 +22,12 @@ public sealed record CrifLine(
     IReadOnlyList<string> CollectRegulations,
     IReadOnlyList<string> PostRegulations);
 
+/// <summary>
+/// A CRIF as a document: one registration's lines as of one value date. The registration and the date are the CRIF's
+/// own, so a calculation can refuse the CRIF of another counterparty by name.
+/// </summary>
+public sealed record CrifDocument(string Registration, DateOnly ValueDate, IReadOnlyList<CrifLine> Lines);
+
 /// <summary>IM-R is collected from the counterparty; IM-P is posted to it (ADR-0012 §1).</summary>
 public enum ImDirection { Collect, Post }
 

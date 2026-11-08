@@ -12,6 +12,7 @@ public sealed record SimmParameters(
     IReadOnlyDictionary<string, string> VolatilityGroups,
     IReadOnlyDictionary<string, IReadOnlyList<double>> IrRiskWeights,
     IReadOnlyDictionary<string, double> IrConcentrationThresholds,
+    IReadOnlyList<IReadOnlyList<double>> IrTenorCorrelations,
     double XCcyBasisRiskWeight,
     double XCcyBasisCorrelation,
     double SubCurveCorrelation,
@@ -21,7 +22,7 @@ public sealed record SimmParameters(
     double FxConcentrationThreshold,
     IReadOnlyDictionary<(string, string), double> RiskClassCorrelations)
 {
-    /// <summary>Years of each SIMM tenor, for the tenor correlation.</summary>
+    /// <summary>Years of each SIMM tenor, for placing a curve pillar between two of them.</summary>
     public static readonly IReadOnlyDictionary<string, double> TenorYears = new Dictionary<string, double>
     {
         ["2w"] = 14 / 365.0, ["1m"] = 1 / 12.0, ["3m"] = 0.25, ["6m"] = 0.5, ["1y"] = 1, ["2y"] = 2,
@@ -43,6 +44,7 @@ public sealed record SimmParameters(
             ["low"] = [20, 18, 12, 11, 13, 17, 19, 21, 23, 23, 22, 24],
         },
         new Dictionary<string, double> { ["regular"] = 250e6, ["low"] = 120e6 },
+        DemoTenorCorrelations(["2w", "1m", "3m", "6m", "1y", "2y", "3y", "5y", "10y", "15y", "20y", "30y"]),
         XCcyBasisRiskWeight: 20,
         XCcyBasisCorrelation: 0.25,
         SubCurveCorrelation: 0.95,
@@ -51,4 +53,8 @@ public sealed record SimmParameters(
         FxCorrelation: 0.50,
         FxConcentrationThreshold: 5000e6,
         new Dictionary<(string, string), double> { [("IR", "FX")] = 0.25 });
+
+    /// <summary>The DEMO table's tenor correlations, made up as the drill-down sample's are: max(0.30, e^(−0.35 |ln(t_k / t_l)|)).</summary>
+    static IReadOnlyList<IReadOnlyList<double>> DemoTenorCorrelations(IReadOnlyList<string> tenors) =>
+        [.. tenors.Select(k => (IReadOnlyList<double>)[.. tenors.Select(l => k == l ? 1 : Math.Max(0.30, Math.Exp(-0.35 * Math.Abs(Math.Log(TenorYears[k] / TenorYears[l])))))])];
 }

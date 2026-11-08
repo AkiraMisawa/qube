@@ -44,7 +44,7 @@ public class CrifGenerationTests
         public IReadOnlyList<PricedProduct> Products { get; } = [new(RatesProducts.Irs, RatesProducts.Version), new(RatesProducts.Ccs, RatesProducts.Version)];
 
         public Task<RatesBatchResult> PriceBatchAsync(RatesBatchInput input, CancellationToken cancellationToken) =>
-            Task.FromResult(new RatesBatchResult(Name, "simulated", [.. input.Lines.Select(line =>
+            Task.FromResult(new RatesBatchResult(Name, "simulated", [.. input.Lines.Where(line => line.RowKey != "SILENT").Select(line =>
             {
                 if (line.RowKey == "FAILS") return new RowResult(line.RowKey, new Dictionary<string, Measure>(), "No curve for this line.");
                 var (pv, deltas) = answer(line, input.Market);
@@ -130,6 +130,22 @@ public class CrifGenerationTests
         Assert.Equal(("T5", "Physically settled FX forward: exempt from IM in every regime."), (result.Excluded.Single().TradeId, result.Excluded.Single().Reason));
     }
 
+    [Fact] // ADR-0012 §2: an exempt trade is frozen with its exemption and nothing to price, even where the source holds its terms
+    public void An_exempt_trade_is_frozen_with_nothing_to_price_even_with_its_terms()
+    {
+        var portfolio = new SyntheticImSource().Find("ABC/LE-01")!;
+        var irs = portfolio.Trades.Single(t => t.Id == "T-1001");
+        Assert.NotNull(irs.Line);
+
+        // The exemption is decided before any term is resolved, so no convention is needed to freeze it.
+        var frozen = (portfolio with { Trades = [irs with { Exemption = "Exempt by test." }] }).FreezeTrades(ValueDate, new ConventionRegistry([], []));
+
+        var trade = Assert.Single(frozen.Trades);
+        Assert.Equal(("T-1001", "Exempt by test."), (trade.Id, trade.Exemption));
+        Assert.Null(trade.Pricing);
+        Assert.Empty(frozen.NotFrozen);
+    }
+
     [Fact] // Spine 1: a trade the provider could not price is excluded with the provider's reason, never left out silently
     public void A_trade_the_provider_failed_is_excluded_with_its_reason()
     {
@@ -139,6 +155,17 @@ public class CrifGenerationTests
 
         Assert.All(result.Lines, l => Assert.Equal("T1", l.TradeId));
         Assert.Equal(("FAILS", "No curve for this line."), (result.Excluded.Single().TradeId, result.Excluded.Single().Reason));
+    }
+
+    [Fact] // Spine 1: a trade the provider returned no row for is excluded, saying so, never priced as nothing
+    public void A_trade_the_provider_did_not_answer_is_excluded_saying_so()
+    {
+        var provider = new ScriptedPricing((_, _) => (0, new Dictionary<string, double> { ["delta:JPY/TONA:5y"] = 1 }));
+
+        var result = Generate(provider, Trade("T1", JpyIrs("T1")), Trade("SILENT", JpyIrs("SILENT")));
+
+        Assert.All(result.Lines, l => Assert.Equal("T1", l.TradeId));
+        Assert.Equal(("SILENT", "The provider scripted returned no row for the trade."), (result.Excluded.Single().TradeId, result.Excluded.Single().Reason));
     }
 
     [Fact] // Spine 1: a curve of an index that is not overnight has no SIMM sub-curve until one is configured, and says so

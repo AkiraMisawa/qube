@@ -127,6 +127,19 @@ public class SimmEngineTests
         Assert.Equal(113_137_084_989.8479, CollectIm([Fx("L1", "T1", "JPY", 10e9)]), 1);
     }
 
+    internal static readonly CrifLine[] ConcentratedFx = [Fx("L1", "T1", "JPY", 20e9), Fx("L2", "T2", "EUR", 5e9)];
+
+    [Fact] // ADR-0012 §5, SIMM v2.x: FX currencies of different concentration correlate by ρ_FX f_kl, f_kl = min(CR_k, CR_l) / max(CR_k, CR_l)
+    public void Fx_currencies_of_different_concentration_correlate_less()
+    {
+        // CR_JPY = √(20bn / 5bn) = 2 and CR_EUR = 1, so f = 0.5; WS = 8 × 20bn × 2 = 320bn and 8 × 5bn = 40bn.
+        // K = √(320² + 40² + 2 × 0.5 × 0.5 × 320 × 40) bn; without f it would be 341.76bn.
+        var regime = CollectRegime(ConcentratedFx);
+
+        Assert.Equal(332_264_954_516.7230, regime.Value, 1);
+        Assert.Equal(regime.Value, regime.Lines().Sum(l => l.Contribution), 1); // Euler, with CR and so f held
+    }
+
     [Fact] // ADR-0012 §6, simm.product: IR and FX diversify through ψ = 0.25 in the Rates/FX product class
     public void Risk_classes_diversify_through_psi_in_their_product_class()
     {

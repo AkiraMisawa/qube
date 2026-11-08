@@ -14,7 +14,8 @@ place to be wrong; a formula a provider or the AI sends is text the page would d
 owner then asked that formulas be typeset as real mathematics (2026-11-07), so a kind also carries its TeX (§6). The
 operation set gained `slot`, `children`, `param`, `field`, `const`, `ln`, `normalCdf`, `sumLeaves`, `singleFactor` and
 `lookup`, and `quadraticForm` was generalised, because SA-CCR's options, its single-factor asset classes and SA's risk
-weight table need them. The engine team is building the drill-down output now; the owner wanted the client's proposal
+weight table need them; on 2026-11-08 `children` gained an optional role, so that SIMM's `S_b`, beside `K_b`, can sum
+`K_b`'s children (§2). The engine team is building the drill-down output now; the owner wanted the client's proposal
 of its format, which is the Claude Doc "ドリルダウン形式の提案：スポットCCRキャピタル" and follows this ADR.*
 
 ## Context

@@ -136,7 +136,7 @@ public sealed record SlotExpr(string Name) : TraceExpr;
 
 /// <summary>
 /// The term's children, optionally of one kind, as a list for an aggregate. With <c>Of</c>, the children of the term
-/// playing that role instead, found as a slot is (SIMM's <c>S_b</c> sums the risk factors that are its <c>K_b</c>'s).
+/// playing that role instead, found as a slot is: a bounded sum that sits beside a term can sum that term's children.
 /// </summary>
 public sealed record ChildrenExpr(string? Kind = null, string? Of = null) : TraceExpr;
 

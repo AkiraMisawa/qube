@@ -1,3 +1,4 @@
+using Workbench.Composition.Contracts;
 using Workbench.Samples.Rates;
 
 namespace Workbench.Samples.Simm;
@@ -9,48 +10,81 @@ namespace Workbench.Samples.Simm;
 public sealed record ImTrade(string Id, string Description, RatesLine? Line, string? Exemption,
     IReadOnlyList<string> CollectRegulations, IReadOnlyList<string> PostRegulations);
 
-/// <summary>A counterparty's IM CSAs and booked trades at one version of the source, and the regimes the source classifies by.</summary>
-public sealed record ImPortfolio(string Registration, string SourceVersion, IReadOnlyList<string> Regimes, IReadOnlyList<ImCsa> Csas, IReadOnlyList<ImTrade> Trades)
+/// <summary>
+/// A counterparty's IM CSAs and booked trades at one version of the source, whether the source is synthetic, and the
+/// regimes the source classifies by.
+/// </summary>
+public sealed record ImPortfolio(string Registration, string SourceVersion, DataOrigin Origin, IReadOnlyList<string> Regimes, IReadOnlyList<ImCsa> Csas,
+    IReadOnlyList<ImTrade> Trades)
 {
     /// <summary>
     /// The trades frozen for CRIF at a value date: each one's Rates line resolved with the confirmed conventions and its
-    /// schedules generated. A trade whose line does not resolve is not frozen, and says why; nothing stands in for it.
+    /// schedules generated. An exempt trade is frozen with its exemption and nothing to price. A trade whose line does not
+    /// resolve is not frozen, and says why; nothing stands in for it.
     /// </summary>
-    public (IReadOnlyList<SimmTrade> Frozen, IReadOnlyList<CrifExclusion> NotFrozen) Freeze(DateOnly valueDate, ConventionRegistry conventions)
+    public FrozenTrades FreezeTrades(DateOnly valueDate, ConventionRegistry conventions)
     {
         var frozen = new List<SimmTrade>();
         var notFrozen = new List<CrifExclusion>();
         foreach (var trade in Trades)
         {
-            if (trade.Line is null)
+            if (trade.Exemption is { } exemption)
             {
-                frozen.Add(new(trade.Id, null, trade.Exemption ?? throw new InvalidOperationException($"{trade.Id} has neither terms nor an exemption."),
-                    trade.CollectRegulations, trade.PostRegulations));
+                frozen.Add(new(trade.Id, null, exemption, trade.CollectRegulations, trade.PostRegulations, trade.Description));
                 continue;
             }
-            var resolution = LineResolver.Resolve(trade.Line, valueDate, conventions);
+            if (trade.Line is not { } line)
+            {
+                notFrozen.Add(new(trade.Id, "The source holds neither terms nor an exemption for this trade."));
+                continue;
+            }
+            var resolution = LineResolver.Resolve(line, valueDate, conventions);
             if (!resolution.Priceable)
             {
                 notFrozen.Add(new(trade.Id, string.Join(" ", resolution.Issues)));
                 continue;
             }
-            frozen.Add(new(trade.Id, new PricingLine(trade.Id, 0, trade.Line.Direction, RatesMaterialiser.Unedited(resolution), resolution.ParLeg, false),
-                null, trade.CollectRegulations, trade.PostRegulations));
+            frozen.Add(new(trade.Id, new PricingLine(trade.Id, 0, line.Direction, RatesMaterialiser.Unedited(resolution), resolution.ParLeg, false),
+                null, trade.CollectRegulations, trade.PostRegulations, trade.Description));
         }
-        return (frozen, notFrozen);
+        return new(Registration, SourceVersion, Origin, valueDate, frozen, notFrozen);
     }
+
+    /// <summary>The IM CSAs as they stand, with the regimes the source classifies by.</summary>
+    public FrozenCsas FreezeCsas() => new(Registration, SourceVersion, Origin, Regimes, Csas);
+}
+
+/// <summary>A registration's trades frozen at a value date: what CRIF generation prices, retained so that its Run resolves it.</summary>
+public sealed record FrozenTrades(string Registration, string SourceVersion, DataOrigin Origin, DateOnly ValueDate, IReadOnlyList<SimmTrade> Trades,
+    IReadOnlyList<CrifExclusion> NotFrozen);
+
+/// <summary>A registration's IM CSAs as read from the source, and the regimes it classifies by: what SIMM computes under.</summary>
+public sealed record FrozenCsas(string Registration, string SourceVersion, DataOrigin Origin, IReadOnlyList<string> Regimes, IReadOnlyList<ImCsa> Csas);
+
+/// <summary>
+/// The IM source port: who holds IM CSAs, and their trades. A company source replaces the synthetic one where the
+/// module is composed, and nowhere else.
+/// </summary>
+public interface IImSource
+{
+    string Version { get; }
+
+    /// <summary>The registrations the source holds IM CSAs for: a counterparty with its legal entity (docs/03).</summary>
+    IReadOnlyList<string> Registrations { get; }
+
+    ImPortfolio? Find(string registration);
 }
 
 /// <summary>
 /// The PoC's IM source: one wholly synthetic counterparty with two IM CSAs and the trades of the drill-down sample. Its
 /// trades start at spot on the value date, so they never mature under a moving date. Nothing here is a real position.
 /// </summary>
-public static class SyntheticImSource
+public sealed class SyntheticImSource : IImSource
 {
-    public const string Version = "synthetic-im-1";
+    public const string SourceVersion = "synthetic-im-1";
 
     /// <summary>The regimes this source classifies trades by. A CRIF naming any other is refused, not left out of scope.</summary>
-    public static readonly IReadOnlyList<string> Regimes = ["CFTC", "EMIR", "JFSA"];
+    static readonly IReadOnlyList<string> Regimes = ["CFTC", "EMIR", "JFSA"];
 
     static readonly IReadOnlyList<string> JfsaCftc = ["JFSA", "CFTC"];
     static readonly IReadOnlyList<string> JfsaEmir = ["JFSA", "EMIR"];
@@ -81,12 +115,13 @@ public static class SyntheticImSource
 
     static readonly IReadOnlyDictionary<string, ImPortfolio> Portfolios = new Dictionary<string, ImPortfolio>(StringComparer.Ordinal)
     {
-        ["ABC/LE-01"] = new("ABC/LE-01", Version, Regimes,
+        ["ABC/LE-01"] = new("ABC/LE-01", SourceVersion, DataOrigin.Synthetic, Regimes,
             [new("IMR-ABC-01", ImDirection.Collect, JfsaCftc, Held), new("IMP-ABC-01", ImDirection.Post, JfsaEmir, Held)], Trades),
     };
 
-    /// <summary>The registrations the source holds IM CSAs for: a counterparty with its legal entity (docs/03).</summary>
-    public static IReadOnlyList<string> Registrations { get; } = [.. Portfolios.Keys.Order(StringComparer.Ordinal)];
+    public string Version => SourceVersion;
 
-    public static ImPortfolio? Find(string registration) => Portfolios.GetValueOrDefault(registration);
+    public IReadOnlyList<string> Registrations { get; } = [.. Portfolios.Keys.Order(StringComparer.Ordinal)];
+
+    public ImPortfolio? Find(string registration) => Portfolios.GetValueOrDefault(registration);
 }

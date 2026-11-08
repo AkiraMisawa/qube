@@ -26,7 +26,8 @@ public class SimmTraceTests
     public void Every_term_the_engine_writes_reconciles_against_its_kind()
     {
         Assert.Empty(TraceCatalogs.Problems(Catalog));
-        foreach (var trace in new[] { Sample(), SimmEngine.Calculate(SimmEngineTests.Mixed, [Csa(ImDirection.Collect, ["JFSA"], SimmEngineTests.Mixed)], Demo).Trace })
+        var cases = new[] { SimmEngineTests.Mixed, SimmEngineTests.ConcentratedFx }.Select(crif => SimmEngine.Calculate(crif, [Csa(ImDirection.Collect, ["JFSA"], crif)], Demo).Trace);
+        foreach (var trace in cases.Prepend(Sample()))
         {
             var index = new TraceIndex(trace);
             var evaluator = new TraceEvaluator(index, Catalog);

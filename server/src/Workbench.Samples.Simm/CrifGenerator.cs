@@ -6,7 +6,8 @@ namespace Workbench.Samples.Simm;
 /// A trade as CRIF generation takes it: its frozen pricing input, or why it has none (an exemption), and the regimes
 /// it counts under in each direction. Which regimes a trade is in is the source's to say, never the page's (ADR-0012 §2).
 /// </summary>
-public sealed record SimmTrade(string Id, PricingLine? Pricing, string? Exemption, IReadOnlyList<string> CollectRegulations, IReadOnlyList<string> PostRegulations);
+public sealed record SimmTrade(string Id, PricingLine? Pricing, string? Exemption, IReadOnlyList<string> CollectRegulations, IReadOnlyList<string> PostRegulations,
+    string? Description = null);
 
 /// <summary>A trade that gave no CRIF line, and why.</summary>
 public sealed record CrifExclusion(string TradeId, string Reason);
@@ -17,9 +18,10 @@ public sealed record CrifResult(IReadOnlyList<CrifLine> Lines, IReadOnlyList<Cri
 /// <summary>
 /// CRIF from the Rates pricing at the value date (ADR-0012 §5). IR curve deltas are the provider's, per curve pillar,
 /// split onto SIMM's twelve tenors linearly in years. FX delta is the USD value's change for a 1% rise of each other
-/// currency, with a cross-currency swap's principal exchanges left out, being exempt. Cross-currency basis is the
-/// change for 1bp more spread on a non-USD floating leg. A trade the provider fails, or whose curve has no SIMM
-/// sub-curve, is excluded with that reason; nothing stands in for it.
+/// currency, with a cross-currency swap's principal exchanges left out: the margin framework exempts those fixed,
+/// physically settled FX transactions from IM (ADR-0012 §5). Cross-currency basis is the change for 1bp more spread on
+/// a non-USD floating leg. A trade the provider fails or does not answer, or whose curve has no SIMM sub-curve, is
+/// excluded with that reason; nothing stands in for it.
 /// </summary>
 public sealed class CrifGenerator(IRatesPricingProvider provider)
 {
@@ -30,13 +32,13 @@ public sealed class CrifGenerator(IRatesPricingProvider provider)
         if (!market.Fx.ContainsKey(CalculationCurrency))
             throw new SimmInputException([$"The market {market.Id} has no FX rate for the calculation currency {CalculationCurrency}."]);
         var excluded = new List<CrifExclusion>();
-        var priced = new List<SimmTrade>();
+        var priced = new List<(SimmTrade Trade, PricingLine Pricing)>();
         foreach (var trade in trades)
         {
             if (trade.Exemption is { } exemption) excluded.Add(new(trade.Id, exemption));
-            else if (trade.Pricing is null) excluded.Add(new(trade.Id, "The trade has no pricing input."));
-            else if (Missing(trade.Pricing, market) is { } currency) excluded.Add(new(trade.Id, $"The market {market.Id} has no FX rate for {currency}."));
-            else priced.Add(trade);
+            else if (trade.Pricing is not { } pricing) excluded.Add(new(trade.Id, "The trade has no pricing input."));
+            else if (Missing(pricing, market) is { } currency) excluded.Add(new(trade.Id, $"The market {market.Id} has no FX rate for {currency}."));
+            else priced.Add((trade, pricing));
         }
 
         var modes = new HashSet<string>(StringComparer.Ordinal);
@@ -47,22 +49,31 @@ public sealed class CrifGenerator(IRatesPricingProvider provider)
             return batch.Rows.ToDictionary(r => r.RowKey);
         }
 
-        var risk = await Price(market, priced.Select(t => t.Pricing! with { Risk = true }));
-        var bare = priced.ToDictionary(t => t.Id, t => t.Pricing! with { Risk = false, Legs = [.. t.Pricing.Legs.Select(l => l with { Exchanges = [] })] });
+        var risk = await Price(market, priced.Select(t => t.Pricing with { Risk = true }));
+        var bare = priced.ToDictionary(t => t.Trade.Id, t => t.Pricing with { Risk = false, Legs = [.. t.Pricing.Legs.Select(l => l with { Exchanges = [] })] });
         var bareBase = await Price(market, bare.Values);
-        var fxCurrencies = priced.SelectMany(t => Currencies(t.Pricing!)).Where(c => c != CalculationCurrency).Distinct().Order(StringComparer.Ordinal).ToList();
+        var fxCurrencies = priced.SelectMany(t => Currencies(t.Pricing)).Where(c => c != CalculationCurrency).Distinct().Order(StringComparer.Ordinal).ToList();
         var bumpedFx = new Dictionary<string, IReadOnlyDictionary<string, RowResult>>();
         foreach (var currency in fxCurrencies)
             bumpedFx[currency] = await Price(Strengthened(market, currency), bare.Values.Where(l => Currencies(l).Contains(currency)));
-        var basisLegs = priced.ToDictionary(t => t.Id, t => BasisLeg(t.Pricing!));
-        var full = priced.Where(t => basisLegs[t.Id] is not null).ToDictionary(t => t.Id, t => t.Pricing! with { Risk = false });
+        var basisLegs = priced.ToDictionary(t => t.Trade.Id, t => BasisLeg(t.Pricing));
+        var full = priced.Where(t => basisLegs[t.Trade.Id] is not null).ToDictionary(t => t.Trade.Id, t => t.Pricing with { Risk = false });
         var fullBase = await Price(market, full.Values);
-        var basisBumped = await Price(market, full.Select(p => Widened(p.Value, basisLegs[p.Key]!.Value)));
+        var basisBumped = await Price(market, full.Select(p => basisLegs[p.Key] is { } leg ? Widened(p.Value, leg)
+            : throw new InvalidOperationException($"{p.Key} was taken for its basis leg and has none.")));
+
+        // A row the provider did not answer is a defect of the provider's, said for the trade, never a line made up.
+        RowResult? Answer(IReadOnlyDictionary<string, RowResult> rows, string rowKey) => rows.GetValueOrDefault(rowKey);
+        string Unanswered() => $"The provider {provider.Name} returned no row for the trade.";
 
         var lines = new List<CrifLine>();
-        foreach (var trade in priced)
+        foreach (var (trade, pricing) in priced)
         {
-            var row = risk[trade.Pricing!.RowKey];
+            if (Answer(risk, pricing.RowKey) is not { } row)
+            {
+                excluded.Add(new(trade.Id, Unanswered()));
+                continue;
+            }
             if (row.Failure is not null)
             {
                 excluded.Add(new(trade.Id, row.Failure));
@@ -74,7 +85,7 @@ public sealed class CrifGenerator(IRatesPricingProvider provider)
             {
                 var parts = key.Split(':');
                 var (currency, index) = (parts[1].Split('/')[0], parts[1].Split('/')[1]);
-                if (SubCurve(trade.Pricing, currency, index) is not { } subCurve)
+                if (SubCurve(pricing, currency, index) is not { } subCurve)
                 {
                     refusal = $"The curve {parts[1]} has no SIMM sub-curve: only an overnight index maps to OIS until a mapping for {index} is configured.";
                     break;
@@ -82,27 +93,26 @@ public sealed class CrifGenerator(IRatesPricingProvider provider)
                 foreach (var (tenor, weight) in OntoSimmTenors(SyntheticMarket.YearsOf(Tenor.Parse(parts[2]))))
                     own.Add((CrifRiskType.IrCurve, currency, tenor, subCurve, measure.Value * weight, Unit(measure)));
             }
+            if (refusal is null && basisLegs[trade.Id] is { } basisLeg)
+            {
+                if ((Answer(fullBase, pricing.RowKey), Answer(basisBumped, pricing.RowKey)) is not ({ } b, { } a)) refusal = Unanswered();
+                else if ((b.Failure ?? a.Failure) is { } failure) refusal = failure;
+                else own.Add((CrifRiskType.XCcyBasis, pricing.Legs[basisLeg].Terms.Currency, null, null,
+                    a.Measures[Measures.Pv].Value - b.Measures[Measures.Pv].Value, b.Measures[Measures.Pv].Unit));
+            }
+            foreach (var currency in Currencies(pricing).Where(c => c != CalculationCurrency).Distinct().Order(StringComparer.Ordinal))
+            {
+                if (refusal is not null) break;
+                if ((Answer(bareBase, pricing.RowKey), Answer(bumpedFx[currency], pricing.RowKey)) is not ({ } b, { } a)) refusal = Unanswered();
+                else if ((b.Failure ?? a.Failure) is { } failure) refusal = failure;
+                else own.Add((CrifRiskType.Fx, currency, null, null,
+                    Usd(a.Measures[Measures.Pv], Strengthened(market, currency)) - Usd(b.Measures[Measures.Pv], market), CalculationCurrency));
+            }
             if (refusal is not null)
             {
                 excluded.Add(new(trade.Id, refusal));
                 continue;
             }
-            if (basisLegs[trade.Id] is { } basisLeg)
-            {
-                var (b, a) = (fullBase[trade.Pricing.RowKey], basisBumped[trade.Pricing.RowKey]);
-                if ((b.Failure ?? a.Failure) is { } failure) { excluded.Add(new(trade.Id, failure)); continue; }
-                own.Add((CrifRiskType.XCcyBasis, trade.Pricing.Legs[basisLeg].Terms.Currency, null, null,
-                    a.Measures[Measures.Pv].Value - b.Measures[Measures.Pv].Value, b.Measures[Measures.Pv].Unit));
-            }
-            var fxFailure = false;
-            foreach (var currency in Currencies(trade.Pricing).Where(c => c != CalculationCurrency).Distinct().Order(StringComparer.Ordinal))
-            {
-                var (b, a) = (bareBase[trade.Pricing.RowKey], bumpedFx[currency][trade.Pricing.RowKey]);
-                if ((b.Failure ?? a.Failure) is { } failure) { excluded.Add(new(trade.Id, failure)); fxFailure = true; break; }
-                var change = Usd(a.Measures[Measures.Pv], Strengthened(market, currency)) - Usd(b.Measures[Measures.Pv], market);
-                own.Add((CrifRiskType.Fx, currency, null, null, change, CalculationCurrency));
-            }
-            if (fxFailure) continue;
 
             var n = 0;
             foreach (var g in own.GroupBy(o => (o.Type, o.Qualifier, o.Tenor, o.SubCurve, o.Currency)).OrderBy(g => g.Key.Type).ThenBy(g => g.Key.Qualifier, StringComparer.Ordinal)

@@ -21,7 +21,7 @@ public class ApiTests(WorkbenchFactory factory) : IClassFixture<WorkbenchFactory
     public async Task Catalog_lists_what_modules_registered()
     {
         var catalog = (await client.GetFromJsonAsync<JsonObject>("/api/catalog"))!;
-        Assert.Equal(13, catalog["capabilities"]!.AsArray().Count); // entity.create (ADR-0008) is the eleventh; risk.crif.generate and margin.simm.calculate (ADR-0012) follow
+        Assert.Equal(14, catalog["capabilities"]!.AsArray().Count); // entity.create (ADR-0008) is the eleventh; im.source.freeze, risk.crif.generate and margin.simm.calculate (ADR-0012) follow
         Assert.Contains(catalog["capabilities"]!.AsArray(), c => c!["capabilityId"]!.GetValue<string>() == "entity.create");
         Assert.Contains(catalog["actions"]!.AsArray(), a => a!["target"]!["kind"]!.GetValue<string>() == "openView");
     }

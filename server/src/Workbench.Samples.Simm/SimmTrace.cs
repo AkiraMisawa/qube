@@ -5,8 +5,9 @@ namespace Workbench.Samples.Simm;
 
 /// <summary>
 /// Spot IM's kinds and leaf set in ADR-0011's catalogue (ADR-0012 §6), once per parameter table: a kind carries the
-/// formula as an expression and as TeX, and the engine sends only values. Vega, curvature, base correlation and the
-/// add-on wait for a product with options.
+/// formula as an expression and as TeX, and the engine sends only values. Vega, curvature and base correlation wait for
+/// a product with options; <c>simm.addon</c> waits for an add-on to be configured, and joins a regime's children then,
+/// so that the regime's sum takes it.
 /// </summary>
 public static class SimmTraceCatalog
 {
@@ -24,8 +25,8 @@ public static class SimmTraceCatalog
     [
         Kind("simm.im", "IM {direction}", "IM", "the margin is the largest over the regimes the IM CSA serves",
             @"\mathrm{IM} = \max_g \mathrm{SIMM}_g", new MaxExpr([new ChildrenExpr("simm.regime")])),
-        Kind("simm.regime", "SIMM {regime}", "SIMM_g", "the total over the product classes, plus the add-on",
-            @"\mathrm{SIMM} = \sum_p \mathrm{SIMM}_p + \mathrm{AddOn}", new SumExpr([new ChildrenExpr()])),
+        Kind("simm.regime", "SIMM {regime}", "SIMM_g", "the total over the product classes",
+            @"\mathrm{SIMM} = \sum_p \mathrm{SIMM}_p", new SumExpr([new ChildrenExpr()])),
         Kind("simm.product", "{product}", "SIMM_p", "a product class over its risk classes",
             @"\mathrm{SIMM}_p = \sqrt{\sum_r \mathrm{IM}_r^2 + \sum_{r \ne s} \psi_{rs} \, \mathrm{IM}_r \, \mathrm{IM}_s}",
             new QuadraticFormExpr(new ChildrenExpr("simm.riskClass"), ["psi"], "riskClass")),
@@ -35,8 +36,8 @@ public static class SimmTraceCatalog
             @"\mathrm{DM} = \sqrt{\sum_b K_b^2 + \sum_{b \ne c} \gamma_{bc} \, g_{bc} \, S_b \, S_c}",
             new QuadraticFormExpr(new ChildrenExpr("simm.bucket"), ["gamma", "g"], "bucket", new ChildrenExpr("simm.bucketSum"))),
         Kind("simm.bucket", "Bucket {bucket}", "K_b", "delta margin within a bucket",
-            @"K_b = \sqrt{\sum_k WS_k^2 + \sum_{k \ne l} \rho_{kl} \, \phi_{kl} \, WS_k \, WS_l}",
-            new QuadraticFormExpr(new ChildrenExpr("simm.factor"), ["rho", "phi"], "factor")),
+            @"K_b = \sqrt{\sum_k WS_k^2 + \sum_{k \ne l} \rho_{kl} \, \phi_{kl} \, f_{kl} \, WS_k \, WS_l}",
+            new QuadraticFormExpr(new ChildrenExpr("simm.factor"), ["rho", "phi", "f"], "factor")),
         Kind("simm.bucketSum", "Bucket sum {bucket}", "S_b", "a bucket's weighted sensitivities, bounded by its margin",
             @"S_b = \max\left(\min\left(\sum_k WS_k, \slot{k}\right), -\slot{k}\right)",
             new ClampExpr(new SumExpr([new ChildrenExpr("simm.factor", "k")]), new NegateExpr(new SlotExpr("k")), new SlotExpr("k"))),
@@ -77,6 +78,9 @@ public static partial class SimmEngine
         readonly string citation = table.IsDemo ? $"SIMM PARAMETERS {table.Version} (made up, not ISDA's calibration)" : $"SIMM parameters {table.Version}";
 
         static TermAllocation Euler(double contribution) => new("euler", contribution);
+
+        // Which of a clamp's operands governed (ADR-0011 §2): S_b inside its bound is the sum, else −K_b or K_b.
+        const int SumGoverned = 0, LowerBoundGoverned = 1, UpperBoundGoverned = 2;
 
         static Dictionary<string, string> Key(string name, string value) => new() { [name] = value };
 
@@ -141,17 +145,26 @@ public static partial class SimmEngine
                 // S_b sits beside K_b, where the delta margin's cross terms read it; FX has one bucket and no cross term.
                 if (sums)
                     terms.Add(new($"{bucketId}:S", "simm.bucketSum", TermState.Value, 0, id, Key("bucket", bucket.Name), JsonValue.Create(bucket.S),
-                        Slots: new Dictionary<string, string> { ["k"] = bucketId }, Governed: JsonValue.Create(bucket.Bound switch { 1 => 2, -1 => 1, _ => 0 })));
+                        Slots: new Dictionary<string, string> { ["k"] = bucketId }, Governed: JsonValue.Create(bucket.Bound switch { 1 => UpperBoundGoverned, -1 => LowerBoundGoverned, _ => SumGoverned })));
             }
         }
 
-        /// <summary>A bucket's K_b and its risk factors. An IR bucket has one CR for all its factors; FX gives each currency its own.</summary>
+        /// <summary>
+        /// A bucket's K_b and its risk factors. An IR bucket has one CR for all its factors, so f is 1 throughout; FX
+        /// gives each currency its own CR, and has no sub-curves, so φ is 1 throughout.
+        /// </summary>
         void Bucket(string id, string parent, SimmTerm term, Bucket bucket, bool crPerFactor)
         {
             Add(id, "simm.bucket", bucket.K, bucket.Factors.Count, parent, Key("bucket", bucket.Name), Euler(term.Contribution));
             var names = bucket.Factors.Select(f => f.Name).ToList();
             Table("rho", id, Matrix(names, (k, l) => bucket.Rho[k, l]));
-            Table("phi", id, Matrix(names, (k, l) => bucket.Phi[k, l]));
+            if (crPerFactor)
+                parameters.Add(new("phi", ParameterSource.Derived, id, Matrix: Matrix(names, (k, l) => bucket.Phi[k, l]), Unit: new("ratio"),
+                    Citation: "SIMM sub-curve correlation", Because: ["FX has no sub-curves, so φ_kl = 1."]));
+            else Table("phi", id, Matrix(names, (k, l) => bucket.Phi[k, l]));
+            parameters.Add(new("f", ParameterSource.Derived, id, Matrix: Matrix(names, (k, l) => bucket.F[k, l]), Unit: new("ratio"),
+                Citation: "SIMM concentration risk",
+                Because: crPerFactor ? ["f_kl = min(CR_k, CR_l) / max(CR_k, CR_l)."] : ["Every risk factor of the bucket has its CR_b, so f_kl = 1."]));
             if (!crPerFactor)
                 parameters.Add(new("cr", ParameterSource.Derived, id, Value: bucket.Cr, Unit: new("ratio"), Citation: "SIMM concentration risk", Because: bucket.CrBecause));
             for (var k = 0; k < bucket.Factors.Count; k++)

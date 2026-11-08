@@ -22,7 +22,7 @@ public static class RatesContracts
 public static class RatesAcceptedInput
 {
     /// <summary>The wire options with nulls written: an empty quote is part of the input, not a missing property.</summary>
-    static readonly JsonSerializerOptions Json = new(WireJson.Options) { DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.Never };
+    public static readonly JsonSerializerOptions Json = new(WireJson.Options) { DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.Never };
 
     /// <summary>
     /// The accepted input. A Price passes the frozen overrides; a capture passes none, because the workspace may have
