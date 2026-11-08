@@ -104,7 +104,7 @@ test('ADR-0003 §6: a counterparty change asks before dropping its edits, and ke
   await expect(page.getByTestId('workspace-summary')).toContainText('2 edit(s)');
 
   await page.getByRole('combobox', { name: 'Counterparty' }).click();
-  await page.getByRole('option', { name: /^ABC\/LE-02 / }).click();
+  await page.getByRole('option', { name: /^ABC \| LE-02 \|/ }).click();
   const confirm = page.getByRole('dialog', { name: 'Change counterparty' });
   await expect(confirm).toContainText('drops 1 edit(s)');
   await expect(confirm).toContainText('xva.assignment');
@@ -142,17 +142,24 @@ test('ADR-0010 §10: `measures fva` leaves CVA out of the Price, and a new works
   await expect(page.getByTestId('price')).toHaveText('Price After only · CVA FVA · 1 case');
 });
 
-test('ADR-0010 §5, §8: raising a CSA threshold past 1mm GBP makes it imperfect and moves its trades into FVA', async ({ page }) => {
+// Ticket 08's flow, by keyboard alone (ADR-0010 §1, §9): every step is a command or a key, as a user at speed or a
+// script would drive it. It holds §5 and §8 on the way: raising a CSA threshold past 1mm GBP makes the CSA imperfect,
+// which moves its trades into FVA.
+test('ADR-0010 §1, §5, §8, §9: by keyboard, a CSA edit moves a trade into FVA, marked, and the Run is priced, quoted and downloaded', async ({ page }) => {
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
   await open(page);
   await newWorkspace(page, 'ABC/LE-01', 0);
-  await expect(page.getByRole('tab', { name: 'CSA' })).toBeVisible();
-  await page.getByRole('tab', { name: 'CSA' }).click();
+  await command(page, 'measures', 'cva fva');
+  await expect(page.getByTestId('price')).toHaveText('Price After only · CVA FVA · 1 case');
+
+  // `open csa` opens the tab and puts the keyboard in its grid.
+  await command(page, 'open csa');
+  await expect(page.getByRole('tab', { name: 'CSA' })).toHaveAttribute('aria-selected', 'true');
   await settled(page, 'CSA terms');
-  const csaA = page.getByLabel('CSA terms').getByRole('row', { name: /^CSA-A / });
-  // The grid draws the columns in view: End takes the Focus, and the view, to FVA's column at the far right.
-  // ExGrid's viewport takes the press over the cell, as it does a user's; the first key only places the Focus
-  // (ex-grid ADR-0037), so End is pressed twice, and stays put the second time.
-  await csaA.getByRole('gridcell').first().click({ force: true });
+  const terms = page.getByLabel('CSA terms');
+  await expect(terms.locator('.ex-grid')).toContainText('CSA-A');
+  const csaA = terms.getByRole('row', { name: /^CSA-A / });
+  // The grid's first key only places its Focus (ex-grid ADR-0037); End then takes it, and the view, to FVA's column.
   await page.keyboard.press('End');
   await page.keyboard.press('End');
   await expect(csaA).toContainText('Perfect · CSA-A: daily, MTA+threshold');
@@ -160,7 +167,9 @@ test('ADR-0010 §5, §8: raising a CSA threshold past 1mm GBP makes it imperfect
   for (let i = 0; i < 8; i++) await page.keyboard.press('ArrowRight');
   await page.keyboard.type('200000000');
   await page.keyboard.press('Enter');
+  // The tab counts the value that differs from Original, and the cell is marked (ADR-0010 §2).
   await expect(page.getByRole('tab', { name: 'CSA ●1' })).toBeVisible();
+  await expect(csaA.locator('[aria-colindex="9"]')).toHaveClass(/ex-state-modified/);
   await page.keyboard.press('ArrowUp');
   await page.keyboard.press('End');
   await expect(csaA).toContainText('Imperfect · CSA-A: counterparty MTA+threshold');
@@ -174,11 +183,178 @@ test('ADR-0010 §5, §8: raising a CSA threshold past 1mm GBP makes it imperfect
   const result = page.getByTestId('xva-result');
   await expect(result.getByTestId('xva-result-status')).toHaveText('succeeded');
   await expect(result.getByTestId('xva-result-trades')).toHaveText('Trades: CVA 0 → 3 · FVA 0 → 3');
+  await expect(result.getByRole('columnheader', { name: 'CVA After' })).toBeVisible();
+  await expect(result.getByTestId('xva-result-note')).toHaveText('After only: Before was not priced');
+
+  // The quote names the side a one-sided case quotes (ADR-0010 §7).
+  await command(page, 'copy quote');
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toMatch(/^XVA quote \(simulated\) · run-/);
+  const quote = await page.evaluate(() => navigator.clipboard.readText());
+  expect(quote).toMatch(/\nWorkspace \(After only\): CVA Charge -?[\d,]+\.\d\d · PV -?[\d,]+\.\d\d$/);
+  const runId = /· (run-\S+)/.exec(quote)?.[1];
+  if (runId === undefined) throw new Error(`The quote names no Run: ${quote}`);
+
+  const [download] = await Promise.all([page.waitForEvent('download'), command(page, 'download run')]);
+  expect(download.suggestedFilename()).toBe(`${runId}.zip`);
+  expect((await readFile(await download.path())).subarray(0, 2).toString()).toBe('PK');
 });
+
+// ADR-0010 §1: what only a browser shows, the parts' heights. The handles are separators that take keys (WAI-ARIA), so
+// the keyboard sets each height as a drag does, and the part is as high as the handle says.
+test('ADR-0010 §1, §7: the input tabs and the dock collapse to their row and take the height their handle sets, by keyboard', async ({ page }) => {
+  await open(page);
+  await newWorkspace(page, 'ABC/LE-01', 3);
+  await command(page, 'measures', 'cva fva');
+  const height = async (testId: string) => (await page.getByTestId(testId).boundingBox())?.height;
+
+  // Collapsed, the inputs are their tab row; `open netting` opens them again with the keyboard on the CVA recovery.
+  const toggle = page.getByRole('button', { name: 'Hide inputs' });
+  await toggle.focus();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('button', { name: 'Show inputs' })).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.getByTestId('xva-inputs-body')).toHaveCount(0);
+  await command(page, 'open netting');
+  await expect(page.getByRole('button', { name: 'Hide inputs' })).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.getByRole('textbox', { name: 'CVA recovery' })).toBeFocused();
+
+  // The handle under them: a step down, then their bounds.
+  const inputs = page.getByRole('separator', { name: 'Height of the input tabs' });
+  const fit = Number(await inputs.getAttribute('aria-valuenow'));
+  await inputs.focus();
+  await page.keyboard.press('ArrowDown');
+  await expect(inputs).toHaveAttribute('aria-valuenow', String(fit + 24));
+  await expect.poll(() => height('xva-inputs-body')).toBe(fit + 24);
+  await page.keyboard.press('End');
+  await expect(inputs).toHaveAttribute('aria-valuenow', '640');
+  await page.keyboard.press('Home');
+  await expect(inputs).toHaveAttribute('aria-valuenow', '48');
+  await expect.poll(() => height('xva-inputs-body')).toBe(48);
+
+  await command(page, 'price');
+  const result = page.getByTestId('xva-result');
+  await expect(result.getByTestId('xva-result-status')).toHaveText('succeeded');
+  // The dock's handle is above it, so Up raises it.
+  const dock = page.getByRole('separator', { name: 'Height of the result dock' });
+  const before = Number(await dock.getAttribute('aria-valuenow'));
+  await dock.focus();
+  await page.keyboard.press('ArrowUp');
+  await expect(dock).toHaveAttribute('aria-valuenow', String(before + 24));
+  // Collapsed, the dock is a line a case with each measure's headline Diff (ADR-0010 §7).
+  await result.getByRole('button', { name: 'Collapse' }).focus();
+  await page.keyboard.press('Enter');
+  await expect(result.getByRole('table', { name: 'Metrics' })).toHaveCount(0);
+  await expect(result.getByTestId('xva-result-lines')).toHaveText(/^Workspace · CVA Diff -?[\d,]+\.\d\d · FVA Diff -?[\d,]+\.\d\d$/);
+  await expect(dock).toHaveCount(0);
+  await page.keyboard.press('Enter');
+  await expect(result.getByRole('table', { name: 'Metrics' })).toBeVisible();
+});
+
+// ADR-0010 §1, UX03: below `sm` the page is three tabs under the context bar, worked by pointer as on a phone.
+test('ADR-0010 §1, UX03: at 390px the three tabs reach every part, and the page never scrolls sideways', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await open(page);
+  await newWorkspace(page, 'ABC/LE-01', 3);
+  await command(page, 'measures', 'cva fva');
+  const sideways = () => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  const netting = page.getByRole('table', { name: 'Netting' });
+  const newTrades = page.getByLabel('New trades', { exact: true });
+
+  // Trades first: the grids, and neither the inputs nor the dock.
+  await expect(page.getByRole('radio', { name: 'Trades' })).toBeChecked();
+  await expect(newTrades).toBeVisible();
+  await expect(netting).toBeHidden();
+  await expect(page.getByTestId('xva-result-none')).toBeHidden();
+  expect(await sideways()).toBe(0);
+
+  await page.getByText('Inputs', { exact: true }).click();
+  await expect(netting).toBeVisible();
+  await expect(newTrades).toBeHidden();
+  expect(await sideways()).toBe(0);
+  await page.getByRole('tab', { name: 'CSA' }).click();
+  await settled(page, 'CSA terms');
+  expect(await sideways()).toBe(0);
+
+  await page.getByText('Results', { exact: true }).click();
+  await expect(page.getByTestId('xva-result-none')).toBeVisible();
+  await page.getByTestId('price').click();
+  const result = page.getByTestId('xva-result');
+  await expect(result.getByTestId('xva-result-status')).toHaveText('succeeded');
+  await expect(result.getByRole('table', { name: 'Metrics' })).toBeVisible();
+  // The Metrics are wider than a phone: they scroll inside the dock, never the page.
+  expect(await sideways()).toBe(0);
+});
+
+// docs/design-guidelines.md §7 (WCAG 1.4.3): every text the page draws, figures, words and badges, reads at 4.5:1 or
+// more against what is behind it, in both themes. Measured in the browser, which alone knows the colours it painted.
+test('ADR-0010 §1, docs/design-guidelines.md §7: in the dark and the light theme every text on the XVA page reads at 4.5:1', async ({ page }) => {
+  await open(page);
+  await newWorkspace(page, 'ABC/LE-01', 3);
+  await command(page, 'measures', 'cva fva');
+  await command(page, 'price');
+  await expect(page.getByTestId('xva-result').getByTestId('xva-result-status')).toHaveText('succeeded');
+  // A result older than the workspace, in yellow (ADR-0010 §7).
+  await command(page, 'measures', 'cva');
+  await expect(page.getByTestId('xva-result-revision')).toHaveText(/ · workspace now /);
+
+  for (const scheme of ['dark', 'light'] as const) {
+    if (scheme === 'light') await command(page, 'toggle theme');
+    await expect(page.locator('html')).toHaveAttribute('data-mantine-color-scheme', scheme);
+    // On a desktop screen, then on a phone's, where the page's parts are tabs.
+    await page.setViewportSize({ width: 1440, height: 900 });
+    expect(await page.locator('.qwb-xva').evaluate(textBelowContrast, 4.5), `${scheme} at 1440px: text below 4.5:1`).toEqual([]);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(page.getByText('Results', { exact: true })).toBeVisible();
+    expect(await page.locator('.qwb-xva').evaluate(textBelowContrast, 4.5), `${scheme} at 390px: text below 4.5:1`).toEqual([]);
+  }
+});
+
+/** Each enabled text under `root` whose colour reads below `minimum` against its backgrounds, composited as painted. */
+function textBelowContrast(root: Element, minimum: number): readonly string[] {
+  // A computed colour is rgb() or rgba(), or color(srgb …) in 0 to 1 where it was mixed (the light theme's text).
+  const rgba = (css: string): readonly [number, number, number, number] => {
+    const match = /^(rgba?|color)\((?:srgb\s+)?([^)]+)\)$/.exec(css);
+    const parts = match?.[2]?.split(/[\s,/]+/).filter((p) => p !== '').map(Number);
+    if (match === null || parts === undefined || parts.length < 3 || parts.some(Number.isNaN)) throw new Error(`Not an sRGB colour: ${css}`);
+    const scale = match[1] === 'color' ? 255 : 1;
+    return [(parts[0] ?? 0) * scale, (parts[1] ?? 0) * scale, (parts[2] ?? 0) * scale, parts[3] ?? 1];
+  };
+  const over = (top: readonly number[], bottom: readonly number[]) =>
+    [0, 1, 2].map((i) => (top[i] ?? 0) * (top[3] ?? 1) + (bottom[i] ?? 0) * (1 - (top[3] ?? 1)));
+  const luminance = (c: readonly number[]) => [0.2126, 0.7152, 0.0722].reduce((sum, weight, i) => {
+    const v = (c[i] ?? 0) / 255;
+    return sum + weight * (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
+  }, 0);
+  const faint: string[] = [];
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+    const element = node.parentElement;
+    const text = node.textContent?.trim() ?? '';
+    if (element === null || text === '' || element.getClientRects().length === 0) continue;
+    // WCAG 1.4.3 exempts a control that cannot be used.
+    if (element.closest('[disabled], [data-disabled], [aria-disabled="true"]') !== null) continue;
+    const layers: (readonly number[])[] = [];
+    let opacity = 1;
+    for (let e: Element | null = element; e !== null; e = e.parentElement) {
+      const style = getComputedStyle(e);
+      opacity *= Number(style.opacity);
+      const fill = rgba(style.backgroundColor);
+      if (fill[3] > 0 && (layers.length === 0 || (layers[layers.length - 1]?.[3] ?? 0) < 1)) layers.push(fill);
+    }
+    const background = layers.reduceRight<readonly number[]>((below, layer) => [...over(layer, below), 1], [255, 255, 255, 1]);
+    const ink = rgba(getComputedStyle(element).color);
+    const shown = over([ink[0], ink[1], ink[2], ink[3] * opacity], background);
+    const [light, dark] = [luminance(shown), luminance(background)].sort((x, y) => y - x);
+    const ratio = ((light ?? 0) + 0.05) / ((dark ?? 0) + 0.05);
+    if (ratio < minimum) faint.push(`${text.slice(0, 40)}: ${ratio.toFixed(2)}`);
+  }
+  return faint;
+}
 
 test('ADR-0010 §3, §6: `before none` clears Before on every existing trade at once, and Price then prices After alone', async ({ page }) => {
   await open(page);
   await newWorkspace(page, 'ABC/LE-01', 5);
+  // A new workspace starts on its owner's last selection, which another test may have left.
+  await command(page, 'measures', 'cva fva');
   await expect(page.getByTestId('price')).toHaveText('Price CVA FVA · 1 case');
 
   await command(page, 'before', 'none grid=existing');

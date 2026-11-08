@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../api';
 import { EditQueue } from './editQueue';
 
@@ -39,5 +39,35 @@ describe('EditQueue follows the revision on screen (ADR-0003, spine 6)', () => {
     queue.shown(5);
     expect(queue.revision).toBe(6);
     expect(sent).toEqual([5]);
+  });
+
+  it('runs a command after the edits sent before it, on the revision they leave, and holds the edits after it (spine 6)', async () => {
+    const answers: ((v: { revision: number }) => void)[] = [];
+    const sent: string[] = [];
+    const queue = new EditQueue<string, { revision: number }>(5, (revision, edit) => {
+      sent.push(`${edit}@${revision}`);
+      return new Promise((resolve) => { answers.push(resolve); });
+    }, () => {}, () => {});
+
+    const edit = queue.push('measures');
+    const price = queue.after(async (revision) => { sent.push(`price@${revision}`); return `run of ${revision}`; });
+    const later = queue.push('margin');
+    await Promise.resolve();
+    expect(sent).toEqual(['measures@5']);
+
+    answers[0]!(view(6));
+    await edit;
+    expect(await price).toBe('run of 6');
+    await vi.waitFor(() => expect(sent).toEqual(['measures@5', 'price@6', 'margin@6']));
+    answers[1]!(view(7));
+    await later;
+  });
+
+  it('refuses a command after a refused edit, as it refuses the edits after it', async () => {
+    const queue = new EditQueue<string, { revision: number }>(5, () =>
+      Promise.reject(new ApiError(409, { code: 'RevisionMoved', message: 'moved', issues: [] })), () => {}, () => {});
+
+    void queue.push('notional');
+    await expect(queue.after(async () => 'priced')).rejects.toThrow('An earlier edit was refused');
   });
 });

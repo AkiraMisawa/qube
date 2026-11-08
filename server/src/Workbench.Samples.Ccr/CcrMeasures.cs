@@ -23,8 +23,6 @@ public sealed class CcrMeasures(CapitalRatio? kappa = null) : IMeasureModule
     /// <summary>The module whose request prices spot capital: XVA's, with KVA on (ADR-0013 §2).</summary>
     public const string Request = "xva";
     public const string Class = "class";
-    /// <summary>The currency spot capital is reported in, as XVA's figures are.</summary>
-    public const string ReportingCurrency = "JPY";
 
     public static readonly CapitalRatio DefaultKappa = new(0.08, "ccr.capitalRatio", "DEFAULT 8%, ADR-0013 OPEN");
     public static readonly SaCcrSettings SaCcrSettings = new("basel cre52 · 2023-01-01");
@@ -174,12 +172,18 @@ public sealed class CcrMeasures(CapitalRatio? kappa = null) : IMeasureModule
     public WorkflowStep Step(TypedDataRef acceptedInput) =>
         throw new InvalidOperationException($"Spot capital is priced by {Request}'s request, whose KVA option returns it (ADR-0013 §2); {Module} has no step of its own.");
 
-    /// <summary>The value date, the reporting currency and the synthetic FX of the day, as the decomposition reads them.</summary>
+    /// <summary>
+    /// The value date, the reporting currency and the synthetic FX of the day, as the decomposition reads them. Spot
+    /// capital is computed in the workspace's display currency (ADR-0010 §1), so its figures, as XVA's, and its trace
+    /// are in the currency the page shows; SA-CCR converts every amount at the same rates, so the figure is the one
+    /// computed in any other currency, converted.
+    /// </summary>
     public static CapitalMarket MarketOf(WorkspaceState state)
     {
         var date = ((PortfolioSourceVersion)state.Source).ValueDate;
-        var reporting = PortfolioMarket.UnitsPerGbp(ReportingCurrency, date);
-        return new CapitalMarket(date, ReportingCurrency,
+        var currency = PortfolioMaterialiser.DisplayCurrency(state);
+        var reporting = PortfolioMarket.UnitsPerGbp(currency, date);
+        return new CapitalMarket(date, currency,
             PortfolioMarket.Currencies.ToDictionary(c => c, c => (double)(reporting / PortfolioMarket.UnitsPerGbp(c, date))));
     }
 
@@ -249,6 +253,8 @@ public static class SpotCapitalResults
 
         var rows = new List<JsonObject>();
         var traces = new List<TraceEntry>();
+        var currency = portfolio?.ReportingCurrency ?? acceptedInput["displayCurrency"]?.GetValue<string>()
+            ?? throw new SaCcrRefused("The accepted input names no display currency.");
         if (selected is not null)
         {
             foreach (var metric in CcrMeasures.Definitions.Single().Metrics)
@@ -256,10 +262,10 @@ public static class SpotCapitalResults
                 if (refusedAtPrice is not null)
                 {
                     var refused = new MeasureResult.Side(MeasureResult.Refused, null, null, refusedAtPrice);
-                    rows.Add(MeasureResult.Row(Case, CaseTitle, CcrMeasures.SpotCapital, metric, CcrMeasures.ReportingCurrency, refused, refused));
+                    rows.Add(MeasureResult.Row(Case, CaseTitle, CcrMeasures.SpotCapital, metric, currency, refused, refused));
                     continue;
                 }
-                rows.Add(MeasureResult.Row(Case, CaseTitle, CcrMeasures.SpotCapital, metric, CcrMeasures.ReportingCurrency, Figure(before, metric.Id), Figure(after, metric.Id)));
+                rows.Add(MeasureResult.Row(Case, CaseTitle, CcrMeasures.SpotCapital, metric, currency, Figure(before, metric.Id), Figure(after, metric.Id)));
             }
             if (refusedAtPrice is null)
                 foreach (var side in new[] { before, after })

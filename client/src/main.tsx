@@ -9,7 +9,7 @@ import './theme.css';
 import './shell/shell.css';
 import { App } from './App';
 import { httpApi } from './platform/api';
-import { theme } from './theme';
+import { cssVariablesResolver, theme } from './theme';
 
 const queryClient = new QueryClient({ defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } } });
 
@@ -20,7 +20,7 @@ const root = document.getElementById('root');
 if (root === null) throw new Error('index.html has no #root element.');
 createRoot(root).render(
   <StrictMode>
-    <MantineProvider theme={theme} defaultColorScheme="dark">
+    <MantineProvider theme={theme} cssVariablesResolver={cssVariablesResolver} defaultColorScheme="dark">
       <QueryClientProvider client={queryClient}>
         <App api={httpApi} initialContext={{ region: 'North', asOf: today }} />
       </QueryClientProvider>

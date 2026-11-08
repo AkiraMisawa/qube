@@ -172,7 +172,9 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
     if (snapshot === undefined) { workspace.notify('No market snapshot has been published yet; Price waits for one.'); return; }
     setBusy('Pricing');
     try {
-      const run = await api.price(workspaceId, queue.revision, crypto.randomUUID(), snapshot);
+      // Price prices the edits already sent, once they have landed (spine 6).
+      const key = crypto.randomUUID();
+      const run = await queue.after((revision) => api.price(workspaceId, revision, key, snapshot));
       openRun(run.runId, `Rates ${snapshot.split(':').at(-1) ?? ''}`);
     } catch (error) {
       workspace.notify(`Price was refused: ${describe(error)}${targetsOf(error)}`);
@@ -204,8 +206,11 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
   const changeValuationDate = async (date: string) => {
     setBusy('Moving the valuation date');
     try {
-      const { workspace: next, carried } = await api.changeValuationDate(workspaceId, queue.revision, date);
-      queue.rebase(next.revision);
+      const { workspace: next, carried } = await queue.after(async (revision) => {
+        const answer = await api.changeValuationDate(workspaceId, revision, date);
+        queue.rebase(answer.workspace.revision);
+        return answer;
+      });
       show(next);
       workspace.notify(`Valuation date moved: ${carried.carried} cashflow edit(s) carried, ${carried.conflicted} in conflict, ${carried.lost} lost.`);
     } catch (error) {

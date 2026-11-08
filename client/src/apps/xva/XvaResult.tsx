@@ -1,16 +1,19 @@
+import { useId } from 'react';
 import { Alert, Badge, Button, Group, Stack, Table, Text } from '@mantine/core';
 import type { TypedDataRef } from '../../platform/contracts';
 import { archiveUrl } from '../../platform/runs';
+import { partHeight } from './layout';
 import { useDatasets, useRun } from '../../platform/workspace/WorkspaceProvider';
 import type { RegisteredMeasure } from './contracts';
-import { metricsGrid, metricsTable, pricedMeasures, tradeCounts, type MetricCell, type MetricLine, type ModuleResult } from './metrics';
+import { headlines, metricsGrid, metricsTable, pricedMeasures, tradeCounts, type MetricCell, type MetricLine, type ModuleResult } from './metrics';
 
 // The latest Price's Metrics, on the workspace page itself (ADR-0010 §7): a row per case, per priced measure Before,
 // After and Diff. They are read from the Run's retained results, never recomputed here, and say what they are:
 // simulated, of which revision, and whether the workspace has moved on since. Each module's figures show as its
-// request answers, and a failed request leaves only its own measures unavailable (§10).
+// request answers, and a failed request leaves only its own measures unavailable (§10). Collapsed, the dock is its
+// header and one line a case with each measure's headline Diff (§7).
 
-export function XvaResult({ runId, pricedRevision, revision, register, onOpen, onCopyQuote }: {
+export function XvaResult({ runId, pricedRevision, revision, register, onOpen, onCopyQuote, open, onOpenChange, height }: {
   readonly runId: string;
   /** The workspace revision the Run froze; unknown until the workspace lists the Run. */
   readonly pricedRevision: number | undefined;
@@ -20,7 +23,13 @@ export function XvaResult({ runId, pricedRevision, revision, register, onOpen, o
   readonly onOpen: () => void;
   /** Copy quote (ADR-0010 §7), which the server reads from the Run alone. */
   readonly onCopyQuote: () => void;
+  /** The Metrics shown, or only a line a case. */
+  readonly open: boolean;
+  readonly onOpenChange: (open: boolean) => void;
+  /** The most the open Metrics take in pixels before they scroll, which the dock's handle sets. */
+  readonly height: number;
 }) {
+  const bodyId = useId();
   const run = useRun(runId);
   const steps = run.data?.workflow.steps ?? [];
   const outputs = run.data?.outputs ?? {};
@@ -55,12 +64,15 @@ export function XvaResult({ runId, pricedRevision, revision, register, onOpen, o
     ...(table?.sides.after === true ? [['after', 'After'] as const] : []),
     ...(table?.sides.before === true && table.sides.after ? [['diff', 'Diff'] as const] : []),
   ];
+  const lines = table === undefined ? [] : headlines(register, table);
   const reasons = [...new Map((table?.lines ?? []).filter((l) => l.reason !== undefined)
     .map((l) => [`${l.measure}:${l.reason}`, l] as const)).values()];
 
   return (
     <Stack gap={4} className="qwb-xva-result" data-testid="xva-result" aria-label="Latest price">
       <Group gap="xs" wrap="wrap">
+        <Button size="compact-xs" variant="subtle" aria-expanded={open} aria-controls={bodyId} onClick={() => onOpenChange(!open)}
+          title={open ? 'Collapse the result to a line a case.' : 'Show the Metrics.'}>{open ? 'Collapse' : 'Expand'}</Button>
         <Text size="sm" fw={600}>Latest price</Text>
         <Badge variant="light" color={status === 'succeeded' ? 'teal' : status === 'running' ? 'blue' : status === 'failed' ? 'red' : 'yellow'}
           data-testid="xva-result-status">{status}</Badge>
@@ -85,43 +97,52 @@ export function XvaResult({ runId, pricedRevision, revision, register, onOpen, o
         </Group>
       </Group>
       {status === 'failed' && <Alert color="red" variant="light" title={run.data?.error?.code ?? 'Failed'}>{run.data?.error?.message}</Alert>}
-      {priced === undefined && (
-        <Text size="xs" c="dimmed">This Run was priced before measures were registered. Open it to see its figures, or Price again.</Text>
+      {!open && lines.length > 0 && (
+        <Stack gap={0} data-testid="xva-result-lines" aria-label="Headline per case">
+          {lines.map((l) => <Text key={l.key} size="xs" className="qwb-number-text">{l.text}</Text>)}
+        </Stack>
       )}
-      {table?.note !== undefined && <Text size="xs" c="dimmed" data-testid="xva-result-note">{table.note}</Text>}
-      {grid !== undefined && grid.rows.length > 0 && (
-        <div className="qwb-xva-result-table">
-          <Table withTableBorder withColumnBorders verticalSpacing={4} horizontalSpacing="sm" fz="sm" aria-label="Metrics">
-            <Table.Thead>
-              <Table.Tr>
-                <Table.Th rowSpan={2}>Case</Table.Th>
-                {grid.columns.map((c) => <Table.Th key={c.key} colSpan={sides.length} className="qwb-xva-result-group">{c.metricTitle}</Table.Th>)}
-              </Table.Tr>
-              <Table.Tr>
-                {grid.columns.flatMap((c) => sides.map(([side, title]) => (
-                  <Table.Th key={`${c.key}.${side}`} className="qwb-number" aria-label={`${c.metricTitle} ${title}`}>{title}</Table.Th>
-                )))}
-              </Table.Tr>
-            </Table.Thead>
-            <Table.Tbody>
-              {grid.rows.map((row) => (
-                <Table.Tr key={row.key}>
-                  <Table.Th scope="row">{row.title}</Table.Th>
-                  {grid.columns.flatMap((c) => sides.map(([side, title]) => {
-                    const line = row.cells[c.key];
-                    return <Figure key={`${c.key}.${side}`} cell={line?.[side]} line={line} label={`${c.metricTitle} ${title}`} />;
-                  }))}
-                </Table.Tr>
-              ))}
-            </Table.Tbody>
-          </Table>
-        </div>
+      {open && (
+        <Stack gap={4} id={bodyId} className="qwb-xva-result-body" data-testid="xva-result-body" style={partHeight(height)}>
+          {priced === undefined && (
+            <Text size="xs" c="dimmed">This Run was priced before measures were registered. Open it to see its figures, or Price again.</Text>
+          )}
+          {table?.note !== undefined && <Text size="xs" c="dimmed" data-testid="xva-result-note">{table.note}</Text>}
+          {grid !== undefined && grid.rows.length > 0 && (
+            <div className="qwb-xva-result-table">
+              <Table withTableBorder withColumnBorders verticalSpacing={4} horizontalSpacing="sm" fz="sm" aria-label="Metrics">
+                <Table.Thead>
+                  <Table.Tr>
+                    <Table.Th rowSpan={2}>Case</Table.Th>
+                    {grid.columns.map((c) => <Table.Th key={c.key} colSpan={sides.length} className="qwb-xva-result-group">{c.metricTitle}</Table.Th>)}
+                  </Table.Tr>
+                  <Table.Tr>
+                    {grid.columns.flatMap((c) => sides.map(([side, title]) => (
+                      <Table.Th key={`${c.key}.${side}`} className="qwb-number" aria-label={`${c.metricTitle} ${title}`}>{title}</Table.Th>
+                    )))}
+                  </Table.Tr>
+                </Table.Thead>
+                <Table.Tbody>
+                  {grid.rows.map((row) => (
+                    <Table.Tr key={row.key}>
+                      <Table.Th scope="row">{row.title}</Table.Th>
+                      {grid.columns.flatMap((c) => sides.map(([side, title]) => {
+                        const line = row.cells[c.key];
+                        return <Figure key={`${c.key}.${side}`} cell={line?.[side]} line={line} label={`${c.metricTitle} ${title}`} />;
+                      }))}
+                    </Table.Tr>
+                  ))}
+                </Table.Tbody>
+              </Table>
+            </div>
+          )}
+          {reasons.map((l) => (
+            <Text key={`${l.measure}:${l.reason}`} size="xs" {...(l.after.status === 'refused' ? {} : { c: 'red' })} data-testid="xva-result-reason">
+              {l.measureTitle} {l.after.status === 'refused' ? 'refused' : 'unavailable'}: {l.reason}
+            </Text>
+          ))}
+        </Stack>
       )}
-      {reasons.map((l) => (
-        <Text key={`${l.measure}:${l.reason}`} size="xs" {...(l.after.status === 'refused' ? {} : { c: 'red' })} data-testid="xva-result-reason">
-          {l.measureTitle} {l.after.status === 'refused' ? 'refused' : 'unavailable'}: {l.reason}
-        </Text>
-      ))}
     </Stack>
   );
 }

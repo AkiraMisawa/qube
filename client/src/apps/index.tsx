@@ -162,6 +162,39 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
       ...(xva === undefined ? { unavailable: 'Open an XVA workspace first.' } : { target: active!.title }),
       run: () => xvaPage().retry(),
     },
+    {
+      id: 'xva.refresh',
+      words: 'refresh',
+      title: 'Acquire the trades again for the value date; your edits carry or are held',
+      group: 'XVA',
+      ...(xva === undefined ? { unavailable: 'Open an XVA workspace first.' } : { target: active!.title }),
+      run: () => xvaPage().refresh(),
+    },
+    {
+      id: 'xva.currency',
+      words: 'currency',
+      title: 'Show the figures in a currency, such as USD',
+      group: 'XVA',
+      ...(xva === undefined ? { unavailable: 'Open an XVA workspace first.' } : { target: active!.title }),
+      args: [{
+        name: 'currency', required: true, hint: 'a currency the page offers, such as USD',
+        complete: () => (xvaPageOf(xva)?.currencies() ?? []).map((c) => ({ value: c })),
+      }],
+      // The server refuses a currency it does not offer, by name; the line does not guess one.
+      run: (a) => {
+        if (a.currency === undefined) throw new Error('currency needs the currency to show the figures in.');
+        xvaPage().setCurrency(a.currency.toUpperCase());
+      },
+    },
+    // One command per input tab (ADR-0010 §9), which shows the inputs if they were collapsed.
+    ...([['netting', 'Netting'], ['csa', 'CSA']] as const).map(([tab, title]): Command => ({
+      id: `xva.open.${tab}`,
+      words: `open ${tab}`,
+      title: `Open the ${title} input tab`,
+      group: 'XVA',
+      ...(xva === undefined ? { unavailable: 'Open an XVA workspace first.' } : { target: active!.title }),
+      run: () => xvaPage().openTab(tab),
+    })),
     // B or A for every row of a trade grid, as one edit (ADR-0010 §6): the grid the keyboard was last in, or the one named.
     ...(['before', 'after'] as const).map((side): Command => ({
       id: `xva.${side}.all`,

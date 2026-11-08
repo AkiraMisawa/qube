@@ -109,6 +109,8 @@ public static class PortfolioInput
             ["context"] = freeze.Context.DeepClone(),
             ["sourceVersion"] = freeze.SourceVersion,
             ["profileVersion"] = PortfolioCatalog.Profile.ProfileVersion,
+            // The currency every measure reports in (ADR-0010 §1, §7), frozen with the rest.
+            ["displayCurrency"] = PortfolioMaterialiser.DisplayCurrency(state),
             ["registration"] = source.Registration.Key,
             ["agreement"] = source.Agreement.MaId,
             ["nettingSet"] = source.Agreement.NettingSetId,
