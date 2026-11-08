@@ -217,6 +217,9 @@ public class SimmPricerTests
             Assert.Equal(("priced", "priced", "JPY", "SIMM PARAMETERS DEMO"),
                 (row["beforeStatus"]!.GetValue<string>(), row["afterStatus"]!.GetValue<string>(), row["currency"]!.GetValue<string>(), row["basis"]!.GetValue<string>()));
             Assert.Equal(row["after"]!.GetValue<decimal>() - row["before"]!.GetValue<decimal>(), row["diff"]!.GetValue<decimal>());
+            // The rate is said once, on the row, for the page to say beside the figures and the trace in USD.
+            Assert.Equal($"Computed in USD; shown in JPY at {usdToJpy.ToString("G8", System.Globalization.CultureInfo.InvariantCulture)} JPY per USD, the pinned FX of {Day1:yyyy-MM-dd}.",
+                row["conversion"]!.GetValue<string>());
             foreach (var entry in priced.Traces.Traces)
             {
                 Assert.Equal(("base", "base", SimmMeasures.SpotIm), (entry.Case, entry.Scenario, entry.Measure));

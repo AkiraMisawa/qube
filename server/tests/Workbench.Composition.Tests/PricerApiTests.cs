@@ -66,6 +66,20 @@ public class PricerApiTests(WorkbenchFactory factory) : IClassFixture<WorkbenchF
         Assert.All(Strings(ws["selectedMeasures"]), m => Assert.Contains(m, measures.Select(r => r["id"]!.GetValue<string>())));
     }
 
+    [Fact] // ADR-0010 §7, §10, ADR-0012 §7: a measure registers its result tabs beside Metrics, as spot IM's SIMM and spot capital's CCR, drawn as a trace
+    public async Task A_measure_lists_the_result_tabs_it_registers()
+    {
+        var ws = await Create();
+
+        var tabs = ws["measures"]!.AsArray().ToDictionary(m => m!["id"]!.GetValue<string>(),
+            m => m!["tabs"]!.AsArray().Select(t => (t!["id"]!.GetValue<string>(), t["title"]!.GetValue<string>(), t["view"]!.GetValue<string>())).ToList());
+
+        Assert.Equal([("simm", "SIMM", "trace")], tabs["simm.spotIm"]);
+        Assert.Equal([("ccr", "CCR", "trace")], tabs["ccr.spotCapital"]);
+        // A measure without a tab of its own lists none, never a missing list.
+        Assert.All(new[] { "cva", "fva", "kva" }, m => Assert.Empty(tabs[m]));
+    }
+
     [Fact] // ADR-0010 §10: `measures cva` then Price gives a Run whose figures are CVA's alone
     public async Task Price_prices_only_the_selected_measures()
     {

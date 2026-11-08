@@ -246,6 +246,19 @@ public partial class TraceTests
         Assert.NotNull(mint.After);
     }
 
+    [Fact] // ADR-0011 §2, §6: the operand a max took governs and its other operands do not; a term that is no operand of one has no mark
+    public void The_operand_a_max_took_governs_and_its_other_operands_do_not()
+    {
+        var reader = new TraceReader(Catalog(), null, Garden());
+        Assert.Equal((true, false), (reader.Read("best/best")!.After!.Governs, reader.Read("best/other")!.After!.Governs));
+        Assert.Null(reader.Read("north")!.After!.Governs);
+
+        // Named by its slot rather than its position.
+        TraceTerm BySlot(TraceTerm t) => t.Id == "best" ? t with { Governed = JsonValue.Create("other") } : t;
+        var bySlot = new TraceReader(Catalog(), null, Garden(edit: BySlot));
+        Assert.Equal((false, true), (bySlot.Read("best/best")!.After!.Governs, bySlot.Read("best/other")!.After!.Governs));
+    }
+
     [Fact] // ADR-0011 §4: a side that is unavailable, not returned or inconsistent makes the Diff unavailable, never 0
     public void A_diff_against_a_side_without_a_value_it_can_stand_behind_is_unavailable()
     {

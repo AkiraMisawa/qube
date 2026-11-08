@@ -33,6 +33,8 @@ export interface MetricLine {
   readonly reason: string | undefined;
   /** What the line's figures are computed on, said with them, such as `SIMM PARAMETERS DEMO`; never a figure. */
   readonly basis: string | undefined;
+  /** The rate a figure computed in another currency is shown at, said once (ADR-0012 §7), such as spot IM's from USD. */
+  readonly conversion: string | undefined;
   /** The trace term the line's cells open, where it is not the root: spot IM's IM-R opens at `collect`. */
   readonly term: string | undefined;
 }
@@ -96,7 +98,7 @@ export function metricsTable(register: readonly RegisteredMeasure[], priced: rea
   const lines: MetricLine[] = [];
   const blank = (measure: string, measureTitle: string, metric: string, metricTitle: string, cell: MetricCell, reason: string | undefined): MetricLine => ({
     key: `${measure}.${metric}`, case: undefined, caseTitle: undefined, measure, measureTitle, metric, metricTitle, currency: undefined,
-    before: cell, after: cell, diff: cell, tradesBefore: undefined, tradesAfter: undefined, reason, basis: undefined,
+    before: cell, after: cell, diff: cell, tradesBefore: undefined, tradesAfter: undefined, reason, basis: undefined, conversion: undefined,
     term: termOf(register.find((m) => m.id === measure), metric),
   });
 
@@ -119,7 +121,7 @@ export function metricsTable(register: readonly RegisteredMeasure[], priced: rea
       lines.push({
         key: `${String(row.case)}.${measure.id}.${metric}`, case: String(row.case), caseTitle: String(row.caseTitle), measure: measure.id, measureTitle: measure.title,
         metric, metricTitle: String(row.metricTitle), currency: text(row.currency), before, after, diff: diffOf(before, after, row.diff),
-        tradesBefore: count(row.tradesBefore), tradesAfter: count(row.tradesAfter), reason: text(row.reason), basis: text(row.basis),
+        tradesBefore: count(row.tradesBefore), tradesAfter: count(row.tradesAfter), reason: text(row.reason), basis: text(row.basis), conversion: text(row.conversion),
         term: termOf(measure, metric),
       });
     }

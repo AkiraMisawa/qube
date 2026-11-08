@@ -6,8 +6,8 @@ import { headlines, metricsGrid, metricsTable, pricedMeasures, priceLabel, reaso
 // Diff, and a status in words where there is no figure. Every name and figure is synthetic.
 
 const register: readonly RegisteredMeasure[] = [
-  { id: 'cva', title: 'CVA', module: 'xva', request: 'xva', metrics: [{ id: 'cva', title: 'CVA' }, { id: 'cvaCharge', title: 'CVA Charge' }], headline: 'cva', declaresMembership: false, traced: false, quoted: true },
-  { id: 'fva', title: 'FVA', module: 'xva', request: 'xva', metrics: [{ id: 'fva', title: 'FVA' }], headline: 'fva', declaresMembership: false, traced: false, quoted: false },
+  { id: 'cva', title: 'CVA', module: 'xva', request: 'xva', metrics: [{ id: 'cva', title: 'CVA' }, { id: 'cvaCharge', title: 'CVA Charge' }], headline: 'cva', declaresMembership: false, traced: false, quoted: true, tabs: [] },
+  { id: 'fva', title: 'FVA', module: 'xva', request: 'xva', metrics: [{ id: 'fva', title: 'FVA' }], headline: 'fva', declaresMembership: false, traced: false, quoted: false, tabs: [] },
 ];
 
 const row = (measure: string, metric: string, before: number | null, after: number | null, extra: Record<string, unknown> = {}) => ({
@@ -39,7 +39,7 @@ describe('metricsTable', () => {
 
   it("ADR-0013 §2: a measure another module's request prices reads that request's rows, After alone included", () => {
     const capital: RegisteredMeasure = { id: 'ccr.spotCapital', title: 'Spot CCR capital', module: 'ccr', request: 'xva',
-      metrics: [{ id: 'capital', title: 'Capital' }], headline: 'capital', declaresMembership: true, traced: true, quoted: false };
+      metrics: [{ id: 'capital', title: 'Capital' }], headline: 'capital', declaresMembership: true, traced: true, quoted: false, tabs: [] };
 
     const table = metricsTable([...register, capital], ['ccr.spotCapital'], { xva: answered([row('ccr.spotCapital', 'capital', null, 1_234.5)]) });
 
@@ -49,7 +49,7 @@ describe('metricsTable', () => {
 
   it("ADR-0012 §7's note: spot IM says each side's governing regime beside its figure, its basis with its figures, and the term each cell opens", () => {
     const spotIm: RegisteredMeasure = { id: 'simm.spotIm', title: 'Spot IM', module: 'simm', request: 'simm',
-      metrics: [{ id: 'imR', title: 'IM-R', term: 'collect' }, { id: 'imP', title: 'IM-P', term: 'post' }], headline: 'imR', declaresMembership: true, traced: true, quoted: false };
+      metrics: [{ id: 'imR', title: 'IM-R', term: 'collect' }, { id: 'imP', title: 'IM-P', term: 'post' }], headline: 'imR', declaresMembership: true, traced: true, quoted: false, tabs: [] };
     const im = (metric: string, before: number | null, after: number | null, beforeNote: string | null, afterNote: string | null) =>
       row('simm.spotIm', metric, before, after, { metricTitle: metric === 'imR' ? 'IM-R' : 'IM-P', beforeNote, afterNote, basis: 'SIMM PARAMETERS DEMO' });
 

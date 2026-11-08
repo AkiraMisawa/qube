@@ -202,6 +202,21 @@ scenario `base` (DEFAULT), as a Price without Before is. A side that was priced 
 root `unavailable` with why, so that it is never read as not priced. Only the Run's owner reads its trace until roles
 arrive with sign-in, C30 and C31.)*
 
+*(Added 2026-11-08, DEFAULT, for ADR-0012's delivery step 3.)* A leaf set may name the column that holds a row's
+additive share of its root (`contributionField`). `GET …/traces/{measure}/entities?scenario=…&path=…&offset=…&limit=…`
+then answers the entities below a term, at every depth: each with the sum of its rows' contributions and how many rows
+on each side, and the Diff when both sides were priced, an absent side contributing nothing. The largest change comes
+first, or with one side the largest share. Each side says whether its entities add up to the term's allocation, by
+the trace's tolerance, with both figures when they do not. It is refused by name at a term with no allocation
+(`NoAllocation`: a max over operands, whose rows would be counted once under every operand) and above a leaf set that
+names no contribution (`NoContributions`), rather than answering a sum that means nothing. Where both sides were
+priced and one cannot be compared, because its term is unavailable or not returned or does not reconcile, or its
+entities do not add up to its allocation, no entity has a Diff and the page says why (`diffUnavailable`, §4), rather
+than a change with that side taken as 0. `…/leaves` takes `below=true` for the rows of every term below as well,
+refused by `NoAllocation` in the same place. A term also answers, on
+each side, whether it is the operand its parent's max, min or clamp took (`governs`), resolved by the kernel from the
+parent's `governed` and its kind's expression, so that no view infers it from an order it may have changed.
+
 ### 6. One view draws every trace
 
 The kernel's view components gain `trace`, drawn by one renderer for every measure. A Metrics cell of a measure that
@@ -240,6 +255,26 @@ of that day; the CCR sample was ported to it the same day (links in §6's last p
 - **Below `sm`**, drilling in: the breadcrumb, the formula, then the selected term's children as a list of term, Diff
   and state, each opening the next level.
 
+*(Added 2026-11-08, DEFAULT, for ADR-0012's delivery step 3.)*
+
+- The allocation is a column per priced side and its change (`Allocation Before`, `Allocation After`, `Allocation
+  Diff`). An absent side contributes nothing to the change; a side with a value and no allocation leaves it blank.
+- An operand of its parent's max, min or clamp is marked `Governs` or `Not governing` beside its label, from §5's
+  `governs`, in the tree and in the list below `sm`, and the operands that did not govern are drawn faint, as an
+  absent term is.
+- Below a term with an allocation, its entities (§5's note) come first, named by the leaf set's own entity column
+  (`By trade`), and beside them every row at any depth below it (`By CRIF line`); below a term without one, its own
+  rows. The formula pane says the allocation's change too, for the list below `sm`, which has no column for it.
+- The formula's parameters come first: those it names and those scoped to the term. Those scoped to a term above it
+  are folded behind a button. A matrix scrolls inside its own box, so the page never scrolls sideways (§9).
+- The order of the children, the view of the rows below, and the fold are the view's, kept from term to term and
+  card to card, and each has a command (ADR-0006): `trace order formula|size`, `trace rows entities|rows`, `trace
+  parameters show|hide`, acting on the trace panel in view or the trace a page's tab shows.
+- The selected term's `explain <measure> <path>` is shown with a button that copies it whole, where the path reads
+  back as one (a path with a run of spaces, or one at either end, would not).
+- A trace drawn in a page's tab rather than a panel (ADR-0012 §7's note) shows a card per root, with its figures and
+  what governs it, and draws the tree from the root chosen.
+
 Mathematics is set by KaTeX at an exact pinned version, in strict mode, with trust granted only to `\htmlData`, which
 the renderer itself writes around each `\slot` to make the operand selectable. Templates come from the registered
 catalogue only.
@@ -253,7 +288,10 @@ https://claude.ai/artifact/U6XtjAisqPAyT3zSCB1QW6.
 
 ### 7. Commands and the AI read the same tree
 
-- `explain <measure> [path]` opens the trace of the focused case, scenario and side at that term.
+- `explain <measure> [path]` opens the trace of the focused case, scenario and side at that term. *(Note of
+  2026-11-08, DEFAULT: the measure is its id, whatever its case, or its module's name where the module registers one
+  measure that keeps a trace; the case is the one the view shows. How the view draws, the order of the children, the
+  rows below and the fold of the parameters above, has its own `trace` commands, §6's note of this date.)*
 - `trace.read` is a command capability (ADR-0005): given a Run, case, scenario, measure and path, it answers the term
   on each side the case priced with its kind, its parameters and its children. *(Its effect is `ReadRun`, not
   `ReadData`, DEFAULT 2026-11-08. `ReadData` marks a step that reads inside a Run, which the command gateway does not

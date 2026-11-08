@@ -1,5 +1,6 @@
 import { createStore } from 'zustand/vanilla';
 import type { WorkspaceState } from '../workspace/workspaceStore';
+import type { ChildOrder } from './api';
 import type { TraceAddress } from './contracts';
 
 // Opening a trace (ADR-0011 §6, §7): one panel per trace (Run, case, scenario, measure), and a request to show a term
@@ -34,6 +35,27 @@ export function requestTerm(panelId: string, path: string | undefined): void {
   termRequests.setState((s) => ({ requests: { ...s.requests, [panelId]: { path, number: ++asked } } }));
 }
 
+/**
+ * How a trace view is drawn, which its controls and the trace commands set alike (ADR-0006): kept per view, so that a
+ * card chosen, or another term selected, keeps it.
+ */
+export interface TraceViewSettings {
+  readonly order: ChildOrder;
+  /** The rows below the selected term: by entity, or row by row (ADR-0012 §6). */
+  readonly below: 'entities' | 'rows';
+  /** Whether the parameters scoped to the terms above the selected one are shown (ADR-0011 §6's note of 2026-11-08). */
+  readonly above: boolean;
+}
+
+export const DEFAULT_TRACE_VIEW: TraceViewSettings = { order: 'formula', below: 'entities', above: false };
+
+export const traceViews = createStore<{ readonly views: Readonly<Record<string, TraceViewSettings>> }>(() => ({ views: {} }));
+
+/** Changes how a trace view draws: a trace panel's, or a page's trace tab's, by the id its term requests take. */
+export function setTraceView(viewId: string, change: Partial<TraceViewSettings>): void {
+  traceViews.setState((s) => ({ views: { ...s.views, [viewId]: { ...(s.views[viewId] ?? DEFAULT_TRACE_VIEW), ...change } } }));
+}
+
 /** Opens a trace in its panel, or brings its panel forward, and shows the term asked for. */
 export function openTrace(state: Pick<WorkspaceState, 'showApp'>, address: TraceAddress, title: string, path?: string): string {
   const panelId = state.showApp(TRACE_VIEW, title, traceParams(address));
@@ -47,4 +69,14 @@ export function explainTyped(text: string): { readonly measure: string; readonly
   if (measure === undefined || measure === '') throw new Error('explain needs the measure to explain, then the term if one is wanted.');
   const path = rest.join(' ');
   return { measure, path: path === '' ? undefined : path };
+}
+
+/**
+ * The `explain` line that comes back to a term (ADR-0011 §7), or none where the path would not read back as one: a path
+ * with a run of spaces, or one at either end, is not what `explainTyped` reads.
+ */
+export function explainLine(measure: string, path: string): string | undefined {
+  const line = `${measure} ${path}`;
+  const read = explainTyped(line);
+  return read.measure === measure && read.path === path ? `explain ${line}` : undefined;
 }

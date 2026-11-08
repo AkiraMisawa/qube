@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import type { SideValue, TermRead, TraceHeader } from './contracts';
-import { membershipOf, mismatchText } from './LeafRows';
-import { explainTyped, traceAddressOf } from './open';
-import { citationCell, diffCell, governedCell, leadText, parameterSource, sideCell, stateCell, unitText } from './words';
+import type { SideValue, TermRead, TraceHeader, TraceParameter } from './contracts';
+import { mismatchText } from './LeafRows';
+import { explainLine, explainTyped, traceAddressOf } from './open';
+import { afterWord, allocationCell, allocationDiffCell, citationCell, diffCell, governedCell, governsMark, leadText, parameterGroups, parameterSource, sideCell, sidesHolding, stateCell, unitText } from './words';
 
 // ADR-0011 §4, §6, §7: what the tree, the drill-in list and the leaf rows say of a term, in words. Synthetic.
 
@@ -61,10 +61,18 @@ describe('a leaf row in words (ADR-0011 §6)', () => {
   const row = { leafSet: 's', entity: 'T-1', before: null, after: { haircut: 0.1 }, beforeMismatches: [], afterMismatches: [{ column: 'haircut', returned: 0.1, computed: 0.08 }] };
 
   it('says which sides hold it, and which computed column does not reconcile', () => {
-    expect(membershipOf(row, ['before', 'after'])).toBe('After only');
-    expect(membershipOf(row, ['after'])).toBe('');
+    expect(sidesHolding(row, ['before', 'after'])).toBe('After only');
+    expect(sidesHolding({ ...row, before: {} }, ['before', 'after'])).toBe('Before and After');
+    expect(sidesHolding(row, ['after'])).toBe('');
+    expect(sidesHolding(row, ['before'])).toBe('not on this side');
     expect(mismatchText(row, 'after', { leafSet: 's', entityField: 'id', columns: [{ name: 'haircut', label: 'Haircut' }] }))
       .toBe('Haircut does not reconcile: 0.08 by its formula, 0.1 returned');
+  });
+});
+
+describe('a label after a word (design guidelines §10)', () => {
+  it('reads in sentence case, and an initialism keeps its capitals', () => {
+    expect(['Trade', 'CRIF line', 'IM-R', 'tree', 'Netting set'].map(afterWord)).toEqual(['trade', 'CRIF line', 'IM-R', 'tree', 'netting set']);
   });
 });
 
@@ -75,7 +83,46 @@ describe('explain (ADR-0011 §7)', () => {
     expect(() => explainTyped('  ')).toThrow(/needs the measure/);
   });
 
+  it('writes the line that comes back to a term, and none for a path that would not read back as one', () => {
+    const line = explainLine('simm.spotIm', 'collect/JFSA/RatesFX/IR/delta/JPY/OIS 1m');
+    expect(line).toBe('explain simm.spotIm collect/JFSA/RatesFX/IR/delta/JPY/OIS 1m');
+    expect(explainTyped(line!.slice('explain '.length))).toEqual({ measure: 'simm.spotIm', path: 'collect/JFSA/RatesFX/IR/delta/JPY/OIS 1m' });
+    expect(explainLine('m', 'a  b')).toBeUndefined();
+    expect(explainLine('m', ' a')).toBeUndefined();
+  });
+
   it('refuses a panel that does not name its trace', () => {
     expect(() => traceAddressOf({ runId: 'r' })).toThrow(/names its Run, case, scenario and measure/);
+  });
+});
+
+describe('which operand governs, and the allocation (ADR-0011 §1, §2, §6)', () => {
+  it('marks the operand a max took, and says the side where the sides differ', () => {
+    const both = header(['before', 'after']);
+    expect(governsMark(term({ before: value(1, { governs: true }), after: value(2, { governs: true }) }), both)).toEqual({ text: 'Governs', governs: true });
+    expect(governsMark(term({ before: value(1, { governs: false }), after: value(2, { governs: false }) }), both)).toEqual({ text: 'Not governing', governs: false });
+    expect(governsMark(term({ before: value(1, { governs: false }), after: value(2, { governs: true }) }), both)).toEqual({ text: 'Governs on After', governs: true });
+    expect(governsMark(term({ after: value(2) }), header(['after']))).toBeUndefined();
+  });
+
+  it('holds each side\'s allocation and its change, an absent side as nothing and a missing allocation as no figure', () => {
+    const shared = (v: number) => ({ allocation: { method: 'euler', value: v } });
+    expect(allocationCell(term({ after: value(2, shared(1.5)) }), 'after')).toBe(1.5);
+    expect(allocationCell(term({ after: value(2) }), 'after')).toBeUndefined();
+    expect(allocationDiffCell(term({ before: value(1, shared(0.5)), after: value(2, shared(1.5)) }))).toBe(1);
+    const absent = { state: 'absent' as const, check: { status: 'notApplicable' as const }, written: false };
+    expect(allocationDiffCell(term({ before: absent, after: value(2, shared(1.5)) }))).toBe(1.5);
+    expect(allocationDiffCell(term({ before: value(1), after: value(2, shared(1.5)) }))).toBeUndefined();
+  });
+});
+
+describe('the parameters a term shows (ADR-0011 §6\'s note of 2026-11-08)', () => {
+  it('shows first those its formula names and those scoped to it, and folds those of the terms above it', () => {
+    const p = (name: string, scope?: string): TraceParameter => ({ name, source: 'regulation', value: 1, ...(scope === undefined ? {} : { scope }) });
+    const groups = parameterGroups(new Set(['rw', 'alpha']), 'bed/rose', [
+      p('rw', 'bed/rose'), p('cr', 'bed/rose'), p('rho', 'bed'), p('alpha'), p('kappa'), p('rw', 'bed'), p('psi', 'garden'),
+    ]);
+    // Named or its own first; a trace-wide one the formula does not name (kappa) is another formula's, not folded here.
+    expect(groups).toEqual({ own: ['rw', 'cr', 'alpha'], above: ['rho', 'psi'] });
   });
 });

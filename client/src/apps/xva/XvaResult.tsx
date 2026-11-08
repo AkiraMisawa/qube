@@ -1,10 +1,11 @@
-import { useId } from 'react';
-import { Alert, Anchor, Badge, Button, Group, Stack, Table, Text } from '@mantine/core';
+import { useId, type ReactNode } from 'react';
+import { Alert, Anchor, Badge, Button, Group, Stack, Table, Tabs, Text } from '@mantine/core';
 import type { TypedDataRef } from '../../platform/contracts';
 import { archiveUrl } from '../../platform/runs';
 import { partHeight } from './layout';
 import { useDatasets, useRun } from '../../platform/workspace/WorkspaceProvider';
 import type { RegisteredMeasure } from './contracts';
+import { conversionOf, dockTabs, METRICS_TAB, unpricedReasons, type MeasureTab } from './dock';
 import { headlines, metricsGrid, metricsTable, pricedMeasures, reasons, tradeCounts, type MetricCell, type MetricLine, type ModuleResult } from './metrics';
 
 // The latest Price's Metrics, on the workspace page itself (ADR-0010 §7): a row per case, per priced measure Before,
@@ -13,13 +14,15 @@ import { headlines, metricsGrid, metricsTable, pricedMeasures, reasons, tradeCou
 // request answers, and a failed request leaves only its own measures unavailable (§10). Collapsed, the dock is its
 // header and one line a case with each measure's headline Diff (§7).
 
-export function XvaResult({ runId, pricedRevision, revision, register, onOpen, onCopyQuote, onTrace, open, onOpenChange, height }: {
+export function XvaResult({ runId, pricedRevision, revision, register, selected, onOpen, onCopyQuote, onTrace, open, onOpenChange, height, tab, onTab, full, onFull, renderTab }: {
   readonly runId: string;
   /** The workspace revision the Run froze; unknown until the workspace lists the Run. */
   readonly pricedRevision: number | undefined;
   readonly revision: number;
   /** The registered measures, for their titles and metrics; what was priced is the Run's. */
   readonly register: readonly RegisteredMeasure[];
+  /** The measures selected now: a measure's own tab is shown while it is selected and the Run priced it (ADR-0010 §7). */
+  readonly selected: readonly string[];
   readonly onOpen: () => void;
   /** Copy quote (ADR-0010 §7), which the server reads from the Run alone. */
   readonly onCopyQuote: () => void;
@@ -31,6 +34,14 @@ export function XvaResult({ runId, pricedRevision, revision, register, onOpen, o
   readonly onOpenChange: (open: boolean) => void;
   /** The most the open Metrics take in pixels before they scroll, which the dock's handle sets. */
   readonly height: number;
+  /** The tab asked for, and choosing one: Metrics or a tab a measure the Run priced registers (ADR-0010 §7). */
+  readonly tab: string;
+  readonly onTab: (tab: string) => void;
+  /** Whether the dock is widened over the trade grids (owner, 2026-11-08), and widening or restoring it. */
+  readonly full: boolean;
+  readonly onFull: (full: boolean) => void;
+  /** What a measure's own tab draws while it is shown, such as its trace, under what the page says of every figure in it (ADR-0012 §7). */
+  readonly renderTab: (tab: MeasureTab, caption: string | undefined) => ReactNode;
 }) {
   const bodyId = useId();
   const run = useRun(runId);
@@ -42,6 +53,9 @@ export function XvaResult({ runId, pricedRevision, revision, register, onOpen, o
   if (run.isError) return <Alert color="red" variant="light" title="Result">{run.error.message}</Alert>;
   const status = run.data?.status ?? 'running';
   const priced = run.data === undefined ? [] : pricedMeasures(run.data.input);
+  // A tab asked for that this Run has not, such as a measure it did not price, shows Metrics.
+  const tabs = dockTabs(register, priced, selected);
+  const shown = tabs.find((t) => t.id === tab) ?? METRICS_TAB;
 
   // Each module's answer, by its step: rows once read, unavailable once it failed, absent while it runs.
   const results: Record<string, ModuleResult> = {};
@@ -59,6 +73,8 @@ export function XvaResult({ runId, pricedRevision, revision, register, onOpen, o
   }
   const table = priced === undefined ? undefined : metricsTable(register, priced, results);
   const grid = table === undefined ? undefined : metricsGrid(table);
+  // A measure priced on no side has no trace to draw: its tab says why, as the Metrics do (ADR-0012 §1).
+  const unpriced = shown.view === 'metrics' ? undefined : unpricedReasons(table, shown.measure);
   const simulated = datasets.some((d) => d.data?.provenance.executionMode === 'simulated');
   const counts = table === undefined ? [] : tradeCounts(table);
   const behind = pricedRevision !== undefined && pricedRevision < revision;
@@ -112,16 +128,38 @@ export function XvaResult({ runId, pricedRevision, revision, register, onOpen, o
             ? <Button size="compact-xs" variant="default" disabled>Download</Button>
             : <Button size="compact-xs" variant="default" component="a" href={archiveUrl(runId)} download={`${runId}.zip`}>Download</Button>}
           <Button size="compact-xs" variant="default" onClick={onOpen}>Open run</Button>
+          {open && (
+            <Button size="compact-xs" variant="default" visibleFrom="sm" onClick={() => onFull(!full)} data-testid="xva-result-full"
+              title={full ? 'Put the dock back to the height its handle sets, under the trade grids.' : 'Widen the dock over the input tabs and the trade grids.'}>
+              {full ? 'Restore height' : 'Full height'}
+            </Button>
+          )}
         </Group>
       </Group>
+      {open && tabs.length > 1 && (
+        <Tabs value={shown.id} onChange={(value) => { if (value !== null) onTab(value); }} keepMounted={false}>
+          <Tabs.List aria-label="Results">
+            {tabs.map((t) => <Tabs.Tab key={t.id} value={t.id}>{t.title}</Tabs.Tab>)}
+          </Tabs.List>
+        </Tabs>
+      )}
       {status === 'failed' && <Alert color="red" variant="light" title={run.data?.error?.code ?? 'Failed'}>{run.data?.error?.message}</Alert>}
       {!open && lines.length > 0 && (
         <Stack gap={0} data-testid="xva-result-lines" aria-label="Headline per case">
           {lines.map((l) => <Text key={l.key} size="xs" className="qwb-number-text">{l.text}</Text>)}
         </Stack>
       )}
-      {open && (
-        <Stack gap="xs" id={bodyId} className="qwb-xva-result-body" data-testid="xva-result-body" style={partHeight(height)}>
+      {open && shown.view !== 'metrics' && (
+        <div id={bodyId} className="qwb-xva-result-tab" data-testid="xva-result-tab" data-full={full} style={partHeight(height)}>
+          {status === 'running'
+            ? <Text size="sm">The {shown.title} tab draws once the Run has finished.</Text>
+            : unpriced !== undefined
+              ? <Stack gap={0} data-testid="xva-result-tab-unpriced">{unpriced.map((r) => <Text key={r.text} size="sm" {...(r.failed ? { c: 'red' } : {})}>{r.text}</Text>)}</Stack>
+              : renderTab(shown, conversionOf(table, shown.measure))}
+        </div>
+      )}
+      {open && shown.view === 'metrics' && (
+        <Stack gap="xs" id={bodyId} className="qwb-xva-result-body" data-testid="xva-result-body" data-full={full} style={partHeight(height)}>
           {priced === undefined && (
             <Text size="xs">This Run was priced before measures were registered. Open it to see its figures, or Price again.</Text>
           )}

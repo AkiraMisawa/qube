@@ -57,6 +57,8 @@ export interface SideValue {
   readonly written: boolean;
   readonly citation?: string | null;
   readonly leaves?: { readonly leafSet: string; readonly rowCount: number } | null;
+  /** For an operand of its parent's max, min or clamp: whether it is the one the parent took. */
+  readonly governs?: boolean | null;
 }
 
 export type DiffState = 'value' | 'absent' | 'unavailable' | 'notNumeric';
@@ -128,6 +130,31 @@ export interface TraceLeavesAnswer {
   readonly leaves: { readonly rows: readonly PairedLeafRow[]; readonly total: number; readonly offset: number };
 }
 
+/** An entity's share of a term on one side: its rows' contributions summed at every depth below it, and how many rows. */
+export interface EntityShare { readonly contribution: number; readonly rows: number }
+
+/** One entity below a term, with its share on each side that has rows of it, and the Diff when both sides were priced. */
+export interface EntityRow {
+  readonly leafSet: string;
+  readonly entity: string;
+  readonly before?: EntityShare | null;
+  readonly after?: EntityShare | null;
+  readonly diff?: number | null;
+}
+
+/** On one side, whether the entities' shares add up to the term's allocation. */
+export interface EntityCheck { readonly side: Side; readonly status: CheckStatus; readonly sum: number; readonly allocation?: number | null; readonly reason?: string | null }
+
+export interface TraceEntitiesAnswer {
+  readonly trace: TraceHeader;
+  readonly term: string;
+  readonly entities: {
+    readonly rows: readonly EntityRow[]; readonly total: number; readonly offset: number; readonly checks: readonly EntityCheck[];
+    /** Why no entity has a Diff where both sides were priced: a side unavailable, not returned or not adding up (ADR-0011 §4). */
+    readonly diffUnavailable?: string | null;
+  };
+}
+
 /** An expression from ADR-0011 §2's closed set, as data; the view reads only which operands it names. */
 export interface TraceExpr { readonly op: string; readonly [field: string]: unknown }
 
@@ -144,7 +171,14 @@ export interface TermKind {
 }
 
 export interface LeafColumn { readonly name: string; readonly label: string; readonly unit?: TraceUnit | null; readonly expression?: TraceExpr | null; readonly tex?: string | null }
-export interface LeafSetKind { readonly leafSet: string; readonly entityField: string; readonly columns: readonly LeafColumn[]; readonly componentField?: string | null }
+/** The rows beneath a term; `contributionField`, when given, holds a row's additive share of its root (ADR-0012 §6). */
+export interface LeafSetKind {
+  readonly leafSet: string;
+  readonly entityField: string;
+  readonly columns: readonly LeafColumn[];
+  readonly componentField?: string | null;
+  readonly contributionField?: string | null;
+}
 
 export interface TraceCatalog { readonly method: TraceMethod; readonly kinds: readonly TermKind[]; readonly leafSets: readonly LeafSetKind[] }
 

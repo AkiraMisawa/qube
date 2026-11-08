@@ -12,6 +12,26 @@ export function providerOf(header: TraceHeader, side: Side): string | undefined 
   return engine === undefined || engine === null ? undefined : engine.name;
 }
 
+/**
+ * Which sides hold a row, as a row of rows says it: `Before and After`, or the one side `only`, where both sides were
+ * priced; nothing where one was, unless the row is not on it.
+ */
+export function sidesHolding(row: Readonly<Partial<Record<Side, unknown>>>, sides: readonly Side[]): string {
+  const on = sides.filter((s) => row[s] !== undefined && row[s] !== null);
+  if (sides.length === 1) return on.length === 1 ? '' : 'not on this side';
+  if (on.length === 2) return 'Before and After';
+  const [only] = on;
+  return only === undefined ? 'on neither side' : `${SIDE_TITLE[only]} only`;
+}
+
+/**
+ * A label as it reads after another word, in sentence case (design guidelines §10): `Keeper` reads `keeper`, and a
+ * word that is an initialism, such as `ID`, keeps its capitals.
+ */
+export function afterWord(label: string): string {
+  return /^[A-Z][a-z]/.test(label) ? label[0]!.toLowerCase() + label.slice(1) : label;
+}
+
 /** A unit in words: an amount's currency, the trace's reporting currency where the unit names none. */
 export function unitText(unit: TraceUnit | null | undefined, header: TraceHeader): string {
   if (unit === undefined || unit === null || unit.kind === 'text') return '';
@@ -64,6 +84,56 @@ export function governedCell(term: TermRead, header: TraceHeader): string {
   if (marks.length === 0) return '';
   if (marks.every(([, g]) => g === marks[0]![1])) return marks[0]![1];
   return marks.map(([side, g]) => `${SIDE_TITLE[side]} ${g}`).join(' · ');
+}
+
+/**
+ * Whether a term is the operand its parent took (ADR-0011 §2, §6): `Governs` or `Not governing` where every priced side
+ * says alike, else the side it governs on. None for a term that is no operand of a max, a min or a clamp.
+ */
+export function governsMark(term: TermRead, header: TraceHeader): { readonly text: string; readonly governs: boolean } | undefined {
+  const marks = header.sides.flatMap((side) => {
+    const governs = term[side]?.governs;
+    return governs === undefined || governs === null ? [] : [[side, governs] as const];
+  });
+  if (marks.length === 0) return undefined;
+  if (marks.every(([, g]) => g === marks[0]![1])) return marks[0]![1] ? { text: 'Governs', governs: true } : { text: 'Not governing', governs: false };
+  const on = marks.filter(([, g]) => g).map(([side]) => SIDE_TITLE[side]);
+  return { text: `Governs on ${on.join(' and ')}`, governs: true };
+}
+
+/** A term's allocation on a side as a cell holds it: the figure, nothing where the side gave none or the side is absent. */
+export function allocationCell(term: TermRead, side: Side): number | undefined {
+  const value = term[side];
+  return value?.allocation?.value ?? undefined;
+}
+
+/**
+ * The change in a term's allocation, After − Before, where both sides were priced: an absent side contributes nothing,
+ * and a side with a value and no allocation leaves it blank rather than a figure made up.
+ */
+export function allocationDiffCell(term: TermRead): number | undefined {
+  const share = (side: Side) => {
+    const value = term[side];
+    if (value === undefined || value === null) return undefined;
+    if (value.allocation !== undefined && value.allocation !== null) return value.allocation.value;
+    return value.state === 'absent' ? 0 : undefined;
+  };
+  const before = share('before');
+  const after = share('after');
+  return before === undefined || after === undefined ? undefined : after - before;
+}
+
+/**
+ * The parameters the formula pane shows of a term, in two groups (ADR-0011 §6's note of 2026-11-08): its own, those its
+ * formula names and those scoped to it, shown first; and those scoped to a term above it that its formula does not
+ * name, folded. A parameter of the whole trace that the formula does not name is the formula's that names it.
+ */
+export function parameterGroups(named: ReadonlySet<string>, termId: string, parameters: readonly TraceParameter[]):
+  { readonly own: readonly string[]; readonly above: readonly string[] } {
+  const own = [...new Set(parameters.filter((p) => named.has(p.name) || p.scope === termId).map((p) => p.name))];
+  const above = [...new Set(parameters.filter((p) => !named.has(p.name) && p.scope !== undefined && p.scope !== null && p.scope !== termId).map((p) => p.name))]
+    .filter((name) => !own.includes(name));
+  return { own, above };
 }
 
 /** The citation of a term: the rule a side applied where it is narrower than its kind's, else the kind's. */

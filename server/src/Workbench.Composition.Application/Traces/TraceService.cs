@@ -39,6 +39,9 @@ public sealed record TraceAnswer(TraceHeader Trace, TermPage Term);
 /// <summary>A page of the leaf rows below a term, with what the trace is of.</summary>
 public sealed record TraceLeavesAnswer(TraceHeader Trace, string Term, LeafPage Leaves);
 
+/// <summary>A page of the entities below a term, each with its share on each side, with what the trace is of.</summary>
+public sealed record TraceEntitiesAnswer(TraceHeader Trace, string Term, EntityPage Entities);
+
 /// <summary>Which trace to read: a Run's case, scenario and measure.</summary>
 public sealed record TraceAddress(string RunId, string Case, string Scenario, string Measure);
 
@@ -91,14 +94,44 @@ public sealed class TraceService(RunService runs, IDataReader data, CompositionR
         return new TraceAnswer(trace.Header, page);
     }
 
-    /// <summary>A page of the leaf rows below a term, sorted by a column on request.</summary>
-    public TraceLeavesAnswer Leaves(TraceAddress address, string userId, string path, int offset = 0, int limit = 200, string? sort = null, bool descending = false)
+    /// <summary>
+    /// A page of a term's leaf rows, sorted by a column on request; with <paramref name="below"/>, those of every term
+    /// below it as well, refused at a term with no allocation (ADR-0012 §6's note of 2026-11-08).
+    /// </summary>
+    public TraceLeavesAnswer Leaves(TraceAddress address, string userId, string path, int offset = 0, int limit = 200, string? sort = null, bool descending = false, bool below = false)
     {
         CheckPage(offset, limit);
         var trace = Open(address, userId);
         if (trace.Reader.Read(path) is null)
             throw new TraceRefused("UnknownTerm", $"The trace of {address.Measure} has no term {path}.");
-        return new TraceLeavesAnswer(trace.Header, path, trace.Reader.Leaves(path, offset, limit, sort, descending));
+        try
+        {
+            return new TraceLeavesAnswer(trace.Header, path, trace.Reader.Leaves(path, offset, limit, sort, descending, below));
+        }
+        catch (TraceInvalid invalid)
+        {
+            throw new TraceRefused("TraceInvalid", $"The leaf rows of {path} in the trace of {address.Measure} in Run {address.RunId} cannot be read: {invalid.Message}");
+        }
+    }
+
+    /// <summary>
+    /// A page of the entities below a term, at any depth, each with the sum of its rows' contributions on each side
+    /// (ADR-0012 §6): refused at a term with no allocation, or above a leaf set that names no contribution.
+    /// </summary>
+    public TraceEntitiesAnswer Entities(TraceAddress address, string userId, string path, int offset = 0, int limit = DefaultPage)
+    {
+        CheckPage(offset, limit);
+        var trace = Open(address, userId);
+        if (trace.Reader.Read(path) is null)
+            throw new TraceRefused("UnknownTerm", $"The trace of {address.Measure} has no term {path}.");
+        try
+        {
+            return new TraceEntitiesAnswer(trace.Header, path, trace.Reader.Entities(path, offset, limit));
+        }
+        catch (TraceInvalid invalid)
+        {
+            throw new TraceRefused("TraceInvalid", $"The trace of {address.Measure} in Run {address.RunId} cannot be summed by entity: {invalid.Message}");
+        }
     }
 
     static void CheckPage(int offset, int limit)

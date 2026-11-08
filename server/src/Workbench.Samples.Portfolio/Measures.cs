@@ -18,9 +18,22 @@ public sealed record MetricDefinition(string Id, string Title, string? Term = nu
 /// A measure as its module registers it. <paramref name="Headline"/> is the metric the collapsed result line shows.
 /// <paramref name="DeclaresMembership"/> says whether it prices only some trades and says per trade why (FVA's rule is the
 /// first, ADR-0010 §5); <paramref name="Traced"/> whether a Metrics cell opens its calculation trace (ADR-0011);
-/// <paramref name="Quoted"/> whether a Run that priced it has a quote to copy (XVA's Copy quote, from CVA, §7, §11).
+/// <paramref name="Quoted"/> whether a Run that priced it has a quote to copy (XVA's Copy quote, from CVA, §7, §11);
+/// <paramref name="Tabs"/> the result tabs it draws beside Metrics (§7, §10), none where it has no tab of its own.
 /// </summary>
-public sealed record MeasureDefinition(string Id, string Title, IReadOnlyList<MetricDefinition> Metrics, string Headline, bool DeclaresMembership, bool Traced, bool Quoted = false);
+public sealed record MeasureDefinition(string Id, string Title, IReadOnlyList<MetricDefinition> Metrics, string Headline, bool DeclaresMembership, bool Traced,
+    bool Quoted = false, IReadOnlyList<ResultTab>? Tabs = null);
+
+/// <summary>
+/// A result tab a measure registers beside Metrics (ADR-0010 §7, §10), such as spot IM's <c>SIMM</c>. <paramref name="View"/>
+/// names the approved view that draws it from the Run: <c>trace</c> draws the measure's calculation trace, a card per
+/// root above its drill-down (ADR-0011 §6, ADR-0012 §7). A Metrics cell of the measure opens the tab at its term.
+/// </summary>
+public sealed record ResultTab(string Id, string Title, string View)
+{
+    /// <summary>The view that draws a measure's calculation trace: a card per root, then the drill-down.</summary>
+    public const string Trace = "trace";
+}
 
 /// <summary>
 /// A field of a shared input tab that a measure needs (ADR-0010 §10), such as CVA's recovery on Netting: it shows while a
@@ -86,7 +99,7 @@ public sealed record TradeCell(JsonNode? Value, string State, string? Note, bool
 /// whose step's result holds its rows (ADR-0010 §10).
 /// </summary>
 public sealed record RegisteredMeasure(string Id, string Title, string Module, IReadOnlyList<MetricDefinition> Metrics, string Headline, bool DeclaresMembership, bool Traced,
-    bool Quoted, string Request);
+    bool Quoted, string Request, IReadOnlyList<ResultTab> Tabs);
 
 /// <summary>A domain module's registration into the pricer (ADR-0010 §10). XVA's is the first (§11).</summary>
 public interface IMeasureModule
@@ -154,7 +167,7 @@ public sealed class MeasureRegister
     public MeasureRegister(IEnumerable<IMeasureModule> modules)
     {
         Modules = [.. modules];
-        Measures = [.. Modules.SelectMany(m => m.Measures.Select(d => new RegisteredMeasure(d.Id, d.Title, m.Id, d.Metrics, d.Headline, d.DeclaresMembership, d.Traced, d.Quoted, m.PricedBy)))];
+        Measures = [.. Modules.SelectMany(m => m.Measures.Select(d => new RegisteredMeasure(d.Id, d.Title, m.Id, d.Metrics, d.Headline, d.DeclaresMembership, d.Traced, d.Quoted, m.PricedBy, d.Tabs ?? [])))];
         var duplicate = Measures.GroupBy(m => m.Id).FirstOrDefault(g => g.Count() > 1);
         if (duplicate is not null)
             throw new InvalidOperationException($"Measure {duplicate.Key} is registered by {string.Join(" and ", duplicate.Select(m => m.Module))}.");

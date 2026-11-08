@@ -50,6 +50,7 @@ public static class MeasureResult
         new("beforeNote", DatasetColumnType.String, true),
         new("afterNote", DatasetColumnType.String, true),
         new("basis", DatasetColumnType.String, true),
+        new("conversion", DatasetColumnType.String, true),
     ];
 
     /// <summary>A side's figure: its value when priced, else nothing; and what is said beside it, if anything.</summary>
@@ -59,8 +60,12 @@ public static class MeasureResult
         public static Side NotPricedWith(int trades) => new(NotPriced, null, trades);
     }
 
+    /// <summary>
+    /// A metric's row. <paramref name="basis"/> names what the figures stand on where it is not a model of record, and
+    /// <paramref name="conversion"/> says, once, the rate a figure computed in another currency is shown at.
+    /// </summary>
     public static JsonObject Row(string @case, string caseTitle, string measure, MetricDefinition metric, string currency, Side before, Side after,
-        string? basis = null) => new()
+        string? basis = null, string? conversion = null) => new()
     {
         ["case"] = @case,
         ["caseTitle"] = caseTitle,
@@ -80,6 +85,7 @@ public static class MeasureResult
         ["beforeNote"] = before.Note,
         ["afterNote"] = after.Note,
         ["basis"] = basis,
+        ["conversion"] = conversion,
     };
 }
 

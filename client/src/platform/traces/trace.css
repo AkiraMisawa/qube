@@ -29,6 +29,12 @@
 .qwb-trace-leaf { display: inline-block; width: 22px; flex: none; }
 .qwb-trace-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* An operand of its parent's max, min or clamp: the one taken is marked by its Badge, the others drawn faint (ADR-0011
+   §6). The Badge's word says which, so the colour is never the only sign. */
+.qwb-trace-mark { flex: none; }
+.qwb-trace-term[data-governs='false'] .qwb-trace-label,
+.qwb-trace-child[data-governs='false'] .qwb-trace-child-label { color: var(--mantine-color-dimmed); }
+
 /* A formula, its lines labelled on the left; a line wider than its part scrolls inside it. */
 .qwb-trace-formula { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: var(--mantine-spacing-xs); align-items: center; }
 .qwb-trace-formula-line { display: contents; }
@@ -42,6 +48,22 @@
 .qwb-tex [data-state='absent'], .qwb-tex [data-state='pending'] { color: var(--mantine-color-dimmed); }
 .qwb-tex [data-state='unavailable'], .qwb-tex [data-state='notReturned'] { text-decoration: underline wavy var(--mantine-color-red-text); }
 .qwb-tex-error { color: var(--mantine-color-red-text); font-size: var(--mantine-font-size-xs); }
+
+/* A parameter: its symbol, then its value or matrix with its source beneath. A matrix scrolls inside its own box. */
+.qwb-trace-detail { min-width: 0; }
+.qwb-trace-param {
+  display: grid;
+  grid-template-columns: 2rem minmax(0, 1fr);
+  column-gap: var(--mantine-spacing-xs);
+  align-items: start;
+  padding-block: var(--mantine-spacing-xs);
+  border-top: 1px solid var(--mantine-color-default-border);
+}
+.qwb-trace-param-values { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--mantine-spacing-xs); }
+.qwb-trace-param-values > * { min-width: 0; }
+.qwb-trace-matrix { max-width: 100%; overflow-x: auto; overflow-y: hidden; }
+.qwb-trace-param-source { overflow-wrap: anywhere; }
+.qwb-trace-param-toggle { align-self: flex-start; }
 
 .qwb-trace-steps { margin: 0; padding-inline-start: var(--mantine-spacing-lg); display: grid; gap: var(--mantine-spacing-xs); }
 
@@ -63,3 +85,28 @@
 .qwb-trace-child-label { overflow-wrap: anywhere; }
 
 .qwb-trace-path { flex-wrap: wrap; row-gap: var(--mantine-spacing-xs); }
+.qwb-trace-explain { min-width: 0; }
+.qwb-trace-explain-text { min-width: 0; flex: 0 1 auto; overflow-wrap: anywhere; }
+.qwb-trace-explain > button { flex: none; }
+
+/* A trace tab's cards (ADR-0012 §7): one per root, the chosen one marked by its border and fill as well as by
+   aria-pressed; each figure under its title, at least 44px tall for a finger (§8). A pointer over a card and the
+   keyboard on it show alike; the keyboard's ring is Mantine's own. */
+.qwb-trace-card {
+  display: grid;
+  gap: var(--mantine-spacing-xs);
+  min-height: 44px;
+  padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm);
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: var(--mantine-radius-sm);
+}
+.qwb-trace-card:hover, .qwb-trace-card:focus-visible { background: var(--mantine-color-default-hover); }
+.qwb-trace-card[data-chosen='true'] { border-color: var(--mantine-primary-color-filled); background: var(--mantine-primary-color-light); }
+.qwb-trace-card-figures {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr));
+  gap: var(--mantine-spacing-xs);
+  margin: 0;
+}
+.qwb-trace-card-figures dt { font-size: var(--mantine-font-size-xs); }
+.qwb-trace-card-figures dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; }
