@@ -12,8 +12,8 @@ const amount = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 });
 /** The module's cell on a row, or undefined where the module adds none to it (an existing trade has no PV01). */
 export const cellOf = (row: EffectiveTrade, field: string): TradeCell | undefined => row.cells?.[field];
 
-/** What the grid holds for a cell: its figure, the word for why there is none, or a Blank where it is empty. */
-export function cellValue(cell: TradeCell | undefined): number | 'pending' | 'failed' | undefined {
+/** What the grid holds for a cell: its figure or word, the word for why there is none, or a Blank where it is empty. */
+export function cellValue(cell: TradeCell | undefined): number | string | undefined {
   if (cell === undefined) return undefined;
   if (cell.state !== 'value') return cell.state;
   return cell.value === null ? undefined : cell.value;
@@ -58,15 +58,16 @@ export const failed = (row: EffectiveTrade, field: string): boolean => cellOf(ro
 
 /**
  * The grid columns of the registered module columns, in order. The server neither sorts nor filters by them, so the grid
- * does not offer to. Each is as wide as the notional column, so that an amount of the synthetic notionals' size with
- * its cents (a PV Adj of -47,500,000.00) never falls to `####`.
+ * does not offer to. A number column is as wide as the notional column, so that an amount of the synthetic notionals'
+ * size with its cents (a PV Adj of -47,500,000.00) never falls to `####`. A text column, such as SA-CCR's class of a
+ * trade (`Interest rate · JPY · 1-5y · long`), takes the width of its words, within bounds.
  */
 export function moduleColumns(columns: readonly RegisteredColumn[]): readonly GridColumn<EffectiveTrade>[] {
   return columns.map((c) => ({
     name: c.field,
     header: c.title,
-    type: 'number',
-    width: 168,
+    type: c.type,
+    width: c.type === 'text' ? { auto: true, minPx: 120, maxPx: 280 } : 168,
     editable: c.editable,
     queryable: false,
     value: (row: EffectiveTrade) => cellValue(cellOf(row, c.field)),

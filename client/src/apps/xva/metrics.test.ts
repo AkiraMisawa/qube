@@ -6,8 +6,8 @@ import { metricsGrid, metricsTable, pricedMeasures, priceLabel, tradeCounts, typ
 // Diff, and a status in words where there is no figure. Every name and figure is synthetic.
 
 const register: readonly RegisteredMeasure[] = [
-  { id: 'cva', title: 'CVA', module: 'xva', metrics: [{ id: 'cva', title: 'CVA' }, { id: 'cvaCharge', title: 'CVA Charge' }], headline: 'cva', declaresMembership: false, traced: false },
-  { id: 'fva', title: 'FVA', module: 'xva', metrics: [{ id: 'fva', title: 'FVA' }], headline: 'fva', declaresMembership: false, traced: false },
+  { id: 'cva', title: 'CVA', module: 'xva', request: 'xva', metrics: [{ id: 'cva', title: 'CVA' }, { id: 'cvaCharge', title: 'CVA Charge' }], headline: 'cva', declaresMembership: false, traced: false },
+  { id: 'fva', title: 'FVA', module: 'xva', request: 'xva', metrics: [{ id: 'fva', title: 'FVA' }], headline: 'fva', declaresMembership: false, traced: false },
 ];
 
 const row = (measure: string, metric: string, before: number | null, after: number | null, extra: Record<string, unknown> = {}) => ({
@@ -35,6 +35,16 @@ describe('metricsTable', () => {
     const table = metricsTable(register, ['cva'], { xva: answered([row('cva', 'cva', -1, -2), row('cva', 'cvaCharge', -1.25, -2.5)]) });
 
     expect(table.lines.map((l) => l.measure)).toEqual(['cva', 'cva']);
+  });
+
+  it("ADR-0013 §2: a measure another module's request prices reads that request's rows, After alone included", () => {
+    const capital: RegisteredMeasure = { id: 'ccr.spotCapital', title: 'Spot CCR capital', module: 'ccr', request: 'xva',
+      metrics: [{ id: 'capital', title: 'Capital' }], headline: 'capital', declaresMembership: true, traced: true };
+
+    const table = metricsTable([...register, capital], ['ccr.spotCapital'], { xva: answered([row('ccr.spotCapital', 'capital', null, 1_234.5)]) });
+
+    expect(table.lines.map((l) => [l.measureTitle, l.before.status, l.after.text])).toEqual([['Spot CCR capital', 'notPriced', '1,234.50']]);
+    expect(table.sides).toEqual({ before: false, after: true });
   });
 
   it('EX06, ADR-0010 §10: a module whose request failed leaves its measures unavailable, never 0', () => {

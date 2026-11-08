@@ -73,8 +73,9 @@ const text = (v: unknown) => (typeof v === 'string' && v !== '' ? v : undefined)
 const count = (v: unknown) => (typeof v === 'number' ? v : undefined);
 
 /**
- * The dock's lines for the measures a Run priced, in the Run's order. `results` holds each module's answer by module
- * id; a module not in it has not answered yet, so its figures are pending.
+ * The dock's lines for the measures a Run priced, in the Run's order. `results` holds each request's answer by the id
+ * of the module that makes it, and a measure reads its rows from its own request's (spot capital from XVA's); a request
+ * not in it has not answered yet, so its measures' figures are pending.
  */
 export function metricsTable(register: readonly RegisteredMeasure[], priced: readonly string[], results: Readonly<Record<string, ModuleResult>>): MetricsTable {
   const lines: MetricLine[] = [];
@@ -89,7 +90,7 @@ export function metricsTable(register: readonly RegisteredMeasure[], priced: rea
       lines.push(blank(id, id, id, id, UNAVAILABLE, `No measure ${id} is registered now.`));
       continue;
     }
-    const result = results[measure.module];
+    const result = results[measure.request];
     if (result === undefined || result.kind === 'unavailable') {
       const cell = result === undefined ? PENDING : UNAVAILABLE;
       for (const metric of measure.metrics) lines.push(blank(measure.id, measure.title, metric.id, metric.title, cell, result?.reason));

@@ -52,4 +52,16 @@ describe("a module's trade cells", () => {
 
     expect(columns.map((c) => [c.name, c.header, c.editable, c.queryable])).toEqual([['xva.pv01', 'PV01', false, false], ['xva.pvAdj', 'PV Adj', true, false]]);
   });
+
+  it("ADR-0013 §3: draws SA-CCR's class of a trade as words in a text column, and a trade it refuses as an error saying why", () => {
+    const [column] = moduleColumns([{ field: 'ccr.class', title: 'SA-CCR', type: 'text', editable: false, module: 'ccr' }]);
+    const swap = trade({ 'ccr.class': { state: 'value', value: 'Interest rate · JPY · 1-5y · long', editable: false } });
+    const refused = trade({ 'ccr.class': { state: 'failed', editable: false, note: 'SA-CCR cannot decompose a CDS.' } });
+
+    expect([column?.type, column?.width]).toEqual(['text', { auto: true, minPx: 120, maxPx: 280 }]);
+    expect(column?.value(swap)).toBe('Interest rate · JPY · 1-5y · long');
+    expect(cellText(column?.value(swap))).toBe('Interest rate · JPY · 1-5y · long');
+    expect([cellValue(refused['cells']?.['ccr.class']), cellState(refused, 'ccr.class'), cellMessage(refused, 'ccr.class')])
+      .toEqual(['failed', 'error', 'SA-CCR cannot decompose a CDS.']);
+  });
 });
