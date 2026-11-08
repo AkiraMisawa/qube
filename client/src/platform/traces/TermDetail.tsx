@@ -49,7 +49,7 @@ export function TermDetail({ header, page, kinds, operand, onSelect }: {
         </div>
       )}
       {formula !== undefined && formula.operands.length > 0 && (
-        <Group gap={6} wrap="wrap" aria-label="Terms in this formula">
+        <Group gap="xs" wrap="wrap" aria-label="Terms in this formula">
           <Text size="xs" c="dimmed">Terms in this formula</Text>
           {formula.operands.map((o) => {
             const read = operand(o.termId);
@@ -94,7 +94,7 @@ function SideFacts({ header, term, sides, operand }: {
   }));
   if (facts.length === 0) return null;
   return (
-    <Stack gap={2} data-testid="trace-facts">
+    <Stack gap={0} data-testid="trace-facts">
       {facts.map((f) => <Text key={f.key} size="xs" {...(f.error ? { c: 'red' } : {})}>{f.text}</Text>)}
     </Stack>
   );
@@ -106,7 +106,7 @@ function Decision({ side, value, both, header, unit }: {
 }) {
   const inputs = Object.entries(value.inputs ?? {});
   return (
-    <Stack gap={2} className="qwb-trace-decision" data-testid="trace-decision">
+    <Stack gap={0} className="qwb-trace-decision" data-testid="trace-decision">
       <Text size="sm">{both ? `${SIDE_TITLE[side]}: ` : ''}<b>{valueText(value, unit)}</b>{value.citation ? ` (${value.citation})` : ''}</Text>
       {(value.because ?? []).map((b, i) => <Text key={i} size="xs">{b}</Text>)}
       {inputs.length > 0 && (
@@ -130,12 +130,12 @@ function Decision({ side, value, both, header, unit }: {
 /** A decision's steps in order (ADR-0011 §6), each with its outcome on every priced side, and a link to open it. */
 function Steps({ steps, header, onSelect }: { readonly steps: readonly TermRead[]; readonly header: TraceHeader; readonly onSelect: (id: string) => void }) {
   return (
-    <Stack gap={4} data-testid="trace-steps">
+    <Stack gap="xs" data-testid="trace-steps">
       <Text size="xs" fw={600}>Steps</Text>
       <ol className="qwb-trace-steps">
         {steps.map((step) => (
           <li key={step.id}>
-            <Group gap={6} wrap="wrap">
+            <Group gap="xs" wrap="wrap">
               <Button size="compact-xs" variant="subtle" onClick={() => onSelect(step.id)}>{step.label}</Button>
               {outcomes(step, header).map((o) => (
                 <Text key={o.key} size="xs" {...(o.error ? { c: 'red' } : {})}>{o.text}</Text>
@@ -178,7 +178,7 @@ function Parameters({ kind, term, header, parameters, operand }: {
   if (names.length === 0) return null;
   const marked = Object.fromEntries(header.sides.map((side) => [side, kind === undefined ? {} : lookupRows(kind, term, side, operand)] as const));
   return (
-    <Stack gap={4} data-testid="trace-parameters">
+    <Stack gap="xs" data-testid="trace-parameters">
       <Text size="xs" fw={600}>Parameters</Text>
       <Table withTableBorder={false} verticalSpacing={2} fz="xs" aria-label="Parameters">
         <Table.Tbody>

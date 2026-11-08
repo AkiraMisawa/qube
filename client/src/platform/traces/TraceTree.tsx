@@ -3,12 +3,13 @@ import { ActionIcon, Button, Text } from '@mantine/core';
 import { IconChevronDown, IconChevronRight } from '@tabler/icons-react';
 import { GridSource, type CellState, type GridColumn, type GridDeclaredKeyPress, type GridSelection, type GridTemplateCell } from '@ex-grid/core';
 import { templateColumn, type ExGridApi } from '@ex-grid/react';
+import { compactGridHeight } from '../grid/metrics';
 import { WorkbenchGrid } from '../grid/WorkbenchGrid';
 import type { TraceHeader } from './contracts';
 import { symbolTex } from './formula';
 import { Tex } from './Tex';
 import type { TreeRow } from './tree';
-import { citationCell, diffCell, governedCell, sideCell, stateCell, unitText } from './words';
+import { SIDE_TITLE, citationCell, diffCell, governedCell, sideCell, stateCell, unitText } from './words';
 
 // The tree of terms (ADR-0011 §6) in ExGrid, drawn as ExPivot draws its Compact form: the term column is a pinned
 // Template Column with the label, its indent and the open/close button; the grid reports the press, and the page holds
@@ -16,7 +17,6 @@ import { citationCell, diffCell, governedCell, sideCell, stateCell, unitText } f
 // change's, which the server gives. Alt+→ opens the term at the Focus and Alt+← closes it or goes to its parent;
 // → and ← stay the grid's, between columns (DEFAULT 2026-11-08, ADR-0011 §6's note).
 
-const ROW_HEIGHT = 28;
 const OPEN_KEY = 'Alt+ArrowRight';
 const CLOSE_KEY = 'Alt+ArrowLeft';
 const DECLARED_KEYS = [OPEN_KEY, CLOSE_KEY];
@@ -91,7 +91,7 @@ function columnsOf(header: TraceHeader, allocated: boolean): readonly GridColumn
   return [
     termColumn,
     symbolColumn,
-    ...header.sides.map((side) => figure(side, side === 'before' ? 'Before' : 'After', (r) => sideCell(r.term![side], r.term!.unit))),
+    ...header.sides.map((side) => figure(side, SIDE_TITLE[side], (r) => sideCell(r.term![side], r.term!.unit))),
     // A case priced on one side has no Diff column at all, not an empty one (ADR-0011 §4).
     ...(header.sides.length === 2 ? [figure('diff', 'Diff', (r) => diffCell(r.term!))] : []),
     // An allocation is additive where the Diff is not, so it is a column of its own, shown when the provider gave one (§1, §4).
@@ -214,7 +214,8 @@ export function TraceTree({ header, rows, selected, onSelect, onGoTo, onToggle, 
     more: (row) => handlers.current.onMore(row.termId),
   }), []);
 
-  const height = Math.min(36 + Math.max(rows.length, 3) * ROW_HEIGHT, 36 + 14 * ROW_HEIGHT);
+  // As high as its rows, three at least and fourteen at most, by ExGrid's own Grid Metrics.
+  const height = compactGridHeight(Math.min(Math.max(rows.length, 3), 14));
   return (
     <Actions.Provider value={actions}>
       <div aria-label="Terms" data-testid="trace-tree" data-rows={rows.length}>

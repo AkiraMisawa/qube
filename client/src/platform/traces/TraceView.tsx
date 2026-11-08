@@ -3,8 +3,7 @@ import { Alert, Anchor, Badge, Breadcrumbs, Button, Group, SegmentedControl, Sta
 import { useMediaQuery } from '@mantine/hooks';
 import { useQueries, useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
 import { useStore } from 'zustand';
-import { ApiError } from '../api';
-import type { ChildOrder, TraceApi } from './api';
+import { refusalText as describe, type ChildOrder, type TraceApi } from './api';
 import type { Side, TermKind, TermPage, TermRead, TraceAddress, TraceAnswer, TraceHeader } from './contracts';
 import { operandTargets, stateText } from './formula';
 import { LeafRows } from './LeafRows';
@@ -23,8 +22,6 @@ import './trace.css';
 /** Children read a page at a time. */
 const PAGE = 200;
 const ROOT = '\u0000root';
-
-const describe = (error: unknown) => (error instanceof ApiError ? `${error.envelope.code}: ${error.message}` : error instanceof Error ? error.message : String(error));
 
 /** Keeps a row object while nothing it draws changed, so the grid paints only what did (ADR-0003). */
 function stable(next: readonly TreeRow[], previous: ReadonlyMap<string, TreeRow>): readonly TreeRow[] {
@@ -163,20 +160,24 @@ export function TraceView({ panelId, address, api, registerFocus }: {
 
   const detail = selectedResult?.isError === true
     ? <Alert color="red" variant="light" title="The term could not be read" data-testid="trace-term-refused">{describe(selectedResult.error)}</Alert>
-    : selectedPage === undefined || catalog.data === undefined
-      ? <Text size="sm">Reading the term…</Text>
-      : catalog.isError
-        ? <Alert color="red" variant="light" title="The catalogue could not be read">{describe(catalog.error)}</Alert>
+    : catalog.isError
+      ? <Alert color="red" variant="light" title="The catalogue could not be read" data-testid="trace-catalog-refused">{describe(catalog.error)}</Alert>
+      : selectedPage === undefined || catalog.data === undefined
+        ? <Text size="sm">Reading the term…</Text>
         : <TermDetail header={trace} page={selectedPage} kinds={kinds} operand={operand} onSelect={select} />;
-  const leafRows = leaves !== undefined && leafSet !== undefined && selectedPage !== undefined && (
-    <LeafRows key={selectedPage.term.id} api={api} address={address} header={trace} path={selectedPage.term.id} set={leafSet} rowCount={leaves.rowCount} />
-  );
+  // Rows a term names in a leaf set the catalogue does not register are said to be unreadable, never left out.
+  const leafRows = leaves === undefined || selectedPage === undefined || catalog.data === undefined ? undefined
+    : leafSet === undefined
+      ? <Alert color="red" variant="light" title="Leaf set not registered">
+          The catalogue of {trace.method.id} {trace.method.version} has no leaf set {leaves.leafSet}, so the rows below {selectedPage.term.label} cannot be shown.
+        </Alert>
+      : <LeafRows key={selectedPage.term.id} api={api} address={address} header={trace} path={selectedPage.term.id} set={leafSet} rowCount={leaves.rowCount} />;
 
   return (
     <Stack gap="xs" className="qwb-trace" data-testid="trace-view" data-layout={phone ? 'drill' : 'tree'}>
       <TraceHeaderBar header={trace} order={order} onOrder={reorder} />
       {selectedPage !== undefined && (
-        <Breadcrumbs separator="›" separatorMargin={4} className="qwb-trace-path" aria-label="Path from the root" data-testid="trace-path">
+        <Breadcrumbs separator="›" separatorMargin="xs" className="qwb-trace-path" aria-label="Path from the root" data-testid="trace-path">
           {selectedPage.path.map((crumb, i) => (i === selectedPage.path.length - 1
             ? <Text key={crumb.id} size="xs" fw={600} aria-current="page">{crumb.label}</Text>
             : <Anchor key={crumb.id} component="button" size="xs" onClick={() => select(crumb.id)}>{crumb.label}</Anchor>))}
@@ -202,13 +203,17 @@ export function TraceView({ panelId, address, api, registerFocus }: {
   );
 }
 
-/** The leaf set below a term and each side's row count, where a side wrote rows below it. */
+/** The leaf set below a term and the row count of each side that wrote rows below it; a side that wrote none has none. */
 function leavesOf(term: TermRead, header: TraceHeader): { readonly leafSet: string; readonly rowCount: Partial<Record<Side, number>> } | undefined {
-  const sides = header.sides.filter((s) => term[s]?.leaves !== undefined && term[s]?.leaves !== null);
-  if (sides.length === 0) return undefined;
+  let leafSet: string | undefined;
   const rowCount: Partial<Record<Side, number>> = {};
-  for (const s of header.sides) rowCount[s] = term[s]?.leaves?.rowCount ?? 0;
-  return { leafSet: term[sides[0]!]!.leaves!.leafSet, rowCount };
+  for (const side of header.sides) {
+    const leaves = term[side]?.leaves;
+    if (leaves === undefined || leaves === null) continue;
+    leafSet ??= leaves.leafSet;
+    rowCount[side] = leaves.rowCount;
+  }
+  return leafSet === undefined ? undefined : { leafSet, rowCount };
 }
 
 /** What the trace is of and how it was written, always on screen (ADR-0011 §6): simulated said so, the provider and its depth. */
@@ -218,7 +223,7 @@ function TraceHeaderBar({ header, order, onOrder }: { readonly header: TraceHead
   const engines = [...new Set(header.origins.flatMap((o) => (o.engine ? [`${o.engine.name} ${o.engine.version}`] : [])))];
   const only = header.sides.length === 1 ? header.sides[0]! : undefined;
   return (
-    <Stack gap={4}>
+    <Stack gap="xs">
       <div className="qwb-toolbar" role="toolbar" aria-label="Trace">
         <Text size="sm" fw={600} data-testid="trace-title">{header.roots[0]?.label ?? header.measure}</Text>
         {origin?.subject && <Text size="sm">{origin.subject.id}{origin.subject.label ? ` · ${origin.subject.label}` : ''}</Text>}

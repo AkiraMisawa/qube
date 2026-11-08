@@ -27,6 +27,11 @@ public sealed class CcrMeasures(CapitalRatio? kappa = null) : IMeasureModule
     public static readonly CapitalRatio DefaultKappa = new(0.08, "ccr.capitalRatio", "DEFAULT 8%, ADR-0013 OPEN");
     public static readonly SaCcrSettings SaCcrSettings = new("basel cre52 · 2023-01-01");
     public static readonly RiskWeightSettings RiskWeightSettings = new(ExternalRatingsAllowed: true, Version: "basel cre20 · 2023-01-01");
+    /// <summary>
+    /// The bank's domestic currency, which picks an FX trade's foreign leg (CRE52.35). It is the bank's, never the
+    /// currency the page shows, so a trade's adjusted notional does not move with the display (DEFAULT, ADR-0013 §7).
+    /// </summary>
+    public const string DomesticCurrency = "JPY";
 
     readonly CapitalRatio kappa = kappa ?? DefaultKappa;
 
@@ -125,6 +130,7 @@ public sealed class CcrMeasures(CapitalRatio? kappa = null) : IMeasureModule
                 ["kappa"] = new JsonObject { ["value"] = kappa.Value, ["key"] = kappa.Key, ["version"] = kappa.Version },
                 ["saCcr"] = new JsonObject { ["version"] = SaCcrSettings.Version, ["irOffsetAcrossBuckets"] = SaCcrSettings.IrOffsetAcrossBuckets },
                 ["riskWeight"] = new JsonObject { ["externalRatingsAllowed"] = RiskWeightSettings.ExternalRatingsAllowed, ["version"] = RiskWeightSettings.Version },
+                ["domesticCurrency"] = DomesticCurrency,
             },
         };
     }
@@ -173,9 +179,10 @@ public sealed class CcrMeasures(CapitalRatio? kappa = null) : IMeasureModule
         throw new InvalidOperationException($"Spot capital is priced by {Request}'s request, whose KVA option returns it (ADR-0013 §2); {Module} has no step of its own.");
 
     /// <summary>
-    /// The value date, the reporting currency and the synthetic FX of the day, as the decomposition reads them. Spot
-    /// capital is computed in the workspace's display currency (ADR-0010 §1), so its figures, as XVA's, and its trace
-    /// are in the currency the page shows; SA-CCR converts every amount at the same rates, so the figure is the one
+    /// The value date, the reporting currency, the synthetic FX of the day and the bank's domestic currency, as the
+    /// decomposition reads them. Spot capital is computed in the workspace's display currency (ADR-0010 §1), so its
+    /// figures, as XVA's, and its trace are in the currency the page shows; SA-CCR converts every amount at the same
+    /// rates, and the domestic currency that picks an FX trade's foreign leg is the bank's, so the figure is the one
     /// computed in any other currency, converted.
     /// </summary>
     public static CapitalMarket MarketOf(WorkspaceState state)
@@ -184,7 +191,7 @@ public sealed class CcrMeasures(CapitalRatio? kappa = null) : IMeasureModule
         var currency = PortfolioMaterialiser.DisplayCurrency(state);
         var reporting = PortfolioMarket.UnitsPerGbp(currency, date);
         return new CapitalMarket(date, currency,
-            PortfolioMarket.Currencies.ToDictionary(c => c, c => (double)(reporting / PortfolioMarket.UnitsPerGbp(c, date))));
+            PortfolioMarket.Currencies.ToDictionary(c => c, c => (double)(reporting / PortfolioMarket.UnitsPerGbp(c, date))), DomesticCurrency);
     }
 
     /// <summary>A trade of the workspace as spot capital reads it.</summary>

@@ -149,6 +149,10 @@ adapter maps what the engine decided.
   threshold governs; the measure is refused rather than given one, and CVA and FVA stand.
 - **Haircuts** are CRE22.49's at ten business days, scaled to the MPOR: 0 for cash, a sovereign bond by its issuer's
   grade and residual maturity. Any other collateral is refused by name.
+- **The bank's domestic currency is JPY** (CRE52.35), set in `CcrMeasures` and carried in the request's settings. It
+  picks an FX trade's foreign leg, and is the bank's, never the currency the page shows: taken from the display, a
+  forward of USD against JPY would take its USD leg in JPY and its JPY leg in USD, and its EAD would move with the
+  display (found in review, 2026-11-08).
 - **V for a new trade is 0**: it is at market when it is traded, and its row says "new trade, at market (simulated)".
   An existing trade's V is its official PV (§3).
 - **The capital profile** is the spot rules at each of 0, 0.25, 0.5, 1, 2, 3, 5, 7, 10, 15, 20 and 30 years up to the

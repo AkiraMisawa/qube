@@ -109,16 +109,10 @@ export function substitute(tex: string, replace: (marker: 'slot' | 'param' | 'fi
 /** The parameters a term's formula names, and the tables its lookups read. */
 export function parametersNamed(kind: TermKind): ReadonlySet<string> {
   const names = new Set(markersOf(kind.tex).filter((m) => m.marker === 'param').map((m) => m.name));
-  const visit = (expr: TraceExpr | null | undefined): void => {
-    if (expr === null || expr === undefined) return;
+  for (const expr of nodesOf(kind.expression)) {
     if (expr.op === 'param' && typeof expr.name === 'string') names.add(expr.name);
     if (expr.op === 'lookup' && typeof expr.table === 'string') names.add(expr.table);
-    for (const field of Object.values(expr)) {
-      if (Array.isArray(field)) for (const item of field) if (isExpr(item)) visit(item);
-      if (isExpr(field)) visit(field);
-    }
-  };
-  visit(kind.expression);
+  }
   return names;
 }
 
@@ -220,26 +214,29 @@ function diffTex(diff: TermDiff, unit: TraceUnit | null | undefined): string {
  */
 export function lookupRows(kind: TermKind, term: TermRead, side: Side, operand: (id: string) => TermRead | undefined): Readonly<Record<string, string>> {
   const rows: Record<string, string> = {};
-  const visit = (expr: TraceExpr | null | undefined): void => {
-    if (expr === null || expr === undefined) return;
-    if (expr.op === 'lookup' && typeof expr.table === 'string') {
-      const row = expr.row as TraceExpr | undefined;
-      if (row?.op === 'slot' && typeof row.name === 'string') {
-        const value = operand(slotTarget(term, row.name))?.[side];
-        if (value?.state === 'value' && typeof value.value === 'string') rows[expr.table] = value.value;
-      }
-    }
-    for (const field of Object.values(expr)) {
-      if (Array.isArray(field)) for (const item of field) if (isExpr(item)) visit(item);
-      if (isExpr(field)) visit(field);
-    }
-  };
-  visit(kind.expression);
+  for (const expr of nodesOf(kind.expression)) {
+    if (expr.op !== 'lookup' || typeof expr.table !== 'string') continue;
+    const row = expr.row as TraceExpr | undefined;
+    if (row?.op !== 'slot' || typeof row.name !== 'string') continue;
+    const value = operand(slotTarget(term, row.name))?.[side];
+    if (value?.state === 'value' && typeof value.value === 'string') rows[expr.table] = value.value;
+  }
   return rows;
 }
 
 const isExpr = (value: unknown): value is TraceExpr =>
   typeof value === 'object' && value !== null && typeof (value as { op?: unknown }).op === 'string';
+
+/** Every node of an expression, itself first: the one walk each reading of a formula shares. */
+function* nodesOf(expr: TraceExpr | null | undefined): Generator<TraceExpr> {
+  if (expr === null || expr === undefined) return;
+  yield expr;
+  for (const field of Object.values(expr)) {
+    if (Array.isArray(field)) {
+      for (const item of field) if (isExpr(item)) yield* nodesOf(item);
+    } else if (isExpr(field)) yield* nodesOf(field);
+  }
+}
 
 /** A matrix parameter as a TeX array, its row labels on the left, the looked-up row marked in bold and in words. */
 export function matrixTex(parameter: TraceParameter, marked: string | undefined): string {

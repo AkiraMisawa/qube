@@ -43,7 +43,7 @@ public class CcrPricingTests
             ],
             trades ?? [E1, E2, E3, N1],
             new(new CapitalRatio(0.08, "ccr.capitalRatio", "1"), new SaCcrSettings("sa-ccr · 2023-01-01"),
-                new RiskWeightSettings(ExternalRatingsAllowed: true, Version: "basel-iii · 2023-01-01")));
+                new RiskWeightSettings(ExternalRatingsAllowed: true, Version: "basel-iii · 2023-01-01"), DomesticCurrency: "JPY"));
 
     [Fact] // ADR-0013 §3: an IRS is one interest rate exposure in its currency, an FX forward one on its pair (CRE52.35, CRE52.39)
     public void A_portfolio_trade_is_decomposed_by_its_product()
@@ -58,6 +58,17 @@ public class CcrPricingTests
         Assert.Equal("Interest rate · JPY · 1-5y · long", SpotCapitalPricing.Classification(SpotCapitalPricing.Exposures(E1, p.Market)));
         Assert.Equal("Interest rate · JPY · over 5y · short", SpotCapitalPricing.Classification(SpotCapitalPricing.Exposures(N1, p.Market)));
         Assert.Equal("FX · JPYUSD · short", SpotCapitalPricing.Classification(SpotCapitalPricing.Exposures(E3, p.Market)));
+    }
+
+    [Fact] // ADR-0013 §7, CRE52.35: the foreign leg is the one not in the bank's domestic currency, whatever currency the figures are shown in
+    public void An_FX_trades_foreign_leg_follows_the_domestic_currency_not_the_display()
+    {
+        var inUsd = Portfolio() with { ReportingCurrency = "USD", ToReporting = new Dictionary<string, double> { ["JPY"] = 1.0 / 150, ["USD"] = 1, ["EUR"] = 160.0 / 150 } };
+        // Bought USD against JPY with JPY domestic: the USD leg, 5,000,000 in USD, not the JPY leg converted (4,933,333).
+        var forward = Assert.Single(SpotCapitalPricing.Exposures(E3, inUsd.Market));
+        Assert.Equal(5_000_000, forward.Notional, 6);
+        var usdBank = inUsd with { Settings = inUsd.Settings with { DomesticCurrency = "USD" } };
+        Assert.Equal(740_000_000.0 / 150, Assert.Single(SpotCapitalPricing.Exposures(E3, usdBank.Market)).Notional, 6);
     }
 
     [Fact] // ADR-0013 §6: a trade without the fields its decomposition needs is refused by name, never decomposed by a guess

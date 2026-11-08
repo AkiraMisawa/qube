@@ -1,10 +1,14 @@
-import { call } from '../api';
+import { ApiError, call } from '../api';
 import type { TraceAddress, TraceAnswer, TraceCatalog, TraceLeavesAnswer } from './contracts';
 
 // The trace endpoints (ADR-0011 §5): a term at a time, its leaf rows paged and sorted by the server, and the
 // catalogue of kinds once per method version. A refusal arrives as an ApiError with its code, never as an empty tree.
 
 export type ChildOrder = 'formula' | 'size';
+
+/** A failed read in words: the server's code and message where it refused, the error's own message otherwise. */
+export const refusalText = (error: unknown): string =>
+  (error instanceof ApiError ? `${error.envelope.code}: ${error.message}` : error instanceof Error ? error.message : String(error));
 
 export interface TraceApi {
   term(address: TraceAddress, path: string | undefined, options?: { readonly order?: ChildOrder; readonly offset?: number; readonly limit?: number }): Promise<TraceAnswer>;

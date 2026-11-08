@@ -299,8 +299,10 @@ public static class RiskWeights
             return Lookup(table, RatedBands, 0, citation, $"{what}, unrated.");
         }
 
-        int DueDiligence(int band, IReadOnlyList<string> rows, string citation)
+        int DueDiligence(int band, RiskWeightTable table, int column, string citation)
         {
+            var rows = table.Rows;
+            double WeightOf(int b) => table.Weights[b][column];
             var up = facts.DueDiligenceBucketsUp
                 ?? throw Refuse($"the due diligence outcome is missing, and a rating-based weight is given only with it ({citation}).");
             if (up < 0) throw Refuse($"a due diligence outcome of {up} buckets: due diligence can raise a weight and never lower it ({citation}).");
@@ -310,9 +312,28 @@ public static class RiskWeights
                 Step("dueDiligence", "No uplift", "The bank's own assessment finds no more risk than the rating implies.", citation, false, input);
                 return band;
             }
-            var moved = Math.Min(band + up, RatedBands - 1);
-            Step("dueDiligence", up == 1 ? "1 bucket higher" : $"{up} buckets higher",
-                $"The bank's own assessment finds more risk than the rating implies: from {rows[band]} to {rows[moved]}.", citation, true, input);
+            // A bucket is a weight, not a row (CRE20.20, "a risk weight at least one bucket higher"): in Table 6's
+            // short-term column the three best rows share 20%, so a step up from any of them goes to the first row
+            // weighted more. The last rated row is as high as the uplift goes.
+            var moved = band;
+            for (var i = 0; i < up; i++)
+            {
+                var from = moved;
+                var next = Enumerable.Range(from + 1, RatedBands - 1 - from).FirstOrDefault(b => WeightOf(b) > WeightOf(from), -1);
+                if (next < 0) break;
+                moved = next;
+            }
+            var outcome = up == 1 ? "1 bucket higher" : $"{up} buckets higher";
+            if (moved == band)
+            {
+                Step("dueDiligence", outcome,
+                    $"The bank's own assessment finds more risk than the rating implies, and {rows[band]} at {Pct(WeightOf(band))} is already the highest weight of its column.",
+                    citation, true, input);
+                return band;
+            }
+            Step("dueDiligence", outcome,
+                $"The bank's own assessment finds more risk than the rating implies: from {rows[band]} at {Pct(WeightOf(band))} to {rows[moved]} at {Pct(WeightOf(moved))}.",
+                citation, true, input);
             return moved;
         }
 
@@ -475,7 +496,7 @@ public static class RiskWeights
                 Step("approach", "ECRA", "The jurisdiction allows external ratings for risk weights and the counterparty has an eligible rating.",
                     "CRE20.17", true, ExternalRatingsSetting);
                 var used = UseRating(Weigh(Ratings, Band, Table6, column), "counterparty");
-                var band = DueDiligence(used.Band, Table6.Rows, "CRE20.20");
+                var band = DueDiligence(used.Band, Table6, column, "CRE20.20");
                 NoFloor("The floor at the sovereign of incorporation applies under SCRA only.");
                 return Lookup(Table6, band, column, "CRE20.18", $"Bank exposure under ECRA, rating band {Table6.Rows[band]}{when}.");
             }
@@ -560,7 +581,7 @@ public static class RiskWeights
                 Step("approach", "ECRA", "The jurisdiction allows external ratings for risk weights and the counterparty has an eligible rating.",
                     "CRE20.42", true, ExternalRatingsSetting);
                 var used = UseRating(Weigh(Ratings, CorporateBand, Table10, 0), "counterparty");
-                var band = DueDiligence(used.Band, Table10.Rows, "CRE20.42");
+                var band = DueDiligence(used.Band, Table10, 0, "CRE20.42");
                 return Lookup(Table10, band, 0, "CRE20.42", $"Corporate exposure, rating band {Table10.Rows[band]}.");
             }
 

@@ -62,6 +62,16 @@ public sealed class TraceService(RunService runs, IDataReader data, CompositionR
     public const string Before = "before";
     public const string After = "after";
     public const int MaxPage = 500;
+    /// <summary>The page of children or leaf rows read when no limit is asked: the page's and the AI's alike.</summary>
+    public const int DefaultPage = 200;
+
+    /// <summary>The order of a term's children, as the endpoint and <c>trace.read</c> both take it.</summary>
+    public static ChildOrder OrderOf(string? order) => order switch
+    {
+        null or "formula" => ChildOrder.Formula,
+        "size" => ChildOrder.Size,
+        _ => throw new TraceRefused("InvalidOrder", $"order is formula or size, not {order}."),
+    };
 
     const int Retained = 32;
     readonly Lock gate = new();
@@ -71,7 +81,7 @@ public sealed class TraceService(RunService runs, IDataReader data, CompositionR
     sealed record Opened(TraceReader Reader, TraceHeader Header);
 
     /// <summary>Opens a term of a trace, or the first root when no term is named.</summary>
-    public TraceAnswer Read(TraceAddress address, string userId, string? path, ChildOrder childOrder = ChildOrder.Formula, int offset = 0, int limit = 200)
+    public TraceAnswer Read(TraceAddress address, string userId, string? path, ChildOrder childOrder = ChildOrder.Formula, int offset = 0, int limit = DefaultPage)
     {
         CheckPage(offset, limit);
         var trace = Open(address, userId);
@@ -213,16 +223,13 @@ public sealed class TraceRead(Func<TraceService> traces) : ICapabilityHandler
         var caller = invocation.Caller ?? throw new CapabilityFailure("NoCaller", "trace.read reads a Run for its caller, and was given none.");
         var request = invocation.Inputs["request"] as JsonObject ?? throw new CapabilityFailure("InvalidInput", "A request is required.");
         string? Text(string name) => request[name]?.GetValue<string>();
-        var order = Text("order") switch
-        {
-            null or "formula" => ChildOrder.Formula,
-            "size" => ChildOrder.Size,
-            var other => throw new CapabilityFailure("InvalidInput", $"order is formula or size, not {other}."),
-        };
+        // The request's schema requires both; a request that reached here without one is refused by name, never read as empty.
+        string Required(string name) => Text(name) ?? throw new CapabilityFailure("InvalidInput", $"{name} is required.");
         try
         {
-            var answer = traces().Read(new TraceAddress(Text("runId")!, Text("case") ?? TraceService.BaseCase, Text("scenario") ?? TraceService.BaseScenario,
-                Text("measure")!), caller.UserId, Text("path"), order, request["offset"]?.GetValue<int>() ?? 0, request["limit"]?.GetValue<int>() ?? 50);
+            var answer = traces().Read(new TraceAddress(Required("runId"), Text("case") ?? TraceService.BaseCase, Text("scenario") ?? TraceService.BaseScenario,
+                Required("measure")), caller.UserId, Text("path"), TraceService.OrderOf(Text("order")), request["offset"]?.GetValue<int>() ?? 0,
+                request["limit"]?.GetValue<int>() ?? TraceService.DefaultPage);
             return Task.FromResult<IReadOnlyDictionary<string, JsonNode?>>(new Dictionary<string, JsonNode?>
             {
                 ["term"] = JsonSerializer.SerializeToNode(answer, WireJson.Options),
@@ -249,7 +256,7 @@ public sealed class TracesModule(Func<TraceService> traces) : IWorkbenchModule
                 ["runId"] = new JsonObject { ["type"] = "string", ["minLength"] = 1, ["title"] = "Run" },
                 ["case"] = new JsonObject { ["type"] = "string", ["minLength"] = 1, ["title"] = "Case", ["description"] = "The case priced; base when omitted." },
                 ["scenario"] = new JsonObject { ["type"] = "string", ["minLength"] = 1, ["title"] = "Scenario", ["description"] = "base when omitted." },
-                ["measure"] = new JsonObject { ["type"] = "string", ["minLength"] = 1, ["title"] = "Measure", ["description"] = "A measure that registers a trace, such as ccr.spotCapital." },
+                ["measure"] = new JsonObject { ["type"] = "string", ["minLength"] = 1, ["title"] = "Measure", ["description"] = "A measure that registers a trace, by the id the Run's results name it by." },
                 ["path"] = new JsonObject { ["type"] = "string", ["minLength"] = 1, ["title"] = "Term", ["description"] = "The term's id; the first root when omitted." },
                 ["order"] = new JsonObject { ["type"] = "string", ["enum"] = new JsonArray("formula", "size"), ["title"] = "Children's order",
                     ["description"] = "size puts the term that moved most first, or with one side priced the largest." },

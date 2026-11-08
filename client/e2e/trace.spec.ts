@@ -73,7 +73,8 @@ test('ADR-0011 §6: a figure opens its trace, each side\'s values typeset in its
   await expect(term(page)).toHaveText('Collateral after haircuts');
   const leaves = page.getByTestId('trace-leaves');
   await settled(page, 'Leaf rows');
-  await expect(leaves).toContainText(/Before \d+ · After \d+/);
+  // Each side's count of rows, or that it wrote none: Before may hold no trade on this CSA, and is not given a 0.
+  await expect(leaves).toContainText(/Before (\d+|none written) · After \d+/);
   await expect(page.getByLabel('Side the rows show')).toBeVisible();
   // The row at the Focus has its leaf set's formulas typeset with its values.
   await leaves.getByRole('row').filter({ has: page.getByRole('gridcell') }).first().getByRole('gridcell').first().click({ force: true });

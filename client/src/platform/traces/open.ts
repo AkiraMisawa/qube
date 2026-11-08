@@ -44,7 +44,7 @@ export function openTrace(state: Pick<WorkspaceState, 'showApp'>, address: Trace
 /** `explain <measure> [path]`: the measure, then a term's path, which may hold spaces (`NS-001 CSA-A/m`). */
 export function explainTyped(text: string): { readonly measure: string; readonly path: string | undefined } {
   const [measure, ...rest] = text.trim().split(/\s+/);
-  if (measure === undefined || measure === '') throw new Error('explain needs the measure to explain, such as ccr.spotCapital.');
+  if (measure === undefined || measure === '') throw new Error('explain needs the measure to explain, then the term if one is wanted.');
   const path = rest.join(' ');
   return { measure, path: path === '' ? undefined : path };
 }

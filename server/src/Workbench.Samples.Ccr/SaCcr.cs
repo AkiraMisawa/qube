@@ -397,7 +397,8 @@ public static class SaCcr
         AssetClass.ForeignExchange => "FX",
         AssetClass.Credit => "credit",
         AssetClass.Equity => "equity",
-        _ => "commodity",
+        AssetClass.Commodity => "commodity",
+        _ => throw new ArgumentOutOfRangeException(nameof(c), c, "An asset class SA-CCR does not name."),
     };
 
     /// <summary>CRE52.72, Table 2: the supervisory factor, the correlation and the option volatility.</summary>

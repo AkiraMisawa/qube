@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Group, SegmentedControl, Stack, Text } from '@mantine/core';
 import { GridSource, type GridColumn, type GridSelection } from '@ex-grid/core';
+import { compactGridHeight } from '../grid/metrics';
 import { WorkbenchGrid } from '../grid/WorkbenchGrid';
-import { ApiError } from '../api';
-import { MAX_PAGE, type TraceApi } from './api';
+import { MAX_PAGE, refusalText, type TraceApi } from './api';
 import type { LeafSetKind, PairedLeafRow, Side, TraceAddress, TraceHeader } from './contracts';
 import { leafFormulaTex } from './formula';
 import { Tex } from './Tex';
@@ -54,7 +54,7 @@ export function LeafRows({ api, address, header, path, set, rowCount }: {
       ...(sort === undefined ? {} : { sort: sort.column, descending: sort.direction === 'descending' }),
     }, signal);
     return { rows: answer.leaves.rows, start: answer.leaves.offset, totalCount: answer.leaves.total };
-  }, { rowKey, onFetchFailed: (event) => setFailure(event.error instanceof ApiError ? `${event.error.envelope.code}: ${event.error.message}` : String(event.error)) }),
+  }, { rowKey, onFetchFailed: (event) => setFailure(refusalText(event.error)) }),
   [api, address, path]);
   useEffect(() => () => source.dispose(), [source]);
   useEffect(() => setFocus(undefined), [source]);
@@ -90,10 +90,10 @@ export function LeafRows({ api, address, header, path, set, rowCount }: {
   const total = rowCount[side];
 
   return (
-    <Stack gap={4} data-testid="trace-leaves" aria-label="Leaf rows">
+    <Stack gap="xs" data-testid="trace-leaves" aria-label="Leaf rows">
       <Group gap="xs" wrap="wrap">
         <Text size="xs" fw={600}>Rows below</Text>
-        <Text size="xs">{header.sides.map((s) => `${SIDE_TITLE[s]} ${rowCount[s] ?? 0}`).join(' · ')}</Text>
+        <Text size="xs">{header.sides.map((s) => `${SIDE_TITLE[s]} ${rowCount[s] === undefined ? 'none written' : rowCount[s]}`).join(' · ')}</Text>
         {header.sides.length === 2 && (
           <SegmentedControl size="xs" value={side} onChange={(v) => setSide(v as Side)} aria-label="Side the rows show"
             data={header.sides.map((s) => ({ value: s, label: SIDE_TITLE[s] }))} />
@@ -101,10 +101,10 @@ export function LeafRows({ api, address, header, path, set, rowCount }: {
       </Group>
       {failure !== undefined && <Alert color="red" variant="light" withCloseButton onClose={() => setFailure(undefined)} title="The rows could not be read">{failure}</Alert>}
       <WorkbenchGrid<PairedLeafRow> columns={columns} source={source} density="compact" viewportWidth="stretch"
-        viewportHeight={Math.min(36 + Math.max(total ?? 1, 1) * 28, 36 + 8 * 28)} pinnedColumnCount={1} locale="en-US" hideColumnMenu
+        viewportHeight={compactGridHeight(Math.min(total === undefined ? 1 : Math.max(total, 1), 8))} pinnedColumnCount={1} locale="en-US" hideColumnMenu
         onSelectionChanged={onSelectionChanged} />
       {focus !== undefined && focusRow !== undefined && focusRow !== null && computed.length > 0 && (
-        <Stack gap={2} data-testid="trace-leaf-formulas" aria-label={`Formulas of ${focus.entity}`}>
+        <Stack gap={0} data-testid="trace-leaf-formulas" aria-label={`Formulas of ${focus.entity}`}>
           <Text size="xs" c="dimmed">{focus.entity}{focus.component ? ` · ${focus.component}` : ''}, {SIDE_TITLE[side]}</Text>
           {computed.map((c) => <Tex key={c.name} tex={leafFormulaTex(c.tex!, focusRow, units, c.name)} display />)}
         </Stack>

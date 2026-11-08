@@ -32,13 +32,18 @@ public sealed record CapitalCollateral(
     bool Segregated = false, string? IssuerGrade = null, double? ResidualYears = null);
 
 /// <summary>
-/// What a trade's decomposition reads beside the trade: the valuation date, the reporting currency, and the FX the
-/// request froze, in units of the reporting currency per unit of each currency.
+/// What a trade's decomposition reads beside the trade: the valuation date, the reporting currency, the FX the request
+/// froze, in units of the reporting currency per unit of each currency, and the bank's domestic currency, which picks
+/// an FX trade's foreign leg (CRE52.35). The domestic currency is the bank's, never the page's display currency: a
+/// figure shown in another currency is the same figure, converted.
 /// </summary>
-public sealed record CapitalMarket(DateOnly ValuationDate, string ReportingCurrency, IReadOnlyDictionary<string, double> ToReporting);
+public sealed record CapitalMarket(DateOnly ValuationDate, string ReportingCurrency, IReadOnlyDictionary<string, double> ToReporting, string DomesticCurrency);
 
-/// <summary>κ, SA-CCR's choices and the jurisdiction's risk weight choices, as configured and frozen into the Run.</summary>
-public sealed record CapitalSettings(CapitalRatio Kappa, SaCcrSettings SaCcr, RiskWeightSettings RiskWeight);
+/// <summary>
+/// κ, SA-CCR's choices, the jurisdiction's risk weight choices and the bank's domestic currency (CRE52.35), as
+/// configured and frozen into the Run.
+/// </summary>
+public sealed record CapitalSettings(CapitalRatio Kappa, SaCcrSettings SaCcr, RiskWeightSettings RiskWeight, string DomesticCurrency);
 
 /// <summary>
 /// One counterparty's portfolio as spot capital reads it: its netting set, CSAs, collateral and trades, the FX the
@@ -57,7 +62,7 @@ public sealed record CapitalPortfolio(
     IReadOnlyList<CapitalTrade> Trades,
     CapitalSettings Settings)
 {
-    public CapitalMarket Market => new(ValuationDate, ReportingCurrency, ToReporting);
+    public CapitalMarket Market => new(ValuationDate, ReportingCurrency, ToReporting, Settings.DomesticCurrency);
 }
 
 /// <summary>Spot capital on one side: the figure and its trace, or why it could not be computed and a trace that says so. Never 0 for either.</summary>
@@ -108,8 +113,8 @@ public static class SpotCapitalPricing
                 var counter = t.CounterCurrency ?? throw new SaCcrRefused($"{t.TradeId}: the source gives no counter currency, so the pair is not known.");
                 var counterAmount = t.CounterNotional ?? throw new SaCcrRefused($"{t.TradeId}: the source gives no counter amount, so the other leg is not known.");
                 return buys
-                    ? [Decompose.FxForward(t.TradeId, t.Currency, t.Notional, counter, counterAmount, p.ValuationDate, t.Maturity, p.ReportingCurrency, p.ToReporting)]
-                    : [Decompose.FxForward(t.TradeId, counter, counterAmount, t.Currency, t.Notional, p.ValuationDate, t.Maturity, p.ReportingCurrency, p.ToReporting)];
+                    ? [Decompose.FxForward(t.TradeId, t.Currency, t.Notional, counter, counterAmount, p.ValuationDate, t.Maturity, p.DomesticCurrency, p.ToReporting)]
+                    : [Decompose.FxForward(t.TradeId, counter, counterAmount, t.Currency, t.Notional, p.ValuationDate, t.Maturity, p.DomesticCurrency, p.ToReporting)];
             }
             default:
                 throw new SaCcrRefused($"{t.TradeId}: a {t.Product} is not a product SA-CCR's decomposition knows (IRS, FXForward).");
@@ -387,7 +392,8 @@ public static class CapitalInput
             new CapitalSettings(
                 new CapitalRatio(Number(kappa["value"], "settings.kappa.value"), Text(kappa["key"], "settings.kappa.key"), Text(kappa["version"], "settings.kappa.version")),
                 new SaCcrSettings(Text(saCcr["version"], "settings.saCcr.version"), Bool(saCcr["irOffsetAcrossBuckets"], "settings.saCcr.irOffsetAcrossBuckets")),
-                new RiskWeightSettings(Bool(riskWeight["externalRatingsAllowed"], "settings.riskWeight.externalRatingsAllowed"), Text(riskWeight["version"], "settings.riskWeight.version"))));
+                new RiskWeightSettings(Bool(riskWeight["externalRatingsAllowed"], "settings.riskWeight.externalRatingsAllowed"), Text(riskWeight["version"], "settings.riskWeight.version")),
+                Text(settings["domesticCurrency"], "settings.domesticCurrency")));
     }
 
     static IReadOnlyList<ExternalRating> Ratings(JsonNode? node, string what) =>

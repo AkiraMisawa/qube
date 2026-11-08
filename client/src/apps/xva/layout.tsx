@@ -1,17 +1,11 @@
 import { useRef, type CSSProperties, type KeyboardEvent, type PointerEvent } from 'react';
 import { px } from '@mantine/core';
-import { GridMetrics } from '@ex-grid/core';
 
 // The page's own layout controls (ADR-0010 §1): a handle that sets a part's height by drag or by keys. The page is told
 // where the pointer is by the browser's events; nothing here reads a layout.
 
 const STEP = 24;
 
-// The page's compact grids take ExGrid's own Grid Metrics for their rows and header (ExGrid ADR-0028), so a grid as high
-// as its rows follows them if the preset moves.
-const compact = GridMetrics.resolve({ density: 'compact' });
-/** ExGrid's own horizontal scrollbar, a strip the viewport holds under the rows (12px by default, ExGrid ADR-0029). */
-const SCROLLBAR = 12;
 /** What a `WorkbenchGrid` adds outside its viewport: its paper's 1px border above and below. */
 export const GRID_FRAME = 2;
 
@@ -22,11 +16,8 @@ export function pixels(length: string): number {
   return n;
 }
 
-/**
- * The viewport height in pixels of a compact grid that shows `rows` rows whole, its header and scrollbar included, as
- * ExGrid's `viewportHeight` counts it. A grid that shows its Selection Summary has the status line under that.
- */
-export const compactGridHeight = (rows: number): number => compact.headerHeightPx + rows * compact.rowHeightPx + SCROLLBAR;
+// A compact grid's height is the platform's, from ExGrid's Grid Metrics.
+export { compactGridHeight } from '../../platform/grid/metrics';
 
 /**
  * A part's height as the stylesheet reads it (`--qwb-part-height`), so that below `sm`, where a part is a tab as high
