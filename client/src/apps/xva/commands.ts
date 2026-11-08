@@ -22,6 +22,8 @@ export interface XvaPage {
   setCurrency(currency: string): void;
   /** Opens an input tab, showing the inputs if they were collapsed (`open netting`, ADR-0010 §9). */
   openTab(tab: InputTab): void;
+  /** Opens the trace of a measure the dock's Run priced, at a term or its root (`explain`, ADR-0011 §7). */
+  explain(measure: string, path?: string): void;
   /** The registered measures, for the command line to offer. */
   measures(): readonly RegisteredMeasure[];
   /** The currencies the figures can be shown in, for the command line to offer. */
@@ -39,7 +41,13 @@ export function xvaPageOf(panelId: string | undefined): XvaPage | undefined {
   return panelId === undefined ? undefined : pages.get(panelId);
 }
 
-/** `measures cva fva`: the words typed, as the ids the server takes, in the order typed and once each. */
-export function measuresTyped(words: string): readonly string[] {
-  return [...new Set(words.trim().toLowerCase().split(/\s+/).filter((w) => w !== ''))];
+/**
+ * `measures cva fva`: the words typed, as the ids the server takes, in the order typed and once each. A word names a
+ * registered measure whatever its case (`ccr.spotcapital` is `ccr.spotCapital`); one that names none is sent as typed,
+ * for the server to refuse by name.
+ */
+export function measuresTyped(words: string, registered: readonly string[] = []): readonly string[] {
+  const ids = words.trim().split(/\s+/).filter((w) => w !== '')
+    .map((w) => registered.find((id) => id.toLowerCase() === w.toLowerCase()) ?? w.toLowerCase());
+  return [...new Set(ids)];
 }

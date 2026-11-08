@@ -13,6 +13,7 @@ import type { XvaApi } from './api';
 import type { EffectiveTrade, HeldEdit, RegisteredColumn, RegisteredMeasure, Resolution, ScopeDrop, XvaWorkspaceView } from './contracts';
 import { registerXvaPage } from './commands';
 import { XvaResult } from './XvaResult';
+import { BASE_CASE, BASE_SCENARIO, openTrace } from '../../platform/traces/open';
 import { EditQueue, MEASURES_ENTITY, SETTINGS_ENTITY, tradeFields, type PendingEdit } from './editing';
 import { ToolbarField } from './fields';
 import { XvaInputs, type InputTab } from './XvaInputs';
@@ -320,6 +321,17 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api }: { readonly pane
     downloadRun(runId);
   };
 
+  /** Opens a measure's trace for a case of the dock's Run, at a term or its root (ADR-0011 §6, §7). */
+  const explain = (measure: string, path?: string, caseId: string = BASE_CASE) => {
+    const runId = dockRun();
+    if (runId === undefined) { workspace.notify('Nothing is priced yet, so there is no trace to explain.'); return; }
+    const registered = view.data?.measures.find((m) => m.id === measure);
+    const traced = (view.data?.measures ?? []).filter((m) => m.traced).map((m) => m.id);
+    if (registered === undefined) { workspace.notify(`${measure} is not a measure of this page. The measures that keep a trace: ${traced.join(', ') || 'none'}.`); return; }
+    if (!registered.traced) { workspace.notify(`${registered.title} keeps no trace to explain. The measures that do: ${traced.join(', ') || 'none'}.`); return; }
+    openTrace(workspace.store.getState(), { runId, case: caseId, scenario: BASE_SCENARIO, measure }, `${registered.title} · ${view.data?.registration.key ?? ''}`.trim(), path);
+  };
+
   const setMeasures = (measures: readonly string[]) => void queue.push({ entity: MEASURES_ENTITY, field: 'measures', measures });
   /** B or A for every row of a grid, as one edit (ADR-0010 §6); a row's own edit made later wins over it. */
   const setSide = (side: 'before' | 'after', value: boolean, grid: TradeGrid = lastGrid.current) =>
@@ -329,8 +341,8 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api }: { readonly pane
   const setCurrency = (currency: string) => void queue.push({ entity: SETTINGS_ENTITY, field: 'displayCurrency', value: currency });
 
   // The commands run what the page's own controls run, as the page stands when they run (ADR-0010 §9).
-  const pageRef = useRef({ price, setMeasures, setSide, retry, copyQuote, download, refresh, setCurrency, openTab, measures: () => view.data?.measures ?? [], currencies: () => view.data?.currencies ?? [] });
-  pageRef.current = { price, setMeasures, setSide, retry, copyQuote, download, refresh, setCurrency, openTab, measures: () => view.data?.measures ?? [], currencies: () => view.data?.currencies ?? [] };
+  const pageRef = useRef({ price, setMeasures, setSide, retry, copyQuote, download, refresh, setCurrency, openTab, explain, measures: () => view.data?.measures ?? [], currencies: () => view.data?.currencies ?? [] });
+  pageRef.current = { price, setMeasures, setSide, retry, copyQuote, download, refresh, setCurrency, openTab, explain, measures: () => view.data?.measures ?? [], currencies: () => view.data?.currencies ?? [] };
   useEffect(() => {
     registerXvaPage(panelId, {
       price: () => void pageRef.current.price(),
@@ -342,6 +354,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api }: { readonly pane
       refresh: () => void pageRef.current.refresh(),
       setCurrency: (currency) => pageRef.current.setCurrency(currency),
       openTab: (tab) => pageRef.current.openTab(tab),
+      explain: (measure, path) => pageRef.current.explain(measure, path),
       measures: () => pageRef.current.measures(),
       currencies: () => pageRef.current.currencies(),
     });
@@ -446,7 +459,8 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api }: { readonly pane
             <>
               {dockOpen && <Resizer label="Height of the result dock" value={dockHeight} min={48} max={560} grows="up" onChange={setDockHeight} />}
               <XvaResult runId={pricedRun} pricedRevision={pricedRevision} revision={ws.revision} register={ws.measures} onOpen={() => openRun(pricedRun)}
-                onCopyQuote={() => void copyQuote()} open={dockOpen} onOpenChange={setDockOpen} height={dockHeight} />
+                onCopyQuote={() => void copyQuote()} onTrace={(measure, caseId) => explain(measure, undefined, caseId)}
+                open={dockOpen} onOpenChange={setDockOpen} height={dockHeight} />
             </>
           )}
       </div>

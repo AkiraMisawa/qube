@@ -346,6 +346,72 @@ provider is wired.
   portfolio module, `RegisteredMeasure` and `RegisteredColumn` repeating their definitions, the two-argument `Validate`
   used only by Price, and `Pv01Provider.Settled` used only by tests.
 
+## Spot CCR capital, KVA and the calculation trace (ADR-0011, ADR-0013, proposed 2026-11-07)
+
+### What runs
+
+- The kernel's calculation trace (ADR-0011): kinds with an expression and TeX, the states value, absent, unavailable
+  and notReturned, reconciliation of every term against its children, and a set of traces per (case, scenario, side,
+  measure) as the `calculation-traces` contract.
+- SA-CCR in full (CRE52 as of 2023-01-01) and SA's risk weight resolved at run time from the counterparty (CRE20,
+  CRE21), in `Workbench.Samples.Ccr`, writing a trace to trade level in which every term reconciles.
+- `ccr.spotCapital` registers into the pricer page: membership (a trade SA-CCR can decompose), its part of the
+  request (the counterparty's reference data, the CSAs' margining, the collateral, the FX and the settings, read from
+  the synthetic sources), an SA-CCR class column on new trades, and validation that refuses it by name while CVA and FVA stand. KVA registers as XVA's
+  measure. Selecting either asks XVA's request with its KVA option on (ADR-0013 §2), which returns spot capital and
+  its trace per side, a capital profile, and KVA from that profile, all marked simulated. After alone is priced and
+  traced on After.
+- `ccr.spotCapital` is also a capability of its own, giving the same figures.
+- A Run's trace is read a term at a time (ADR-0011 §5): `GET /api/runs/{run}/cases/{case}/traces/{measure}` answers a
+  term on each side the case priced with its Diff, slots, leaf sets, path, parameters and a page of its children;
+  `…/leaves` pages and sorts a term's leaf rows; `GET /api/traces/catalogs/{method}/{version}` gives the kinds'
+  formulas. `trace.read` (effect `ReadRun`, a command, ADR-0005's note of 2026-11-08) answers the same for the AI.
+  Only the Run's owner reads it.
+- The trace view (ADR-0011 §6, ticket 07) opens from a traced figure of the result dock, and by `explain <measure>
+  [path]` on the XVA page or on a trace. On desktop the tree of terms is a `WorkbenchGrid` with a pinned Template
+  Column (indent and open/close), its Before, After, Diff, unit, state, governed and citation columns, beside the
+  selected term's formula typeset by KaTeX 0.19.1 (pinned exactly, strict, trust for `\htmlData` alone, fonts bundled
+  by Vite): the symbols, then each priced side's values, then the Diff, each operand selecting its term. A decision
+  shows its steps and reasons, a parameter its source, a matrix the row the lookup took. A term with leaf rows shows
+  them in a grid paged and sorted by the server, a side at a time, with each row's membership and reconciliation; the
+  row at the Focus has its column formulas typeset. Alt+→ and Alt+← open and close (ADR-0011 §6's note), and
+  `focus grid` gives the tree the keyboard. Below `sm` the view drills in: the breadcrumb, the formula, then the
+  children as a list. A case priced on After alone has no Before or Diff column and says so once.
+
+### Providers
+
+- Simulated: the fake XVA provider's KVA option, through the reference SA-CCR and SA-RW. The PoC's choices where the
+  rule leaves it to the bank are ADR-0013 §7's DEFAULTs (netting sets by CSA, remargining days, haircuts, JPY as the
+  bank's domestic currency, V = 0 for a new trade, the profile's dates, KVA's formula and a 10% cost of capital). The counterparties' reference data and
+  collateral are synthetic (`PortfolioCredit`).
+
+### Verification performed
+
+| Suite | Result |
+|---|---|
+| `dotnet test server/Workbench.slnx` | 378 passed (five runs in a row after the XVA branch's retry fix, XV13), among them the BCBS SA-CCR worked examples, a case per rule, the KVA option and the trace read over HTTP |
+| `npm run typecheck`, `npm test` (Vitest) | Clean; 119 passed, among them the formula's typesetting (strict, untrusted commands refused), the tree's rows and `explain` |
+| `npx playwright test` (Chromium, headless, Linux) | 29 passed; `trace.spec.ts` with `--repeat-each=10` (30 passed), and again with `--repeat-each=5` after the review fixes (15 passed): both sides by pointer, keyboard and `explain`, After alone, and 390px drill-in with 4.5:1 text in both themes |
+| Screenshot of a Price with every measure selected, 1600px, dark | Spot capital, RWA, EAD and KVA in the dock, Trades 5 → 8; looked at by hand |
+| Screenshots of the trace at 390, 768, 992 and 1440px, dark and light | Root, risk weight's steps, its table, a netting set's collateral with its rows, PFE; no sideways scroll; looked at by hand |
+
+### Known limits
+
+- The trace view is a panel the page and `explain` open. It is not yet a component a declarative view can name
+  (ADR-0011 §6's first sentence), nor opened from the Pricing DB, and a leaf row has no action to its trade's row on
+  the page yet (§6's leaf set): the XVA page cannot yet be asked to show a trade.
+- In the light theme ExGrid Mantine draws a marked heading's words in the primary, a colour made for a 3:1 line; the
+  workbench sets the mark to the primary's text colour (`theme.css`). The Wrapper's default fails 4.5:1 with an
+  amber primary, which is ex-grid's to fix.
+- The SA-CCR class column is on the New grid only: the Existing grid takes no module columns yet.
+- SA-CCR's inputs are not yet sections of the page (ADR-0013 §6): the counterparty's risk weight facts, the CSA terms
+  only SA-CCR reads and the collateral come from the synthetic sources and cannot be edited, until the Credit tab
+  (ADR-0010 Delivery step 5) takes them.
+- A leaf row's `tradeInstanceId` is empty: XVA's request carries trades by their source id alone, though
+  `contracts/xva-submission.schema.json` defines an instance id.
+- κ (8%) and which products come first are OPEN with the owner (ADR-0013). Only IRS and FX forwards are decomposed
+  (the synthetic portfolio has no other product); any other would be out of the measure's membership with its reason.
+
 ## Next
 
 1. ADR-0010 Delivery step 2: cases (`vary`, iterative individual addition, the changes panel).

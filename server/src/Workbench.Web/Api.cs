@@ -1,5 +1,6 @@
 using System.Text.Json.Nodes;
 using Workbench.Composition.Application;
+using Workbench.Composition.Application.Traces;
 using Workbench.Composition.Contracts;
 
 namespace Workbench.Web;
@@ -39,6 +40,22 @@ public static class Api
 
         api.MapGet("/runs/{runId}", (string runId, RunService runs) =>
             runs.Find(runId) is { } run ? Results.Ok(run) : NotFound("UnknownRun", $"Run {runId} does not exist."));
+
+        // A Run's calculation trace, read a term at a time and never whole (ADR-0011 §5). The kinds' formulas are read
+        // once per method version from the catalogue.
+        api.MapGet("/runs/{runId}/cases/{caseId}/traces/{measure}", (string runId, string caseId, string measure, string? scenario, string? path,
+            string? order, int? offset, int? limit, TraceService traces, CurrentUser user) =>
+            Traced(() => traces.Read(new(runId, caseId, scenario ?? TraceService.BaseScenario, measure), user.Id, path, TraceService.OrderOf(order), offset ?? 0, limit ?? TraceService.DefaultPage)));
+
+        api.MapGet("/runs/{runId}/cases/{caseId}/traces/{measure}/leaves", (string runId, string caseId, string measure, string? scenario, string? path,
+            int? offset, int? limit, string? sort, bool? descending, TraceService traces, CurrentUser user) =>
+            Traced(() => traces.Leaves(new(runId, caseId, scenario ?? TraceService.BaseScenario, measure), user.Id,
+                path ?? throw new TraceRefused("Required", "path names the term whose leaf rows are read."), offset ?? 0, limit ?? TraceService.DefaultPage, sort, descending ?? false)));
+
+        api.MapGet("/traces/catalogs/{method}/{version}", (string method, string version, CompositionRegistry registry) =>
+            registry.FindTraceCatalog(method, version) is { } catalog
+                ? Results.Ok(catalog)
+                : NotFound("UnknownMethod", $"No module registered the kinds of {method} {version}."));
 
         // Download (ADR-0010 §7): a finished Run as a zip of its record, its frozen inputs, its results and its lineage.
         api.MapGet("/runs/{runId}/archive", (string runId, RunService runs, IDataStore store, CurrentUser user) =>
@@ -108,6 +125,30 @@ public static class Api
 
         api.MapPost("/definitions/validate-view", (ViewValidationRequest request, CompositionRegistry registry) =>
             Results.Ok(new CompositionValidator(registry).Validate(request.View, request.BoundNames.ToHashSet()).ToList()));
+    }
+
+    /// <summary>A trace's answer, or its refusal with the status that says whose it is to act on.</summary>
+    static IResult Traced<T>(Func<T> read)
+    {
+        try
+        {
+            return Results.Ok(read());
+        }
+        catch (TraceRefused refused)
+        {
+            var status = refused.Code switch
+            {
+                "UnknownRun" or "UnknownTrace" or "UnknownTerm" => 404,
+                "NotOwner" => 403,
+                "RunRunning" => 409,
+                "TraceExpired" or "TraceUnavailable" => 410,
+                "UnknownMethod" or "TraceInvalid" => 500,
+                "InvalidOrder" or "InvalidRange" or "Required" => 422,
+                // A refusal no status was chosen for is a defect here, said as one, never answered as the caller's.
+                var code => throw new InvalidOperationException($"No status is set for the trace refusal {code}."),
+            };
+            return Results.Json(new ErrorEnvelope(refused.Code, refused.Message, [], refused.Retryable), statusCode: status);
+        }
     }
 
     static IResult ToResult(SubmissionResult result) => result switch

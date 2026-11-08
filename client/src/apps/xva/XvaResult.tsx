@@ -1,5 +1,5 @@
 import { useId } from 'react';
-import { Alert, Badge, Button, Group, Stack, Table, Text } from '@mantine/core';
+import { Alert, Anchor, Badge, Button, Group, Stack, Table, Text } from '@mantine/core';
 import type { TypedDataRef } from '../../platform/contracts';
 import { archiveUrl } from '../../platform/runs';
 import { partHeight } from './layout';
@@ -13,7 +13,7 @@ import { headlines, metricsGrid, metricsTable, pricedMeasures, tradeCounts, type
 // request answers, and a failed request leaves only its own measures unavailable (§10). Collapsed, the dock is its
 // header and one line a case with each measure's headline Diff (§7).
 
-export function XvaResult({ runId, pricedRevision, revision, register, onOpen, onCopyQuote, open, onOpenChange, height }: {
+export function XvaResult({ runId, pricedRevision, revision, register, onOpen, onCopyQuote, onTrace, open, onOpenChange, height }: {
   readonly runId: string;
   /** The workspace revision the Run froze; unknown until the workspace lists the Run. */
   readonly pricedRevision: number | undefined;
@@ -23,6 +23,8 @@ export function XvaResult({ runId, pricedRevision, revision, register, onOpen, o
   readonly onOpen: () => void;
   /** Copy quote (ADR-0010 §7), which the server reads from the Run alone. */
   readonly onCopyQuote: () => void;
+  /** Opens a measure's trace for a case at its root (ADR-0011 §6), from a Metrics cell of a measure that keeps one. */
+  readonly onTrace: (measure: string, caseId: string) => void;
   /** The Metrics shown, or only a line a case. */
   readonly open: boolean;
   readonly onOpenChange: (open: boolean) => void;
@@ -137,7 +139,12 @@ export function XvaResult({ runId, pricedRevision, revision, register, onOpen, o
                       <Table.Th scope="row">{row.title}</Table.Th>
                       {grid.columns.flatMap((c) => sides.map(([side, title]) => {
                         const line = row.cells[c.key];
-                        return <Figure key={`${c.key}.${side}`} cell={line?.[side]} line={line} label={`${c.metricTitle} ${title}`} />;
+                        // A measure that keeps a trace opens it from each of its figures of a case, once the Run has finished
+                        // (ADR-0010 §7); a line of no case is one whose module gave no rows, and has no trace to open.
+                        const caseId = line?.case;
+                        const traced = status !== 'running' && caseId !== undefined && register.find((m) => m.id === line!.measure)?.traced === true;
+                        return <Figure key={`${c.key}.${side}`} cell={line?.[side]} line={line} label={`${c.metricTitle} ${title}`}
+                          {...(traced ? { onTrace: () => onTrace(line!.measure, caseId) } : {})} />;
                       }))}
                     </Table.Tr>
                   ))}
@@ -156,14 +163,22 @@ export function XvaResult({ runId, pricedRevision, revision, register, onOpen, o
   );
 }
 
-/** One figure, or the word for why there is none; a blank where no Diff exists, never 0. */
-function Figure({ cell, line, label }: { readonly cell: MetricCell | undefined; readonly line: MetricLine | undefined; readonly label: string }) {
+/**
+ * One figure, or the word for why there is none; a blank where no Diff exists, never 0. A figure of a measure that
+ * keeps a trace is a link to it: why there is a figure, or why there is none, is the trace's to say.
+ */
+function Figure({ cell, line, label, onTrace }: {
+  readonly cell: MetricCell | undefined; readonly line: MetricLine | undefined; readonly label: string; readonly onTrace?: () => void;
+}) {
   if (cell === undefined) return <Table.Td className="qwb-number" aria-label={`${label}: not asked`} />;
   const word = cell.status !== 'priced' && cell.status !== 'pending';
   return (
     <Table.Td className={word ? 'qwb-number qwb-xva-result-word' : 'qwb-number'} data-status={cell.status}
       {...(line?.reason === undefined ? {} : { title: line.reason })}>
-      {cell.text}
+      {onTrace === undefined || cell.status === 'pending' || cell.status === 'notPriced'
+        ? cell.text
+        : <Anchor component="button" size="sm" className="qwb-xva-result-trace" onClick={onTrace} data-testid="xva-result-trace"
+          aria-label={`${label} ${cell.text}: open its trace`}>{cell.text}</Anchor>}
     </Table.Td>
   );
 }

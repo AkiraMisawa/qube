@@ -68,14 +68,26 @@ public sealed record TradeCell(JsonNode? Value, string State, string? Note, bool
     public static TradeCell Input(JsonNode? value) => new(value, Shown, null, true);
 }
 
-/// <summary>A measure in the workspace view: its definition and the module that owns it.</summary>
-public sealed record RegisteredMeasure(string Id, string Title, string Module, IReadOnlyList<MetricDefinition> Metrics, string Headline, bool DeclaresMembership, bool Traced, bool Quoted);
+/// <summary>
+/// A measure in the workspace view: its definition, the module that owns it, and the module whose request prices it,
+/// whose step's result holds its rows (ADR-0010 §10).
+/// </summary>
+public sealed record RegisteredMeasure(string Id, string Title, string Module, IReadOnlyList<MetricDefinition> Metrics, string Headline, bool DeclaresMembership, bool Traced,
+    bool Quoted, string Request);
 
 /// <summary>A domain module's registration into the pricer (ADR-0010 §10). XVA's is the first (§11).</summary>
 public interface IMeasureModule
 {
     /// <summary>The module's id, such as <c>xva</c>; it names the module's part of the accepted input and its Run output.</summary>
     string Id { get; }
+
+    /// <summary>
+    /// The module whose request prices this module's measures: which request computes a measure is the provider's,
+    /// not the page's (ADR-0010 §10). Its own unless another module's provider returns them, as XVA's KVA option
+    /// returns spot CCR capital (ADR-0013 §2); that request then reads this module's part of the accepted input, and
+    /// this module's step is never asked for.
+    /// </summary>
+    string PricedBy => Id;
 
     /// <summary>The measures it owns, in the order the page shows them.</summary>
     IReadOnlyList<MeasureDefinition> Measures { get; }
@@ -129,10 +141,31 @@ public sealed class MeasureRegister
     public MeasureRegister(IEnumerable<IMeasureModule> modules)
     {
         Modules = [.. modules];
-        Measures = [.. Modules.SelectMany(m => m.Measures.Select(d => new RegisteredMeasure(d.Id, d.Title, m.Id, d.Metrics, d.Headline, d.DeclaresMembership, d.Traced, d.Quoted)))];
+        Measures = [.. Modules.SelectMany(m => m.Measures.Select(d => new RegisteredMeasure(d.Id, d.Title, m.Id, d.Metrics, d.Headline, d.DeclaresMembership, d.Traced, d.Quoted, m.PricedBy)))];
         var duplicate = Measures.GroupBy(m => m.Id).FirstOrDefault(g => g.Count() > 1);
         if (duplicate is not null)
             throw new InvalidOperationException($"Measure {duplicate.Key} is registered by {string.Join(" and ", duplicate.Select(m => m.Module))}.");
+        var clash = Modules.Select(m => m.Id).FirstOrDefault(id => Measures.Any(m => m.Id == id));
+        if (clash is not null)
+            throw new InvalidOperationException($"{clash} is both a module and a measure, so `measures {clash}` would mean two things.");
+        // A request is a module's own: one priced by another module's request cannot pass it on.
+        foreach (var module in Modules.Where(m => m.PricedBy != m.Id))
+            if (Modules.SingleOrDefault(m => m.Id == module.PricedBy) is not { } request || request.PricedBy != request.Id)
+                throw new InvalidOperationException($"Module {module.Id} is priced by {module.PricedBy}, which is not a registered module pricing its own measures.");
+    }
+
+    /// <summary>The modules whose requests a selection runs, in module order: those that price a selected measure.</summary>
+    public IReadOnlyList<IMeasureModule> Requests(IReadOnlyList<string> selected)
+    {
+        var requests = Measures.Where(m => selected.Contains(m.Id)).Select(m => m.Request).ToHashSet();
+        return [.. Modules.Where(m => requests.Contains(m.Id))];
+    }
+
+    /// <summary>The modules whose part of the accepted input a selection's requests read: every module they price.</summary>
+    public IReadOnlyList<IMeasureModule> Inputs(IReadOnlyList<string> selected)
+    {
+        var requests = Requests(selected).Select(r => r.Id).ToHashSet();
+        return [.. Modules.Where(m => requests.Contains(m.PricedBy))];
     }
 
     public IReadOnlyList<string> Ids => [.. Measures.Select(m => m.Id)];
@@ -216,14 +249,18 @@ public sealed class MeasureRegister
         })];
     }
 
-    /// <summary>A selection as given, checked and put in register order. Refused by name, never trimmed to what is known.</summary>
+    /// <summary>
+    /// A selection as given, checked and put in register order. A module's id stands for all of its measures
+    /// (`measures cva ccr`, ADR-0013 §1). Refused by name, never trimmed to what is known.
+    /// </summary>
     public IReadOnlyList<string> Checked(IReadOnlyList<string> selection)
     {
-        var unknown = selection.Where(s => !Ids.Contains(s)).Distinct().ToList();
+        var expanded = selection.SelectMany(s => Modules.SingleOrDefault(m => m.Id == s) is { } module ? module.Measures.Select(d => d.Id) : [s]).ToList();
+        var unknown = expanded.Where(s => !Ids.Contains(s)).Distinct().ToList();
         if (unknown.Count > 0)
             throw new WorkspaceRefused("UnknownMeasure", $"No measure {string.Join(", ", unknown)} is registered; the measures are {string.Join(", ", Ids)}.");
-        if (selection.Count == 0)
+        if (expanded.Count == 0)
             throw new WorkspaceRefused("NoMeasure", "Select at least one measure to price.");
-        return [.. Ids.Where(selection.Contains)];
+        return [.. Ids.Where(expanded.Contains)];
     }
 }

@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Text.Json.Nodes;
 using Workbench.Composition.Application.Workspaces;
@@ -29,6 +30,12 @@ public sealed record EffectiveTrade(
     IReadOnlyList<string> Issues,
     IReadOnlyList<string> Held,
     IReadOnlyList<string> Overridden,
+    // The source's terms SA-CCR's decomposition reads (ADR-0013 §3), read-only: the start, the direction, and an FX
+    // forward's other leg. Null where the source gives none.
+    string? Start = null,
+    string? Direction = null,
+    string? CounterCurrency = null,
+    decimal? CounterNotional = null,
     // Each declared measure's membership (ADR-0010 §10), set by the register; none where no measure declares one.
     IReadOnlyDictionary<string, Membership>? Membership = null,
     // The fields whose value differs from Original, with Original's value (ADR-0010 §2); none where nothing differs.
@@ -276,6 +283,7 @@ public static class PortfolioMaterialiser
             Side("after", true),
             issues,
             [.. held[entity]],
-            [.. EditableFields.Where(f => overrides.ContainsKey((entity, f)))]);
+            [.. EditableFields.Where(f => overrides.ContainsKey((entity, f)))],
+            t.Start?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), t.Direction, t.CounterCurrency, t.CounterNotional);
     }
 }

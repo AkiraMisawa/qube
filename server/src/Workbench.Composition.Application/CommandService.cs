@@ -12,7 +12,7 @@ public abstract record CommandResult
 }
 
 /// <summary>
-/// The command gateway (ADR-0005): invokes a capability that edits a workspace or runs a subscription, for a caller
+/// The command gateway (ADR-0005): invokes a capability that edits a workspace, runs a subscription or reads a Run, for a caller
 /// the server authenticated, outside Runs. Inputs are checked against the capability's contracts before the handler
 /// sees them; what the command did is recorded where it happened (the workspace's edit log, its live status).
 ///

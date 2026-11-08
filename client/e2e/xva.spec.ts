@@ -1,25 +1,8 @@
 import { readFile } from 'node:fs/promises';
 import type { Page } from '@playwright/test';
-import { command, expect, open, settled, test } from './fixtures';
+import { command, expect, newWorkspace, open, settled, test, textBelowContrast } from './fixtures';
 
 // Slice 02 (docs/plans/slice-02-xva-workspace.md): the XVA workspace and the Pricing DB, driven by keyboard.
-
-async function newWorkspace(page: Page, registration: string, trades: number): Promise<void> {
-  await command(page, 'new xva');
-  const dialog = page.getByRole('dialog', { name: 'New XVA workspace' });
-  await expect(dialog.getByRole('combobox', { name: 'Counterparty' })).toBeFocused();
-  await page.keyboard.type(registration);
-  // The counterparties load as the dialog opens: the option is read once it is listed, never before.
-  await expect(page.getByRole('option', { name: new RegExp(`^${registration} `) })).toBeVisible();
-  await page.keyboard.press('ArrowDown');
-  await page.keyboard.press('Enter');
-  await expect(dialog.getByRole('combobox', { name: 'Counterparty' })).toHaveValue(new RegExp(`^${registration} `));
-  await dialog.getByLabel('Existing trades (synthetic)').fill(String(trades));
-  await page.keyboard.press('Enter');
-  await expect(page.getByRole('tab', { name: `XVA ${registration}` })).toHaveAttribute('aria-selected', 'true');
-  await settled(page, 'New trades');
-  await settled(page, 'Existing trades');
-}
 
 // New trades and existing trades are in grids of their own (ADR-0010 §6); a trade's id names its row in either.
 const trade = (page: Page, id: string) => page.getByRole('row', { name: new RegExp(`^${id} `) });
@@ -43,6 +26,9 @@ const cell = (page: Page, id: string, column: number) => trade(page, id).locator
 test('docs/03, ADR-0003: a new trade takes the main CSA, a CSA typed in moves its curve, and Price lands in the Pricing DB', async ({ page }) => {
   await open(page);
   await newWorkspace(page, 'ABC/LE-01', 0);
+  // A new workspace starts on its owner's last selection, which another test may have left.
+  await command(page, 'measures', 'cva fva');
+  await expect(page.getByTestId('price')).toHaveText('Price After only · CVA FVA · 1 case');
   // XV15: an empty CVA recovery stays empty on screen (it once read "undefined"); the CDS recovery is its placeholder.
   await expect(page.getByLabel('CVA recovery', { exact: true })).toHaveValue('');
   await expect(page.getByLabel('CVA recovery', { exact: true })).toHaveAttribute('placeholder', /^empty: CDS /);
@@ -326,48 +312,6 @@ test('ADR-0010 §1, docs/design-guidelines.md §7: in the dark and the light the
     expect(await page.locator('.qwb-xva').evaluate(textBelowContrast, 4.5), `${scheme} at 390px: text below 4.5:1`).toEqual([]);
   }
 });
-
-/** Each enabled text under `root` whose colour reads below `minimum` against its backgrounds, composited as painted. */
-function textBelowContrast(root: Element, minimum: number): readonly string[] {
-  // A computed colour is rgb() or rgba(), or color(srgb …) in 0 to 1 where it was mixed (the light theme's text).
-  const rgba = (css: string): readonly [number, number, number, number] => {
-    const match = /^(rgba?|color)\((?:srgb\s+)?([^)]+)\)$/.exec(css);
-    const parts = match?.[2]?.split(/[\s,/]+/).filter((p) => p !== '').map(Number);
-    if (match === null || parts === undefined || parts.length < 3 || parts.some(Number.isNaN)) throw new Error(`Not an sRGB colour: ${css}`);
-    const scale = match[1] === 'color' ? 255 : 1;
-    return [(parts[0] ?? 0) * scale, (parts[1] ?? 0) * scale, (parts[2] ?? 0) * scale, parts[3] ?? 1];
-  };
-  const over = (top: readonly number[], bottom: readonly number[]) =>
-    [0, 1, 2].map((i) => (top[i] ?? 0) * (top[3] ?? 1) + (bottom[i] ?? 0) * (1 - (top[3] ?? 1)));
-  const luminance = (c: readonly number[]) => [0.2126, 0.7152, 0.0722].reduce((sum, weight, i) => {
-    const v = (c[i] ?? 0) / 255;
-    return sum + weight * (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
-  }, 0);
-  const faint: string[] = [];
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-  for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
-    const element = node.parentElement;
-    const text = node.textContent?.trim() ?? '';
-    if (element === null || text === '' || element.getClientRects().length === 0) continue;
-    // WCAG 1.4.3 exempts a control that cannot be used.
-    if (element.closest('[disabled], [data-disabled], [aria-disabled="true"]') !== null) continue;
-    const layers: (readonly number[])[] = [];
-    let opacity = 1;
-    for (let e: Element | null = element; e !== null; e = e.parentElement) {
-      const style = getComputedStyle(e);
-      opacity *= Number(style.opacity);
-      const fill = rgba(style.backgroundColor);
-      if (fill[3] > 0 && (layers.length === 0 || (layers[layers.length - 1]?.[3] ?? 0) < 1)) layers.push(fill);
-    }
-    const background = layers.reduceRight<readonly number[]>((below, layer) => [...over(layer, below), 1], [255, 255, 255, 1]);
-    const ink = rgba(getComputedStyle(element).color);
-    const shown = over([ink[0], ink[1], ink[2], ink[3] * opacity], background);
-    const [light, dark] = [luminance(shown), luminance(background)].sort((x, y) => y - x);
-    const ratio = ((light ?? 0) + 0.05) / ((dark ?? 0) + 0.05);
-    if (ratio < minimum) faint.push(`${text.slice(0, 40)}: ${ratio.toFixed(2)}`);
-  }
-  return faint;
-}
 
 test('ADR-0010 §3, §6: `before none` clears Before on every existing trade at once, and Price then prices After alone', async ({ page }) => {
   await open(page);

@@ -2,11 +2,13 @@ using Workbench.Composition.Application.Products;
 using System.Text.Json.Nodes;
 using Workbench.Agent;
 using Workbench.Composition.Application;
+using Workbench.Composition.Application.Traces;
 using Workbench.Composition.Application.Workspaces;
 using Workbench.Composition.Contracts;
 using Workbench.Persistence.Sqlite;
 using Workbench.Samples.Rates;
 using Workbench.Samples.Synthetic;
+using Workbench.Samples.Ccr;
 using Workbench.Samples.Portfolio;
 using Workbench.Samples.Xva;
 using Workbench.Web;
@@ -25,6 +27,7 @@ builder.Services.ConfigureHttpJsonOptions(o =>
 builder.Services.AddSingleton<IWorkbenchModule, SyntheticModule>();
 builder.Services.AddSingleton<IWorkbenchModule, PortfolioModule>();
 builder.Services.AddSingleton<IWorkbenchModule, XvaModule>();
+builder.Services.AddSingleton<IWorkbenchModule, CcrModule>();
 
 // Rates (docs/07): conventions and the synthetic market come from configuration; the provider is the fake one,
 // which says simulated on every figure. A real worker replaces IRatesPricingProvider here and nowhere else.
@@ -47,6 +50,9 @@ builder.Services.AddSingleton<IProductRules>(sp => new CcsRules(conventions, sp.
 builder.Services.AddSingleton<ProductService>();
 builder.Services.AddSingleton<IWorkbenchModule>(sp => new ProductsModule(sp.GetRequiredService<ProductService>));
 builder.Services.AddSingleton(sp => new CommandService(sp.GetRequiredService<CompositionRegistry>(), sp.GetRequiredService<IDataStore>()));
+// A Run's calculation traces (ADR-0011 §5, §7): the read endpoint and trace.read open them through one service.
+builder.Services.AddSingleton(sp => new TraceService(sp.GetRequiredService<RunService>(), sp.GetRequiredService<IDataStore>(), sp.GetRequiredService<CompositionRegistry>()));
+builder.Services.AddSingleton<IWorkbenchModule>(sp => new TracesModule(sp.GetRequiredService<TraceService>));
 if (rates.Ticker)
     builder.Services.AddHostedService(sp => new MarketTicker(sp.GetRequiredService<MarketFeed>(), rates.SyntheticMarket.Config().Step, sp.GetRequiredService<ILogger<MarketTicker>>()));
 builder.Services.AddSingleton<CompositionRegistry>();
@@ -71,6 +77,10 @@ builder.Services.AddSingleton(sp => new WorkspaceService(
 builder.Services.AddSingleton(sp => Pv01Provider.Simulated(TimeSpan.FromMilliseconds(builder.Configuration.GetValue("Xva:Pv01DelayMilliseconds", 400)),
     sp.GetRequiredService<TimeProvider>()));
 builder.Services.AddSingleton<IMeasureModule, XvaMeasures>();
+// Spot CCR capital (ADR-0013), priced by XVA's request with KVA on. κ is configuration: 8% unless Ccr:CapitalRatio says.
+builder.Services.AddSingleton<IMeasureModule>(_ => new CcrMeasures(builder.Configuration["Ccr:CapitalRatio"] is { } ratio
+    ? new CapitalRatio(double.Parse(ratio, System.Globalization.CultureInfo.InvariantCulture), "Ccr:CapitalRatio", "configuration")
+    : null));
 builder.Services.AddSingleton<MeasureRegister>();
 builder.Services.AddSingleton<PortfolioWorkspaces>();
 // The AI pane (ADR-0007): the agent runtime is chosen here and nowhere else, by configuration, and an unknown one stops

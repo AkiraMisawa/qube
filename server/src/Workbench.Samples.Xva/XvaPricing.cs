@@ -4,6 +4,7 @@ using System.Text.Json.Nodes;
 using Workbench.Composition.Application;
 using Workbench.Composition.Application.Workspaces;
 using Workbench.Composition.Contracts;
+using Workbench.Samples.Ccr;
 using Workbench.Samples.Portfolio;
 
 namespace Workbench.Samples.Xva;
@@ -16,12 +17,15 @@ public static class XvaContracts
     /// <summary>The result of a Run priced before the measures register; read by the Pricing DB, never written.</summary>
     public const string CaseResult = "xva.case-result";
     public const string ResultView = "view.xva.result";
+    /// <summary>The capital profile the KVA option returns (ADR-0010 §11, ADR-0013 §1): a row per case, side and date.</summary>
+    public const string CapitalProfile = "xva.capital-profile";
 }
 
 /// <summary>
-/// XVA's registration into the pricer (ADR-0010 §11): CVA, with its CVA Charge, and FVA, which prices only trades on
-/// imperfectly collateralised CSAs (§5); and its columns on new trades, PV01, Margin and PV Adj (§6). MVA and KVA follow
-/// when the engine's options for them are built.
+/// XVA's registration into the pricer (ADR-0010 §11): CVA, with its CVA Charge; FVA, which prices only trades on
+/// imperfectly collateralised CSAs (§5); KVA, from the capital profile its KVA option returns with spot CCR capital
+/// (ADR-0013 §2); and its columns on new trades, PV01, Margin and PV Adj (§6). MVA follows when the engine's option
+/// for it is built.
 /// </summary>
 /// <param name="pv01">Where new trades' PV01 comes from.</param>
 /// <param name="fvaLimitGbp">FVA's MTA + threshold limit in GBP, configuration (§5): 1mm unless set.</param>
@@ -30,6 +34,7 @@ public sealed class XvaMeasures(Pv01Provider pv01, decimal fvaLimitGbp = 1_000_0
     public const string Module = "xva";
     public const string Cva = "cva";
     public const string Fva = "fva";
+    public const string Kva = "kva";
     public const string Pv01 = "pv01";
     public const string Margin = "margin";
     public const string PvAdj = "pvAdj";
@@ -45,6 +50,8 @@ public sealed class XvaMeasures(Pv01Provider pv01, decimal fvaLimitGbp = 1_000_0
         // beside the charge (ADR-0010 §7).
         new(Cva, "CVA", [new("cva", "CVA"), new("cvaCharge", "CVA Charge"), new("pv", "PV")], "cva", DeclaresMembership: false, Traced: false, Quoted: true),
         new(Fva, "FVA", [new("fva", "FVA")], "fva", DeclaresMembership: true, Traced: false),
+        // The cost of holding spot CCR capital's profile (ADR-0010 §11, ADR-0013 §1); the profile has no trace.
+        new(Kva, "KVA", [new("kva", "KVA")], "kva", DeclaresMembership: false, Traced: false),
     ];
 
     public IReadOnlyList<MeasureDefinition> Measures => Definitions;
@@ -129,10 +136,16 @@ public sealed class XvaMeasures(Pv01Provider pv01, decimal fvaLimitGbp = 1_000_0
     public IReadOnlyList<MeasureRefusal> Validate(WorkspaceState state, IReadOnlyList<string> selected, IReadOnlyList<EffectiveTrade> priced)
     {
         var unknown = priced.SelectMany(t => t.Cells?.GetValueOrDefault(Field(PvAdj)) is { State: not TradeCell.Shown } cell ? [(t.TradeId, Cell: cell)] : Array.Empty<(string TradeId, TradeCell Cell)>()).ToList();
-        if (unknown.Count == 0) return [];
-        var (tradeId, first) = unknown[0];
-        var why = $"PV Adj of {tradeId} is unknown: {first.Note}" + (unknown.Count > 1 ? $" ({unknown.Count - 1} more trade(s) too)" : "");
-        return [.. selected.Select(id => new MeasureRefusal(id, "PvAdjUnknown", why))];
+        if (unknown.Count > 0)
+        {
+            var (tradeId, first) = unknown[0];
+            var why = $"PV Adj of {tradeId} is unknown: {first.Note}" + (unknown.Count > 1 ? $" ({unknown.Count - 1} more trade(s) too)" : "");
+            return [.. selected.Select(id => new MeasureRefusal(id, "PvAdjUnknown", why))];
+        }
+        // KVA is the cost of spot CCR capital's profile, so what refuses spot capital refuses KVA (ADR-0013 §6).
+        return selected.Contains(Kva) && CcrMeasures.Problem(state, priced) is { } problem
+            ? [new MeasureRefusal(Kva, "SpotCapitalRefused", $"KVA reads spot CCR capital: {problem}")]
+            : [];
     }
 
     public WorkflowStep Step(TypedDataRef acceptedInput) => new(Module, FakeXvaPrice.CapabilityId, FakeXvaPrice.CapabilityVersion, [],
@@ -194,17 +207,33 @@ public sealed class ImperfectCsa : IMembershipRule
 public sealed class FakeXvaPrice : ICapabilityHandler
 {
     public const string CapabilityId = "xva.price";
-    public const string CapabilityVersion = "2.0.0";
+    public const string CapabilityVersion = "2.1.0";
     /// <summary>The simulated charge ratio CVA Charge applies to CVA (ADR-0010 OPEN: what the charge approximates).</summary>
     public const decimal ChargeRatio = 1.25m;
+    /// <summary>The simulated cost of capital KVA charges a year (ADR-0010 §11: a setting, OPEN).</summary>
+    public const decimal CostOfCapital = 0.10m;
 
-    public CapabilityDescriptor Descriptor { get; } = new(CapabilityId, CapabilityVersion, "Price CVA and FVA (simulated)",
+    public CapabilityDescriptor Descriptor { get; } = new(CapabilityId, CapabilityVersion, "Price CVA, FVA, KVA and spot CCR capital (simulated)",
         [new("acceptedInput", PortfolioContracts.AcceptedInput, PortfolioContracts.Version, Cardinality.One)],
-        [new("result", PortfolioContracts.MeasureResult, PortfolioContracts.Version, Cardinality.One)],
+        [new("result", PortfolioContracts.MeasureResult, PortfolioContracts.Version, Cardinality.One),
+         new("traces", TraceSet.ContractId, TraceSet.ContractVersion, Cardinality.One),
+         new("profile", XvaContracts.CapitalProfile, XvaContracts.Version, Cardinality.One)],
         ExecutionKind.RequestResponse, [CapabilityEffect.Compute]);
 
     /// <summary>One side's toy figures, in the result's currency, and how many trades it priced and FVA counted.</summary>
     readonly record struct SideFigures(decimal Cva, decimal Fva, decimal Pv, int Count, int FvaCount);
+
+    static readonly IReadOnlyList<DatasetColumn> ProfileColumns =
+    [
+        new("case", DatasetColumnType.String, false),
+        new("side", DatasetColumnType.String, false),
+        new("years", DatasetColumnType.Number, false),
+        new("date", DatasetColumnType.String, false),
+        new("trades", DatasetColumnType.Integer, false),
+        new("ead", DatasetColumnType.Number, false),
+        new("capital", DatasetColumnType.Number, false),
+        new("currency", DatasetColumnType.String, false),
+    ];
 
     public Task<IReadOnlyDictionary<string, JsonNode?>> InvokeAsync(CapabilityInvocation invocation, CancellationToken cancellationToken)
     {
@@ -275,8 +304,31 @@ public sealed class FakeXvaPrice : ICapabilityHandler
         MeasureResult.Side Figure(SideFigures side, Func<SideFigures, decimal> value, bool fva) =>
             side.Count == 0 ? MeasureResult.Side.NotPricedWith(0) : MeasureResult.Side.Of(value(side), fva ? side.FvaCount : side.Count);
 
-        var rows = new List<JsonObject>();
-        foreach (var selected in input["measures"]!.AsArray().Select(m => m!.AsObject()).Where(m => m["module"]!.GetValue<string>() == XvaMeasures.Module))
+        var provenance = new DatasetProvenance(ExecutionMode.Simulated, DataOrigin.Synthetic, invocation.InvocationId);
+        var measures = input["measures"]!.AsArray().Select(m => m!.AsObject()).ToList();
+        // The KVA option (ADR-0013 §2): on when KVA or spot capital is selected, since it computes spot capital, its
+        // trace and the capital profile; the page shows each only where it is selected.
+        var kvaOption = measures.Any(m => m["id"]!.GetValue<string>() is XvaMeasures.Kva or CcrMeasures.SpotCapital);
+        var capital = kvaOption ? SpotCapitalResults.Answer(input.AsObject(), invocation.InvocationId, provenance) : null;
+        var profiles = new Dictionary<string, IReadOnlyList<CapitalPoint>>();
+        if (capital?.Portfolio is { } portfolio)
+            foreach (var side in new[] { capital.Before, capital.After })
+                if (side.Capital is { } spot) profiles[side.Side] = SpotCapitalPricing.Profile(portfolio, side.Side, spot);
+
+        // KVA = −CoC · Σ K(tᵢ) · (tᵢ₊₁ − tᵢ), the last period running to the last maturity: undiscounted, and simulated.
+        MeasureResult.Side Kva(SideCapital side)
+        {
+            if (side.Trades == 0) return MeasureResult.Side.NotPricedWith(0);
+            if (!profiles.TryGetValue(side.Side, out var points))
+                return new MeasureResult.Side(MeasureResult.Unavailable, null, side.Trades, $"KVA reads spot CCR capital: {side.Refused}");
+            var last = capital!.Portfolio!.Trades.Where(t => side.Side == SpotCapitalPricing.Before ? t.Before : t.After).Max(t => t.Maturity);
+            var end = Decompose.Years(capital.Portfolio.ValuationDate, last);
+            var cost = points.Select((x, i) => (decimal)x.Capital * (decimal)((i + 1 < points.Count ? points[i + 1].Years : end) - x.Years)).Sum();
+            return MeasureResult.Side.Of(Math.Round(-CostOfCapital * cost, 2), side.Trades);
+        }
+
+        var rows = new List<JsonObject>(capital?.Rows ?? []);
+        foreach (var selected in measures.Where(m => m["module"]!.GetValue<string>() == XvaMeasures.Module))
         {
             var definition = definitions[selected["id"]!.GetValue<string>()];
             foreach (var metric in definition.Metrics)
@@ -285,6 +337,11 @@ public sealed class FakeXvaPrice : ICapabilityHandler
                 {
                     var side = new MeasureResult.Side(MeasureResult.Refused, null, null, refused["message"]!.GetValue<string>());
                     rows.Add(MeasureResult.Row("base", "Workspace", definition.Id, metric, currency, side, side));
+                    continue;
+                }
+                if (definition.Id == XvaMeasures.Kva)
+                {
+                    rows.Add(MeasureResult.Row("base", "Workspace", definition.Id, metric, currency, Kva(capital!.Before), Kva(capital.After)));
                     continue;
                 }
                 Func<SideFigures, decimal> value = metric.Id switch
@@ -301,8 +358,15 @@ public sealed class FakeXvaPrice : ICapabilityHandler
         }
         return Task.FromResult<IReadOnlyDictionary<string, JsonNode?>>(new Dictionary<string, JsonNode?>
         {
-            ["result"] = Datasets.Create("CVA and FVA (simulated)", MeasureResult.Columns, rows,
-                new(ExecutionMode.Simulated, DataOrigin.Synthetic, invocation.InvocationId)),
+            ["result"] = Datasets.Create("XVA (simulated)", MeasureResult.Columns, rows, provenance),
+            ["traces"] = JsonSerializer.SerializeToNode(capital?.Traces ?? new TraceSet([]), WireJson.Options),
+            ["profile"] = Datasets.Create("Capital profile (simulated: the spot rules on the trades still alive, today's values held)", ProfileColumns,
+                profiles.SelectMany(p => p.Value.Select(x => new JsonObject
+                {
+                    ["case"] = SpotCapitalResults.Case, ["side"] = p.Key, ["years"] = x.Years,
+                    ["date"] = x.Date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), ["trades"] = x.Trades,
+                    ["ead"] = Math.Round(x.Ead, 2), ["capital"] = Math.Round(x.Capital, 2), ["currency"] = capital!.Portfolio!.ReportingCurrency,
+                })), provenance),
         });
     }
 }
