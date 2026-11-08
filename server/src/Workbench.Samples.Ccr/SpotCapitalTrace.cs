@@ -498,7 +498,7 @@ public static class SpotCapitalTrace
                     var en = id + "/en";
                     Term(en, offset ? "saccr.irEffectiveNotional" : "saccr.irEffectiveNotionalWithoutOffset", set.EffectiveNotional!.Value, id, 3,
                         because: offset ? null : [$"The bank does not offset across maturity buckets ({capital.Exposure.Settings.Version})."]);
-                    foreach (var (bucket, range) in new[] { (1, "under 1y"), (2, "1-5y"), (3, "over 5y") })
+                    foreach (var (bucket, range) in SaCcr.BucketNames.Select((name, i) => (i + 1, name)))
                     {
                         var bucketId = $"{en}/b{bucket}";
                         var bucketKey = new Dictionary<string, string> { ["bucket"] = range };

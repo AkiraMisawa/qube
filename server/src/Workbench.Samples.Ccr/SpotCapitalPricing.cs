@@ -31,6 +31,12 @@ public sealed record CapitalCollateral(
     string Id, string CsaId, CollateralDirection Direction, CollateralPurpose Purpose, string Type, string Currency, double Amount,
     bool Segregated = false, string? IssuerGrade = null, double? ResidualYears = null);
 
+/// <summary>
+/// What a trade's decomposition reads beside the trade: the valuation date, the reporting currency, and the FX the
+/// request froze, in units of the reporting currency per unit of each currency.
+/// </summary>
+public sealed record CapitalMarket(DateOnly ValuationDate, string ReportingCurrency, IReadOnlyDictionary<string, double> ToReporting);
+
 /// <summary>κ, SA-CCR's choices and the jurisdiction's risk weight choices, as configured and frozen into the Run.</summary>
 public sealed record CapitalSettings(CapitalRatio Kappa, SaCcrSettings SaCcr, RiskWeightSettings RiskWeight);
 
@@ -49,7 +55,10 @@ public sealed record CapitalPortfolio(
     IReadOnlyList<CapitalCsa> Csas,
     IReadOnlyList<CapitalCollateral> Collateral,
     IReadOnlyList<CapitalTrade> Trades,
-    CapitalSettings Settings);
+    CapitalSettings Settings)
+{
+    public CapitalMarket Market => new(ValuationDate, ReportingCurrency, ToReporting);
+}
 
 /// <summary>Spot capital on one side: the figure and its trace, or why it could not be computed. Never 0 for either.</summary>
 public sealed record SideCapital(string Side, int Trades, SpotCapital? Capital = null, CalculationTrace? Trace = null, string? Refused = null);
@@ -80,7 +89,7 @@ public static class SpotCapitalPricing
     /// The exposures SA-CCR reads for a trade (ADR-0013 §3). A product SA-CCR's decomposition does not know, or a trade
     /// without the fields its decomposition needs, is refused by name.
     /// </summary>
-    public static IReadOnlyList<SaCcrExposure> Exposures(CapitalTrade t, CapitalPortfolio p)
+    public static IReadOnlyList<SaCcrExposure> Exposures(CapitalTrade t, CapitalMarket p)
     {
         DateOnly Start() => t.Start ?? throw new SaCcrRefused($"{t.TradeId}: the source gives no start date, which its decomposition needs.");
         string Direction(params string[] known) => t.Direction is { } d && known.Contains(d)
@@ -109,30 +118,19 @@ public static class SpotCapitalPricing
 
     /// <summary>
     /// What SA-CCR decided a trade is, for its row in the trade grid (ADR-0013 §6): asset class, hedging set, bucket
-    /// and delta sign, one exposure after another; or why it cannot be decomposed.
+    /// and delta sign, one exposure after another.
     /// </summary>
-    public static string Classification(CapitalTrade t, CapitalPortfolio p)
-    {
-        try
+    public static string Classification(IReadOnlyList<SaCcrExposure> exposures) =>
+        string.Join("; ", exposures.Select(e =>
         {
-            return string.Join("; ", Exposures(t, p).Select(e =>
+            var sign = e.Delta is LinearTerms linear ? (linear.Long ? "long" : "short") : "option";
+            return e.AssetClass switch
             {
-                var sign = e.Delta is LinearTerms linear ? (linear.Long ? "long" : "short") : "option";
-                return e.AssetClass switch
-                {
-                    AssetClass.InterestRate => $"Interest rate · {e.HedgingSet} · {Bucket(e.EndYears ?? e.MaturityYears)} · {sign}",
-                    AssetClass.ForeignExchange => $"FX · {e.HedgingSet} · {sign}",
-                    _ => $"{e.AssetClass} · {e.HedgingSet} · {sign}",
-                };
-            }));
-        }
-        catch (SaCcrRefused refused)
-        {
-            return refused.Message;
-        }
-    }
-
-    static string Bucket(double endYears) => endYears < 1 ? "under 1y" : endYears <= 5 ? "1-5y" : "over 5y";
+                AssetClass.InterestRate => $"Interest rate · {e.HedgingSet} · {SaCcr.BucketNames[SaCcr.BucketOf(e.EndYears ?? e.MaturityYears) - 1]} · {sign}",
+                AssetClass.ForeignExchange => $"FX · {e.HedgingSet} · {sign}",
+                _ => $"{e.AssetClass} · {e.HedgingSet} · {sign}",
+            };
+        }));
 
     /// <summary>
     /// The netting sets of one side's trades. The trades of a netting set are calculated by the CSA they are on, each
@@ -171,12 +169,12 @@ public static class SpotCapitalPricing
     static Margining Margining(CapitalCsa csa, CapitalPortfolio p)
     {
         if (MarginingProblem(csa) is { } problem) throw new SaCcrRefused(problem);
-        var rate = Rate(csa.CsaId, csa.ThresholdCurrency, p);
+        var rate = Rate(csa.CsaId, csa.ThresholdCurrency, p.Market);
         return new Margining(csa.CsaId, RemarginingDays(csa.Frequency)!.Value, csa.Threshold * rate, csa.Mta * rate, csa.IlliquidCollateral, csa.Disputes);
     }
 
     static CollateralBalance Balance(CapitalCollateral c, CapitalPortfolio p) =>
-        new(c.Id, c.Direction, c.Purpose, c.Type, c.Currency, c.Amount * Rate(c.Id, c.Currency, p), Haircut(c), c.Segregated);
+        new(c.Id, c.Direction, c.Purpose, c.Type, c.Currency, c.Amount * Rate(c.Id, c.Currency, p.Market), Haircut(c), c.Segregated);
 
     /// <summary>
     /// The supervisory haircut at ten business days (CRE22.49): 0 for cash, and for a sovereign bond by its issuer's
@@ -201,13 +199,13 @@ public static class SpotCapitalPricing
 
     static SaCcrTrade Trade(CapitalTrade t, CapitalPortfolio p, double horizonYears)
     {
-        var exposures = Exposures(t, p);
+        var exposures = Exposures(t, p.Market);
         if (horizonYears > 0) exposures = [.. exposures.Select(e => Rolled(e, horizonYears))];
         // V (CRE52.10): the official PV for an existing trade (ADR-0010 §6); a new one is at market when it is traded.
         var (value, source) = t.IsNew
             ? (0.0, "new trade, at market (simulated)")
             : (t.OfficialPv ?? throw new SaCcrRefused($"{t.TradeId}: an existing trade without its official PV."), "official PV");
-        return new SaCcrTrade(t.TradeId, value * Rate(t.TradeId, t.Currency, p), exposures, source);
+        return new SaCcrTrade(t.TradeId, value * Rate(t.TradeId, t.Currency, p.Market), exposures, source);
     }
 
     static SaCcrExposure Rolled(SaCcrExposure e, double years) => e with
@@ -242,6 +240,26 @@ public static class SpotCapitalPricing
         After => [.. p.Trades.Where(t => t.After)],
         _ => throw new ArgumentException($"No side {side}.", nameof(side)),
     };
+
+    /// <summary>
+    /// Why spot capital cannot be computed on one side, or null when it can: the same reading as <see cref="Price"/>,
+    /// without writing the trace, so that what Price refuses and what the provider computes never differ.
+    /// </summary>
+    public static string? Problem(CapitalPortfolio p, string side)
+    {
+        var trades = On(p, side);
+        if (trades.Count == 0) return null;
+        try
+        {
+            SaCcr.Calculate(NettingSets(p, trades), p.Settings.SaCcr);
+            RiskWeights.Resolve(p.Facts, ExposureFacts(p, trades), p.Settings.RiskWeight);
+            return null;
+        }
+        catch (Exception e) when (e is SaCcrRefused or RiskWeightRefused)
+        {
+            return e.Message;
+        }
+    }
 
     /// <summary>
     /// Spot capital on one side and its trace. A side with no trade is not priced; a refusal says why, by name.
@@ -284,7 +302,7 @@ public static class SpotCapitalPricing
         return points;
     }
 
-    static double Rate(string what, string currency, CapitalPortfolio p) =>
+    static double Rate(string what, string currency, CapitalMarket p) =>
         p.ToReporting.TryGetValue(currency, out var rate) && rate > 0
             ? rate
             : throw new SaCcrRefused($"{what}: the request froze no FX rate from {currency} to {p.ReportingCurrency}.");

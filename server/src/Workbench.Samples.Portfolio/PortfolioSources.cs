@@ -24,14 +24,22 @@ public sealed record Agreement(string MaId, string NettingSetId, string Registra
 /// <summary>
 /// A CSA's terms (ADR-0010 §8): its type, currency, discount and FVA discount curves, how often it margins, whether
 /// collateral is exchanged, whether it is one-way, and each party's threshold and minimum transfer amount in its
-/// currency.
+/// currency. The collateral desk's record adds what SA-CCR's margin period of risk reads (ADR-0013 §3): the margin call
+/// disputes of the last two quarters that lasted longer than the margin period, and whether the collateral held is
+/// illiquid or a trade under it cannot easily be replaced.
 /// </summary>
 public sealed record Csa(
     string CsaId, string Type, string Currency, string Curve, string FvaCurve, string Frequency, bool Exchange, bool OneWay,
     decimal CounterpartyThreshold, decimal CounterpartyMta, string CounterpartyCurrency,
-    decimal SelfThreshold, decimal SelfMta, string SelfCurrency);
+    decimal SelfThreshold, decimal SelfMta, string SelfCurrency,
+    int Disputes = 0, bool IlliquidCollateral = false);
 
-/// <summary>One acquired trade, as the source reports it for one value date.</summary>
+/// <summary>
+/// One acquired trade, as the source reports it for one value date. Its start and direction are what SA-CCR's
+/// decomposition reads (ADR-0013 §3): an IRS pays or receives fixed (<c>payFixed</c>, <c>receiveFixed</c>), and an FX
+/// forward buys or sells (<c>buy</c>, <c>sell</c>) its notional in <c>Currency</c> against <c>CounterNotional</c> in
+/// <c>CounterCurrency</c>. A source that does not give one leaves it null, and a measure that needs it refuses.
+/// </summary>
 public sealed record SourceTrade(
     string TradeId,
     bool IsNew,
@@ -44,7 +52,11 @@ public sealed record SourceTrade(
     decimal? LastFixing,
     string? Csa,
     // The official PV the books hold for an existing trade (ADR-0010 §6), in its currency; a new trade has none.
-    decimal? OfficialPv = null);
+    decimal? OfficialPv = null,
+    DateOnly? Start = null,
+    string? Direction = null,
+    string? CounterCurrency = null,
+    decimal? CounterNotional = null);
 
 /// <summary>The configured baseline profile: the curve an uncollateralised trade starts on (docs/03 §2.4).</summary>
 public sealed record BaselineProfile(string ProfileVersion, string UncollateralisedCurve);
@@ -68,7 +80,7 @@ public static class PortfolioCatalog
     [
         new("MA-001", "NS-001", "ABC/LE-01",
             [new("CSA-A", "VM", "JPY", "jpy_ois", "jpy_funding", "daily", true, false, 0m, 50_000_000m, "JPY", 0m, 50_000_000m, "JPY"),
-             new("CSA-B", "VM", "USD", "usd_sofr", "usd_funding", "daily", true, false, 1_000_000m, 500_000m, "USD", 0m, 250_000m, "USD")], "CSA-A"),
+             new("CSA-B", "VM", "USD", "usd_sofr", "usd_funding", "daily", true, false, 1_000_000m, 500_000m, "USD", 0m, 250_000m, "USD", Disputes: 3)], "CSA-A"),
         new("MA-002", "NS-002", "ABC/LE-02",
             [new("CSA-C", "VM", "USD", "usd_sofr", "usd_funding", "daily", true, false, 0m, 250_000m, "USD", 0m, 250_000m, "USD")], "CSA-C"),
         new("MA-003", "NS-003", "XYZ/LE-03", [], null, Enforceable: false),
@@ -206,8 +218,17 @@ public sealed class PortfolioSourceVersion : ISourceVersion
         string? csa = isNew ? null : agreement.Collateralised ? agreement.Csas[random.Next(agreement.Csas.Count)].CsaId : agreement.NoCsa;
         // Drawn from a generator of its own, so the trades' other values stay as they were before it existed.
         decimal? officialPv = isNew ? null : Math.Round((decimal)(new Random(seed ^ 0x5bd1e995).NextDouble() - 0.5) * notional * 0.02m, 0);
+        // A new trade starts on the value date. Its direction is drawn from a generator of its own, as the PV is.
+        if (isNew) start = valueDate;
+        var buysOrPays = new Random(seed ^ 0x2545f491).NextDouble() < 0.5;
         if (!swap)
-            return new(tradeId, isNew, "FXForward", currency, notional, maturity, null, null, null, csa, officialPv);
+        {
+            // Against JPY, or JPY against USD, at the synthetic FX of the day it was traded.
+            var counter = currency == "JPY" ? "USD" : "JPY";
+            var counterNotional = Math.Round(notional * PortfolioMarket.UnitsPerGbp(counter, start) / PortfolioMarket.UnitsPerGbp(currency, start), 0);
+            return new(tradeId, isNew, "FXForward", currency, notional, maturity, null, null, null, csa, officialPv,
+                start, buysOrPays ? "buy" : "sell", counter, counterNotional);
+        }
         var schedule = random.NextDouble() < 0.5 ? "6M" : "3M";
         var fixedRate = Math.Round((decimal)(0.001 + random.NextDouble() * 0.04), 5);
         // The last fixing is set on the latest fixing date not after the value date.
@@ -215,7 +236,8 @@ public sealed class PortfolioSourceVersion : ISourceVersion
         var since = valueDate.DayNumber - start.DayNumber;
         var fixings = since < 0 ? 0 : since / period + 1;
         decimal? lastFixing = isNew ? null : Math.Round((decimal)(0.001 + new Random(seed ^ fixings).NextDouble() * 0.04), 5);
-        return new(tradeId, isNew, "IRS", currency, notional, maturity, fixedRate, schedule, lastFixing, csa, officialPv);
+        return new(tradeId, isNew, "IRS", currency, notional, maturity, fixedRate, schedule, lastFixing, csa, officialPv,
+            start, buysOrPays ? "payFixed" : "receiveFixed");
     }
 
     static int Seed(string text)

@@ -49,27 +49,26 @@ public class CcrPricingTests
     public void A_portfolio_trade_is_decomposed_by_its_product()
     {
         var p = Portfolio();
-        var swap = Assert.Single(SpotCapitalPricing.Exposures(E2, p));
+        var swap = Assert.Single(SpotCapitalPricing.Exposures(E2, p.Market));
         Assert.Equal((AssetClass.InterestRate, "USD", 1_500_000_000.0, false), (swap.AssetClass, swap.HedgingSet, swap.Notional, ((LinearTerms)swap.Delta).Long));
         Assert.Equal(0, swap.StartYears);
         // Bought USD against JPY, the reporting currency: the notional is the USD leg in JPY, short the pair's first, JPY.
-        var forward = Assert.Single(SpotCapitalPricing.Exposures(E3, p));
+        var forward = Assert.Single(SpotCapitalPricing.Exposures(E3, p.Market));
         Assert.Equal((AssetClass.ForeignExchange, "JPYUSD", 750_000_000.0, false), (forward.AssetClass, forward.HedgingSet, forward.Notional, ((LinearTerms)forward.Delta).Long));
-        Assert.Equal("Interest rate · JPY · 1-5y · long", SpotCapitalPricing.Classification(E1, p));
-        Assert.Equal("Interest rate · JPY · over 5y · short", SpotCapitalPricing.Classification(N1, p));
-        Assert.Equal("FX · JPYUSD · short", SpotCapitalPricing.Classification(E3, p));
+        Assert.Equal("Interest rate · JPY · 1-5y · long", SpotCapitalPricing.Classification(SpotCapitalPricing.Exposures(E1, p.Market)));
+        Assert.Equal("Interest rate · JPY · over 5y · short", SpotCapitalPricing.Classification(SpotCapitalPricing.Exposures(N1, p.Market)));
+        Assert.Equal("FX · JPYUSD · short", SpotCapitalPricing.Classification(SpotCapitalPricing.Exposures(E3, p.Market)));
     }
 
     [Fact] // ADR-0013 §6: a trade without the fields its decomposition needs is refused by name, never decomposed by a guess
     public void A_trade_its_decomposition_cannot_read_is_refused_by_name()
     {
-        var p = Portfolio();
+        var p = Portfolio().Market;
         Assert.Contains("E1: the source gives no start date", Assert.Throws<SaCcrRefused>(() => SpotCapitalPricing.Exposures(E1 with { Start = null }, p)).Message);
         Assert.Contains("E1: the direction is not given", Assert.Throws<SaCcrRefused>(() => SpotCapitalPricing.Exposures(E1 with { Direction = null }, p)).Message);
         Assert.Contains("E3: the source gives no counter amount", Assert.Throws<SaCcrRefused>(() => SpotCapitalPricing.Exposures(E3 with { CounterNotional = null }, p)).Message);
         Assert.Contains("a Swaption is not a product", Assert.Throws<SaCcrRefused>(() => SpotCapitalPricing.Exposures(E1 with { Product = "Swaption" }, p)).Message);
         Assert.Contains("E2: the request froze no FX rate from GBP", Assert.Throws<SaCcrRefused>(() => SpotCapitalPricing.Exposures(E2 with { Currency = "GBP" }, p)).Message);
-        Assert.Equal("E1: the source gives no start date, which its decomposition needs.", SpotCapitalPricing.Classification(E1 with { Start = null }, p));
     }
 
     [Fact] // ADR-0013 §3 (DEFAULT 2026-11-08): a netting set's trades are calculated by CSA, and the names do not move with the side
@@ -178,6 +177,8 @@ public class CcrPricingTests
         // E1 and N1 both run five years; the tie goes to the first by id, the same every time.
         Assert.Equal((new OriginalMaturity("E1", new(2025, 3, 3), new(2030, 3, 3)), false), (after.Longest, after.InLocalCurrency));
         Assert.True(SpotCapitalPricing.ExposureFacts(p, [E1, N1]).InLocalCurrency);
+        // An FX forward is in both its currencies: one bought in yen against dollars is not in yen alone.
+        Assert.False(SpotCapitalPricing.ExposureFacts(p, [E1, E3 with { Currency = "JPY", CounterCurrency = "USD" }]).InLocalCurrency);
         Assert.Contains("no local currency is known for its country of incorporation XX",
             Assert.Throws<RiskWeightRefused>(() => SpotCapitalPricing.ExposureFacts(p with { Facts = Bank with { CountryOfIncorporation = "XX" } }, [E1])).Message);
     }

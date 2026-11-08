@@ -50,15 +50,17 @@ public class PricerApiTests(WorkbenchFactory factory) : IClassFixture<WorkbenchF
         return (run, rows);
     }
 
-    [Fact] // ADR-0010 §10, §11: the workspace lists the registered measures, XVA's CVA and FVA, and selects among them
+    [Fact] // ADR-0010 §10, §11, ADR-0013 §1: the workspace lists the registered measures, and the request that prices each
     public async Task A_workspace_lists_the_registered_measures()
     {
         var ws = await Create();
 
         var measures = ws["measures"]!.AsArray().Select(m => m!.AsObject()).ToList();
 
-        Assert.Equal(["cva", "fva"], measures.Select(m => m["id"]!.GetValue<string>()));
-        Assert.All(measures, m => Assert.Equal("xva", m["module"]!.GetValue<string>()));
+        Assert.Equal(["cva", "fva", "kva", "ccr.spotCapital"], measures.Select(m => m["id"]!.GetValue<string>()));
+        Assert.Equal(["xva", "xva", "xva", "ccr"], measures.Select(m => m["module"]!.GetValue<string>()));
+        // Spot capital is SA-CCR's, and XVA's request returns it with KVA on (ADR-0013 §2).
+        Assert.All(measures, m => Assert.Equal("xva", m["request"]!.GetValue<string>()));
         Assert.Equal(["cva", "cvaCharge"], measures[0]["metrics"]!.AsArray().Select(m => m!["id"]!.GetValue<string>()));
         Assert.All(Strings(ws["selectedMeasures"]), m => Assert.Contains(m, measures.Select(r => r["id"]!.GetValue<string>())));
     }

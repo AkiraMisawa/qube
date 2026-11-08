@@ -2,12 +2,14 @@ using System.Text.Json.Nodes;
 using Workbench.Composition.Application;
 using Workbench.Composition.Application.Workspaces;
 using Workbench.Composition.Contracts;
+using Workbench.Samples.Ccr;
 using Workbench.Samples.Portfolio;
 using Workbench.Samples.Xva;
 
 namespace Workbench.Composition.Tests;
 
-// The pricer's rules on the portfolio workspace service (ADR-0010), with XVA's registration. Names and figures are synthetic.
+// The pricer's rules on the portfolio workspace service (ADR-0010), with XVA's and SA-CCR's registrations, as the
+// application registers them. Names and figures are synthetic.
 public class PricerTests
 {
     static readonly DateOnly Day1 = new(2026, 10, 26);
@@ -18,8 +20,8 @@ public class PricerTests
     {
         var workspaces = new WorkspaceService(new Dictionary<string, IEditRules> { [PortfolioEditRules.App] = new PortfolioEditRules() }, TimeProvider.System);
         var store = new InMemoryDataStore();
-        var runs = new RunService(new CompositionRegistry([new PortfolioModule(), new XvaModule()]), store, TimeProvider.System);
-        return (new PortfolioWorkspaces(workspaces, store, runs, new MeasureRegister([xva ?? new XvaMeasures(Pv01Provider.Simulated(TimeSpan.Zero))])), runs, store, workspaces);
+        var runs = new RunService(new CompositionRegistry([new PortfolioModule(), new XvaModule(), new CcrModule()]), store, TimeProvider.System);
+        return (new PortfolioWorkspaces(workspaces, store, runs, new MeasureRegister([xva ?? new XvaMeasures(Pv01Provider.Simulated(TimeSpan.Zero)), new CcrMeasures()])), runs, store, workspaces);
     }
 
     /// <summary>Prices the revision and reads its accepted input and the XVA module's rows.</summary>
@@ -70,7 +72,7 @@ public class PricerTests
 
         var ws = service.Create("akira", "ABC/LE-01", Day1, 10);
 
-        Assert.Equal(["cva", "fva"], service.View(ws.WorkspaceId, "akira").SelectedMeasures);
+        Assert.Equal(["cva", "fva", "kva", "ccr.spotCapital"], service.View(ws.WorkspaceId, "akira").SelectedMeasures);
     }
 
     [Fact] // ADR-0010 §10: the selection belongs to the workspace, so a counterparty change keeps it
@@ -361,7 +363,8 @@ public class PricerTests
         var pending = Cell(service, ws, "DRAFT-1", XvaMeasures.Pv01);
         Assert.Equal((TradeCell.Pending, null, false), (pending.State, pending.Value, pending.Editable));
         Assert.Equal(3, service.View(ws.WorkspaceId, "akira").PendingCells);
-        Assert.Equal(["xva.pv01", "xva.margin", "xva.pvAdj"], service.View(ws.WorkspaceId, "akira").TradeColumns.Select(c => c.Field));
+        // XVA's three, then SA-CCR's classification (ADR-0013 §6).
+        Assert.Equal(["xva.pv01", "xva.margin", "xva.pvAdj", "ccr.class"], service.View(ws.WorkspaceId, "akira").TradeColumns.Select(c => c.Field));
 
         answer.SetResult(-1_500m);
         await pv01.Settled();
@@ -369,7 +372,7 @@ public class PricerTests
         Assert.Equal(-1_500m, Cell(service, ws, "DRAFT-1", XvaMeasures.Pv01).Value!.GetValue<decimal>());
         Assert.Equal(0, service.View(ws.WorkspaceId, "akira").PendingCells);
         // An existing trade has none of XVA's columns: its official PV is the source's.
-        Assert.All(service.Page(ws.WorkspaceId, "akira", 0, 10, [], "existing").Rows, t => Assert.Null(t.Cells));
+        Assert.All(service.Page(ws.WorkspaceId, "akira", 0, 10, [], "existing").Rows, t => Assert.Equal(["ccr.class"], t.Cells!.Keys));
     }
 
     [Fact] // ADR-0010 §6: Margin 2bp on a PV01 of -1,500 is a PV Adj of -3,000, read-only and saying it came from Margin
@@ -437,9 +440,12 @@ public class PricerTests
         var ws = service.Create("akira", "ABC/LE-01", Day1, 5);
         ws = service.Edit(ws.WorkspaceId, ws.Revision, "akira", "trade:DRAFT-2", "xva.margin", 2m);
 
-        var (_, rows) = await Price(runs, store, service, ws);
+        var (_, all) = await Price(runs, store, service, ws);
 
-        Assert.Equal(3, rows.Count);
+        // XVA's own measures; spot capital, which reads no PV Adj, stands (ADR-0010 §10: a refusal blocks its own).
+        var rows = all.Where(r => r["measure"]!.GetValue<string>() != CcrMeasures.SpotCapital).ToList();
+        Assert.Equal(4, rows.Count);
+        Assert.All(all.Except(rows), r => Assert.Equal("priced", r["afterStatus"]!.GetValue<string>()));
         Assert.All(rows, r => Assert.Equal(("refused", "PV Adj of DRAFT-2 is unknown: From Margin: PV01 is pending."),
             (r["afterStatus"]!.GetValue<string>(), r["reason"]!.GetValue<string>())));
         Assert.All(rows, r => Assert.Null(r["after"]));

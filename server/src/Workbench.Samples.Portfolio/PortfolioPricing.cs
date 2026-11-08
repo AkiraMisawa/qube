@@ -98,8 +98,9 @@ public static class PortfolioInput
         var refusals = register.Modules
             .SelectMany(m => m.Validate(state, [.. selected.Where(id => m.Measures.Any(d => d.Id == id))], trades))
             .ToDictionary(r => r.Measure);
+        // Each request reads the part of every module it prices (ADR-0010 §10): XVA's with KVA reads SA-CCR's.
         var modules = new JsonObject();
-        foreach (var module in register.Modules.Where(m => m.Measures.Any(d => selected.Contains(d.Id))))
+        foreach (var module in register.Inputs(selected))
             modules[module.Id] = module.Input(state);
         return new JsonObject
         {
@@ -147,11 +148,11 @@ public static class PortfolioPrice
             (relations ?? RunRelations.None) with { WorkspaceId = freeze.WorkspaceId, WorkspaceRevision = freeze.Revision });
     }
 
-    /// <summary>The price workflow for one frozen accepted input: a step per module with a selected measure, each output
+    /// <summary>The price workflow for one frozen accepted input: a step per request a selected measure needs, each output
     /// named by its module. It pins the input by reference, so the Run carries it.</summary>
     public static WorkflowDefinition Workflow(MeasureRegister register, TypedDataRef acceptedInput, IReadOnlyList<string> selected)
     {
-        var modules = register.Modules.Where(m => m.Measures.Any(d => selected.Contains(d.Id))).ToList();
+        var modules = register.Requests(selected);
         return new("workflow", CompositionValidator.SchemaVersion, PortfolioContracts.PriceWorkflow, PortfolioContracts.Version,
             "Price the portfolio", PortfolioContracts.PriceInput, PortfolioContracts.Version,
             [.. modules.Select(m => m.Step(acceptedInput))],
