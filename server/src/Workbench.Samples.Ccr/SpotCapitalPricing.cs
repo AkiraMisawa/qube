@@ -60,7 +60,7 @@ public sealed record CapitalPortfolio(
     public CapitalMarket Market => new(ValuationDate, ReportingCurrency, ToReporting);
 }
 
-/// <summary>Spot capital on one side: the figure and its trace, or why it could not be computed. Never 0 for either.</summary>
+/// <summary>Spot capital on one side: the figure and its trace, or why it could not be computed and a trace that says so. Never 0 for either.</summary>
 public sealed record SideCapital(string Side, int Trades, SpotCapital? Capital = null, CalculationTrace? Trace = null, string? Refused = null);
 
 /// <summary>One point of the capital profile: the trades still alive at that date and the capital they hold.</summary>
@@ -268,17 +268,17 @@ public static class SpotCapitalPricing
     {
         var trades = On(p, side);
         if (trades.Count == 0) return new SideCapital(side, 0);
+        var header = new SpotCapitalTraceHeader(p.Counterparty, p.ReportingCurrency, Engine, Date(p.ValuationDate), requestId, provenance);
         try
         {
             var exposure = SaCcr.Calculate(NettingSets(p, trades), p.Settings.SaCcr);
             var riskWeight = RiskWeights.Resolve(p.Facts, ExposureFacts(p, trades), p.Settings.RiskWeight);
             var capital = SpotCapital.Of(exposure, riskWeight, p.Settings.Kappa);
-            var header = new SpotCapitalTraceHeader(p.Counterparty, p.ReportingCurrency, Engine, Date(p.ValuationDate), requestId, provenance);
             return new SideCapital(side, trades.Count, capital, SpotCapitalTrace.Write(capital, header));
         }
         catch (Exception e) when (e is SaCcrRefused or RiskWeightRefused)
         {
-            return new SideCapital(side, trades.Count, Refused: e.Message);
+            return new SideCapital(side, trades.Count, Trace: SpotCapitalTrace.Unavailable(e.Message, header), Refused: e.Message);
         }
     }
 

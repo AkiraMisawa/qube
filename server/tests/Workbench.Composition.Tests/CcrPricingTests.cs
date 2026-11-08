@@ -132,6 +132,26 @@ public class CcrPricingTests
         Assert.NotNull(after.Trace);
     }
 
+    [Fact] // ADR-0011 §1, §4: a side priced and not computed writes its root unavailable, so it reads as unavailable, never as not priced
+    public void A_side_that_could_not_be_computed_reads_as_unavailable_with_why()
+    {
+        // A product SA-CCR does not know, on Before alone.
+        var p = Portfolio([E1, E2, E3 with { After = false, Product = "Swaption" }, N1]);
+        var before = SpotCapitalPricing.Price(p, SpotCapitalPricing.Before, "run-1/xva", Simulated);
+        var after = SpotCapitalPricing.Price(p, SpotCapitalPricing.After, "run-1/xva", Simulated);
+        Assert.Null(before.Capital);
+        Assert.Contains("a Swaption is not a product", before.Refused);
+
+        var root = new TraceReader(SpotCapitalTrace.Catalog, before.Trace, after.Trace).Open("capital")!;
+
+        Assert.Equal((TermState.Unavailable, before.Refused), (root.Term.Before!.State, root.Term.Before.Reason));
+        Assert.Equal(TermState.Value, root.Term.After!.State);
+        Assert.Equal(DiffState.Unavailable, root.Term.Diff!.State);
+        Assert.Contains("a Swaption is not a product", root.Term.Diff.Reason);
+        // Below it, Before says why it has nothing, rather than that nothing contributes.
+        Assert.Equal(TermState.Unavailable, Assert.Single(root.Children).Before!.State);
+    }
+
     [Fact] // ADR-0013 §6: a CSA whose margining SA-CCR cannot read refuses the measure by name
     public void A_CSA_that_does_not_say_who_posts_is_refused_rather_than_assumed()
     {

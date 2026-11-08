@@ -186,6 +186,17 @@ with its Diff when it priced both, its kind, the parameters in its scope and its
 sorted by the server like any other dataset (ADR-0003 §4). The catalogue of kinds is read once per method version.
 The browser holds the terms on the path it has opened and the page of children in view.
 
+*(Implemented 2026-11-08, DEFAULT where marked. A term with no `path` is the first root. The leaf rows are
+`GET …/traces/{measure}/leaves?scenario=…&path=…&offset=…&limit=…&sort=…&descending=…`, sorted by a column's After
+value, else its Before value, with a row without the column last; and the catalogue is
+`GET /api/traces/catalogs/{method}/{version}`. A term answers its slots, which child plays each role of its formula, and
+each side's leaf set and row count, so the view can substitute values and offer the leaf grid. A provider that writes
+several traces at once gives them as a set, each with its case, scenario, side and measure; one that writes a single
+trace alone (spot SIMM's own request, ADR-0012) priced one side of one case, and it is read as After of the case and
+scenario `base` (DEFAULT), as a Price without Before is. A side that was priced and could not be computed writes its
+root `unavailable` with why, so that it is never read as not priced. Only the Run's owner reads its trace until roles
+arrive with sign-in, C30 and C31.)*
+
 ### 6. One view draws every trace
 
 The kernel's view components gain `trace`, drawn by one renderer for every measure. A Metrics cell of a measure that
@@ -235,8 +246,12 @@ https://claude.ai/artifact/U6XtjAisqPAyT3zSCB1QW6.
 ### 7. Commands and the AI read the same tree
 
 - `explain <measure> [path]` opens the trace of the focused case, scenario and side at that term.
-- `trace.read` is a command capability with effect `ReadData` (ADR-0005): given a Run, case, scenario, measure and
-  path, it answers the term on each side the case priced with its kind, its parameters and its children. The AI pane
+- `trace.read` is a command capability (ADR-0005): given a Run, case, scenario, measure and path, it answers the term
+  on each side the case priced with its kind, its parameters and its children. *(Its effect is `ReadRun`, not
+  `ReadData`, DEFAULT 2026-11-08. `ReadData` marks a step that reads inside a Run, which the command gateway does not
+  invoke and which has no caller; reading a Run's trace acts for a caller who may see it, and is not a business
+  submission, which is what makes a command. `ReadRun` joins `EditWorkspace` and `Subscribe` as an effect that makes
+  a capability a command.)* The AI pane
   (ADR-0007) calls it to answer "why did capital go down": it walks down the largest Diffs and quotes the terms, the
   decisions' reasons and their citations; on a case priced on one side it answers "what drives capital" by the largest
   values instead. The AI reads the provider's terms and never computes one; a term that is `notReturned` is

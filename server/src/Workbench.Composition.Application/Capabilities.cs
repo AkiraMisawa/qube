@@ -45,9 +45,12 @@ public sealed class CapabilityFailure(string code, string message, IReadOnlyList
 
 public static class CapabilityEffects
 {
-    /// <summary>A capability that edits a workspace or runs a subscription: invoked for a caller, never in a Run (ADR-0005).</summary>
+    /// <summary>
+    /// A capability that edits a workspace, runs a subscription or reads a Run for its caller: invoked for a caller,
+    /// never in a Run (ADR-0005).
+    /// </summary>
     public static bool IsCommand(this CapabilityDescriptor descriptor) =>
-        descriptor.Effects.Any(e => e is CapabilityEffect.EditWorkspace or CapabilityEffect.Subscribe);
+        descriptor.Effects.Any(e => e is CapabilityEffect.EditWorkspace or CapabilityEffect.Subscribe or CapabilityEffect.ReadRun);
 }
 
 /// <summary>A JSON Schema for a contract version whose values are small enough to enter on a form.</summary>

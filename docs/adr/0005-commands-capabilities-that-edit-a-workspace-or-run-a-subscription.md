@@ -52,6 +52,10 @@ none is named, with the valuation date given), `rates.live.start` and `rates.liv
 existing workspace, and `rates.workspace.create`, which makes an empty workspace at a valuation date.)* Pricing once stays
 `rates.price`, a Run, reached through a workflow over the frozen accepted input, as now.
 
+*(2026-11-08, ADR-0011 §7: a third effect, `ReadRun`, makes a capability a command: it reads a retained Run's results
+for a caller who may see them, as `trace.read` reads a term of a Run's calculation trace. It changes nothing, and is
+not a submission, but it acts for someone, which only a command's caller says.)*
+
 ## Consequences
 
 - docs/09's "initial scope is read-only analytics" becomes "read-only analytics, and editing the caller's own

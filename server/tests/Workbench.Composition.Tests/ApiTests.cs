@@ -21,7 +21,7 @@ public class ApiTests(WorkbenchFactory factory) : IClassFixture<WorkbenchFactory
     public async Task Catalog_lists_what_modules_registered()
     {
         var catalog = (await client.GetFromJsonAsync<JsonObject>("/api/catalog"))!;
-        Assert.Equal(12, catalog["capabilities"]!.AsArray().Count); // entity.create (ADR-0008) and ccr.spotCapital (ADR-0013) are the last
+        Assert.Equal(13, catalog["capabilities"]!.AsArray().Count); // entity.create (ADR-0008), ccr.spotCapital (ADR-0013) and trace.read (ADR-0011) are the last
         Assert.Contains(catalog["capabilities"]!.AsArray(), c => c!["capabilityId"]!.GetValue<string>() == "entity.create");
         Assert.Contains(catalog["actions"]!.AsArray(), a => a!["target"]!["kind"]!.GetValue<string>() == "openView");
     }

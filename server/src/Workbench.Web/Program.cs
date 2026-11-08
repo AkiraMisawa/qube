@@ -2,6 +2,7 @@ using Workbench.Composition.Application.Products;
 using System.Text.Json.Nodes;
 using Workbench.Agent;
 using Workbench.Composition.Application;
+using Workbench.Composition.Application.Traces;
 using Workbench.Composition.Application.Workspaces;
 using Workbench.Composition.Contracts;
 using Workbench.Persistence.Sqlite;
@@ -49,6 +50,9 @@ builder.Services.AddSingleton<IProductRules>(sp => new CcsRules(conventions, sp.
 builder.Services.AddSingleton<ProductService>();
 builder.Services.AddSingleton<IWorkbenchModule>(sp => new ProductsModule(sp.GetRequiredService<ProductService>));
 builder.Services.AddSingleton(sp => new CommandService(sp.GetRequiredService<CompositionRegistry>(), sp.GetRequiredService<IDataStore>()));
+// A Run's calculation traces (ADR-0011 §5, §7): the read endpoint and trace.read open them through one service.
+builder.Services.AddSingleton(sp => new TraceService(sp.GetRequiredService<RunService>(), sp.GetRequiredService<IDataStore>(), sp.GetRequiredService<CompositionRegistry>()));
+builder.Services.AddSingleton<IWorkbenchModule>(sp => new TracesModule(sp.GetRequiredService<TraceService>));
 if (rates.Ticker)
     builder.Services.AddHostedService(sp => new MarketTicker(sp.GetRequiredService<MarketFeed>(), rates.SyntheticMarket.Config().Step, sp.GetRequiredService<ILogger<MarketTicker>>()));
 builder.Services.AddSingleton<CompositionRegistry>();

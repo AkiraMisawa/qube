@@ -7,7 +7,8 @@ public enum TraceSide { Before, After }
 
 /// <summary>
 /// A term on one side: its state, its value or the reason it has none, and its reconciliation. A decision's inputs,
-/// reasons and the rule it applied are a side's, because each side decided on its own.
+/// reasons and the rule it applied are a side's, because each side decided on its own, and so are the leaf rows the
+/// side wrote beneath it (<c>Leaves</c>: which leaf set, and how many).
 /// </summary>
 public sealed record SideValue(
     TermState State,
@@ -19,7 +20,8 @@ public sealed record SideValue(
     IReadOnlyDictionary<string, JsonNode?>? Inputs = null,
     IReadOnlyList<string>? Because = null,
     bool Written = true,
-    string? Citation = null);
+    string? Citation = null,
+    TermLeaves? Leaves = null);
 
 public enum DiffState { Value, Absent, Unavailable, NotNumeric }
 
@@ -29,7 +31,10 @@ public enum DiffState { Value, Absent, Unavailable, NotNumeric }
 /// </summary>
 public sealed record TermDiff(DiffState State, double? Value = null, string? Reason = null, bool? Changed = null);
 
-/// <summary>One term, read on every side its case priced.</summary>
+/// <summary>
+/// One term, read on every side its case priced. <c>Slots</c> names the child playing each role of its formula where
+/// the provider named it; a role it did not name is the child <c>{id}/{role}</c> (ADR-0011 §2).
+/// </summary>
 public sealed record TermRead(
     string Id,
     string Kind,
@@ -41,7 +46,8 @@ public sealed record TermRead(
     int ChildCount,
     SideValue? Before,
     SideValue? After,
-    TermDiff? Diff);
+    TermDiff? Diff,
+    IReadOnlyDictionary<string, string>? Slots = null);
 
 public sealed record TermCrumb(string Id, string Label, string Symbol);
 
@@ -169,8 +175,12 @@ public sealed class TraceReader
         return names.Select(n => side.Index.Parameter(n, id)).OfType<TraceParameter>().ToList();
     }
 
-    /// <summary>The leaf rows below a term on each side, paired by entity and component, a page at a time.</summary>
-    public LeafPage Leaves(string id, int offset = 0, int limit = 200)
+    /// <summary>
+    /// The leaf rows below a term on each side, paired by entity and component, a page at a time: in the order the
+    /// provider wrote them, or by a column. A row sorts by its After value, else its Before value; numbers in order,
+    /// then texts, and a row without the column last in either direction.
+    /// </summary>
+    public LeafPage Leaves(string id, int offset = 0, int limit = 200, string? sort = null, bool descending = false)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(offset);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(limit);
@@ -199,7 +209,22 @@ public sealed class TraceReader
                         : new PairedLeafRow(leafSet, entity, component, null, row, [], mismatches));
                 }
             }
+        if (sort is not null) rows = Sorted(rows, sort, descending);
         return new LeafPage(rows.Skip(offset).Take(limit).ToList(), rows.Count, offset);
+    }
+
+    static List<PairedLeafRow> Sorted(List<PairedLeafRow> rows, string column, bool descending)
+    {
+        var keyed = rows.Select((row, i) => (row, i, value: (row.After ?? row.Before)?[column])).ToList();
+        var known = keyed.Where(r => r.value is not null).ToList();
+        var numbers = known.Where(r => Number(r.value) is not null).ToList();
+        var texts = known.Where(r => Number(r.value) is null).ToList();
+        var ordered = descending
+            ? texts.OrderByDescending(r => Text(r.value), StringComparer.Ordinal).ThenBy(r => r.i)
+                .Concat(numbers.OrderByDescending(r => Number(r.value)!.Value).ThenBy(r => r.i))
+            : numbers.OrderBy(r => Number(r.value)!.Value).ThenBy(r => r.i)
+                .Concat(texts.OrderBy(r => Text(r.value), StringComparer.Ordinal).ThenBy(r => r.i));
+        return [.. ordered.Concat(keyed.Where(r => r.value is null)).Select(r => r.row)];
     }
 
     static string? Text(JsonNode? node) => node is JsonValue v && v.TryGetValue<string>(out var s) ? s : node?.ToJsonString();
@@ -223,8 +248,9 @@ public sealed class TraceReader
         var b = before is null ? null : OnSide(before, written);
         var a = after is null ? null : OnSide(after, written);
         var childCount = Present.Select(s => s.Index.Find(written.Id)?.ChildCount ?? 0).Max();
+        var slots = Present.Select(s => s.Index.Find(written.Id)?.Slots).FirstOrDefault(s => s is not null);
         return new TermRead(written.Id, written.Kind, LabelOf(written, kind), kind?.Symbol ?? written.Id, kind?.Citation, kind?.Unit,
-            written.Key, childCount, b, a, b is not null && a is not null ? Diff(b, a) : null);
+            written.Key, childCount, b, a, b is not null && a is not null ? Diff(b, a) : null, slots);
     }
 
     SideValue OnSide(Side side, TraceTerm written)
@@ -232,7 +258,7 @@ public sealed class TraceReader
         var term = side.Index.Find(written.Id);
         if (term is not null)
             return new SideValue(term.State, term.Value, term.Reason, side.Evaluator.Check(term), term.Governed, term.Allocation, term.Inputs, term.Because,
-                Citation: term.Citation);
+                Citation: term.Citation, Leaves: term.Leaves);
         var (state, reason) = Missing(side, written);
         return new SideValue(state, null, reason, TermCheck.NotApplicable, Written: false);
     }

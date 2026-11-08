@@ -294,6 +294,11 @@ The guidelines' §12: the Rates toolbar's rows on a phone, the Action Column's b
   its trace per side, a capital profile, and KVA from that profile, all marked simulated. After alone is priced and
   traced on After.
 - `ccr.spotCapital` is also a capability of its own, giving the same figures.
+- A Run's trace is read a term at a time (ADR-0011 §5): `GET /api/runs/{run}/cases/{case}/traces/{measure}` answers a
+  term on each side the case priced with its Diff, slots, leaf sets, path, parameters and a page of its children;
+  `…/leaves` pages and sorts a term's leaf rows; `GET /api/traces/catalogs/{method}/{version}` gives the kinds'
+  formulas. `trace.read` (effect `ReadRun`, a command, ADR-0005's note of 2026-11-08) answers the same for the AI.
+  Only the Run's owner reads it.
 
 ### Providers
 
@@ -306,14 +311,14 @@ The guidelines' §12: the Rates toolbar's rows on a phone, the Action Column's b
 
 | Suite | Result |
 |---|---|
-| `dotnet test server/Workbench.slnx` | 354 passed, among them the BCBS SA-CCR worked examples, a case per rule, and the KVA option over HTTP |
+| `dotnet test server/Workbench.slnx` | 363 passed, among them the BCBS SA-CCR worked examples, a case per rule, the KVA option and the trace read over HTTP |
 | `npm run typecheck`, `npm test` (Vitest) | Clean; 81 passed |
 | `npx playwright test` (Chromium, headless, Linux) | 22 passed |
 | Screenshot of a Price with every measure selected, 1600px, dark | Spot capital, RWA, EAD and KVA in the dock, Trades 5 → 8; looked at by hand |
 
 ### Known limits
 
-- The trace is not yet readable over HTTP or on screen (tickets 06 and 07).
+- The trace is not yet drawn on screen, and `explain` does not exist yet (ticket 07).
 - The SA-CCR class column is on the New grid only: the Existing grid takes no module columns yet.
 - κ (8%) and which products come first are OPEN with the owner (ADR-0013). Only IRS and FX forwards are decomposed
   (the synthetic portfolio has no other product); any other would be out of the measure's membership with its reason.
