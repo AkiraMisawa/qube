@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { SideValue, TermRead, TraceHeader, TraceParameter } from './contracts';
-import { membershipOf, mismatchText } from './LeafRows';
-import { explainTyped, traceAddressOf } from './open';
-import { allocationCell, allocationDiffCell, citationCell, diffCell, governedCell, governsMark, leadText, parameterGroups, parameterSource, sideCell, stateCell, unitText } from './words';
+import { mismatchText } from './LeafRows';
+import { explainLine, explainTyped, traceAddressOf } from './open';
+import { afterWord, allocationCell, allocationDiffCell, citationCell, diffCell, governedCell, governsMark, leadText, parameterGroups, parameterSource, sideCell, sidesHolding, stateCell, unitText } from './words';
 
 // ADR-0011 §4, §6, §7: what the tree, the drill-in list and the leaf rows say of a term, in words. Synthetic.
 
@@ -61,10 +61,18 @@ describe('a leaf row in words (ADR-0011 §6)', () => {
   const row = { leafSet: 's', entity: 'T-1', before: null, after: { haircut: 0.1 }, beforeMismatches: [], afterMismatches: [{ column: 'haircut', returned: 0.1, computed: 0.08 }] };
 
   it('says which sides hold it, and which computed column does not reconcile', () => {
-    expect(membershipOf(row, ['before', 'after'])).toBe('After only');
-    expect(membershipOf(row, ['after'])).toBe('');
+    expect(sidesHolding(row, ['before', 'after'])).toBe('After only');
+    expect(sidesHolding({ ...row, before: {} }, ['before', 'after'])).toBe('Before and After');
+    expect(sidesHolding(row, ['after'])).toBe('');
+    expect(sidesHolding(row, ['before'])).toBe('not on this side');
     expect(mismatchText(row, 'after', { leafSet: 's', entityField: 'id', columns: [{ name: 'haircut', label: 'Haircut' }] }))
       .toBe('Haircut does not reconcile: 0.08 by its formula, 0.1 returned');
+  });
+});
+
+describe('a label after a word (design guidelines §10)', () => {
+  it('reads in sentence case, and an initialism keeps its capitals', () => {
+    expect(['Trade', 'CRIF line', 'IM-R', 'tree', 'Netting set'].map(afterWord)).toEqual(['trade', 'CRIF line', 'IM-R', 'tree', 'netting set']);
   });
 });
 
@@ -73,6 +81,14 @@ describe('explain (ADR-0011 §7)', () => {
     expect(explainTyped('ccr.spotCapital')).toEqual({ measure: 'ccr.spotCapital', path: undefined });
     expect(explainTyped(' ccr.spotCapital  NS-001 CSA-A/m ')).toEqual({ measure: 'ccr.spotCapital', path: 'NS-001 CSA-A/m' });
     expect(() => explainTyped('  ')).toThrow(/needs the measure/);
+  });
+
+  it('writes the line that comes back to a term, and none for a path that would not read back as one', () => {
+    const line = explainLine('simm.spotIm', 'collect/JFSA/RatesFX/IR/delta/JPY/OIS 1m');
+    expect(line).toBe('explain simm.spotIm collect/JFSA/RatesFX/IR/delta/JPY/OIS 1m');
+    expect(explainTyped(line!.slice('explain '.length))).toEqual({ measure: 'simm.spotIm', path: 'collect/JFSA/RatesFX/IR/delta/JPY/OIS 1m' });
+    expect(explainLine('m', 'a  b')).toBeUndefined();
+    expect(explainLine('m', ' a')).toBeUndefined();
   });
 
   it('refuses a panel that does not name its trace', () => {

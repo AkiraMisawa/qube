@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { EntityRow, LeafSetKind, TermRead, TraceCatalog } from './contracts';
-import { belowViews, checkLine, entitySetOf, entitySides, splits } from './entities';
+import type { LeafSetKind, TermRead, TraceCatalog } from './contracts';
+import { belowViews, checkLine, entitySetOf, splits } from './entities';
 
 // ADR-0012 §6: the entities below a term, in words. Synthetic: an orchard's trees and their keepers.
 
@@ -21,18 +21,21 @@ describe('the entities below a term (ADR-0012 §6)', () => {
     expect(splits(term({ after: { ...allocated, allocation: null } }), ['after'])).toBe(false);
   });
 
-  it('are offered by entity first, then by the term\'s own rows, named by the leaf set\'s own labels', () => {
-    expect(belowViews(trees, true, trees)).toEqual([{ value: 'entities', label: 'By Keeper' }, { value: 'rows', label: 'By Tree' }]);
-    expect(belowViews(trees, true, undefined)).toEqual([{ value: 'entities', label: 'By Keeper' }]);
-    expect(belowViews(trees, false, trees)).toEqual([{ value: 'rows', label: 'By Tree' }]);
-    expect(belowViews(undefined, true, { ...trees, componentField: null })).toEqual([{ value: 'rows', label: 'By row' }]);
+  it('ADR-0012 §6\'s note of 2026-11-08: at a term that splits, by entity and by row at every depth; else its own rows, in sentence case', () => {
+    expect(belowViews(trees, true, undefined)).toEqual([
+      { value: 'entities', label: 'By keeper', below: true, set: trees },
+      { value: 'rows', label: 'By tree', below: true, set: trees },
+    ]);
+    expect(belowViews(trees, false, trees)).toEqual([{ value: 'rows', label: 'By tree', below: false, set: trees }]);
+    expect(belowViews(undefined, true, { ...trees, componentField: null }).map((v) => v.label)).toEqual(['By row']);
+    expect(belowViews(trees, false, undefined)).toEqual([]);
+    // An initialism keeps its capitals.
+    const lines = { ...trees, columns: [...trees.columns.slice(0, 1), { name: 'tree', label: 'CRIF line' }, ...trees.columns.slice(2)] };
+    expect(belowViews(lines, true, undefined).map((v) => v.label)).toEqual(['By keeper', 'By CRIF line']);
   });
 
-  it('say which sides hold an entity where both were priced', () => {
-    const row = (extra: Partial<EntityRow>): EntityRow => ({ leafSet: 'orchard.trees', entity: 'ann', ...extra });
-    expect(entitySides(row({ before: { contribution: 1, rows: 1 }, after: { contribution: 2, rows: 1 } }), ['before', 'after'])).toBe('Before and After');
-    expect(entitySides(row({ after: { contribution: 2, rows: 1 } }), ['before', 'after'])).toBe('After only');
-    expect(entitySides(row({ after: { contribution: 2, rows: 1 } }), ['after'])).toBe('');
+  it('are read in one leaf set\'s columns, so a catalogue with two contribution sets has no entity view', () => {
+    expect(entitySetOf(catalog([trees, { ...trees, leafSet: 'orchard.vines' }]))).toBeUndefined();
   });
 
   it('say once that they add up, and a side that does not with both figures', () => {
@@ -40,7 +43,9 @@ describe('the entities below a term (ADR-0012 §6)', () => {
     expect(checkLine([{ side: 'before', status: 'matches', sum: 3.5, allocation: 3.5 }, { side: 'after', status: 'matches', sum: 7, allocation: 7 }], unit))
       .toEqual({ text: 'They add up to its allocation: Before 3.50 · After 7.00', error: false });
     expect(checkLine([{ side: 'after', status: 'inconsistent', sum: 7, allocation: 9 }], unit))
-      .toEqual({ text: 'does not add up: 7.00 by its entities, 9.00 allocated', error: true });
+      .toEqual({ text: 'They do not add up: 7.00 by its entities, 9.00 allocated', error: true });
+    expect(checkLine([{ side: 'before', status: 'inconsistent', sum: 1, allocation: 2 }, { side: 'after', status: 'matches', sum: 7, allocation: 7 }], unit)?.text)
+      .toBe("Before's do not add up: 1.00 by its entities, 2.00 allocated");
     expect(checkLine([], unit)).toBeUndefined();
   });
 });

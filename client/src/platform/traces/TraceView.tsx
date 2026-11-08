@@ -3,17 +3,17 @@ import { Alert, Anchor, Badge, Breadcrumbs, Button, Code, CopyButton, Group, Seg
 import { useMediaQuery } from '@mantine/hooks';
 import { useQueries, useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
 import { useStore } from 'zustand';
-import { refusalText as describe, type ChildOrder, type TraceApi } from './api';
+import { firstPageQuery, readTerm, refusalText as describe, termKey, TERM_PAGE, type ChildOrder, type TraceApi } from './api';
 import type { Side, TermKind, TermPage, TermRead, TraceAddress, TraceAnswer, TraceHeader } from './contracts';
 import { operandTargets, stateText } from './formula';
 import { EntityRows } from './EntityRows';
 import { belowViews, entitySetOf, splits } from './entities';
 import { LeafRows } from './LeafRows';
-import { termRequests } from './open';
+import { DEFAULT_TRACE_VIEW, explainLine, setTraceView, termRequests, traceViews } from './open';
 import { TermDetail } from './TermDetail';
 import { TraceTree } from './TraceTree';
 import { opened, treeRows, type ChildrenRead, type TreeRow } from './tree';
-import { SIDE_TITLE, leadText, providerOf } from './words';
+import { SIDE_TITLE, governsMark, leadText, providerOf } from './words';
 import './trace.css';
 
 // One view draws every trace (ADR-0011 §6): on desktop the tree of every level beside the formula of the selected
@@ -21,8 +21,6 @@ import './trace.css';
 // selected term's children as a list. The view reads a term at a time (§5) and holds only the terms on the paths
 // opened. A case priced on one side is shown on that side alone, said once (§4).
 
-/** Children read a page at a time. */
-const PAGE = 200;
 const ROOT = '\u0000root';
 
 /** Keeps a row object while nothing it draws changed, so the grid paints only what did (ADR-0003). */
@@ -35,7 +33,7 @@ function stable(next: readonly TreeRow[], previous: ReadonlyMap<string, TreeRow>
 }
 
 export function TraceView({ panelId, address, api, registerFocus, root }: {
-  /** Whose term requests the view answers (`termRequests`): a trace panel's, or a page's trace tab's. */
+  /** Whose term requests and view settings the view answers (`termRequests`, `traceViews`): a trace panel's, or a page's trace tab's. */
   readonly panelId: string;
   readonly address: TraceAddress;
   readonly api: TraceApi;
@@ -47,13 +45,13 @@ export function TraceView({ panelId, address, api, registerFocus, root }: {
   const queryClient = useQueryClient();
   // Which component mounts, not how one is styled (design guidelines §9): a tree beside the formula, or drilling in.
   const phone = useMediaQuery(`(max-width: ${em(767.98)})`, false, { getInitialValueInEffect: false });
-  const [order, setOrder] = useState<ChildOrder>('formula');
+  // How it draws, kept per view, which its controls and the trace commands set alike (ADR-0006).
+  const settings = useStore(traceViews, (s) => s.views[panelId]) ?? DEFAULT_TRACE_VIEW;
+  const { order, below, above } = settings;
   const [selected, setSelected] = useState<string | undefined>(undefined);
   const [open, setOpen] = useState<ReadonlySet<string>>(() => new Set());
   const [pagesAsked, setPagesAsked] = useState<Readonly<Record<string, number>>>({});
   const [place, setPlace] = useState(0);
-  // How the rows below the selected term are shown: by entity (the default, where it splits) or by row.
-  const [below, setBelow] = useState<'entities' | 'rows'>('entities');
   // The term asked for by a Metrics cell or `explain`: it opens as well as the terms above it, once it is read.
   const reveal = useRef<string | undefined>(ROOT);
 
@@ -65,19 +63,13 @@ export function TraceView({ panelId, address, api, registerFocus, root }: {
     setPlace((p) => p + 1);
   }, [request]);
 
-  const key = useCallback((path: string | undefined, offset: number) =>
-    ['trace', address.runId, address.case, address.scenario, address.measure, path ?? '', order, offset] as const, [address, order]);
-  const read = useCallback((path: string | undefined, offset: number) => api.term(address, path, { order, offset, limit: PAGE }), [api, address, order]);
+  const key = useCallback((path: string | undefined, offset: number) => termKey(address, path, order, offset), [address, order]);
+  const read = useCallback((path: string | undefined, offset: number) => readTerm(api, address, path, order, offset), [api, address, order]);
+  // Another order reads the children afresh, from their first page.
+  useEffect(() => setPagesAsked({}), [order]);
 
   // The trace's header and its first root; the root's page is the same answer, so it is not read twice.
-  const first = useQuery({
-    queryKey: key(undefined, 0),
-    queryFn: async () => {
-      const answer = await read(undefined, 0);
-      queryClient.setQueryData(key(answer.term.term.id, 0), answer);
-      return answer;
-    },
-  });
+  const first = useQuery(firstPageQuery(queryClient, api, address, order));
   const header = first.data?.trace;
   const rootIds = useMemo(() => (header?.roots ?? []).map((r) => r.id).filter((id) => root === undefined || id === root), [header, root]);
   // A trace tab that draws another root asks for it as a term, so the selection follows it (`requestTerm`).
@@ -95,7 +87,7 @@ export function TraceView({ panelId, address, api, registerFocus, root }: {
   // formula names that are not its children.
   const wanted = new Map<string, { readonly path: string; readonly offset: number }>();
   const want = (path: string, offset: number) => wanted.set(`${path}\u0000${offset}`, { path, offset });
-  const pagesOf = (id: string) => Array.from({ length: pagesAsked[id] ?? 1 }, (_, i) => i * PAGE);
+  const pagesOf = (id: string) => Array.from({ length: pagesAsked[id] ?? 1 }, (_, i) => i * TERM_PAGE);
   for (const id of rootIds) want(id, 0);
   for (const id of open) for (const offset of pagesOf(id)) want(id, offset);
   if (selectedId !== undefined) for (const offset of pagesOf(selectedId)) want(selectedId, offset);
@@ -158,7 +150,7 @@ export function TraceView({ panelId, address, api, registerFocus, root }: {
     select(id);
   };
   const more = (id: string) => setPagesAsked((p) => ({ ...p, [id]: (p[id] ?? 1) + 1 }));
-  const reorder = (next: ChildOrder) => { setOrder(next); setPagesAsked({}); };
+  const reorder = (next: ChildOrder) => setTraceView(panelId, { order: next });
 
   if (first.isPending) return <Text size="sm" data-testid="trace-loading">Reading the trace…</Text>;
   if (first.isError) return <Alert color="red" variant="light" title="The trace could not be read" data-testid="trace-refused">{describe(first.error)}</Alert>;
@@ -172,30 +164,40 @@ export function TraceView({ panelId, address, api, registerFocus, root }: {
       ? <Alert color="red" variant="light" title="The catalogue could not be read" data-testid="trace-catalog-refused">{describe(catalog.error)}</Alert>
       : selectedPage === undefined || catalog.data === undefined
         ? <Text size="sm">Reading the term…</Text>
-        : <TermDetail header={trace} page={selectedPage} kinds={kinds} operand={operand} onSelect={select} />;
-  // Rows a term names in a leaf set the catalogue does not register are said to be unreadable, never left out.
-  const ownRows = leaves === undefined || selectedPage === undefined || catalog.data === undefined ? undefined
-    : leafSet === undefined
+        : <TermDetail header={trace} page={selectedPage} kinds={kinds} operand={operand} onSelect={select}
+          above={above} onAbove={(next) => setTraceView(panelId, { above: next })} />;
+  // At a term with a share to split, its entities by default, or every row at any depth below it; elsewhere its own
+  // rows (ADR-0012 §6 with its note of 2026-11-08). Rows a term names in a leaf set the catalogue does not register are
+  // said to be unreadable, never left out.
+  const entitySet = entitySetOf(catalog.data);
+  const views = selectedPage === undefined || catalog.data === undefined ? []
+    : belowViews(entitySet, splits(selectedPage.term, trace.sides), leaves === undefined ? undefined : leafSet);
+  const view = views.find((v) => v.value === below) ?? views[0];
+  const unregistered = leaves !== undefined && catalog.data !== undefined && leafSet === undefined;
+  const ownCount = (term: TermRead) => {
+    if (leaves === undefined) throw new Error(`${term.id} has no rows of its own to count.`);
+    return leaves.rowCount;
+  };
+  const shownBelow = selectedPage === undefined ? undefined
+    : unregistered
       ? <Alert color="red" variant="light" title="Leaf set not registered">
           The catalogue of {trace.method.id} {trace.method.version} has no leaf set {leaves.leafSet}, so the rows below {selectedPage.term.label} cannot be shown.
         </Alert>
-      : <LeafRows key={selectedPage.term.id} api={api} address={address} header={trace} path={selectedPage.term.id} set={leafSet} rowCount={leaves.rowCount} />;
-  // At a term with a share to split, its entities by default, and its own rows beside them where it has some (ADR-0012 §6).
-  const entitySet = entitySetOf(catalog.data);
-  const views = selectedPage === undefined ? [] : belowViews(entitySet, splits(selectedPage.term, trace.sides), leaves === undefined ? undefined : leafSet);
-  const view = views.find((v) => v.value === below) ?? views[0];
-  const shownBelow = view?.value === 'entities' && entitySet !== undefined && selectedPage !== undefined
-    ? <EntityRows key={selectedPage.term.id} api={api} address={address} header={trace} path={selectedPage.term.id} set={entitySet} />
-    : ownRows;
+      : view === undefined ? undefined
+        : view.value === 'entities'
+          ? <EntityRows key={selectedPage.term.id} api={api} address={address} header={trace} path={selectedPage.term.id} set={view.set} />
+          : <LeafRows key={`${selectedPage.term.id}:${String(view.below)}`} api={api} address={address} header={trace} path={selectedPage.term.id} set={view.set}
+              rows={view.below ? { below: true } : { below: false, count: ownCount(selectedPage.term) }} />;
   const leafRows = shownBelow === undefined ? undefined : (
     <Stack gap="xs" data-testid="trace-below">
-      {views.length > 1 && (
-        <SegmentedControl size="xs" value={view!.value} onChange={(v) => setBelow(v as 'entities' | 'rows')} aria-label="Rows below the term"
+      {views.length > 1 && view !== undefined && (
+        <SegmentedControl size="xs" value={view.value} onChange={(v) => setTraceView(panelId, { below: v === 'rows' ? 'rows' : 'entities' })} aria-label="Rows below the term"
           data-testid="trace-below-view" data={views.map((v) => ({ value: v.value, label: v.label }))} />
       )}
       {shownBelow}
     </Stack>
   );
+  const explainText = selectedPage === undefined ? undefined : explainLine(address.measure, selectedPage.term.id);
 
   return (
     <Stack gap="xs" className="qwb-trace" data-testid="trace-view" data-layout={phone ? 'drill' : 'tree'}>
@@ -207,7 +209,7 @@ export function TraceView({ panelId, address, api, registerFocus, root }: {
             : <Anchor key={crumb.id} component="button" size="xs" onClick={() => select(crumb.id)}>{crumb.label}</Anchor>))}
         </Breadcrumbs>
       )}
-      {selectedPage !== undefined && <ExplainLine text={`explain ${address.measure} ${selectedPage.term.id}`} />}
+      {explainText !== undefined && <ExplainLine text={explainText} />}
       {phone ? (
         <Stack gap="sm">
           {detail}
@@ -293,7 +295,10 @@ function TraceHeaderBar({ header, title, order, onOrder }: {
   );
 }
 
-/** Below `sm`: the selected term's children, each with its Diff or value and its state, each opening the next level. */
+/**
+ * Below `sm`: the selected term's children, each with its Diff or value and its state, and, as an operand of a max,
+ * whether it governs, each opening the next level.
+ */
 function ChildrenList({ header, read, onSelect, onMore }: {
   readonly header: TraceHeader; readonly read: ChildrenRead | undefined; readonly onSelect: (id: string) => void; readonly onMore: () => void;
 }) {
@@ -309,9 +314,14 @@ function ChildrenList({ header, read, onSelect, onMore }: {
           const value = child[side];
           return value === undefined || value === null || value.state === 'value' ? [] : [`${header.sides.length === 2 ? `${SIDE_TITLE[side]} ` : ''}${stateText(value.state, null, providerOf(header, side))}`];
         });
+        const mark = governsMark(child, header);
         return (
-          <UnstyledButton key={child.id} className="qwb-trace-child" onClick={() => onSelect(child.id)} data-state={states.length > 0 ? 'other' : 'value'}>
-            <span className="qwb-trace-child-label">{child.label}</span>
+          <UnstyledButton key={child.id} className="qwb-trace-child" onClick={() => onSelect(child.id)} data-state={states.length > 0 ? 'other' : 'value'}
+            {...(mark === undefined ? {} : { 'data-governs': mark.governs })}>
+            <span className="qwb-trace-child-label">
+              {child.label}
+              {mark !== undefined && <Badge size="sm" variant="light" {...(mark.governs ? {} : { color: 'gray' })} ml="xs" data-testid="trace-governs">{mark.text}</Badge>}
+            </span>
             <span className="qwb-trace-child-lead">{leadText(child, header)}</span>
             {states.length > 0 && <span className="qwb-trace-child-state">{states.join(' · ')}</span>}
           </UnstyledButton>

@@ -11,12 +11,12 @@ import { httpRatesApi, type RatesApi } from './rates/api';
 import { ratesCommandsOf } from './rates/commands';
 import { RatesWorkspacePanel } from './rates/RatesWorkspacePanel';
 import { httpXvaApi, type XvaApi } from './xva/api';
-import { measuresTyped, xvaPageOf } from './xva/commands';
+import { measureNamed, measuresTyped, xvaPageOf } from './xva/commands';
 import { XvaWorkspacePanel } from './xva/XvaWorkspacePanel';
 import { registerAiContext, registerAiEffect } from '../ai/effects';
 import { registerGridFocus } from '../shell/focus';
 import { httpTraceApi, type TraceApi } from '../platform/traces/api';
-import { TRACE_VIEW, explainTyped, openTrace, requestTerm, traceAddressOf } from '../platform/traces/open';
+import { TRACE_VIEW, explainTyped, openTrace, requestTerm, setTraceView, traceAddressOf } from '../platform/traces/open';
 
 // The trace view brings KaTeX and its fonts, read only once a trace is opened.
 const TraceView = lazy(() => import('../platform/traces/TraceView').then((m) => ({ default: m.TraceView })));
@@ -108,6 +108,13 @@ function TracePanel({ panel }: { readonly panel: Extract<Panel, { kind: 'app' }>
   );
 }
 
+/** A command's word that must be one of a few, refused by name otherwise. */
+function oneOf<T extends string>(value: string | undefined, options: readonly T[], words: string): T {
+  const found = options.find((o) => o === value);
+  if (found === undefined) throw new Error(`${words} needs one of ${options.join(', ')}.`);
+  return found;
+}
+
 export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDialog' | 'panels' | 'activePanelId'>): Command[] {
   const active = state.panels.find((p) => p.id === state.activePanelId);
   // Looked up when the command runs: the page registers its commands once it has mounted, after this list is made.
@@ -133,6 +140,47 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
     if (registered === undefined) throw new Error(`The XVA workspace in panel ${xva ?? '(none)'} registered no commands.`);
     return registered;
   };
+  const onTraceView = trace !== undefined ? { target: trace.title } : xvaPanel !== undefined ? { target: xvaPanel.title }
+    : { unavailable: 'Open a trace, or an XVA workspace whose result dock shows one, first.' };
+  /** The trace view a command acts on, when it runs: the trace panel in view, or the XVA dock's trace tab. */
+  const traceView = (): string => {
+    if (trace !== undefined) return trace.id;
+    const shown = xvaPage().traceInView();
+    if (shown === undefined) throw new Error('The result dock shows no trace. Open a measure\'s own tab, such as with open result, first.');
+    return shown;
+  };
+  const traceViewCommands = (): Command[] => [
+    {
+      id: 'trace.order',
+      words: 'trace order',
+      title: 'Order the children of each term in the trace: as the formula has them, or the largest change first',
+      group: 'Traces',
+      ...onTraceView,
+      args: [{ name: 'order', required: true, complete: () => [{ value: 'formula', detail: 'as the formula has them' }, { value: 'size', detail: 'the largest change first' }],
+        check: (v) => (v === 'formula' || v === 'size' ? undefined : 'formula or size') }],
+      run: (a) => setTraceView(traceView(), { order: oneOf(a.order, ['formula', 'size'] as const, 'trace order') }),
+    },
+    {
+      id: 'trace.below',
+      words: 'trace rows',
+      title: 'Show what is below the selected term by entity, or row by row',
+      group: 'Traces',
+      ...onTraceView,
+      args: [{ name: 'by', required: true, complete: () => [{ value: 'entities', detail: 'each entity\'s share' }, { value: 'rows', detail: 'every row' }],
+        check: (v) => (v === 'entities' || v === 'rows' ? undefined : 'entities or rows') }],
+      run: (a) => setTraceView(traceView(), { below: oneOf(a.by, ['entities', 'rows'] as const, 'trace rows') }),
+    },
+    {
+      id: 'trace.parameters',
+      words: 'trace parameters',
+      title: 'Show or fold the parameters of the terms above the selected one',
+      group: 'Traces',
+      ...onTraceView,
+      args: [{ name: 'above', required: true, complete: () => [{ value: 'show' }, { value: 'hide' }],
+        check: (v) => (v === 'show' || v === 'hide' ? undefined : 'show or hide') }],
+      run: (a) => setTraceView(traceView(), { above: oneOf(a.above, ['show', 'hide'] as const, 'trace parameters') === 'show' }),
+    },
+  ];
   return [
     {
       id: 'xva.new',
@@ -197,18 +245,24 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
       ...(explainOn === undefined ? { unavailable: 'Open an XVA workspace that has been priced, or a trace, first.' } : { target: explainOn.title }),
       args: [{
         name: 'measure', required: true, rest: true,
-        hint: 'a measure that keeps a trace, then a term if wanted: ccr.spotCapital rwa',
+        hint: 'a measure that keeps a trace, or its module, then a term if wanted: simm collect',
         complete: () => (xvaPageOf(xva)?.measures() ?? []).filter((m) => m.traced).map((m) => ({ value: m.id, detail: m.title })),
       }],
       // ADR-0011 §7: the trace of the case and scenario in view, at the term named, or its root.
       run: (a) => {
-        const { measure, path } = explainTyped(a.measure ?? '');
-        if (trace === undefined) { xvaPage().explain(measure, path); return; }
+        const typed = explainTyped(a.measure ?? '');
+        const path = typed.path;
+        if (trace === undefined) { xvaPage().explain(typed.measure, path); return; }
+        // A measure named by its module, or in another case, is the XVA page's register's to read, where one is open.
+        const measure = measureNamed(typed.measure, xvaPageOf(xva)?.measures() ?? [])?.id ?? typed.measure;
         const here = traceAddressOf(trace.params);
         if (measure === here.measure) requestTerm(trace.id, path);
         else openTrace(state, { ...here, measure }, `Trace ${measure}`, path);
       },
     },
+    // How the trace in view draws (ADR-0006, ADR-0011 §6), which its own controls set too: a trace panel, or the trace a
+    // measure's own tab of the XVA result dock shows.
+    ...traceViewCommands(),
     {
       id: 'xva.pv01.retry',
       words: 'pv01 retry',

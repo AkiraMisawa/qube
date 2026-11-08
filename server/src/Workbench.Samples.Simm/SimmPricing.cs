@@ -197,8 +197,9 @@ public sealed class SpotImPrice(IRatesPricingProvider provider, Func<string, Mar
                 if (crif is not null) crifs[side] = crif;
                 if (trace is not null) traces.Add(new TraceEntry(Case, Scenario, side, SimmMeasures.SpotIm, trace));
             }
+            var conversion = Conversion(part.Market, currency, valueDate);
             rows.AddRange(definition.Metrics.Select(m => MeasureResult.Row(Case, CaseTitle, SimmMeasures.SpotIm, m, currency, sides[Before][m.Id], sides[After][m.Id],
-                table?.IsDemo == true ? DemoBasis : null)));
+                table?.IsDemo == true ? DemoBasis : null, conversion)));
         }
 
         // What the figures were computed with: no table where no IM CSA named one, so nothing was computed.
@@ -211,6 +212,24 @@ public sealed class SpotImPrice(IRatesPricingProvider provider, Func<string, Mar
             ["crifAfter"] = SimmDatasets.Crif(crifs[After], $"CRIF After {registration} ({label})", provenance),
         };
     }
+
+    /// <summary>
+    /// The rate the figures are shown at, said once (ADR-0012 §7): SIMM computes in USD, and a display currency other
+    /// than USD takes the pinned FX of the value date. Null where the display currency is USD.
+    /// </summary>
+    public static string? Conversion(FrozenMarket market, string currency, DateOnly valueDate)
+    {
+        if (currency == CrifGenerator.CalculationCurrency) return null;
+        var rate = RateOf(market, currency);
+        return $"Computed in {CrifGenerator.CalculationCurrency}; shown in {currency} at {rate.ToString("G8", CultureInfo.InvariantCulture)} {currency} per "
+            + $"{CrifGenerator.CalculationCurrency}, the pinned FX of {valueDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)}.";
+    }
+
+    /// <summary>Units of the display currency per USD at the pinned FX, which holds each currency per one base unit.</summary>
+    static double RateOf(FrozenMarket market, string currency) =>
+        market.Fx.TryGetValue(currency, out var display) && market.Fx.TryGetValue(CrifGenerator.CalculationCurrency, out var usd)
+            ? display / usd
+            : throw new CapabilityFailure("MissingFx", $"The pinned FX has no {(market.Fx.ContainsKey(currency) ? CrifGenerator.CalculationCurrency : currency)} rate.");
 
     /// <summary>Said with the figures of the DEMO table (ADR-0012 §7's note of 2026-11-08), which is no calibration of record.</summary>
     public const string DemoBasis = "SIMM PARAMETERS DEMO";
@@ -303,7 +322,7 @@ public sealed class SpotImPrice(IRatesPricingProvider provider, Func<string, Mar
 
         // SIMM is calculated in USD and shown in the display currency at the pinned FX (ADR-0012 §7), rounded as the
         // other measures' figures are; the trace keeps every figure as computed, in USD.
-        var rate = part.Market.Fx[currency] / part.Market.Fx[CrifGenerator.CalculationCurrency];
+        var rate = RateOf(part.Market, currency);
         var figures = All(direction =>
         {
             var csa = part.ImCsas.SingleOrDefault(c => c.Direction == direction);

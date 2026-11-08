@@ -12,6 +12,26 @@ export function providerOf(header: TraceHeader, side: Side): string | undefined 
   return engine === undefined || engine === null ? undefined : engine.name;
 }
 
+/**
+ * Which sides hold a row, as a row of rows says it: `Before and After`, or the one side `only`, where both sides were
+ * priced; nothing where one was, unless the row is not on it.
+ */
+export function sidesHolding(row: Readonly<Partial<Record<Side, unknown>>>, sides: readonly Side[]): string {
+  const on = sides.filter((s) => row[s] !== undefined && row[s] !== null);
+  if (sides.length === 1) return on.length === 1 ? '' : 'not on this side';
+  if (on.length === 2) return 'Before and After';
+  const [only] = on;
+  return only === undefined ? 'on neither side' : `${SIDE_TITLE[only]} only`;
+}
+
+/**
+ * A label as it reads after another word, in sentence case (design guidelines §10): `Keeper` reads `keeper`, and a
+ * word that is an initialism, such as `ID`, keeps its capitals.
+ */
+export function afterWord(label: string): string {
+  return /^[A-Z][a-z]/.test(label) ? label[0]!.toLowerCase() + label.slice(1) : label;
+}
+
 /** A unit in words: an amount's currency, the trace's reporting currency where the unit names none. */
 export function unitText(unit: TraceUnit | null | undefined, header: TraceHeader): string {
   if (unit === undefined || unit === null || unit.kind === 'text') return '';

@@ -48,11 +48,11 @@ public static class Api
             Traced(() => traces.Read(new(runId, caseId, scenario ?? TraceService.BaseScenario, measure), user.Id, path, TraceService.OrderOf(order), offset ?? 0, limit ?? TraceService.DefaultPage)));
 
         api.MapGet("/runs/{runId}/cases/{caseId}/traces/{measure}/leaves", (string runId, string caseId, string measure, string? scenario, string? path,
-            int? offset, int? limit, string? sort, bool? descending, TraceService traces, CurrentUser user) =>
+            int? offset, int? limit, string? sort, bool? descending, bool? below, TraceService traces, CurrentUser user) =>
             Traced(() => traces.Leaves(new(runId, caseId, scenario ?? TraceService.BaseScenario, measure), user.Id,
-                path ?? throw new TraceRefused("Required", "path names the term whose leaf rows are read."), offset ?? 0, limit ?? TraceService.DefaultPage, sort, descending ?? false)));
+                path ?? throw new TraceRefused("Required", "path names the term whose leaf rows are read."), offset ?? 0, limit ?? TraceService.DefaultPage, sort, descending ?? false, below ?? false)));
 
-        // The entities below a term, each with its share on each side (ADR-0012 §6): the trades under a SIMM term.
+        // The entities below a term, each with the sum of its leaf rows' contributions on each side (ADR-0011 §5, ADR-0012 §6).
         api.MapGet("/runs/{runId}/cases/{caseId}/traces/{measure}/entities", (string runId, string caseId, string measure, string? scenario, string? path,
             int? offset, int? limit, TraceService traces, CurrentUser user) =>
             Traced(() => traces.Entities(new(runId, caseId, scenario ?? TraceService.BaseScenario, measure), user.Id,

@@ -148,7 +148,11 @@ export interface EntityCheck { readonly side: Side; readonly status: CheckStatus
 export interface TraceEntitiesAnswer {
   readonly trace: TraceHeader;
   readonly term: string;
-  readonly entities: { readonly rows: readonly EntityRow[]; readonly total: number; readonly offset: number; readonly checks: readonly EntityCheck[] };
+  readonly entities: {
+    readonly rows: readonly EntityRow[]; readonly total: number; readonly offset: number; readonly checks: readonly EntityCheck[];
+    /** Why no entity has a Diff where both sides were priced: a side unavailable, not returned or not adding up (ADR-0011 §4). */
+    readonly diffUnavailable?: string | null;
+  };
 }
 
 /** An expression from ADR-0011 §2's closed set, as data; the view reads only which operands it names. */

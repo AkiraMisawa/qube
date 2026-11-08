@@ -74,6 +74,57 @@ public sealed class TraceEntityTests
         Assert.Equal((TraceSide.After, CheckStatus.Inconsistent, 7.0, 9.0), (check.Side, check.Status, check.Sum, check.Allocation));
     }
 
+    [Fact] // ADR-0011 §4: a side whose entities do not add up has no change to show, so no entity has a Diff, and the page says why
+    public void Entities_have_no_diff_where_a_side_does_not_add_up()
+    {
+        var reader = new TraceReader(Catalog(), Orchard(after: false, totalShare: 9.0), Orchard(after: true));
+
+        var page = reader.Entities("total");
+
+        Assert.All(page.Rows, r => Assert.Null(r.Diff));
+        Assert.StartsWith("Before's entities do not add up to its allocation", page.DiffUnavailable);
+        // Ordered by the share each has, After's where it has one.
+        Assert.Equal(["ann", "cy", "bo"], page.Rows.Select(r => r.Entity));
+        Assert.Null(reader.Entities("north").DiffUnavailable);
+    }
+
+    [Fact] // ADR-0011 §1, §4: a term not returned on a side gives its entities no Diff, never one with that side taken as 0
+    public void A_term_not_returned_on_a_side_gives_its_entities_no_diff()
+    {
+        var after = Orchard(after: true);
+        after = after with
+        {
+            Terms = [.. after.Terms.Where(t => t.Id != "south")],
+            Leaves = [.. after.Leaves.Where(l => l["parent"]!.GetValue<string>() != "south")],
+        };
+        var reader = new TraceReader(Catalog(), Orchard(after: false), after);
+
+        var south = reader.Entities("south");
+        Assert.All(south.Rows, r => Assert.Null(r.Diff));
+        Assert.Contains("After is not returned", south.DiffUnavailable);
+        Assert.Equal([TraceSide.Before], south.Checks.Select(c => c.Side));
+        // Above it, After's entities fall short of its allocation by what was not returned.
+        var total = reader.Entities("total");
+        Assert.All(total.Rows, r => Assert.Null(r.Diff));
+        Assert.NotNull(total.DiffUnavailable);
+    }
+
+    [Fact] // ADR-0012 §6's note of 2026-11-08: at any term with an allocation, the leaf rows at every depth below it, paired by side
+    public void The_leaf_rows_below_a_term_are_read_at_every_depth_where_it_has_an_allocation()
+    {
+        var reader = new TraceReader(Catalog(), Orchard(after: false), Orchard(after: true));
+
+        Assert.Empty(reader.Leaves("total").Rows);
+        var below = reader.Leaves("total", below: true);
+        Assert.Equal([("ann", "n1", true, true), ("bo", "n2", true, false), ("ann", "s1", true, true), ("cy", "s2", false, true)],
+            below.Rows.Select(r => (r.Entity, r.Component, r.Before is not null, r.After is not null)));
+        Assert.Equal(4, below.Total);
+
+        var unallocated = new TraceReader(Catalog(), Orchard(after: false, allocated: false), Orchard(after: true, allocated: false));
+        Assert.Equal("NoAllocation", Assert.Throws<TraceRefused>(() => unallocated.Leaves("total", below: true)).Code);
+        Assert.Equal(2, unallocated.Leaves("south", below: true).Total);
+    }
+
     [Fact] // ADR-0011 §1: a leaf set that names no contribution has no entity contributions to sum, and says so rather than 0
     public void A_leaf_set_without_a_contribution_field_is_refused_by_name()
     {

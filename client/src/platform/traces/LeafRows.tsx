@@ -7,20 +7,13 @@ import { MAX_PAGE, refusalText, type TraceApi } from './api';
 import type { LeafSetKind, PairedLeafRow, Side, TraceAddress, TraceHeader } from './contracts';
 import { leafFormulaTex } from './formula';
 import { Tex } from './Tex';
-import { SIDE_TITLE } from './words';
+import { SIDE_TITLE, sidesHolding } from './words';
 
-// The leaf rows below a term (ADR-0011 §5, §6): a grid paged and sorted by the server, one side's columns at a time,
-// each row saying which sides hold it and where a computed column does not equal its formula. The row at the Focus has
-// its leaf set's column formulas typeset with its values.
+// The leaf rows of a term (ADR-0011 §5, §6), or of every term below it (ADR-0012 §6's note of 2026-11-08): a grid paged
+// and sorted by the server, one side's columns at a time, each row saying which sides hold it and where a computed
+// column does not equal its formula. The row at the Focus has its leaf set's column formulas typeset with its values.
 
 const rowKey = (r: PairedLeafRow) => `${r.entity}\u0000${r.component ?? ''}`;
-
-/** Which sides hold a row: the trade's membership on each side. */
-export function membershipOf(row: PairedLeafRow, sides: readonly Side[]): string {
-  const on = sides.filter((s) => row[s] !== undefined && row[s] !== null);
-  if (sides.length === 1) return on.length === 1 ? '' : 'not on this side';
-  return on.length === 2 ? 'Before and After' : on.length === 1 ? `${SIDE_TITLE[on[0]!]} only` : 'on neither side';
-}
 
 /** A row's computed columns that do not equal their formulas on a side, in words. */
 export function mismatchText(row: PairedLeafRow, side: Side, set: LeafSetKind): string {
@@ -30,19 +23,29 @@ export function mismatchText(row: PairedLeafRow, side: Side, set: LeafSetKind): 
 
 const figure = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 6 });
 
-export function LeafRows({ api, address, header, path, set, rowCount }: {
+/** The side a grid of both shows first: After, the one a what-if asks about; a trace has at least one side. */
+function lastSide(header: TraceHeader): Side {
+  const side = header.sides.at(-1);
+  if (side === undefined) throw new Error(`The trace of ${header.measure} names no side.`);
+  return side;
+}
+
+export function LeafRows({ api, address, header, path, set, rows }: {
   readonly api: TraceApi;
   readonly address: TraceAddress;
   readonly header: TraceHeader;
-  /** The term the rows are below. */
+  /** The term the rows are of, or below. */
   readonly path: string;
   readonly set: LeafSetKind;
-  /** How many rows each side wrote, for the caption. */
-  readonly rowCount: Readonly<Partial<Record<Side, number>>>;
+  /** The term's own rows, with how many each side wrote for the caption; or those of every term below it. */
+  readonly rows: { readonly below: false; readonly count: Readonly<Partial<Record<Side, number>>> } | { readonly below: true };
 }) {
-  const [side, setSide] = useState<Side>(header.sides.at(-1)!);
+  const [side, setSide] = useState<Side>(lastSide(header));
   const [failure, setFailure] = useState<string | undefined>(undefined);
   const [focus, setFocus] = useState<PairedLeafRow | undefined>(undefined);
+  // Below a term, the server says how many rows there are once it has read them.
+  const [read, setRead] = useState<number | undefined>(undefined);
+  const below = rows.below;
 
   const source = useMemo(() => GridSource.fetch<PairedLeafRow>(async (query, signal) => {
     // The server pages and sorts by one column; a filter or a second sort is refused, never ignored.
@@ -52,10 +55,12 @@ export function LeafRows({ api, address, header, path, set, rowCount }: {
     const answer = await api.leaves(address, path, {
       offset: query.range.start, limit: Math.min(query.range.count, MAX_PAGE),
       ...(sort === undefined ? {} : { sort: sort.column, descending: sort.direction === 'descending' }),
+      ...(below ? { below } : {}),
     }, signal);
+    setRead(answer.leaves.total);
     return { rows: answer.leaves.rows, start: answer.leaves.offset, totalCount: answer.leaves.total };
   }, { rowKey, onFetchFailed: (event) => setFailure(refusalText(event.error)) }),
-  [api, address, path]);
+  [api, address, path, below]);
   useEffect(() => () => source.dispose(), [source]);
   useEffect(() => setFocus(undefined), [source]);
 
@@ -72,7 +77,7 @@ export function LeafRows({ api, address, header, path, set, rowCount }: {
         ...(numeric ? { format: (v: unknown) => (typeof v === 'number' ? figure.format(v) : String(v)) } : {}),
       };
     }),
-    { name: 'membership', header: 'Sides', type: 'text', width: { auto: true, minPx: 96, maxPx: 200 }, queryable: false, value: (r) => membershipOf(r, header.sides) },
+    { name: 'membership', header: 'Sides', type: 'text', width: { auto: true, minPx: 96, maxPx: 200 }, queryable: false, value: (r) => sidesHolding(r, header.sides) },
     { name: 'mismatch', header: 'Reconciliation', type: 'text', width: { auto: true, minPx: 120, maxPx: 360 }, queryable: false, value: (r) => mismatchText(r, side, set) },
   ], [set, side, header.sides]);
 
@@ -87,13 +92,15 @@ export function LeafRows({ api, address, header, path, set, rowCount }: {
   const computed = set.columns.filter((c) => c.tex !== undefined && c.tex !== null);
   const focusRow = focus?.[side];
   const units = (field: string) => set.columns.find((c) => c.name === field)?.unit;
-  const total = rowCount[side];
+  const total = rows.below ? read : rows.count[side];
 
   return (
     <Stack gap="xs" data-testid="trace-leaves" aria-label="Leaf rows">
       <Group gap="xs" wrap="wrap">
-        <Text size="xs" fw={600}>Rows below</Text>
-        <Text size="xs">{header.sides.map((s) => `${SIDE_TITLE[s]} ${rowCount[s] === undefined ? 'none written' : rowCount[s]}`).join(' · ')}</Text>
+        <Text size="xs" fw={600}>{rows.below ? 'Rows at every depth below' : 'Rows below'}</Text>
+        {rows.below
+          ? read !== undefined && <Text size="xs">{read} in all</Text>
+          : <Text size="xs">{header.sides.map((s) => `${SIDE_TITLE[s]} ${rows.count[s] === undefined ? 'none written' : rows.count[s]}`).join(' · ')}</Text>}
         {header.sides.length === 2 && (
           <SegmentedControl size="xs" value={side} onChange={(v) => setSide(v as Side)} aria-label="Side the rows show"
             data={header.sides.map((s) => ({ value: s, label: SIDE_TITLE[s] }))} />

@@ -94,14 +94,24 @@ public sealed class TraceService(RunService runs, IDataReader data, CompositionR
         return new TraceAnswer(trace.Header, page);
     }
 
-    /// <summary>A page of the leaf rows below a term, sorted by a column on request.</summary>
-    public TraceLeavesAnswer Leaves(TraceAddress address, string userId, string path, int offset = 0, int limit = 200, string? sort = null, bool descending = false)
+    /// <summary>
+    /// A page of a term's leaf rows, sorted by a column on request; with <paramref name="below"/>, those of every term
+    /// below it as well, refused at a term with no allocation (ADR-0012 §6's note of 2026-11-08).
+    /// </summary>
+    public TraceLeavesAnswer Leaves(TraceAddress address, string userId, string path, int offset = 0, int limit = 200, string? sort = null, bool descending = false, bool below = false)
     {
         CheckPage(offset, limit);
         var trace = Open(address, userId);
         if (trace.Reader.Read(path) is null)
             throw new TraceRefused("UnknownTerm", $"The trace of {address.Measure} has no term {path}.");
-        return new TraceLeavesAnswer(trace.Header, path, trace.Reader.Leaves(path, offset, limit, sort, descending));
+        try
+        {
+            return new TraceLeavesAnswer(trace.Header, path, trace.Reader.Leaves(path, offset, limit, sort, descending, below));
+        }
+        catch (TraceInvalid invalid)
+        {
+            throw new TraceRefused("TraceInvalid", $"The leaf rows of {path} in the trace of {address.Measure} in Run {address.RunId} cannot be read: {invalid.Message}");
+        }
     }
 
     /// <summary>

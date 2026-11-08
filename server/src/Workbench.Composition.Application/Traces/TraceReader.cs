@@ -86,7 +86,12 @@ public sealed record EntityRow(string LeafSet, string Entity, EntityShare? Befor
 /// <summary>On one side, whether the entities' shares add up to the term's allocation, by the trace's tolerance (ADR-0011 §2).</summary>
 public sealed record EntityCheck(TraceSide Side, CheckStatus Status, double Sum, double? Allocation, string? Reason = null);
 
-public sealed record EntityPage(IReadOnlyList<EntityRow> Rows, int Total, int Offset, IReadOnlyList<EntityCheck> Checks);
+/// <summary>
+/// A page of the entities below a term, each side's check, and, where both sides were priced and the rows carry no
+/// Diff, why: a side whose term is unavailable or not returned, or whose entities do not add up to its allocation, has
+/// no change to show beside the other's (ADR-0011 §4).
+/// </summary>
+public sealed record EntityPage(IReadOnlyList<EntityRow> Rows, int Total, int Offset, IReadOnlyList<EntityCheck> Checks, string? DiffUnavailable = null);
 
 /// <summary>
 /// The traces of one (Run, case, scenario, measure): one per side the case priced. A case priced on one side is read
@@ -189,18 +194,21 @@ public sealed class TraceReader
     }
 
     /// <summary>
-    /// The leaf rows below a term on each side, paired by entity and component, a page at a time: in the order the
+    /// The leaf rows of a term on each side, paired by entity and component, a page at a time: in the order the
     /// provider wrote them, or by a column. A row sorts by its After value, else its Before value; numbers in order,
-    /// then texts, and a row without the column last in either direction.
+    /// then texts, and a row without the column last in either direction. With <paramref name="below"/>, the rows of
+    /// every term below it too (ADR-0012 §6's note of 2026-11-08), refused at a term with no allocation on any side, as
+    /// <see cref="Entities"/> is, since below a max or a min the same row is reached once for each operand.
     /// </summary>
-    public LeafPage Leaves(string id, int offset = 0, int limit = 200, string? sort = null, bool descending = false)
+    public LeafPage Leaves(string id, int offset = 0, int limit = 200, string? sort = null, bool descending = false, bool below = false)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(offset);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(limit);
+        if (below) Allocated(id);
         var rows = new List<PairedLeafRow>();
         var at = new Dictionary<(string, string, string?), int>();
         foreach (var side in Present)
-            foreach (var row in side.Index.LeafRows(id))
+            foreach (var row in below ? LeavesBelow(side.Index, id) : side.Index.LeafRows(id))
             {
                 var leafSet = row["leafSet"]?.GetValue<string>() ?? throw new TraceInvalid($"A leaf row under {id} has no leaf set.");
                 var kind = side.Evaluator.LeafSetOf(leafSet) ?? throw new TraceInvalid($"The leaf set {leafSet} is not in the catalogue of {catalog.Method.Id} {catalog.Method.Version}.");
@@ -237,10 +245,7 @@ public sealed class TraceReader
     {
         ArgumentOutOfRangeException.ThrowIfNegative(offset);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(limit);
-        var written = Present.Select(s => (side: s, term: s.Index.Find(id))).Where(x => x.term is not null).ToList();
-        if (written.Count == 0) throw new TraceInvalid($"No side has the term {id}.");
-        if (written.All(x => x.term!.Allocation is null))
-            throw new TraceRefused("NoAllocation", $"{id} has no allocation to split among its entities: its value is not a sum of shares, so its rows' contributions are not added up here.");
+        var written = Allocated(id);
 
         var rows = new List<EntityRow>();
         var at = new Dictionary<(string, string), int>();
@@ -271,14 +276,50 @@ public sealed class TraceReader
                 ? Reconcile(side, sum, allocation.Value)
                 : new EntityCheck(side.Name, CheckStatus.NotChecked, sum, null, $"{id} has no allocation on {side.Name}"));
         }
-        if (PricedBothSides) rows = [.. rows.Select(r => r with { Diff = (r.After?.Contribution ?? 0) - (r.Before?.Contribution ?? 0) })];
-        var ordered = rows.Select((r, i) => (r, i))
-            .OrderByDescending(x => Math.Abs(x.r.Diff ?? (x.r.After ?? x.r.Before)!.Contribution)).ThenBy(x => x.i).Select(x => x.r).ToList();
-        return new EntityPage(ordered.Skip(offset).Take(limit).ToList(), ordered.Count, offset, checks);
+        var unavailable = PricedBothSides ? DiffUnavailable(id, checks) : null;
+        if (PricedBothSides && unavailable is null) rows = [.. rows.Select(r => r with { Diff = ShareOf(r.After) - ShareOf(r.Before) })];
+        var ordered = rows.Select((r, i) => (r, i)).OrderByDescending(x => SizeOf(x.r)).ThenBy(x => x.i).Select(x => x.r).ToList();
+        return new EntityPage(ordered.Skip(offset).Take(limit).ToList(), ordered.Count, offset, checks, unavailable);
     }
 
+    /// <summary>The sides that wrote a term, refused when none gave it an allocation: its value is then no sum of shares.</summary>
+    List<(Side side, TraceTerm term)> Allocated(string id)
+    {
+        var written = Present.SelectMany(s => s.Index.Find(id) is { } term ? [(s, term)] : Array.Empty<(Side, TraceTerm)>()).ToList();
+        if (written.Count == 0) throw new TraceInvalid($"No side has the term {id}.");
+        if (written.All(x => x.Item2.Allocation is null))
+            throw new TraceRefused("NoAllocation", $"{id} has no allocation to split among its entities: its value is not a sum of shares, so its rows' contributions are not added up here.");
+        return written;
+    }
+
+    /// <summary>
+    /// Why the entities below a term priced on both sides carry no Diff, or null when they do: a side unavailable or not
+    /// returned, or not reconciling, at the term itself (the term's own Diff says so), or a side whose entities do not
+    /// add up to its allocation. A side that did not write the term, absent there, contributes nothing.
+    /// </summary>
+    string? DiffUnavailable(string id, IReadOnlyList<EntityCheck> checks)
+    {
+        if (Read(id)?.Diff is { State: DiffState.Unavailable } diff) return diff.Reason;
+        foreach (var check in checks)
+            if (check.Status != CheckStatus.Matches)
+                return check.Status == CheckStatus.Inconsistent
+                    ? $"{check.Side}'s entities do not add up to its allocation: {check.Reason}"
+                    : $"{check.Side}: {check.Reason}";
+        return null;
+    }
+
+    /// <summary>An entity's share on a side whose entities add up: none where it has no rows there.</summary>
+    static double ShareOf(EntityShare? share) => share is null ? 0 : share.Contribution;
+
+    /// <summary>What an entity is ordered by: its change, else its share on the side it has, After's first.</summary>
+    static double SizeOf(EntityRow row) =>
+        row.Diff is { } diff ? Math.Abs(diff)
+        : row.After is { } after ? Math.Abs(after.Contribution)
+        : row.Before is { } before ? Math.Abs(before.Contribution)
+        : throw new InvalidOperationException($"The entity {row.Entity} has a share on no side.");
+
     static EntityCheck Reconcile(Side side, double sum, double allocation) =>
-        Math.Abs(sum - allocation) <= side.Index.Trace.Tolerance * Math.Max(1, Math.Abs(allocation))
+        TraceEvaluator.Within(sum, allocation, side.Index.Trace.Tolerance)
             ? new(side.Name, CheckStatus.Matches, sum, allocation)
             : new(side.Name, CheckStatus.Inconsistent, sum, allocation,
                 $"{sum.ToString("G10", System.Globalization.CultureInfo.InvariantCulture)} by its entities, {allocation.ToString("G10", System.Globalization.CultureInfo.InvariantCulture)} allocated");

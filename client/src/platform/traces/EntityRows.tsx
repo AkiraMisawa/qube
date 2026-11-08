@@ -4,13 +4,14 @@ import { GridSource, type GridColumn } from '@ex-grid/core';
 import { compactGridHeight } from '../grid/metrics';
 import { WorkbenchGrid } from '../grid/WorkbenchGrid';
 import { MAX_PAGE, refusalText, type TraceApi } from './api';
-import type { EntityCheck, EntityRow, LeafSetKind, TraceAddress, TraceHeader } from './contracts';
-import { checkLine, columnLabel, entitySides } from './entities';
-import { SIDE_TITLE, unitText } from './words';
+import type { EntityCheck, EntityRow, LeafSetKind, Side, TraceAddress, TraceHeader } from './contracts';
+import { checkLine, columnLabel } from './entities';
+import { SIDE_TITLE, sidesHolding, unitText } from './words';
 
 // The entities below a term (ADR-0012 §6): each entity's share on each side, the sum of its rows' contributions at
 // every depth below the term, with the Diff, in the server's order (the largest change first, or with one side the
-// largest share), paged by the server. Beneath, whether each side's entities add up to the term's allocation.
+// largest share), paged by the server. Beneath, whether each side's entities add up to the term's allocation, and,
+// where a side cannot be compared, why the entities have no Diff (ADR-0011 §4).
 
 const figure = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const format = (v: unknown) => (typeof v === 'number' ? figure.format(v) : String(v));
@@ -27,6 +28,7 @@ export function EntityRows({ api, address, header, path, set }: {
   const [failure, setFailure] = useState<string | undefined>(undefined);
   const [checks, setChecks] = useState<readonly EntityCheck[] | undefined>(undefined);
   const [total, setTotal] = useState<number | undefined>(undefined);
+  const [noDiff, setNoDiff] = useState<string | undefined>(undefined);
 
   const source = useMemo(() => GridSource.fetch<EntityRow>(async (query, signal) => {
     // The server orders the entities; a filter or a sort here is refused, never ignored.
@@ -35,6 +37,7 @@ export function EntityRows({ api, address, header, path, set }: {
     const answer = await api.entities(address, path, { offset: query.range.start, limit: Math.min(query.range.count, MAX_PAGE) }, signal);
     setChecks(answer.entities.checks);
     setTotal(answer.entities.total);
+    setNoDiff(answer.entities.diffUnavailable ?? undefined);
     return { rows: answer.entities.rows, start: answer.entities.offset, totalCount: answer.entities.total };
   }, { rowKey: (r) => `${r.leafSet}\u0000${r.entity}`, onFetchFailed: (event) => setFailure(refusalText(event.error)) }),
   [api, address, path]);
@@ -48,17 +51,19 @@ export function EntityRows({ api, address, header, path, set }: {
   const columns = useMemo((): readonly GridColumn<EntityRow>[] => {
     const titled = (title: string) => (currency === '' ? title : `${title} (${currency})`);
     const out: GridColumn<EntityRow>[] = [
-      { name: 'entity', header: columnLabel(set, set.entityField) ?? 'Entity', type: 'text', width: { auto: true, minPx: 96, maxPx: 240 }, queryable: false, value: (r) => r.entity },
+      { name: 'entity', header: columnLabel(set, set.entityField), type: 'text', width: { auto: true, minPx: 96, maxPx: 240 }, queryable: false, value: (r) => r.entity },
       ...header.sides.map((side): GridColumn<EntityRow> => ({
         name: side, header: titled(SIDE_TITLE[side]), type: 'number', width: 140, queryable: false, format, value: (r) => r[side]?.contribution,
       })),
     ];
     if (both) out.push({ name: 'diff', header: titled('Diff'), type: 'number', width: 140, queryable: false, format, value: (r) => r.diff ?? undefined });
+    // An entity with no rows on a side has none there, said as a word rather than a count of 0 read off nothing.
+    const rowsOn = (r: EntityRow, side: Side) => { const share = r[side]; return share === undefined || share === null ? 'none' : String(share.rows); };
     out.push(both
       ? { name: 'rows', header: 'Rows (Before · After)', type: 'text', width: { auto: true, minPx: 72, maxPx: 180 }, queryable: false,
-          value: (r) => header.sides.map((s) => r[s]?.rows ?? 0).join(' · ') }
-      : { name: 'rows', header: 'Rows', type: 'number', width: 80, queryable: false, value: (r) => r[header.sides[0]!]?.rows });
-    if (both) out.push({ name: 'sides', header: 'Sides', type: 'text', width: { auto: true, minPx: 96, maxPx: 200 }, queryable: false, value: (r) => entitySides(r, header.sides) });
+          value: (r) => header.sides.map((s) => rowsOn(r, s)).join(' · ') }
+      : { name: 'rows', header: 'Rows', type: 'text', width: 80, queryable: false, value: (r) => header.sides.map((s) => rowsOn(r, s)).join('') });
+    if (both) out.push({ name: 'sides', header: 'Sides', type: 'text', width: { auto: true, minPx: 96, maxPx: 200 }, queryable: false, value: (r) => sidesHolding(r, header.sides) });
     return out;
   }, [set, header, both, currency]);
 
@@ -74,6 +79,7 @@ export function EntityRows({ api, address, header, path, set }: {
           <Text size="xs" data-testid="trace-entities-check" {...(line.error ? { c: 'red' } : {})}>{line.text}</Text>
         </Group>
       )}
+      {both && noDiff !== undefined && <Text size="xs" c="red" data-testid="trace-entities-no-diff">No Diff: {noDiff}</Text>}
     </Stack>
   );
 }

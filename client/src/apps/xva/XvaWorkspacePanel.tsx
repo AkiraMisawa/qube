@@ -11,7 +11,7 @@ import { keyOf } from '../../platform/workspace/workspaceStore';
 import { registerGridFocus } from '../../shell/focus';
 import type { XvaApi } from './api';
 import type { EffectiveTrade, HeldEdit, RegisteredColumn, RegisteredMeasure, Resolution, ScopeDrop, XvaWorkspaceView } from './contracts';
-import { registerXvaPage } from './commands';
+import { measureNamed, registerXvaPage } from './commands';
 import { XvaResult } from './XvaResult';
 import { BASE_CASE, BASE_SCENARIO, openTrace, requestTerm } from '../../platform/traces/open';
 import type { TraceApi } from '../../platform/traces/api';
@@ -372,11 +372,11 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
     downloadRun(runId);
   };
 
-  /** The tabs of the dock's Run: Metrics, then those its priced measures register (ADR-0010 §7). */
+  /** The tabs of the dock's Run: Metrics, then those its priced measures register while selected (ADR-0010 §7). */
   const resultTabs = (): readonly DockTab[] => {
     const runId = dockRun();
     const run = runId === undefined ? undefined : queryClient.getQueryData<RunRecord>(['run', runId]);
-    return dockTabs(view.data?.measures ?? [], run === undefined ? undefined : pricedMeasures(run.input));
+    return dockTabs(view.data?.measures ?? [], run === undefined ? undefined : pricedMeasures(run.input), view.data?.selectedMeasures ?? []);
   };
   /** Shows a dock tab (`open result simm`); a measure's own widens the dock over the grids. */
   const openResult = (id: string) => {
@@ -387,25 +387,31 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
     if (tab.view !== 'metrics') setDockFull(true);
   };
   const tabIdOf = (tab: string) => `${panelId}#${tab}`;
+  /** The trace the dock shows in a measure's own tab, for the trace commands; none while it shows Metrics or is closed. */
+  const traceInView = (): string | undefined => {
+    const tab = resultTabs().find((t) => t.id === resultTab);
+    return dockOpen && tab !== undefined && tab.view === 'trace' ? tabIdOf(tab.id) : undefined;
+  };
 
   /**
    * Opens a measure's trace for a case of the dock's Run, at a term or its root (ADR-0011 §6, §7): in the measure's own
-   * tab where it registers one and the Run priced it (ADR-0012 §7), widening the dock; otherwise in a trace panel.
+   * tab where it registers one and the Run priced it (ADR-0012 §7), widening the dock; otherwise in a trace panel. The
+   * case is the one the tab shows unless a Metrics cell names another, so the line a trace offers comes back to it.
    */
-  const explain = (measure: string, path?: string, caseId: string = BASE_CASE) => {
+  const explain = (measure: string, path?: string, caseId: string = traceCase) => {
     const runId = dockRun();
     if (runId === undefined) { workspace.notify('Nothing is priced yet, so there is no trace to explain.'); return; }
-    const registered = view.data?.measures.find((m) => m.id === measure);
+    const registered = measureNamed(measure, view.data?.measures ?? []);
     const traced = (view.data?.measures ?? []).filter((m) => m.traced).map((m) => m.id);
     if (registered === undefined) { workspace.notify(`${measure} is not a measure of this page. The measures that keep a trace: ${traced.join(', ') || 'none'}.`); return; }
     if (!registered.traced) { workspace.notify(`${registered.title} keeps no trace to explain. The measures that do: ${traced.join(', ') || 'none'}.`); return; }
-    const own = resultTabs().find((t): t is MeasureTab => t.view === 'trace' && t.measure === measure);
+    const own = resultTabs().find((t): t is MeasureTab => t.view === 'trace' && t.measure === registered.id);
     if (own !== undefined) {
       setResultTab(own.id); setTraceCase(caseId); setDockOpen(true); setDockFull(true); setSection('results');
       requestTerm(tabIdOf(own.id), path);
       return;
     }
-    openTrace(workspace.store.getState(), { runId, case: caseId, scenario: BASE_SCENARIO, measure }, `${registered.title} · ${view.data?.registration.key ?? ''}`.trim(), path);
+    openTrace(workspace.store.getState(), { runId, case: caseId, scenario: BASE_SCENARIO, measure: registered.id }, `${registered.title} · ${view.data?.registration.key ?? ''}`.trim(), path);
   };
 
   const setMeasures = (measures: readonly string[]) => void queue.push({ entity: MEASURES_ENTITY, field: 'measures', measures });
@@ -417,8 +423,8 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   const setCurrency = (currency: string) => void queue.push({ entity: SETTINGS_ENTITY, field: 'displayCurrency', value: currency });
 
   // The commands run what the page's own controls run, as the page stands when they run (ADR-0010 §9).
-  const pageRef = useRef({ price, setMeasures, setSide, retry, copyQuote, download, refresh, setCurrency, openTab, explain, openResult, setDockFull, resultTabs, measures: () => view.data?.measures ?? [], currencies: () => view.data?.currencies ?? [] });
-  pageRef.current = { price, setMeasures, setSide, retry, copyQuote, download, refresh, setCurrency, openTab, explain, openResult, setDockFull, resultTabs, measures: () => view.data?.measures ?? [], currencies: () => view.data?.currencies ?? [] };
+  const pageRef = useRef({ price, setMeasures, setSide, retry, copyQuote, download, refresh, setCurrency, openTab, explain, openResult, setDockFull, resultTabs, traceInView, measures: () => view.data?.measures ?? [], currencies: () => view.data?.currencies ?? [] });
+  pageRef.current = { price, setMeasures, setSide, retry, copyQuote, download, refresh, setCurrency, openTab, explain, openResult, setDockFull, resultTabs, traceInView, measures: () => view.data?.measures ?? [], currencies: () => view.data?.currencies ?? [] };
   useEffect(() => {
     registerXvaPage(panelId, {
       price: () => void pageRef.current.price(),
@@ -434,6 +440,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
       openResult: (tab) => pageRef.current.openResult(tab),
       setDockFull: (full) => pageRef.current.setDockFull(full),
       resultTabs: () => pageRef.current.resultTabs(),
+      traceInView: () => pageRef.current.traceInView(),
       measures: () => pageRef.current.measures(),
       currencies: () => pageRef.current.currencies(),
     });
@@ -540,14 +547,14 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
           : (
             <>
               {dockOpen && !full && <Resizer label="Height of the result dock" value={dockHeight} min={48} max={560} grows="up" onChange={setDockHeight} />}
-              <XvaResult runId={pricedRun} pricedRevision={pricedRevision} revision={ws.revision} register={ws.measures} onOpen={() => openRun(pricedRun)}
+              <XvaResult runId={pricedRun} pricedRevision={pricedRevision} revision={ws.revision} register={ws.measures} selected={ws.selectedMeasures} onOpen={() => openRun(pricedRun)}
                 onCopyQuote={() => void copyQuote()} onTrace={(measure, caseId, term) => explain(measure, term, caseId)}
                 open={dockOpen} onOpenChange={setDockOpen} height={dockHeight}
                 tab={resultTab} onTab={(tab) => { setResultTab(tab); if (tab !== METRICS_TAB.id) setDockFull(true); }} full={full} onFull={setDockFull}
-                renderTab={(tab) => (
+                renderTab={(tab, caption) => (
                   <Suspense fallback={<Text size="sm">Reading the trace…</Text>}>
                     <TraceTab key={`${pricedRun}:${traceCase}:${tab.measure}`} tabId={tabIdOf(tab.id)} api={traceApi} registerFocus={registerTreeFocus}
-                      address={{ runId: pricedRun, case: traceCase, scenario: BASE_SCENARIO, measure: tab.measure }} />
+                      address={{ runId: pricedRun, case: traceCase, scenario: BASE_SCENARIO, measure: tab.measure }} caption={caption} />
                   </Suspense>
                 )} />
             </>

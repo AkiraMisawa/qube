@@ -221,9 +221,12 @@ the first case of a measure's membership, which every measure now declares (§10
   trace has several roots: spot IM's IM-R opens at `collect`, IM-P at `post`. The shared result gains a note per side,
   said beside that side's figure (spot IM's governing regime), and a basis said with the row's figures, such as
   `SIMM PARAMETERS DEMO`. Both are empty for a measure that has nothing to say there, and neither is ever a figure.
+  A row may also say once the rate its figures were converted at, where a measure computes in another currency than
+  the display currency (spot IM, from USD, ADR-0012 §7's note of 2026-11-08); its tab says it above the trace.
   *Note of 2026-11-08 (ADR-0012's delivery step 3):* a measure registers its own result tabs as data, each an id, a
-  title and a view (`trace` today, §10's results), and the dock's tabs are Metrics and the tabs of the measures the Run
-  in view priced, so they follow the Run as its Metrics do (DEFAULT). A Metrics cell, or `explain`, of a measure with
+  title and a view (`trace` today, §10's results), and the dock's tabs are Metrics and the tabs of the selected
+  measures, as this section says, where the Run in view priced them, since a tab draws that Run's trace: a measure
+  left out after the Price keeps its Metrics but loses its tab. A Metrics cell, or `explain`, of a measure with
   such a tab opens that tab at the term, in place of a panel of its own. Opening a measure's tab widens the dock over
   the input tabs and the trade grids; the dock's `Restore height` button, or `dock restore`, puts it back to the height
   its handle sets (CONFIRMED, owner 2026-11-08). `dock full` widens it again and `open result <tab>` shows a tab. Below

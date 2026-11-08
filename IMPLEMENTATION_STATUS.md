@@ -538,31 +538,38 @@ and §10, ADR-0011 §5 and §6, ADR-0012 §7 and ADR-0013 §6.
 ### What runs
 
 - **Result tabs registered by a measure**: spot IM registers `SIMM` and spot CCR capital `CCR`, each drawing its trace;
-  the pricer API lists them, and the dock shows Metrics and the tabs of the measures the Run priced. An IM-R or IM-P
-  cell, a CCR cell, or `explain`, opens the measure's tab at its term; opening a tab widens the dock over the input
+  the pricer API lists them, and the dock shows Metrics and the tabs of the selected measures the Run priced. An IM-R
+  or IM-P cell, a CCR cell, or `explain`, opens the measure's tab at its term; opening a tab widens the dock over the input
   tabs and the grids (owner's choice), and `Restore height` or `dock restore` puts it back. `open result <tab>` and
   `dock full` from the command line. A measure priced on no side (no IM CSA) says why in its tab. A Run opened from
   the Pricing DB keeps the separate trace panel.
 - **The SIMM tab**: a card per direction (`IM-R · collect`, `IM-P · post`) with its IM CSA, Before, After, Diff and
-  the regime that governs; the chosen card roots the tree beside the formula. CCR's tab has one root and no cards.
+  the regime that governs (from the regimes' own `governs`); the chosen card roots the tree beside the formula. Above
+  the cards, the rate the Metrics' figures were converted at from USD, said once from a `conversion` column of the
+  shared result. CCR's tab has one root and no cards.
 - **Trades under a term** (generic, in the kernel): a leaf set names its contribution column, and
   `GET …/traces/{measure}/entities` sums the rows below a term by entity on each side with the Diff, largest change
-  first, saying on each side whether they add up to the term's allocation. Refused by name at a term with no
-  allocation (a direction, which is a max over regimes) and above a leaf set with no contribution (CCR's, today).
-  The view offers `By Trade` first and, at a risk factor, `By CRIF line`.
+  first, saying on each side whether they add up to the term's allocation. Where a side cannot be compared (not
+  returned, unavailable, or not adding up) no entity has a Diff and the page says why. Refused by name at a term with
+  no allocation (a direction, which is a max over regimes) and above a leaf set with no contribution (CCR's, today).
+  `…/leaves?below=true` gives the rows at every depth below a term, refused in the same place. The view offers
+  `By trade` first and `By CRIF line` beside it, at a regime and every term under it.
 - **The trace view**: `Governs` / `Not governing` on the operands of a max, min or clamp (the kernel resolves which
-  term took it), the others faint; allocation Before, After and Diff columns; the term's own parameters first and
-  those of the terms above folded, each matrix scrolling in its own box; the `explain` line with Copy. The trace tab
-  and its view are loaded on first use, as the trace panel is.
+  term took it), the others faint, in the tree and in the phone's list; allocation Before, After and Diff columns,
+  and the allocation's change in the formula pane; the term's own parameters first and those of the terms above
+  folded, each matrix scrolling in its own box; the `explain` line with Copy, for the case in view. The order, the
+  rows below and the fold are kept per view and have commands (`trace order`, `trace rows`, `trace parameters`), and
+  `explain simm <path>` names spot IM by its module. The trace tab and its view are loaded on first use, as the trace
+  panel is.
 
 ### Verification performed
 
 | Suite | Result |
 |---|---|
-| `dotnet test server/Workbench.slnx` | 455 passed: the entities of a synthetic orchard trace (sums, Diff, order, one side, refusals), `governs` by position and by slot, SIMM's regimes and labels, the registered tabs over HTTP, and spot IM's trades over HTTP adding up to the regime on both sides and to their own CRIF lines at a risk factor |
-| `npm run typecheck`, `npm test` (Vitest) | Clean; 140 passed, among them the dock's tabs and an unpriced tab's reason, the cards, the entity words, the governs mark, the allocation cells and the parameters split |
-| `npx playwright test` (Chromium, headless, Linux) | 33 passed; `simm.spec.ts` with `--repeat-each=3` (12 passed): the SIMM tab from a Metrics cell and by command, the cards switching roots, the governing and not-governing regimes, the trades adding up, the copied `explain` line, a risk factor's trades and CRIF lines, the folded parameters, restore, After alone with no Diff, a counterparty with no IM CSA, and 4.5:1 text with no sideways scroll at 1440, 992, 768 and 390px in both themes |
-| Screenshots at 1440 and 390px, dark | The SIMM tab at a regime and at a risk factor, the CRIF lines, the parameters unfolded; looked at by hand. A 7×7 ρ matrix scrolled the page sideways at 1440 until it was boxed, found by the new browser test |
+| `dotnet test server/Workbench.slnx` | 458 passed: the entities of a synthetic orchard trace (sums, Diff, order, one side, refusals, no Diff where a side does not add up or is not returned), the rows at every depth below a term, `governs` by position and by slot, SIMM's regimes and labels, the conversion said on each row, the registered tabs over HTTP, and spot IM's trades over HTTP adding up to the regime on both sides and to their own CRIF lines at a risk factor |
+| `npm run typecheck`, `npm test` (Vitest) | Clean; 148 passed, among them the dock's tabs (selected and priced), an unpriced tab's reason and the conversion, the cards from the children's `governs`, the views below a term, the entity words, the governs mark, the allocation cells, the parameters split, the `explain` line and how `explain` names a measure |
+| `npx playwright test` (Chromium, headless, Linux) | 33 passed; the two changed `simm.spec.ts` tests with `--repeat-each=3` (6 passed): the SIMM tab from a Metrics cell and by command, the FX said once, the cards switching roots, the governing and not-governing regimes, a regime's trades adding up and its CRIF lines at every depth, the copied `explain` line, a risk factor reached by the keyboard with each trade's CRIF lines listed, the `trace` commands, restore, After alone in the cards and at a factor, `explain simm …`, a counterparty with no IM CSA, the regimes' marks in the phone's list, and 4.5:1 text with no sideways scroll at 1440, 992, 768 and 390px in both themes |
+| Screenshots at 1440 and 390px, dark | The SIMM tab with the FX caption, a regime's CRIF lines, a bucket with its trades and every parameter unfolded, and the phone's list of regimes; looked at by hand, no console message. A 7×7 ρ matrix scrolled the page sideways at 1440 until it was boxed, found by the browser test |
 
 ### Providers
 
@@ -573,9 +580,10 @@ As step 2: the CRIF comes from the fake Rates provider, the SIMM parameters are 
 
 - CCR's tab has no trades view: SA-CCR's provider writes no contribution per trade, and the kernel refuses to sum
   what was not allocated.
-- The fold of the parameters is the formula pane's own: a pane drawn anew (another term, or crossing the phone width)
-  starts folded.
 - The entity grid is ordered by the server and takes no sort or filter; it refuses one rather than ignoring it.
+- The entities and the rows below a term are read in the one leaf set that names a contribution; a catalogue with two
+  such sets has no entity view, rather than columns that fit some rows.
+- The view's settings are kept per view for the session and are not saved.
 - A trade in the entity grid does not yet go to its row in the trade grids (ADR-0011 §6's leaf action).
 
 ## Next

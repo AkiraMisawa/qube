@@ -2,33 +2,31 @@ import type { Side, TermPage, TermRead, TraceHeader } from './contracts';
 import { diffText, valueText } from './formula';
 import { SIDE_TITLE, unitText } from './words';
 
-// A trace tab's cards (ADR-0012 §7: "the two directions' summaries"; ADR-0010 §7): one per root of the trace, above
-// its drill-down. A card reads only its root's own page, so it says what the provider wrote and nothing it did not.
+// A trace tab's cards (ADR-0010 §7, ADR-0012 §7): one per root of the trace, above its drill-down. A card reads only
+// its root's own page, so it says what the provider wrote and nothing it did not.
 
 export interface RootCard {
   readonly id: string;
   readonly label: string;
-  /** What the root's key names beyond its label, such as the IM CSA a direction is computed under. */
+  /** What the root's key names beyond its label, such as the agreement it is computed under. */
   readonly detail: string | undefined;
-  /** The operand a max, min or bound took on each side, named by its term, such as `JFSA regime governs`. */
+  /** The operand a max, min or bound took on each side, named by its term, such as `Well A governs`. */
   readonly governing: string | undefined;
   readonly figures: readonly { readonly key: Side | 'diff'; readonly title: string; readonly text: string }[];
 }
 
-/** The term a side's governed mark names: a position among the root's children, or a role of its formula. */
-function governedLabel(page: TermPage, governed: string | number): string {
-  if (typeof governed === 'number') return page.children[governed]?.label ?? `operand ${governed + 1}`;
-  const id = page.term.slots?.[governed];
-  return page.children.find((c) => c.id === id)?.label ?? governed;
-}
-
+/**
+ * What governed the root on each side: the children the server marks as governing there (ADR-0011 §2, §6), said once
+ * where the sides agree. None where no child on the page says so, rather than a child guessed from its position.
+ */
 function governingOf(page: TermPage, header: TraceHeader): string | undefined {
   const marks = header.sides.flatMap((side) => {
-    const governed = page.term[side]?.governed;
-    return governed === undefined || governed === null ? [] : [[side, governedLabel(page, governed)] as const];
+    const governing = page.children.filter((c) => c[side]?.governs === true).map((c) => c.label);
+    return governing.length === 0 ? [] : [[side, governing.join(' and ')] as const];
   });
-  if (marks.length === 0) return undefined;
-  if (marks.every(([, label]) => label === marks[0]![1])) return `${marks[0]![1]} governs`;
+  const [first] = marks;
+  if (first === undefined) return undefined;
+  if (marks.length === header.sides.length && marks.every(([, label]) => label === first[1])) return `${first[1]} governs`;
   return marks.map(([side, label]) => `${SIDE_TITLE[side]}: ${label} governs`).join(' · ');
 }
 
@@ -51,7 +49,7 @@ export function rootCard(page: TermPage, header: TraceHeader): RootCard {
   return { id: term.id, label: term.label, detail: detailOf(term), governing: governingOf(page, header), figures: [...figures, ...diff] };
 }
 
-/** The root a term lies under, by its path (`collect/JFSA` is under `collect`), or none. */
+/** The root a term lies under, by its path (`north/well-a` is under `north`), or none. */
 export function rootOf(roots: readonly string[], path: string | undefined): string | undefined {
   if (path === undefined) return undefined;
   return roots.find((r) => path === r || path.startsWith(`${r}/`));

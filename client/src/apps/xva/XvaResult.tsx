@@ -5,7 +5,7 @@ import { archiveUrl } from '../../platform/runs';
 import { partHeight } from './layout';
 import { useDatasets, useRun } from '../../platform/workspace/WorkspaceProvider';
 import type { RegisteredMeasure } from './contracts';
-import { dockTabs, unpricedReasons, type MeasureTab } from './dock';
+import { conversionOf, dockTabs, METRICS_TAB, unpricedReasons, type MeasureTab } from './dock';
 import { headlines, metricsGrid, metricsTable, pricedMeasures, reasons, tradeCounts, type MetricCell, type MetricLine, type ModuleResult } from './metrics';
 
 // The latest Price's Metrics, on the workspace page itself (ADR-0010 §7): a row per case, per priced measure Before,
@@ -14,13 +14,15 @@ import { headlines, metricsGrid, metricsTable, pricedMeasures, reasons, tradeCou
 // request answers, and a failed request leaves only its own measures unavailable (§10). Collapsed, the dock is its
 // header and one line a case with each measure's headline Diff (§7).
 
-export function XvaResult({ runId, pricedRevision, revision, register, onOpen, onCopyQuote, onTrace, open, onOpenChange, height, tab, onTab, full, onFull, renderTab }: {
+export function XvaResult({ runId, pricedRevision, revision, register, selected, onOpen, onCopyQuote, onTrace, open, onOpenChange, height, tab, onTab, full, onFull, renderTab }: {
   readonly runId: string;
   /** The workspace revision the Run froze; unknown until the workspace lists the Run. */
   readonly pricedRevision: number | undefined;
   readonly revision: number;
   /** The registered measures, for their titles and metrics; what was priced is the Run's. */
   readonly register: readonly RegisteredMeasure[];
+  /** The measures selected now: a measure's own tab is shown while it is selected and the Run priced it (ADR-0010 §7). */
+  readonly selected: readonly string[];
   readonly onOpen: () => void;
   /** Copy quote (ADR-0010 §7), which the server reads from the Run alone. */
   readonly onCopyQuote: () => void;
@@ -38,8 +40,8 @@ export function XvaResult({ runId, pricedRevision, revision, register, onOpen, o
   /** Whether the dock is widened over the trade grids (owner, 2026-11-08), and widening or restoring it. */
   readonly full: boolean;
   readonly onFull: (full: boolean) => void;
-  /** What a measure's own tab draws while it is shown, such as its trace (ADR-0012 §7). */
-  readonly renderTab: (tab: MeasureTab) => ReactNode;
+  /** What a measure's own tab draws while it is shown, such as its trace, under what the page says of every figure in it (ADR-0012 §7). */
+  readonly renderTab: (tab: MeasureTab, caption: string | undefined) => ReactNode;
 }) {
   const bodyId = useId();
   const run = useRun(runId);
@@ -52,8 +54,8 @@ export function XvaResult({ runId, pricedRevision, revision, register, onOpen, o
   const status = run.data?.status ?? 'running';
   const priced = run.data === undefined ? [] : pricedMeasures(run.data.input);
   // A tab asked for that this Run has not, such as a measure it did not price, shows Metrics.
-  const tabs = dockTabs(register, priced);
-  const shown = tabs.find((t) => t.id === tab) ?? tabs[0]!;
+  const tabs = dockTabs(register, priced, selected);
+  const shown = tabs.find((t) => t.id === tab) ?? METRICS_TAB;
 
   // Each module's answer, by its step: rows once read, unavailable once it failed, absent while it runs.
   const results: Record<string, ModuleResult> = {};
@@ -153,7 +155,7 @@ export function XvaResult({ runId, pricedRevision, revision, register, onOpen, o
             ? <Text size="sm">The {shown.title} tab draws once the Run has finished.</Text>
             : unpriced !== undefined
               ? <Stack gap={0} data-testid="xva-result-tab-unpriced">{unpriced.map((r) => <Text key={r.text} size="sm" {...(r.failed ? { c: 'red' } : {})}>{r.text}</Text>)}</Stack>
-              : renderTab(shown)}
+              : renderTab(shown, conversionOf(table, shown.measure))}
         </div>
       )}
       {open && shown.view === 'metrics' && (

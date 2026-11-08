@@ -98,8 +98,8 @@ public static partial class SimmEngine
         {
             var id = SimmDatasets.Name(csa.Direction);
             roots.Add(id);
-            // IM-R is the margin collected, IM-P the margin posted: the names the page's Metrics give them.
-            var key = new Dictionary<string, string> { ["im"] = csa.Direction == ImDirection.Collect ? "IM-R" : "IM-P", ["direction"] = id, ["csa"] = csa.Id };
+            // The direction titled as the page's Metrics title it: IM-R collected, IM-P posted.
+            var key = new Dictionary<string, string> { ["im"] = SimmMeasures.Title(id), ["direction"] = id, ["csa"] = csa.Id };
             if (governing < 0)
             {
                 // Nothing in scope: the direction has no IM, which is not an IM of 0 (ADR-0012 §1).

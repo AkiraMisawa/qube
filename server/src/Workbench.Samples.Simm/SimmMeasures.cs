@@ -26,7 +26,7 @@ public sealed class SimmMeasures(ConventionRegistry conventions, Func<DateOnly, 
     public string Id => Module;
 
     public static IReadOnlyList<MeasureDefinition> Definitions { get; } =
-        [new(SpotIm, "Spot IM", [new("imR", "IM-R", ImCsaTerms.Collect), new("imP", "IM-P", ImCsaTerms.Post)], "imR", DeclaresMembership: true, Traced: true,
+        [new(SpotIm, "Spot IM", [new("imR", Title(ImCsaTerms.Collect), ImCsaTerms.Collect), new("imP", Title(ImCsaTerms.Post), ImCsaTerms.Post)], "imR", DeclaresMembership: true, Traced: true,
             Tabs: [new("simm", "SIMM", ResultTab.Trace)])];
 
     public IReadOnlyList<MeasureDefinition> Measures => Definitions;
@@ -114,7 +114,12 @@ public sealed class SimmMeasures(ConventionRegistry conventions, Func<DateOnly, 
     /// <summary>
     /// A direction's IM CSA titled as the page shows it: IM-R is collected from the counterparty, IM-P posted to it.
     /// </summary>
-    public static string Title(string direction) => direction == ImCsaTerms.Collect ? "IM-R" : "IM-P";
+    public static string Title(string direction) => direction switch
+    {
+        ImCsaTerms.Collect => "IM-R",
+        ImCsaTerms.Post => "IM-P",
+        _ => throw new ArgumentOutOfRangeException(nameof(direction), direction, "An IM CSA collects or posts."),
+    };
 
     /// <summary>A direction's letter in a membership's compact form (`R: JFSA, CFTC · P: JFSA`, ADR-0012 §2).</summary>
     static string Letter(string direction) => direction == ImCsaTerms.Collect ? "R" : "P";

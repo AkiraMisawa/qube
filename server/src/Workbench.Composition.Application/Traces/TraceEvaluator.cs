@@ -193,8 +193,12 @@ public sealed class TraceEvaluator(TraceIndex index, TraceCatalog catalog)
 
     static string SlotId(TraceTerm term, string name) => term.Slots?.GetValueOrDefault(name) ?? $"{term.Id}/{name}";
 
+    /// <summary>Whether a figure agrees with the one written, by the trace's tolerance, relative above 1 and absolute below (ADR-0011 §2).</summary>
+    public static bool Within(double computed, double returned, double tolerance) =>
+        Math.Abs(computed - returned) <= tolerance * Math.Max(1, Math.Abs(returned));
+
     TermCheck Compare(double returned, double computed) =>
-        Math.Abs(computed - returned) <= index.Trace.Tolerance * Math.Max(1, Math.Abs(returned))
+        Within(computed, returned, index.Trace.Tolerance)
             ? new(CheckStatus.Matches, computed)
             : new(CheckStatus.Inconsistent, computed, $"{Format(computed)} by its terms, {Format(returned)} returned");
 
@@ -252,7 +256,7 @@ public sealed class TraceEvaluator(TraceIndex index, TraceCatalog catalog)
     (TraceTerm? Term, Ev.Missing? Missing) SlotTerm(string name, Scope scope)
     {
         var term = scope.Term ?? throw new InvalidOperationException("A slot is read in a term's scope.");
-        var id = term.Slots?.GetValueOrDefault(name) ?? $"{term.Id}/{name}";
+        var id = SlotId(term, name);
         if (index.Find(id) is { } target) return (target, null);
         var state = index.StateOfMissing(term);
         return (null, new Ev.Missing(state, state == TermState.Absent ? $"{id} is absent" : $"{id} was not returned"));

@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
-import { ActionIcon, Button, Text } from '@mantine/core';
+import { ActionIcon, Badge, Button, Text } from '@mantine/core';
 import { IconChevronDown, IconChevronRight } from '@tabler/icons-react';
 import { GridSource, type CellState, type GridColumn, type GridDeclaredKeyPress, type GridSelection, type GridTemplateCell } from '@ex-grid/core';
 import { templateColumn, type ExGridApi } from '@ex-grid/react';
@@ -54,7 +54,7 @@ function TermCell({ cell }: { readonly cell: GridTemplateCell<TreeRow> }) {
     return <div className="qwb-trace-term" style={indent}><Text size="xs" {...(row.kind === 'failed' ? { c: 'red' } : {})} truncate>{row.note}</Text></div>;
   }
   const label = row.term?.label ?? row.termId;
-  // The operand its parent's max took is marked, and the others drawn faint: a regime that did not govern (ADR-0011 §6).
+  // The operand its parent's max took is marked, and the others drawn faint: an operand that did not govern (ADR-0011 §6).
   const mark = row.term === undefined ? undefined : governsMark(row.term, actions.header);
   return (
     <div className="qwb-trace-term" style={indent} data-open={row.open} {...(mark === undefined ? {} : { 'data-governs': mark.governs })}>
@@ -66,7 +66,7 @@ function TermCell({ cell }: { readonly cell: GridTemplateCell<TreeRow> }) {
         </ActionIcon>
       ) : <span className="qwb-trace-leaf" aria-hidden />}
       <span className="qwb-trace-label" title={label}>{label}</span>
-      {mark !== undefined && <span className="qwb-trace-mark" data-testid="trace-governs">{mark.text}</span>}
+      {mark !== undefined && <Badge size="sm" variant="light" {...(mark.governs ? {} : { color: 'gray' })} className="qwb-trace-mark" data-testid="trace-governs">{mark.text}</Badge>}
     </div>
   );
 }

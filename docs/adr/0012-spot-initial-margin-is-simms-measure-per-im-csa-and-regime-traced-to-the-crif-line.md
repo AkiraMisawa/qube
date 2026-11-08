@@ -205,6 +205,10 @@ with the first product with options (the spec's out-of-scope list).)*
   A value inside the formula opens its term.
 - **`explain simm <direction> <regime> <path…>`** opens a term from the command line, and the AI reads the same
   trace as data (docs/09), not the screen.
+  *(Note of 2026-11-08, delivery step 3: the command is ADR-0011 §7's one `explain <measure> <path>` for every measure,
+  and SIMM's form is that one. The direction, the regime and the levels below are the path's segments, joined by `/`
+  as the term's id is (`explain simm collect/JFSA/RatesFX/IR`), and `simm` names spot IM as the module's one traced
+  measure. The trace view shows the line for the term selected, so it is copied rather than composed.)*
 - **Layout: the whole tree beside the formula** (CONFIRMED, owner 2026-11-07, for SIMM and CCR alike). On a desktop,
   every level of the term tree can be open at once, with the selected term's formula beside it and the trades and
   CRIF lines under it, as the sample does. On a phone, it drills in one level at a time. The alternative, drilling in
@@ -237,13 +241,18 @@ is the side's trades in an IM-R scope, and IM-P's likewise.
 §7's note of this date). Opening it widens the dock over the input tabs and the trade grids, and a button and `dock
 restore` put it back (CONFIRMED, owner 2026-11-08). It shows a card per direction, `IM-R · collect` and `IM-P · post`
 with the IM CSA, their Before, After and Diff and the regime that governs each side; the chosen card's direction is the
-root of the tree beside the formula, in §6's layout. An IM-R or IM-P cell, or `explain simm.spotIm <path>`, opens the
-tab at its term and chooses its card. A regime is `JFSA regime` in the tree, marked `Governs` or `Not governing`.
-Below a regime and every term under it, its trades come first, each the sum of its CRIF lines' contributions there on
-each side with the Diff, and each side says whether they add up to the term's contribution; a risk factor also offers
-its CRIF lines. A direction has no trades view, since its IM is a max over regimes and a trade's lines would be counted
-under each (ADR-0011 §5's note). A counterparty with no IM CSA has a SIMM tab that says why, as the Metrics do. Spot CCR
-capital registers a `CCR` tab of the same kind, with its one root and no cards.
+root of the tree beside the formula, in §6's layout. Above the cards, the tab says once the rate its USD figures
+were converted at for the Metrics (`Computed in USD; shown in JPY at 150 JPY per USD, the pinned FX of 2026-10-26.`),
+so a reader moving from a Metrics cell to its trace knows why the figures differ. An IM-R or IM-P cell, or `explain
+simm.spotIm <path>`, opens the tab at its term and chooses its card. The command is `explain <measure> <path>`: the path
+is the term's id, segments joined by `/`, and the measure may be named by its module where the module has one traced
+measure (`explain simm collect/JFSA`); it opens the case the tab shows. A regime is `JFSA regime` in the tree, marked
+`Governs` or `Not governing`. Below a regime and every term under it, its trades come first, each the sum of its CRIF
+lines' contributions there on each side with the Diff, and each side says whether they add up to the term's
+contribution; beside them, its CRIF lines at every depth below it, so that every term shows its trades and CRIF lines
+as §6 has it. A direction has neither, since its IM is a max over regimes and a trade's lines would be counted under
+each (ADR-0011 §5's note); its regimes have them. A counterparty with no IM CSA has a SIMM tab that says why, as the
+Metrics do. Spot CCR capital registers a `CCR` tab of the same kind, with its one root and no cards.
 
 ### 8. Reuse by MVA
 

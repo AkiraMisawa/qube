@@ -24,11 +24,13 @@ view in the dock.
 - **The trace view, where the sample differs.** Ticket 03:
   - contributions on each side, with their Diff;
   - a governing mark on the operand that governed;
-  - the selected term's `explain` line, with a copy button;
+  - the selected term's `explain` line, with a copy button, for the case the view shows;
+  - the trades and the CRIF lines at every term with an allocation;
   - the term's own parameters first, with those of the terms above it folded, and no sideways scroll at any width;
   - spot IM's labels: `IM-R · collect` and `JFSA regime`.
 - **The SIMM tab.** It shows one card per direction: its IM CSA, the governing regime, and Before, After and Diff in
-  the calculation currency, which the trace's header says once. Choosing a card roots the drill-down at that direction. Opening
+  the calculation currency, which the trace's header says, with the rate the Metrics' figures were converted at said once
+  above the cards. Choosing a card roots the drill-down at that direction. Opening
   the tab widens the dock over the trade grids, and a button or command puts it back to its own height (CONFIRMED,
   owner 2026-11-08). The layout is the confirmed one: on a phone,
   drilling in; After alone works in full. Ticket 04.
