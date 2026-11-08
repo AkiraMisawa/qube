@@ -1,5 +1,6 @@
 import { Alert, Badge, Button, Group, Stack, Table, Text } from '@mantine/core';
 import type { TypedDataRef } from '../../platform/contracts';
+import { archiveUrl } from '../../platform/runs';
 import { useDatasets, useRun } from '../../platform/workspace/WorkspaceProvider';
 import type { RegisteredMeasure } from './contracts';
 import { metricsGrid, metricsTable, pricedMeasures, tradeCounts, type MetricCell, type MetricLine, type ModuleResult } from './metrics';
@@ -9,7 +10,7 @@ import { metricsGrid, metricsTable, pricedMeasures, tradeCounts, type MetricCell
 // simulated, of which revision, and whether the workspace has moved on since. Each module's figures show as its
 // request answers, and a failed request leaves only its own measures unavailable (§10).
 
-export function XvaResult({ runId, pricedRevision, revision, register, onOpen }: {
+export function XvaResult({ runId, pricedRevision, revision, register, onOpen, onCopyQuote }: {
   readonly runId: string;
   /** The workspace revision the Run froze; unknown until the workspace lists the Run. */
   readonly pricedRevision: number | undefined;
@@ -17,6 +18,8 @@ export function XvaResult({ runId, pricedRevision, revision, register, onOpen }:
   /** The registered measures, for their titles and metrics; what was priced is the Run's. */
   readonly register: readonly RegisteredMeasure[];
   readonly onOpen: () => void;
+  /** Copy quote (ADR-0010 §7), which the server reads from the Run alone. */
+  readonly onCopyQuote: () => void;
 }) {
   const run = useRun(runId);
   const steps = run.data?.workflow.steps ?? [];
@@ -71,7 +74,15 @@ export function XvaResult({ runId, pricedRevision, revision, register, onOpen }:
         {counts.length > 0 && (
           <Text size="xs" data-testid="xva-result-trades" title="Trades each measure priced, Before → After">Trades: {counts.join(' · ')}</Text>
         )}
-        <Button size="compact-xs" variant="default" ml="auto" onClick={onOpen}>Open run</Button>
+        {/* A Run's actions (ADR-0010 §7): each once the Run has finished, Copy quote while it priced CVA. */}
+        <Group gap={4} ml="auto">
+          <Button size="compact-xs" variant="default" onClick={onCopyQuote} disabled={status === 'running' || priced?.includes('cva') !== true}
+            title={priced?.includes('cva') === true ? 'Copy the CVA Charge and PV each case adds, as HTML and text.' : 'This Run did not price CVA, so it has no quote.'}>Copy quote</Button>
+          {status === 'running'
+            ? <Button size="compact-xs" variant="default" disabled>Download</Button>
+            : <Button size="compact-xs" variant="default" component="a" href={archiveUrl(runId)} download={`${runId}.zip`}>Download</Button>}
+          <Button size="compact-xs" variant="default" onClick={onOpen}>Open run</Button>
+        </Group>
       </Group>
       {status === 'failed' && <Alert color="red" variant="light" title={run.data?.error?.code ?? 'Failed'}>{run.data?.error?.message}</Alert>}
       {priced === undefined && (

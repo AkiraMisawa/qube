@@ -59,7 +59,7 @@ public class PricerApiTests(WorkbenchFactory factory) : IClassFixture<WorkbenchF
 
         Assert.Equal(["cva", "fva"], measures.Select(m => m["id"]!.GetValue<string>()));
         Assert.All(measures, m => Assert.Equal("xva", m["module"]!.GetValue<string>()));
-        Assert.Equal(["cva", "cvaCharge"], measures[0]["metrics"]!.AsArray().Select(m => m!["id"]!.GetValue<string>()));
+        Assert.Equal(["cva", "cvaCharge", "pv"], measures[0]["metrics"]!.AsArray().Select(m => m!["id"]!.GetValue<string>()));
         Assert.All(Strings(ws["selectedMeasures"]), m => Assert.Contains(m, measures.Select(r => r["id"]!.GetValue<string>())));
     }
 
@@ -75,7 +75,7 @@ public class PricerApiTests(WorkbenchFactory factory) : IClassFixture<WorkbenchF
         Assert.Equal("cva", run["input"]!["measures"]!.GetValue<string>());
         Assert.NotEmpty(rows);
         Assert.All(rows, r => Assert.Equal("cva", r["measure"]!.GetValue<string>()));
-        Assert.Equal(["cva", "cvaCharge"], rows.Select(r => r["metric"]!.GetValue<string>()));
+        Assert.Equal(["cva", "cvaCharge", "pv"], rows.Select(r => r["metric"]!.GetValue<string>()));
         Assert.All(rows, r => Assert.Equal(("priced", "priced"), (r["beforeStatus"]!.GetValue<string>(), r["afterStatus"]!.GetValue<string>())));
         Assert.All(rows, r => Assert.Equal(r["after"]!.GetValue<decimal>() - r["before"]!.GetValue<decimal>(), r["diff"]!.GetValue<decimal>()));
     }
@@ -131,4 +131,27 @@ public class PricerApiTests(WorkbenchFactory factory) : IClassFixture<WorkbenchF
         Assert.Equal(HttpStatusCode.OK, retried.StatusCode);
         Assert.Equal(0, (await retried.Content.ReadFromJsonAsync<JsonObject>())!["asked"]!.GetValue<int>());
     }
+
+    [Fact] // ADR-0010 §7: Download and Copy quote are a Run's, over HTTP: a zip of the Run, and the quote as text and HTML
+    public async Task A_run_downloads_as_a_zip_and_quotes_as_text_and_html()
+    {
+        // The fixture's workspaces share an owner, whose last selection a new workspace takes: CVA is selected here.
+        var ws = await Measures(await Create(), "cva", "fva");
+        var (run, _) = await Price(ws);
+        var runId = run["runId"]!.GetValue<string>();
+
+        var download = await client.GetAsync($"/api/runs/{runId}/archive");
+        Assert.Equal(HttpStatusCode.OK, download.StatusCode);
+        Assert.Equal("application/zip", download.Content.Headers.ContentType!.MediaType);
+        Assert.Equal($"{runId}.zip", download.Content.Headers.ContentDisposition!.FileName);
+        using var archive = new System.IO.Compression.ZipArchive(await download.Content.ReadAsStreamAsync());
+        Assert.NotNull(archive.GetEntry("run.json"));
+        Assert.NotNull(archive.GetEntry("manifest.json"));
+
+        var quote = (await client.GetFromJsonAsync<JsonObject>($"/api/xva/runs/{runId}/quote"))!;
+        Assert.StartsWith($"XVA quote (simulated) · {runId}", quote["text"]!.GetValue<string>());
+        Assert.StartsWith("<p><b>XVA quote (simulated)", quote["html"]!.GetValue<string>());
+        Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync("/api/xva/runs/run-none/quote")).StatusCode);
+    }
 }
+

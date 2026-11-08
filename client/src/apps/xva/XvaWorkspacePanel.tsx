@@ -18,6 +18,7 @@ import { ToolbarField } from './fields';
 import { XvaInputs } from './XvaInputs';
 import { priceLabel } from './metrics';
 import { differs, originalMessage } from './original';
+import { copyRich, downloadRun } from '../../platform/runs';
 import { cellMessage as moduleCellMessage, cellRefusal, cellState as moduleCellState, failed, moduleColumns, parseCellNumber } from './cells';
 
 // The fixed XVA workspace (docs/03, ADR-0003): the server holds the trades and every rule; this page shows
@@ -262,20 +263,41 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api }: { readonly pane
   const contextCommands = useCallback((context: GridContextMenuContext<Row>) =>
     failed(context.row, context.column) ? [{ id: RETRY, enabled: true, invoke: () => void pageRef.current.retry(context.row.tradeId) }] : [], []);
 
+  /** The Run the dock shows: the one priced here last, else the workspace's latest. */
+  const dockRun = () => priced ?? view.data?.runs[0]?.runId;
+  const copyQuote = async () => {
+    const runId = dockRun();
+    if (runId === undefined) { workspace.notify('Nothing is priced yet, so there is no quote to copy.'); return; }
+    try {
+      const quote = await api.quote(runId);
+      await copyRich(quote.text, quote.html);
+      workspace.notify(`The quote of ${runId} is on the clipboard.`);
+    } catch (error) {
+      workspace.notify(`The quote was not copied: ${describe(error)}`);
+    }
+  };
+  const download = () => {
+    const runId = dockRun();
+    if (runId === undefined) { workspace.notify('Nothing is priced yet, so there is no Run to download.'); return; }
+    downloadRun(runId);
+  };
+
   const setMeasures = (measures: readonly string[]) => void queue.push({ entity: MEASURES_ENTITY, field: 'measures', measures });
   /** B or A for every row of a grid, as one edit (ADR-0010 §6); a row's own edit made later wins over it. */
   const setSide = (side: 'before' | 'after', value: boolean, grid: TradeGrid = lastGrid.current) =>
     void queue.push({ entity: `grid:${grid}`, field: side, value });
 
   // The commands run what the page's own controls run, as the page stands when they run (ADR-0010 §9).
-  const pageRef = useRef({ price, setMeasures, setSide, retry, measures: () => view.data?.measures ?? [] });
-  pageRef.current = { price, setMeasures, setSide, retry, measures: () => view.data?.measures ?? [] };
+  const pageRef = useRef({ price, setMeasures, setSide, retry, copyQuote, download, measures: () => view.data?.measures ?? [] });
+  pageRef.current = { price, setMeasures, setSide, retry, copyQuote, download, measures: () => view.data?.measures ?? [] };
   useEffect(() => {
     registerXvaPage(panelId, {
       price: () => void pageRef.current.price(),
       setMeasures: (measures) => pageRef.current.setMeasures(measures),
       setSide: (side, value, grid) => pageRef.current.setSide(side, value, grid),
       retry: () => void pageRef.current.retry(),
+      downloadRun: () => pageRef.current.download(),
+      copyQuote: () => void pageRef.current.copyQuote(),
       measures: () => pageRef.current.measures(),
     });
     return () => registerXvaPage(panelId, undefined);
@@ -324,7 +346,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api }: { readonly pane
         <Text size="xs" c="dimmed" data-testid="workspace-summary">{ws.trades} trades · {ws.overrides} edit(s) · revision {ws.revision} · {ws.sourceVersion}</Text>
       </Group>
       {issue !== undefined && <Text size="xs" c="red" role="alert" data-testid="field-issue">{issue}</Text>}
-      {pricedRun !== undefined && <XvaResult runId={pricedRun} pricedRevision={pricedRevision} revision={ws.revision} register={ws.measures} onOpen={() => openRun(pricedRun)} />}
+      {pricedRun !== undefined && <XvaResult runId={pricedRun} pricedRevision={pricedRevision} revision={ws.revision} register={ws.measures} onOpen={() => openRun(pricedRun)} onCopyQuote={() => void copyQuote()} />}
       <HeldEdits conflicts={ws.conflicts} lost={ws.lost} resolve={(edit, resolution) => void queue.push({ entity: edit.entity, field: edit.field, resolution })} />
       {failure !== undefined && <Alert color="red" variant="light" withCloseButton onClose={() => setFailure(undefined)} title="The trades could not be read">{failure}</Alert>}
       {/* New trades above Existing (ADR-0010 §6): New as high as its rows, about eight at most; Existing takes the rest. */}

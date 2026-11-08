@@ -103,7 +103,7 @@ public class PricerTests
 
         Assert.Equal(RunStatus.Succeeded, run.Status);
         var cva = rows.Where(r => r["measure"]!.GetValue<string>() == "cva").ToList();
-        Assert.Equal(2, cva.Count);
+        Assert.Equal(3, cva.Count);
         Assert.All(cva, r => Assert.Equal(("refused", "No CDS curve for ABC/LE-01."), (r["afterStatus"]!.GetValue<string>(), r["reason"]!.GetValue<string>())));
         Assert.All(cva, r => Assert.Null(r["after"]));
         var fva = Assert.Single(rows, r => r["measure"]!.GetValue<string>() == "fva");
@@ -439,7 +439,7 @@ public class PricerTests
 
         var (_, rows) = await Price(runs, store, service, ws);
 
-        Assert.Equal(3, rows.Count);
+        Assert.Equal(4, rows.Count);
         Assert.All(rows, r => Assert.Equal(("refused", "PV Adj of DRAFT-2 is unknown: From Margin: PV01 is pending."),
             (r["afterStatus"]!.GetValue<string>(), r["reason"]!.GetValue<string>())));
         Assert.All(rows, r => Assert.Null(r["after"]));
@@ -482,4 +482,87 @@ public class PricerTests
 
         Assert.Equal(code, refused.Code);
     }
+
+    /// <summary>Prices the revision and answers the finished Run.</summary>
+    static async Task<RunRecord> Finished(RunService runs, PortfolioWorkspaces service, WorkspaceState ws)
+    {
+        var accepted = Assert.IsType<SubmissionResult.Accepted>(service.Price(ws.WorkspaceId, ws.Revision, "akira", Guid.NewGuid().ToString()));
+        await runs.Completion(accepted.Run.RunId);
+        return runs.Find(accepted.Run.RunId)!;
+    }
+
+    [Fact] // ADR-0010 §7, docs/05: Download is the Run's record, its frozen input and its result, each saying what it is
+    public async Task A_runs_download_holds_its_record_input_and_result()
+    {
+        var (service, runs, store, _) = Priced();
+        var ws = service.Create("akira", "ABC/LE-01", Day1, 5);
+        var run = await Finished(runs, service, ws);
+
+        var zip = new MemoryStream();
+        RunArchive.Write(run, store, zip);
+        using var archive = new System.IO.Compression.ZipArchive(new MemoryStream(zip.ToArray()));
+        JsonNode Read(string path) { using var s = archive.GetEntry(path)!.Open(); return JsonNode.Parse(s)!; }
+
+        Assert.Equal(run.RunId, Read("run.json")["runId"]!.GetValue<string>());
+        var entries = Read("manifest.json")["entries"]!.AsArray().Select(e => e!).ToList();
+        var input = Assert.Single(entries, e => e["roles"]!.AsArray().Any(r => r!.GetValue<string>() == "input:xva/acceptedInput"));
+        var result = Assert.Single(entries, e => e["roles"]!.AsArray().Any(r => r!.GetValue<string>() == "output:xva"));
+        Assert.All(entries, e => Assert.Equal("retained", e["state"]!.GetValue<string>()));
+        var pinned = ((DataReferenceBinding)run.Workflow.Steps[0].Bindings["acceptedInput"]).Reference;
+        Assert.True(JsonNode.DeepEquals(store.ReadRequired(pinned), Read(input["path"]!.GetValue<string>())));
+        Assert.True(JsonNode.DeepEquals(store.ReadRequired(run.Outputs[XvaMeasures.Module]), Read(result["path"]!.GetValue<string>())));
+    }
+
+    [Fact] // ADR-0010 §7 (DEFAULT note of 2026-11-07): Copy quote gives the Run's header and each case's CVA Charge and PV Diff
+    public async Task Copy_quote_reads_the_header_and_each_cases_diffs_from_the_run()
+    {
+        var pv01 = new Pv01Provider((_, _) => Task.FromResult(-1_500m));
+        var (service, runs, store, _) = Priced(new XvaMeasures(pv01));
+        var ws = service.Create("akira", "ABC/LE-01", Day1, 5);
+        ws = service.Edit(ws.WorkspaceId, ws.Revision, "akira", "trade:DRAFT-1", "xva.margin", 2m);
+        await Settled(service, pv01, ws, "DRAFT-1", XvaMeasures.Pv01);
+        var run = await Finished(runs, service, ws);
+        var rows = store.ReadRequired(run.Outputs[XvaMeasures.Module])["rows"]!.AsArray().Select(r => r!).ToList();
+        string Diff(string metric) => Row(rows, metric)["diff"]!.GetValue<decimal>().ToString("#,0.00", System.Globalization.CultureInfo.InvariantCulture);
+
+        var quote = XvaQuote.Of(run, store);
+
+        Assert.Equal([
+            $"XVA quote (simulated) · {run.RunId}",
+            $"Counterparty ABC/LE-01 · Netting set NS-001 · Value date 2026-10-26 · Revision {ws.Revision} · JPY",
+            $"Workspace: CVA Charge {Diff("cvaCharge")} · PV {Diff("pv")}",
+        ], quote.Text.Split('\n').Select(l => l.TrimEnd('\r')));
+        // The PV a case adds is its new trades' value: DRAFT-1's PV Adj, in the result's currency.
+        var draft = service.Page(ws.WorkspaceId, "akira", 0, 10, [], "new").Rows.Single(t => t.TradeId == "DRAFT-1");
+        var expected = Math.Round(PortfolioMarket.ToGbp(-3_000m, draft.Currency, Day1) * PortfolioMarket.UnitsPerGbp("JPY", Day1), 2);
+        Assert.Equal(expected, Row(rows, "pv")["diff"]!.GetValue<decimal>());
+        Assert.Contains("<td style=\"text-align:right\">" + Diff("cvaCharge") + "</td>", quote.Html);
+    }
+
+    [Fact] // ADR-0010 §7: a one-sided case quotes its priced side and names it, never a Diff against nothing
+    public async Task A_one_sided_case_quotes_its_priced_side_and_names_it()
+    {
+        var (service, runs, store, _) = Priced();
+        var ws = service.Create("akira", "ABC/LE-01", Day1, 0);
+        var run = await Finished(runs, service, ws);
+        var rows = store.ReadRequired(run.Outputs[XvaMeasures.Module])["rows"]!.AsArray().Select(r => r!).ToList();
+        var charge = Row(rows, "cvaCharge")["after"]!.GetValue<decimal>().ToString("#,0.00", System.Globalization.CultureInfo.InvariantCulture);
+
+        var quote = XvaQuote.Of(run, store);
+
+        Assert.EndsWith($"Workspace (After only): CVA Charge {charge} · PV 0.00", quote.Text);
+        Assert.Contains("<td>After only</td>", quote.Html);
+    }
+
+    [Fact] // ADR-0010 §7, spine 1: a Run that did not price CVA has no CVA Charge to quote, and says so
+    public async Task A_run_without_cva_has_nothing_to_quote()
+    {
+        var (service, runs, store, _) = Priced();
+        var ws = service.Create("akira", "ABC/LE-01", Day1, 5);
+        ws = service.SetMeasures(ws.WorkspaceId, ws.Revision, "akira", ["fva"]);
+        var run = await Finished(runs, service, ws);
+
+        Assert.Equal("NothingToQuote", Assert.Throws<WorkspaceRefused>(() => XvaQuote.Of(run, store)).Code);
+    }
 }
+

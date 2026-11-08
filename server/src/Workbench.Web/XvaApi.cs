@@ -36,6 +36,14 @@ public static class XvaApi
             r.Key, r.Code, r.LegalEntity, r.Name, Agreement = PortfolioCatalog.AgreementOf(r.Key),
         }));
 
+        // Copy quote (ADR-0010 §7, §11): read from the Run's retained input and result, never from a screen.
+        api.MapGet("/runs/{runId}/quote", (string runId, RunService runs, IDataStore store, CurrentUser user) => Guard(() =>
+        {
+            if (runs.Find(runId) is not { } run) throw new WorkspaceRefused("UnknownRun", $"Run {runId} does not exist.");
+            if (run.Owner != user.Id) throw new WorkspaceRefused("NotOwner", $"Run {runId} belongs to another user.");
+            return Results.Ok(XvaQuote.Of(run, store));
+        }));
+
         var ws = api.MapGroup("/workspaces");
 
         ws.MapGet("/", (CurrentUser user, PortfolioWorkspaces service) =>
@@ -122,9 +130,9 @@ public static class XvaApi
             var issues = refused.Targets.Select(t => new CompositionIssue(refused.Code, $"/{t.Entity}/{t.Field}", refused.Message)).ToList();
             var status = refused.Code switch
             {
-                "UnknownWorkspace" => 404,
+                "UnknownWorkspace" or "UnknownRun" => 404,
                 "NotOwner" => 403,
-                "RevisionMoved" or "ConfirmationStale" or "UnresolvedEdits" or "ConflictUnresolved" => 409,
+                "RevisionMoved" or "ConfirmationStale" or "UnresolvedEdits" or "ConflictUnresolved" or "RunRunning" => 409,
                 _ => 422,
             };
             return Results.Json(new Api.ErrorEnvelope(refused.Code, refused.Message, issues), statusCode: status);

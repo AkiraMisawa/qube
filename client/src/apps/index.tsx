@@ -139,6 +139,22 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
       run: (a) => xvaPage().setMeasures(measuresTyped(a.measures ?? '')),
     },
     {
+      id: 'xva.run.download',
+      words: 'download run',
+      title: 'Save the Run the page shows as a zip of its inputs, results and lineage',
+      group: 'XVA',
+      ...(xva === undefined ? { unavailable: 'Open an XVA workspace first.' } : { target: active!.title }),
+      run: () => xvaPage().downloadRun(),
+    },
+    {
+      id: 'xva.quote.copy',
+      words: 'copy quote',
+      title: 'Copy the CVA Charge and PV each case adds, from the Run the page shows',
+      group: 'XVA',
+      ...(xva === undefined ? { unavailable: 'Open an XVA workspace first.' } : { target: active!.title }),
+      run: () => xvaPage().copyQuote(),
+    },
+    {
       id: 'xva.pv01.retry',
       words: 'pv01 retry',
       title: 'Ask again for every PV01 that failed',
