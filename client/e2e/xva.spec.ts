@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises';
 import type { Page } from '@playwright/test';
 import { command, expect, open, settled, test } from './fixtures';
 
@@ -226,3 +227,39 @@ test('ADR-0010 §6: a new trade\'s PV01 arrives with no reload, and Margin gives
   await command(page, 'price');
   await expect(page.getByTestId('xva-result').getByTestId('xva-result-status')).toHaveText('succeeded');
 });
+
+test('ADR-0010 §7: Download saves the Run as a zip, from the dock and the Pricing DB, and `copy quote` copies it as text and HTML', async ({ page }) => {
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  await open(page);
+  await newWorkspace(page, 'ABC/LE-01', 5);
+  // An earlier test left FVA alone selected, and a new workspace starts on its owner's last selection.
+  await command(page, 'measures', 'cva fva');
+  await expect(page.getByTestId('price')).toHaveText('Price CVA FVA · 1 case');
+  await command(page, 'price');
+  const result = page.getByTestId('xva-result');
+  await expect(result.getByTestId('xva-result-status')).toHaveText('succeeded');
+
+  const [fromDock] = await Promise.all([page.waitForEvent('download'), result.getByRole('link', { name: 'Download' }).click()]);
+  const runId = fromDock.suggestedFilename().replace(/\.zip$/, '');
+  expect(runId).toMatch(/^run-/);
+  expect((await readFile(await fromDock.path())).subarray(0, 2).toString()).toBe('PK');
+
+  await command(page, 'copy quote');
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toMatch(new RegExp(`^XVA quote \\(simulated\\) · ${runId}`));
+  const text = await page.evaluate(() => navigator.clipboard.readText());
+  expect(text).toMatch(/\nCounterparty ABC\/LE-01 · Netting set NS-001 · Value date 2026-\d\d-\d\d · Revision \d+ · JPY\n/);
+  expect(text).toMatch(/\nWorkspace: CVA Charge -?[\d,]+\.\d\d · PV -?[\d,]+\.\d\d$/);
+  const html = await page.evaluate(async () => {
+    const [item] = await navigator.clipboard.read();
+    if (item === undefined) throw new Error('The clipboard holds nothing.');
+    return (await item.getType('text/html')).text();
+  });
+  expect(html).toContain('<th>CVA Charge</th><th>PV</th>');
+
+  await command(page, 'open pricing db');
+  await settled(page, 'Pricing DB');
+  const row = page.getByLabel('Pricing DB').getByRole('row', { name: new RegExp(runId) });
+  const [fromHistory] = await Promise.all([page.waitForEvent('download'), row.getByRole('button', { name: 'Download' }).click({ force: true })]);
+  expect(fromHistory.suggestedFilename()).toBe(`${runId}.zip`);
+});
+

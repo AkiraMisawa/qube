@@ -57,6 +57,18 @@ public static class Api
                 ? Results.Ok(catalog)
                 : NotFound("UnknownMethod", $"No module registered the kinds of {method} {version}."));
 
+        // Download (ADR-0010 §7): a finished Run as a zip of its record, its frozen inputs, its results and its lineage.
+        api.MapGet("/runs/{runId}/archive", (string runId, RunService runs, IDataStore store, CurrentUser user) =>
+        {
+            if (runs.Find(runId) is not { } run) return NotFound("UnknownRun", $"Run {runId} does not exist.");
+            if (run.Owner != user.Id) return Results.Json(new ErrorEnvelope("NotOwner", $"Run {runId} belongs to another user.", []), statusCode: 403);
+            if (run.Status == RunStatus.Running) return Results.Json(new ErrorEnvelope("RunRunning", $"Run {runId} is still running; download it once it finishes.", []), statusCode: 409);
+            var zip = new MemoryStream();
+            RunArchive.Write(run, store, zip);
+            zip.Position = 0;
+            return Results.File(zip, "application/zip", $"{runId}.zip");
+        });
+
         api.MapPost("/data/read", (TypedDataRef reference, IDataStore store) => store.Read(reference) switch
         {
             DataLookup.Found found => Results.Ok(found.Content),
