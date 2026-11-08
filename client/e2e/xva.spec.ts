@@ -53,11 +53,14 @@ test('docs/03, ADR-0003: a new trade takes the main CSA, a CSA typed in moves it
   // The figures land on the page itself; the Run opens in its own panel only when asked.
   const result = page.getByTestId('xva-result');
   await expect(result.getByTestId('xva-result-status')).toHaveText('succeeded');
-  await expect(result.getByRole('row', { name: /^CVA / })).toBeVisible();
+  // No existing trade: Before has nothing to price, so the dock draws After alone and says so once (ADR-0010 §7).
+  await expect(result.getByTestId('xva-result-note')).toHaveText('After only: Before was not priced');
+  await expect(result.getByRole('columnheader', { name: 'CVA Charge After' })).toBeVisible();
+  await expect(result.getByRole('columnheader', { name: 'CVA Before' })).toHaveCount(0);
   await expect(result.getByTestId('xva-result-revision')).toHaveText(/^revision \d+$/);
   await result.getByRole('button', { name: 'Open run' }).click();
   await expect(page.getByTestId('run-status')).toHaveText('succeeded');
-  await expect(page.getByLabel('CVA and FVA (simulated)').getByRole('row', { name: /^CVA / })).toBeVisible();
+  await expect(page.getByLabel('CVA and FVA (simulated)').getByRole('row', { name: /^Workspace CVA -/ })).toBeVisible();
   const runId = await page.locator('[data-testid=run-status] + p').textContent();
   expect(runId).toMatch(/^run-/);
 
@@ -98,4 +101,29 @@ test('ADR-0003 §6: a counterparty change asks before dropping its edits, and ke
   await settled(page, 'Trades');
   await expect(trade(page, 'DRAFT-1').getByRole('gridcell').nth(3)).toHaveText('7,000,000');
   await expect(trade(page, 'DRAFT-1').getByRole('gridcell').nth(CSA)).toHaveText('CSA-C');
+});
+
+test('ADR-0010 §10: `measures fva` leaves CVA out of the Price, and a new workspace starts on that choice', async ({ page }) => {
+  await open(page);
+  await newWorkspace(page, 'ABC/LE-01', 3);
+  const measures = page.getByRole('group', { name: 'Measures' });
+
+  await command(page, 'measures', 'fva');
+  await expect(measures.getByRole('button', { name: 'CVA' })).toHaveAttribute('aria-pressed', 'false');
+  await expect(measures.getByRole('button', { name: 'FVA' })).toHaveAttribute('aria-pressed', 'true');
+  // Price says what it will run before it runs it (ADR-0010 §1).
+  await expect(page.getByTestId('price')).toHaveText('Price FVA · 1 case');
+
+  await command(page, 'price');
+  const result = page.getByTestId('xva-result');
+  await expect(result.getByTestId('xva-result-status')).toHaveText('succeeded');
+  await expect(result.getByRole('columnheader', { name: 'FVA Diff' })).toBeVisible();
+  await expect(result.getByRole('columnheader', { name: /^CVA/ })).toHaveCount(0);
+
+  // The page's own toggle runs the same command: CVA back in.
+  await measures.getByRole('button', { name: 'CVA' }).click();
+  await expect(page.getByTestId('price')).toHaveText('Price CVA FVA · 1 case');
+
+  await newWorkspace(page, 'ABC/LE-02', 0);
+  await expect(page.getByTestId('price')).toHaveText('Price CVA FVA · 1 case');
 });

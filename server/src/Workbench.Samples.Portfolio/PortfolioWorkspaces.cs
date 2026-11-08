@@ -13,7 +13,8 @@ public sealed record RowSort(string Column, string Direction);
 /// <summary>One page of effective rows, in the shape ExGrid's fetching source takes (ADR-0003 §4).</summary>
 public sealed record RowPage(IReadOnlyList<EffectiveTrade> Rows, int Start, int TotalCount, string OrderToken, long Revision);
 
-/// <summary>What the workspace panel shows beside the grid.</summary>
+/// <summary>What the workspace panel shows beside the grid. <c>Overrides</c> counts the edits to the portfolio's data;
+/// the selection of measures is the page's choice, shown on its own.</summary>
 public sealed record PortfolioWorkspaceView(
     string WorkspaceId,
     long Revision,
@@ -27,7 +28,9 @@ public sealed record PortfolioWorkspaceView(
     int Overrides,
     IReadOnlyList<HeldEdit> Conflicts,
     IReadOnlyList<HeldEdit> Lost,
-    IReadOnlyList<RunLink> Runs);
+    IReadOnlyList<RunLink> Runs,
+    IReadOnlyList<RegisteredMeasure> Measures,
+    IReadOnlyList<string> SelectedMeasures);
 
 /// <summary>An edit held back for the user: a conflict (with the source's new values) or a lost target.</summary>
 public sealed record HeldEdit(string Scope, string Entity, string Field, JsonNode? Value, IReadOnlyDictionary<string, JsonNode?>? Source, bool Acknowledged);
@@ -38,19 +41,12 @@ public sealed record RunLink(string RunId, long Revision);
 /// <summary>How many edits a counterparty change would drop, by module edit kind, for the user to confirm.</summary>
 public sealed record ScopeDrop(string Scope, int Count, IReadOnlyDictionary<string, int> ByKind);
 
-/// <summary>What Price submits for a revision: the module that prices the portfolio builds the Run (ADR-0010 §10).</summary>
-public interface IPortfolioPricing
-{
-    /// <summary>Freezes the revision the user saw and builds the one Run that prices it.</summary>
-    RunSubmission Submission(WorkspaceService workspaces, string workspaceId, long revision, string idempotencyKey, string owner);
-}
-
 /// <summary>
 /// The portfolio workspace application service (ADR-0010 §10), shared by the measures that price it: what the
 /// endpoints call. It decides scopes and sources; the generic
 /// kernel stores and checks the edits. The user is passed in; who may act is decided before this is called.
 /// </summary>
-public sealed class PortfolioWorkspaces(WorkspaceService workspaces, RunService runs, IPortfolioPricing pricing)
+public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore store, RunService runs, MeasureRegister register)
 {
     // Effective rows per immutable state: a page request at the same revision does not materialise again.
     readonly ConditionalWeakTable<WorkspaceState, IReadOnlyList<EffectiveTrade>> materialised = new();
@@ -59,8 +55,30 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, RunService 
     public static readonly IReadOnlyList<string> SortableColumns =
         ["tradeId", "isNew", "product", "currency", "notional", "maturity", "fixedRate", "schedule", "lastFixing", "csa", "curve", "before", "after"];
 
-    public WorkspaceState Create(string user, string registration, DateOnly valueDate, int existingCount) =>
-        workspaces.Create(user, PortfolioEditRules.App, Context(registration, valueDate, existingCount), new PortfolioSourceVersion(registration, valueDate, existingCount));
+    /// <summary>A new workspace, on its owner's last selection of measures (ADR-0010 §10, DEFAULT).</summary>
+    public WorkspaceState Create(string user, string registration, DateOnly valueDate, int existingCount)
+    {
+        var last = LastSelection(user);
+        var created = workspaces.Create(user, PortfolioEditRules.App, Context(registration, valueDate, existingCount), new PortfolioSourceVersion(registration, valueDate, existingCount));
+        return last is null ? created : SetMeasures(created.WorkspaceId, created.Revision, user, last);
+    }
+
+    /// <summary>Sets the measures Price runs (`measures cva fva`). An unknown one, or none, is refused by name.</summary>
+    public WorkspaceState SetMeasures(string workspaceId, long revision, string user, IReadOnlyList<string> measures)
+    {
+        var state = Owned(workspaceId, user);
+        var selection = register.Checked(measures);
+        return workspaces.Set(workspaceId, revision, user, PortfolioEditRules.Target(Source(state), Entity.Measures, Entity.MeasuresField),
+            new JsonArray([.. selection.Select(id => JsonValue.Create(id))]));
+    }
+
+    // The selection the owner set last, in any of their workspaces; none while they have only taken the default.
+    IReadOnlyList<string>? LastSelection(string user) =>
+        workspaces.OwnedBy(user).Where(w => w.App == PortfolioEditRules.App)
+            .SelectMany(w => w.Log.Where(e => e.Kind == EditKind.Set && e.Target?.Entity == Entity.Measures).Select(e => (e.At, e.Seq, e.Value)))
+            .OrderBy(e => e.At).ThenBy(e => e.Seq).LastOrDefault() is { Value: JsonArray chosen }
+            ? [.. register.Ids.Where(id => chosen.Any(c => c!.GetValue<string>() == id))]
+            : null;
 
     public PortfolioWorkspaceView View(string workspaceId, string user)
     {
@@ -70,10 +88,10 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, RunService 
             .Select(r => new RunLink(r.RunId, r.Relations.WorkspaceRevision ?? throw new InvalidOperationException($"Run {r.RunId} names a workspace but no revision.")))
             .ToList();
         return new(state.WorkspaceId, state.Revision, state.Context, source.Version, source.Registration, source.Agreement,
-            PortfolioMaterialiser.Csas(state), PortfolioMaterialiser.Credit(state), Rows(state).Count, state.Overrides.Count,
+            PortfolioMaterialiser.Csas(state), PortfolioMaterialiser.Credit(state), Rows(state).Count, state.Overrides.Keys.Count(t => t.Entity != Entity.Measures),
             [.. state.Conflicts.Values.OrderBy(c => c.Override.Seq).Select(c => new HeldEdit(c.Override.Target.Scope, c.Override.Target.Entity, c.Override.Target.Field, c.Override.Value, c.Source, false))],
             [.. state.Lost.Values.OrderBy(l => l.Override.Seq).Select(l => new HeldEdit(l.Override.Target.Scope, l.Override.Target.Entity, l.Override.Target.Field, l.Override.Value, null, l.Acknowledged))],
-            links);
+            links, register.Measures, PortfolioMaterialiser.SelectedMeasures(state, register));
     }
 
     public IReadOnlyList<WorkspaceState> OwnedBy(string user) =>
@@ -137,9 +155,16 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, RunService 
     {
         var source = Source(Owned(workspaceId, user));
         var count = source.Descriptor["existingCount"]!.GetValue<int>();
-        return workspaces.Reacquire(workspaceId, revision, user, Context(source.Registration.Key, valueDate, count),
-            new PortfolioSourceVersion(source.Registration.Key, valueDate, count));
+        return DataEdits(workspaces.Reacquire(workspaceId, revision, user, Context(source.Registration.Key, valueDate, count),
+            new PortfolioSourceVersion(source.Registration.Key, valueDate, count)));
     }
+
+    // The selection of measures is in the workspace's own scope, so it always carries; the summary counts the edits
+    // to the portfolio's data, as the view does.
+    static (WorkspaceState State, CarrySummary Summary) DataEdits((WorkspaceState State, CarrySummary Summary) moved) =>
+        moved.State.Overrides.Keys.Any(t => t.Entity == Entity.Measures)
+            ? (moved.State, moved.Summary with { Carried = moved.Summary.Carried - 1 })
+            : moved;
 
     /// <summary>What leaving the current counterparty would drop, for the confirmation (ADR-0003 §6).</summary>
     public ScopeDrop PreviewCounterpartyChange(string workspaceId, string user)
@@ -158,15 +183,15 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, RunService 
         if (source.Registration.Key == registration)
             throw new WorkspaceRefused("SameCounterparty", $"The workspace is already on {registration}.");
         var next = new PortfolioSourceVersion(registration, source.ValueDate, source.Descriptor["existingCount"]!.GetValue<int>());
-        return workspaces.ChangeScope(workspaceId, revision, user, $"cp:{source.Registration.Key}", confirmedCount,
-            Context(registration, source.ValueDate, source.Descriptor["existingCount"]!.GetValue<int>()), next);
+        return DataEdits(workspaces.ChangeScope(workspaceId, revision, user, $"cp:{source.Registration.Key}", confirmedCount,
+            Context(registration, source.ValueDate, source.Descriptor["existingCount"]!.GetValue<int>()), next));
     }
 
     /// <summary>Price: freezes the revision the user saw and submits one Run for it.</summary>
     public SubmissionResult Price(string workspaceId, long revision, string user, string idempotencyKey)
     {
         Owned(workspaceId, user);
-        return runs.Submit(pricing.Submission(workspaces, workspaceId, revision, idempotencyKey, user));
+        return runs.Submit(PortfolioPrice.Submission(workspaces, store, register, workspaceId, revision, idempotencyKey, user));
     }
 
     public void Delete(string workspaceId, string user) => workspaces.Delete(workspaceId, user);

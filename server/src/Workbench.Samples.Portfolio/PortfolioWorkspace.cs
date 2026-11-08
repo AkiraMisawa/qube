@@ -42,6 +42,9 @@ public sealed class PortfolioEditRules : IEditRules
     /// is kept so that a workspace saved before still opens.</summary>
     public const string App = "xva";
 
+    /// <summary>The scope of what belongs to the workspace itself rather than to a counterparty or a new trade.</summary>
+    public const string WorkspaceScope = "ws";
+
     public string KindOf(EditTarget target) => (Entity.Split(target.Entity).Kind, target.Field) switch
     {
         (Entity.Trade, "before" or "after") => "xva.membership",
@@ -49,6 +52,7 @@ public sealed class PortfolioEditRules : IEditRules
         (Entity.Trade, _) => "xva.trade",
         (Entity.Csa, _) => "xva.csa",
         (Entity.Credit, _) => "xva.credit",
+        (Entity.Selection, _) => "portfolio.selection",
         _ => throw new ArgumentException($"No portfolio edit kind for {target.Entity}.{target.Field}."),
     };
 
@@ -63,6 +67,8 @@ public sealed class PortfolioEditRules : IEditRules
     public static EditTarget Target(PortfolioSourceVersion source, string entity, string field)
     {
         var (kind, id) = Entity.Split(entity);
+        // The selection of measures is the workspace's, whichever counterparty it is on.
+        if (kind == Entity.Selection) return new EditTarget(WorkspaceScope, entity, field);
         var tradeContent = kind == Entity.Trade && field is not ("before" or "after" or "csa" or "curve");
         var isNew = kind == Entity.Trade && source.Trade(id)?.IsNew == true;
         return new EditTarget(tradeContent && isNew ? $"new:{id}" : $"cp:{source.Registration.Key}", entity, field);
@@ -100,7 +106,8 @@ public static class PortfolioMaterialiser
     static readonly ConditionalWeakTable<PortfolioSourceVersion, ConcurrentDictionary<string, EffectiveTrade[]>> Untouched = new();
     static readonly ILookup<string, string> Nothing = Array.Empty<(string, string)>().ToLookup(x => x.Item1, x => x.Item2);
 
-    /// <summary>The entities Price would read: trades in Before or After, the CSAs they use, and the credit inputs.</summary>
+    /// <summary>The entities Price would read: trades in Before or After, the CSAs they use, the credit inputs and the
+    /// selection of measures.</summary>
     public static Func<string, bool> PricedEntities(WorkspaceState state)
     {
         var source = (PortfolioSourceVersion)state.Source;
@@ -108,9 +115,16 @@ public static class PortfolioMaterialiser
         var entities = trades.Select(t => Entity.Of(Entity.Trade, t.TradeId))
             .Concat(trades.Select(t => Entity.Of(Entity.Csa, t.Csa)))
             .Append(Entity.Of(Entity.Credit, source.Registration.Key))
+            .Append(Entity.Measures)
             .ToHashSet();
         return entities.Contains;
     }
+
+    /// <summary>The measures Price runs: the user's selection, else every registered measure (ADR-0010 §10).</summary>
+    public static IReadOnlyList<string> SelectedMeasures(WorkspaceState state, MeasureRegister register) =>
+        state.Overrides.Values.SingleOrDefault(o => o.Target.Entity == Entity.Measures && o.Target.Field == Entity.MeasuresField) is { Value: JsonArray chosen }
+            ? [.. register.Ids.Where(id => chosen.Any(c => c!.GetValue<string>() == id))]
+            : register.Ids;
 
     public static IReadOnlyList<EffectiveCsa> Csas(WorkspaceState state)
     {

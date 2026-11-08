@@ -7,9 +7,20 @@
   height: max(20rem, calc(100dvh - 20rem));
 }
 
+/* The Metrics grow by three columns a measure metric; the table scrolls inside the page, never the page itself. */
 .qwb-xva-result-table {
-  max-width: 40rem;
+  max-width: 100%;
   overflow-x: auto;
+}
+
+.qwb-xva-result-group {
+  text-align: center;
+}
+
+/* A status in words (`not priced`, `unavailable`, `refused`) is the signal, set apart from the figures by its face
+   and never dimmed: the user must read it (docs/design-guidelines.md §7). */
+.qwb-xva-result-word {
+  font-style: italic;
 }
 
 .qwb-xva .qwb-number {

@@ -8,9 +8,14 @@ selected measure. A measure's validation blocks only that measure.
 
 **Blocked by:** 01.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] The workspace view lists the registered measures with their columns and the current selection.
-- [ ] `measures cva` then Price gives a Run with CVA only; FVA is neither priced nor shown.
-- [ ] A refused measure is listed with its reason and the other measures are priced.
-- [ ] The Metrics dock shows Before, After and Diff per selected measure, `unavailable` for a failed one, never 0.
+- [x] The workspace view lists the registered measures with their columns and the current selection.
+- [x] `measures cva` then Price gives a Run with CVA only; FVA is neither priced nor shown.
+- [x] A refused measure is listed with its reason and the other measures are priced.
+- [x] The Metrics dock shows Before, After and Diff per selected measure, `unavailable` for a failed one, never 0.
+
+*Done 2026-11-08.* The Run's input names the measures it priced (`measures: "cva fva"`), so the dock reads them from
+the Run. No registered measure refuses yet; a test registration that blocks CVA proves the path (`PricerTests`), and
+XVA's own validation arrives with its inputs (a missing CDS, ticket 03 onward; Margin without PV01, ticket 06). The
+selection is the page's choice, so the edit count and the carry summaries leave it out.

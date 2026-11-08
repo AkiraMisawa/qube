@@ -11,6 +11,7 @@ namespace Workbench.Composition.Tests;
 public class XvaTests
 {
     static readonly DateOnly Day1 = new(2026, 10, 26);
+    static readonly MeasureRegister Register = new([new XvaMeasures()]);
 
     static WorkspaceService Service() =>
         new(new Dictionary<string, IEditRules> { [PortfolioEditRules.App] = new PortfolioEditRules() }, TimeProvider.System);
@@ -70,7 +71,7 @@ public class XvaTests
         ws = Set(service, ws, "trade:DRAFT-1", "csa", "CSA-C");
 
         Assert.NotEmpty(Row(ws, "DRAFT-1").Issues);
-        var refused = Assert.Throws<WorkspaceRefused>(() => XvaPrice.Submission(service, new InMemoryDataStore(), ws.WorkspaceId, ws.Revision, "k1", "akira"));
+        var refused = Assert.Throws<WorkspaceRefused>(() => PortfolioPrice.Submission(service, new InMemoryDataStore(), Register, ws.WorkspaceId, ws.Revision, "k1", "akira"));
         Assert.Equal("InvalidInput", refused.Code);
     }
 
@@ -120,16 +121,17 @@ public class XvaTests
     static async Task<(JsonNode Result, RunRecord Run, IDataStore Store)> Price(WorkspaceService service, WorkspaceState ws, string key)
     {
         var store = new InMemoryDataStore();
-        var runs = new RunService(new CompositionRegistry([new XvaModule()]), store, TimeProvider.System);
-        var accepted = Assert.IsType<SubmissionResult.Accepted>(runs.Submit(XvaPrice.Submission(service, store, ws.WorkspaceId, ws.Revision, key, "akira")));
+        var runs = new RunService(new CompositionRegistry([new PortfolioModule(), new XvaModule()]), store, TimeProvider.System);
+        var accepted = Assert.IsType<SubmissionResult.Accepted>(runs.Submit(PortfolioPrice.Submission(service, store, Register, ws.WorkspaceId, ws.Revision, key, "akira")));
         await runs.Completion(accepted.Run.RunId);
         var run = runs.Find(accepted.Run.RunId)!;
         Assert.Equal(RunStatus.Succeeded, run.Status);
-        return (store.ReadRequired(run.Outputs["result"]), run, store);
+        return (store.ReadRequired(run.Outputs[XvaMeasures.Module]), run, store);
     }
 
-    static decimal Cell(JsonNode result, string measure, string column) =>
-        result["rows"]!.AsArray().Single(r => r!["measure"]!.GetValue<string>() == measure)![column]!.GetValue<decimal>();
+    // A metric's figure in the measure result (ADR-0010 §7): CVA's own metric is "cva", and its incremental is the Diff.
+    static decimal Cell(JsonNode result, string metric, string column) =>
+        result["rows"]!.AsArray().Single(r => r!["metric"]!.GetValue<string>() == metric)![column]!.GetValue<decimal>();
 
     [Fact] // CLAUDE.md: Before and After are independent; adding new trades leaves Before as it was
     public async Task Before_and_after_are_priced_independently()
@@ -141,9 +143,9 @@ public class XvaTests
 
         var (edited, _, _) = await Price(service, ws, "k2");
 
-        Assert.Equal(Cell(plain, "CVA", "before"), Cell(edited, "CVA", "before"));
-        Assert.NotEqual(Cell(plain, "CVA", "after"), Cell(edited, "CVA", "after"));
-        Assert.Equal(Cell(edited, "CVA", "after") - Cell(edited, "CVA", "before"), Cell(edited, "CVA", "incremental"));
+        Assert.Equal(Cell(plain, "cva", "before"), Cell(edited, "cva", "before"));
+        Assert.NotEqual(Cell(plain, "cva", "after"), Cell(edited, "cva", "after"));
+        Assert.Equal(Cell(edited, "cva", "after") - Cell(edited, "cva", "before"), Cell(edited, "cva", "diff"));
     }
 
     [Fact] // docs/03: an empty CVA recovery stays empty in the input, and analytics uses the CDS recovery
@@ -157,8 +159,8 @@ public class XvaTests
 
         var (explicitCds, _, _) = await Price(service, ws, "k2");
 
-        Assert.Null(input["credit"]!["cvaRecovery"]);
-        Assert.Equal(Cell(empty, "CVA", "after"), Cell(explicitCds, "CVA", "after"));
+        Assert.Null(input["modules"]![XvaMeasures.Module]!["credit"]!["cvaRecovery"]);
+        Assert.Equal(Cell(empty, "cva", "after"), Cell(explicitCds, "cva", "after"));
     }
 
     [Fact] // ADR-0003 §6: Price freezes the revision the user saw, and a moved workspace is refused
@@ -169,6 +171,6 @@ public class XvaTests
         var seen = ws.Revision;
         Set(service, ws, "trade:DRAFT-1", "notional", 1m);
 
-        Assert.Equal("RevisionMoved", Assert.Throws<WorkspaceRefused>(() => XvaPrice.Submission(service, new InMemoryDataStore(), ws.WorkspaceId, seen, "k1", "akira")).Code);
+        Assert.Equal("RevisionMoved", Assert.Throws<WorkspaceRefused>(() => PortfolioPrice.Submission(service, new InMemoryDataStore(), Register, ws.WorkspaceId, seen, "k1", "akira")).Code);
     }
 }

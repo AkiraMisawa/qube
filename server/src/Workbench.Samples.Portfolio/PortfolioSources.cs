@@ -134,6 +134,9 @@ public sealed class PortfolioSourceVersion : ISourceVersion
                 };
             case Entity.Csa when CsaOf(id) is { } csa:
                 return field == "curve" ? new(csa.Curve) : null;
+            // The measures Price runs (ADR-0010 §10). The source has no choice of its own: empty means every measure registered.
+            case Entity.Selection when id == Entity.MeasuresId:
+                return field == Entity.MeasuresField ? new((JsonNode?)null) : null;
             case Entity.Credit when id == Registration.Key:
                 return field switch
                 {
@@ -179,12 +182,18 @@ public sealed class PortfolioSourceVersion : ISourceVersion
     }
 }
 
-/// <summary>Entity names in portfolio edit targets: <c>trade:ID</c>, <c>csa:ID</c>, <c>credit:CODE/LE</c>.</summary>
+/// <summary>Entity names in portfolio edit targets: <c>trade:ID</c>, <c>csa:ID</c>, <c>credit:CODE/LE</c>, <c>selection:measures</c>.</summary>
 public static class Entity
 {
     public const string Trade = "trade";
     public const string Csa = "csa";
     public const string Credit = "credit";
+    public const string Selection = "selection";
+
+    /// <summary>The selection of measures Price runs: <c>selection:measures</c>, field <c>measures</c> (ADR-0010 §10).</summary>
+    public const string MeasuresId = "measures";
+    public const string MeasuresField = "measures";
+    public static readonly string Measures = Of(Selection, MeasuresId);
 
     public static string Of(string kind, string id) => $"{kind}:{id}";
 

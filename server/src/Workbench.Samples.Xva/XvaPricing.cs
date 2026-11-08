@@ -4,7 +4,6 @@ using System.Text.Json.Nodes;
 using Workbench.Composition.Application;
 using Workbench.Composition.Application.Workspaces;
 using Workbench.Composition.Contracts;
-
 using Workbench.Samples.Portfolio;
 
 namespace Workbench.Samples.Xva;
@@ -12,67 +11,61 @@ namespace Workbench.Samples.Xva;
 public static class XvaContracts
 {
     public const string Version = "1.0.0";
+    /// <summary>The accepted input of a Run priced before the portfolio module (ADR-0010 §10); read, never written.</summary>
     public const string AcceptedInput = "xva.accepted-input";
+    /// <summary>The result of a Run priced before the measures register; read by the Pricing DB, never written.</summary>
     public const string CaseResult = "xva.case-result";
-    public const string PriceInput = "xva.price-input";
+    public const string ResultView = "view.xva.result";
 }
 
 /// <summary>
-/// Builds the accepted input Price freezes: every trade in Before or After with its effective values, the
-/// credit inputs, and the copy of the overrides it priced. The Run keeps it; nothing re-derives it later.
+/// XVA's registration into the pricer (ADR-0010 §11): CVA, with its CVA Charge, and FVA. MVA and KVA follow when
+/// the engine's options for them are built.
 /// </summary>
-public static class AcceptedInput
+public sealed class XvaMeasures : IMeasureModule
 {
-    public static JsonObject Build(WorkspaceFreeze freeze)
+    public const string Module = "xva";
+    public const string Cva = "cva";
+    public const string Fva = "fva";
+
+    public string Id => Module;
+
+    public IReadOnlyList<MeasureDefinition> Measures { get; } =
+    [
+        new(Cva, "CVA", [new("cva", "CVA"), new("cvaCharge", "CVA Charge")], "cva", DeclaresMembership: false, Traced: false),
+        new(Fva, "FVA", [new("fva", "FVA")], "fva", DeclaresMembership: false, Traced: false),
+    ];
+
+    /// <summary>XVA's own inputs: the counterparty's credit. An empty CVA recovery stays empty (docs/03, XV15).</summary>
+    public JsonObject Input(WorkspaceState state) => new()
     {
-        var state = freeze.State;
-        var source = (PortfolioSourceVersion)state.Source;
-        var credit = PortfolioMaterialiser.Credit(state);
-        var trades = PortfolioMaterialiser.Trades(state).Where(t => t.Before || t.After).ToList();
-        var invalid = trades.Where(t => t.Issues.Count > 0).ToList();
-        if (invalid.Count > 0)
-            throw new WorkspaceRefused("InvalidInput", $"{invalid.Count} trade(s) to price have validation issues, first {invalid[0].TradeId}: {invalid[0].Issues[0]}");
-        return new JsonObject
-        {
-            ["workspaceId"] = freeze.WorkspaceId,
-            ["revision"] = freeze.Revision,
-            ["context"] = freeze.Context.DeepClone(),
-            ["sourceVersion"] = freeze.SourceVersion,
-            ["profileVersion"] = PortfolioCatalog.Profile.ProfileVersion,
-            ["registration"] = source.Registration.Key,
-            ["agreement"] = source.Agreement.MaId,
-            ["nettingSet"] = source.Agreement.NettingSetId,
-            ["credit"] = JsonSerializer.SerializeToNode(credit, WireJson.Options),
-            ["trades"] = JsonSerializer.SerializeToNode(trades, WireJson.Options),
-            ["overrides"] = new JsonArray([.. freeze.Overrides.Select(o => new JsonObject
-            {
-                ["entity"] = o.Target.Entity, ["field"] = o.Target.Field, ["value"] = o.Value?.DeepClone(), ["baseVersion"] = o.BaseVersion, ["seq"] = o.Seq,
-            })]),
-        };
-    }
+        ["credit"] = JsonSerializer.SerializeToNode(PortfolioMaterialiser.Credit(state), WireJson.Options),
+    };
+
+    public IReadOnlyList<MeasureRefusal> Validate(WorkspaceState state, IReadOnlyList<string> selected) => [];
+
+    public WorkflowStep Step(TypedDataRef acceptedInput) => new(Module, FakeXvaPrice.CapabilityId, FakeXvaPrice.CapabilityVersion, [],
+        new Dictionary<string, Binding> { ["acceptedInput"] = new DataReferenceBinding(acceptedInput) }, FailurePolicy.Stop);
 }
 
 /// <summary>
-/// The fake analytics provider (slice 02). Its CVA and FVA are a deterministic toy formula over notional,
-/// time to maturity and recovery, chosen only so that edits visibly move the figures. They are not a model of
-/// anything and every result says so (executionMode simulated). Before and After are computed independently.
+/// The fake analytics provider. Its CVA and FVA are a deterministic toy formula over notional, time to maturity and
+/// recovery, chosen only so that edits visibly move the figures. They are not a model of anything and every result
+/// says so (executionMode simulated). Before and After are computed independently; a side with no trade in it is not
+/// priced, never priced as zero (ADR-0010 §3). It prices only the selected XVA measures, and a refused one is reported
+/// with its reason and not computed.
 /// </summary>
 public sealed class FakeXvaPrice : ICapabilityHandler
 {
-    public CapabilityDescriptor Descriptor { get; } = new("xva.price", XvaContracts.Version, "Price CVA and FVA (simulated)",
-        [new("acceptedInput", XvaContracts.AcceptedInput, XvaContracts.Version, Cardinality.One)],
-        [new("result", XvaContracts.CaseResult, XvaContracts.Version, Cardinality.One)],
-        ExecutionKind.RequestResponse, [CapabilityEffect.Compute]);
+    public const string CapabilityId = "xva.price";
+    public const string CapabilityVersion = "2.0.0";
+    /// <summary>The simulated charge ratio CVA Charge applies to CVA (ADR-0010 OPEN: what the charge approximates).</summary>
+    public const decimal ChargeRatio = 1.25m;
 
-    public static readonly IReadOnlyList<DatasetColumn> Columns =
-    [
-        new("measure", DatasetColumnType.String, false),
-        new("before", DatasetColumnType.Number, true),
-        new("after", DatasetColumnType.Number, true),
-        new("incremental", DatasetColumnType.Number, true),
-        new("tradesBefore", DatasetColumnType.Integer, false),
-        new("tradesAfter", DatasetColumnType.Integer, false),
-    ];
+    public CapabilityDescriptor Descriptor { get; } = new(CapabilityId, CapabilityVersion, "Price CVA and FVA (simulated)",
+        [new("acceptedInput", PortfolioContracts.AcceptedInput, PortfolioContracts.Version, Cardinality.One)],
+        [new("result", PortfolioContracts.MeasureResult, PortfolioContracts.Version, Cardinality.One)],
+        ExecutionKind.RequestResponse, [CapabilityEffect.Compute]);
 
     public Task<IReadOnlyDictionary<string, JsonNode?>> InvokeAsync(CapabilityInvocation invocation, CancellationToken cancellationToken)
     {
@@ -80,10 +73,12 @@ public sealed class FakeXvaPrice : ICapabilityHandler
             ?? throw new CapabilityFailure("InvalidInput", "The accepted input is required.");
         var input = invocation.Data.ReadRequired(reference);
         var valueDate = DateOnly.ParseExact(input["context"]!["valueDate"]!.GetValue<string>(), "yyyy-MM-dd", CultureInfo.InvariantCulture);
-        var credit = input["credit"]!;
+        var credit = input["modules"]![XvaMeasures.Module]!["credit"]!;
         // An empty CVA recovery is not zero: the CDS recovery applies (docs/03).
         var recovery = credit["cvaRecovery"]?.GetValue<decimal>() ?? credit["cdsRecovery"]!.GetValue<decimal>();
         var trades = input["trades"]!.AsArray().Select(t => t!).ToList();
+        var definitions = new XvaMeasures().Measures.ToDictionary(m => m.Id);
+        const string currency = "JPY";
 
         (decimal Cva, decimal Fva, int Count) Side(string side)
         {
@@ -103,73 +98,50 @@ public sealed class FakeXvaPrice : ICapabilityHandler
 
         var before = Side("before");
         var after = Side("after");
-        JsonObject Row(string measure, decimal b, decimal a) => new()
+        MeasureResult.Side Figure((decimal Cva, decimal Fva, int Count) side, Func<(decimal Cva, decimal Fva, int Count), decimal> value) =>
+            side.Count == 0 ? MeasureResult.Side.NotPricedWith(0) : MeasureResult.Side.Of(value(side), side.Count);
+
+        var rows = new List<JsonObject>();
+        foreach (var selected in input["measures"]!.AsArray().Select(m => m!.AsObject()).Where(m => m["module"]!.GetValue<string>() == XvaMeasures.Module))
         {
-            ["measure"] = measure, ["before"] = b, ["after"] = a, ["incremental"] = a - b,
-            ["tradesBefore"] = before.Count, ["tradesAfter"] = after.Count,
-        };
+            var definition = definitions[selected["id"]!.GetValue<string>()];
+            foreach (var metric in definition.Metrics)
+            {
+                if (selected["refused"] is JsonObject refused)
+                {
+                    var side = new MeasureResult.Side(MeasureResult.Refused, null, null, refused["message"]!.GetValue<string>());
+                    rows.Add(MeasureResult.Row("base", "Workspace", definition.Id, metric, currency, side, side));
+                    continue;
+                }
+                Func<(decimal Cva, decimal Fva, int Count), decimal> value = metric.Id switch
+                {
+                    "cva" => s => s.Cva,
+                    "cvaCharge" => s => Math.Round(s.Cva * ChargeRatio, 2),
+                    "fva" => s => s.Fva,
+                    _ => throw new InvalidOperationException($"XVA has no metric {metric.Id}."),
+                };
+                rows.Add(MeasureResult.Row("base", "Workspace", definition.Id, metric, currency, Figure(before, value), Figure(after, value)));
+            }
+        }
         return Task.FromResult<IReadOnlyDictionary<string, JsonNode?>>(new Dictionary<string, JsonNode?>
         {
-            ["result"] = Datasets.Create("CVA and FVA (simulated)", Columns,
-                [Row("CVA", before.Cva, after.Cva), Row("FVA", before.Fva, after.Fva)],
+            ["result"] = Datasets.Create("CVA and FVA (simulated)", MeasureResult.Columns, rows,
                 new(ExecutionMode.Simulated, DataOrigin.Synthetic, invocation.InvocationId)),
         });
     }
 }
 
-/// <summary>Price: freeze the revision the user saw, build its accepted input, retain it, and submit one Run.</summary>
-public static class XvaPrice
-{
-    public static RunSubmission Submission(WorkspaceService workspaces, IDataStore store, string workspaceId, long expectedRevision, string idempotencyKey,
-        string owner, RunOrigin origin = RunOrigin.Pricer, RunRelations? relations = null)
-    {
-        var freeze = workspaces.Freeze(workspaceId, expectedRevision, PortfolioMaterialiser.PricedEntities);
-        var input = AcceptedInput.Build(freeze);
-        var reference = store.Put($"xva-input-{freeze.WorkspaceId}-r{freeze.Revision}", XvaContracts.AcceptedInput, XvaContracts.Version, input);
-        return new RunSubmission(XvaModule.Workflow(reference), freeze.Context,
-            new JsonObject { ["workspaceId"] = freeze.WorkspaceId, ["revision"] = freeze.Revision }, idempotencyKey, owner, origin,
-            (relations ?? RunRelations.None) with { WorkspaceId = freeze.WorkspaceId, WorkspaceRevision = freeze.Revision });
-    }
-}
-
-/// <summary>XVA prices the portfolio workspace's Price (ADR-0010 §11).</summary>
-public sealed class XvaPortfolioPricing(IDataStore store) : IPortfolioPricing
-{
-    public RunSubmission Submission(WorkspaceService workspaces, string workspaceId, long revision, string idempotencyKey, string owner) =>
-        XvaPrice.Submission(workspaces, store, workspaceId, revision, idempotencyKey, owner);
-}
-
-/// <summary>Registers the XVA sample: its price capability, contracts, the price workflow and the result view.</summary>
+/// <summary>Registers the XVA sample: its price capability, its view of the Pricing DB and the result view.</summary>
 public sealed class XvaModule : IWorkbenchModule
 {
-    public const string PriceWorkflow = "workflow.xva.price";
-
     public void Register(CompositionRegistryBuilder builder)
     {
         builder.AddCapability(new FakeXvaPrice());
         builder.AddHistoryProjection(new XvaHistoryProjection());
-        builder.AddContract(new ContractDefinition(XvaContracts.PriceInput, XvaContracts.Version, "XVA price input", new JsonObject
-        {
-            ["type"] = "object",
-            ["properties"] = new JsonObject
-            {
-                ["workspaceId"] = new JsonObject { ["type"] = "string", ["title"] = "Workspace" },
-                ["revision"] = new JsonObject { ["type"] = "integer", ["title"] = "Revision" },
-            },
-            ["required"] = new JsonArray("workspaceId", "revision"),
-            ["additionalProperties"] = false,
-        }));
-        builder.AddView(new ViewDefinition("view", CompositionValidator.SchemaVersion, "view.xva.result", XvaContracts.Version, "CVA and FVA",
+        builder.AddView(new ViewDefinition("view", CompositionValidator.SchemaVersion, XvaContracts.ResultView, "2.0.0", "CVA and FVA",
             new ViewLayout(1, 1),
-            [new ViewComponent("result-grid", ComponentKind.Grid, "CVA and FVA (simulated)", new WorkflowOutputData("result"),
-                [new("measure", "Measure", ColumnFormat.Text), new("before", "Before", ColumnFormat.Number), new("after", "After", ColumnFormat.Number),
-                 new("incremental", "Incremental", ColumnFormat.Number)], null)]));
+            [new ViewComponent("result-grid", ComponentKind.Grid, "CVA and FVA (simulated)", new WorkflowOutputData(XvaMeasures.Module),
+                [new("caseTitle", "Case", ColumnFormat.Text), new("metricTitle", "Measure", ColumnFormat.Text), new("before", "Before", ColumnFormat.Number),
+                 new("after", "After", ColumnFormat.Number), new("diff", "Diff", ColumnFormat.Number), new("afterStatus", "Status", ColumnFormat.Status)], null)]));
     }
-
-    /// <summary>The price workflow for one frozen accepted input. It pins the input by reference, so the Run carries it.</summary>
-    public static WorkflowDefinition Workflow(TypedDataRef acceptedInput) => new("workflow", CompositionValidator.SchemaVersion, PriceWorkflow, XvaContracts.Version,
-        "Price CVA and FVA", XvaContracts.PriceInput, XvaContracts.Version,
-        [new WorkflowStep("price", "xva.price", XvaContracts.Version, [],
-            new Dictionary<string, Binding> { ["acceptedInput"] = new DataReferenceBinding(acceptedInput) }, FailurePolicy.Stop)],
-        new Dictionary<string, Binding> { ["result"] = new OutputBinding("price", "result") });
 }

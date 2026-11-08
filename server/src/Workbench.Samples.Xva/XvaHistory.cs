@@ -15,7 +15,8 @@ public sealed class XvaHistoryProjection : IHistoryProjection
 {
     public string Domain => PortfolioEditRules.App;
     public string Title => "XVA";
-    public IReadOnlyList<string> ResultContracts { get; } = [XvaContracts.CaseResult];
+    // A Run priced before the measures register wrote XVA's case result; since, every measure writes the shared one.
+    public IReadOnlyList<string> ResultContracts { get; } = [XvaContracts.CaseResult, PortfolioContracts.MeasureResult];
 
     static readonly string[] Measures = ["CVA", "FVA"];
     static readonly string[] Sides = ["before", "after", "incremental"];
@@ -37,18 +38,24 @@ public sealed class XvaHistoryProjection : IHistoryProjection
             ["valueDate"] = run.Context["valueDate"]?.DeepClone(),
             ["registration"] = run.Context["registration"]?.DeepClone(),
         };
-        if (!run.Outputs.TryGetValue("result", out var reference) || data.Read(reference) is not DataLookup.Found found)
-            return row;
-        var rows = found.Content["rows"]!.AsArray().Select(r => r!.AsObject()).ToList();
-        foreach (var measure in Measures)
+        foreach (var reference in run.Outputs.Values)
         {
-            var figures = rows.SingleOrDefault(r => r["measure"]!.GetValue<string>() == measure);
-            if (figures is null) continue;
-            foreach (var side in Sides) row[Field(measure, side)] = figures[side]?.DeepClone();
-            row["tradesBefore"] = figures["tradesBefore"]?.DeepClone();
-            row["tradesAfter"] = figures["tradesAfter"]?.DeepClone();
+            if (data.Read(reference) is not DataLookup.Found found) continue;
+            var rows = found.Content["rows"]!.AsArray().Select(r => r!.AsObject()).ToList();
+            var shared = reference.ContractId == PortfolioContracts.MeasureResult;
+            foreach (var measure in Measures)
+            {
+                // The shared result names a metric by id (cva) and calls the incremental Diff; the old one named the measure (CVA).
+                var figures = shared
+                    ? rows.FirstOrDefault(r => r["metric"]!.GetValue<string>() == measure.ToLowerInvariant() && r["case"]!.GetValue<string>() == "base")
+                    : rows.SingleOrDefault(r => r["measure"]!.GetValue<string>() == measure);
+                if (figures is null) continue;
+                foreach (var side in Sides) row[Field(measure, side)] = figures[shared && side == "incremental" ? "diff" : side]?.DeepClone();
+                row["tradesBefore"] = figures["tradesBefore"]?.DeepClone();
+                row["tradesAfter"] = figures["tradesAfter"]?.DeepClone();
+            }
+            row["executionMode"] = found.Content["provenance"]?["executionMode"]?.DeepClone();
         }
-        row["executionMode"] = found.Content["provenance"]?["executionMode"]?.DeepClone();
         return row;
     }
 

@@ -23,6 +23,7 @@ builder.Services.ConfigureHttpJsonOptions(o =>
 
 // The composition root: the only place that names modules and providers.
 builder.Services.AddSingleton<IWorkbenchModule, SyntheticModule>();
+builder.Services.AddSingleton<IWorkbenchModule, PortfolioModule>();
 builder.Services.AddSingleton<IWorkbenchModule, XvaModule>();
 
 // Rates (docs/07): conventions and the synthetic market come from configuration; the provider is the fake one,
@@ -65,7 +66,8 @@ builder.Services.AddSingleton<IWorkspaceStore>(_ => new SqliteWorkspaceStore(dat
 builder.Services.AddSingleton(sp => new WorkspaceService(
     new Dictionary<string, IEditRules> { [PortfolioEditRules.App] = new PortfolioEditRules(), [RatesEditRules.App] = new RatesEditRules(conventions) },
     sp.GetRequiredService<TimeProvider>(), sp.GetRequiredService<IWorkspaceStore>()));
-builder.Services.AddSingleton<IPortfolioPricing, XvaPortfolioPricing>();
+builder.Services.AddSingleton<IMeasureModule, XvaMeasures>();
+builder.Services.AddSingleton<MeasureRegister>();
 builder.Services.AddSingleton<PortfolioWorkspaces>();
 // The AI pane (ADR-0007): the agent runtime is chosen here and nowhere else, by configuration, and an unknown one stops
 // startup rather than falling back to another. "copilot" talks to the agent host, a separate process under the agent's

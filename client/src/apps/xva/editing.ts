@@ -58,9 +58,16 @@ export function parseRecovery(text: string): Parsed {
   return n === undefined || n < 0 || n >= 1 ? fail('Type a recovery from 0 up to 1, or leave it empty.') : { ok: true, value: n };
 }
 
-/** A change to send: a value set on a field, or a held edit resolved. */
+/** The workspace's selection of measures, as an edit names it (ADR-0010 §10). */
+export const MEASURES_ENTITY = 'selection:measures';
+
+/**
+ * A change to send: a value set on a field, a held edit resolved, or the measures Price prices. They share one queue,
+ * so each is sent against the revision the one before it made.
+ */
 export type PendingEdit =
-  | { readonly entity: string; readonly field: string; readonly value: unknown; readonly resolution?: undefined }
-  | { readonly entity: string; readonly field: string; readonly resolution: Resolution };
+  | { readonly entity: string; readonly field: string; readonly value: unknown; readonly resolution?: undefined; readonly measures?: undefined }
+  | { readonly entity: string; readonly field: string; readonly resolution: Resolution; readonly measures?: undefined }
+  | { readonly entity: typeof MEASURES_ENTITY; readonly field: 'measures'; readonly measures: readonly string[]; readonly resolution?: undefined };
 
 export { EditQueue } from '../../platform/workspace/editQueue';

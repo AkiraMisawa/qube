@@ -11,9 +11,10 @@ import { keyOf } from '../../platform/workspace/workspaceStore';
 import { registerGridFocus } from '../../shell/focus';
 import type { XvaApi } from './api';
 import type { EffectiveTrade, HeldEdit, Resolution, ScopeDrop, XvaWorkspaceView } from './contracts';
-import { registerPrice } from './commands';
+import { registerXvaPage } from './commands';
 import { XvaResult } from './XvaResult';
-import { EditQueue, parseRecovery, tradeFields, type PendingEdit } from './editing';
+import { EditQueue, MEASURES_ENTITY, parseRecovery, tradeFields, type PendingEdit } from './editing';
+import { priceLabel } from './metrics';
 
 // The fixed XVA workspace (docs/03, ADR-0003): the server holds the trades and every rule; this page shows
 // the effective rows a page at a time and sends what the user changed. ExGrid draws; it decides nothing.
@@ -91,9 +92,11 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api }: { readonly pane
   const show = useCallback((next: XvaWorkspaceView) => queryClient.setQueryData(['xva', workspaceId], next), [queryClient, workspaceId]);
 
   const queue = useMemo(() => new EditQueue(0,
-    (revision, edit: PendingEdit) => edit.resolution === undefined
-      ? api.edit(workspaceId, revision, edit.entity, edit.field, edit.value)
-      : api.resolve(workspaceId, revision, edit.entity, edit.field, edit.resolution),
+    (revision, edit: PendingEdit) => edit.measures !== undefined
+      ? api.measures(workspaceId, revision, edit.measures)
+      : edit.resolution === undefined
+        ? api.edit(workspaceId, revision, edit.entity, edit.field, edit.value)
+        : api.resolve(workspaceId, revision, edit.entity, edit.field, edit.resolution),
     (next) => { show(next); source.notifyChanged([]); },
     (edit, error) => {
       workspace.notify(`${edit.entity} ${edit.field} was not changed: ${describe(error)}`);
@@ -166,11 +169,18 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api }: { readonly pane
     workspace.store.getState().openPanel({ kind: 'run', title: `CVA/FVA ${view.data?.registration.key ?? ''}`, runId, viewKey: resultView === undefined ? undefined : keyOf(resultView) });
   };
 
-  const priceRef = useRef(price);
-  priceRef.current = price;
+  const setMeasures = (measures: readonly string[]) => void queue.push({ entity: MEASURES_ENTITY, field: 'measures', measures });
+
+  // The commands run what the page's own controls run, as the page stands when they run (ADR-0010 §9).
+  const pageRef = useRef({ price, setMeasures, measures: () => view.data?.measures ?? [] });
+  pageRef.current = { price, setMeasures, measures: () => view.data?.measures ?? [] };
   useEffect(() => {
-    registerPrice(panelId, () => void priceRef.current());
-    return () => registerPrice(panelId, undefined);
+    registerXvaPage(panelId, {
+      price: () => void pageRef.current.price(),
+      setMeasures: (measures) => pageRef.current.setMeasures(measures),
+      measures: () => pageRef.current.measures(),
+    });
+    return () => registerXvaPage(panelId, undefined);
   }, [panelId]);
 
   if (view.isPending) return <Text c="dimmed">Loading workspace…</Text>;
@@ -199,8 +209,19 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api }: { readonly pane
           value={ws.credit.cvaRecovery == null ? '' : String(ws.credit.cvaRecovery)} modified={ws.credit.cvaRecoveryOwner === 'user'}
           parse={parseRecovery} onIssue={setIssue}
           onCommit={(value) => void queue.push({ entity: `credit:${ws.registration.key}`, field: 'cvaRecovery', value })} />
-        <Button size="xs" onClick={() => void price()} loading={busy === 'Pricing'} disabled={!notBusy && busy !== 'Pricing'}
-          {...(blocking > 0 ? { title: `${blocking} held edit(s) on priced trades must be resolved first.` } : {})}>Price</Button>
+        <div className="qwb-toolbar-field" role="group" aria-label="Measures">
+          <Text size="xs" c="dimmed" className="qwb-toolbar-label" aria-hidden>Measures</Text>
+          {ws.measures.map((m) => {
+            const on = ws.selectedMeasures.includes(m.id);
+            return (
+              <Button key={m.id} size="xs" variant={on ? 'light' : 'default'} aria-pressed={on} disabled={!notBusy}
+                title={on ? `Price ${m.title}. Press to leave it out.` : `Leave ${m.title} out. Press to price it.`}
+                onClick={() => setMeasures(on ? ws.selectedMeasures.filter((id) => id !== m.id) : [...ws.selectedMeasures, m.id])}>{m.title}</Button>
+            );
+          })}
+        </div>
+        <Button size="xs" onClick={() => void price()} loading={busy === 'Pricing'} disabled={!notBusy && busy !== 'Pricing'} data-testid="price"
+          {...(blocking > 0 ? { title: `${blocking} held edit(s) on priced trades must be resolved first.` } : {})}>{priceLabel(ws.measures, ws.selectedMeasures, 1)}</Button>
       </div>
       {ws.csas.length > 0 && (
         <div className="qwb-toolbar" role="toolbar" aria-label="CSA curves">
@@ -217,7 +238,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api }: { readonly pane
         <Text size="xs" c="dimmed" data-testid="workspace-summary">{ws.trades} trades · {ws.overrides} edit(s) · revision {ws.revision} · {ws.sourceVersion}</Text>
       </Group>
       {issue !== undefined && <Text size="xs" c="red" role="alert" data-testid="field-issue">{issue}</Text>}
-      {pricedRun !== undefined && <XvaResult runId={pricedRun} pricedRevision={pricedRevision} revision={ws.revision} onOpen={() => openRun(pricedRun)} />}
+      {pricedRun !== undefined && <XvaResult runId={pricedRun} pricedRevision={pricedRevision} revision={ws.revision} register={ws.measures} onOpen={() => openRun(pricedRun)} />}
       <HeldEdits conflicts={ws.conflicts} lost={ws.lost} resolve={(edit, resolution) => void queue.push({ entity: edit.entity, field: edit.field, resolution })} />
       {failure !== undefined && <Alert color="red" variant="light" withCloseButton onClose={() => setFailure(undefined)} title="The trades could not be read">{failure}</Alert>}
       <div aria-label="Trades">

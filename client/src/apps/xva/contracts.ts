@@ -54,6 +54,21 @@ export interface HeldEdit {
   readonly acknowledged: boolean;
 }
 
+/** One figure a measure reports, such as CVA's CVA Charge. */
+export interface MetricDefinition { readonly id: string; readonly title: string }
+
+/** A measure as its module registered it (ADR-0010 §10). The page knows no measure's rules; it reads these. */
+export interface RegisteredMeasure {
+  readonly id: string;
+  readonly title: string;
+  readonly module: string;
+  readonly metrics: readonly MetricDefinition[];
+  /** The metric the collapsed result line shows. */
+  readonly headline: string;
+  readonly declaresMembership: boolean;
+  readonly traced: boolean;
+}
+
 export interface XvaWorkspaceView {
   readonly workspaceId: string;
   readonly revision: number;
@@ -68,6 +83,10 @@ export interface XvaWorkspaceView {
   readonly conflicts: readonly HeldEdit[];
   readonly lost: readonly HeldEdit[];
   readonly runs: readonly { readonly runId: string; readonly revision: number }[];
+  /** Every registered measure, in the order the page shows them. */
+  readonly measures: readonly RegisteredMeasure[];
+  /** What Price prices; part of the workspace, so Price freezes it. */
+  readonly selectedMeasures: readonly string[];
 }
 
 export interface RowPage {

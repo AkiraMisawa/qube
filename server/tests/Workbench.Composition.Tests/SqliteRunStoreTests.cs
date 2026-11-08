@@ -13,7 +13,8 @@ public sealed class SqliteRunStoreTests : IDisposable
 {
     static readonly DateOnly Day1 = new(2026, 10, 26);
     readonly string path = Path.Combine(Path.GetTempPath(), $"workbench-runs-{Guid.NewGuid():N}.db");
-    readonly CompositionRegistry registry = new([new XvaModule()]);
+    readonly CompositionRegistry registry = new([new PortfolioModule(), new XvaModule()]);
+    static readonly MeasureRegister Register = new([new XvaMeasures()]);
 
     public void Dispose()
     {
@@ -34,14 +35,14 @@ public sealed class SqliteRunStoreTests : IDisposable
     {
         var (workspaces, store, runs) = Process();
         var ws = workspaces.Create("akira", PortfolioEditRules.App, new JsonObject { ["valueDate"] = "2026-10-26" }, new PortfolioSourceVersion("ABC/LE-01", Day1, 20));
-        var accepted = Assert.IsType<SubmissionResult.Accepted>(runs.Submit(XvaPrice.Submission(workspaces, store, ws.WorkspaceId, ws.Revision, "k1", "akira")));
+        var accepted = Assert.IsType<SubmissionResult.Accepted>(runs.Submit(PortfolioPrice.Submission(workspaces, store, Register, ws.WorkspaceId, ws.Revision, "k1", "akira")));
         await runs.Completion(accepted.Run.RunId);
 
         var (_, restartedStore, restarted) = Process();
         var run = restarted.Find(accepted.Run.RunId)!;
 
         Assert.Equal((RunStatus.Succeeded, RunOrigin.Pricer, ws.WorkspaceId, ws.Revision), (run.Status, run.Origin, run.Relations.WorkspaceId, run.Relations.WorkspaceRevision));
-        Assert.IsType<DataLookup.Found>(restartedStore.Read(run.Outputs["result"]));
+        Assert.IsType<DataLookup.Found>(restartedStore.Read(run.Outputs[XvaMeasures.Module]));
         Assert.Equal([run.RunId], restarted.List(new RunQuery("akira", 0, 10, ws.WorkspaceId)).Runs.Select(r => r.RunId));
     }
 
@@ -50,7 +51,7 @@ public sealed class SqliteRunStoreTests : IDisposable
     {
         var (workspaces, store, runs) = Process();
         var ws = workspaces.Create("akira", PortfolioEditRules.App, new JsonObject { ["valueDate"] = "2026-10-26" }, new PortfolioSourceVersion("ABC/LE-01", Day1, 20));
-        var submission = XvaPrice.Submission(workspaces, store, ws.WorkspaceId, ws.Revision, "k1", "akira");
+        var submission = PortfolioPrice.Submission(workspaces, store, Register, ws.WorkspaceId, ws.Revision, "k1", "akira");
         var first = Assert.IsType<SubmissionResult.Accepted>(runs.Submit(submission));
         await runs.Completion(first.Run.RunId);
 
@@ -65,9 +66,9 @@ public sealed class SqliteRunStoreTests : IDisposable
     public void A_run_left_running_is_recorded_as_interrupted()
     {
         var store = new SqliteRunStore(path);
-        var workflow = XvaModule.Workflow(new TypedDataRef("x", XvaContracts.AcceptedInput, XvaContracts.Version, "0"));
+        var workflow = PortfolioPrice.Workflow(Register, new TypedDataRef("x", PortfolioContracts.AcceptedInput, PortfolioContracts.Version, "0"), Register.Ids);
         store.Accept(new RunRecord("run-left", workflow, new JsonObject(), new JsonObject(), RunStatus.Running, [], new Dictionary<string, TypedDataRef>(),
-            null, DateTimeOffset.UtcNow, null, "akira", RunOrigin.Ai, new RunRelations(ConversationId: "c1"), [XvaContracts.CaseResult]), "k", "d");
+            null, DateTimeOffset.UtcNow, null, "akira", RunOrigin.Ai, new RunRelations(ConversationId: "c1"), [PortfolioContracts.MeasureResult]), "k", "d");
 
         var (_, _, restarted) = Process();
         var run = restarted.Find("run-left")!;

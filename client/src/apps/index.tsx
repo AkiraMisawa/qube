@@ -11,7 +11,7 @@ import { httpRatesApi, type RatesApi } from './rates/api';
 import { ratesCommandsOf } from './rates/commands';
 import { RatesWorkspacePanel } from './rates/RatesWorkspacePanel';
 import { httpXvaApi, type XvaApi } from './xva/api';
-import { priceOf } from './xva/commands';
+import { measuresTyped, xvaPageOf } from './xva/commands';
 import { XvaWorkspacePanel } from './xva/XvaWorkspacePanel';
 import { registerAiContext, registerAiEffect } from '../ai/effects';
 
@@ -97,6 +97,11 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
   };
   const onRates = rates === undefined ? { unavailable: 'Open a Rates workspace first.' } : { target: active!.title };
   const priceTarget = xva !== undefined || rates !== undefined ? { target: active!.title } : { unavailable: 'Open an XVA or Rates workspace to price it.' };
+  const xvaPage = () => {
+    const registered = xvaPageOf(xva);
+    if (registered === undefined) throw new Error(`The XVA workspace in panel ${xva ?? '(none)'} registered no commands.`);
+    return registered;
+  };
   return [
     {
       id: 'xva.new',
@@ -113,10 +118,25 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
       ...priceTarget,
       run: () => {
         if (rates !== undefined) { page().price(); return; }
-        const price = priceOf(xva);
-        if (price === undefined) throw new Error(`The XVA workspace in panel ${xva ?? '(none)'} registered no Price.`);
-        price();
+        xvaPage().price();
       },
+    },
+    {
+      id: 'xva.measures',
+      words: 'measures',
+      title: 'Choose the measures Price prices, such as cva fva',
+      group: 'XVA',
+      ...(xva === undefined ? { unavailable: 'Open an XVA workspace first.' } : { target: active!.title }),
+      args: [{
+        name: 'measures', required: true, rest: true, words: true,
+        hint: 'the measures to price, in any order',
+        // The register is the page's, read when the line asks: the page registers once it has mounted.
+        complete: (given) => {
+          const typed = new Set(measuresTyped(given.measures ?? ''));
+          return (xvaPageOf(xva)?.measures() ?? []).filter((m) => !typed.has(m.id)).map((m) => ({ value: m.id, detail: m.title }));
+        },
+      }],
+      run: (a) => xvaPage().setMeasures(measuresTyped(a.measures ?? '')),
     },
     {
       id: 'rates.new',

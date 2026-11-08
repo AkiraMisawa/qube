@@ -16,6 +16,7 @@ public static class XvaApi
     public sealed record ValueDateRequest(long Revision, DateOnly ValueDate);
     public sealed record CounterpartyRequest(long Revision, string Registration, int ConfirmedCount);
     public sealed record PriceRequest(long Revision, string IdempotencyKey);
+    public sealed record MeasuresRequest(long Revision, IReadOnlyList<string> Measures);
     public sealed record Reacquired(PortfolioWorkspaceView Workspace, CarrySummary Carried);
     public sealed record WorkspaceSummary(string WorkspaceId, long Revision, JsonObject Context);
 
@@ -55,6 +56,12 @@ public static class XvaApi
         ws.MapPost("/{id}/edits", (string id, EditRequest request, CurrentUser user, PortfolioWorkspaces service) => Guard(() =>
         {
             service.Edit(id, request.Revision, user.Id, request.Entity, request.Field, request.Value);
+            return Results.Ok(service.View(id, user.Id));
+        }));
+
+        ws.MapPost("/{id}/measures", (string id, MeasuresRequest request, CurrentUser user, PortfolioWorkspaces service) => Guard(() =>
+        {
+            service.SetMeasures(id, request.Revision, user.Id, request.Measures);
             return Results.Ok(service.View(id, user.Id));
         }));
 
