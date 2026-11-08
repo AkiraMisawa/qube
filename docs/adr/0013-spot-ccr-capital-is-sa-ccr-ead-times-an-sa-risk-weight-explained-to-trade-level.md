@@ -83,6 +83,9 @@ output lands.
 The catalogue of kinds, ids and leaf sets is the format proposal's §8 and §9, registered by the domain module for
 method `sa-ccr` version `2023-01-01` (ADR-0011 §2). Ids start at the netting set (`NS-002/pfe/addon/ir/USD/en/b3`); a
 margined netting set has `/m` and `/u` beneath it for its margined and unmargined figures. Declared depth: trade.
+(Implemented 2026-11-08 in `Workbench.Samples.Ccr/SpotCapitalTrace.cs`, which the proposal now follows: each basis's
+V, C and NICA beneath its replacement cost, since the haircuts differ by basis; an effective notional term above
+every set of rows; and a margined leaf set for each asset class, whose maturity factor reads the MPOR.)
 
 ### 5. The risk weight is resolved, and the resolution is part of the trace (CONFIRMED: at run time from the counterparty, and shown)
 

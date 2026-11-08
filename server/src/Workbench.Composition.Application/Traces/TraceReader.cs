@@ -5,7 +5,10 @@ namespace Workbench.Composition.Application.Traces;
 
 public enum TraceSide { Before, After }
 
-/// <summary>A term on one side: its state, its value or the reason it has none, and its reconciliation.</summary>
+/// <summary>
+/// A term on one side: its state, its value or the reason it has none, and its reconciliation. A decision's inputs,
+/// reasons and the rule it applied are a side's, because each side decided on its own.
+/// </summary>
 public sealed record SideValue(
     TermState State,
     JsonNode? Value,
@@ -15,7 +18,8 @@ public sealed record SideValue(
     TermAllocation? Allocation = null,
     IReadOnlyDictionary<string, JsonNode?>? Inputs = null,
     IReadOnlyList<string>? Because = null,
-    bool Written = true);
+    bool Written = true,
+    string? Citation = null);
 
 public enum DiffState { Value, Absent, Unavailable, NotNumeric }
 
@@ -227,7 +231,8 @@ public sealed class TraceReader
     {
         var term = side.Index.Find(written.Id);
         if (term is not null)
-            return new SideValue(term.State, term.Value, term.Reason, side.Evaluator.Check(term), term.Governed, term.Allocation, term.Inputs, term.Because);
+            return new SideValue(term.State, term.Value, term.Reason, side.Evaluator.Check(term), term.Governed, term.Allocation, term.Inputs, term.Because,
+                Citation: term.Citation);
         var (state, reason) = Missing(side, written);
         return new SideValue(state, null, reason, TermCheck.NotApplicable, Written: false);
     }
