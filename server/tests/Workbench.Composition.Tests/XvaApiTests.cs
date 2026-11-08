@@ -114,7 +114,7 @@ public class XvaApiTests(WorkbenchFactory factory) : IClassFixture<WorkbenchFact
     {
         var ws = await Create();
 
-        var response = await Post(ws, "edits", new { revision = Revision(ws), entity = "credit:ABC/LE-01", field = "cvaRecovery", value = 1.5 });
+        var response = await Post(ws, "edits", new { revision = Revision(ws), entity = "netting:NS-001", field = "cvaRecovery", value = 1.5 });
 
         Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
         Assert.Equal("InvalidValue", (await response.Content.ReadFromJsonAsync<JsonObject>())!["code"]!.GetValue<string>());

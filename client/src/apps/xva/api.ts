@@ -6,6 +6,8 @@ export interface RowQuery {
   readonly start: number;
   readonly count: number;
   readonly sorts: readonly { readonly column: string; readonly direction: 'ascending' | 'descending' }[];
+  /** The New or the Existing grid (ADR-0010 §6). */
+  readonly grid: 'new' | 'existing';
 }
 
 const base = (workspaceId: string) => `/api/xva/workspaces/${encodeURIComponent(workspaceId)}`;
@@ -23,7 +25,15 @@ export interface XvaApi {
   changeValueDate(workspaceId: string, revision: number, valueDate: string): Promise<{ readonly workspace: XvaWorkspaceView; readonly carried: CarrySummary }>;
   previewCounterpartyChange(workspaceId: string): Promise<ScopeDrop>;
   changeCounterparty(workspaceId: string, revision: number, registration: string, confirmedCount: number): Promise<{ readonly workspace: XvaWorkspaceView; readonly carried: CarrySummary }>;
+  /** Sets the measures Price prices; an unknown one, or none, is refused by name. */
+  measures(workspaceId: string, revision: number, measures: readonly string[]): Promise<XvaWorkspaceView>;
   price(workspaceId: string, revision: number, idempotencyKey: string): Promise<RunRecord>;
+  /** Asks again for the failed results on one trade, or on all (`pv01 retry`, ADR-0010 §6). */
+  retry(workspaceId: string, tradeId?: string): Promise<{ readonly workspace: XvaWorkspaceView; readonly asked: number }>;
+  /** Acquires the trades again for the same value date; the edits carry or are held (ADR-0010 §1). */
+  refresh(workspaceId: string, revision: number): Promise<{ readonly workspace: XvaWorkspaceView; readonly carried: CarrySummary }>;
+  /** Copy quote's content, read by the server from the Run alone (ADR-0010 §7). */
+  quote(runId: string): Promise<{ readonly text: string; readonly html: string }>;
 }
 
 export const httpXvaApi: XvaApi = {
@@ -37,7 +47,11 @@ export const httpXvaApi: XvaApi = {
   previewCounterpartyChange: (workspaceId) => call(`${base(workspaceId)}/counterparty-change`),
   changeCounterparty: (workspaceId, revision, registration, confirmedCount) =>
     post(`${base(workspaceId)}/counterparty`, { revision, registration, confirmedCount }),
+  measures: (workspaceId, revision, measures) => post(`${base(workspaceId)}/measures`, { revision, measures }),
   price: (workspaceId, revision, idempotencyKey) => post(`${base(workspaceId)}/price`, { revision, idempotencyKey }),
+  retry: (workspaceId, tradeId) => post(`${base(workspaceId)}/retry`, tradeId === undefined ? {} : { tradeId }),
+  refresh: (workspaceId, revision) => post(`${base(workspaceId)}/refresh`, { revision }),
+  quote: (runId) => call(`/api/xva/runs/${encodeURIComponent(runId)}/quote`),
 };
 
 export type { EffectiveTrade };

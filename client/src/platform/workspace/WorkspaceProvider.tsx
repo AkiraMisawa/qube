@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, type ReactNode } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQueries, useQuery } from '@tanstack/react-query';
 import { useStore } from 'zustand';
 import type { Api } from '../api';
 import type { Catalog, Dataset, RunRecord, TypedDataRef } from '../contracts';
@@ -63,5 +63,18 @@ export function useDataset(reference: TypedDataRef | undefined) {
     enabled: reference !== undefined,
     staleTime: Infinity,
     retry: false,
+  });
+}
+
+/** Several retained datasets at once, each fetched once and shared with `useDataset`'s cache. */
+export function useDatasets(references: readonly TypedDataRef[]) {
+  const { api } = useWorkspaceContext();
+  return useQueries({
+    queries: references.map((reference) => ({
+      queryKey: ['data', reference.dataId, reference.revision],
+      queryFn: () => api.dataset(reference),
+      staleTime: Infinity,
+      retry: false,
+    })),
   });
 }

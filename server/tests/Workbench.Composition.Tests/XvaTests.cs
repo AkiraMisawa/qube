@@ -2,6 +2,7 @@ using System.Text.Json.Nodes;
 using Workbench.Composition.Application;
 using Workbench.Composition.Application.Workspaces;
 using Workbench.Composition.Contracts;
+using Workbench.Samples.Portfolio;
 using Workbench.Samples.Xva;
 
 namespace Workbench.Composition.Tests;
@@ -10,20 +11,21 @@ namespace Workbench.Composition.Tests;
 public class XvaTests
 {
     static readonly DateOnly Day1 = new(2026, 10, 26);
+    static readonly MeasureRegister Register = new([new XvaMeasures(Pv01Provider.Simulated(TimeSpan.Zero))]);
 
     static WorkspaceService Service() =>
-        new(new Dictionary<string, IEditRules> { [XvaEditRules.App] = new XvaEditRules() }, TimeProvider.System);
+        new(new Dictionary<string, IEditRules> { [PortfolioEditRules.App] = new PortfolioEditRules() }, TimeProvider.System);
 
     static JsonObject Context(DateOnly valueDate, string registration) =>
         new() { ["valueDate"] = valueDate.ToString("yyyy-MM-dd"), ["registration"] = registration };
 
     static WorkspaceState Open(WorkspaceService service, string registration = "ABC/LE-01", int existing = 40) =>
-        service.Create("akira", XvaEditRules.App, Context(Day1, registration), new XvaSourceVersion(registration, Day1, existing));
+        service.Create("akira", PortfolioEditRules.App, Context(Day1, registration), new PortfolioSourceVersion(registration, Day1, existing));
 
     static WorkspaceState Set(WorkspaceService service, WorkspaceState ws, string entity, string field, JsonNode? value) =>
-        service.Set(ws.WorkspaceId, ws.Revision, "akira", XvaEditRules.Target((XvaSourceVersion)ws.Source, entity, field), value);
+        service.Set(ws.WorkspaceId, ws.Revision, "akira", PortfolioEditRules.Target((PortfolioSourceVersion)ws.Source, entity, field), value);
 
-    static EffectiveTrade Row(WorkspaceState ws, string tradeId) => XvaMaterialiser.Trades(ws).Single(t => t.TradeId == tradeId);
+    static EffectiveTrade Row(WorkspaceState ws, string tradeId) => PortfolioMaterialiser.Trades(ws).Single(t => t.TradeId == tradeId);
 
     [Fact] // docs/03: a new trade takes the main CSA automatically, and its curve follows that CSA
     public void A_new_trade_takes_the_main_csa_and_its_curve()
@@ -42,7 +44,7 @@ public class XvaTests
     {
         var ws = Open(Service(), "XYZ/LE-03");
 
-        Assert.All(XvaMaterialiser.Trades(ws), t => Assert.Equal(("nocsa_MA-003", "jpy_ois"), (t.Csa, t.Curve)));
+        Assert.All(PortfolioMaterialiser.Trades(ws), t => Assert.Equal(("nocsa_MA-003", "jpy_ois"), (t.Csa, t.Curve)));
     }
 
     [Fact] // Akira: changing CSA B's curve moves every trade on B, except one whose curve the user set
@@ -69,20 +71,20 @@ public class XvaTests
         ws = Set(service, ws, "trade:DRAFT-1", "csa", "CSA-C");
 
         Assert.NotEmpty(Row(ws, "DRAFT-1").Issues);
-        var refused = Assert.Throws<WorkspaceRefused>(() => XvaPrice.Submission(service, new InMemoryDataStore(), ws.WorkspaceId, ws.Revision, "k1", "akira"));
+        var refused = Assert.Throws<WorkspaceRefused>(() => PortfolioPrice.Submission(service, new InMemoryDataStore(), Register, ws.WorkspaceId, ws.Revision, "k1", "akira"));
         Assert.Equal("InvalidInput", refused.Code);
     }
 
     [Fact] // ADR-0003 §7: a new trade's own content belongs to that trade; its assignment belongs to the counterparty
     public void Scopes_are_decided_by_the_module()
     {
-        var source = new XvaSourceVersion("ABC/LE-01", Day1, 5);
+        var source = new PortfolioSourceVersion("ABC/LE-01", Day1, 5);
         var existing = source.Existing[0].TradeId;
 
-        Assert.Equal("new:DRAFT-1", XvaEditRules.Target(source, "trade:DRAFT-1", "notional").Scope);
-        Assert.Equal("cp:ABC/LE-01", XvaEditRules.Target(source, "trade:DRAFT-1", "csa").Scope);
-        Assert.Equal("cp:ABC/LE-01", XvaEditRules.Target(source, $"trade:{existing}", "notional").Scope);
-        Assert.Equal("xva.assignment", new XvaEditRules().KindOf(XvaEditRules.Target(source, "trade:DRAFT-1", "curve")));
+        Assert.Equal("new:DRAFT-1", PortfolioEditRules.Target(source, "trade:DRAFT-1", "notional").Scope);
+        Assert.Equal("cp:ABC/LE-01", PortfolioEditRules.Target(source, "trade:DRAFT-1", "csa").Scope);
+        Assert.Equal("cp:ABC/LE-01", PortfolioEditRules.Target(source, $"trade:{existing}", "notional").Scope);
+        Assert.Equal("xva.assignment", new PortfolioEditRules().KindOf(PortfolioEditRules.Target(source, "trade:DRAFT-1", "curve")));
     }
 
     [Fact] // Akira: another value date is another version; a trade that matured in between takes its edits with it, listed
@@ -91,8 +93,8 @@ public class XvaTests
         var service = Service();
         var ws = Open(service);
         var day2 = Day1.AddYears(1);
-        var later = new XvaSourceVersion("ABC/LE-01", day2, 40);
-        var matured = ws.Source is XvaSourceVersion s ? s.Existing.First(t => later.Trade(t.TradeId) is null) : throw new InvalidOperationException();
+        var later = new PortfolioSourceVersion("ABC/LE-01", day2, 40);
+        var matured = ws.Source is PortfolioSourceVersion s ? s.Existing.First(t => later.Trade(t.TradeId) is null) : throw new InvalidOperationException();
         var surviving = later.Existing[0];
         ws = Set(service, ws, $"trade:{matured.TradeId}", "notional", 1m);
         ws = Set(service, ws, $"trade:{surviving.TradeId}", "notional", 2m);
@@ -107,10 +109,10 @@ public class XvaTests
     [Fact] // docs/03: the last fixing moves with the value date, so the same trade is another version
     public void A_passed_fixing_date_changes_the_trade()
     {
-        var first = new XvaSourceVersion("ABC/LE-01", Day1, 40);
+        var first = new PortfolioSourceVersion("ABC/LE-01", Day1, 40);
         var irs = first.Existing.First(t => t.Product == "IRS" && t.Maturity > Day1.AddYears(1));
 
-        var later = new XvaSourceVersion("ABC/LE-01", Day1.AddYears(1), 40).Trade(irs.TradeId)!;
+        var later = new PortfolioSourceVersion("ABC/LE-01", Day1.AddYears(1), 40).Trade(irs.TradeId)!;
 
         Assert.NotEqual(irs.LastFixing, later.LastFixing);
         Assert.Equal((irs.FixedRate, irs.Schedule, irs.Notional), (later.FixedRate, later.Schedule, later.Notional));
@@ -119,16 +121,17 @@ public class XvaTests
     static async Task<(JsonNode Result, RunRecord Run, IDataStore Store)> Price(WorkspaceService service, WorkspaceState ws, string key)
     {
         var store = new InMemoryDataStore();
-        var runs = new RunService(new CompositionRegistry([new XvaModule()]), store, TimeProvider.System);
-        var accepted = Assert.IsType<SubmissionResult.Accepted>(runs.Submit(XvaPrice.Submission(service, store, ws.WorkspaceId, ws.Revision, key, "akira")));
+        var runs = new RunService(new CompositionRegistry([new PortfolioModule(), new XvaModule()]), store, TimeProvider.System);
+        var accepted = Assert.IsType<SubmissionResult.Accepted>(runs.Submit(PortfolioPrice.Submission(service, store, Register, ws.WorkspaceId, ws.Revision, key, "akira")));
         await runs.Completion(accepted.Run.RunId);
         var run = runs.Find(accepted.Run.RunId)!;
         Assert.Equal(RunStatus.Succeeded, run.Status);
-        return (store.ReadRequired(run.Outputs["result"]), run, store);
+        return (store.ReadRequired(run.Outputs[XvaMeasures.Module]), run, store);
     }
 
-    static decimal Cell(JsonNode result, string measure, string column) =>
-        result["rows"]!.AsArray().Single(r => r!["measure"]!.GetValue<string>() == measure)![column]!.GetValue<decimal>();
+    // A metric's figure in the measure result (ADR-0010 §7): CVA's own metric is "cva", and its incremental is the Diff.
+    static decimal Cell(JsonNode result, string metric, string column) =>
+        result["rows"]!.AsArray().Single(r => r!["metric"]!.GetValue<string>() == metric)![column]!.GetValue<decimal>();
 
     [Fact] // CLAUDE.md: Before and After are independent; adding new trades leaves Before as it was
     public async Task Before_and_after_are_priced_independently()
@@ -140,9 +143,9 @@ public class XvaTests
 
         var (edited, _, _) = await Price(service, ws, "k2");
 
-        Assert.Equal(Cell(plain, "CVA", "before"), Cell(edited, "CVA", "before"));
-        Assert.NotEqual(Cell(plain, "CVA", "after"), Cell(edited, "CVA", "after"));
-        Assert.Equal(Cell(edited, "CVA", "after") - Cell(edited, "CVA", "before"), Cell(edited, "CVA", "incremental"));
+        Assert.Equal(Cell(plain, "cva", "before"), Cell(edited, "cva", "before"));
+        Assert.NotEqual(Cell(plain, "cva", "after"), Cell(edited, "cva", "after"));
+        Assert.Equal(Cell(edited, "cva", "after") - Cell(edited, "cva", "before"), Cell(edited, "cva", "diff"));
     }
 
     [Fact] // docs/03: an empty CVA recovery stays empty in the input, and analytics uses the CDS recovery
@@ -156,8 +159,8 @@ public class XvaTests
 
         var (explicitCds, _, _) = await Price(service, ws, "k2");
 
-        Assert.Null(input["credit"]!["cvaRecovery"]);
-        Assert.Equal(Cell(empty, "CVA", "after"), Cell(explicitCds, "CVA", "after"));
+        Assert.Null(input["modules"]![XvaMeasures.Module]!["credit"]!["cvaRecovery"]);
+        Assert.Equal(Cell(empty, "cva", "after"), Cell(explicitCds, "cva", "after"));
     }
 
     [Fact] // ADR-0003 §6: Price freezes the revision the user saw, and a moved workspace is refused
@@ -168,6 +171,6 @@ public class XvaTests
         var seen = ws.Revision;
         Set(service, ws, "trade:DRAFT-1", "notional", 1m);
 
-        Assert.Equal("RevisionMoved", Assert.Throws<WorkspaceRefused>(() => XvaPrice.Submission(service, new InMemoryDataStore(), ws.WorkspaceId, seen, "k1", "akira")).Code);
+        Assert.Equal("RevisionMoved", Assert.Throws<WorkspaceRefused>(() => PortfolioPrice.Submission(service, new InMemoryDataStore(), Register, ws.WorkspaceId, seen, "k1", "akira")).Code);
     }
 }

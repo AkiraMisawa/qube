@@ -71,7 +71,7 @@ Plan: [docs/plans/slice-02-xva-workspace.md](docs/plans/slice-02-xva-workspace.m
 
 - **Generic workspace kernel** (`Workbench.Composition.Application/Workspaces`): an append-only edit log, overrides with their base, the carry check (carried, conflicted, lost), conflict groups, `DropScope` with the confirmed count, an atomic counterparty change (`ChangeScope`), and `Freeze` refused while a priced entity holds an unresolved edit. Every command names the revision it was taken against.
 - **SQLite** (`Workbench.Persistence.Sqlite`, Microsoft.Data.Sqlite 10.0.14 with SQLitePCLRaw 2.1.13): one file holds generic tables for every domain: `Workspace` (current state), `EditLog` (append-only, `domain_kind` per entry), `AnalysisRun`, `SubmissionKey` and `RetainedData`. A workspace is restored after a restart from its source descriptor, and a descriptor that now acquires another version is refused. Deleting a workspace keeps its log. A Run left running by a stopped process is recorded as failed with code `Interrupted`.
-- **Runs** record their owner, origin (`pricer`, `ai`, `workflow`, `action`), explicit relations (workspace and revision, parent Run, analysis group, conversation) and the result contracts their workflow declares. Idempotency keys are per owner and survive a restart.
+- **Runs** record their owner, origin (`pricer`, `ai`, `workflow`, `action`), explicit relations (workspace and revision, parent Run, analysis group, conversation) and the result contracts their workflow declares. Idempotency keys are per owner and survive a restart. A submission under a used key is the same one when its whole content is, or, when the caller names an idempotency basis, when that is: a portfolio Price is named by the workspace revision priced, because its accepted input freezes cells that answer on their own (PV01), so a retry after one answered, or after the workspace moved on, is the first Run, and the key on another revision is refused (XV13).
 - **Synthetic XVA module** (`Workbench.Samples.Xva`): three registrations (two share code ABC under different legal entities), agreements with CSAs and one uncollateralised (`nocsa_MA-003`), up to 100,000 generated existing trades per counterparty (matured ones are absent at a later date, and the last fixing moves with the date), three draft trades that belong to no counterparty, an empty CVA recovery on LE-01. The rules: a new trade takes the main CSA, a curve follows its CSA (including a CSA curve edit) unless the user set it, an uncollateralised trade starts on the profile curve, an ineligible CSA is an issue on the row and Price refuses it. A simulated CVA/FVA provider prices Before and After independently and falls back to the CDS recovery when the CVA recovery is empty.
 - **HTTP**: `/api/xva/...` creates a workspace, pages effective rows (sorted on the server, Blank last as ExGrid's ADR-0023), edits, resolves held edits, moves the value date, previews and confirms a counterparty change, prices and deletes. `/api/history/...` serves the Pricing DB.
 - **Pricing DB**: every Run newest first; a module registers a history projection; the XVA view adds value date, registration, trade counts, CVA and FVA Before, After and incremental. An unknown domain is refused.
@@ -262,9 +262,94 @@ Screenshots were looked at by hand at 390, 768, 992, 1024 and 1440px in both the
 
 The guidelines' §12: the Rates toolbar's rows on a phone, the Action Column's browser-grey buttons, the Wrapper's filled disabled menu items, a context message that repeats its field's name, and touch sizes unchecked on an iPhone (UX02).
 
+## The XVA page, interim fixes and its redesign (ADR-0010, proposed 2026-11-07)
+
+### What runs
+
+- The slice-02 page follows docs/design-guidelines.md: toolbar labels beside their inputs at one 30px Control Height, a field's message said once below the toolbars, neutral metadata in gray, column widths that hold their headers and the largest synthetic notional (it fell to `####`), and a trades grid that fills the window's remaining height.
+- An empty CVA recovery shows empty, with the CDS recovery as its placeholder. It showed the literal `undefined`, because the server leaves nulls out and the page compared with `null` only (XV15 on screen).
+- The latest Price's CVA and FVA (Before, After, incremental) show on the page, marked simulated, with the revision they priced and whether the workspace has moved since; *Open run* opens the Run panel, which Price no longer opens by itself.
+- ADR-0010 records the redesign decided with the owner: one screen (context bar, full-width input tabs, New and Existing trades, a result dock), Before and After as layers over Original with side-only edits in an advanced mode, cases (vary from a cell, iterative), scenarios crossed with cases and defined by command and by the AI, FVA only on imperfectly collateralised CSAs, PV Adj from PV01 × Margin. None of it is built yet.
+
+### Verification performed
+
+| Suite | Result |
+|---|---|
+| `npm test` (Vitest) | 55 passed |
+| `npx playwright test` (Chromium, headless, Linux) | 18 passed; `xva.spec.ts` with `--repeat-each=3` (6 passed) |
+| Screenshots at 390, 768, 992 and 1440px, dark and light | No sideways scroll; looked at by hand |
+
+## The pricer page, ADR-0010 Delivery step 1 (tickets 01–08, 2026-11-08)
+
+### What runs
+
+- **A portfolio domain module** (`Workbench.Samples.Portfolio`) holds what XVA, SIMM and SA-CCR will share: the context,
+  netting set, CSAs with their terms, trades with B and A, Original, and the **measures register** (§10). XVA registers
+  CVA (with CVA Charge and PV) and FVA (§11). The composition kernel gained nothing domain-specific.
+- **Measures**: `measures cva fva` (or the page's toggles) selects what Price prices; Price says what it will run
+  (`Price CVA FVA · 1 case`) and freezes the selection; a new workspace takes its owner's last one. A refused measure
+  blocks only itself. What a measure adds to the page is read from its registration: its trade columns, its membership
+  column on the trade and CSA grids, the shared inputs it needs (CVA's recovery shows on Netting only while CVA is
+  selected), and whether it has a quote (Copy quote, CVA's). The page names no measure.
+- **Netting and CSA tabs**: CSA terms editable (type and Main are the source's), Main and MA columns; FVA's
+  imperfect-CSA rule decided on the server with a reason per CSA and per trade (`In · CSA-B imperfect: one-way`), its
+  version frozen into the Run; an uncollateralised trade is out with FVA 0. An empty CVA recovery stays empty (XV15).
+- **New trades above Existing trades**; B and A for a whole grid (`before all|none`, one edit); After-only Price
+  (Before not priced, no Diff, never 0).
+- **Original**: a value that differs from it is marked and says what Original held; a value edited back is not. A PV
+  Adj that Margin filled is marked like a typed one; PV01, a result, never is.
+- **PV01, Margin, PV Adj** on new trades: PV01 pending, its figure, or failed with `pv01 retry`; PV Adj = PV01 × Margin,
+  read-only then and saying so; Price refuses XVA's measures by name while a Margin's PV01 is pending or failed.
+- **The result dock**: per case Before, After and Diff per priced measure, in the currency the Run froze (named on the
+  dock); collapsed to a line a case; `download run` (a zip of the Run's record, input, result and lineage) and `copy
+  quote` (HTML and text, read from the Run's retained result on the server).
+- **One screen** on every width: context bar, input tabs, New and Existing grids and the dock; part heights set by drag
+  or keys and never read back; below `sm` three tabs. A command opens each input tab; `refresh` and `currency` too.
+- **Fixed on the way**: a command that carries a revision (Price, Refresh, a value-date move, Rates' Price) now waits
+  for the edits already sent (`EditQueue.after`), since Price could overtake an edit and be refused with 409; the light
+  theme's coloured and dimmed text now reads at 4.5:1 (`autoContrast` and `cssVariablesResolver`, design-guidelines §7).
+
+### Verification performed
+
+| Suite | Result |
+|---|---|
+| `dotnet test server/Workbench.slnx` | 210 passed |
+| `npm run typecheck`, `npx vitest run` | passed, 83 tests |
+| `npx playwright test` (Chromium, headless, Linux) | 26 passed; the three `xva.spec.ts` tests the review changed with `--repeat-each=3` (9 passed) |
+| Screenshots at 1440, 992, 768 and 390px, dark and light, before the review's fixes; at 1440 in the dark theme after them | no sideways scroll; at 1440 × 900 no page scroll; looked at by hand |
+
+Code review (`/code-review`, a Standards and a Spec reviewer in parallel) found theme spacing written as literals,
+dimmed text the user must read, a made-up `?? ''` and eight `!` in the command list, measure ids written into the page,
+a PV Adj from Margin left unmarked, no currency on the dock, and the CSA grid without Main and MA; all fixed. The new
+check that a tab is as high as its content found the CSA tab scrolling by 24px since ticket 03: the grid's Selection
+Summary sat under its viewport. The CSA grid shows none (a sum of terms in different currencies is no figure).
+
+### Providers
+
+Every figure is simulated and says so: XVA's pricing (`FakeXvaPrice`, a toy formula), PV01 and the FX. No real
+provider is wired.
+
+### Known limits
+
+- No column filters, and no *in FVA* filter, on the trade grids yet (§6).
+- The Before and After fills wait on ExGrid's Split Fill (ex-grid ADR-0490, PR #545); until step 3 every change
+  differs on both sides and wears `modified`.
+- No Credit tab or Settings section (step 5); no *Add CSA*; the CSA type is the source's and read-only (DEFAULT); the
+  trades show no start date.
+- PV is a metric of CVA's (DEFAULT): the request that prices CVA values the portfolio.
+- The module columns (PV01, Margin, PV Adj) are on the New grid only; an existing trade shows its official PV.
+- docs/03 §2.5 OPEN: a new trade with no PV Adj is priced without an adjustment, and the Run does not yet say so.
+- `TAKEN` (260px) is the page's estimate of its fixed parts, and a grid's Selection Summary line is outside its
+  viewport with a height ExGrid's Grid Metrics do not give, so the Existing grid's height is approximate (no page
+  scroll at 1440 × 900; some room is left under the dock).
+- Left from the review as they are: statuses and "no curve" as strings, the field switches repeated across the
+  portfolio module, `RegisteredMeasure` and `RegisteredColumn` repeating their definitions, the two-argument `Validate`
+  used only by Price, and `Pv01Provider.Settled` used only by tests.
+
 ## Next
 
-1. The owner's review of ADR-0003 §7 (scopes, carry and conflict), then a synthetic source change that can produce a conflict, and the browser cases still open above (reload, failed case unavailable).
-2. MVA with SIMM (`docs/12-implementation-plan.md` P2), then Rates.
-3. ME-ID sign-in through MSAL (C30) and the visibility rules (C31, C32); AI over AG-UI with the company's Copilot behind the adapter port (C34).
-4. Slice 01b: Save and Pin (CO06), and the browser parts of CO03 and CO04.
+1. ADR-0010 Delivery step 2: cases (`vary`, iterative individual addition, the changes panel).
+2. The owner's review of ADR-0003 §7 (scopes, carry and conflict), then a synthetic source change that can produce a conflict, and the browser cases still open above (reload, failed case unavailable).
+3. MVA with SIMM (`docs/12-implementation-plan.md` P2), then Rates.
+4. ME-ID sign-in through MSAL (C30) and the visibility rules (C31, C32); AI over AG-UI with the company's Copilot behind the adapter port (C34).
+5. Slice 01b: Save and Pin (CO06), and the browser parts of CO03 and CO04.

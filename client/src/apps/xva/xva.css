@@ -1,0 +1,113 @@
+/* The XVA workspace page (docs/design-guidelines.md). Geometry only; colour comes from the theme. */
+
+/* The Existing grid takes the room the window has left beside the page's other parts, so that it is the grid that
+   scrolls and not the page (§9). Those parts' heights are the page's own numbers (`--qwb-xva-taken`, set on the page),
+   never measured (P4 of ExGrid); the grid is never less than about six rows. ExGrid fills it
+   (`viewportHeight="stretch"`): the class is on the Mantine Wrapper's paper, the grid's parent. */
+.qwb-xva-trades {
+  height: max(12rem, calc(100dvh - var(--qwb-xva-taken, 20rem)));
+}
+
+/* The Metrics grow by three columns a measure metric; the table scrolls inside the page, never the page itself. */
+.qwb-xva-result-table {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.qwb-xva-result-group {
+  text-align: center;
+}
+
+/* A status in words (`not priced`, `unavailable`, `refused`) is the signal, set apart from the figures by its face
+   and never dimmed: the user must read it (docs/design-guidelines.md §7). */
+.qwb-xva-result-word {
+  font-style: italic;
+}
+
+.qwb-xva .qwb-number {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* A value the user set: the same weight the grid's Cell State gives it, without a second line under the input. */
+.qwb-modified {
+  font-weight: 600;
+}
+
+/* A display currency is a three-letter code. */
+.qwb-toolbar-input--currency { width: 6rem; }
+
+/* A table wider than the screen scrolls inside the page (the Netting row on a phone). */
+.qwb-xva-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+/* The input tabs (ADR-0010 §1): the tab row, with Show or Hide inputs at its end; the open tab at the height its
+   handle sets, scrolling inside it. */
+.qwb-xva-inputs-tabs { flex: 1 1 auto; min-width: 0; }
+.qwb-xva-inputs-body {
+  height: var(--qwb-part-height);
+  overflow: auto;
+}
+
+/* The result dock (ADR-0010 §7) stays at the bottom of the window while the trades scroll, above the grid it covers;
+   the open Metrics scroll inside the height its handle sets. */
+.qwb-xva-dock {
+  position: sticky;
+  bottom: 0;
+  z-index: 3;
+  background: var(--mantine-color-body);
+  border-top: 1px solid var(--mantine-color-default-border);
+  padding-block: var(--mantine-spacing-xs);
+}
+.qwb-xva-result-body {
+  max-height: var(--qwb-part-height);
+  overflow: auto;
+}
+
+/* A part's height handle (layout.tsx): a horizontal bar whose grip reads at 3:1 against the page in either theme
+   (docs/design-guidelines.md §7), taller where the pointer is a finger. The page scrolls on a touch elsewhere, never
+   on the handle, which takes the drag. */
+.qwb-resizer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 12px;
+  cursor: row-resize;
+  touch-action: none;
+}
+.qwb-resizer::before {
+  content: '';
+  width: 48px;
+  height: 4px;
+  border-radius: var(--mantine-radius-xs);
+  background: var(--mantine-color-dimmed);
+}
+.qwb-resizer:hover::before { background: var(--mantine-color-text); }
+.qwb-resizer:focus-visible {
+  outline: 2px solid var(--mantine-primary-color-filled);
+  outline-offset: -2px;
+}
+@media (pointer: coarse) {
+  .qwb-resizer { height: 24px; }
+}
+
+/* Below `sm` (ADR-0010 §1) the page is three tabs under the context bar: only the part chosen shows, each as high as
+   its content, so the handles go; the dock is a part like the others, no longer pinned to the window's bottom.
+   A toolbar field is at least 14rem wide there: a date or a recovery stays readable, two fields that would squeeze
+   each other take a row each, and Price still fits beside the field before it. */
+@media (max-width: 47.99em) {
+  .qwb-xva .qwb-toolbar-field { flex: 1 1 14rem; }
+  .qwb-xva > [data-part] { display: none; }
+  .qwb-xva[data-section='inputs'] > [data-part='inputs'],
+  .qwb-xva[data-section='trades'] > [data-part='trades'],
+  .qwb-xva[data-section='results'] > [data-part='results'] { display: block; }
+  .qwb-xva .qwb-resizer { display: none; }
+  .qwb-xva-inputs-body { height: auto; }
+  .qwb-xva-result-body { max-height: none; }
+  .qwb-xva-dock { position: static; border-top: 0; }
+  /* The Trades tab has the trades alone under the context bar, which takes about five rows on a phone. */
+  .qwb-xva-trades { height: max(20rem, calc(100dvh - 30rem)); }
+}

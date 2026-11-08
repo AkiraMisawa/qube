@@ -1,6 +1,6 @@
 import { ApiError } from '../../platform/api';
 import type { XvaWorkspaceView } from './contracts';
-import { EditQueue, parseNumber, parseRecovery, tradeFields, type PendingEdit } from './editing';
+import { EditQueue, csaFields, parseNumber, parseRecovery, tradeFields, type PendingEdit } from './editing';
 
 const view = (revision: number) => ({ revision }) as unknown as XvaWorkspaceView;
 
@@ -24,6 +24,22 @@ describe('what a cell accepts', () => {
     expect(tradeFields.schedule!('1Y').ok).toBe(false);
     expect(tradeFields.before!('yes').ok).toBe(false);
     expect(tradeFields.after!('false')).toEqual({ ok: true, value: false });
+  });
+});
+
+describe('what a CSA term accepts (ADR-0010 §8)', () => {
+  it('reads amounts of 0 or more, currency codes and the three frequencies', () => {
+    expect(csaFields.counterpartyThreshold!('200,000,000')).toEqual({ ok: true, value: 200_000_000 });
+    expect(csaFields.selfMta!('-1').ok).toBe(false);
+    expect(csaFields.selfCurrency!('gbp')).toEqual({ ok: true, value: 'GBP' });
+    expect(csaFields.counterpartyCurrency!('pounds').ok).toBe(false);
+    expect(csaFields.frequency!('Weekly')).toEqual({ ok: true, value: 'weekly' });
+    expect(csaFields.frequency!('hourly').ok).toBe(false);
+    expect(csaFields.oneWay!('TRUE')).toEqual({ ok: true, value: true });
+  });
+
+  it('has no field for the type, which is the source\'s', () => {
+    expect(csaFields.type).toBeUndefined();
   });
 });
 

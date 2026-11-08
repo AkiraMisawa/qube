@@ -2,6 +2,8 @@ using System.Text.Json.Nodes;
 using Workbench.Composition.Application;
 using Workbench.Composition.Contracts;
 
+using Workbench.Samples.Portfolio;
+
 namespace Workbench.Samples.Xva;
 
 /// <summary>
@@ -11,9 +13,10 @@ namespace Workbench.Samples.Xva;
 /// </summary>
 public sealed class XvaHistoryProjection : IHistoryProjection
 {
-    public string Domain => XvaEditRules.App;
+    public string Domain => PortfolioEditRules.App;
     public string Title => "XVA";
-    public IReadOnlyList<string> ResultContracts { get; } = [XvaContracts.CaseResult];
+    // A Run priced before the measures register wrote XVA's case result; since, every measure writes the shared one.
+    public IReadOnlyList<string> ResultContracts { get; } = [XvaContracts.CaseResult, PortfolioContracts.MeasureResult];
 
     static readonly string[] Measures = ["CVA", "FVA"];
     static readonly string[] Sides = ["before", "after", "incremental"];
@@ -35,18 +38,26 @@ public sealed class XvaHistoryProjection : IHistoryProjection
             ["valueDate"] = run.Context["valueDate"]?.DeepClone(),
             ["registration"] = run.Context["registration"]?.DeepClone(),
         };
-        if (!run.Outputs.TryGetValue("result", out var reference) || data.Read(reference) is not DataLookup.Found found)
-            return row;
-        var rows = found.Content["rows"]!.AsArray().Select(r => r!.AsObject()).ToList();
-        foreach (var measure in Measures)
+        foreach (var reference in run.Outputs.Values)
         {
-            var figures = rows.SingleOrDefault(r => r["measure"]!.GetValue<string>() == measure);
-            if (figures is null) continue;
-            foreach (var side in Sides) row[Field(measure, side)] = figures[side]?.DeepClone();
-            row["tradesBefore"] = figures["tradesBefore"]?.DeepClone();
-            row["tradesAfter"] = figures["tradesAfter"]?.DeepClone();
+            if (data.Read(reference) is not DataLookup.Found found) continue;
+            var rows = found.Content["rows"]!.AsArray().Select(r => r!.AsObject()).ToList();
+            var shared = reference.ContractId == PortfolioContracts.MeasureResult;
+            foreach (var measure in Measures)
+            {
+                // The shared result names a metric by id (cva) and calls the incremental Diff; the old one named the measure (CVA).
+                var figures = shared
+                    ? rows.FirstOrDefault(r => r["metric"]!.GetValue<string>() == measure.ToLowerInvariant() && r["case"]!.GetValue<string>() == "base")
+                    : rows.SingleOrDefault(r => r["measure"]!.GetValue<string>() == measure);
+                if (figures is null) continue;
+                foreach (var side in Sides) row[Field(measure, side)] = figures[shared && side == "incremental" ? "diff" : side]?.DeepClone();
+                // The Run's trades are the most any measure priced: FVA counts only its members (ADR-0010 §5), CVA them all.
+                foreach (var count in (string[])["tradesBefore", "tradesAfter"])
+                    if (figures[count] is JsonValue n && (row[count] is not JsonValue held || n.GetValue<int>() > held.GetValue<int>()))
+                        row[count] = n.DeepClone();
+            }
+            row["executionMode"] = found.Content["provenance"]?["executionMode"]?.DeepClone();
         }
-        row["executionMode"] = found.Content["provenance"]?["executionMode"]?.DeepClone();
         return row;
     }
 

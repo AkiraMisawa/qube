@@ -7,6 +7,7 @@ using Workbench.Composition.Contracts;
 using Workbench.Persistence.Sqlite;
 using Workbench.Samples.Rates;
 using Workbench.Samples.Synthetic;
+using Workbench.Samples.Portfolio;
 using Workbench.Samples.Xva;
 using Workbench.Web;
 
@@ -22,6 +23,7 @@ builder.Services.ConfigureHttpJsonOptions(o =>
 
 // The composition root: the only place that names modules and providers.
 builder.Services.AddSingleton<IWorkbenchModule, SyntheticModule>();
+builder.Services.AddSingleton<IWorkbenchModule, PortfolioModule>();
 builder.Services.AddSingleton<IWorkbenchModule, XvaModule>();
 
 // Rates (docs/07): conventions and the synthetic market come from configuration; the provider is the fake one,
@@ -60,11 +62,17 @@ builder.Services.AddSingleton(_ => new SqliteRunStore(database));
 builder.Services.AddSingleton<IRunStore>(sp => sp.GetRequiredService<SqliteRunStore>());
 builder.Services.AddSingleton<IDataStore>(sp => sp.GetRequiredService<SqliteRunStore>());
 builder.Services.AddSingleton<IWorkspaceStore>(_ => new SqliteWorkspaceStore(database,
-    new Dictionary<string, SourceResolver> { [XvaEditRules.App] = XvaSourceVersion.Resolve, [RatesEditRules.App] = RatesWorkspaces.Resolve }));
+    new Dictionary<string, SourceResolver> { [PortfolioEditRules.App] = PortfolioSourceVersion.Resolve, [RatesEditRules.App] = RatesWorkspaces.Resolve }));
 builder.Services.AddSingleton(sp => new WorkspaceService(
-    new Dictionary<string, IEditRules> { [XvaEditRules.App] = new XvaEditRules(), [RatesEditRules.App] = new RatesEditRules(conventions) },
+    new Dictionary<string, IEditRules> { [PortfolioEditRules.App] = new PortfolioEditRules(), [RatesEditRules.App] = new RatesEditRules(conventions) },
     sp.GetRequiredService<TimeProvider>(), sp.GetRequiredService<IWorkspaceStore>()));
-builder.Services.AddSingleton<XvaWorkspaces>();
+// New trades' PV01 (ADR-0010 §6) comes from the simulated engine, which answers after a configured delay as an engine
+// would; there is no real one to fall back from.
+builder.Services.AddSingleton(sp => Pv01Provider.Simulated(TimeSpan.FromMilliseconds(builder.Configuration.GetValue("Xva:Pv01DelayMilliseconds", 400)),
+    sp.GetRequiredService<TimeProvider>()));
+builder.Services.AddSingleton<IMeasureModule, XvaMeasures>();
+builder.Services.AddSingleton<MeasureRegister>();
+builder.Services.AddSingleton<PortfolioWorkspaces>();
 // The AI pane (ADR-0007): the agent runtime is chosen here and nowhere else, by configuration, and an unknown one stops
 // startup rather than falling back to another. "copilot" talks to the agent host, a separate process under the agent's
 // own identity (C44); this process never holds the model credential.
