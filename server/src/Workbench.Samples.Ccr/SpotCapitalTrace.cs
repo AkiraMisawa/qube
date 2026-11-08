@@ -51,6 +51,15 @@ public static class SpotCapitalTrace
 
     public static CalculationTrace Write(SpotCapital capital, SpotCapitalTraceHeader header) => new Writer(capital, header).Write();
 
+    /// <summary>
+    /// The trace of a side that was priced and could not be computed: its root, unavailable with why. The side then
+    /// reads as unavailable, never as not priced, and its Diff says why there is none (ADR-0011 §1, §4).
+    /// </summary>
+    public static CalculationTrace Unavailable(string reason, SpotCapitalTraceHeader header) =>
+        new(CalculationTrace.DocumentTypeName, CalculationTrace.ContractVersion, Measure, Method, "trade", 1e-9, ["capital"], [],
+            [new TraceTerm("capital", "saccr.capital", TermState.Unavailable, 0, Reason: reason)], [],
+            header.Engine, header.RequestId, header.ValuationDate, header.ReportingCurrency, header.Counterparty, header.Provenance);
+
     /// <summary>A name as one segment of a term id.</summary>
     public static string Segment(string name) => name.Replace("%", "%25", StringComparison.Ordinal).Replace("/", "%2F", StringComparison.Ordinal);
 
@@ -498,7 +507,7 @@ public static class SpotCapitalTrace
                     var en = id + "/en";
                     Term(en, offset ? "saccr.irEffectiveNotional" : "saccr.irEffectiveNotionalWithoutOffset", set.EffectiveNotional!.Value, id, 3,
                         because: offset ? null : [$"The bank does not offset across maturity buckets ({capital.Exposure.Settings.Version})."]);
-                    foreach (var (bucket, range) in new[] { (1, "under 1y"), (2, "1-5y"), (3, "over 5y") })
+                    foreach (var (bucket, range) in SaCcr.BucketNames.Select((name, i) => (i + 1, name)))
                     {
                         var bucketId = $"{en}/b{bucket}";
                         var bucketKey = new Dictionary<string, string> { ["bucket"] = range };

@@ -356,7 +356,8 @@
               "compute",
               "persistAnalysis",
               "editWorkspace",
-              "subscribe"
+              "subscribe",
+              "readRun"
             ]
           },
           "minItems": 0

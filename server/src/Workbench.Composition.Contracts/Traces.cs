@@ -106,6 +106,22 @@ public sealed record CalculationTrace(
 }
 
 /// <summary>
+/// One trace of a request's output, by what it is of (ADR-0011 §1: one per case, scenario, side and measure).
+/// <c>Side</c> is <c>before</c> or <c>after</c>.
+/// </summary>
+public sealed record TraceEntry(string Case, string Scenario, string Side, string Measure, CalculationTrace Trace);
+
+/// <summary>
+/// The traces one invocation wrote, when it priced several sides, cases or measures at once, as one XVA request prices
+/// Before and After (ADR-0013 §2). A request that writes one trace may give it alone, as a <see cref="CalculationTrace"/>.
+/// </summary>
+public sealed record TraceSet(IReadOnlyList<TraceEntry> Traces)
+{
+    public const string ContractId = "calculation-traces";
+    public const string ContractVersion = "1.0";
+}
+
+/// <summary>
 /// An expression from ADR-0011 §2's closed set of operations. It is data: the kernel evaluates it, and nothing in it
 /// is code or text to run.
 /// </summary>

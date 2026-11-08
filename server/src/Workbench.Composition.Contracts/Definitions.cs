@@ -14,10 +14,11 @@ public enum Cardinality { One, Many }
 public enum ExecutionKind { RequestResponse, Job, Subscription }
 
 /// <summary>
-/// What invoking a capability does. <c>EditWorkspace</c> and <c>Subscribe</c> make it a command (ADR-0005): invoked
-/// for a caller outside Runs, never as a workflow step.
+/// What invoking a capability does. <c>EditWorkspace</c>, <c>Subscribe</c> and <c>ReadRun</c> make it a command
+/// (ADR-0005): invoked for a caller outside Runs, never as a workflow step. <c>ReadRun</c> reads a retained Run's
+/// results for a caller who may see it, such as a term of its trace (ADR-0011 §7).
 /// </summary>
-public enum CapabilityEffect { ReadData, Compute, PersistAnalysis, EditWorkspace, Subscribe }
+public enum CapabilityEffect { ReadData, Compute, PersistAnalysis, EditWorkspace, Subscribe, ReadRun }
 
 public sealed record Port(string Name, string ContractId, string ContractVersion, Cardinality Cardinality);
 

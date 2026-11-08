@@ -4,6 +4,7 @@ using System.Text.Json.Nodes;
 using Workbench.Composition.Application;
 using Workbench.Composition.Application.Workspaces;
 using Workbench.Composition.Contracts;
+using Workbench.Samples.Ccr;
 using Workbench.Samples.Portfolio;
 
 namespace Workbench.Samples.Xva;
@@ -16,26 +17,94 @@ public static class XvaContracts
     /// <summary>The result of a Run priced before the measures register; read by the Pricing DB, never written.</summary>
     public const string CaseResult = "xva.case-result";
     public const string ResultView = "view.xva.result";
+    /// <summary>The capital profile the KVA option returns (ADR-0010 §11, ADR-0013 §1): a row per case, side and date.</summary>
+    public const string CapitalProfile = "xva.capital-profile";
 }
 
 /// <summary>
-/// XVA's registration into the pricer (ADR-0010 §11): CVA, with its CVA Charge, and FVA, which prices only trades on
-/// imperfectly collateralised CSAs (§5). MVA and KVA follow when the engine's options for them are built.
+/// XVA's registration into the pricer (ADR-0010 §11): CVA, with its CVA Charge; FVA, which prices only trades on
+/// imperfectly collateralised CSAs (§5); KVA, from the capital profile its KVA option returns with spot CCR capital
+/// (ADR-0013 §2); and its columns on new trades, PV01, Margin and PV Adj (§6). MVA follows when the engine's option
+/// for it is built.
 /// </summary>
+/// <param name="pv01">Where new trades' PV01 comes from.</param>
 /// <param name="fvaLimitGbp">FVA's MTA + threshold limit in GBP, configuration (§5): 1mm unless set.</param>
-public sealed class XvaMeasures(decimal fvaLimitGbp = 1_000_000m) : IMeasureModule
+public sealed class XvaMeasures(Pv01Provider pv01, decimal fvaLimitGbp = 1_000_000m) : IMeasureModule
 {
     public const string Module = "xva";
     public const string Cva = "cva";
     public const string Fva = "fva";
+    public const string Kva = "kva";
+    public const string Pv01 = "pv01";
+    public const string Margin = "margin";
+    public const string PvAdj = "pvAdj";
 
     public string Id => Module;
 
-    public IReadOnlyList<MeasureDefinition> Measures { get; } =
+    public static IReadOnlyList<MeasureDefinition> Definitions { get; } =
     [
         new(Cva, "CVA", [new("cva", "CVA"), new("cvaCharge", "CVA Charge")], "cva", DeclaresMembership: false, Traced: false),
         new(Fva, "FVA", [new("fva", "FVA")], "fva", DeclaresMembership: true, Traced: false),
+        // The cost of holding spot CCR capital's profile (ADR-0010 §11, ADR-0013 §1); the profile has no trace.
+        new(Kva, "KVA", [new("kva", "KVA")], "kva", DeclaresMembership: false, Traced: false),
     ];
+
+    public IReadOnlyList<MeasureDefinition> Measures => Definitions;
+
+    public IReadOnlyList<TradeColumn> TradeColumns { get; } =
+        [new(Pv01, "PV01", "number", false), new(Margin, "Margin (bp)", "number", true), new(PvAdj, "PV Adj", "number", true)];
+
+    /// <summary>A trade's field for one of XVA's columns, as the trade grids and the frozen input name it.</summary>
+    public static string Field(string column) => $"{Module}.{column}";
+
+    /// <summary>
+    /// PV01, Margin and PV Adj on each new trade (ADR-0010 §6). PV01 is asked the first time the trade is read. Margin is
+    /// typed. PV Adj is PV01 × Margin, each with its own sign, whenever Margin is entered, and read-only then, saying so;
+    /// with Margin empty PV Adj is typed. An existing trade has none of them: its official PV is the source's.
+    /// </summary>
+    public IReadOnlyList<IReadOnlyDictionary<string, TradeCell>?> Cells(WorkspaceState state, IReadOnlyList<EffectiveTrade> trades)
+    {
+        var source = (PortfolioSourceVersion)state.Source;
+        var typed = state.Overrides.Values.Where(o => o.Target.Field.StartsWith($"{Module}.", StringComparison.Ordinal))
+            .ToDictionary(o => (o.Target.Entity, o.Target.Field), o => o.Value);
+        decimal? Typed(EffectiveTrade t, string column) => typed.GetValueOrDefault((Entity.Of(Entity.Trade, t.TradeId), Field(column)))?.GetValue<decimal>();
+        return [.. trades.Select(t =>
+        {
+            if (!t.IsNew) return null;
+            var answer = pv01.Of(Pv01Request.Of(t, source.ValueDate));
+            var margin = Typed(t, Margin);
+            var pv01Cell = answer.State switch
+            {
+                TradeCell.Shown => new TradeCell(answer.Value, TradeCell.Shown, null, false),
+                TradeCell.Pending => new TradeCell(null, TradeCell.Pending, "PV01 is asked of the engine.", false),
+                _ => new TradeCell(null, TradeCell.Failed, $"PV01 failed: {answer.Reason}", false),
+            };
+            TradeCell adjustment = margin is not { } bp ? TradeCell.Input(Typed(t, PvAdj))
+                : answer.Value is { } value ? new(Math.Round(value * bp, 2), TradeCell.Shown, $"From Margin: {Amount(bp)} bp × PV01 {Amount(value)}", false)
+                : new(null, answer.State, answer.State == TradeCell.Pending ? "From Margin: PV01 is pending." : $"From Margin: PV01 failed: {answer.Reason}", false);
+            return (IReadOnlyDictionary<string, TradeCell>)new Dictionary<string, TradeCell>
+            {
+                [Pv01] = pv01Cell,
+                [Margin] = TradeCell.Input(margin),
+                [PvAdj] = adjustment,
+            };
+        })];
+    }
+
+    public string? Check(string column, JsonNode? value) => column switch
+    {
+        Margin => value is null || value is JsonValue m && m.TryGetValue<decimal>(out _) ? null : "A margin is a number of basis points or empty.",
+        PvAdj => value is null || value is JsonValue a && a.TryGetValue<decimal>(out _) ? null : "A PV Adj is an amount or empty.",
+        _ => $"{column} is a result; it is not typed.",
+    };
+
+    public int Retry(WorkspaceState state, IReadOnlyList<EffectiveTrade> trades)
+    {
+        var source = (PortfolioSourceVersion)state.Source;
+        return pv01.Retry(trades.Where(t => t.IsNew).Select(t => Pv01Request.Of(t, source.ValueDate)));
+    }
+
+    static string Amount(decimal value) => value.ToString("#,0.##", CultureInfo.InvariantCulture);
 
     public IReadOnlyList<IMembershipRule> Membership(WorkspaceState state)
     {
@@ -49,7 +118,27 @@ public sealed class XvaMeasures(decimal fvaLimitGbp = 1_000_000m) : IMeasureModu
         ["credit"] = JsonSerializer.SerializeToNode(PortfolioMaterialiser.Credit(state), WireJson.Options),
     };
 
-    public IReadOnlyList<MeasureRefusal> Validate(WorkspaceState state, IReadOnlyList<string> selected) => [];
+    public IReadOnlyList<MeasureRefusal> Validate(WorkspaceState state, IReadOnlyList<string> selected) =>
+        throw new InvalidOperationException("XVA validates the trades Price froze, with their cells.");
+
+    /// <summary>
+    /// With Margin entered and PV01 pending or failed, the adjustment XVA would price is unknown, so its measures are
+    /// refused by name (ADR-0010 §6, DEFAULT). Each refusal names the first such trade and how many there are.
+    /// </summary>
+    public IReadOnlyList<MeasureRefusal> Validate(WorkspaceState state, IReadOnlyList<string> selected, IReadOnlyList<EffectiveTrade> priced)
+    {
+        var unknown = priced.SelectMany(t => t.Cells?.GetValueOrDefault(Field(PvAdj)) is { State: not TradeCell.Shown } cell ? [(t.TradeId, Cell: cell)] : Array.Empty<(string TradeId, TradeCell Cell)>()).ToList();
+        if (unknown.Count > 0)
+        {
+            var (tradeId, first) = unknown[0];
+            var why = $"PV Adj of {tradeId} is unknown: {first.Note}" + (unknown.Count > 1 ? $" ({unknown.Count - 1} more trade(s) too)" : "");
+            return [.. selected.Select(id => new MeasureRefusal(id, "PvAdjUnknown", why))];
+        }
+        // KVA is the cost of spot CCR capital's profile, so what refuses spot capital refuses KVA (ADR-0013 §6).
+        return selected.Contains(Kva) && CcrMeasures.Problem(state, priced) is { } problem
+            ? [new MeasureRefusal(Kva, "SpotCapitalRefused", $"KVA reads spot CCR capital: {problem}")]
+            : [];
+    }
 
     public WorkflowStep Step(TypedDataRef acceptedInput) => new(Module, FakeXvaPrice.CapabilityId, FakeXvaPrice.CapabilityVersion, [],
         new Dictionary<string, Binding> { ["acceptedInput"] = new DataReferenceBinding(acceptedInput) }, FailurePolicy.Stop);
@@ -110,14 +199,30 @@ public sealed class ImperfectCsa : IMembershipRule
 public sealed class FakeXvaPrice : ICapabilityHandler
 {
     public const string CapabilityId = "xva.price";
-    public const string CapabilityVersion = "2.0.0";
+    public const string CapabilityVersion = "2.1.0";
     /// <summary>The simulated charge ratio CVA Charge applies to CVA (ADR-0010 OPEN: what the charge approximates).</summary>
     public const decimal ChargeRatio = 1.25m;
+    /// <summary>The simulated cost of capital KVA charges a year (ADR-0010 §11: a setting, OPEN).</summary>
+    public const decimal CostOfCapital = 0.10m;
 
-    public CapabilityDescriptor Descriptor { get; } = new(CapabilityId, CapabilityVersion, "Price CVA and FVA (simulated)",
+    public CapabilityDescriptor Descriptor { get; } = new(CapabilityId, CapabilityVersion, "Price CVA, FVA, KVA and spot CCR capital (simulated)",
         [new("acceptedInput", PortfolioContracts.AcceptedInput, PortfolioContracts.Version, Cardinality.One)],
-        [new("result", PortfolioContracts.MeasureResult, PortfolioContracts.Version, Cardinality.One)],
+        [new("result", PortfolioContracts.MeasureResult, PortfolioContracts.Version, Cardinality.One),
+         new("traces", TraceSet.ContractId, TraceSet.ContractVersion, Cardinality.One),
+         new("profile", XvaContracts.CapitalProfile, XvaContracts.Version, Cardinality.One)],
         ExecutionKind.RequestResponse, [CapabilityEffect.Compute]);
+
+    static readonly IReadOnlyList<DatasetColumn> ProfileColumns =
+    [
+        new("case", DatasetColumnType.String, false),
+        new("side", DatasetColumnType.String, false),
+        new("years", DatasetColumnType.Number, false),
+        new("date", DatasetColumnType.String, false),
+        new("trades", DatasetColumnType.Integer, false),
+        new("ead", DatasetColumnType.Number, false),
+        new("capital", DatasetColumnType.Number, false),
+        new("currency", DatasetColumnType.String, false),
+    ];
 
     public Task<IReadOnlyDictionary<string, JsonNode?>> InvokeAsync(CapabilityInvocation invocation, CancellationToken cancellationToken)
     {
@@ -129,13 +234,24 @@ public sealed class FakeXvaPrice : ICapabilityHandler
         // An empty CVA recovery is not zero: the CDS recovery applies (docs/03).
         var recovery = credit["cvaRecovery"]?.GetValue<decimal>() ?? credit["cdsRecovery"]!.GetValue<decimal>();
         var trades = input["trades"]!.AsArray().Select(t => t!).ToList();
-        var definitions = new XvaMeasures().Measures.ToDictionary(m => m.Id);
+        var definitions = XvaMeasures.Definitions.ToDictionary(m => m.Id);
         const string currency = "JPY";
 
         // FVA prices only its members (ADR-0010 §5), as the accepted input froze them; a trade without its membership is
         // an input this provider cannot read, never a trade it guesses about.
         bool InFva(JsonNode t) => (t["membership"]?[XvaMeasures.Fva]?["in"] ?? throw new CapabilityFailure("InvalidInput",
             $"Trade {t["tradeId"]} carries no FVA membership.")).GetValue<bool>();
+
+        // A new trade's PV Adj as Price froze it (ADR-0010 §6): none typed is no adjustment; one not known is an input
+        // this provider cannot read, since Price refuses XVA's measures then.
+        decimal Adjustment(JsonNode t)
+        {
+            if (t["cells"]?[XvaMeasures.Field(XvaMeasures.PvAdj)] is not { } cell) return 0m;
+            if (cell["state"]!.GetValue<string>() != TradeCell.Shown)
+                throw new CapabilityFailure("InvalidInput", $"PV Adj of {t["tradeId"]} is {cell["state"]}; Price refuses XVA's measures then.");
+            // An empty PV Adj is one nobody typed: the trade is priced without an adjustment (docs/03 §2.5 OPEN).
+            return cell["value"] is { } typed ? typed.GetValue<decimal>() : 0m;
+        }
 
         (decimal Cva, decimal Fva, int Count, int FvaCount) Side(string side)
         {
@@ -146,6 +262,8 @@ public sealed class FakeXvaPrice : ICapabilityHandler
             {
                 var years = (decimal)(DateOnly.ParseExact(t["maturity"]!.GetValue<string>(), "yyyy-MM-dd", CultureInfo.InvariantCulture).DayNumber - valueDate.DayNumber) / 365m;
                 var exposure = Math.Abs(t["notional"]!.GetValue<decimal>()) * Math.Max(years, 0) * (t["currency"]!.GetValue<string>() == "JPY" ? 0.0001m : 0.015m);
+                // The engine aligns the exposure to the trade's PV (docs/03 §2.5); here, a toy shift by its PV Adj.
+                exposure = Math.Max(0, exposure + Adjustment(t) * 0.01m);
                 var uncollateralised = t["csa"]!.GetValue<string>().StartsWith("nocsa_", StringComparison.Ordinal);
                 var curveFactor = t["curve"]!.GetValue<string>() == "usd_sofr" ? 1.1m : 1m;
                 cva -= exposure * (1 - recovery) * (uncollateralised ? 0.02m : 0.004m) * curveFactor;
@@ -156,14 +274,37 @@ public sealed class FakeXvaPrice : ICapabilityHandler
             return (Math.Round(cva, 2), Math.Round(fva, 2), members.Count, fvaCount);
         }
 
-        var before = Side("before");
-        var after = Side("after");
+        // Read only when a measure is priced: a measure refused at Price is reported, never computed.
+        var sides = new Lazy<((decimal Cva, decimal Fva, int Count, int FvaCount) Before, (decimal Cva, decimal Fva, int Count, int FvaCount) After)>(() => (Side("before"), Side("after")));
         // A side with no trade is not priced; a side whose trades are all outside FVA is priced, and its FVA is 0 (§5).
         MeasureResult.Side Figure((decimal Cva, decimal Fva, int Count, int FvaCount) side, Func<(decimal Cva, decimal Fva, int Count, int FvaCount), decimal> value, bool fva) =>
             side.Count == 0 ? MeasureResult.Side.NotPricedWith(0) : MeasureResult.Side.Of(value(side), fva ? side.FvaCount : side.Count);
 
-        var rows = new List<JsonObject>();
-        foreach (var selected in input["measures"]!.AsArray().Select(m => m!.AsObject()).Where(m => m["module"]!.GetValue<string>() == XvaMeasures.Module))
+        var provenance = new DatasetProvenance(ExecutionMode.Simulated, DataOrigin.Synthetic, invocation.InvocationId);
+        var measures = input["measures"]!.AsArray().Select(m => m!.AsObject()).ToList();
+        // The KVA option (ADR-0013 §2): on when KVA or spot capital is selected, since it computes spot capital, its
+        // trace and the capital profile; the page shows each only where it is selected.
+        var kvaOption = measures.Any(m => m["id"]!.GetValue<string>() is XvaMeasures.Kva or CcrMeasures.SpotCapital);
+        var capital = kvaOption ? SpotCapitalResults.Answer(input.AsObject(), invocation.InvocationId, provenance) : null;
+        var profiles = new Dictionary<string, IReadOnlyList<CapitalPoint>>();
+        if (capital?.Portfolio is { } portfolio)
+            foreach (var side in new[] { capital.Before, capital.After })
+                if (side.Capital is { } spot) profiles[side.Side] = SpotCapitalPricing.Profile(portfolio, side.Side, spot);
+
+        // KVA = −CoC · Σ K(tᵢ) · (tᵢ₊₁ − tᵢ), the last period running to the last maturity: undiscounted, and simulated.
+        MeasureResult.Side Kva(SideCapital side)
+        {
+            if (side.Trades == 0) return MeasureResult.Side.NotPricedWith(0);
+            if (!profiles.TryGetValue(side.Side, out var points))
+                return new MeasureResult.Side(MeasureResult.Unavailable, null, side.Trades, $"KVA reads spot CCR capital: {side.Refused}");
+            var last = capital!.Portfolio!.Trades.Where(t => side.Side == SpotCapitalPricing.Before ? t.Before : t.After).Max(t => t.Maturity);
+            var end = Decompose.Years(capital.Portfolio.ValuationDate, last);
+            var cost = points.Select((x, i) => (decimal)x.Capital * (decimal)((i + 1 < points.Count ? points[i + 1].Years : end) - x.Years)).Sum();
+            return MeasureResult.Side.Of(Math.Round(-CostOfCapital * cost, 2), side.Trades);
+        }
+
+        var rows = new List<JsonObject>(capital?.Rows ?? []);
+        foreach (var selected in measures.Where(m => m["module"]!.GetValue<string>() == XvaMeasures.Module))
         {
             var definition = definitions[selected["id"]!.GetValue<string>()];
             foreach (var metric in definition.Metrics)
@@ -174,6 +315,11 @@ public sealed class FakeXvaPrice : ICapabilityHandler
                     rows.Add(MeasureResult.Row("base", "Workspace", definition.Id, metric, currency, side, side));
                     continue;
                 }
+                if (definition.Id == XvaMeasures.Kva)
+                {
+                    rows.Add(MeasureResult.Row("base", "Workspace", definition.Id, metric, currency, Kva(capital!.Before), Kva(capital.After)));
+                    continue;
+                }
                 Func<(decimal Cva, decimal Fva, int Count, int FvaCount), decimal> value = metric.Id switch
                 {
                     "cva" => s => s.Cva,
@@ -182,13 +328,20 @@ public sealed class FakeXvaPrice : ICapabilityHandler
                     _ => throw new InvalidOperationException($"XVA has no metric {metric.Id}."),
                 };
                 var fva = definition.Id == XvaMeasures.Fva;
-                rows.Add(MeasureResult.Row("base", "Workspace", definition.Id, metric, currency, Figure(before, value, fva), Figure(after, value, fva)));
+                rows.Add(MeasureResult.Row("base", "Workspace", definition.Id, metric, currency, Figure(sides.Value.Before, value, fva), Figure(sides.Value.After, value, fva)));
             }
         }
         return Task.FromResult<IReadOnlyDictionary<string, JsonNode?>>(new Dictionary<string, JsonNode?>
         {
-            ["result"] = Datasets.Create("CVA and FVA (simulated)", MeasureResult.Columns, rows,
-                new(ExecutionMode.Simulated, DataOrigin.Synthetic, invocation.InvocationId)),
+            ["result"] = Datasets.Create("XVA (simulated)", MeasureResult.Columns, rows, provenance),
+            ["traces"] = JsonSerializer.SerializeToNode(capital?.Traces ?? new TraceSet([]), WireJson.Options),
+            ["profile"] = Datasets.Create("Capital profile (simulated: the spot rules on the trades still alive, today's values held)", ProfileColumns,
+                profiles.SelectMany(p => p.Value.Select(x => new JsonObject
+                {
+                    ["case"] = SpotCapitalResults.Case, ["side"] = p.Key, ["years"] = x.Years,
+                    ["date"] = x.Date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), ["trades"] = x.Trades,
+                    ["ead"] = Math.Round(x.Ead, 2), ["capital"] = Math.Round(x.Capital, 2), ["currency"] = CcrMeasures.ReportingCurrency,
+                })), provenance),
         });
     }
 }

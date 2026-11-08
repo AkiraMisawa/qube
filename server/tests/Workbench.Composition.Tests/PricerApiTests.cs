@@ -50,15 +50,17 @@ public class PricerApiTests(WorkbenchFactory factory) : IClassFixture<WorkbenchF
         return (run, rows);
     }
 
-    [Fact] // ADR-0010 §10, §11: the workspace lists the registered measures, XVA's CVA and FVA, and selects among them
+    [Fact] // ADR-0010 §10, §11, ADR-0013 §1: the workspace lists the registered measures, and the request that prices each
     public async Task A_workspace_lists_the_registered_measures()
     {
         var ws = await Create();
 
         var measures = ws["measures"]!.AsArray().Select(m => m!.AsObject()).ToList();
 
-        Assert.Equal(["cva", "fva"], measures.Select(m => m["id"]!.GetValue<string>()));
-        Assert.All(measures, m => Assert.Equal("xva", m["module"]!.GetValue<string>()));
+        Assert.Equal(["cva", "fva", "kva", "ccr.spotCapital"], measures.Select(m => m["id"]!.GetValue<string>()));
+        Assert.Equal(["xva", "xva", "xva", "ccr"], measures.Select(m => m["module"]!.GetValue<string>()));
+        // Spot capital is SA-CCR's, and XVA's request returns it with KVA on (ADR-0013 §2).
+        Assert.All(measures, m => Assert.Equal("xva", m["request"]!.GetValue<string>()));
         Assert.Equal(["cva", "cvaCharge"], measures[0]["metrics"]!.AsArray().Select(m => m!["id"]!.GetValue<string>()));
         Assert.All(Strings(ws["selectedMeasures"]), m => Assert.Contains(m, measures.Select(r => r["id"]!.GetValue<string>())));
     }
@@ -112,5 +114,23 @@ public class PricerApiTests(WorkbenchFactory factory) : IClassFixture<WorkbenchF
         var next = await Create("ABC/LE-02");
 
         Assert.Equal(["fva"], Strings(next["selectedMeasures"]));
+    }
+
+    [Fact] // ADR-0010 §6: XVA's columns reach the New grid over HTTP, a Margin is an edit, and `pv01 retry` asks again
+    public async Task Xvas_trade_columns_are_read_and_edited_over_http()
+    {
+        var ws = await Create();
+        Assert.Equal(["xva.pv01", "xva.margin", "xva.pvAdj"], ws["tradeColumns"]!.AsArray().Select(c => c!["field"]!.GetValue<string>()));
+
+        var edited = await Post(ws, "edits", new { revision = Revision(ws), entity = "trade:DRAFT-1", field = "xva.margin", value = 2 });
+        Assert.Equal(HttpStatusCode.OK, edited.StatusCode);
+        var rows = await (await Post(ws, "rows", new { start = 0, count = 10, sorts = Array.Empty<object>(), grid = "new" })).Content.ReadFromJsonAsync<JsonObject>();
+        var cells = rows!["rows"]!.AsArray().Single(r => r!["tradeId"]!.GetValue<string>() == "DRAFT-1")!["cells"]!;
+        Assert.Equal(2m, cells["xva.margin"]!["value"]!.GetValue<decimal>());
+        Assert.False(cells["xva.pvAdj"]!["editable"]!.GetValue<bool>());
+
+        var retried = await Post(ws, "retry", new { });
+        Assert.Equal(HttpStatusCode.OK, retried.StatusCode);
+        Assert.Equal(0, (await retried.Content.ReadFromJsonAsync<JsonObject>())!["asked"]!.GetValue<int>());
     }
 }

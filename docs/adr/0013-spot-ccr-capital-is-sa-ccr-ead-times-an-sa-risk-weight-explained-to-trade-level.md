@@ -133,6 +133,30 @@ out of `ccr.spotCapital`'s membership with that reason.
 - **Validation**: a counterparty without an exposure class, a netting set without its CSA's terms, or a trade without
   the fields its decomposition needs refuses this measure by name, and leaves CVA and FVA standing.
 
+### 7. What the PoC chose where the rule leaves it to the bank (DEFAULT, 2026-11-08)
+
+The reference implementation behind the fake XVA provider (§2) needed these to compute at all. Each is a DEFAULT,
+written in `Workbench.Samples.Ccr/SpotCapitalPricing.cs` where it is applied, and none is the engine's: the engine
+adapter maps what the engine decided.
+
+- **Netting sets by CSA.** A netting set's trades are calculated by the CSA they are on, each group with its CSA's
+  margining, and the uncollateralised trades without. A group is named `{netting set} {CSA}`, except the one group
+  an agreement can have alone (its only CSA's, or, with no CSA, the uncollateralised one), which keeps the netting
+  set's name. A name depends on the agreement and the trade's CSA, never on which trades a side holds, so Before and
+  After pair.
+- **Remargining period** in business days (CRE52.50): daily 1, weekly 5, monthly 20.
+- **A CSA SA-CCR cannot read is refused, by name.** One that is one-way, or exchanges no collateral, does not say whose
+  threshold governs; the measure is refused rather than given one, and CVA and FVA stand.
+- **Haircuts** are CRE22.49's at ten business days, scaled to the MPOR: 0 for cash, a sovereign bond by its issuer's
+  grade and residual maturity. Any other collateral is refused by name.
+- **V for a new trade is 0**: it is at market when it is traded, and its row says "new trade, at market (simulated)".
+  An existing trade's V is its official PV (§3).
+- **The capital profile** is the spot rules at each of 0, 0.25, 0.5, 1, 2, 3, 5, 7, 10, 15, 20 and 30 years up to the
+  last maturity: the trades still alive, their exposures rolled to that date, today's market values, collateral and
+  risk weight held. Nothing is simulated, and the profile says so.
+- **KVA** = −CoC · Σ K(tᵢ) · (tᵢ₊₁ − tᵢ), the last period running to the last maturity, undiscounted, with a cost of
+  capital of 10%. Both the formula and the rate are the simulation's, and say so; the engine's KVA replaces them.
+
 ## Consequences
 
 - `Workbench.Samples.Ccr` is new: the calculator, the risk weight resolver, the kinds' registration, and tests

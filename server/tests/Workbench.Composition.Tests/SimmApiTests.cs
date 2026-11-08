@@ -178,6 +178,38 @@ public class SimmApiTests(WorkbenchFactory factory) : IClassFixture<WorkbenchFac
         Assert.Contains(history["rows"]!.AsArray(), r => Text(r!["runId"]) == Text(crifRun["runId"]));
     }
 
+    [Fact] // ADR-0011 §5, ADR-0012 §6: SIMM's Run is read a term at a time, on After of the base case, down to its CRIF lines
+    public async Task Simms_trace_is_read_a_term_at_a_time_down_to_the_crif_lines()
+    {
+        var (_, crifRef, csasRef) = await Retained();
+        var run = await Completed(await Submit(Workflow(SimmModule.Calculate(crifRef, csasRef)), SimmInput()));
+        var runId = Text(run["runId"]);
+        var collectIm = (await Read(run["outputs"]!["im"]!))["rows"]!.AsArray().Single(r => Text(r!["direction"]) == "collect")!["im"]!.GetValue<double>();
+        string Url(string tail, string? path) => $"/api/runs/{runId}/cases/base/traces/{SimmTraceCatalog.Measure}{tail}{(path is null ? "" : "?path=" + Uri.EscapeDataString(path))}";
+
+        // A Run that priced one side alone is read on After, with no Before and no Diff (ADR-0011 §4).
+        var root = await Ok(await client.GetAsync(Url("", null)));
+        Assert.Equal(["after"], root["trace"]!["sides"]!.AsArray().Select(Text));
+        var collect = root["term"]!["term"]!;
+        Assert.Equal(("collect", collectIm, "matches"),
+            (Text(collect["id"]), collect["after"]!["value"]!.GetValue<double>(), Text(collect["after"]!["check"]!["status"])));
+        Assert.Null(collect["before"]);
+
+        // Down the first child at every level, to a risk factor, whose leaf rows are its CRIF lines with their contributions.
+        var at = "collect";
+        while (true)
+        {
+            var open = (await Ok(await client.GetAsync(Url("", at))))["term"]!;
+            Assert.Equal("matches", Text(open["term"]!["after"]!["check"]!["status"]));
+            if (open["term"]!["after"]!["leaves"] is not null) break;
+            at = Text(open["children"]!.AsArray().First()!["id"]);
+        }
+        var leaves = (await Ok(await client.GetAsync(Url("/leaves", at))))["leaves"]!["rows"]!.AsArray().Select(r => r!["after"]!).ToList();
+        Assert.NotEmpty(leaves);
+        Assert.All(leaves, r => Assert.Contains(Text(r["tradeId"]), new[] { "T-1001", "T-1002", "T-1003", "T-1004" }));
+        Assert.All(leaves, r => Assert.NotNull(r["contribution"]));
+    }
+
     [Fact] // ADR-0012 §5, spine 1: a parameter table that is not loaded is refused by name before any Run
     public async Task A_parameter_table_that_is_not_loaded_is_refused_by_name()
     {

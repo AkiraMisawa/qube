@@ -2,12 +2,14 @@ using System.Text.Json.Nodes;
 using Workbench.Composition.Application;
 using Workbench.Composition.Application.Workspaces;
 using Workbench.Composition.Contracts;
+using Workbench.Samples.Ccr;
 using Workbench.Samples.Portfolio;
 using Workbench.Samples.Xva;
 
 namespace Workbench.Composition.Tests;
 
-// The pricer's rules on the portfolio workspace service (ADR-0010), with XVA's registration. Names and figures are synthetic.
+// The pricer's rules on the portfolio workspace service (ADR-0010), with XVA's and SA-CCR's registrations, as the
+// application registers them. Names and figures are synthetic.
 public class PricerTests
 {
     static readonly DateOnly Day1 = new(2026, 10, 26);
@@ -18,8 +20,8 @@ public class PricerTests
     {
         var workspaces = new WorkspaceService(new Dictionary<string, IEditRules> { [PortfolioEditRules.App] = new PortfolioEditRules() }, TimeProvider.System);
         var store = new InMemoryDataStore();
-        var runs = new RunService(new CompositionRegistry([new PortfolioModule(), new XvaModule()]), store, TimeProvider.System);
-        return (new PortfolioWorkspaces(workspaces, store, runs, new MeasureRegister([xva ?? new XvaMeasures()])), runs, store, workspaces);
+        var runs = new RunService(new CompositionRegistry([new PortfolioModule(), new XvaModule(), new CcrModule()]), store, TimeProvider.System);
+        return (new PortfolioWorkspaces(workspaces, store, runs, new MeasureRegister([xva ?? new XvaMeasures(Pv01Provider.Simulated(TimeSpan.Zero)), new CcrMeasures()])), runs, store, workspaces);
     }
 
     /// <summary>Prices the revision and reads its accepted input and the XVA module's rows.</summary>
@@ -38,14 +40,29 @@ public class PricerTests
     /// <summary>XVA's registration with a validation that blocks CVA, as a missing CDS will (ADR-0010 §11).</summary>
     sealed class CvaBlocked : IMeasureModule
     {
-        readonly XvaMeasures xva = new();
+        readonly XvaMeasures xva = new(Pv01Provider.Simulated(TimeSpan.Zero));
         public string Id => xva.Id;
         public IReadOnlyList<MeasureDefinition> Measures => xva.Measures;
         public JsonObject Input(WorkspaceState state) => xva.Input(state);
         public IReadOnlyList<IMembershipRule> Membership(WorkspaceState state) => xva.Membership(state);
-        public IReadOnlyList<MeasureRefusal> Validate(WorkspaceState state, IReadOnlyList<string> selected) =>
-            selected.Contains(XvaMeasures.Cva) ? [new(XvaMeasures.Cva, "MissingCds", "No CDS curve for ABC/LE-01.")] : [];
+        public IReadOnlyList<MeasureRefusal> Validate(WorkspaceState state, IReadOnlyList<string> selected) => throw new InvalidOperationException("Price gives the trades.");
+        public IReadOnlyList<MeasureRefusal> Validate(WorkspaceState state, IReadOnlyList<string> selected, IReadOnlyList<EffectiveTrade> priced) =>
+            selected.Contains(XvaMeasures.Cva) ? [new(XvaMeasures.Cva, "MissingCds", "No CDS curve for ABC/LE-01.")] : xva.Validate(state, selected, priced);
+        public IReadOnlyList<TradeColumn> TradeColumns => xva.TradeColumns;
+        public IReadOnlyList<IReadOnlyDictionary<string, TradeCell>?> Cells(WorkspaceState state, IReadOnlyList<EffectiveTrade> trades) => xva.Cells(state, trades);
         public WorkflowStep Step(TypedDataRef acceptedInput) => xva.Step(acceptedInput);
+    }
+
+    /// <summary>A new trade's cell in one of XVA's columns, as the New grid reads it now.</summary>
+    static TradeCell Cell(PortfolioWorkspaces service, WorkspaceState ws, string tradeId, string column) =>
+        service.Page(ws.WorkspaceId, "akira", 0, 10, [], "new").Rows.Single(t => t.TradeId == tradeId).Cells![XvaMeasures.Field(column)];
+
+    /// <summary>The cell once every PV01 asked by reading it has answered.</summary>
+    static async Task<TradeCell> Settled(PortfolioWorkspaces service, Pv01Provider pv01, WorkspaceState ws, string tradeId, string column)
+    {
+        Cell(service, ws, tradeId, column);
+        await pv01.Settled();
+        return Cell(service, ws, tradeId, column);
     }
 
     [Fact] // ADR-0010 §10 (DEFAULT): an owner's first workspace selects every registered measure
@@ -55,7 +72,7 @@ public class PricerTests
 
         var ws = service.Create("akira", "ABC/LE-01", Day1, 10);
 
-        Assert.Equal(["cva", "fva"], service.View(ws.WorkspaceId, "akira").SelectedMeasures);
+        Assert.Equal(["cva", "fva", "kva", "ccr.spotCapital"], service.View(ws.WorkspaceId, "akira").SelectedMeasures);
     }
 
     [Fact] // ADR-0010 §10: the selection belongs to the workspace, so a counterparty change keeps it
@@ -333,5 +350,142 @@ public class PricerTests
         Assert.Equal(0.35m, service.View(ws.WorkspaceId, "akira").Credit.Original!["cvaRecovery"]!.GetValue<decimal>());
         ws = service.Edit(ws.WorkspaceId, ws.Revision, "akira", "netting:NS-002", "cvaRecovery", 0.35m);
         Assert.Null(service.View(ws.WorkspaceId, "akira").Credit.Original);
+    }
+
+    [Fact] // ADR-0010 §6: a new trade's PV01 is asked when the trade is first read, pending until it answers, never 0
+    public async Task A_new_trades_pv01_is_pending_and_then_its_figure()
+    {
+        var answer = new TaskCompletionSource<decimal>();
+        var pv01 = new Pv01Provider((_, _) => answer.Task);
+        var service = Service(new XvaMeasures(pv01));
+        var ws = service.Create("akira", "ABC/LE-01", Day1, 5);
+
+        var pending = Cell(service, ws, "DRAFT-1", XvaMeasures.Pv01);
+        Assert.Equal((TradeCell.Pending, null, false), (pending.State, pending.Value, pending.Editable));
+        Assert.Equal(3, service.View(ws.WorkspaceId, "akira").PendingCells);
+        // XVA's three, then SA-CCR's classification (ADR-0013 §6).
+        Assert.Equal(["xva.pv01", "xva.margin", "xva.pvAdj", "ccr.class"], service.View(ws.WorkspaceId, "akira").TradeColumns.Select(c => c.Field));
+
+        answer.SetResult(-1_500m);
+        await pv01.Settled();
+
+        Assert.Equal(-1_500m, Cell(service, ws, "DRAFT-1", XvaMeasures.Pv01).Value!.GetValue<decimal>());
+        Assert.Equal(0, service.View(ws.WorkspaceId, "akira").PendingCells);
+        // An existing trade has none of XVA's columns: its official PV is the source's.
+        Assert.All(service.Page(ws.WorkspaceId, "akira", 0, 10, [], "existing").Rows, t => Assert.Equal(["ccr.class"], t.Cells!.Keys));
+    }
+
+    [Fact] // ADR-0010 §6: Margin 2bp on a PV01 of -1,500 is a PV Adj of -3,000, read-only and saying it came from Margin
+    public async Task Margin_gives_pv_adj_and_pv_adj_is_read_only_then()
+    {
+        var pv01 = new Pv01Provider((_, _) => Task.FromResult(-1_500m));
+        var service = Service(new XvaMeasures(pv01));
+        var ws = service.Create("akira", "ABC/LE-01", Day1, 5);
+
+        ws = service.Edit(ws.WorkspaceId, ws.Revision, "akira", "trade:DRAFT-1", "xva.margin", 2m);
+        var adjustment = await Settled(service, pv01, ws, "DRAFT-1", XvaMeasures.PvAdj);
+
+        Assert.Equal((-3_000m, TradeCell.Shown, false), (adjustment.Value!.GetValue<decimal>(), adjustment.State, adjustment.Editable));
+        Assert.Equal("From Margin: 2 bp × PV01 -1,500", adjustment.Note);
+        var refused = Assert.Throws<WorkspaceRefused>(() => service.Edit(ws.WorkspaceId, ws.Revision, "akira", "trade:DRAFT-1", "xva.pvAdj", 100m));
+        Assert.Equal(("NotEditable", "PV Adj of DRAFT-1 is read-only: From Margin: 2 bp × PV01 -1,500"), (refused.Code, refused.Message));
+    }
+
+    [Fact] // ADR-0010 §6, §2: with Margin empty PV Adj is typed, marked against an empty Original, and Margin wins while entered
+    public async Task With_margin_empty_pv_adj_is_typed()
+    {
+        var pv01 = new Pv01Provider((_, _) => Task.FromResult(-1_500m));
+        var service = Service(new XvaMeasures(pv01));
+        var ws = service.Create("akira", "ABC/LE-01", Day1, 5);
+
+        ws = service.Edit(ws.WorkspaceId, ws.Revision, "akira", "trade:DRAFT-1", "xva.pvAdj", 1_234.5m);
+        var typed = await Settled(service, pv01, ws, "DRAFT-1", XvaMeasures.PvAdj);
+        Assert.Equal((1_234.5m, true), (typed.Value!.GetValue<decimal>(), typed.Editable));
+        var row = service.Page(ws.WorkspaceId, "akira", 0, 10, [], "new").Rows.Single(t => t.TradeId == "DRAFT-1");
+        Assert.True(row.Original!.ContainsKey("xva.pvAdj"));
+        Assert.Null(row.Original["xva.pvAdj"]);
+
+        ws = service.Edit(ws.WorkspaceId, ws.Revision, "akira", "trade:DRAFT-1", "xva.margin", 2m);
+        Assert.Equal(-3_000m, Cell(service, ws, "DRAFT-1", XvaMeasures.PvAdj).Value!.GetValue<decimal>());
+        ws = service.Edit(ws.WorkspaceId, ws.Revision, "akira", "trade:DRAFT-1", "xva.margin", null);
+        Assert.Equal(1_234.5m, Cell(service, ws, "DRAFT-1", XvaMeasures.PvAdj).Value!.GetValue<decimal>());
+    }
+
+    [Fact] // ADR-0010 §6: Price freezes each PV Adj with the PV01 and Margin it came from; a later PV01 does not change it
+    public async Task Price_freezes_pv_adj_with_its_pv01_and_margin()
+    {
+        var pv01 = new Pv01Provider((request, _) => Task.FromResult(request.Notional == 9_000_000_000m ? -1_800m : -1_500m));
+        var (service, runs, store, _) = Priced(new XvaMeasures(pv01));
+        var ws = service.Create("akira", "ABC/LE-01", Day1, 5);
+        ws = service.Edit(ws.WorkspaceId, ws.Revision, "akira", "trade:DRAFT-1", "xva.margin", 2m);
+        await Settled(service, pv01, ws, "DRAFT-1", XvaMeasures.Pv01);
+
+        var accepted = Assert.IsType<SubmissionResult.Accepted>(service.Price(ws.WorkspaceId, ws.Revision, "akira", "k1"));
+        await runs.Completion(accepted.Run.RunId);
+        ws = service.Edit(ws.WorkspaceId, ws.Revision, "akira", "trade:DRAFT-1", "notional", 9_000_000_000m);
+        Assert.Equal(-1_800m, (await Settled(service, pv01, ws, "DRAFT-1", XvaMeasures.Pv01)).Value!.GetValue<decimal>());
+
+        var run = runs.Find(accepted.Run.RunId)!;
+        var input = store.ReadRequired(((DataReferenceBinding)run.Workflow.Steps[0].Bindings["acceptedInput"]).Reference);
+        var cells = input["trades"]!.AsArray().Single(t => t!["tradeId"]!.GetValue<string>() == "DRAFT-1")!["cells"]!;
+        Assert.Equal((-1_500m, 2m, -3_000m), (cells["xva.pv01"]!["value"]!.GetValue<decimal>(), cells["xva.margin"]!["value"]!.GetValue<decimal>(), cells["xva.pvAdj"]!["value"]!.GetValue<decimal>()));
+        Assert.Equal("From Margin: 2 bp × PV01 -1,500", cells["xva.pvAdj"]!["note"]!.GetValue<string>());
+        Assert.Equal(RunStatus.Succeeded, run.Status);
+    }
+
+    [Fact] // ADR-0010 §6 (DEFAULT): with Margin entered and PV01 pending, XVA's measures are refused by name at Price
+    public async Task Margin_with_pv01_pending_refuses_xvas_measures()
+    {
+        var (service, runs, store, _) = Priced(new XvaMeasures(new Pv01Provider((_, _) => new TaskCompletionSource<decimal>().Task)));
+        var ws = service.Create("akira", "ABC/LE-01", Day1, 5);
+        ws = service.Edit(ws.WorkspaceId, ws.Revision, "akira", "trade:DRAFT-2", "xva.margin", 2m);
+
+        var (_, all) = await Price(runs, store, service, ws);
+
+        // XVA's own measures; spot capital, which reads no PV Adj, stands (ADR-0010 §10: a refusal blocks its own).
+        var rows = all.Where(r => r["measure"]!.GetValue<string>() != CcrMeasures.SpotCapital).ToList();
+        Assert.Equal(4, rows.Count);
+        Assert.All(all.Except(rows), r => Assert.Equal("priced", r["afterStatus"]!.GetValue<string>()));
+        Assert.All(rows, r => Assert.Equal(("refused", "PV Adj of DRAFT-2 is unknown: From Margin: PV01 is pending."),
+            (r["afterStatus"]!.GetValue<string>(), r["reason"]!.GetValue<string>())));
+        Assert.All(rows, r => Assert.Null(r["after"]));
+    }
+
+    [Fact] // ADR-0010 §6: a failed PV01 says why and stays failed until `pv01 retry` asks again
+    public async Task A_failed_pv01_says_why_until_it_is_asked_again()
+    {
+        var calls = 0;
+        var pv01 = new Pv01Provider((_, _) => Interlocked.Increment(ref calls) <= 3
+            ? Task.FromException<decimal>(new InvalidOperationException("The engine is unavailable (simulated)."))
+            : Task.FromResult(-1_500m));
+        var service = Service(new XvaMeasures(pv01));
+        var ws = service.Create("akira", "ABC/LE-01", Day1, 5);
+
+        var failed = await Settled(service, pv01, ws, "DRAFT-1", XvaMeasures.Pv01);
+        Assert.Equal((TradeCell.Failed, "PV01 failed: The engine is unavailable (simulated)."), (failed.State, failed.Note));
+        Assert.Equal(TradeCell.Failed, Cell(service, ws, "DRAFT-1", XvaMeasures.Pv01).State);
+        Assert.Equal(3, calls);
+
+        Assert.Equal(3, service.Retry(ws.WorkspaceId, "akira"));
+        await pv01.Settled();
+
+        Assert.Equal(-1_500m, Cell(service, ws, "DRAFT-1", XvaMeasures.Pv01).Value!.GetValue<decimal>());
+        Assert.Equal(0, service.Retry(ws.WorkspaceId, "akira"));
+    }
+
+    [Theory] // ADR-0010 §6: XVA's columns are a new trade's; PV01 is a result; a Margin is a number of basis points
+    [InlineData("existing", "xva.margin", "2", "NotEditable")]
+    [InlineData("DRAFT-1", "xva.pv01", "-1500", "NotEditable")]
+    [InlineData("DRAFT-1", "xva.margin", "\"two\"", "InvalidValue")]
+    [InlineData("DRAFT-1", "xva.charge", "2", "NotEditable")]
+    public void An_xva_column_edit_that_cannot_be_made_is_refused(string trade, string field, string json, string code)
+    {
+        var service = Service();
+        var ws = service.Create("akira", "ABC/LE-01", Day1, 5);
+        var tradeId = trade == "existing" ? service.Page(ws.WorkspaceId, "akira", 0, 1, [], "existing").Rows[0].TradeId : trade;
+
+        var refused = Assert.Throws<WorkspaceRefused>(() => service.Edit(ws.WorkspaceId, ws.Revision, "akira", $"trade:{tradeId}", field, JsonNode.Parse(json)));
+
+        Assert.Equal(code, refused.Code);
     }
 }

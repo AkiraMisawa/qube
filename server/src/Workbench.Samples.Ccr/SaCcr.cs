@@ -204,6 +204,12 @@ public static class SaCcr
 
     const double TenBusinessDays = 10 / BusinessDaysPerYear;
 
+    /// <summary>An interest rate exposure's maturity bucket by its end date (CRE52.57): 1 under one year, 2 one to five, 3 over five.</summary>
+    public static int BucketOf(double endYears) => endYears < 1 ? 1 : endYears <= 5 ? 2 : 3;
+
+    /// <summary>The buckets' names, as the trace's keys and the trade grid write them.</summary>
+    public static readonly IReadOnlyList<string> BucketNames = ["under 1y", "1-5y", "over 5y"];
+
     /// <summary>The currency mismatch haircut at ten business days (CRE22).</summary>
     public const double CurrencyMismatchHaircut = 0.08;
 
@@ -359,7 +365,7 @@ public static class SaCcr
                 duration = Math.Max((Math.Exp(-0.05 * start) - Math.Exp(-0.05 * end)) / 0.05, TenBusinessDays); // CRE52.34
                 adjusted = e.Notional * duration.Value;
                 if (e.AssetClass == AssetClass.InterestRate)
-                    bucket = end < 1 ? 1 : end <= 5 ? 2 : 3; // CRE52.57
+                    bucket = BucketOf(end);
                 break;
             case AssetClass.ForeignExchange:
                 adjusted = e.Notional; // CRE52.35

@@ -10,7 +10,7 @@ namespace Workbench.Composition.Tests;
 /// The calculation trace of ADR-0011 over a method that is not a regulation: a garden's water budget. It uses every
 /// operation of the closed set, so the kernel is shown to evaluate, reconcile and pair traces without knowing a rule.
 /// </summary>
-public class TraceTests
+public partial class TraceTests
 {
     static readonly TraceMethod Method = new("garden-water", "2026-01");
     static readonly TraceUnit Litres = new("volume");

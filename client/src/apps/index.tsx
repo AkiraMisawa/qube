@@ -138,6 +138,14 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
       }],
       run: (a) => xvaPage().setMeasures(measuresTyped(a.measures ?? '')),
     },
+    {
+      id: 'xva.pv01.retry',
+      words: 'pv01 retry',
+      title: 'Ask again for every PV01 that failed',
+      group: 'XVA',
+      ...(xva === undefined ? { unavailable: 'Open an XVA workspace first.' } : { target: active!.title }),
+      run: () => xvaPage().retry(),
+    },
     // B or A for every row of a trade grid, as one edit (ADR-0010 §6): the grid the keyboard was last in, or the one named.
     ...(['before', 'after'] as const).map((side): Command => ({
       id: `xva.${side}.all`,

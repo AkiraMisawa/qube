@@ -279,6 +279,50 @@ The guidelines' §12: the Rates toolbar's rows on a phone, the Action Column's b
 | `npx playwright test` (Chromium, headless, Linux) | 18 passed; `xva.spec.ts` with `--repeat-each=3` (6 passed) |
 | Screenshots at 390, 768, 992 and 1440px, dark and light | No sideways scroll; looked at by hand |
 
+## Spot CCR capital, KVA and the calculation trace (ADR-0011, ADR-0013, proposed 2026-11-07)
+
+### What runs
+
+- The kernel's calculation trace (ADR-0011): kinds with an expression and TeX, the states value, absent, unavailable
+  and notReturned, reconciliation of every term against its children, and a set of traces per (case, scenario, side,
+  measure) as the `calculation-traces` contract.
+- SA-CCR in full (CRE52 as of 2023-01-01) and SA's risk weight resolved at run time from the counterparty (CRE20,
+  CRE21), in `Workbench.Samples.Ccr`, writing a trace to trade level in which every term reconciles.
+- `ccr.spotCapital` registers into the pricer page: membership (a trade SA-CCR can decompose), its inputs, an SA-CCR
+  class column on new trades, and validation that refuses it by name while CVA and FVA stand. KVA registers as XVA's
+  measure. Selecting either asks XVA's request with its KVA option on (ADR-0013 §2), which returns spot capital and
+  its trace per side, a capital profile, and KVA from that profile, all marked simulated. After alone is priced and
+  traced on After.
+- `ccr.spotCapital` is also a capability of its own, giving the same figures.
+- A Run's trace is read a term at a time (ADR-0011 §5): `GET /api/runs/{run}/cases/{case}/traces/{measure}` answers a
+  term on each side the case priced with its Diff, slots, leaf sets, path, parameters and a page of its children;
+  `…/leaves` pages and sorts a term's leaf rows; `GET /api/traces/catalogs/{method}/{version}` gives the kinds'
+  formulas. `trace.read` (effect `ReadRun`, a command, ADR-0005's note of 2026-11-08) answers the same for the AI.
+  Only the Run's owner reads it.
+
+### Providers
+
+- Simulated: the fake XVA provider's KVA option, through the reference SA-CCR and SA-RW. The PoC's choices where the
+  rule leaves it to the bank are ADR-0013 §7's DEFAULTs (netting sets by CSA, remargining days, haircuts, V = 0 for a
+  new trade, the profile's dates, KVA's formula and a 10% cost of capital). The counterparties' reference data and
+  collateral are synthetic (`PortfolioCredit`).
+
+### Verification performed
+
+| Suite | Result |
+|---|---|
+| `dotnet test server/Workbench.slnx` | 363 passed, among them the BCBS SA-CCR worked examples, a case per rule, the KVA option and the trace read over HTTP |
+| `npm run typecheck`, `npm test` (Vitest) | Clean; 81 passed |
+| `npx playwright test` (Chromium, headless, Linux) | 22 passed |
+| Screenshot of a Price with every measure selected, 1600px, dark | Spot capital, RWA, EAD and KVA in the dock, Trades 5 → 8; looked at by hand |
+
+### Known limits
+
+- The trace is not yet drawn on screen, and `explain` does not exist yet (ticket 07).
+- The SA-CCR class column is on the New grid only: the Existing grid takes no module columns yet.
+- κ (8%) and which products come first are OPEN with the owner (ADR-0013). Only IRS and FX forwards are decomposed
+  (the synthetic portfolio has no other product); any other would be out of the measure's membership with its reason.
+
 ## Spot SIMM, step 1: the engine, CRIF and the two capabilities (ADR-0012, proposed 2026-11-07)
 
 Spec: [docs/specs/spot-simm/spec.md](docs/specs/spot-simm/spec.md). Decisions: ADR-0012, with the trace of ADR-0011. Nothing in this step touches the page; registering spot IM there is step 2, on ADR-0010's measures register.
@@ -296,7 +340,7 @@ Spec: [docs/specs/spot-simm/spec.md](docs/specs/spot-simm/spec.md). Decisions: A
 
 | Suite | Result |
 |---|---|
-| `dotnet test server/Workbench.slnx` | 373 passed, after merging the CCR branch with the XVA page's portfolio module (SIMM: 24 engine, 8 sample cases, 10 CRIF, 6 over HTTP, 5 trace; and the kernel's new `children` case) |
+| `dotnet test server/Workbench.slnx` | 418 passed, after merging the CCR branch at 7d0bf02 (SIMM: 24 engine, 8 sample cases, 10 CRIF, 7 over HTTP, 5 trace; and the kernel's new `children` case) |
 | Client | Not touched, not run |
 
 | Acceptance (spec "Done when") | Status |
@@ -315,7 +359,7 @@ The Rates pricing provider is the fake one, so every CRIF and SIMM figure is `si
 - Vega, curvature and base correlation are not computed and have no kinds yet; `simm.addon` is registered when an add-on is first configured (ADR-0012 §6's note of 2026-11-08).
 - The command line and the AI cannot run a workflow (their tools are commands only, ADR-0005 and ADR-0007): calling the capabilities from either needs a generic workflow tool in the kernel, a decision of its own. `workflow.simm.calculate` is not in the catalogue, because a form cannot pass it the retained CRIF and IM CSAs.
 - Leaf rows carry the trade's source id, not a `tradeInstanceId`: the IM source has no trade instances. Within a Run, the frozen trades are that instance.
-- The trace is retained with the Run; there is no endpoint or view that reads it yet (ADR-0011's `GET …/traces/{measure}` and the page are later steps).
+- The trace is read over HTTP as the CCR thread's endpoint reads any lone trace, on After of the base case: `GET /api/runs/{run}/cases/base/traces/spot-im`, with `path` for a term and `…/leaves` for its CRIF lines (ADR-0011 §5). Nothing draws it on screen yet (ADR-0012 step 3).
 - Only the synthetic counterparty exists; the regimes a trade counts under come from that source. Phase-in dates (ADR-0012 §2) are not modelled yet.
 
 ## Next

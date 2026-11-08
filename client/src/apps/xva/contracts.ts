@@ -16,6 +16,12 @@ export interface EffectiveTrade {
   readonly lastFixing?: number | null;
   /** The books' PV of an existing trade, the source's (ADR-0010 §6); absent for a new trade. */
   readonly officialPv?: number | null;
+  /** What SA-CCR reads of the trade (ADR-0013 §3): its start, its direction (`payFixed`, `receiveFixed`, `buy` or
+   * `sell`) and an FX forward's counter leg. Absent where the source has none. */
+  readonly start?: string | null;
+  readonly direction?: string | null;
+  readonly counterCurrency?: string | null;
+  readonly counterNotional?: number | null;
   readonly csa: string;
   readonly csaOwner: Ownership;
   readonly curve: string;
@@ -32,7 +38,25 @@ export interface EffectiveTrade {
   readonly membership?: Readonly<Record<string, Membership>>;
   /** The fields whose value differs from Original, with Original's value (ADR-0010 §2). */
   readonly original?: Readonly<Record<string, unknown>> | null;
+  /** The selected modules' cells on this trade, by field (ADR-0010 §10), such as XVA's `xva.pv01`. */
+  readonly cells?: Readonly<Record<string, TradeCell>> | null;
 }
+
+/**
+ * A module column's cell (ADR-0010 §6): its value, or none while it is pending or after it failed, never 0 for either;
+ * a note saying where the value came from or why there is none; and whether it may be typed now.
+ */
+export interface TradeCell {
+  /** A figure in a number column, a word in a text column (SA-CCR's class of a trade). */
+  readonly value?: number | string | null;
+  readonly state: 'value' | 'pending' | 'failed';
+  readonly note?: string | null;
+  readonly editable: boolean;
+}
+
+/** A column a module adds to the trade grids (ADR-0010 §10), by its field on a trade. `editable` says whether it is ever
+ * typed; whether it may be now is its cell's. */
+export interface RegisteredColumn { readonly field: string; readonly title: string; readonly type: 'number' | 'text'; readonly editable: boolean; readonly module: string }
 
 /** Whether a measure prices a trade, and why. Out is never silent: it says why. */
 export interface Membership { readonly in: boolean; readonly reason: string }
@@ -102,6 +126,9 @@ export interface RegisteredMeasure {
   readonly id: string;
   readonly title: string;
   readonly module: string;
+  /** The module whose request prices it, and whose step's result holds its rows: its own, or another's (spot capital
+   * is SA-CCR's measure, and XVA's request returns it with KVA on, ADR-0013 §2). */
+  readonly request: string;
   readonly metrics: readonly MetricDefinition[];
   /** The metric the collapsed result line shows. */
   readonly headline: string;
@@ -131,6 +158,10 @@ export interface XvaWorkspaceView {
   readonly measures: readonly RegisteredMeasure[];
   /** What Price prices; part of the workspace, so Price freezes it. */
   readonly selectedMeasures: readonly string[];
+  /** The selected modules' trade columns, such as XVA's PV01, Margin and PV Adj (ADR-0010 §6, §10). */
+  readonly tradeColumns: readonly RegisteredColumn[];
+  /** How many of those cells on the new trades still wait for a result: the page asks again while any does. */
+  readonly pendingCells: number;
 }
 
 export interface RowPage {
