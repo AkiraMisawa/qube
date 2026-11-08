@@ -1,5 +1,5 @@
-import { useState, type ReactNode } from 'react';
-import { Button, Group, Modal, NumberInput, Select, Stack, TextInput } from '@mantine/core';
+import { lazy, Suspense, useCallback, useState, type ReactNode } from 'react';
+import { Button, Group, Modal, NumberInput, Select, Stack, Text, TextInput } from '@mantine/core';
 import { useQuery } from '@tanstack/react-query';
 import type { Command } from '../platform/commands/commands';
 import { termCompletions, termParts, type ProductDescriptor } from '../platform/products';
@@ -14,6 +14,12 @@ import { httpXvaApi, type XvaApi } from './xva/api';
 import { measuresTyped, xvaPageOf } from './xva/commands';
 import { XvaWorkspacePanel } from './xva/XvaWorkspacePanel';
 import { registerAiContext, registerAiEffect } from '../ai/effects';
+import { registerGridFocus } from '../shell/focus';
+import { httpTraceApi, type TraceApi } from '../platform/traces/api';
+import { TRACE_VIEW, explainTyped, openTrace, requestTerm, traceAddressOf } from '../platform/traces/open';
+
+// The trace view brings KaTeX and its fonts, read only once a trace is opened.
+const TraceView = lazy(() => import('../platform/traces/TraceView').then((m) => ({ default: m.TraceView })));
 
 // The fixed applications (docs/01): pages a domain offers beside the composed workflows. Each is reached
 // through commands, so the command line and a button cannot differ (ADR-0006).
@@ -28,6 +34,12 @@ let xvaApi: XvaApi = httpXvaApi;
 /** For tests: the XVA endpoints a page talks to. */
 export function setXvaApi(api: XvaApi): void {
   xvaApi = api;
+}
+
+let traceApi: TraceApi = httpTraceApi;
+/** For tests: the trace endpoints a trace panel reads. */
+export function setTraceApi(api: TraceApi): void {
+  traceApi = api;
 }
 
 let ratesApi: RatesApi = httpRatesApi;
@@ -80,9 +92,20 @@ export function AppPanel({ panel }: { readonly panel: Extract<Panel, { kind: 'ap
     }
     case PRICING_DB:
       return <PricingDbPanel panelId={panel.id} />;
+    case TRACE_VIEW:
+      return <TracePanel panel={panel} />;
     default:
       throw new Error(`No app draws ${panel.app}.`);
   }
+}
+
+function TracePanel({ panel }: { readonly panel: Extract<Panel, { kind: 'app' }> }) {
+  const registerFocus = useCallback((focus: (() => void) | undefined) => registerGridFocus(panel.id, focus), [panel.id]);
+  return (
+    <Suspense fallback={<Text size="sm">Reading the trace…</Text>}>
+      <TraceView panelId={panel.id} address={traceAddressOf(panel.params)} api={traceApi} registerFocus={registerFocus} />
+    </Suspense>
+  );
 }
 
 export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDialog' | 'panels' | 'activePanelId'>): Command[] {
@@ -90,6 +113,7 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
   // Looked up when the command runs: the page registers its commands once it has mounted, after this list is made.
   const xva = active?.kind === 'app' && active.app === XVA_WORKSPACE ? active.id : undefined;
   const rates = active?.kind === 'app' && active.app === RATES_WORKSPACE ? active.id : undefined;
+  const trace = active?.kind === 'app' && active.app === TRACE_VIEW ? active : undefined;
   const page = () => {
     const commands = ratesCommandsOf(rates);
     if (commands === undefined) throw new Error(`The Rates workspace in panel ${rates ?? '(none)'} registered no commands.`);
@@ -132,11 +156,12 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
         hint: 'the measures to price, in any order',
         // The register is the page's, read when the line asks: the page registers once it has mounted.
         complete: (given) => {
-          const typed = new Set(measuresTyped(given.measures ?? ''));
-          return (xvaPageOf(xva)?.measures() ?? []).filter((m) => !typed.has(m.id)).map((m) => ({ value: m.id, detail: m.title }));
+          const registered = xvaPageOf(xva)?.measures() ?? [];
+          const typed = new Set(measuresTyped(given.measures ?? '', registered.map((m) => m.id)));
+          return registered.filter((m) => !typed.has(m.id)).map((m) => ({ value: m.id, detail: m.title }));
         },
       }],
-      run: (a) => xvaPage().setMeasures(measuresTyped(a.measures ?? '')),
+      run: (a) => xvaPage().setMeasures(measuresTyped(a.measures ?? '', xvaPage().measures().map((m) => m.id))),
     },
     {
       id: 'xva.run.download',
@@ -153,6 +178,26 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
       group: 'XVA',
       ...(xva === undefined ? { unavailable: 'Open an XVA workspace first.' } : { target: active!.title }),
       run: () => xvaPage().copyQuote(),
+    },
+    {
+      id: 'trace.explain',
+      words: 'explain',
+      title: 'Open the calculation trace of a measure, at a term if one is named',
+      group: 'Traces',
+      ...(xva !== undefined || trace !== undefined ? { target: active!.title } : { unavailable: 'Open an XVA workspace that has been priced, or a trace, first.' }),
+      args: [{
+        name: 'measure', required: true, rest: true,
+        hint: 'a measure that keeps a trace, then a term if wanted: ccr.spotCapital rwa',
+        complete: () => (xvaPageOf(xva)?.measures() ?? []).filter((m) => m.traced).map((m) => ({ value: m.id, detail: m.title })),
+      }],
+      // ADR-0011 §7: the trace of the case and scenario in view, at the term named, or its root.
+      run: (a) => {
+        const { measure, path } = explainTyped(a.measure ?? '');
+        if (trace === undefined) { xvaPage().explain(measure, path); return; }
+        const here = traceAddressOf(trace.params);
+        if (measure === here.measure) requestTerm(trace.id, path);
+        else openTrace(state, { ...here, measure }, `Trace ${measure}`, path);
+      },
     },
     {
       id: 'xva.pv01.retry',
