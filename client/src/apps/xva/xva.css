@@ -30,6 +30,13 @@
   white-space: nowrap;
 }
 
+/* A side's note (spot IM's governing regime, ADR-0012 §7) before its figure, a space apart, in the figure's colour:
+   it is read with the figure, so it is never dimmed. Upright, as the figure is, whatever a word beside it is. */
+.qwb-xva-result-cell-note {
+  margin-inline-end: var(--mantine-spacing-xs);
+  font-style: normal;
+}
+
 /* A value the user set: the same weight the grid's Cell State gives it, without a second line under the input. */
 .qwb-modified {
   font-weight: 600;
@@ -100,6 +107,9 @@
    each other take a row each, and Price still fits beside the field before it. */
 @media (max-width: 47.99em) {
   .qwb-xva .qwb-toolbar-field { flex: 1 1 14rem; }
+  /* The measures' toggles take a row of their own and wrap: five titles squeezed into one row were cut to `CV.` and
+     `Spot I` (seen at 390px once spot IM registered, 2026-11-08), and a title cut is a control the user cannot read. */
+  .qwb-xva .qwb-toolbar-field--measures { flex-basis: 100%; flex-wrap: wrap; }
   .qwb-xva > [data-part] { display: none; }
   .qwb-xva[data-section='inputs'] > [data-part='inputs'],
   .qwb-xva[data-section='trades'] > [data-part='trades'],

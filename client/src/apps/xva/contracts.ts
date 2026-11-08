@@ -26,6 +26,12 @@ export interface EffectiveTrade {
   readonly csaOwner: Ownership;
   readonly curve: string;
   readonly curveOwner: Ownership;
+  /** The IM CSA collecting the trade's IM and the one posting it (ADR-0012 §2): assignments, as its CSA is. Absent
+   * where it has none, which is no IM CSA in that direction. */
+  readonly imR?: string | null;
+  readonly imROwner: Ownership;
+  readonly imP?: string | null;
+  readonly imPOwner: Ownership;
   readonly before: boolean;
   readonly after: boolean;
   /** Why this row cannot be priced as it stands; Price is refused while any priced row has one. */
@@ -58,8 +64,15 @@ export interface TradeCell {
  * typed; whether it may be now is its cell's. */
 export interface RegisteredColumn { readonly field: string; readonly title: string; readonly type: 'number' | 'text'; readonly editable: boolean; readonly module: string }
 
-/** Whether a measure prices a trade, and why. Out is never silent: it says why. */
-export interface Membership { readonly in: boolean; readonly reason: string }
+/**
+ * Whether a measure prices a trade, and why. Out is never silent: it says why. A measure priced per scope, as spot IM
+ * is per direction and regime (ADR-0012 §2), lists each scope with its own standing, and its reason is then the
+ * compact form (`R: JFSA, CFTC · P: JFSA`).
+ */
+export interface Membership { readonly in: boolean; readonly reason: string; readonly scopes?: readonly MembershipScope[] | null }
+
+/** One scope of a membership, such as `collect/JFSA`, titled as the page shows it (`IM-R JFSA`). */
+export interface MembershipScope { readonly id: string; readonly title: string; readonly in: boolean; readonly reason: string }
 
 export interface Registration { readonly key: string; readonly code: string; readonly legalEntity: string; readonly name: string }
 
@@ -74,6 +87,19 @@ export interface Agreement {
   readonly noCsa: string;
   /** The source's, read-only (docs/03 §2.2). */
   readonly enforceable: boolean;
+  /** The counterparty's IM CSAs, at most one per direction, the source's and read-only (ADR-0012 §2, §3). */
+  readonly imCsas: readonly ImCsa[];
+}
+
+/** An IM CSA (ADR-0012 §3): the direction it margins, the regimes it serves from their dates, and how SIMM computes it. */
+export interface ImCsa {
+  readonly imCsaId: string;
+  /** `collect` (IM-R, collected from the counterparty) or `post` (IM-P, posted to it). */
+  readonly direction: string;
+  readonly regimes: readonly { readonly regime: string; readonly since: string }[];
+  readonly calculationCurrency: string;
+  /** Names the parameter table SIMM computes with. */
+  readonly simmVersion: string;
 }
 
 /** A CSA's terms as the workspace has them (ADR-0010 §8): the source's, or the user's where `overridden` names the field. */
@@ -118,8 +144,9 @@ export interface HeldEdit {
   readonly acknowledged: boolean;
 }
 
-/** One figure a measure reports, such as CVA's CVA Charge. */
-export interface MetricDefinition { readonly id: string; readonly title: string }
+/** One figure a measure reports, such as CVA's CVA Charge, and the trace term its cell opens where it is not the root
+ * (ADR-0010 §7's note of 2026-11-08: spot IM's IM-R opens at `collect`). */
+export interface MetricDefinition { readonly id: string; readonly title: string; readonly term?: string | null }
 
 /** A measure as its module registered it (ADR-0010 §10). The page knows no measure's rules; it reads these. */
 export interface RegisteredMeasure {

@@ -12,7 +12,8 @@ namespace Workbench.Samples.Simm;
 public static class SimmTraceCatalog
 {
     public const string Method = "simm";
-    public const string Measure = "spot-im";
+    /// <summary>The trace's measure: spot IM's ID on the page, which the standalone workflow's trace is read under too.</summary>
+    public const string Measure = "simm.spotIm";
     public const string LeafSet = "simm.crif";
 
     static readonly TraceUnit Usd = new("amount", "USD");

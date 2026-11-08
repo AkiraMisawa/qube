@@ -217,6 +217,10 @@ the first case of a measure's membership, which every measure now declares (§10
   After and Diff term by term (ADR-0011 §4). A one-sided case is traced on its priced side alone, with the same
   root and depth (owner, 2026-11-07; ADR-0011 §4). Spot IM and spot CCR capital have one, to trade level (owner,
   2026-11-07).
+  *Note of 2026-11-08 (DEFAULT, ADR-0012's delivery step 2):* a metric may name the term its cell opens, where the
+  trace has several roots: spot IM's IM-R opens at `collect`, IM-P at `post`. The shared result gains a note per side,
+  said beside that side's figure (spot IM's governing regime), and a basis said with the row's figures, such as
+  `SIMM PARAMETERS DEMO`. Both are empty for a measure that has nothing to say there, and neither is ever a figure.
 - **Collapsed**, one line per case with each selected measure's headline Diff: CVA Diff and FVA Diff when XVA is
   selected (owner), MVA when it exists.
 - A result older than the workspace says so in yellow: `revision 5 · workspace now 7`.
@@ -276,10 +280,14 @@ that owns a measure registers it with:
 - **membership**: for each trade, whether the measure prices it and why, decided on the server. FVA's rule (§5) is the
   first. A measure may declare several named scopes, each in or out with its own reason: spot IM's are per direction
   and regime (IM-R and IM-P, each under JFSA, CFTC and the others, ADR-0012), shown compactly in its column
-  (`R: JFSA, CFTC · P: JFSA`). A trade a measure cannot classify is out with its reason, never dropped silently;
+  (`R: JFSA, CFTC · P: JFSA`). A trade a measure cannot classify is out with its reason, never dropped silently.
+  *(Note of 2026-11-08: a membership carries its scopes, each in or out with its reason, and its own reason is the
+  compact form; Price freezes them with the trade, ADR-0012 §2.)*;
 - **inputs**: the tabs and Settings section it needs, and the columns it adds to shared grids (XVA's CVA recovery on
   Netting; SA-CCR's counterparty inputs for the risk weight and its CSA and netting-set columns, ADR-0013). A tab,
-  section or column shows while a selected measure needs it, and a hidden one keeps its changes;
+  section or column shows while a selected measure needs it, and a hidden one keeps its changes. *(Note of
+  2026-11-08: a shared field of the trade grids is one of these too, as spot IM's IM-R and IM-P are, and so is a tab
+  of the measure's own, as spot IM's IM tab is, ADR-0012 §3.)*;
 - **trade columns**: what it adds to the trade grids (XVA's PV01, Margin and PV Adj);
 - **results**: its Metrics columns, any result tab of its own, and whether a Metrics cell opens a trace (ADR-0011);
 - **validation**: what Price needs from it, refused by name. A measure that cannot be priced blocks only itself: a

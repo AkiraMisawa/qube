@@ -47,6 +47,9 @@ export const cssVariablesResolver: CSSVariablesResolver = (resolved) => ({
   variables: {},
   light: {
     '--mantine-color-dimmed': 'var(--mantine-color-gray-7)',
+    // A link is text in the primary colour, so it takes that colour's ink too: a trace link in the Metrics read at 2.7:1
+    // in amber on white (measured 2026-11-08, the spot IM page's browser test).
+    '--mantine-color-anchor': `var(--mantine-color-${resolved.primaryColor}-text)`,
     ...Object.fromEntries(Object.keys(resolved.colors).flatMap((name) => {
       const ink = `color-mix(in srgb, var(--mantine-color-${name}-9) 70%, black)`;
       return [[`--mantine-color-${name}-text`, ink], [`--mantine-color-${name}-light-color`, ink]];

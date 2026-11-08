@@ -40,7 +40,7 @@ public class SimmTraceTests
                 Assert.True(check.Status == CheckStatus.Matches, $"{term.Id} ({term.Kind}): {check.Status} {check.Reason}");
             }
             Assert.All(trace.Leaves, row => Assert.Empty(evaluator.CheckRow(row)));
-            Assert.Equal(("spot-im", "simm", Demo.Version, "USD"), (trace.Measure, trace.Method.Id, trace.Method.Version, trace.ReportingCurrency));
+            Assert.Equal(("simm.spotIm", "simm", Demo.Version, "USD"), (trace.Measure, trace.Method.Id, trace.Method.Version, trace.ReportingCurrency));
         }
     }
 

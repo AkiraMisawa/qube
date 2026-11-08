@@ -66,7 +66,7 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
     readonly ConditionalWeakTable<WorkspaceState, ConcurrentDictionary<string, IReadOnlyList<EffectiveTrade>>> grouped = new();
 
     public static readonly IReadOnlyList<string> SortableColumns =
-        ["tradeId", "isNew", "product", "currency", "notional", "maturity", "fixedRate", "schedule", "lastFixing", "officialPv", "csa", "curve", "before", "after"];
+        ["tradeId", "isNew", "product", "currency", "notional", "maturity", "fixedRate", "schedule", "lastFixing", "officialPv", "csa", "curve", "imR", "imP", "before", "after"];
 
     /// <summary>A new workspace, on its owner's last selection of measures (ADR-0010 §10, DEFAULT).</summary>
     public WorkspaceState Create(string user, string registration, DateOnly valueDate, int existingCount)
@@ -307,6 +307,8 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
             "before" or "after" => value is JsonValue b && b.TryGetValue<bool>(out _) ? null : "Before and After are true or false.",
             "schedule" => value is JsonValue s && s.TryGetValue<string>(out var t) && t is "3M" or "6M" ? null : "A schedule is 3M or 6M.",
             "csa" or "curve" or "fvaCurve" => value is JsonValue x && x.TryGetValue<string>(out var id) && id.Length > 0 ? null : $"A {field} is an identifier.",
+            // Empty is no IM CSA of that direction (ADR-0012 §2).
+            "imR" or "imP" => value is null || value is JsonValue im && im.TryGetValue<string>(out var imId) && imId.Length > 0 ? null : $"{(field == "imR" ? "IM-R" : "IM-P")} is an IM CSA's identifier, or empty for none.",
             "frequency" => value is JsonValue f && f.TryGetValue<string>(out var often) && PortfolioCatalog.Frequencies.Contains(often)
                 ? null : $"A frequency is {string.Join(", ", PortfolioCatalog.Frequencies)}.",
             "exchange" or "oneWay" => value is JsonValue e && e.TryGetValue<bool>(out _) ? null : $"{field} is true or false.",
@@ -337,6 +339,8 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
         "officialPv" => row.OfficialPv,
         "csa" => row.Csa,
         "curve" => row.Curve,
+        "imR" => row.ImR,
+        "imP" => row.ImP,
         "before" => row.Before,
         "after" => row.After,
         _ => throw new InvalidOperationException(column),

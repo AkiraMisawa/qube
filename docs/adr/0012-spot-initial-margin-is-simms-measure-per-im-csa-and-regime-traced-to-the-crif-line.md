@@ -52,6 +52,25 @@ counterparty came into a regime's scope is out of that regime only. The trade gr
 - Which regimes a trade is in is the source's and the engine's to say, never the page's. A trade nobody classified
   is out, with that reason.
 
+*(Added 2026-11-08, DEFAULT, in delivery step 2: where the page's IM CSAs and scopes come from.)*
+
+- **The portfolio's source holds them.** A counterparty's agreement lists its IM CSAs, at most one per direction in the
+  synthetic source, each with the regimes it serves and the date the counterparty came into each regime's scope. An
+  existing trade's IM-R and IM-P are the source's. On the trade they are assignment fields of the portfolio, as its CSA
+  is: a new trade takes the counterparty's IM CSA of each direction automatically, or none where it has none, and an
+  edit sets one. A value is an IM CSA's ID or empty, and empty is no IM CSA. Whether the ID is one of the
+  counterparty's IM CSAs of that direction is spot IM's to say, not the trade's. A trade naming another is out of every
+  scope of that direction, with why, and Price refuses spot IM alone (`SpotImRefused`). A slip in an IM column never
+  blocks CVA. Step 1's IM source stays the book of the standalone CRIF workflow.
+- **The source classifies each trade by direction.** A trade counts under a regime that its direction's IM CSA serves
+  when it started on or after the counterparty came into that regime's scope. A physically settled FX forward is exempt
+  everywhere. The synthetic dates are illustrative (OPEN below).
+- **A scope is named `{direction}/{regime}`** (`collect/JFSA`). That is also the path of that regime's term in the
+  trace (§6). A trade's membership carries every scope, each in or out with its reason. While the trade is in any
+  scope, its own reason is the compact form the grids show, `R: JFSA, CFTC · P: JFSA`, a direction it is in no scope
+  of saying `none` (`R: none · P: JFSA`). Out of every scope, its reason is its scopes' reasons, each said once. Price
+  freezes the scopes with the trade.
+
 ### 3. Inputs
 
 - **IM tab** (DEFAULT): the counterparty's IM CSAs, with their ID, direction, the regimes they serve, the calculation
@@ -59,6 +78,13 @@ counterparty came into a regime's scope is out of that regime only. The trade gr
   what-if on them is asked for.
 - **Trade columns**: IM-R and IM-P (editable) and the IM scope (read-only, §2).
 - **T-1 CRIF is not in this app** (CONFIRMED, owner 2026-11-07). It has no switch for it.
+
+*(Added 2026-11-08, DEFAULT, in delivery step 2.)* The IM tab is an input tab that spot IM registers (`im`), as CVA
+registers its recovery on Netting (ADR-0010 §10). It lists the agreement's IM CSAs: ID, direction, the regimes with the
+date each applies from, the calculation currency (USD) and the SIMM version, which names the parameter table SIMM
+computes with. A counterparty with none says so in a sentence. The IM-R and IM-P columns are spot IM's inputs on the
+trade grids, shown on both grids while spot IM is selected; the scope column is its membership column. `open im` opens
+the tab, as `open netting` does.
 
 ### 4. Capabilities, requests and providers (CONFIRMED, owner 2026-11-07)
 
@@ -85,6 +111,28 @@ otherwise fall out of every scope and give no IM, and a line naming a regime the
 nobody classified is out" is a trade the source left unclassified, not a name it does not know. Beside the CRIF, CRIF
 generation writes each trade's coverage: its lines, or why it has none (§2). Each line's contribution is in the
 trace's leaf rows (§6), and nowhere else.)*
+
+*(Added 2026-11-08, DEFAULT, in delivery step 2: the PoC's request on the page.)*
+
+- **`simm.spotIm`** is SIMM's own module step over the portfolio's accepted input (ADR-0010 §10). Each side is priced
+  on its own. The side's trades in any spot IM scope become Rates lines, and CRIF is generated from them at the value
+  date. The engine then runs under the IM CSAs as Price froze them, each holding the side's trades that name it, and the
+  IM is converted to the display currency. Its outputs are the shared result, a trace per priced side, and each side's
+  CRIF (`crifBefore`, `crifAfter`, contract `simm.crif`). The CRIF is retained, so the Run resolves what SIMM computed
+  from, and `margin.simm.calculate` can be run on it alone.
+- **No IM is shown without a trade it should hold.** A trade in a scope that gave no CRIF line, because the provider
+  failed or its curve has no SIMM sub-curve, makes that side `unavailable` and names the trade. A direction whose
+  scopes hold no trade on a side has no IM there: that side is `notPriced`, with why, and never 0.
+- **A portfolio IRS as a Rates line**: fixed against the currency's overnight index (JPY TONA, USD SOFR, EUR ESTR,
+  GBP SONIA), from its start date to its maturity date. Its schedule is both legs' payment frequency and the floating
+  leg's reset, and `payFixed` pays leg 1. Price refuses spot IM by name when a trade in scope cannot be mapped or
+  resolved with the confirmed conventions. The convention profiles' IDs and versions are frozen with the input, and the
+  request refuses a registry whose versions moved.
+- **The market is pinned in SIMM's part of the accepted input.** The curves are the synthetic Rates market's opening
+  snapshot, by its ID; the synthetic market has no value date, so that snapshot stands for the value date's close. The
+  FX is the portfolio's FX of the value date, which every measure on the page converts at, so a JPY sensitivity's USD
+  amount and the IM's display amount use one set of rates. A company market source replaces both where the module is
+  composed.
 
 ### 5. The PoC's reference engine (CONFIRMED, owner 2026-11-07, unless marked)
 
@@ -178,6 +226,13 @@ with the first product with options (the spec's out-of-scope list).)*
 - **The SIMM tab**: the two directions' summaries, then the drill-down (§6).
 - **The SIMM profile** that MVA returns is shown in XVA's Profile tab, with no trace (ADR-0010 §11).
 
+*(Added 2026-11-08, DEFAULT, in delivery step 2.)* The measure is `simm.spotIm` (module `simm`, so `measures simm`
+selects it), with metrics `imR` (IM-R, the headline) and `imP` (IM-P). Each side's governing regime is named beside its
+figure, and `SIMM PARAMETERS DEMO` is said with the row's figures. For both, the shared result gains a column (ADR-0010
+§7's note of this date). An IM-R cell opens the trace at `collect` and an IM-P cell at `post`: a metric may name the
+term its figure opens. The trace's measure is the measure's ID, the standalone workflow's included. IM-R's trade count
+is the side's trades in an IM-R scope, and IM-P's likewise.
+
 ### 8. Reuse by MVA
 
 MVA's time-0 IM is this spot IM. The IM CSAs, the CRIF artifact, the SIMM kinds and the reference engine are shared:
@@ -207,3 +262,5 @@ is this one.
 
 - Whether IM CSAs can be edited as a what-if (for example, adding a regime).
 - The synthetic phase-in dates and exemptions are illustrative. Company data decides them in production.
+- *(2026-11-08)* When the Pricing DB's projection for spot IM (Consequences) is built: it is in neither delivery step
+  2 nor 3, and until it is, a Run's spot IM is read from the Run.

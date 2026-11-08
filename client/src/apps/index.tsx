@@ -241,8 +241,9 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
         xvaPage().setCurrency(a.currency.toUpperCase());
       },
     },
-    // One command per input tab (ADR-0010 §9), which shows the inputs if they were collapsed.
-    ...([['netting', 'Netting'], ['csa', 'CSA']] as const).map(([tab, title]): Command => ({
+    // One command per input tab (ADR-0010 §9), which shows the inputs if they were collapsed. IM is spot IM's (ADR-0012 §3),
+    // and the page says so when it is not selected.
+    ...([['netting', 'Netting'], ['csa', 'CSA'], ['im', 'IM']] as const).map(([tab, title]): Command => ({
       id: `xva.open.${tab}`,
       words: `open ${tab}`,
       title: `Open the ${title} input tab`,

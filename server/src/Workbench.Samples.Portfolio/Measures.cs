@@ -7,8 +7,12 @@ namespace Workbench.Samples.Portfolio;
 // The measures register (ADR-0010 §10): a measure is a figure family a Price can be asked for, registered by the domain
 // module that owns it. The page and this module know no measure's rules; they read what the owner registered.
 
-/// <summary>One figure a measure reports, such as CVA's CVA Charge.</summary>
-public sealed record MetricDefinition(string Id, string Title);
+/// <summary>
+/// One figure a measure reports, such as CVA's CVA Charge. <paramref name="Term"/> is the term of the measure's trace its
+/// Metrics cell opens, where the trace has several roots, as spot IM's IM-R opens at <c>collect</c> (ADR-0010 §7's note
+/// of 2026-11-08); none opens the trace at its roots.
+/// </summary>
+public sealed record MetricDefinition(string Id, string Title, string? Term = null);
 
 /// <summary>
 /// A measure as its module registers it. <paramref name="Headline"/> is the metric the collapsed result line shows.
@@ -21,12 +25,21 @@ public sealed record MeasureDefinition(string Id, string Title, IReadOnlyList<Me
 /// <summary>
 /// A field of a shared input tab that a measure needs (ADR-0010 §10), such as CVA's recovery on Netting: it shows while a
 /// selected measure needs it, and a hidden one keeps its changes. <paramref name="Tab"/> names the tab, as the page's
-/// tabs are named (<c>netting</c>, <c>csa</c>), and <paramref name="Field"/> the field as its edits name it.
+/// tabs are named (<c>netting</c>, <c>csa</c>), and <paramref name="Field"/> the field as its edits name it. The trade
+/// grids are <c>trades</c>, where a field is every trade's, as spot IM's IM-R; a tab of the measure's own is named by it,
+/// as spot IM's <c>im</c> (ADR-0010 §10's note of 2026-11-08).
 /// </summary>
 public sealed record MeasureInput(string Tab, string Field, string Measure);
 
-/// <summary>Whether a measure prices a trade, and why (ADR-0010 §5, §10). Out is never silent: it says why.</summary>
-public sealed record Membership(bool In, string Reason);
+/// <summary>
+/// Whether a measure prices a trade, and why (ADR-0010 §5, §10). Out is never silent: it says why. A measure that
+/// declares named scopes gives each, in or out with its own reason, and its own reason is then their compact form, as spot
+/// IM's `R: JFSA, CFTC · P: JFSA` (ADR-0012 §2); the trade is in when any scope holds it.
+/// </summary>
+public sealed record Membership(bool In, string Reason, IReadOnlyList<MembershipScope>? Scopes = null);
+
+/// <summary>One named scope of a measure's membership, such as spot IM's <c>collect/JFSA</c>, titled as the page shows it.</summary>
+public sealed record MembershipScope(string Id, string Title, bool In, string Reason);
 
 /// <summary>
 /// A measure's membership rule over one state (ADR-0010 §10): which trades it prices and why, decided on the server

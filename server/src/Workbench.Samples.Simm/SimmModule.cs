@@ -357,6 +357,7 @@ public sealed class SimmModule(IImSource source, IRatesPricingProvider provider,
         builder.AddCapability(new ImSourceFreeze(source, conventions));
         builder.AddCapability(new CrifGenerate(provider, resolveMarket));
         builder.AddCapability(new SimmCalculate(tables));
+        builder.AddCapability(new SpotImPrice(provider, resolveMarket, conventions, tables));
         foreach (var table in tables) builder.AddTraceCatalog(SimmTraceCatalog.For(table));
         builder.AddContract(new ContractDefinition(SimmContracts.CrifInput, SimmContracts.Version, "CRIF input", new JsonObject
         {
