@@ -66,6 +66,10 @@ builder.Services.AddSingleton<IWorkspaceStore>(_ => new SqliteWorkspaceStore(dat
 builder.Services.AddSingleton(sp => new WorkspaceService(
     new Dictionary<string, IEditRules> { [PortfolioEditRules.App] = new PortfolioEditRules(), [RatesEditRules.App] = new RatesEditRules(conventions) },
     sp.GetRequiredService<TimeProvider>(), sp.GetRequiredService<IWorkspaceStore>()));
+// New trades' PV01 (ADR-0010 §6) comes from the simulated engine, which answers after a configured delay as an engine
+// would; there is no real one to fall back from.
+builder.Services.AddSingleton(sp => Pv01Provider.Simulated(TimeSpan.FromMilliseconds(builder.Configuration.GetValue("Xva:Pv01DelayMilliseconds", 400)),
+    sp.GetRequiredService<TimeProvider>()));
 builder.Services.AddSingleton<IMeasureModule, XvaMeasures>();
 builder.Services.AddSingleton<MeasureRegister>();
 builder.Services.AddSingleton<PortfolioWorkspaces>();

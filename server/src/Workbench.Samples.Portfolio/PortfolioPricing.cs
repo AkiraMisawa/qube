@@ -85,7 +85,9 @@ public static class PortfolioInput
     {
         var state = freeze.State;
         var source = (PortfolioSourceVersion)state.Source;
-        var trades = register.WithMembership(state, PortfolioMaterialiser.Trades(state)).Where(t => t.Before || t.After).ToList();
+        // The trades with their membership and the modules' cells, read once: what is refused and what is frozen are
+        // one reading of a cell that changes on its own, such as PV01 (ADR-0010 §6).
+        var trades = register.WithCells(state, [.. register.WithMembership(state, PortfolioMaterialiser.Trades(state)).Where(t => t.Before || t.After)]);
         // A side with no trade is not priced (ADR-0010 §3); with no trade on either side there is nothing to price.
         if (trades.Count == 0)
             throw new WorkspaceRefused("NothingToPrice", "No trade is in Before or After: tick B or A on a trade to price it.");
@@ -94,7 +96,7 @@ public static class PortfolioInput
             throw new WorkspaceRefused("InvalidInput", $"{invalid.Count} trade(s) to price have validation issues, first {invalid[0].TradeId}: {invalid[0].Issues[0]}");
         var selected = PortfolioMaterialiser.SelectedMeasures(state, register);
         var refusals = register.Modules
-            .SelectMany(m => m.Validate(state, [.. selected.Where(id => m.Measures.Any(d => d.Id == id))]))
+            .SelectMany(m => m.Validate(state, [.. selected.Where(id => m.Measures.Any(d => d.Id == id))], trades))
             .ToDictionary(r => r.Measure);
         var modules = new JsonObject();
         foreach (var module in register.Modules.Where(m => m.Measures.Any(d => selected.Contains(d.Id))))

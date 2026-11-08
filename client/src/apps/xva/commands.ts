@@ -9,6 +9,8 @@ export interface XvaPage {
   setMeasures(measures: readonly string[]): void;
   /** B or A for every row of a grid (ADR-0010 §6); the grid the keyboard was last in when none is named. */
   setSide(side: 'before' | 'after', value: boolean, grid?: 'new' | 'existing'): void;
+  /** Asks again for every failed result on the new trades, such as a PV01 (`pv01 retry`, ADR-0010 §6). */
+  retry(): void;
   /** The registered measures, for the command line to offer. */
   measures(): readonly RegisteredMeasure[];
 }

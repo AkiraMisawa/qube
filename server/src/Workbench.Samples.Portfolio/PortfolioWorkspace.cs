@@ -32,7 +32,10 @@ public sealed record EffectiveTrade(
     // Each declared measure's membership (ADR-0010 §10), set by the register; none where no measure declares one.
     IReadOnlyDictionary<string, Membership>? Membership = null,
     // The fields whose value differs from Original, with Original's value (ADR-0010 §2); none where nothing differs.
-    IReadOnlyDictionary<string, JsonNode?>? Original = null);
+    IReadOnlyDictionary<string, JsonNode?>? Original = null,
+    // The cells of the selected modules' trade columns, by field (ADR-0010 §10), such as XVA's PV01; none where no
+    // module adds a column to the trade.
+    IReadOnlyDictionary<string, TradeCell>? Cells = null);
 
 /// <summary>
 /// A CSA of the agreement with its effective terms (ADR-0010 §8): the source's, or the user's where <c>Overridden</c>

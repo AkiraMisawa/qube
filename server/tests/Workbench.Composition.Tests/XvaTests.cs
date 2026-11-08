@@ -11,7 +11,7 @@ namespace Workbench.Composition.Tests;
 public class XvaTests
 {
     static readonly DateOnly Day1 = new(2026, 10, 26);
-    static readonly MeasureRegister Register = new([new XvaMeasures()]);
+    static readonly MeasureRegister Register = new([new XvaMeasures(Pv01Provider.Simulated(TimeSpan.Zero))]);
 
     static WorkspaceService Service() =>
         new(new Dictionary<string, IEditRules> { [PortfolioEditRules.App] = new PortfolioEditRules() }, TimeProvider.System);
