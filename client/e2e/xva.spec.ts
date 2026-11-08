@@ -102,7 +102,7 @@ test('ADR-0003 §6: a counterparty change asks before dropping its edits, and ke
   await expect(trade(page, 'DRAFT-1').getByRole('gridcell').nth(CSA)).toHaveText('CSA-C');
 });
 
-test('ADR-0010 §10: `measures fva` leaves CVA out of the Price, and a new workspace starts on that choice', async ({ page }) => {
+test('ADR-0010 §10: `measures fva` leaves CVA out of the Price, the Netting tab and the quote, and a new workspace starts on that choice', async ({ page }) => {
   await open(page);
   await newWorkspace(page, 'ABC/LE-01', 3);
   const measures = page.getByRole('group', { name: 'Measures' });
@@ -118,10 +118,18 @@ test('ADR-0010 §10: `measures fva` leaves CVA out of the Price, and a new works
   await expect(result.getByTestId('xva-result-status')).toHaveText('succeeded');
   await expect(result.getByRole('columnheader', { name: 'FVA Diff' })).toBeVisible();
   await expect(result.getByRole('columnheader', { name: /^CVA/ })).toHaveCount(0);
+  // The dock names the currency the Run priced in; the quote is CVA's, so this Run has none (§7, §11).
+  await expect(result.getByTestId('xva-result-currency')).toHaveText('JPY');
+  await expect(result.getByRole('button', { name: 'Copy quote' })).toBeDisabled();
+  // CVA's recovery is a field CVA needs, so the Netting tab leaves it out while CVA is not selected (§10).
+  const netting = page.getByRole('table', { name: 'Netting' });
+  await expect(netting.getByRole('columnheader', { name: 'Enforceable' })).toBeVisible();
+  await expect(netting.getByLabel('CVA recovery')).toHaveCount(0);
 
-  // The page's own toggle runs the same command: CVA back in.
+  // The page's own toggle runs the same command: CVA back in, with its recovery.
   await measures.getByRole('button', { name: 'CVA' }).click();
   await expect(page.getByTestId('price')).toHaveText('Price CVA FVA · 1 case');
+  await expect(netting.getByLabel('CVA recovery')).toBeVisible();
 
   // No existing trade there: Before has nothing to price, and Price says so.
   await newWorkspace(page, 'ABC/LE-02', 0);
@@ -144,26 +152,27 @@ test('ADR-0010 §1, §5, §8, §9: by keyboard, a CSA edit moves a trade into FV
   await settled(page, 'CSA terms');
   const terms = page.getByLabel('CSA terms');
   await expect(terms.locator('.ex-grid')).toContainText('CSA-A');
-  const csaA = terms.getByRole('row', { name: /^CSA-A / });
+  // CSA-A is the main CSA, which a new trade takes (ADR-0010 §8): Main is the grid's first column.
+  const csaA = terms.getByRole('row', { name: /^Yes CSA-A / });
   // The grid's first key only places its Focus (ex-grid ADR-0037); End then takes it, and the view, to FVA's column.
   await page.keyboard.press('End');
   await page.keyboard.press('End');
-  await expect(csaA).toContainText('Perfect · CSA-A: daily, MTA+threshold');
+  await expect(csaA).toContainText('Out · CSA-A perfect: daily, MTA+threshold');
   await page.keyboard.press('Home');
-  for (let i = 0; i < 8; i++) await page.keyboard.press('ArrowRight');
+  for (let i = 0; i < 10; i++) await page.keyboard.press('ArrowRight');
   await page.keyboard.type('200000000');
   await page.keyboard.press('Enter');
   // The tab counts the value that differs from Original, and the cell is marked (ADR-0010 §2).
   await expect(page.getByRole('tab', { name: 'CSA ●1' })).toBeVisible();
-  await expect(csaA.locator('[aria-colindex="9"]')).toHaveClass(/ex-state-modified/);
+  await expect(csaA.locator('[aria-colindex="11"]')).toHaveClass(/ex-state-modified/);
   await page.keyboard.press('ArrowUp');
   await page.keyboard.press('End');
-  await expect(csaA).toContainText('Imperfect · CSA-A: counterparty MTA+threshold');
+  await expect(csaA).toContainText('In · CSA-A imperfect: counterparty MTA+threshold');
 
   // DRAFT-1 takes the main CSA, CSA-A, so it is in FVA now, with the reason.
   await focusCell(page, 0);
   await page.keyboard.press('End');
-  await expect(trade(page, 'DRAFT-1')).toContainText('In · CSA-A: counterparty MTA+threshold');
+  await expect(trade(page, 'DRAFT-1')).toContainText('In · CSA-A imperfect: counterparty MTA+threshold');
 
   await command(page, 'price');
   const result = page.getByTestId('xva-result');
@@ -201,6 +210,16 @@ test('ADR-0010 §1, §7: the input tabs and the dock collapse to their row and t
   await expect(page.getByTestId('xva-inputs-body')).toHaveCount(0);
   await command(page, 'open netting');
   await expect(page.getByRole('button', { name: 'Hide inputs' })).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.getByRole('textbox', { name: 'CVA recovery' })).toBeFocused();
+  // A tab is as high as its content until the handle moves: Netting's row and the CSA grid show whole, with no scroll of
+  // the tab's own.
+  const body = page.getByTestId('xva-inputs-body');
+  const overflow = () => body.evaluate((e) => e.scrollHeight - e.clientHeight);
+  await expect.poll(overflow).toBe(0);
+  await command(page, 'open csa');
+  await settled(page, 'CSA terms');
+  await expect.poll(overflow).toBe(0);
+  await command(page, 'open netting');
   await expect(page.getByRole('textbox', { name: 'CVA recovery' })).toBeFocused();
 
   // The handle under them: a step down, then their bounds.

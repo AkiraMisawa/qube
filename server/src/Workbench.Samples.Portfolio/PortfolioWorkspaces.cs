@@ -15,7 +15,7 @@ public sealed record RowPage(IReadOnlyList<EffectiveTrade> Rows, int Start, int 
 
 /// <summary>What the workspace panel shows beside the grid. <c>Overrides</c> counts the edits to the portfolio's data;
 /// the selection of measures is the page's choice, shown on its own. <c>TradeColumns</c> are the selected modules'
-/// (ADR-0010 §10), and <c>PendingCells</c> counts their cells on the new trades still waiting for a result, so the page
+/// (ADR-0010 §10), as are the shared tabs' <c>Inputs</c> they need, and <c>PendingCells</c> counts their cells on the new trades still waiting for a result, so the page
 /// asks again while any is. <c>DisplayCurrency</c> is the workspace's setting, and <c>Simulated</c> names the modules whose
 /// figures come from a simulated provider, which the page says (ADR-0010 §1).</summary>
 public sealed record PortfolioWorkspaceView(
@@ -38,6 +38,7 @@ public sealed record PortfolioWorkspaceView(
     IReadOnlyList<RegisteredMeasure> Measures,
     IReadOnlyList<string> SelectedMeasures,
     IReadOnlyList<RegisteredColumn> TradeColumns,
+    IReadOnlyList<MeasureInput> Inputs,
     int PendingCells,
     string DisplayCurrency,
     IReadOnlyList<string> Currencies,
@@ -104,7 +105,7 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
             [.. state.Conflicts.Values.OrderBy(c => c.Override.Seq).Select(c => new HeldEdit(c.Override.Target.Scope, c.Override.Target.Entity, c.Override.Target.Field, c.Override.Value, c.Source, false))],
             [.. state.Lost.Values.OrderBy(l => l.Override.Seq).Select(l => new HeldEdit(l.Override.Target.Scope, l.Override.Target.Entity, l.Override.Target.Field, l.Override.Value, null, l.Acknowledged))],
             links, register.Measures, PortfolioMaterialiser.SelectedMeasures(state, register),
-            [.. register.TradeColumns.Where(c => register.Selected(state).Any(m => m.Id == c.Module))],
+            [.. register.TradeColumns.Where(c => register.Selected(state).Any(m => m.Id == c.Module))], register.Inputs(state),
             register.WithCells(state, [.. Rows(state).Where(t => t.IsNew)]).Sum(t => t.Cells?.Values.Count(c => c.State == TradeCell.Pending) ?? 0),
             PortfolioMaterialiser.DisplayCurrency(state), PortfolioMarket.Currencies, [.. register.Selected(state).Where(m => m.Simulated).Select(m => m.Id)]);
     }

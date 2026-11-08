@@ -6,8 +6,8 @@ import { headlines, metricsGrid, metricsTable, pricedMeasures, priceLabel, trade
 // Diff, and a status in words where there is no figure. Every name and figure is synthetic.
 
 const register: readonly RegisteredMeasure[] = [
-  { id: 'cva', title: 'CVA', module: 'xva', request: 'xva', metrics: [{ id: 'cva', title: 'CVA' }, { id: 'cvaCharge', title: 'CVA Charge' }], headline: 'cva', declaresMembership: false, traced: false },
-  { id: 'fva', title: 'FVA', module: 'xva', request: 'xva', metrics: [{ id: 'fva', title: 'FVA' }], headline: 'fva', declaresMembership: false, traced: false },
+  { id: 'cva', title: 'CVA', module: 'xva', request: 'xva', metrics: [{ id: 'cva', title: 'CVA' }, { id: 'cvaCharge', title: 'CVA Charge' }], headline: 'cva', declaresMembership: false, traced: false, quoted: true },
+  { id: 'fva', title: 'FVA', module: 'xva', request: 'xva', metrics: [{ id: 'fva', title: 'FVA' }], headline: 'fva', declaresMembership: false, traced: false, quoted: false },
 ];
 
 const row = (measure: string, metric: string, before: number | null, after: number | null, extra: Record<string, unknown> = {}) => ({
@@ -39,7 +39,7 @@ describe('metricsTable', () => {
 
   it("ADR-0013 §2: a measure another module's request prices reads that request's rows, After alone included", () => {
     const capital: RegisteredMeasure = { id: 'ccr.spotCapital', title: 'Spot CCR capital', module: 'ccr', request: 'xva',
-      metrics: [{ id: 'capital', title: 'Capital' }], headline: 'capital', declaresMembership: true, traced: true };
+      metrics: [{ id: 'capital', title: 'Capital' }], headline: 'capital', declaresMembership: true, traced: true, quoted: false };
 
     const table = metricsTable([...register, capital], ['ccr.spotCapital'], { xva: answered([row('ccr.spotCapital', 'capital', null, 1_234.5)]) });
 

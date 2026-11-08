@@ -120,8 +120,8 @@ public class PricerTests
 
         var csas = service.View(ws.WorkspaceId, "akira").Csas.ToDictionary(c => c.CsaId, c => c.Membership![XvaMeasures.Fva]);
 
-        Assert.Equal(new Membership(false, "CSA-A: daily, MTA+threshold 0.27mm GBP"), csas["CSA-A"]);
-        Assert.Equal(new Membership(true, "CSA-B: counterparty MTA+threshold 1.19mm GBP over 1.0mm"), csas["CSA-B"]);
+        Assert.Equal(new Membership(false, "CSA-A perfect: daily, MTA+threshold 0.27mm GBP"), csas["CSA-A"]);
+        Assert.Equal(new Membership(true, "CSA-B imperfect: counterparty MTA+threshold 1.19mm GBP over 1.0mm"), csas["CSA-B"]);
     }
 
     [Fact] // ADR-0010 §5: raising a threshold past 1mm GBP moves the CSA's trades into FVA, and the next Price counts them
@@ -136,7 +136,7 @@ public class PricerTests
 
         var onA = input["trades"]!.AsArray().Where(t => t!["csa"]!.GetValue<string>() == "CSA-A").ToList();
         Assert.NotEmpty(onA);
-        Assert.All(onA, t => Assert.Equal((true, "CSA-A: counterparty MTA+threshold 1.33mm GBP over 1.0mm"),
+        Assert.All(onA, t => Assert.Equal((true, "CSA-A imperfect: counterparty MTA+threshold 1.33mm GBP over 1.0mm"),
             (t!["membership"]!["fva"]!["in"]!.GetValue<bool>(), t["membership"]!["fva"]!["reason"]!.GetValue<string>())));
         var afterA = onA.Count(t => t!["after"]!.GetValue<bool>());
         Assert.Equal(Row(plain, "fva")["tradesAfter"]!.GetValue<int>() + afterA, Row(raised, "fva")["tradesAfter"]!.GetValue<int>());
@@ -158,6 +158,21 @@ public class PricerTests
         var fva = Row(rows, "fva");
         Assert.Equal(("priced", 0m, 0), (fva["afterStatus"]!.GetValue<string>(), fva["after"]!.GetValue<decimal>(), fva["tradesAfter"]!.GetValue<int>()));
         Assert.True(Row(rows, "cva")["tradesAfter"]!.GetValue<int>() > 0);
+    }
+
+    [Fact] // ADR-0010 §10, §11: CVA's recovery is a field of the Netting tab only while CVA is selected, and keeps its value hidden
+    public void The_cva_recovery_shows_only_while_cva_is_selected()
+    {
+        var service = Service();
+        var ws = service.Create("akira", "ABC/LE-02", Day1, 10);
+        Assert.Equal([new MeasureInput("netting", "cvaRecovery", XvaMeasures.Cva)], service.View(ws.WorkspaceId, "akira").Inputs);
+        ws = service.Edit(ws.WorkspaceId, ws.Revision, "akira", "netting:NS-002", "cvaRecovery", 0.3m);
+
+        ws = service.SetMeasures(ws.WorkspaceId, ws.Revision, "akira", ["fva"]);
+        var hidden = service.View(ws.WorkspaceId, "akira");
+
+        Assert.Empty(hidden.Inputs);
+        Assert.Equal(0.3m, hidden.Credit.CvaRecovery);
     }
 
     [Fact] // ADR-0010 §8, XV15: the CVA recovery is the netting set's, and empty stays empty
@@ -389,6 +404,21 @@ public class PricerTests
         Assert.Equal("From Margin: 2 bp × PV01 -1,500", adjustment.Note);
         var refused = Assert.Throws<WorkspaceRefused>(() => service.Edit(ws.WorkspaceId, ws.Revision, "akira", "trade:DRAFT-1", "xva.pvAdj", 100m));
         Assert.Equal(("NotEditable", "PV Adj of DRAFT-1 is read-only: From Margin: 2 bp × PV01 -1,500"), (refused.Code, refused.Message));
+    }
+
+    [Fact] // ADR-0010 §2, §6: a PV Adj that Margin filled differs from its empty Original; PV01, a result, is never marked
+    public async Task A_pv_adj_filled_from_margin_differs_from_original()
+    {
+        var pv01 = new Pv01Provider((_, _) => Task.FromResult(-1_500m));
+        var service = Service(new XvaMeasures(pv01));
+        var ws = service.Create("akira", "ABC/LE-01", Day1, 5);
+
+        ws = service.Edit(ws.WorkspaceId, ws.Revision, "akira", "trade:DRAFT-1", "xva.margin", 2m);
+        await Settled(service, pv01, ws, "DRAFT-1", XvaMeasures.PvAdj);
+
+        var row = service.Page(ws.WorkspaceId, "akira", 0, 10, [], "new").Rows.Single(t => t.TradeId == "DRAFT-1");
+        Assert.Equal(["xva.margin", "xva.pvAdj"], row.Original!.Keys.Where(k => k.StartsWith("xva.", StringComparison.Ordinal)).Order());
+        Assert.All(row.Original.Where(o => o.Key.StartsWith("xva.", StringComparison.Ordinal)), o => Assert.Null(o.Value));
     }
 
     [Fact] // ADR-0010 §6, §2: with Margin empty PV Adj is typed, marked against an empty Original, and Margin wins while entered

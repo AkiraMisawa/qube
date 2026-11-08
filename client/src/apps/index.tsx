@@ -111,16 +111,23 @@ function TracePanel({ panel }: { readonly panel: Extract<Panel, { kind: 'app' }>
 export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDialog' | 'panels' | 'activePanelId'>): Command[] {
   const active = state.panels.find((p) => p.id === state.activePanelId);
   // Looked up when the command runs: the page registers its commands once it has mounted, after this list is made.
-  const xva = active?.kind === 'app' && active.app === XVA_WORKSPACE ? active.id : undefined;
-  const rates = active?.kind === 'app' && active.app === RATES_WORKSPACE ? active.id : undefined;
+  const xvaPanel = active?.kind === 'app' && active.app === XVA_WORKSPACE ? active : undefined;
+  const ratesPanel = active?.kind === 'app' && active.app === RATES_WORKSPACE ? active : undefined;
+  const xva = xvaPanel?.id;
+  const rates = ratesPanel?.id;
+  // What an XVA command acts on, or why it cannot: every XVA command but `new xva` needs the page.
+  const onXva = xvaPanel === undefined ? { unavailable: 'Open an XVA workspace first.' } : { target: xvaPanel.title };
   const trace = active?.kind === 'app' && active.app === TRACE_VIEW ? active : undefined;
+  // `explain` acts on the XVA page's Run or on the trace in view.
+  const explainOn = xvaPanel ?? trace;
   const page = () => {
     const commands = ratesCommandsOf(rates);
     if (commands === undefined) throw new Error(`The Rates workspace in panel ${rates ?? '(none)'} registered no commands.`);
     return commands;
   };
-  const onRates = rates === undefined ? { unavailable: 'Open a Rates workspace first.' } : { target: active!.title };
-  const priceTarget = xva !== undefined || rates !== undefined ? { target: active!.title } : { unavailable: 'Open an XVA or Rates workspace to price it.' };
+  const onRates = ratesPanel === undefined ? { unavailable: 'Open a Rates workspace first.' } : { target: ratesPanel.title };
+  const pricedPanel = xvaPanel ?? ratesPanel;
+  const priceTarget = pricedPanel === undefined ? { unavailable: 'Open an XVA or Rates workspace to price it.' } : { target: pricedPanel.title };
   const xvaPage = () => {
     const registered = xvaPageOf(xva);
     if (registered === undefined) throw new Error(`The XVA workspace in panel ${xva ?? '(none)'} registered no commands.`);
@@ -150,25 +157,28 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
       words: 'measures',
       title: 'Choose the measures Price prices, such as cva fva',
       group: 'XVA',
-      ...(xva === undefined ? { unavailable: 'Open an XVA workspace first.' } : { target: active!.title }),
+      ...onXva,
       args: [{
         name: 'measures', required: true, rest: true, words: true,
         hint: 'the measures to price, in any order',
         // The register is the page's, read when the line asks: the page registers once it has mounted.
         complete: (given) => {
           const registered = xvaPageOf(xva)?.measures() ?? [];
-          const typed = new Set(measuresTyped(given.measures ?? '', registered.map((m) => m.id)));
+          const typed = new Set(given.measures === undefined ? [] : measuresTyped(given.measures, registered.map((m) => m.id)));
           return registered.filter((m) => !typed.has(m.id)).map((m) => ({ value: m.id, detail: m.title }));
         },
       }],
-      run: (a) => xvaPage().setMeasures(measuresTyped(a.measures ?? '', xvaPage().measures().map((m) => m.id))),
+      run: (a) => {
+        if (a.measures === undefined) throw new Error('measures needs the measures to price, such as cva fva.');
+        xvaPage().setMeasures(measuresTyped(a.measures, xvaPage().measures().map((m) => m.id)));
+      },
     },
     {
       id: 'xva.run.download',
       words: 'download run',
       title: 'Save the Run the page shows as a zip of its inputs, results and lineage',
       group: 'XVA',
-      ...(xva === undefined ? { unavailable: 'Open an XVA workspace first.' } : { target: active!.title }),
+      ...onXva,
       run: () => xvaPage().downloadRun(),
     },
     {
@@ -176,7 +186,7 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
       words: 'copy quote',
       title: 'Copy the CVA Charge and PV each case adds, from the Run the page shows',
       group: 'XVA',
-      ...(xva === undefined ? { unavailable: 'Open an XVA workspace first.' } : { target: active!.title }),
+      ...onXva,
       run: () => xvaPage().copyQuote(),
     },
     {
@@ -184,7 +194,7 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
       words: 'explain',
       title: 'Open the calculation trace of a measure, at a term if one is named',
       group: 'Traces',
-      ...(xva !== undefined || trace !== undefined ? { target: active!.title } : { unavailable: 'Open an XVA workspace that has been priced, or a trace, first.' }),
+      ...(explainOn === undefined ? { unavailable: 'Open an XVA workspace that has been priced, or a trace, first.' } : { target: explainOn.title }),
       args: [{
         name: 'measure', required: true, rest: true,
         hint: 'a measure that keeps a trace, then a term if wanted: ccr.spotCapital rwa',
@@ -204,7 +214,7 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
       words: 'pv01 retry',
       title: 'Ask again for every PV01 that failed',
       group: 'XVA',
-      ...(xva === undefined ? { unavailable: 'Open an XVA workspace first.' } : { target: active!.title }),
+      ...onXva,
       run: () => xvaPage().retry(),
     },
     {
@@ -212,7 +222,7 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
       words: 'refresh',
       title: 'Acquire the trades again for the value date; your edits carry or are held',
       group: 'XVA',
-      ...(xva === undefined ? { unavailable: 'Open an XVA workspace first.' } : { target: active!.title }),
+      ...onXva,
       run: () => xvaPage().refresh(),
     },
     {
@@ -220,7 +230,7 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
       words: 'currency',
       title: 'Show the figures in a currency, such as USD',
       group: 'XVA',
-      ...(xva === undefined ? { unavailable: 'Open an XVA workspace first.' } : { target: active!.title }),
+      ...onXva,
       args: [{
         name: 'currency', required: true, hint: 'a currency the page offers, such as USD',
         complete: () => (xvaPageOf(xva)?.currencies() ?? []).map((c) => ({ value: c })),
@@ -237,7 +247,7 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
       words: `open ${tab}`,
       title: `Open the ${title} input tab`,
       group: 'XVA',
-      ...(xva === undefined ? { unavailable: 'Open an XVA workspace first.' } : { target: active!.title }),
+      ...onXva,
       run: () => xvaPage().openTab(tab),
     })),
     // B or A for every row of a trade grid, as one edit (ADR-0010 §6): the grid the keyboard was last in, or the one named.
@@ -246,7 +256,7 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
       words: side,
       title: `Tick or clear ${side === 'before' ? 'Before' : 'After'} on every trade of a grid`,
       group: 'XVA',
-      ...(xva === undefined ? { unavailable: 'Open an XVA workspace first.' } : { target: active!.title }),
+      ...onXva,
       args: [
         { name: 'which', required: true, complete: () => [{ value: 'all', detail: 'tick every row' }, { value: 'none', detail: 'clear every row' }],
           check: (v) => (v === 'all' || v === 'none' ? undefined : 'all or none') },

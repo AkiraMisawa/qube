@@ -67,11 +67,17 @@ export function XvaResult({ runId, pricedRevision, revision, register, onOpen, o
     ...(table?.sides.before === true && table.sides.after ? [['diff', 'Diff'] as const] : []),
   ];
   const lines = table === undefined ? [] : headlines(register, table);
+  // Copy quote is a quoted measure's (§7, §11: XVA's, from CVA), offered while the Run priced one.
+  const quoted = register.filter((m) => m.quoted);
+  const quotes = priced !== undefined && quoted.some((m) => priced.includes(m.id));
+  const quotedNames = quoted.map((m) => m.title).join(' or ');
+  // The currency the Run's figures are in, which it froze (§1, §7); the screen's setting may have moved since.
+  const currencies = [...new Set((table?.lines ?? []).flatMap((l) => (l.currency === undefined ? [] : [l.currency])))];
   const reasons = [...new Map((table?.lines ?? []).filter((l) => l.reason !== undefined)
     .map((l) => [`${l.measure}:${l.reason}`, l] as const)).values()];
 
   return (
-    <Stack gap={4} className="qwb-xva-result" data-testid="xva-result" aria-label="Latest price">
+    <Stack gap="xs" className="qwb-xva-result" data-testid="xva-result" aria-label="Latest price">
       <Group gap="xs" wrap="wrap">
         <Button size="compact-xs" variant="subtle" aria-expanded={open} aria-controls={bodyId} onClick={() => onOpenChange(!open)}
           title={open ? 'Collapse the result to a line a case.' : 'Show the Metrics.'}>{open ? 'Collapse' : 'Expand'}</Button>
@@ -85,13 +91,16 @@ export function XvaResult({ runId, pricedRevision, revision, register, onOpen, o
             {behind ? `revision ${pricedRevision} · workspace now ${revision}` : `revision ${pricedRevision}`}
           </Badge>
         )}
+        {currencies.length > 0 && (
+          <Badge variant="light" color="gray" data-testid="xva-result-currency" title="The currency this Run's figures are in.">{currencies.join(' · ')}</Badge>
+        )}
         {counts.length > 0 && (
           <Text size="xs" data-testid="xva-result-trades" title="Trades each measure priced, Before → After">Trades: {counts.join(' · ')}</Text>
         )}
         {/* A Run's actions (ADR-0010 §7): each once the Run has finished, Copy quote while it priced CVA. */}
-        <Group gap={4} ml="auto">
-          <Button size="compact-xs" variant="default" onClick={onCopyQuote} disabled={status === 'running' || priced?.includes('cva') !== true}
-            title={priced?.includes('cva') === true ? 'Copy the CVA Charge and PV each case adds, as HTML and text.' : 'This Run did not price CVA, so it has no quote.'}>Copy quote</Button>
+        <Group gap="xs" ml="auto">
+          <Button size="compact-xs" variant="default" onClick={onCopyQuote} disabled={status === 'running' || !quotes}
+            title={quotes ? 'Copy what each case adds, as HTML and text, for a quote.' : `This Run did not price ${quotedNames}, so it has no quote.`}>Copy quote</Button>
           {status === 'running'
             ? <Button size="compact-xs" variant="default" disabled>Download</Button>
             : <Button size="compact-xs" variant="default" component="a" href={archiveUrl(runId)} download={`${runId}.zip`}>Download</Button>}
@@ -105,14 +114,14 @@ export function XvaResult({ runId, pricedRevision, revision, register, onOpen, o
         </Stack>
       )}
       {open && (
-        <Stack gap={4} id={bodyId} className="qwb-xva-result-body" data-testid="xva-result-body" style={partHeight(height)}>
+        <Stack gap="xs" id={bodyId} className="qwb-xva-result-body" data-testid="xva-result-body" style={partHeight(height)}>
           {priced === undefined && (
-            <Text size="xs" c="dimmed">This Run was priced before measures were registered. Open it to see its figures, or Price again.</Text>
+            <Text size="xs">This Run was priced before measures were registered. Open it to see its figures, or Price again.</Text>
           )}
-          {table?.note !== undefined && <Text size="xs" c="dimmed" data-testid="xva-result-note">{table.note}</Text>}
+          {table?.note !== undefined && <Text size="xs" data-testid="xva-result-note">{table.note}</Text>}
           {grid !== undefined && grid.rows.length > 0 && (
             <div className="qwb-xva-result-table">
-              <Table withTableBorder withColumnBorders verticalSpacing={4} horizontalSpacing="sm" fz="sm" aria-label="Metrics">
+              <Table withTableBorder withColumnBorders verticalSpacing="xs" horizontalSpacing="sm" fz="sm" aria-label="Metrics">
                 <Table.Thead>
                   <Table.Tr>
                     <Table.Th rowSpan={2}>Case</Table.Th>
