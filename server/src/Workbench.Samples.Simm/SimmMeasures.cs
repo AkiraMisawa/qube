@@ -26,7 +26,8 @@ public sealed class SimmMeasures(ConventionRegistry conventions, Func<DateOnly, 
     public string Id => Module;
 
     public static IReadOnlyList<MeasureDefinition> Definitions { get; } =
-        [new(SpotIm, "Spot IM", [new("imR", "IM-R", ImCsaTerms.Collect), new("imP", "IM-P", ImCsaTerms.Post)], "imR", DeclaresMembership: true, Traced: true)];
+        [new(SpotIm, "Spot IM", [new("imR", "IM-R", ImCsaTerms.Collect), new("imP", "IM-P", ImCsaTerms.Post)], "imR", DeclaresMembership: true, Traced: true,
+            Tabs: [new("simm", "SIMM", ResultTab.Trace)])];
 
     public IReadOnlyList<MeasureDefinition> Measures => Definitions;
 

@@ -233,6 +233,18 @@ figure, and `SIMM PARAMETERS DEMO` is said with the row's figures. For both, the
 term its figure opens. The trace's measure is the measure's ID, the standalone workflow's included. IM-R's trade count
 is the side's trades in an IM-R scope, and IM-P's likewise.
 
+*(Added 2026-11-08, delivery step 3; DEFAULT unless marked.)* The SIMM tab is a result tab spot IM registers (ADR-0010
+§7's note of this date). Opening it widens the dock over the input tabs and the trade grids, and a button and `dock
+restore` put it back (CONFIRMED, owner 2026-11-08). It shows a card per direction, `IM-R · collect` and `IM-P · post`
+with the IM CSA, their Before, After and Diff and the regime that governs each side; the chosen card's direction is the
+root of the tree beside the formula, in §6's layout. An IM-R or IM-P cell, or `explain simm.spotIm <path>`, opens the
+tab at its term and chooses its card. A regime is `JFSA regime` in the tree, marked `Governs` or `Not governing`.
+Below a regime and every term under it, its trades come first, each the sum of its CRIF lines' contributions there on
+each side with the Diff, and each side says whether they add up to the term's contribution; a risk factor also offers
+its CRIF lines. A direction has no trades view, since its IM is a max over regimes and a trade's lines would be counted
+under each (ADR-0011 §5's note). A counterparty with no IM CSA has a SIMM tab that says why, as the Metrics do. Spot CCR
+capital registers a `CCR` tab of the same kind, with its one root and no cards.
+
 ### 8. Reuse by MVA
 
 MVA's time-0 IM is this spot IM. The IM CSAs, the CRIF artifact, the SIMM kinds and the reference engine are shared:
@@ -256,7 +268,7 @@ is this one.
    retained CRIF and IM CSAs, which a form cannot yet pass.)*
 2. Spot IM registered into the pricer page (ADR-0010's delivery order step 1 is its prerequisite): membership,
    columns, the IM tab, Metrics.
-3. The SIMM tab's drill-down, in the layout the owner picks.
+3. The SIMM tab's drill-down, in the layout the owner picks. *(Delivered 2026-11-08, §7's note of that date.)*
 
 ## OPEN
 

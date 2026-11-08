@@ -238,9 +238,12 @@ public sealed record LeafColumn(string Name, string Label, TraceUnit? Unit = nul
 
 /// <summary>
 /// The rows beneath a term. <c>EntityField</c> holds the entity's identity, so the page can go to its row;
-/// <c>ComponentField</c>, when given, tells apart the rows of one entity (the legs of a swap).
+/// <c>ComponentField</c>, when given, tells apart the rows of one entity (the legs of a swap). <c>ContributionField</c>,
+/// when given, is the column holding a row's additive share of its root, so that at any term an entity's share is the
+/// sum of its rows' below it (ADR-0012 §6); a leaf set without one has no entity shares to sum.
 /// </summary>
-public sealed record LeafSetKind(string LeafSet, string EntityField, IReadOnlyList<LeafColumn> Columns, string? ComponentField = null);
+public sealed record LeafSetKind(string LeafSet, string EntityField, IReadOnlyList<LeafColumn> Columns, string? ComponentField = null,
+    string? ContributionField = null);
 
 /// <summary>The kinds and leaf sets a domain module registers for one method version.</summary>
 public sealed record TraceCatalog(TraceMethod Method, IReadOnlyList<TermKind> Kinds, IReadOnlyList<LeafSetKind> LeafSets);

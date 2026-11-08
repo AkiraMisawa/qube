@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Anchor, Badge, Breadcrumbs, Button, Group, SegmentedControl, Stack, Text, UnstyledButton, em } from '@mantine/core';
+import { Alert, Anchor, Badge, Breadcrumbs, Button, Code, CopyButton, Group, SegmentedControl, Stack, Text, UnstyledButton, em } from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
 import { useQueries, useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
 import { useStore } from 'zustand';
 import { refusalText as describe, type ChildOrder, type TraceApi } from './api';
 import type { Side, TermKind, TermPage, TermRead, TraceAddress, TraceAnswer, TraceHeader } from './contracts';
 import { operandTargets, stateText } from './formula';
+import { EntityRows } from './EntityRows';
+import { belowViews, entitySetOf, splits } from './entities';
 import { LeafRows } from './LeafRows';
 import { termRequests } from './open';
 import { TermDetail } from './TermDetail';
@@ -32,12 +34,15 @@ function stable(next: readonly TreeRow[], previous: ReadonlyMap<string, TreeRow>
   });
 }
 
-export function TraceView({ panelId, address, api, registerFocus }: {
+export function TraceView({ panelId, address, api, registerFocus, root }: {
+  /** Whose term requests the view answers (`termRequests`): a trace panel's, or a page's trace tab's. */
   readonly panelId: string;
   readonly address: TraceAddress;
   readonly api: TraceApi;
   /** Gives the panel's "focus grid" command the tree's keyboard, while the tree is drawn. */
   readonly registerFocus: (focus: (() => void) | undefined) => void;
+  /** The one root the tree is drawn from, as a trace tab's card chooses it (ADR-0012 §7); every root where none is. */
+  readonly root?: string | undefined;
 }) {
   const queryClient = useQueryClient();
   // Which component mounts, not how one is styled (design guidelines §9): a tree beside the formula, or drilling in.
@@ -47,6 +52,8 @@ export function TraceView({ panelId, address, api, registerFocus }: {
   const [open, setOpen] = useState<ReadonlySet<string>>(() => new Set());
   const [pagesAsked, setPagesAsked] = useState<Readonly<Record<string, number>>>({});
   const [place, setPlace] = useState(0);
+  // How the rows below the selected term are shown: by entity (the default, where it splits) or by row.
+  const [below, setBelow] = useState<'entities' | 'rows'>('entities');
   // The term asked for by a Metrics cell or `explain`: it opens as well as the terms above it, once it is read.
   const reveal = useRef<string | undefined>(ROOT);
 
@@ -72,7 +79,8 @@ export function TraceView({ panelId, address, api, registerFocus }: {
     },
   });
   const header = first.data?.trace;
-  const rootIds = useMemo(() => header?.roots.map((r) => r.id) ?? [], [header]);
+  const rootIds = useMemo(() => (header?.roots ?? []).map((r) => r.id).filter((id) => root === undefined || id === root), [header, root]);
+  // A trace tab that draws another root asks for it as a term, so the selection follows it (`requestTerm`).
   const selectedId = selected ?? rootIds[0];
 
   const catalog = useQuery({
@@ -166,16 +174,32 @@ export function TraceView({ panelId, address, api, registerFocus }: {
         ? <Text size="sm">Reading the term…</Text>
         : <TermDetail header={trace} page={selectedPage} kinds={kinds} operand={operand} onSelect={select} />;
   // Rows a term names in a leaf set the catalogue does not register are said to be unreadable, never left out.
-  const leafRows = leaves === undefined || selectedPage === undefined || catalog.data === undefined ? undefined
+  const ownRows = leaves === undefined || selectedPage === undefined || catalog.data === undefined ? undefined
     : leafSet === undefined
       ? <Alert color="red" variant="light" title="Leaf set not registered">
           The catalogue of {trace.method.id} {trace.method.version} has no leaf set {leaves.leafSet}, so the rows below {selectedPage.term.label} cannot be shown.
         </Alert>
       : <LeafRows key={selectedPage.term.id} api={api} address={address} header={trace} path={selectedPage.term.id} set={leafSet} rowCount={leaves.rowCount} />;
+  // At a term with a share to split, its entities by default, and its own rows beside them where it has some (ADR-0012 §6).
+  const entitySet = entitySetOf(catalog.data);
+  const views = selectedPage === undefined ? [] : belowViews(entitySet, splits(selectedPage.term, trace.sides), leaves === undefined ? undefined : leafSet);
+  const view = views.find((v) => v.value === below) ?? views[0];
+  const shownBelow = view?.value === 'entities' && entitySet !== undefined && selectedPage !== undefined
+    ? <EntityRows key={selectedPage.term.id} api={api} address={address} header={trace} path={selectedPage.term.id} set={entitySet} />
+    : ownRows;
+  const leafRows = shownBelow === undefined ? undefined : (
+    <Stack gap="xs" data-testid="trace-below">
+      {views.length > 1 && (
+        <SegmentedControl size="xs" value={view!.value} onChange={(v) => setBelow(v as 'entities' | 'rows')} aria-label="Rows below the term"
+          data-testid="trace-below-view" data={views.map((v) => ({ value: v.value, label: v.label }))} />
+      )}
+      {shownBelow}
+    </Stack>
+  );
 
   return (
     <Stack gap="xs" className="qwb-trace" data-testid="trace-view" data-layout={phone ? 'drill' : 'tree'}>
-      <TraceHeaderBar header={trace} order={order} onOrder={reorder} />
+      <TraceHeaderBar header={trace} title={trace.roots.find((r) => r.id === rootIds[0])?.label ?? trace.measure} order={order} onOrder={reorder} />
       {selectedPage !== undefined && (
         <Breadcrumbs separator="›" separatorMargin="xs" className="qwb-trace-path" aria-label="Path from the root" data-testid="trace-path">
           {selectedPage.path.map((crumb, i) => (i === selectedPage.path.length - 1
@@ -183,6 +207,7 @@ export function TraceView({ panelId, address, api, registerFocus }: {
             : <Anchor key={crumb.id} component="button" size="xs" onClick={() => select(crumb.id)}>{crumb.label}</Anchor>))}
         </Breadcrumbs>
       )}
+      {selectedPage !== undefined && <ExplainLine text={`explain ${address.measure} ${selectedPage.term.id}`} />}
       {phone ? (
         <Stack gap="sm">
           {detail}
@@ -216,8 +241,27 @@ function leavesOf(term: TermRead, header: TraceHeader): { readonly leafSet: stri
   return leafSet === undefined ? undefined : { leafSet, rowCount };
 }
 
+/**
+ * The command that comes back to the selected term (ADR-0011 §7): typed in Commands, or handed to the AI, it opens the
+ * same term of the same trace. Copied whole, so a path with spaces stays one path.
+ */
+function ExplainLine({ text }: { readonly text: string }) {
+  return (
+    <Group gap="xs" wrap="nowrap" className="qwb-trace-explain" data-testid="trace-explain">
+      <Code className="qwb-trace-explain-text" title="Type this in Commands, or give it to the AI, to come back to this term">{text}</Code>
+      <CopyButton value={text}>
+        {({ copied, copy }) => (
+          <Button size="compact-xs" variant="default" onClick={copy} data-testid="trace-explain-copy" aria-label={`Copy ${text}`}>{copied ? 'Copied' : 'Copy'}</Button>
+        )}
+      </CopyButton>
+    </Group>
+  );
+}
+
 /** What the trace is of and how it was written, always on screen (ADR-0011 §6): simulated said so, the provider and its depth. */
-function TraceHeaderBar({ header, order, onOrder }: { readonly header: TraceHeader; readonly order: ChildOrder; readonly onOrder: (order: ChildOrder) => void }) {
+function TraceHeaderBar({ header, title, order, onOrder }: {
+  readonly header: TraceHeader; readonly title: string; readonly order: ChildOrder; readonly onOrder: (order: ChildOrder) => void;
+}) {
   const origin = header.origins.find((o) => o.side === header.sides.at(-1)) ?? header.origins[0];
   const simulated = header.origins.some((o) => o.provenance?.executionMode === 'simulated');
   const engines = [...new Set(header.origins.flatMap((o) => (o.engine ? [`${o.engine.name} ${o.engine.version}`] : [])))];
@@ -225,7 +269,7 @@ function TraceHeaderBar({ header, order, onOrder }: { readonly header: TraceHead
   return (
     <Stack gap="xs">
       <div className="qwb-toolbar" role="toolbar" aria-label="Trace">
-        <Text size="sm" fw={600} data-testid="trace-title">{header.roots[0]?.label ?? header.measure}</Text>
+        <Text size="sm" fw={600} data-testid="trace-title">{title}</Text>
         {origin?.subject && <Text size="sm">{origin.subject.id}{origin.subject.label ? ` · ${origin.subject.label}` : ''}</Text>}
         <SegmentedControl size="xs" value={order} onChange={(v) => onOrder(v as ChildOrder)} aria-label="Order of the children"
           data={[{ value: 'formula', label: 'Formula order' }, { value: 'size', label: header.sides.length === 2 ? 'Largest change first' : 'Largest first' }]} />

@@ -83,7 +83,7 @@ export function AppPanel({ panel }: { readonly panel: Extract<Panel, { kind: 'ap
     case XVA_WORKSPACE: {
       const id = panel.params.workspaceId;
       if (id === undefined) throw new Error('An XVA workspace panel names its workspace.');
-      return <XvaWorkspacePanel panelId={panel.id} workspaceId={id} api={xvaApi} />;
+      return <XvaWorkspacePanel panelId={panel.id} workspaceId={id} api={xvaApi} traceApi={traceApi} />;
     }
     case RATES_WORKSPACE: {
       const id = panel.params.workspaceId;
@@ -251,6 +251,26 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
       ...onXva,
       run: () => xvaPage().openTab(tab),
     })),
+    // The dock's tabs (ADR-0010 §7): Metrics, or a tab a priced measure registers, such as spot IM's SIMM (ADR-0012 §7).
+    {
+      id: 'xva.result.open',
+      words: 'open result',
+      title: 'Show a tab of the result dock: Metrics, or a measure\'s own such as SIMM',
+      group: 'XVA',
+      ...onXva,
+      args: [{
+        name: 'tab', required: true,
+        hint: 'the tab to show: metrics, or a priced measure\'s own',
+        complete: () => (xvaPageOf(xva)?.resultTabs() ?? []).map((t) => ({ value: t.id, detail: t.title })),
+      }],
+      run: (a) => {
+        if (a.tab === undefined) throw new Error('open result needs the tab to show, such as metrics.');
+        xvaPage().openResult(a.tab);
+      },
+    },
+    // Widening the dock over the input tabs and the grids, and putting it back (owner, 2026-11-08).
+    ...([['full', true, 'Widen the result dock over the input tabs and the trade grids'], ['restore', false, 'Put the result dock back to the height its handle sets']] as const)
+      .map(([word, full, title]): Command => ({ id: `xva.dock.${word}`, words: `dock ${word}`, title, group: 'XVA', ...onXva, run: () => xvaPage().setDockFull(full) })),
     // B or A for every row of a trade grid, as one edit (ADR-0010 §6): the grid the keyboard was last in, or the one named.
     ...(['before', 'after'] as const).map((side): Command => ({
       id: `xva.${side}.all`,

@@ -132,6 +132,9 @@ out of `ccr.spotCapital`'s membership with that reason.
 - **Settings**: κ and the national-rule configuration, shown, not edited in the page (DEFAULT).
 - **Validation**: a counterparty without an exposure class, a netting set without its CSA's terms, or a trade without
   the fields its decomposition needs refuses this measure by name, and leaves CVA and FVA standing.
+- **Results** *(note of 2026-11-08, DEFAULT)*: a `CCR` result tab that draws the capital's trace from its one root,
+  as spot IM's SIMM tab does (ADR-0010 §7's note, ADR-0012 §7's note). Its leaf sets name no contribution, so it has
+  no trades view until the provider allocates the capital.
 
 ### 7. What the PoC chose where the rule leaves it to the bank (DEFAULT, 2026-11-08)
 

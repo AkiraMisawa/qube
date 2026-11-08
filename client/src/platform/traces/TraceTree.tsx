@@ -9,7 +9,7 @@ import type { TraceHeader } from './contracts';
 import { symbolTex } from './formula';
 import { Tex } from './Tex';
 import type { TreeRow } from './tree';
-import { SIDE_TITLE, citationCell, diffCell, governedCell, sideCell, stateCell, unitText } from './words';
+import { SIDE_TITLE, allocationCell, allocationDiffCell, citationCell, diffCell, governedCell, governsMark, sideCell, stateCell, unitText } from './words';
 
 // The tree of terms (ADR-0011 §6) in ExGrid, drawn as ExPivot draws its Compact form: the term column is a pinned
 // Template Column with the label, its indent and the open/close button; the grid reports the press, and the page holds
@@ -24,6 +24,7 @@ const DECLARED_KEYS = [OPEN_KEY, CLOSE_KEY];
 interface TreeActions {
   readonly toggle: (row: TreeRow) => void;
   readonly more: (row: TreeRow) => void;
+  readonly header: TraceHeader;
 }
 
 const Actions = createContext<TreeActions | undefined>(undefined);
@@ -53,8 +54,10 @@ function TermCell({ cell }: { readonly cell: GridTemplateCell<TreeRow> }) {
     return <div className="qwb-trace-term" style={indent}><Text size="xs" {...(row.kind === 'failed' ? { c: 'red' } : {})} truncate>{row.note}</Text></div>;
   }
   const label = row.term?.label ?? row.termId;
+  // The operand its parent's max took is marked, and the others drawn faint: a regime that did not govern (ADR-0011 §6).
+  const mark = row.term === undefined ? undefined : governsMark(row.term, actions.header);
   return (
-    <div className="qwb-trace-term" style={indent} data-open={row.open}>
+    <div className="qwb-trace-term" style={indent} data-open={row.open} {...(mark === undefined ? {} : { 'data-governs': mark.governs })}>
       {row.opens ? (
         <ActionIcon ref={button} size="sm" variant="subtle" tabIndex={-1} className="ex-interactive" aria-expanded={row.open}
           aria-label={`${row.open ? 'Close' : 'Open'} ${label}`} title={`${row.open ? 'Close' : 'Open'} ${label} (${row.open ? 'Alt+←' : 'Alt+→'})`}
@@ -63,13 +66,14 @@ function TermCell({ cell }: { readonly cell: GridTemplateCell<TreeRow> }) {
         </ActionIcon>
       ) : <span className="qwb-trace-leaf" aria-hidden />}
       <span className="qwb-trace-label" title={label}>{label}</span>
+      {mark !== undefined && <span className="qwb-trace-mark" data-testid="trace-governs">{mark.text}</span>}
     </div>
   );
 }
 
 // A symbol that only repeats its label (a decision's `Exposure class`) is left out of its column.
 const symbolOf = (r: TreeRow) => (r.term === undefined || r.term.symbol === r.term.label ? '' : r.term.symbol);
-const termColumn = templateColumn<TreeRow>({ name: 'term', header: 'Term', type: 'text', value: (r) => r.term?.label ?? r.note ?? '', width: 260, queryable: false },
+const termColumn = templateColumn<TreeRow>({ name: 'term', header: 'Term', type: 'text', value: (r) => r.term?.label ?? r.note ?? '', width: 300, queryable: false },
   (cell) => <TermCell cell={cell} />);
 const symbolColumn = templateColumn<TreeRow>({ name: 'symbol', header: 'Symbol', type: 'text', value: symbolOf, width: 96, queryable: false },
   (cell) => (symbolOf(cell.row) === '' ? null : <Tex tex={symbolTex(symbolOf(cell.row))} />));
@@ -87,15 +91,17 @@ function columnsOf(header: TraceHeader, allocated: boolean): readonly GridColumn
   });
   const text = (name: string, title: string, value: (r: TreeRow) => string, width: number): GridColumn<TreeRow> =>
     ({ name, header: title, type: 'text', width: { auto: true, minPx: width, maxPx: 360 }, queryable: false, value });
-  const last = header.sides.at(-1)!;
+  const both = header.sides.length === 2;
   return [
     termColumn,
     symbolColumn,
     ...header.sides.map((side) => figure(side, SIDE_TITLE[side], (r) => sideCell(r.term![side], r.term!.unit))),
     // A case priced on one side has no Diff column at all, not an empty one (ADR-0011 §4).
     ...(header.sides.length === 2 ? [figure('diff', 'Diff', (r) => diffCell(r.term!))] : []),
-    // An allocation is additive where the Diff is not, so it is a column of its own, shown when the provider gave one (§1, §4).
-    ...(allocated ? [figure('allocation', header.sides.length === 2 ? 'Allocation (After)' : 'Allocation', (r) => r.term![last]?.allocation?.value)] : []),
+    // An allocation is additive where the Diff is not, so it has columns of its own, on each side and its change, shown
+    // when the provider gave one (§1, §4; ADR-0012 §6).
+    ...(allocated ? header.sides.map((side) => figure(`allocation.${side}`, both ? `Allocation ${SIDE_TITLE[side]}` : 'Allocation', (r) => allocationCell(r.term!, side))) : []),
+    ...(allocated && both ? [figure('allocation.diff', 'Allocation Diff', (r) => allocationDiffCell(r.term!))] : []),
     text('unit', 'Unit', (r) => (r.term === undefined ? '' : unitText(r.term.unit, header)), 64),
     text('state', 'State', (r) => (r.term === undefined ? '' : stateCell(r.term, header)), 96),
     text('governed', 'Governed by', (r) => (r.term === undefined ? '' : governedCell(r.term, header)), 96),
@@ -212,7 +218,8 @@ export function TraceTree({ header, rows, selected, onSelect, onGoTo, onToggle, 
   const actions = useMemo<TreeActions>(() => ({
     toggle: (row) => handlers.current.onToggle(row.termId, !row.open),
     more: (row) => handlers.current.onMore(row.termId),
-  }), []);
+    header,
+  }), [header]);
 
   // As high as its rows, three at least and fourteen at most, by ExGrid's own Grid Metrics.
   const height = compactGridHeight(Math.min(Math.max(rows.length, 3), 14));

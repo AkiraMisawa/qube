@@ -163,7 +163,13 @@ export interface RegisteredMeasure {
   readonly traced: boolean;
   /** Whether a Run that priced it has a quote to copy (ADR-0010 §7, §11: XVA's, from CVA). */
   readonly quoted: boolean;
+  /** The result tabs it draws beside Metrics (ADR-0010 §7, §10), such as spot IM's SIMM; none for most. */
+  readonly tabs: readonly ResultTab[];
 }
+
+/** A result tab a measure registers (ADR-0010 §7, §10). `trace` draws the measure's trace: a card per root, then the
+ * drill-down (ADR-0011 §6, ADR-0012 §7). */
+export interface ResultTab { readonly id: string; readonly title: string; readonly view: 'trace' }
 
 /** A shared input tab's field a selected measure needs (ADR-0010 §10), such as CVA's recovery on Netting. */
 export interface MeasureInput { readonly tab: string; readonly field: string; readonly measure: string }

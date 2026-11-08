@@ -8,7 +8,8 @@ public enum TraceSide { Before, After }
 /// <summary>
 /// A term on one side: its state, its value or the reason it has none, and its reconciliation. A decision's inputs,
 /// reasons and the rule it applied are a side's, because each side decided on its own, and so are the leaf rows the
-/// side wrote beneath it (<c>Leaves</c>: which leaf set, and how many).
+/// side wrote beneath it (<c>Leaves</c>: which leaf set, and how many). <c>Governs</c> says, for an operand of its
+/// parent's max, min or clamp, whether it is the one the parent took; it is null for a term that is no such operand.
 /// </summary>
 public sealed record SideValue(
     TermState State,
@@ -21,7 +22,8 @@ public sealed record SideValue(
     IReadOnlyList<string>? Because = null,
     bool Written = true,
     string? Citation = null,
-    TermLeaves? Leaves = null);
+    TermLeaves? Leaves = null,
+    bool? Governs = null);
 
 public enum DiffState { Value, Absent, Unavailable, NotNumeric }
 
@@ -74,6 +76,17 @@ public sealed record PairedLeafRow(
     IReadOnlyList<LeafMismatch> AfterMismatches);
 
 public sealed record LeafPage(IReadOnlyList<PairedLeafRow> Rows, int Total, int Offset);
+
+/// <summary>An entity's share of a term on one side: the sum of its leaf rows' contributions at every depth below it, and how many rows.</summary>
+public sealed record EntityShare(double Contribution, int Rows);
+
+/// <summary>One entity below a term: its share on each side that has rows of it, and the Diff when both sides were priced.</summary>
+public sealed record EntityRow(string LeafSet, string Entity, EntityShare? Before, EntityShare? After, double? Diff);
+
+/// <summary>On one side, whether the entities' shares add up to the term's allocation, by the trace's tolerance (ADR-0011 §2).</summary>
+public sealed record EntityCheck(TraceSide Side, CheckStatus Status, double Sum, double? Allocation, string? Reason = null);
+
+public sealed record EntityPage(IReadOnlyList<EntityRow> Rows, int Total, int Offset, IReadOnlyList<EntityCheck> Checks);
 
 /// <summary>
 /// The traces of one (Run, case, scenario, measure): one per side the case priced. A case priced on one side is read
@@ -213,6 +226,75 @@ public sealed class TraceReader
         return new LeafPage(rows.Skip(offset).Take(limit).ToList(), rows.Count, offset);
     }
 
+    /// <summary>
+    /// The entities below a term (ADR-0012 §6): on each side, the sum of each entity's leaf rows' contributions at every
+    /// depth below the term, with the Diff when both sides were priced, an absent side contributing nothing. The largest
+    /// change comes first, or with one side the largest share, and each side says whether its entities add up to the
+    /// term's allocation. A term with no allocation on any side is refused, since summing below a max or a min counts
+    /// what did not govern; so is a leaf set below it that names no contribution.
+    /// </summary>
+    public EntityPage Entities(string id, int offset = 0, int limit = 200)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(offset);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(limit);
+        var written = Present.Select(s => (side: s, term: s.Index.Find(id))).Where(x => x.term is not null).ToList();
+        if (written.Count == 0) throw new TraceInvalid($"No side has the term {id}.");
+        if (written.All(x => x.term!.Allocation is null))
+            throw new TraceRefused("NoAllocation", $"{id} has no allocation to split among its entities: its value is not a sum of shares, so its rows' contributions are not added up here.");
+
+        var rows = new List<EntityRow>();
+        var at = new Dictionary<(string, string), int>();
+        var checks = new List<EntityCheck>();
+        foreach (var (side, term) in written)
+        {
+            var sum = 0.0;
+            foreach (var row in LeavesBelow(side.Index, id))
+            {
+                var leafSet = row["leafSet"]?.GetValue<string>() ?? throw new TraceInvalid($"A leaf row below {id} has no leaf set.");
+                var kind = side.Evaluator.LeafSetOf(leafSet) ?? throw new TraceInvalid($"The leaf set {leafSet} is not in the catalogue of {catalog.Method.Id} {catalog.Method.Version}.");
+                if (kind.ContributionField is null)
+                    throw new TraceRefused("NoContributions", $"The leaf set {leafSet} below {id} names no contribution, so its entities have no share to sum.");
+                var entity = Text(row[kind.EntityField]) ?? throw new TraceInvalid($"A {leafSet} row below {id} has no {kind.EntityField}.");
+                var contribution = Number(row[kind.ContributionField]) ?? throw new TraceInvalid($"A {leafSet} row of {entity} below {id} has no {kind.ContributionField}.");
+                sum += contribution;
+                if (!at.TryGetValue((leafSet, entity), out var i))
+                {
+                    at[(leafSet, entity)] = i = rows.Count;
+                    rows.Add(new EntityRow(leafSet, entity, null, null, null));
+                }
+                var share = (side.Name == TraceSide.Before ? rows[i].Before : rows[i].After) is { } known
+                    ? new EntityShare(known.Contribution + contribution, known.Rows + 1)
+                    : new EntityShare(contribution, 1);
+                rows[i] = side.Name == TraceSide.Before ? rows[i] with { Before = share } : rows[i] with { After = share };
+            }
+            checks.Add(term!.Allocation is { } allocation
+                ? Reconcile(side, sum, allocation.Value)
+                : new EntityCheck(side.Name, CheckStatus.NotChecked, sum, null, $"{id} has no allocation on {side.Name}"));
+        }
+        if (PricedBothSides) rows = [.. rows.Select(r => r with { Diff = (r.After?.Contribution ?? 0) - (r.Before?.Contribution ?? 0) })];
+        var ordered = rows.Select((r, i) => (r, i))
+            .OrderByDescending(x => Math.Abs(x.r.Diff ?? (x.r.After ?? x.r.Before)!.Contribution)).ThenBy(x => x.i).Select(x => x.r).ToList();
+        return new EntityPage(ordered.Skip(offset).Take(limit).ToList(), ordered.Count, offset, checks);
+    }
+
+    static EntityCheck Reconcile(Side side, double sum, double allocation) =>
+        Math.Abs(sum - allocation) <= side.Index.Trace.Tolerance * Math.Max(1, Math.Abs(allocation))
+            ? new(side.Name, CheckStatus.Matches, sum, allocation)
+            : new(side.Name, CheckStatus.Inconsistent, sum, allocation,
+                $"{sum.ToString("G10", System.Globalization.CultureInfo.InvariantCulture)} by its entities, {allocation.ToString("G10", System.Globalization.CultureInfo.InvariantCulture)} allocated");
+
+    /// <summary>The leaf rows of a term and of every term below it, depth first, as the side wrote them.</summary>
+    static IEnumerable<JsonObject> LeavesBelow(TraceIndex index, string id)
+    {
+        var pending = new Stack<string>([id]);
+        while (pending.TryPop(out var current))
+        {
+            foreach (var row in index.LeafRows(current)) yield return row;
+            var children = index.Children(current);
+            for (var i = children.Count - 1; i >= 0; i--) pending.Push(children[i].Id);
+        }
+    }
+
     static List<PairedLeafRow> Sorted(List<PairedLeafRow> rows, string column, bool descending)
     {
         var keyed = rows.Select((row, i) => (row, i, value: (row.After ?? row.Before)?[column])).ToList();
@@ -258,7 +340,7 @@ public sealed class TraceReader
         var term = side.Index.Find(written.Id);
         if (term is not null)
             return new SideValue(term.State, term.Value, term.Reason, side.Evaluator.Check(term), term.Governed, term.Allocation, term.Inputs, term.Because,
-                Citation: term.Citation, Leaves: term.Leaves);
+                Citation: term.Citation, Leaves: term.Leaves, Governs: side.Evaluator.Governs(term));
         var (state, reason) = Missing(side, written);
         return new SideValue(state, null, reason, TermCheck.NotApplicable, Written: false);
     }

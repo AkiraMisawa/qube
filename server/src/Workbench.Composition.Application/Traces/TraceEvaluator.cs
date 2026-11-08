@@ -153,6 +153,46 @@ public sealed class TraceEvaluator(TraceIndex index, TraceCatalog catalog)
         return mismatches;
     }
 
+    /// <summary>
+    /// Whether a term is the operand its parent's max, min or clamp took (ADR-0011 §2's <c>governed</c>): true for that
+    /// operand, false for the parent's other operands that are terms, and null for a term that is no operand of one.
+    /// </summary>
+    public bool? Governs(TraceTerm term)
+    {
+        if (term.Parent is null || index.Find(term.Parent) is not { Governed: JsonValue governed } parent) return null;
+        var operands = KindOf(parent.Kind)?.Expression switch
+        {
+            MaxExpr m => m.Args.SelectMany(a => OperandTerms(a, parent)).ToList(),
+            MinExpr m => m.Args.SelectMany(a => OperandTerms(a, parent)).ToList(),
+            ClampExpr c => new[] { c.X, c.Low, c.High }.Select(a => OperandTerm(a, parent)).ToList(),
+            _ => null,
+        };
+        if (operands is null) return null;
+        var took = governed.TryGetValue<string>(out var slot) ? SlotId(parent, slot)
+            : governed.TryGetValue<int>(out var at) && at >= 0 && at < operands.Count ? operands[at]
+            : null;
+        if (took == term.Id) return true;
+        return operands.Contains(term.Id) ? false : null;
+    }
+
+    /// <summary>The terms an operand of a max or a min stands for: a slot's term, each child a list names, or none.</summary>
+    IEnumerable<string?> OperandTerms(TraceExpr operand, TraceTerm parent)
+    {
+        if (operand is not ChildrenExpr children) return [OperandTerm(operand, parent)];
+        var of = children.Of is null ? parent.Id : SlotId(parent, children.Of);
+        return index.Children(of).Where(c => children.Kind is null || c.Kind == children.Kind).Select(c => (string?)c.Id);
+    }
+
+    /// <summary>The term an operand is, or its negation is; null where it is a figure of its own (a constant, a sum).</summary>
+    static string? OperandTerm(TraceExpr operand, TraceTerm parent) => operand switch
+    {
+        SlotExpr s => SlotId(parent, s.Name),
+        NegateExpr { Arg: SlotExpr s } => SlotId(parent, s.Name),
+        _ => null,
+    };
+
+    static string SlotId(TraceTerm term, string name) => term.Slots?.GetValueOrDefault(name) ?? $"{term.Id}/{name}";
+
     TermCheck Compare(double returned, double computed) =>
         Math.Abs(computed - returned) <= index.Trace.Tolerance * Math.Max(1, Math.Abs(returned))
             ? new(CheckStatus.Matches, computed)

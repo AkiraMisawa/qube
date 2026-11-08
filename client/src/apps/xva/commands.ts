@@ -1,4 +1,5 @@
 import type { RegisteredMeasure } from './contracts';
+import type { DockTab } from './dock';
 import type { InputTab } from './XvaInputs';
 
 // What an open XVA workspace page offers to commands, by panel: its Price and its measures (ADR-0010 §9). The page
@@ -24,6 +25,12 @@ export interface XvaPage {
   openTab(tab: InputTab): void;
   /** Opens the trace of a measure the dock's Run priced, at a term or its root (`explain`, ADR-0011 §7). */
   explain(measure: string, path?: string): void;
+  /** Shows a tab of the dock: Metrics or a priced measure's own, which widens the dock (`open result simm`, ADR-0010 §7). */
+  openResult(tab: string): void;
+  /** Widens the dock over the input tabs and the grids, or puts it back (`dock full`, `dock restore`; owner 2026-11-08). */
+  setDockFull(full: boolean): void;
+  /** The dock's tabs for the Run it shows, for the command line to offer. */
+  resultTabs(): readonly DockTab[];
   /** The registered measures, for the command line to offer. */
   measures(): readonly RegisteredMeasure[];
   /** The currencies the figures can be shown in, for the command line to offer. */

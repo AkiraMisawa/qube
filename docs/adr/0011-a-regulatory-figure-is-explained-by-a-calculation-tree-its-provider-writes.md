@@ -202,6 +202,17 @@ scenario `base` (DEFAULT), as a Price without Before is. A side that was priced 
 root `unavailable` with why, so that it is never read as not priced. Only the Run's owner reads its trace until roles
 arrive with sign-in, C30 and C31.)*
 
+*(Added 2026-11-08, DEFAULT, for ADR-0012's delivery step 3.)* A leaf set may name the column that holds a row's
+additive share of its root (`contributionField`). `GET …/traces/{measure}/entities?scenario=…&path=…&offset=…&limit=…`
+then answers the entities below a term, at every depth: each with the sum of its rows' contributions and how many rows
+on each side, and the Diff when both sides were priced, an absent side contributing nothing. The largest change comes
+first, or with one side the largest share. Each side says whether its entities add up to the term's allocation, by
+the trace's tolerance, with both figures when they do not. It is refused by name at a term with no allocation
+(`NoAllocation`: a max over operands, whose rows would be counted once under every operand) and above a leaf set that
+names no contribution (`NoContributions`), rather than answering a sum that means nothing. A term also answers, on
+each side, whether it is the operand its parent's max, min or clamp took (`governs`), resolved by the kernel from the
+parent's `governed` and its kind's expression, so that no view infers it from an order it may have changed.
+
 ### 6. One view draws every trace
 
 The kernel's view components gain `trace`, drawn by one renderer for every measure. A Metrics cell of a measure that
@@ -239,6 +250,20 @@ of that day; the CCR sample was ported to it the same day (links in §6's last p
   provider says so.
 - **Below `sm`**, drilling in: the breadcrumb, the formula, then the selected term's children as a list of term, Diff
   and state, each opening the next level.
+
+*(Added 2026-11-08, DEFAULT, for ADR-0012's delivery step 3.)*
+
+- The allocation is a column per priced side and its change (`Allocation Before`, `Allocation After`, `Allocation
+  Diff`). An absent side contributes nothing to the change; a side with a value and no allocation leaves it blank.
+- An operand of its parent's max, min or clamp is marked `Governs` or `Not governing` beside its label, from §5's
+  `governs`, and the operands that did not govern are drawn faint, as an absent term is.
+- Below a term with an allocation, its entities (§5's note) come first, named by the leaf set's own entity column
+  (`By Trade`), and the term's own rows beside them where it has some (`By CRIF line`).
+- The formula's parameters come first: those it names and those scoped to the term. Those scoped to a term above it
+  are folded behind a button. A matrix scrolls inside its own box, so the page never scrolls sideways (§9).
+- The selected term's `explain <measure> <path>` is shown with a button that copies it whole.
+- A trace drawn in a page's tab rather than a panel (ADR-0012 §7's note) shows a card per root, with its figures and
+  what governs it, and draws the tree from the root chosen.
 
 Mathematics is set by KaTeX at an exact pinned version, in strict mode, with trust granted only to `\htmlData`, which
 the renderer itself writes around each `\slot` to make the operand selectable. Templates come from the registered

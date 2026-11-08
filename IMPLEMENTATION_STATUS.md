@@ -520,8 +520,8 @@ SIMM engine, calibration or company source is wired; production takes spot SIMM 
 
 ### Known limits
 
-- The SIMM tab (the two directions' summaries and the drill-down in the owner's layout) is step 3; a Metrics cell
-  opens the trace view spot CCR capital uses.
+- The SIMM tab (the two directions' summaries and the drill-down in the owner's layout) was step 3, delivered below; a Metrics cell
+  opened the trace view spot CCR capital uses until then.
 - The Pricing DB's projection shows no spot IM (ADR-0012 OPEN): a Run that priced spot IM alone lists its date and
   counterparty only.
 - The IM tab is read-only; IM CSAs as a what-if is OPEN. The phase-in dates are illustrative.
@@ -530,11 +530,59 @@ SIMM engine, calibration or company source is wired; production takes spot SIMM 
 - Opening the IM tab while spot IM is not selected says so rather than opening; the page cannot name which measure
   would show it, since the server lists only the selected measures' inputs.
 
+## Spot SIMM, step 3: the SIMM tab (ADR-0012 §7, 2026-11-08)
+
+Spec `docs/specs/spot-simm-tab/` (tickets 01–04, done). The DEFAULTs are in the ADRs' notes of 2026-11-08: ADR-0010 §7
+and §10, ADR-0011 §5 and §6, ADR-0012 §7 and ADR-0013 §6.
+
+### What runs
+
+- **Result tabs registered by a measure**: spot IM registers `SIMM` and spot CCR capital `CCR`, each drawing its trace;
+  the pricer API lists them, and the dock shows Metrics and the tabs of the measures the Run priced. An IM-R or IM-P
+  cell, a CCR cell, or `explain`, opens the measure's tab at its term; opening a tab widens the dock over the input
+  tabs and the grids (owner's choice), and `Restore height` or `dock restore` puts it back. `open result <tab>` and
+  `dock full` from the command line. A measure priced on no side (no IM CSA) says why in its tab. A Run opened from
+  the Pricing DB keeps the separate trace panel.
+- **The SIMM tab**: a card per direction (`IM-R · collect`, `IM-P · post`) with its IM CSA, Before, After, Diff and
+  the regime that governs; the chosen card roots the tree beside the formula. CCR's tab has one root and no cards.
+- **Trades under a term** (generic, in the kernel): a leaf set names its contribution column, and
+  `GET …/traces/{measure}/entities` sums the rows below a term by entity on each side with the Diff, largest change
+  first, saying on each side whether they add up to the term's allocation. Refused by name at a term with no
+  allocation (a direction, which is a max over regimes) and above a leaf set with no contribution (CCR's, today).
+  The view offers `By Trade` first and, at a risk factor, `By CRIF line`.
+- **The trace view**: `Governs` / `Not governing` on the operands of a max, min or clamp (the kernel resolves which
+  term took it), the others faint; allocation Before, After and Diff columns; the term's own parameters first and
+  those of the terms above folded, each matrix scrolling in its own box; the `explain` line with Copy. The trace tab
+  and its view are loaded on first use, as the trace panel is.
+
+### Verification performed
+
+| Suite | Result |
+|---|---|
+| `dotnet test server/Workbench.slnx` | 455 passed: the entities of a synthetic orchard trace (sums, Diff, order, one side, refusals), `governs` by position and by slot, SIMM's regimes and labels, the registered tabs over HTTP, and spot IM's trades over HTTP adding up to the regime on both sides and to their own CRIF lines at a risk factor |
+| `npm run typecheck`, `npm test` (Vitest) | Clean; 140 passed, among them the dock's tabs and an unpriced tab's reason, the cards, the entity words, the governs mark, the allocation cells and the parameters split |
+| `npx playwright test` (Chromium, headless, Linux) | 33 passed; `simm.spec.ts` with `--repeat-each=3` (12 passed): the SIMM tab from a Metrics cell and by command, the cards switching roots, the governing and not-governing regimes, the trades adding up, the copied `explain` line, a risk factor's trades and CRIF lines, the folded parameters, restore, After alone with no Diff, a counterparty with no IM CSA, and 4.5:1 text with no sideways scroll at 1440, 992, 768 and 390px in both themes |
+| Screenshots at 1440 and 390px, dark | The SIMM tab at a regime and at a risk factor, the CRIF lines, the parameters unfolded; looked at by hand. A 7×7 ρ matrix scrolled the page sideways at 1440 until it was boxed, found by the new browser test |
+
+### Providers
+
+As step 2: the CRIF comes from the fake Rates provider, the SIMM parameters are DEMO, and every figure says
+`SIMULATED`. The allocation is the reference engine's Euler allocation.
+
+### Known limits
+
+- CCR's tab has no trades view: SA-CCR's provider writes no contribution per trade, and the kernel refuses to sum
+  what was not allocated.
+- The fold of the parameters is the formula pane's own: a pane drawn anew (another term, or crossing the phone width)
+  starts folded.
+- The entity grid is ordered by the server and takes no sort or filter; it refuses one rather than ignoring it.
+- A trade in the entity grid does not yet go to its row in the trade grids (ADR-0011 §6's leaf action).
+
 ## Next
 
 1. ADR-0010 Delivery step 2: cases (`vary`, iterative individual addition, the changes panel).
-2. ADR-0012 step 3: the SIMM tab, in the layout the owner picks (the drill-down sample agreed before it starts).
+2. MVA with SIMM (`docs/12-implementation-plan.md` P2): spot IM from the XVA request's MVA option.
 3. The owner's review of ADR-0003 §7 (scopes, carry and conflict), then a synthetic source change that can produce a conflict, and the browser cases still open above (reload, failed case unavailable).
-4. MVA with SIMM (`docs/12-implementation-plan.md` P2), then Rates.
+4. Rates.
 5. ME-ID sign-in through MSAL (C30) and the visibility rules (C31, C32); AI over AG-UI with the company's Copilot behind the adapter port (C34).
 6. Slice 01b: Save and Pin (CO06), and the browser parts of CO03 and CO04.

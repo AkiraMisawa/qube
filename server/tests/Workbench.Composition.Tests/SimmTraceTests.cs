@@ -58,6 +58,10 @@ public class SimmTraceTests
         // CFTC holds L1 alone, 21,000; JFSA holds both, 13,939.0057: the largest, CFTC, governs
         Assert.Equal((21_000, 1), (collect.Value!.GetValue<double>(), collect.Governed!.GetValue<int>()));
         Assert.Equal((TermState.Absent, (JsonNode?)null), (index.Find("post")!.State, index.Find("post")!.Value));
+        // Each regime says whether it governs, and the root is named as the page's Metrics name it.
+        var reader = new TraceReader(SimmTraceCatalog.For(Demo), null, trace);
+        Assert.Equal([false, true], regimes.Select(r => reader.Read(r.Id)!.After!.Governs!.Value));
+        Assert.Equal(("IM-R · collect", "CFTC regime"), (reader.Read("collect")!.Label, reader.Read("collect/CFTC")!.Label));
     }
 
     [Fact] // ADR-0012 §6, simm.bucket: S_b sits beside K_b and marks the bound it took

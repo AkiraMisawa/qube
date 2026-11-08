@@ -24,9 +24,9 @@ public static class SimmTraceCatalog
 
     public static TraceCatalog For(SimmParameters parameters) => new(new TraceMethod(Method, parameters.Version, "ISDA SIMM"),
     [
-        Kind("simm.im", "IM {direction}", "IM", "the margin is the largest over the regimes the IM CSA serves",
+        Kind("simm.im", "{im} · {direction}", "IM", "the margin is the largest over the regimes the IM CSA serves",
             @"\mathrm{IM} = \max_g \mathrm{SIMM}_g", new MaxExpr([new ChildrenExpr("simm.regime")])),
-        Kind("simm.regime", "SIMM {regime}", "SIMM_g", "the total over the product classes",
+        Kind("simm.regime", "{regime} regime", "SIMM_g", "the total over the product classes",
             @"\mathrm{SIMM} = \sum_p \mathrm{SIMM}_p", new SumExpr([new ChildrenExpr()])),
         Kind("simm.product", "{product}", "SIMM_p", "a product class over its risk classes",
             @"\mathrm{SIMM}_p = \sqrt{\sum_r \mathrm{IM}_r^2 + \sum_{r \ne s} \psi_{rs} \, \mathrm{IM}_r \, \mathrm{IM}_s}",
@@ -59,7 +59,7 @@ public static class SimmTraceCatalog
             new LeafColumn("amountCurrency", "Amount currency"),
             new LeafColumn("amountUsd", "Amount USD", Usd),
             new LeafColumn("contribution", "Contribution (Euler)", Usd),
-        ], "line"),
+        ], "line", "contribution"),
     ]);
 }
 
@@ -98,7 +98,8 @@ public static partial class SimmEngine
         {
             var id = SimmDatasets.Name(csa.Direction);
             roots.Add(id);
-            var key = new Dictionary<string, string> { ["direction"] = id, ["csa"] = csa.Id };
+            // IM-R is the margin collected, IM-P the margin posted: the names the page's Metrics give them.
+            var key = new Dictionary<string, string> { ["im"] = csa.Direction == ImDirection.Collect ? "IM-R" : "IM-P", ["direction"] = id, ["csa"] = csa.Id };
             if (governing < 0)
             {
                 // Nothing in scope: the direction has no IM, which is not an IM of 0 (ADR-0012 §1).

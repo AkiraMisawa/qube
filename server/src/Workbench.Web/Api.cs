@@ -52,6 +52,12 @@ public static class Api
             Traced(() => traces.Leaves(new(runId, caseId, scenario ?? TraceService.BaseScenario, measure), user.Id,
                 path ?? throw new TraceRefused("Required", "path names the term whose leaf rows are read."), offset ?? 0, limit ?? TraceService.DefaultPage, sort, descending ?? false)));
 
+        // The entities below a term, each with its share on each side (ADR-0012 §6): the trades under a SIMM term.
+        api.MapGet("/runs/{runId}/cases/{caseId}/traces/{measure}/entities", (string runId, string caseId, string measure, string? scenario, string? path,
+            int? offset, int? limit, TraceService traces, CurrentUser user) =>
+            Traced(() => traces.Entities(new(runId, caseId, scenario ?? TraceService.BaseScenario, measure), user.Id,
+                path ?? throw new TraceRefused("Required", "path names the term whose entities are read."), offset ?? 0, limit ?? TraceService.DefaultPage)));
+
         api.MapGet("/traces/catalogs/{method}/{version}", (string method, string version, CompositionRegistry registry) =>
             registry.FindTraceCatalog(method, version) is { } catalog
                 ? Results.Ok(catalog)
@@ -143,7 +149,7 @@ public static class Api
                 "RunRunning" => 409,
                 "TraceExpired" or "TraceUnavailable" => 410,
                 "UnknownMethod" or "TraceInvalid" => 500,
-                "InvalidOrder" or "InvalidRange" or "Required" => 422,
+                "InvalidOrder" or "InvalidRange" or "Required" or "NoAllocation" or "NoContributions" => 422,
                 // A refusal no status was chosen for is a defect here, said as one, never answered as the caller's.
                 var code => throw new InvalidOperationException($"No status is set for the trace refusal {code}."),
             };

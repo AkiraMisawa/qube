@@ -39,7 +39,8 @@ public sealed class CcrMeasures(CapitalRatio? kappa = null) : IMeasureModule
     public string PricedBy => Request;
 
     public static IReadOnlyList<MeasureDefinition> Definitions { get; } =
-        [new(SpotCapital, "Spot CCR capital", [new("capital", "Capital"), new("rwa", "RWA"), new("ead", "EAD")], "capital", DeclaresMembership: true, Traced: true)];
+        [new(SpotCapital, "Spot CCR capital", [new("capital", "Capital"), new("rwa", "RWA"), new("ead", "EAD")], "capital", DeclaresMembership: true, Traced: true,
+            Tabs: [new("ccr", "CCR", ResultTab.Trace)])];
 
     public IReadOnlyList<MeasureDefinition> Measures => Definitions;
 

@@ -221,6 +221,14 @@ the first case of a measure's membership, which every measure now declares (§10
   trace has several roots: spot IM's IM-R opens at `collect`, IM-P at `post`. The shared result gains a note per side,
   said beside that side's figure (spot IM's governing regime), and a basis said with the row's figures, such as
   `SIMM PARAMETERS DEMO`. Both are empty for a measure that has nothing to say there, and neither is ever a figure.
+  *Note of 2026-11-08 (ADR-0012's delivery step 3):* a measure registers its own result tabs as data, each an id, a
+  title and a view (`trace` today, §10's results), and the dock's tabs are Metrics and the tabs of the measures the Run
+  in view priced, so they follow the Run as its Metrics do (DEFAULT). A Metrics cell, or `explain`, of a measure with
+  such a tab opens that tab at the term, in place of a panel of its own. Opening a measure's tab widens the dock over
+  the input tabs and the trade grids; the dock's `Restore height` button, or `dock restore`, puts it back to the height
+  its handle sets (CONFIRMED, owner 2026-11-08). `dock full` widens it again and `open result <tab>` shows a tab. Below
+  `sm` the dock is already the page's Results section, and stays so. The tab of a measure priced on no side says why,
+  as the Metrics do, rather than read a trace that was never written.
 - **Collapsed**, one line per case with each selected measure's headline Diff: CVA Diff and FVA Diff when XVA is
   selected (owner), MVA when it exists.
 - A result older than the workspace says so in yellow: `revision 5 · workspace now 7`.
@@ -289,7 +297,9 @@ that owns a measure registers it with:
   2026-11-08: a shared field of the trade grids is one of these too, as spot IM's IM-R and IM-P are, and so is a tab
   of the measure's own, as spot IM's IM tab is, ADR-0012 §3.)*;
 - **trade columns**: what it adds to the trade grids (XVA's PV01, Margin and PV Adj);
-- **results**: its Metrics columns, any result tab of its own, and whether a Metrics cell opens a trace (ADR-0011);
+- **results**: its Metrics columns, any result tab of its own, and whether a Metrics cell opens a trace (ADR-0011).
+  *(Note of 2026-11-08: a result tab is an id, a title and a view; spot IM's is `SIMM` and spot CCR capital's `CCR`,
+  both drawing their trace, §7's note.)*;
 - **validation**: what Price needs from it, refused by name. A measure that cannot be priced blocks only itself: a
   missing CDS blocks CVA, not spot IM;
 - **options and commands** of its own.

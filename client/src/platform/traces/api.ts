@@ -1,8 +1,9 @@
 import { ApiError, call } from '../api';
-import type { TraceAddress, TraceAnswer, TraceCatalog, TraceLeavesAnswer } from './contracts';
+import type { TraceAddress, TraceAnswer, TraceCatalog, TraceEntitiesAnswer, TraceLeavesAnswer } from './contracts';
 
-// The trace endpoints (ADR-0011 §5): a term at a time, its leaf rows paged and sorted by the server, and the
-// catalogue of kinds once per method version. A refusal arrives as an ApiError with its code, never as an empty tree.
+// The trace endpoints (ADR-0011 §5): a term at a time, its leaf rows paged and sorted by the server, the entities below
+// a term with their shares (ADR-0012 §6), and the catalogue of kinds once per method version. A refusal arrives as an
+// ApiError with its code, never as an empty tree.
 
 export type ChildOrder = 'formula' | 'size';
 
@@ -13,6 +14,8 @@ export const refusalText = (error: unknown): string =>
 export interface TraceApi {
   term(address: TraceAddress, path: string | undefined, options?: { readonly order?: ChildOrder; readonly offset?: number; readonly limit?: number }): Promise<TraceAnswer>;
   leaves(address: TraceAddress, path: string, options: { readonly offset: number; readonly limit: number; readonly sort?: string; readonly descending?: boolean }, signal?: AbortSignal): Promise<TraceLeavesAnswer>;
+  /** The entities below a term with their shares on each side (ADR-0012 §6), ordered by the server, largest change first. */
+  entities(address: TraceAddress, path: string, options: { readonly offset: number; readonly limit: number }, signal?: AbortSignal): Promise<TraceEntitiesAnswer>;
   catalog(method: string, version: string): Promise<TraceCatalog>;
 }
 
@@ -30,5 +33,7 @@ export const httpTraceApi: TraceApi = {
     call(`${base(address)}?${query({ scenario: address.scenario, path, order: options.order, offset: options.offset, limit: options.limit })}`),
   leaves: (address, path, options, signal) =>
     call(`${base(address)}/leaves?${query({ scenario: address.scenario, path, ...options })}`, signal === undefined ? undefined : { signal }),
+  entities: (address, path, options, signal) =>
+    call(`${base(address)}/entities?${query({ scenario: address.scenario, path, ...options })}`, signal === undefined ? undefined : { signal }),
   catalog: (method, version) => call(`/api/traces/catalogs/${encodeURIComponent(method)}/${encodeURIComponent(version)}`),
 };

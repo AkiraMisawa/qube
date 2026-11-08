@@ -1,8 +1,9 @@
+import { useState } from 'react';
 import { Alert, Button, Group, Stack, Table, Text } from '@mantine/core';
 import type { Side, SideValue, TermKind, TermPage, TermRead, TraceHeader, TraceParameter } from './contracts';
 import { checkText, formulaOf, formatNumber, lookupRows, matrixTex, parameterTex, parametersNamed, stateText, symbolTex, valueText } from './formula';
 import { Tex } from './Tex';
-import { SIDE_TITLE, parameterSource, providerOf } from './words';
+import { SIDE_TITLE, parameterGroups, parameterSource, providerOf } from './words';
 
 // The selected term (ADR-0011 §6): its formula typeset, first with symbols and then with each priced side's values,
 // its Diff, the operand that governed, its reconciliation, a decision's steps and reasons, and its parameters, a
@@ -63,7 +64,7 @@ export function TermDetail({ header, page, kinds, operand, onSelect }: {
       <SideFacts header={header} term={term} sides={sides} operand={operand} />
       {kind?.valueType === 'text' && sides.map((side) => <Decision key={side} side={side} value={term[side]!} both={sides.length === 2} header={header} unit={term.unit} />)}
       {steps.length > 0 && <Steps steps={steps} header={header} onSelect={onSelect} />}
-      <Parameters kind={kind} term={term} header={header} parameters={parameters} operand={operand} />
+      <Parameters key={term.id} kind={kind} term={term} header={header} parameters={parameters} operand={operand} />
     </Stack>
   );
 }
@@ -161,9 +162,10 @@ function outcomes(step: TermRead, header: TraceHeader): readonly { readonly key:
 }
 
 /**
- * The term's parameters, each side's value where they differ, with their sources; a matrix typeset. The parameters are
- * those its formula names and those scoped to it or a term above it; one that holds for the whole trace and that this
- * formula does not name (α beside the risk weight) is the formula's that names it.
+ * The term's parameters, each side's value where they differ, with their sources; a matrix typeset in a box of its own
+ * that scrolls sideways, never the page (§9). First those its formula names and those scoped to it; then, folded, those
+ * scoped to a term above it that its formula does not name (a bucket's ρ beside its risk factor). One that holds for the
+ * whole trace and that this formula does not name (α beside the risk weight) is the formula's that names it.
  */
 function Parameters({ kind, term, header, parameters, operand }: {
   readonly kind: TermKind | undefined;
@@ -172,40 +174,50 @@ function Parameters({ kind, term, header, parameters, operand }: {
   readonly parameters: Readonly<Record<Side, readonly TraceParameter[] | null | undefined>>;
   readonly operand: (id: string) => TermRead | undefined;
 }) {
+  const [above, setAbove] = useState(false);
   const named = kind === undefined ? new Set<string>() : parametersNamed(kind);
-  const names = [...new Set(header.sides.flatMap((side) => (parameters[side] ?? [])
-    .filter((p) => named.has(p.name) || (p.scope !== undefined && p.scope !== null)).map((p) => p.name)))];
-  if (names.length === 0) return null;
+  const { own, above: inherited } = parameterGroups(named, term.id, header.sides.flatMap((side) => parameters[side] ?? []));
+  if (own.length === 0 && inherited.length === 0) return null;
   const marked = Object.fromEntries(header.sides.map((side) => [side, kind === undefined ? {} : lookupRows(kind, term, side, operand)] as const));
+  const draw = (name: string) => {
+    const bySide = header.sides.map((side) => [side, (parameters[side] ?? []).find((p) => p.name === name)] as const);
+    const same = bySide.every(([, p]) => JSON.stringify(p) === JSON.stringify(bySide[0]![1]));
+    const shown = same ? [bySide[0]!] : bySide;
+    const source = bySide.find(([, p]) => p !== undefined)?.[1];
+    return (
+      <div key={name} className="qwb-trace-param" data-testid="trace-parameter" data-name={name}>
+        <Tex tex={parameterTex(name)} />
+        <div className="qwb-trace-param-values">
+          {shown.map(([side, p]) => (
+            <div key={side}>
+              {!same && <Text span size="xs" c="dimmed">{SIDE_TITLE[side]} </Text>}
+              {p === undefined ? <Text span size="xs">not in scope</Text>
+                : p.matrix ? <div className="qwb-trace-matrix"><Tex tex={matrixTex(p, marked[side]?.[name])} display /></div>
+                  : <Text span size="xs" className="qwb-number-text">{p.value !== undefined && p.value !== null ? formatNumber(p.value, p.unit) : p.text ?? ''}</Text>}
+            </div>
+          ))}
+          {source !== undefined && (
+            <Text size="xs" c="dimmed" className="qwb-trace-param-source">
+              {parameterSource(source)}{source.because?.length ? ` · ${source.because.join(' ')}` : ''}
+            </Text>
+          )}
+        </div>
+      </div>
+    );
+  };
   return (
-    <Stack gap="xs" data-testid="trace-parameters">
+    <Stack gap="xs" data-testid="trace-parameters" aria-label="Parameters">
       <Text size="xs" fw={600}>Parameters</Text>
-      <Table withTableBorder={false} verticalSpacing={2} fz="xs" aria-label="Parameters">
-        <Table.Tbody>
-          {names.map((name) => {
-            const bySide = header.sides.map((side) => [side, (parameters[side] ?? []).find((p) => p.name === name)] as const);
-            const same = bySide.every(([, p]) => JSON.stringify(p) === JSON.stringify(bySide[0]![1]));
-            const shown = same ? [bySide[0]!] : bySide;
-            const source = bySide.find(([, p]) => p !== undefined)?.[1];
-            return (
-              <Table.Tr key={name}>
-                <Table.Td><Tex tex={parameterTex(name)} /></Table.Td>
-                <Table.Td>
-                  {shown.map(([side, p]) => (
-                    <div key={side}>
-                      {!same && <Text span size="xs" c="dimmed">{SIDE_TITLE[side]} </Text>}
-                      {p === undefined ? <Text span size="xs">not in scope</Text>
-                        : p.matrix ? <Tex tex={matrixTex(p, marked[side]?.[name])} display />
-                          : <Text span size="xs" className="qwb-number-text">{p.value !== undefined && p.value !== null ? formatNumber(p.value, p.unit) : p.text ?? ''}</Text>}
-                    </div>
-                  ))}
-                </Table.Td>
-                <Table.Td>{source === undefined ? '' : parameterSource(source)}{source?.because?.length ? ` · ${source.because.join(' ')}` : ''}</Table.Td>
-              </Table.Tr>
-            );
-          })}
-        </Table.Tbody>
-      </Table>
+      {own.map(draw)}
+      {inherited.length > 0 && (
+        <>
+          <Button size="compact-xs" variant="subtle" className="qwb-trace-param-toggle" aria-expanded={above} onClick={() => setAbove((a) => !a)}
+            data-testid="trace-parameters-above">
+            {above ? 'Hide' : 'Show'} the parameters of the terms above ({inherited.length})
+          </Button>
+          {above && inherited.map(draw)}
+        </>
+      )}
     </Stack>
   );
 }

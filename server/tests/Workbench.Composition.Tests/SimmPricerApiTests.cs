@@ -91,4 +91,64 @@ public class SimmPricerApiTests(WorkbenchFactory factory) : IClassFixture<Workbe
             Assert.Equal(Math.Round((decimal)(collect[side]!["value"]!.GetValue<double>() * rate), 2), imR[side]!.GetValue<decimal>());
         }
     }
+
+    [Fact] // ADR-0012 §6, §7: below a regime, each trade's share is the sum of its CRIF lines' contributions, and the trades add up to the regime's on each side
+    public async Task The_trades_below_a_simm_term_add_up_to_its_contribution_over_http()
+    {
+        var ws = await Ok(await client.PostAsJsonAsync("/api/xva/workspaces", new { registration = "ABC/LE-01", valueDate = "2026-10-26", portfolioSize = 30 }));
+        ws = await Ok(await Post(ws, "measures", new { revision = Revision(ws), measures = new[] { "simm.spotIm" } }));
+        var accepted = await Ok(await Post(ws, "price", new { revision = Revision(ws), idempotencyKey = Guid.NewGuid().ToString() }));
+        var runId = Text(accepted["runId"]);
+        JsonObject run;
+        do run = (await client.GetFromJsonAsync<JsonObject>($"/api/runs/{runId}"))!;
+        while (Text(run["status"]) == "running");
+        Assert.Equal("succeeded", Text(run["status"]));
+        var trace = $"/api/runs/{runId}/cases/base/traces/simm.spotIm";
+
+        // The direction is a max over regimes: it has no share to split, and summing below it would count both regimes.
+        var root = await client.GetAsync($"{trace}/entities?path=collect");
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, root.StatusCode);
+        Assert.Equal("NoAllocation", Text((await root.Content.ReadFromJsonAsync<JsonObject>())!["code"]));
+
+        // The governing regime: every trade with its share on each side, and each side's trades add up to the regime's.
+        var collect = (await Ok(await client.GetAsync($"{trace}?path=collect")))["term"]!;
+        var regime = Text(collect["children"]![collect["term"]!["after"]!["governed"]!.GetValue<int>()]!["id"]);
+        var entities = await Ok(await client.GetAsync($"{trace}/entities?path={Uri.EscapeDataString(regime)}"));
+        var page = entities["entities"]!;
+        Assert.Equal(["before", "after"], page["checks"]!.AsArray().Select(c => Text(c!["side"])));
+        Assert.All(page["checks"]!.AsArray(), c => Assert.Equal("matches", Text(c!["status"])));
+        var rows = page["rows"]!.AsArray();
+        Assert.NotEmpty(rows);
+        Assert.All(rows, r => Assert.Equal("simm.crif", Text(r!["leafSet"])));
+        var diffs = rows.Select(r => Math.Abs(r!["diff"]!.GetValue<double>())).ToList();
+        Assert.Equal(diffs.OrderByDescending(d => d), diffs);
+
+        // At a risk factor, a trade's share is its own lines' contributions there.
+        var factor = await Factor(trace, regime);
+        var lines = (await Ok(await client.GetAsync($"{trace}/leaves?path={Uri.EscapeDataString(factor)}")))["leaves"]!["rows"]!.AsArray();
+        var below = (await Ok(await client.GetAsync($"{trace}/entities?path={Uri.EscapeDataString(factor)}")))["entities"]!["rows"]!.AsArray();
+        Assert.NotEmpty(below);
+        foreach (var trade in below)
+        {
+            var id = Text(trade!["entity"]);
+            var own = lines.Where(l => Text(l!["entity"]) == id && l["after"] is JsonObject).Select(l => l!["after"]!["contribution"]!.GetValue<double>()).ToList();
+            if (trade["after"] is JsonObject after)
+            {
+                Assert.Equal(own.Count, after["rows"]!.GetValue<int>());
+                Assert.Equal(own.Sum(), after["contribution"]!.GetValue<double>(), 1e-9);
+            }
+        }
+    }
+
+    /// <summary>The first risk factor below a term, found by opening its first child until a term has none.</summary>
+    async Task<string> Factor(string trace, string id)
+    {
+        while (true)
+        {
+            var page = (await Ok(await client.GetAsync($"{trace}?path={Uri.EscapeDataString(id)}")))["term"]!;
+            var children = page["children"]!.AsArray();
+            if (children.Count == 0) return id;
+            id = Text(children.First(c => Text(c!["kind"]) != "simm.bucketSum")!["id"]);
+        }
+    }
 }
