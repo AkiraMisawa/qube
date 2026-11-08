@@ -5,7 +5,7 @@ using System.Text.Json.Nodes;
 using Workbench.Composition.Application;
 using Workbench.Composition.Application.Workspaces;
 
-namespace Workbench.Samples.Xva;
+namespace Workbench.Samples.Portfolio;
 
 /// <summary>A sort the grid asked for: a column of <see cref="EffectiveTrade"/> and its direction.</summary>
 public sealed record RowSort(string Column, string Direction);
@@ -13,8 +13,9 @@ public sealed record RowSort(string Column, string Direction);
 /// <summary>One page of effective rows, in the shape ExGrid's fetching source takes (ADR-0003 §4).</summary>
 public sealed record RowPage(IReadOnlyList<EffectiveTrade> Rows, int Start, int TotalCount, string OrderToken, long Revision);
 
-/// <summary>What the workspace panel shows beside the grid.</summary>
-public sealed record XvaWorkspaceView(
+/// <summary>What the workspace panel shows beside the grid. <c>Overrides</c> counts the edits to the portfolio's data;
+/// the selection of measures is the page's choice, shown on its own.</summary>
+public sealed record PortfolioWorkspaceView(
     string WorkspaceId,
     long Revision,
     JsonObject Context,
@@ -24,10 +25,15 @@ public sealed record XvaWorkspaceView(
     IReadOnlyList<EffectiveCsa> Csas,
     EffectiveCredit Credit,
     int Trades,
+    int NewTrades,
+    int InBefore,
+    int InAfter,
     int Overrides,
     IReadOnlyList<HeldEdit> Conflicts,
     IReadOnlyList<HeldEdit> Lost,
-    IReadOnlyList<RunLink> Runs);
+    IReadOnlyList<RunLink> Runs,
+    IReadOnlyList<RegisteredMeasure> Measures,
+    IReadOnlyList<string> SelectedMeasures);
 
 /// <summary>An edit held back for the user: a conflict (with the source's new values) or a lost target.</summary>
 public sealed record HeldEdit(string Scope, string Entity, string Field, JsonNode? Value, IReadOnlyDictionary<string, JsonNode?>? Source, bool Acknowledged);
@@ -39,22 +45,46 @@ public sealed record RunLink(string RunId, long Revision);
 public sealed record ScopeDrop(string Scope, int Count, IReadOnlyDictionary<string, int> ByKind);
 
 /// <summary>
-/// The XVA workspace application service: what the endpoints call. It decides scopes and sources; the generic
+/// The portfolio workspace application service (ADR-0010 §10), shared by the measures that price it: what the
+/// endpoints call. It decides scopes and sources; the generic
 /// kernel stores and checks the edits. The user is passed in; who may act is decided before this is called.
 /// </summary>
-public sealed class XvaWorkspaces(WorkspaceService workspaces, IDataStore store, RunService runs)
+public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore store, RunService runs, MeasureRegister register)
 {
     // Effective rows per immutable state: a page request at the same revision does not materialise again.
     readonly ConditionalWeakTable<WorkspaceState, IReadOnlyList<EffectiveTrade>> materialised = new();
     readonly ConditionalWeakTable<WorkspaceState, ConcurrentDictionary<string, IReadOnlyList<EffectiveTrade>>> sorted = new();
+    readonly ConditionalWeakTable<WorkspaceState, ConcurrentDictionary<string, IReadOnlyList<EffectiveTrade>>> grouped = new();
 
     public static readonly IReadOnlyList<string> SortableColumns =
-        ["tradeId", "isNew", "product", "currency", "notional", "maturity", "fixedRate", "schedule", "lastFixing", "csa", "curve", "before", "after"];
+        ["tradeId", "isNew", "product", "currency", "notional", "maturity", "fixedRate", "schedule", "lastFixing", "officialPv", "csa", "curve", "before", "after"];
 
-    public WorkspaceState Create(string user, string registration, DateOnly valueDate, int existingCount) =>
-        workspaces.Create(user, XvaEditRules.App, Context(registration, valueDate, existingCount), new XvaSourceVersion(registration, valueDate, existingCount));
+    /// <summary>A new workspace, on its owner's last selection of measures (ADR-0010 §10, DEFAULT).</summary>
+    public WorkspaceState Create(string user, string registration, DateOnly valueDate, int existingCount)
+    {
+        var last = LastSelection(user);
+        var created = workspaces.Create(user, PortfolioEditRules.App, Context(registration, valueDate, existingCount), new PortfolioSourceVersion(registration, valueDate, existingCount));
+        return last is null ? created : SetMeasures(created.WorkspaceId, created.Revision, user, last);
+    }
 
-    public XvaWorkspaceView View(string workspaceId, string user)
+    /// <summary>Sets the measures Price runs (`measures cva fva`). An unknown one, or none, is refused by name.</summary>
+    public WorkspaceState SetMeasures(string workspaceId, long revision, string user, IReadOnlyList<string> measures)
+    {
+        var state = Owned(workspaceId, user);
+        var selection = register.Checked(measures);
+        return workspaces.Set(workspaceId, revision, user, PortfolioEditRules.Target(Source(state), Entity.Measures, Entity.MeasuresField),
+            new JsonArray([.. selection.Select(id => JsonValue.Create(id))]));
+    }
+
+    // The selection the owner set last, in any of their workspaces; none while they have only taken the default.
+    IReadOnlyList<string>? LastSelection(string user) =>
+        workspaces.OwnedBy(user).Where(w => w.App == PortfolioEditRules.App)
+            .SelectMany(w => w.Log.Where(e => e.Kind == EditKind.Set && e.Target?.Entity == Entity.Measures).Select(e => (e.At, e.Seq, e.Value)))
+            .OrderBy(e => e.At).ThenBy(e => e.Seq).LastOrDefault() is { Value: JsonArray chosen }
+            ? [.. register.Ids.Where(id => chosen.Any(c => c!.GetValue<string>() == id))]
+            : null;
+
+    public PortfolioWorkspaceView View(string workspaceId, string user)
     {
         var state = Owned(workspaceId, user);
         var source = Source(state);
@@ -62,19 +92,24 @@ public sealed class XvaWorkspaces(WorkspaceService workspaces, IDataStore store,
             .Select(r => new RunLink(r.RunId, r.Relations.WorkspaceRevision ?? throw new InvalidOperationException($"Run {r.RunId} names a workspace but no revision.")))
             .ToList();
         return new(state.WorkspaceId, state.Revision, state.Context, source.Version, source.Registration, source.Agreement,
-            XvaMaterialiser.Csas(state), XvaMaterialiser.Credit(state), Rows(state).Count, state.Overrides.Count,
+            register.WithMembership(state, PortfolioMaterialiser.Csas(state)), PortfolioMaterialiser.Credit(state), Rows(state).Count, Rows(state).Count(t => t.IsNew), Rows(state).Count(t => t.Before), Rows(state).Count(t => t.After), state.Overrides.Keys.Count(t => t.Entity != Entity.Measures),
             [.. state.Conflicts.Values.OrderBy(c => c.Override.Seq).Select(c => new HeldEdit(c.Override.Target.Scope, c.Override.Target.Entity, c.Override.Target.Field, c.Override.Value, c.Source, false))],
             [.. state.Lost.Values.OrderBy(l => l.Override.Seq).Select(l => new HeldEdit(l.Override.Target.Scope, l.Override.Target.Entity, l.Override.Target.Field, l.Override.Value, null, l.Acknowledged))],
-            links);
+            links, register.Measures, PortfolioMaterialiser.SelectedMeasures(state, register));
     }
 
     public IReadOnlyList<WorkspaceState> OwnedBy(string user) =>
-        [.. workspaces.OwnedBy(user).Where(w => w.App == XvaEditRules.App)];
+        [.. workspaces.OwnedBy(user).Where(w => w.App == PortfolioEditRules.App)];
 
-    /// <summary>A page of effective rows under a sort. Refused for an unknown column, never sorted by a guess.</summary>
-    public RowPage Page(string workspaceId, string user, int start, int count, IReadOnlyList<RowSort> sorts)
+    /// <summary>
+    /// A page of effective rows under a sort, of one trade grid (<c>new</c> or <c>existing</c>, ADR-0010 §6) or of all.
+    /// Refused for an unknown column or grid, never sorted or filtered by a guess.
+    /// </summary>
+    public RowPage Page(string workspaceId, string user, int start, int count, IReadOnlyList<RowSort> sorts, string? grid = null)
     {
         if (start < 0 || count < 1) throw new WorkspaceRefused("InvalidRange", "A range starts at 0 or later and holds at least one row.");
+        if (grid is not (null or Entity.NewGrid or Entity.ExistingGrid))
+            throw new WorkspaceRefused("UnknownGrid", $"No trade grid {grid}; the grids are {Entity.NewGrid} and {Entity.ExistingGrid}.");
         var state = Owned(workspaceId, user);
         var keys = sorts.Select(sort =>
         {
@@ -89,8 +124,9 @@ public sealed class XvaWorkspaces(WorkspaceService workspaces, IDataStore store,
             return (sort.Column, Descending: descending);
         }).ToList();
         // A stable sort, kept per state and sort while the state is alive: scrolling asks for many pages of one order.
-        var all = keys.Count == 0 ? Rows(state) : sorted.GetOrCreateValue(state).GetOrAdd(string.Join(",", keys.Select(k => $"{k.Column}:{k.Descending}")), _ =>
-            [.. Rows(state).Order(Comparer<EffectiveTrade>.Create((a, b) =>
+        var rows = grid is null ? Rows(state) : grouped.GetOrCreateValue(state).GetOrAdd(grid, g => [.. Rows(state).Where(t => t.IsNew == (g == Entity.NewGrid))]);
+        var all = keys.Count == 0 ? rows : sorted.GetOrCreateValue(state).GetOrAdd($"{grid}|{string.Join(",", keys.Select(k => $"{k.Column}:{k.Descending}"))}", _ =>
+            [.. rows.Order(Comparer<EffectiveTrade>.Create((a, b) =>
             {
                 foreach (var (column, descending) in keys)
                     if (Compare(Key(a, column), Key(b, column), descending) is var c && c != 0) return c;
@@ -108,7 +144,7 @@ public sealed class XvaWorkspaces(WorkspaceService workspaces, IDataStore store,
         if (!Editable(entity, field))
             throw new WorkspaceRefused("NotEditable", $"{entity}.{field} is not editable in this workspace.");
         Validate(state, entity, field, value);
-        return workspaces.Set(workspaceId, revision, user, XvaEditRules.Target(Source(state), entity, field), value);
+        return workspaces.Set(workspaceId, revision, user, PortfolioEditRules.Target(Source(state), entity, field), value);
     }
 
     public WorkspaceState Resolve(string workspaceId, long revision, string user, string entity, string field, string resolution)
@@ -129,16 +165,23 @@ public sealed class XvaWorkspaces(WorkspaceService workspaces, IDataStore store,
     {
         var source = Source(Owned(workspaceId, user));
         var count = source.Descriptor["existingCount"]!.GetValue<int>();
-        return workspaces.Reacquire(workspaceId, revision, user, Context(source.Registration.Key, valueDate, count),
-            new XvaSourceVersion(source.Registration.Key, valueDate, count));
+        return DataEdits(workspaces.Reacquire(workspaceId, revision, user, Context(source.Registration.Key, valueDate, count),
+            new PortfolioSourceVersion(source.Registration.Key, valueDate, count)));
     }
+
+    // The selection of measures is in the workspace's own scope, so it always carries; the summary counts the edits
+    // to the portfolio's data, as the view does.
+    static (WorkspaceState State, CarrySummary Summary) DataEdits((WorkspaceState State, CarrySummary Summary) moved) =>
+        moved.State.Overrides.Keys.Any(t => t.Entity == Entity.Measures)
+            ? (moved.State, moved.Summary with { Carried = moved.Summary.Carried - 1 })
+            : moved;
 
     /// <summary>What leaving the current counterparty would drop, for the confirmation (ADR-0003 §6).</summary>
     public ScopeDrop PreviewCounterpartyChange(string workspaceId, string user)
     {
         var state = Owned(workspaceId, user);
         var scope = $"cp:{Source(state).Registration.Key}";
-        var rules = new XvaEditRules();
+        var rules = new PortfolioEditRules();
         var held = state.InScope(scope);
         return new(scope, held.Count, held.Keys.GroupBy(rules.KindOf).ToDictionary(g => g.Key, g => g.Count()));
     }
@@ -149,31 +192,31 @@ public sealed class XvaWorkspaces(WorkspaceService workspaces, IDataStore store,
         var source = Source(Owned(workspaceId, user));
         if (source.Registration.Key == registration)
             throw new WorkspaceRefused("SameCounterparty", $"The workspace is already on {registration}.");
-        var next = new XvaSourceVersion(registration, source.ValueDate, source.Descriptor["existingCount"]!.GetValue<int>());
-        return workspaces.ChangeScope(workspaceId, revision, user, $"cp:{source.Registration.Key}", confirmedCount,
-            Context(registration, source.ValueDate, source.Descriptor["existingCount"]!.GetValue<int>()), next);
+        var next = new PortfolioSourceVersion(registration, source.ValueDate, source.Descriptor["existingCount"]!.GetValue<int>());
+        return DataEdits(workspaces.ChangeScope(workspaceId, revision, user, $"cp:{source.Registration.Key}", confirmedCount,
+            Context(registration, source.ValueDate, source.Descriptor["existingCount"]!.GetValue<int>()), next));
     }
 
     /// <summary>Price: freezes the revision the user saw and submits one Run for it.</summary>
     public SubmissionResult Price(string workspaceId, long revision, string user, string idempotencyKey)
     {
         Owned(workspaceId, user);
-        return runs.Submit(XvaPrice.Submission(workspaces, store, workspaceId, revision, idempotencyKey, user));
+        return runs.Submit(PortfolioPrice.Submission(workspaces, store, register, workspaceId, revision, idempotencyKey, user));
     }
 
     public void Delete(string workspaceId, string user) => workspaces.Delete(workspaceId, user);
 
-    IReadOnlyList<EffectiveTrade> Rows(WorkspaceState state) => materialised.GetValue(state, s => XvaMaterialiser.Trades(s));
+    IReadOnlyList<EffectiveTrade> Rows(WorkspaceState state) => materialised.GetValue(state, s => register.WithMembership(s, PortfolioMaterialiser.Trades(s)));
 
     WorkspaceState Owned(string workspaceId, string user)
     {
         var state = workspaces.Find(workspaceId);
-        if (state is null || state.App != XvaEditRules.App) throw new WorkspaceRefused("UnknownWorkspace", $"No XVA workspace {workspaceId}.");
+        if (state is null || state.App != PortfolioEditRules.App) throw new WorkspaceRefused("UnknownWorkspace", $"No XVA workspace {workspaceId}.");
         if (state.Owner != user) throw new WorkspaceRefused("NotOwner", "This workspace belongs to another user.");
         return state;
     }
 
-    static XvaSourceVersion Source(WorkspaceState state) => (XvaSourceVersion)state.Source;
+    static PortfolioSourceVersion Source(WorkspaceState state) => (PortfolioSourceVersion)state.Source;
 
     static JsonObject Context(string registration, DateOnly valueDate, int existingCount) => new()
     {
@@ -184,9 +227,12 @@ public sealed class XvaWorkspaces(WorkspaceService workspaces, IDataStore store,
 
     static bool Editable(string entity, string field) => (Entity.Split(entity).Kind, field) switch
     {
-        (Entity.Trade, var f) => XvaMaterialiser.EditableFields.Contains(f),
-        (Entity.Csa, "curve") => true,
-        (Entity.Credit, "cvaRecovery") => true,
+        (Entity.Trade, var f) => PortfolioMaterialiser.EditableFields.Contains(f),
+        (Entity.Csa, var f) => PortfolioMaterialiser.CsaFields.Contains(f),
+        // The CVA recovery is the netting set's since ADR-0010 §8; one set on the counterparty before still applies.
+        (Entity.Netting, "cvaRecovery") => true,
+        // B or A for every row of a grid at once (ADR-0010 §6).
+        (Entity.Grid, "before" or "after") => Entity.Split(entity).Id is Entity.NewGrid or Entity.ExistingGrid,
         _ => false,
     };
 
@@ -200,10 +246,17 @@ public sealed class XvaWorkspaces(WorkspaceService workspaces, IDataStore store,
             "cvaRecovery" => value is null || value is JsonValue c && c.TryGetValue<decimal>(out var rec) && rec is >= 0 and < 1 ? null : "A CVA recovery is empty or from 0 up to 1.",
             "before" or "after" => value is JsonValue b && b.TryGetValue<bool>(out _) ? null : "Before and After are true or false.",
             "schedule" => value is JsonValue s && s.TryGetValue<string>(out var t) && t is "3M" or "6M" ? null : "A schedule is 3M or 6M.",
-            "csa" or "curve" => value is JsonValue x && x.TryGetValue<string>(out var id) && id.Length > 0 ? null : $"A {field} is an identifier.",
+            "csa" or "curve" or "fvaCurve" => value is JsonValue x && x.TryGetValue<string>(out var id) && id.Length > 0 ? null : $"A {field} is an identifier.",
+            "frequency" => value is JsonValue f && f.TryGetValue<string>(out var often) && PortfolioCatalog.Frequencies.Contains(often)
+                ? null : $"A frequency is {string.Join(", ", PortfolioCatalog.Frequencies)}.",
+            "exchange" or "oneWay" => value is JsonValue e && e.TryGetValue<bool>(out _) ? null : $"{field} is true or false.",
+            "counterpartyThreshold" or "counterpartyMta" or "selfThreshold" or "selfMta" =>
+                value is JsonValue a && a.TryGetValue<decimal>(out var amount) && amount >= 0 ? null : "A threshold or MTA is an amount of 0 or more.",
+            "currency" or "counterpartyCurrency" or "selfCurrency" => value is JsonValue c3 && c3.TryGetValue<string>(out var code) && PortfolioMarket.Currencies.Contains(code)
+                ? null : $"A currency is {string.Join(", ", PortfolioMarket.Currencies)}.",
             _ => null,
         };
-        if (problem is not null) throw new WorkspaceRefused("InvalidValue", problem, [XvaEditRules.Target(Source(state), entity, field)]);
+        if (problem is not null) throw new WorkspaceRefused("InvalidValue", problem, [PortfolioEditRules.Target(Source(state), entity, field)]);
     }
 
     static EditTarget Held(WorkspaceState state, string entity, string field) =>
@@ -221,6 +274,7 @@ public sealed class XvaWorkspaces(WorkspaceService workspaces, IDataStore store,
         "fixedRate" => row.FixedRate,
         "schedule" => row.Schedule,
         "lastFixing" => row.LastFixing,
+        "officialPv" => row.OfficialPv,
         "csa" => row.Csa,
         "curve" => row.Curve,
         "before" => row.Before,

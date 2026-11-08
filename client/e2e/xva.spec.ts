@@ -16,10 +16,12 @@ async function newWorkspace(page: Page, registration: string, trades: number): P
   await dialog.getByLabel('Existing trades (synthetic)').fill(String(trades));
   await page.keyboard.press('Enter');
   await expect(page.getByRole('tab', { name: `XVA ${registration}` })).toHaveAttribute('aria-selected', 'true');
-  await settled(page, 'Trades');
+  await settled(page, 'New trades');
+  await settled(page, 'Existing trades');
 }
 
-const trade = (page: Page, id: string) => page.getByLabel('Trades').getByRole('row', { name: new RegExp(`^${id} `) });
+// New trades and existing trades are in grids of their own (ADR-0010 §6); a trade's id names its row in either.
+const trade = (page: Page, id: string) => page.getByRole('row', { name: new RegExp(`^${id} `) });
 
 /** Puts the grid's Focus on a cell of the first row, `right` columns from the first. */
 async function focusCell(page: Page, right: number): Promise<void> {
@@ -30,11 +32,15 @@ async function focusCell(page: Page, right: number): Promise<void> {
   for (let i = 0; i < right; i++) await page.keyboard.press('ArrowRight');
 }
 
-const CSA = 8;
+// The CSA's column in the New grid, which has no last fixing (ADR-0010 §6).
+const CSA = 7;
 
 test('docs/03, ADR-0003: a new trade takes the main CSA, a CSA typed in moves its curve, and Price lands in the Pricing DB', async ({ page }) => {
   await open(page);
   await newWorkspace(page, 'ABC/LE-01', 0);
+  // XV15: an empty CVA recovery stays empty on screen (it once read "undefined"); the CDS recovery is its placeholder.
+  await expect(page.getByLabel('CVA recovery', { exact: true })).toHaveValue('');
+  await expect(page.getByLabel('CVA recovery', { exact: true })).toHaveAttribute('placeholder', /^empty: CDS /);
   await expect(trade(page, 'DRAFT-1').getByRole('gridcell').nth(CSA)).toHaveText('CSA-A');
   await expect(trade(page, 'DRAFT-1').getByRole('gridcell').nth(CSA + 1)).toHaveText('jpy_ois');
 
@@ -44,11 +50,25 @@ test('docs/03, ADR-0003: a new trade takes the main CSA, a CSA typed in moves it
   await expect(trade(page, 'DRAFT-1').getByRole('gridcell').nth(CSA)).toHaveText('CSA-B');
   // The curve follows the CSA on the server; nothing here computed it.
   await expect(trade(page, 'DRAFT-1').getByRole('gridcell').nth(CSA + 1)).toHaveText('usd_sofr');
+  // Both differ from Original now, the curve moved by the rule rather than typed, and are marked (ADR-0010 §2).
+  await expect(trade(page, 'DRAFT-1').getByRole('gridcell').nth(CSA)).toHaveClass(/ex-state-modified/);
+  await expect(trade(page, 'DRAFT-1').getByRole('gridcell').nth(CSA + 1)).toHaveClass(/ex-state-modified/);
+  // B and A are shown by their boxes and never marked.
+  await expect(trade(page, 'DRAFT-1').getByRole('gridcell').nth(CSA + 2)).not.toHaveClass(/ex-state-modified/);
   await expect(page.getByTestId('workspace-summary')).toContainText('1 edit(s)');
 
   await command(page, 'price');
+  // The figures land on the page itself; the Run opens in its own panel only when asked.
+  const result = page.getByTestId('xva-result');
+  await expect(result.getByTestId('xva-result-status')).toHaveText('succeeded');
+  // No existing trade: Before has nothing to price, so the dock draws After alone and says so once (ADR-0010 §7).
+  await expect(result.getByTestId('xva-result-note')).toHaveText('After only: Before was not priced');
+  await expect(result.getByRole('columnheader', { name: 'CVA Charge After' })).toBeVisible();
+  await expect(result.getByRole('columnheader', { name: 'CVA Before' })).toHaveCount(0);
+  await expect(result.getByTestId('xva-result-revision')).toHaveText(/^revision \d+$/);
+  await result.getByRole('button', { name: 'Open run' }).click();
   await expect(page.getByTestId('run-status')).toHaveText('succeeded');
-  await expect(page.getByLabel('CVA and FVA (simulated)').getByRole('row', { name: /^CVA / })).toBeVisible();
+  await expect(page.getByLabel('CVA and FVA (simulated)').getByRole('row', { name: /^Workspace CVA -/ })).toBeVisible();
   const runId = await page.locator('[data-testid=run-status] + p').textContent();
   expect(runId).toMatch(/^run-/);
 
@@ -86,7 +106,88 @@ test('ADR-0003 §6: a counterparty change asks before dropping its edits, and ke
   await confirm.getByRole('button', { name: 'Drop 1 and change' }).click();
 
   await expect(page.getByTestId('notice')).toContainText('1 edit(s) carried');
-  await settled(page, 'Trades');
+  await settled(page, 'New trades');
   await expect(trade(page, 'DRAFT-1').getByRole('gridcell').nth(3)).toHaveText('7,000,000');
   await expect(trade(page, 'DRAFT-1').getByRole('gridcell').nth(CSA)).toHaveText('CSA-C');
+});
+
+test('ADR-0010 §10: `measures fva` leaves CVA out of the Price, and a new workspace starts on that choice', async ({ page }) => {
+  await open(page);
+  await newWorkspace(page, 'ABC/LE-01', 3);
+  const measures = page.getByRole('group', { name: 'Measures' });
+
+  await command(page, 'measures', 'fva');
+  await expect(measures.getByRole('button', { name: 'CVA' })).toHaveAttribute('aria-pressed', 'false');
+  await expect(measures.getByRole('button', { name: 'FVA' })).toHaveAttribute('aria-pressed', 'true');
+  // Price says what it will run before it runs it (ADR-0010 §1).
+  await expect(page.getByTestId('price')).toHaveText('Price FVA · 1 case');
+
+  await command(page, 'price');
+  const result = page.getByTestId('xva-result');
+  await expect(result.getByTestId('xva-result-status')).toHaveText('succeeded');
+  await expect(result.getByRole('columnheader', { name: 'FVA Diff' })).toBeVisible();
+  await expect(result.getByRole('columnheader', { name: /^CVA/ })).toHaveCount(0);
+
+  // The page's own toggle runs the same command: CVA back in.
+  await measures.getByRole('button', { name: 'CVA' }).click();
+  await expect(page.getByTestId('price')).toHaveText('Price CVA FVA · 1 case');
+
+  // No existing trade there: Before has nothing to price, and Price says so.
+  await newWorkspace(page, 'ABC/LE-02', 0);
+  await expect(page.getByTestId('price')).toHaveText('Price After only · CVA FVA · 1 case');
+});
+
+test('ADR-0010 §5, §8: raising a CSA threshold past 1mm GBP makes it imperfect and moves its trades into FVA', async ({ page }) => {
+  await open(page);
+  await newWorkspace(page, 'ABC/LE-01', 0);
+  await expect(page.getByRole('tab', { name: 'CSA' })).toBeVisible();
+  await page.getByRole('tab', { name: 'CSA' }).click();
+  await settled(page, 'CSA terms');
+  const csaA = page.getByLabel('CSA terms').getByRole('row', { name: /^CSA-A / });
+  // The grid draws the columns in view: End takes the Focus, and the view, to FVA's column at the far right.
+  // ExGrid's viewport takes the press over the cell, as it does a user's; the first key only places the Focus
+  // (ex-grid ADR-0037), so End is pressed twice, and stays put the second time.
+  await csaA.getByRole('gridcell').first().click({ force: true });
+  await page.keyboard.press('End');
+  await page.keyboard.press('End');
+  await expect(csaA).toContainText('Perfect · CSA-A: daily, MTA+threshold');
+  await page.keyboard.press('Home');
+  for (let i = 0; i < 8; i++) await page.keyboard.press('ArrowRight');
+  await page.keyboard.type('200000000');
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('tab', { name: 'CSA ●1' })).toBeVisible();
+  await page.keyboard.press('ArrowUp');
+  await page.keyboard.press('End');
+  await expect(csaA).toContainText('Imperfect · CSA-A: counterparty MTA+threshold');
+
+  // DRAFT-1 takes the main CSA, CSA-A, so it is in FVA now, with the reason.
+  await focusCell(page, 0);
+  await page.keyboard.press('End');
+  await expect(trade(page, 'DRAFT-1')).toContainText('In · CSA-A: counterparty MTA+threshold');
+
+  await command(page, 'price');
+  const result = page.getByTestId('xva-result');
+  await expect(result.getByTestId('xva-result-status')).toHaveText('succeeded');
+  await expect(result.getByTestId('xva-result-trades')).toHaveText('Trades: CVA 0 → 3 · FVA 0 → 3');
+});
+
+test('ADR-0010 §3, §6: `before none` clears Before on every existing trade at once, and Price then prices After alone', async ({ page }) => {
+  await open(page);
+  await newWorkspace(page, 'ABC/LE-01', 5);
+  await expect(page.getByTestId('price')).toHaveText('Price CVA FVA · 1 case');
+
+  await command(page, 'before', 'none grid=existing');
+  await expect(page.getByTestId('price')).toHaveText('Price After only · CVA FVA · 1 case');
+  // One edit for the whole grid, whatever its size.
+  await expect(page.getByTestId('workspace-summary')).toContainText('1 edit(s)');
+
+  await command(page, 'price');
+  const result = page.getByTestId('xva-result');
+  await expect(result.getByTestId('xva-result-status')).toHaveText('succeeded');
+  await expect(result.getByTestId('xva-result-note')).toHaveText('After only: Before was not priced');
+  await expect(result.getByRole('columnheader', { name: 'CVA Diff' })).toHaveCount(0);
+
+  // The caption's own control does the same, back again.
+  await page.getByRole('button', { name: 'Tick Before on every existing trade' }).click();
+  await expect(page.getByTestId('price')).toHaveText('Price CVA FVA · 1 case');
 });

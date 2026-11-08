@@ -11,7 +11,7 @@ import { httpRatesApi, type RatesApi } from './rates/api';
 import { ratesCommandsOf } from './rates/commands';
 import { RatesWorkspacePanel } from './rates/RatesWorkspacePanel';
 import { httpXvaApi, type XvaApi } from './xva/api';
-import { priceOf } from './xva/commands';
+import { measuresTyped, xvaPageOf } from './xva/commands';
 import { XvaWorkspacePanel } from './xva/XvaWorkspacePanel';
 import { registerAiContext, registerAiEffect } from '../ai/effects';
 
@@ -97,6 +97,11 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
   };
   const onRates = rates === undefined ? { unavailable: 'Open a Rates workspace first.' } : { target: active!.title };
   const priceTarget = xva !== undefined || rates !== undefined ? { target: active!.title } : { unavailable: 'Open an XVA or Rates workspace to price it.' };
+  const xvaPage = () => {
+    const registered = xvaPageOf(xva);
+    if (registered === undefined) throw new Error(`The XVA workspace in panel ${xva ?? '(none)'} registered no commands.`);
+    return registered;
+  };
   return [
     {
       id: 'xva.new',
@@ -113,11 +118,41 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
       ...priceTarget,
       run: () => {
         if (rates !== undefined) { page().price(); return; }
-        const price = priceOf(xva);
-        if (price === undefined) throw new Error(`The XVA workspace in panel ${xva ?? '(none)'} registered no Price.`);
-        price();
+        xvaPage().price();
       },
     },
+    {
+      id: 'xva.measures',
+      words: 'measures',
+      title: 'Choose the measures Price prices, such as cva fva',
+      group: 'XVA',
+      ...(xva === undefined ? { unavailable: 'Open an XVA workspace first.' } : { target: active!.title }),
+      args: [{
+        name: 'measures', required: true, rest: true, words: true,
+        hint: 'the measures to price, in any order',
+        // The register is the page's, read when the line asks: the page registers once it has mounted.
+        complete: (given) => {
+          const typed = new Set(measuresTyped(given.measures ?? ''));
+          return (xvaPageOf(xva)?.measures() ?? []).filter((m) => !typed.has(m.id)).map((m) => ({ value: m.id, detail: m.title }));
+        },
+      }],
+      run: (a) => xvaPage().setMeasures(measuresTyped(a.measures ?? '')),
+    },
+    // B or A for every row of a trade grid, as one edit (ADR-0010 §6): the grid the keyboard was last in, or the one named.
+    ...(['before', 'after'] as const).map((side): Command => ({
+      id: `xva.${side}.all`,
+      words: side,
+      title: `Tick or clear ${side === 'before' ? 'Before' : 'After'} on every trade of a grid`,
+      group: 'XVA',
+      ...(xva === undefined ? { unavailable: 'Open an XVA workspace first.' } : { target: active!.title }),
+      args: [
+        { name: 'which', required: true, complete: () => [{ value: 'all', detail: 'tick every row' }, { value: 'none', detail: 'clear every row' }],
+          check: (v) => (v === 'all' || v === 'none' ? undefined : 'all or none') },
+        { name: 'grid', required: false, hint: 'new or existing; the grid you were last in when left out',
+          complete: () => [{ value: 'new' }, { value: 'existing' }], check: (v) => (v === 'new' || v === 'existing' ? undefined : 'new or existing') },
+      ],
+      run: (a) => xvaPage().setSide(side, a.which === 'all', a.grid === undefined ? undefined : a.grid as 'new' | 'existing'),
+    })),
     {
       id: 'rates.new',
       words: 'new rates',

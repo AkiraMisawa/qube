@@ -134,7 +134,7 @@ The two membership flags do not by themselves define whether an edit changes Bef
 
 **DEFAULT PROPOSAL:** A single shared value editor applies to both selected sides. To offer an After-only modification, expose its scope explicitly and materialize both effective values in the accepted input. Initially keep economic fields read-only unless their editing and scope rules are specified.
 
-**OPEN:** Confirm the company rules for side-specific changes such as maturity, mandatory break/MET date, notional, CSA, and master-agreement reassignment. If the existing application has per-field `useAsDiff` semantics, preserve them through a documented field-scope map; do not infer or discard them. This decision is required before enabling those individual editors, but need not block the normal add/remove workflow.
+**Resolved by [ADR-0010](adr/0010-the-xva-page-is-a-one-screen-what-if-workbench.md) §2 (proposed 2026-11-07):** every edit applies to both sides by default, and any editable field can be Before-only or After-only in an advanced mode; the per-section "Use as Diff" is replaced. The text below is kept as it was asked. **OPEN (before):** Confirm the company rules for side-specific changes such as maturity, mandatory break/MET date, notional, CSA, and master-agreement reassignment. If the existing application has per-field `useAsDiff` semantics, preserve them through a documented field-scope map; do not infer or discard them. This decision is required before enabling those individual editors, but need not block the normal add/remove workflow.
 
 ## 5. Individual-addition iterative pricing
 

@@ -154,8 +154,9 @@ def validate_sql():
     db.close()
 
 
-# Installed packages and build output are not the handoff's documents.
-SKIPPED = {"node_modules", "bin", "obj", "dist", "test-results", "playwright-report", ".git"}
+# Installed packages, build output and vendored agent skills are not the handoff's documents. A skill's examples link
+# to files of the illustrative project it describes, which this repository does not have.
+SKIPPED = {"node_modules", "bin", "obj", "dist", "test-results", "playwright-report", ".git", ".claude"}
 
 
 def documents(pattern):

@@ -51,6 +51,42 @@ export const tradeFields: Readonly<Record<string, (text: string) => Parsed>> = {
   },
 };
 
+const amountOf = (text: string): Parsed => {
+  const n = parseNumber(text);
+  return n === undefined || n < 0 ? fail('Type an amount of 0 or more, such as 50,000,000.') : { ok: true, value: n };
+};
+const currencyOf = (text: string): Parsed => {
+  const t = text.trim().toUpperCase();
+  return /^[A-Z]{3}$/.test(t) ? { ok: true, value: t } : fail('Type a currency code, such as JPY.');
+};
+const flagOf = (text: string): Parsed => {
+  const b = parseBoolean(text);
+  return b === undefined ? fail('Type TRUE or FALSE.') : { ok: true, value: b };
+};
+const identifierOf = (what: string) => (text: string): Parsed => (text.trim() === '' ? fail(`Type ${what}.`) : { ok: true, value: text.trim() });
+
+/**
+ * The editable CSA terms (ADR-0010 §8), and how each reads what was typed. The form only: which currencies and curves
+ * exist, and what makes a CSA imperfect, are the server's.
+ */
+export const csaFields: Readonly<Record<string, (text: string) => Parsed>> = {
+  currency: currencyOf,
+  curve: identifierOf('a curve identifier'),
+  fvaCurve: identifierOf('a curve identifier'),
+  frequency: (text) => {
+    const t = text.trim().toLowerCase();
+    return t === 'daily' || t === 'weekly' || t === 'monthly' ? { ok: true, value: t } : fail('Type daily, weekly or monthly.');
+  },
+  exchange: flagOf,
+  oneWay: flagOf,
+  counterpartyThreshold: amountOf,
+  counterpartyMta: amountOf,
+  counterpartyCurrency: currencyOf,
+  selfThreshold: amountOf,
+  selfMta: amountOf,
+  selfCurrency: currencyOf,
+};
+
 /** A recovery as typed: empty stays empty (the CDS recovery then applies), else a number from 0 up to 1. */
 export function parseRecovery(text: string): Parsed {
   if (text.trim() === '') return { ok: true, value: null };
@@ -58,9 +94,16 @@ export function parseRecovery(text: string): Parsed {
   return n === undefined || n < 0 || n >= 1 ? fail('Type a recovery from 0 up to 1, or leave it empty.') : { ok: true, value: n };
 }
 
-/** A change to send: a value set on a field, or a held edit resolved. */
+/** The workspace's selection of measures, as an edit names it (ADR-0010 §10). */
+export const MEASURES_ENTITY = 'selection:measures';
+
+/**
+ * A change to send: a value set on a field, a held edit resolved, or the measures Price prices. They share one queue,
+ * so each is sent against the revision the one before it made.
+ */
 export type PendingEdit =
-  | { readonly entity: string; readonly field: string; readonly value: unknown; readonly resolution?: undefined }
-  | { readonly entity: string; readonly field: string; readonly resolution: Resolution };
+  | { readonly entity: string; readonly field: string; readonly value: unknown; readonly resolution?: undefined; readonly measures?: undefined }
+  | { readonly entity: string; readonly field: string; readonly resolution: Resolution; readonly measures?: undefined }
+  | { readonly entity: typeof MEASURES_ENTITY; readonly field: 'measures'; readonly measures: readonly string[]; readonly resolution?: undefined };
 
 export { EditQueue } from '../../platform/workspace/editQueue';
