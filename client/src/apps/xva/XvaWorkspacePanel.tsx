@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import './xva.css';
 import { Alert, Badge, Button, Group, Modal, Select, Stack, Table, Text, TextInput } from '@mantine/core';
-import { GridSource, type CellState, type GridColumn, type GridEditIntent } from '@ex-grid/core';
+import { GridSource, type CellState, type GridColumn, type GridContextMenuContext, type GridEditIntent } from '@ex-grid/core';
 import type { ExGridApi } from '@ex-grid/react';
 import { WorkbenchGrid } from '../../platform/grid/WorkbenchGrid';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -10,7 +10,7 @@ import { useWorkspaceContext } from '../../platform/workspace/WorkspaceProvider'
 import { keyOf } from '../../platform/workspace/workspaceStore';
 import { registerGridFocus } from '../../shell/focus';
 import type { XvaApi } from './api';
-import type { EffectiveTrade, HeldEdit, Resolution, ScopeDrop, XvaWorkspaceView } from './contracts';
+import type { EffectiveTrade, HeldEdit, RegisteredColumn, Resolution, ScopeDrop, XvaWorkspaceView } from './contracts';
 import { registerXvaPage } from './commands';
 import { XvaResult } from './XvaResult';
 import { EditQueue, MEASURES_ENTITY, tradeFields, type PendingEdit } from './editing';
@@ -18,6 +18,7 @@ import { ToolbarField } from './fields';
 import { XvaInputs } from './XvaInputs';
 import { priceLabel } from './metrics';
 import { differs, originalMessage } from './original';
+import { cellMessage as moduleCellMessage, cellRefusal, cellState as moduleCellState, failed, moduleColumns, parseCellNumber } from './cells';
 
 // The fixed XVA workspace (docs/03, ADR-0003): the server holds the trades and every rule; this page shows
 // the effective rows a page at a time and sends what the user changed. ExGrid draws; it decides nothing.
@@ -48,22 +49,26 @@ const leading: readonly GridColumn<Row>[] = [
   column('fixedRate', 'Fixed rate', 'number', 112, { editable: true, format: (v) => rate.format(v as number) }),
   column('schedule', 'Schedule', 'text', 104, { editable: true }),
 ];
-const trailing: readonly GridColumn<Row>[] = [
+const assignment: readonly GridColumn<Row>[] = [
   column('csa', 'CSA', 'text', 120, { editable: true }),
   column('curve', 'Curve', 'text', 112, { editable: true }),
   column('before', 'Before', 'boolean', 88, { editable: true }),
   column('after', 'After', 'boolean', 80, { editable: true }),
+];
+// The selected modules' columns stand between B and A and these (ADR-0010 §6, §10): on the New grid, XVA's PV01,
+// Margin and PV Adj.
+const derived: readonly GridColumn<Row>[] = [
   // FVA's membership, read-only and decided on the server (ADR-0010 §5): in or out, with its reason.
   { name: 'fva', header: 'FVA', type: 'text', width: 340, value: (row) => fvaOf(row), format: text },
   { name: 'issues', header: 'Issues', type: 'text', width: 260, value: (row) => (row.issues.length === 0 ? undefined : row.issues.join(' ')), format: text },
 ];
-const newColumns: readonly GridColumn<Row>[] = [...leading, ...trailing];
 const existingColumns: readonly GridColumn<Row>[] = [
   ...leading,
   column('lastFixing', 'Last fixing', 'number', 116, { format: (v) => rate.format(v as number) }),
   // The books' PV, the source's and read-only (ADR-0010 §6): the PV an adjustment uses.
   column('officialPv', 'Official PV', 'number', 152, { format: (v) => amount.format(v as number) }),
-  ...trailing,
+  ...assignment,
+  ...derived,
 ];
 
 export type TradeGrid = 'new' | 'existing';
@@ -78,6 +83,8 @@ export function fvaOf(row: Row): string | undefined {
 // edited back is not. ExGrid's `modified` mark stands in for the Before and After fills until its Split Fill ships.
 function cellState(row: Row, col: GridColumn<Row>): CellState {
   if (row.held.some((h) => h.startsWith(`${col.name}:`))) return 'stale';
+  // A module's column (ADR-0010 §6, §10): PV01 pending or failed, and a typed Margin against an empty Original.
+  if (row.cells?.[col.name] !== undefined) return moduleCellState(row, col.name);
   if ((col.name === 'csa' || col.name === 'curve' || col.name === 'issues') && row.issues.length > 0) return 'error';
   if (differs(row, col.name)) return 'modified';
   return 'normal';
@@ -89,15 +96,24 @@ function cellMessage(row: Row, col: GridColumn<Row>): string | undefined {
     ? 'The source changed under your edit. Keep it or take the source value in the panel above.'
     : 'This edit lost its trade in the new version. Acknowledge or reset it in the panel above.';
   if ((col.name === 'csa' || col.name === 'curve' || col.name === 'issues') && row.issues.length > 0) return row.issues.join(' ');
+  if (row.cells?.[col.name] !== undefined) return moduleCellMessage(row, col.name);
   return originalMessage(row, col.name, row[col.name as keyof Row]);
 }
+
+/** The failed cell's action (ADR-0010 §6): ask again for that trade's results. */
+const RETRY = 'xva.retry';
+const commandLabel = (id: string) => (id === RETRY ? 'Ask again' : undefined);
 
 const describe = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 export function XvaWorkspacePanel({ panelId, workspaceId, api }: { readonly panelId: string; readonly workspaceId: string; readonly api: XvaApi }) {
   const workspace = useWorkspaceContext();
   const queryClient = useQueryClient();
-  const view = useQuery({ queryKey: ['xva', workspaceId], queryFn: () => api.view(workspaceId) });
+  // While a module's cell on a new trade waits for its result, such as PV01, the view is read again until none does.
+  const view = useQuery({
+    queryKey: ['xva', workspaceId], queryFn: () => api.view(workspaceId),
+    refetchInterval: (query) => (query.state.data !== undefined && query.state.data.pendingCells > 0 ? 500 : false),
+  });
   const registrations = useQuery({ queryKey: ['xva', 'registrations'], queryFn: () => api.registrations(), staleTime: Infinity });
   const newGrid = useRef<ExGridApi<Row>>(null);
   // The grid the keyboard was last in: `before all` and `after all` act on it, Existing until one was.
@@ -143,7 +159,34 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api }: { readonly pane
   const shownRevision = view.data?.revision;
   useEffect(() => { if (shownRevision !== undefined) queue.shown(shownRevision); }, [shownRevision, queue]);
 
+  // The selected modules' trade columns (ADR-0010 §10), made again only when they change (ExGrid ADR-0003).
+  const tradeColumns = view.data?.tradeColumns;
+  const columnsKey = tradeColumns === undefined ? '' : tradeColumns.map((c) => c.field).join('|');
+  const registered = useRef<readonly RegisteredColumn[]>([]);
+  registered.current = tradeColumns ?? [];
+  const newColumns = useMemo<readonly GridColumn<Row>[]>(() => [...leading, ...assignment, ...moduleColumns(registered.current), ...derived], [columnsKey]);
+
+  // A result that arrives changes the New grid's rows with no edit: they are read again when the count waiting moves.
+  const pendingCells = view.data?.pendingCells;
+  const seenPending = useRef<number | undefined>(undefined);
+  useEffect(() => {
+    if (pendingCells === undefined) return;
+    if (seenPending.current !== undefined && seenPending.current !== pendingCells) sources.new.notifyChanged([]);
+    seenPending.current = pendingCells;
+  }, [pendingCells, sources]);
+
   const onEdit = useCallback((intent: GridEditIntent<Row>) => {
+    const module = registered.current.find((c) => c.field === intent.column);
+    if (module !== undefined) {
+      // As the server would refuse it: PV Adj is read-only while Margin is entered, and says why (ADR-0010 §6).
+      const refusal = cellRefusal(intent.row, module);
+      if (refusal !== undefined) { intent.refuse(refusal); return; }
+      if (intent.seenText !== intent.replacedText) { intent.refuse('The value changed while you were editing. Look at it again.'); return; }
+      const typed = parseCellNumber(intent.value);
+      if (!typed.ok) { intent.refuse(typed.message); return; }
+      void queue.push({ entity: `trade:${intent.row.tradeId}`, field: intent.column, value: typed.value });
+      return;
+    }
     const parse = tradeFields[intent.column];
     if (parse === undefined) { intent.refuse('This column is not editable.'); return; }
     if (intent.seenText !== intent.replacedText) { intent.refuse('The value changed while you were editing. Look at it again.'); return; }
@@ -205,19 +248,34 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api }: { readonly pane
     workspace.store.getState().openPanel({ kind: 'run', title: `CVA/FVA ${view.data?.registration.key ?? ''}`, runId, viewKey: resultView === undefined ? undefined : keyOf(resultView) });
   };
 
+  /** Asks again for the failed results of one trade, or of all (`pv01 retry`, ADR-0010 §6). */
+  const retry = async (tradeId?: string) => {
+    try {
+      const { workspace: next, asked } = await api.retry(workspaceId, tradeId);
+      show(next);
+      sources.new.notifyChanged([]);
+      workspace.notify(asked === 0 ? 'No result had failed, so nothing was asked again.' : `Asked again for ${asked} result(s).`);
+    } catch (error) {
+      workspace.notify(`Nothing was asked again: ${describe(error)}`);
+    }
+  };
+  const contextCommands = useCallback((context: GridContextMenuContext<Row>) =>
+    failed(context.row, context.column) ? [{ id: RETRY, enabled: true, invoke: () => void pageRef.current.retry(context.row.tradeId) }] : [], []);
+
   const setMeasures = (measures: readonly string[]) => void queue.push({ entity: MEASURES_ENTITY, field: 'measures', measures });
   /** B or A for every row of a grid, as one edit (ADR-0010 §6); a row's own edit made later wins over it. */
   const setSide = (side: 'before' | 'after', value: boolean, grid: TradeGrid = lastGrid.current) =>
     void queue.push({ entity: `grid:${grid}`, field: side, value });
 
   // The commands run what the page's own controls run, as the page stands when they run (ADR-0010 §9).
-  const pageRef = useRef({ price, setMeasures, setSide, measures: () => view.data?.measures ?? [] });
-  pageRef.current = { price, setMeasures, setSide, measures: () => view.data?.measures ?? [] };
+  const pageRef = useRef({ price, setMeasures, setSide, retry, measures: () => view.data?.measures ?? [] });
+  pageRef.current = { price, setMeasures, setSide, retry, measures: () => view.data?.measures ?? [] };
   useEffect(() => {
     registerXvaPage(panelId, {
       price: () => void pageRef.current.price(),
       setMeasures: (measures) => pageRef.current.setMeasures(measures),
       setSide: (side, value, grid) => pageRef.current.setSide(side, value, grid),
+      retry: () => void pageRef.current.retry(),
       measures: () => pageRef.current.measures(),
     });
     return () => registerXvaPage(panelId, undefined);
@@ -274,6 +332,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api }: { readonly pane
         <TradeCaption title="New trades" count={ws.newTrades} grid="new" setSide={setSide} disabled={!notBusy} />
         <div aria-label="New trades" onFocusCapture={() => { lastGrid.current = 'new'; }}>
           <WorkbenchGrid<Row> ref={newGrid} columns={newColumns} source={sources.new} onEdit={onEdit} cellState={cellState} cellMessage={cellMessage}
+            contextCommands={contextCommands} commandLabel={commandLabel}
             density="compact" viewportWidth="stretch" viewportHeight={48 + Math.max(1, Math.min(ws.newTrades, 8)) * 28} pinnedColumnCount={1} locale="en-US" />
         </div>
         <TradeCaption title="Existing trades" count={ws.trades - ws.newTrades} grid="existing" setSide={setSide} disabled={!notBusy} />

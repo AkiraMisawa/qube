@@ -113,4 +113,22 @@ public class PricerApiTests(WorkbenchFactory factory) : IClassFixture<WorkbenchF
 
         Assert.Equal(["fva"], Strings(next["selectedMeasures"]));
     }
+
+    [Fact] // ADR-0010 §6: XVA's columns reach the New grid over HTTP, a Margin is an edit, and `pv01 retry` asks again
+    public async Task Xvas_trade_columns_are_read_and_edited_over_http()
+    {
+        var ws = await Create();
+        Assert.Equal(["xva.pv01", "xva.margin", "xva.pvAdj"], ws["tradeColumns"]!.AsArray().Select(c => c!["field"]!.GetValue<string>()));
+
+        var edited = await Post(ws, "edits", new { revision = Revision(ws), entity = "trade:DRAFT-1", field = "xva.margin", value = 2 });
+        Assert.Equal(HttpStatusCode.OK, edited.StatusCode);
+        var rows = await (await Post(ws, "rows", new { start = 0, count = 10, sorts = Array.Empty<object>(), grid = "new" })).Content.ReadFromJsonAsync<JsonObject>();
+        var cells = rows!["rows"]!.AsArray().Single(r => r!["tradeId"]!.GetValue<string>() == "DRAFT-1")!["cells"]!;
+        Assert.Equal(2m, cells["xva.margin"]!["value"]!.GetValue<decimal>());
+        Assert.False(cells["xva.pvAdj"]!["editable"]!.GetValue<bool>());
+
+        var retried = await Post(ws, "retry", new { });
+        Assert.Equal(HttpStatusCode.OK, retried.StatusCode);
+        Assert.Equal(0, (await retried.Content.ReadFromJsonAsync<JsonObject>())!["asked"]!.GetValue<int>());
+    }
 }

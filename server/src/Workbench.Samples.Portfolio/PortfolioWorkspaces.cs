@@ -14,7 +14,9 @@ public sealed record RowSort(string Column, string Direction);
 public sealed record RowPage(IReadOnlyList<EffectiveTrade> Rows, int Start, int TotalCount, string OrderToken, long Revision);
 
 /// <summary>What the workspace panel shows beside the grid. <c>Overrides</c> counts the edits to the portfolio's data;
-/// the selection of measures is the page's choice, shown on its own.</summary>
+/// the selection of measures is the page's choice, shown on its own. <c>TradeColumns</c> are the selected modules'
+/// (ADR-0010 §10), and <c>PendingCells</c> counts their cells on the new trades still waiting for a result, so the page
+/// asks again while any is.</summary>
 public sealed record PortfolioWorkspaceView(
     string WorkspaceId,
     long Revision,
@@ -33,7 +35,9 @@ public sealed record PortfolioWorkspaceView(
     IReadOnlyList<HeldEdit> Lost,
     IReadOnlyList<RunLink> Runs,
     IReadOnlyList<RegisteredMeasure> Measures,
-    IReadOnlyList<string> SelectedMeasures);
+    IReadOnlyList<string> SelectedMeasures,
+    IReadOnlyList<RegisteredColumn> TradeColumns,
+    int PendingCells);
 
 /// <summary>An edit held back for the user: a conflict (with the source's new values) or a lost target.</summary>
 public sealed record HeldEdit(string Scope, string Entity, string Field, JsonNode? Value, IReadOnlyDictionary<string, JsonNode?>? Source, bool Acknowledged);
@@ -95,7 +99,9 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
             register.WithMembership(state, PortfolioMaterialiser.Csas(state)), PortfolioMaterialiser.Credit(state), Rows(state).Count, Rows(state).Count(t => t.IsNew), Rows(state).Count(t => t.Before), Rows(state).Count(t => t.After), state.Overrides.Keys.Count(t => t.Entity != Entity.Measures),
             [.. state.Conflicts.Values.OrderBy(c => c.Override.Seq).Select(c => new HeldEdit(c.Override.Target.Scope, c.Override.Target.Entity, c.Override.Target.Field, c.Override.Value, c.Source, false))],
             [.. state.Lost.Values.OrderBy(l => l.Override.Seq).Select(l => new HeldEdit(l.Override.Target.Scope, l.Override.Target.Entity, l.Override.Target.Field, l.Override.Value, null, l.Acknowledged))],
-            links, register.Measures, PortfolioMaterialiser.SelectedMeasures(state, register));
+            links, register.Measures, PortfolioMaterialiser.SelectedMeasures(state, register),
+            [.. register.TradeColumns.Where(c => register.Selected(state).Any(m => m.Id == c.Module))],
+            register.WithCells(state, [.. Rows(state).Where(t => t.IsNew)]).Sum(t => t.Cells?.Values.Count(c => c.State == TradeCell.Pending) ?? 0));
     }
 
     public IReadOnlyList<WorkspaceState> OwnedBy(string user) =>
@@ -134,17 +140,52 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
             }))]);
         // Unsorted, the order is the source's and moves only with a new version; sorted, any edit may move it.
         var token = sorts.Count == 0 ? state.Source.Version : $"{state.Source.Version}/r{state.Revision}";
-        var page = start >= all.Count ? [] : all.Skip(start).Take(count).ToList();
+        // The modules' cells are read for the page alone, each time: a result such as PV01 arrives with no edit.
+        var page = start >= all.Count ? [] : register.WithCells(state, [.. all.Skip(start).Take(count)]);
         return new(page, start, all.Count, token, state.Revision);
     }
 
     public WorkspaceState Edit(string workspaceId, long revision, string user, string entity, string field, JsonNode? value)
     {
         var state = Owned(workspaceId, user);
-        if (!Editable(entity, field))
-            throw new WorkspaceRefused("NotEditable", $"{entity}.{field} is not editable in this workspace.");
-        Validate(state, entity, field, value);
+        if (register.ColumnOf(field) is { } column) CheckCell(state, entity, field, column, value);
+        else
+        {
+            if (!Editable(entity, field))
+                throw new WorkspaceRefused("NotEditable", $"{entity}.{field} is not editable in this workspace.");
+            Validate(state, entity, field, value);
+        }
         return workspaces.Set(workspaceId, revision, user, PortfolioEditRules.Target(Source(state), entity, field), value);
+    }
+
+    /// <summary>
+    /// Asks again for every failed result among the selected modules' cells on the workspace's trades, or on one trade
+    /// (`pv01 retry`, and the failed cell's action, ADR-0010 §6). Answers how many were asked again.
+    /// </summary>
+    public int Retry(string workspaceId, string user, string? tradeId = null)
+    {
+        var state = Owned(workspaceId, user);
+        var trades = tradeId is null ? Rows(state) : [.. Rows(state).Where(t => t.TradeId == tradeId)];
+        if (tradeId is not null && trades.Count == 0) throw new WorkspaceRefused("UnknownTarget", $"No trade {tradeId} in this workspace.");
+        return register.Selected(state).Sum(m => m.Retry(state, trades));
+    }
+
+    // A module's column is typed where its cell on the trade says it may be, as the page shows it: PV Adj is read-only
+    // while Margin is entered (ADR-0010 §6), and refused then with the cell's own note.
+    void CheckCell(WorkspaceState state, string entity, string field, (IMeasureModule Module, TradeColumn Column) owner, JsonNode? value)
+    {
+        var (kind, id) = Entity.Split(entity);
+        var title = owner.Column.Title;
+        var trade = kind == Entity.Trade ? Rows(state).FirstOrDefault(t => t.TradeId == id) : null;
+        if (trade is null) throw new WorkspaceRefused("NotEditable", $"{title} is a column of a trade, and {entity} is not one in this workspace.");
+        if (register.Selected(state).All(m => m != owner.Module))
+            throw new WorkspaceRefused("NotEditable", $"{title} shows while one of {owner.Module.Id}'s measures is selected.");
+        var cell = register.WithCells(state, [trade])[0].Cells?.GetValueOrDefault(field);
+        if (cell is null) throw new WorkspaceRefused("NotEditable", $"{trade.TradeId} has no {title}.");
+        if (!cell.Editable)
+            throw new WorkspaceRefused("NotEditable", cell.Note is null ? $"{title} of {trade.TradeId} is read-only." : $"{title} of {trade.TradeId} is read-only: {cell.Note}");
+        if (owner.Module.Check(owner.Column.Id, value) is { } problem)
+            throw new WorkspaceRefused("InvalidValue", problem, [PortfolioEditRules.Target(Source(state), entity, field)]);
     }
 
     public WorkspaceState Resolve(string workspaceId, long revision, string user, string entity, string field, string resolution)

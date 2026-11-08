@@ -34,6 +34,10 @@ async function focusCell(page: Page, right: number): Promise<void> {
 
 // The CSA's column in the New grid, which has no last fixing (ADR-0010 §6).
 const CSA = 7;
+// XVA's columns in the New grid, after B and A (ADR-0010 §6), by the grid's own 1-based column index: the grid draws
+// the columns in view, so a cell is found by its column, not by how many cells are drawn before it.
+const XVA = { pv01: 12, margin: 13, pvAdj: 14 } as const;
+const cell = (page: Page, id: string, column: number) => trade(page, id).locator(`[aria-colindex="${column}"]`);
 
 test('docs/03, ADR-0003: a new trade takes the main CSA, a CSA typed in moves its curve, and Price lands in the Pricing DB', async ({ page }) => {
   await open(page);
@@ -190,4 +194,35 @@ test('ADR-0010 §3, §6: `before none` clears Before on every existing trade at 
   // The caption's own control does the same, back again.
   await page.getByRole('button', { name: 'Tick Before on every existing trade' }).click();
   await expect(page.getByTestId('price')).toHaveText('Price CVA FVA · 1 case');
+});
+
+test('ADR-0010 §6: a new trade\'s PV01 arrives with no reload, and Margin gives its PV Adj, read-only and saying so', async ({ page }) => {
+  await open(page);
+  await newWorkspace(page, 'ABC/LE-01', 0);
+  await focusCell(page, 0);
+  await page.keyboard.press('End');
+  // The simulated engine answers after a moment; the page reads the grid again once it has, and never shows 0.
+  await expect(cell(page, 'DRAFT-1', XVA.pv01)).toHaveText(/^-\d{1,3}(,\d{3})*(\.\d{1,2})?$/);
+  const pv01 = Number((await cell(page, 'DRAFT-1', XVA.pv01).textContent())?.replaceAll(',', ''));
+
+  await focusCell(page, XVA.margin - 1);
+  await page.keyboard.type('2');
+  await page.keyboard.press('Enter');
+  // Margin is typed and differs from Original, which is empty (ADR-0010 §2); PV Adj comes from it. Moving onto PV Adj
+  // brings its column into view.
+  await expect(cell(page, 'DRAFT-1', XVA.margin)).toHaveClass(/ex-state-modified/);
+  await page.keyboard.press('ArrowUp');
+  await page.keyboard.press('ArrowRight');
+  const pvAdj = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(Math.round(pv01 * 2 * 100) / 100);
+  await expect(cell(page, 'DRAFT-1', XVA.pvAdj)).toHaveText(pvAdj);
+  await expect(page.getByText(/^From Margin: 2 bp × PV01 -/)).toBeVisible();
+  // While Margin is entered, PV Adj is read-only, and typing into it is refused with the reason.
+  await page.keyboard.type('5');
+  await page.keyboard.press('Enter');
+  await expect(page.getByLabel('New trades').getByRole('status')).toHaveText(/^PV Adj is read-only: From Margin: 2 bp × PV01 -/);
+  await page.keyboard.press('Escape');
+  await expect(cell(page, 'DRAFT-1', XVA.pvAdj)).toHaveText(pvAdj);
+
+  await command(page, 'price');
+  await expect(page.getByTestId('xva-result').getByTestId('xva-result-status')).toHaveText('succeeded');
 });

@@ -28,6 +28,8 @@ export interface XvaApi {
   /** Sets the measures Price prices; an unknown one, or none, is refused by name. */
   measures(workspaceId: string, revision: number, measures: readonly string[]): Promise<XvaWorkspaceView>;
   price(workspaceId: string, revision: number, idempotencyKey: string): Promise<RunRecord>;
+  /** Asks again for the failed results on one trade, or on all (`pv01 retry`, ADR-0010 §6). */
+  retry(workspaceId: string, tradeId?: string): Promise<{ readonly workspace: XvaWorkspaceView; readonly asked: number }>;
 }
 
 export const httpXvaApi: XvaApi = {
@@ -43,6 +45,7 @@ export const httpXvaApi: XvaApi = {
     post(`${base(workspaceId)}/counterparty`, { revision, registration, confirmedCount }),
   measures: (workspaceId, revision, measures) => post(`${base(workspaceId)}/measures`, { revision, measures }),
   price: (workspaceId, revision, idempotencyKey) => post(`${base(workspaceId)}/price`, { revision, idempotencyKey }),
+  retry: (workspaceId, tradeId) => post(`${base(workspaceId)}/retry`, tradeId === undefined ? {} : { tradeId }),
 };
 
 export type { EffectiveTrade };

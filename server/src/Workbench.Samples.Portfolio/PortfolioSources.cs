@@ -149,6 +149,8 @@ public sealed class PortfolioSourceVersion : ISourceVersion
                     "curve" => new((JsonNode?)null),
                     "before" => new(!t.IsNew),
                     "after" => new(true),
+                    // A module's own input on a trade, such as XVA's Margin (ADR-0010 §10): the source holds none.
+                    _ when field.Contains('.') => new((JsonNode?)null),
                     _ => null,
                 };
             case Entity.Csa when CsaOf(id) is { } csa:

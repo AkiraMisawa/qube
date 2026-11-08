@@ -14,7 +14,7 @@ public sealed class SqliteRunStoreTests : IDisposable
     static readonly DateOnly Day1 = new(2026, 10, 26);
     readonly string path = Path.Combine(Path.GetTempPath(), $"workbench-runs-{Guid.NewGuid():N}.db");
     readonly CompositionRegistry registry = new([new PortfolioModule(), new XvaModule()]);
-    static readonly MeasureRegister Register = new([new XvaMeasures()]);
+    static readonly MeasureRegister Register = new([new XvaMeasures(Pv01Provider.Simulated(TimeSpan.Zero))]);
 
     public void Dispose()
     {
