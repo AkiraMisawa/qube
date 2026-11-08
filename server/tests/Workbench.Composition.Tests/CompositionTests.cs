@@ -116,6 +116,33 @@ public class CompositionTests
         Assert.Contains(run.Invocations, i => i.InvocationKey == "readings/ST-05" && i.Status == InvocationStatus.Failed);
     }
 
+    [Fact] // D09, docs/05 (preserve what succeeded) in the generic kernel: a failed step leaves only its own outputs unavailable; an independent step's are retained
+    public async Task A_failed_step_does_not_take_an_independent_steps_output_with_it()
+    {
+        var harness = new Harness(new EchoModule());
+        var workflow = Harness.Parse<WorkflowDefinition>("""
+            {
+              "documentType": "workflow", "schemaVersion": "1.0.0", "definitionId": "workflow.test.half", "version": "1.0.0",
+              "title": "Half fails", "inputContractId": "test.echo-input", "inputContractVersion": "1.0.0",
+              "steps": [
+                { "stepId": "refuse", "capabilityId": "test.refuse", "capabilityVersion": "1.0.0", "dependsOn": [],
+                  "bindings": { "text": { "kind": "input", "path": "/text" } }, "failurePolicy": "stop" },
+                { "stepId": "echo", "capabilityId": "test.echo", "capabilityVersion": "1.0.0", "dependsOn": [],
+                  "bindings": { "text": { "kind": "input", "path": "/text" } }, "failurePolicy": "stop" } ],
+              "outputs": {
+                "refuse": { "kind": "output", "stepId": "refuse", "port": "echo" },
+                "echo": { "kind": "output", "stepId": "echo", "port": "echo" } }
+            }
+            """);
+
+        var run = await harness.RunAsync(workflow, Harness.Context(), new JsonObject { ["text"] = "hello" });
+
+        Assert.Equal((RunStatus.Failed, "StepFailed"), (run.Status, run.Error!.Code));
+        Assert.Contains("refuse", run.Error.Message);
+        Assert.Equal(["echo"], run.Outputs.Keys);
+        Assert.Equal("hello", harness.Dataset(run.Outputs["echo"]).Rows.Single()["text"]!.GetValue<string>());
+    }
+
     [Fact] // XV13 in the generic kernel: a retried submission returns the same Run; a changed one under the key is refused
     public void Idempotency_key_returns_the_same_run_or_refuses_a_different_submission()
     {
@@ -175,9 +202,21 @@ sealed class EchoModule : IWorkbenchModule
             });
     }
 
+    /// <summary>A capability that always refuses, by name, so a test can fail one step of a workflow.</summary>
+    sealed class Refuse : ICapabilityHandler
+    {
+        public CapabilityDescriptor Descriptor { get; } = new("test.refuse", "1.0.0", "Refuse",
+            [new("text", "test.text", "1.0.0", Cardinality.One)], [new("echo", "test.echo-table", "1.0.0", Cardinality.One)],
+            ExecutionKind.RequestResponse, [CapabilityEffect.Compute]);
+
+        public Task<IReadOnlyDictionary<string, JsonNode?>> InvokeAsync(CapabilityInvocation invocation, CancellationToken cancellationToken) =>
+            throw new CapabilityFailure("Refused", "This capability always refuses.");
+    }
+
     public void Register(CompositionRegistryBuilder builder)
     {
         builder.AddCapability(new Echo());
+        builder.AddCapability(new Refuse());
         builder.AddContract(new("test.echo-input", "1.0.0", "Echo input", JsonNode.Parse("""
             { "type": "object", "properties": { "text": { "type": "string" } }, "required": ["text"], "additionalProperties": false }
             """)!.AsObject()));

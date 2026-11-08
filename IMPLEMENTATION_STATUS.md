@@ -448,13 +448,93 @@ The Rates pricing provider is the fake one, so every CRIF and SIMM figure is `si
 - Vega, curvature and base correlation are not computed and have no kinds yet; `simm.addon` is registered when an add-on is first configured (ADR-0012 §6's note of 2026-11-08).
 - The command line and the AI cannot run a workflow (their tools are commands only, ADR-0005 and ADR-0007): calling the capabilities from either needs a generic workflow tool in the kernel, a decision of its own. `workflow.simm.calculate` is not in the catalogue, because a form cannot pass it the retained CRIF and IM CSAs.
 - Leaf rows carry the trade's source id, not a `tradeInstanceId`: the IM source has no trade instances. Within a Run, the frozen trades are that instance.
-- The trace is read over HTTP as the CCR thread's endpoint reads any lone trace, on After of the base case: `GET /api/runs/{run}/cases/base/traces/spot-im`, with `path` for a term and `…/leaves` for its CRIF lines (ADR-0011 §5). Nothing draws it on screen yet (ADR-0012 step 3).
+- The trace is read over HTTP as the CCR thread's endpoint reads any lone trace, on After of the base case: `GET /api/runs/{run}/cases/base/traces/simm.spotIm` (the measure's ID since step 2; it was `spot-im`), with `path` for a term and `…/leaves` for its CRIF lines (ADR-0011 §5). The page's trace view draws the step 2 Runs' traces; the SIMM tab's own drill-down is step 3.
 - Only the synthetic counterparty exists; the regimes a trade counts under come from that source. Phase-in dates (ADR-0012 §2) are not modelled yet.
+
+## Spot SIMM, step 2: spot IM on the pricer page (ADR-0012, 2026-11-08)
+
+Spec: [docs/specs/spot-simm-page/spec.md](docs/specs/spot-simm-page/spec.md), tickets 01–04. Decisions: ADR-0012 §2, §3,
+§4 and §7 with their notes of 2026-11-08, and ADR-0010 §7 and §10 with theirs. Seams agreed with the owner
+(2026-11-08, "go with your recommendations"): the register in process, HTTP, and the client.
+
+### What runs
+
+- **IM CSAs and IM-R/IM-P** (ticket 01): the synthetic source gives each counterparty at most one IM CSA per direction
+  with its regimes and the date each applies from (ABC/LE-01: IMR-ABC-01 under JFSA and CFTC, IMP-ABC-01 under JFSA
+  and EMIR; ABC/LE-02 JFSA alone; MA-003 none). An existing trade's IM-R and IM-P are the source's; a new trade takes
+  the counterparty's automatically. They are assignment edits, marked against Original and dropped with the
+  counterparty as the CSA is. The source classifies each trade per direction and regime by its start date; an FX
+  forward is exempt.
+- **Spot IM registered** (ticket 02): measure `simm.spotIm` of module `simm` (`measures simm` selects it), metrics IM-R
+  (headline, opens the trace at `collect`) and IM-P (at `post`). Membership per scope `{direction}/{regime}`, each in
+  or out with why; the compact form `R: JFSA, CFTC · P: JFSA`. Inputs: IM-R and IM-P on both trade grids and the IM
+  tab, shown only while spot IM is selected. Price refuses spot IM alone, by name (`SpotImRefused`), for a trade
+  naming another IM CSA, a trade in scope that cannot be a Rates line, or IM CSAs naming a table not loaded; CVA is
+  priced regardless.
+- **SIMM's own request** (ticket 03): `simm.spotIm` reads the accepted input, prices Before and After on their own
+  (CRIF from the side's trades in scope at the value date on the pinned market and FX, then the reference engine
+  under the frozen IM CSAs), and writes the shared result (IM-R and IM-P in the display currency, each side's
+  governing regime as its note, `SIMM PARAMETERS DEMO` as the basis), a trace per priced side and each side's CRIF
+  (`crifBefore`, `crifAfter`). A trade in scope without a CRIF line makes its side `unavailable`, naming it; nothing
+  in scope is `notPriced`, never 0.
+- **The page** (ticket 04): the IM-R and IM-P columns beside the CSA on both grids, editable; the spot IM column with
+  each scope's reason in its cell's message; the IM tab (`open im`), read-only, with a sentence for a counterparty
+  without IM CSAs; Metrics with the regime before each figure and a `Spot IM · SIMM PARAMETERS DEMO` badge on the
+  dock; an IM-R cell opens the trace at `collect`, an IM-P cell at `post`, After alone included.
+- **Fixed on the way**: the executor dropped every workflow output after the first unusable one, so a failed XVA
+  request would have hidden spot IM's figures; a Run now keeps every usable output and is still `failed` (docs/05,
+  "preserve successful cases"; ADR-0010 §10). In the light theme a link (a Metrics figure that opens its trace) read
+  at 2.7:1; it now takes the primary colour's ink. On a phone the five measure toggles were cut to `CV.` and
+  `Spot I`; they now wrap on a row of their own. A reason under the Metrics for a side with no figure said
+  `unavailable`, in red, where nothing had failed (a side with nothing in an IM scope); it now says `not priced`, and
+  only a failed request is said in red.
+- **Reviewed** (code-review, Standards and Spec, 2026-11-08) and fixed: a missing scope list or measure list in the
+  accepted input is refused by name rather than read as empty; a side with nothing in scope says why per direction;
+  more than one SIMM version, or one not loaded, is refused at Price and again in the request; a counterparty with
+  no IM CSA says so in the tab and in the result; conventions moved after Price fail spot IM's request alone, by
+  name, and CVA stands; the browser checks at all four widths, after deselection, and for a counterparty without IM
+  CSAs. Left as they are, with the reason: the direction strings (`collect`/`post`) are the trace's paths and the
+  CRIF's, one vocabulary; the portfolio's per-field lists for IM-R/IM-P follow the CSA's pattern, and folding them into
+  the register waits until another assignment field needs it; `PriceSide` keeps its parameters explicit rather than
+  hide them in a bag; the throwing two-argument `Validate` stays for the register's interface, documented.
+
+### Verification performed
+
+| Suite | Result |
+|---|---|
+| `dotnet test server/Workbench.slnx` | 448 passed: 13 spot IM cases in process (`SimmPricerTests`), 1 over HTTP (`SimmPricerApiTests`), the executor's half-failing workflow, and the registration counts updated |
+| `npm run typecheck`, `npm test` (Vitest) | Clean; 127 passed, among them Metrics' notes, basis, term and reasons, and the scope text |
+| `npx playwright test` (Chromium, headless, Linux) | 32 passed; `simm.spec.ts` with `--repeat-each=3` (9 passed): columns and IM tab while selected and gone once deselected, a wrong IM-R refused by name, Metrics with regime and DEMO, the trace at `collect` and `post`, After alone, a counterparty with no IM CSA not priced with why, 4.5:1 text in both themes at 1440, 992, 768 and 390px with no sideways scroll |
+| Screenshots at 1440, 992, 768 and 390px, dark and light | IM tab, both grids' IM columns, the dock with regimes and the DEMO badge; looked at by hand |
+
+The figures are held to their own consistency, not to hand-worked values (step 1 holds the engine to those): the IM is
+the governing regime's SIMM, the display figure is the trace's USD amount at the frozen FX, a side moves only with its
+own trades, and every term reconciles.
+
+### Providers
+
+The Rates pricing provider behind CRIF is the fake one, the parameter table is DEMO, and the IM CSAs and
+classification are synthetic, so every spot IM figure is simulated and says so (`SIMULATED`, the DEMO badge). No real
+SIMM engine, calibration or company source is wired; production takes spot SIMM from the XVA request's MVA option
+(ADR-0012 §4), which this PoC does not have.
+
+### Known limits
+
+- The SIMM tab (the two directions' summaries and the drill-down in the owner's layout) is step 3; a Metrics cell
+  opens the trace view spot CCR capital uses.
+- The Pricing DB's projection shows no spot IM (ADR-0012 OPEN): a Run that priced spot IM alone lists its date and
+  counterparty only.
+- The IM tab is read-only; IM CSAs as a what-if is OPEN. The phase-in dates are illustrative.
+- Only an IRS becomes a Rates line; an FX forward is exempt, and any other product in scope is refused by name.
+- The trade count beside Metrics is IM-R's (the headline's); IM-P's is on its own line of the result.
+- Opening the IM tab while spot IM is not selected says so rather than opening; the page cannot name which measure
+  would show it, since the server lists only the selected measures' inputs.
 
 ## Next
 
 1. ADR-0010 Delivery step 2: cases (`vary`, iterative individual addition, the changes panel).
-2. The owner's review of ADR-0003 §7 (scopes, carry and conflict), then a synthetic source change that can produce a conflict, and the browser cases still open above (reload, failed case unavailable).
-3. MVA with SIMM (`docs/12-implementation-plan.md` P2), then Rates.
-4. ME-ID sign-in through MSAL (C30) and the visibility rules (C31, C32); AI over AG-UI with the company's Copilot behind the adapter port (C34).
-5. Slice 01b: Save and Pin (CO06), and the browser parts of CO03 and CO04.
+2. ADR-0012 step 3: the SIMM tab, in the layout the owner picks (the drill-down sample agreed before it starts).
+3. The owner's review of ADR-0003 §7 (scopes, carry and conflict), then a synthetic source change that can produce a conflict, and the browser cases still open above (reload, failed case unavailable).
+4. MVA with SIMM (`docs/12-implementation-plan.md` P2), then Rates.
+5. ME-ID sign-in through MSAL (C30) and the visibility rules (C31, C32); AI over AG-UI with the company's Copilot behind the adapter port (C34).
+6. Slice 01b: Save and Pin (CO06), and the browser parts of CO03 and CO04.

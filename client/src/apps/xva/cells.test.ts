@@ -7,7 +7,7 @@ import { cellMessage, cellRefusal, cellState, cellText, cellValue, moduleColumns
 
 const trade = (cells: Record<string, TradeCell>, original?: Record<string, unknown>): EffectiveTrade => ({
   tradeId: 'DRAFT-1', isNew: true, product: 'IRS', currency: 'JPY', notional: 5_000_000_000, maturity: '2031-10-26',
-  csa: 'CSA-A', csaOwner: 'automatic', curve: 'jpy_ois', curveOwner: 'automatic', before: false, after: true,
+  csa: 'CSA-A', csaOwner: 'automatic', curve: 'jpy_ois', curveOwner: 'automatic', imROwner: 'automatic', imPOwner: 'automatic', before: false, after: true,
   issues: [], held: [], overridden: [], cells, ...(original === undefined ? {} : { original }),
 });
 

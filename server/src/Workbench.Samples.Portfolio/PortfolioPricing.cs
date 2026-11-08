@@ -21,6 +21,8 @@ public static class PortfolioContracts
 /// The shape every measure's request writes (ADR-0010 §7): one row per case, measure and metric, with Before, After and
 /// Diff, the trades each side priced, and each side's status. A side not priced is <c>notPriced</c> and has no figure;
 /// a failed one is <c>unavailable</c>; a measure blocked at Price is <c>refused</c> with its reason. Never 0 for any of them.
+/// A side's note is said beside its figure, as spot IM's governing regime, and the basis with the row's figures, as
+/// <c>SIMM PARAMETERS DEMO</c> (ADR-0010 §7's note of 2026-11-08); either is empty where the measure has nothing to say.
 /// </summary>
 public static class MeasureResult
 {
@@ -45,16 +47,20 @@ public static class MeasureResult
         new("beforeStatus", DatasetColumnType.String, false),
         new("afterStatus", DatasetColumnType.String, false),
         new("reason", DatasetColumnType.String, true),
+        new("beforeNote", DatasetColumnType.String, true),
+        new("afterNote", DatasetColumnType.String, true),
+        new("basis", DatasetColumnType.String, true),
     ];
 
-    /// <summary>A side's figure: its value when priced, else nothing.</summary>
-    public readonly record struct Side(string Status, decimal? Value, int? Trades, string? Reason = null)
+    /// <summary>A side's figure: its value when priced, else nothing; and what is said beside it, if anything.</summary>
+    public readonly record struct Side(string Status, decimal? Value, int? Trades, string? Reason = null, string? Note = null)
     {
         public static Side Of(decimal value, int trades) => new(Priced, value, trades);
         public static Side NotPricedWith(int trades) => new(NotPriced, null, trades);
     }
 
-    public static JsonObject Row(string @case, string caseTitle, string measure, MetricDefinition metric, string currency, Side before, Side after) => new()
+    public static JsonObject Row(string @case, string caseTitle, string measure, MetricDefinition metric, string currency, Side before, Side after,
+        string? basis = null) => new()
     {
         ["case"] = @case,
         ["caseTitle"] = caseTitle,
@@ -71,6 +77,9 @@ public static class MeasureResult
         ["beforeStatus"] = before.Status,
         ["afterStatus"] = after.Status,
         ["reason"] = before.Reason ?? after.Reason,
+        ["beforeNote"] = before.Note,
+        ["afterNote"] = after.Note,
+        ["basis"] = basis,
     };
 }
 

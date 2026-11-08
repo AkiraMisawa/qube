@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { RegisteredMeasure } from './contracts';
-import { headlines, metricsGrid, metricsTable, pricedMeasures, priceLabel, tradeCounts, type ModuleResult } from './metrics';
+import { headlines, metricsGrid, metricsTable, pricedMeasures, priceLabel, reasons, tradeCounts, type ModuleResult } from './metrics';
 
 // The Metrics dock as a pure reading of the Run (ADR-0010 §7): a line per case and measure metric, Before, After and
 // Diff, and a status in words where there is no figure. Every name and figure is synthetic.
@@ -45,6 +45,26 @@ describe('metricsTable', () => {
 
     expect(table.lines.map((l) => [l.measureTitle, l.before.status, l.after.text])).toEqual([['Spot CCR capital', 'notPriced', '1,234.50']]);
     expect(table.sides).toEqual({ before: false, after: true });
+  });
+
+  it("ADR-0012 §7's note: spot IM says each side's governing regime beside its figure, its basis with its figures, and the term each cell opens", () => {
+    const spotIm: RegisteredMeasure = { id: 'simm.spotIm', title: 'Spot IM', module: 'simm', request: 'simm',
+      metrics: [{ id: 'imR', title: 'IM-R', term: 'collect' }, { id: 'imP', title: 'IM-P', term: 'post' }], headline: 'imR', declaresMembership: true, traced: true, quoted: false };
+    const im = (metric: string, before: number | null, after: number | null, beforeNote: string | null, afterNote: string | null) =>
+      row('simm.spotIm', metric, before, after, { metricTitle: metric === 'imR' ? 'IM-R' : 'IM-P', beforeNote, afterNote, basis: 'SIMM PARAMETERS DEMO' });
+
+    const table = metricsTable([...register, spotIm], ['cva', 'simm.spotIm'], {
+      xva: answered([row('cva', 'cva', -1, -2), row('cva', 'cvaCharge', -1.25, -2.5)]),
+      simm: answered([im('imR', 1_000, 1_250.5, 'JFSA', 'CFTC'), im('imP', null, 800, null, 'JFSA')]),
+    });
+
+    const [imR, imP] = table.lines.filter((l) => l.measure === 'simm.spotIm');
+    expect([imR!.before.note, imR!.after.note, imR!.diff.note, imR!.basis, imR!.term]).toEqual(['JFSA', 'CFTC', undefined, 'SIMM PARAMETERS DEMO', 'collect']);
+    // A side with no figure has no regime to name; the basis is the measure's still.
+    expect([imP!.before.text, imP!.before.note, imP!.after.note, imP!.term]).toEqual(['not priced', undefined, 'JFSA', 'post']);
+    // A measure with nothing to say there says nothing, and its cells open the trace at its root.
+    const cva = table.lines.find((l) => l.metric === 'cva')!;
+    expect([cva.before.note, cva.basis, cva.term]).toEqual([undefined, undefined, undefined]);
   });
 
   it('EX06, ADR-0010 §10: a module whose request failed leaves its measures unavailable, never 0', () => {
@@ -122,6 +142,30 @@ describe('tradeCounts', () => {
     ]) });
 
     expect(tradeCounts(table)).toEqual(['CVA 300 → 302', 'FVA 120 → 121']);
+  });
+});
+
+describe('reasons', () => {
+  it('ADR-0010 §7, ADR-0012 §4: says each reason once, as a failure only where a request failed', () => {
+    const table = metricsTable(register, ['cva', 'fva'], { xva: answered([
+      // A side with nothing in scope has no figure, and nothing failed.
+      row('cva', 'cva', null, -2, { reason: 'No trade in Before is in an IM-P scope.' }),
+      row('cva', 'cvaCharge', null, -2.5, { reason: 'No trade in Before is in an IM-P scope.' }),
+      row('fva', 'fva', -10, null, { afterStatus: 'unavailable', reason: 'The engine did not converge.' }),
+    ]) });
+
+    expect(reasons(table)).toEqual([
+      { key: 'cva:No trade in Before is in an IM-P scope.', text: 'CVA not priced: No trade in Before is in an IM-P scope.', failed: false },
+      { key: 'fva:The engine did not converge.', text: 'FVA unavailable: The engine did not converge.', failed: true },
+    ]);
+  });
+
+  it('ADR-0012 §3: a refused measure says refused, and not as a failure', () => {
+    const table = metricsTable(register, ['cva'], { xva: answered([
+      row('cva', 'cva', null, null, { beforeStatus: 'refused', afterStatus: 'refused', reason: "DRAFT-1's IM-R names IMP-ABC-01." }),
+    ]) });
+
+    expect(reasons(table).map((r) => [r.text, r.failed])).toEqual([["CVA refused: DRAFT-1's IM-R names IMP-ABC-01.", false]]);
   });
 });
 

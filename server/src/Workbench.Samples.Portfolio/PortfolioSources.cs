@@ -19,6 +19,39 @@ public sealed record Agreement(string MaId, string NettingSetId, string Registra
 {
     public bool Collateralised => Csas.Count > 0;
     public string NoCsa => $"nocsa_{MaId}";
+
+    /// <summary>The counterparty's IM CSAs (ADR-0012 §2), at most one per direction here; none where it exchanges no IM.</summary>
+    public IReadOnlyList<ImCsaTerms> ImCsas { get; init; } = [];
+
+    /// <summary>The IM CSA of a direction (<see cref="ImCsaTerms.Collect"/> or <see cref="ImCsaTerms.Post"/>), or null where there is none.</summary>
+    public ImCsaTerms? ImCsaOf(string direction) => ImCsas.SingleOrDefault(c => c.Direction == direction);
+}
+
+/// <summary>A regulatory regime an IM CSA serves, and the date the counterparty came into its scope (ADR-0012 §2).</summary>
+public sealed record ImRegime(string Regime, DateOnly Since);
+
+/// <summary>
+/// An IM CSA as the source holds it (ADR-0012 §2, §3): its direction, IM-R collected from the counterparty or IM-P posted
+/// to it; the regimes it serves; the currency SIMM is calculated in; and the SIMM version, which names the parameter
+/// table it computes with.
+/// </summary>
+public sealed record ImCsaTerms(string ImCsaId, string Direction, IReadOnlyList<ImRegime> Regimes, string CalculationCurrency, string SimmVersion)
+{
+    public const string Collect = "collect";
+    public const string Post = "post";
+    public static readonly IReadOnlyList<string> Directions = [Collect, Post];
+}
+
+/// <summary>A trade's standing under one regime as the source classifies it (ADR-0012 §2): in, or out with why.</summary>
+public sealed record RegimeStanding(string Regime, bool In, string Reason);
+
+/// <summary>
+/// How the source classifies a trade for IM (ADR-0012 §2): exempt everywhere, with why, or its standing under each regime
+/// its direction's IM CSA serves. Which regimes a trade counts under is the source's to say, never the page's.
+/// </summary>
+public sealed record ImClassification(string? Exemption, IReadOnlyList<RegimeStanding> Collect, IReadOnlyList<RegimeStanding> Post)
+{
+    public IReadOnlyList<RegimeStanding> Of(string direction) => direction == ImCsaTerms.Collect ? Collect : Post;
 }
 
 /// <summary>
@@ -56,7 +89,11 @@ public sealed record SourceTrade(
     DateOnly? Start = null,
     string? Direction = null,
     string? CounterCurrency = null,
-    decimal? CounterNotional = null);
+    decimal? CounterNotional = null,
+    // The IM CSAs the trade is held under (ADR-0012 §2): IM-R and IM-P. A new trade has none of its own: it takes the
+    // counterparty's.
+    string? ImR = null,
+    string? ImP = null);
 
 /// <summary>The configured baseline profile: the curve an uncollateralised trade starts on (docs/03 §2.4), and the
 /// currency figures are shown in until the user chooses another (ADR-0010 §1).</summary>
@@ -76,14 +113,30 @@ public static class PortfolioCatalog
     public static readonly IReadOnlyList<string> Frequencies = ["daily", "weekly", "monthly"];
 
     // CSA-A is perfectly collateralised; CSA-B's counterparty threshold puts it past FVA's 1mm GBP; CSA-C margins daily
-    // with small amounts, until a threshold is raised (ADR-0010 §5).
+    // with small amounts, until a threshold is raised (ADR-0010 §5). ABC/LE-01 exchanges IM under JFSA and, from dates
+    // that leave some of its trades out, CFTC and EMIR; ABC/LE-02 came into JFSA's scope after most of its trades; XYZ
+    // exchanges none (ADR-0012 §2). The dates are illustrative.
     public static readonly IReadOnlyList<Agreement> Agreements =
     [
         new("MA-001", "NS-001", "ABC/LE-01",
             [new("CSA-A", "VM", "JPY", "jpy_ois", "jpy_funding", "daily", true, false, 0m, 50_000_000m, "JPY", 0m, 50_000_000m, "JPY"),
-             new("CSA-B", "VM", "USD", "usd_sofr", "usd_funding", "daily", true, false, 1_000_000m, 500_000m, "USD", 0m, 250_000m, "USD", Disputes: 3)], "CSA-A"),
+             new("CSA-B", "VM", "USD", "usd_sofr", "usd_funding", "daily", true, false, 1_000_000m, 500_000m, "USD", 0m, 250_000m, "USD", Disputes: 3)], "CSA-A")
+        {
+            ImCsas =
+            [
+                new("IMR-ABC-01", ImCsaTerms.Collect, [new("JFSA", new(2022, 9, 1)), new("CFTC", new(2025, 9, 1))], "USD", "DEMO-2.x"),
+                new("IMP-ABC-01", ImCsaTerms.Post, [new("JFSA", new(2022, 9, 1)), new("EMIR", new(2024, 9, 1))], "USD", "DEMO-2.x"),
+            ],
+        },
         new("MA-002", "NS-002", "ABC/LE-02",
-            [new("CSA-C", "VM", "USD", "usd_sofr", "usd_funding", "daily", true, false, 0m, 250_000m, "USD", 0m, 250_000m, "USD")], "CSA-C"),
+            [new("CSA-C", "VM", "USD", "usd_sofr", "usd_funding", "daily", true, false, 0m, 250_000m, "USD", 0m, 250_000m, "USD")], "CSA-C")
+        {
+            ImCsas =
+            [
+                new("IMR-ABC-02", ImCsaTerms.Collect, [new("JFSA", new(2026, 9, 1))], "USD", "DEMO-2.x"),
+                new("IMP-ABC-02", ImCsaTerms.Post, [new("JFSA", new(2026, 9, 1))], "USD", "DEMO-2.x"),
+            ],
+        },
         new("MA-003", "NS-003", "XYZ/LE-03", [], null, Enforceable: false),
     ];
 
@@ -142,6 +195,25 @@ public sealed class PortfolioSourceVersion : ISourceVersion
 
     public Csa? CsaOf(string csaId) => Agreement.Csas.SingleOrDefault(c => c.CsaId == csaId);
 
+    /// <summary>
+    /// The synthetic classification (ADR-0012 §2's note of 2026-11-08): a trade counts under a regime its direction's IM
+    /// CSA serves when it started on or after the counterparty came into that regime's scope, and a physically settled
+    /// FX forward is exempt everywhere. A new trade starts on the value date. Null for a trade the source does not hold.
+    /// </summary>
+    public ImClassification? ImClassificationOf(string tradeId)
+    {
+        if (Trade(tradeId) is not { } trade) return null;
+        if (trade.Product == "FXForward")
+            return new("A physically settled FX forward is exempt from IM in every regime.", [], []);
+        var start = trade.Start ?? throw new InvalidOperationException($"Trade {tradeId} has no start, which its IM classification reads.");
+        IReadOnlyList<RegimeStanding> Under(string direction) => [.. (Agreement.ImCsaOf(direction)?.Regimes ?? []).Select(r => start >= r.Since
+            ? new RegimeStanding(r.Regime, true, $"Started {Day(start)}, on or after {Registration.Key} came into {r.Regime}'s scope on {Day(r.Since)}.")
+            : new RegimeStanding(r.Regime, false, $"Started {Day(start)}, before {Registration.Key} came into {r.Regime}'s scope on {Day(r.Since)}."))];
+        return new(null, Under(ImCsaTerms.Collect), Under(ImCsaTerms.Post));
+    }
+
+    static string Day(DateOnly date) => date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+
     public SourceValue? Read(string entity, string field)
     {
         var (kind, id) = Entity.Split(entity);
@@ -158,6 +230,9 @@ public sealed class PortfolioSourceVersion : ISourceVersion
                     "officialPv" => new(t.OfficialPv),
                     // A new trade has no CSA of its own: it takes the main CSA automatically.
                     "csa" => new(t.Csa),
+                    // Nor IM CSAs: it takes the counterparty's (ADR-0012 §2).
+                    "imR" => new(t.ImR),
+                    "imP" => new(t.ImP),
                     // A trade's curve follows its CSA unless the user sets one.
                     "curve" => new((JsonNode?)null),
                     "before" => new(!t.IsNew),
@@ -220,6 +295,9 @@ public sealed class PortfolioSourceVersion : ISourceVersion
         var notional = Math.Round((decimal)(1 + random.Next(1, 100)) * (currency == "JPY" ? 100_000_000m : 1_000_000m), 0);
         var agreement = PortfolioCatalog.AgreementOf(registration.Key);
         string? csa = isNew ? null : agreement.Collateralised ? agreement.Csas[random.Next(agreement.Csas.Count)].CsaId : agreement.NoCsa;
+        // Every existing trade is held under the counterparty's IM CSAs, where it has them; which regimes it counts under
+        // is the classification's, not the holding's (ADR-0012 §2).
+        var (imR, imP) = isNew ? (null, null) : (agreement.ImCsaOf(ImCsaTerms.Collect)?.ImCsaId, agreement.ImCsaOf(ImCsaTerms.Post)?.ImCsaId);
         // Drawn from a generator of its own, so the trades' other values stay as they were before it existed.
         decimal? officialPv = isNew ? null : Math.Round((decimal)(new Random(seed ^ 0x5bd1e995).NextDouble() - 0.5) * notional * 0.02m, 0);
         // A new trade starts on the value date. Its direction is drawn from a generator of its own, as the PV is.
@@ -231,7 +309,7 @@ public sealed class PortfolioSourceVersion : ISourceVersion
             var counter = currency == "JPY" ? "USD" : "JPY";
             var counterNotional = Math.Round(notional * PortfolioMarket.UnitsPerGbp(counter, start) / PortfolioMarket.UnitsPerGbp(currency, start), 0);
             return new(tradeId, isNew, "FXForward", currency, notional, maturity, null, null, null, csa, officialPv,
-                start, buysOrPays ? "buy" : "sell", counter, counterNotional);
+                start, buysOrPays ? "buy" : "sell", counter, counterNotional, imR, imP);
         }
         var schedule = random.NextDouble() < 0.5 ? "6M" : "3M";
         var fixedRate = Math.Round((decimal)(0.001 + random.NextDouble() * 0.04), 5);
@@ -241,7 +319,7 @@ public sealed class PortfolioSourceVersion : ISourceVersion
         var fixings = since < 0 ? 0 : since / period + 1;
         decimal? lastFixing = isNew ? null : Math.Round((decimal)(0.001 + new Random(seed ^ fixings).NextDouble() * 0.04), 5);
         return new(tradeId, isNew, "IRS", currency, notional, maturity, fixedRate, schedule, lastFixing, csa, officialPv,
-            start, buysOrPays ? "payFixed" : "receiveFixed");
+            start, buysOrPays ? "payFixed" : "receiveFixed", ImR: imR, ImP: imP);
     }
 
     static int Seed(string text)

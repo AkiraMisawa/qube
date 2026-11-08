@@ -24,6 +24,8 @@ export function parseBoolean(text: string): boolean | undefined {
   return t === 'TRUE' ? true : t === 'FALSE' ? false : undefined;
 }
 
+const imCsaOf = (text: string): Parsed => ({ ok: true, value: text.trim() === '' ? null : text.trim() });
+
 /** The editable columns of the trades grid, and how each reads what was typed. */
 export const tradeFields: Readonly<Record<string, (text: string) => Parsed>> = {
   notional: (text) => {
@@ -40,6 +42,10 @@ export const tradeFields: Readonly<Record<string, (text: string) => Parsed>> = {
     return t === '3M' || t === '6M' ? { ok: true, value: t } : fail('Type 3M or 6M.');
   },
   csa: (text) => (text.trim() === '' ? fail('Type a CSA identifier.') : { ok: true, value: text.trim() }),
+  // An IM CSA's identifier, or empty for none in that direction (ADR-0012 §2). Whether it is the counterparty's is the
+  // server's to say, on the row's spot IM scopes.
+  imR: imCsaOf,
+  imP: imCsaOf,
   curve: (text) => (text.trim() === '' ? fail('Type a curve identifier.') : { ok: true, value: text.trim() }),
   before: (text) => {
     const b = parseBoolean(text);

@@ -10,6 +10,8 @@ export type CellStatus = 'priced' | 'notPriced' | 'unavailable' | 'refused' | 'p
 export interface MetricCell {
   readonly text: string;
   readonly status: CellStatus;
+  /** Said beside a side's figure, never a figure itself: spot IM's governing regime (ADR-0010 §7's note of 2026-11-08). */
+  readonly note?: string | undefined;
 }
 
 export interface MetricLine {
@@ -29,6 +31,10 @@ export interface MetricLine {
   readonly tradesAfter: number | undefined;
   /** Why the line has no figure, where the module or Price said. */
   readonly reason: string | undefined;
+  /** What the line's figures are computed on, said with them, such as `SIMM PARAMETERS DEMO`; never a figure. */
+  readonly basis: string | undefined;
+  /** The trace term the line's cells open, where it is not the root: spot IM's IM-R opens at `collect`. */
+  readonly term: string | undefined;
 }
 
 export interface MetricsTable {
@@ -50,10 +56,15 @@ const PENDING: MetricCell = { text: '…', status: 'pending' };
 const UNAVAILABLE: MetricCell = { text: 'unavailable', status: 'unavailable' };
 const NO_DIFF: MetricCell = { text: '', status: 'notPriced' };
 
-/** A side as the row holds it. A side that says priced and carries no figure is unavailable, never 0 (EX06). */
-function side(status: unknown, value: unknown): MetricCell {
+/**
+ * A side as the row holds it. A side that says priced and carries no figure is unavailable, never 0 (EX06). Its note is
+ * said beside its figure alone: a side with no figure has nothing for it to qualify.
+ */
+function side(status: unknown, value: unknown, note?: unknown): MetricCell {
   switch (status) {
-    case 'priced': return typeof value === 'number' && Number.isFinite(value) ? { text: money.format(value), status: 'priced' } : UNAVAILABLE;
+    case 'priced': return typeof value === 'number' && Number.isFinite(value)
+      ? { text: money.format(value), status: 'priced', ...(text(note) === undefined ? {} : { note: text(note) }) }
+      : UNAVAILABLE;
     case 'notPriced': return { text: 'not priced', status: 'notPriced' };
     case 'refused': return { text: 'refused', status: 'refused' };
     default: return UNAVAILABLE;
@@ -70,6 +81,10 @@ function diffOf(before: MetricCell, after: MetricCell, value: unknown): MetricCe
 }
 
 const text = (v: unknown) => (typeof v === 'string' && v !== '' ? v : undefined);
+
+/** The trace term a metric's cells open, where its registration names one; none opens the trace at its root. */
+const termOf = (measure: RegisteredMeasure | undefined, metric: string): string | undefined =>
+  text(measure?.metrics.find((m) => m.id === metric)?.term);
 const count = (v: unknown) => (typeof v === 'number' ? v : undefined);
 
 /**
@@ -81,7 +96,8 @@ export function metricsTable(register: readonly RegisteredMeasure[], priced: rea
   const lines: MetricLine[] = [];
   const blank = (measure: string, measureTitle: string, metric: string, metricTitle: string, cell: MetricCell, reason: string | undefined): MetricLine => ({
     key: `${measure}.${metric}`, case: undefined, caseTitle: undefined, measure, measureTitle, metric, metricTitle, currency: undefined,
-    before: cell, after: cell, diff: cell, tradesBefore: undefined, tradesAfter: undefined, reason,
+    before: cell, after: cell, diff: cell, tradesBefore: undefined, tradesAfter: undefined, reason, basis: undefined,
+    term: termOf(register.find((m) => m.id === measure), metric),
   });
 
   for (const id of priced) {
@@ -97,13 +113,14 @@ export function metricsTable(register: readonly RegisteredMeasure[], priced: rea
       continue;
     }
     for (const row of result.rows.filter((r) => r.measure === measure.id)) {
-      const before = side(row.beforeStatus, row.before);
-      const after = side(row.afterStatus, row.after);
+      const before = side(row.beforeStatus, row.before, row.beforeNote);
+      const after = side(row.afterStatus, row.after, row.afterNote);
       const metric = String(row.metric);
       lines.push({
         key: `${String(row.case)}.${measure.id}.${metric}`, case: String(row.case), caseTitle: String(row.caseTitle), measure: measure.id, measureTitle: measure.title,
         metric, metricTitle: String(row.metricTitle), currency: text(row.currency), before, after, diff: diffOf(before, after, row.diff),
-        tradesBefore: count(row.tradesBefore), tradesAfter: count(row.tradesAfter), reason: text(row.reason),
+        tradesBefore: count(row.tradesBefore), tradesAfter: count(row.tradesAfter), reason: text(row.reason), basis: text(row.basis),
+        term: termOf(measure, metric),
       });
     }
   }
@@ -174,6 +191,24 @@ export function tradeCounts(table: MetricsTable): readonly string[] {
     if (!counts.has(l.measure) && l.tradesBefore !== undefined && l.tradesAfter !== undefined)
       counts.set(l.measure, `${l.measureTitle} ${l.tradesBefore} → ${l.tradesAfter}`);
   return [...counts.values()];
+}
+
+/**
+ * Why lines have no figure, said once per measure and reason under the Metrics (ADR-0010 §7), with the word of the
+ * worst side: `unavailable` (a request failed, said as a failure), else `refused`, else `not priced`, as when a side
+ * had no trade in an IM scope. A side with no figure is never said to have failed when nothing did.
+ */
+export function reasons(table: MetricsTable): readonly { readonly key: string; readonly text: string; readonly failed: boolean }[] {
+  const said = new Map<string, { readonly key: string; readonly text: string; readonly failed: boolean }>();
+  for (const l of table.lines) {
+    if (l.reason === undefined) continue;
+    const key = `${l.measure}:${l.reason}`;
+    if (said.has(key)) continue;
+    const statuses = [l.before.status, l.after.status];
+    const word = statuses.includes('unavailable') ? 'unavailable' : statuses.includes('refused') ? 'refused' : 'not priced';
+    said.set(key, { key, text: `${l.measureTitle} ${word}: ${l.reason}`, failed: word === 'unavailable' });
+  }
+  return [...said.values()];
 }
 
 /** The measures a Run priced, from its input. A Run priced before the measures register says none. */

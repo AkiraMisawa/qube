@@ -5,7 +5,7 @@ import { archiveUrl } from '../../platform/runs';
 import { partHeight } from './layout';
 import { useDatasets, useRun } from '../../platform/workspace/WorkspaceProvider';
 import type { RegisteredMeasure } from './contracts';
-import { headlines, metricsGrid, metricsTable, pricedMeasures, tradeCounts, type MetricCell, type MetricLine, type ModuleResult } from './metrics';
+import { headlines, metricsGrid, metricsTable, pricedMeasures, reasons, tradeCounts, type MetricCell, type MetricLine, type ModuleResult } from './metrics';
 
 // The latest Price's Metrics, on the workspace page itself (ADR-0010 §7): a row per case, per priced measure Before,
 // After and Diff. They are read from the Run's retained results, never recomputed here, and say what they are:
@@ -23,8 +23,9 @@ export function XvaResult({ runId, pricedRevision, revision, register, onOpen, o
   readonly onOpen: () => void;
   /** Copy quote (ADR-0010 §7), which the server reads from the Run alone. */
   readonly onCopyQuote: () => void;
-  /** Opens a measure's trace for a case at its root (ADR-0011 §6), from a Metrics cell of a measure that keeps one. */
-  readonly onTrace: (measure: string, caseId: string) => void;
+  /** Opens a measure's trace for a case (ADR-0011 §6), from a Metrics cell of a measure that keeps one: at the term its
+   * metric names, or at the root (ADR-0010 §7's note of 2026-11-08). */
+  readonly onTrace: (measure: string, caseId: string, term: string | undefined) => void;
   /** The Metrics shown, or only a line a case. */
   readonly open: boolean;
   readonly onOpenChange: (open: boolean) => void;
@@ -73,8 +74,10 @@ export function XvaResult({ runId, pricedRevision, revision, register, onOpen, o
   const quotedNames = quoted.map((m) => m.title).join(' or ');
   // The currency the Run's figures are in, which it froze (§1, §7); the screen's setting may have moved since.
   const currencies = [...new Set((table?.lines ?? []).flatMap((l) => (l.currency === undefined ? [] : [l.currency])))];
-  const reasons = [...new Map((table?.lines ?? []).filter((l) => l.reason !== undefined)
-    .map((l) => [`${l.measure}:${l.reason}`, l] as const)).values()];
+  const said = table === undefined ? [] : reasons(table);
+  // What a measure's figures are computed on, said with them once per measure (`Spot IM · SIMM PARAMETERS DEMO`).
+  const bases = [...new Map((table?.lines ?? []).flatMap((l) => (l.basis === undefined ? []
+    : [[l.measure, { measure: l.measure, title: l.measureTitle, basis: l.basis }] as const]))).values()];
 
   return (
     <Stack gap="xs" className="qwb-xva-result" data-testid="xva-result" aria-label="Latest price">
@@ -91,6 +94,10 @@ export function XvaResult({ runId, pricedRevision, revision, register, onOpen, o
             {behind ? `revision ${pricedRevision} · workspace now ${revision}` : `revision ${pricedRevision}`}
           </Badge>
         )}
+        {bases.map((b) => (
+          <Badge key={b.measure} variant="light" color="yellow" data-testid="xva-result-basis"
+            title={`${b.title}'s figures are computed with ${b.basis}, not a calibration of record.`}>{b.title} · {b.basis}</Badge>
+        ))}
         {currencies.length > 0 && (
           <Badge variant="light" color="gray" data-testid="xva-result-currency" title="The currency this Run's figures are in.">{currencies.join(' · ')}</Badge>
         )}
@@ -144,7 +151,7 @@ export function XvaResult({ runId, pricedRevision, revision, register, onOpen, o
                         const caseId = line?.case;
                         const traced = status !== 'running' && caseId !== undefined && register.find((m) => m.id === line!.measure)?.traced === true;
                         return <Figure key={`${c.key}.${side}`} cell={line?.[side]} line={line} label={`${c.metricTitle} ${title}`}
-                          {...(traced ? { onTrace: () => onTrace(line!.measure, caseId) } : {})} />;
+                          {...(traced ? { onTrace: () => onTrace(line!.measure, caseId, line!.term) } : {})} />;
                       }))}
                     </Table.Tr>
                   ))}
@@ -152,10 +159,8 @@ export function XvaResult({ runId, pricedRevision, revision, register, onOpen, o
               </Table>
             </div>
           )}
-          {reasons.map((l) => (
-            <Text key={`${l.measure}:${l.reason}`} size="xs" {...(l.after.status === 'refused' ? {} : { c: 'red' })} data-testid="xva-result-reason">
-              {l.measureTitle} {l.after.status === 'refused' ? 'refused' : 'unavailable'}: {l.reason}
-            </Text>
+          {said.map((r) => (
+            <Text key={r.key} size="xs" {...(r.failed ? { c: 'red' } : {})} data-testid="xva-result-reason">{r.text}</Text>
           ))}
         </Stack>
       )}
@@ -165,20 +170,23 @@ export function XvaResult({ runId, pricedRevision, revision, register, onOpen, o
 
 /**
  * One figure, or the word for why there is none; a blank where no Diff exists, never 0. A figure of a measure that
- * keeps a trace is a link to it: why there is a figure, or why there is none, is the trace's to say.
+ * keeps a trace is a link to it: why there is a figure, or why there is none, is the trace's to say. A side's note, such
+ * as spot IM's governing regime, stands before the figure, so that the figures stay aligned on their right edge.
  */
 function Figure({ cell, line, label, onTrace }: {
   readonly cell: MetricCell | undefined; readonly line: MetricLine | undefined; readonly label: string; readonly onTrace?: () => void;
 }) {
   if (cell === undefined) return <Table.Td className="qwb-number" aria-label={`${label}: not asked`} />;
   const word = cell.status !== 'priced' && cell.status !== 'pending';
+  const noted = cell.note === undefined ? '' : `${cell.note} `;
   return (
     <Table.Td className={word ? 'qwb-number qwb-xva-result-word' : 'qwb-number'} data-status={cell.status}
       {...(line?.reason === undefined ? {} : { title: line.reason })}>
+      {cell.note !== undefined && <Text span size="xs" className="qwb-xva-result-cell-note" data-testid="xva-result-cell-note">{cell.note}</Text>}
       {onTrace === undefined || cell.status === 'pending' || cell.status === 'notPriced'
         ? cell.text
         : <Anchor component="button" size="sm" className="qwb-xva-result-trace" onClick={onTrace} data-testid="xva-result-trace"
-          aria-label={`${label} ${cell.text}: open its trace`}>{cell.text}</Anchor>}
+          aria-label={`${label} ${noted}${cell.text}: open its trace`}>{cell.text}</Anchor>}
     </Table.Td>
   );
 }

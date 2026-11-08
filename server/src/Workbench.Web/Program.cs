@@ -44,9 +44,11 @@ builder.Services.AddSingleton<IWorkbenchModule>(sp => new RatesModule(sp.GetRequ
 builder.Services.AddSingleton<RatesWorkspaces>();
 // Spot SIMM (ADR-0012): the synthetic IM source, CRIF from the same Rates provider and market, and the reference engine
 // on the DEMO table only.
-// ISDA's calibration is licensed; a table loaded from outside the repository would be added here.
+// ISDA's calibration is licensed; a table loaded from outside the repository would be added here. The page's spot IM
+// validates against the same tables the request prices with.
+IReadOnlyList<SimmParameters> simmTables = [SimmParameters.Demo];
 builder.Services.AddSingleton<IWorkbenchModule>(sp => new SimmModule(new SyntheticImSource(), sp.GetRequiredService<IRatesPricingProvider>(), syntheticMarket.Resolve, conventions,
-    [SimmParameters.Demo]));
+    simmTables));
 // The commands reach the workspace service only when invoked: it is built from the registry they are part of.
 builder.Services.AddSingleton<IWorkbenchModule>(sp => new RatesCommandsModule(sp.GetRequiredService<RatesWorkspaces>));
 // Products are descriptions from catalogs (ADR-0008 §7); the kernel's entity.create reads them. Rates describes its IRS and CCS.
@@ -87,6 +89,9 @@ builder.Services.AddSingleton<IMeasureModule, XvaMeasures>();
 builder.Services.AddSingleton<IMeasureModule>(_ => new CcrMeasures(builder.Configuration["Ccr:CapitalRatio"] is { } ratio
     ? new CapitalRatio(double.Parse(ratio, System.Globalization.CultureInfo.InvariantCulture), "Ccr:CapitalRatio", "configuration")
     : null));
+// Spot IM (ADR-0012 §4's note of 2026-11-08), priced by SIMM's own request in the PoC: CRIF on the synthetic market's
+// opening snapshot, which stands for the value date's close, with the portfolio's FX; the DEMO table only.
+builder.Services.AddSingleton<IMeasureModule>(_ => new SimmMeasures(conventions, _ => syntheticMarket.Snapshot(0), simmTables));
 builder.Services.AddSingleton<MeasureRegister>();
 builder.Services.AddSingleton<PortfolioWorkspaces>();
 // The AI pane (ADR-0007): the agent runtime is chosen here and nowhere else, by configuration, and an unknown one stops

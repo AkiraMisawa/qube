@@ -41,14 +41,18 @@ public sealed class WorkflowExecutor(CompositionRegistry registry, IDataStore st
             pending.RemoveAll(ready.Contains);
         }
 
+        // Every output a usable step wrote is retained, so a failed step leaves only its own outputs unavailable and an
+        // independent step's still resolve (docs/05: preserve what succeeded). The Run is still Failed, not partially
+        // succeeded: an output the workflow promised is missing, which a failed item inside a mapped step is not.
         var outputs = new Dictionary<string, TypedDataRef>();
+        OutcomeError? error = null;
         foreach (var (name, binding) in workflow.Outputs)
         {
             var output = (OutputBinding)binding;
-            if (!states[output.StepId].Usable)
-                return new(RunStatus.Failed, outputs, new("StepFailed", $"Output {name} is unavailable: step {output.StepId} did not succeed."));
-            outputs[name] = states[output.StepId].Outputs[output.Port];
+            if (states[output.StepId].Usable) outputs[name] = states[output.StepId].Outputs[output.Port];
+            else error ??= new("StepFailed", $"Output {name} is unavailable: step {output.StepId} did not succeed.");
         }
+        if (error is not null) return new(RunStatus.Failed, outputs, error);
         var partial = states.Values.Any(s => s.HadFailures);
         return new(partial ? RunStatus.PartiallySucceeded : RunStatus.Succeeded, outputs, null);
     }

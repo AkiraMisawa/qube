@@ -50,17 +50,18 @@ public class PricerApiTests(WorkbenchFactory factory) : IClassFixture<WorkbenchF
         return (run, rows);
     }
 
-    [Fact] // ADR-0010 §10, §11, ADR-0013 §1: the workspace lists the registered measures, and the request that prices each
+    [Fact] // ADR-0010 §10, §11, ADR-0013 §1, ADR-0012 §7's note: the workspace lists the registered measures, and the request that prices each
     public async Task A_workspace_lists_the_registered_measures()
     {
         var ws = await Create();
 
         var measures = ws["measures"]!.AsArray().Select(m => m!.AsObject()).ToList();
 
-        Assert.Equal(["cva", "fva", "kva", "ccr.spotCapital"], measures.Select(m => m["id"]!.GetValue<string>()));
-        Assert.Equal(["xva", "xva", "xva", "ccr"], measures.Select(m => m["module"]!.GetValue<string>()));
-        // Spot capital is SA-CCR's, and XVA's request returns it with KVA on (ADR-0013 §2).
-        Assert.All(measures, m => Assert.Equal("xva", m["request"]!.GetValue<string>()));
+        Assert.Equal(["cva", "fva", "kva", "ccr.spotCapital", "simm.spotIm"], measures.Select(m => m["id"]!.GetValue<string>()));
+        Assert.Equal(["xva", "xva", "xva", "ccr", "simm"], measures.Select(m => m["module"]!.GetValue<string>()));
+        // Spot capital is SA-CCR's, and XVA's request returns it with KVA on (ADR-0013 §2); spot IM is SIMM's own
+        // request in the PoC (ADR-0012 §4's note of 2026-11-08).
+        Assert.Equal(["xva", "xva", "xva", "xva", "simm"], measures.Select(m => m["request"]!.GetValue<string>()));
         Assert.Equal(["cva", "cvaCharge", "pv"], measures[0]["metrics"]!.AsArray().Select(m => m!["id"]!.GetValue<string>()));
         Assert.All(Strings(ws["selectedMeasures"]), m => Assert.Contains(m, measures.Select(r => r["id"]!.GetValue<string>())));
     }

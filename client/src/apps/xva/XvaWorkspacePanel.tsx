@@ -16,9 +16,9 @@ import { XvaResult } from './XvaResult';
 import { BASE_CASE, BASE_SCENARIO, openTrace } from '../../platform/traces/open';
 import { EditQueue, MEASURES_ENTITY, SETTINGS_ENTITY, tradeFields, type PendingEdit } from './editing';
 import { ToolbarField } from './fields';
-import { XvaInputs, type InputTab } from './XvaInputs';
+import { shownTab, TAB_TITLES, tabShown, XvaInputs, type InputTab } from './XvaInputs';
 import { compactGridHeight, GRID_FRAME, pixels, Resizer } from './layout';
-import { declaring, membershipColumn } from './membership';
+import { declaring, measureOfField, membershipColumn, scopesOf } from './membership';
 import { priceLabel } from './metrics';
 import { differs, originalMessage } from './original';
 import { copyRich, downloadRun } from '../../platform/runs';
@@ -53,12 +53,23 @@ const leading: readonly GridColumn<Row>[] = [
   column('fixedRate', 'Fixed rate', 'number', 112, { editable: true, format: (v) => rate.format(v as number) }),
   column('schedule', 'Schedule', 'text', 104, { editable: true }),
 ];
-const assignment: readonly GridColumn<Row>[] = [
+const assigned: readonly GridColumn<Row>[] = [
   column('csa', 'CSA', 'text', 120, { editable: true }),
   column('curve', 'Curve', 'text', 112, { editable: true }),
+];
+/** The trade fields a selected measure needs on both grids (ADR-0010 §10's note of 2026-11-08): spot IM's IM CSAs, which
+ * are assignments as the CSA is (ADR-0012 §2, §3), so they stand beside it. An empty one is no IM CSA. */
+const inputColumns: Readonly<Record<string, GridColumn<Row>>> = {
+  imR: column('imR', 'IM-R', 'text', 120, { editable: true }),
+  imP: column('imP', 'IM-P', 'text', 120, { editable: true }),
+};
+const sides: readonly GridColumn<Row>[] = [
   column('before', 'Before', 'boolean', 88, { editable: true }),
   column('after', 'After', 'boolean', 80, { editable: true }),
 ];
+/** The assignments, with the trade fields the selected measures need, then B and A. */
+const assignmentOf = (fields: readonly string[]): readonly GridColumn<Row>[] =>
+  [...assigned, ...fields.flatMap((f) => (inputColumns[f] === undefined ? [] : [inputColumns[f]])), ...sides];
 // The selected modules' columns stand between B and A and these (ADR-0010 §6, §10): on the New grid, XVA's PV01,
 // Margin and PV Adj; then a membership column per selected measure that declares one, such as FVA's.
 const derived: readonly GridColumn<Row>[] = [
@@ -69,10 +80,12 @@ const existingTerms: readonly GridColumn<Row>[] = [
   column('lastFixing', 'Last fixing', 'number', 116, { format: (v) => rate.format(v as number) }),
   // The books' PV, the source's and read-only (ADR-0010 §6): the PV an adjustment uses.
   column('officialPv', 'Official PV', 'number', 152, { format: (v) => amount.format(v as number) }),
-  ...assignment,
 ];
 
 export type TradeGrid = 'new' | 'existing';
+
+/** The trade grids, as a measure input's tab: a field there is a column of both (ADR-0010 §10's note of 2026-11-08). */
+const TRADES_TAB = 'trades';
 
 /**
  * The heights of the page's own parts (ADR-0010 §1), in pixels the page sets and never reads back. The input tabs fit
@@ -84,10 +97,14 @@ const RESIZER = 12;
 const DOCK_HEIGHT = 136;
 const TAKEN = 260;
 const CSA_ROWS = 7;
-/** The open tab's height as its content: Netting's row, the sentence that says there is no CSA, or the CSA grid in its
- * frame under the panel's top gap (`gap`, the theme's `xs`). */
-const inputsFit = (tab: InputTab, csas: number, gap: number) =>
-  (tab === 'netting' ? 84 : csas === 0 ? 40 : gap + GRID_FRAME + compactGridHeight(Math.min(csas, CSA_ROWS)));
+/** The open tab's height as its content: Netting's row, the sentence that says there is no CSA or no IM CSA, the CSA grid
+ * in its frame under the panel's top gap (`gap`, the theme's `xs`), or the IM CSAs' table a row each. The table's numbers
+ * are geometry the theme has no name for: its header row with the panel's top gap and border (40px), and a row of `sm`
+ * text at `xs` vertical spacing (28px), as drawn at 1440px (2026-11-08). */
+const inputsFit = (tab: InputTab, csas: number, imCsas: number, gap: number) =>
+  (tab === 'netting' ? 84
+    : tab === 'im' ? (imCsas === 0 ? 40 : 40 + 28 * imCsas)
+      : csas === 0 ? 40 : gap + GRID_FRAME + compactGridHeight(Math.min(csas, CSA_ROWS)));
 
 /** The page's parts, which below `sm` are three tabs (ADR-0010 §1). */
 type Section = 'inputs' | 'trades' | 'results';
@@ -110,6 +127,9 @@ function cellMessage(row: Row, col: GridColumn<Row>): string | undefined {
     : 'This edit lost its trade in the new version. Acknowledge or reset it in the panel above.';
   if ((col.name === 'csa' || col.name === 'curve' || col.name === 'issues') && row.issues.length > 0) return row.issues.join(' ');
   if (row.cells?.[col.name] !== undefined) return moduleCellMessage(row, col.name);
+  // A measure priced per scope says each scope's standing on its membership cell (ADR-0012 §2).
+  const measure = measureOfField(col.name);
+  if (measure !== undefined) return scopesOf(row, measure);
   return originalMessage(row, col.name, row[col.name as keyof Row]);
 }
 
@@ -184,8 +204,11 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api }: { readonly pane
   const declaredNow = useRef<readonly RegisteredMeasure[]>([]);
   declaredNow.current = declared;
   const membership = useMemo(() => declaredNow.current.map((m) => membershipColumn<Row>(m)), [declaredKey]);
-  const newColumns = useMemo<readonly GridColumn<Row>[]>(() => [...leading, ...assignment, ...moduleColumns(registered.current), ...membership, ...derived], [columnsKey, membership]);
-  const existingColumns = useMemo<readonly GridColumn<Row>[]>(() => [...existingTerms, ...membership, ...derived], [membership]);
+  // The trade fields the selected measures need, on both grids (ADR-0010 §10): a hidden one keeps its value.
+  const fieldsKey = (view.data?.inputs ?? []).filter((i) => i.tab === TRADES_TAB).map((i) => i.field).join('|');
+  const assignment = useMemo(() => assignmentOf(fieldsKey === '' ? [] : fieldsKey.split('|')), [fieldsKey]);
+  const newColumns = useMemo<readonly GridColumn<Row>[]>(() => [...leading, ...assignment, ...moduleColumns(registered.current), ...membership, ...derived], [columnsKey, assignment, membership]);
+  const existingColumns = useMemo<readonly GridColumn<Row>[]>(() => [...existingTerms, ...assignment, ...membership, ...derived], [assignment, membership]);
 
   // The layout (ADR-0010 §1): the input tabs open, or collapsed to their row, at a height the user drags; the dock the
   // same at the bottom; and below `sm` the part in view.
@@ -197,8 +220,15 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api }: { readonly pane
   const [dockOpen, setDockOpen] = useState(true);
   const [dockHeight, setDockHeight] = useState(DOCK_HEIGHT);
   const [focusRequest, setFocusRequest] = useState(0);
-  /** `open netting`, `open csa`: the tab open and in view, with the keyboard in it (ADR-0010 §9). */
-  const openTab = (tab: InputTab) => { setInputTab(tab); setInputsOpen(true); setSection('inputs'); setFocusRequest((n) => n + 1); };
+  /** `open netting`, `open csa`, `open im`: the tab open and in view, with the keyboard in it (ADR-0010 §9). A measure's
+   * own tab opens while the measure is selected, and says so otherwise. */
+  const openTab = (tab: InputTab) => {
+    if (view.data !== undefined && !tabShown(view.data, tab)) {
+      workspace.notify(`The ${TAB_TITLES[tab]} tab shows only while a selected measure needs it, and none does now.`);
+      return;
+    }
+    setInputTab(tab); setInputsOpen(true); setSection('inputs'); setFocusRequest((n) => n + 1);
+  };
 
   // A result that arrives changes the New grid's rows with no edit: they are read again when the count waiting moves.
   const pendingCells = view.data?.pendingCells;
@@ -371,7 +401,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api }: { readonly pane
   const notBusy = busy === undefined;
 
   const enforceable = ws.agreement.enforceable ? 'enforceable' : 'not enforceable';
-  const inputsHeight = inputsDragged ?? inputsFit(inputTab, ws.csas.length, pixels(theme.spacing.xs));
+  const inputsHeight = inputsDragged ?? inputsFit(shownTab(ws, inputTab), ws.csas.length, ws.agreement.imCsas.length, pixels(theme.spacing.xs));
   const newHeight = compactGridHeight(Math.max(1, Math.min(ws.newTrades, 8)));
   // What the parts other than Existing take, from the heights the page set (never measured): Existing has the rest.
   const taken = TAKEN + (inputsOpen ? inputsHeight + RESIZER : 0) + newHeight
@@ -402,7 +432,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api }: { readonly pane
         </ToolbarField>
         <Button size="xs" variant="default" onClick={() => void refresh()} loading={busy === 'Refreshed'} disabled={!notBusy && busy !== 'Refreshed'}
           title="Acquire the trades again for this value date; your edits carry or are held.">Refresh</Button>
-        <div className="qwb-toolbar-field" role="group" aria-label="Measures">
+        <div className="qwb-toolbar-field qwb-toolbar-field--measures" role="group" aria-label="Measures">
           <Text size="xs" c="dimmed" className="qwb-toolbar-label" aria-hidden>Measures</Text>
           {ws.measures.map((m) => {
             const on = ws.selectedMeasures.includes(m.id);
@@ -459,7 +489,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api }: { readonly pane
             <>
               {dockOpen && <Resizer label="Height of the result dock" value={dockHeight} min={48} max={560} grows="up" onChange={setDockHeight} />}
               <XvaResult runId={pricedRun} pricedRevision={pricedRevision} revision={ws.revision} register={ws.measures} onOpen={() => openRun(pricedRun)}
-                onCopyQuote={() => void copyQuote()} onTrace={(measure, caseId) => explain(measure, undefined, caseId)}
+                onCopyQuote={() => void copyQuote()} onTrace={(measure, caseId, term) => explain(measure, term, caseId)}
                 open={dockOpen} onOpenChange={setDockOpen} height={dockHeight} />
             </>
           )}

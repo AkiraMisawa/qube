@@ -58,8 +58,21 @@ const csaColumnsOf = (agreement: Agreement, reading: readonly RegisteredMeasure[
 const csaCellState = (row: CsaRow, col: GridColumn<CsaRow>): CellState => (differs(row, col.name) ? 'modified' : 'normal');
 const csaCellMessage = (row: CsaRow, col: GridColumn<CsaRow>): string | undefined => originalMessage(row, col.name, row[col.name as keyof CsaRow]);
 
-/** The input tabs every page has (ADR-0010 §1); the tabs a selected measure registers join them as they arrive. */
-export type InputTab = 'netting' | 'csa';
+/** The input tabs every page has (ADR-0010 §1), and those a selected measure registers: spot IM's IM tab (ADR-0012 §3). */
+export type InputTab = 'netting' | 'csa' | 'im';
+
+/** Spot IM's own tab, as its input names it (ADR-0012 §3). */
+export const IM_TAB = 'im' satisfies InputTab;
+
+/** Each tab's title, as its tab and the page's words name it. */
+export const TAB_TITLES: Readonly<Record<InputTab, string>> = { netting: 'Netting', csa: 'CSA', im: 'IM' };
+
+/** Whether a tab is shown: Netting and CSA always, a measure's own while a selected measure needs it (ADR-0010 §10). */
+export const tabShown = (ws: Pick<XvaWorkspaceView, 'inputs'>, tab: InputTab): boolean =>
+  tab === 'netting' || tab === 'csa' || ws.inputs.some((i) => i.tab === tab);
+
+/** The tab that shows for the one chosen: itself, or Netting where it is a measure's own and that measure went. */
+export const shownTab = (ws: Pick<XvaWorkspaceView, 'inputs'>, tab: InputTab): InputTab => (tabShown(ws, tab) ? tab : 'netting');
 
 /**
  * The tabs, one open at a time and collapsible to their tab row (ADR-0010 §1). The page keeps which tab is open,
@@ -84,6 +97,7 @@ export function XvaInputs({ ws, push, onIssue, tab, onTab, open, onOpen, height,
   const bodyId = useId();
   const recovery = useRef<HTMLInputElement>(null);
   const csaGrid = useRef<ExGridApi<CsaRow>>(null);
+  const imCsas = useRef<HTMLDivElement>(null);
   const gap = pixels(useMantineTheme().spacing.xs);
   // The fields of these tabs the selected measures need (§10): CVA's recovery while CVA is selected.
   const needed = (tab: InputTab, field: string) => ws.inputs.some((i) => i.tab === tab && i.field === field);
@@ -94,9 +108,13 @@ export function XvaInputs({ ws, push, onIssue, tab, onTab, open, onOpen, height,
   const columnsNow = useRef({ agreement: ws.agreement, reading });
   columnsNow.current = { agreement: ws.agreement, reading };
   const csaColumns = useMemo(() => csaColumnsOf(columnsNow.current.agreement, columnsNow.current.reading), [columnsKey]);
+  // A measure's own tab shows while it is selected; the tab open when it went is Netting again.
+  const imShown = tabShown(ws, IM_TAB);
+  const shown = shownTab(ws, tab);
   useEffect(() => {
     if (focusRequest === 0) return;
-    if (tab === 'netting') recovery.current?.focus();
+    if (shown === 'netting') recovery.current?.focus();
+    else if (shown === IM_TAB) imCsas.current?.focus();
     else csaGrid.current?.focus();
   // Only a command's request moves the keyboard; a tab pressed keeps it where the press left it.
   }, [focusRequest]);
@@ -107,12 +125,13 @@ export function XvaInputs({ ws, push, onIssue, tab, onTab, open, onOpen, height,
   const count = (n: number) => (n === 0 ? '' : ` ●${n}`);
 
   return (
-    <Tabs value={tab} onChange={(value) => { if (value === 'netting' || value === 'csa') onTab(value); }} keepMounted={false}
+    <Tabs value={shown} onChange={(value) => { const chosen = Object.keys(TAB_TITLES).find((t) => t === value); if (chosen !== undefined) onTab(chosen as InputTab); }} keepMounted={false}
       className="qwb-xva-inputs" data-open={open}>
       <Group gap="xs" wrap="nowrap" className="qwb-xva-inputs-row">
         <Tabs.List className="qwb-xva-inputs-tabs" aria-label="Inputs">
-          <Tabs.Tab value="netting">Netting{count(nettingChanges)}</Tabs.Tab>
-          <Tabs.Tab value="csa">CSA{count(csaChanges)}</Tabs.Tab>
+          <Tabs.Tab value="netting">{TAB_TITLES.netting}{count(nettingChanges)}</Tabs.Tab>
+          <Tabs.Tab value="csa">{TAB_TITLES.csa}{count(csaChanges)}</Tabs.Tab>
+          {imShown && <Tabs.Tab value={IM_TAB}>{TAB_TITLES.im}</Tabs.Tab>}
         </Tabs.List>
         <Button size="compact-xs" variant="subtle" ml="auto" aria-expanded={open} aria-controls={bodyId}
           onClick={() => onOpen(!open)}>{open ? 'Hide inputs' : 'Show inputs'}</Button>
@@ -150,9 +169,50 @@ export function XvaInputs({ ws, push, onIssue, tab, onTab, open, onOpen, height,
               ? <Text size="sm">{ws.agreement.maId} has no CSA: its trades are uncollateralised ({ws.agreement.noCsa}).</Text>
               : <CsaGrid csas={ws.csas} columns={csaColumns} push={push} height={height - gap - GRID_FRAME} gridRef={csaGrid} />}
           </Tabs.Panel>
+          {imShown && (
+            <Tabs.Panel value={IM_TAB} pt="xs">
+              <ImCsas ws={ws} focusRef={imCsas} />
+            </Tabs.Panel>
+          )}
         </div>
       )}
     </Tabs>
+  );
+}
+
+const directionTitle = (direction: string) => (direction === 'collect' ? 'IM-R, collected' : direction === 'post' ? 'IM-P, posted' : direction);
+
+/**
+ * The IM tab (ADR-0012 §3): the counterparty's IM CSAs, read-only, the source's. A regime applies from its date: a
+ * trade that started before it is out of that scope. The SIMM version names the table SIMM computes with. One tab stop,
+ * so `open im` puts the keyboard here and the arrow keys scroll it.
+ */
+function ImCsas({ ws, focusRef }: { readonly ws: XvaWorkspaceView; readonly focusRef: Ref<HTMLDivElement> }) {
+  const csas = ws.agreement.imCsas;
+  if (csas.length === 0)
+    return <Text size="sm" tabIndex={-1} ref={focusRef}>{ws.registration.key} has no IM CSA: it exchanges no initial margin, so spot IM has no scope.</Text>;
+  return (
+    <div className="qwb-xva-scroll" tabIndex={0} ref={focusRef} aria-label="IM CSAs">
+      <Table withTableBorder withColumnBorders verticalSpacing="xs" horizontalSpacing="sm" fz="sm" aria-label="IM CSAs">
+        <Table.Thead>
+          <Table.Tr>
+            <Table.Th>IM CSA</Table.Th><Table.Th>Direction</Table.Th><Table.Th>Regimes, from</Table.Th>
+            <Table.Th>Calculation ccy</Table.Th><Table.Th>SIMM version</Table.Th>
+          </Table.Tr>
+        </Table.Thead>
+        <Table.Tbody>
+          {csas.map((c) => (
+            <Table.Tr key={c.imCsaId}>
+              <Table.Td>{c.imCsaId}</Table.Td>
+              <Table.Td>{directionTitle(c.direction)}</Table.Td>
+              <Table.Td>{c.regimes.map((r) => `${r.regime} ${r.since}`).join(' · ')}</Table.Td>
+              <Table.Td>{c.calculationCurrency}</Table.Td>
+              <Table.Td>{c.simmVersion}</Table.Td>
+            </Table.Tr>
+          ))}
+        </Table.Tbody>
+      </Table>
+    </div>
   );
 }
 

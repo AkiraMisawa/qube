@@ -42,7 +42,13 @@ public sealed record EffectiveTrade(
     IReadOnlyDictionary<string, JsonNode?>? Original = null,
     // The cells of the selected modules' trade columns, by field (ADR-0010 §10), such as XVA's PV01; none where no
     // module adds a column to the trade.
-    IReadOnlyDictionary<string, TradeCell>? Cells = null);
+    IReadOnlyDictionary<string, TradeCell>? Cells = null,
+    // The IM CSAs the trade is held under (ADR-0012 §2), assigned as its CSA is: the source's, the counterparty's for a
+    // new trade, or the user's. Empty is none: the trade is out of that direction's scopes.
+    string? ImR = null,
+    Ownership ImROwner = Ownership.Source,
+    string? ImP = null,
+    Ownership ImPOwner = Ownership.Source);
 
 /// <summary>
 /// A CSA of the agreement with its effective terms (ADR-0010 §8): the source's, or the user's where <c>Overridden</c>
@@ -73,7 +79,7 @@ public sealed class PortfolioEditRules : IEditRules
     public string KindOf(EditTarget target) => (Entity.Split(target.Entity).Kind, target.Field) switch
     {
         (Entity.Trade or Entity.Grid, "before" or "after") => "xva.membership",
-        (Entity.Trade, "csa" or "curve") => "xva.assignment",
+        (Entity.Trade, "csa" or "curve" or "imR" or "imP") => "xva.assignment",
         (Entity.Trade, _) => "xva.trade",
         (Entity.Csa, _) => "xva.csa",
         (Entity.Netting, _) => "portfolio.netting",
@@ -96,7 +102,7 @@ public sealed class PortfolioEditRules : IEditRules
         var (kind, id) = Entity.Split(entity);
         // The selection of measures and the settings are the workspace's, whichever counterparty it is on.
         if (kind is Entity.Selection or Entity.Settings) return new EditTarget(WorkspaceScope, entity, field);
-        var tradeContent = kind == Entity.Trade && field is not ("before" or "after" or "csa" or "curve");
+        var tradeContent = kind == Entity.Trade && field is not ("before" or "after" or "csa" or "curve" or "imR" or "imP");
         var isNew = kind == Entity.Trade && source.Trade(id)?.IsNew == true;
         return new EditTarget(tradeContent && isNew ? $"new:{id}" : $"cp:{source.Registration.Key}", entity, field);
     }
@@ -104,7 +110,7 @@ public sealed class PortfolioEditRules : IEditRules
 
 public static class PortfolioMaterialiser
 {
-    public static IReadOnlyList<string> EditableFields { get; } = ["notional", "fixedRate", "schedule", "csa", "curve", "before", "after"];
+    public static IReadOnlyList<string> EditableFields { get; } = ["notional", "fixedRate", "schedule", "csa", "curve", "imR", "imP", "before", "after"];
 
     /// <summary>The CSA terms the user may set (ADR-0010 §8). Its type is the source's.</summary>
     public static IReadOnlyList<string> CsaFields { get; } =
@@ -139,7 +145,7 @@ public static class PortfolioMaterialiser
     }
 
     /// <summary>The trade fields Original is compared on. B and A are shown by their boxes and never marked (ADR-0010 §2).</summary>
-    public static IReadOnlyList<string> ComparedFields { get; } = ["notional", "fixedRate", "schedule", "csa", "curve"];
+    public static IReadOnlyList<string> ComparedFields { get; } = ["notional", "fixedRate", "schedule", "csa", "curve", "imR", "imP"];
 
     // The test is the value, not the edit: a value edited back to Original is not marked, and one a rule moved is.
     static EffectiveTrade Marked(EffectiveTrade row, EffectiveTrade original)
@@ -151,6 +157,8 @@ public static class PortfolioMaterialiser
             "schedule" => t.Schedule,
             "csa" => t.Csa,
             "curve" => t.Curve,
+            "imR" => t.ImR,
+            "imP" => t.ImP,
             _ => throw new ArgumentException(field),
         };
         var differs = ComparedFields.Where(f => !Same(Of(row, f), Of(original, f))).ToDictionary(f => f, f => Of(original, f));
@@ -270,6 +278,15 @@ public static class PortfolioMaterialiser
         else (curve, curveOwner) = ("", Ownership.Automatic);
         if (!PortfolioCatalog.Curves.Contains(curve)) issues.Add(curve == "" ? "No discount curve: the CSA is not eligible." : $"Curve {curve} is not available.");
 
+        // The IM CSAs, as the CSA (ADR-0012 §2): the user's, else a new trade's counterparty's, else the source's. Whether
+        // one is the counterparty's is spot IM's to say, so it is no issue of the trade's and blocks no other measure.
+        (string? Id, Ownership Owner) Im(string field, string direction, string? held) =>
+            Has(field, out var set) ? (set?.GetValue<string>(), Ownership.User)
+            : t.IsNew ? (agreement.ImCsaOf(direction)?.ImCsaId, Ownership.Automatic)
+            : (held, Ownership.Source);
+        var (imR, imROwner) = Im("imR", ImCsaTerms.Collect, t.ImR);
+        var (imP, imPOwner) = Im("imP", ImCsaTerms.Post, t.ImP);
+
         return new(
             t.TradeId, t.IsNew, t.Product, t.Currency,
             Has("notional", out var n) ? n!.GetValue<decimal>() : t.Notional,
@@ -284,6 +301,7 @@ public static class PortfolioMaterialiser
             issues,
             [.. held[entity]],
             [.. EditableFields.Where(f => overrides.ContainsKey((entity, f)))],
-            t.Start?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), t.Direction, t.CounterCurrency, t.CounterNotional);
+            t.Start?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), t.Direction, t.CounterCurrency, t.CounterNotional,
+            ImR: imR, ImROwner: imROwner, ImP: imP, ImPOwner: imPOwner);
     }
 }
