@@ -256,7 +256,10 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
     public SubmissionResult Price(string workspaceId, long revision, string user, string idempotencyKey)
     {
         Owned(workspaceId, user);
-        return runs.Submit(PortfolioPrice.Submission(workspaces, store, register, workspaceId, revision, idempotencyKey, user));
+        // A retry is answered before anything is frozen again: a PV01 may have answered since, or the user moved on,
+        // and neither makes it another Price (XV13).
+        return runs.Known(user, idempotencyKey, PortfolioPrice.Basis(workspaceId, revision))
+            ?? runs.Submit(PortfolioPrice.Submission(workspaces, store, register, workspaceId, revision, idempotencyKey, user));
     }
 
     public void Delete(string workspaceId, string user) => workspaces.Delete(workspaceId, user);
