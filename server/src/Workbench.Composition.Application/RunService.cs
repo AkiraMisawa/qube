@@ -53,7 +53,7 @@ public sealed class RunService
         var digest = Digest(submission);
         lock (gate)
         {
-            if (Known(submission, digest) is { } known) return known;
+            if (Known(submission.Owner, submission.IdempotencyKey, digest) is { } known) return known;
 
             var runId = $"run-{Guid.CreateVersion7():N}";
             var run = new RunRecord(runId, submission.Workflow, (JsonObject)submission.Context.DeepClone(), (JsonObject)submission.Input.DeepClone(),
@@ -61,14 +61,21 @@ public sealed class RunService
                 submission.Owner, submission.Origin, submission.Relations, ResultContracts(submission.Workflow));
             // Another process may have taken the key since it was looked up: its Run is the answer then.
             if (!history.Accept(run, submission.IdempotencyKey, digest))
-                return Known(submission, digest) ?? throw new InvalidOperationException("An idempotency key was taken but its Run cannot be found.");
+                return Known(submission.Owner, submission.IdempotencyKey, digest) ?? throw new InvalidOperationException("An idempotency key was taken but its Run cannot be found.");
             live[runId] = run;
             executions[runId] = Task.Run(() => ExecuteAsync(run));
             return new SubmissionResult.Accepted(run);
         }
     }
 
-    SubmissionResult? Known(RunSubmission submission, string digest) => history.FindKey(submission.Owner, submission.IdempotencyKey) switch
+    /// <summary>
+    /// What a key answers for the submission <paramref name="basis"/> names (<see cref="RunSubmission.IdempotencyBasis"/>):
+    /// the Run it was given, a conflict when it was given to another submission, or null when it is unused. A caller asks
+    /// before it freezes, so a retry neither freezes again nor is refused because the workspace has moved on since.
+    /// </summary>
+    public SubmissionResult? Known(string owner, string idempotencyKey, JsonObject basis) => Known(owner, idempotencyKey, Hash(basis.ToJsonString(WireJson.Options)));
+
+    SubmissionResult? Known(string owner, string idempotencyKey, string digest) => history.FindKey(owner, idempotencyKey) switch
     {
         null => null,
         var (runId, known) when known == digest => new SubmissionResult.Accepted(Find(runId) ?? throw new InvalidOperationException($"Run {runId} is indexed but not stored.")),
@@ -155,9 +162,8 @@ public sealed class RunService
         live.TryRemove(accepted.RunId, out _);
     }
 
-    static string Digest(RunSubmission submission)
-    {
-        var canonical = JsonSerializer.Serialize(new { submission.Workflow, submission.Context, submission.Input, submission.Origin, submission.Relations }, WireJson.Options);
-        return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(canonical)));
-    }
+    static string Digest(RunSubmission submission) => Hash(submission.IdempotencyBasis?.ToJsonString(WireJson.Options)
+        ?? JsonSerializer.Serialize(new { submission.Workflow, submission.Context, submission.Input, submission.Origin, submission.Relations }, WireJson.Options));
+
+    static string Hash(string canonical) => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(canonical)));
 }

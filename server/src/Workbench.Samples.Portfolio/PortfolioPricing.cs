@@ -146,8 +146,22 @@ public static class PortfolioPrice
         return new RunSubmission(Workflow(register, reference, selected), freeze.Context,
             new JsonObject { ["workspaceId"] = freeze.WorkspaceId, ["revision"] = freeze.Revision, ["measures"] = string.Join(' ', selected) },
             idempotencyKey, owner, origin,
-            (relations ?? RunRelations.None) with { WorkspaceId = freeze.WorkspaceId, WorkspaceRevision = freeze.Revision });
+            (relations ?? RunRelations.None) with { WorkspaceId = freeze.WorkspaceId, WorkspaceRevision = freeze.Revision },
+            Basis(workspaceId, expectedRevision, origin, relations));
     }
+
+    /// <summary>What names one Price as a business submission (XV13): the workspace revision priced, and from where. Not
+    /// the accepted input, which freezes cells that answer on their own, such as PV01 (ADR-0010 §6): a retry after one
+    /// answered, or after the workspace moved on, is still the Price the key was first given.</summary>
+    public static JsonObject Basis(string workspaceId, long revision, RunOrigin origin = RunOrigin.Pricer, RunRelations? relations = null) => new()
+    {
+        ["workflow"] = PortfolioContracts.PriceWorkflow,
+        ["version"] = PortfolioContracts.Version,
+        ["workspaceId"] = workspaceId,
+        ["revision"] = revision,
+        ["origin"] = JsonSerializer.SerializeToNode(origin, WireJson.Options),
+        ["relations"] = JsonSerializer.SerializeToNode(relations ?? RunRelations.None, WireJson.Options),
+    };
 
     /// <summary>The price workflow for one frozen accepted input: a step per module with a selected measure, each output
     /// named by its module. It pins the input by reference, so the Run carries it.</summary>

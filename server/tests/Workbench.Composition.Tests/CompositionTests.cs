@@ -129,6 +129,23 @@ public class CompositionTests
         Assert.Equal("IdempotencyConflict", Assert.IsType<SubmissionResult.Rejected>(changed).Code);
     }
 
+    [Fact] // XV13 in the generic kernel: a submission named by a basis is one business submission while its basis is, whatever else it froze
+    public void A_submission_named_by_a_basis_is_the_same_while_its_basis_is()
+    {
+        var harness = new Harness();
+        var workflow = harness.Workflow(Summary);
+        var basis = new JsonObject { ["revision"] = 4 };
+        RunSubmission Named(int days) => new(workflow, Harness.Context(), new JsonObject { ["days"] = days }, "same", "akira", RunOrigin.Workflow, RunRelations.None, basis);
+
+        var first = Assert.IsType<SubmissionResult.Accepted>(harness.Runs.Submit(Named(2)));
+
+        Assert.Equal(first.Run.RunId, Assert.IsType<SubmissionResult.Accepted>(harness.Runs.Submit(Named(3))).Run.RunId);
+        Assert.Equal(first.Run.RunId, Assert.IsType<SubmissionResult.Accepted>(harness.Runs.Known("akira", "same", basis)).Run.RunId);
+        Assert.Equal("IdempotencyConflict", Assert.IsType<SubmissionResult.Rejected>(harness.Runs.Known("akira", "same", new JsonObject { ["revision"] = 5 })).Code);
+        Assert.Null(harness.Runs.Known("akira", "unused", basis));
+        Assert.Null(harness.Runs.Known("someone", "same", basis));
+    }
+
     [Fact] // Determinism: the same inputs give the same synthetic readings in another Run
     public async Task Synthetic_readings_are_deterministic()
     {

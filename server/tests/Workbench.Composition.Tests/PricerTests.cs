@@ -475,6 +475,42 @@ public class PricerTests
         Assert.All(rows, r => Assert.Null(r["after"]));
     }
 
+    [Fact] // XV13, ADR-0010 §6: a retry of Price with its key is the same Run though a PV01 answered between the two
+    public async Task A_retried_price_is_the_same_run_after_a_pv01_answered()
+    {
+        var answer = new TaskCompletionSource<decimal>();
+        var pv01 = new Pv01Provider((_, _) => answer.Task);
+        var (service, runs, _, _) = Priced(new XvaMeasures(pv01));
+        var ws = service.Create("akira", "ABC/LE-01", Day1, 5);
+        Assert.Equal(TradeCell.Pending, Cell(service, ws, "DRAFT-1", XvaMeasures.Pv01).State);
+
+        var first = Assert.IsType<SubmissionResult.Accepted>(service.Price(ws.WorkspaceId, ws.Revision, "akira", "k1"));
+        answer.SetResult(-1_500m);
+        await pv01.Settled();
+        var retry = service.Price(ws.WorkspaceId, ws.Revision, "akira", "k1");
+
+        Assert.Equal(first.Run.RunId, Assert.IsType<SubmissionResult.Accepted>(retry).Run.RunId);
+        await runs.Completion(first.Run.RunId);
+        Assert.Equal([first.Run.RunId], service.View(ws.WorkspaceId, "akira").Runs.Select(r => r.RunId));
+    }
+
+    [Fact] // XV13: a retry after the workspace moved on is the same Run; the key on another revision is another submission, refused
+    public async Task A_retried_price_is_the_same_run_after_an_edit_and_the_key_cannot_price_another_revision()
+    {
+        var (service, runs, _, _) = Priced();
+        var ws = service.Create("akira", "ABC/LE-01", Day1, 5);
+        var first = Assert.IsType<SubmissionResult.Accepted>(service.Price(ws.WorkspaceId, ws.Revision, "akira", "k1"));
+        var moved = service.Edit(ws.WorkspaceId, ws.Revision, "akira", "trade:DRAFT-1", "notional", 9_000_000m);
+
+        var retry = service.Price(ws.WorkspaceId, ws.Revision, "akira", "k1");
+        var reused = service.Price(ws.WorkspaceId, moved.Revision, "akira", "k1");
+
+        Assert.Equal(first.Run.RunId, Assert.IsType<SubmissionResult.Accepted>(retry).Run.RunId);
+        Assert.Equal("IdempotencyConflict", Assert.IsType<SubmissionResult.Rejected>(reused).Code);
+        await runs.Completion(first.Run.RunId);
+        Assert.Equal([first.Run.RunId], service.View(ws.WorkspaceId, "akira").Runs.Select(r => r.RunId));
+    }
+
     [Fact] // ADR-0010 §6: a failed PV01 says why and stays failed until `pv01 retry` asks again
     public async Task A_failed_pv01_says_why_until_it_is_asked_again()
     {
