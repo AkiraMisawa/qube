@@ -262,6 +262,23 @@ Screenshots were looked at by hand at 390, 768, 992, 1024 and 1440px in both the
 
 The guidelines' §12: the Rates toolbar's rows on a phone, the Action Column's browser-grey buttons, the Wrapper's filled disabled menu items, a context message that repeats its field's name, and touch sizes unchecked on an iPhone (UX02).
 
+## The XVA page, interim fixes and its redesign (ADR-0010, proposed 2026-11-07)
+
+### What runs
+
+- The slice-02 page follows docs/design-guidelines.md: toolbar labels beside their inputs at one 30px Control Height, a field's message said once below the toolbars, neutral metadata in gray, column widths that hold their headers and the largest synthetic notional (it fell to `####`), and a trades grid that fills the window's remaining height.
+- An empty CVA recovery shows empty, with the CDS recovery as its placeholder. It showed the literal `undefined`, because the server leaves nulls out and the page compared with `null` only (XV15 on screen).
+- The latest Price's CVA and FVA (Before, After, incremental) show on the page, marked simulated, with the revision they priced and whether the workspace has moved since; *Open run* opens the Run panel, which Price no longer opens by itself.
+- ADR-0010 records the redesign decided with the owner: one screen (context bar, full-width input tabs, New and Existing trades, a result dock), Before and After as layers over Original with side-only edits in an advanced mode, cases (vary from a cell, iterative), scenarios crossed with cases and defined by command and by the AI, FVA only on imperfectly collateralised CSAs, PV Adj from PV01 × Margin. None of it is built yet.
+
+### Verification performed
+
+| Suite | Result |
+|---|---|
+| `npm test` (Vitest) | 55 passed |
+| `npx playwright test` (Chromium, headless, Linux) | 18 passed; `xva.spec.ts` with `--repeat-each=3` (6 passed) |
+| Screenshots at 390, 768, 992 and 1440px, dark and light | No sideways scroll; looked at by hand |
+
 ## Next
 
 1. The owner's review of ADR-0003 §7 (scopes, carry and conflict), then a synthetic source change that can produce a conflict, and the browser cases still open above (reload, failed case unavailable).

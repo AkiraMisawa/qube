@@ -2,9 +2,9 @@ using System.Globalization;
 using System.Text.Json.Nodes;
 using Workbench.Composition.Application.Workspaces;
 
-namespace Workbench.Samples.Xva;
+namespace Workbench.Samples.Portfolio;
 
-// Synthetic XVA sources (slice 02). Every name, identifier and number here is made up; nothing is a real
+// Synthetic portfolio sources (slice 02; shared by the measures since ADR-0010 §10). Every name, identifier and number here is made up; nothing is a real
 // counterparty, agreement, curve or convention.
 
 /// <summary>A counterparty registration. The code alone is not an identity: the legal entity is part of it.</summary>
@@ -13,14 +13,23 @@ public sealed record Registration(string Code, string LegalEntity, string Name)
     public string Key => $"{Code}/{LegalEntity}";
 }
 
-/// <summary>A master agreement with its netting set and CSAs. An uncollateralised one has none, only its sentinel.</summary>
-public sealed record Agreement(string MaId, string NettingSetId, string RegistrationKey, IReadOnlyList<Csa> Csas, string? MainCsaId)
+/// <summary>A master agreement with its netting set and CSAs. An uncollateralised one has none, only its sentinel.
+/// Enforceability is the source's and read-only (docs/03 §2.2).</summary>
+public sealed record Agreement(string MaId, string NettingSetId, string RegistrationKey, IReadOnlyList<Csa> Csas, string? MainCsaId, bool Enforceable = true)
 {
     public bool Collateralised => Csas.Count > 0;
     public string NoCsa => $"nocsa_{MaId}";
 }
 
-public sealed record Csa(string CsaId, string Currency, string Curve);
+/// <summary>
+/// A CSA's terms (ADR-0010 §8): its type, currency, discount and FVA discount curves, how often it margins, whether
+/// collateral is exchanged, whether it is one-way, and each party's threshold and minimum transfer amount in its
+/// currency.
+/// </summary>
+public sealed record Csa(
+    string CsaId, string Type, string Currency, string Curve, string FvaCurve, string Frequency, bool Exchange, bool OneWay,
+    decimal CounterpartyThreshold, decimal CounterpartyMta, string CounterpartyCurrency,
+    decimal SelfThreshold, decimal SelfMta, string SelfCurrency);
 
 /// <summary>One acquired trade, as the source reports it for one value date.</summary>
 public sealed record SourceTrade(
@@ -33,12 +42,14 @@ public sealed record SourceTrade(
     decimal? FixedRate,
     string? Schedule,
     decimal? LastFixing,
-    string? Csa);
+    string? Csa,
+    // The official PV the books hold for an existing trade (ADR-0010 §6), in its currency; a new trade has none.
+    decimal? OfficialPv = null);
 
 /// <summary>The configured baseline profile: the curve an uncollateralised trade starts on (docs/03 §2.4).</summary>
 public sealed record BaselineProfile(string ProfileVersion, string UncollateralisedCurve);
 
-public static class XvaCatalog
+public static class PortfolioCatalog
 {
     public static readonly IReadOnlyList<Registration> Registrations =
     [
@@ -48,12 +59,19 @@ public static class XvaCatalog
     ];
 
     public static readonly IReadOnlyList<string> Curves = ["jpy_ois", "usd_sofr", "eur_estr"];
+    public static readonly IReadOnlyList<string> FundingCurves = ["jpy_funding", "usd_funding", "eur_funding"];
+    public static readonly IReadOnlyList<string> Frequencies = ["daily", "weekly", "monthly"];
 
+    // CSA-A is perfectly collateralised; CSA-B's counterparty threshold puts it past FVA's 1mm GBP; CSA-C margins daily
+    // with small amounts, until a threshold is raised (ADR-0010 §5).
     public static readonly IReadOnlyList<Agreement> Agreements =
     [
-        new("MA-001", "NS-001", "ABC/LE-01", [new("CSA-A", "JPY", "jpy_ois"), new("CSA-B", "USD", "usd_sofr")], "CSA-A"),
-        new("MA-002", "NS-002", "ABC/LE-02", [new("CSA-C", "USD", "usd_sofr")], "CSA-C"),
-        new("MA-003", "NS-003", "XYZ/LE-03", [], null),
+        new("MA-001", "NS-001", "ABC/LE-01",
+            [new("CSA-A", "VM", "JPY", "jpy_ois", "jpy_funding", "daily", true, false, 0m, 50_000_000m, "JPY", 0m, 50_000_000m, "JPY"),
+             new("CSA-B", "VM", "USD", "usd_sofr", "usd_funding", "daily", true, false, 1_000_000m, 500_000m, "USD", 0m, 250_000m, "USD")], "CSA-A"),
+        new("MA-002", "NS-002", "ABC/LE-02",
+            [new("CSA-C", "VM", "USD", "usd_sofr", "usd_funding", "daily", true, false, 0m, 250_000m, "USD", 0m, 250_000m, "USD")], "CSA-C"),
+        new("MA-003", "NS-003", "XYZ/LE-03", [], null, Enforceable: false),
     ];
 
     public static readonly BaselineProfile Profile = new("profile-2026-10", "jpy_ois");
@@ -70,7 +88,7 @@ public static class XvaCatalog
 /// same request gives the same trades. A trade past its maturity is absent, and a trade's last fixing moves
 /// when a fixing date has passed, so another value date is another version of the same trades.
 /// </summary>
-public sealed class XvaSourceVersion : ISourceVersion
+public sealed class PortfolioSourceVersion : ISourceVersion
 {
     public Registration Registration { get; }
     public Agreement Agreement { get; }
@@ -85,10 +103,10 @@ public sealed class XvaSourceVersion : ISourceVersion
     readonly int existingCount;
     readonly Dictionary<string, SourceTrade> trades;
 
-    public XvaSourceVersion(string registrationKey, DateOnly valueDate, int existingCount)
+    public PortfolioSourceVersion(string registrationKey, DateOnly valueDate, int existingCount)
     {
-        Registration = XvaCatalog.Find(registrationKey);
-        Agreement = XvaCatalog.AgreementOf(registrationKey);
+        Registration = PortfolioCatalog.Find(registrationKey);
+        Agreement = PortfolioCatalog.AgreementOf(registrationKey);
         ValueDate = valueDate;
         Existing = [.. Enumerable.Range(1, existingCount).Select(i => Generate(Registration, $"{Registration.Code}-{Registration.LegalEntity}-E{i:D5}", false, valueDate)).OfType<SourceTrade>()];
         this.existingCount = existingCount;
@@ -102,7 +120,7 @@ public sealed class XvaSourceVersion : ISourceVersion
     }
 
     /// <summary>Acquires the version a descriptor names again. The synthetic source is deterministic, so it is the same.</summary>
-    public static XvaSourceVersion Resolve(JsonObject descriptor) => new(
+    public static PortfolioSourceVersion Resolve(JsonObject descriptor) => new(
         descriptor["registration"]!.GetValue<string>(),
         DateOnly.ParseExact(descriptor["valueDate"]!.GetValue<string>(), "yyyy-MM-dd", CultureInfo.InvariantCulture),
         descriptor["existingCount"]!.GetValue<int>());
@@ -124,6 +142,7 @@ public sealed class XvaSourceVersion : ISourceVersion
                     "fixedRate" => new(t.FixedRate),
                     "schedule" => new(t.Schedule),
                     "lastFixing" => new(t.LastFixing),
+                    "officialPv" => new(t.OfficialPv),
                     // A new trade has no CSA of its own: it takes the main CSA automatically.
                     "csa" => new(t.Csa),
                     // A trade's curve follows its CSA unless the user sets one.
@@ -133,7 +152,31 @@ public sealed class XvaSourceVersion : ISourceVersion
                     _ => null,
                 };
             case Entity.Csa when CsaOf(id) is { } csa:
-                return field == "curve" ? new(csa.Curve) : null;
+                return field switch
+                {
+                    "currency" => new(csa.Currency),
+                    "curve" => new(csa.Curve),
+                    "fvaCurve" => new(csa.FvaCurve),
+                    "frequency" => new(csa.Frequency),
+                    "exchange" => new(csa.Exchange),
+                    "oneWay" => new(csa.OneWay),
+                    "counterpartyThreshold" => new(csa.CounterpartyThreshold),
+                    "counterpartyMta" => new(csa.CounterpartyMta),
+                    "counterpartyCurrency" => new(csa.CounterpartyCurrency),
+                    "selfThreshold" => new(csa.SelfThreshold),
+                    "selfMta" => new(csa.SelfMta),
+                    "selfCurrency" => new(csa.SelfCurrency),
+                    _ => null,
+                };
+            // B or A set for every row of a grid (ADR-0010 §6): the source sets no grid at once.
+            case Entity.Grid when id is Entity.NewGrid or Entity.ExistingGrid:
+                return field is "before" or "after" ? new((JsonNode?)null) : null;
+            // The CVA recovery is the netting set's (ADR-0010 §8); empty stays empty and the CDS recovery applies.
+            case Entity.Netting when id == Agreement.NettingSetId:
+                return field == "cvaRecovery" ? new(CvaRecovery) : null;
+            // The measures Price runs (ADR-0010 §10). The source has no choice of its own: empty means every measure registered.
+            case Entity.Selection when id == Entity.MeasuresId:
+                return field == Entity.MeasuresField ? new((JsonNode?)null) : null;
             case Entity.Credit when id == Registration.Key:
                 return field switch
                 {
@@ -157,10 +200,12 @@ public sealed class XvaSourceVersion : ISourceVersion
         var swap = random.NextDouble() < 0.7;
         var currency = random.NextDouble() < 0.6 ? "JPY" : "USD";
         var notional = Math.Round((decimal)(1 + random.Next(1, 100)) * (currency == "JPY" ? 100_000_000m : 1_000_000m), 0);
-        var agreement = XvaCatalog.AgreementOf(registration.Key);
+        var agreement = PortfolioCatalog.AgreementOf(registration.Key);
         string? csa = isNew ? null : agreement.Collateralised ? agreement.Csas[random.Next(agreement.Csas.Count)].CsaId : agreement.NoCsa;
+        // Drawn from a generator of its own, so the trades' other values stay as they were before it existed.
+        decimal? officialPv = isNew ? null : Math.Round((decimal)(new Random(seed ^ 0x5bd1e995).NextDouble() - 0.5) * notional * 0.02m, 0);
         if (!swap)
-            return new(tradeId, isNew, "FXForward", currency, notional, maturity, null, null, null, csa);
+            return new(tradeId, isNew, "FXForward", currency, notional, maturity, null, null, null, csa, officialPv);
         var schedule = random.NextDouble() < 0.5 ? "6M" : "3M";
         var fixedRate = Math.Round((decimal)(0.001 + random.NextDouble() * 0.04), 5);
         // The last fixing is set on the latest fixing date not after the value date.
@@ -168,7 +213,7 @@ public sealed class XvaSourceVersion : ISourceVersion
         var since = valueDate.DayNumber - start.DayNumber;
         var fixings = since < 0 ? 0 : since / period + 1;
         decimal? lastFixing = isNew ? null : Math.Round((decimal)(0.001 + new Random(seed ^ fixings).NextDouble() * 0.04), 5);
-        return new(tradeId, isNew, "IRS", currency, notional, maturity, fixedRate, schedule, lastFixing, csa);
+        return new(tradeId, isNew, "IRS", currency, notional, maturity, fixedRate, schedule, lastFixing, csa, officialPv);
     }
 
     static int Seed(string text)
@@ -179,12 +224,24 @@ public sealed class XvaSourceVersion : ISourceVersion
     }
 }
 
-/// <summary>Entity names in XVA edit targets: <c>trade:ID</c>, <c>csa:ID</c>, <c>credit:CODE/LE</c>.</summary>
+/// <summary>Entity names in portfolio edit targets: <c>trade:ID</c>, <c>csa:ID</c>, <c>netting:ID</c>,
+/// <c>credit:CODE/LE</c> (a CVA recovery set before it moved to the netting set) and <c>selection:measures</c>.</summary>
 public static class Entity
 {
     public const string Trade = "trade";
     public const string Csa = "csa";
+    public const string Netting = "netting";
+    /// <summary>A trade grid as a whole, <c>grid:new</c> or <c>grid:existing</c>: B or A set for every row by one edit.</summary>
+    public const string Grid = "grid";
+    public const string NewGrid = "new";
+    public const string ExistingGrid = "existing";
     public const string Credit = "credit";
+    public const string Selection = "selection";
+
+    /// <summary>The selection of measures Price runs: <c>selection:measures</c>, field <c>measures</c> (ADR-0010 §10).</summary>
+    public const string MeasuresId = "measures";
+    public const string MeasuresField = "measures";
+    public static readonly string Measures = Of(Selection, MeasuresId);
 
     public static string Of(string kind, string id) => $"{kind}:{id}";
 
@@ -194,4 +251,28 @@ public static class Entity
         if (at <= 0) throw new ArgumentException($"Entity '{entity}' has no kind.");
         return (entity[..at], entity[(at + 1)..]);
     }
+}
+
+/// <summary>
+/// The workspace's pinned synthetic market data for the portfolio's own rules: FX to GBP as of the value date. The
+/// rates are made up, and move a little with the date so that another value date is another fixing.
+/// </summary>
+public static class PortfolioMarket
+{
+    public static readonly IReadOnlyList<string> Currencies = ["GBP", "JPY", "USD", "EUR"];
+
+    // Units of each currency per GBP, before the date's move.
+    static readonly IReadOnlyDictionary<string, decimal> PerGbp = new Dictionary<string, decimal>
+    {
+        ["GBP"] = 1m, ["JPY"] = 190m, ["USD"] = 1.27m, ["EUR"] = 1.17m,
+    };
+
+    /// <summary>Units of the currency one GBP buys on the value date.</summary>
+    public static decimal UnitsPerGbp(string currency, DateOnly valueDate)
+    {
+        if (!PerGbp.TryGetValue(currency, out var rate)) throw new ArgumentException($"No synthetic FX for {currency}.");
+        return currency == "GBP" ? 1m : Math.Round(rate * (1m + (valueDate.DayNumber % 21 - 10) * 0.001m), 6);
+    }
+
+    public static decimal ToGbp(decimal amount, string currency, DateOnly valueDate) => amount / UnitsPerGbp(currency, valueDate);
 }

@@ -6,6 +6,8 @@ export interface RowQuery {
   readonly start: number;
   readonly count: number;
   readonly sorts: readonly { readonly column: string; readonly direction: 'ascending' | 'descending' }[];
+  /** The New or the Existing grid (ADR-0010 §6). */
+  readonly grid: 'new' | 'existing';
 }
 
 const base = (workspaceId: string) => `/api/xva/workspaces/${encodeURIComponent(workspaceId)}`;
@@ -23,6 +25,8 @@ export interface XvaApi {
   changeValueDate(workspaceId: string, revision: number, valueDate: string): Promise<{ readonly workspace: XvaWorkspaceView; readonly carried: CarrySummary }>;
   previewCounterpartyChange(workspaceId: string): Promise<ScopeDrop>;
   changeCounterparty(workspaceId: string, revision: number, registration: string, confirmedCount: number): Promise<{ readonly workspace: XvaWorkspaceView; readonly carried: CarrySummary }>;
+  /** Sets the measures Price prices; an unknown one, or none, is refused by name. */
+  measures(workspaceId: string, revision: number, measures: readonly string[]): Promise<XvaWorkspaceView>;
   price(workspaceId: string, revision: number, idempotencyKey: string): Promise<RunRecord>;
 }
 
@@ -37,6 +41,7 @@ export const httpXvaApi: XvaApi = {
   previewCounterpartyChange: (workspaceId) => call(`${base(workspaceId)}/counterparty-change`),
   changeCounterparty: (workspaceId, revision, registration, confirmedCount) =>
     post(`${base(workspaceId)}/counterparty`, { revision, registration, confirmedCount }),
+  measures: (workspaceId, revision, measures) => post(`${base(workspaceId)}/measures`, { revision, measures }),
   price: (workspaceId, revision, idempotencyKey) => post(`${base(workspaceId)}/price`, { revision, idempotencyKey }),
 };
 

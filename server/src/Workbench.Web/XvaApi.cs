@@ -1,6 +1,7 @@
 using System.Text.Json.Nodes;
 using Workbench.Composition.Application;
 using Workbench.Composition.Application.Workspaces;
+using Workbench.Samples.Portfolio;
 using Workbench.Samples.Xva;
 
 namespace Workbench.Web;
@@ -9,13 +10,15 @@ namespace Workbench.Web;
 public static class XvaApi
 {
     public sealed record CreateRequest(string Registration, DateOnly ValueDate, int PortfolioSize);
-    public sealed record PageRequest(int Start, int Count, IReadOnlyList<RowSort> Sorts);
+    /// <summary>A page of trades; <c>Grid</c> names the New or Existing grid (ADR-0010 §6), or all when absent.</summary>
+    public sealed record PageRequest(int Start, int Count, IReadOnlyList<RowSort> Sorts, string? Grid = null);
     public sealed record EditRequest(long Revision, string Entity, string Field, JsonNode? Value);
     public sealed record ResolveRequest(long Revision, string Entity, string Field, string Resolution);
     public sealed record ValueDateRequest(long Revision, DateOnly ValueDate);
     public sealed record CounterpartyRequest(long Revision, string Registration, int ConfirmedCount);
     public sealed record PriceRequest(long Revision, string IdempotencyKey);
-    public sealed record Reacquired(XvaWorkspaceView Workspace, CarrySummary Carried);
+    public sealed record MeasuresRequest(long Revision, IReadOnlyList<string> Measures);
+    public sealed record Reacquired(PortfolioWorkspaceView Workspace, CarrySummary Carried);
     public sealed record WorkspaceSummary(string WorkspaceId, long Revision, JsonObject Context);
 
     /// <summary>The largest page a request may ask for; ExGrid asks for its Window plus read-ahead.</summary>
@@ -25,60 +28,66 @@ public static class XvaApi
     {
         var api = app.MapGroup("/api/xva");
 
-        api.MapGet("/registrations", () => XvaCatalog.Registrations.Select(r => new
+        api.MapGet("/registrations", () => PortfolioCatalog.Registrations.Select(r => new
         {
-            r.Key, r.Code, r.LegalEntity, r.Name, Agreement = XvaCatalog.AgreementOf(r.Key),
+            r.Key, r.Code, r.LegalEntity, r.Name, Agreement = PortfolioCatalog.AgreementOf(r.Key),
         }));
 
         var ws = api.MapGroup("/workspaces");
 
-        ws.MapGet("/", (CurrentUser user, XvaWorkspaces service) =>
+        ws.MapGet("/", (CurrentUser user, PortfolioWorkspaces service) =>
             service.OwnedBy(user.Id).Select(w => new WorkspaceSummary(w.WorkspaceId, w.Revision, w.Context)));
 
-        ws.MapPost("/", (CreateRequest request, CurrentUser user, XvaWorkspaces service) => Guard(() =>
+        ws.MapPost("/", (CreateRequest request, CurrentUser user, PortfolioWorkspaces service) => Guard(() =>
         {
             if (request.PortfolioSize is < 0 or > 100_000) throw new WorkspaceRefused("InvalidValue", "The portfolio size is from 0 to 100,000.");
             var created = service.Create(user.Id, request.Registration, request.ValueDate, request.PortfolioSize);
             return Results.Created($"/api/xva/workspaces/{created.WorkspaceId}", service.View(created.WorkspaceId, user.Id));
         }));
 
-        ws.MapGet("/{id}", (string id, CurrentUser user, XvaWorkspaces service) =>
+        ws.MapGet("/{id}", (string id, CurrentUser user, PortfolioWorkspaces service) =>
             Guard(() => Results.Ok(service.View(id, user.Id))));
 
-        ws.MapPost("/{id}/rows", (string id, PageRequest request, CurrentUser user, XvaWorkspaces service) => Guard(() =>
+        ws.MapPost("/{id}/rows", (string id, PageRequest request, CurrentUser user, PortfolioWorkspaces service) => Guard(() =>
         {
             if (request.Count > MaxPage) throw new WorkspaceRefused("InvalidRange", $"A page holds at most {MaxPage} rows.");
-            return Results.Ok(service.Page(id, user.Id, request.Start, request.Count, request.Sorts));
+            return Results.Ok(service.Page(id, user.Id, request.Start, request.Count, request.Sorts, request.Grid));
         }));
 
-        ws.MapPost("/{id}/edits", (string id, EditRequest request, CurrentUser user, XvaWorkspaces service) => Guard(() =>
+        ws.MapPost("/{id}/edits", (string id, EditRequest request, CurrentUser user, PortfolioWorkspaces service) => Guard(() =>
         {
             service.Edit(id, request.Revision, user.Id, request.Entity, request.Field, request.Value);
             return Results.Ok(service.View(id, user.Id));
         }));
 
-        ws.MapPost("/{id}/resolutions", (string id, ResolveRequest request, CurrentUser user, XvaWorkspaces service) => Guard(() =>
+        ws.MapPost("/{id}/measures", (string id, MeasuresRequest request, CurrentUser user, PortfolioWorkspaces service) => Guard(() =>
+        {
+            service.SetMeasures(id, request.Revision, user.Id, request.Measures);
+            return Results.Ok(service.View(id, user.Id));
+        }));
+
+        ws.MapPost("/{id}/resolutions", (string id, ResolveRequest request, CurrentUser user, PortfolioWorkspaces service) => Guard(() =>
         {
             service.Resolve(id, request.Revision, user.Id, request.Entity, request.Field, request.Resolution);
             return Results.Ok(service.View(id, user.Id));
         }));
 
-        ws.MapPost("/{id}/value-date", (string id, ValueDateRequest request, CurrentUser user, XvaWorkspaces service) => Guard(() =>
+        ws.MapPost("/{id}/value-date", (string id, ValueDateRequest request, CurrentUser user, PortfolioWorkspaces service) => Guard(() =>
         {
             var (_, carried) = service.ChangeValueDate(id, request.Revision, user.Id, request.ValueDate);
             return Results.Ok(new Reacquired(service.View(id, user.Id), carried));
         }));
 
-        ws.MapGet("/{id}/counterparty-change", (string id, CurrentUser user, XvaWorkspaces service) =>
+        ws.MapGet("/{id}/counterparty-change", (string id, CurrentUser user, PortfolioWorkspaces service) =>
             Guard(() => Results.Ok(service.PreviewCounterpartyChange(id, user.Id))));
 
-        ws.MapPost("/{id}/counterparty", (string id, CounterpartyRequest request, CurrentUser user, XvaWorkspaces service) => Guard(() =>
+        ws.MapPost("/{id}/counterparty", (string id, CounterpartyRequest request, CurrentUser user, PortfolioWorkspaces service) => Guard(() =>
         {
             var (_, carried) = service.ChangeCounterparty(id, request.Revision, user.Id, request.Registration, request.ConfirmedCount);
             return Results.Ok(new Reacquired(service.View(id, user.Id), carried));
         }));
 
-        ws.MapPost("/{id}/price", (string id, PriceRequest request, CurrentUser user, XvaWorkspaces service) => Guard(() =>
+        ws.MapPost("/{id}/price", (string id, PriceRequest request, CurrentUser user, PortfolioWorkspaces service) => Guard(() =>
             service.Price(id, request.Revision, user.Id, request.IdempotencyKey) switch
             {
                 SubmissionResult.Accepted accepted => Results.Accepted($"/api/runs/{accepted.Run.RunId}", accepted.Run),
@@ -86,7 +95,7 @@ public static class XvaApi
                 _ => throw new InvalidOperationException("Unhandled submission result."),
             }));
 
-        ws.MapDelete("/{id}", (string id, CurrentUser user, XvaWorkspaces service) => Guard(() =>
+        ws.MapDelete("/{id}", (string id, CurrentUser user, PortfolioWorkspaces service) => Guard(() =>
         {
             service.Delete(id, user.Id);
             return Results.NoContent();
