@@ -30,7 +30,9 @@ public sealed record EffectiveTrade(
     IReadOnlyList<string> Held,
     IReadOnlyList<string> Overridden,
     // Each declared measure's membership (ADR-0010 §10), set by the register; none where no measure declares one.
-    IReadOnlyDictionary<string, Membership>? Membership = null);
+    IReadOnlyDictionary<string, Membership>? Membership = null,
+    // The fields whose value differs from Original, with Original's value (ADR-0010 §2); none where nothing differs.
+    IReadOnlyDictionary<string, JsonNode?>? Original = null);
 
 /// <summary>
 /// A CSA of the agreement with its effective terms (ADR-0010 §8): the source's, or the user's where <c>Overridden</c>
@@ -41,10 +43,12 @@ public sealed record EffectiveCsa(
     decimal CounterpartyThreshold, decimal CounterpartyMta, string CounterpartyCurrency,
     decimal SelfThreshold, decimal SelfMta, string SelfCurrency,
     IReadOnlyList<string> Overridden,
-    IReadOnlyDictionary<string, Membership>? Membership = null);
+    IReadOnlyDictionary<string, Membership>? Membership = null,
+    IReadOnlyDictionary<string, JsonNode?>? Original = null);
 
 /// <summary>The netting set's credit inputs. An empty CVA recovery stays empty; analytics uses the CDS recovery.</summary>
-public sealed record EffectiveCredit(decimal? CvaRecovery, Ownership CvaRecoveryOwner, decimal CdsRecovery);
+public sealed record EffectiveCredit(decimal? CvaRecovery, Ownership CvaRecoveryOwner, decimal CdsRecovery,
+    IReadOnlyDictionary<string, JsonNode?>? Original = null);
 
 /// <summary>The portfolio's edit kinds, scopes and conflict groups (ADR-0003 §7), registered with the kernel.</summary>
 public sealed class PortfolioEditRules : IEditRules
@@ -109,19 +113,46 @@ public static class PortfolioMaterialiser
             .OrderBy(o => o.Key.Entity, StringComparer.Ordinal).ThenBy(o => o.Key.Field, StringComparer.Ordinal)
             .ToDictionary(o => o.Key, o => o.Value);
         var fingerprint = string.Join("|", shared.Select(o => $"{o.Key.Entity}.{o.Key.Field}={o.Value.Value?.ToJsonString()}#{o.Value.Seq}"));
+        // Original (ADR-0010 §2): the source under the rules with no edit at all, in the same order as every row list here.
+        var original = Originals.GetValue(source, s => [.. s.Existing.Concat(s.New).Select(t => Trade(s, t, NoEdits, Nothing))]);
         var untouched = Untouched.GetOrCreateValue(source).GetOrAdd(fingerprint, _ =>
-            [.. source.Existing.Concat(source.New).Select(t => Trade(source, t, shared, Nothing))]);
+            [.. source.Existing.Concat(source.New).Select((t, i) => Marked(Trade(source, t, shared, Nothing), original[i]))]);
         var touched = overrides.Keys.Select(k => k.Entity).Concat(held.Select(h => h.Key))
             .Where(e => Entity.Split(e).Kind == Entity.Trade).ToHashSet();
         if (touched.Count == 0) return untouched;
         var rows = (EffectiveTrade[])untouched.Clone();
         for (var i = 0; i < rows.Length; i++)
             if (touched.Contains(Entity.Of(Entity.Trade, rows[i].TradeId)))
-                rows[i] = Trade(source, source.Trade(rows[i].TradeId)!, overrides, held);
+                rows[i] = Marked(Trade(source, source.Trade(rows[i].TradeId)!, overrides, held), original[i]);
         return rows;
     }
 
+    /// <summary>The trade fields Original is compared on. B and A are shown by their boxes and never marked (ADR-0010 §2).</summary>
+    public static IReadOnlyList<string> ComparedFields { get; } = ["notional", "fixedRate", "schedule", "csa", "curve"];
+
+    // The test is the value, not the edit: a value edited back to Original is not marked, and one a rule moved is.
+    static EffectiveTrade Marked(EffectiveTrade row, EffectiveTrade original)
+    {
+        static JsonNode? Of(EffectiveTrade t, string field) => field switch
+        {
+            "notional" => t.Notional,
+            "fixedRate" => t.FixedRate,
+            "schedule" => t.Schedule,
+            "csa" => t.Csa,
+            "curve" => t.Curve,
+            _ => throw new ArgumentException(field),
+        };
+        var differs = ComparedFields.Where(f => !Same(Of(row, f), Of(original, f))).ToDictionary(f => f, f => Of(original, f));
+        return differs.Count == 0 ? row : row with { Original = differs };
+    }
+
+    /// <summary>Two values are the same when they say the same thing: numbers by value (1.0 is 1), the rest as JSON.</summary>
+    public static bool Same(JsonNode? a, JsonNode? b) =>
+        a is JsonValue x && b is JsonValue y && x.TryGetValue<decimal>(out var m) && y.TryGetValue<decimal>(out var n) ? m == n : JsonNode.DeepEquals(a, b);
+
     static readonly ConditionalWeakTable<PortfolioSourceVersion, ConcurrentDictionary<string, EffectiveTrade[]>> Untouched = new();
+    static readonly ConditionalWeakTable<PortfolioSourceVersion, EffectiveTrade[]> Originals = new();
+    static readonly IReadOnlyDictionary<(string, string), Override> NoEdits = new Dictionary<(string, string), Override>();
     static readonly ILookup<string, string> Nothing = Array.Empty<(string, string)>().ToLookup(x => x.Item1, x => x.Item2);
 
     /// <summary>The entities Price would read: trades in Before or After, the CSAs they use, the netting set's and
@@ -155,11 +186,15 @@ public static class PortfolioMaterialiser
             var entity = Entity.Of(Entity.Csa, c.CsaId);
             var set = state.Overrides.Values.Where(o => o.Target.Entity == entity).ToDictionary(o => o.Target.Field, o => o.Value);
             T Term<T>(string field, T value) => set.TryGetValue(field, out var v) ? v!.GetValue<T>() : value;
-            return new EffectiveCsa(c.CsaId, c.Type, Term("currency", c.Currency), Term("curve", c.Curve), set.ContainsKey("curve") ? Ownership.User : Ownership.Source,
+            var effective = new EffectiveCsa(c.CsaId, c.Type, Term("currency", c.Currency), Term("curve", c.Curve), set.ContainsKey("curve") ? Ownership.User : Ownership.Source,
                 Term("fvaCurve", c.FvaCurve), Term("frequency", c.Frequency), Term("exchange", c.Exchange), Term("oneWay", c.OneWay),
                 Term("counterpartyThreshold", c.CounterpartyThreshold), Term("counterpartyMta", c.CounterpartyMta), Term("counterpartyCurrency", c.CounterpartyCurrency),
                 Term("selfThreshold", c.SelfThreshold), Term("selfMta", c.SelfMta), Term("selfCurrency", c.SelfCurrency),
                 [.. CsaFields.Where(set.ContainsKey)]);
+            // Original is the source's term; a term set back to it is not marked (ADR-0010 §2).
+            var differs = CsaFields.Where(f => set.ContainsKey(f) && !Same(set[f], source.Read(entity, f)!.Value))
+                .ToDictionary(f => f, f => source.Read(entity, f)!.Value);
+            return differs.Count == 0 ? effective : effective with { Original = differs };
         })];
     }
 
@@ -172,9 +207,10 @@ public static class PortfolioMaterialiser
         var source = (PortfolioSourceVersion)state.Source;
         Override? Set(string entity) => state.Overrides.Values.SingleOrDefault(x => x.Target.Entity == entity && x.Target.Field == "cvaRecovery");
         var o = Set(Entity.Of(Entity.Netting, source.Agreement.NettingSetId)) ?? Set(Entity.Of(Entity.Credit, source.Registration.Key));
-        return o is null
-            ? new(source.CvaRecovery, Ownership.Source, source.CdsRecovery)
-            : new(o.Value?.GetValue<decimal>(), Ownership.User, source.CdsRecovery);
+        if (o is null) return new(source.CvaRecovery, Ownership.Source, source.CdsRecovery);
+        var recovery = o.Value?.GetValue<decimal>();
+        return new(recovery, Ownership.User, source.CdsRecovery,
+            recovery == source.CvaRecovery ? null : new Dictionary<string, JsonNode?> { ["cvaRecovery"] = source.CvaRecovery });
     }
 
     static EffectiveTrade Trade(PortfolioSourceVersion source, SourceTrade t, IReadOnlyDictionary<(string, string), Override> overrides, ILookup<string, string> held)

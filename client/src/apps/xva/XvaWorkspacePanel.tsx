@@ -17,6 +17,7 @@ import { EditQueue, MEASURES_ENTITY, tradeFields, type PendingEdit } from './edi
 import { ToolbarField } from './fields';
 import { XvaInputs } from './XvaInputs';
 import { priceLabel } from './metrics';
+import { differs, originalMessage } from './original';
 
 // The fixed XVA workspace (docs/03, ADR-0003): the server holds the trades and every rule; this page shows
 // the effective rows a page at a time and sends what the user changed. ExGrid draws; it decides nothing.
@@ -73,10 +74,12 @@ export function fvaOf(row: Row): string | undefined {
   return m === undefined ? undefined : `${m.in ? 'In' : 'Out'} · ${m.reason}`;
 }
 
+// A value that differs from Original is marked (ADR-0010 §2), by value and not by edit: one a rule moved is marked, one
+// edited back is not. ExGrid's `modified` mark stands in for the Before and After fills until its Split Fill ships.
 function cellState(row: Row, col: GridColumn<Row>): CellState {
   if (row.held.some((h) => h.startsWith(`${col.name}:`))) return 'stale';
   if ((col.name === 'csa' || col.name === 'curve' || col.name === 'issues') && row.issues.length > 0) return 'error';
-  if (row.overridden.includes(col.name)) return 'modified';
+  if (differs(row, col.name)) return 'modified';
   return 'normal';
 }
 
@@ -86,8 +89,7 @@ function cellMessage(row: Row, col: GridColumn<Row>): string | undefined {
     ? 'The source changed under your edit. Keep it or take the source value in the panel above.'
     : 'This edit lost its trade in the new version. Acknowledge or reset it in the panel above.';
   if ((col.name === 'csa' || col.name === 'curve' || col.name === 'issues') && row.issues.length > 0) return row.issues.join(' ');
-  if (row.overridden.includes(col.name)) return 'Set by you.';
-  return undefined;
+  return originalMessage(row, col.name, row[col.name as keyof Row]);
 }
 
 const describe = (error: unknown) => (error instanceof Error ? error.message : String(error));

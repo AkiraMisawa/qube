@@ -30,6 +30,8 @@ export interface EffectiveTrade {
   readonly overridden: readonly string[];
   /** Each declared measure's membership, by measure id (ADR-0010 §10); FVA's is the first (§5). */
   readonly membership?: Readonly<Record<string, Membership>>;
+  /** The fields whose value differs from Original, with Original's value (ADR-0010 §2). */
+  readonly original?: Readonly<Record<string, unknown>> | null;
 }
 
 /** Whether a measure prices a trade, and why. Out is never silent: it says why. */
@@ -70,10 +72,18 @@ export interface EffectiveCsa {
   readonly overridden: readonly string[];
   /** Each measure rule's standing on this CSA, such as FVA's Imperfect (ADR-0010 §5). */
   readonly membership?: Readonly<Record<string, Membership>>;
+  /** The terms whose value differs from the source's, with the source's value (ADR-0010 §2). */
+  readonly original?: Readonly<Record<string, unknown>> | null;
 }
 
 /** The netting set's CVA recovery: absent when it is empty (the server leaves nulls out), and then the CDS recovery applies. */
-export interface EffectiveCredit { readonly cvaRecovery?: number | null; readonly cvaRecoveryOwner: Ownership; readonly cdsRecovery: number }
+export interface EffectiveCredit {
+  readonly cvaRecovery?: number | null;
+  readonly cvaRecoveryOwner: Ownership;
+  readonly cdsRecovery: number;
+  /** Present when the CVA recovery differs from the source's, with the source's value (ADR-0010 §2). */
+  readonly original?: Readonly<Record<string, unknown>> | null;
+}
 
 export interface HeldEdit {
   readonly scope: string;

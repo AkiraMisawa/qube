@@ -5,6 +5,7 @@ import { WorkbenchGrid } from '../../platform/grid/WorkbenchGrid';
 import type { EffectiveCsa, XvaWorkspaceView } from './contracts';
 import { csaFields, parseRecovery } from './editing';
 import { CommitField } from './fields';
+import { changes, differs, originalMessage } from './original';
 
 // The shared input tabs (ADR-0010 §1, §8): Netting and CSA. The server holds every term and every rule; these send what
 // the user changed and show what the server answers, FVA's Imperfect column included (§5), which the page never decides.
@@ -43,16 +44,18 @@ const csaColumns: readonly GridColumn<CsaRow>[] = [
   { name: 'fva', header: 'FVA imperfect', type: 'text', width: 360, value: (row) => standing(row, 'fva'), format: (v) => String(v) },
 ];
 
-const csaCellState = (row: CsaRow, col: GridColumn<CsaRow>): CellState => (row.overridden.includes(col.name) ? 'modified' : 'normal');
-const csaCellMessage = (row: CsaRow, col: GridColumn<CsaRow>): string | undefined => (row.overridden.includes(col.name) ? 'Set by you.' : undefined);
+// A term that differs from the source's is marked and described (ADR-0010 §2); one set back to it is not.
+const csaCellState = (row: CsaRow, col: GridColumn<CsaRow>): CellState => (differs(row, col.name) ? 'modified' : 'normal');
+const csaCellMessage = (row: CsaRow, col: GridColumn<CsaRow>): string | undefined => originalMessage(row, col.name, row[col.name as keyof CsaRow]);
 
 export function XvaInputs({ ws, push, onIssue }: {
   readonly ws: XvaWorkspaceView;
   readonly push: (entity: string, field: string, value: unknown) => void;
   readonly onIssue: (message: string | undefined) => void;
 }) {
-  const csaChanges = ws.csas.reduce((n, c) => n + c.overridden.length, 0);
-  const nettingChanges = ws.credit.cvaRecoveryOwner === 'user' ? 1 : 0;
+  // Each tab counts the values in it that differ from Original (ADR-0010 §1, §2).
+  const csaChanges = changes(ws.csas);
+  const nettingChanges = changes([ws.credit]);
   const count = (n: number) => (n === 0 ? '' : ` ●${n}`);
 
   return (
@@ -74,7 +77,7 @@ export function XvaInputs({ ws, push, onIssue }: {
               <Table.Td>{ws.agreement.enforceable ? 'Yes' : 'No'}</Table.Td>
               <Table.Td>
                 <CommitField label="CVA recovery" placeholder={`empty: CDS ${ws.credit.cdsRecovery}`}
-                  value={ws.credit.cvaRecovery == null ? '' : String(ws.credit.cvaRecovery)} modified={ws.credit.cvaRecoveryOwner === 'user'}
+                  value={ws.credit.cvaRecovery == null ? '' : String(ws.credit.cvaRecovery)} modified={differs(ws.credit, 'cvaRecovery')} description={originalMessage(ws.credit, 'cvaRecovery', ws.credit.cvaRecovery)}
                   parse={parseRecovery} onIssue={onIssue}
                   onCommit={(value) => push(`netting:${ws.agreement.nettingSetId}`, 'cvaRecovery', value)} />
               </Table.Td>

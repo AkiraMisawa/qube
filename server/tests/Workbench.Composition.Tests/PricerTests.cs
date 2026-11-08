@@ -274,4 +274,64 @@ public class PricerTests
 
         Assert.Equal("UnknownGrid", Assert.Throws<WorkspaceRefused>(() => service.Page(ws.WorkspaceId, "akira", 0, 10, [], "old")).Code);
     }
+
+    [Fact] // ADR-0010 §2: a CSA curve edit marks the CSA and every trade that follows it, not a trade the user set to its own value
+    public void A_csa_curve_edit_marks_the_csa_and_the_trades_that_follow_it()
+    {
+        var service = Service();
+        var ws = service.Create("akira", "ABC/LE-01", Day1, 20);
+        var onA = service.Page(ws.WorkspaceId, "akira", 0, 100, [], "existing").Rows.Where(t => t.Csa == "CSA-A").Select(t => t.TradeId).ToList();
+        Assert.True(onA.Count >= 2);
+        // The user sets one trade's curve to the value it already has; the CSA edit then no longer reaches it.
+        ws = service.Edit(ws.WorkspaceId, ws.Revision, "akira", $"trade:{onA[0]}", "curve", "jpy_ois");
+
+        ws = service.Edit(ws.WorkspaceId, ws.Revision, "akira", "csa:CSA-A", "curve", "usd_sofr");
+
+        var rows = service.Page(ws.WorkspaceId, "akira", 0, 100, [], "existing").Rows.ToDictionary(t => t.TradeId);
+        Assert.Null(rows[onA[0]].Original);
+        Assert.All(onA.Skip(1), id => Assert.Equal("jpy_ois", rows[id].Original!["curve"]!.GetValue<string>()));
+        var csa = service.View(ws.WorkspaceId, "akira").Csas.Single(c => c.CsaId == "CSA-A");
+        Assert.Equal(["curve"], csa.Original!.Keys);
+    }
+
+    [Fact] // ADR-0010 §2: the test is the value: a value edited back to Original is not marked
+    public void A_value_edited_back_to_original_is_not_marked()
+    {
+        var service = Service();
+        var ws = service.Create("akira", "ABC/LE-01", Day1, 5);
+        var draft = service.Page(ws.WorkspaceId, "akira", 0, 10, [], "new").Rows.Single(t => t.TradeId == "DRAFT-1");
+
+        ws = service.Edit(ws.WorkspaceId, ws.Revision, "akira", "trade:DRAFT-1", "notional", 9_000_000_000m);
+        Assert.Equal(draft.Notional, service.Page(ws.WorkspaceId, "akira", 0, 10, [], "new").Rows.Single(t => t.TradeId == "DRAFT-1").Original!["notional"]!.GetValue<decimal>());
+        ws = service.Edit(ws.WorkspaceId, ws.Revision, "akira", "trade:DRAFT-1", "notional", draft.Notional);
+        ws = service.Edit(ws.WorkspaceId, ws.Revision, "akira", "csa:CSA-B", "counterpartyThreshold", 1_000_000.00m);
+
+        Assert.Null(service.Page(ws.WorkspaceId, "akira", 0, 10, [], "new").Rows.Single(t => t.TradeId == "DRAFT-1").Original);
+        Assert.Null(service.View(ws.WorkspaceId, "akira").Csas.Single(c => c.CsaId == "CSA-B").Original);
+    }
+
+    [Fact] // ADR-0010 §2: B and A are shown by their boxes and never marked
+    public void Before_and_after_are_never_marked()
+    {
+        var service = Service();
+        var ws = service.Create("akira", "ABC/LE-01", Day1, 10);
+
+        ws = service.Edit(ws.WorkspaceId, ws.Revision, "akira", "grid:existing", "before", false);
+        ws = service.Edit(ws.WorkspaceId, ws.Revision, "akira", "trade:DRAFT-1", "after", false);
+
+        Assert.All(service.Page(ws.WorkspaceId, "akira", 0, 100, [], null).Rows, t => Assert.Null(t.Original));
+    }
+
+    [Fact] // ADR-0010 §2, §8: the netting set's CVA recovery is marked against the source's, empty included
+    public void The_cva_recovery_is_marked_against_the_sources()
+    {
+        var service = Service();
+        var ws = service.Create("akira", "ABC/LE-02", Day1, 5);
+
+        ws = service.Edit(ws.WorkspaceId, ws.Revision, "akira", "netting:NS-002", "cvaRecovery", null);
+
+        Assert.Equal(0.35m, service.View(ws.WorkspaceId, "akira").Credit.Original!["cvaRecovery"]!.GetValue<decimal>());
+        ws = service.Edit(ws.WorkspaceId, ws.Revision, "akira", "netting:NS-002", "cvaRecovery", 0.35m);
+        Assert.Null(service.View(ws.WorkspaceId, "akira").Credit.Original);
+    }
 }

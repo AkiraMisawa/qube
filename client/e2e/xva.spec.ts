@@ -50,6 +50,11 @@ test('docs/03, ADR-0003: a new trade takes the main CSA, a CSA typed in moves it
   await expect(trade(page, 'DRAFT-1').getByRole('gridcell').nth(CSA)).toHaveText('CSA-B');
   // The curve follows the CSA on the server; nothing here computed it.
   await expect(trade(page, 'DRAFT-1').getByRole('gridcell').nth(CSA + 1)).toHaveText('usd_sofr');
+  // Both differ from Original now, the curve moved by the rule rather than typed, and are marked (ADR-0010 §2).
+  await expect(trade(page, 'DRAFT-1').getByRole('gridcell').nth(CSA)).toHaveClass(/ex-state-modified/);
+  await expect(trade(page, 'DRAFT-1').getByRole('gridcell').nth(CSA + 1)).toHaveClass(/ex-state-modified/);
+  // B and A are shown by their boxes and never marked.
+  await expect(trade(page, 'DRAFT-1').getByRole('gridcell').nth(CSA + 2)).not.toHaveClass(/ex-state-modified/);
   await expect(page.getByTestId('workspace-summary')).toContainText('1 edit(s)');
 
   await command(page, 'price');
