@@ -2,7 +2,7 @@ import { Alert, Badge, Button, Group, Stack, Table, Text } from '@mantine/core';
 import type { TypedDataRef } from '../../platform/contracts';
 import { useDatasets, useRun } from '../../platform/workspace/WorkspaceProvider';
 import type { RegisteredMeasure } from './contracts';
-import { metricsGrid, metricsTable, pricedMeasures, type MetricCell, type MetricLine, type ModuleResult } from './metrics';
+import { metricsGrid, metricsTable, pricedMeasures, tradeCounts, type MetricCell, type MetricLine, type ModuleResult } from './metrics';
 
 // The latest Price's Metrics, on the workspace page itself (ADR-0010 §7): a row per case, per priced measure Before,
 // After and Diff. They are read from the Run's retained results, never recomputed here, and say what they are:
@@ -45,7 +45,7 @@ export function XvaResult({ runId, pricedRevision, revision, register, onOpen }:
   const table = priced === undefined ? undefined : metricsTable(register, priced, results);
   const grid = table === undefined ? undefined : metricsGrid(table);
   const simulated = datasets.some((d) => d.data?.provenance.executionMode === 'simulated');
-  const counted = table?.lines.find((l) => l.tradesBefore !== undefined && l.tradesAfter !== undefined);
+  const counts = table === undefined ? [] : tradeCounts(table);
   const behind = pricedRevision !== undefined && pricedRevision < revision;
   const sides = [
     ...(table?.sides.before === true ? [['before', 'Before'] as const] : []),
@@ -68,8 +68,8 @@ export function XvaResult({ runId, pricedRevision, revision, register, onOpen }:
             {behind ? `revision ${pricedRevision} · workspace now ${revision}` : `revision ${pricedRevision}`}
           </Badge>
         )}
-        {counted !== undefined && (
-          <Text size="xs" c="dimmed">{counted.tradesBefore} trade(s) before · {counted.tradesAfter} after</Text>
+        {counts.length > 0 && (
+          <Text size="xs" data-testid="xva-result-trades" title="Trades each measure priced, Before → After">Trades: {counts.join(' · ')}</Text>
         )}
         <Button size="compact-xs" variant="default" ml="auto" onClick={onOpen}>Open run</Button>
       </Group>

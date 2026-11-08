@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import './xva.css';
 import { Alert, Badge, Button, Group, Modal, Select, Stack, Table, Text, TextInput } from '@mantine/core';
 import { GridSource, type CellState, type GridColumn, type GridEditIntent } from '@ex-grid/core';
@@ -13,7 +13,9 @@ import type { XvaApi } from './api';
 import type { EffectiveTrade, HeldEdit, Resolution, ScopeDrop, XvaWorkspaceView } from './contracts';
 import { registerXvaPage } from './commands';
 import { XvaResult } from './XvaResult';
-import { EditQueue, MEASURES_ENTITY, parseRecovery, tradeFields, type PendingEdit } from './editing';
+import { EditQueue, MEASURES_ENTITY, tradeFields, type PendingEdit } from './editing';
+import { ToolbarField } from './fields';
+import { XvaInputs } from './XvaInputs';
 import { priceLabel } from './metrics';
 
 // The fixed XVA workspace (docs/03, ADR-0003): the server holds the trades and every rule; this page shows
@@ -48,8 +50,16 @@ const columns: readonly GridColumn<Row>[] = [
   column('curve', 'Curve', 'text', 112, { editable: true }),
   column('before', 'Before', 'boolean', 88, { editable: true }),
   column('after', 'After', 'boolean', 80, { editable: true }),
+  // FVA's membership, read-only and decided on the server (ADR-0010 §5): in or out, with its reason.
+  { name: 'fva', header: 'FVA', type: 'text', width: 340, value: (row) => fvaOf(row), format: text },
   { name: 'issues', header: 'Issues', type: 'text', width: 260, value: (row) => (row.issues.length === 0 ? undefined : row.issues.join(' ')), format: text },
 ];
+
+/** A trade's FVA membership as the server decided it: `In · CSA-B: one-way`, or `Out` with its reason. */
+export function fvaOf(row: Row): string | undefined {
+  const m = row.membership?.fva;
+  return m === undefined ? undefined : `${m.in ? 'In' : 'Out'} · ${m.reason}`;
+}
 
 function cellState(row: Row, col: GridColumn<Row>): CellState {
   if (row.held.some((h) => h.startsWith(`${col.name}:`))) return 'stale';
@@ -205,10 +215,6 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api }: { readonly pane
         </ToolbarField>
         <ValueDate value={ws.context.valueDate} disabled={!notBusy}
           onCommit={(date) => void reacquire('Value date moved', () => api.changeValueDate(workspaceId, queue.revision, date))} />
-        <CommitField label="CVA recovery" placeholder={`empty: CDS ${ws.credit.cdsRecovery}`}
-          value={ws.credit.cvaRecovery == null ? '' : String(ws.credit.cvaRecovery)} modified={ws.credit.cvaRecoveryOwner === 'user'}
-          parse={parseRecovery} onIssue={setIssue}
-          onCommit={(value) => void queue.push({ entity: `credit:${ws.registration.key}`, field: 'cvaRecovery', value })} />
         <div className="qwb-toolbar-field" role="group" aria-label="Measures">
           <Text size="xs" c="dimmed" className="qwb-toolbar-label" aria-hidden>Measures</Text>
           {ws.measures.map((m) => {
@@ -223,15 +229,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api }: { readonly pane
         <Button size="xs" onClick={() => void price()} loading={busy === 'Pricing'} disabled={!notBusy && busy !== 'Pricing'} data-testid="price"
           {...(blocking > 0 ? { title: `${blocking} held edit(s) on priced trades must be resolved first.` } : {})}>{priceLabel(ws.measures, ws.selectedMeasures, 1)}</Button>
       </div>
-      {ws.csas.length > 0 && (
-        <div className="qwb-toolbar" role="toolbar" aria-label="CSA curves">
-          {ws.csas.map((c) => (
-            <CommitField key={c.csaId} label={`${c.csaId} curve`} value={c.curve} modified={c.curveOwner === 'user'} onIssue={setIssue}
-              parse={(t) => (t.trim() === '' ? { ok: false, message: `Type a curve for ${c.csaId}.` } : { ok: true, value: t.trim() })}
-              onCommit={(value) => void queue.push({ entity: `csa:${c.csaId}`, field: 'curve', value })} />
-          ))}
-        </div>
-      )}
+      <XvaInputs ws={ws} onIssue={setIssue} push={(entity, field, value) => void queue.push({ entity, field, value })} />
       <Group gap="xs" wrap="wrap">
         <Badge variant="light" color="gray">{ws.agreement.maId} · {ws.agreement.nettingSetId}</Badge>
         <Badge variant="light" color="gray">{ws.agreement.collateralised ? `main CSA ${ws.agreement.mainCsaId}` : ws.agreement.noCsa}</Badge>
@@ -264,54 +262,6 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api }: { readonly pane
         )}
       </Modal>
     </Stack>
-  );
-}
-
-/** A toolbar field: its label to the left of its input, both one Control Height (docs/design-guidelines.md §4). */
-function ToolbarField({ label, wide, children }: { readonly label: string; readonly wide?: boolean; readonly children: (id: string) => ReactNode }) {
-  const id = useId();
-  return (
-    <div className={wide === true ? 'qwb-toolbar-field qwb-toolbar-field--wide' : 'qwb-toolbar-field'}>
-      <Text component="label" htmlFor={id} size="xs" c="dimmed" className="qwb-toolbar-label">{label}</Text>
-      {children(id)}
-    </div>
-  );
-}
-
-/**
- * A toolbar field that sends its value on Enter or when left, and only when it changed and reads correctly. A value
- * it cannot read marks the input invalid and is said once below the toolbars, so the row keeps its height.
- */
-function CommitField({ label, value, placeholder, modified, parse, onCommit, onIssue }: {
-  readonly label: string;
-  readonly value: string;
-  readonly placeholder?: string;
-  readonly modified?: boolean;
-  readonly parse: (text: string) => { readonly ok: true; readonly value: unknown } | { readonly ok: false; readonly message: string };
-  readonly onCommit: (value: unknown) => void;
-  readonly onIssue: (message: string | undefined) => void;
-}) {
-  const [draft, setDraft] = useState(value);
-  const [invalid, setInvalid] = useState(false);
-  useEffect(() => setDraft(value), [value]);
-  const settle = (message: string | undefined) => { setInvalid(message !== undefined); onIssue(message === undefined ? undefined : `${label}: ${message}`); };
-  const commit = () => {
-    if (draft === value) { if (invalid) settle(undefined); return; }
-    const parsed = parse(draft);
-    if (!parsed.ok) { settle(parsed.message); return; }
-    settle(undefined);
-    onCommit(parsed.value);
-  };
-  return (
-    <ToolbarField label={label}>
-      {(id) => (
-        <TextInput id={id} size="xs" className="qwb-toolbar-input qwb-toolbar-input--text" value={draft} error={invalid}
-          {...(placeholder === undefined ? {} : { placeholder })}
-          {...(modified === true ? { 'data-modified': true, title: 'Set by you', classNames: { input: 'qwb-modified' } } : {})}
-          onChange={(e) => setDraft(e.currentTarget.value)} onBlur={commit}
-          onKeyDown={(e) => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') { setDraft(value); if (invalid) settle(undefined); } }} />
-      )}
-    </ToolbarField>
   );
 }
 

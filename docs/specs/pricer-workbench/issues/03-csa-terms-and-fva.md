@@ -9,12 +9,17 @@ trades, and trade counts per measure in the dock (`FVA 300 → 301`). Figures ar
 
 **Blocked by:** 02.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Each CSA says whether it is imperfect and why (`CSA-A: daily, MTA+threshold 0.4mm GBP`), converted at the value
+- [x] Each CSA says whether it is imperfect and why (`CSA-A: daily, MTA+threshold 0.4mm GBP`), converted at the value
       date's synthetic FX.
-- [ ] Raising a CSA's threshold past 1mm GBP moves its trades into FVA: their reason says so, and the next Price
+- [x] Raising a CSA's threshold past 1mm GBP moves its trades into FVA: their reason says so, and the next Price
       counts them.
-- [ ] An uncollateralised trade is outside FVA and adds 0 to it.
-- [ ] An empty CVA recovery on the netting set stays empty and the CDS recovery applies; a recovery set before this
+- [x] An uncollateralised trade is outside FVA and adds 0 to it.
+- [x] An empty CVA recovery on the netting set stays empty and the CDS recovery applies; a recovery set before this
       slice on the counterparty still applies.
+
+*Done 2026-11-08.* FVA's rule is XVA's `ImperfectCsa`, given to the register as a membership rule, so the trades, the
+CSA tab and the accepted input read one decision; its version (`fva-imperfect-csa/1 limit 1.0mm GBP`) is frozen with
+the trades. Left to later tickets: the figures' display currency arrives with the context bar (08); the *FVA only*
+filter with the grids' filtering (04); marking a side-only CSA change with the layers (05).

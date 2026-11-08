@@ -14,13 +14,26 @@ public class PricerTests
 
     static PortfolioWorkspaces Service(IMeasureModule? xva = null) => Priced(xva).Service;
 
-    static (PortfolioWorkspaces Service, RunService Runs, IDataStore Store) Priced(IMeasureModule? xva = null)
+    static (PortfolioWorkspaces Service, RunService Runs, IDataStore Store, WorkspaceService Workspaces) Priced(IMeasureModule? xva = null)
     {
         var workspaces = new WorkspaceService(new Dictionary<string, IEditRules> { [PortfolioEditRules.App] = new PortfolioEditRules() }, TimeProvider.System);
         var store = new InMemoryDataStore();
         var runs = new RunService(new CompositionRegistry([new PortfolioModule(), new XvaModule()]), store, TimeProvider.System);
-        return (new PortfolioWorkspaces(workspaces, store, runs, new MeasureRegister([xva ?? new XvaMeasures()])), runs, store);
+        return (new PortfolioWorkspaces(workspaces, store, runs, new MeasureRegister([xva ?? new XvaMeasures()])), runs, store, workspaces);
     }
+
+    /// <summary>Prices the revision and reads its accepted input and the XVA module's rows.</summary>
+    static async Task<(JsonNode Input, IReadOnlyList<JsonNode> Rows)> Price(RunService runs, IDataStore store, PortfolioWorkspaces service, WorkspaceState ws)
+    {
+        var accepted = Assert.IsType<SubmissionResult.Accepted>(service.Price(ws.WorkspaceId, ws.Revision, "akira", Guid.NewGuid().ToString()));
+        await runs.Completion(accepted.Run.RunId);
+        var run = runs.Find(accepted.Run.RunId)!;
+        Assert.Equal(RunStatus.Succeeded, run.Status);
+        var input = store.ReadRequired(((DataReferenceBinding)run.Workflow.Steps[0].Bindings["acceptedInput"]).Reference);
+        return (input, [.. store.ReadRequired(run.Outputs[XvaMeasures.Module])["rows"]!.AsArray().Select(r => r!)]);
+    }
+
+    static JsonNode Row(IReadOnlyList<JsonNode> rows, string metric) => rows.Single(r => r["metric"]!.GetValue<string>() == metric);
 
     /// <summary>XVA's registration with a validation that blocks CVA, as a missing CDS will (ADR-0010 §11).</summary>
     sealed class CvaBlocked : IMeasureModule
@@ -29,6 +42,7 @@ public class PricerTests
         public string Id => xva.Id;
         public IReadOnlyList<MeasureDefinition> Measures => xva.Measures;
         public JsonObject Input(WorkspaceState state) => xva.Input(state);
+        public IReadOnlyList<IMembershipRule> Membership(WorkspaceState state) => xva.Membership(state);
         public IReadOnlyList<MeasureRefusal> Validate(WorkspaceState state, IReadOnlyList<string> selected) =>
             selected.Contains(XvaMeasures.Cva) ? [new(XvaMeasures.Cva, "MissingCds", "No CDS curve for ABC/LE-01.")] : [];
         public WorkflowStep Step(TypedDataRef acceptedInput) => xva.Step(acceptedInput);
@@ -64,7 +78,7 @@ public class PricerTests
     [Fact] // ADR-0010 §10: a measure that cannot be priced blocks only itself, and says why
     public async Task A_refused_measure_says_why_and_the_others_are_priced()
     {
-        var (service, runs, store) = Priced(new CvaBlocked());
+        var (service, runs, store, _) = Priced(new CvaBlocked());
         var ws = service.Create("akira", "ABC/LE-01", Day1, 10);
 
         var accepted = Assert.IsType<SubmissionResult.Accepted>(service.Price(ws.WorkspaceId, ws.Revision, "akira", "k1"));
@@ -79,5 +93,98 @@ public class PricerTests
         Assert.All(cva, r => Assert.Null(r["after"]));
         var fva = Assert.Single(rows, r => r["measure"]!.GetValue<string>() == "fva");
         Assert.Equal("priced", fva["afterStatus"]!.GetValue<string>());
+    }
+
+    [Fact] // ADR-0010 §5, §8: each CSA says whether FVA counts it imperfect, and why, at the value date's FX
+    public void Each_csa_says_whether_it_is_imperfect_and_why()
+    {
+        var service = Service();
+        var ws = service.Create("akira", "ABC/LE-01", Day1, 10);
+
+        var csas = service.View(ws.WorkspaceId, "akira").Csas.ToDictionary(c => c.CsaId, c => c.Membership![XvaMeasures.Fva]);
+
+        Assert.Equal(new Membership(false, "CSA-A: daily, MTA+threshold 0.27mm GBP"), csas["CSA-A"]);
+        Assert.Equal(new Membership(true, "CSA-B: counterparty MTA+threshold 1.19mm GBP over 1.0mm"), csas["CSA-B"]);
+    }
+
+    [Fact] // ADR-0010 §5: raising a threshold past 1mm GBP moves the CSA's trades into FVA, and the next Price counts them
+    public async Task Raising_a_threshold_past_the_limit_moves_the_trades_into_fva()
+    {
+        var (service, runs, store, _) = Priced();
+        var ws = service.Create("akira", "ABC/LE-01", Day1, 40);
+        var (_, plain) = await Price(runs, store, service, ws);
+
+        ws = service.Edit(ws.WorkspaceId, ws.Revision, "akira", "csa:CSA-A", "counterpartyThreshold", 200_000_000m);
+        var (input, raised) = await Price(runs, store, service, ws);
+
+        var onA = input["trades"]!.AsArray().Where(t => t!["csa"]!.GetValue<string>() == "CSA-A").ToList();
+        Assert.NotEmpty(onA);
+        Assert.All(onA, t => Assert.Equal((true, "CSA-A: counterparty MTA+threshold 1.33mm GBP over 1.0mm"),
+            (t!["membership"]!["fva"]!["in"]!.GetValue<bool>(), t["membership"]!["fva"]!["reason"]!.GetValue<string>())));
+        var afterA = onA.Count(t => t!["after"]!.GetValue<bool>());
+        Assert.Equal(Row(plain, "fva")["tradesAfter"]!.GetValue<int>() + afterA, Row(raised, "fva")["tradesAfter"]!.GetValue<int>());
+        // CVA prices every trade either way; only FVA's portfolio moved.
+        Assert.Equal(Row(plain, "cva")["tradesAfter"]!.GetValue<int>(), Row(raised, "cva")["tradesAfter"]!.GetValue<int>());
+        Assert.Equal("fva-imperfect-csa/1 limit 1.0mm GBP", input["membership"]!["fva"]!["version"]!.GetValue<string>());
+    }
+
+    [Fact] // ADR-0010 §5: an uncollateralised trade is outside FVA, and adds 0 to it
+    public async Task An_uncollateralised_trade_is_outside_fva_and_adds_nothing()
+    {
+        var (service, runs, store, _) = Priced();
+        var ws = service.Create("akira", "XYZ/LE-03", Day1, 10);
+
+        var (input, rows) = await Price(runs, store, service, ws);
+
+        Assert.All(input["trades"]!.AsArray(), t => Assert.Equal((false, "nocsa_MA-003: uncollateralised, FVA 0"),
+            (t!["membership"]!["fva"]!["in"]!.GetValue<bool>(), t["membership"]!["fva"]!["reason"]!.GetValue<string>())));
+        var fva = Row(rows, "fva");
+        Assert.Equal(("priced", 0m, 0), (fva["afterStatus"]!.GetValue<string>(), fva["after"]!.GetValue<decimal>(), fva["tradesAfter"]!.GetValue<int>()));
+        Assert.True(Row(rows, "cva")["tradesAfter"]!.GetValue<int>() > 0);
+    }
+
+    [Fact] // ADR-0010 §8, XV15: the CVA recovery is the netting set's, and empty stays empty
+    public void The_cva_recovery_is_the_netting_sets_and_empty_stays_empty()
+    {
+        var service = Service();
+        var ws = service.Create("akira", "ABC/LE-02", Day1, 10);
+        Assert.Equal(0.35m, service.View(ws.WorkspaceId, "akira").Credit.CvaRecovery);
+
+        ws = service.Edit(ws.WorkspaceId, ws.Revision, "akira", "netting:NS-002", "cvaRecovery", null);
+
+        var credit = service.View(ws.WorkspaceId, "akira").Credit;
+        Assert.Equal((null, Ownership.User, 0.4m), (credit.CvaRecovery, credit.CvaRecoveryOwner, credit.CdsRecovery));
+        Assert.Equal("NotEditable", Assert.Throws<WorkspaceRefused>(() => service.Edit(ws.WorkspaceId, ws.Revision, "akira", "credit:ABC/LE-02", "cvaRecovery", 0.3m)).Code);
+    }
+
+    [Fact] // ADR-0010 §8: a recovery set on the counterparty before it moved to the netting set still applies
+    public void A_recovery_set_on_the_counterparty_before_still_applies()
+    {
+        var (service, _, _, workspaces) = Priced();
+        var ws = service.Create("akira", "ABC/LE-01", Day1, 10);
+        var source = new PortfolioSourceVersion("ABC/LE-01", Day1, 10);
+
+        // As a workspace saved before this slice holds it: the edit is on the counterparty's credit.
+        ws = workspaces.Set(ws.WorkspaceId, ws.Revision, "akira", PortfolioEditRules.Target(source, "credit:ABC/LE-01", "cvaRecovery"), JsonValue.Create(0.3m));
+        Assert.Equal(0.3m, service.View(ws.WorkspaceId, "akira").Credit.CvaRecovery);
+
+        ws = service.Edit(ws.WorkspaceId, ws.Revision, "akira", "netting:NS-001", "cvaRecovery", 0.25m);
+        Assert.Equal(0.25m, service.View(ws.WorkspaceId, "akira").Credit.CvaRecovery);
+    }
+
+    [Theory] // ADR-0010 §8: CSA terms are typed and checked on the server like any other input
+    [InlineData("frequency", "\"hourly\"")]
+    [InlineData("counterpartyThreshold", "-1")]
+    [InlineData("selfCurrency", "\"CHF\"")]
+    [InlineData("oneWay", "\"yes\"")]
+    [InlineData("type", "\"IM\"")]
+    public void A_csa_term_that_does_not_read_is_refused(string field, string json)
+    {
+        var service = Service();
+        var ws = service.Create("akira", "ABC/LE-01", Day1, 10);
+
+        var refused = Assert.Throws<WorkspaceRefused>(() => service.Edit(ws.WorkspaceId, ws.Revision, "akira", "csa:CSA-A", field, JsonNode.Parse(json)));
+
+        Assert.Contains(refused.Code, new[] { "InvalidValue", "NotEditable" });
     }
 }

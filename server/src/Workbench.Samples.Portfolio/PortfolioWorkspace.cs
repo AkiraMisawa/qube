@@ -27,12 +27,22 @@ public sealed record EffectiveTrade(
     bool After,
     IReadOnlyList<string> Issues,
     IReadOnlyList<string> Held,
-    IReadOnlyList<string> Overridden);
+    IReadOnlyList<string> Overridden,
+    // Each declared measure's membership (ADR-0010 §10), set by the register; none where no measure declares one.
+    IReadOnlyDictionary<string, Membership>? Membership = null);
 
-/// <summary>A CSA of the agreement with its effective discount curve.</summary>
-public sealed record EffectiveCsa(string CsaId, string Currency, string Curve, Ownership CurveOwner);
+/// <summary>
+/// A CSA of the agreement with its effective terms (ADR-0010 §8): the source's, or the user's where <c>Overridden</c>
+/// names the field. <c>Membership</c> is each measure rule's standing on it, such as FVA's Imperfect (§5).
+/// </summary>
+public sealed record EffectiveCsa(
+    string CsaId, string Type, string Currency, string Curve, Ownership CurveOwner, string FvaCurve, string Frequency, bool Exchange, bool OneWay,
+    decimal CounterpartyThreshold, decimal CounterpartyMta, string CounterpartyCurrency,
+    decimal SelfThreshold, decimal SelfMta, string SelfCurrency,
+    IReadOnlyList<string> Overridden,
+    IReadOnlyDictionary<string, Membership>? Membership = null);
 
-/// <summary>The counterparty's credit inputs. An empty CVA recovery stays empty; analytics uses the CDS recovery.</summary>
+/// <summary>The netting set's credit inputs. An empty CVA recovery stays empty; analytics uses the CDS recovery.</summary>
 public sealed record EffectiveCredit(decimal? CvaRecovery, Ownership CvaRecoveryOwner, decimal CdsRecovery);
 
 /// <summary>The portfolio's edit kinds, scopes and conflict groups (ADR-0003 §7), registered with the kernel.</summary>
@@ -51,6 +61,7 @@ public sealed class PortfolioEditRules : IEditRules
         (Entity.Trade, "csa" or "curve") => "xva.assignment",
         (Entity.Trade, _) => "xva.trade",
         (Entity.Csa, _) => "xva.csa",
+        (Entity.Netting, _) => "portfolio.netting",
         (Entity.Credit, _) => "xva.credit",
         (Entity.Selection, _) => "portfolio.selection",
         _ => throw new ArgumentException($"No portfolio edit kind for {target.Entity}.{target.Field}."),
@@ -79,6 +90,11 @@ public static class PortfolioMaterialiser
 {
     public static IReadOnlyList<string> EditableFields { get; } = ["notional", "fixedRate", "schedule", "csa", "curve", "before", "after"];
 
+    /// <summary>The CSA terms the user may set (ADR-0010 §8). Its type is the source's.</summary>
+    public static IReadOnlyList<string> CsaFields { get; } =
+        ["currency", "curve", "fvaCurve", "frequency", "exchange", "oneWay",
+         "counterpartyThreshold", "counterpartyMta", "counterpartyCurrency", "selfThreshold", "selfMta", "selfCurrency"];
+
     public static IReadOnlyList<EffectiveTrade> Trades(WorkspaceState state)
     {
         var source = (PortfolioSourceVersion)state.Source;
@@ -106,14 +122,15 @@ public static class PortfolioMaterialiser
     static readonly ConditionalWeakTable<PortfolioSourceVersion, ConcurrentDictionary<string, EffectiveTrade[]>> Untouched = new();
     static readonly ILookup<string, string> Nothing = Array.Empty<(string, string)>().ToLookup(x => x.Item1, x => x.Item2);
 
-    /// <summary>The entities Price would read: trades in Before or After, the CSAs they use, the credit inputs and the
-    /// selection of measures.</summary>
+    /// <summary>The entities Price would read: trades in Before or After, the CSAs they use, the netting set's and
+    /// the counterparty's credit inputs and the selection of measures.</summary>
     public static Func<string, bool> PricedEntities(WorkspaceState state)
     {
         var source = (PortfolioSourceVersion)state.Source;
         var trades = Trades(state).Where(t => t.Before || t.After).ToList();
         var entities = trades.Select(t => Entity.Of(Entity.Trade, t.TradeId))
             .Concat(trades.Select(t => Entity.Of(Entity.Csa, t.Csa)))
+            .Append(Entity.Of(Entity.Netting, source.Agreement.NettingSetId))
             .Append(Entity.Of(Entity.Credit, source.Registration.Key))
             .Append(Entity.Measures)
             .ToHashSet();
@@ -130,16 +147,27 @@ public static class PortfolioMaterialiser
     {
         var source = (PortfolioSourceVersion)state.Source;
         return [.. source.Agreement.Csas.Select(c =>
-            state.Overrides.Values.SingleOrDefault(o => o.Target.Entity == Entity.Of(Entity.Csa, c.CsaId) && o.Target.Field == "curve") is { } o
-                ? new EffectiveCsa(c.CsaId, c.Currency, o.Value!.GetValue<string>(), Ownership.User)
-                : new EffectiveCsa(c.CsaId, c.Currency, c.Curve, Ownership.Source))];
+        {
+            var entity = Entity.Of(Entity.Csa, c.CsaId);
+            var set = state.Overrides.Values.Where(o => o.Target.Entity == entity).ToDictionary(o => o.Target.Field, o => o.Value);
+            T Term<T>(string field, T value) => set.TryGetValue(field, out var v) ? v!.GetValue<T>() : value;
+            return new EffectiveCsa(c.CsaId, c.Type, Term("currency", c.Currency), Term("curve", c.Curve), set.ContainsKey("curve") ? Ownership.User : Ownership.Source,
+                Term("fvaCurve", c.FvaCurve), Term("frequency", c.Frequency), Term("exchange", c.Exchange), Term("oneWay", c.OneWay),
+                Term("counterpartyThreshold", c.CounterpartyThreshold), Term("counterpartyMta", c.CounterpartyMta), Term("counterpartyCurrency", c.CounterpartyCurrency),
+                Term("selfThreshold", c.SelfThreshold), Term("selfMta", c.SelfMta), Term("selfCurrency", c.SelfCurrency),
+                [.. CsaFields.Where(set.ContainsKey)]);
+        })];
     }
 
+    /// <summary>
+    /// The netting set's CVA recovery (ADR-0010 §8), and the counterparty's CDS recovery. A recovery the user set on the
+    /// counterparty before it moved to the netting set still applies until one is set on the netting set.
+    /// </summary>
     public static EffectiveCredit Credit(WorkspaceState state)
     {
         var source = (PortfolioSourceVersion)state.Source;
-        var entity = Entity.Of(Entity.Credit, source.Registration.Key);
-        var o = state.Overrides.Values.SingleOrDefault(x => x.Target.Entity == entity && x.Target.Field == "cvaRecovery");
+        Override? Set(string entity) => state.Overrides.Values.SingleOrDefault(x => x.Target.Entity == entity && x.Target.Field == "cvaRecovery");
+        var o = Set(Entity.Of(Entity.Netting, source.Agreement.NettingSetId)) ?? Set(Entity.Of(Entity.Credit, source.Registration.Key));
         return o is null
             ? new(source.CvaRecovery, Ownership.Source, source.CdsRecovery)
             : new(o.Value?.GetValue<decimal>(), Ownership.User, source.CdsRecovery);

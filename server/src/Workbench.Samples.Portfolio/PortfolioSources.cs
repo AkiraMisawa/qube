@@ -13,14 +13,23 @@ public sealed record Registration(string Code, string LegalEntity, string Name)
     public string Key => $"{Code}/{LegalEntity}";
 }
 
-/// <summary>A master agreement with its netting set and CSAs. An uncollateralised one has none, only its sentinel.</summary>
-public sealed record Agreement(string MaId, string NettingSetId, string RegistrationKey, IReadOnlyList<Csa> Csas, string? MainCsaId)
+/// <summary>A master agreement with its netting set and CSAs. An uncollateralised one has none, only its sentinel.
+/// Enforceability is the source's and read-only (docs/03 §2.2).</summary>
+public sealed record Agreement(string MaId, string NettingSetId, string RegistrationKey, IReadOnlyList<Csa> Csas, string? MainCsaId, bool Enforceable = true)
 {
     public bool Collateralised => Csas.Count > 0;
     public string NoCsa => $"nocsa_{MaId}";
 }
 
-public sealed record Csa(string CsaId, string Currency, string Curve);
+/// <summary>
+/// A CSA's terms (ADR-0010 §8): its type, currency, discount and FVA discount curves, how often it margins, whether
+/// collateral is exchanged, whether it is one-way, and each party's threshold and minimum transfer amount in its
+/// currency.
+/// </summary>
+public sealed record Csa(
+    string CsaId, string Type, string Currency, string Curve, string FvaCurve, string Frequency, bool Exchange, bool OneWay,
+    decimal CounterpartyThreshold, decimal CounterpartyMta, string CounterpartyCurrency,
+    decimal SelfThreshold, decimal SelfMta, string SelfCurrency);
 
 /// <summary>One acquired trade, as the source reports it for one value date.</summary>
 public sealed record SourceTrade(
@@ -48,12 +57,19 @@ public static class PortfolioCatalog
     ];
 
     public static readonly IReadOnlyList<string> Curves = ["jpy_ois", "usd_sofr", "eur_estr"];
+    public static readonly IReadOnlyList<string> FundingCurves = ["jpy_funding", "usd_funding", "eur_funding"];
+    public static readonly IReadOnlyList<string> Frequencies = ["daily", "weekly", "monthly"];
 
+    // CSA-A is perfectly collateralised; CSA-B's counterparty threshold puts it past FVA's 1mm GBP; CSA-C margins daily
+    // with small amounts, until a threshold is raised (ADR-0010 §5).
     public static readonly IReadOnlyList<Agreement> Agreements =
     [
-        new("MA-001", "NS-001", "ABC/LE-01", [new("CSA-A", "JPY", "jpy_ois"), new("CSA-B", "USD", "usd_sofr")], "CSA-A"),
-        new("MA-002", "NS-002", "ABC/LE-02", [new("CSA-C", "USD", "usd_sofr")], "CSA-C"),
-        new("MA-003", "NS-003", "XYZ/LE-03", [], null),
+        new("MA-001", "NS-001", "ABC/LE-01",
+            [new("CSA-A", "VM", "JPY", "jpy_ois", "jpy_funding", "daily", true, false, 0m, 50_000_000m, "JPY", 0m, 50_000_000m, "JPY"),
+             new("CSA-B", "VM", "USD", "usd_sofr", "usd_funding", "daily", true, false, 1_000_000m, 500_000m, "USD", 0m, 250_000m, "USD")], "CSA-A"),
+        new("MA-002", "NS-002", "ABC/LE-02",
+            [new("CSA-C", "VM", "USD", "usd_sofr", "usd_funding", "daily", true, false, 0m, 250_000m, "USD", 0m, 250_000m, "USD")], "CSA-C"),
+        new("MA-003", "NS-003", "XYZ/LE-03", [], null, Enforceable: false),
     ];
 
     public static readonly BaselineProfile Profile = new("profile-2026-10", "jpy_ois");
@@ -133,7 +149,25 @@ public sealed class PortfolioSourceVersion : ISourceVersion
                     _ => null,
                 };
             case Entity.Csa when CsaOf(id) is { } csa:
-                return field == "curve" ? new(csa.Curve) : null;
+                return field switch
+                {
+                    "currency" => new(csa.Currency),
+                    "curve" => new(csa.Curve),
+                    "fvaCurve" => new(csa.FvaCurve),
+                    "frequency" => new(csa.Frequency),
+                    "exchange" => new(csa.Exchange),
+                    "oneWay" => new(csa.OneWay),
+                    "counterpartyThreshold" => new(csa.CounterpartyThreshold),
+                    "counterpartyMta" => new(csa.CounterpartyMta),
+                    "counterpartyCurrency" => new(csa.CounterpartyCurrency),
+                    "selfThreshold" => new(csa.SelfThreshold),
+                    "selfMta" => new(csa.SelfMta),
+                    "selfCurrency" => new(csa.SelfCurrency),
+                    _ => null,
+                };
+            // The CVA recovery is the netting set's (ADR-0010 §8); empty stays empty and the CDS recovery applies.
+            case Entity.Netting when id == Agreement.NettingSetId:
+                return field == "cvaRecovery" ? new(CvaRecovery) : null;
             // The measures Price runs (ADR-0010 §10). The source has no choice of its own: empty means every measure registered.
             case Entity.Selection when id == Entity.MeasuresId:
                 return field == Entity.MeasuresField ? new((JsonNode?)null) : null;
@@ -182,11 +216,13 @@ public sealed class PortfolioSourceVersion : ISourceVersion
     }
 }
 
-/// <summary>Entity names in portfolio edit targets: <c>trade:ID</c>, <c>csa:ID</c>, <c>credit:CODE/LE</c>, <c>selection:measures</c>.</summary>
+/// <summary>Entity names in portfolio edit targets: <c>trade:ID</c>, <c>csa:ID</c>, <c>netting:ID</c>,
+/// <c>credit:CODE/LE</c> (a CVA recovery set before it moved to the netting set) and <c>selection:measures</c>.</summary>
 public static class Entity
 {
     public const string Trade = "trade";
     public const string Csa = "csa";
+    public const string Netting = "netting";
     public const string Credit = "credit";
     public const string Selection = "selection";
 
@@ -203,4 +239,28 @@ public static class Entity
         if (at <= 0) throw new ArgumentException($"Entity '{entity}' has no kind.");
         return (entity[..at], entity[(at + 1)..]);
     }
+}
+
+/// <summary>
+/// The workspace's pinned synthetic market data for the portfolio's own rules: FX to GBP as of the value date. The
+/// rates are made up, and move a little with the date so that another value date is another fixing.
+/// </summary>
+public static class PortfolioMarket
+{
+    public static readonly IReadOnlyList<string> Currencies = ["GBP", "JPY", "USD", "EUR"];
+
+    // Units of each currency per GBP, before the date's move.
+    static readonly IReadOnlyDictionary<string, decimal> PerGbp = new Dictionary<string, decimal>
+    {
+        ["GBP"] = 1m, ["JPY"] = 190m, ["USD"] = 1.27m, ["EUR"] = 1.17m,
+    };
+
+    /// <summary>Units of the currency one GBP buys on the value date.</summary>
+    public static decimal UnitsPerGbp(string currency, DateOnly valueDate)
+    {
+        if (!PerGbp.TryGetValue(currency, out var rate)) throw new ArgumentException($"No synthetic FX for {currency}.");
+        return currency == "GBP" ? 1m : Math.Round(rate * (1m + (valueDate.DayNumber % 21 - 10) * 0.001m), 6);
+    }
+
+    public static decimal ToGbp(decimal amount, string currency, DateOnly valueDate) => amount / UnitsPerGbp(currency, valueDate);
 }

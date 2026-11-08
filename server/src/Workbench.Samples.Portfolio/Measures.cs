@@ -17,6 +17,22 @@ public sealed record MetricDefinition(string Id, string Title);
 /// </summary>
 public sealed record MeasureDefinition(string Id, string Title, IReadOnlyList<MetricDefinition> Metrics, string Headline, bool DeclaresMembership, bool Traced);
 
+/// <summary>Whether a measure prices a trade, and why (ADR-0010 §5, §10). Out is never silent: it says why.</summary>
+public sealed record Membership(bool In, string Reason);
+
+/// <summary>
+/// A measure's membership rule over one state (ADR-0010 §10): which trades it prices and why, decided on the server
+/// once. Its version is frozen into the Run. Where the rule reads a CSA's terms (FVA's, §5), it says so per CSA too.
+/// </summary>
+public interface IMembershipRule
+{
+    string Measure { get; }
+    string Version { get; }
+    Membership Of(EffectiveTrade trade);
+    /// <summary>The CSA's own standing under the rule, or null where the rule does not read CSAs.</summary>
+    Membership? Of(EffectiveCsa csa);
+}
+
 /// <summary>Why one measure cannot be priced as the workspace stands. It blocks that measure alone (ADR-0010 §10).</summary>
 public sealed record MeasureRefusal(string Measure, string Code, string Message);
 
@@ -34,6 +50,9 @@ public interface IMeasureModule
 
     /// <summary>The module's own part of the accepted input, read from the frozen state.</summary>
     JsonObject Input(WorkspaceState state);
+
+    /// <summary>The membership rules of its measures that declare one (<see cref="MeasureDefinition.DeclaresMembership"/>).</summary>
+    IReadOnlyList<IMembershipRule> Membership(WorkspaceState state);
 
     /// <summary>What blocks each of this module's selected measures, by name. Shared inputs are the portfolio's to check.</summary>
     IReadOnlyList<MeasureRefusal> Validate(WorkspaceState state, IReadOnlyList<string> selected);
@@ -58,6 +77,32 @@ public sealed class MeasureRegister
     }
 
     public IReadOnlyList<string> Ids => [.. Measures.Select(m => m.Id)];
+
+    /// <summary>Every declared membership rule over a state. A measure that declares membership and gives no rule stops here.</summary>
+    public IReadOnlyList<IMembershipRule> Rules(WorkspaceState state)
+    {
+        var rules = Modules.SelectMany(m => m.Membership(state)).ToList();
+        var missing = Measures.Where(m => m.DeclaresMembership && rules.All(r => r.Measure != m.Id)).Select(m => m.Id).ToList();
+        if (missing.Count > 0) throw new InvalidOperationException($"Measure {string.Join(", ", missing)} declares membership and gave no rule.");
+        return rules;
+    }
+
+    /// <summary>The trades with each declared measure's membership on them, as the page shows them and Price freezes them.</summary>
+    public IReadOnlyList<EffectiveTrade> WithMembership(WorkspaceState state, IReadOnlyList<EffectiveTrade> trades)
+    {
+        var rules = Rules(state);
+        return rules.Count == 0 ? trades : [.. trades.Select(t => t with { Membership = rules.ToDictionary(r => r.Measure, r => r.Of(t)) })];
+    }
+
+    /// <summary>The CSAs with each rule's standing on them, where the rule reads CSAs.</summary>
+    public IReadOnlyList<EffectiveCsa> WithMembership(WorkspaceState state, IReadOnlyList<EffectiveCsa> csas)
+    {
+        var rules = Rules(state);
+        return [.. csas.Select(c => c with
+        {
+            Membership = rules.Select(r => (r.Measure, Standing: r.Of(c))).Where(x => x.Standing is not null).ToDictionary(x => x.Measure, x => x.Standing!),
+        })];
+    }
 
     /// <summary>A selection as given, checked and put in register order. Refused by name, never trimmed to what is known.</summary>
     public IReadOnlyList<string> Checked(IReadOnlyList<string> selection)

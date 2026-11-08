@@ -51,8 +51,10 @@ public sealed class XvaHistoryProjection : IHistoryProjection
                     : rows.SingleOrDefault(r => r["measure"]!.GetValue<string>() == measure);
                 if (figures is null) continue;
                 foreach (var side in Sides) row[Field(measure, side)] = figures[shared && side == "incremental" ? "diff" : side]?.DeepClone();
-                row["tradesBefore"] = figures["tradesBefore"]?.DeepClone();
-                row["tradesAfter"] = figures["tradesAfter"]?.DeepClone();
+                // The Run's trades are the most any measure priced: FVA counts only its members (ADR-0010 §5), CVA them all.
+                foreach (var count in (string[])["tradesBefore", "tradesAfter"])
+                    if (figures[count] is JsonValue n && (row[count] is not JsonValue held || n.GetValue<int>() > held.GetValue<int>()))
+                        row[count] = n.DeepClone();
             }
             row["executionMode"] = found.Content["provenance"]?["executionMode"]?.DeepClone();
         }

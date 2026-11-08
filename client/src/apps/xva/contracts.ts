@@ -26,7 +26,12 @@ export interface EffectiveTrade {
   readonly held: readonly string[];
   /** The fields the user set on this row. */
   readonly overridden: readonly string[];
+  /** Each declared measure's membership, by measure id (ADR-0010 §10); FVA's is the first (§5). */
+  readonly membership?: Readonly<Record<string, Membership>>;
 }
+
+/** Whether a measure prices a trade, and why. Out is never silent: it says why. */
+export interface Membership { readonly in: boolean; readonly reason: string }
 
 export interface Registration { readonly key: string; readonly code: string; readonly legalEntity: string; readonly name: string }
 
@@ -34,15 +39,38 @@ export interface Agreement {
   readonly maId: string;
   readonly nettingSetId: string;
   readonly registrationKey: string;
-  readonly csas: readonly { readonly csaId: string; readonly currency: string; readonly curve: string }[];
-  readonly mainCsaId: string | null;
+  readonly csas: readonly { readonly csaId: string }[];
+  /** Absent for an agreement with no CSA: the server leaves nulls out. */
+  readonly mainCsaId?: string | null;
   readonly collateralised: boolean;
   readonly noCsa: string;
+  /** The source's, read-only (docs/03 §2.2). */
+  readonly enforceable: boolean;
 }
 
-export interface EffectiveCsa { readonly csaId: string; readonly currency: string; readonly curve: string; readonly curveOwner: Ownership }
+/** A CSA's terms as the workspace has them (ADR-0010 §8): the source's, or the user's where `overridden` names the field. */
+export interface EffectiveCsa {
+  readonly csaId: string;
+  readonly type: string;
+  readonly currency: string;
+  readonly curve: string;
+  readonly curveOwner: Ownership;
+  readonly fvaCurve: string;
+  readonly frequency: string;
+  readonly exchange: boolean;
+  readonly oneWay: boolean;
+  readonly counterpartyThreshold: number;
+  readonly counterpartyMta: number;
+  readonly counterpartyCurrency: string;
+  readonly selfThreshold: number;
+  readonly selfMta: number;
+  readonly selfCurrency: string;
+  readonly overridden: readonly string[];
+  /** Each measure rule's standing on this CSA, such as FVA's Imperfect (ADR-0010 §5). */
+  readonly membership?: Readonly<Record<string, Membership>>;
+}
 
-/** `cvaRecovery` is absent when it is empty: the server leaves nulls out, and an empty one means the CDS recovery applies. */
+/** The netting set's CVA recovery: absent when it is empty (the server leaves nulls out), and then the CDS recovery applies. */
 export interface EffectiveCredit { readonly cvaRecovery?: number | null; readonly cvaRecoveryOwner: Ownership; readonly cdsRecovery: number }
 
 export interface HeldEdit {

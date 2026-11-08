@@ -88,7 +88,7 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
             .Select(r => new RunLink(r.RunId, r.Relations.WorkspaceRevision ?? throw new InvalidOperationException($"Run {r.RunId} names a workspace but no revision.")))
             .ToList();
         return new(state.WorkspaceId, state.Revision, state.Context, source.Version, source.Registration, source.Agreement,
-            PortfolioMaterialiser.Csas(state), PortfolioMaterialiser.Credit(state), Rows(state).Count, state.Overrides.Keys.Count(t => t.Entity != Entity.Measures),
+            register.WithMembership(state, PortfolioMaterialiser.Csas(state)), PortfolioMaterialiser.Credit(state), Rows(state).Count, state.Overrides.Keys.Count(t => t.Entity != Entity.Measures),
             [.. state.Conflicts.Values.OrderBy(c => c.Override.Seq).Select(c => new HeldEdit(c.Override.Target.Scope, c.Override.Target.Entity, c.Override.Target.Field, c.Override.Value, c.Source, false))],
             [.. state.Lost.Values.OrderBy(l => l.Override.Seq).Select(l => new HeldEdit(l.Override.Target.Scope, l.Override.Target.Entity, l.Override.Target.Field, l.Override.Value, null, l.Acknowledged))],
             links, register.Measures, PortfolioMaterialiser.SelectedMeasures(state, register));
@@ -196,7 +196,7 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
 
     public void Delete(string workspaceId, string user) => workspaces.Delete(workspaceId, user);
 
-    IReadOnlyList<EffectiveTrade> Rows(WorkspaceState state) => materialised.GetValue(state, s => PortfolioMaterialiser.Trades(s));
+    IReadOnlyList<EffectiveTrade> Rows(WorkspaceState state) => materialised.GetValue(state, s => register.WithMembership(s, PortfolioMaterialiser.Trades(s)));
 
     WorkspaceState Owned(string workspaceId, string user)
     {
@@ -218,8 +218,9 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
     static bool Editable(string entity, string field) => (Entity.Split(entity).Kind, field) switch
     {
         (Entity.Trade, var f) => PortfolioMaterialiser.EditableFields.Contains(f),
-        (Entity.Csa, "curve") => true,
-        (Entity.Credit, "cvaRecovery") => true,
+        (Entity.Csa, var f) => PortfolioMaterialiser.CsaFields.Contains(f),
+        // The CVA recovery is the netting set's since ADR-0010 §8; one set on the counterparty before still applies.
+        (Entity.Netting, "cvaRecovery") => true,
         _ => false,
     };
 
@@ -233,7 +234,14 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
             "cvaRecovery" => value is null || value is JsonValue c && c.TryGetValue<decimal>(out var rec) && rec is >= 0 and < 1 ? null : "A CVA recovery is empty or from 0 up to 1.",
             "before" or "after" => value is JsonValue b && b.TryGetValue<bool>(out _) ? null : "Before and After are true or false.",
             "schedule" => value is JsonValue s && s.TryGetValue<string>(out var t) && t is "3M" or "6M" ? null : "A schedule is 3M or 6M.",
-            "csa" or "curve" => value is JsonValue x && x.TryGetValue<string>(out var id) && id.Length > 0 ? null : $"A {field} is an identifier.",
+            "csa" or "curve" or "fvaCurve" => value is JsonValue x && x.TryGetValue<string>(out var id) && id.Length > 0 ? null : $"A {field} is an identifier.",
+            "frequency" => value is JsonValue f && f.TryGetValue<string>(out var often) && PortfolioCatalog.Frequencies.Contains(often)
+                ? null : $"A frequency is {string.Join(", ", PortfolioCatalog.Frequencies)}.",
+            "exchange" or "oneWay" => value is JsonValue e && e.TryGetValue<bool>(out _) ? null : $"{field} is true or false.",
+            "counterpartyThreshold" or "counterpartyMta" or "selfThreshold" or "selfMta" =>
+                value is JsonValue a && a.TryGetValue<decimal>(out var amount) && amount >= 0 ? null : "A threshold or MTA is an amount of 0 or more.",
+            "currency" or "counterpartyCurrency" or "selfCurrency" => value is JsonValue c3 && c3.TryGetValue<string>(out var code) && PortfolioMarket.Currencies.Contains(code)
+                ? null : $"A currency is {string.Join(", ", PortfolioMarket.Currencies)}.",
             _ => null,
         };
         if (problem is not null) throw new WorkspaceRefused("InvalidValue", problem, [PortfolioEditRules.Target(Source(state), entity, field)]);

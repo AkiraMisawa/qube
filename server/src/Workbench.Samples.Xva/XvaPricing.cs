@@ -19,10 +19,11 @@ public static class XvaContracts
 }
 
 /// <summary>
-/// XVA's registration into the pricer (ADR-0010 §11): CVA, with its CVA Charge, and FVA. MVA and KVA follow when
-/// the engine's options for them are built.
+/// XVA's registration into the pricer (ADR-0010 §11): CVA, with its CVA Charge, and FVA, which prices only trades on
+/// imperfectly collateralised CSAs (§5). MVA and KVA follow when the engine's options for them are built.
 /// </summary>
-public sealed class XvaMeasures : IMeasureModule
+/// <param name="fvaLimitGbp">FVA's MTA + threshold limit in GBP, configuration (§5): 1mm unless set.</param>
+public sealed class XvaMeasures(decimal fvaLimitGbp = 1_000_000m) : IMeasureModule
 {
     public const string Module = "xva";
     public const string Cva = "cva";
@@ -33,8 +34,14 @@ public sealed class XvaMeasures : IMeasureModule
     public IReadOnlyList<MeasureDefinition> Measures { get; } =
     [
         new(Cva, "CVA", [new("cva", "CVA"), new("cvaCharge", "CVA Charge")], "cva", DeclaresMembership: false, Traced: false),
-        new(Fva, "FVA", [new("fva", "FVA")], "fva", DeclaresMembership: false, Traced: false),
+        new(Fva, "FVA", [new("fva", "FVA")], "fva", DeclaresMembership: true, Traced: false),
     ];
+
+    public IReadOnlyList<IMembershipRule> Membership(WorkspaceState state)
+    {
+        var source = (PortfolioSourceVersion)state.Source;
+        return [new ImperfectCsa(PortfolioMaterialiser.Csas(state), source.Agreement.NoCsa, source.ValueDate, fvaLimitGbp)];
+    }
 
     /// <summary>XVA's own inputs: the counterparty's credit. An empty CVA recovery stays empty (docs/03, XV15).</summary>
     public JsonObject Input(WorkspaceState state) => new()
@@ -46,6 +53,51 @@ public sealed class XvaMeasures : IMeasureModule
 
     public WorkflowStep Step(TypedDataRef acceptedInput) => new(Module, FakeXvaPrice.CapabilityId, FakeXvaPrice.CapabilityVersion, [],
         new Dictionary<string, Binding> { ["acceptedInput"] = new DataReferenceBinding(acceptedInput) }, FailurePolicy.Stop);
+}
+
+/// <summary>
+/// FVA's membership (ADR-0010 §5): a CSA is imperfectly collateralised when it is one-way, margins less often than daily,
+/// or either party's MTA + threshold exceeds the limit in GBP at the value date's FX. FVA prices the trades on such
+/// CSAs; an uncollateralised trade is out, and the engine gives it FVA 0.
+/// </summary>
+public sealed class ImperfectCsa : IMembershipRule
+{
+    readonly Dictionary<string, Membership> byCsa;
+    readonly string noCsa;
+
+    public ImperfectCsa(IReadOnlyList<EffectiveCsa> csas, string noCsa, DateOnly valueDate, decimal limitGbp)
+    {
+        this.noCsa = noCsa;
+        Version = $"fva-imperfect-csa/1 limit {Mm(limitGbp)}mm GBP";
+        byCsa = csas.ToDictionary(c => c.CsaId, c => Decide(c, valueDate, limitGbp));
+    }
+
+    public string Measure => XvaMeasures.Fva;
+    public string Version { get; }
+
+    public Membership Of(EffectiveTrade trade) =>
+        trade.Csa == noCsa ? new(false, $"{noCsa}: uncollateralised, FVA 0")
+        : byCsa.TryGetValue(trade.Csa, out var standing) ? standing
+        // A trade the rule cannot classify is out with its reason, never dropped (ADR-0010 §10).
+        : new(false, $"{trade.Csa} is not a CSA of the agreement, so FVA cannot classify it.");
+
+    public Membership? Of(EffectiveCsa csa) => byCsa[csa.CsaId];
+
+    static Membership Decide(EffectiveCsa c, DateOnly valueDate, decimal limitGbp)
+    {
+        var counterparty = PortfolioMarket.ToGbp(c.CounterpartyThreshold + c.CounterpartyMta, c.CounterpartyCurrency, valueDate);
+        var self = PortfolioMarket.ToGbp(c.SelfThreshold + c.SelfMta, c.SelfCurrency, valueDate);
+        var why = new List<string>();
+        if (c.OneWay) why.Add("one-way");
+        if (c.Frequency != "daily") why.Add(c.Frequency);
+        if (counterparty > limitGbp) why.Add($"counterparty MTA+threshold {Mm(counterparty)}mm GBP over {Mm(limitGbp)}mm");
+        if (self > limitGbp) why.Add($"self MTA+threshold {Mm(self)}mm GBP over {Mm(limitGbp)}mm");
+        return why.Count > 0
+            ? new(true, $"{c.CsaId}: {string.Join(", ", why)}")
+            : new(false, $"{c.CsaId}: {c.Frequency}, MTA+threshold {Mm(Math.Max(counterparty, self))}mm GBP");
+    }
+
+    static string Mm(decimal gbp) => (gbp / 1_000_000m).ToString("0.0#", CultureInfo.InvariantCulture);
 }
 
 /// <summary>
@@ -80,10 +132,16 @@ public sealed class FakeXvaPrice : ICapabilityHandler
         var definitions = new XvaMeasures().Measures.ToDictionary(m => m.Id);
         const string currency = "JPY";
 
-        (decimal Cva, decimal Fva, int Count) Side(string side)
+        // FVA prices only its members (ADR-0010 §5), as the accepted input froze them; a trade without its membership is
+        // an input this provider cannot read, never a trade it guesses about.
+        bool InFva(JsonNode t) => (t["membership"]?[XvaMeasures.Fva]?["in"] ?? throw new CapabilityFailure("InvalidInput",
+            $"Trade {t["tradeId"]} carries no FVA membership.")).GetValue<bool>();
+
+        (decimal Cva, decimal Fva, int Count, int FvaCount) Side(string side)
         {
             var members = trades.Where(t => t[side]!.GetValue<bool>()).ToList();
             decimal cva = 0, fva = 0;
+            var fvaCount = 0;
             foreach (var t in members)
             {
                 var years = (decimal)(DateOnly.ParseExact(t["maturity"]!.GetValue<string>(), "yyyy-MM-dd", CultureInfo.InvariantCulture).DayNumber - valueDate.DayNumber) / 365m;
@@ -91,15 +149,18 @@ public sealed class FakeXvaPrice : ICapabilityHandler
                 var uncollateralised = t["csa"]!.GetValue<string>().StartsWith("nocsa_", StringComparison.Ordinal);
                 var curveFactor = t["curve"]!.GetValue<string>() == "usd_sofr" ? 1.1m : 1m;
                 cva -= exposure * (1 - recovery) * (uncollateralised ? 0.02m : 0.004m) * curveFactor;
-                fva -= exposure * (uncollateralised ? 0.006m : 0.0005m) * curveFactor;
+                if (!InFva(t)) continue;
+                fva -= exposure * 0.003m * curveFactor;
+                fvaCount++;
             }
-            return (Math.Round(cva, 2), Math.Round(fva, 2), members.Count);
+            return (Math.Round(cva, 2), Math.Round(fva, 2), members.Count, fvaCount);
         }
 
         var before = Side("before");
         var after = Side("after");
-        MeasureResult.Side Figure((decimal Cva, decimal Fva, int Count) side, Func<(decimal Cva, decimal Fva, int Count), decimal> value) =>
-            side.Count == 0 ? MeasureResult.Side.NotPricedWith(0) : MeasureResult.Side.Of(value(side), side.Count);
+        // A side with no trade is not priced; a side whose trades are all outside FVA is priced, and its FVA is 0 (§5).
+        MeasureResult.Side Figure((decimal Cva, decimal Fva, int Count, int FvaCount) side, Func<(decimal Cva, decimal Fva, int Count, int FvaCount), decimal> value, bool fva) =>
+            side.Count == 0 ? MeasureResult.Side.NotPricedWith(0) : MeasureResult.Side.Of(value(side), fva ? side.FvaCount : side.Count);
 
         var rows = new List<JsonObject>();
         foreach (var selected in input["measures"]!.AsArray().Select(m => m!.AsObject()).Where(m => m["module"]!.GetValue<string>() == XvaMeasures.Module))
@@ -113,14 +174,15 @@ public sealed class FakeXvaPrice : ICapabilityHandler
                     rows.Add(MeasureResult.Row("base", "Workspace", definition.Id, metric, currency, side, side));
                     continue;
                 }
-                Func<(decimal Cva, decimal Fva, int Count), decimal> value = metric.Id switch
+                Func<(decimal Cva, decimal Fva, int Count, int FvaCount), decimal> value = metric.Id switch
                 {
                     "cva" => s => s.Cva,
                     "cvaCharge" => s => Math.Round(s.Cva * ChargeRatio, 2),
                     "fva" => s => s.Fva,
                     _ => throw new InvalidOperationException($"XVA has no metric {metric.Id}."),
                 };
-                rows.Add(MeasureResult.Row("base", "Workspace", definition.Id, metric, currency, Figure(before, value), Figure(after, value)));
+                var fva = definition.Id == XvaMeasures.Fva;
+                rows.Add(MeasureResult.Row("base", "Workspace", definition.Id, metric, currency, Figure(before, value, fva), Figure(after, value, fva)));
             }
         }
         return Task.FromResult<IReadOnlyDictionary<string, JsonNode?>>(new Dictionary<string, JsonNode?>

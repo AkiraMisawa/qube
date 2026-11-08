@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { RegisteredMeasure } from './contracts';
-import { metricsGrid, metricsTable, pricedMeasures, priceLabel, type ModuleResult } from './metrics';
+import { metricsGrid, metricsTable, pricedMeasures, priceLabel, tradeCounts, type ModuleResult } from './metrics';
 
 // The Metrics dock as a pure reading of the Run (ADR-0010 §7): a line per case and measure metric, Before, After and
 // Diff, and a status in words where there is no figure. Every name and figure is synthetic.
@@ -101,6 +101,17 @@ describe('metricsGrid', () => {
     const grid = metricsGrid(metricsTable(register, ['cva'], {}));
 
     expect(grid.rows.map((r) => [r.title, Object.values(r.cells).map((l) => l.after.status)])).toEqual([['All cases', ['pending', 'pending']]]);
+  });
+});
+
+describe('tradeCounts', () => {
+  it('ADR-0010 §5: says each measure\'s trades Before → After, FVA counting its members alone', () => {
+    const table = metricsTable(register, ['cva', 'fva'], { xva: answered([
+      row('cva', 'cva', -1, -2, { tradesBefore: 300, tradesAfter: 302 }), row('cva', 'cvaCharge', -1.25, -2.5, { tradesBefore: 300, tradesAfter: 302 }),
+      row('fva', 'fva', -10, -12, { tradesBefore: 120, tradesAfter: 121 }),
+    ]) });
+
+    expect(tradeCounts(table)).toEqual(['CVA 300 → 302', 'FVA 120 → 121']);
   });
 });
 

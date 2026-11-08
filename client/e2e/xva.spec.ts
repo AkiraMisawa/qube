@@ -127,3 +127,37 @@ test('ADR-0010 §10: `measures fva` leaves CVA out of the Price, and a new works
   await newWorkspace(page, 'ABC/LE-02', 0);
   await expect(page.getByTestId('price')).toHaveText('Price CVA FVA · 1 case');
 });
+
+test('ADR-0010 §5, §8: raising a CSA threshold past 1mm GBP makes it imperfect and moves its trades into FVA', async ({ page }) => {
+  await open(page);
+  await newWorkspace(page, 'ABC/LE-01', 0);
+  await expect(page.getByRole('tab', { name: 'CSA' })).toBeVisible();
+  await page.getByRole('tab', { name: 'CSA' }).click();
+  await settled(page, 'CSA terms');
+  const csaA = page.getByLabel('CSA terms').getByRole('row', { name: /^CSA-A / });
+  // The grid draws the columns in view: End takes the Focus, and the view, to FVA's column at the far right.
+  // ExGrid's viewport takes the press over the cell, as it does a user's; the first key only places the Focus
+  // (ex-grid ADR-0037), so End is pressed twice, and stays put the second time.
+  await csaA.getByRole('gridcell').first().click({ force: true });
+  await page.keyboard.press('End');
+  await page.keyboard.press('End');
+  await expect(csaA).toContainText('Perfect · CSA-A: daily, MTA+threshold');
+  await page.keyboard.press('Home');
+  for (let i = 0; i < 8; i++) await page.keyboard.press('ArrowRight');
+  await page.keyboard.type('200000000');
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('tab', { name: 'CSA ●1' })).toBeVisible();
+  await page.keyboard.press('ArrowUp');
+  await page.keyboard.press('End');
+  await expect(csaA).toContainText('Imperfect · CSA-A: counterparty MTA+threshold');
+
+  // DRAFT-1 takes the main CSA, CSA-A, so it is in FVA now, with the reason.
+  await focusCell(page, 0);
+  await page.keyboard.press('End');
+  await expect(trade(page, 'DRAFT-1')).toContainText('In · CSA-A: counterparty MTA+threshold');
+
+  await command(page, 'price');
+  const result = page.getByTestId('xva-result');
+  await expect(result.getByTestId('xva-result-status')).toHaveText('succeeded');
+  await expect(result.getByTestId('xva-result-trades')).toHaveText('Trades: CVA 0 → 3 · FVA 0 → 3');
+});

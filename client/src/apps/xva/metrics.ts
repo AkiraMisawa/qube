@@ -142,6 +142,18 @@ export function metricsGrid(table: MetricsTable): MetricsGrid {
   return { columns: [...columns.values()], rows };
 }
 
+/**
+ * Each measure's trade counts, Before → After (ADR-0010 §5: `FVA 300 → 301`), from its first line that counted both.
+ * A measure with a membership rule counts its members, so FVA's may differ from CVA's.
+ */
+export function tradeCounts(table: MetricsTable): readonly string[] {
+  const counts = new Map<string, string>();
+  for (const l of table.lines)
+    if (!counts.has(l.measure) && l.tradesBefore !== undefined && l.tradesAfter !== undefined)
+      counts.set(l.measure, `${l.measureTitle} ${l.tradesBefore} → ${l.tradesAfter}`);
+  return [...counts.values()];
+}
+
 /** The measures a Run priced, from its input. A Run priced before the measures register says none. */
 export function pricedMeasures(input: Readonly<Record<string, unknown>>): readonly string[] | undefined {
   const measures = input.measures;

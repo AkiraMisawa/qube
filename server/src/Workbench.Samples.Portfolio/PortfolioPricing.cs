@@ -85,7 +85,7 @@ public static class PortfolioInput
     {
         var state = freeze.State;
         var source = (PortfolioSourceVersion)state.Source;
-        var trades = PortfolioMaterialiser.Trades(state).Where(t => t.Before || t.After).ToList();
+        var trades = register.WithMembership(state, PortfolioMaterialiser.Trades(state)).Where(t => t.Before || t.After).ToList();
         var invalid = trades.Where(t => t.Issues.Count > 0).ToList();
         if (invalid.Count > 0)
             throw new WorkspaceRefused("InvalidInput", $"{invalid.Count} trade(s) to price have validation issues, first {invalid[0].TradeId}: {invalid[0].Issues[0]}");
@@ -106,6 +106,8 @@ public static class PortfolioInput
             ["registration"] = source.Registration.Key,
             ["agreement"] = source.Agreement.MaId,
             ["nettingSet"] = source.Agreement.NettingSetId,
+            // Each membership rule's version, frozen with the trades it classified (ADR-0010 §5).
+            ["membership"] = new JsonObject([.. register.Rules(state).Select(r => KeyValuePair.Create(r.Measure, (JsonNode?)new JsonObject { ["version"] = r.Version }))]),
             ["measures"] = new JsonArray([.. selected.Select(id => new JsonObject
             {
                 ["id"] = id,
