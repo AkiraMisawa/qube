@@ -10,6 +10,7 @@
     <Project Path="src/Workbench.Samples.Xva/Workbench.Samples.Xva.csproj" />
     <Project Path="src/Workbench.Samples.Ccr/Workbench.Samples.Ccr.csproj" />
     <Project Path="src/Workbench.Samples.Rates/Workbench.Samples.Rates.csproj" />
+    <Project Path="src/Workbench.Samples.Simm/Workbench.Samples.Simm.csproj" />
     <Project Path="src/Workbench.Persistence.Sqlite/Workbench.Persistence.Sqlite.csproj" />
     <Project Path="src/Workbench.Web/Workbench.Web.csproj" />
   </Folder>

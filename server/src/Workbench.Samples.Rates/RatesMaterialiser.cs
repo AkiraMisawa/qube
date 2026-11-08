@@ -51,6 +51,17 @@ public static class RatesMaterialiser
             .Select(c => Line(state, c.Entity, valuationDate, conventions))];
     }
 
+    /// <summary>
+    /// A resolved line's legs as its schedules generate them, with no cashflow edits: what a booked trade from a source
+    /// prices as. Each period's rate is its leg's quote, and its year fraction follows the leg's day count.
+    /// </summary>
+    public static IReadOnlyList<EffectiveLeg> Unedited(LineResolution resolution) => resolution.Priceable
+        ? [.. resolution.Legs.Select((leg, i) => new EffectiveLeg(leg.Terms, leg.Profile,
+            [.. leg.Schedule.Periods.Select(p => new EffectivePeriod(RatesEditRules.PeriodEntity(resolution.Line.RowKey, i + 1, p), p.AccrualStart, p.AccrualEnd,
+                p.PaymentDate, p.Notional, leg.Terms.Quote?.Value, DateRules.YearFraction(p.AccrualStart, p.AccrualEnd, leg.Profile.DayCount), []))],
+            leg.Schedule.Exchanges))]
+        : throw new InvalidOperationException($"{resolution.Line.RowKey} is not priceable: {string.Join("; ", resolution.Issues)}");
+
     public static EffectiveLine Line(WorkspaceState state, string line, DateOnly valuationDate, ConventionRegistry conventions)
     {
         var scope = RatesEditRules.SchedulePrefix + line;

@@ -14,7 +14,8 @@ place to be wrong; a formula a provider or the AI sends is text the page would d
 owner then asked that formulas be typeset as real mathematics (2026-11-07), so a kind also carries its TeX (§6). The
 operation set gained `slot`, `children`, `param`, `field`, `const`, `ln`, `normalCdf`, `sumLeaves`, `singleFactor` and
 `lookup`, and `quadraticForm` was generalised, because SA-CCR's options, its single-factor asset classes and SA's risk
-weight table need them. The engine team is building the drill-down output now; the owner wanted the client's proposal
+weight table need them; on 2026-11-08 `children` gained an optional role, so that SIMM's `S_b`, beside `K_b`, can sum
+`K_b`'s children (§2). The engine team is building the drill-down output now; the owner wanted the client's proposal
 of its format, which is the Claude Doc "ドリルダウン形式の提案：スポットCCRキャピタル" and follows this ADR.*
 
 ## Context
@@ -119,7 +120,7 @@ The operations are:
 | Operation | Takes | Means |
 |---|---|---|
 | `slot` | a role | the value of the child term playing that role |
-| `children` | an optional kind | the values of the term's children, for a `sum` and the like |
+| `children` | an optional kind, an optional role | the values of the term's children, for a `sum` and the like; with a role, the children of the term playing it (SIMM's `S_b` sums the risk factors under `K_b`, its sibling) |
 | `param` | a name | the parameter in scope |
 | `field` | a column | in a leaf set only: a column of the same row |
 | `const` | a number | a number written in the formula (the 2 in the multiplier) |
@@ -133,6 +134,10 @@ The operations are:
 | `lookup` | a table parameter, a text term | the row of the table that the term names (a rating band's risk weight) |
 
 A domain module needs no operation of its own; an operation is added to the set by changing this ADR.
+
+*(`children`'s role was added on 2026-11-08, DEFAULT, for SIMM. The delta margin's `quadraticForm` takes `K_b` and
+`S_b` as two lists of its own children, so `S_b` sits beside `K_b`; but `S_b`'s first operand is the sum of the risk
+factors, which are `K_b`'s children. Without the role, `S_b` could not be reconciled at all.)*
 
 A kind's TeX template marks each operand with `\slot{role}`, and its slots are exactly the expression's operands. A kind
 whose two do not match one for one is refused at registration.

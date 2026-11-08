@@ -81,6 +81,7 @@ public static partial class TraceCatalogs
                 case SlotExpr s: names.Slots.Add(s.Name); break;
                 case ParamExpr p: names.Params.Add(p.Name); break;
                 case FieldExpr f: names.Fields.Add(f.Name); break;
+                case ChildrenExpr { Of: { } of }: names.Slots.Add(of); break;
                 case ChildrenExpr or ConstExpr or SumLeavesExpr: break;
                 case SumExpr e: e.Args.ToList().ForEach(Walk); break;
                 case DifferenceExpr e: e.Args.ToList().ForEach(Walk); break;

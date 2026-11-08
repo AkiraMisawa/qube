@@ -38,6 +38,7 @@ public partial class TraceTests
         Kind("garden.part", "x_k", null),
         Kind("garden.soil", "s", null, TermValueType.Text),
         Kind("garden.rate", @"\mathrm{lookup}(\text{rates}, \slot{soil})", new LookupExpr("rates", new SlotExpr("soil"))),
+        Kind("garden.tally", @"\sum_k x_k \text{ of } \slot{parts}", new SumExpr([new ChildrenExpr("garden.part", "parts")])),
     ],
     [
         new LeafSetKind("garden.plants", "plant", [
@@ -129,6 +130,22 @@ public partial class TraceTests
             Assert.True(checks[id].Status == CheckStatus.Matches, $"{id}: {checks[id].Status} {checks[id].Reason}");
         Assert.Equal(CheckStatus.NotApplicable, checks["north/depth"].Status); // a kind without a formula
         Assert.Equal(CheckStatus.NotApplicable, checks["east"].Status);        // absent: nothing to check
+    }
+
+    [Fact] // ADR-0011 §2: children may be read from the term playing a role, as SIMM's S_b sums the risk factors under K_b
+    public void Children_are_read_from_the_term_playing_a_role()
+    {
+        static CalculationTrace With(double value, string of) => Garden() with
+        {
+            Roots = [.. Garden().Roots, "tally"],
+            Terms = [.. Garden().Terms, T("tally", "garden.tally", value, null) with { Slots = new Dictionary<string, string> { ["parts"] = of } }],
+        };
+
+        Assert.Equal((CheckStatus.Matches, 4.0), (Check(With(4, "ops"), "tally").Status, Check(With(4, "ops"), "tally").Computed!.Value));
+        Assert.Equal(CheckStatus.Inconsistent, Check(With(5, "ops"), "tally").Status);
+        Assert.Equal(CheckStatus.NotChecked, Check(With(4, "nowhere"), "tally").Status);
+        var unmarked = Catalog() with { Kinds = [.. Catalog().Kinds.Select(k => k.Kind == "garden.tally" ? k with { Tex = @"\sum_k x_k" } : k)] };
+        Assert.Contains(TraceCatalogs.Problems(unmarked), p => p.Contains("does not mark the slot parts", StringComparison.Ordinal));
     }
 
     [Fact] // ADR-0011 §2: a single-factor aggregation takes each term's correlation from its own scope

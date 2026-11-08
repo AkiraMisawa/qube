@@ -412,6 +412,45 @@ provider is wired.
 - κ (8%) and which products come first are OPEN with the owner (ADR-0013). Only IRS and FX forwards are decomposed
   (the synthetic portfolio has no other product); any other would be out of the measure's membership with its reason.
 
+## Spot SIMM, step 1: the engine, CRIF and the two capabilities (ADR-0012, proposed 2026-11-07)
+
+Spec: [docs/specs/spot-simm/spec.md](docs/specs/spot-simm/spec.md). Decisions: ADR-0012, with the trace of ADR-0011. Nothing in this step touches the page; registering spot IM there is step 2, on ADR-0010's measures register.
+
+### What runs
+
+- **Reference engine** (`Workbench.Samples.Simm`, `SimmEngine`): the ISDA SIMM v2.x aggregation for IR delta (the 12 tenors, sub-curves, cross-currency basis, concentration, `S_b` bounded by `±K_b`, `γ g_bc` across currencies) and FX delta (each currency's own CR, and `f_kl` between them), through the risk class and the Rates/FX product class to each regime, then the largest regime per direction. A regime is computed when the IM CSA serves it and a line it holds names it; a direction with none has no IM, not an IM of 0. Euler allocation down to the CRIF line, with each concentration factor held, so contributions add up exactly at every term and per trade. A currency the table places in no volatility group, or a tenor it lacks, is refused by line.
+- **Parameters**: one table, `DEMO-2.x`, made up and labelled DEMO: risk weights, the tenor correlation matrix, the other correlations and the concentration thresholds. ISDA's calibration is not in the repository.
+- **IM source** (`IImSource`, a port): `SyntheticImSource` holds one synthetic counterparty `ABC/LE-01` with IM CSAs `IMR-ABC-01` (collect: JFSA, CFTC) and `IMP-ABC-01` (post: JFSA, EMIR), two JPY IRS, a USD IRS, a USD/JPY CCS and a USD/JPY FX forward (exempt), all starting at spot on the value date. A company source replaces it in `Program.cs` and nowhere else.
+- **CRIF** (`CrifGenerator`): from the Rates pricing provider at the value date. Pillar deltas are split onto SIMM's tenors linearly in years; only an overnight index maps to the OIS sub-curve, and any other curve is refused by name until a mapping is configured; FX delta is the USD value's change for a 1% stronger currency, with a cross-currency swap's principal exchanges left out (exempt under the BCBS-IOSCO framework, ADR-0012 §5); cross-currency basis is the change for 1bp more spread on the non-USD floating leg. Exempt trades, provider failures, rows the provider did not return and missing FX rates are excluded with their reason. The CRIF's header names its registration and value date.
+- **Capabilities**: `im.source.freeze` (registration, value date → the trades frozen with their resolved terms, and the IM CSAs), `risk.crif.generate` (frozen trades, pinned market snapshot → the CRIF and each trade's coverage: its line count or why it has none) and `margin.simm.calculate` (a retained CRIF, the frozen IM CSAs and a loaded table → IM per direction, SIMM per regime, and the trace, whose leaf rows carry each line's contribution). `workflow.simm.crif` (freeze, then CRIF) is in the catalogue and runs from a form, and its Run keeps the frozen trades and IM CSAs; SIMM alone runs through `SimmModule.Calculate(crif, csas)`, a workflow naming what it reads, submitted to `POST /api/runs`. Refused by name: a table that is not loaded (at submission, by its field), a CRIF of another registration (`RegistrationMismatch`) and a line naming a regime the source does not know (`UnknownRegime`).
+- **Trace**: the engine writes ADR-0011's trace as it computes, under kinds registered per table (`simm.im`, `simm.regime`, `simm.product`, `simm.riskClass`, `simm.delta`, `simm.bucket`, `simm.bucketSum`, `simm.factor`, and the leaf set `simm.crif`), with its request, value date and subject in the header. One root per direction marks its governing regime; parameters sit in their own scope, each risk weight with why it is what it is. The kernel's `children` gained an optional role so that `S_b` can sum the risk factors under `K_b` (ADR-0011 §2, DEFAULT).
+
+### Verification performed
+
+| Suite | Result |
+|---|---|
+| `dotnet test server/Workbench.slnx` | 418 passed, after merging the CCR branch at 7d0bf02 (SIMM: 24 engine, 8 sample cases, 10 CRIF, 7 over HTTP, 5 trace; and the kernel's new `children` case) |
+| Client | Not touched, not run |
+
+| Acceptance (spec "Done when") | Status |
+|---|---|
+| Every hand-worked case of ADR-0012 §6's formulas holds, and the sample portfolio gives the sample's figures | Passed (xUnit; the sample's figures come from its separate Python implementation) |
+| A term's children's contributions add up to its own, and a regime's lines' to its SIMM | Passed (xUnit, engine and trace) |
+| Both workflows run alone over the API and their Runs resolve their inputs and results | Passed (xUnit over HTTP: the CRIF's Run keeps the frozen trades and IM CSAs, and SIMM's names the CRIF and IM CSAs it read) |
+| Every term the engine writes reconciles against its kind | Passed (xUnit, on the sample, a mixed portfolio and concentrated FX, and on the Run's trace over HTTP) |
+
+### Providers
+
+The Rates pricing provider is the fake one, so every CRIF and SIMM figure is `simulated`; the parameters are DEMO; the IM source is synthetic. No real SIMM engine, calibration or company source is wired.
+
+### Known limits
+
+- Vega, curvature and base correlation are not computed and have no kinds yet; `simm.addon` is registered when an add-on is first configured (ADR-0012 §6's note of 2026-11-08).
+- The command line and the AI cannot run a workflow (their tools are commands only, ADR-0005 and ADR-0007): calling the capabilities from either needs a generic workflow tool in the kernel, a decision of its own. `workflow.simm.calculate` is not in the catalogue, because a form cannot pass it the retained CRIF and IM CSAs.
+- Leaf rows carry the trade's source id, not a `tradeInstanceId`: the IM source has no trade instances. Within a Run, the frozen trades are that instance.
+- The trace is read over HTTP as the CCR thread's endpoint reads any lone trace, on After of the base case: `GET /api/runs/{run}/cases/base/traces/spot-im`, with `path` for a term and `…/leaves` for its CRIF lines (ADR-0011 §5). Nothing draws it on screen yet (ADR-0012 step 3).
+- Only the synthetic counterparty exists; the regimes a trade counts under come from that source. Phase-in dates (ADR-0012 §2) are not modelled yet.
+
 ## Next
 
 1. ADR-0010 Delivery step 2: cases (`vary`, iterative individual addition, the changes panel).
