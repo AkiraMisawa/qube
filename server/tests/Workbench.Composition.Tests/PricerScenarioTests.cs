@@ -335,4 +335,124 @@ public class PricerScenarioTests
         Assert.NotEqual(Sum("base", "saccr.marketValue"), Sum("s1", "saccr.marketValue"));
         Assert.NotEqual(Sum("base", "saccr.addOnAggregate"), Sum("s2", "saccr.addOnAggregate"));
     }
+
+    static ShiftEdit Blank(int row, string scenario, string index, string factor, string size, string? description = null) =>
+        new(null, row, new Dictionary<string, string?> { ["scenario"] = scenario, ["index"] = index, ["factor"] = factor, ["size"] = size, ["description"] = description });
+
+    [Fact] // ADR-0010 §4: a block pasted onto the blank rows makes a shift per row in one batch, Category and Shift type derived
+    public void A_block_pasted_onto_the_blank_rows_makes_a_shift_per_row()
+    {
+        var (service, _, _) = Priced();
+        var ws = service.Create("akira", "ABC/LE-01", Day1, 40);
+
+        var pasted = service.EditShifts(ws.WorkspaceId, ws.Revision, "akira",
+            [Blank(1, "up", "jpy_ois", "", "+10bp", "parallel"), Blank(2, "up", "USDJPY", "spot", "-5%"), Blank(3, "kr", "jpy_ois", "5y", "3"),
+             new(null, 4, new Dictionary<string, string?> { ["scenario"] = "", ["index"] = " " })]);
+
+        var view = service.View(ws.WorkspaceId, "akira");
+        Assert.Equal([("up", "IR", "jpy_ois", "all", "abs", "+10bp", "parallel"), ("up", "FX", "usdjpy", "spot", "rel", "-5%", null), ("kr", "IR", "jpy_ois", "5y", "abs", "+3bp", null)],
+            view.Shifts.Select(r => (r.Scenario, r.Category, r.Index, r.Factor, r.Type, r.SizeText, r.Description)));
+        Assert.Equal([new ScenarioView("up", 2, true, null), new ScenarioView("kr", 1, true, null)], view.Scenarios);
+        // One batch: the workspace moved by one change a row made, and a blank row pasted made none.
+        Assert.Equal(ws.Revision + 3, pasted.Revision);
+    }
+
+    [Theory] // ADR-0010 §4 and spine 1: a cell that does not resolve refuses the paste whole, naming its row and column
+    [InlineData("index", "jpy_ojs", "Row 2, Index: jpy_ojs is no index: the indices are jpy_ois")]
+    [InlineData("factor", "7y", "Row 2, Risk factor: 7y is no tenor: a tenor is 1m, 3m")]
+    [InlineData("size", "+10%", "Row 2, Size: an IR shift is absolute, in bp: write +10bp")]
+    [InlineData("size", "ten", "Row 2, Size: ten is no size: write it as +10bp")]
+    [InlineData("category", "FX", "Row 2, Category: jpy_ois is IR, not FX: the category follows the index")]
+    [InlineData("type", "rel", "Row 2, Shift type: the size is in bp, so the shift is abs, not rel")]
+    [InlineData("scenario", "include", "Row 2, Scenario: A scenario cannot be named include")]
+    public void A_cell_that_does_not_resolve_refuses_the_paste_whole(string column, string text, string said)
+    {
+        var (service, _, _) = Priced();
+        var ws = service.Create("akira", "ABC/LE-01", Day1, 40);
+        var cells = new Dictionary<string, string?> { ["scenario"] = "up", ["index"] = "jpy_ois", ["factor"] = "all", ["size"] = "+10bp", [column] = text };
+
+        var refused = Assert.Throws<WorkspaceRefused>(() => service.EditShifts(ws.WorkspaceId, ws.Revision, "akira", [Blank(1, "up", "usd_sofr", "", "+5bp"), new(null, 2, cells)]));
+
+        Assert.Contains(said, refused.Message);
+        Assert.Empty(service.View(ws.WorkspaceId, "akira").Shifts);
+    }
+
+    [Fact] // ADR-0010 §4: an incomplete row says what it lacks on the row, and Price refuses its scenario by name while it is included
+    public void An_incomplete_row_says_what_it_lacks_and_Price_refuses_its_scenario_while_included()
+    {
+        var (service, _, _) = Priced();
+        var ws = service.Create("akira", "ABC/LE-01", Day1, 40);
+        ws = Define(service, ws, "up", "jpy_ois +10bp");
+        ws = service.EditShifts(ws.WorkspaceId, ws.Revision, "akira", [new(null, 2, new Dictionary<string, string?> { ["scenario"] = "half", ["index"] = "usd_sofr" })]);
+
+        var view = service.View(ws.WorkspaceId, "akira");
+        Assert.Equal(("it has no size", "size"), (view.Shifts[1].Issue, view.Shifts[1].IssueColumn));
+        Assert.Equal("row 2: it has no size", view.Scenarios.Single(s => s.Name == "half").Issue);
+        var refused = Assert.Throws<WorkspaceRefused>(() => service.Price(ws.WorkspaceId, ws.Revision, "akira", Guid.NewGuid().ToString()));
+        Assert.Equal("ScenarioInvalid", refused.Code);
+        Assert.Contains("Scenario half cannot be priced: row 2 it has no size", refused.Message);
+
+        ws = service.IncludeScenario(ws.WorkspaceId, ws.Revision, "akira", "HALF", included: false);
+
+        Assert.IsType<SubmissionResult.Accepted>(service.Price(ws.WorkspaceId, ws.Revision, "akira", Guid.NewGuid().ToString()));
+        Assert.Equal([("up", true), ("half", false)], service.View(ws.WorkspaceId, "akira").Scenarios.Select(s => (s.Name, s.Included)));
+    }
+
+    [Fact] // ADR-0010 §4: excluding leaves a scenario out of Price and keeps its rows; duplicating copies them; removing takes them away
+    public async Task Exclude_duplicate_and_remove_act_on_a_scenario_by_name()
+    {
+        var (service, runs, store) = Priced();
+        var ws = service.Create("akira", "ABC/LE-01", Day1, 40);
+        ws = service.SetMeasures(ws.WorkspaceId, ws.Revision, "akira", ["cva"]);
+        ws = Define(service, ws, "up", "jpy_ois +10bp; usdjpy -5%");
+        ws = Define(service, ws, "down", "jpy_ois -10bp");
+
+        ws = service.IncludeScenario(ws.WorkspaceId, ws.Revision, "akira", "down", included: false);
+        var copied = service.DuplicateScenario(ws.WorkspaceId, ws.Revision, "akira", "up", "up2");
+        ws = copied.State;
+
+        Assert.Equal(["up2"], copied.Made);
+        var view = service.View(ws.WorkspaceId, "akira");
+        Assert.Equal([("up", 2, true), ("down", 1, false), ("up2", 2, true)], view.Scenarios.Select(s => (s.Name, s.Shifts, s.Included)));
+        Assert.Equal(["jpy_ois +10bp", "usdjpy -5%"], view.Shifts.Where(r => r.Scenario == "up2").Select(r => r.Shift!.Text));
+        var priced = await Price(runs, store, service, ws);
+        Assert.Equal(["Base market", "up", "up2"], priced.Input["scenarios"]!.AsArray().Select(s => s!["title"]!.GetValue<string>()));
+
+        var before = ws.Revision;
+        ws = service.RemoveScenario(ws.WorkspaceId, ws.Revision, "akira", "UP");
+
+        Assert.Equal(before + 2, ws.Revision);
+        Assert.Equal(["down", "up2"], service.View(ws.WorkspaceId, "akira").Scenarios.Select(s => s.Name));
+        Assert.Equal("UnknownScenario", Assert.Throws<WorkspaceRefused>(() => service.RemoveScenario(ws.WorkspaceId, ws.Revision, "akira", "up")).Code);
+        Assert.Contains("A scenario up2 exists", Assert.Throws<WorkspaceRefused>(() => service.DuplicateScenario(ws.WorkspaceId, ws.Revision, "akira", "down", "UP2")).Message);
+
+        ws = service.ClearScenarios(ws.WorkspaceId, ws.Revision, "akira");
+        view = service.View(ws.WorkspaceId, "akira");
+        Assert.Empty(view.Scenarios);
+        Assert.Empty(view.Shifts);
+    }
+
+    [Fact] // ADR-0010 §4: a row edits as a spreadsheet's does: a cell typed moves it, and a row whose cells are all cleared is removed
+    public void A_row_edits_cell_by_cell_and_goes_when_every_cell_is_cleared()
+    {
+        var (service, _, _) = Priced();
+        var ws = service.Create("akira", "ABC/LE-01", Day1, 40);
+        ws = Define(service, ws, "up", "jpy_ois +10bp; usdjpy -5%");
+        var id = service.View(ws.WorkspaceId, "akira").Shifts[0].Id;
+
+        ws = service.EditShifts(ws.WorkspaceId, ws.Revision, "akira", [new(id, 1, new Dictionary<string, string?> { ["factor"] = "10Y", ["size"] = "-2.5" })]);
+        Assert.Equal(("10y", "-2.5bp"), (service.View(ws.WorkspaceId, "akira").Shifts[0].Factor, service.View(ws.WorkspaceId, "akira").Shifts[0].SizeText));
+        // An index moved to one in another unit leaves the size, and the row says to type it again.
+        ws = service.EditShifts(ws.WorkspaceId, ws.Revision, "akira", [new(id, 1, new Dictionary<string, string?> { ["index"] = "eurjpy", ["factor"] = "spot" })]);
+        Assert.StartsWith("an FX shift is in %, and its size is in bp", service.View(ws.WorkspaceId, "akira").Shifts[0].Issue);
+
+        ws = service.EditShifts(ws.WorkspaceId, ws.Revision, "akira",
+            [new(id, 1, new Dictionary<string, string?> { ["scenario"] = null, ["category"] = null, ["index"] = "", ["factor"] = "", ["type"] = null, ["size"] = "", ["description"] = null })]);
+
+        var view = service.View(ws.WorkspaceId, "akira");
+        Assert.Equal(["usdjpy"], view.Shifts.Select(r => r.Index));
+        Assert.Equal(1, view.Shifts[0].Row);
+        // A scenario is no change of the portfolio's data, edited or not.
+        Assert.Equal(0, view.Changes);
+    }
 }

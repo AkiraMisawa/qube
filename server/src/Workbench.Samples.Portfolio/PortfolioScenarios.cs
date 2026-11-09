@@ -184,11 +184,13 @@ public static partial class ShiftReader
 
 /// <summary>
 /// A shift row of the Scenarios grid (ADR-0010 §4): the scenario it belongs to, its index with the category it gives, the
-/// tenor, the size with the shift type its unit gives, and a description, each as the workspace holds it, and why the row
-/// cannot be priced, where it cannot. <paramref name="Row"/> counts from 1, in the order the rows were made.
+/// tenor and the risk factor it names (the tenor, <c>all</c> for a whole curve, <c>spot</c> for an FX rate), the size
+/// with the shift type its unit gives, and a description, each as the workspace holds it, and why the row cannot be
+/// priced, where it cannot, with the column that says it. <paramref name="Row"/> counts from 1, in the order the rows
+/// were made.
 /// </summary>
-public sealed record ShiftRow(string Id, int Row, string? Scenario, string? Category, string? Index, string? Tenor, string? Type, decimal? Size,
-    string? SizeText, string? Description, string? Issue)
+public sealed record ShiftRow(string Id, int Row, string? Scenario, string? Category, string? Index, string? Tenor, string? Factor, string? Type,
+    decimal? Size, string? SizeText, string? Description, string? Issue, string? IssueColumn)
 {
     /// <summary>The shift the row makes, or null where it has an issue.</summary>
     public Shift? Shift => Issue is null ? new Shift(Category!, Index!, Tenor, Type!, Size!.Value) : null;
@@ -197,6 +199,12 @@ public sealed record ShiftRow(string Id, int Row, string? Scenario, string? Cate
 /// <summary>A scenario as the list beside the grid shows it: its name, its shift count, whether Price prices it, and why
 /// it cannot be priced, where it cannot.</summary>
 public sealed record ScenarioView(string Name, int Shifts, bool Included, string? Issue);
+
+/// <summary>
+/// An edit of the Scenarios grid's row (ADR-0010 §4): its cells as typed, by column, for a row that exists (<c>Id</c>) or a
+/// blank one, which the edit makes. <c>Row</c> is where the grid shows it, counted from 1, as a refusal names it.
+/// </summary>
+public sealed record ShiftEdit(string? Id, int Row, IReadOnlyDictionary<string, string?> Cells);
 
 /// <summary>A scenario as Price freezes it: its id in the Run (<c>base</c>, <c>s1</c>, …), its title and its shifts.</summary>
 public sealed record PricedScenario(string Id, string Title, IReadOnlyList<Shift> Shifts);
@@ -209,8 +217,11 @@ public sealed record ScenarioAnswer(WorkspaceState State, IReadOnlyList<string> 
 /// the workspace's own scope, so a counterparty change keeps it; the scenarios left out of Price are one created entity,
 /// <c>scenarios:workspace</c>, holding their names. Rows sharing a name, case ignored, are one scenario.
 /// </summary>
-public static class PortfolioScenarios
+public static partial class PortfolioScenarios
 {
+    [GeneratedRegex(@"^([+-]?)(\d+(?:\.\d+)?)(bp|%)?$", RegexOptions.IgnoreCase)]
+    private static partial Regex GridSize();
+
     public const string ShiftKind = "shift";
     public const string ScenariosKind = "scenarios";
     public static readonly string Inclusion = Entity.Of(ScenariosKind, Entity.WorkspaceId);
@@ -226,32 +237,222 @@ public static class PortfolioScenarios
     /// <summary>The words a scenario command begins with, which no scenario may be named, or the command line could not tell them apart.</summary>
     public static readonly IReadOnlyList<string> Reserved = ["include", "exclude", "remove", "duplicate", "ladder", "cross", "save", "load"];
 
+    /// <summary>The Scenarios grid's columns, as an edit names them: Category and Shift type follow the index and the size.</summary>
+    public static readonly IReadOnlyList<string> Columns = ["scenario", "category", "index", "factor", "type", "size", "description"];
+
     /// <summary>The shift rows, in the order they were made, each read with its edits and checked.</summary>
-    public static IReadOnlyList<ShiftRow> Rows(WorkspaceState state)
+    public static IReadOnlyList<ShiftRow> Rows(WorkspaceState state) =>
+        [.. Raw(state).Select((r, i) => RowOf(Entity.Split(r.Entity).Id, i + 1, r.Fields))];
+
+    /// <summary>Each shift row's entity and its fields with their edits, in the order the rows were made.</summary>
+    static IReadOnlyList<(string Entity, JsonObject Fields)> Raw(WorkspaceState state)
     {
         var edits = state.Overrides.Values.Where(o => Entity.Split(o.Target.Entity).Kind == ShiftKind)
             .ToDictionary(o => (o.Target.Entity, o.Target.Field), o => o.Value);
-        return [.. state.Created.Values.Where(c => Entity.Split(c.Entity).Kind == ShiftKind).OrderBy(c => c.Seq).Select((c, i) =>
+        return [.. state.Created.Values.Where(c => Entity.Split(c.Entity).Kind == ShiftKind).OrderBy(c => c.Seq).Select(c =>
         {
-            JsonNode? Field(string field) => edits.TryGetValue((c.Entity, field), out var edited) ? edited : c.Fields[field];
-            string? Text(string field) => Field(field) is JsonValue v && v.TryGetValue<string>(out var s) && s.Length > 0 ? s : null;
-            var name = Text("scenario");
-            var index = Text("index") is { } id ? ScenarioCatalog.Find(id) : null;
-            var tenor = Text("tenor");
-            var size = Field("size") is JsonValue n && n.TryGetValue<decimal>(out var d) ? d : (decimal?)null;
-            var unit = Text("unit");
-            var type = unit switch { ScenarioCatalog.Bp => ScenarioCatalog.Absolute, ScenarioCatalog.Percent => ScenarioCatalog.Relative, _ => null };
-            string? issue = name is null ? "it names no scenario"
-                : index is null ? "it has no index"
-                : index.Category == ScenarioCatalog.Fx && tenor is not null ? $"{index.Id} is a spot rate and has no tenor"
-                : size is null || type is null ? "it has no size"
-                : size == 0 ? "a size of 0 shifts nothing"
-                : type != ScenarioCatalog.TypeOf(index.Category)
-                    ? $"an {index.Category} shift is {(index.Category == ScenarioCatalog.Ir ? "in bp" : "in %")}, and its size is in {unit}: type the size again"
-                : null;
-            return new ShiftRow(Entity.Split(c.Entity).Id, i + 1, name, index?.Category, index?.Id, tenor, type, size,
-                size is { } s && unit is not null ? Shift.Signed(s, unit) : null, Text("description"), issue);
+            var fields = new JsonObject();
+            foreach (var field in RowFields)
+                fields[field] = (edits.TryGetValue((c.Entity, field), out var edited) ? edited : c.Fields[field])?.DeepClone();
+            return (c.Entity, fields);
         })];
+    }
+
+    static ShiftRow RowOf(string id, int row, JsonObject fields)
+    {
+        string? Text(string field) => fields[field] is JsonValue v && v.TryGetValue<string>(out var s) && s.Length > 0 ? s : null;
+        var name = Text("scenario");
+        var index = Text("index") is { } named ? ScenarioCatalog.Find(named) : null;
+        var tenor = Text("tenor");
+        var size = fields["size"] is JsonValue n && n.TryGetValue<decimal>(out var d) ? d : (decimal?)null;
+        var unit = Text("unit");
+        var type = unit switch { ScenarioCatalog.Bp => ScenarioCatalog.Absolute, ScenarioCatalog.Percent => ScenarioCatalog.Relative, _ => null };
+        var (issue, column) = name is null ? ("it names no scenario", "scenario")
+            : index is null ? ("it has no index", "index")
+            : index.Category == ScenarioCatalog.Fx && tenor is not null ? ($"{index.Id} is a spot rate and has no tenor", "factor")
+            : size is null || type is null ? ("it has no size", "size")
+            : size == 0 ? ("a size of 0 shifts nothing", "size")
+            : type != ScenarioCatalog.TypeOf(index.Category)
+                ? ($"an {index.Category} shift is {(index.Category == ScenarioCatalog.Ir ? "in bp" : "in %")}, and its size is in {unit}: type the size again", "size")
+            : ((string?)null, (string?)null);
+        var factor = index is null ? tenor : tenor ?? (index.Category == ScenarioCatalog.Fx ? ScenarioCatalog.Spot : WholeIndex);
+        return new ShiftRow(id, row, name, index?.Category, index?.Id, tenor, factor, type, size,
+            size is { } s && unit is not null ? Shift.Signed(s, unit) : null, Text("description"), issue, column);
+    }
+
+    /// <summary>The risk factor a shift of a whole curve names in the grid.</summary>
+    public const string WholeIndex = "all";
+
+    /// <summary>
+    /// The grid's edits as one batch (ADR-0010 §4): a cell typed, a block pasted, or cells cleared. Each cell is read as
+    /// its column reads it and refused, naming its row and column, where it does not resolve; one refused refuses the
+    /// edit whole. A blank row's edit makes a shift, and a row left with no cell is removed. Category and Shift type
+    /// follow the index and the size: a value there is taken only where it is what they give.
+    /// </summary>
+    public static IReadOnlyList<WorkspaceChange> Edit(WorkspaceState state, IReadOnlyList<ShiftEdit> edits, long revision)
+    {
+        var raw = Raw(state).ToDictionary(r => Entity.Split(r.Entity).Id, r => r.Fields);
+        var changes = new List<WorkspaceChange>();
+        foreach (var edit in edits)
+        {
+            var unknown = edit.Cells.Keys.FirstOrDefault(c => !Columns.Contains(c));
+            if (unknown is not null) throw new WorkspaceRefused("InvalidShift", $"The Scenarios grid has no column {unknown}; its columns are {string.Join(", ", Columns)}.");
+            var before = edit.Id is null ? Blank()
+                : raw.GetValueOrDefault(edit.Id) ?? throw new WorkspaceRefused("UnknownShift", $"Row {edit.Row} is no longer a shift of this workspace. Look at the grid again.");
+            var after = Cells(before, edit);
+            var empty = RowFields.All(f => after[f] is null);
+            if (edit.Id is null)
+            {
+                if (!empty) changes.Add(new WorkspaceChange.Create(PortfolioEditRules.WorkspaceScope, Entity.Of(ShiftKind, $"s{revision + 1 + changes.Count}"), after));
+                continue;
+            }
+            var entity = Entity.Of(ShiftKind, edit.Id);
+            if (empty) { changes.Add(new WorkspaceChange.Remove(entity)); continue; }
+            foreach (var field in RowFields.Where(f => !JsonNode.DeepEquals(before[f], after[f])))
+                changes.Add(new WorkspaceChange.Set(new EditTarget(PortfolioEditRules.WorkspaceScope, entity, field), after[field]?.DeepClone()));
+        }
+        return changes;
+    }
+
+    static JsonObject Blank() => new() { ["scenario"] = null, ["index"] = null, ["tenor"] = null, ["size"] = null, ["unit"] = null, ["description"] = null };
+
+    // One row's fields once its cells are read: the index first, since Category, the risk factor and the size are read
+    // against the index the row will have.
+    static JsonObject Cells(JsonObject before, ShiftEdit edit)
+    {
+        var after = (JsonObject)before.DeepClone();
+        string? Typed(string column) => edit.Cells.TryGetValue(column, out var text) && text?.Trim() is { Length: > 0 } t ? t : null;
+        WorkspaceRefused Refused(string column, string why) =>
+            new("InvalidShift", $"Row {edit.Row}, {Title(column)}: {why}.", [new EditTarget(PortfolioEditRules.WorkspaceScope, edit.Id is null ? $"{ShiftKind}:new" : Entity.Of(ShiftKind, edit.Id), column)]);
+        if (edit.Cells.ContainsKey("index"))
+            after["index"] = Typed("index") is { } word
+                ? (ScenarioCatalog.Find(word) ?? throw Refused("index", $"{word} is no index: the indices are {string.Join(", ", ScenarioCatalog.Indices.Select(i => i.Id))}")).Id
+                : null;
+        var index = after["index"]?.GetValue<string>() is { } id ? ScenarioCatalog.Find(id) : null;
+        if (edit.Cells.ContainsKey("scenario"))
+            after["scenario"] = Typed("scenario") is { } name ? NameIssue(name) is { } issue ? throw Refused("scenario", issue.TrimEnd('.')) : name : null;
+        if (Typed("category") is { } category && !string.Equals(category, index?.Category, StringComparison.OrdinalIgnoreCase))
+            throw Refused("category", index is null
+                ? $"{category} is no category of the row: the category follows the index, and the row has none"
+                : $"{index.Id} is {index.Category}, not {category}: the category follows the index");
+        if (edit.Cells.ContainsKey("factor"))
+        {
+            var word = Typed("factor");
+            after["tenor"] = word is null || string.Equals(word, WholeIndex, StringComparison.OrdinalIgnoreCase)
+                    || (string.Equals(word, ScenarioCatalog.Spot, StringComparison.OrdinalIgnoreCase) && index?.Category == ScenarioCatalog.Fx) ? null
+                : index?.Category == ScenarioCatalog.Fx ? throw Refused("factor", $"{index.Id} is a spot rate and has no tenor: leave it spot")
+                : ScenarioCatalog.TenorOf(word) ?? throw Refused("factor", $"{word} is no tenor: a tenor is {string.Join(", ", ScenarioCatalog.Tenors)}, or {WholeIndex} for the whole curve");
+        }
+        if (edit.Cells.ContainsKey("size"))
+        {
+            if (Typed("size") is not { } written) { after["size"] = null; after["unit"] = null; }
+            else
+            {
+                var (size, unit) = SizeOf(written, index) ?? throw Refused("size", index is null
+                    ? $"{written} is no size with a unit: write +10bp for a curve or -5% for an FX rate"
+                    : $"{written} is no size: write it as {(index.Category == ScenarioCatalog.Ir ? "+10bp" : "-5%")}");
+                var takes = ScenarioCatalog.UnitOfType(ScenarioCatalog.TypeOf(index?.Category ?? (unit == ScenarioCatalog.Bp ? ScenarioCatalog.Ir : ScenarioCatalog.Fx)));
+                if (index is not null && unit != takes)
+                    throw Refused("size", $"an {index.Category} shift is {(index.Category == ScenarioCatalog.Ir ? "absolute, in bp" : "relative, in %")}: write {Shift.Signed(size, takes)}");
+                after["size"] = size;
+                after["unit"] = unit;
+            }
+        }
+        var unitNow = after["unit"]?.GetValue<string>();
+        if (Typed("type") is { } type && !string.Equals(type, unitNow is null ? null : unitNow == ScenarioCatalog.Bp ? ScenarioCatalog.Absolute : ScenarioCatalog.Relative, StringComparison.OrdinalIgnoreCase))
+            throw Refused("type", unitNow is null
+                ? $"{type} is no shift type of the row: the shift type follows the size's unit, and the row has no size"
+                : $"the size is in {unitNow}, so the shift is {(unitNow == ScenarioCatalog.Bp ? ScenarioCatalog.Absolute : ScenarioCatalog.Relative)}, not {type}: the shift type follows the size");
+        if (edit.Cells.ContainsKey("description"))
+            after["description"] = Typed("description");
+        return after;
+    }
+
+    // A size as the grid takes it: a number with its unit, or a bare number in the unit the row's index takes.
+    static (decimal Size, string Unit)? SizeOf(string written, RiskIndex? index)
+    {
+        var match = GridSize().Match(written.Replace(" ", ""));
+        if (!match.Success) return null;
+        var magnitude = decimal.Parse(match.Groups[2].Value, CultureInfo.InvariantCulture);
+        var unit = match.Groups[3].Success ? match.Groups[3].Value.ToLowerInvariant()
+            : index is null ? null : ScenarioCatalog.UnitOfType(ScenarioCatalog.TypeOf(index.Category));
+        return unit is null ? null : (match.Groups[1].Value == "-" ? -magnitude : magnitude, unit);
+    }
+
+    static string Title(string column) => column switch
+    {
+        "scenario" => "Scenario", "category" => "Category", "index" => "Index", "factor" => "Risk factor",
+        "type" => "Shift type", "size" => "Size", "description" => "Description", _ => column,
+    };
+
+    /// <summary>
+    /// <c>scenario include|exclude &lt;name&gt;</c>: whether Price prices the scenario, as its box says; its rows stay. None
+    /// where it already stands so.
+    /// </summary>
+    public static IReadOnlyList<WorkspaceChange> Include(WorkspaceState state, string name, bool included)
+    {
+        var scenario = Existing(state, name);
+        var excluded = ExcludedNames(state);
+        var changed = included ? excluded.Remove(scenario) : excluded.Add(scenario);
+        return changed ? [Leaving(state, excluded)] : [];
+    }
+
+    /// <summary><c>scenario remove &lt;name&gt;</c>: the scenario's rows, in one batch; it is no longer left out of anything.</summary>
+    public static IReadOnlyList<WorkspaceChange> Remove(WorkspaceState state, string name)
+    {
+        var scenario = Existing(state, name);
+        var changes = Rows(state).Where(r => Same(r.Scenario, scenario)).Select(r => (WorkspaceChange)new WorkspaceChange.Remove(Entity.Of(ShiftKind, r.Id))).ToList();
+        var excluded = ExcludedNames(state);
+        if (excluded.Remove(scenario)) changes.Add(Leaving(state, excluded));
+        return changes;
+    }
+
+    /// <summary><c>scenarios clear</c>: every shift row; none is left out of anything. None where there is no scenario.</summary>
+    public static IReadOnlyList<WorkspaceChange> Clear(WorkspaceState state)
+    {
+        var changes = Rows(state).Select(r => (WorkspaceChange)new WorkspaceChange.Remove(Entity.Of(ShiftKind, r.Id))).ToList();
+        if (ExcludedNames(state).Count > 0) changes.Add(Leaving(state, new HashSet<string>(StringComparer.OrdinalIgnoreCase)));
+        return changes;
+    }
+
+    /// <summary>
+    /// <c>scenario duplicate &lt;name&gt; &lt;new name&gt;</c>: the scenario's rows copied under a new name, as they stand, to be
+    /// edited; the copy is included. A name a scenario has is refused, so a copy never joins another scenario.
+    /// </summary>
+    public static IReadOnlyList<WorkspaceChange> Duplicate(WorkspaceState state, string name, string copy, long revision)
+    {
+        var scenario = Existing(state, name);
+        var named = Checked(copy);
+        if (All(state).FirstOrDefault(s => Same(s.Name, named)) is { } taken)
+            throw new WorkspaceRefused("InvalidScenario", $"A scenario {taken.Name} exists: name the copy otherwise, or remove {taken.Name} first.");
+        var changes = new List<WorkspaceChange>();
+        foreach (var (_, fields) in Raw(state).Where(r => Same(r.Fields["scenario"]?.GetValue<string>(), scenario)))
+        {
+            var copied = (JsonObject)fields.DeepClone();
+            copied["scenario"] = named;
+            changes.Add(new WorkspaceChange.Create(PortfolioEditRules.WorkspaceScope, Entity.Of(ShiftKind, $"s{revision + 1 + changes.Count}"), copied));
+        }
+        var excluded = ExcludedNames(state);
+        if (excluded.Remove(named)) changes.Add(Leaving(state, excluded));
+        return changes;
+    }
+
+    // A scenario named, by its name as the workspace holds it; one it does not hold is refused with those it does.
+    static string Existing(WorkspaceState state, string name)
+    {
+        var all = All(state);
+        return all.FirstOrDefault(s => Same(s.Name, name.Trim()))?.Name ?? throw new WorkspaceRefused("UnknownScenario", all.Count == 0
+            ? $"There is no scenario {name.Trim()}: the workspace has none."
+            : $"There is no scenario {name.Trim()}: the scenarios are {string.Join(", ", all.Select(s => s.Name))}.");
+    }
+
+    // The names left out of Price, as one created entity of the workspace, made with the first.
+    static WorkspaceChange Leaving(WorkspaceState state, IEnumerable<string> excluded)
+    {
+        var names = new JsonArray([.. excluded.Order(StringComparer.OrdinalIgnoreCase).Select(n => (JsonNode?)JsonValue.Create(n))]);
+        return state.Created.ContainsKey(Inclusion)
+            ? new WorkspaceChange.Set(new EditTarget(PortfolioEditRules.WorkspaceScope, Inclusion, Excluded), names)
+            : new WorkspaceChange.Create(PortfolioEditRules.WorkspaceScope, Inclusion, new JsonObject { [Excluded] = names });
     }
 
     /// <summary>The scenarios, in the order of their first rows, with their shift counts, whether each is included, and the
@@ -306,14 +507,14 @@ public static class PortfolioScenarios
     };
 
     /// <summary>A scenario's name as given, trimmed; an empty one, or one a scenario command begins with, is refused.</summary>
-    public static string Checked(string name)
-    {
-        var named = name.Trim();
-        if (named.Length == 0) throw new WorkspaceRefused("InvalidScenario", "A scenario needs a name, such as s1.");
-        if (Reserved.Contains(named.ToLowerInvariant()))
-            throw new WorkspaceRefused("InvalidScenario", $"A scenario cannot be named {named}: scenario {named} is a command. Name it otherwise, such as {named}1.");
-        return named;
-    }
+    public static string Checked(string name) =>
+        NameIssue(name.Trim()) is { } issue ? throw new WorkspaceRefused("InvalidScenario", issue) : name.Trim();
+
+    // Why a name, trimmed, cannot name a scenario; none where it can.
+    static string? NameIssue(string named) =>
+        named.Length == 0 ? "A scenario needs a name, such as s1."
+        : Reserved.Contains(named.ToLowerInvariant()) ? $"A scenario cannot be named {named}: scenario {named} is a command. Name it otherwise, such as {named}1."
+        : null;
 
     /// <summary>Two names of one scenario: case ignored.</summary>
     public static bool Same(string? a, string? b) => a is not null && b is not null && string.Equals(a, b, StringComparison.OrdinalIgnoreCase);

@@ -299,4 +299,32 @@ public class PricerApiTests(WorkbenchFactory factory) : IClassFixture<WorkbenchF
         Assert.DoesNotContain("Scenario", (await client.GetFromJsonAsync<JsonObject>($"/api/xva/runs/{runId}/quote"))!["text"]!.GetValue<string>());
         Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync($"/api/xva/runs/{runId}/quote?scenario=s9")).StatusCode);
     }
+
+    [Fact] // ADR-0010 §4: the Scenarios tab over HTTP: a block pasted, a cell refused by row and column, include, duplicate, remove and clear
+    public async Task The_scenarios_tab_edits_and_lists_over_http()
+    {
+        var ws = await Create();
+        async Task<JsonObject> Ok(string path, object body)
+        {
+            var response = await Post(ws, path, body);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            var answer = (await response.Content.ReadFromJsonAsync<JsonObject>())!;
+            return answer["workspace"]?.AsObject() ?? answer;
+        }
+        static object Row(int row, string scenario, string index, string size) => new { id = (string?)null, row, cells = new Dictionary<string, string?> { ["scenario"] = scenario, ["index"] = index, ["size"] = size } };
+
+        ws = await Ok("shifts", new { revision = Revision(ws), rows = new[] { Row(1, "up", "jpy_ois", "+10bp"), Row(2, "up", "usdjpy", "-5%") } });
+        Assert.Equal([("IR", "abs", "all"), ("FX", "rel", "spot")], ws["shifts"]!.AsArray().Select(r => (r!["category"]!.GetValue<string>(), r["type"]!.GetValue<string>(), r["factor"]!.GetValue<string>())));
+        var refused = await Post(ws, "shifts", new { revision = Revision(ws), rows = new[] { Row(3, "up", "jpy_ojs", "+1bp") } });
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, refused.StatusCode);
+        Assert.StartsWith("Row 3, Index: jpy_ojs is no index", (await refused.Content.ReadFromJsonAsync<JsonObject>())!["message"]!.GetValue<string>());
+
+        ws = await Ok("scenarios/duplicate", new { revision = Revision(ws), name = "up", copy = "up2" });
+        ws = await Ok("scenarios/include", new { revision = Revision(ws), name = "up", included = false });
+        Assert.Equal([("up", false), ("up2", true)], ws["scenarios"]!.AsArray().Select(s => (s!["name"]!.GetValue<string>(), s["included"]!.GetValue<bool>())));
+        ws = await Ok("scenarios/remove", new { revision = Revision(ws), name = "up2" });
+        Assert.Equal(["up"], ws["scenarios"]!.AsArray().Select(s => s!["name"]!.GetValue<string>()));
+        ws = await Ok("scenarios/clear", new { revision = Revision(ws) });
+        Assert.Empty(ws["scenarios"]!.AsArray());
+    }
 }

@@ -33,6 +33,13 @@ public static class XvaApi
     public sealed record TradesAdded(PortfolioWorkspaceView Workspace, IReadOnlyList<string> Made, IReadOnlyList<string> Replaced);
     /// <summary><c>scenario &lt;name&gt; &lt;shift&gt;; …</c> (ADR-0010 §4): the scenario's name and its shifts as written.</summary>
     public sealed record ScenarioRequest(long Revision, string Name, string Shifts);
+    /// <summary>The Scenarios grid's rows as edited (ADR-0010 §4): each an existing shift's id, or none for a blank row,
+    /// where the grid shows it, and its cells as typed, by column.</summary>
+    public sealed record ShiftsRequest(long Revision, IReadOnlyList<ShiftRowRequest> Rows);
+    public sealed record ShiftRowRequest(string? Id, int Row, Dictionary<string, string?> Cells);
+    public sealed record IncludeRequest(long Revision, string Name, bool Included);
+    public sealed record ScenarioNameRequest(long Revision, string Name);
+    public sealed record DuplicateRequest(long Revision, string Name, string Copy);
     /// <summary>What a scenario command made, and those of the same name it replaced.</summary>
     public sealed record ScenariosMade(PortfolioWorkspaceView Workspace, IReadOnlyList<string> Made, IReadOnlyList<string> Replaced);
     public sealed record ValueDateRequest(long Revision, DateOnly ValueDate);
@@ -128,6 +135,37 @@ public static class XvaApi
         {
             var answer = service.DefineScenario(id, request.Revision, user.Id, request.Name, request.Shifts);
             return Results.Ok(new ScenariosMade(service.View(id, user.Id), answer.Made, answer.Replaced));
+        }));
+
+        // The Scenarios tab (ADR-0010 §4): the grid's edits as one batch, and the list's include, remove and duplicate.
+        ws.MapPost("/{id}/shifts", (string id, ShiftsRequest request, CurrentUser user, PortfolioWorkspaces service) => Guard(() =>
+        {
+            service.EditShifts(id, request.Revision, user.Id, [.. request.Rows.Select(r => new ShiftEdit(r.Id, r.Row, r.Cells))]);
+            return Results.Ok(service.View(id, user.Id));
+        }));
+
+        ws.MapPost("/{id}/scenarios/include", (string id, IncludeRequest request, CurrentUser user, PortfolioWorkspaces service) => Guard(() =>
+        {
+            service.IncludeScenario(id, request.Revision, user.Id, request.Name, request.Included);
+            return Results.Ok(service.View(id, user.Id));
+        }));
+
+        ws.MapPost("/{id}/scenarios/remove", (string id, ScenarioNameRequest request, CurrentUser user, PortfolioWorkspaces service) => Guard(() =>
+        {
+            service.RemoveScenario(id, request.Revision, user.Id, request.Name);
+            return Results.Ok(service.View(id, user.Id));
+        }));
+
+        ws.MapPost("/{id}/scenarios/duplicate", (string id, DuplicateRequest request, CurrentUser user, PortfolioWorkspaces service) => Guard(() =>
+        {
+            var answer = service.DuplicateScenario(id, request.Revision, user.Id, request.Name, request.Copy);
+            return Results.Ok(new ScenariosMade(service.View(id, user.Id), answer.Made, answer.Replaced));
+        }));
+
+        ws.MapPost("/{id}/scenarios/clear", (string id, CaseRequest request, CurrentUser user, PortfolioWorkspaces service) => Guard(() =>
+        {
+            service.ClearScenarios(id, request.Revision, user.Id);
+            return Results.Ok(service.View(id, user.Id));
         }));
 
         ws.MapGet("/{id}/changes", (string id, CurrentUser user, PortfolioWorkspaces service) =>

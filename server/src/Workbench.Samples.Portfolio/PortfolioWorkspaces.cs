@@ -155,6 +155,42 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
         return new ScenarioAnswer(workspaces.Batch(workspaceId, revision, user, changes, origin), [named], replaced ? [named] : []);
     }
 
+    /// <summary>
+    /// The Scenarios grid's edits as one batch (ADR-0010 §4): a cell typed, a block pasted onto it, or cells cleared, each
+    /// read as its column reads it; one cell that does not resolve refuses the edit whole, naming its row and column.
+    /// </summary>
+    public WorkspaceState EditShifts(string workspaceId, long revision, string user, IReadOnlyList<ShiftEdit> edits, RunOrigin? origin = null) =>
+        Apply(workspaceId, revision, user, raw => PortfolioScenarios.Edit(raw, edits, revision), origin);
+
+    /// <summary><c>scenario include|exclude &lt;name&gt;</c>: whether Price prices it, as its box says; its rows stay.</summary>
+    public WorkspaceState IncludeScenario(string workspaceId, long revision, string user, string name, bool included, RunOrigin? origin = null) =>
+        Apply(workspaceId, revision, user, raw => PortfolioScenarios.Include(raw, name, included), origin);
+
+    /// <summary><c>scenario remove &lt;name&gt;</c>: its rows, in one batch.</summary>
+    public WorkspaceState RemoveScenario(string workspaceId, long revision, string user, string name, RunOrigin? origin = null) =>
+        Apply(workspaceId, revision, user, raw => PortfolioScenarios.Remove(raw, name), origin);
+
+    /// <summary><c>scenarios clear</c>: every shift row.</summary>
+    public WorkspaceState ClearScenarios(string workspaceId, long revision, string user, RunOrigin? origin = null) =>
+        Apply(workspaceId, revision, user, PortfolioScenarios.Clear, origin);
+
+    /// <summary><c>scenario duplicate &lt;name&gt; &lt;new name&gt;</c>: the scenario's rows under the new name, to be edited.</summary>
+    public ScenarioAnswer DuplicateScenario(string workspaceId, long revision, string user, string name, string copy, RunOrigin? origin = null)
+    {
+        var state = Apply(workspaceId, revision, user, raw => PortfolioScenarios.Duplicate(raw, name, copy, revision), origin);
+        return new ScenarioAnswer(state, [PortfolioScenarios.Checked(copy)], []);
+    }
+
+    // A scenario command's changes as one batch, against the revision named; one that changes nothing leaves the
+    // workspace as it stands.
+    WorkspaceState Apply(string workspaceId, long revision, string user, Func<WorkspaceState, IReadOnlyList<WorkspaceChange>> change, RunOrigin? origin)
+    {
+        var raw = Owned(workspaceId, user);
+        if (raw.Revision != revision) throw new WorkspaceRefused("RevisionMoved", $"The workspace is at revision {raw.Revision}, not {revision}.");
+        var changes = change(raw);
+        return changes.Count == 0 ? raw : workspaces.Batch(workspaceId, revision, user, changes, origin);
+    }
+
     // The edits to the portfolio's data in any layer, as the Changes tab counts them: the selection and the settings
     // are the page's, shown on their own.
     static IEnumerable<Override> DataEdits(WorkspaceState raw) =>
