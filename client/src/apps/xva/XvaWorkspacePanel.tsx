@@ -666,10 +666,11 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
                 onCopyQuote={() => void copyQuote()} onTrace={(measure, caseId, term) => explain(measure, term, caseId)}
                 open={dockOpen} onOpenChange={setDockOpen} height={dockHeight}
                 tab={resultTab} onTab={(tab) => { setResultTab(tab); if (tab !== METRICS_TAB.id) setDockFull(true); }} full={full} onFull={setDockFull}
-                renderTab={(tab, caption) => (
+                traceCase={traceCase} onTraceCase={setTraceCase}
+                renderTab={(tab, caption, caseId) => (
                   <Suspense fallback={<Text size="sm">Reading the trace…</Text>}>
-                    <TraceTab key={`${pricedRun}:${traceCase}:${tab.measure}`} tabId={tabIdOf(tab.id)} api={traceApi} registerFocus={registerTreeFocus}
-                      address={{ runId: pricedRun, case: traceCase, scenario: BASE_SCENARIO, measure: tab.measure }} caption={caption} />
+                    <TraceTab key={`${pricedRun}:${caseId}:${tab.measure}`} tabId={tabIdOf(tab.id)} api={traceApi} registerFocus={registerTreeFocus}
+                      address={{ runId: pricedRun, case: caseId, scenario: BASE_SCENARIO, measure: tab.measure }} caption={caption} />
                   </Suspense>
                 )} />
             </>

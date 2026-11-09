@@ -1,7 +1,8 @@
 import { useId, type ReactNode } from 'react';
-import { Alert, Anchor, Badge, Button, Group, Stack, Table, Tabs, Text } from '@mantine/core';
+import { Alert, Anchor, Badge, Button, Group, NativeSelect, Stack, Table, Tabs, Text } from '@mantine/core';
 import type { TypedDataRef } from '../../platform/contracts';
 import { archiveUrl } from '../../platform/runs';
+import { BASE_CASE } from '../../platform/traces/open';
 import { partHeight } from './layout';
 import { useDatasets, useRun } from '../../platform/workspace/WorkspaceProvider';
 import type { RegisteredMeasure } from './contracts';
@@ -14,7 +15,7 @@ import { headlines, metricsGrid, metricsTable, pricedMeasures, reasons, tradeCou
 // request answers, and a failed request leaves only its own measures unavailable (§10). Collapsed, the dock is its
 // header and one line a case with each measure's headline Diff (§7).
 
-export function XvaResult({ runId, pricedRevision, revision, register, selected, onOpen, onCopyQuote, onTrace, open, onOpenChange, height, tab, onTab, full, onFull, renderTab }: {
+export function XvaResult({ runId, pricedRevision, revision, register, selected, onOpen, onCopyQuote, onTrace, open, onOpenChange, height, tab, onTab, full, onFull, traceCase, onTraceCase, renderTab }: {
   readonly runId: string;
   /** The workspace revision the Run froze; unknown until the workspace lists the Run. */
   readonly pricedRevision: number | undefined;
@@ -40,8 +41,14 @@ export function XvaResult({ runId, pricedRevision, revision, register, selected,
   /** Whether the dock is widened over the trade grids (owner, 2026-11-08), and widening or restoring it. */
   readonly full: boolean;
   readonly onFull: (full: boolean) => void;
-  /** What a measure's own tab draws while it is shown, such as its trace, under what the page says of every figure in it (ADR-0012 §7). */
-  readonly renderTab: (tab: MeasureTab, caption: string | undefined) => ReactNode;
+  /** The case a measure's own tab draws, chosen with the dock's case selector, the Base by default (ADR-0010 §7). */
+  readonly traceCase: string;
+  readonly onTraceCase: (caseId: string) => void;
+  /**
+   * What a measure's own tab draws while it is shown, such as its trace, under what the page says of every figure in it
+   * (ADR-0012 §7), for the case in view: the one chosen where this Run priced it, else the Base.
+   */
+  readonly renderTab: (tab: MeasureTab, caption: string | undefined, caseId: string) => ReactNode;
 }) {
   const bodyId = useId();
   const run = useRun(runId);
@@ -84,6 +91,9 @@ export function XvaResult({ runId, pricedRevision, revision, register, selected,
     ...(table?.sides.before === true && table.sides.after ? [['diff', 'Diff'] as const] : []),
   ];
   const lines = table === undefined ? [] : headlines(register, table);
+  // The Run's cases, for a measure's tab to draw one of (ADR-0010 §7): a case another Run made is not this one's.
+  const cases = (grid?.rows ?? []).filter((r) => r.key !== '');
+  const inView = cases.some((c) => c.key === traceCase) ? traceCase : BASE_CASE;
   // Copy quote is a quoted measure's (§7, §11: XVA's, from CVA), offered while the Run priced one.
   const quoted = register.filter((m) => m.quoted);
   const quotes = priced !== undefined && quoted.some((m) => priced.includes(m.id));
@@ -116,6 +126,10 @@ export function XvaResult({ runId, pricedRevision, revision, register, selected,
         ))}
         {currencies.length > 0 && (
           <Badge variant="light" color="gray" data-testid="xva-result-currency" title="The currency this Run's figures are in.">{currencies.join(' · ')}</Badge>
+        )}
+        {open && shown.view !== 'metrics' && cases.length > 1 && (
+          <NativeSelect size="xs" aria-label="Case" data-testid="xva-result-case" value={inView} title={`The case the ${shown.title} tab draws.`}
+            data={cases.map((c) => ({ value: c.key, label: c.title }))} onChange={(e) => onTraceCase(e.currentTarget.value)} />
         )}
         {counts.length > 0 && (
           <Text size="xs" data-testid="xva-result-trades" title="Trades each measure priced, Before → After">Trades: {counts.join(' · ')}</Text>
@@ -155,7 +169,7 @@ export function XvaResult({ runId, pricedRevision, revision, register, selected,
             ? <Text size="sm">The {shown.title} tab draws once the Run has finished.</Text>
             : unpriced !== undefined
               ? <Stack gap={0} data-testid="xva-result-tab-unpriced">{unpriced.map((r) => <Text key={r.text} size="sm" {...(r.failed ? { c: 'red' } : {})}>{r.text}</Text>)}</Stack>
-              : renderTab(shown, conversionOf(table, shown.measure))}
+              : renderTab(shown, conversionOf(table, shown.measure), inView)}
         </div>
       )}
       {open && shown.view === 'metrics' && (

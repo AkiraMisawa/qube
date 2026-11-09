@@ -474,4 +474,23 @@ public class PricerCaseTests
         Assert.Equal([("CSA-B", true), ("CSA-B", false)], page.Select(t => (t.Csa, t.After)));
         Assert.Equal(both.Revision + 1, box.Revision);
     }
+
+    [Fact] // ADR-0010 §7 with §3: Copy quote holds a line per case of the Run, each named, with its CVA Charge and PV
+    public async Task Copy_quote_holds_a_line_per_case_with_its_charge_and_pv()
+    {
+        var (service, runs, store) = Priced();
+        var ws = service.Create("akira", "ABC/LE-01", Day1, 40);
+        ws = service.Vary(ws.WorkspaceId, ws.Revision, "akira", "CSA-A threshold", ["200mm"]).State;
+        var (_, rows, run) = await Price(runs, store, service, ws);
+        var raised = Id(service, ws, "CSA-A threshold 200mm");
+        string Diff(string @case, string metric) => Row(rows, @case, metric)["diff"]!.GetValue<decimal>().ToString("#,0.00", System.Globalization.CultureInfo.InvariantCulture);
+
+        var quote = XvaQuote.Of(run, store);
+
+        Assert.Equal([
+            $"Base: CVA Charge {Diff("base", "cvaCharge")} · PV {Diff("base", "pv")}",
+            $"CSA-A threshold 200mm: CVA Charge {Diff(raised, "cvaCharge")} · PV {Diff(raised, "pv")}",
+        ], quote.Text.Split('\n').Select(l => l.TrimEnd('\r')).Skip(2));
+        Assert.Contains("<td>CSA-A threshold 200mm</td>", quote.Html);
+    }
 }

@@ -6,8 +6,8 @@ Run, each named, as one quote.
 
 **Blocked by:** 02.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Each case's spot IM and spot CCR capital trace is read for that case, and differs where its inputs differ.
-- [ ] A Metrics cell of a case opens the measure's tab on that case.
-- [ ] Copy quote holds a line per case with its CVA Charge and PV.
+- [x] Each case's spot IM and spot CCR capital trace is read for that case, and differs where its inputs differ.
+- [x] A Metrics cell of a case opens the measure's tab on that case.
+- [x] Copy quote holds a line per case with its CVA Charge and PV.
