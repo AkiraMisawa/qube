@@ -27,12 +27,18 @@ public sealed record MeasureDefinition(string Id, string Title, IReadOnlyList<Me
 /// <summary>
 /// A result tab a measure registers beside Metrics (ADR-0010 §7, §10), such as spot IM's <c>SIMM</c>. <paramref name="View"/>
 /// names the approved view that draws it from the Run: <c>trace</c> draws the measure's calculation trace, a card per
-/// root above its drill-down (ADR-0011 §6, ADR-0012 §7). A Metrics cell of the measure opens the tab at its term.
+/// root above its drill-down (ADR-0011 §6, ADR-0012 §7); <c>risks</c> its deltas and <c>profile</c> the profiles the Run
+/// returned (the owner's Risks and Profile of 2026-11-08). A tab several measures register, by one id, is one tab drawn
+/// for all of them. A Metrics cell of a traced measure opens its tab at its term.
 /// </summary>
 public sealed record ResultTab(string Id, string Title, string View)
 {
     /// <summary>The view that draws a measure's calculation trace: a card per root, then the drill-down.</summary>
     public const string Trace = "trace";
+    /// <summary>The view that draws a measure's deltas from the Run's <c>portfolio.risks</c> rows, for the case and market in view.</summary>
+    public const string Risks = "risks";
+    /// <summary>The view that draws the Run's <c>portfolio.profiles</c> rows as a table and a chart, for the case and market in view.</summary>
+    public const string Profile = "profile";
 }
 
 /// <summary>

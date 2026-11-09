@@ -17,8 +17,6 @@ public static class XvaContracts
     /// <summary>The result of a Run priced before the measures register; read by the Pricing DB, never written.</summary>
     public const string CaseResult = "xva.case-result";
     public const string ResultView = "view.xva.result";
-    /// <summary>The capital profile the KVA option returns (ADR-0010 §11, ADR-0013 §1): a row per case, side and date.</summary>
-    public const string CapitalProfile = "xva.capital-profile";
 }
 
 /// <summary>
@@ -52,14 +50,21 @@ public sealed class XvaMeasures(Pv01Provider pv01, decimal fvaLimitGbp = 1_000_0
     /// <summary>Its step is the fake engine's (<see cref="FakeXvaPrice"/>), and its PV01 the simulated one's.</summary>
     public bool Simulated => true;
 
+    /// <summary>The Risks tab CVA and FVA register (owner 2026-11-08): one tab for both, their deltas from the Run.</summary>
+    public static readonly ResultTab RisksTab = new("risks", "Risks", ResultTab.Risks);
+
+    /// <summary>The Profile tab CVA, FVA and KVA register (owner 2026-11-08): the exposure and capital profiles the Run returned.</summary>
+    public static readonly ResultTab ProfileTab = new("profile", "Profile", ResultTab.Profile);
+
     public static IReadOnlyList<MeasureDefinition> Definitions { get; } =
     [
         // The request that prices CVA also values the portfolio: its PV is the value a case adds, which Copy quote quotes
         // beside the charge (ADR-0010 §7).
-        new(Cva, "CVA", [new("cva", "CVA"), new("cvaCharge", "CVA Charge"), new("pv", "PV")], "cva", DeclaresMembership: false, Traced: false, Quoted: true),
-        new(Fva, "FVA", [new("fva", "FVA")], "fva", DeclaresMembership: true, Traced: false),
+        new(Cva, "CVA", [new("cva", "CVA"), new("cvaCharge", "CVA Charge"), new("pv", "PV")], "cva", DeclaresMembership: false, Traced: false, Quoted: true,
+            Tabs: [RisksTab, ProfileTab]),
+        new(Fva, "FVA", [new("fva", "FVA")], "fva", DeclaresMembership: true, Traced: false, Tabs: [RisksTab, ProfileTab]),
         // The cost of holding spot CCR capital's profile (ADR-0010 §11, ADR-0013 §1); the profile has no trace.
-        new(Kva, "KVA", [new("kva", "KVA")], "kva", DeclaresMembership: false, Traced: false),
+        new(Kva, "KVA", [new("kva", "KVA")], "kva", DeclaresMembership: false, Traced: false, Tabs: [ProfileTab]),
     ];
 
     public IReadOnlyList<MeasureDefinition> Measures => Definitions;
@@ -254,13 +259,14 @@ public sealed class ImperfectCsa : IMembershipRule
 public sealed class FakeXvaPrice : ICapabilityHandler
 {
     public const string CapabilityId = "xva.price";
-    public const string CapabilityVersion = "2.1.0";
+    public const string CapabilityVersion = "2.2.0";
 
     public CapabilityDescriptor Descriptor { get; } = new(CapabilityId, CapabilityVersion, "Price CVA, FVA, KVA and spot CCR capital (simulated)",
         [new("acceptedInput", PortfolioContracts.AcceptedInput, PortfolioContracts.Version, Cardinality.One)],
         [new("result", PortfolioContracts.MeasureResult, PortfolioContracts.Version, Cardinality.One),
          new("traces", TraceSet.ContractId, TraceSet.ContractVersion, Cardinality.One),
-         new("profile", XvaContracts.CapitalProfile, XvaContracts.Version, Cardinality.One)],
+         new("risks", PortfolioContracts.Risks, PortfolioContracts.Version, Cardinality.One),
+         new("profiles", PortfolioContracts.Profiles, PortfolioContracts.Version, Cardinality.One)],
         ExecutionKind.RequestResponse, [CapabilityEffect.Compute]);
 
     /// <summary>
@@ -275,19 +281,6 @@ public sealed class FakeXvaPrice : ICapabilityHandler
     /// <summary>The toy's dates in years, cut at a side's last maturity, which is the last.</summary>
     static readonly double[] Grid = [0, 0.25, 0.5, 1, 2, 3, 5, 7, 10, 15, 20, 30];
 
-    static readonly IReadOnlyList<DatasetColumn> ProfileColumns =
-    [
-        new("case", DatasetColumnType.String, false),
-        new("scenario", DatasetColumnType.String, false),
-        new("side", DatasetColumnType.String, false),
-        new("years", DatasetColumnType.Number, false),
-        new("date", DatasetColumnType.String, false),
-        new("trades", DatasetColumnType.Integer, false),
-        new("ead", DatasetColumnType.Number, false),
-        new("capital", DatasetColumnType.Number, false),
-        new("currency", DatasetColumnType.String, false),
-    ];
-
     public Task<IReadOnlyDictionary<string, JsonNode?>> InvokeAsync(CapabilityInvocation invocation, CancellationToken cancellationToken)
     {
         var reference = invocation.Inputs["acceptedInput"].Deserialize<TypedDataRef>(WireJson.Options)
@@ -298,24 +291,41 @@ public sealed class FakeXvaPrice : ICapabilityHandler
         var rows = new List<JsonObject>();
         var traces = new List<TraceEntry>();
         var profile = new List<JsonObject>();
+        var risks = new List<JsonObject>();
         foreach (var @case in PortfolioInput.Cases(invocation.Data.ReadRequired(reference)))
         {
             var priced = Price(@case, invocation.InvocationId, provenance);
             rows.AddRange(priced.Rows);
             traces.AddRange(priced.Traces);
             profile.AddRange(priced.Profile);
+            risks.AddRange(priced.Risks);
         }
         return Task.FromResult<IReadOnlyDictionary<string, JsonNode?>>(new Dictionary<string, JsonNode?>
         {
             ["result"] = Datasets.Create("XVA (simulated)", MeasureResult.Columns, rows, provenance),
             ["traces"] = JsonSerializer.SerializeToNode(new TraceSet(traces), WireJson.Options),
-            ["profile"] = Datasets.Create("Capital profile (simulated: the spot rules on the trades still alive, today's values held)", ProfileColumns, profile, provenance),
+            ["risks"] = Datasets.Create("XVA deltas (simulated: each factor bumped and the toy repriced)", MeasureRisks.Columns, risks, provenance),
+            ["profiles"] = Datasets.Create("XVA profiles (simulated: the toy's exposure through time, and the spot rules on the trades still alive, today's values held)",
+                MeasureProfiles.Columns, profile, provenance),
         });
     }
 
-    /// <summary>One case's rows, its spot capital traces and its capital profile, from the case as a one-case input.</summary>
-    static (IReadOnlyList<JsonObject> Rows, IReadOnlyList<TraceEntry> Traces, IReadOnlyList<JsonObject> Profile) Price(PricedCase @case, string requestId,
-        DatasetProvenance provenance)
+    /// <summary>
+    /// The factors a measure's deltas are taken on (the Risks tab, DEFAULT of 2026-11-09): CVA's credit at each CDS tenor
+    /// (+1bp key-rate), IR on each discount curve (+1bp parallel) and FX on each currency against JPY (+1%); FVA's IR on
+    /// each discount and funding curve and its FX. Each bump is a shift on top of the pair's market.
+    /// </summary>
+    static IReadOnlyList<Shift> Bumps(string measure) =>
+    [
+        .. measure == XvaMeasures.Cva ? CdsCatalog.Tenors.Select(t => new Shift(ScenarioCatalog.Credit, ScenarioCatalog.Cds, t, ScenarioCatalog.Absolute, 1m)) : [],
+        .. ScenarioCatalog.Indices.Where(i => i.Category == ScenarioCatalog.Ir && (i.Kind == ScenarioCatalog.Discount || measure == XvaMeasures.Fva))
+            .Select(i => new Shift(ScenarioCatalog.Ir, i.Id, null, ScenarioCatalog.Absolute, 1m)),
+        .. ScenarioCatalog.Indices.Where(i => i.Category == ScenarioCatalog.Fx).Select(i => new Shift(ScenarioCatalog.Fx, i.Id, null, ScenarioCatalog.Relative, 1m)),
+    ];
+
+    /// <summary>One case's rows, its spot capital traces, its capital profile and its deltas, from the case as a one-case input.</summary>
+    static (IReadOnlyList<JsonObject> Rows, IReadOnlyList<TraceEntry> Traces, IReadOnlyList<JsonObject> Profile, IReadOnlyList<JsonObject> Risks) Price(PricedCase @case,
+        string requestId, DatasetProvenance provenance)
     {
         var input = @case.Input;
         var valueDate = DateOnly.ParseExact(input["context"]!["valueDate"]!.GetValue<string>(), "yyyy-MM-dd", CultureInfo.InvariantCulture);
@@ -340,6 +350,7 @@ public sealed class FakeXvaPrice : ICapabilityHandler
         var chargeRatio = Setting(XvaMeasures.ChargeRatio).GetValue<decimal>();
         var costOfCapital = Setting(XvaMeasures.CostOfCapital).GetValue<decimal>();
         var adjusted = Setting(XvaMeasures.PvAdjustment).GetValue<bool>();
+        var risksAsked = Setting(XvaMeasures.Risks).GetValue<bool>();
 
         // FVA prices only its members (ADR-0010 §5), as the accepted input froze them; a trade without its membership is
         // an input this provider cannot read, never a trade it guesses about.
@@ -554,12 +565,76 @@ public sealed class FakeXvaPrice : ICapabilityHandler
                 rows.Add(MeasureResult.Row(@case, definition.Id, metric, currency, Figure(figures.Before, value, fva), Figure(figures.After, value, fva)));
             }
         }
-        return (rows, capital?.Traces.Traces ?? [], [.. profiles.SelectMany(p => p.Value.Select(x => new JsonObject
+        // The deltas (the Risks tab): with risks asked, each factor bumped on top of the pair's market and both sides priced
+        // again, the delta the bumped figure minus the priced one; a measure with none says why.
+        var risks = new List<JsonObject>();
+        var bumped = new Dictionary<string, (SideFigures Before, SideFigures After)?>();
+        string? bumpUnapplied = null;
+        (SideFigures Before, SideFigures After)? On(Shift bump)
         {
-            ["case"] = @case.Id, ["scenario"] = @case.Scenario.Id, ["side"] = p.Key, ["years"] = x.Years,
-            ["date"] = x.Date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), ["trades"] = x.Trades,
-            ["ead"] = Math.Round(x.Ead, 2), ["capital"] = Math.Round(x.Capital, 2), ["currency"] = capital!.Portfolio!.ReportingCurrency,
-        }))]);
+            if (bumped.TryGetValue(bump.Text, out var known)) return known;
+            var moved = new ScenarioMarket([.. market.Shifts, bump], market.ValueDate);
+            try
+            {
+                return bumped[bump.Text] = (Side("before", moved), Side("after", moved));
+            }
+            catch (ScenarioUnapplied e)
+            {
+                bumpUnapplied = e.Message;
+                return bumped[bump.Text] = null;
+            }
+        }
+        foreach (var selected in measures.Where(m => m["id"]!.GetValue<string>() is XvaMeasures.Cva or XvaMeasures.Fva))
+        {
+            var definition = definitions[selected["id"]!.GetValue<string>()];
+            var headline = definition.Metrics.Single(m => m.Id == definition.Headline);
+            if (selected["refused"] is JsonObject refused)
+            {
+                risks.Add(MeasureRisks.None(@case, definition.Id, headline, currency, $"{definition.Title} is refused, so it has no deltas: {refused["message"]!.GetValue<string>()}"));
+                continue;
+            }
+            if (!risksAsked)
+            {
+                risks.Add(MeasureRisks.None(@case, definition.Id, headline, currency,
+                    "Risks were not asked: turn Risks included on in Settings, or set xva risks on, and Price again."));
+                continue;
+            }
+            if (sides.Value is not { } figures)
+            {
+                risks.Add(MeasureRisks.None(@case, definition.Id, headline, currency, unapplied ?? throw new InvalidOperationException("A pair not priced says why.")));
+                continue;
+            }
+            Func<SideFigures, decimal> value = definition.Id == XvaMeasures.Cva ? CvaOf : s => s.Fva;
+            MeasureResult.Side Delta(SideFigures priced, SideFigures moved) =>
+                priced.Count == 0 ? MeasureResult.Side.NotPricedWith(0) : MeasureResult.Side.Of(value(moved) - value(priced), priced.Count);
+            foreach (var bump in Bumps(definition.Id))
+            {
+                var factor = bump.Tenor is null ? bump.Index : $"{bump.Index} {bump.Tenor}";
+                var size = Shift.Signed(bump.Size, bump.Unit);
+                if (On(bump) is not { } moved)
+                {
+                    var side = new MeasureResult.Side(MeasureResult.Refused, null, null, $"Under {bump.Text}: {bumpUnapplied}");
+                    risks.Add(MeasureRisks.Row(@case, definition.Id, headline, currency, bump.Category, factor, size, side, side));
+                    continue;
+                }
+                risks.Add(MeasureRisks.Row(@case, definition.Id, headline, currency, bump.Category, factor, size,
+                    Delta(figures.Before, moved.Before), Delta(figures.After, moved.After)));
+            }
+        }
+        // The profiles (the Profile tab): the exposure CVA and FVA integrate, where either was priced on this pair, and the
+        // capital profile KVA charges for, with the KVA option.
+        var profileRows = new List<JsonObject>();
+        var exposed = measures.Any(m => m["id"]!.GetValue<string>() is XvaMeasures.Cva or XvaMeasures.Fva && m["refused"] is not JsonObject);
+        if (exposed && sides.Value is { } priced)
+            foreach (var (side, figures) in new[] { ("before", priced.Before), ("after", priced.After) })
+                foreach (var (series, title, value) in new (string, string, Func<ExposurePoint, decimal>)[] { ("ee", "EE", x => x.Ee), ("ene", "ENE", x => x.Ene) })
+                    profileRows.AddRange(figures.Count == 0 ? [] : figures.Profile.Select(x => MeasureProfiles.Row(@case, side, MeasureProfiles.Exposure, "Exposure", series, title, x.Years,
+                        valueDate.AddDays((int)Math.Round(x.Years * 365)), value(x), currency)));
+        foreach (var (side, points) in profiles)
+            foreach (var (series, title, value) in new (string, string, Func<CapitalPoint, double>)[] { ("ead", "EAD", x => x.Ead), ("capital", "Capital", x => x.Capital) })
+                profileRows.AddRange(points.Select(x => MeasureProfiles.Row(@case, side, MeasureProfiles.Capital, "Capital", series, title, x.Years, x.Date,
+                    Math.Round((decimal)value(x), 2), capital!.Portfolio!.ReportingCurrency, x.Trades)));
+        return (rows, capital?.Traces.Traces ?? [], profileRows, risks);
     }
 }
 

@@ -14,6 +14,10 @@ public static class PortfolioContracts
     /// <summary>The figures every measure reports in one shape, a row per case, measure and metric.</summary>
     public const string MeasureResult = "portfolio.measure-result";
     public const string PriceInput = "portfolio.price-input";
+    /// <summary>Each measure's deltas, a row per case, scenario, measure and risk factor (ADR-0010 OPEN of 2026-11-08, Risks).</summary>
+    public const string Risks = "portfolio.risks";
+    /// <summary>The profiles a request returns, a row per case, scenario, side, profile, series and date (Profile).</summary>
+    public const string Profiles = "portfolio.profiles";
     public const string PriceWorkflow = "workflow.portfolio.price";
 }
 
@@ -91,6 +95,98 @@ public static class MeasureResult
         ["afterNote"] = after.Note,
         ["basis"] = basis,
         ["conversion"] = conversion,
+    };
+}
+
+/// <summary>
+/// The deltas a request returns (the Risks tab, owner 2026-11-08): for each measure it prices with risks asked, a row per
+/// risk factor with its risk class (<c>Credit</c>, <c>IR</c>, <c>FX</c>) and the bump it was moved by, each side the
+/// figure on the market with the bump minus the figure on the market without, and Diff After − Before where both sides
+/// were priced. A measure with no deltas has one row with no factor saying why: risks not asked, the measure refused, the
+/// scenario not applied. Never a row of zeros for a delta nobody computed.
+/// </summary>
+public static class MeasureRisks
+{
+    public static readonly IReadOnlyList<DatasetColumn> Columns =
+    [
+        new("case", DatasetColumnType.String, false),
+        new("caseTitle", DatasetColumnType.String, false),
+        new("scenario", DatasetColumnType.String, false),
+        new("scenarioTitle", DatasetColumnType.String, false),
+        new("measure", DatasetColumnType.String, false),
+        new("metric", DatasetColumnType.String, false),
+        new("metricTitle", DatasetColumnType.String, false),
+        new("riskClass", DatasetColumnType.String, true),
+        new("factor", DatasetColumnType.String, true),
+        new("bump", DatasetColumnType.String, true),
+        new("currency", DatasetColumnType.String, false),
+        new("before", DatasetColumnType.Number, true),
+        new("after", DatasetColumnType.Number, true),
+        new("diff", DatasetColumnType.Number, true),
+        new("beforeStatus", DatasetColumnType.String, true),
+        new("afterStatus", DatasetColumnType.String, true),
+        new("reason", DatasetColumnType.String, true),
+    ];
+
+    /// <summary>One factor's delta of a measure's metric on both sides.</summary>
+    public static JsonObject Row(PricedCase @case, string measure, MetricDefinition metric, string currency, string riskClass, string factor, string bump,
+        MeasureResult.Side before, MeasureResult.Side after) => new()
+    {
+        ["case"] = @case.Id, ["caseTitle"] = @case.Title, ["scenario"] = @case.Scenario.Id, ["scenarioTitle"] = @case.Scenario.Title,
+        ["measure"] = measure, ["metric"] = metric.Id, ["metricTitle"] = metric.Title,
+        ["riskClass"] = riskClass, ["factor"] = factor, ["bump"] = bump, ["currency"] = currency,
+        ["before"] = before.Value, ["after"] = after.Value,
+        ["diff"] = before.Status == MeasureResult.Priced && after.Status == MeasureResult.Priced ? after.Value - before.Value : null,
+        ["beforeStatus"] = before.Status, ["afterStatus"] = after.Status, ["reason"] = before.Reason ?? after.Reason,
+    };
+
+    /// <summary>Why a measure has no deltas for the pair: a row with no factor and no figure.</summary>
+    public static JsonObject None(PricedCase @case, string measure, MetricDefinition metric, string currency, string reason) => new()
+    {
+        ["case"] = @case.Id, ["caseTitle"] = @case.Title, ["scenario"] = @case.Scenario.Id, ["scenarioTitle"] = @case.Scenario.Title,
+        ["measure"] = measure, ["metric"] = metric.Id, ["metricTitle"] = metric.Title,
+        ["riskClass"] = null, ["factor"] = null, ["bump"] = null, ["currency"] = currency,
+        ["before"] = null, ["after"] = null, ["diff"] = null, ["beforeStatus"] = null, ["afterStatus"] = null, ["reason"] = reason,
+    };
+}
+
+/// <summary>
+/// The profiles a request returns (the Profile tab, owner 2026-11-08), long: a row per case, scenario, side, profile,
+/// series and date, its value in the row's currency. XVA's are the exposure profile CVA and FVA integrate, EE and ENE,
+/// and the capital profile KVA charges for, EAD and capital, with the trades still alive at each date. A profile no
+/// request returned has no rows, and the tab says which it has.
+/// </summary>
+public static class MeasureProfiles
+{
+    public const string Exposure = "exposure";
+    public const string Capital = "capital";
+
+    public static readonly IReadOnlyList<DatasetColumn> Columns =
+    [
+        new("case", DatasetColumnType.String, false),
+        new("caseTitle", DatasetColumnType.String, false),
+        new("scenario", DatasetColumnType.String, false),
+        new("scenarioTitle", DatasetColumnType.String, false),
+        new("side", DatasetColumnType.String, false),
+        new("profile", DatasetColumnType.String, false),
+        new("profileTitle", DatasetColumnType.String, false),
+        new("series", DatasetColumnType.String, false),
+        new("seriesTitle", DatasetColumnType.String, false),
+        new("years", DatasetColumnType.Number, false),
+        new("date", DatasetColumnType.String, false),
+        new("value", DatasetColumnType.Number, false),
+        new("currency", DatasetColumnType.String, false),
+        new("trades", DatasetColumnType.Integer, true),
+    ];
+
+    /// <summary>One point of one series of a side's profile.</summary>
+    public static JsonObject Row(PricedCase @case, string side, string profile, string profileTitle, string series, string seriesTitle, double years, DateOnly date,
+        decimal value, string currency, int? trades = null) => new()
+    {
+        ["case"] = @case.Id, ["caseTitle"] = @case.Title, ["scenario"] = @case.Scenario.Id, ["scenarioTitle"] = @case.Scenario.Title,
+        ["side"] = side, ["profile"] = profile, ["profileTitle"] = profileTitle, ["series"] = series, ["seriesTitle"] = seriesTitle,
+        ["years"] = years, ["date"] = date.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture), ["value"] = value, ["currency"] = currency,
+        ["trades"] = trades,
     };
 }
 

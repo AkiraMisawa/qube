@@ -214,8 +214,10 @@ public class PricerApiTests(WorkbenchFactory factory) : IClassFixture<WorkbenchF
 
         Assert.Equal([("simm", "SIMM", "trace")], tabs["simm.spotIm"]);
         Assert.Equal([("ccr", "CCR", "trace")], tabs["ccr.spotCapital"]);
-        // A measure without a tab of its own lists none, never a missing list.
-        Assert.All(new[] { "cva", "fva", "kva" }, m => Assert.Empty(tabs[m]));
+        // CVA and FVA register one Risks tab between them, and with KVA one Profile tab (the owner's Risks and Profile of 2026-11-08).
+        Assert.Equal([("risks", "Risks", "risks"), ("profile", "Profile", "profile")], tabs["cva"]);
+        Assert.Equal([("risks", "Risks", "risks"), ("profile", "Profile", "profile")], tabs["fva"]);
+        Assert.Equal([("profile", "Profile", "profile")], tabs["kva"]);
     }
 
     [Fact] // ADR-0010 §10: `measures cva` then Price gives a Run whose figures are CVA's alone

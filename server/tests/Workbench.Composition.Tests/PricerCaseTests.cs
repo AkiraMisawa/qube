@@ -90,7 +90,7 @@ public class PricerCaseTests
         var negative = Assert.Throws<WorkspaceRefused>(() => service.Vary(ws.WorkspaceId, ws.Revision, "akira", "CSA-A mta", ["-1mm"]));
         var full = Assert.Throws<WorkspaceRefused>(() => service.Vary(ws.WorkspaceId, ws.Revision, "akira", "CSA-A threshold", ["5000000"]));
 
-        Assert.Equal(("UnknownCell", "No row CSA-Z: a row is a CSA (CSA-A, CSA-B), the netting set (NS-001), credit, cds or a trade's id."), (row.Code, row.Message));
+        Assert.Equal(("UnknownCell", "No row CSA-Z: a row is a CSA (CSA-A, CSA-B), the netting set (NS-001), credit, cds, a trade's id, or xva for XVA's settings."), (row.Code, row.Message));
         Assert.Equal("UnknownCell", column.Code);
         Assert.StartsWith("CSA-A has no column haircut; its columns are threshold, mta,", column.Message);
         Assert.Equal(("InvalidValue", "CSA-A threshold is an amount: 5mm, 250k, 1bn, or a bare number of millions; lots is not."), (value.Code, value.Message));
@@ -232,7 +232,7 @@ public class PricerCaseTests
         var traces = store.ReadRequired(run.Invocations.Single(i => i.StepId == XvaMeasures.Module).Outputs["traces"]).Deserialize<TraceSet>(WireJson.Options)!;
         Assert.Equal([("base", "before"), ("base", "after"), (raised, "before"), (raised, "after")], traces.Traces.Select(t => (t.Case, t.Side)));
         // Each case's profile is its own.
-        var profile = store.ReadRequired(run.Invocations.Single(i => i.StepId == XvaMeasures.Module).Outputs["profile"])["rows"]!.AsArray();
+        var profile = store.ReadRequired(run.Invocations.Single(i => i.StepId == XvaMeasures.Module).Outputs["profiles"])["rows"]!.AsArray();
         Assert.Equal(["base", raised], profile.Select(p => p!["case"]!.GetValue<string>()).Distinct());
     }
 
