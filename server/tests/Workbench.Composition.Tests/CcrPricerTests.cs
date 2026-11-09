@@ -36,7 +36,8 @@ public class CcrPricerTests
         await runs.Completion(accepted.Run.RunId);
         var run = runs.Find(accepted.Run.RunId)!;
         Assert.Equal(RunStatus.Succeeded, run.Status);
-        var input = store.ReadRequired(((DataReferenceBinding)run.Workflow.Steps[0].Bindings["acceptedInput"]).Reference).AsObject();
+        // The Base, as a one-case input had it (ADR-0010 §3's note of 2026-11-08).
+        var input = PortfolioInput.Cases(store.ReadRequired(((DataReferenceBinding)run.Workflow.Steps[0].Bindings["acceptedInput"]).Reference))[0].Input;
         var outputs = run.Invocations.Single(i => i.StepId == XvaMeasures.Module).Outputs;
         return new(run, input, [.. store.ReadRequired(run.Outputs[XvaMeasures.Module])["rows"]!.AsArray().Select(r => r!)],
             store.ReadRequired(outputs["traces"]).Deserialize<TraceSet>(WireJson.Options)!,

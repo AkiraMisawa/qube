@@ -164,7 +164,7 @@ export function metricsGrid(table: MetricsTable): MetricsGrid {
 
 /**
  * The collapsed dock (ADR-0010 §7): one line per case, each priced measure's headline metric as its Diff, or the priced
- * side, named, where the case is one-sided (`Workspace · CVA After -150.00 · FVA After -12.00`); a figure there is
+ * side, named, where the case is one-sided (`Base · CVA After -150.00 · FVA After -12.00`); a figure there is
  * not is its word, never 0.
  */
 export function headlines(register: readonly RegisteredMeasure[], table: MetricsTable): readonly { readonly key: string; readonly text: string }[] {

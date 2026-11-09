@@ -112,7 +112,8 @@ export const MEASURES_ENTITY = 'selection:measures';
  */
 export type PendingEdit =
   | { readonly entity: string; readonly field: string; readonly value: unknown; readonly resolution?: undefined; readonly measures?: undefined }
-  | { readonly entity: string; readonly field: string; readonly resolution: Resolution; readonly measures?: undefined }
+  // A held edit, or a change removed (`reset`), of the Base or of the case named (ADR-0010 §3).
+  | { readonly entity: string; readonly field: string; readonly resolution: Resolution; readonly case?: string | undefined; readonly measures?: undefined }
   | { readonly entity: typeof MEASURES_ENTITY; readonly field: 'measures'; readonly measures: readonly string[]; readonly resolution?: undefined };
 
 export { EditQueue } from '../../platform/workspace/editQueue';

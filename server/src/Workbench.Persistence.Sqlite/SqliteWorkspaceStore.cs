@@ -30,15 +30,17 @@ public sealed class SqliteWorkspaceStore : IWorkspaceStore
         this.sources = sources;
         using var connection = file.Open();
         SqliteFile.Execute(connection, Schema);
-        AddOriginColumn(connection);
+        // A log written before edits recorded their origin (ADR-0005) gains the column, and its entries keep none; one
+        // written before edits had a layer (ADR-0010 Consequences) gains that, and its edits are in none.
+        AddColumn(connection, "origin");
+        AddColumn(connection, "layer");
     }
 
-    /// <summary>A log written before edits recorded their origin (ADR-0005) gains the column; its entries keep none.</summary>
-    static void AddOriginColumn(SqliteConnection connection)
+    static void AddColumn(SqliteConnection connection, string column)
     {
         using var probe = connection.CreateCommand();
-        probe.CommandText = "SELECT COUNT(*) FROM pragma_table_info('EditLog') WHERE name = 'origin'";
-        if ((long)probe.ExecuteScalar()! == 0) SqliteFile.Execute(connection, "ALTER TABLE EditLog ADD COLUMN origin TEXT");
+        probe.CommandText = $"SELECT COUNT(*) FROM pragma_table_info('EditLog') WHERE name = '{column}'";
+        if ((long)probe.ExecuteScalar()! == 0) SqliteFile.Execute(connection, $"ALTER TABLE EditLog ADD COLUMN {column} TEXT");
     }
 
     const string Schema = """
@@ -68,6 +70,7 @@ public sealed class SqliteWorkspaceStore : IWorkspaceStore
             value_json TEXT CHECK (value_json IS NULL OR json_valid(value_json)),
             note TEXT,
             origin TEXT,
+            layer TEXT,
             PRIMARY KEY (workspace_id, seq)
         );
         CREATE INDEX IF NOT EXISTS ix_editlog_domain ON EditLog(domain_kind, at);
@@ -198,10 +201,10 @@ public sealed class SqliteWorkspaceStore : IWorkspaceStore
     {
         using var command = connection.CreateCommand();
         command.CommandText = """
-            INSERT INTO EditLog (workspace_id, seq, at, user_id, kind, domain_kind, scope, entity, field, value_json, note, origin)
-            VALUES ($id, $seq, $at, $user, $kind, $domain, $scope, $entity, $field, $value, $note, $origin)
+            INSERT INTO EditLog (workspace_id, seq, at, user_id, kind, domain_kind, scope, entity, field, value_json, note, origin, layer)
+            VALUES ($id, $seq, $at, $user, $kind, $domain, $scope, $entity, $field, $value, $note, $origin, $layer)
             """;
-        var parameters = new[] { "$id", "$seq", "$at", "$user", "$kind", "$domain", "$scope", "$entity", "$field", "$value", "$note", "$origin" }
+        var parameters = new[] { "$id", "$seq", "$at", "$user", "$kind", "$domain", "$scope", "$entity", "$field", "$value", "$note", "$origin", "$layer" }
             .ToDictionary(n => n, n => command.Parameters.Add(n, SqliteType.Text));
         foreach (var e in entries)
         {
@@ -214,6 +217,7 @@ public sealed class SqliteWorkspaceStore : IWorkspaceStore
             parameters["$scope"].Value = (object?)e.Target?.Scope ?? DBNull.Value;
             parameters["$entity"].Value = (object?)e.Target?.Entity ?? DBNull.Value;
             parameters["$field"].Value = (object?)e.Target?.Field ?? DBNull.Value;
+            parameters["$layer"].Value = (object?)e.Target?.Layer ?? DBNull.Value;
             // A value set to empty is the JSON literal null; a NULL column means the entry carries no value.
             parameters["$value"].Value = e.Kind is EditKind.Set or EditKind.KeepOverride or EditKind.Create || e.Value is not null
                 ? (e.Value?.ToJsonString() ?? "null") : DBNull.Value;
@@ -227,7 +231,7 @@ public sealed class SqliteWorkspaceStore : IWorkspaceStore
     {
         using var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT seq, at, user_id, kind, domain_kind, scope, entity, field, value_json, note, origin
+            SELECT seq, at, user_id, kind, domain_kind, scope, entity, field, value_json, note, origin, layer
             FROM EditLog WHERE workspace_id = $id ORDER BY seq
             """;
         command.Parameters.AddWithValue("$id", workspaceId);
@@ -236,7 +240,7 @@ public sealed class SqliteWorkspaceStore : IWorkspaceStore
         while (reader.Read())
         {
             string? Text(int i) => reader.IsDBNull(i) ? null : reader.GetString(i);
-            var target = Text(5) is { } scope ? new EditTarget(scope, reader.GetString(6), reader.GetString(7)) : null;
+            var target = Text(5) is { } scope ? new EditTarget(scope, reader.GetString(6), reader.GetString(7), Text(11)) : null;
             entries.Add(new EditEntry(
                 reader.GetInt64(0),
                 DateTimeOffset.Parse(reader.GetString(1), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),

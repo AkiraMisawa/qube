@@ -344,6 +344,9 @@ public static class Entity
     public const string Credit = "credit";
     public const string Selection = "selection";
     public const string Settings = "settings";
+    /// <summary>A case of the workspace (ADR-0010 §3), <c>case:&lt;id&gt;</c>: created by <c>vary</c> or <c>add trades</c>, and the
+    /// layer its changes are edits in.</summary>
+    public const string Case = "case";
 
     /// <summary>The selection of measures Price runs: <c>selection:measures</c>, field <c>measures</c> (ADR-0010 §10).</summary>
     public const string MeasuresId = "measures";

@@ -154,7 +154,7 @@ public class XvaTests
         var service = Service();
         var ws = Open(service);
         var (empty, run, store) = await Price(service, ws, "k1");
-        var input = store.ReadRequired(((DataReferenceBinding)run.Workflow.Steps[0].Bindings["acceptedInput"]).Reference);
+        var input = PortfolioInput.Cases(store.ReadRequired(((DataReferenceBinding)run.Workflow.Steps[0].Bindings["acceptedInput"]).Reference))[0].Input;
         ws = Set(service, ws, "credit:ABC/LE-01", "cvaRecovery", 0.4m);
 
         var (explicitCds, _, _) = await Price(service, ws, "k2");

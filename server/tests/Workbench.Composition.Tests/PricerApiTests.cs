@@ -50,6 +50,100 @@ public class PricerApiTests(WorkbenchFactory factory) : IClassFixture<WorkbenchF
         return (run, rows);
     }
 
+    [Fact] // ADR-0010 §3, §9: vary over HTTP makes its cases, by a cell's name or by its entity and field, and Price gives a row per case
+    public async Task Vary_makes_cases_and_price_gives_a_row_per_case()
+    {
+        var ws = await Measures(await Create(), "cva");
+
+        var named = await Post(ws, "vary", new { revision = Revision(ws), cell = "CSA-A threshold", values = new[] { "10mm", "0" } });
+        Assert.Equal(HttpStatusCode.OK, named.StatusCode);
+        var varied = (await named.Content.ReadFromJsonAsync<JsonObject>())!;
+        Assert.Equal(["CSA-A threshold 10mm"], Strings(varied["made"]));
+        Assert.Equal(["0 is the workspace's value"], Strings(varied["skipped"]));
+        ws = varied["workspace"]!.AsObject();
+        var byField = await Post(ws, "vary", new { revision = Revision(ws), entity = "netting:NS-001", field = "cvaRecovery", values = new[] { "25%" } });
+        Assert.Equal(HttpStatusCode.OK, byField.StatusCode);
+        ws = (await byField.Content.ReadFromJsonAsync<JsonObject>())!["workspace"]!.AsObject();
+        var cases = ws["cases"]!.AsArray().Select(c => (Id: c!["id"]!.GetValue<string>(), Title: c["title"]!.GetValue<string>())).ToList();
+        Assert.Equal(["Base", "CSA-A threshold 10mm", "NS-001 recovery 25%"], cases.Select(c => c.Title));
+        Assert.Equal(50, ws["caseCap"]!.GetValue<int>());
+
+        var (_, rows) = await Price(ws);
+
+        Assert.Equal(cases.Select(c => (c.Id, c.Title)), rows.Where(r => r["metric"]!.GetValue<string>() == "cva")
+            .Select(r => (r["case"]!.GetValue<string>(), r["caseTitle"]!.GetValue<string>())));
+        // A lower recovery is a larger loss: more negative CVA in the case.
+        decimal After(string @case) => rows.Single(r => r["metric"]!.GetValue<string>() == "cva" && r["case"]!.GetValue<string>() == @case)["after"]!.GetValue<decimal>();
+        Assert.True(After(cases[2].Id) < After("base"));
+    }
+
+    [Fact] // ADR-0010 §3's note of 2026-11-08: the Changes list, a case's change set, and cases removed, over HTTP
+    public async Task The_changes_list_edits_and_removes_cases_over_http()
+    {
+        var ws = await Create();
+        var varied = await Post(ws, "vary", new { revision = Revision(ws), cell = "CSA-A threshold", values = new[] { "5mm", "10mm" } });
+        ws = (await varied.Content.ReadFromJsonAsync<JsonObject>())!["workspace"]!.AsObject();
+        var first = ws["cases"]![1]!["id"]!.GetValue<string>();
+
+        var set = await Post(ws, "changes", new { revision = Revision(ws), entity = "csa:CSA-A", field = "counterpartyThreshold", text = "7.5mm", @case = first });
+        Assert.Equal(HttpStatusCode.OK, set.StatusCode);
+        ws = (await set.Content.ReadFromJsonAsync<JsonObject>())!;
+        var changes = (await client.GetFromJsonAsync<JsonObject>($"/api/xva/workspaces/{Id(ws)}/changes"))!;
+        Assert.Equal(2, changes["count"]!.GetValue<int>());
+        Assert.Equal(["7.5mm", "10mm"], changes["cases"]!.AsArray().Select(c => c!["changes"]![0]!["text"]!.GetValue<string>()));
+        Assert.Equal(first, changes["cases"]![0]!["changes"]![0]!["case"]!.GetValue<string>());
+
+        var removed = await Post(ws, "cases/remove", new { revision = Revision(ws), name = "CSA-A threshold 10mm" });
+        Assert.Equal(HttpStatusCode.OK, removed.StatusCode);
+        ws = (await removed.Content.ReadFromJsonAsync<JsonObject>())!;
+        Assert.Equal(["Base", "CSA-A threshold 5mm"], ws["cases"]!.AsArray().Select(c => c!["title"]!.GetValue<string>()));
+        var cleared = await Post(ws, "cases/clear", new { revision = Revision(ws) });
+        Assert.Equal(["Base"], (await cleared.Content.ReadFromJsonAsync<JsonObject>())!["cases"]!.AsArray().Select(c => c!["title"]!.GetValue<string>()));
+    }
+
+    [Fact] // docs/03 §5, ADR-0010 §3's note of 2026-11-08: add trades over HTTP makes the set, and Price refuses a set the ticked rows left
+    public async Task Add_trades_makes_the_set_and_price_refuses_one_the_ticked_rows_left()
+    {
+        var ws = await Measures(await Create(), "cva");
+
+        var added = await Post(ws, "add-trades", new { revision = Revision(ws) });
+        Assert.Equal(HttpStatusCode.OK, added.StatusCode);
+        var answer = (await added.Content.ReadFromJsonAsync<JsonObject>())!;
+        Assert.Equal(["add DRAFT-1", "add DRAFT-2", "add DRAFT-3"], Strings(answer["made"]));
+        ws = answer["workspace"]!.AsObject();
+        Assert.Equal([("add", "DRAFT-1"), ("add", "DRAFT-2"), ("add", "DRAFT-3")],
+            ws["cases"]!.AsArray().Skip(1).Select(c => (c!["kind"]!.GetValue<string>(), c["trade"]!.GetValue<string>())));
+        var (_, rows) = await Price(ws);
+        Assert.Equal(4, rows.Count(r => r["metric"]!.GetValue<string>() == "cva"));
+        var unticked = await Post(ws, "edits", new { revision = Revision(ws), entity = "trade:DRAFT-2", field = "after", value = false });
+        ws = (await unticked.Content.ReadFromJsonAsync<JsonObject>())!;
+
+        var refused = await Post(ws, "price", new { revision = Revision(ws), idempotencyKey = Guid.NewGuid().ToString() });
+
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, refused.StatusCode);
+        var error = (await refused.Content.ReadFromJsonAsync<JsonObject>())!;
+        Assert.Equal(("AdditionSetChanged", "add trades prices DRAFT-1, DRAFT-2, DRAFT-3 alone, and DRAFT-2 is in a case and no longer ticked. Run add trades again to make the set anew."),
+            (error["code"]!.GetValue<string>(), error["message"]!.GetValue<string>()));
+    }
+
+    [Fact] // ADR-0010 §9's note of 2026-11-08: a cell vary cannot name is refused over HTTP with what it could mean
+    public async Task Vary_refuses_a_cell_it_cannot_name()
+    {
+        var ws = await Create();
+
+        var response = await Post(ws, "vary", new { revision = Revision(ws), cell = "CSA-A", values = new[] { "1mm" } });
+
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        var error = (await response.Content.ReadFromJsonAsync<JsonObject>())!;
+        Assert.Equal(("UnknownCell", "Name a cell as its row and its column, such as CSA-A threshold; CSA-A is one word."),
+            (error["code"]!.GetValue<string>(), error["message"]!.GetValue<string>()));
+        // A body with no values, or a set with no rows, is refused as it arrives, before anything reads it.
+        var none = await Post(ws, "vary", new { revision = Revision(ws), cell = "CSA-A threshold" });
+        var rowless = await Post(ws, "set", new { revision = Revision(ws), column = "threshold", text = "5mm" });
+        Assert.Equal(HttpStatusCode.BadRequest, none.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, rowless.StatusCode);
+    }
+
     [Fact] // ADR-0010 §10, §11, ADR-0013 §1, ADR-0012 §7's note: the workspace lists the registered measures, and the request that prices each
     public async Task A_workspace_lists_the_registered_measures()
     {

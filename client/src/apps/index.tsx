@@ -11,7 +11,7 @@ import { httpRatesApi, type RatesApi } from './rates/api';
 import { ratesCommandsOf } from './rates/commands';
 import { RatesWorkspacePanel } from './rates/RatesWorkspacePanel';
 import { httpXvaApi, type XvaApi } from './xva/api';
-import { measureNamed, measuresTyped, xvaPageOf } from './xva/commands';
+import { measureNamed, measuresTyped, setTyped, varyTyped, xvaPageOf } from './xva/commands';
 import { XvaWorkspacePanel } from './xva/XvaWorkspacePanel';
 import { registerAiContext, registerAiEffect } from '../ai/effects';
 import { registerGridFocus } from '../shell/focus';
@@ -71,6 +71,18 @@ registerAiEffect('entity.create', (outputs, { workspace, queryClient }) => {
   const title = valuationDate === undefined ? 'Rates' : `Rates ${valuationDate}`;
   return { panelId: workspace.openPanelBehind(RATES_WORKSPACE, title, { workspaceId: entity.workspaceId }), title };
 });
+// What the AI pane knows of XVA (ADR-0010 §9): the workspace open is the one `vary`, `add trades` and `set` act on, and
+// what they change is read again where the page shows it. The page itself takes up a revision someone else made.
+registerAiContext(XVA_WORKSPACE, (panel) => panel.params.workspaceId === undefined ? undefined : {
+  description: 'The XVA workspace open in the active panel',
+  value: JSON.stringify({ kind: 'xva.workspace', workspaceId: panel.params.workspaceId }),
+});
+for (const capability of ['xva.vary', 'xva.trades.add', 'xva.set'])
+  registerAiEffect(capability, (outputs, { queryClient }) => {
+    const answer = outputs.answer as { readonly workspaceId: string };
+    void queryClient.invalidateQueries({ queryKey: ['xva', answer.workspaceId] });
+    return undefined;
+  });
 for (const capability of ['rates.live.start', 'rates.live.stop'])
   registerAiEffect(capability, (outputs, { queryClient }) => {
     const subscription = outputs.subscription as { readonly workspaceId: string };
@@ -221,6 +233,59 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
         xvaPage().setMeasures(measuresTyped(a.measures, xvaPage().measures().map((m) => m.id)));
       },
     },
+    // Cases (ADR-0010 §3, §9): one per value of a cell, priced beside the Base by one Price.
+    {
+      id: 'xva.vary',
+      words: 'vary',
+      title: 'Make a case per value of a cell, such as vary CSA-A threshold 10mm, 5mm, 0',
+      group: 'XVA',
+      ...onXva,
+      args: [{ name: 'cell', required: true, rest: true, hint: 'a row and a column, then the values separated by commas: CSA-A threshold 10mm, 5mm, 0' }],
+      run: (a) => {
+        const typed = varyTyped(a.cell ?? '');
+        xvaPage().vary(typed.cell, typed.values);
+      },
+    },
+    {
+      id: 'xva.set',
+      words: 'set',
+      title: 'Set one value of a cell, on one row or several, such as set CSA-A threshold 5mm',
+      group: 'XVA',
+      ...onXva,
+      args: [{ name: 'cell', required: true, rest: true, hint: 'the rows separated by commas, a column and the value: T-1001, T-1002 csa CSA-B' }],
+      run: (a) => {
+        const typed = setTyped(a.cell ?? '');
+        xvaPage().set(typed.rows, typed.column, typed.text);
+      },
+    },
+    {
+      id: 'xva.trades.add',
+      words: 'add trades',
+      title: 'Make a case per new trade with A ticked, each priced alone on top of the existing trades',
+      group: 'XVA',
+      ...onXva,
+      run: () => xvaPage().addTrades(),
+    },
+    {
+      id: 'xva.case.remove',
+      words: 'case remove',
+      title: 'Remove a case with its changes, by its title',
+      group: 'XVA',
+      ...onXva,
+      args: [{ name: 'case', required: true, rest: true, hint: 'the case\'s title, such as CSA-A threshold 5mm' }],
+      run: (a) => {
+        if (a.case === undefined || a.case.trim() === '') throw new Error('case remove needs the case to remove, by its title.');
+        xvaPage().removeCase(a.case.trim());
+      },
+    },
+    {
+      id: 'xva.cases.clear',
+      words: 'cases clear',
+      title: 'Remove every case; the Base stays',
+      group: 'XVA',
+      ...onXva,
+      run: () => xvaPage().clearCases(),
+    },
     {
       id: 'xva.run.download',
       words: 'download run',
@@ -297,7 +362,7 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
     },
     // One command per input tab (ADR-0010 §9), which shows the inputs if they were collapsed. IM is spot IM's (ADR-0012 §3),
     // and the page says so when it is not selected.
-    ...([['netting', 'Netting'], ['csa', 'CSA'], ['im', 'IM']] as const).map(([tab, title]): Command => ({
+    ...([['netting', 'Netting'], ['csa', 'CSA'], ['im', 'IM'], ['changes', 'Changes']] as const).map(([tab, title]): Command => ({
       id: `xva.open.${tab}`,
       words: `open ${tab}`,
       title: `Open the ${title} input tab`,

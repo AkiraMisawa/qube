@@ -142,6 +142,62 @@ export interface HeldEdit {
   readonly value: unknown;
   readonly source: Readonly<Record<string, unknown>> | null;
   readonly acknowledged: boolean;
+  /** The case the edit is a change of; none for a Common edit (ADR-0010 §3). */
+  readonly case: string | null;
+}
+
+/**
+ * A case Price prices (ADR-0010 §3): the workspace itself, the `base`, first; a case `vary` made, or one trade of `add
+ * trades`, which names it. `changes` counts its own edits.
+ */
+export interface CaseView {
+  readonly id: string;
+  readonly title: string;
+  readonly kind: 'base' | 'vary' | 'add';
+  readonly changes: number;
+  readonly trade: string | null;
+  /** The common change to the existing trades a case of `add trades` carries, said with it (docs/03 §5). */
+  readonly note: string | null;
+}
+
+/**
+ * One change as the Changes tab lists it (ADR-0010 §3's note of 2026-11-08): the case it is a change of (none for a
+ * Common change), its title as a cell is named, its value and Original's as written, whether it is set, held as a
+ * conflict or lost, and whether its value is typed there.
+ */
+export interface ChangeItem {
+  readonly entity: string;
+  readonly field: string;
+  readonly case: string | null;
+  readonly title: string;
+  readonly value: unknown;
+  readonly text: string;
+  readonly original: unknown;
+  readonly originalText: string;
+  readonly state: 'set' | 'conflict' | 'lost';
+  readonly editable: boolean;
+}
+
+/** Every change of the workspace: the Common ones, then each case with its own, and how many in all. */
+export interface ChangesList {
+  readonly revision: number;
+  readonly common: readonly ChangeItem[];
+  readonly cases: readonly { readonly case: CaseView; readonly changes: readonly ChangeItem[] }[];
+  readonly count: number;
+}
+
+/** What `add trades` made, by title, and the cases of the set it replaced (docs/03 §5, ADR-0010 §3's note of 2026-11-08). */
+export interface TradesAdded {
+  readonly workspace: XvaWorkspaceView;
+  readonly made: readonly string[];
+  readonly replaced: readonly string[];
+}
+
+/** What `vary` made, by title, and each value it skipped with why (ADR-0010 §3). */
+export interface Varied {
+  readonly workspace: XvaWorkspaceView;
+  readonly made: readonly string[];
+  readonly skipped: readonly string[];
 }
 
 /** One figure a measure reports, such as CVA's CVA Charge, and the trace term its cell opens where it is not the root
@@ -207,6 +263,11 @@ export interface XvaWorkspaceView {
   readonly currencies: readonly string[];
   /** The selected modules whose figures come from a simulated provider: the page says `SIMULATED` while any is. */
   readonly simulated: readonly string[];
+  /** Every case Price prices, the Base first (ADR-0010 §3), and how many one Price may price, the Base among them. */
+  readonly cases: readonly CaseView[];
+  readonly caseCap: number;
+  /** How many changes the Changes tab lists, a case's among them. */
+  readonly changes: number;
 }
 
 export interface RowPage {

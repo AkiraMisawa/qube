@@ -166,6 +166,36 @@ test('ADR-0012 §3, §7: spot IM shows its columns and IM tab, refuses a wrong I
   }
 });
 
+test('ADR-0010 §7 with §3: the SIMM tab draws the case in view, a case\'s cell opens it on that case, and the dock\'s selector moves it', async ({ page }) => {
+  await open(page);
+  await newWorkspace(page, 'ABC/LE-01', 3);
+  await selectSpotIm(page);
+  await command(page, 'vary', 'DRAFT-1 notional 5bn');
+  await expect(page.getByTestId('price')).toHaveText(/ · 2 cases$/);
+  await command(page, 'price');
+  const result = page.getByTestId('xva-result');
+  await expect(result.getByTestId('xva-result-status')).toHaveText('succeeded');
+
+  // The case's IM-R After opens the SIMM tab on that case, which the selector names.
+  const larger = result.getByRole('table', { name: 'Metrics' }).getByRole('row', { name: /^DRAFT-1 notional 5bn / });
+  await larger.getByRole('button', { name: /^IM-R After .+: open its trace$/ }).click();
+  await expect(page.getByRole('tab', { name: 'SIMM', exact: true })).toHaveAttribute('aria-selected', 'true');
+  const selector = result.getByRole('combobox', { name: 'Case' });
+  await expect(selector.locator('option:checked')).toHaveText('DRAFT-1 notional 5bn');
+  await expect(page.getByTestId('trace-detail-label')).toHaveText('IM-R · collect');
+  await settled(page, 'Terms');
+  const cards = page.getByTestId('trace-card');
+  await expect(cards).toHaveCount(2);
+  const ofCase = await cards.first().innerText();
+
+  // The Base's trace is its own: its new trade is smaller, so collect reads otherwise.
+  await selector.selectOption({ label: 'Base' });
+  await expect(selector.locator('option:checked')).toHaveText('Base');
+  await settled(page, 'Terms');
+  await expect(cards).toHaveCount(2);
+  await expect(cards.first()).not.toHaveText(ofCase);
+});
+
 // Akira, 2026-11-07: computing without Before gives After alone, and its drill-down works as both sides' does.
 test('ADR-0012 §7, ADR-0011 §4: with Before not priced, spot IM is After alone, and its IM-R opens the trace at collect on After', async ({ page }) => {
   await open(page);

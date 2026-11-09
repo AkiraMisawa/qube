@@ -6,10 +6,24 @@ namespace Workbench.Composition.Application.Workspaces;
 // still means what they meant; what an entity, a field or a scope is belongs to the domain module.
 
 /// <summary>
-/// What an edit changes: one field of one entity, within a scope. All three are opaque to the kernel; the
-/// module that registered the edit kind gives them meaning (for XVA a scope is a counterparty registration).
+/// What an edit changes: one field of one entity, within a scope, in a layer. All four are opaque to the kernel; the
+/// module that registered the edit kind gives them meaning (for XVA a scope is a counterparty registration, and a
+/// layer a case, ADR-0010 Consequences). The layer is part of the target, so one field holds an edit in no layer and
+/// one in each layer at once, each carried and checked on its own; how layers compose is the module's.
 /// </summary>
-public sealed record EditTarget(string Scope, string Entity, string Field);
+public sealed record EditTarget(string Scope, string Entity, string Field, string? Layer = null);
+
+/// <summary>
+/// One change of a batch (<see cref="WorkspaceService.Batch"/>), made as the command of the same name makes it: an
+/// override, a reset, a created entity, or one removed with the layer it owns.
+/// </summary>
+public abstract record WorkspaceChange
+{
+    public sealed record Set(EditTarget Target, JsonNode? Value) : WorkspaceChange;
+    public sealed record Reset(EditTarget Target) : WorkspaceChange;
+    public sealed record Create(string Scope, string Entity, JsonObject Fields) : WorkspaceChange;
+    public sealed record Remove(string Entity, string? Layer = null) : WorkspaceChange;
+}
 
 /// <summary>A source value as read: present (possibly empty), never confused with absent.</summary>
 public sealed record SourceValue(JsonNode? Value);

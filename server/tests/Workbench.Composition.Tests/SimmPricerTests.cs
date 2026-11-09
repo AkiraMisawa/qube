@@ -51,7 +51,8 @@ public class SimmPricerTests
         await runs.Completion(accepted.Run.RunId);
         var run = runs.Find(accepted.Run.RunId)!;
         Assert.Equal(RunStatus.Succeeded, run.Status);
-        var input = store.ReadRequired(((DataReferenceBinding)run.Workflow.Steps[0].Bindings["acceptedInput"]).Reference).AsObject();
+        // The Base, as a one-case input had it (ADR-0010 §3's note of 2026-11-08).
+        var input = PortfolioInput.Cases(store.ReadRequired(((DataReferenceBinding)run.Workflow.Steps[0].Bindings["acceptedInput"]).Reference))[0].Input;
         var outputs = run.Invocations.Single(i => i.StepId == SimmMeasures.Module).Outputs;
         CrifDocument? Crif(string name) => outputs.TryGetValue(name, out var crif) ? SimmDatasets.ReadCrif(store.ReadRequired(crif)) : null;
         return new(run, input, [.. store.ReadRequired(run.Outputs[SimmMeasures.Module])["rows"]!.AsArray().Select(r => r!)],
@@ -251,6 +252,38 @@ public class SimmPricerTests
         }
         Assert.Contains(priced.After!.Lines, l => l.TradeId == "DRAFT-1" || l.TradeId == "DRAFT-2" || l.TradeId == "DRAFT-3");
         Assert.DoesNotContain(priced.Before!.Lines, l => l.TradeId.StartsWith("DRAFT-", StringComparison.Ordinal));
+    }
+
+    [Fact] // ADR-0012 §4 with ADR-0010 §3: spot IM is priced for every case in SIMM's one request, each with its trace; the CRIF outputs are the Base's
+    public async Task Spot_im_is_priced_for_every_case_with_its_trace()
+    {
+        var (service, runs, store) = Priced();
+        var ws = Select(service, service.Create("akira", "ABC/LE-01", Day1, 30), "simm");
+        var plain = await Price(runs, store, service, ws);
+        ws = service.Vary(ws.WorkspaceId, ws.Revision, "akira", "DRAFT-1 notional", ["5bn"]).State;
+        var larger = service.View(ws.WorkspaceId, "akira").Cases[1].Id;
+
+        var priced = await Price(runs, store, service, ws);
+
+        IReadOnlyList<JsonNode> Of(string @case) => [.. priced.Rows.Where(r => r["case"]!.GetValue<string>() == @case)];
+        Assert.Equal(["base", larger], priced.Rows.Select(r => r["case"]!.GetValue<string>()).Distinct());
+        Assert.Equal("DRAFT-1 notional 5bn", Of(larger)[0]["caseTitle"]!.GetValue<string>());
+        // The Base is the workspace priced alone; the case's new trade is in After, so its Before is the Base's.
+        foreach (var metric in new[] { "imR", "imP" })
+        {
+            Assert.Equal(Row(plain.Rows, metric)["after"]!.GetValue<decimal>(), Row(Of("base"), metric)["after"]!.GetValue<decimal>());
+            Assert.Equal(Row(Of("base"), metric)["before"]!.GetValue<decimal>(), Row(Of(larger), metric)["before"]!.GetValue<decimal>());
+        }
+        Assert.Contains(new[] { "imR", "imP" }, m => Row(Of(larger), m)["after"]!.GetValue<decimal>() != Row(Of("base"), m)["after"]!.GetValue<decimal>());
+        // The case is the value typed into the workspace.
+        var typed = Select(service, service.Create("akira", "ABC/LE-01", Day1, 30), "simm");
+        typed = service.Edit(typed.WorkspaceId, typed.Revision, "akira", "trade:DRAFT-1", "notional", 5_000_000_000m);
+        var expected = await Price(runs, store, service, typed);
+        foreach (var metric in new[] { "imR", "imP" })
+            Assert.Equal(Row(expected.Rows, metric)["after"]!.GetValue<decimal>(), Row(Of(larger), metric)["after"]!.GetValue<decimal>());
+        Assert.Equal([("base", "before"), ("base", "after"), (larger, "before"), (larger, "after")], priced.Traces.Traces.Select(t => (t.Case, t.Side)));
+        Assert.All(priced.Traces.Traces, t => Reconciles(t.Trace));
+        Assert.Equal(plain.After!.Lines.Count, priced.After!.Lines.Count);
     }
 
     [Fact] // ADR-0012 §1, §6 (owner 2026-11-07): priced without Before, spot IM is After alone, and its trace is After's alone

@@ -31,7 +31,8 @@ public class PricerTests
         await runs.Completion(accepted.Run.RunId);
         var run = runs.Find(accepted.Run.RunId)!;
         Assert.Equal(RunStatus.Succeeded, run.Status);
-        var input = store.ReadRequired(((DataReferenceBinding)run.Workflow.Steps[0].Bindings["acceptedInput"]).Reference);
+        // The Base, as a one-case input had it (ADR-0010 §3's note of 2026-11-08).
+        var input = PortfolioInput.Cases(store.ReadRequired(((DataReferenceBinding)run.Workflow.Steps[0].Bindings["acceptedInput"]).Reference))[0].Input;
         return (input, [.. store.ReadRequired(run.Outputs[XvaMeasures.Module])["rows"]!.AsArray().Select(r => r!)]);
     }
 
@@ -456,7 +457,7 @@ public class PricerTests
         Assert.Equal(-1_800m, (await Settled(service, pv01, ws, "DRAFT-1", XvaMeasures.Pv01)).Value!.GetValue<decimal>());
 
         var run = runs.Find(accepted.Run.RunId)!;
-        var input = store.ReadRequired(((DataReferenceBinding)run.Workflow.Steps[0].Bindings["acceptedInput"]).Reference);
+        var input = PortfolioInput.Cases(store.ReadRequired(((DataReferenceBinding)run.Workflow.Steps[0].Bindings["acceptedInput"]).Reference))[0].Input;
         var cells = input["trades"]!.AsArray().Single(t => t!["tradeId"]!.GetValue<string>() == "DRAFT-1")!["cells"]!;
         Assert.Equal((-1_500m, 2m, -3_000m), (cells["xva.pv01"]!["value"]!.GetValue<decimal>(), cells["xva.margin"]!["value"]!.GetValue<decimal>(), cells["xva.pvAdj"]!["value"]!.GetValue<decimal>()));
         Assert.Equal("From Margin: 2 bp × PV01 -1,500", cells["xva.pvAdj"]!["note"]!.GetValue<string>());
@@ -602,7 +603,7 @@ public class PricerTests
         Assert.Equal([
             $"XVA quote (simulated) · {run.RunId}",
             $"Counterparty ABC/LE-01 · Netting set NS-001 · Value date 2026-10-26 · Revision {ws.Revision} · JPY",
-            $"Workspace: CVA Charge {Diff("cvaCharge")} · PV {Diff("pv")}",
+            $"Base: CVA Charge {Diff("cvaCharge")} · PV {Diff("pv")}",
         ], quote.Text.Split('\n').Select(l => l.TrimEnd('\r')));
         // The PV a case adds is its new trades' value: DRAFT-1's PV Adj, in the result's currency.
         var draft = service.Page(ws.WorkspaceId, "akira", 0, 10, [], "new").Rows.Single(t => t.TradeId == "DRAFT-1");
@@ -622,7 +623,7 @@ public class PricerTests
 
         var quote = XvaQuote.Of(run, store);
 
-        Assert.EndsWith($"Workspace (After only): CVA Charge {charge} · PV 0.00", quote.Text);
+        Assert.EndsWith($"Base (After only): CVA Charge {charge} · PV 0.00", quote.Text);
         Assert.Contains("<td>After only</td>", quote.Html);
     }
 

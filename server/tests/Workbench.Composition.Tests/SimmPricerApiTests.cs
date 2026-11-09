@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Workbench.Composition.Contracts;
+using Workbench.Samples.Portfolio;
 
 namespace Workbench.Composition.Tests;
 
@@ -76,7 +77,7 @@ public class SimmPricerApiTests(WorkbenchFactory factory) : IClassFixture<Workbe
 
         // The trace opens at collect, the term IM-R's cell names, on both sides; the figure is its USD amount at the frozen FX.
         var reference = run["workflow"]!["steps"]![0]!["bindings"]!["acceptedInput"]!["reference"].Deserialize<TypedDataRef>(WireJson.Options)!;
-        var input = await Read(JsonSerializer.SerializeToNode(reference, WireJson.Options)!);
+        var input = PortfolioInput.Cases(await Read(JsonSerializer.SerializeToNode(reference, WireJson.Options)!))[0].Input;
         var fx = input["modules"]!["simm"]!["market"]!["fx"]!;
         var currency = Text(input["displayCurrency"]);
         var rate = fx[currency]!.GetValue<double>() / fx["USD"]!.GetValue<double>();
