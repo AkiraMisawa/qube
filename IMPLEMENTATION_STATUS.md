@@ -238,7 +238,7 @@ The provider and the market are simulated. Real holiday calendars, the confirmed
 - The agent cannot run workflows (Runs) or read data yet; it has the three Rates commands.
 - XVA registers no command, so the agent cannot act on an XVA workspace.
 
-## Design guidelines and the header (ADR-0009, proposed 2026-11-06)
+## Design guidelines and the header (ADR-0009, accepted 2026-11-09)
 
 ### What runs
 

@@ -1,6 +1,6 @@
 # ADR-0009: One Control Height, a fixed shell, and design guidelines the client is held to
 
-Status: PROPOSED 2026-11-06. Raised by the owner: the AI and theme buttons "do not align with Region and As of", and
+Status: ACCEPTED 2026-11-09 by the owner (proposed 2026-11-06; §7 added the same day at the owner's request). Raised by the owner: the AI and theme buttons "do not align with Region and As of", and
 "I want to improve the app's design, research it seriously and write guidelines for developing this repository"
 (2026-11-06). Builds on ADR-0001 (Mantine, themed into a distinct visual system) and ADR-0002 (keyboard-first, UX02,
 UX03).
