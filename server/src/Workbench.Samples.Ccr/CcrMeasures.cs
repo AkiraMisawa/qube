@@ -235,12 +235,12 @@ public sealed record SpotCapitalAnswer(SideCapital Before, SideCapital After, Ca
 /// </summary>
 public static class SpotCapitalResults
 {
-    public const string Case = "base";
-    public const string CaseTitle = "Workspace";
     public const string Scenario = "base";
 
-    public static SpotCapitalAnswer Answer(JsonObject acceptedInput, string requestId, DatasetProvenance provenance)
+    /// <summary>One case's answer, read from the case as a one-case input (ADR-0010 §3's note of 2026-11-08).</summary>
+    public static SpotCapitalAnswer Answer(PricedCase @case, string requestId, DatasetProvenance provenance)
     {
+        var acceptedInput = @case.Input;
         var selected = acceptedInput["measures"]?.AsArray().Select(m => m!.AsObject()).SingleOrDefault(m => m["id"]?.GetValue<string>() == CcrMeasures.SpotCapital);
         var refusedAtPrice = selected?["refused"]?["message"]?.GetValue<string>();
         CapitalPortfolio? portfolio = null;
@@ -270,14 +270,14 @@ public static class SpotCapitalResults
                 if (refusedAtPrice is not null)
                 {
                     var refused = new MeasureResult.Side(MeasureResult.Refused, null, null, refusedAtPrice);
-                    rows.Add(MeasureResult.Row(Case, CaseTitle, CcrMeasures.SpotCapital, metric, currency, refused, refused));
+                    rows.Add(MeasureResult.Row(@case.Id, @case.Title, CcrMeasures.SpotCapital, metric, currency, refused, refused));
                     continue;
                 }
-                rows.Add(MeasureResult.Row(Case, CaseTitle, CcrMeasures.SpotCapital, metric, currency, Figure(before, metric.Id), Figure(after, metric.Id)));
+                rows.Add(MeasureResult.Row(@case.Id, @case.Title, CcrMeasures.SpotCapital, metric, currency, Figure(before, metric.Id), Figure(after, metric.Id)));
             }
             if (refusedAtPrice is null)
                 foreach (var side in new[] { before, after })
-                    if (side.Trace is { } trace) traces.Add(new TraceEntry(Case, Scenario, side.Side, CcrMeasures.SpotCapital, trace));
+                    if (side.Trace is { } trace) traces.Add(new TraceEntry(@case.Id, Scenario, side.Side, CcrMeasures.SpotCapital, trace));
         }
         return new SpotCapitalAnswer(before, after, portfolio, rows, new TraceSet(traces));
     }
@@ -316,11 +316,12 @@ public sealed class SpotCapitalPrice : ICapabilityHandler
             ?? throw new CapabilityFailure("InvalidInput", "The accepted input is required.");
         var input = invocation.Data.ReadRequired(reference).AsObject();
         var provenance = new DatasetProvenance(ExecutionMode.Simulated, DataOrigin.Synthetic, invocation.InvocationId);
-        var answer = SpotCapitalResults.Answer(input, invocation.InvocationId, provenance);
+        // Every case, in one request (ADR-0010 §3's note of 2026-11-08).
+        var answers = PortfolioInput.Cases(input).Select(c => SpotCapitalResults.Answer(c, invocation.InvocationId, provenance)).ToList();
         return Task.FromResult<IReadOnlyDictionary<string, JsonNode?>>(new Dictionary<string, JsonNode?>
         {
-            ["result"] = Datasets.Create("Spot CCR capital (simulated)", MeasureResult.Columns, answer.Rows, provenance),
-            ["traces"] = JsonSerializer.SerializeToNode(answer.Traces, WireJson.Options),
+            ["result"] = Datasets.Create("Spot CCR capital (simulated)", MeasureResult.Columns, [.. answers.SelectMany(a => a.Rows)], provenance),
+            ["traces"] = JsonSerializer.SerializeToNode(new TraceSet([.. answers.SelectMany(a => a.Traces.Traces)]), WireJson.Options),
         });
     }
 }

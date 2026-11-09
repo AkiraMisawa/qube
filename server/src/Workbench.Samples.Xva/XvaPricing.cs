@@ -239,7 +239,32 @@ public sealed class FakeXvaPrice : ICapabilityHandler
     {
         var reference = invocation.Inputs["acceptedInput"].Deserialize<TypedDataRef>(WireJson.Options)
             ?? throw new CapabilityFailure("InvalidInput", "The accepted input is required.");
-        var input = invocation.Data.ReadRequired(reference);
+        var provenance = new DatasetProvenance(ExecutionMode.Simulated, DataOrigin.Synthetic, invocation.InvocationId);
+        // One request prices every case (ADR-0010 §3's note of 2026-11-08): each row, trace entry and profile point
+        // carries its case.
+        var rows = new List<JsonObject>();
+        var traces = new List<TraceEntry>();
+        var profile = new List<JsonObject>();
+        foreach (var @case in PortfolioInput.Cases(invocation.Data.ReadRequired(reference)))
+        {
+            var priced = Price(@case, invocation.InvocationId, provenance);
+            rows.AddRange(priced.Rows);
+            traces.AddRange(priced.Traces);
+            profile.AddRange(priced.Profile);
+        }
+        return Task.FromResult<IReadOnlyDictionary<string, JsonNode?>>(new Dictionary<string, JsonNode?>
+        {
+            ["result"] = Datasets.Create("XVA (simulated)", MeasureResult.Columns, rows, provenance),
+            ["traces"] = JsonSerializer.SerializeToNode(new TraceSet(traces), WireJson.Options),
+            ["profile"] = Datasets.Create("Capital profile (simulated: the spot rules on the trades still alive, today's values held)", ProfileColumns, profile, provenance),
+        });
+    }
+
+    /// <summary>One case's rows, its spot capital traces and its capital profile, from the case as a one-case input.</summary>
+    static (IReadOnlyList<JsonObject> Rows, IReadOnlyList<TraceEntry> Traces, IReadOnlyList<JsonObject> Profile) Price(PricedCase @case, string requestId,
+        DatasetProvenance provenance)
+    {
+        var input = @case.Input;
         var valueDate = DateOnly.ParseExact(input["context"]!["valueDate"]!.GetValue<string>(), "yyyy-MM-dd", CultureInfo.InvariantCulture);
         var credit = input["modules"]![XvaMeasures.Module]!["credit"]!;
         // An empty CVA recovery is not zero: the CDS recovery applies (docs/03).
@@ -304,12 +329,11 @@ public sealed class FakeXvaPrice : ICapabilityHandler
         MeasureResult.Side Figure(SideFigures side, Func<SideFigures, decimal> value, bool fva) =>
             side.Count == 0 ? MeasureResult.Side.NotPricedWith(0) : MeasureResult.Side.Of(value(side), fva ? side.FvaCount : side.Count);
 
-        var provenance = new DatasetProvenance(ExecutionMode.Simulated, DataOrigin.Synthetic, invocation.InvocationId);
         var measures = input["measures"]!.AsArray().Select(m => m!.AsObject()).ToList();
         // The KVA option (ADR-0013 §2): on when KVA or spot capital is selected, since it computes spot capital, its
         // trace and the capital profile; the page shows each only where it is selected.
         var kvaOption = measures.Any(m => m["id"]!.GetValue<string>() is XvaMeasures.Kva or CcrMeasures.SpotCapital);
-        var capital = kvaOption ? SpotCapitalResults.Answer(input.AsObject(), invocation.InvocationId, provenance) : null;
+        var capital = kvaOption ? SpotCapitalResults.Answer(@case, requestId, provenance) : null;
         var profiles = new Dictionary<string, IReadOnlyList<CapitalPoint>>();
         if (capital?.Portfolio is { } portfolio)
             foreach (var side in new[] { capital.Before, capital.After })
@@ -336,12 +360,12 @@ public sealed class FakeXvaPrice : ICapabilityHandler
                 if (selected["refused"] is JsonObject refused)
                 {
                     var side = new MeasureResult.Side(MeasureResult.Refused, null, null, refused["message"]!.GetValue<string>());
-                    rows.Add(MeasureResult.Row("base", "Workspace", definition.Id, metric, currency, side, side));
+                    rows.Add(MeasureResult.Row(@case.Id, @case.Title, definition.Id, metric, currency, side, side));
                     continue;
                 }
                 if (definition.Id == XvaMeasures.Kva)
                 {
-                    rows.Add(MeasureResult.Row("base", "Workspace", definition.Id, metric, currency, Kva(capital!.Before), Kva(capital.After)));
+                    rows.Add(MeasureResult.Row(@case.Id, @case.Title, definition.Id, metric, currency, Kva(capital!.Before), Kva(capital.After)));
                     continue;
                 }
                 Func<SideFigures, decimal> value = metric.Id switch
@@ -353,21 +377,15 @@ public sealed class FakeXvaPrice : ICapabilityHandler
                     _ => throw new InvalidOperationException($"XVA has no metric {metric.Id}."),
                 };
                 var fva = definition.Id == XvaMeasures.Fva;
-                rows.Add(MeasureResult.Row("base", "Workspace", definition.Id, metric, currency, Figure(sides.Value.Before, value, fva), Figure(sides.Value.After, value, fva)));
+                rows.Add(MeasureResult.Row(@case.Id, @case.Title, definition.Id, metric, currency, Figure(sides.Value.Before, value, fva), Figure(sides.Value.After, value, fva)));
             }
         }
-        return Task.FromResult<IReadOnlyDictionary<string, JsonNode?>>(new Dictionary<string, JsonNode?>
+        return (rows, capital?.Traces.Traces ?? [], [.. profiles.SelectMany(p => p.Value.Select(x => new JsonObject
         {
-            ["result"] = Datasets.Create("XVA (simulated)", MeasureResult.Columns, rows, provenance),
-            ["traces"] = JsonSerializer.SerializeToNode(capital?.Traces ?? new TraceSet([]), WireJson.Options),
-            ["profile"] = Datasets.Create("Capital profile (simulated: the spot rules on the trades still alive, today's values held)", ProfileColumns,
-                profiles.SelectMany(p => p.Value.Select(x => new JsonObject
-                {
-                    ["case"] = SpotCapitalResults.Case, ["side"] = p.Key, ["years"] = x.Years,
-                    ["date"] = x.Date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), ["trades"] = x.Trades,
-                    ["ead"] = Math.Round(x.Ead, 2), ["capital"] = Math.Round(x.Capital, 2), ["currency"] = capital!.Portfolio!.ReportingCurrency,
-                })), provenance),
-        });
+            ["case"] = @case.Id, ["side"] = p.Key, ["years"] = x.Years,
+            ["date"] = x.Date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), ["trades"] = x.Trades,
+            ["ead"] = Math.Round(x.Ead, 2), ["capital"] = Math.Round(x.Capital, 2), ["currency"] = capital!.Portfolio!.ReportingCurrency,
+        }))]);
     }
 }
 

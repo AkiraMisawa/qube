@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { measureNamed, measuresTyped } from './commands';
+import { measureNamed, measuresTyped, varyTyped } from './commands';
 import type { RegisteredMeasure } from './contracts';
 
 describe('`measures` as typed (ADR-0010 §9)', () => {
@@ -30,5 +30,17 @@ describe('`explain` names its measure (ADR-0011 §7, ADR-0012 §6\'s note of 202
     expect(measureNamed('farm', register)).toBeUndefined();
     expect(measureNamed('xva', register)).toBeUndefined();
     expect(measureNamed('nothing', register)).toBeUndefined();
+  });
+});
+
+describe('`vary` as typed (ADR-0010 §9\'s note of 2026-11-08)', () => {
+  it('takes the cell, then the values separated by commas, each as written', () => {
+    expect(varyTyped('CSA-A threshold 10mm, 5mm, 0')).toEqual({ cell: 'CSA-A threshold', values: ['10mm', '5mm', '0'] });
+    expect(varyTyped('  CSA-A self threshold 1mm ')).toEqual({ cell: 'CSA-A self threshold', values: ['1mm'] });
+  });
+
+  it('refuses a line with no cell or an empty value by name, never guessing one', () => {
+    expect(() => varyTyped('CSA-A 10mm')).toThrow('vary needs a cell, its row and its column, and the values');
+    expect(() => varyTyped('CSA-A threshold 10mm, , 0')).toThrow('none of them empty');
   });
 });

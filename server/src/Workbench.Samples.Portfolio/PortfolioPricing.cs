@@ -90,33 +90,32 @@ public static class MeasureResult
 }
 
 /// <summary>
-/// Builds the accepted input Price freezes: every trade in Before or After with its effective values, the selected
-/// measures with any refusal, each module's own part, and the copy of the overrides it priced. The Run keeps it;
-/// nothing re-derives it later.
+/// A case of an accepted input in the shape a one-case input had (ADR-0010 §3's note of 2026-11-08): what the cases share,
+/// and the case's own trades, module parts and measures, so a provider loops over cases with its body unchanged and writes
+/// each row and trace entry with the case's id and title.
+/// </summary>
+public sealed record PricedCase(string Id, string Title, string Kind, JsonObject Input);
+
+/// <summary>
+/// Builds the accepted input Price freezes: what the cases share at its top (the context, the display currency, the
+/// membership rules' versions, the selection), and each case, the Base first, with its changes, every trade in its Before
+/// or After with its effective values, each module's own part and the selected measures with any refusal, so one case's
+/// refused measure leaves the others standing. The Run keeps it, with the copy of the edits it priced; nothing re-derives
+/// it later.
 /// </summary>
 public static class PortfolioInput
 {
-    public static JsonObject Build(WorkspaceFreeze freeze, MeasureRegister register)
+    public static JsonObject Build(WorkspaceFreeze freeze, MeasureRegister register, int caseCap = PortfolioCases.DefaultCap)
     {
-        var state = freeze.State;
+        var raw = freeze.State;
+        var cases = PortfolioCases.All(raw);
+        // The cap counts the Base (ADR-0010 §3's note): a Run nobody can read is refused before it is made.
+        if (cases.Count > caseCap)
+            throw new WorkspaceRefused("TooManyCases",
+                $"Price prices {caseCap} cases at most, the Base among them; this workspace holds {cases.Count}, {cases.Count - caseCap} over. Remove {cases.Count - caseCap} to price.");
+        var state = PortfolioCases.Base(raw);
         var source = (PortfolioSourceVersion)state.Source;
-        // The trades with their membership and the modules' cells, read once: what is refused and what is frozen are
-        // one reading of a cell that changes on its own, such as PV01 (ADR-0010 §6).
-        var trades = register.WithCells(state, [.. register.WithMembership(state, PortfolioMaterialiser.Trades(state)).Where(t => t.Before || t.After)]);
-        // A side with no trade is not priced (ADR-0010 §3); with no trade on either side there is nothing to price.
-        if (trades.Count == 0)
-            throw new WorkspaceRefused("NothingToPrice", "No trade is in Before or After: tick B or A on a trade to price it.");
-        var invalid = trades.Where(t => t.Issues.Count > 0).ToList();
-        if (invalid.Count > 0)
-            throw new WorkspaceRefused("InvalidInput", $"{invalid.Count} trade(s) to price have validation issues, first {invalid[0].TradeId}: {invalid[0].Issues[0]}");
         var selected = PortfolioMaterialiser.SelectedMeasures(state, register);
-        var refusals = register.Modules
-            .SelectMany(m => m.Validate(state, [.. selected.Where(id => m.Measures.Any(d => d.Id == id))], trades))
-            .ToDictionary(r => r.Measure);
-        // Each request reads the part of every module it prices (ADR-0010 §10): XVA's with KVA reads SA-CCR's.
-        var modules = new JsonObject();
-        foreach (var module in register.Inputs(selected))
-            modules[module.Id] = module.Input(state);
         return new JsonObject
         {
             ["workspaceId"] = freeze.WorkspaceId,
@@ -131,6 +130,46 @@ public static class PortfolioInput
             ["nettingSet"] = source.Agreement.NettingSetId,
             // Each membership rule's version, frozen with the trades it classified (ADR-0010 §5).
             ["membership"] = new JsonObject([.. register.Rules(state).Select(r => KeyValuePair.Create(r.Measure, (JsonNode?)new JsonObject { ["version"] = r.Version }))]),
+            ["selection"] = new JsonArray([.. selected.Select(id => JsonValue.Create(id))]),
+            ["cases"] = new JsonArray([.. cases.Select(c => Case(c, raw, register, selected))]),
+            ["overrides"] = new JsonArray([.. freeze.Overrides.Select(o => new JsonObject
+            {
+                ["entity"] = o.Target.Entity, ["field"] = o.Target.Field, ["layer"] = o.Target.Layer, ["value"] = o.Value?.DeepClone(), ["baseVersion"] = o.BaseVersion, ["seq"] = o.Seq,
+            })]),
+        };
+    }
+
+    static JsonObject Case(CaseView @case, WorkspaceState raw, MeasureRegister register, IReadOnlyList<string> selected)
+    {
+        var state = PortfolioCases.Reading(raw, @case.Id);
+        var named = @case.Id == PortfolioCases.BaseId ? "" : $"Case {@case.Title}: ";
+        // The trades with their membership and the modules' cells, read once: what is refused and what is frozen are
+        // one reading of a cell that changes on its own, such as PV01 (ADR-0010 §6).
+        var trades = register.WithCells(state, [.. register.WithMembership(state, PortfolioMaterialiser.Trades(state)).Where(t => t.Before || t.After)]);
+        // A side with no trade is not priced (ADR-0010 §3); with no trade on either side there is nothing to price.
+        if (trades.Count == 0)
+            throw new WorkspaceRefused("NothingToPrice", $"{named}No trade is in Before or After: tick B or A on a trade to price it.");
+        var invalid = trades.Where(t => t.Issues.Count > 0).ToList();
+        if (invalid.Count > 0)
+            throw new WorkspaceRefused("InvalidInput", $"{named}{invalid.Count} trade(s) to price have validation issues, first {invalid[0].TradeId}: {invalid[0].Issues[0]}");
+        var refusals = register.Modules
+            .SelectMany(m => m.Validate(state, [.. selected.Where(id => m.Measures.Any(d => d.Id == id))], trades))
+            .ToDictionary(r => r.Measure);
+        // Each request reads the part of every module it prices (ADR-0010 §10): XVA's with KVA reads SA-CCR's.
+        var modules = new JsonObject();
+        foreach (var module in register.Inputs(selected))
+            modules[module.Id] = module.Input(state);
+        return new JsonObject
+        {
+            ["id"] = @case.Id,
+            ["title"] = @case.Title,
+            ["kind"] = @case.Kind,
+            ["trade"] = @case.Trade,
+            // What makes it this case, as the Pricing DB and Download say it (ADR-0010 §3).
+            ["changes"] = new JsonArray([.. PortfolioCases.ChangesOf(raw, @case.Id).Select(o => new JsonObject
+            {
+                ["entity"] = o.Target.Entity, ["field"] = o.Target.Field, ["value"] = o.Value?.DeepClone(),
+            })]),
             ["measures"] = new JsonArray([.. selected.Select(id => new JsonObject
             {
                 ["id"] = id,
@@ -139,11 +178,28 @@ public static class PortfolioInput
             })]),
             ["trades"] = JsonSerializer.SerializeToNode(trades, WireJson.Options),
             ["modules"] = modules,
-            ["overrides"] = new JsonArray([.. freeze.Overrides.Select(o => new JsonObject
-            {
-                ["entity"] = o.Target.Entity, ["field"] = o.Target.Field, ["value"] = o.Value?.DeepClone(), ["baseVersion"] = o.BaseVersion, ["seq"] = o.Seq,
-            })]),
         };
+    }
+
+    /// <summary>
+    /// Each case of an accepted input, the Base first, in the shape a one-case input had: the shared fields with the
+    /// case's own trades, module parts and measures. An input that holds no case is one no provider can read.
+    /// </summary>
+    public static IReadOnlyList<PricedCase> Cases(JsonNode input)
+    {
+        var top = input as JsonObject ?? throw new CapabilityFailure("InvalidInput", "The accepted input is not an object.");
+        if (top["cases"] is not JsonArray { Count: > 0 } cases)
+            throw new CapabilityFailure("InvalidInput", "The accepted input holds no cases.");
+        var shared = top.Where(p => p.Key is not ("cases" or "overrides")).ToList();
+        return [.. cases.Select(node =>
+        {
+            var c = node as JsonObject ?? throw new CapabilityFailure("InvalidInput", "A case of the accepted input is not an object.");
+            string Text(string key) => c[key]?.GetValue<string>() ?? throw new CapabilityFailure("InvalidInput", $"A case of the accepted input has no {key}.");
+            var one = new JsonObject([.. shared.Select(p => KeyValuePair.Create(p.Key, p.Value?.DeepClone()))]);
+            foreach (var key in new[] { "trades", "modules", "measures" })
+                one[key] = (c[key] ?? throw new CapabilityFailure("InvalidInput", $"Case {Text("id")} of the accepted input has no {key}.")).DeepClone();
+            return new PricedCase(Text("id"), Text("title"), Text("kind"), one);
+        })];
     }
 }
 
@@ -152,12 +208,12 @@ public static class PortfolioInput
 public static class PortfolioPrice
 {
     public static RunSubmission Submission(WorkspaceService workspaces, IDataStore store, MeasureRegister register, string workspaceId, long expectedRevision,
-        string idempotencyKey, string owner, RunOrigin origin = RunOrigin.Pricer, RunRelations? relations = null)
+        string idempotencyKey, string owner, RunOrigin origin = RunOrigin.Pricer, RunRelations? relations = null, int caseCap = PortfolioCases.DefaultCap)
     {
-        var freeze = workspaces.Freeze(workspaceId, expectedRevision, PortfolioMaterialiser.PricedEntities);
-        var input = PortfolioInput.Build(freeze, register);
+        var freeze = workspaces.Freeze(workspaceId, expectedRevision, PortfolioCases.PricedEntities);
+        var input = PortfolioInput.Build(freeze, register, caseCap);
         var reference = store.Put($"portfolio-input-{freeze.WorkspaceId}-r{freeze.Revision}", PortfolioContracts.AcceptedInput, PortfolioContracts.Version, input);
-        var selected = PortfolioMaterialiser.SelectedMeasures(freeze.State, register);
+        var selected = PortfolioMaterialiser.SelectedMeasures(PortfolioCases.Base(freeze.State), register);
         // The Run's input says what was asked, so the page and the Pricing DB read it from the Run, not from the screen.
         return new RunSubmission(Workflow(register, reference, selected), freeze.Context,
             new JsonObject { ["workspaceId"] = freeze.WorkspaceId, ["revision"] = freeze.Revision, ["measures"] = string.Join(' ', selected) },

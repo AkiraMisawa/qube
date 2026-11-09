@@ -121,37 +121,59 @@ public sealed class WorkspaceService(IReadOnlyDictionary<string, IEditRules> rul
 
     /// <summary>Overrides a field. The field must exist in the current version and not be held as a conflict.</summary>
     public WorkspaceState Set(string workspaceId, long expectedRevision, string user, EditTarget target, JsonNode? value, RunOrigin? origin = null) =>
-        Apply(workspaceId, expectedRevision, state =>
-        {
-            if (state.Conflicts.ContainsKey(target))
-                throw new WorkspaceRefused("ConflictUnresolved", "Keep or take the source value before editing this field again.", [target]);
-            var source = state.SourceOf(target);
-            if (source.Read(target.Entity, target.Field) is null)
-                throw new WorkspaceRefused("UnknownTarget", $"{target.Entity} has no field {target.Field} in this version.", [target]);
-            var seq = state.Revision + 1;
-            var item = new Override(target, value?.DeepClone(), Carry.BaseOf(target, source, RulesOf(state.App)), source.Version, seq);
-            return state with
-            {
-                Overrides = state.Overrides.SetItem(target, item),
-                Lost = state.Lost.Remove(target),
-                Log = state.Log.Add(Entry(state, seq, user, EditKind.Set, target, value, origin: origin)),
-            };
-        });
+        Apply(workspaceId, expectedRevision, state => SetOn(state, user, target, value, origin));
 
     /// <summary>Removes an override: the field follows its source or its automatic rule again.</summary>
     public WorkspaceState Reset(string workspaceId, long expectedRevision, string user, EditTarget target) =>
-        Apply(workspaceId, expectedRevision, state =>
+        Apply(workspaceId, expectedRevision, state => ResetOn(state, user, target, null));
+
+    /// <summary>
+    /// Applies several changes as one command: each is checked against the state the ones before it left, and either
+    /// every one is written, each its own log entry, or none is. A module uses it where one gesture is several edits,
+    /// such as making a case and setting its change (ADR-0010 §3), so no reading ever sees half of it.
+    /// </summary>
+    public WorkspaceState Batch(string workspaceId, long expectedRevision, string user, IReadOnlyList<WorkspaceChange> changes, RunOrigin? origin = null)
+    {
+        if (changes.Count == 0) throw new WorkspaceRefused("NothingToChange", "A batch holds at least one change.");
+        return Apply(workspaceId, expectedRevision, state => changes.Aggregate(state, (current, change) => change switch
         {
-            if (!state.Overrides.ContainsKey(target) && !state.Lost.ContainsKey(target))
-                throw new WorkspaceRefused("NotOverridden", "There is no override on this field.", [target]);
-            var seq = state.Revision + 1;
-            return state with
-            {
-                Overrides = state.Overrides.Remove(target),
-                Lost = state.Lost.Remove(target),
-                Log = state.Log.Add(Entry(state, seq, user, EditKind.Reset, target, null)),
-            };
-        });
+            WorkspaceChange.Set set => SetOn(current, user, set.Target, set.Value, origin),
+            WorkspaceChange.Reset reset => ResetOn(current, user, reset.Target, origin),
+            WorkspaceChange.Create create => CreateOn(current, user, create.Scope, create.Entity, create.Fields, origin, null),
+            WorkspaceChange.Remove remove => RemoveOn(current, user, remove.Entity, origin, remove.Layer),
+            _ => throw new InvalidOperationException($"No batch change {change.GetType().Name}."),
+        }));
+    }
+
+    WorkspaceState SetOn(WorkspaceState state, string user, EditTarget target, JsonNode? value, RunOrigin? origin)
+    {
+        if (state.Conflicts.ContainsKey(target))
+            throw new WorkspaceRefused("ConflictUnresolved", "Keep or take the source value before editing this field again.", [target]);
+        var source = state.SourceOf(target);
+        if (source.Read(target.Entity, target.Field) is null)
+            throw new WorkspaceRefused("UnknownTarget", $"{target.Entity} has no field {target.Field} in this version.", [target]);
+        var seq = state.Revision + 1;
+        var item = new Override(target, value?.DeepClone(), Carry.BaseOf(target, source, RulesOf(state.App)), source.Version, seq);
+        return state with
+        {
+            Overrides = state.Overrides.SetItem(target, item),
+            Lost = state.Lost.Remove(target),
+            Log = state.Log.Add(Entry(state, seq, user, EditKind.Set, target, value, origin: origin)),
+        };
+    }
+
+    WorkspaceState ResetOn(WorkspaceState state, string user, EditTarget target, RunOrigin? origin)
+    {
+        if (!state.Overrides.ContainsKey(target) && !state.Lost.ContainsKey(target))
+            throw new WorkspaceRefused("NotOverridden", "There is no override on this field.", [target]);
+        var seq = state.Revision + 1;
+        return state with
+        {
+            Overrides = state.Overrides.Remove(target),
+            Lost = state.Lost.Remove(target),
+            Log = state.Log.Add(Entry(state, seq, user, EditKind.Reset, target, null, origin: origin)),
+        };
+    }
 
     /// <summary>Resolves a conflict by keeping the user's value; its base moves to the new version.</summary>
     public WorkspaceState KeepOverride(string workspaceId, long expectedRevision, string user, EditTarget target) =>
@@ -201,21 +223,23 @@ public sealed class WorkspaceService(IReadOnlyDictionary<string, IEditRules> rul
     /// </summary>
     public WorkspaceState Create(string workspaceId, long expectedRevision, string user, string scope, string entity, JsonObject fields,
         RunOrigin? origin = null, IReadOnlyDictionary<string, string>? sources = null) =>
-        Apply(workspaceId, expectedRevision, state =>
+        Apply(workspaceId, expectedRevision, state => CreateOn(state, user, scope, entity, fields, origin, sources));
+
+    WorkspaceState CreateOn(WorkspaceState state, string user, string scope, string entity, JsonObject fields, RunOrigin? origin, IReadOnlyDictionary<string, string>? sources)
+    {
+        if (state.Created.ContainsKey(entity))
+            throw new WorkspaceRefused("EntityExists", $"{entity} exists already.");
+        var seq = state.Revision + 1;
+        var target = new EditTarget(scope, entity, "*");
+        var given = sources is { Count: > 0 } ? sources.ToDictionary() : null;
+        // The log says which fields were not typed and where they came from, as the entity does (ADR-0008 §4).
+        var note = given is null ? null : "defaults: " + string.Join(", ", given.OrderBy(p => p.Key, StringComparer.Ordinal).Select(p => $"{p.Key} from {p.Value}"));
+        return state with
         {
-            if (state.Created.ContainsKey(entity))
-                throw new WorkspaceRefused("EntityExists", $"{entity} exists already.");
-            var seq = state.Revision + 1;
-            var target = new EditTarget(scope, entity, "*");
-            var given = sources is { Count: > 0 } ? sources.ToDictionary() : null;
-            // The log says which fields were not typed and where they came from, as the entity does (ADR-0008 §4).
-            var note = given is null ? null : "defaults: " + string.Join(", ", given.OrderBy(p => p.Key, StringComparer.Ordinal).Select(p => $"{p.Key} from {p.Value}"));
-            return state with
-            {
-                Created = state.Created.Add(entity, new CreatedEntity(scope, entity, (JsonObject)fields.DeepClone(), seq, given)),
-                Log = state.Log.Add(Entry(state, seq, user, EditKind.Create, target, fields, note, origin)),
-            };
-        });
+            Created = state.Created.Add(entity, new CreatedEntity(scope, entity, (JsonObject)fields.DeepClone(), seq, given)),
+            Log = state.Log.Add(Entry(state, seq, user, EditKind.Create, target, fields, note, origin)),
+        };
+    }
 
     /// <summary>
     /// Removes a created entity. Its own overrides and conflicts end with it, counted in the log entry's note: the
@@ -224,22 +248,24 @@ public sealed class WorkspaceService(IReadOnlyDictionary<string, IEditRules> rul
     /// names it and every edit in it ends in the same entry.
     /// </summary>
     public WorkspaceState Remove(string workspaceId, long expectedRevision, string user, string entity, RunOrigin? origin = null, string? layer = null) =>
-        Apply(workspaceId, expectedRevision, state =>
+        Apply(workspaceId, expectedRevision, state => RemoveOn(state, user, entity, origin, layer));
+
+    WorkspaceState RemoveOn(WorkspaceState state, string user, string entity, RunOrigin? origin, string? layer)
+    {
+        if (!state.Created.TryGetValue(entity, out var created))
+            throw new WorkspaceRefused("UnknownEntity", $"{entity} was not created in this workspace.");
+        var seq = state.Revision + 1;
+        var gone = state.Overrides.Keys.Concat(state.Conflicts.Keys).Concat(state.Lost.Keys)
+            .Where(t => (t.Entity == entity && !state.Derived.ContainsKey(t.Scope)) || (layer is not null && t.Layer == layer)).Distinct().ToList();
+        return state with
         {
-            if (!state.Created.TryGetValue(entity, out var created))
-                throw new WorkspaceRefused("UnknownEntity", $"{entity} was not created in this workspace.");
-            var seq = state.Revision + 1;
-            var gone = state.Overrides.Keys.Concat(state.Conflicts.Keys).Concat(state.Lost.Keys)
-                .Where(t => (t.Entity == entity && !state.Derived.ContainsKey(t.Scope)) || (layer is not null && t.Layer == layer)).Distinct().ToList();
-            return state with
-            {
-                Created = state.Created.Remove(entity),
-                Overrides = state.Overrides.RemoveRange(gone),
-                Conflicts = state.Conflicts.RemoveRange(gone),
-                Lost = state.Lost.RemoveRange(gone),
-                Log = state.Log.Add(Entry(state, seq, user, EditKind.Remove, new EditTarget(created.Scope, entity, "*"), null, $"{gone.Count} edits", origin)),
-            };
-        });
+            Created = state.Created.Remove(entity),
+            Overrides = state.Overrides.RemoveRange(gone),
+            Conflicts = state.Conflicts.RemoveRange(gone),
+            Lost = state.Lost.RemoveRange(gone),
+            Log = state.Log.Add(Entry(state, seq, user, EditKind.Remove, new EditTarget(created.Scope, entity, "*"), null, $"{gone.Count} edits", origin)),
+        };
+    }
 
     /// <summary>
     /// Adopts a new context and source version within the same scopes (a value date change, a refresh), and

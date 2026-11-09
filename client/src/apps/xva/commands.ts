@@ -11,6 +11,8 @@ export interface XvaPage {
   setMeasures(measures: readonly string[]): void;
   /** B or A for every row of a grid (ADR-0010 §6); the grid the keyboard was last in when none is named. */
   setSide(side: 'before' | 'after', value: boolean, grid?: 'new' | 'existing'): void;
+  /** A case per value of a cell (`vary CSA-A threshold 10mm, 5mm, 0`, ADR-0010 §3, §9). */
+  vary(cell: string, values: readonly string[]): void;
   /** Saves the Run the dock shows as a zip (`download run`, ADR-0010 §7). */
   downloadRun(): void;
   /** Puts the dock's Run's quote on the clipboard as HTML and text (`copy quote`, ADR-0010 §7). */
@@ -72,4 +74,19 @@ export function measureNamed(word: string, measures: readonly RegisteredMeasure[
   if (exact !== undefined) return exact;
   const of = measures.filter((m) => m.traced && m.module.toLowerCase() === typed);
   return of.length === 1 ? of[0] : undefined;
+}
+
+/**
+ * `vary CSA-A threshold 10mm, 5mm, 0` as typed (ADR-0010 §9's note of 2026-11-08): the cell, its row and its column, then
+ * the values separated by commas. The first value is the last word before the first comma. Each value goes as written,
+ * for the server to read as the cell reads it; a line with no cell or no value is refused here by name.
+ */
+export function varyTyped(text: string): { readonly cell: string; readonly values: readonly string[] } {
+  const [first = '', ...rest] = text.split(',');
+  const words = first.trim().split(/\s+/).filter((w) => w !== '');
+  const value = words[words.length - 1];
+  if (words.length < 3 || value === undefined) throw new Error('vary needs a cell, its row and its column, and the values, such as vary CSA-A threshold 10mm, 5mm, 0.');
+  const values = [value, ...rest.map((v) => v.trim())];
+  if (values.some((v) => v === '')) throw new Error('vary takes values separated by commas, none of them empty.');
+  return { cell: words.slice(0, -1).join(' '), values };
 }

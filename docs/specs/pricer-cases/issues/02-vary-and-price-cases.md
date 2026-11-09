@@ -9,14 +9,14 @@ write a row per case. The Metrics dock shows a row per case and the collapsed do
 
 **Blocked by:** 01.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] `vary` on a CSA term, the netting set's CVA recovery and a trade field makes the cases, and each case reads its
+- [x] `vary` on a CSA term, the netting set's CVA recovery and a trade field makes the cases, and each case reads its
       own value with the rest of the workspace.
-- [ ] A value equal to the workspace's, and a case already made, are skipped and said; a row or column that resolves
+- [x] A value equal to the workspace's, and a case already made, are skipped and said; a row or column that resolves
       to nothing or to several is refused with what it could mean.
-- [ ] A case's figures equal a Base priced with that value typed into the workspace, for CVA, FVA, spot IM and spot
+- [x] A case's figures equal a Base priced with that value typed into the workspace, for CVA, FVA, spot IM and spot
       CCR capital.
-- [ ] The Run's accepted input holds the Base first, then each case with its changes and trades.
-- [ ] Price over the cap is refused with `TooManyCases` and the excess.
-- [ ] In a browser, `vary` from the command line, then Price, shows a Metrics row per case.
+- [x] The Run's accepted input holds the Base first, then each case with its changes and trades.
+- [x] Price over the cap is refused with `TooManyCases` and the excess.
+- [x] In a browser, `vary` from the command line, then Price, shows a Metrics row per case.

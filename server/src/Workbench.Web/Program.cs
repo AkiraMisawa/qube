@@ -93,6 +93,8 @@ builder.Services.AddSingleton<IMeasureModule>(_ => new CcrMeasures(builder.Confi
 // opening snapshot, which stands for the value date's close, with the portfolio's FX; the DEMO table only.
 builder.Services.AddSingleton<IMeasureModule>(_ => new SimmMeasures(conventions, _ => syntheticMarket.Snapshot(0), simmTables));
 builder.Services.AddSingleton<MeasureRegister>();
+// How many cases one Price prices, the Base among them (ADR-0010 §3's note of 2026-11-08): 50 unless configured.
+builder.Services.AddSingleton(new PortfolioOptions(builder.Configuration.GetValue("Portfolio:CaseCap", PortfolioCases.DefaultCap)));
 builder.Services.AddSingleton<PortfolioWorkspaces>();
 // The AI pane (ADR-0007): the agent runtime is chosen here and nowhere else, by configuration, and an unknown one stops
 // startup rather than falling back to another. "copilot" talks to the agent host, a separate process under the agent's

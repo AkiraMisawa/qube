@@ -11,7 +11,7 @@ import { httpRatesApi, type RatesApi } from './rates/api';
 import { ratesCommandsOf } from './rates/commands';
 import { RatesWorkspacePanel } from './rates/RatesWorkspacePanel';
 import { httpXvaApi, type XvaApi } from './xva/api';
-import { measureNamed, measuresTyped, xvaPageOf } from './xva/commands';
+import { measureNamed, measuresTyped, varyTyped, xvaPageOf } from './xva/commands';
 import { XvaWorkspacePanel } from './xva/XvaWorkspacePanel';
 import { registerAiContext, registerAiEffect } from '../ai/effects';
 import { registerGridFocus } from '../shell/focus';
@@ -219,6 +219,19 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
       run: (a) => {
         if (a.measures === undefined) throw new Error('measures needs the measures to price, such as cva fva.');
         xvaPage().setMeasures(measuresTyped(a.measures, xvaPage().measures().map((m) => m.id)));
+      },
+    },
+    // Cases (ADR-0010 §3, §9): one per value of a cell, priced beside the Base by one Price.
+    {
+      id: 'xva.vary',
+      words: 'vary',
+      title: 'Make a case per value of a cell, such as vary CSA-A threshold 10mm, 5mm, 0',
+      group: 'XVA',
+      ...onXva,
+      args: [{ name: 'cell', required: true, rest: true, hint: 'a row and a column, then the values separated by commas: CSA-A threshold 10mm, 5mm, 0' }],
+      run: (a) => {
+        const typed = varyTyped(a.cell ?? '');
+        xvaPage().vary(typed.cell, typed.values);
       },
     },
     {

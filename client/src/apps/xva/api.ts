@@ -1,6 +1,6 @@
 import { call } from '../../platform/api';
 import type { RunRecord } from '../../platform/contracts';
-import type { CarrySummary, EffectiveTrade, Registration, Agreement, Resolution, RowPage, ScopeDrop, XvaWorkspaceView } from './contracts';
+import type { CarrySummary, EffectiveTrade, Registration, Agreement, Resolution, RowPage, ScopeDrop, Varied, XvaWorkspaceView } from './contracts';
 
 export interface RowQuery {
   readonly start: number;
@@ -9,6 +9,9 @@ export interface RowQuery {
   /** The New or the Existing grid (ADR-0010 §6). */
   readonly grid: 'new' | 'existing';
 }
+
+/** A cell `vary` names: as the command line names it, or by its entity and field. */
+export type VaryCell = { readonly cell: string } | { readonly entity: string; readonly field: string };
 
 const base = (workspaceId: string) => `/api/xva/workspaces/${encodeURIComponent(workspaceId)}`;
 const post = <T>(path: string, body: unknown, signal?: AbortSignal) =>
@@ -32,6 +35,11 @@ export interface XvaApi {
   retry(workspaceId: string, tradeId?: string): Promise<{ readonly workspace: XvaWorkspaceView; readonly asked: number }>;
   /** Acquires the trades again for the same value date; the edits carry or are held (ADR-0010 §1). */
   refresh(workspaceId: string, revision: number): Promise<{ readonly workspace: XvaWorkspaceView; readonly carried: CarrySummary }>;
+  /**
+   * `vary` (ADR-0010 §3, §9): a case per value of a cell, named as the command line names it (`CSA-A threshold`) or by
+   * its entity and field, as *Vary values…* names it. Each value goes as written, for the server to read and check.
+   */
+  vary(workspaceId: string, revision: number, cell: VaryCell, values: readonly string[]): Promise<Varied>;
   /** Copy quote's content, read by the server from the Run alone (ADR-0010 §7). */
   quote(runId: string): Promise<{ readonly text: string; readonly html: string }>;
 }
@@ -51,6 +59,7 @@ export const httpXvaApi: XvaApi = {
   price: (workspaceId, revision, idempotencyKey) => post(`${base(workspaceId)}/price`, { revision, idempotencyKey }),
   retry: (workspaceId, tradeId) => post(`${base(workspaceId)}/retry`, tradeId === undefined ? {} : { tradeId }),
   refresh: (workspaceId, revision) => post(`${base(workspaceId)}/refresh`, { revision }),
+  vary: (workspaceId, revision, cell, values) => post(`${base(workspaceId)}/vary`, { revision, values, ...cell }),
   quote: (runId) => call(`/api/xva/runs/${encodeURIComponent(runId)}/quote`),
 };
 

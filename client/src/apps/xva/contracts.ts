@@ -142,6 +142,27 @@ export interface HeldEdit {
   readonly value: unknown;
   readonly source: Readonly<Record<string, unknown>> | null;
   readonly acknowledged: boolean;
+  /** The case the edit is a change of, `case:<id>`; none for a Common edit (ADR-0010 §3). */
+  readonly layer: string | null;
+}
+
+/**
+ * A case Price prices (ADR-0010 §3): the workspace itself, the `base`, first; a case `vary` made, or one trade of `add
+ * trades`, which names it. `changes` counts its own edits.
+ */
+export interface CaseView {
+  readonly id: string;
+  readonly title: string;
+  readonly kind: 'base' | 'vary' | 'add';
+  readonly changes: number;
+  readonly trade: string | null;
+}
+
+/** What `vary` made, by title, and each value it skipped with why (ADR-0010 §3). */
+export interface Varied {
+  readonly workspace: XvaWorkspaceView;
+  readonly made: readonly string[];
+  readonly skipped: readonly string[];
 }
 
 /** One figure a measure reports, such as CVA's CVA Charge, and the trace term its cell opens where it is not the root
@@ -207,6 +228,9 @@ export interface XvaWorkspaceView {
   readonly currencies: readonly string[];
   /** The selected modules whose figures come from a simulated provider: the page says `SIMULATED` while any is. */
   readonly simulated: readonly string[];
+  /** Every case Price prices, the Base first (ADR-0010 §3), and how many one Price may price, the Base among them. */
+  readonly cases: readonly CaseView[];
+  readonly caseCap: number;
 }
 
 export interface RowPage {

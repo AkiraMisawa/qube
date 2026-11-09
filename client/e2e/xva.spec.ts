@@ -185,7 +185,7 @@ test('ADR-0010 §1, §5, §8, §9: by keyboard, a CSA edit moves a trade into FV
   await command(page, 'copy quote');
   await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toMatch(/^XVA quote \(simulated\) · run-/);
   const quote = await page.evaluate(() => navigator.clipboard.readText());
-  expect(quote).toMatch(/\nWorkspace \(After only\): CVA Charge -?[\d,]+\.\d\d · PV -?[\d,]+\.\d\d$/);
+  expect(quote).toMatch(/\nBase \(After only\): CVA Charge -?[\d,]+\.\d\d · PV -?[\d,]+\.\d\d$/);
   const runId = /· (run-\S+)/.exec(quote)?.[1];
   if (runId === undefined) throw new Error(`The quote names no Run: ${quote}`);
 
@@ -334,6 +334,28 @@ test('ADR-0010 §3, §6: `before none` clears Before on every existing trade at 
   // The caption's own control does the same, back again.
   await page.getByRole('button', { name: 'Tick Before on every existing trade' }).click();
   await expect(page.getByTestId('price')).toHaveText('Price CVA FVA · 1 case');
+});
+
+test('ADR-0010 §3, §9: `vary` makes a case per value beside the Base, and one Price gives Metrics a row per case', async ({ page }) => {
+  await open(page);
+  await newWorkspace(page, 'ABC/LE-01', 5);
+  await command(page, 'measures', 'cva fva');
+  await expect(page.getByTestId('price')).toHaveText('Price CVA FVA · 1 case');
+
+  await command(page, 'vary', 'CSA-A threshold 200mm, 50mm, 0');
+  await expect(page.getByTestId('notice')).toHaveText('Made 2 case(s): CSA-A threshold 200mm, CSA-A threshold 50mm; skipped 0 is the workspace\'s value.');
+  await expect(page.getByTestId('price')).toHaveText('Price CVA FVA · 3 cases');
+  // The workspace is the Base: a case's change is not an edit of it.
+  await expect(page.getByTestId('workspace-summary')).toContainText('0 edit(s)');
+
+  await command(page, 'price');
+  const result = page.getByTestId('xva-result');
+  await expect(result.getByTestId('xva-result-status')).toHaveText('succeeded');
+  const metrics = result.getByRole('table', { name: 'Metrics' });
+  await expect(metrics.getByRole('rowheader')).toHaveText(['Base', 'CSA-A threshold 200mm', 'CSA-A threshold 50mm']);
+  // Collapsed, the dock keeps a line per case with each measure's headline Diff (ADR-0010 §7).
+  await result.getByRole('button', { name: 'Collapse' }).click();
+  await expect(result.getByTestId('xva-result-lines').locator('p')).toHaveText([/^Base · CVA Diff /, /^CSA-A threshold 200mm · CVA Diff /, /^CSA-A threshold 50mm · CVA Diff /]);
 });
 
 test('ADR-0010 §6: a new trade\'s PV01 arrives with no reload, and Margin gives its PV Adj, read-only and saying so', async ({ page }) => {

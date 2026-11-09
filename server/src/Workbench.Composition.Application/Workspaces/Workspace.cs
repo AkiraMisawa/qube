@@ -13,6 +13,18 @@ namespace Workbench.Composition.Application.Workspaces;
 /// </summary>
 public sealed record EditTarget(string Scope, string Entity, string Field, string? Layer = null);
 
+/// <summary>
+/// One change of a batch (<see cref="WorkspaceService.Batch"/>), made as the command of the same name makes it: an
+/// override, a reset, a created entity, or one removed with the layer it owns.
+/// </summary>
+public abstract record WorkspaceChange
+{
+    public sealed record Set(EditTarget Target, JsonNode? Value) : WorkspaceChange;
+    public sealed record Reset(EditTarget Target) : WorkspaceChange;
+    public sealed record Create(string Scope, string Entity, JsonObject Fields) : WorkspaceChange;
+    public sealed record Remove(string Entity, string? Layer = null) : WorkspaceChange;
+}
+
 /// <summary>A source value as read: present (possibly empty), never confused with absent.</summary>
 public sealed record SourceValue(JsonNode? Value);
 

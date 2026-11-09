@@ -132,8 +132,6 @@ public sealed class SpotImPrice(IRatesPricingProvider provider, Func<string, Mar
 {
     public const string CapabilityId = "simm.spotIm";
     public const string CapabilityVersion = "1.0.0";
-    public const string Case = "base";
-    public const string CaseTitle = "Workspace";
     public const string Scenario = "base";
 
     public CapabilityDescriptor Descriptor { get; } = new(CapabilityId, CapabilityVersion, "Spot IM, IM-R and IM-P from CRIF (simulated)",
@@ -151,7 +149,38 @@ public sealed class SpotImPrice(IRatesPricingProvider provider, Func<string, Mar
     {
         var reference = invocation.Inputs["acceptedInput"].Deserialize<TypedDataRef>(WireJson.Options)
             ?? throw new CapabilityFailure("InvalidInput", "The accepted input is required.");
-        var input = invocation.Data.ReadRequired(reference).AsObject();
+        var provenance = new DatasetProvenance(ExecutionMode.Simulated, DataOrigin.Synthetic, invocation.InvocationId);
+        // One request prices every case (ADR-0010 §3's note of 2026-11-08); the CRIF outputs are the Base's, and each
+        // case's CRIF lines are in its trace.
+        var rows = new List<JsonObject>();
+        var traces = new List<TraceEntry>();
+        var labels = new List<string>();
+        (CrifDocument Before, CrifDocument After, string Registration)? crifs = null;
+        foreach (var @case in PortfolioInput.Cases(invocation.Data.ReadRequired(reference)))
+        {
+            var priced = await PriceCase(@case, invocation.InvocationId, provenance, cancellationToken);
+            rows.AddRange(priced.Rows);
+            traces.AddRange(priced.Traces);
+            labels.Add(priced.Label);
+            crifs ??= (priced.Crifs[Before], priced.Crifs[After], priced.Registration);
+        }
+        var baseCrifs = crifs ?? throw new CapabilityFailure("InvalidInput", "The accepted input holds no cases.");
+        // What the figures were computed with, said once where every case computed with the same.
+        var label = string.Join("; ", labels.Distinct());
+        return new Dictionary<string, JsonNode?>
+        {
+            ["result"] = Datasets.Create($"Spot IM ({label})", MeasureResult.Columns, rows, provenance),
+            ["traces"] = JsonSerializer.SerializeToNode(new TraceSet(traces), WireJson.Options),
+            ["crifBefore"] = SimmDatasets.Crif(baseCrifs.Before, $"CRIF Before {baseCrifs.Registration} ({labels[0]})", provenance),
+            ["crifAfter"] = SimmDatasets.Crif(baseCrifs.After, $"CRIF After {baseCrifs.Registration} ({labels[0]})", provenance),
+        };
+    }
+
+    /// <summary>One case's rows and traces, its CRIF on each side, and what its figures were computed with.</summary>
+    async Task<(IReadOnlyList<JsonObject> Rows, IReadOnlyList<TraceEntry> Traces, IReadOnlyDictionary<string, CrifDocument> Crifs, string Label, string Registration)> PriceCase(
+        PricedCase @case, string requestId, DatasetProvenance provenance, CancellationToken cancellationToken)
+    {
+        var input = @case.Input;
         string Required(JsonNode? node, string what) => node?.GetValue<string>() ?? throw new CapabilityFailure("InvalidInput", $"The accepted input names no {what}.");
         var valueDate = DateOnly.ParseExact(Required(input["context"]?["valueDate"], "value date"), "yyyy-MM-dd", CultureInfo.InvariantCulture);
         var registration = Required(input["registration"], "registration");
@@ -171,7 +200,6 @@ public sealed class SpotImPrice(IRatesPricingProvider provider, Func<string, Mar
         var selected = measures.Select(m => m as JsonObject ?? throw new CapabilityFailure("InvalidInput", "A measure of the accepted input is not an object."))
             .SingleOrDefault(m => m["id"]?.GetValue<string>() == SimmMeasures.SpotIm);
         var refusedAtPrice = selected?["refused"]?["message"]?.GetValue<string>();
-        var provenance = new DatasetProvenance(ExecutionMode.Simulated, DataOrigin.Synthetic, invocation.InvocationId);
 
         var definition = SimmMeasures.Definitions.Single();
         var rows = new List<JsonObject>();
@@ -181,7 +209,7 @@ public sealed class SpotImPrice(IRatesPricingProvider provider, Func<string, Mar
         if (selected is not null && refusedAtPrice is not null)
         {
             var refused = new MeasureResult.Side(MeasureResult.Refused, null, null, refusedAtPrice);
-            rows.AddRange(definition.Metrics.Select(m => MeasureResult.Row(Case, CaseTitle, SimmMeasures.SpotIm, m, currency, refused, refused)));
+            rows.AddRange(definition.Metrics.Select(m => MeasureResult.Row(@case.Id, @case.Title, SimmMeasures.SpotIm, m, currency, refused, refused)));
         }
         else if (selected is not null)
         {
@@ -192,25 +220,19 @@ public sealed class SpotImPrice(IRatesPricingProvider provider, Func<string, Mar
             var sides = new Dictionary<string, IReadOnlyDictionary<string, MeasureResult.Side>>();
             foreach (var side in new[] { Before, After })
             {
-                var (figures, crif, trace) = await PriceSide(side, trades, part, registration, valueDate, market, table, currency, invocation.InvocationId, provenance, cancellationToken);
+                var (figures, crif, trace) = await PriceSide(side, trades, part, registration, valueDate, market, table, currency, requestId, provenance, cancellationToken);
                 sides[side] = figures;
                 if (crif is not null) crifs[side] = crif;
-                if (trace is not null) traces.Add(new TraceEntry(Case, Scenario, side, SimmMeasures.SpotIm, trace));
+                if (trace is not null) traces.Add(new TraceEntry(@case.Id, Scenario, side, SimmMeasures.SpotIm, trace));
             }
             var conversion = Conversion(part.Market, currency, valueDate);
-            rows.AddRange(definition.Metrics.Select(m => MeasureResult.Row(Case, CaseTitle, SimmMeasures.SpotIm, m, currency, sides[Before][m.Id], sides[After][m.Id],
+            rows.AddRange(definition.Metrics.Select(m => MeasureResult.Row(@case.Id, @case.Title, SimmMeasures.SpotIm, m, currency, sides[Before][m.Id], sides[After][m.Id],
                 table?.IsDemo == true ? DemoBasis : null, conversion)));
         }
 
         // What the figures were computed with: no table where no IM CSA named one, so nothing was computed.
         var label = table is null ? "simulated" : table.IsDemo ? $"{DemoBasis}, simulated" : $"SIMM {table.Version}, simulated";
-        return new Dictionary<string, JsonNode?>
-        {
-            ["result"] = Datasets.Create($"Spot IM ({label})", MeasureResult.Columns, rows, provenance),
-            ["traces"] = JsonSerializer.SerializeToNode(new TraceSet(traces), WireJson.Options),
-            ["crifBefore"] = SimmDatasets.Crif(crifs[Before], $"CRIF Before {registration} ({label})", provenance),
-            ["crifAfter"] = SimmDatasets.Crif(crifs[After], $"CRIF After {registration} ({label})", provenance),
-        };
+        return (rows, traces, crifs, label, registration);
     }
 
     /// <summary>

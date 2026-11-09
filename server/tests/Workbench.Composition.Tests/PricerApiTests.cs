@@ -50,6 +50,46 @@ public class PricerApiTests(WorkbenchFactory factory) : IClassFixture<WorkbenchF
         return (run, rows);
     }
 
+    [Fact] // ADR-0010 §3, §9: vary over HTTP makes its cases, by a cell's name or by its entity and field, and Price gives a row per case
+    public async Task Vary_makes_cases_and_price_gives_a_row_per_case()
+    {
+        var ws = await Measures(await Create(), "cva");
+
+        var named = await Post(ws, "vary", new { revision = Revision(ws), cell = "CSA-A threshold", values = new[] { "10mm", "0" } });
+        Assert.Equal(HttpStatusCode.OK, named.StatusCode);
+        var varied = (await named.Content.ReadFromJsonAsync<JsonObject>())!;
+        Assert.Equal(["CSA-A threshold 10mm"], Strings(varied["made"]));
+        Assert.Equal(["0 is the workspace's value"], Strings(varied["skipped"]));
+        ws = varied["workspace"]!.AsObject();
+        var byField = await Post(ws, "vary", new { revision = Revision(ws), entity = "netting:NS-001", field = "cvaRecovery", values = new[] { "25%" } });
+        Assert.Equal(HttpStatusCode.OK, byField.StatusCode);
+        ws = (await byField.Content.ReadFromJsonAsync<JsonObject>())!["workspace"]!.AsObject();
+        var cases = ws["cases"]!.AsArray().Select(c => (Id: c!["id"]!.GetValue<string>(), Title: c["title"]!.GetValue<string>())).ToList();
+        Assert.Equal(["Base", "CSA-A threshold 10mm", "NS-001 recovery 25%"], cases.Select(c => c.Title));
+        Assert.Equal(50, ws["caseCap"]!.GetValue<int>());
+
+        var (_, rows) = await Price(ws);
+
+        Assert.Equal(cases.Select(c => (c.Id, c.Title)), rows.Where(r => r["metric"]!.GetValue<string>() == "cva")
+            .Select(r => (r["case"]!.GetValue<string>(), r["caseTitle"]!.GetValue<string>())));
+        // A lower recovery is a larger loss: more negative CVA in the case.
+        decimal After(string @case) => rows.Single(r => r["metric"]!.GetValue<string>() == "cva" && r["case"]!.GetValue<string>() == @case)["after"]!.GetValue<decimal>();
+        Assert.True(After(cases[2].Id) < After("base"));
+    }
+
+    [Fact] // ADR-0010 §9's note of 2026-11-08: a cell vary cannot name is refused over HTTP with what it could mean
+    public async Task Vary_refuses_a_cell_it_cannot_name()
+    {
+        var ws = await Create();
+
+        var response = await Post(ws, "vary", new { revision = Revision(ws), cell = "CSA-A", values = new[] { "1mm" } });
+
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        var error = (await response.Content.ReadFromJsonAsync<JsonObject>())!;
+        Assert.Equal(("UnknownCell", "Name a cell as its row and its column, such as CSA-A threshold; CSA-A is one word."),
+            (error["code"]!.GetValue<string>(), error["message"]!.GetValue<string>()));
+    }
+
     [Fact] // ADR-0010 §10, §11, ADR-0013 §1, ADR-0012 §7's note: the workspace lists the registered measures, and the request that prices each
     public async Task A_workspace_lists_the_registered_measures()
     {

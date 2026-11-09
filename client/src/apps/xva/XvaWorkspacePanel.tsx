@@ -9,7 +9,7 @@ import { ApiError } from '../../platform/api';
 import { useWorkspaceContext } from '../../platform/workspace/WorkspaceProvider';
 import { keyOf } from '../../platform/workspace/workspaceStore';
 import { registerGridFocus } from '../../shell/focus';
-import type { XvaApi } from './api';
+import type { VaryCell, XvaApi } from './api';
 import type { EffectiveTrade, HeldEdit, RegisteredColumn, RegisteredMeasure, Resolution, ScopeDrop, XvaWorkspaceView } from './contracts';
 import { measureNamed, registerXvaPage } from './commands';
 import { XvaResult } from './XvaResult';
@@ -420,16 +420,37 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
     void queue.push({ entity: `grid:${grid}`, field: side, value });
 
   const refresh = () => reacquire('Refreshed', (revision) => api.refresh(workspaceId, revision));
+
+  /**
+   * A case per value of a cell (ADR-0010 §3, §9), after the edits already sent (spine 6). The workspace is the Base and
+   * does not move, so the grids are not read again; the page says what was made and what was skipped, and why.
+   */
+  const vary = async (cell: VaryCell, values: readonly string[]) => {
+    try {
+      const { workspace: next, made, skipped } = await queue.after(async (revision) => {
+        const answer = await api.vary(workspaceId, revision, cell, values);
+        queue.rebase(answer.workspace.revision);
+        return answer;
+      });
+      show(next);
+      const said = [made.length === 0 ? 'vary made no case' : `Made ${made.length} case(s): ${made.join(', ')}`,
+        ...(skipped.length === 0 ? [] : [`skipped ${skipped.join('; ')}`])];
+      workspace.notify(`${said.join('; ')}.`);
+    } catch (error) {
+      workspace.notify(`vary made no case: ${describe(error)}`);
+    }
+  };
   const setCurrency = (currency: string) => void queue.push({ entity: SETTINGS_ENTITY, field: 'displayCurrency', value: currency });
 
   // The commands run what the page's own controls run, as the page stands when they run (ADR-0010 §9).
-  const pageRef = useRef({ price, setMeasures, setSide, retry, copyQuote, download, refresh, setCurrency, openTab, explain, openResult, setDockFull, resultTabs, traceInView, measures: () => view.data?.measures ?? [], currencies: () => view.data?.currencies ?? [] });
-  pageRef.current = { price, setMeasures, setSide, retry, copyQuote, download, refresh, setCurrency, openTab, explain, openResult, setDockFull, resultTabs, traceInView, measures: () => view.data?.measures ?? [], currencies: () => view.data?.currencies ?? [] };
+  const pageRef = useRef({ price, setMeasures, setSide, retry, copyQuote, download, refresh, setCurrency, openTab, explain, openResult, setDockFull, resultTabs, traceInView, vary, measures: () => view.data?.measures ?? [], currencies: () => view.data?.currencies ?? [] });
+  pageRef.current = { price, setMeasures, setSide, retry, copyQuote, download, refresh, setCurrency, openTab, explain, openResult, setDockFull, resultTabs, traceInView, vary, measures: () => view.data?.measures ?? [], currencies: () => view.data?.currencies ?? [] };
   useEffect(() => {
     registerXvaPage(panelId, {
       price: () => void pageRef.current.price(),
       setMeasures: (measures) => pageRef.current.setMeasures(measures),
       setSide: (side, value, grid) => pageRef.current.setSide(side, value, grid),
+      vary: (cell, values) => void pageRef.current.vary({ cell }, values),
       retry: () => void pageRef.current.retry(),
       downloadRun: () => pageRef.current.download(),
       copyQuote: () => void pageRef.current.copyQuote(),
@@ -503,7 +524,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
           })}
         </div>
         <Button size="xs" onClick={() => void price()} loading={busy === 'Pricing'} disabled={!notBusy && busy !== 'Pricing'} data-testid="price"
-          {...(blocking > 0 ? { title: `${blocking} held edit(s) on priced trades must be resolved first.` } : {})}>{priceLabel(ws.measures, ws.selectedMeasures, 1, { before: ws.inBefore > 0, after: ws.inAfter > 0 })}</Button>
+          {...(blocking > 0 ? { title: `${blocking} held edit(s) on priced trades must be resolved first.` } : {})}>{priceLabel(ws.measures, ws.selectedMeasures, ws.cases.length, { before: ws.inBefore > 0, after: ws.inAfter > 0 })}</Button>
       </div>
       {/* The status line: what the figures stand on, and SIMULATED while a provider is. */}
       <Group gap="xs" wrap="wrap" className="qwb-xva-status">

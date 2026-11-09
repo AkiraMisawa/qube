@@ -42,10 +42,17 @@ public sealed record PortfolioWorkspaceView(
     int PendingCells,
     string DisplayCurrency,
     IReadOnlyList<string> Currencies,
-    IReadOnlyList<string> Simulated);
+    IReadOnlyList<string> Simulated,
+    IReadOnlyList<CaseView> Cases,
+    int CaseCap);
 
-/// <summary>An edit held back for the user: a conflict (with the source's new values) or a lost target.</summary>
-public sealed record HeldEdit(string Scope, string Entity, string Field, JsonNode? Value, IReadOnlyDictionary<string, JsonNode?>? Source, bool Acknowledged);
+/// <summary>An edit held back for the user: a conflict (with the source's new values) or a lost target. <c>Layer</c> names
+/// the case it is a change of, none for a Common edit (ADR-0010 §3).</summary>
+public sealed record HeldEdit(string Scope, string Entity, string Field, JsonNode? Value, IReadOnlyDictionary<string, JsonNode?>? Source, bool Acknowledged,
+    string? Layer = null);
+
+/// <summary>The portfolio's configuration: how many cases one Price prices, the Base among them (ADR-0010 §3's note).</summary>
+public sealed record PortfolioOptions(int CaseCap = PortfolioCases.DefaultCap);
 
 /// <summary>A Run this workspace submitted (its latest twenty, newest first).</summary>
 public sealed record RunLink(string RunId, long Revision);
@@ -58,8 +65,10 @@ public sealed record ScopeDrop(string Scope, int Count, IReadOnlyDictionary<stri
 /// endpoints call. It decides scopes and sources; the generic
 /// kernel stores and checks the edits. The user is passed in; who may act is decided before this is called.
 /// </summary>
-public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore store, RunService runs, MeasureRegister register)
+public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore store, RunService runs, MeasureRegister register, PortfolioOptions? options = null)
 {
+    readonly int caseCap = (options ?? new PortfolioOptions()).CaseCap;
+
     // Effective rows per immutable state: a page request at the same revision does not materialise again.
     readonly ConditionalWeakTable<WorkspaceState, IReadOnlyList<EffectiveTrade>> materialised = new();
     readonly ConditionalWeakTable<WorkspaceState, ConcurrentDictionary<string, IReadOnlyList<EffectiveTrade>>> sorted = new();
@@ -95,19 +104,23 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
 
     public PortfolioWorkspaceView View(string workspaceId, string user)
     {
-        var state = Owned(workspaceId, user);
+        var raw = Owned(workspaceId, user);
+        // The workspace shows the Base; the cases' changes are the Changes tab's (ADR-0010 §3's note of 2026-11-08).
+        var state = PortfolioCases.Base(raw);
         var source = Source(state);
         var links = runs.List(new RunQuery(user, 0, 20, workspaceId)).Runs
             .Select(r => new RunLink(r.RunId, r.Relations.WorkspaceRevision ?? throw new InvalidOperationException($"Run {r.RunId} names a workspace but no revision.")))
             .ToList();
         return new(state.WorkspaceId, state.Revision, state.Context, source.Version, source.Registration, source.Agreement,
             register.WithMembership(state, PortfolioMaterialiser.Csas(state)), PortfolioMaterialiser.Credit(state), Rows(state).Count, Rows(state).Count(t => t.IsNew), Rows(state).Count(t => t.Before), Rows(state).Count(t => t.After), state.Overrides.Keys.Count(t => t.Scope != PortfolioEditRules.WorkspaceScope),
-            [.. state.Conflicts.Values.OrderBy(c => c.Override.Seq).Select(c => new HeldEdit(c.Override.Target.Scope, c.Override.Target.Entity, c.Override.Target.Field, c.Override.Value, c.Source, false))],
-            [.. state.Lost.Values.OrderBy(l => l.Override.Seq).Select(l => new HeldEdit(l.Override.Target.Scope, l.Override.Target.Entity, l.Override.Target.Field, l.Override.Value, null, l.Acknowledged))],
+            // Every edit held back is the user's to resolve, a case's among them.
+            [.. raw.Conflicts.Values.OrderBy(c => c.Override.Seq).Select(c => new HeldEdit(c.Override.Target.Scope, c.Override.Target.Entity, c.Override.Target.Field, c.Override.Value, c.Source, false, c.Override.Target.Layer))],
+            [.. raw.Lost.Values.OrderBy(l => l.Override.Seq).Select(l => new HeldEdit(l.Override.Target.Scope, l.Override.Target.Entity, l.Override.Target.Field, l.Override.Value, null, l.Acknowledged, l.Override.Target.Layer))],
             links, register.Measures, PortfolioMaterialiser.SelectedMeasures(state, register),
             [.. register.TradeColumns.Where(c => register.Selected(state).Any(m => m.Id == c.Module))], register.Inputs(state),
             register.WithCells(state, [.. Rows(state).Where(t => t.IsNew)]).Sum(t => t.Cells?.Values.Count(c => c.State == TradeCell.Pending) ?? 0),
-            PortfolioMaterialiser.DisplayCurrency(state), PortfolioMarket.Currencies, [.. register.Selected(state).Where(m => m.Simulated).Select(m => m.Id)]);
+            PortfolioMaterialiser.DisplayCurrency(state), PortfolioMarket.Currencies, [.. register.Selected(state).Where(m => m.Simulated).Select(m => m.Id)],
+            PortfolioCases.All(raw), caseCap);
     }
 
     /// <summary>Sets the currency the figures are shown in (ADR-0010 §1): the edit of <c>settings:workspace</c>
@@ -132,7 +145,7 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
         if (start < 0 || count < 1) throw new WorkspaceRefused("InvalidRange", "A range starts at 0 or later and holds at least one row.");
         if (grid is not (null or Entity.NewGrid or Entity.ExistingGrid))
             throw new WorkspaceRefused("UnknownGrid", $"No trade grid {grid}; the grids are {Entity.NewGrid} and {Entity.ExistingGrid}.");
-        var state = Owned(workspaceId, user);
+        var state = PortfolioCases.Base(Owned(workspaceId, user));
         var keys = sorts.Select(sort =>
         {
             if (!SortableColumns.Contains(sort.Column))
@@ -163,15 +176,86 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
 
     public WorkspaceState Edit(string workspaceId, long revision, string user, string entity, string field, JsonNode? value)
     {
-        var state = Owned(workspaceId, user);
-        if (register.ColumnOf(field) is { } column) CheckCell(state, entity, field, column, value);
+        var state = PortfolioCases.Base(Owned(workspaceId, user));
+        Check(state, entity, field, value);
+        return workspaces.Set(workspaceId, revision, user, PortfolioEditRules.Target(Source(state), entity, field), value);
+    }
+
+    // What a typed cell is checked for, on the reading it is typed into: whether it is editable, and its type.
+    void Check(WorkspaceState reading, string entity, string field, JsonNode? value)
+    {
+        if (register.ColumnOf(field) is { } column) CheckCell(reading, entity, field, column, value);
         else
         {
             if (!Editable(entity, field))
                 throw new WorkspaceRefused("NotEditable", $"{entity}.{field} is not editable in this workspace.");
-            Validate(state, entity, field, value);
+            Validate(reading, entity, field, value);
         }
-        return workspaces.Set(workspaceId, revision, user, PortfolioEditRules.Target(Source(state), entity, field), value);
+    }
+
+    /// <summary>
+    /// <c>vary &lt;row&gt; &lt;column&gt; &lt;values&gt;</c> (ADR-0010 §3, §9): one case per value, each the Base with that one
+    /// change, named from what it changed (<c>CSA-A threshold 5mm</c>). The cell is named as ADR-0010 §9's note names it.
+    /// </summary>
+    public VaryAnswer Vary(string workspaceId, long revision, string user, string cell, IReadOnlyList<string> values, RunOrigin? origin = null)
+    {
+        var text = cell.Trim();
+        var at = text.IndexOf(' ');
+        if (at <= 0)
+            throw new WorkspaceRefused("UnknownCell", $"Name a cell as its row and its column, such as CSA-A threshold; {(text.Length == 0 ? "none was named" : $"{text} is one word")}.");
+        var raw = Owned(workspaceId, user);
+        return Vary(raw, revision, user, PortfolioCells.Resolve(PortfolioCases.Base(raw), register, text[..at], text[(at + 1)..]), values, origin);
+    }
+
+    /// <summary>As <see cref="Vary(string, long, string, string, IReadOnlyList{string}, RunOrigin?)"/>, on the cell of an entity's
+    /// field: <em>Vary values…</em> on a cell of the input tabs or the trade grids (ADR-0010 §3).</summary>
+    public VaryAnswer VaryField(string workspaceId, long revision, string user, string entity, string field, IReadOnlyList<string> values, RunOrigin? origin = null)
+    {
+        var raw = Owned(workspaceId, user);
+        return Vary(raw, revision, user, PortfolioCells.Of(PortfolioCases.Base(raw), register, entity, field), values, origin);
+    }
+
+    // Every value is read and checked as the cell would check it typed, before any case is made: a list holding a value
+    // that cannot be read makes none. A value the Base holds makes no case, nor one a case already holds; each is said.
+    VaryAnswer Vary(WorkspaceState raw, long revision, string user, CellName cell, IReadOnlyList<string> values, RunOrigin? origin)
+    {
+        var written = values.Select(v => v.Trim()).ToList();
+        if (written.Count == 0 || written.Any(v => v.Length == 0))
+            throw new WorkspaceRefused("NothingToVary", $"vary takes one value or more for {cell.Row} {cell.Column}, separated by commas{(written.Count == 0 ? "" : ", none of them empty")}.");
+        var baseline = PortfolioCases.Base(raw);
+        var read = written.Select(v => (Text: v, Value: PortfolioCells.Read(cell, v))).ToList();
+        foreach (var (_, value) in read) Check(baseline, cell.Entity, cell.Field, value);
+        var held = PortfolioCells.Current(baseline, register, cell);
+        // A case another vary made already holds the one change.
+        var existing = PortfolioCases.Made(raw).Where(c => c.Fields["kind"]?.GetValue<string>() == PortfolioCases.Vary)
+            .Select(c => (Title: c.Fields["title"]!.GetValue<string>(), Changes: PortfolioCases.ChangesOf(raw, Entity.Split(c.Entity).Id)))
+            .Where(c => c.Changes.Count == 1)
+            .Select(c => (c.Title, Change: c.Changes[0]))
+            .ToList();
+        var made = new List<(string Title, JsonNode? Value)>();
+        var skipped = new List<string>();
+        foreach (var (text, value) in read)
+        {
+            if (PortfolioCases.Same(value, held)) { skipped.Add($"{text} is the workspace's value"); continue; }
+            var same = existing.Where(e => e.Change.Target.Entity == cell.Entity && e.Change.Target.Field == cell.Field && PortfolioCases.Same(e.Change.Value, value))
+                .Select(e => e.Title).Concat(made.Where(m => PortfolioCases.Same(m.Value, value)).Select(m => m.Title)).FirstOrDefault();
+            if (same is not null) { skipped.Add($"{text} is case {same}, made already"); continue; }
+            made.Add(($"{cell.Row} {cell.Column} {text}", value));
+        }
+        if (made.Count == 0) return new VaryAnswer(raw, [], skipped);
+        var source = Source(raw);
+        // A case is named by the log entry that made it, so no id is ever given twice.
+        var changes = made.SelectMany((m, i) =>
+        {
+            var id = $"c{revision + 1 + 2 * i}";
+            var layer = PortfolioCases.Of(id);
+            return new WorkspaceChange[]
+            {
+                new WorkspaceChange.Create($"cp:{source.Registration.Key}", layer, new JsonObject { ["title"] = m.Title, ["kind"] = PortfolioCases.Vary }),
+                new WorkspaceChange.Set(PortfolioEditRules.Target(source, cell.Entity, cell.Field, layer), m.Value),
+            };
+        }).ToList();
+        return new VaryAnswer(workspaces.Batch(raw.WorkspaceId, revision, user, changes, origin), [.. made.Select(m => m.Title)], skipped);
     }
 
     /// <summary>
@@ -180,7 +264,7 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
     /// </summary>
     public int Retry(string workspaceId, string user, string? tradeId = null)
     {
-        var state = Owned(workspaceId, user);
+        var state = PortfolioCases.Base(Owned(workspaceId, user));
         var trades = tradeId is null ? Rows(state) : [.. Rows(state).Where(t => t.TradeId == tradeId)];
         if (tradeId is not null && trades.Count == 0) throw new WorkspaceRefused("UnknownTarget", $"No trade {tradeId} in this workspace.");
         return register.Selected(state).Sum(m => m.Retry(state, trades));
@@ -204,9 +288,9 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
             throw new WorkspaceRefused("InvalidValue", problem, [PortfolioEditRules.Target(Source(state), entity, field)]);
     }
 
-    public WorkspaceState Resolve(string workspaceId, long revision, string user, string entity, string field, string resolution)
+    public WorkspaceState Resolve(string workspaceId, long revision, string user, string entity, string field, string resolution, string? layer = null)
     {
-        var target = Held(Owned(workspaceId, user), entity, field);
+        var target = Held(Owned(workspaceId, user), entity, field, layer);
         return resolution switch
         {
             "reset" => workspaces.Reset(workspaceId, revision, user, target),
@@ -237,8 +321,9 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
         var state = Owned(workspaceId, user);
         var scope = $"cp:{Source(state).Registration.Key}";
         var rules = new PortfolioEditRules();
-        var held = state.InScope(scope);
-        return new(scope, held.Count, held.Keys.GroupBy(rules.KindOf).ToDictionary(g => g.Key, g => g.Count()));
+        // A case goes with the counterparty it was made on, with every change it holds (ADR-0010 §3), and is counted.
+        var held = state.InScope(scope).Keys.Concat(state.Created.Values.Where(c => c.Scope == scope).Select(c => new EditTarget(scope, c.Entity, "*"))).ToList();
+        return new(scope, held.Count, held.GroupBy(rules.KindOf).ToDictionary(g => g.Key, g => g.Count()));
     }
 
     /// <summary>Changes the counterparty: the confirmed edits of the previous one are dropped, a new trade's own edits stay.</summary>
@@ -259,7 +344,7 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
         // A retry is answered before anything is frozen again: a PV01 may have answered since, or the user moved on,
         // and neither makes it another Price (XV13).
         return runs.Known(user, idempotencyKey, PortfolioPrice.Basis(workspaceId, revision))
-            ?? runs.Submit(PortfolioPrice.Submission(workspaces, store, register, workspaceId, revision, idempotencyKey, user));
+            ?? runs.Submit(PortfolioPrice.Submission(workspaces, store, register, workspaceId, revision, idempotencyKey, user, caseCap: caseCap));
     }
 
     public void Delete(string workspaceId, string user) => workspaces.Delete(workspaceId, user);
@@ -321,9 +406,10 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
         if (problem is not null) throw new WorkspaceRefused("InvalidValue", problem, [PortfolioEditRules.Target(Source(state), entity, field)]);
     }
 
-    static EditTarget Held(WorkspaceState state, string entity, string field) =>
-        state.Overrides.Keys.Concat(state.Conflicts.Keys).Concat(state.Lost.Keys).FirstOrDefault(t => t.Entity == entity && t.Field == field)
-        ?? throw new WorkspaceRefused("NotOverridden", $"{entity}.{field} has no edit.");
+    // A field holds a Common edit and one per case at once; the layer says which (ADR-0010 §3).
+    static EditTarget Held(WorkspaceState state, string entity, string field, string? layer) =>
+        state.Overrides.Keys.Concat(state.Conflicts.Keys).Concat(state.Lost.Keys).FirstOrDefault(t => t.Entity == entity && t.Field == field && t.Layer == layer)
+        ?? throw new WorkspaceRefused("NotOverridden", $"{entity}.{field} has no edit{(layer is null ? "" : $" in {layer}")}.");
 
     static IComparable? Key(EffectiveTrade row, string column) => column switch
     {

@@ -168,6 +168,25 @@ public class WorkspaceTests
         Assert.Equal((EditKind.Remove, "2 edits"), (ws.Log[^1].Kind, ws.Log[^1].Note));
     }
 
+    [Fact] // Spine 6, ADR-0010 §3: a batch is one command: every change is written, each its own entry, or none is
+    public void A_batch_writes_every_change_or_none()
+    {
+        var service = Service();
+        var ws = Created(service);
+        var inCase = Notional with { Layer = "case:c1" };
+
+        var refused = Assert.Throws<WorkspaceRefused>(() => service.Batch(ws.WorkspaceId, ws.Revision, "akira",
+            [new WorkspaceChange.Create("cp:ABC/LE-01", "case:c1", new JsonObject { ["title"] = "T1" }), new WorkspaceChange.Set(inCase, 150),
+             new WorkspaceChange.Set(new EditTarget("cp:ABC/LE-01", "T9", "notional", "case:c1"), 1)]));
+        Assert.Equal("UnknownTarget", refused.Code);
+        Assert.Equal(ws.Revision, service.Find(ws.WorkspaceId)!.Revision);
+
+        var made = service.Batch(ws.WorkspaceId, ws.Revision, "akira",
+            [new WorkspaceChange.Create("cp:ABC/LE-01", "case:c1", new JsonObject { ["title"] = "T1" }), new WorkspaceChange.Set(inCase, 150)]);
+        Assert.Equal(ws.Revision + 2, made.Revision);
+        Assert.Equal(150, made.Overrides[inCase].Value!.GetValue<int>());
+    }
+
     [Fact] // Spine 6: a command taken against an older revision is refused, whatever the timing
     public void A_command_against_a_moved_revision_is_refused()
     {

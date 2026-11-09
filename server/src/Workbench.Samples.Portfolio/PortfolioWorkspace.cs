@@ -86,6 +86,7 @@ public sealed class PortfolioEditRules : IEditRules
         (Entity.Credit, _) => "xva.credit",
         (Entity.Selection, _) => "portfolio.selection",
         (Entity.Settings, _) => "portfolio.settings",
+        (Entity.Case, _) => "portfolio.case",
         _ => throw new ArgumentException($"No portfolio edit kind for {target.Entity}.{target.Field}."),
     };
 
@@ -97,9 +98,12 @@ public sealed class PortfolioEditRules : IEditRules
     /// The scope of an edit, decided here and never taken from the client: a new trade's own content belongs to
     /// that trade and survives a counterparty change; everything else belongs to the counterparty registration.
     /// </summary>
-    public static EditTarget Target(PortfolioSourceVersion source, string entity, string field)
+    public static EditTarget Target(PortfolioSourceVersion source, string entity, string field, string? layer = null)
     {
         var (kind, id) = Entity.Split(entity);
+        // A case's change is the counterparty's, as the case is (ADR-0010 §3's note of 2026-11-08): a counterparty change
+        // drops the case with every change it holds, a new trade's included.
+        if (layer is not null) return new EditTarget($"cp:{source.Registration.Key}", entity, field, layer);
         // The selection of measures and the settings are the workspace's, whichever counterparty it is on.
         if (kind is Entity.Selection or Entity.Settings) return new EditTarget(WorkspaceScope, entity, field);
         var tradeContent = kind == Entity.Trade && field is not ("before" or "after" or "csa" or "curve" or "imR" or "imP");
