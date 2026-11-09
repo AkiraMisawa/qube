@@ -487,12 +487,31 @@ public static partial class PortfolioScenarios
     /// </summary>
     public static (IReadOnlyList<WorkspaceChange> Changes, bool Replaced) Define(WorkspaceState state, string name, IReadOnlyList<Shift> shifts, long revision)
     {
-        var named = Checked(name);
-        var gone = Rows(state).Where(r => Same(r.Scenario, named)).Select(r => (WorkspaceChange)new WorkspaceChange.Remove(Entity.Of(ShiftKind, r.Id))).ToList();
-        var changes = new List<WorkspaceChange>(gone);
-        foreach (var shift in shifts)
-            changes.Add(new WorkspaceChange.Create(PortfolioEditRules.WorkspaceScope, Entity.Of(ShiftKind, $"s{revision + 1 + changes.Count}"), Fields(named, shift)));
-        return (changes, gone.Count > 0);
+        var (changes, replaced) = DefineAll(state, [(name, shifts)], revision);
+        return (changes, replaced.Count > 0);
+    }
+
+    /// <summary>
+    /// Several scenarios at once, as a generator makes them (ADR-0010 §4): each whole, replacing one of its name, in one
+    /// batch. Returns the names it replaced.
+    /// </summary>
+    public static (IReadOnlyList<WorkspaceChange> Changes, IReadOnlyList<string> Replaced) DefineAll(WorkspaceState state,
+        IReadOnlyList<(string Name, IReadOnlyList<Shift> Shifts)> scenarios, long revision)
+    {
+        var named = scenarios.Select(s => (Name: Checked(s.Name), s.Shifts)).ToList();
+        var rows = Rows(state);
+        var changes = new List<WorkspaceChange>();
+        var replaced = new List<string>();
+        foreach (var (name, _) in named)
+        {
+            var gone = rows.Where(r => Same(r.Scenario, name)).ToList();
+            if (gone.Count > 0) replaced.Add(name);
+            changes.AddRange(gone.Select(r => (WorkspaceChange)new WorkspaceChange.Remove(Entity.Of(ShiftKind, r.Id))));
+        }
+        foreach (var (name, shifts) in named)
+            foreach (var shift in shifts)
+                changes.Add(new WorkspaceChange.Create(PortfolioEditRules.WorkspaceScope, Entity.Of(ShiftKind, $"s{revision + 1 + changes.Count}"), Fields(name, shift)));
+        return (changes, replaced);
     }
 
     /// <summary>A shift row's fields as created: the scenario's name, the shift, no description.</summary>
@@ -543,6 +562,109 @@ public static partial class PortfolioScenarios
                     return $"{a.Shared(b)} twice, in row {rows[i].Row} ({a.Text}) and row {rows[j].Row} ({b.Text})";
         return null;
     }
+}
+
+/// <summary>
+/// The generators of ADR-0010 §4: <c>scenario ladder</c>, a scenario per size of one factor, and <c>scenario cross</c>, one
+/// per combination of several factors' sizes. Each scenario is named from its shifts (<c>jpy_ois +50bp · usdjpy -10%</c>); a
+/// size of 0 is no shift, so the ladder's zero and the cross's all-zero combination are not made, since Price prices the
+/// base market anyway. A set is one fewer than the cap at most: one case priced on the base market and on each of them is
+/// as many pairs as Price prices (ADR-0010 §4's note of 2026-11-09).
+/// </summary>
+public static partial class ScenarioGenerators
+{
+    /// <summary>The most scenarios a generator makes under a cap of pairs.</summary>
+    public static int Most(int cap) => cap - 1;
+
+    [GeneratedRegex(@"^([+-]?)(\d+(?:\.\d+)?)(bp|%)?$", RegexOptions.IgnoreCase)]
+    private static partial Regex Size();
+
+    [GeneratedRegex(@"\s+x\s+", RegexOptions.IgnoreCase)]
+    private static partial Regex Times();
+
+    /// <summary>
+    /// <c>scenario ladder jpy_ois [5y] -50bp..+50bp step 10bp</c>: a scenario per size from the first to the last, by the step,
+    /// the zero left out. A step that does not divide the range, or a range that does not rise, is refused.
+    /// </summary>
+    public static IReadOnlyList<(string Name, IReadOnlyList<Shift> Shifts)> Ladder(string text, int cap = PortfolioCases.DefaultCap)
+    {
+        var words = Regex.Replace(text.Trim(), @"\s*\.\.\s*", "..").Split(' ', StringSplitOptions.RemoveEmptyEntries).ToList();
+        var range = words.FindIndex(w => w.Contains("..", StringComparison.Ordinal));
+        var step = words.FindIndex(w => string.Equals(w, "step", StringComparison.OrdinalIgnoreCase));
+        if (range < 0 || step < 0 || step + 1 >= words.Count)
+            throw Refused("ladder", "needs a factor, a range and a step, such as scenario ladder jpy_ois -50bp..+50bp step 10bp");
+        var ends = words[range].Split("..");
+        if (ends.Length != 2) throw Refused("ladder", $"reads {words[range]} as no range: write it as -50bp..+50bp");
+        var factor = string.Join(' ', words.Where((_, i) => i != range && i != step && i != step + 1));
+        if (factor.Length == 0) throw Refused("ladder", "needs the factor it shifts, such as jpy_ois or jpy_ois 5y");
+        var (from, to, by) = (SizeOf(ends[0], "ladder"), SizeOf(ends[1], "ladder"), SizeOf(words[step + 1], "ladder"));
+        var unit = new[] { from.Unit, to.Unit, by.Unit }.FirstOrDefault(u => u is not null);
+        if (new[] { from.Unit, to.Unit, by.Unit }.Any(u => u is not null && u != unit))
+            throw Refused("ladder", $"mixes bp and %: write its range and its step in one unit");
+        if (by.Value <= 0) throw Refused("ladder", $"steps by {words[step + 1]}: a step is more than 0");
+        if (to.Value <= from.Value) throw Refused("ladder", $"runs from {ends[0]} to {ends[1]}: a ladder rises from its first size to its last");
+        if ((to.Value - from.Value) % by.Value != 0)
+            throw Refused("ladder", $"steps by {words[step + 1]}, which does not divide {ends[0]}..{ends[1]}: its last size would not be {ends[1]}");
+        var count = (to.Value - from.Value) / by.Value + 1;
+        // The zero is a size of the ladder where the range holds it on a step.
+        var made = count - (from.Value <= 0 && to.Value >= 0 && from.Value % by.Value == 0 ? 1 : 0);
+        if (made > Most(cap))
+            throw Refused("ladder", $"makes {made} scenarios, and a set is {Most(cap)} at most, as Price prices {cap} pairs of a case and a market at most");
+        var scenarios = new List<(string, IReadOnlyList<Shift>)>();
+        for (var size = from.Value; size <= to.Value; size += by.Value)
+        {
+            var shift = ShiftReader.Read($"{factor} {Shift.Signed(size, unit ?? "")}".Trim());
+            if (shift.Size != 0) scenarios.Add((shift.Text, [shift]));
+        }
+        return scenarios;
+    }
+
+    /// <summary>
+    /// <c>scenario cross jpy_ois -50bp, 0, +50bp x usdjpy -10%, 0, +10%</c>: a scenario per combination of one size from each
+    /// list, shifting every factor of its combination that is not 0; the all-zero one is the base market's and not made.
+    /// Two lists on one risk factor, or a size given twice in a list, are refused.
+    /// </summary>
+    public static IReadOnlyList<(string Name, IReadOnlyList<Shift> Shifts)> Cross(string text, int cap = PortfolioCases.DefaultCap)
+    {
+        var lists = Times().Split(text.Trim()).Select(List).ToList();
+        if (lists.Count < 2) throw Refused("cross", "needs two lists or more, separated by x, such as scenario cross jpy_ois -50bp, 0, +50bp x usdjpy -10%, 0, +10%");
+        for (var i = 0; i < lists.Count; i++)
+            for (var j = i + 1; j < lists.Count; j++)
+                if (lists[i][0].Touches(lists[j][0]))
+                    throw Refused("cross", $"shifts {lists[i][0].Shared(lists[j][0])} in two lists: a combination would shift it twice");
+        var count = lists.Aggregate(1L, (n, l) => n * l.Count) - (lists.All(l => l.Any(s => s.Size == 0)) ? 1 : 0);
+        if (count > Most(cap))
+            throw Refused("cross", $"makes {count} scenarios, and a set is {Most(cap)} at most, as Price prices {cap} pairs of a case and a market at most");
+        IEnumerable<IReadOnlyList<Shift>> combinations = [[]];
+        foreach (var list in lists)
+            combinations = combinations.SelectMany(c => list.Select(s => (IReadOnlyList<Shift>)[.. c, s]));
+        return [.. combinations.Select(c => c.Where(s => s.Size != 0).ToList()).Where(c => c.Count > 0)
+            .Select(c => (string.Join(" · ", c.Select(s => s.Text)), (IReadOnlyList<Shift>)c))];
+    }
+
+    // One list of a cross: its factor's words, then its sizes separated by commas (`jpy_ois 5y -10bp, 0, +10bp`).
+    static IReadOnlyList<Shift> List(string text)
+    {
+        var pieces = text.Split(',').Select(p => p.Trim()).ToList();
+        var first = pieces[0].Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (first.Length < 2 || pieces.Skip(1).Any(p => p.Length == 0))
+            throw Refused("cross", $"reads {text.Trim()} as no list: write a factor, then its sizes separated by commas, such as jpy_ois -50bp, 0, +50bp");
+        var factor = string.Join(' ', first[..^1]);
+        var shifts = new[] { first[^1] }.Concat(pieces.Skip(1)).Select(size => ShiftReader.Read($"{factor} {size}")).ToList();
+        if (shifts.GroupBy(s => s.Size).FirstOrDefault(g => g.Count() > 1) is { } twice)
+            throw Refused("cross", $"lists {Shift.Signed(twice.Key, twice.First().Unit)} twice for {factor}");
+        return shifts;
+    }
+
+    static (decimal Value, string? Unit) SizeOf(string word, string generator)
+    {
+        var match = Size().Match(word);
+        if (!match.Success) throw Refused(generator, $"reads {word} as no size: write it as +10bp or -5%");
+        var magnitude = decimal.Parse(match.Groups[2].Value, CultureInfo.InvariantCulture);
+        return (match.Groups[1].Value == "-" ? -magnitude : magnitude, match.Groups[3].Success ? match.Groups[3].Value.ToLowerInvariant() : null);
+    }
+
+    static WorkspaceRefused Refused(string generator, string why) => new("InvalidGenerator", $"scenario {generator} {why}.");
 }
 
 /// <summary>A shift a provider reads and cannot apply: its measure is refused for that scenario, by name (ADR-0010 §4's

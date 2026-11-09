@@ -653,3 +653,20 @@ test('ADR-0010 §4, UX03: at 390px the Scenarios tab is among the Inputs, and th
   // The grid is wider than a phone: it scrolls inside its frame, never the page.
   expect(await sideways()).toBe(0);
 });
+
+test('ADR-0010 §4: `scenario cross` says what it makes against the cap as it is typed, then makes the set in one command', async ({ page }) => {
+  await open(page);
+  await newWorkspace(page, 'ABC/LE-01', 3);
+  await command(page, 'measures', 'cva');
+  await command(page, 'scenarios clear');
+
+  await page.keyboard.press('ControlOrMeta+K');
+  await page.keyboard.type('scenario cross jpy_ois -50bp, 0, +50bp x usdjpy -10%, 0, +10%');
+  await expect(page.getByTestId('command-pending')).toContainText('makes 8 scenario(s)');
+  await expect(page.getByTestId('command-pending')).toContainText('pairs 9 of 50');
+  await page.keyboard.press('Enter');
+
+  await expect(page.getByTestId('notice')).toHaveText(/^Made 8 scenario\(s\): jpy_ois -50bp · usdjpy -10%, jpy_ois -50bp, /);
+  await expect(page.getByRole('tab', { name: 'Scenarios (8)' })).toBeVisible();
+  await expect(page.getByTestId('price')).toHaveText('Price CVA · 1 case × 9 markets');
+});

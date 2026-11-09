@@ -156,6 +156,28 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
     }
 
     /// <summary>
+    /// <c>scenario ladder …</c> and <c>scenario cross …</c> (ADR-0010 §4): a set of scenarios at once, each named from its
+    /// shifts and replacing one of its name, in one batch; the answer names those it made and those it replaced.
+    /// </summary>
+    public ScenarioAnswer GenerateScenarios(string workspaceId, long revision, string user, string generator, string text, RunOrigin? origin = null)
+    {
+        var made = generator switch
+        {
+            "ladder" => ScenarioGenerators.Ladder(text, caseCap),
+            "cross" => ScenarioGenerators.Cross(text, caseCap),
+            _ => throw new WorkspaceRefused("InvalidGenerator", $"There is no generator {generator}; there are ladder and cross."),
+        };
+        IReadOnlyList<string> replaced = [];
+        var state = Apply(workspaceId, revision, user, raw =>
+        {
+            var (changes, gone) = PortfolioScenarios.DefineAll(raw, made, revision);
+            replaced = gone;
+            return changes;
+        }, origin);
+        return new ScenarioAnswer(state, [.. made.Select(m => m.Name)], replaced);
+    }
+
+    /// <summary>
     /// The Scenarios grid's edits as one batch (ADR-0010 §4): a cell typed, a block pasted onto it, or cells cleared, each
     /// read as its column reads it; one cell that does not resolve refuses the edit whole, naming its row and column.
     /// </summary>

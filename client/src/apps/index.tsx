@@ -12,7 +12,7 @@ import { ratesCommandsOf } from './rates/commands';
 import { RatesWorkspacePanel } from './rates/RatesWorkspacePanel';
 import { httpXvaApi, type XvaApi } from './xva/api';
 import { measureNamed, measuresTyped, setTyped, varyTyped, xvaPageOf } from './xva/commands';
-import { scenarioParts, scenarioTyped } from './xva/scenarios';
+import { generatorParts, scenarioParts, scenarioTyped } from './xva/scenarios';
 import { XvaWorkspacePanel } from './xva/XvaWorkspacePanel';
 import { registerAiContext, registerAiEffect } from '../ai/effects';
 import { registerGridFocus } from '../shell/focus';
@@ -343,6 +343,31 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
       ],
       run: (a) => xvaPage().duplicateScenario(scenarioNamed(a.scenario, 'scenario duplicate'), scenarioNamed(a.copy, 'scenario duplicate')),
     },
+    // The generators (ADR-0010 §4): a set at once, the line saying how many it makes and the pairs left against the cap.
+    ...([['ladder', 'Make a scenario per size of one factor, such as scenario ladder jpy_ois -50bp..+50bp step 10bp',
+      'a factor, a range and a step: jpy_ois -50bp..+50bp step 10bp, or jpy_ois 5y -10bp..+10bp step 5bp'],
+    ['cross', 'Make a scenario per combination of several factors\' sizes, such as scenario cross jpy_ois -50bp, 0, +50bp x usdjpy -10%, 0, +10%',
+      'lists separated by x, each a factor and its sizes: jpy_ois -50bp, 0, +50bp x usdjpy -10%, 0, +10%']] as const)
+      .map(([generator, title, hint]): Command => ({
+        id: `xva.scenario.${generator}`,
+        words: `scenario ${generator}`,
+        title,
+        group: 'XVA',
+        ...onXva,
+        args: [{
+          name: generator, required: true, rest: true, hint,
+          // The page's cases and scenarios, read as the line is typed: the preview counts against them.
+          parts: (text) => {
+            const page = xvaPageOf(xva);
+            const pricing = page?.pricing();
+            return generatorParts(generator, text, page === undefined || pricing === undefined ? undefined : { ...pricing, scenarios: page.scenarios() });
+          },
+        }],
+        run: (a) => {
+          if (a[generator] === undefined || a[generator].trim() === '') throw new Error(`scenario ${generator} needs ${hint}.`);
+          xvaPage().generateScenarios(generator, a[generator]);
+        },
+      })),
     {
       id: 'xva.scenarios.clear',
       words: 'scenarios clear',

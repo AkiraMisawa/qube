@@ -111,6 +111,98 @@ function editsOver(rows: readonly ShiftGridRow[], targets: readonly GridRange[],
   });
 }
 
+/** What a generator said back: how many it made, and those of the same name it replaced. */
+export const generatedText = ({ made, replaced }: Pick<ScenariosMade, 'made' | 'replaced'>): string =>
+  `Made ${made.length} scenario(s)${replaced.length === 0 ? '' : `, replacing ${replaced.length} of the same name`}: ${made.join(', ')}.`;
+
 /** What the list's and the commands' answers say. */
 export const includedText = (name: string, included: boolean) =>
   included ? `Price prices the scenario ${name}.` : `Price leaves the scenario ${name} out; its shifts stay.`;
+
+// The generators (ADR-0010 §4): what the command line says of `scenario ladder` and `scenario cross` before Enter. The
+// count and the names are read here from the sizes alone; whether each shift resolves is the server's to say, and it
+// refuses the generator whole for one that does not.
+
+/** What the page knows that the preview counts against: the cases, the cap of pairs, and the scenarios it holds. */
+export interface GeneratorContext {
+  readonly cases: number;
+  readonly cap: number;
+  readonly scenarios: readonly { readonly name: string; readonly included: boolean }[];
+}
+
+/** The most scenarios a generator makes under a cap of pairs: one case on the base market and on each of them. */
+export const mostScenarios = (cap: number) => cap - 1;
+
+const SIZE = /^([+-]?)(\d+(?:\.\d+)?)(bp|%)?$/i;
+
+function sizeOf(word: string): { readonly value: number; readonly unit: string | undefined } | undefined {
+  const match = SIZE.exec(word);
+  if (match === null) return undefined;
+  const magnitude = Number(match[2]);
+  return { value: match[1] === '-' ? -magnitude : magnitude, unit: match[3]?.toLowerCase() };
+}
+
+// A size written as the server names it: `+50bp`, `-10%`.
+const signed = (value: number, unit: string) => `${value > 0 ? '+' : ''}${String(value)}${unit}`;
+
+/**
+ * The scenarios a generator would make, by name, or why it cannot be read. A ladder's sizes are counted in hundredths,
+ * so a step such as 2.5bp divides as it does on the server.
+ */
+export function generated(generator: 'ladder' | 'cross', text: string): { readonly names: readonly string[] } | { readonly problem: string } {
+  if (generator === 'ladder') {
+    const words = text.trim().replace(/\s*\.\.\s*/g, '..').split(/\s+/).filter((w) => w !== '');
+    const range = words.findIndex((w) => w.includes('..'));
+    const step = words.findIndex((w) => w.toLowerCase() === 'step');
+    const ends = range < 0 ? [] : (words[range] ?? '').split('..');
+    const by = step < 0 ? undefined : sizeOf(words[step + 1] ?? '');
+    const [from, to] = [sizeOf(ends[0] ?? ''), sizeOf(ends[1] ?? '')];
+    const factor = words.filter((_, i) => i !== range && i !== step && i !== step + 1).join(' ').toLowerCase();
+    if (factor === '' || from === undefined || to === undefined || by === undefined) return { problem: 'a factor, a range and a step: jpy_ois -50bp..+50bp step 10bp' };
+    const unit = from.unit ?? to.unit ?? by.unit ?? '';
+    const [a, b, s] = [from.value, to.value, by.value].map((v) => Math.round(v * 100));
+    if (a === undefined || b === undefined || s === undefined || s <= 0 || b <= a || (b - a) % s !== 0)
+      return { problem: `a step that divides a rising range: ${ends[0] ?? ''}..${ends[1] ?? ''} by ${words[step + 1] ?? ''} does not` };
+    const names: string[] = [];
+    for (let v = a; v <= b; v += s) if (v !== 0) names.push(`${factor} ${signed(v / 100, unit)}`);
+    return { names };
+  }
+  const lists = text.trim().split(/\s+x\s+/i).map((list) => {
+    const [first = '', ...rest] = list.split(',').map((p) => p.trim());
+    const words = first.split(/\s+/).filter((w) => w !== '');
+    const sizes = [words[words.length - 1] ?? '', ...rest].map(sizeOf);
+    return { factor: words.slice(0, -1).join(' ').toLowerCase(), sizes };
+  });
+  if (lists.length < 2 || lists.some((l) => l.factor === '' || l.sizes.some((s) => s === undefined)))
+    return { problem: 'two lists or more separated by x, each a factor and its sizes: jpy_ois -50bp, 0, +50bp x usdjpy -10%, 0, +10%' };
+  let combinations: string[][] = [[]];
+  for (const list of lists) {
+    const unit = list.sizes.find((s) => s?.unit !== undefined)?.unit ?? '';
+    combinations = combinations.flatMap((c) => list.sizes.map((s) => (s === undefined || s.value === 0 ? c : [...c, `${list.factor} ${signed(s.value, s.unit ?? unit)}`])));
+  }
+  return { names: combinations.filter((c) => c.length > 0).map((c) => c.join(' · ')) };
+}
+
+/**
+ * The command line's preview of a generator (ADR-0010 §4's note of 2026-11-09): how many scenarios it makes, and the
+ * pairs Price would then price against the cap, said as a problem where it would be refused or Price could not price.
+ */
+export function generatorParts(generator: 'ladder' | 'cross', text: string, context: GeneratorContext | undefined):
+  readonly { readonly name: string; readonly value?: string; readonly required: boolean }[] {
+  if (text.trim() === '') return [{ name: generator === 'ladder' ? 'factor, range and step' : 'lists', required: true }];
+  const made = generated(generator, text);
+  if ('problem' in made) return [{ name: generator === 'ladder' ? 'factor, range and step' : 'lists', required: true }];
+  const count = made.names.length;
+  if (context === undefined) return [{ name: 'makes', value: `${count} scenario(s)`, required: true }];
+  const most = mostScenarios(context.cap);
+  if (count > most) return [{ name: '?', value: `${count} scenarios: a set is ${most} at most`, required: true }];
+  const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
+  const kept = context.scenarios.filter((s) => s.included && !made.names.some((n) => same(n, s.name))).length;
+  const pairs = context.cases * (1 + kept + count);
+  return [
+    { name: 'makes', value: `${count} scenario(s)`, required: true },
+    pairs > context.cap
+      ? { name: '?', value: `${pairs} pairs, ${pairs - context.cap} over the cap of ${context.cap}`, required: true }
+      : { name: 'pairs', value: `${pairs} of ${context.cap}`, required: true },
+  ];
+}

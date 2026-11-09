@@ -455,4 +455,61 @@ public class PricerScenarioTests
         // A scenario is no change of the portfolio's data, edited or not.
         Assert.Equal(0, view.Changes);
     }
+
+    [Fact] // ADR-0010 §4: a ladder makes a scenario per size, the zero left out because Price prices the base market anyway
+    public void A_ladder_makes_a_scenario_per_size_without_the_zero()
+    {
+        var made = ScenarioGenerators.Ladder("jpy_ois -50bp..+50bp step 10bp");
+
+        Assert.Equal(["jpy_ois -50bp", "jpy_ois -40bp", "jpy_ois -30bp", "jpy_ois -20bp", "jpy_ois -10bp", "jpy_ois +10bp", "jpy_ois +20bp", "jpy_ois +30bp", "jpy_ois +40bp", "jpy_ois +50bp"],
+            made.Select(m => m.Name));
+        Assert.Equal(["usdjpy -10%", "usdjpy -5%", "usdjpy +5%", "usdjpy +10%"], ScenarioGenerators.Ladder("usdjpy -10% .. 10% step 5%").Select(m => m.Name));
+        Assert.Equal(new Shift("IR", "jpy_ois", "5y", "abs", 2), Assert.Single(ScenarioGenerators.Ladder("JPY_OIS 5Y 1bp..2bp step 1bp")[1].Shifts));
+    }
+
+    [Fact] // ADR-0010 §4: a cross makes a scenario per combination, named from its shifts; one with a zero shifts the other factor alone
+    public void A_cross_makes_a_scenario_per_combination_named_from_its_shifts()
+    {
+        var made = ScenarioGenerators.Cross("jpy_ois -50bp, 0, +50bp x usdjpy -10%, 0, +10%");
+
+        Assert.Equal(["jpy_ois -50bp · usdjpy -10%", "jpy_ois -50bp", "jpy_ois -50bp · usdjpy +10%", "usdjpy -10%", "usdjpy +10%",
+            "jpy_ois +50bp · usdjpy -10%", "jpy_ois +50bp", "jpy_ois +50bp · usdjpy +10%"], made.Select(m => m.Name));
+        Assert.Equal(2, made[0].Shifts.Count);
+    }
+
+    [Theory] // ADR-0010 §4's note of 2026-11-09: over the limit, a step that does not divide, and two lists on one factor are refused by name
+    [InlineData("ladder", "jpy_ois -50bp..+50bp step 1bp", "makes 100 scenarios, and a set is 49 at most")]
+    [InlineData("ladder", "jpy_ois -50bp..+50bp step 15bp", "steps by 15bp, which does not divide -50bp..+50bp")]
+    [InlineData("ladder", "jpy_ois +50bp..-50bp step 10bp", "a ladder rises from its first size to its last")]
+    [InlineData("ladder", "jpy_ois -5%..+5% step 1%", "an IR shift is absolute, in bp")]
+    [InlineData("ladder", "jpy_ois -50bp..+50bp", "needs a factor, a range and a step")]
+    [InlineData("cross", "jpy_ois -10bp, 0, +10bp, +20bp, +30bp, +40bp, +50bp, +60bp x usdjpy -1%, 0, +1%, +2%, +3%, +4%, +5%", "makes 55 scenarios, and a set is 49 at most")]
+    [InlineData("cross", "jpy_ois -10bp, +10bp x jpy_ois 5y -1bp, +1bp", "shifts jpy_ois 5y in two lists")]
+    [InlineData("cross", "jpy_ois -10bp, +10bp", "needs two lists or more, separated by x")]
+    [InlineData("cross", "jpy_ois -10bp, -10bp x usdjpy +1%", "lists -10bp twice for jpy_ois")]
+    public void A_generator_that_cannot_make_its_set_is_refused_by_name(string generator, string text, string said)
+    {
+        var (service, _, _) = Priced();
+        var ws = service.Create("akira", "ABC/LE-01", Day1, 40);
+
+        var refused = Assert.Throws<WorkspaceRefused>(() => service.GenerateScenarios(ws.WorkspaceId, ws.Revision, "akira", generator, text));
+
+        Assert.Contains(said, refused.Message);
+        Assert.Empty(service.View(ws.WorkspaceId, "akira").Scenarios);
+    }
+
+    [Fact] // ADR-0010 §4: a generated scenario replaces one of its name, and the answer says how many it made and replaced
+    public void A_generated_scenario_replaces_one_of_its_name()
+    {
+        var (service, _, _) = Priced();
+        var ws = service.Create("akira", "ABC/LE-01", Day1, 40);
+        ws = Define(service, ws, "jpy_ois +10bp", "jpy_ois 10y +10bp");
+
+        var answer = service.GenerateScenarios(ws.WorkspaceId, ws.Revision, "akira", "ladder", "jpy_ois -10bp..+10bp step 10bp");
+
+        Assert.Equal(["jpy_ois -10bp", "jpy_ois +10bp"], answer.Made);
+        Assert.Equal(["jpy_ois +10bp"], answer.Replaced);
+        var view = service.View(answer.State.WorkspaceId, "akira");
+        Assert.Equal([("jpy_ois -10bp", "all"), ("jpy_ois +10bp", "all")], view.Shifts.Select(r => (r.Scenario!, r.Factor!)));
+    }
 }

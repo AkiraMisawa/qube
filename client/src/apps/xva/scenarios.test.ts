@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ShiftRow } from './contracts';
-import { clearedEdits, pastedEdits, scenarioParts, scenariosText, scenarioTyped, shiftGridRows } from './scenarios';
+import { clearedEdits, generated, generatedText, generatorParts, pastedEdits, scenarioParts, scenariosText, scenarioTyped, shiftGridRows } from './scenarios';
 
 // The `scenario` command as the line reads it (ADR-0010 §4): the name and the shifts as written, for the server to
 // resolve. Every name is synthetic.
@@ -77,5 +77,42 @@ describe('the Scenarios grid', () => {
 
   it('spine 1: a block past the grid\'s columns that take a value is refused, never written onto another column', () => {
     expect(() => pastedEdits(rows, [{ topRow: 0, leftColumn: 6, rowCount: 1, columnCount: 2 }], () => 'x')).toThrow('Column 8 of the Scenarios grid takes no value.');
+  });
+});
+
+describe('the generators\' preview', () => {
+  const context = { cases: 1, cap: 50, scenarios: [{ name: 'jpy_ois +10bp', included: true }, { name: 'old', included: true }, { name: 'out', included: false }] };
+
+  it('ADR-0010 §4: a ladder of -50bp..+50bp by 10bp is ten scenarios, named from their shifts, without the zero', () => {
+    const made = generated('ladder', 'JPY_OIS -50bp .. +50bp step 10bp');
+
+    expect('names' in made && made.names).toEqual(['jpy_ois -50bp', 'jpy_ois -40bp', 'jpy_ois -30bp', 'jpy_ois -20bp', 'jpy_ois -10bp',
+      'jpy_ois +10bp', 'jpy_ois +20bp', 'jpy_ois +30bp', 'jpy_ois +40bp', 'jpy_ois +50bp']);
+    expect(generated('ladder', 'jpy_ois 5y -5bp..+5bp step 2.5bp')).toEqual({ names: ['jpy_ois 5y -5bp', 'jpy_ois 5y -2.5bp', 'jpy_ois 5y +2.5bp', 'jpy_ois 5y +5bp'] });
+  });
+
+  it('ADR-0010 §4: a cross of three by three is eight scenarios, the all-zero one being the base market', () => {
+    const made = generated('cross', 'jpy_ois -50bp, 0, +50bp x usdjpy -10%, 0, +10%');
+
+    expect('names' in made && made.names).toEqual(['jpy_ois -50bp · usdjpy -10%', 'jpy_ois -50bp', 'jpy_ois -50bp · usdjpy +10%', 'usdjpy -10%', 'usdjpy +10%',
+      'jpy_ois +50bp · usdjpy -10%', 'jpy_ois +50bp', 'jpy_ois +50bp · usdjpy +10%']);
+  });
+
+  it("ADR-0010 §4's note of 2026-11-09: says how many it makes and the pairs against the cap, a replaced scenario counted once", () => {
+    // Ten made, one of them replacing an included scenario: the base market, `old` and the ten, for one case.
+    expect(generatorParts('ladder', 'jpy_ois -50bp..+50bp step 10bp', context).map((p) => [p.name, p.value]))
+      .toEqual([['makes', '10 scenario(s)'], ['pairs', '12 of 50']]);
+    expect(generatorParts('ladder', 'jpy_ois -50bp..+50bp step 10bp', { ...context, cases: 5 }).map((p) => [p.name, p.value]))
+      .toEqual([['makes', '10 scenario(s)'], ['?', '60 pairs, 10 over the cap of 50']]);
+  });
+
+  it('spine 1: a set over the limit, or a line that is no generator yet, is said, never counted as a guess', () => {
+    expect(generatorParts('ladder', 'jpy_ois -50bp..+50bp step 1bp', context).map((p) => [p.name, p.value])).toEqual([['?', '100 scenarios: a set is 49 at most']]);
+    expect(generatorParts('ladder', 'jpy_ois -50bp..+50bp step 15bp', context).map((p) => p.name)).toEqual(['factor, range and step']);
+    expect(generatorParts('cross', 'jpy_ois -10bp, +10bp', context).map((p) => p.name)).toEqual(['lists']);
+  });
+
+  it('ADR-0010 §4: says how many a generator made and replaced', () => {
+    expect(generatedText({ made: ['a', 'b'], replaced: ['b'] })).toBe('Made 2 scenario(s), replacing 1 of the same name: a, b.');
   });
 });

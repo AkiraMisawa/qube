@@ -31,6 +31,10 @@ export interface XvaPage {
   duplicateScenario(name: string, copy: string): void;
   /** Removes every scenario (`scenarios clear`). */
   clearScenarios(): void;
+  /** A set of scenarios at once (`scenario ladder jpy_ois -50bp..+50bp step 10bp`, `scenario cross …`, ADR-0010 §4). */
+  generateScenarios(generator: 'ladder' | 'cross', text: string): void;
+  /** The cases Price prices and its cap of pairs, for a generator's preview to count against. */
+  pricing(): { readonly cases: number; readonly cap: number } | undefined;
   /** The workspace's scenarios, for the command line to offer. */
   scenarios(): readonly { readonly name: string; readonly shifts: number; readonly included: boolean }[];
   /** Saves the Run the dock shows as a zip (`download run`, ADR-0010 §7). */

@@ -23,7 +23,7 @@ import { CHANGES_TAB, SCENARIOS_TAB, shownTab, TAB_TITLES, tabShown, XvaInputs, 
 import type { ScenarioActions } from './XvaScenarios';
 import type { ChangeActions } from './XvaChanges';
 import { VARY_COMMAND, VaryDialog, addedText, variedText, type VaryTarget } from './VaryDialog';
-import { includedText, scenariosText } from './scenarios';
+import { generatedText, includedText, scenariosText } from './scenarios';
 import { compactGridHeight, GRID_FRAME, pixels, Resizer } from './layout';
 import { declaring, measureOfField, membershipColumn, scopesOf } from './membership';
 import { priceLabel, pricedMeasures } from './metrics';
@@ -603,6 +603,16 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   const duplicate = async (name: string, copy: string) => {
     try { await duplicateScenario(name, copy); } catch (error) { workspace.notify(`${name} was not duplicated: ${describe(error)}`); }
   };
+  /** `scenario ladder …`, `scenario cross …`: the page says how many it made and which of the same name it replaced. */
+  const generateScenarios = async (generator: 'ladder' | 'cross', text: string) => {
+    try {
+      let made: ScenariosMade | undefined;
+      await scenarioCommand(async (revision) => { made = await api.generateScenarios(workspaceId, revision, generator, text); return made.workspace; });
+      if (made !== undefined) workspace.notify(generatedText(made));
+    } catch (error) {
+      workspace.notify(`scenario ${generator} made nothing: ${describe(error)}`);
+    }
+  };
   const clearScenarios = async () => {
     try {
       await scenarioCommand((revision) => api.clearScenarios(workspaceId, revision));
@@ -623,8 +633,8 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   const setCurrency = (currency: string) => void queue.push({ entity: SETTINGS_ENTITY, field: 'displayCurrency', value: currency });
 
   // The commands run what the page's own controls run, as the page stands when they run (ADR-0010 §9).
-  const pageRef = useRef({ price, setMeasures, setSide, retry, copyQuote, download, refresh, setCurrency, openTab, explain, openResult, setDockFull, resultTabs, traceInView, vary, set, addTrades, removeCase, clearCases, defineScenario, includeScenario, removeScenario, duplicate, clearScenarios, scenarios: () => view.data?.scenarios ?? [], measures: () => view.data?.measures ?? [], currencies: () => view.data?.currencies ?? [] });
-  pageRef.current = { price, setMeasures, setSide, retry, copyQuote, download, refresh, setCurrency, openTab, explain, openResult, setDockFull, resultTabs, traceInView, vary, set, addTrades, removeCase, clearCases, defineScenario, includeScenario, removeScenario, duplicate, clearScenarios, scenarios: () => view.data?.scenarios ?? [], measures: () => view.data?.measures ?? [], currencies: () => view.data?.currencies ?? [] };
+  const pageRef = useRef({ price, setMeasures, setSide, retry, copyQuote, download, refresh, setCurrency, openTab, explain, openResult, setDockFull, resultTabs, traceInView, vary, set, addTrades, removeCase, clearCases, defineScenario, includeScenario, removeScenario, duplicate, clearScenarios, generateScenarios, scenarios: () => view.data?.scenarios ?? [], pricing: () => (view.data === undefined ? undefined : { cases: view.data.cases.length, cap: view.data.caseCap }), measures: () => view.data?.measures ?? [], currencies: () => view.data?.currencies ?? [] });
+  pageRef.current = { price, setMeasures, setSide, retry, copyQuote, download, refresh, setCurrency, openTab, explain, openResult, setDockFull, resultTabs, traceInView, vary, set, addTrades, removeCase, clearCases, defineScenario, includeScenario, removeScenario, duplicate, clearScenarios, generateScenarios, scenarios: () => view.data?.scenarios ?? [], pricing: () => (view.data === undefined ? undefined : { cases: view.data.cases.length, cap: view.data.caseCap }), measures: () => view.data?.measures ?? [], currencies: () => view.data?.currencies ?? [] };
   useEffect(() => {
     registerXvaPage(panelId, {
       price: () => void pageRef.current.price(),
@@ -641,6 +651,8 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
       duplicateScenario: (name, copy) => void pageRef.current.duplicate(name, copy),
       clearScenarios: () => void pageRef.current.clearScenarios(),
       scenarios: () => pageRef.current.scenarios(),
+      generateScenarios: (generator, text) => void pageRef.current.generateScenarios(generator, text),
+      pricing: () => pageRef.current.pricing(),
       retry: () => void pageRef.current.retry(),
       downloadRun: () => pageRef.current.download(),
       copyQuote: () => void pageRef.current.copyQuote(),

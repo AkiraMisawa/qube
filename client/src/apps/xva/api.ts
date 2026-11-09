@@ -58,6 +58,8 @@ export interface XvaApi {
    * for the server to read; one of the same name is replaced, and the answer says so.
    */
   defineScenario(workspaceId: string, revision: number, name: string, shifts: string): Promise<ScenariosMade>;
+  /** `scenario ladder …` and `scenario cross …` (ADR-0010 §4): a set of scenarios at once, the generator's text as typed. */
+  generateScenarios(workspaceId: string, revision: number, generator: 'ladder' | 'cross', text: string): Promise<ScenariosMade>;
   /** The Scenarios grid's edits as one batch (ADR-0010 §4): a cell typed, a block pasted, or cells cleared. */
   editShifts(workspaceId: string, revision: number, rows: readonly ShiftEdit[]): Promise<XvaWorkspaceView>;
   /** Whether Price prices a scenario, as its box says (`scenario include`, `scenario exclude`). */
@@ -98,6 +100,7 @@ export const httpXvaApi: XvaApi = {
   set: (workspaceId, revision, rows, column, text) => post(`${base(workspaceId)}/set`, { revision, rows, column, text }),
   addTrades: (workspaceId, revision) => post(`${base(workspaceId)}/add-trades`, { revision }),
   defineScenario: (workspaceId, revision, name, shifts) => post(`${base(workspaceId)}/scenarios`, { revision, name, shifts }),
+  generateScenarios: (workspaceId, revision, generator, text) => post(`${base(workspaceId)}/scenarios/generate`, { revision, generator, text }),
   editShifts: (workspaceId, revision, rows) => post(`${base(workspaceId)}/shifts`, { revision, rows }),
   includeScenario: (workspaceId, revision, name, included) => post(`${base(workspaceId)}/scenarios/include`, { revision, name, included }),
   removeScenario: (workspaceId, revision, name) => post(`${base(workspaceId)}/scenarios/remove`, { revision, name }),
