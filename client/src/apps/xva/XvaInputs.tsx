@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useId, useMemo, useRef, type Ref } from 'react';
 import { Button, Group, Table, Tabs, Text, useMantineTheme } from '@mantine/core';
-import { GridSource, type CellState, type GridColumn, type GridEditIntent } from '@ex-grid/core';
+import { GridSource, type CellState, type GridColumn, type GridContextMenuContext, type GridEditIntent } from '@ex-grid/core';
 import type { ExGridApi } from '@ex-grid/react';
 import { WorkbenchGrid } from '../../platform/grid/WorkbenchGrid';
 import type { Agreement, ChangesList, EffectiveCsa, RegisteredMeasure, XvaWorkspaceView } from './contracts';
 import { XvaChanges, type ChangeActions } from './XvaChanges';
+import { VARY_COMMAND, type VaryTarget } from './VaryDialog';
 import { csaFields, parseRecovery } from './editing';
 import { CommitField } from './fields';
 import { compactGridHeight, GRID_FRAME, partHeight, pixels } from './layout';
@@ -83,11 +84,14 @@ export const shownTab = (ws: Pick<XvaWorkspaceView, 'inputs'>, tab: InputTab): I
  * The tabs, one open at a time and collapsible to their tab row (ADR-0010 §1). The page keeps which tab is open,
  * whether it is open and its height, so that a command opens a tab as a press does.
  */
-export function XvaInputs({ ws, push, onIssue, tab, onTab, open, onOpen, height, focusRequest, changeList, changeActions }: {
+export function XvaInputs({ ws, push, onIssue, tab, onTab, open, onOpen, height, focusRequest, changeList, changeActions, onVary, commandLabel }: {
   readonly ws: XvaWorkspaceView;
   /** The Changes tab's list, read while the tab is open; none until it has been read. */
   readonly changeList: ChangesList | undefined;
   readonly changeActions: ChangeActions;
+  /** *Vary values…* on an editable cell's Context Menu (ADR-0010 §3), and what the menu calls the page's commands. */
+  readonly onVary: (target: VaryTarget) => void;
+  readonly commandLabel: (id: string) => string | undefined;
   readonly push: (entity: string, field: string, value: unknown) => void;
   readonly onIssue: (message: string | undefined) => void;
   readonly tab: InputTab;
@@ -178,7 +182,7 @@ export function XvaInputs({ ws, push, onIssue, tab, onTab, open, onOpen, height,
           <Tabs.Panel value="csa" pt="xs">
             {ws.csas.length === 0
               ? <Text size="sm">{ws.agreement.maId} has no CSA: its trades are uncollateralised ({ws.agreement.noCsa}).</Text>
-              : <CsaGrid csas={ws.csas} columns={csaColumns} push={push} height={height - gap - GRID_FRAME} gridRef={csaGrid} />}
+              : <CsaGrid csas={ws.csas} columns={csaColumns} push={push} height={height - gap - GRID_FRAME} gridRef={csaGrid} onVary={onVary} commandLabel={commandLabel} />}
           </Tabs.Panel>
           {imShown && (
             <Tabs.Panel value={IM_TAB} pt="xs">
@@ -234,7 +238,9 @@ function ImCsas({ ws, focusRef }: { readonly ws: XvaWorkspaceView; readonly focu
  * The CSA terms, as high as their rows within `height`, what the tab's height leaves under the panel's top gap and the
  * grid's frame. It shows no Selection Summary: a sum or an average of terms in different currencies is no figure.
  */
-function CsaGrid({ csas, columns, push, height, gridRef }: {
+function CsaGrid({ csas, columns, push, height, gridRef, onVary, commandLabel }: {
+  readonly onVary: (target: VaryTarget) => void;
+  readonly commandLabel: (id: string) => string | undefined;
   readonly csas: readonly EffectiveCsa[];
   readonly columns: readonly GridColumn<CsaRow>[];
   readonly push: (entity: string, field: string, value: unknown) => void;
@@ -252,10 +258,22 @@ function CsaGrid({ csas, columns, push, height, gridRef }: {
     if (!parsed.ok) { intent.refuse(parsed.message); return; }
     push(`csa:${intent.row.csaId}`, intent.column, parsed.value);
   }, [push]);
+  // Vary values… on a term the user may type (ADR-0010 §3); Main, the ID, the type and the agreement are the source's.
+  const columnsNow = useRef(columns);
+  columnsNow.current = columns;
+  const varyNow = useRef(onVary);
+  varyNow.current = onVary;
+  const contextCommands = useCallback((context: GridContextMenuContext<CsaRow>) => {
+    const column = columnsNow.current.find((c) => c.name === context.column);
+    return column?.editable === true
+      ? [{ id: VARY_COMMAND, enabled: true, invoke: () => varyNow.current({ entity: `csa:${context.row.csaId}`, field: context.column, title: `${context.row.csaId} ${column.header}` }) }]
+      : [];
+  }, []);
 
   return (
     <div aria-label="CSA terms">
       <WorkbenchGrid<CsaRow> ref={gridRef} columns={columns} source={source} onEdit={onEdit} cellState={csaCellState} cellMessage={csaCellMessage}
+        contextCommands={contextCommands} commandLabel={commandLabel}
         density="compact" viewportWidth="stretch" viewportHeight={Math.max(compactGridHeight(1), Math.min(compactGridHeight(csas.length), height))} pinnedColumnCount={2} showSelectionSummary={false} locale="en-US" />
     </div>
   );

@@ -6,8 +6,8 @@ naming the cell for it. The dialog says what was made and skipped, and a value t
 
 **Blocked by:** 02.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] The Context Menu of an editable cell offers Vary values…; a read-only cell's does not.
-- [ ] The dialog's list makes the cases `vary` would make for that cell, said back as `vary` says them.
-- [ ] In a browser, Vary values… on a CSA threshold makes three cases, driven by the keyboard.
+- [x] The Context Menu of an editable cell offers Vary values…; a read-only cell's does not.
+- [x] The dialog's list makes the cases `vary` would make for that cell, said back as `vary` says them.
+- [x] In a browser, Vary values… on a CSA threshold makes three cases, driven by the keyboard.

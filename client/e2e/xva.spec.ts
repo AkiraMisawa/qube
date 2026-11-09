@@ -389,6 +389,47 @@ test('ADR-0010 §3: the Changes tab counts every change, sets a case\'s value, a
   await expect(page.getByTestId('price')).toHaveText('Price CVA FVA · 1 case');
 });
 
+test('ADR-0010 §3: Vary values… on a CSA threshold\'s Context Menu makes three cases, by keyboard; a read-only cell offers none', async ({ page, problems }) => {
+  await open(page);
+  await newWorkspace(page, 'ABC/LE-01', 5);
+  await command(page, 'measures', 'cva fva');
+  await command(page, 'open csa');
+  await settled(page, 'CSA terms');
+  const csaA = page.getByLabel('CSA terms').getByRole('row', { name: /^Yes CSA-A / });
+  await expect(csaA).toBeVisible();
+  // The grid's first key only places its Focus (ex-grid ADR-0037); Main is the source's, so its menu has no Vary values….
+  await page.keyboard.press('Home');
+  await page.keyboard.press('Home');
+  await page.keyboard.press('Shift+F10');
+  await expect(page.getByRole('menuitem').first()).toBeFocused();
+  await expect(page.getByRole('menuitem', { name: 'Vary values…' })).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('menu')).toHaveCount(0);
+
+  // The counterparty's threshold, the eleventh column: the Consumer's commands follow the grid's own, so End reaches it.
+  for (let i = 0; i < 10; i++) await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('Shift+F10');
+  await expect(page.getByRole('menuitem').first()).toBeFocused();
+  await page.keyboard.press('End');
+  await expect(page.getByRole('menuitem', { name: 'Vary values…' })).toBeFocused();
+  await page.keyboard.press('Enter');
+  const dialog = page.getByRole('dialog', { name: 'Vary CSA-A Cpty threshold' });
+  await expect(dialog.getByRole('textbox', { name: 'Values' })).toBeFocused();
+  // A value the cell refuses makes no case, and the dialog says why.
+  await page.keyboard.type('5mm, lots');
+  await page.keyboard.press('Enter');
+  await expect(dialog.getByTestId('vary-said')).toHaveText('vary made no case: CSA-A threshold is an amount: 5mm, 250k, 1bn, or a bare number of millions; lots is not.');
+  // The refusal is the server's 422, which the browser reports; it is the one console message this test expects.
+  expect(problems.splice(0)).toEqual(['error: Failed to load resource: the server responded with a status of 422 (Unprocessable Entity)']);
+  await page.keyboard.press('ControlOrMeta+A');
+  await page.keyboard.type('5mm, 10mm, 20mm, 0');
+  await page.keyboard.press('Enter');
+  await expect(dialog.getByTestId('vary-said')).toHaveText('Made 3 case(s): CSA-A threshold 5mm, CSA-A threshold 10mm, CSA-A threshold 20mm; skipped 0 is the workspace\'s value.');
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByTestId('price')).toHaveText('Price CVA FVA · 4 cases');
+});
+
 test('ADR-0010 §6: a new trade\'s PV01 arrives with no reload, and Margin gives its PV Adj, read-only and saying so', async ({ page }) => {
   await open(page);
   await newWorkspace(page, 'ABC/LE-01', 0);
