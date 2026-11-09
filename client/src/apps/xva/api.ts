@@ -1,6 +1,6 @@
 import { call } from '../../platform/api';
 import type { RunRecord } from '../../platform/contracts';
-import type { CarrySummary, EffectiveTrade, Registration, Agreement, Resolution, RowPage, ScopeDrop, Varied, XvaWorkspaceView } from './contracts';
+import type { CarrySummary, ChangesList, EffectiveTrade, Registration, Agreement, Resolution, RowPage, ScopeDrop, Varied, XvaWorkspaceView } from './contracts';
 
 export interface RowQuery {
   readonly start: number;
@@ -24,7 +24,16 @@ export interface XvaApi {
   view(workspaceId: string): Promise<XvaWorkspaceView>;
   rows(workspaceId: string, query: RowQuery, signal: AbortSignal): Promise<RowPage>;
   edit(workspaceId: string, revision: number, entity: string, field: string, value: unknown): Promise<XvaWorkspaceView>;
-  resolve(workspaceId: string, revision: number, entity: string, field: string, resolution: Resolution): Promise<XvaWorkspaceView>;
+  /** Resolves a held edit, or removes a change (`reset`), of the Base or of the case named (ADR-0010 §3). */
+  resolve(workspaceId: string, revision: number, entity: string, field: string, resolution: Resolution, caseId?: string): Promise<XvaWorkspaceView>;
+  /** The Changes tab's list: each Common change, then each case with its own (ADR-0010 §3's note of 2026-11-08). */
+  changes(workspaceId: string): Promise<ChangesList>;
+  /** A change's value as written, read and checked by the server as the cell reads it, in the Base or the case named. */
+  setChange(workspaceId: string, revision: number, entity: string, field: string, text: string, caseId?: string): Promise<XvaWorkspaceView>;
+  /** Removes a case with its changes, named by its title or id (`case remove`). */
+  removeCase(workspaceId: string, revision: number, name: string): Promise<XvaWorkspaceView>;
+  /** Removes every case (`cases clear`). */
+  clearCases(workspaceId: string, revision: number): Promise<XvaWorkspaceView>;
   changeValueDate(workspaceId: string, revision: number, valueDate: string): Promise<{ readonly workspace: XvaWorkspaceView; readonly carried: CarrySummary }>;
   previewCounterpartyChange(workspaceId: string): Promise<ScopeDrop>;
   changeCounterparty(workspaceId: string, revision: number, registration: string, confirmedCount: number): Promise<{ readonly workspace: XvaWorkspaceView; readonly carried: CarrySummary }>;
@@ -50,7 +59,13 @@ export const httpXvaApi: XvaApi = {
   view: (workspaceId) => call(base(workspaceId)),
   rows: (workspaceId, query, signal) => post(`${base(workspaceId)}/rows`, query, signal),
   edit: (workspaceId, revision, entity, field, value) => post(`${base(workspaceId)}/edits`, { revision, entity, field, value }),
-  resolve: (workspaceId, revision, entity, field, resolution) => post(`${base(workspaceId)}/resolutions`, { revision, entity, field, resolution }),
+  resolve: (workspaceId, revision, entity, field, resolution, caseId) =>
+    post(`${base(workspaceId)}/resolutions`, { revision, entity, field, resolution, ...(caseId === undefined ? {} : { case: caseId }) }),
+  changes: (workspaceId) => call(`${base(workspaceId)}/changes`),
+  setChange: (workspaceId, revision, entity, field, text, caseId) =>
+    post(`${base(workspaceId)}/changes`, { revision, entity, field, text, ...(caseId === undefined ? {} : { case: caseId }) }),
+  removeCase: (workspaceId, revision, name) => post(`${base(workspaceId)}/cases/remove`, { revision, name }),
+  clearCases: (workspaceId, revision) => post(`${base(workspaceId)}/cases/clear`, { revision }),
   changeValueDate: (workspaceId, revision, valueDate) => post(`${base(workspaceId)}/value-date`, { revision, valueDate }),
   previewCounterpartyChange: (workspaceId) => call(`${base(workspaceId)}/counterparty-change`),
   changeCounterparty: (workspaceId, revision, registration, confirmedCount) =>

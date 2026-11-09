@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Collections.Immutable;
 using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Text.Json.Nodes;
@@ -44,12 +45,28 @@ public sealed record PortfolioWorkspaceView(
     IReadOnlyList<string> Currencies,
     IReadOnlyList<string> Simulated,
     IReadOnlyList<CaseView> Cases,
-    int CaseCap);
+    int CaseCap,
+    int Changes);
 
-/// <summary>An edit held back for the user: a conflict (with the source's new values) or a lost target. <c>Layer</c> names
+/// <summary>
+/// One change as the Changes tab lists it (ADR-0010 §3's note of 2026-11-08): its entity and field, the case it is a
+/// change of (none for a Common change), its title as a cell is named (<c>CSA-A threshold</c>), its value and Original's,
+/// each also as written, whether it is <c>set</c>, held as a <c>conflict</c> or <c>lost</c>, and whether its value is
+/// typed there, which a change of a cell is and one of a whole grid's B or A is not.
+/// </summary>
+public sealed record ChangeItem(string Entity, string Field, string? Case, string Title, JsonNode? Value, string Text, JsonNode? Original, string OriginalText,
+    string State, bool Editable);
+
+/// <summary>A case with its own changes, as the Changes tab lists it.</summary>
+public sealed record CaseChanges(CaseView Case, IReadOnlyList<ChangeItem> Changes);
+
+/// <summary>Every change of the workspace: the Common ones, then each case's, and how many there are in all.</summary>
+public sealed record ChangesList(long Revision, IReadOnlyList<ChangeItem> Common, IReadOnlyList<CaseChanges> Cases, int Count);
+
+/// <summary>An edit held back for the user: a conflict (with the source's new values) or a lost target. <c>Case</c> names
 /// the case it is a change of, none for a Common edit (ADR-0010 §3).</summary>
 public sealed record HeldEdit(string Scope, string Entity, string Field, JsonNode? Value, IReadOnlyDictionary<string, JsonNode?>? Source, bool Acknowledged,
-    string? Layer = null);
+    string? Case = null);
 
 /// <summary>The portfolio's configuration: how many cases one Price prices, the Base among them (ADR-0010 §3's note).</summary>
 public sealed record PortfolioOptions(int CaseCap = PortfolioCases.DefaultCap);
@@ -114,13 +131,109 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
         return new(state.WorkspaceId, state.Revision, state.Context, source.Version, source.Registration, source.Agreement,
             register.WithMembership(state, PortfolioMaterialiser.Csas(state)), PortfolioMaterialiser.Credit(state), Rows(state).Count, Rows(state).Count(t => t.IsNew), Rows(state).Count(t => t.Before), Rows(state).Count(t => t.After), state.Overrides.Keys.Count(t => t.Scope != PortfolioEditRules.WorkspaceScope),
             // Every edit held back is the user's to resolve, a case's among them.
-            [.. raw.Conflicts.Values.OrderBy(c => c.Override.Seq).Select(c => new HeldEdit(c.Override.Target.Scope, c.Override.Target.Entity, c.Override.Target.Field, c.Override.Value, c.Source, false, c.Override.Target.Layer))],
-            [.. raw.Lost.Values.OrderBy(l => l.Override.Seq).Select(l => new HeldEdit(l.Override.Target.Scope, l.Override.Target.Entity, l.Override.Target.Field, l.Override.Value, null, l.Acknowledged, l.Override.Target.Layer))],
+            [.. raw.Conflicts.Values.OrderBy(c => c.Override.Seq).Select(c => new HeldEdit(c.Override.Target.Scope, c.Override.Target.Entity, c.Override.Target.Field, c.Override.Value, c.Source, false, CaseIdOf(c.Override.Target)))],
+            [.. raw.Lost.Values.OrderBy(l => l.Override.Seq).Select(l => new HeldEdit(l.Override.Target.Scope, l.Override.Target.Entity, l.Override.Target.Field, l.Override.Value, null, l.Acknowledged, CaseIdOf(l.Override.Target)))],
             links, register.Measures, PortfolioMaterialiser.SelectedMeasures(state, register),
             [.. register.TradeColumns.Where(c => register.Selected(state).Any(m => m.Id == c.Module))], register.Inputs(state),
             register.WithCells(state, [.. Rows(state).Where(t => t.IsNew)]).Sum(t => t.Cells?.Values.Count(c => c.State == TradeCell.Pending) ?? 0),
             PortfolioMaterialiser.DisplayCurrency(state), PortfolioMarket.Currencies, [.. register.Selected(state).Where(m => m.Simulated).Select(m => m.Id)],
-            PortfolioCases.All(raw), caseCap);
+            PortfolioCases.All(raw), caseCap, DataEdits(raw).Count());
+    }
+
+    // The edits to the portfolio's data in any layer, as the Changes tab counts them: the selection and the settings
+    // are the page's, shown on their own.
+    static IEnumerable<Override> DataEdits(WorkspaceState raw) =>
+        raw.Overrides.Values.Concat(raw.Conflicts.Values.Select(c => c.Override)).Concat(raw.Lost.Values.Select(l => l.Override))
+            .Where(o => o.Target.Scope != PortfolioEditRules.WorkspaceScope);
+
+    /// <summary>
+    /// The Changes tab (ADR-0010 §3's note of 2026-11-08): each Common change, then each case with its own, in the order
+    /// they were made, with Original's value, the source's under the rules with no edit at all.
+    /// </summary>
+    public ChangesList Changes(string workspaceId, string user)
+    {
+        var raw = Owned(workspaceId, user);
+        var original = raw with
+        {
+            Overrides = ImmutableDictionary<EditTarget, Override>.Empty, Conflicts = ImmutableDictionary<EditTarget, Conflict>.Empty,
+            Lost = ImmutableDictionary<EditTarget, LostTarget>.Empty,
+        };
+        ChangeItem Item(Override o)
+        {
+            var t = o.Target;
+            var state = raw.Conflicts.ContainsKey(t) ? "conflict" : raw.Lost.ContainsKey(t) ? "lost" : "set";
+            if (PortfolioCells.Find(raw, register, t.Entity, t.Field) is { } cell)
+            {
+                var was = PortfolioCells.Current(original, register, cell);
+                return new(t.Entity, t.Field, CaseIdOf(t), $"{cell.Row} {cell.Column}", o.Value?.DeepClone(), PortfolioCells.Write(cell, o.Value), was?.DeepClone(), PortfolioCells.Write(cell, was),
+                    state, state != "lost");
+            }
+            // A whole grid's B or A (ADR-0010 §6): every row of the grid at once, over each row's own.
+            if (Entity.Split(t.Entity).Kind == Entity.Grid)
+                return new(t.Entity, t.Field, CaseIdOf(t), $"{(Entity.Split(t.Entity).Id == Entity.NewGrid ? "New" : "Existing")} {(t.Field == "before" ? "B" : "A")} every row",
+                    o.Value?.DeepClone(), o.Value?.GetValue<bool>() == true ? "on" : "off", null, "each row's own", state, false);
+            // A row this version no longer has: listed to be removed, never typed here.
+            var source = raw.SourceOf(t).Read(t.Entity, t.Field)?.Value;
+            return new(t.Entity, t.Field, CaseIdOf(t), $"{t.Entity} {t.Field}", o.Value?.DeepClone(), o.Value?.ToJsonString() ?? "empty", source?.DeepClone(),
+                source?.ToJsonString() ?? "empty", state, false);
+        }
+        var edits = DataEdits(raw).OrderBy(o => o.Seq).ToList();
+        var common = edits.Where(o => o.Target.Layer is null).Select(Item).ToList();
+        var cases = PortfolioCases.All(raw).Skip(1)
+            .Select(c => new CaseChanges(c, [.. edits.Where(o => o.Target.Layer == PortfolioCases.Of(c.Id)).Select(Item)])).ToList();
+        return new ChangesList(raw.Revision, common, cases, edits.Count);
+    }
+
+    /// <summary>
+    /// Sets a change's value as written (the Changes tab, and <c>set</c>): read as its cell reads a value and checked as the
+    /// grid checks it typed, on the reading it is a change of, the Base's or a case's, in that case's layer.
+    /// </summary>
+    public WorkspaceState SetText(string workspaceId, long revision, string user, string entity, string field, string text, string? caseId = null, RunOrigin? origin = null)
+    {
+        var raw = Owned(workspaceId, user);
+        var layer = caseId is null ? null : CaseOf(raw, caseId);
+        var reading = PortfolioCases.Reading(raw, caseId);
+        var cell = PortfolioCells.Of(reading, register, entity, field);
+        var value = PortfolioCells.Read(cell, text);
+        Check(reading, entity, field, value);
+        return workspaces.Set(workspaceId, revision, user, PortfolioEditRules.Target(Source(raw), entity, field, layer), value, origin);
+    }
+
+    /// <summary>Removes a case with every change it holds, in one log entry (<c>case remove</c>, ADR-0010 §3). A case is
+    /// named by its title or its id, case ignored; one that names none, or several, is refused with the cases there are.</summary>
+    public WorkspaceState RemoveCase(string workspaceId, long revision, string user, string name)
+    {
+        var raw = Owned(workspaceId, user);
+        var cases = PortfolioCases.All(raw).Skip(1).ToList();
+        var named = cases.Where(c => string.Equals(c.Id, name.Trim(), StringComparison.OrdinalIgnoreCase)).ToList() is { Count: 1 } byId ? byId
+            : cases.Where(c => string.Equals(c.Title, name.Trim(), StringComparison.OrdinalIgnoreCase)).ToList();
+        if (named.Count == 0)
+            throw new WorkspaceRefused("UnknownCase", cases.Count == 0 ? "The workspace has no case; the Base is the workspace itself and is never removed."
+                : $"No case {name.Trim()}; the cases are {string.Join(", ", cases.Select(c => c.Title))}.");
+        if (named.Count > 1)
+            throw new WorkspaceRefused("AmbiguousCase", $"{name.Trim()} names {named.Count} cases, {string.Join(" and ", named.Select(c => c.Id))}; remove one by its id.");
+        var entity = PortfolioCases.Of(named[0].Id);
+        return workspaces.Remove(workspaceId, revision, user, entity, layer: entity);
+    }
+
+    /// <summary>Removes every case with its changes, as one command (<c>cases clear</c>, ADR-0010 §3).</summary>
+    public WorkspaceState ClearCases(string workspaceId, long revision, string user)
+    {
+        var raw = Owned(workspaceId, user);
+        var made = PortfolioCases.Made(raw);
+        if (made.Count == 0) throw new WorkspaceRefused("NothingToChange", "The workspace has no case to remove.");
+        return workspaces.Batch(workspaceId, revision, user, [.. made.Select(c => new WorkspaceChange.Remove(c.Entity, c.Entity))]);
+    }
+
+    // The case an edit is a change of, as the wire names it: none for a Common edit.
+    static string? CaseIdOf(EditTarget target) => target.Layer is { } layer ? Entity.Split(layer).Id : null;
+
+    // The layer of a case the workspace holds, or why there is none.
+    static string CaseOf(WorkspaceState raw, string caseId)
+    {
+        var layer = PortfolioCases.Of(caseId);
+        return raw.Created.ContainsKey(layer) ? layer
+            : throw new WorkspaceRefused("UnknownCase", $"No case {caseId} in this workspace; the Base's changes are named with no case.");
     }
 
     /// <summary>Sets the currency the figures are shown in (ADR-0010 §1): the edit of <c>settings:workspace</c>
@@ -288,9 +401,10 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
             throw new WorkspaceRefused("InvalidValue", problem, [PortfolioEditRules.Target(Source(state), entity, field)]);
     }
 
-    public WorkspaceState Resolve(string workspaceId, long revision, string user, string entity, string field, string resolution, string? layer = null)
+    public WorkspaceState Resolve(string workspaceId, long revision, string user, string entity, string field, string resolution, string? caseId = null)
     {
-        var target = Held(Owned(workspaceId, user), entity, field, layer);
+        var raw = Owned(workspaceId, user);
+        var target = Held(raw, entity, field, caseId is null ? null : CaseOf(raw, caseId));
         return resolution switch
         {
             "reset" => workspaces.Reset(workspaceId, revision, user, target),

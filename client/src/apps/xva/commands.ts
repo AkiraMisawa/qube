@@ -13,6 +13,10 @@ export interface XvaPage {
   setSide(side: 'before' | 'after', value: boolean, grid?: 'new' | 'existing'): void;
   /** A case per value of a cell (`vary CSA-A threshold 10mm, 5mm, 0`, ADR-0010 §3, §9). */
   vary(cell: string, values: readonly string[]): void;
+  /** Removes a case with its changes, named by its title or id (`case remove`, ADR-0010 §3). */
+  removeCase(name: string): void;
+  /** Removes every case (`cases clear`). */
+  clearCases(): void;
   /** Saves the Run the dock shows as a zip (`download run`, ADR-0010 §7). */
   downloadRun(): void;
   /** Puts the dock's Run's quote on the clipboard as HTML and text (`copy quote`, ADR-0010 §7). */

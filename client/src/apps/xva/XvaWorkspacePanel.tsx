@@ -19,7 +19,8 @@ import type { RunRecord } from '../../platform/contracts';
 import { dockTabs, METRICS_TAB, type DockTab, type MeasureTab } from './dock';
 import { EditQueue, MEASURES_ENTITY, SETTINGS_ENTITY, tradeFields, type PendingEdit } from './editing';
 import { ToolbarField } from './fields';
-import { shownTab, TAB_TITLES, tabShown, XvaInputs, type InputTab } from './XvaInputs';
+import { CHANGES_TAB, shownTab, TAB_TITLES, tabShown, XvaInputs, type InputTab } from './XvaInputs';
+import type { ChangeActions } from './XvaChanges';
 import { compactGridHeight, GRID_FRAME, pixels, Resizer } from './layout';
 import { declaring, measureOfField, membershipColumn, scopesOf } from './membership';
 import { priceLabel, pricedMeasures } from './metrics';
@@ -103,14 +104,18 @@ const RESIZER = 12;
 const DOCK_HEIGHT = 136;
 const TAKEN = 260;
 const CSA_ROWS = 7;
+/** The Changes tab's rows it is as high as, until its handle is dragged. */
+const CHANGE_ROWS = 6;
 /** The open tab's height as its content: Netting's row, the sentence that says there is no CSA or no IM CSA, the CSA grid
  * in its frame under the panel's top gap (`gap`, the theme's `xs`), or the IM CSAs' table a row each. The table's numbers
  * are geometry the theme has no name for: its header row with the panel's top gap and border (40px), and a row of `sm`
  * text at `xs` vertical spacing (28px), as drawn at 1440px (2026-11-08). */
-const inputsFit = (tab: InputTab, csas: number, imCsas: number, gap: number) =>
+const inputsFit = (tab: InputTab, csas: number, imCsas: number, gap: number, changeRows: number) =>
   (tab === 'netting' ? 84
     : tab === 'im' ? (imCsas === 0 ? 40 : 40 + 28 * imCsas)
-      : csas === 0 ? 40 : gap + GRID_FRAME + compactGridHeight(Math.min(csas, CSA_ROWS)));
+      // The Changes tab: its header, a row per section and change, and the line under it, up to CHANGE_ROWS.
+      : tab === CHANGES_TAB ? (changeRows === 0 ? 40 : 72 + 32 * Math.min(changeRows, CHANGE_ROWS))
+        : csas === 0 ? 40 : gap + GRID_FRAME + compactGridHeight(Math.min(csas, CSA_ROWS)));
 
 /** The page's parts, which below `sm` are three tabs (ADR-0010 §1). */
 type Section = 'inputs' | 'trades' | 'results';
@@ -190,7 +195,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
       ? api.measures(workspaceId, revision, edit.measures)
       : edit.resolution === undefined
         ? api.edit(workspaceId, revision, edit.entity, edit.field, edit.value)
-        : api.resolve(workspaceId, revision, edit.entity, edit.field, edit.resolution),
+        : api.resolve(workspaceId, revision, edit.entity, edit.field, edit.resolution, edit.case),
     (next) => { show(next); sources.changed(); },
     (edit, error) => {
       workspace.notify(`${edit.entity} ${edit.field} was not changed: ${describe(error)}`);
@@ -421,6 +426,44 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
 
   const refresh = () => reacquire('Refreshed', (revision) => api.refresh(workspaceId, revision));
 
+  // The Changes tab's list (ADR-0010 §3's note of 2026-11-08), read while the tab is open, at the revision on screen.
+  const changesOpen = inputsOpen && view.data !== undefined && shownTab(view.data, inputTab) === CHANGES_TAB;
+  const changeList = useQuery({
+    queryKey: ['xva', workspaceId, 'changes', view.data?.revision],
+    queryFn: () => api.changes(workspaceId),
+    enabled: changesOpen,
+  });
+  /** A command of the Changes tab, after the edits already sent (spine 6); a Common change moves the grids' rows. */
+  const apply = async (label: string, run: (revision: number) => Promise<XvaWorkspaceView>) => {
+    try {
+      const next = await queue.after(async (revision) => {
+        const answer = await run(revision);
+        queue.rebase(answer.revision);
+        return answer;
+      });
+      show(next);
+      sources.changed();
+      return true;
+    } catch (error) {
+      workspace.notify(`${label}: ${describe(error)}`);
+      return false;
+    }
+  };
+  /** Removes a case by its title or id; the tab names it by its id, which no other case has. */
+  const removeCase = async (name: string, title: string = name) => {
+    if (await apply(`${title} was not removed`, (revision) => api.removeCase(workspaceId, revision, name))) workspace.notify(`Removed the case ${title}.`);
+  };
+  const clearCases = async () => {
+    if (await apply('No case was removed', (revision) => api.clearCases(workspaceId, revision))) workspace.notify('Removed every case.');
+  };
+  const changeActions: ChangeActions = {
+    set: (change, text) => void apply(`${change.title} was not changed`, (revision) =>
+      api.setChange(workspaceId, revision, change.entity, change.field, text, change.case ?? undefined)),
+    remove: (change) => void queue.push({ entity: change.entity, field: change.field, resolution: 'reset', case: change.case ?? undefined }),
+    removeCase: (caseId, title) => void removeCase(caseId, title),
+    clearCases: () => void clearCases(),
+  };
+
   /**
    * A case per value of a cell (ADR-0010 §3, §9), after the edits already sent (spine 6). The workspace is the Base and
    * does not move, so the grids are not read again; the page says what was made and what was skipped, and why.
@@ -443,14 +486,16 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   const setCurrency = (currency: string) => void queue.push({ entity: SETTINGS_ENTITY, field: 'displayCurrency', value: currency });
 
   // The commands run what the page's own controls run, as the page stands when they run (ADR-0010 §9).
-  const pageRef = useRef({ price, setMeasures, setSide, retry, copyQuote, download, refresh, setCurrency, openTab, explain, openResult, setDockFull, resultTabs, traceInView, vary, measures: () => view.data?.measures ?? [], currencies: () => view.data?.currencies ?? [] });
-  pageRef.current = { price, setMeasures, setSide, retry, copyQuote, download, refresh, setCurrency, openTab, explain, openResult, setDockFull, resultTabs, traceInView, vary, measures: () => view.data?.measures ?? [], currencies: () => view.data?.currencies ?? [] };
+  const pageRef = useRef({ price, setMeasures, setSide, retry, copyQuote, download, refresh, setCurrency, openTab, explain, openResult, setDockFull, resultTabs, traceInView, vary, removeCase, clearCases, measures: () => view.data?.measures ?? [], currencies: () => view.data?.currencies ?? [] });
+  pageRef.current = { price, setMeasures, setSide, retry, copyQuote, download, refresh, setCurrency, openTab, explain, openResult, setDockFull, resultTabs, traceInView, vary, removeCase, clearCases, measures: () => view.data?.measures ?? [], currencies: () => view.data?.currencies ?? [] };
   useEffect(() => {
     registerXvaPage(panelId, {
       price: () => void pageRef.current.price(),
       setMeasures: (measures) => pageRef.current.setMeasures(measures),
       setSide: (side, value, grid) => pageRef.current.setSide(side, value, grid),
       vary: (cell, values) => void pageRef.current.vary({ cell }, values),
+      removeCase: (name) => void pageRef.current.removeCase(name),
+      clearCases: () => void pageRef.current.clearCases(),
       retry: () => void pageRef.current.retry(),
       downloadRun: () => pageRef.current.download(),
       copyQuote: () => void pageRef.current.copyQuote(),
@@ -481,7 +526,8 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   const notBusy = busy === undefined;
 
   const enforceable = ws.agreement.enforceable ? 'enforceable' : 'not enforceable';
-  const inputsHeight = inputsDragged ?? inputsFit(shownTab(ws, inputTab), ws.csas.length, ws.agreement.imCsas.length, pixels(theme.spacing.xs));
+  const inputsHeight = inputsDragged ?? inputsFit(shownTab(ws, inputTab), ws.csas.length, ws.agreement.imCsas.length, pixels(theme.spacing.xs),
+    ws.changes + ws.cases.length);
   const newHeight = compactGridHeight(Math.max(1, Math.min(ws.newTrades, 8)));
   // What the parts other than Existing take, from the heights the page set (never measured): Existing has the rest.
   const taken = TAKEN + (inputsOpen ? inputsHeight + RESIZER : 0) + newHeight
@@ -539,12 +585,13 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
         data={[{ value: 'inputs', label: 'Inputs' }, { value: 'trades', label: 'Trades' }, { value: 'results', label: 'Results' }]} />
       <div data-part="inputs" className="qwb-xva-part">
         <XvaInputs ws={ws} onIssue={setIssue} push={(entity, field, value) => void queue.push({ entity, field, value })}
-          tab={inputTab} onTab={(tab) => { setInputTab(tab); setInputsOpen(true); }} open={inputsOpen} onOpen={setInputsOpen} height={inputsHeight} focusRequest={focusRequest} />
+          tab={inputTab} onTab={(tab) => { setInputTab(tab); setInputsOpen(true); }} open={inputsOpen} onOpen={setInputsOpen} height={inputsHeight} focusRequest={focusRequest}
+          changeList={changeList.data} changeActions={changeActions} />
         {inputsOpen && <Resizer label="Height of the input tabs" value={inputsHeight} min={48} max={640} grows="down" onChange={setInputsDragged} />}
       </div>
       {issue !== undefined && <Text size="xs" c="red" role="alert" data-testid="field-issue">{issue}</Text>}
       <div data-part="trades" className="qwb-xva-part">
-        <HeldEdits conflicts={ws.conflicts} lost={ws.lost} resolve={(edit, resolution) => void queue.push({ entity: edit.entity, field: edit.field, resolution })} />
+        <HeldEdits conflicts={ws.conflicts} lost={ws.lost} resolve={(edit, resolution) => void queue.push({ entity: edit.entity, field: edit.field, resolution, case: edit.case ?? undefined })} />
         {failure !== undefined && <Alert color="red" variant="light" withCloseButton onClose={() => setFailure(undefined)} title="The trades could not be read">{failure}</Alert>}
         {/* New trades above Existing (ADR-0010 §6): New as high as its rows, about eight at most; Existing takes the rest. */}
         <div className="qwb-xva-grids">

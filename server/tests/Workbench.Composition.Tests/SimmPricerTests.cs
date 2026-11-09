@@ -275,6 +275,12 @@ public class SimmPricerTests
             Assert.Equal(Row(Of("base"), metric)["before"]!.GetValue<decimal>(), Row(Of(larger), metric)["before"]!.GetValue<decimal>());
         }
         Assert.Contains(new[] { "imR", "imP" }, m => Row(Of(larger), m)["after"]!.GetValue<decimal>() != Row(Of("base"), m)["after"]!.GetValue<decimal>());
+        // The case is the value typed into the workspace.
+        var typed = Select(service, service.Create("akira", "ABC/LE-01", Day1, 30), "simm");
+        typed = service.Edit(typed.WorkspaceId, typed.Revision, "akira", "trade:DRAFT-1", "notional", 5_000_000_000m);
+        var expected = await Price(runs, store, service, typed);
+        foreach (var metric in new[] { "imR", "imP" })
+            Assert.Equal(Row(expected.Rows, metric)["after"]!.GetValue<decimal>(), Row(Of(larger), metric)["after"]!.GetValue<decimal>());
         Assert.Equal([("base", "before"), ("base", "after"), (larger, "before"), (larger, "after")], priced.Traces.Traces.Select(t => (t.Case, t.Side)));
         Assert.All(priced.Traces.Traces, t => Reconciles(t.Trace));
         Assert.Equal(plain.After!.Lines.Count, priced.After!.Lines.Count);

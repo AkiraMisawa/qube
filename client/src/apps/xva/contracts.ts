@@ -142,8 +142,8 @@ export interface HeldEdit {
   readonly value: unknown;
   readonly source: Readonly<Record<string, unknown>> | null;
   readonly acknowledged: boolean;
-  /** The case the edit is a change of, `case:<id>`; none for a Common edit (ADR-0010 §3). */
-  readonly layer: string | null;
+  /** The case the edit is a change of; none for a Common edit (ADR-0010 §3). */
+  readonly case: string | null;
 }
 
 /**
@@ -156,6 +156,32 @@ export interface CaseView {
   readonly kind: 'base' | 'vary' | 'add';
   readonly changes: number;
   readonly trade: string | null;
+}
+
+/**
+ * One change as the Changes tab lists it (ADR-0010 §3's note of 2026-11-08): the case it is a change of (none for a
+ * Common change), its title as a cell is named, its value and Original's as written, whether it is set, held as a
+ * conflict or lost, and whether its value is typed there.
+ */
+export interface ChangeItem {
+  readonly entity: string;
+  readonly field: string;
+  readonly case: string | null;
+  readonly title: string;
+  readonly value: unknown;
+  readonly text: string;
+  readonly original: unknown;
+  readonly originalText: string;
+  readonly state: 'set' | 'conflict' | 'lost';
+  readonly editable: boolean;
+}
+
+/** Every change of the workspace: the Common ones, then each case with its own, and how many in all. */
+export interface ChangesList {
+  readonly revision: number;
+  readonly common: readonly ChangeItem[];
+  readonly cases: readonly { readonly case: CaseView; readonly changes: readonly ChangeItem[] }[];
+  readonly count: number;
 }
 
 /** What `vary` made, by title, and each value it skipped with why (ADR-0010 §3). */
@@ -231,6 +257,8 @@ export interface XvaWorkspaceView {
   /** Every case Price prices, the Base first (ADR-0010 §3), and how many one Price may price, the Base among them. */
   readonly cases: readonly CaseView[];
   readonly caseCap: number;
+  /** How many changes the Changes tab lists, a case's among them. */
+  readonly changes: number;
 }
 
 export interface RowPage {

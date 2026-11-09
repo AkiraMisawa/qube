@@ -59,7 +59,7 @@ test('docs/03, ADR-0003: a new trade takes the main CSA, a CSA typed in moves it
   await expect(result.getByTestId('xva-result-revision')).toHaveText(/^revision \d+$/);
   await result.getByRole('button', { name: 'Open run' }).click();
   await expect(page.getByTestId('run-status')).toHaveText('succeeded');
-  await expect(page.getByLabel('CVA and FVA (simulated)').getByRole('row', { name: /^Workspace CVA -/ })).toBeVisible();
+  await expect(page.getByLabel('CVA and FVA (simulated)').getByRole('row', { name: /^Base CVA -/ })).toBeVisible();
   const runId = await page.locator('[data-testid=run-status] + p').textContent();
   expect(runId).toMatch(/^run-/);
 
@@ -248,7 +248,7 @@ test('ADR-0010 §1, §7: the input tabs and the dock collapse to their row and t
   await result.getByRole('button', { name: 'Collapse' }).focus();
   await page.keyboard.press('Enter');
   await expect(result.getByRole('table', { name: 'Metrics' })).toHaveCount(0);
-  await expect(result.getByTestId('xva-result-lines')).toHaveText(/^Workspace · CVA Diff -?[\d,]+\.\d\d · FVA Diff -?[\d,]+\.\d\d$/);
+  await expect(result.getByTestId('xva-result-lines')).toHaveText(/^Base · CVA Diff -?[\d,]+\.\d\d · FVA Diff -?[\d,]+\.\d\d$/);
   await expect(dock).toHaveCount(0);
   await page.keyboard.press('Enter');
   await expect(result.getByRole('table', { name: 'Metrics' })).toBeVisible();
@@ -358,6 +358,37 @@ test('ADR-0010 §3, §9: `vary` makes a case per value beside the Base, and one 
   await expect(result.getByTestId('xva-result-lines').locator('p')).toHaveText([/^Base · CVA Diff /, /^CSA-A threshold 200mm · CVA Diff /, /^CSA-A threshold 50mm · CVA Diff /]);
 });
 
+test('ADR-0010 §3: the Changes tab counts every change, sets a case\'s value, and removes a case, as `case remove` does', async ({ page }) => {
+  await open(page);
+  await newWorkspace(page, 'ABC/LE-01', 5);
+  await command(page, 'measures', 'cva fva');
+  await command(page, 'vary', 'CSA-A threshold 5mm, 10mm, 20mm');
+  await expect(page.getByTestId('price')).toHaveText('Price CVA FVA · 4 cases');
+
+  await command(page, 'open changes');
+  await expect(page.getByRole('tab', { name: 'Changes ●3' })).toHaveAttribute('aria-selected', 'true');
+  const changes = page.getByRole('table', { name: 'Changes' });
+  await expect(changes.getByRole('row', { name: /^Common/ })).toContainText('No Common change');
+  const five = changes.getByRole('textbox', { name: 'CSA-A threshold in CSA-A threshold 5mm' });
+  await expect(five).toHaveValue('5mm');
+  // The server reads the value as the cell reads it, and answers what it holds now: a revision of its own.
+  const summary = page.getByTestId('workspace-summary');
+  const before = await summary.textContent();
+  await five.fill('7.5mm');
+  await page.keyboard.press('Enter');
+  await expect(summary).not.toHaveText(before ?? '');
+  await expect(five).toHaveValue('7.5mm');
+
+  await changes.getByRole('button', { name: 'Remove case CSA-A threshold 10mm' }).click();
+  await expect(page.getByTestId('price')).toHaveText('Price CVA FVA · 3 cases');
+  await expect(page.getByRole('tab', { name: 'Changes ●2' })).toBeVisible();
+  await command(page, 'case remove', 'CSA-A threshold 20mm');
+  await expect(page.getByTestId('price')).toHaveText('Price CVA FVA · 2 cases');
+  await expect(changes.getByRole('row', { name: /^CSA-A threshold 20mm/ })).toHaveCount(0);
+  await command(page, 'cases clear');
+  await expect(page.getByTestId('price')).toHaveText('Price CVA FVA · 1 case');
+});
+
 test('ADR-0010 §6: a new trade\'s PV01 arrives with no reload, and Margin gives its PV Adj, read-only and saying so', async ({ page }) => {
   await open(page);
   await newWorkspace(page, 'ABC/LE-01', 0);
@@ -409,7 +440,7 @@ test('ADR-0010 §7: Download saves the Run as a zip, from the dock and the Prici
   await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toMatch(new RegExp(`^XVA quote \\(simulated\\) · ${runId}`));
   const text = await page.evaluate(() => navigator.clipboard.readText());
   expect(text).toMatch(/\nCounterparty ABC\/LE-01 · Netting set NS-001 · Value date 2026-\d\d-\d\d · Revision \d+ · JPY\n/);
-  expect(text).toMatch(/\nWorkspace: CVA Charge -?[\d,]+\.\d\d · PV -?[\d,]+\.\d\d$/);
+  expect(text).toMatch(/\nBase: CVA Charge -?[\d,]+\.\d\d · PV -?[\d,]+\.\d\d$/);
   const html = await page.evaluate(async () => {
     const [item] = await navigator.clipboard.read();
     if (item === undefined) throw new Error('The clipboard holds nothing.');

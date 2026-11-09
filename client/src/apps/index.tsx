@@ -235,6 +235,26 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
       },
     },
     {
+      id: 'xva.case.remove',
+      words: 'case remove',
+      title: 'Remove a case with its changes, by its title',
+      group: 'XVA',
+      ...onXva,
+      args: [{ name: 'case', required: true, rest: true, hint: 'the case\'s title, such as CSA-A threshold 5mm' }],
+      run: (a) => {
+        if (a.case === undefined || a.case.trim() === '') throw new Error('case remove needs the case to remove, by its title.');
+        xvaPage().removeCase(a.case.trim());
+      },
+    },
+    {
+      id: 'xva.cases.clear',
+      words: 'cases clear',
+      title: 'Remove every case; the Base stays',
+      group: 'XVA',
+      ...onXva,
+      run: () => xvaPage().clearCases(),
+    },
+    {
       id: 'xva.run.download',
       words: 'download run',
       title: 'Save the Run the page shows as a zip of its inputs, results and lineage',
@@ -310,7 +330,7 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
     },
     // One command per input tab (ADR-0010 §9), which shows the inputs if they were collapsed. IM is spot IM's (ADR-0012 §3),
     // and the page says so when it is not selected.
-    ...([['netting', 'Netting'], ['csa', 'CSA'], ['im', 'IM']] as const).map(([tab, title]): Command => ({
+    ...([['netting', 'Netting'], ['csa', 'CSA'], ['im', 'IM'], ['changes', 'Changes']] as const).map(([tab, title]): Command => ({
       id: `xva.open.${tab}`,
       words: `open ${tab}`,
       title: `Open the ${title} input tab`,

@@ -13,8 +13,13 @@ public static class XvaApi
     /// <summary>A page of trades; <c>Grid</c> names the New or Existing grid (ADR-0010 §6), or all when absent.</summary>
     public sealed record PageRequest(int Start, int Count, IReadOnlyList<RowSort> Sorts, string? Grid = null);
     public sealed record EditRequest(long Revision, string Entity, string Field, JsonNode? Value);
-    /// <summary>Resolves a held edit; <c>Layer</c> names the case it is a change of, none for a Common edit (ADR-0010 §3).</summary>
-    public sealed record ResolveRequest(long Revision, string Entity, string Field, string Resolution, string? Layer = null);
+    /// <summary>Resolves a held edit, or removes a change (<c>reset</c>); <c>Case</c> names the case it is a change of, none
+    /// for a Common edit (ADR-0010 §3).</summary>
+    public sealed record ResolveRequest(long Revision, string Entity, string Field, string Resolution, string? Case = null);
+    /// <summary>A change's value as written, set from the Changes tab in the Base or a case (ADR-0010 §3's note).</summary>
+    public sealed record ChangeRequest(long Revision, string Entity, string Field, string Text, string? Case = null);
+    /// <summary>A case to remove, by its title or id (<c>case remove</c>), or every case (<c>cases clear</c>).</summary>
+    public sealed record CaseRequest(long Revision, string? Name = null);
     /// <summary>
     /// <c>vary</c> (ADR-0010 §3, §9): the values, each as written, of a cell named as the command line names it
     /// (<c>CSA-A threshold</c>), or of an entity's field, as <em>Vary values…</em> on a cell names it.
@@ -97,6 +102,27 @@ public static class XvaApi
             return Results.Ok(new Varied(service.View(id, user.Id), answer.Made, answer.Skipped));
         }));
 
+        ws.MapGet("/{id}/changes", (string id, CurrentUser user, PortfolioWorkspaces service) =>
+            Guard(() => Results.Ok(service.Changes(id, user.Id))));
+
+        ws.MapPost("/{id}/changes", (string id, ChangeRequest request, CurrentUser user, PortfolioWorkspaces service) => Guard(() =>
+        {
+            service.SetText(id, request.Revision, user.Id, request.Entity, request.Field, request.Text, request.Case);
+            return Results.Ok(service.View(id, user.Id));
+        }));
+
+        ws.MapPost("/{id}/cases/remove", (string id, CaseRequest request, CurrentUser user, PortfolioWorkspaces service) => Guard(() =>
+        {
+            service.RemoveCase(id, request.Revision, user.Id, request.Name ?? throw new WorkspaceRefused("UnknownCase", "case remove names the case to remove."));
+            return Results.Ok(service.View(id, user.Id));
+        }));
+
+        ws.MapPost("/{id}/cases/clear", (string id, CaseRequest request, CurrentUser user, PortfolioWorkspaces service) => Guard(() =>
+        {
+            service.ClearCases(id, request.Revision, user.Id);
+            return Results.Ok(service.View(id, user.Id));
+        }));
+
         ws.MapPost("/{id}/refresh", (string id, RefreshRequest request, CurrentUser user, PortfolioWorkspaces service) => Guard(() =>
         {
             var (_, carried) = service.Refresh(id, request.Revision, user.Id);
@@ -111,7 +137,7 @@ public static class XvaApi
 
         ws.MapPost("/{id}/resolutions", (string id, ResolveRequest request, CurrentUser user, PortfolioWorkspaces service) => Guard(() =>
         {
-            service.Resolve(id, request.Revision, user.Id, request.Entity, request.Field, request.Resolution, request.Layer);
+            service.Resolve(id, request.Revision, user.Id, request.Entity, request.Field, request.Resolution, request.Case);
             return Results.Ok(service.View(id, user.Id));
         }));
 

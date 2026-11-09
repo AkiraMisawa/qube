@@ -77,6 +77,30 @@ public class PricerApiTests(WorkbenchFactory factory) : IClassFixture<WorkbenchF
         Assert.True(After(cases[2].Id) < After("base"));
     }
 
+    [Fact] // ADR-0010 §3's note of 2026-11-08: the Changes list, a case's change set, and cases removed, over HTTP
+    public async Task The_changes_list_edits_and_removes_cases_over_http()
+    {
+        var ws = await Create();
+        var varied = await Post(ws, "vary", new { revision = Revision(ws), cell = "CSA-A threshold", values = new[] { "5mm", "10mm" } });
+        ws = (await varied.Content.ReadFromJsonAsync<JsonObject>())!["workspace"]!.AsObject();
+        var first = ws["cases"]![1]!["id"]!.GetValue<string>();
+
+        var set = await Post(ws, "changes", new { revision = Revision(ws), entity = "csa:CSA-A", field = "counterpartyThreshold", text = "7.5mm", @case = first });
+        Assert.Equal(HttpStatusCode.OK, set.StatusCode);
+        ws = (await set.Content.ReadFromJsonAsync<JsonObject>())!;
+        var changes = (await client.GetFromJsonAsync<JsonObject>($"/api/xva/workspaces/{Id(ws)}/changes"))!;
+        Assert.Equal(2, changes["count"]!.GetValue<int>());
+        Assert.Equal(["7.5mm", "10mm"], changes["cases"]!.AsArray().Select(c => c!["changes"]![0]!["text"]!.GetValue<string>()));
+        Assert.Equal(first, changes["cases"]![0]!["changes"]![0]!["case"]!.GetValue<string>());
+
+        var removed = await Post(ws, "cases/remove", new { revision = Revision(ws), name = "CSA-A threshold 10mm" });
+        Assert.Equal(HttpStatusCode.OK, removed.StatusCode);
+        ws = (await removed.Content.ReadFromJsonAsync<JsonObject>())!;
+        Assert.Equal(["Base", "CSA-A threshold 5mm"], ws["cases"]!.AsArray().Select(c => c!["title"]!.GetValue<string>()));
+        var cleared = await Post(ws, "cases/clear", new { revision = Revision(ws) });
+        Assert.Equal(["Base"], (await cleared.Content.ReadFromJsonAsync<JsonObject>())!["cases"]!.AsArray().Select(c => c!["title"]!.GetValue<string>()));
+    }
+
     [Fact] // ADR-0010 §9's note of 2026-11-08: a cell vary cannot name is refused over HTTP with what it could mean
     public async Task Vary_refuses_a_cell_it_cannot_name()
     {

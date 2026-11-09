@@ -207,12 +207,81 @@ public class PricerCaseTests
         var raised = Id(service, ws, "CSA-A threshold 500mm");
         var capital = rows.Where(r => r["measure"]!.GetValue<string>() == CcrMeasures.SpotCapital && r["metric"]!.GetValue<string>() == "capital").ToList();
         Assert.Equal(["base", raised], capital.Select(r => r["case"]!.GetValue<string>()));
-        // A higher threshold leaves more exposure uncollateralised: more capital in the case.
+        // A higher threshold leaves more exposure uncollateralised: more capital in the case, as when it is typed in.
         Assert.True(capital[1]["after"]!.GetValue<decimal>() > capital[0]["after"]!.GetValue<decimal>());
+        var typed = service.Create("akira", "ABC/LE-01", Day1, 40);
+        typed = service.Edit(typed.WorkspaceId, typed.Revision, "akira", "csa:CSA-A", "counterpartyThreshold", 500_000_000m);
+        var (_, expected, _) = await Price(runs, store, service, typed);
+        Assert.Equal(Row(expected, "base", "capital")["after"]!.GetValue<decimal>(), capital[1]["after"]!.GetValue<decimal>());
         var traces = store.ReadRequired(run.Invocations.Single(i => i.StepId == XvaMeasures.Module).Outputs["traces"]).Deserialize<TraceSet>(WireJson.Options)!;
         Assert.Equal([("base", "before"), ("base", "after"), (raised, "before"), (raised, "after")], traces.Traces.Select(t => (t.Case, t.Side)));
         // Each case's profile is its own.
         var profile = store.ReadRequired(run.Invocations.Single(i => i.StepId == XvaMeasures.Module).Outputs["profile"])["rows"]!.AsArray();
         Assert.Equal(["base", raised], profile.Select(p => p!["case"]!.GetValue<string>()).Distinct());
+    }
+
+    [Fact] // ADR-0010 §3's note of 2026-11-08: the Changes tab lists each Common change, then each case with its own, with Original's value
+    public void The_changes_list_holds_the_common_changes_and_each_cases_with_original()
+    {
+        var (service, _, _) = Priced();
+        var ws = service.Create("akira", "ABC/LE-01", Day1, 40);
+        ws = service.Edit(ws.WorkspaceId, ws.Revision, "akira", "csa:CSA-B", "counterpartyMta", 2_000_000m);
+        ws = service.Edit(ws.WorkspaceId, ws.Revision, "akira", "grid:existing", "before", false);
+        ws = service.Vary(ws.WorkspaceId, ws.Revision, "akira", "CSA-A threshold", ["5mm"]).State;
+
+        var changes = service.Changes(ws.WorkspaceId, "akira");
+
+        Assert.Equal(3, changes.Count);
+        Assert.Equal(3, service.View(ws.WorkspaceId, "akira").Changes);
+        Assert.Equal([("CSA-B mta", "2mm", "500k", true), ("Existing B every row", "off", "each row's own", false)],
+            changes.Common.Select(c => (c.Title, c.Text, c.OriginalText, c.Editable)));
+        var @case = Assert.Single(changes.Cases);
+        Assert.Equal(("CSA-A threshold 5mm", "vary"), (@case.Case.Title, @case.Case.Kind));
+        var change = Assert.Single(@case.Changes);
+        Assert.Equal(("csa:CSA-A", "counterpartyThreshold", @case.Case.Id, "CSA-A threshold", "5mm", "0", "set"),
+            (change.Entity, change.Field, change.Case, change.Title, change.Text, change.OriginalText, change.State));
+    }
+
+    [Fact] // ADR-0010 §3's note of 2026-11-08: a case's change edited in the Changes tab changes that case alone, and removed leaves the case without it
+    public async Task A_cases_change_is_edited_and_removed_in_that_case_alone()
+    {
+        var (service, runs, store) = Priced();
+        var ws = service.Create("akira", "ABC/LE-01", Day1, 40);
+        ws = service.Vary(ws.WorkspaceId, ws.Revision, "akira", "CSA-A threshold", ["5mm", "10mm"]).State;
+        var (five, ten) = (Id(service, ws, "CSA-A threshold 5mm"), Id(service, ws, "CSA-A threshold 10mm"));
+
+        ws = service.SetText(ws.WorkspaceId, ws.Revision, "akira", "csa:CSA-A", "counterpartyThreshold", "200mm", five);
+        var refused = Assert.Throws<WorkspaceRefused>(() => service.SetText(ws.WorkspaceId, ws.Revision, "akira", "csa:CSA-A", "counterpartyThreshold", "-1mm", five));
+        var (input, _, _) = await Price(runs, store, service, ws);
+
+        var thresholds = PortfolioInput.Cases(input).Select(c => c.Input["modules"]!["ccr"]!["csas"]!.AsArray()
+            .Single(x => x!["csaId"]!.GetValue<string>() == "CSA-A")!["threshold"]!.GetValue<decimal>());
+        Assert.Equal([0m, 200_000_000m, 10_000_000m], thresholds);
+        Assert.Equal("InvalidValue", refused.Code);
+        ws = service.Resolve(ws.WorkspaceId, ws.Revision, "akira", "csa:CSA-A", "counterpartyThreshold", "reset", ten);
+        var changes = service.Changes(ws.WorkspaceId, "akira");
+        Assert.Equal([1, 0], changes.Cases.Select(c => c.Changes.Count));
+        Assert.Equal(["Base", "CSA-A threshold 5mm", "CSA-A threshold 10mm"], service.View(ws.WorkspaceId, "akira").Cases.Select(c => c.Title));
+    }
+
+    [Fact] // ADR-0010 §3's note of 2026-11-08: a case is removed whole, by its title, in one log entry, and `cases clear` removes every one
+    public async Task A_case_is_removed_whole_and_cases_clear_removes_every_one()
+    {
+        var (service, runs, store) = Priced();
+        var ws = service.Create("akira", "ABC/LE-01", Day1, 40);
+        ws = service.Vary(ws.WorkspaceId, ws.Revision, "akira", "CSA-A threshold", ["5mm", "10mm", "20mm"]).State;
+
+        var removed = service.RemoveCase(ws.WorkspaceId, ws.Revision, "akira", "csa-a threshold 10MM");
+        var unknown = Assert.Throws<WorkspaceRefused>(() => service.RemoveCase(removed.WorkspaceId, removed.Revision, "akira", "CSA-A threshold 10mm"));
+        var (_, rows, _) = await Price(runs, store, service, removed);
+
+        Assert.Equal(ws.Revision + 1, removed.Revision);
+        Assert.Equal("1 edits", removed.Log[^1].Note);
+        Assert.Equal(("UnknownCase", "No case CSA-A threshold 10mm; the cases are CSA-A threshold 5mm, CSA-A threshold 20mm."), (unknown.Code, unknown.Message));
+        Assert.Equal(["Base", "CSA-A threshold 5mm", "CSA-A threshold 20mm"], rows.Where(r => r["metric"]!.GetValue<string>() == "cva").Select(r => r["caseTitle"]!.GetValue<string>()));
+        var cleared = service.ClearCases(removed.WorkspaceId, removed.Revision, "akira");
+        Assert.Equal(["Base"], service.View(cleared.WorkspaceId, "akira").Cases.Select(c => c.Title));
+        Assert.Empty(service.Changes(cleared.WorkspaceId, "akira").Cases);
+        Assert.Equal("NothingToChange", Assert.Throws<WorkspaceRefused>(() => service.ClearCases(cleared.WorkspaceId, cleared.Revision, "akira")).Code);
     }
 }

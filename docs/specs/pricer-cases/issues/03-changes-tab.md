@@ -7,9 +7,9 @@ Original's; its value is edited there with the grid's validation, or it is remov
 
 **Blocked by:** 02.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] The workspace's changes list holds each Common change and each case's, with Original's value.
-- [ ] Editing a case's change from the list changes that case only; removing it leaves the case without it.
-- [ ] Removing a case removes its row from the next Price's Metrics.
-- [ ] In a browser, the tab says its count and a case is removed from it.
+- [x] The workspace's changes list holds each Common change and each case's, with Original's value.
+- [x] Editing a case's change from the list changes that case only; removing it leaves the case without it.
+- [x] Removing a case removes its row from the next Price's Metrics.
+- [x] In a browser, the tab says its count and a case is removed from it.

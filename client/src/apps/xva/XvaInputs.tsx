@@ -3,7 +3,8 @@ import { Button, Group, Table, Tabs, Text, useMantineTheme } from '@mantine/core
 import { GridSource, type CellState, type GridColumn, type GridEditIntent } from '@ex-grid/core';
 import type { ExGridApi } from '@ex-grid/react';
 import { WorkbenchGrid } from '../../platform/grid/WorkbenchGrid';
-import type { Agreement, EffectiveCsa, RegisteredMeasure, XvaWorkspaceView } from './contracts';
+import type { Agreement, ChangesList, EffectiveCsa, RegisteredMeasure, XvaWorkspaceView } from './contracts';
+import { XvaChanges, type ChangeActions } from './XvaChanges';
 import { csaFields, parseRecovery } from './editing';
 import { CommitField } from './fields';
 import { compactGridHeight, GRID_FRAME, partHeight, pixels } from './layout';
@@ -58,18 +59,22 @@ const csaColumnsOf = (agreement: Agreement, reading: readonly RegisteredMeasure[
 const csaCellState = (row: CsaRow, col: GridColumn<CsaRow>): CellState => (differs(row, col.name) ? 'modified' : 'normal');
 const csaCellMessage = (row: CsaRow, col: GridColumn<CsaRow>): string | undefined => originalMessage(row, col.name, row[col.name as keyof CsaRow]);
 
-/** The input tabs every page has (ADR-0010 §1), and those a selected measure registers: spot IM's IM tab (ADR-0012 §3). */
-export type InputTab = 'netting' | 'csa' | 'im';
+/** The input tabs every page has (ADR-0010 §1), those a selected measure registers, spot IM's IM tab (ADR-0012 §3), and
+ * Changes, last, which lists every change and case (ADR-0010 §3's note of 2026-11-08). */
+export type InputTab = 'netting' | 'csa' | 'im' | 'changes';
+
+/** The Changes tab, last in the row. */
+export const CHANGES_TAB = 'changes' satisfies InputTab;
 
 /** Spot IM's own tab, as its input names it (ADR-0012 §3). */
 export const IM_TAB = 'im' satisfies InputTab;
 
 /** Each tab's title, as its tab and the page's words name it. */
-export const TAB_TITLES: Readonly<Record<InputTab, string>> = { netting: 'Netting', csa: 'CSA', im: 'IM' };
+export const TAB_TITLES: Readonly<Record<InputTab, string>> = { netting: 'Netting', csa: 'CSA', im: 'IM', changes: 'Changes' };
 
-/** Whether a tab is shown: Netting and CSA always, a measure's own while a selected measure needs it (ADR-0010 §10). */
+/** Whether a tab is shown: Netting, CSA and Changes always, a measure's own while a selected measure needs it (ADR-0010 §10). */
 export const tabShown = (ws: Pick<XvaWorkspaceView, 'inputs'>, tab: InputTab): boolean =>
-  tab === 'netting' || tab === 'csa' || ws.inputs.some((i) => i.tab === tab);
+  tab === 'netting' || tab === 'csa' || tab === CHANGES_TAB || ws.inputs.some((i) => i.tab === tab);
 
 /** The tab that shows for the one chosen: itself, or Netting where it is a measure's own and that measure went. */
 export const shownTab = (ws: Pick<XvaWorkspaceView, 'inputs'>, tab: InputTab): InputTab => (tabShown(ws, tab) ? tab : 'netting');
@@ -78,8 +83,11 @@ export const shownTab = (ws: Pick<XvaWorkspaceView, 'inputs'>, tab: InputTab): I
  * The tabs, one open at a time and collapsible to their tab row (ADR-0010 §1). The page keeps which tab is open,
  * whether it is open and its height, so that a command opens a tab as a press does.
  */
-export function XvaInputs({ ws, push, onIssue, tab, onTab, open, onOpen, height, focusRequest }: {
+export function XvaInputs({ ws, push, onIssue, tab, onTab, open, onOpen, height, focusRequest, changeList, changeActions }: {
   readonly ws: XvaWorkspaceView;
+  /** The Changes tab's list, read while the tab is open; none until it has been read. */
+  readonly changeList: ChangesList | undefined;
+  readonly changeActions: ChangeActions;
   readonly push: (entity: string, field: string, value: unknown) => void;
   readonly onIssue: (message: string | undefined) => void;
   readonly tab: InputTab;
@@ -98,6 +106,7 @@ export function XvaInputs({ ws, push, onIssue, tab, onTab, open, onOpen, height,
   const recovery = useRef<HTMLInputElement>(null);
   const csaGrid = useRef<ExGridApi<CsaRow>>(null);
   const imCsas = useRef<HTMLDivElement>(null);
+  const changesBody = useRef<HTMLDivElement>(null);
   const gap = pixels(useMantineTheme().spacing.xs);
   // The fields of these tabs the selected measures need (§10): CVA's recovery while CVA is selected.
   const needed = (tab: InputTab, field: string) => ws.inputs.some((i) => i.tab === tab && i.field === field);
@@ -115,6 +124,7 @@ export function XvaInputs({ ws, push, onIssue, tab, onTab, open, onOpen, height,
     if (focusRequest === 0) return;
     if (shown === 'netting') recovery.current?.focus();
     else if (shown === IM_TAB) imCsas.current?.focus();
+    else if (shown === CHANGES_TAB) changesBody.current?.focus();
     else csaGrid.current?.focus();
   // Only a command's request moves the keyboard; a tab pressed keeps it where the press left it.
   }, [focusRequest]);
@@ -132,6 +142,7 @@ export function XvaInputs({ ws, push, onIssue, tab, onTab, open, onOpen, height,
           <Tabs.Tab value="netting">{TAB_TITLES.netting}{count(nettingChanges)}</Tabs.Tab>
           <Tabs.Tab value="csa">{TAB_TITLES.csa}{count(csaChanges)}</Tabs.Tab>
           {imShown && <Tabs.Tab value={IM_TAB}>{TAB_TITLES.im}</Tabs.Tab>}
+          <Tabs.Tab value={CHANGES_TAB}>{TAB_TITLES.changes}{count(ws.changes)}</Tabs.Tab>
         </Tabs.List>
         <Button size="compact-xs" variant="subtle" ml="auto" aria-expanded={open} aria-controls={bodyId}
           onClick={() => onOpen(!open)}>{open ? 'Hide inputs' : 'Show inputs'}</Button>
@@ -174,6 +185,9 @@ export function XvaInputs({ ws, push, onIssue, tab, onTab, open, onOpen, height,
               <ImCsas ws={ws} focusRef={imCsas} />
             </Tabs.Panel>
           )}
+          <Tabs.Panel value={CHANGES_TAB} pt="xs">
+            <XvaChanges list={changeList} actions={changeActions} focusRef={changesBody} />
+          </Tabs.Panel>
         </div>
       )}
     </Tabs>

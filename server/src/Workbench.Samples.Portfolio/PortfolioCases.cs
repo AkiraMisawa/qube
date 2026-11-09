@@ -186,17 +186,62 @@ public static partial class PortfolioCells
     public static CellName Of(WorkspaceState state, MeasureRegister register, string entity, string field)
     {
         var (kind, id) = Entity.Split(entity);
-        var columns = kind switch
-        {
-            Entity.Csa => CsaColumns,
-            Entity.Netting => NettingColumns,
-            Entity.Trade => Trade(register),
-            _ => throw new WorkspaceRefused("UnknownCell", $"{entity} is not a row a case can vary: a row is a CSA, the netting set or a trade."),
-        };
+        var columns = ColumnsOf(kind, register)
+            ?? throw new WorkspaceRefused("UnknownCell", $"{entity} is not a row a cell is named on: a row is a CSA, the netting set or a trade.");
         var column = columns.FirstOrDefault(c => c.Field == field)
             ?? throw new WorkspaceRefused("UnknownCell", $"{id} has no column {field}; its columns are {string.Join(", ", columns.Select(c => c.Names[0]))}.");
         return Resolve(state, register, id, column.Names[0]) is var cell && cell.Entity == entity ? cell
             : throw new WorkspaceRefused("UnknownCell", $"{entity} is not a row of this workspace.");
+    }
+
+    /// <summary>The cell of an entity's field where it is one a cell names, such as a CSA's threshold; none for an edit of
+    /// a whole grid's B or A, or of a row this version no longer has.</summary>
+    public static CellName? Find(WorkspaceState state, MeasureRegister register, string entity, string field)
+    {
+        var (kind, id) = Entity.Split(entity);
+        var source = (PortfolioSourceVersion)state.Source;
+        var exists = kind switch
+        {
+            Entity.Csa => source.Agreement.Csas.Any(c => c.CsaId == id),
+            Entity.Netting => source.Agreement.NettingSetId == id,
+            Entity.Trade => source.Trade(id) is not null,
+            _ => false,
+        };
+        var column = exists ? ColumnsOf(kind, register)?.FirstOrDefault(c => c.Field == field) : null;
+        return column is null ? null : new CellName(entity, field, id, column.Names[0], column.Form);
+    }
+
+    static IReadOnlyList<Column>? ColumnsOf(string kind, MeasureRegister register) => kind switch
+    {
+        Entity.Csa => CsaColumns,
+        Entity.Netting => NettingColumns,
+        Entity.Trade => Trade(register),
+        _ => null,
+    };
+
+    /// <summary>A value as the Changes tab and a case's title write it, in the form <see cref="Read"/> reads back: an amount
+    /// as ADR-0008 writes it (5mm, 250k, 1.5bn), a rate in %, a flag on or off, empty for none.</summary>
+    public static string Write(CellName cell, JsonNode? value)
+    {
+        if (value is null) return "empty";
+        switch (cell.Kind)
+        {
+            case CellName.Form.Amount or CellName.Form.SignedAmount:
+            {
+                var n = value.GetValue<decimal>();
+                foreach (var (scale, unit) in new[] { (1_000_000_000m, "bn"), (1_000_000m, "mm"), (1_000m, "k") })
+                    if (Math.Abs(n) >= scale && n % (scale / 1_000m) == 0) return $"{(n / scale).ToString("0.###", CultureInfo.InvariantCulture)}{unit}";
+                return n == 0 ? "0" : n.ToString("#,0.##", CultureInfo.InvariantCulture);
+            }
+            case CellName.Form.Rate:
+                return $"{(value.GetValue<decimal>() * 100m).ToString("0.####", CultureInfo.InvariantCulture)}%";
+            case CellName.Form.Number:
+                return value.GetValue<decimal>().ToString("0.##########", CultureInfo.InvariantCulture);
+            case CellName.Form.Flag:
+                return value.GetValue<bool>() ? "on" : "off";
+            default:
+                return value.GetValue<string>();
+        }
     }
 
     // A module's typed trade column (ADR-0010 §10) is named by its id or its title, such as XVA's Margin.
