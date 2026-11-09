@@ -10,7 +10,7 @@ import { useWorkspaceContext } from '../../platform/workspace/WorkspaceProvider'
 import { keyOf } from '../../platform/workspace/workspaceStore';
 import { registerGridFocus } from '../../shell/focus';
 import type { VaryCell, XvaApi } from './api';
-import type { EffectiveTrade, HeldEdit, RegisteredColumn, RegisteredMeasure, Resolution, ScenariosMade, ScopeDrop, Varied, XvaWorkspaceView } from './contracts';
+import type { EffectiveTrade, HeldEdit, RegisteredColumn, RegisteredMeasure, Resolution, ScenariosMade, ScopeDrop, ShiftEdit, Varied, XvaWorkspaceView } from './contracts';
 import { measureNamed, registerXvaPage } from './commands';
 import { XvaResult } from './XvaResult';
 import { BASE_CASE, BASE_SCENARIO, openTrace, requestTerm } from '../../platform/traces/open';
@@ -19,10 +19,11 @@ import type { RunRecord } from '../../platform/contracts';
 import { dockTabs, METRICS_TAB, type DockTab, type MeasureTab } from './dock';
 import { EditQueue, MEASURES_ENTITY, SETTINGS_ENTITY, tradeFields, type PendingEdit } from './editing';
 import { ToolbarField } from './fields';
-import { CHANGES_TAB, shownTab, TAB_TITLES, tabShown, XvaInputs, type InputTab } from './XvaInputs';
+import { CHANGES_TAB, SCENARIOS_TAB, shownTab, TAB_TITLES, tabShown, XvaInputs, type InputTab } from './XvaInputs';
+import type { ScenarioActions } from './XvaScenarios';
 import type { ChangeActions } from './XvaChanges';
 import { VARY_COMMAND, VaryDialog, addedText, variedText, type VaryTarget } from './VaryDialog';
-import { scenariosText } from './scenarios';
+import { includedText, scenariosText } from './scenarios';
 import { compactGridHeight, GRID_FRAME, pixels, Resizer } from './layout';
 import { declaring, measureOfField, membershipColumn, scopesOf } from './membership';
 import { priceLabel, pricedMeasures } from './metrics';
@@ -108,13 +109,17 @@ const TAKEN = 260;
 const CSA_ROWS = 7;
 /** The Changes tab's rows it is as high as, until its handle is dragged. */
 const CHANGE_ROWS = 6;
+/** The Scenarios tab's rows before its grid scrolls: its shifts and blank rows to paste onto. */
+const SHIFT_ROWS = 10;
 /** The open tab's height as its content: Netting's row, the sentence that says there is no CSA or no IM CSA, the CSA grid
  * in its frame under the panel's top gap (`gap`, the theme's `xs`), or the IM CSAs' table a row each. The table's numbers
  * are geometry the theme has no name for: its header row with the panel's top gap and border (40px), and a row of `sm`
  * text at `xs` vertical spacing (28px), as drawn at 1440px (2026-11-08). */
-const inputsFit = (tab: InputTab, csas: number, imCsas: number, gap: number, changeRows: number) =>
+const inputsFit = (tab: InputTab, csas: number, imCsas: number, gap: number, changeRows: number, shiftRows: number) =>
   (tab === 'netting' ? 84
     : tab === 'im' ? (imCsas === 0 ? 40 : 40 + 28 * imCsas)
+      // The Scenarios tab: its shifts and a few blank rows to type or paste onto, up to SHIFT_ROWS, beside its list.
+      : tab === SCENARIOS_TAB ? gap + GRID_FRAME + compactGridHeight(Math.min(shiftRows + 4, SHIFT_ROWS))
       // The Changes tab: its header, a row per section and change, and the line under it, up to CHANGE_ROWS.
       : tab === CHANGES_TAB ? (changeRows === 0 ? 40 : 72 + 32 * Math.min(changeRows, CHANGE_ROWS))
         : csas === 0 ? 40 : gap + GRID_FRAME + compactGridHeight(Math.min(csas, CSA_ROWS)));
@@ -559,13 +564,67 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
       workspace.notify(`scenario made nothing: ${describe(error)}`);
     }
   };
+  /**
+   * A scenario command or a gesture of the Scenarios tab (ADR-0010 §4), after the edits already sent (spine 6). The
+   * workspace's trades do not move, so the grids are not read again. Refused, it throws with the server's reason.
+   */
+  const scenarioCommand = async (run: (revision: number) => Promise<XvaWorkspaceView>): Promise<XvaWorkspaceView> => {
+    const next = await queue.after(async (revision) => {
+      const answer = await run(revision);
+      queue.rebase(answer.revision);
+      return answer;
+    });
+    show(next);
+    return next;
+  };
+  const editShifts = async (rows: readonly ShiftEdit[]) => { await scenarioCommand((revision) => api.editShifts(workspaceId, revision, rows)); };
+  const includeScenario = async (name: string, included: boolean) => {
+    try {
+      await scenarioCommand((revision) => api.includeScenario(workspaceId, revision, name, included));
+      workspace.notify(includedText(name, included));
+    } catch (error) {
+      workspace.notify(`${name} was not ${included ? 'included' : 'excluded'}: ${describe(error)}`);
+    }
+  };
+  const removeScenario = async (name: string) => {
+    try {
+      await scenarioCommand((revision) => api.removeScenario(workspaceId, revision, name));
+      workspace.notify(`Removed the scenario ${name}.`);
+    } catch (error) {
+      workspace.notify(`${name} was not removed: ${describe(error)}`);
+    }
+  };
+  /** Duplicate: the dialog stays open with the server's reason when it is refused, so this throws. */
+  const duplicateScenario = async (name: string, copy: string) => {
+    let made: ScenariosMade | undefined;
+    await scenarioCommand(async (revision) => { made = await api.duplicateScenario(workspaceId, revision, name, copy); return made.workspace; });
+    workspace.notify(`Duplicated ${name} as ${made?.made.join(', ') ?? copy}.`);
+  };
+  const duplicate = async (name: string, copy: string) => {
+    try { await duplicateScenario(name, copy); } catch (error) { workspace.notify(`${name} was not duplicated: ${describe(error)}`); }
+  };
+  const clearScenarios = async () => {
+    try {
+      await scenarioCommand((revision) => api.clearScenarios(workspaceId, revision));
+      workspace.notify('Removed every scenario; Price prices the base market alone.');
+    } catch (error) {
+      workspace.notify(`No scenario was removed: ${describe(error)}`);
+    }
+  };
+  const scenarioActions: ScenarioActions = {
+    edit: editShifts,
+    include: (name, included) => void includeScenario(name, included),
+    duplicate: duplicateScenario,
+    remove: (name) => void removeScenario(name),
+    notify: (message) => workspace.notify(message),
+  };
   // *Vary values…* (ADR-0010 §3): the cell whose Context Menu opened the dialog, while it is open.
   const [varying, setVarying] = useState<VaryTarget | undefined>(undefined);
   const setCurrency = (currency: string) => void queue.push({ entity: SETTINGS_ENTITY, field: 'displayCurrency', value: currency });
 
   // The commands run what the page's own controls run, as the page stands when they run (ADR-0010 §9).
-  const pageRef = useRef({ price, setMeasures, setSide, retry, copyQuote, download, refresh, setCurrency, openTab, explain, openResult, setDockFull, resultTabs, traceInView, vary, set, addTrades, removeCase, clearCases, defineScenario, measures: () => view.data?.measures ?? [], currencies: () => view.data?.currencies ?? [] });
-  pageRef.current = { price, setMeasures, setSide, retry, copyQuote, download, refresh, setCurrency, openTab, explain, openResult, setDockFull, resultTabs, traceInView, vary, set, addTrades, removeCase, clearCases, defineScenario, measures: () => view.data?.measures ?? [], currencies: () => view.data?.currencies ?? [] };
+  const pageRef = useRef({ price, setMeasures, setSide, retry, copyQuote, download, refresh, setCurrency, openTab, explain, openResult, setDockFull, resultTabs, traceInView, vary, set, addTrades, removeCase, clearCases, defineScenario, includeScenario, removeScenario, duplicate, clearScenarios, scenarios: () => view.data?.scenarios ?? [], measures: () => view.data?.measures ?? [], currencies: () => view.data?.currencies ?? [] });
+  pageRef.current = { price, setMeasures, setSide, retry, copyQuote, download, refresh, setCurrency, openTab, explain, openResult, setDockFull, resultTabs, traceInView, vary, set, addTrades, removeCase, clearCases, defineScenario, includeScenario, removeScenario, duplicate, clearScenarios, scenarios: () => view.data?.scenarios ?? [], measures: () => view.data?.measures ?? [], currencies: () => view.data?.currencies ?? [] };
   useEffect(() => {
     registerXvaPage(panelId, {
       price: () => void pageRef.current.price(),
@@ -577,6 +636,11 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
       removeCase: (name) => void pageRef.current.removeCase(name),
       clearCases: () => void pageRef.current.clearCases(),
       defineScenario: (name, shifts) => void pageRef.current.defineScenario(name, shifts),
+      includeScenario: (name, included) => void pageRef.current.includeScenario(name, included),
+      removeScenario: (name) => void pageRef.current.removeScenario(name),
+      duplicateScenario: (name, copy) => void pageRef.current.duplicate(name, copy),
+      clearScenarios: () => void pageRef.current.clearScenarios(),
+      scenarios: () => pageRef.current.scenarios(),
       retry: () => void pageRef.current.retry(),
       downloadRun: () => pageRef.current.download(),
       copyQuote: () => void pageRef.current.copyQuote(),
@@ -608,7 +672,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
 
   const enforceable = ws.agreement.enforceable ? 'enforceable' : 'not enforceable';
   const inputsHeight = inputsDragged ?? inputsFit(shownTab(ws, inputTab), ws.csas.length, ws.agreement.imCsas.length, pixels(theme.spacing.xs),
-    ws.changes + ws.cases.length);
+    ws.changes + ws.cases.length, ws.shifts.length);
   const newHeight = compactGridHeight(Math.max(1, Math.min(ws.newTrades, 8)));
   // What the parts other than Existing take, from the heights the page set (never measured): Existing has the rest.
   const taken = TAKEN + (inputsOpen ? inputsHeight + RESIZER : 0) + newHeight
@@ -667,7 +731,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
       <div data-part="inputs" className="qwb-xva-part">
         <XvaInputs ws={ws} onIssue={setIssue} push={(entity, field, value) => void queue.push({ entity, field, value })}
           tab={inputTab} onTab={(tab) => { setInputTab(tab); setInputsOpen(true); }} open={inputsOpen} onOpen={setInputsOpen} height={inputsHeight} focusRequest={focusRequest}
-          changeList={changeList.data} changeActions={changeActions} onVary={setVarying} commandLabel={commandLabel} />
+          changeList={changeList.data} changeActions={changeActions} scenarioActions={scenarioActions} onVary={setVarying} commandLabel={commandLabel} />
         <VaryDialog target={varying} vary={(target, values) => varyCell({ entity: target.entity, field: target.field }, values)} onClose={() => setVarying(undefined)} />
         {inputsOpen && <Resizer label="Height of the input tabs" value={inputsHeight} min={48} max={640} grows="down" onChange={setInputsDragged} />}
       </div>

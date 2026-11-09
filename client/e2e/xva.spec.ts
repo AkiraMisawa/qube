@@ -591,3 +591,65 @@ test('ADR-0010 §4: `scenario` defines a scenario whole, Price prices it beside 
   await expect(page.getByTestId('notice')).toContainText('under scenario up is on the clipboard');
   expect(await page.evaluate(() => navigator.clipboard.readText())).toMatch(/ · Revision \d+ · Scenario up · JPY\n/);
 });
+
+test('ADR-0010 §4: a block pasted onto the Scenarios grid makes its shifts, and the include box and Duplicate act on a scenario, by keyboard', async ({ page }) => {
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  await open(page);
+  await newWorkspace(page, 'ABC/LE-01', 3);
+  await command(page, 'measures', 'cva');
+  await command(page, 'open scenarios');
+  await expect(page.getByRole('tab', { name: 'Scenarios' })).toHaveAttribute('aria-selected', 'true');
+  await settled(page, 'Shifts');
+  await expect(page.getByTestId('scenarios-summary')).toHaveText(/^No scenario: Price prices the base market alone/);
+
+  // Copied from a spreadsheet: Scenario, Category, Index, Risk factor, Shift type and Size, the derived two left blank.
+  await page.evaluate(() => navigator.clipboard.writeText('up\t\tjpy_ois\tall\t\t+10bp\nup\t\tusdjpy\tspot\t\t-5%\ndown\t\tjpy_ois\t5y\t\t-3bp\n'));
+  // `open scenarios` put the keyboard in the grid; its first key only places the Focus (ex-grid ADR-0037).
+  await page.keyboard.press('ControlOrMeta+Home');
+  await page.keyboard.press('ControlOrMeta+Home');
+  await page.keyboard.press('ControlOrMeta+V');
+  const shifts = page.getByLabel('Shifts', { exact: true });
+  await expect(shifts.getByRole('row', { name: /^up IR jpy_ois all abs \+10bp/ })).toHaveCount(1);
+  await expect(shifts.getByRole('row', { name: /^up FX usdjpy spot rel -5%/ })).toHaveCount(1);
+  await expect(shifts.getByRole('row', { name: /^down IR jpy_ois 5y abs -3bp/ })).toHaveCount(1);
+  await expect(page.getByRole('tab', { name: 'Scenarios (2)' })).toBeVisible();
+  await expect(page.getByTestId('price')).toHaveText('Price CVA · 1 case × 3 markets');
+
+  // The include box leaves a scenario out of Price, and keeps its shifts.
+  const list = page.getByRole('table', { name: 'Scenarios' });
+  await list.getByRole('checkbox', { name: 'Include down' }).focus();
+  await page.keyboard.press('Space');
+  await expect(page.getByTestId('notice')).toHaveText('Price leaves the scenario down out; its shifts stay.');
+  await expect(page.getByTestId('price')).toHaveText('Price CVA · 1 case × 2 markets');
+  await expect(shifts.getByRole('row', { name: /^down IR jpy_ois 5y abs -3bp/ })).toHaveCount(1);
+
+  // Duplicate copies a scenario's shifts under the name typed.
+  await list.getByRole('button', { name: 'Duplicate up' }).focus();
+  await page.keyboard.press('Enter');
+  const dialog = page.getByRole('dialog', { name: 'Duplicate up' });
+  await expect(dialog.getByLabel('New name')).toBeFocused();
+  await expect(dialog.getByLabel('New name')).toHaveValue('up2');
+  await page.keyboard.press('ControlOrMeta+A');
+  await page.keyboard.type('up-big');
+  await page.keyboard.press('Enter');
+  await expect(dialog).toBeHidden();
+  await expect(page.getByTestId('notice')).toHaveText('Duplicated up as up-big.');
+  await expect(list.getByRole('row').filter({ has: page.getByRole('checkbox', { name: 'Include up-big' }) }).getByRole('cell').nth(2)).toHaveText('2');
+  await expect(page.getByTestId('price')).toHaveText('Price CVA · 1 case × 3 markets');
+});
+
+test('ADR-0010 §4, UX03: at 390px the Scenarios tab is among the Inputs, and the page never scrolls sideways', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await open(page);
+  await newWorkspace(page, 'ABC/LE-01', 3);
+  await command(page, 'scenario', 'up jpy_ois +10bp; usdjpy -5%');
+  await expect(page.getByTestId('notice')).toHaveText('Made the scenario up.');
+  const sideways = () => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+
+  await page.getByText('Inputs', { exact: true }).click();
+  await page.getByRole('tab', { name: 'Scenarios (1)' }).click();
+  await settled(page, 'Shifts');
+  await expect(page.getByRole('table', { name: 'Scenarios' }).getByRole('checkbox', { name: 'Include up' })).toBeVisible();
+  // The grid is wider than a phone: it scrolls inside its frame, never the page.
+  expect(await sideways()).toBe(0);
+});

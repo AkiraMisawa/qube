@@ -107,7 +107,7 @@ name for the user, their desk or everyone, and loaded again. The AI reaches ever
 - **A shift is a created entity of the workspace** (ADR-0004), `shift:<id>`, in a scope of its own that no
   counterparty change drops, with the fields `scenario, index, tenor, size, unit, description`; its edits are ordinary
   edits, carried and logged like any other. The inclusion of scenarios is one created entity holding the names left
-  out. Defining, duplicating, removing and generating are one batch each, so the log has one entry per gesture.
+  out. Defining, duplicating, removing and generating are one batch each, applied whole or refused whole.
 - **The scenarios' reading** gives the rows in creation order with their derived Category and Shift type and each row's
   issue; the scenarios in order of their first row, with their shift counts and whether each is included. The
   workspace view carries both, and the tab says how many scenarios it holds.

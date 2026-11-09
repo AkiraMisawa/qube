@@ -9,13 +9,13 @@ cleared removed; beside it the scenarios with their shift counts and include box
 
 **Blocked by:** 01.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] A block pasted onto the blank rows makes a shift per row in one log entry; a cell that does not resolve refuses
+- [x] A block pasted onto the blank rows makes a shift per row in one batch; a cell that does not resolve refuses
       the paste whole, naming its row and column.
-- [ ] An incomplete row says what it lacks, and Price refuses its scenario by name while it is included.
-- [ ] Excluding a scenario leaves it out of Price and keeps its rows; duplicating copies its rows under the new name;
-      removing takes its rows away in one entry.
-- [ ] The tab says how many scenarios it holds.
-- [ ] In a browser, a block pasted onto the grid, the include box and Duplicate, by keyboard; at 390px the tab is among
+- [x] An incomplete row says what it lacks, and Price refuses its scenario by name while it is included.
+- [x] Excluding a scenario leaves it out of Price and keeps its rows; duplicating copies its rows under the new name;
+      removing takes its rows away in one batch.
+- [x] The tab says how many scenarios it holds.
+- [x] In a browser, a block pasted onto the grid, the include box and Duplicate, by keyboard; at 390px the tab is among
       the Inputs and never scrolls sideways.

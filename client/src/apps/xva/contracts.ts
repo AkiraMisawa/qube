@@ -198,17 +198,30 @@ export interface TradesAdded {
  * the row. The Category and the Shift type are derived from the index and the size; none is a guess.
  */
 export interface ShiftRow {
+  // A field the server has no value for is left out of its answer, as every empty field of the wire is.
   readonly id: string;
   readonly row: number;
-  readonly scenario: string | null;
-  readonly category: string | null;
-  readonly index: string | null;
-  readonly tenor: string | null;
-  readonly type: string | null;
-  readonly size: number | null;
-  readonly sizeText: string | null;
-  readonly description: string | null;
-  readonly issue: string | null;
+  readonly scenario?: string | null;
+  readonly category?: string | null;
+  readonly index?: string | null;
+  readonly tenor?: string | null;
+  /** The risk factor as the grid shows it: the tenor, `all` for a whole curve, `spot` for an FX rate. */
+  readonly factor?: string | null;
+  readonly type?: string | null;
+  readonly size?: number | null;
+  readonly sizeText?: string | null;
+  readonly description?: string | null;
+  readonly issue?: string | null;
+  /** The column the issue is of, which the grid marks. */
+  readonly issueColumn?: string | null;
+}
+
+/** An edit of a row of the Scenarios grid: an existing shift by its id, or a blank row by none, where the grid shows it,
+ * and its cells as typed, by column; an empty text clears a cell. */
+export interface ShiftEdit {
+  readonly id: string | null;
+  readonly row: number;
+  readonly cells: Readonly<Record<string, string | null>>;
 }
 
 /** A scenario as the list beside the grid shows it: its shift count, whether Price prices it, and what blocks it. */
@@ -216,7 +229,7 @@ export interface ScenarioView {
   readonly name: string;
   readonly shifts: number;
   readonly included: boolean;
-  readonly issue: string | null;
+  readonly issue?: string | null;
 }
 
 /** What a scenario command made, by name, and the scenarios of the same name it replaced (ADR-0010 §4). */

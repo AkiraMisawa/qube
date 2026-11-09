@@ -23,6 +23,16 @@ export interface XvaPage {
   clearCases(): void;
   /** The scenario of that name with every shift written (`scenario s1 jpy_ois +10bp; usdjpy -5%`, ADR-0010 §4). */
   defineScenario(name: string, shifts: string): void;
+  /** Whether Price prices a scenario, as its box says (`scenario include s1`, `scenario exclude s1`). */
+  includeScenario(name: string, included: boolean): void;
+  /** Removes a scenario's rows (`scenario remove s1`). */
+  removeScenario(name: string): void;
+  /** Copies a scenario's rows under a new name, to be edited (`scenario duplicate s1 s2`). */
+  duplicateScenario(name: string, copy: string): void;
+  /** Removes every scenario (`scenarios clear`). */
+  clearScenarios(): void;
+  /** The workspace's scenarios, for the command line to offer. */
+  scenarios(): readonly { readonly name: string; readonly shifts: number; readonly included: boolean }[];
   /** Saves the Run the dock shows as a zip (`download run`, ADR-0010 §7). */
   downloadRun(): void;
   /** Puts the dock's Run's quote on the clipboard as HTML and text (`copy quote`, ADR-0010 §7). */

@@ -153,6 +153,14 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
     if (registered === undefined) throw new Error(`The XVA workspace in panel ${xva ?? '(none)'} registered no commands.`);
     return registered;
   };
+  /** The workspace's scenarios the command line offers, read when the line asks, with their shift counts. */
+  const scenarioNames = (keep: (s: { readonly included: boolean }) => boolean = () => true) =>
+    (xvaPageOf(xva)?.scenarios() ?? []).filter(keep).map((s) => ({ value: s.name, detail: `${s.shifts} shift(s)${s.included ? '' : ', excluded'}` }));
+  /** A scenario's name as typed; none is refused here by name, the server refuses one it does not hold. */
+  const scenarioNamed = (name: string | undefined, words: string): string => {
+    if (name === undefined || name.trim() === '') throw new Error(`${words} needs the scenario's name.`);
+    return name.trim();
+  };
   const onTraceView = trace !== undefined ? { target: trace.title } : xvaPanel !== undefined ? { target: xvaPanel.title }
     : { unavailable: 'Open a trace, or an XVA workspace whose result dock shows one, first.' };
   /** The trace view a command acts on, when it runs: the trace panel in view, or the XVA dock's trace tab. */
@@ -303,6 +311,46 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
         xvaPage().defineScenario(typed.name, typed.shifts);
       },
     },
+    // A scenario by name (ADR-0010 §4): what its include box, Duplicate and Remove do on the Scenarios tab.
+    ...([['include', 'Price the scenario named beside the base market', true], ['exclude', 'Leave the scenario named out of Price; its shifts stay', false]] as const)
+      .map(([verb, title, included]): Command => ({
+        id: `xva.scenario.${verb}`,
+        words: `scenario ${verb}`,
+        title,
+        group: 'XVA',
+        ...onXva,
+        args: [{ name: 'scenario', required: true, hint: 'the scenario\'s name', complete: () => scenarioNames((s) => s.included !== included) }],
+        run: (a) => xvaPage().includeScenario(scenarioNamed(a.scenario, `scenario ${verb}`), included),
+      })),
+    {
+      id: 'xva.scenario.remove',
+      words: 'scenario remove',
+      title: 'Remove a scenario with all its shifts',
+      group: 'XVA',
+      ...onXva,
+      args: [{ name: 'scenario', required: true, hint: 'the scenario\'s name', complete: () => scenarioNames() }],
+      run: (a) => xvaPage().removeScenario(scenarioNamed(a.scenario, 'scenario remove')),
+    },
+    {
+      id: 'xva.scenario.duplicate',
+      words: 'scenario duplicate',
+      title: 'Copy a scenario\'s shifts under a new name, to be edited',
+      group: 'XVA',
+      ...onXva,
+      args: [
+        { name: 'scenario', required: true, hint: 'the scenario to copy', complete: () => scenarioNames() },
+        { name: 'copy', required: true, hint: 'the new scenario\'s name' },
+      ],
+      run: (a) => xvaPage().duplicateScenario(scenarioNamed(a.scenario, 'scenario duplicate'), scenarioNamed(a.copy, 'scenario duplicate')),
+    },
+    {
+      id: 'xva.scenarios.clear',
+      words: 'scenarios clear',
+      title: 'Remove every scenario; Price prices the base market alone',
+      group: 'XVA',
+      ...onXva,
+      run: () => xvaPage().clearScenarios(),
+    },
     {
       id: 'xva.run.download',
       words: 'download run',
@@ -379,7 +427,7 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
     },
     // One command per input tab (ADR-0010 §9), which shows the inputs if they were collapsed. IM is spot IM's (ADR-0012 §3),
     // and the page says so when it is not selected.
-    ...([['netting', 'Netting'], ['csa', 'CSA'], ['im', 'IM'], ['changes', 'Changes']] as const).map(([tab, title]): Command => ({
+    ...([['netting', 'Netting'], ['csa', 'CSA'], ['im', 'IM'], ['scenarios', 'Scenarios'], ['changes', 'Changes']] as const).map(([tab, title]): Command => ({
       id: `xva.open.${tab}`,
       words: `open ${tab}`,
       title: `Open the ${title} input tab`,
