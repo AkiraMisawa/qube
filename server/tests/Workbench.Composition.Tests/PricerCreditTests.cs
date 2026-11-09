@@ -167,4 +167,62 @@ public class PricerCreditTests
         Assert.Equal("No CDS for ABC/LE-01: its proxy has no sector, region, rating. Choose them on the Credit tab, or with cds proxy.",
             service.View(ws.WorkspaceId, "akira").Credit.Missing);
     }
+
+    [Fact] // ADR-0010 §4, §8's note of 2026-11-09: a Credit shift widens the chosen curve in a scenario: CVA more negative, FVA as on the base market
+    public async Task A_credit_shift_widens_the_chosen_curve_in_a_scenario()
+    {
+        var (service, runs, store) = Priced();
+        var ws = service.Create("akira", "ABC/LE-01", Day1, 20);
+        ws = service.SetMeasures(ws.WorkspaceId, ws.Revision, "akira", ["cva", "fva"]);
+
+        ws = service.DefineScenario(ws.WorkspaceId, ws.Revision, "akira", "wide", "cds +50bp").State;
+        var (_, rows) = await Price(runs, store, service, ws);
+
+        decimal On(string scenario, string metric) => rows.Single(r => r["metric"]!.GetValue<string>() == metric && r["case"]!.GetValue<string>() == PortfolioCases.BaseId
+            && r["scenario"]!.GetValue<string>() == scenario)["after"]!.GetValue<decimal>();
+        // A scenario is priced as the market of its order, titled by its name.
+        Assert.Equal("wide", rows.First(r => r["scenario"]!.GetValue<string>() == "s1")["scenarioTitle"]!.GetValue<string>());
+        Assert.True(On("s1", "cva") < On(PortfolioScenarios.BaseId, "cva"));
+        Assert.Equal(On(PortfolioScenarios.BaseId, "fva"), On("s1", "fva"));
+        var row = Assert.Single(service.View(ws.WorkspaceId, "akira").Shifts);
+        Assert.Equal(("Credit", "cds", "all", "abs", "+50bp"), (row.Category, row.Index, row.Factor, row.Type, row.SizeText));
+    }
+
+    [Fact] // ADR-0010 §4's note of 2026-11-09: a key-rate Credit shift falls to nothing at the CDS tenors either side of its own
+    public void A_key_rate_credit_shift_moves_only_the_points_around_its_tenor()
+    {
+        var market = new ScenarioMarket([ShiftReader.Read("cds 5y +20bp")], Day1);
+
+        Assert.Equal([0m, 10m, 20m, 10m, 0m], new[] { 3.0, 4.0, 5.0, 6.0, 7.0 }.Select(market.CreditShiftBp));
+        // A Credit shift moves no curve, and an IR shift no CDS.
+        Assert.Equal(0m, market.RateShiftBp("jpy_ois", 5));
+        Assert.Equal(0m, new ScenarioMarket([ShiftReader.Read("jpy_ois +20bp")], Day1).CreditShiftBp(5));
+    }
+
+    [Theory] // ADR-0010 §4's note of 2026-11-09: tenors are each category's, and a Credit shift is absolute, each refused naming what it takes
+    [InlineData("cds 30y +10bp", "The shift cds 30y +10bp cds has no tenor 30y: a Credit tenor is 6m, 1y, 2y, 3y, 5y, 7y, 10y.")]
+    [InlineData("jpy_ois 7y +10bp", "The shift jpy_ois 7y +10bp jpy_ois has no tenor 7y: an IR tenor is 1m, 3m, 6m, 1y, 2y, 5y, 10y, 30y.")]
+    [InlineData("cds -5%", "The shift cds -5% shifts cds relatively, and a Credit shift is absolute, in bp: write cds +10bp.")]
+    public void A_credit_shift_is_refused_off_its_tenors_or_relative(string written, string said)
+    {
+        Assert.Equal(said, Assert.Throws<WorkspaceRefused>(() => ShiftReader.Read(written)).Message);
+    }
+
+    [Fact] // ADR-0010 §4: the Scenarios grid and the generators take a Credit shift, the grid refusing an IR tenor on the CDS
+    public void The_grid_and_the_ladder_take_a_credit_shift()
+    {
+        var (service, _, _) = Priced();
+        var ws = service.Create("akira", "ABC/LE-01", Day1, 20);
+
+        var made = service.GenerateScenarios(ws.WorkspaceId, ws.Revision, "akira", "ladder", "cds 5y -20bp..+20bp step 20bp");
+        Assert.Equal(["cds 5y -20bp", "cds 5y +20bp"], made.Made);
+        ws = service.EditShifts(made.State.WorkspaceId, made.State.Revision, "akira",
+            [new(null, 3, new Dictionary<string, string?> { ["scenario"] = "kr", ["index"] = "cds", ["factor"] = "7y", ["size"] = "15" })]);
+        var row = service.View(ws.WorkspaceId, "akira").Shifts.Single(r => r.Scenario == "kr");
+        Assert.Equal(("Credit", "7y", "abs", "+15bp", null), (row.Category, row.Factor, row.Type, row.SizeText, row.Issue));
+
+        var refused = Assert.Throws<WorkspaceRefused>(() => service.EditShifts(ws.WorkspaceId, ws.Revision, "akira",
+            [new(row.Id, row.Row, new Dictionary<string, string?> { ["factor"] = "30y" })]));
+        Assert.Equal("Row 3, Risk factor: 30y is no tenor of cds: a Credit tenor is 6m, 1y, 2y, 3y, 5y, 7y, 10y, or all for the whole curve.", refused.Message);
+    }
 }
