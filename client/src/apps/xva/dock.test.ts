@@ -21,14 +21,26 @@ describe('dockTabs', () => {
   it('ADR-0010 §7, ADR-0012 §7: Metrics, then each priced measure\'s own tabs in the register\'s order', () => {
     expect(dockTabs(register, ['simm.spotIm', 'cva', 'ccr.spotCapital'], all)).toEqual([
       METRICS_TAB,
-      { id: 'ccr', title: 'CCR', view: 'trace', measure: 'ccr.spotCapital' },
-      { id: 'simm', title: 'SIMM', view: 'trace', measure: 'simm.spotIm' },
+      { id: 'ccr', title: 'CCR', view: 'trace', measure: 'ccr.spotCapital', measures: ['ccr.spotCapital'] },
+      { id: 'simm', title: 'SIMM', view: 'trace', measure: 'simm.spotIm', measures: ['simm.spotIm'] },
     ]);
   });
 
   it('ADR-0010 §10: a measure the Run did not price has no tab, and a Run priced before the register has Metrics alone', () => {
     expect(dockTabs(register, ['cva'], all).map((t) => t.id)).toEqual(['metrics']);
     expect(dockTabs(register, undefined, all).map((t) => t.id)).toEqual(['metrics']);
+  });
+
+  it('ADR-0010 §8\'s note of 2026-11-09: a tab several measures register is one tab, listing those priced and selected', () => {
+    const risks = { id: 'risks', title: 'Risks', view: 'risks' } as const;
+    const profile = { id: 'profile', title: 'Profile', view: 'profile' } as const;
+    const xva = [measure('cva', 'CVA', [risks, profile]), measure('fva', 'FVA', [risks, profile]), measure('kva', 'KVA', [profile])];
+    expect(dockTabs(xva, ['cva', 'fva', 'kva'], ['cva', 'fva', 'kva'])).toEqual([
+      METRICS_TAB,
+      { ...risks, measure: 'cva', measures: ['cva', 'fva'] },
+      { ...profile, measure: 'cva', measures: ['cva', 'fva', 'kva'] },
+    ]);
+    expect(dockTabs(xva, ['cva', 'fva', 'kva'], ['kva']).map((t) => (t.view === 'metrics' ? t.id : `${t.id}:${t.measures.join('+')}`))).toEqual(['metrics', 'profile:kva']);
   });
 
   it('ADR-0010 §7 (CONFIRMED: the selected measures\' tabs): a measure left out after the Price loses its tab', () => {

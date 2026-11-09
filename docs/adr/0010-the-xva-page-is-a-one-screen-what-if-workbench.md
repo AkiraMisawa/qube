@@ -340,6 +340,41 @@ is marked with the measure.
   risks included, advanced configuration (§11). Typed and validated on the server like any other input. The MPOR here
   is XVA's model override; SA-CCR's MPOR is regulatory and its own (ADR-0013).
 
+*Note of 2026-11-09 (DEFAULT, writing Delivery step 5's spec; told to the owner afterwards, as the owner asked on
+2026-11-08):*
+
+- **The CDS catalogue is the portfolio's, and synthetic**, as the market data of §4 is: single names keyed by ticker,
+  currency, seniority and doc clause, each with a name, a recovery and a spread at each CDS tenor `6m 1y 2y 3y 5y 7y
+  10y`; proxies, one curve for each sector, region and rating. The source names each counterparty's CDS: a single name
+  for each ABC entity, a proxy for XYZ Industries, an unrated corporate.
+- **The counterparty's CDS is a choice the workspace holds**, the counterparty's as its recovery is: single name (by its
+  reference), proxy (by its sector, region and rating) or none. A curve's spreads are edits of that curve, one per tenor,
+  so an edit stays with its curve: choosing another CDS leaves it unpriced, and choosing the curve again prices it.
+  Spreads are typed in bp and are above 0. The CDS recovery is the curve's, read-only; an empty CVA recovery takes it
+  (XV15).
+- **A missing CDS refuses CVA**, and CVA Charge with it (§11): none chosen, or a proxy missing one of its keys, says
+  so by name, and every other measure is priced (§10).
+- **Commands**: `cds <words>` chooses a single name by its words in any order, as ADR-0008 reads a trade's, refusing
+  words that name none or several with what they could be; `cds proxy <sector> <region> <rating>`; `cds none`. The cell
+  `cds <tenor>` is the chosen curve's spread (`set cds 5y 120bp`, `vary cds 5y 100bp, 140bp`), and `credit <field>`
+  the choice itself. `open credit` and `open settings` open the tabs. `cds` is a command capability.
+- **Credit joins the scenario catalogue**: the index `cds`, the counterparty's chosen curve, whole or at a CDS tenor,
+  shifted absolutely in bp, key-rate on the CDS tenors. Each category reads its own tenors, so a tenor of the other is
+  refused naming the category's.
+- **Settings are registered by a module** with each setting's form, default and the measures it serves; the tab has
+  one section per module with a selected measure, and a setting shows while a measure it serves is selected, marked with
+  them, as a field of a shared tab is (§10). A setting is the workspace's, as the display currency is (§1), so a
+  counterparty change keeps it; a case may vary it (`vary xva charge ratio 1, 1.5`). XVA's: MPOR override (days; empty is
+  the model's own), cost of capital (10%, KVA's), charge ratio (1.25, CVA Charge's), PV adjustment (on; off prices new
+  trades without their PV Adj) and risks included (off: risks cost a production engine a run per factor, so they are
+  asked for when wanted). Advanced configuration waits for the owner: what it holds is the engine's (OPEN).
+- **Risks and Profile are each one tab**, drawn for every selected measure that registers it: Risks for CVA and FVA,
+  Profile for CVA, FVA and KVA. A request writes them as two shapes every measure shares: deltas per case, scenario,
+  measure, risk class and factor, each Before, After and Diff; profiles per case, scenario, side, profile, series and
+  date. The simulated provider bumps and reprices on the scenario's market: credit per CDS tenor (+1bp), IR per curve
+  (+1bp parallel), FX per currency against JPY (+1%). A measure with no deltas says why, never a row of zeros. Profile
+  shows one profile at a time, as a table and as ExChart's line chart (ADR-0001). The SIMM profile comes with MVA.
+
 ### 9. Every action is a command (ADR-0006)
 
 `price`, `measures <list>` (§10), `refresh`, `vary`, `add trades`, `pv01 retry`, `advanced on`/`off`, `scenario …`
@@ -414,7 +449,9 @@ What was XVA's in this ADR, gathered:
   SIMM's and SA-CCR's registrations (ADR-0012, ADR-0013), whichever request computes them.
 - **Membership**: FVA's (§5).
 - **Inputs**: the Credit tab, CVA recovery on Netting, the *Imperfect* column on CSA (§8), and the Settings section:
-  MPOR override, cost of capital (for CVA Charge and KVA), charge ratio, PV adjustment, risks included, advanced
+  MPOR override, cost of capital (KVA's, as §8's note of 2026-11-09 settles it; this line said "for CVA Charge and
+  KVA" until then, and whether the engine's CVA Charge reads it too is OPEN below), charge ratio, PV adjustment, risks
+  included, advanced
   configuration.
 - **Trade columns**: PV01, Margin and PV Adj (§6).
 - **Results**: CVA Charge in Metrics, the Risks and Profile tabs (the SIMM and capital profiles MVA and KVA return
@@ -456,6 +493,8 @@ change applies to both of its sides (§3), and the Settings tab of §8 joins ste
   Risks shows, per selected measure, its credit, interest-rate and FX deltas,
   each Before, After and Diff; Profile shows the exposure profiles EE and ENE with the capital and SIMM profiles, as a
   table and as a chart. They are built in Delivery step 5.
+- XVA's advanced configuration (§8's note of 2026-11-09): what it holds is the engine's, as CVA Charge's basis is.
+- The SIMM profile on the Profile tab: it comes with MVA, whose request returns it (§11).
 - The case cap (DEFAULT 50).
 - Whether a coarse pointer gets larger controls (ADR-0009's OPEN) applies here too.
 - §2's diagonal split: ex-grid ADR-0490 (accepted 2026-11-07, AkiraMisawa/ex-grid#545) adds a Split Fill to

@@ -11,7 +11,7 @@ import { httpRatesApi, type RatesApi } from './rates/api';
 import { ratesCommandsOf } from './rates/commands';
 import { RatesWorkspacePanel } from './rates/RatesWorkspacePanel';
 import { httpXvaApi, type XvaApi } from './xva/api';
-import { measureNamed, measuresTyped, setTyped, varyTyped, xvaPageOf } from './xva/commands';
+import { cdsCompletions, measureNamed, measuresTyped, setTyped, varyTyped, xvaPageOf } from './xva/commands';
 import { generatorParts, scenarioParts, scenarioTyped } from './xva/scenarios';
 import { XvaWorkspacePanel } from './xva/XvaWorkspacePanel';
 import { registerAiContext, registerAiEffect } from '../ai/effects';
@@ -468,6 +468,23 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
       ...onXva,
       run: () => xvaPage().retry(),
     },
+    // The counterparty's CDS (ADR-0010 §8's note of 2026-11-09): a single name by its words, a proxy by its keys, or none.
+    {
+      id: 'xva.cds',
+      words: 'cds',
+      title: 'Choose the counterparty\'s CDS: a single name, such as cds ABCH USD SNRFOR, a proxy, or none',
+      group: 'XVA',
+      ...onXva,
+      args: [{
+        name: 'cds', required: true, rest: true, words: true,
+        hint: 'a single name\'s ticker, currency, seniority or doc clause; proxy with a sector, a region and a rating; or none',
+        complete: (given) => cdsCompletions(given.cds ?? '', xvaPageOf(xva)?.cdsCatalogue()),
+      }],
+      run: (a) => {
+        if (a.cds === undefined || a.cds.trim() === '') throw new Error('cds needs a single name\'s words, proxy with a sector, a region and a rating, or none.');
+        xvaPage().chooseCds(a.cds.trim());
+      },
+    },
     {
       id: 'xva.refresh',
       words: 'refresh',
@@ -492,9 +509,10 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
         xvaPage().setCurrency(a.currency.toUpperCase());
       },
     },
-    // One command per input tab (ADR-0010 §9), which shows the inputs if they were collapsed. IM is spot IM's (ADR-0012 §3),
-    // and the page says so when it is not selected.
-    ...([['netting', 'Netting'], ['csa', 'CSA'], ['im', 'IM'], ['scenarios', 'Scenarios'], ['changes', 'Changes']] as const).map(([tab, title]): Command => ({
+    // One command per input tab (ADR-0010 §9), which shows the inputs if they were collapsed. Credit is CVA's (§8's note of
+    // 2026-11-09), IM spot IM's (ADR-0012 §3) and Settings the selected measures' (§8), and the page says so when no
+    // selected measure needs one.
+    ...([['netting', 'Netting'], ['csa', 'CSA'], ['credit', 'Credit'], ['im', 'IM'], ['scenarios', 'Scenarios'], ['settings', 'Settings'], ['changes', 'Changes']] as const).map(([tab, title]): Command => ({
       id: `xva.open.${tab}`,
       words: `open ${tab}`,
       title: `Open the ${title} input tab`,

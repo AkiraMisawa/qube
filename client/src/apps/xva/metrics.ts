@@ -66,7 +66,7 @@ const NO_DIFF: MetricCell = { text: '', status: 'notPriced' };
  * A side as the row holds it. A side that says priced and carries no figure is unavailable, never 0 (EX06). Its note is
  * said beside its figure alone: a side with no figure has nothing for it to qualify.
  */
-function side(status: unknown, value: unknown, note?: unknown): MetricCell {
+export function side(status: unknown, value: unknown, note?: unknown): MetricCell {
   switch (status) {
     case 'priced': return typeof value === 'number' && Number.isFinite(value)
       ? { text: money.format(value), status: 'priced', ...(text(note) === undefined ? {} : { note: text(note) }) }
@@ -78,7 +78,7 @@ function side(status: unknown, value: unknown, note?: unknown): MetricCell {
 }
 
 /** The Diff exists only where both sides were priced; a one-sided or refused line has none, a failed one says so. */
-function diffOf(before: MetricCell, after: MetricCell, value: unknown): MetricCell {
+export function diffOf(before: MetricCell, after: MetricCell, value: unknown): MetricCell {
   if (before.status === 'priced' && after.status === 'priced')
     return typeof value === 'number' && Number.isFinite(value) ? { text: money.format(value), status: 'priced' } : UNAVAILABLE;
   if (before.status === 'pending' || after.status === 'pending') return PENDING;

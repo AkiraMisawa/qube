@@ -17,9 +17,10 @@ import { BASE_CASE, BASE_SCENARIO, openTrace, requestTerm } from '../../platform
 import type { TraceApi } from '../../platform/traces/api';
 import type { RunRecord } from '../../platform/contracts';
 import { dockTabs, METRICS_TAB, type DockTab, type MeasureTab } from './dock';
-import { EditQueue, MEASURES_ENTITY, SETTINGS_ENTITY, tradeFields, type PendingEdit } from './editing';
+import { EditQueue, MEASURES_ENTITY, SETTINGS_ENTITY, tradeFields, type PendingEdit, type SetText } from './editing';
 import { ToolbarField } from './fields';
-import { CHANGES_TAB, SCENARIOS_TAB, shownTab, TAB_TITLES, tabShown, XvaInputs, type InputTab } from './XvaInputs';
+import { CHANGES_TAB, CREDIT_TAB, SCENARIOS_TAB, SETTINGS_TAB, shownTab, TAB_TITLES, tabShown, XvaInputs, type InputTab } from './XvaInputs';
+import { XvaRisks } from './XvaRisks';
 import type { ScenarioActions } from './XvaScenarios';
 import type { ChangeActions } from './XvaChanges';
 import { VARY_COMMAND, VaryDialog, addedText, variedText, type VaryTarget } from './VaryDialog';
@@ -33,6 +34,8 @@ import { cellMessage as moduleCellMessage, cellRefusal, cellState as moduleCellS
 
 // The trace tab draws with the trace view and KaTeX, read once a tab is opened (as the trace panel is).
 const TraceTab = lazy(() => import('../../platform/traces/TraceTab').then((m) => ({ default: m.TraceTab })));
+// The Profile tab draws with ExChart, read once the tab is opened.
+const XvaProfile = lazy(() => import('./XvaProfile').then((m) => ({ default: m.XvaProfile })));
 
 // The fixed XVA workspace (docs/03, ADR-0003): the server holds the trades and every rule; this page shows
 // the effective rows a page at a time and sends what the user changed. ExGrid draws; it decides nothing.
@@ -114,15 +117,28 @@ const SHIFT_ROWS = 10;
 /** The open tab's height as its content: Netting's row, the sentence that says there is no CSA or no IM CSA, the CSA grid
  * in its frame under the panel's top gap (`gap`, the theme's `xs`), or the IM CSAs' table a row each. The table's numbers
  * are geometry the theme has no name for: its header row with the panel's top gap and border (40px), and a row of `sm`
- * text at `xs` vertical spacing (28px), as drawn at 1440px (2026-11-08). */
-const inputsFit = (tab: InputTab, csas: number, imCsas: number, gap: number, changeRows: number, shiftRows: number) =>
-  (tab === 'netting' ? 84
-    : tab === 'im' ? (imCsas === 0 ? 40 : 40 + 28 * imCsas)
-      // The Scenarios tab: its shifts and a few blank rows to type or paste onto, up to SHIFT_ROWS, beside its list.
-      : tab === SCENARIOS_TAB ? gap + GRID_FRAME + compactGridHeight(Math.min(shiftRows + 4, SHIFT_ROWS))
-      // The Changes tab: its header, a row per section and change, and the line under it, up to CHANGE_ROWS.
-      : tab === CHANGES_TAB ? (changeRows === 0 ? 40 : 72 + 32 * Math.min(changeRows, CHANGE_ROWS))
-        : csas === 0 ? 40 : gap + GRID_FRAME + compactGridHeight(Math.min(csas, CSA_ROWS)));
+ * text at `xs` vertical spacing (28px), as drawn at 1440px (2026-11-08). The Credit tab is its row of controls (one
+ * Control Height, 30px), the sentences that say the catalogue could not be read and why CVA is refused (20px each) and
+ * the curve's one row; the Settings tab a
+ * table a module, its header (32px) and a row a setting: a text input's 39px (the Control Height in 4px spacing and a
+ * border), a switch's 30px. */
+const inputsFit = (tab: InputTab, ws: XvaWorkspaceView, gap: number, catalogueRefused: boolean) => {
+  switch (tab) {
+    case 'netting': return 84;
+    case 'im': return ws.agreement.imCsas.length === 0 ? 40 : 40 + 28 * ws.agreement.imCsas.length;
+    // The Scenarios tab: its shifts and a few blank rows to type or paste onto, up to SHIFT_ROWS, beside its list.
+    case SCENARIOS_TAB: return gap + GRID_FRAME + compactGridHeight(Math.min(ws.shifts.length + 4, SHIFT_ROWS));
+    // The Changes tab: its header, a row per section and change, and the line under it, up to CHANGE_ROWS.
+    case CHANGES_TAB: {
+      const rows = ws.changes + ws.cases.length;
+      return rows === 0 ? 40 : 72 + 32 * Math.min(rows, CHANGE_ROWS);
+    }
+    case CREDIT_TAB:
+      return gap + 30 + (catalogueRefused ? gap + 20 : 0) + (ws.credit.missing == null ? 0 : gap + 20) + (ws.credit.cds == null ? 0 : gap + GRID_FRAME + compactGridHeight(1));
+    case SETTINGS_TAB: return ws.settings.reduce((h, m) => h + gap + 32 + m.settings.reduce((r, x) => r + (x.form === 'flag' ? 30 : 39), 0), 0);
+    case 'csa': return ws.csas.length === 0 ? 40 : gap + GRID_FRAME + compactGridHeight(Math.min(ws.csas.length, CSA_ROWS));
+  }
+};
 
 /** The page's parts, which below `sm` are three tabs (ADR-0010 §1). */
 type Section = 'inputs' | 'trades' | 'results';
@@ -169,6 +185,8 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
     refetchInterval: (query) => (query.state.data !== undefined && query.state.data.pendingCells > 0 ? 500 : false),
   });
   const registrations = useQuery({ queryKey: ['xva', 'registrations'], queryFn: () => api.registrations(), staleTime: Infinity });
+  // The synthetic CDS catalogue the Credit tab searches and `cds` completes from (ADR-0010 §8's note of 2026-11-09).
+  const catalogue = useQuery({ queryKey: ['xva', 'cds'], queryFn: () => api.cdsCatalogue(), staleTime: Infinity });
   const newGrid = useRef<ExGridApi<Row>>(null);
   // The grid the keyboard was last in: `before all` and `after all` act on it, Existing until one was.
   const lastGrid = useRef<TradeGrid>('existing');
@@ -261,14 +279,16 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   const [scenarioPick, setScenarioPick] = useState<{ readonly runId: string | undefined; readonly scenario: string }>({ runId: undefined, scenario: BASE_SCENARIO });
   const [dockFull, setDockFull] = useState(false);
   const [focusRequest, setFocusRequest] = useState(0);
-  /** `open netting`, `open csa`, `open im`: the tab open and in view, with the keyboard in it (ADR-0010 §9). A measure's
-   * own tab opens while the measure is selected, and says so otherwise. */
+  /** `open netting`, `open csa`, `open im`: the tab open and in view, with the keyboard in it (ADR-0010 §9), so a dock
+   * widened over the tabs is put back. A measure's own tab opens while the measure is selected, and says so otherwise. */
   const openTab = (tab: InputTab) => {
     if (view.data !== undefined && !tabShown(view.data, tab)) {
-      workspace.notify(`The ${TAB_TITLES[tab]} tab shows only while a selected measure needs it, and none does now.`);
+      workspace.notify(tab === SETTINGS_TAB
+        ? 'The Settings tab shows only while a selected measure has a setting, and none does now.'
+        : `The ${TAB_TITLES[tab]} tab shows only while a selected measure needs it, and none does now.`);
       return;
     }
-    setInputTab(tab); setInputsOpen(true); setSection('inputs'); setFocusRequest((n) => n + 1);
+    setInputTab(tab); setInputsOpen(true); setDockFull(false); setSection('inputs'); setFocusRequest((n) => n + 1);
   };
 
   // A result that arrives changes the New grid's rows with no edit: they are read again when the count waiting moves.
@@ -477,8 +497,9 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
     queryFn: () => api.changes(workspaceId),
     enabled: changesOpen,
   });
-  /** A command of the Changes tab, after the edits already sent (spine 6); a Common change moves the grids' rows. */
-  const apply = async (label: string, run: (revision: number) => Promise<XvaWorkspaceView>) => {
+  /** A command of the Changes tab, after the edits already sent (spine 6); a Common change moves the grids' rows.
+   * Refused, the page says why after `label`, and the answer is the server's reason; taken, it is `undefined`. */
+  const attempt = async (label: string, run: (revision: number) => Promise<XvaWorkspaceView>): Promise<string | undefined> => {
     try {
       const next = await queue.after(async (revision) => {
         const answer = await run(revision);
@@ -487,12 +508,14 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
       });
       show(next);
       sources.changed();
-      return true;
+      return undefined;
     } catch (error) {
-      workspace.notify(`${label}: ${describe(error)}`);
-      return false;
+      const reason = describe(error);
+      workspace.notify(`${label}: ${reason}`);
+      return reason;
     }
   };
+  const apply = async (label: string, run: (revision: number) => Promise<XvaWorkspaceView>) => (await attempt(label, run)) === undefined;
   /** Removes a case by its title or id; the tab names it by its id, which no other case has. */
   const removeCase = async (name: string, title: string = name) => {
     if (await apply(`${title} was not removed`, (revision) => api.removeCase(workspaceId, revision, name))) workspace.notify(`Removed the case ${title}.`);
@@ -504,6 +527,21 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   };
   const clearCases = async () => {
     if (await apply('No case was removed', (revision) => api.clearCases(workspaceId, revision))) workspace.notify('Removed every case.');
+  };
+  /** A value as written (a spread with its unit, a setting), read and checked by the server as its cell reads it, in the
+   * Base; refused, the page says why and the answer is the reason. */
+  const setText: SetText = (entity, field, text, title) =>
+    attempt(`${title} was not changed`, (revision) => api.setChange(workspaceId, revision, entity, field, text));
+  /** `cds ABCH USD SNRFOR`, `cds proxy financials asia A`, `cds none` (ADR-0010 §8's note of 2026-11-09): the server reads the
+   * words against its catalogue and says what it chose; one it cannot resolve is refused by name. */
+  const chooseCds = async (text: string) => {
+    const said: string[] = [];
+    const chosen = await apply('cds chose nothing', async (revision) => {
+      const answer = await api.cds(workspaceId, revision, text);
+      said.push(answer.said);
+      return answer.workspace;
+    });
+    if (chosen) workspace.notify(said.join(' '));
   };
   const changeActions: ChangeActions = {
     set: (change, text) => void apply(`${change.title} was not changed`, (revision) =>
@@ -656,11 +694,14 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   const setCurrency = (currency: string) => void queue.push({ entity: SETTINGS_ENTITY, field: 'displayCurrency', value: currency });
 
   // The commands run what the page's own controls run, as the page stands when they run (ADR-0010 §9).
-  const pageRef = useRef({ price, setMeasures, setSide, retry, copyQuote, download, refresh, setCurrency, openTab, explain, openResult, setDockFull, resultTabs, traceInView, vary, set, addTrades, removeCase, clearCases, defineScenario, includeScenario, removeScenario, duplicate, clearScenarios, generateScenarios, saveScenarios, loadScenarios, scenarioSets: () => scenarioSets.data ?? [], scenarios: () => view.data?.scenarios ?? [], pricing: () => (view.data === undefined ? undefined : { cases: view.data.cases.length, cap: view.data.caseCap }), measures: () => view.data?.measures ?? [], currencies: () => view.data?.currencies ?? [] });
-  pageRef.current = { price, setMeasures, setSide, retry, copyQuote, download, refresh, setCurrency, openTab, explain, openResult, setDockFull, resultTabs, traceInView, vary, set, addTrades, removeCase, clearCases, defineScenario, includeScenario, removeScenario, duplicate, clearScenarios, generateScenarios, saveScenarios, loadScenarios, scenarioSets: () => scenarioSets.data ?? [], scenarios: () => view.data?.scenarios ?? [], pricing: () => (view.data === undefined ? undefined : { cases: view.data.cases.length, cap: view.data.caseCap }), measures: () => view.data?.measures ?? [], currencies: () => view.data?.currencies ?? [] };
+  const pageCommands = { chooseCds, cdsCatalogue: () => catalogue.data, price, setMeasures, setSide, retry, copyQuote, download, refresh, setCurrency, openTab, explain, openResult, setDockFull, resultTabs, traceInView, vary, set, addTrades, removeCase, clearCases, defineScenario, includeScenario, removeScenario, duplicate, clearScenarios, generateScenarios, saveScenarios, loadScenarios, scenarioSets: () => scenarioSets.data ?? [], scenarios: () => view.data?.scenarios ?? [], pricing: () => (view.data === undefined ? undefined : { cases: view.data.cases.length, cap: view.data.caseCap }), measures: () => view.data?.measures ?? [], currencies: () => view.data?.currencies ?? [] };
+  const pageRef = useRef(pageCommands);
+  pageRef.current = pageCommands;
   useEffect(() => {
     registerXvaPage(panelId, {
       price: () => void pageRef.current.price(),
+      chooseCds: (text) => void pageRef.current.chooseCds(text),
+      cdsCatalogue: () => pageRef.current.cdsCatalogue(),
       setMeasures: (measures) => pageRef.current.setMeasures(measures),
       setSide: (side, value, grid) => pageRef.current.setSide(side, value, grid),
       vary: (cell, values) => void pageRef.current.vary({ cell }, values),
@@ -709,8 +750,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   const notBusy = busy === undefined;
 
   const enforceable = ws.agreement.enforceable ? 'enforceable' : 'not enforceable';
-  const inputsHeight = inputsDragged ?? inputsFit(shownTab(ws, inputTab), ws.csas.length, ws.agreement.imCsas.length, pixels(theme.spacing.xs),
-    ws.changes + ws.cases.length, ws.shifts.length);
+  const inputsHeight = inputsDragged ?? inputsFit(shownTab(ws, inputTab), ws, pixels(theme.spacing.xs), catalogue.isError);
   const newHeight = compactGridHeight(Math.max(1, Math.min(ws.newTrades, 8)));
   // What the parts other than Existing take, from the heights the page set (never measured): Existing has the rest.
   const taken = TAKEN + (inputsOpen ? inputsHeight + RESIZER : 0) + newHeight
@@ -767,7 +807,8 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
       <SegmentedControl hiddenFrom="sm" size="xs" fullWidth aria-label="Part of the page" value={section} onChange={(v) => setSection(v as Section)}
         data={[{ value: 'inputs', label: 'Inputs' }, { value: 'trades', label: 'Trades' }, { value: 'results', label: 'Results' }]} />
       <div data-part="inputs" className="qwb-xva-part">
-        <XvaInputs ws={ws} onIssue={setIssue} push={(entity, field, value) => void queue.push({ entity, field, value })}
+        <XvaInputs ws={ws} onIssue={setIssue} push={(entity, field, value) => void queue.push({ entity, field, value })} setText={setText}
+          catalogue={catalogue.isError ? { refused: describe(catalogue.error) } : catalogue.data}
           tab={inputTab} onTab={(tab) => { setInputTab(tab); setInputsOpen(true); }} open={inputsOpen} onOpen={setInputsOpen} height={inputsHeight} focusRequest={focusRequest}
           changeList={changeList.data} changeActions={changeActions} scenarioActions={scenarioActions} onVary={setVarying} commandLabel={commandLabel} />
         <VaryDialog target={varying} vary={(target, values) => varyCell({ entity: target.entity, field: target.field }, values)} onClose={() => setVarying(undefined)} />
@@ -805,12 +846,22 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
                 open={dockOpen} onOpenChange={setDockOpen} height={dockHeight}
                 tab={resultTab} onTab={(tab) => { setResultTab(tab); if (tab !== METRICS_TAB.id) setDockFull(true); }} full={full} onFull={setDockFull}
                 traceCase={traceCase} onTraceCase={setTraceCase} scenario={scenarioInView} onScenario={setScenarioInView}
-                renderTab={(tab, caption, caseId, scenario) => (
-                  <Suspense fallback={<Text size="sm">Reading the trace…</Text>}>
-                    <TraceTab key={`${pricedRun}:${caseId}:${scenario}:${tab.measure}`} tabId={tabIdOf(tab.id)} api={traceApi} registerFocus={registerTreeFocus}
-                      address={{ runId: pricedRun, case: caseId, scenario, measure: tab.measure }} caption={caption} />
-                  </Suspense>
-                )} />
+                renderTab={(tab, caption, caseId, scenario) => {
+                  switch (tab.view) {
+                    case 'risks': return <XvaRisks runId={pricedRun} measures={tab.measures} register={ws.measures} caseId={caseId} scenario={scenario} />;
+                    case 'profile': return (
+                      <Suspense fallback={<Text size="sm">Reading the profiles…</Text>}>
+                        <XvaProfile runId={pricedRun} measures={tab.measures} register={ws.measures} caseId={caseId} scenario={scenario} />
+                      </Suspense>
+                    );
+                    case 'trace': return (
+                      <Suspense fallback={<Text size="sm">Reading the trace…</Text>}>
+                        <TraceTab key={`${pricedRun}:${caseId}:${scenario}:${tab.measure}`} tabId={tabIdOf(tab.id)} api={traceApi} registerFocus={registerTreeFocus}
+                          address={{ runId: pricedRun, case: caseId, scenario, measure: tab.measure }} caption={caption} />
+                      </Suspense>
+                    );
+                  }
+                }} />
             </>
           )}
       </div>

@@ -144,6 +144,50 @@ public class PricerApiTests(WorkbenchFactory factory) : IClassFixture<WorkbenchF
         Assert.Equal(HttpStatusCode.BadRequest, rowless.StatusCode);
     }
 
+    [Fact] // ADR-0010 §8's note of 2026-11-09: the CDS catalogue the Credit tab searches, and `cds` over HTTP, which a missing CDS refuses CVA by
+    public async Task The_cds_is_listed_and_chosen_over_http()
+    {
+        var catalogue = (await client.GetFromJsonAsync<JsonObject>("/api/xva/cds"))!;
+        Assert.Equal(["6m", "1y", "2y", "3y", "5y", "7y", "10y"], Strings(catalogue["tenors"]));
+        Assert.Contains("ABCH | USD | SNRFOR | XR14 | ABC Holdings (synthetic)", catalogue["singleNames"]!.AsArray().Select(c => c!["reference"]!.GetValue<string>()));
+        var ws = await Measures(await Create(), "cva", "fva");
+        Assert.Equal("singleName", ws["credit"]!["choice"]!["type"]!.GetValue<string>());
+
+        var none = await Post(ws, "cds", new { revision = Revision(ws), cds = "none" });
+
+        Assert.Equal(HttpStatusCode.OK, none.StatusCode);
+        var chosen = (await none.Content.ReadFromJsonAsync<JsonObject>())!;
+        Assert.StartsWith("No CDS for ABC/LE-01", chosen["said"]!.GetValue<string>());
+        ws = chosen["workspace"]!.AsObject();
+        Assert.Null(ws["credit"]!["cds"]);
+        var price = await Post(ws, "price", new { revision = Revision(ws), idempotencyKey = Guid.NewGuid().ToString() });
+        Assert.Equal(HttpStatusCode.Accepted, price.StatusCode);
+        var proxy = await Post(ws, "cds", new { revision = Revision(ws), cds = "proxy industrials asia bbb" });
+        Assert.Equal(HttpStatusCode.OK, proxy.StatusCode);
+        ws = (await proxy.Content.ReadFromJsonAsync<JsonObject>())!["workspace"]!.AsObject();
+        Assert.Equal("PROXY.INDUSTRIALS.ASIA.BBB", ws["credit"]!["cds"]!["curveId"]!.GetValue<string>());
+        var unknown = await Post(ws, "cds", new { revision = Revision(ws), cds = "nobody" });
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, unknown.StatusCode);
+    }
+
+    [Fact] // ADR-0010 §8, §10: a module's settings over HTTP: listed while a measure they serve is selected, set by `set`, and checked
+    public async Task A_modules_settings_are_listed_and_set_over_http()
+    {
+        var ws = await Measures(await Create(), "kva");
+        var xva = Assert.Single(ws["settings"]!.AsArray())!;
+        Assert.Equal(["costOfCapital", "pvAdjustment"], xva["settings"]!.AsArray().Select(s => s!["id"]!.GetValue<string>()));
+        Assert.Equal("rate", xva["settings"]![0]!["form"]!.GetValue<string>());
+
+        var set = await Post(ws, "set", new { revision = Revision(ws), rows = new[] { "xva" }, column = "cost of capital", text = "12%" });
+
+        Assert.Equal(HttpStatusCode.OK, set.StatusCode);
+        ws = (await set.Content.ReadFromJsonAsync<JsonObject>())!;
+        var coc = ws["settings"]![0]!["settings"]![0]!;
+        Assert.Equal(("12%", "10%", true), (coc["text"]!.GetValue<string>(), coc["defaultText"]!.GetValue<string>(), coc["changed"]!.GetValue<bool>()));
+        var refused = await Post(ws, "edits", new { revision = Revision(ws), entity = "settings:xva", field = "costOfCapital", value = 1.5 });
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, refused.StatusCode);
+    }
+
     [Fact] // ADR-0010 §10, §11, ADR-0013 §1, ADR-0012 §7's note: the workspace lists the registered measures, and the request that prices each
     public async Task A_workspace_lists_the_registered_measures()
     {
@@ -170,8 +214,10 @@ public class PricerApiTests(WorkbenchFactory factory) : IClassFixture<WorkbenchF
 
         Assert.Equal([("simm", "SIMM", "trace")], tabs["simm.spotIm"]);
         Assert.Equal([("ccr", "CCR", "trace")], tabs["ccr.spotCapital"]);
-        // A measure without a tab of its own lists none, never a missing list.
-        Assert.All(new[] { "cva", "fva", "kva" }, m => Assert.Empty(tabs[m]));
+        // CVA and FVA register one Risks tab between them, and with KVA one Profile tab (the owner's Risks and Profile of 2026-11-08).
+        Assert.Equal([("risks", "Risks", "risks"), ("profile", "Profile", "profile")], tabs["cva"]);
+        Assert.Equal([("risks", "Risks", "risks"), ("profile", "Profile", "profile")], tabs["fva"]);
+        Assert.Equal([("profile", "Profile", "profile")], tabs["kva"]);
     }
 
     [Fact] // ADR-0010 §10: `measures cva` then Price gives a Run whose figures are CVA's alone

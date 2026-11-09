@@ -11,19 +11,23 @@ namespace Workbench.Samples.Portfolio;
 
 /// <summary>
 /// One index of the market-data catalogue: a curve the portfolio prices on (<c>IR</c>, a discount or a funding curve, in
-/// its currency) or a currency's rate against JPY (<c>FX</c>, its spot).
+/// its currency), a currency's rate against JPY (<c>FX</c>, its spot), or the counterparty's CDS spreads (<c>Credit</c>,
+/// the curve chosen on the Credit tab, whose currency is that curve's, so the index names none).
 /// </summary>
-public sealed record RiskIndex(string Id, string Category, string Currency, string Kind);
+public sealed record RiskIndex(string Id, string Category, string? Currency, string Kind);
 
 /// <summary>
 /// The synthetic market-data catalogue (ADR-0010 §4's note of 2026-11-09): the curves the portfolio prices on, whole or at
-/// a tenor, shifted absolutely in bp; each currency against JPY, the bank's domestic currency, shifted relatively in %.
-/// Credit joins with the Credit tab (Delivery step 5).
+/// a tenor, shifted absolutely in bp; each currency against JPY, the bank's domestic currency, shifted relatively in %;
+/// and the counterparty's CDS spreads, whole or at a CDS tenor, absolutely in bp (§8's note of 2026-11-09). Tenors are
+/// each category's own: a curve's are the IR tenors, the CDS's the CDS tenors.
 /// </summary>
 public static class ScenarioCatalog
 {
     public const string Ir = "IR";
     public const string Fx = "FX";
+    /// <summary>The counterparty's CDS spreads (ADR-0010 §8's note of 2026-11-09).</summary>
+    public const string Credit = "Credit";
     public const string Absolute = "abs";
     public const string Relative = "rel";
     public const string Bp = "bp";
@@ -31,11 +35,26 @@ public static class ScenarioCatalog
     public const string Discount = "discount";
     public const string Funding = "funding";
     public const string Spot = "spot";
+    public const string Spread = "spread";
+    /// <summary>The Credit index: the counterparty's chosen CDS curve, whichever it is.</summary>
+    public const string Cds = "cds";
     /// <summary>The currency every FX factor is quoted against: the bank's domestic currency.</summary>
     public const string Domestic = "JPY";
 
-    /// <summary>The tenors a shift may name, shortest first.</summary>
+    /// <summary>The tenors a shift of a curve may name, shortest first: the IR tenors.</summary>
     public static readonly IReadOnlyList<string> Tenors = ["1m", "3m", "6m", "1y", "2y", "5y", "10y", "30y"];
+
+    /// <summary>The tenors a shift of a category may name: a CDS's are the CDS tenors, a curve's the IR tenors; FX has none.</summary>
+    public static IReadOnlyList<string> TenorsOf(string category) => category switch
+    {
+        Credit => CdsCatalog.Tenors,
+        Ir => Tenors,
+        Fx => [],
+        _ => throw new ArgumentException($"No category {category} in the catalogue."),
+    };
+
+    // Every tenor of any category, a word is read as one before its index is known.
+    static readonly IReadOnlyList<string> AnyTenor = [.. Tenors.Union(CdsCatalog.Tenors).OrderBy(YearsOf)];
 
     static readonly IReadOnlyDictionary<string, string> CurveCurrency = new Dictionary<string, string>
     {
@@ -49,6 +68,7 @@ public static class ScenarioCatalog
         .. PortfolioCatalog.Curves.Select(c => new RiskIndex(c, Ir, CurrencyOf(c), Discount)),
         .. PortfolioCatalog.FundingCurves.Select(c => new RiskIndex(c, Ir, CurrencyOf(c), Funding)),
         .. PortfolioMarket.Currencies.Where(c => c != Domestic).Select(c => new RiskIndex($"{c.ToLowerInvariant()}{Domestic.ToLowerInvariant()}", Fx, c, Spot)),
+        new RiskIndex(Cds, Credit, null, Spread),
     ];
 
     static string CurrencyOf(string curve) =>
@@ -57,11 +77,26 @@ public static class ScenarioCatalog
     /// <summary>The index a word names, case ignored, or null.</summary>
     public static RiskIndex? Find(string word) => Indices.SingleOrDefault(i => string.Equals(i.Id, word, StringComparison.OrdinalIgnoreCase));
 
-    /// <summary>The tenor a word names, case ignored, or null.</summary>
-    public static string? TenorOf(string word) => Tenors.SingleOrDefault(t => string.Equals(t, word, StringComparison.OrdinalIgnoreCase));
+    /// <summary>The tenor a word names, of any category, case ignored, or null.</summary>
+    public static string? TenorOf(string word) => AnyTenor.SingleOrDefault(t => string.Equals(t, word, StringComparison.OrdinalIgnoreCase));
 
-    /// <summary>How a category shifts: IR absolutely, FX relatively.</summary>
-    public static string TypeOf(string category) => category == Ir ? Absolute : Relative;
+    /// <summary>Why an index cannot be shifted at a tenor: an FX rate has none, and a tenor not of its category's; null when it can.</summary>
+    public static string? TenorIssue(RiskIndex index, string tenor) =>
+        index.Category == Fx ? $"{index.Id} is a spot rate and has no tenor"
+        : TenorsOf(index.Category).Contains(tenor) ? null
+        : $"{index.Id} has no tenor {tenor}: {WithArticle(index.Category)} tenor is {string.Join(", ", TenorsOf(index.Category))}";
+
+    /// <summary>How a category shifts: IR and Credit absolutely, FX relatively.</summary>
+    public static string TypeOf(string category) => category == Fx ? Relative : Absolute;
+
+    /// <summary>A category with its article, as a sentence names it: an IR, an FX, a Credit.</summary>
+    public static string WithArticle(string category) => category == Credit ? $"a {category}" : $"an {category}";
+
+    /// <summary>How a category's shift is written, as a refusal says it.</summary>
+    public static string Takes(string category) => TypeOf(category) == Absolute ? "absolute, in bp" : "relative, in %";
+
+    /// <summary>A shift of an index as written, as a refusal suggests it.</summary>
+    public static string Example(RiskIndex index) => TypeOf(index.Category) == Absolute ? $"{index.Id} +10bp" : $"{index.Id} -5%";
 
     /// <summary>The unit a shift type's size is written in: bp absolute, % relative.</summary>
     public static string UnitOfType(string type) => type == Absolute ? Bp : Percent;
@@ -78,7 +113,8 @@ public static class ScenarioCatalog
 
     /// <summary>What the catalogue holds, as a refusal lists it.</summary>
     public static string Listed =>
-        $"the indices are {string.Join(", ", Indices.Select(i => i.Id))}; a tenor is {string.Join(", ", Tenors)}; a size is written as +10bp or -5%";
+        $"the indices are {string.Join(", ", Indices.Select(i => i.Id))}; an IR tenor is {string.Join(", ", Tenors)}, a Credit tenor {string.Join(", ", CdsCatalog.Tenors)}; " +
+        "a size is written as +10bp or -5%";
 }
 
 /// <summary>
@@ -152,15 +188,15 @@ public static partial class ShiftReader
         }
         if (index is null) throw Refused(written, $"names no index: {ScenarioCatalog.Listed}");
         if (size is not { } value) throw Refused(written, $"has no size: write it as {Example(index)}");
-        if (index.Category == ScenarioCatalog.Fx && tenor is not null) throw Refused(written, $"{index.Id} is a spot rate and has no tenor");
+        if (tenor is not null && ScenarioCatalog.TenorIssue(index, tenor) is { } issue) throw Refused(written, issue);
         var byUnit = ScenarioCatalog.TypeOfUnit(unit);
         if (byUnit is not null && type is not null && byUnit != type)
             throw Refused(written, $"is in {unit}, which is not {type}: leave {type} out, or write the size's unit as {ScenarioCatalog.UnitOfType(type)}");
         var shiftType = byUnit ?? type ?? (value == 0 ? ScenarioCatalog.TypeOf(index.Category)
             : throw Refused(written, $"has a size with no unit, and the unit says how it shifts: write {Example(index)}"));
         if (shiftType != ScenarioCatalog.TypeOf(index.Category))
-            throw Refused(written, $"shifts {index.Id} {(shiftType == ScenarioCatalog.Absolute ? "absolutely" : "relatively")}, and an {index.Category} shift is " +
-                $"{(index.Category == ScenarioCatalog.Ir ? "absolute, in bp" : "relative, in %")}: write {Example(index)}");
+            throw Refused(written, $"shifts {index.Id} {(shiftType == ScenarioCatalog.Absolute ? "absolutely" : "relatively")}, and {ScenarioCatalog.WithArticle(index.Category)} shift is " +
+                $"{ScenarioCatalog.Takes(index.Category)}: write {Example(index)}");
         return new Shift(index.Category, index.Id, tenor, shiftType, value);
     }
 
@@ -180,7 +216,7 @@ public static partial class ShiftReader
         return shifts;
     }
 
-    static string Example(RiskIndex index) => index.Category == ScenarioCatalog.Ir ? $"{index.Id} +10bp" : $"{index.Id} -5%";
+    static string Example(RiskIndex index) => ScenarioCatalog.Example(index);
 
     static WorkspaceRefused Refused(string text, string why) => new("InvalidShift", $"The shift {(text.Length == 0 ? "" : $"{text} ")}{why}.");
 }
@@ -272,11 +308,11 @@ public static partial class PortfolioScenarios
         var type = ScenarioCatalog.TypeOfUnit(unit);
         var (issue, column) = name is null ? ("it names no scenario", "scenario")
             : index is null ? ("it has no index", "index")
-            : index.Category == ScenarioCatalog.Fx && tenor is not null ? ($"{index.Id} is a spot rate and has no tenor", "factor")
+            : tenor is not null && ScenarioCatalog.TenorIssue(index, tenor) is { } wrong ? (wrong, "factor")
             : size is null || type is null ? ("it has no size", "size")
             : size == 0 ? ("a size of 0 shifts nothing", "size")
             : type != ScenarioCatalog.TypeOf(index.Category)
-                ? ($"an {index.Category} shift is {(index.Category == ScenarioCatalog.Ir ? "in bp" : "in %")}, and its size is in {unit}: type the size again", "size")
+                ? ($"{ScenarioCatalog.WithArticle(index.Category)} shift is in {ScenarioCatalog.UnitOfType(ScenarioCatalog.TypeOf(index.Category))}, and its size is in {unit}: type the size again", "size")
             : ((string?)null, (string?)null);
         var factor = index is null ? tenor : tenor ?? (index.Category == ScenarioCatalog.Fx ? ScenarioCatalog.Spot : WholeIndex);
         return new ShiftRow(id, row, name, index?.Category, index?.Id, tenor, factor, type, size,
@@ -359,7 +395,9 @@ public static partial class PortfolioScenarios
             after["tenor"] = word is null || string.Equals(word, WholeIndex, StringComparison.OrdinalIgnoreCase)
                     || (string.Equals(word, ScenarioCatalog.Spot, StringComparison.OrdinalIgnoreCase) && index?.Category == ScenarioCatalog.Fx) ? null
                 : index?.Category == ScenarioCatalog.Fx ? throw Refused("factor", $"{index.Id} is a spot rate and has no tenor: leave it spot")
-                : ScenarioCatalog.TenorOf(word) ?? throw Refused("factor", $"{word} is no tenor: a tenor is {string.Join(", ", ScenarioCatalog.Tenors)}, or {WholeIndex} for the whole curve");
+                : index is not null ? ScenarioCatalog.TenorsOf(index.Category).FirstOrDefault(t => string.Equals(t, word, StringComparison.OrdinalIgnoreCase))
+                    ?? throw Refused("factor", $"{word} is no tenor of {index.Id}: {ScenarioCatalog.WithArticle(index.Category)} tenor is {string.Join(", ", ScenarioCatalog.TenorsOf(index.Category))}, or {WholeIndex} for the whole curve")
+                : ScenarioCatalog.TenorOf(word) ?? throw Refused("factor", $"{word} is no tenor: an IR tenor is {string.Join(", ", ScenarioCatalog.Tenors)}, a Credit tenor {string.Join(", ", CdsCatalog.Tenors)}, or {WholeIndex} for the whole curve");
         }
         if (edit.Cells.ContainsKey("size"))
         {
@@ -368,10 +406,10 @@ public static partial class PortfolioScenarios
             {
                 var (size, unit) = SizeOf(written, index) ?? throw Refused("size", index is null
                     ? $"{written} is no size with a unit: write +10bp for a curve or -5% for an FX rate"
-                    : $"{written} is no size: write it as {(index.Category == ScenarioCatalog.Ir ? "+10bp" : "-5%")}");
+                    : $"{written} is no size: write it as {(ScenarioCatalog.TypeOf(index.Category) == ScenarioCatalog.Absolute ? "+10bp" : "-5%")}");
                 var takes = ScenarioCatalog.UnitOfType(ScenarioCatalog.TypeOf(index?.Category ?? (unit == ScenarioCatalog.Bp ? ScenarioCatalog.Ir : ScenarioCatalog.Fx)));
                 if (index is not null && unit != takes)
-                    throw Refused("size", $"an {index.Category} shift is {(index.Category == ScenarioCatalog.Ir ? "absolute, in bp" : "relative, in %")}: write {Shift.Signed(size, takes)}");
+                    throw Refused("size", $"{ScenarioCatalog.WithArticle(index.Category)} shift is {ScenarioCatalog.Takes(index.Category)}: write {Shift.Signed(size, takes)}");
                 after["size"] = size;
                 after["unit"] = unit;
             }
@@ -754,8 +792,8 @@ public sealed class ScenarioMarket(IReadOnlyList<Shift> shifts, DateOnly valueDa
     /// <summary>A currency's move against JPY, as a factor: 1 where no shift moves it.</summary>
     public decimal FxFactor(string currency) =>
         currency == ScenarioCatalog.Domestic ? 1m
-        : shifts.SingleOrDefault(s => s.Category == ScenarioCatalog.Fx && IndexOf(s).Currency == currency) is { } shift ? 1m + shift.Size / 100m
-        : 1m;
+        // A scenario moves a rate once (§4); a bump on top of it, for a delta, moves it again from where it stands.
+        : shifts.Where(s => s.Category == ScenarioCatalog.Fx && IndexOf(s).Currency == currency).Aggregate(1m, (f, s) => f * (1m + s.Size / 100m));
 
     /// <summary>
     /// Units of the currency one GBP buys on the value date, under the FX shifts: each currency's rate against JPY moved by
@@ -776,14 +814,25 @@ public sealed class ScenarioMarket(IReadOnlyList<Shift> shifts, DateOnly valueDa
         shifts.Where(s => s.Category == ScenarioCatalog.Ir && s.Index == curve).Sum(s => s.Size * (decimal)Weight(s.Tenor, years));
 
     /// <summary>
-    /// A key-rate shift's weight at a point: 1 at its tenor, falling linearly to 0 at the tenors either side, and 1 beyond
-    /// the first and the last; a shift of the whole index weighs 1 everywhere.
+    /// The shift in bp the counterparty's CDS curve takes at a point in years (ADR-0010 §8's note of 2026-11-09): a whole-curve
+    /// Credit shift everywhere, a key-rate one by its weight on the CDS tenors.
     /// </summary>
-    public static double Weight(string? tenor, double years)
+    public decimal CreditShiftBp(double years) =>
+        shifts.Where(s => s.Category == ScenarioCatalog.Credit).Sum(s => s.Size * (decimal)Weight(s.Tenor, years, CdsCatalog.Tenors));
+
+    /// <summary>
+    /// A key-rate shift's weight at a point on the IR tenors: 1 at its tenor, falling linearly to 0 at the tenors either
+    /// side, and 1 beyond the first and the last; a shift of the whole index weighs 1 everywhere.
+    /// </summary>
+    public static double Weight(string? tenor, double years) => Weight(tenor, years, ScenarioCatalog.Tenors);
+
+    /// <summary>As <see cref="Weight(string?, double)"/>, on a category's own tenors.</summary>
+    public static double Weight(string? tenor, double years, IReadOnlyList<string> tenors)
     {
         if (tenor is null) return 1;
-        var points = ScenarioCatalog.Tenors.Select(ScenarioCatalog.YearsOf).ToList();
-        var k = ScenarioCatalog.Tenors.ToList().IndexOf(tenor);
+        var points = tenors.Select(ScenarioCatalog.YearsOf).ToList();
+        var k = tenors.ToList().IndexOf(tenor);
+        if (k < 0) throw new ArgumentException($"{tenor} is not one of the tenors {string.Join(", ", tenors)}.");
         var at = points[k];
         if (years <= at) return k == 0 ? 1 : years <= points[k - 1] ? 0 : (years - points[k - 1]) / (at - points[k - 1]);
         return k == points.Count - 1 ? 1 : years >= points[k + 1] ? 0 : (points[k + 1] - years) / (points[k + 1] - at);

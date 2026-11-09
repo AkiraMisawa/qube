@@ -1,6 +1,6 @@
 import { call } from '../../platform/api';
 import type { RunRecord } from '../../platform/contracts';
-import type { CarrySummary, ChangesList, EffectiveTrade, Registration, Agreement, Resolution, RowPage, ScenarioSetView, ScenariosMade, ScopeDrop, SetSaved, ShiftEdit, TradesAdded, Varied, XvaWorkspaceView } from './contracts';
+import type { CarrySummary, CdsCatalogue, CdsChosen, ChangesList, EffectiveTrade, Registration, Agreement, Resolution, RowPage, ScenarioSetView, ScenariosMade, ScopeDrop, SetSaved, ShiftEdit, TradesAdded, Varied, XvaWorkspaceView } from './contracts';
 
 export interface RowQuery {
   readonly start: number;
@@ -76,6 +76,11 @@ export interface XvaApi {
   loadScenarios(workspaceId: string, revision: number, set: string): Promise<ScenariosMade>;
   /** The saved sets the user can see: their own, their desk's and all's. */
   scenarioSets(): Promise<readonly ScenarioSetView[]>;
+  /** `cds ABCH USD SNRFOR` or `cds proxy financials asia A` or `cds none` (ADR-0010 §8's note of 2026-11-09): the counterparty's
+   * CDS as written, read by the server against its catalogue; the answer says what it chose. */
+  cds(workspaceId: string, revision: number, text: string): Promise<CdsChosen>;
+  /** The CDS catalogue the Credit tab searches: its single names, a proxy's keys and the tenors. */
+  cdsCatalogue(): Promise<CdsCatalogue>;
   /** Copy quote's content, read by the server from the Run alone (ADR-0010 §7), of the market named: the base by default.
    * A scenario's quote names it, by the title the Run gave it. */
   quote(runId: string, scenario?: string): Promise<{ readonly text: string; readonly html: string; readonly scenario?: string | null }>;
@@ -115,6 +120,8 @@ export const httpXvaApi: XvaApi = {
   saveScenarios: (workspaceId, revision, set, share) => post(`${base(workspaceId)}/scenarios/save`, { revision, set, ...(share === undefined ? {} : { share }) }),
   loadScenarios: (workspaceId, revision, set) => post(`${base(workspaceId)}/scenarios/load`, { revision, set }),
   scenarioSets: () => call('/api/xva/scenario-sets'),
+  cds: (workspaceId, revision, text) => post(`${base(workspaceId)}/cds`, { revision, cds: text }),
+  cdsCatalogue: () => call('/api/xva/cds'),
   quote: (runId, scenario) => call(`/api/xva/runs/${encodeURIComponent(runId)}/quote${scenario === undefined ? '' : `?scenario=${encodeURIComponent(scenario)}`}`),
 };
 

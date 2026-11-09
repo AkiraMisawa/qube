@@ -126,14 +126,106 @@ export interface EffectiveCsa {
   readonly original?: Readonly<Record<string, unknown>> | null;
 }
 
-/** The netting set's CVA recovery: absent when it is empty (the server leaves nulls out), and then the CDS recovery applies. */
+/**
+ * The netting set's CVA recovery and the counterparty's CDS (ADR-0010 §8's note of 2026-11-09). The CVA recovery is
+ * absent when it is empty (the server leaves nulls out), and then the CDS recovery applies: the chosen curve's, or none
+ * while no curve is chosen, when `missing` says why CVA is refused.
+ */
 export interface EffectiveCredit {
   readonly cvaRecovery?: number | null;
   readonly cvaRecoveryOwner: Ownership;
-  readonly cdsRecovery: number;
-  /** Present when the CVA recovery differs from the source's, with the source's value (ADR-0010 §2). */
+  readonly cdsRecovery?: number | null;
+  readonly choice: CdsChoice;
+  readonly cds?: EffectiveCds | null;
+  readonly missing?: string | null;
+  /** Present when the CVA recovery or the CDS chosen differs from the source's, with the source's value (ADR-0010 §2). */
   readonly original?: Readonly<Record<string, unknown>> | null;
 }
+
+/** A CDS type of the catalogue: one name's own curve, or a proxy's by sector, region and rating. */
+export type CdsType = 'singleName' | 'proxy';
+
+/** The counterparty's CDS as chosen: its type (none for no CDS), and the keys of each type, kept while the other is chosen. */
+export interface CdsChoice {
+  readonly type?: CdsType | null;
+  readonly reference?: string | null;
+  readonly sector?: string | null;
+  readonly region?: string | null;
+  readonly rating?: string | null;
+}
+
+/** A curve of the synthetic CDS catalogue: a single name's, or a proxy's. Spreads are fractions by tenor (0.0052 is 52bp). */
+export interface CdsCurve {
+  readonly id: string;
+  readonly type: CdsType;
+  readonly ticker: string;
+  readonly currency: string;
+  readonly seniority: string;
+  readonly docClause: string;
+  readonly name: string;
+  readonly recovery: number;
+  readonly spreads: Readonly<Record<string, number>>;
+  readonly sector?: string | null;
+  readonly region?: string | null;
+  readonly rating?: string | null;
+  /** As the search writes it: `ticker | ccy | seniority | doc clause | name`. */
+  readonly reference: string;
+}
+
+/** The chosen curve with the user's spreads: those set are listed, and those that differ from the catalogue's carry it. */
+export interface EffectiveCds {
+  readonly curveId: string;
+  readonly type: CdsType;
+  readonly ticker: string;
+  readonly currency: string;
+  readonly seniority: string;
+  readonly docClause: string;
+  readonly name: string;
+  readonly reference: string;
+  readonly recovery: number;
+  readonly spreads: Readonly<Record<string, number>>;
+  readonly overridden: readonly string[];
+  readonly sector?: string | null;
+  readonly region?: string | null;
+  readonly rating?: string | null;
+  readonly original?: Readonly<Record<string, unknown>> | null;
+}
+
+/** The catalogue the Credit tab searches: the single names, the keys a proxy is chosen by, and the tenors of every curve. */
+export interface CdsCatalogue {
+  readonly singleNames: readonly CdsCurve[];
+  readonly sectors: readonly string[];
+  readonly regions: readonly string[];
+  readonly ratings: readonly string[];
+  readonly tenors: readonly string[];
+}
+
+/** What `cds …` chose, as the command line says it. */
+export interface CdsChosen { readonly workspace: XvaWorkspaceView; readonly said: string }
+
+/** How a setting is written: a whole number of days, a rate (12%), a number, or on and off. */
+export type SettingForm = 'days' | 'rate' | 'number' | 'flag';
+
+/**
+ * A module's setting as the workspace has it (ADR-0010 §8): its value (absent where it is empty, the server leaving nulls
+ * out) and as written, its default and as written, what empty means where it may be, the measures it serves, and whether
+ * it differs from the default.
+ */
+export interface SettingView {
+  readonly id: string;
+  readonly title: string;
+  readonly form: SettingForm;
+  readonly value?: unknown;
+  readonly text: string;
+  readonly default?: unknown;
+  readonly defaultText: string;
+  readonly empty?: string | null;
+  readonly measures: readonly string[];
+  readonly changed: boolean;
+}
+
+/** A module's section of the Settings tab: those of its settings a selected measure needs. */
+export interface ModuleSettings { readonly module: string; readonly title: string; readonly settings: readonly SettingView[] }
 
 export interface HeldEdit {
   readonly scope: string;
@@ -294,8 +386,9 @@ export interface RegisteredMeasure {
 }
 
 /** A result tab a measure registers (ADR-0010 §7, §10). `trace` draws the measure's trace: a card per root, then the
- * drill-down (ADR-0011 §6, ADR-0012 §7). */
-export interface ResultTab { readonly id: string; readonly title: string; readonly view: 'trace' }
+ * drill-down (ADR-0011 §6, ADR-0012 §7). `risks` draws the deltas the measure's request returned, and `profile` its
+ * profiles (ADR-0010 §8's note of 2026-11-09); several measures may register one, and the dock draws it once. */
+export interface ResultTab { readonly id: string; readonly title: string; readonly view: 'trace' | 'risks' | 'profile' }
 
 /** A shared input tab's field a selected measure needs (ADR-0010 §10), such as CVA's recovery on Netting. */
 export interface MeasureInput { readonly tab: string; readonly field: string; readonly measure: string }
@@ -342,6 +435,8 @@ export interface XvaWorkspaceView {
    * base market and each included scenario, crossed with every case, and the cap counts those pairs. */
   readonly scenarios: readonly ScenarioView[];
   readonly shifts: readonly ShiftRow[];
+  /** The selected modules' settings a selected measure needs, a section a module (ADR-0010 §8); none hides the tab. */
+  readonly settings: readonly ModuleSettings[];
 }
 
 export interface RowPage {

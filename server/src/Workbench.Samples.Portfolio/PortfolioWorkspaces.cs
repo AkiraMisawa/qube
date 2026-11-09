@@ -55,7 +55,8 @@ public sealed record PortfolioWorkspaceView(
     int CaseCap,
     int Changes,
     IReadOnlyList<ScenarioView> Scenarios,
-    IReadOnlyList<ShiftRow> Shifts);
+    IReadOnlyList<ShiftRow> Shifts,
+    IReadOnlyList<ModuleSettings> Settings);
 
 /// <summary>
 /// One change as the Changes tab lists it (ADR-0010 §3's note of 2026-11-08): its entity and field, the case it is a
@@ -147,7 +148,7 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
             [.. register.TradeColumns.Where(c => register.Selected(state).Any(m => m.Id == c.Module))], register.Inputs(state),
             register.WithCells(state, [.. Rows(state).Where(t => t.IsNew)]).Sum(t => t.Cells?.Values.Count(c => c.State == TradeCell.Pending) ?? 0),
             PortfolioMaterialiser.DisplayCurrency(state), PortfolioMarket.Currencies, [.. register.Selected(state).Where(m => m.Simulated).Select(m => m.Id)],
-            PortfolioCases.All(raw), caseCap, DataEdits(raw).Count(), PortfolioScenarios.All(raw), PortfolioScenarios.Rows(raw));
+            PortfolioCases.All(raw), caseCap, DataEdits(raw).Count(), PortfolioScenarios.All(raw), PortfolioScenarios.Rows(raw), register.Settings(state));
     }
 
     /// <summary>
@@ -290,11 +291,11 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
         return raw.Revision == revision ? raw : throw new WorkspaceRefused("RevisionMoved", $"The workspace is at revision {raw.Revision}, not {revision}.");
     }
 
-    // The edits to the portfolio's data in any layer, as the Changes tab counts them: the selection and the settings
-    // are the page's, shown on their own.
-    static IEnumerable<Override> DataEdits(WorkspaceState raw) =>
+    // The edits to the portfolio's data in any layer, as the Changes tab counts them: the selection, the display currency
+    // and the scenarios are the page's, shown on their own; a module's settings are inputs and listed (ADR-0010 §8).
+    IEnumerable<Override> DataEdits(WorkspaceState raw) =>
         raw.Overrides.Values.Concat(raw.Conflicts.Values.Select(c => c.Override)).Concat(raw.Lost.Values.Select(l => l.Override))
-            .Where(o => o.Target.Scope != PortfolioEditRules.WorkspaceScope);
+            .Where(o => o.Target.Scope != PortfolioEditRules.WorkspaceScope || register.SettingsOf(o.Target.Entity) is not null);
 
     /// <summary>
     /// The Changes tab (ADR-0010 §3's note of 2026-11-08): each Common change, then each case with its own, in the order
@@ -464,6 +465,14 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
     void Check(WorkspaceState reading, string entity, string field, JsonNode? value)
     {
         if (register.ColumnOf(field) is { } column) CheckCell(reading, entity, field, column, value);
+        // A module's setting is checked by the module that reads it (ADR-0010 §8, §10).
+        else if (register.SettingsOf(entity) is { } module)
+        {
+            if (module.Settings.All(x => x.Id != field))
+                throw new WorkspaceRefused("NotEditable", $"{module.Title} has no setting {field}; its settings are {string.Join(", ", module.Settings.Select(x => x.Id))}.");
+            if (module.CheckSetting(field, value) is { } problem)
+                throw new WorkspaceRefused("InvalidValue", problem, [PortfolioEditRules.Target(Source(reading), entity, field)]);
+        }
         else
         {
             if (!Editable(entity, field))
@@ -560,6 +569,37 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
         }).ToList();
         return workspaces.Batch(workspaceId, revision, user, changes, origin);
     }
+
+    /// <summary>
+    /// <c>cds &lt;words&gt;</c>, <c>cds proxy &lt;sector&gt; &lt;region&gt; &lt;rating&gt;</c>, <c>cds none</c> (ADR-0010 §8's note
+    /// of 2026-11-09): the counterparty's CDS, read on the server, set in one log entry. Only the keys that change are
+    /// written; a key of the other type is kept, so choosing that type again finds it.
+    /// </summary>
+    public (WorkspaceState State, EffectiveCredit Credit) ChooseCds(string workspaceId, long revision, string user, string text, RunOrigin? origin = null)
+    {
+        var raw = Owned(workspaceId, user);
+        var baseline = PortfolioCases.Base(raw);
+        var source = Source(raw);
+        var current = PortfolioMaterialiser.Credit(baseline).Choice;
+        var chosen = CdsCatalog.Read(text, current);
+        var entity = Entity.Of(Entity.Credit, source.Registration.Key);
+        var changes = new (string Field, string? Before, string? After)[]
+            {
+                ("cdsType", current.Type, chosen.Type), ("cdsReference", current.Reference, chosen.Reference), ("proxySector", current.Sector, chosen.Sector),
+                ("proxyRegion", current.Region, chosen.Region), ("proxyRating", current.Rating, chosen.Rating),
+            }
+            .Where(c => c.Before != c.After)
+            .Select(c => (WorkspaceChange)new WorkspaceChange.Set(PortfolioEditRules.Target(source, entity, c.Field), c.After is null ? null : JsonValue.Create(c.After)))
+            .ToList();
+        if (changes.Count == 0) return (raw, PortfolioMaterialiser.Credit(baseline));
+        var state = workspaces.Batch(workspaceId, revision, user, changes, origin);
+        return (state, PortfolioMaterialiser.Credit(PortfolioCases.Base(state)));
+    }
+
+    /// <summary>What <c>cds</c> says back: the CDS the counterparty now has, or why it has none.</summary>
+    public static string CdsSaid(Registration registration, EffectiveCredit credit) => credit.Cds is { } cds
+        ? $"The CDS of {registration.Key} is {(cds.Type == CdsCatalog.Proxy ? "the proxy" : "the single name")} {cds.Reference}, recovery {cds.Recovery * 100m:0.##}%."
+        : credit.Missing ?? throw new InvalidOperationException("A credit with no curve says why.");
 
     /// <summary>
     /// <c>add trades</c> (docs/03 §5, ADR-0010 §3's note of 2026-11-08): one case per New row with A ticked, at this
@@ -718,6 +758,9 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
         (Entity.Csa, var f) => PortfolioMaterialiser.CsaFields.Contains(f),
         // The CVA recovery is the netting set's since ADR-0010 §8; one set on the counterparty before still applies.
         (Entity.Netting, "cvaRecovery") => true,
+        // The counterparty's CDS and the spreads of a curve of the catalogue (ADR-0010 §8's note of 2026-11-09).
+        (Entity.Credit, var f) => CdsCatalog.ChoiceFields.Contains(f),
+        (Entity.Cds, var f) => CdsCatalog.Find(Entity.Split(entity).Id) is not null && CdsCatalog.Tenors.Contains(f),
         // B or A for every row of a grid at once (ADR-0010 §6).
         (Entity.Grid, "before" or "after") => Entity.Split(entity).Id is Entity.NewGrid or Entity.ExistingGrid,
         // The workspace's display currency (ADR-0010 §1).
@@ -745,10 +788,23 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
                 value is JsonValue a && a.TryGetValue<decimal>(out var amount) && amount >= 0 ? null : "A threshold or MTA is an amount of 0 or more.",
             "currency" or "counterpartyCurrency" or "selfCurrency" or Entity.DisplayCurrency => value is JsonValue c3 && c3.TryGetValue<string>(out var code) && PortfolioMarket.Currencies.Contains(code)
                 ? null : $"A currency is {string.Join(", ", PortfolioMarket.Currencies)}.",
+            // The counterparty's CDS (ADR-0010 §8's note of 2026-11-09): each key is the catalogue's, or empty.
+            "cdsType" => value is null || value is JsonValue ct && ct.TryGetValue<string>(out var type) && type is CdsCatalog.SingleName or CdsCatalog.Proxy
+                ? null : $"A CDS type is {CdsCatalog.SingleName}, {CdsCatalog.Proxy}, or empty for none.",
+            "cdsReference" => value is null || value is JsonValue cr && cr.TryGetValue<string>(out var reference) && CdsCatalog.Find(reference) is { Type: CdsCatalog.SingleName }
+                ? null : $"A CDS reference is a single name of the catalogue: {string.Join(", ", CdsCatalog.SingleNames.Select(c => c.Id))}.",
+            "proxySector" => OneOf(value, CdsCatalog.Sectors, "A proxy's sector"),
+            "proxyRegion" => OneOf(value, CdsCatalog.Regions, "A proxy's region"),
+            "proxyRating" => OneOf(value, CdsCatalog.Ratings, "A proxy's rating"),
+            _ when Entity.Split(entity).Kind == Entity.Cds =>
+                value is JsonValue sp && sp.TryGetValue<decimal>(out var spread) && spread is > 0 and < 1 ? null : "A spread is above 0bp and below 10000bp.",
             _ => null,
         };
         if (problem is not null) throw new WorkspaceRefused("InvalidValue", problem, [PortfolioEditRules.Target(Source(state), entity, field)]);
     }
+
+    static string? OneOf(JsonNode? value, IReadOnlyList<string> allowed, string what) =>
+        value is null || value is JsonValue v && v.TryGetValue<string>(out var text) && allowed.Contains(text) ? null : $"{what} is one of {string.Join(", ", allowed)}, or empty.";
 
     // A field holds a Common edit and one per case at once; the layer says which (ADR-0010 §3).
     static EditTarget Held(WorkspaceState state, string entity, string field, string? layer) =>

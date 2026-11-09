@@ -161,12 +161,12 @@ public class PricerTests
         Assert.True(Row(rows, "cva")["tradesAfter"]!.GetValue<int>() > 0);
     }
 
-    [Fact] // ADR-0010 §10, §11: CVA's recovery is a field of the Netting tab only while CVA is selected, and keeps its value hidden
+    [Fact] // ADR-0010 §8, §10, §11: CVA's recovery on Netting and the Credit tab show only while CVA is selected, and keep their values hidden
     public void The_cva_recovery_shows_only_while_cva_is_selected()
     {
         var service = Service();
         var ws = service.Create("akira", "ABC/LE-02", Day1, 10);
-        Assert.Equal([new MeasureInput("netting", "cvaRecovery", XvaMeasures.Cva)], service.View(ws.WorkspaceId, "akira").Inputs);
+        Assert.Equal([new MeasureInput("netting", "cvaRecovery", XvaMeasures.Cva), new MeasureInput("credit", "cds", XvaMeasures.Cva)], service.View(ws.WorkspaceId, "akira").Inputs);
         ws = service.Edit(ws.WorkspaceId, ws.Revision, "akira", "netting:NS-002", "cvaRecovery", 0.3m);
 
         ws = service.SetMeasures(ws.WorkspaceId, ws.Revision, "akira", ["fva"]);

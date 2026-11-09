@@ -359,7 +359,7 @@ public class PricerScenarioTests
 
     [Theory] // ADR-0010 §4 and spine 1: a cell that does not resolve refuses the paste whole, naming its row and column
     [InlineData("index", "jpy_ojs", "Row 2, Index: jpy_ojs is no index: the indices are jpy_ois")]
-    [InlineData("factor", "7y", "Row 2, Risk factor: 7y is no tenor: a tenor is 1m, 3m")]
+    [InlineData("factor", "7y", "Row 2, Risk factor: 7y is no tenor of jpy_ois: an IR tenor is 1m, 3m")]
     [InlineData("size", "+10%", "Row 2, Size: an IR shift is absolute, in bp: write +10bp")]
     [InlineData("size", "ten", "Row 2, Size: ten is no size: write it as +10bp")]
     [InlineData("category", "FX", "Row 2, Category: jpy_ois is IR, not FX: the category follows the index")]

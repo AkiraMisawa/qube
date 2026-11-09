@@ -29,6 +29,13 @@ public static class XvaApi
     public sealed record Varied(PortfolioWorkspaceView Workspace, IReadOnlyList<string> Made, IReadOnlyList<string> Skipped);
     /// <summary><c>set &lt;rows&gt; &lt;column&gt; &lt;value&gt;</c> (ADR-0010 §9): the rows named, a column and a value as written.</summary>
     public sealed record SetRequest(long Revision, IReadOnlyList<string> Rows, string Column, string Text);
+    /// <summary><c>cds &lt;words&gt;</c> (ADR-0010 §8's note of 2026-11-09): the CDS as written.</summary>
+    public sealed record CdsRequest(long Revision, string Cds);
+    /// <summary>What <c>cds</c> chose, as the command line says it.</summary>
+    public sealed record CdsChosen(PortfolioWorkspaceView Workspace, string Said);
+    /// <summary>The CDS catalogue the Credit tab searches: the single names, and the keys a proxy is chosen by.</summary>
+    public sealed record CdsCatalogue(IReadOnlyList<CdsCurve> SingleNames, IReadOnlyList<string> Sectors, IReadOnlyList<string> Regions,
+        IReadOnlyList<string> Ratings, IReadOnlyList<string> Tenors);
     /// <summary>What <c>add trades</c> made, by title, and the cases of the set it replaced (docs/03 §5).</summary>
     public sealed record TradesAdded(PortfolioWorkspaceView Workspace, IReadOnlyList<string> Made, IReadOnlyList<string> Replaced);
     /// <summary><c>scenario &lt;name&gt; &lt;shift&gt;; …</c> (ADR-0010 §4): the scenario's name and its shifts as written.</summary>
@@ -72,6 +79,8 @@ public static class XvaApi
 
         // Copy quote (ADR-0010 §7, §11): read from the Run's retained input and result, never from a screen.
         // It quotes the scenario in view, the base market unless one is named (ADR-0010 §4's note of 2026-11-09).
+        api.MapGet("/cds", () => new CdsCatalogue(CdsCatalog.SingleNames, CdsCatalog.Sectors, CdsCatalog.Regions, CdsCatalog.Ratings, CdsCatalog.Tenors));
+
         api.MapGet("/runs/{runId}/quote", (string runId, string? scenario, RunService runs, IDataStore store, CurrentUser user) => Guard(() =>
         {
             if (runs.Find(runId) is not { } run) throw new WorkspaceRefused("UnknownRun", $"Run {runId} does not exist.");
@@ -127,6 +136,12 @@ public static class XvaApi
         {
             service.SetCells(id, request.Revision, user.Id, request.Rows, request.Column, request.Text);
             return Results.Ok(service.View(id, user.Id));
+        }));
+
+        ws.MapPost("/{id}/cds", (string id, CdsRequest request, CurrentUser user, PortfolioWorkspaces service) => Guard(() =>
+        {
+            var (state, credit) = service.ChooseCds(id, request.Revision, user.Id, request.Cds);
+            return Results.Ok(new CdsChosen(service.View(id, user.Id), PortfolioWorkspaces.CdsSaid(((PortfolioSourceVersion)state.Source).Registration, credit)));
         }));
 
         ws.MapPost("/{id}/add-trades", (string id, CaseRequest request, CurrentUser user, PortfolioWorkspaces service) => Guard(() =>

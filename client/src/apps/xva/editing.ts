@@ -5,6 +5,13 @@ import type { Resolution } from './contracts';
 
 export type Parsed = { readonly ok: true; readonly value: unknown } | { readonly ok: false; readonly message: string };
 
+/**
+ * A value sent as written (`12%`, `60bp`, `empty`), for the server to read and check as its cell reads it, with the
+ * cell's title for what the page says if it is refused. It answers `undefined` once the server took it, and the server's
+ * reason when it refused it.
+ */
+export type SetText = (entity: string, field: string, text: string, title: string) => Promise<string | undefined>;
+
 const fail = (message: string): Parsed => ({ ok: false, message });
 
 /**
