@@ -21,7 +21,7 @@ import { EditQueue, MEASURES_ENTITY, SETTINGS_ENTITY, tradeFields, type PendingE
 import { ToolbarField } from './fields';
 import { CHANGES_TAB, shownTab, TAB_TITLES, tabShown, XvaInputs, type InputTab } from './XvaInputs';
 import type { ChangeActions } from './XvaChanges';
-import { VARY_COMMAND, VaryDialog, variedText, type VaryTarget } from './VaryDialog';
+import { VARY_COMMAND, VaryDialog, addedText, variedText, type VaryTarget } from './VaryDialog';
 import { compactGridHeight, GRID_FRAME, pixels, Resizer } from './layout';
 import { declaring, measureOfField, membershipColumn, scopesOf } from './membership';
 import { priceLabel, pricedMeasures } from './metrics';
@@ -502,19 +502,37 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
       workspace.notify(`vary made no case: ${describe(error)}`);
     }
   };
+  /**
+   * `add trades` (docs/03 §5): a case per New row with A ticked, each that trade alone, after the edits already sent. As
+   * for vary, the workspace is the Base and does not move. A refusal, such as a candidate in Before, is said by name.
+   */
+  const addTrades = async () => {
+    try {
+      const answer = await queue.after(async (revision) => {
+        const added = await api.addTrades(workspaceId, revision);
+        queue.rebase(added.workspace.revision);
+        return added;
+      });
+      show(answer.workspace);
+      workspace.notify(addedText(answer));
+    } catch (error) {
+      workspace.notify(`add trades made no case: ${describe(error)}`);
+    }
+  };
   // *Vary values…* (ADR-0010 §3): the cell whose Context Menu opened the dialog, while it is open.
   const [varying, setVarying] = useState<VaryTarget | undefined>(undefined);
   const setCurrency = (currency: string) => void queue.push({ entity: SETTINGS_ENTITY, field: 'displayCurrency', value: currency });
 
   // The commands run what the page's own controls run, as the page stands when they run (ADR-0010 §9).
-  const pageRef = useRef({ price, setMeasures, setSide, retry, copyQuote, download, refresh, setCurrency, openTab, explain, openResult, setDockFull, resultTabs, traceInView, vary, removeCase, clearCases, measures: () => view.data?.measures ?? [], currencies: () => view.data?.currencies ?? [] });
-  pageRef.current = { price, setMeasures, setSide, retry, copyQuote, download, refresh, setCurrency, openTab, explain, openResult, setDockFull, resultTabs, traceInView, vary, removeCase, clearCases, measures: () => view.data?.measures ?? [], currencies: () => view.data?.currencies ?? [] };
+  const pageRef = useRef({ price, setMeasures, setSide, retry, copyQuote, download, refresh, setCurrency, openTab, explain, openResult, setDockFull, resultTabs, traceInView, vary, addTrades, removeCase, clearCases, measures: () => view.data?.measures ?? [], currencies: () => view.data?.currencies ?? [] });
+  pageRef.current = { price, setMeasures, setSide, retry, copyQuote, download, refresh, setCurrency, openTab, explain, openResult, setDockFull, resultTabs, traceInView, vary, addTrades, removeCase, clearCases, measures: () => view.data?.measures ?? [], currencies: () => view.data?.currencies ?? [] };
   useEffect(() => {
     registerXvaPage(panelId, {
       price: () => void pageRef.current.price(),
       setMeasures: (measures) => pageRef.current.setMeasures(measures),
       setSide: (side, value, grid) => pageRef.current.setSide(side, value, grid),
       vary: (cell, values) => void pageRef.current.vary({ cell }, values),
+      addTrades: () => void pageRef.current.addTrades(),
       removeCase: (name) => void pageRef.current.removeCase(name),
       clearCases: () => void pageRef.current.clearCases(),
       retry: () => void pageRef.current.retry(),

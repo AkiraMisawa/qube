@@ -101,6 +101,31 @@ public class PricerApiTests(WorkbenchFactory factory) : IClassFixture<WorkbenchF
         Assert.Equal(["Base"], (await cleared.Content.ReadFromJsonAsync<JsonObject>())!["cases"]!.AsArray().Select(c => c!["title"]!.GetValue<string>()));
     }
 
+    [Fact] // docs/03 §5, ADR-0010 §3's note of 2026-11-08: add trades over HTTP makes the set, and Price refuses a set the ticked rows left
+    public async Task Add_trades_makes_the_set_and_price_refuses_one_the_ticked_rows_left()
+    {
+        var ws = await Measures(await Create(), "cva");
+
+        var added = await Post(ws, "add-trades", new { revision = Revision(ws) });
+        Assert.Equal(HttpStatusCode.OK, added.StatusCode);
+        var answer = (await added.Content.ReadFromJsonAsync<JsonObject>())!;
+        Assert.Equal(["add DRAFT-1", "add DRAFT-2", "add DRAFT-3"], Strings(answer["made"]));
+        ws = answer["workspace"]!.AsObject();
+        Assert.Equal([("add", "DRAFT-1"), ("add", "DRAFT-2"), ("add", "DRAFT-3")],
+            ws["cases"]!.AsArray().Skip(1).Select(c => (c!["kind"]!.GetValue<string>(), c["trade"]!.GetValue<string>())));
+        var (_, rows) = await Price(ws);
+        Assert.Equal(4, rows.Count(r => r["metric"]!.GetValue<string>() == "cva"));
+        var unticked = await Post(ws, "edits", new { revision = Revision(ws), entity = "trade:DRAFT-2", field = "after", value = false });
+        ws = (await unticked.Content.ReadFromJsonAsync<JsonObject>())!;
+
+        var refused = await Post(ws, "price", new { revision = Revision(ws), idempotencyKey = Guid.NewGuid().ToString() });
+
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, refused.StatusCode);
+        var error = (await refused.Content.ReadFromJsonAsync<JsonObject>())!;
+        Assert.Equal(("AdditionSetChanged", "add trades prices DRAFT-1, DRAFT-2, DRAFT-3 alone, and DRAFT-2 is in a case and no longer ticked. Run add trades again to make the set anew."),
+            (error["code"]!.GetValue<string>(), error["message"]!.GetValue<string>()));
+    }
+
     [Fact] // ADR-0010 §9's note of 2026-11-08: a cell vary cannot name is refused over HTTP with what it could mean
     public async Task Vary_refuses_a_cell_it_cannot_name()
     {

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Button, Group, Modal, Stack, Text, TextInput } from '@mantine/core';
-import type { Varied } from './contracts';
+import type { TradesAdded, Varied } from './contracts';
 
 // *Vary values…* (ADR-0010 §3): the cell's Context Menu opens this for a list of values, and the cases made are those
 // `vary` makes for the cell. The server reads and checks each value as the cell would typed; a value it refuses is
@@ -20,6 +20,10 @@ export interface VaryTarget {
 export const variedText = ({ made, skipped }: Pick<Varied, 'made' | 'skipped'>): string =>
   `${[made.length === 0 ? 'vary made no case' : `Made ${made.length} case(s): ${made.join(', ')}`,
     ...(skipped.length === 0 ? [] : [`skipped ${skipped.join('; ')}`])].join('; ')}.`;
+
+/** What `add trades` said back: the cases it made, and those of the set made before that it replaced. */
+export const addedText = ({ made, replaced }: Pick<TradesAdded, 'made' | 'replaced'>): string =>
+  `${[`Made ${made.length} case(s): ${made.join(', ')}`, ...(replaced.length === 0 ? [] : [`replaced ${replaced.join(', ')}`])].join('; ')}.`;
 
 /** The values as typed, separated by commas; an empty one is refused here, never sent as a guess. */
 export function valuesTyped(text: string): { readonly ok: true; readonly values: readonly string[] } | { readonly ok: false; readonly message: string } {

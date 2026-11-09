@@ -113,6 +113,7 @@ public static class PortfolioInput
         if (cases.Count > caseCap)
             throw new WorkspaceRefused("TooManyCases",
                 $"Price prices {caseCap} cases at most, the Base among them; this workspace holds {cases.Count}, {cases.Count - caseCap} over. Remove {cases.Count - caseCap} to price.");
+        PortfolioCases.CheckAdditionSet(raw);
         var state = PortfolioCases.Base(raw);
         var source = (PortfolioSourceVersion)state.Source;
         var selected = PortfolioMaterialiser.SelectedMeasures(state, register);
@@ -152,6 +153,10 @@ public static class PortfolioInput
         var invalid = trades.Where(t => t.Issues.Count > 0).ToList();
         if (invalid.Count > 0)
             throw new WorkspaceRefused("InvalidInput", $"{named}{invalid.Count} trade(s) to price have validation issues, first {invalid[0].TradeId}: {invalid[0].Issues[0]}");
+        // A case of iterative addition prices its trade alone on top of the existing ones, never another set (docs/03 §5).
+        if (@case.Kind == PortfolioCases.Add && trades.Where(t => t.IsNew && t.After).Select(t => t.TradeId).ToList() is var alone && !(alone.Count == 1 && alone[0] == @case.Trade))
+            throw new WorkspaceRefused("AdditionSetChanged",
+                $"{named}its After holds {(alone.Count == 0 ? "no new trade" : string.Join(", ", alone))}, not {@case.Trade} alone. Run add trades again to make the set anew.");
         var refusals = register.Modules
             .SelectMany(m => m.Validate(state, [.. selected.Where(id => m.Measures.Any(d => d.Id == id))], trades))
             .ToDictionary(r => r.Measure);
@@ -162,7 +167,8 @@ public static class PortfolioInput
         return new JsonObject
         {
             ["id"] = @case.Id,
-            ["title"] = @case.Title,
+            // What a case of iterative addition carries in common is said wherever its title is (docs/03 §5).
+            ["title"] = @case.Note is null ? @case.Title : $"{@case.Title} · {@case.Note}",
             ["kind"] = @case.Kind,
             ["trade"] = @case.Trade,
             // What makes it this case, as the Pricing DB and Download say it (ADR-0010 §3).

@@ -158,6 +158,8 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
             Overrides = ImmutableDictionary<EditTarget, Override>.Empty, Conflicts = ImmutableDictionary<EditTarget, Conflict>.Empty,
             Lost = ImmutableDictionary<EditTarget, LostTarget>.Empty,
         };
+        // A case of iterative addition is its membership, changed only whole (ADR-0010 §3's note of 2026-11-08).
+        var whole = PortfolioCases.Made(raw).Where(c => PortfolioCases.KindOf(c) == PortfolioCases.Add).Select(c => c.Entity).ToHashSet();
         ChangeItem Item(Override o)
         {
             var t = o.Target;
@@ -166,7 +168,7 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
             {
                 var was = PortfolioCells.Current(original, register, cell);
                 return new(t.Entity, t.Field, CaseIdOf(t), $"{cell.Row} {cell.Column}", o.Value?.DeepClone(), PortfolioCells.Write(cell, o.Value), was?.DeepClone(), PortfolioCells.Write(cell, was),
-                    state, state != "lost");
+                    state, state != "lost" && !(t.Layer is { } layer && whole.Contains(layer)));
             }
             // A whole grid's B or A (ADR-0010 §6): every row of the grid at once, over each row's own.
             if (Entity.Split(t.Entity).Kind == Entity.Grid)
@@ -191,7 +193,7 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
     public WorkspaceState SetText(string workspaceId, long revision, string user, string entity, string field, string text, string? caseId = null, RunOrigin? origin = null)
     {
         var raw = Owned(workspaceId, user);
-        var layer = caseId is null ? null : CaseOf(raw, caseId);
+        var layer = caseId is null ? null : Changeable(raw, caseId);
         var reading = PortfolioCases.Reading(raw, caseId);
         var cell = PortfolioCells.Of(reading, register, entity, field);
         var value = PortfolioCells.Read(cell, text);
@@ -223,6 +225,17 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
         var made = PortfolioCases.Made(raw);
         if (made.Count == 0) throw new WorkspaceRefused("NothingToChange", "The workspace has no case to remove.");
         return workspaces.Batch(workspaceId, revision, user, [.. made.Select(c => new WorkspaceChange.Remove(c.Entity, c.Entity))]);
+    }
+
+    // A case whose changes may be changed one by one: a case of iterative addition is its membership, made whole by
+    // add trades and removed whole (ADR-0010 §3's note of 2026-11-08), so none of its changes is set or removed alone.
+    static string Changeable(WorkspaceState raw, string caseId)
+    {
+        var layer = CaseOf(raw, caseId);
+        var made = raw.Created[layer];
+        return PortfolioCases.KindOf(made) != PortfolioCases.Add ? layer
+            : throw new WorkspaceRefused("NotEditable",
+                $"Case {made.Fields["title"]!.GetValue<string>()} is its trade alone: remove the case whole, or run add trades again to make the set anew.");
     }
 
     // The case an edit is a change of, as the wire names it: none for a Common edit.
@@ -372,6 +385,46 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
     }
 
     /// <summary>
+    /// <c>add trades</c> (docs/03 §5, ADR-0010 §3's note of 2026-11-08): one case per New row with A ticked, at this
+    /// moment, each holding that trade alone on top of the existing trades, never the others of the set: in its reading
+    /// only, A is off on every other New row of the set. A candidate in Before is refused by name, never unticked, and
+    /// nothing is made. A set made before is replaced in the same command; the <c>vary</c> cases stay.
+    /// </summary>
+    public AddAnswer AddTrades(string workspaceId, long revision, string user, RunOrigin? origin = null)
+    {
+        var raw = Owned(workspaceId, user);
+        var candidates = PortfolioMaterialiser.Trades(PortfolioCases.Base(raw)).Where(t => t.IsNew && t.After).Select(t => (t.TradeId, t.Before)).ToList();
+        if (candidates.Count == 0)
+            throw new WorkspaceRefused("NothingToAdd", "add trades makes a case per New row with A ticked, and no New row has A ticked.");
+        if (candidates.Where(c => c.Before).Select(c => c.TradeId).ToList() is { Count: > 0 } before)
+        {
+            var (are, them) = before.Count == 1 ? ("is", "it") : ("are", "them");
+            throw new WorkspaceRefused("CandidateInBefore",
+                $"{string.Join(", ", before)} {are} in Before, and a new trade is priced alone only out of Before. Clear B on {them}, or A to leave {them} out, then add trades again.");
+        }
+        var replaced = PortfolioCases.Made(raw).Where(c => PortfolioCases.KindOf(c) == PortfolioCases.Add).ToList();
+        // The cap counts the Base (ADR-0010 §3's note): a set Price would refuse is not written n² edits deep first.
+        var count = PortfolioCases.All(raw).Count - replaced.Count + candidates.Count;
+        if (count > caseCap)
+            throw new WorkspaceRefused("TooManyCases",
+                $"add trades would make {candidates.Count} cases, and Price prices {caseCap} at most, the Base among them: {count - caseCap} over. Clear A on {count - caseCap} new trade(s) first.");
+        var source = Source(raw);
+        var ids = candidates.Select(c => c.TradeId).ToList();
+        var changes = new List<WorkspaceChange>(replaced.Select(c => new WorkspaceChange.Remove(c.Entity, c.Entity)));
+        foreach (var trade in ids)
+        {
+            // A case is named by the log entry that made it, so no id is ever given twice.
+            var layer = PortfolioCases.Of($"c{revision + 1 + changes.Count}");
+            changes.Add(new WorkspaceChange.Create($"cp:{source.Registration.Key}", layer,
+                new JsonObject { ["title"] = $"add {trade}", ["kind"] = PortfolioCases.Add, ["trade"] = trade }));
+            changes.AddRange(ids.Where(other => other != trade)
+                .Select(other => new WorkspaceChange.Set(PortfolioEditRules.Target(source, Entity.Of(Entity.Trade, other), "after", layer), JsonValue.Create(false))));
+        }
+        return new AddAnswer(workspaces.Batch(workspaceId, revision, user, changes, origin), [.. ids.Select(t => $"add {t}")],
+            [.. replaced.Select(c => c.Fields["title"]!.GetValue<string>())]);
+    }
+
+    /// <summary>
     /// Asks again for every failed result among the selected modules' cells on the workspace's trades, or on one trade
     /// (`pv01 retry`, and the failed cell's action, ADR-0010 §6). Answers how many were asked again.
     /// </summary>
@@ -404,7 +457,7 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
     public WorkspaceState Resolve(string workspaceId, long revision, string user, string entity, string field, string resolution, string? caseId = null)
     {
         var raw = Owned(workspaceId, user);
-        var target = Held(raw, entity, field, caseId is null ? null : CaseOf(raw, caseId));
+        var target = Held(raw, entity, field, caseId is null ? null : resolution == "reset" ? Changeable(raw, caseId) : CaseOf(raw, caseId));
         return resolution switch
         {
             "reset" => workspaces.Reset(workspaceId, revision, user, target),

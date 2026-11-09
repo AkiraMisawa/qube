@@ -88,9 +88,11 @@ where each is edited or removed. `set` changes one value from the command line w
 - **A case is a created entity of the workspace** (ADR-0004), `case:<id>` in the counterparty's scope, with its title, its
   kind (`vary` or `add`), and for `add` the trade it adds. Its changes are edits in its layer. The portfolio module, not
   the kernel, says how layers compose: the Base is Original plus Common; a case is the Base plus its own layer, its
-  value winning on a field both hold. Every reading the page has (trades, CSAs, netting, membership, cells, Original
-  differences) is computed from such a layered reading, so the existing materialiser runs unchanged on it. The
-  workspace view keeps showing the Base, and the Changes tab shows each case's changes.
+  value winning on a field both hold, and its edits applying after every Common one whenever made, so where precedence
+  goes by when an edit was made (a row's B or A over its grid's, ADR-0010 §6) the case's still wins. Every reading the
+  page has (trades, CSAs, netting, membership, cells, Original differences) is computed from such a layered reading, so
+  the existing materialiser runs unchanged on it. The workspace view keeps showing the Base, and the Changes tab shows
+  each case's changes.
 - **An `add` case** sets A off, in its reading only, for every other New row of its set, so its After is the existing
   portfolio's members and that one trade. Making the set refuses, by name, a candidate ticked in Before (docs/03 §5's
   DEFAULT). Price checks that the set's trades are exactly the New rows with A ticked and that none is in Before, and

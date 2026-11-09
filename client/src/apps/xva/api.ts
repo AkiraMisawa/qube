@@ -1,6 +1,6 @@
 import { call } from '../../platform/api';
 import type { RunRecord } from '../../platform/contracts';
-import type { CarrySummary, ChangesList, EffectiveTrade, Registration, Agreement, Resolution, RowPage, ScopeDrop, Varied, XvaWorkspaceView } from './contracts';
+import type { CarrySummary, ChangesList, EffectiveTrade, Registration, Agreement, Resolution, RowPage, ScopeDrop, TradesAdded, Varied, XvaWorkspaceView } from './contracts';
 
 export interface RowQuery {
   readonly start: number;
@@ -49,6 +49,8 @@ export interface XvaApi {
    * its entity and field, as *Vary values…* names it. Each value goes as written, for the server to read and check.
    */
   vary(workspaceId: string, revision: number, cell: VaryCell, values: readonly string[]): Promise<Varied>;
+  /** `add trades` (docs/03 §5): a case per New row with A ticked, each that trade alone; a set made before is replaced. */
+  addTrades(workspaceId: string, revision: number): Promise<TradesAdded>;
   /** Copy quote's content, read by the server from the Run alone (ADR-0010 §7). */
   quote(runId: string): Promise<{ readonly text: string; readonly html: string }>;
 }
@@ -75,6 +77,7 @@ export const httpXvaApi: XvaApi = {
   retry: (workspaceId, tradeId) => post(`${base(workspaceId)}/retry`, tradeId === undefined ? {} : { tradeId }),
   refresh: (workspaceId, revision) => post(`${base(workspaceId)}/refresh`, { revision }),
   vary: (workspaceId, revision, cell, values) => post(`${base(workspaceId)}/vary`, { revision, values, ...cell }),
+  addTrades: (workspaceId, revision) => post(`${base(workspaceId)}/add-trades`, { revision }),
   quote: (runId) => call(`/api/xva/runs/${encodeURIComponent(runId)}/quote`),
 };
 

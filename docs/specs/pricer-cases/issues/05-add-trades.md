@@ -8,9 +8,9 @@ every case of the set.
 
 **Blocked by:** 02.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Three new trades with A ticked make three cases, each After holding the existing members and one new trade.
-- [ ] A candidate in Before is refused by name and nothing is made.
-- [ ] Ticking a fourth new trade after the set was made refuses Price, naming it.
-- [ ] Each case's figures equal a Price of the workspace with only that new trade ticked.
+- [x] Three new trades with A ticked make three cases, each After holding the existing members and one new trade.
+- [x] A candidate in Before is refused by name and nothing is made.
+- [x] Ticking a new trade the set left out, after it was made, refuses Price, naming it.
+- [x] Each case's figures equal a Price of the workspace with only that new trade ticked.

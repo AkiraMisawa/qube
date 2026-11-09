@@ -13,6 +13,8 @@ export interface XvaPage {
   setSide(side: 'before' | 'after', value: boolean, grid?: 'new' | 'existing'): void;
   /** A case per value of a cell (`vary CSA-A threshold 10mm, 5mm, 0`, ADR-0010 §3, §9). */
   vary(cell: string, values: readonly string[]): void;
+  /** A case per New row with A ticked, each holding that trade alone (`add trades`, docs/03 §5). */
+  addTrades(): void;
   /** Removes a case with its changes, named by its title or id (`case remove`, ADR-0010 §3). */
   removeCase(name: string): void;
   /** Removes every case (`cases clear`). */

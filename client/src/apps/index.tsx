@@ -235,6 +235,14 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
       },
     },
     {
+      id: 'xva.trades.add',
+      words: 'add trades',
+      title: 'Make a case per new trade with A ticked, each priced alone on top of the existing trades',
+      group: 'XVA',
+      ...onXva,
+      run: () => xvaPage().addTrades(),
+    },
+    {
       id: 'xva.case.remove',
       words: 'case remove',
       title: 'Remove a case with its changes, by its title',

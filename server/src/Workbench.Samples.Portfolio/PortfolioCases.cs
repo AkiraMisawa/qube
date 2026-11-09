@@ -11,12 +11,16 @@ namespace Workbench.Samples.Portfolio;
 /// <summary>
 /// A case (ADR-0010 §3): the workspace plus its own changes, priced as one Before/After pair. <paramref name="Kind"/> is
 /// <c>base</c> for the workspace itself, <c>vary</c> for a case a value made, <c>add</c> for one trade of iterative
-/// addition, which names it in <paramref name="Trade"/>. <paramref name="Changes"/> counts its own edits.
+/// addition, which names it in <paramref name="Trade"/>. <paramref name="Changes"/> counts its own edits. A case of
+/// iterative addition says in <paramref name="Note"/> the common change to the existing trades it carries (docs/03 §5).
 /// </summary>
-public sealed record CaseView(string Id, string Title, string Kind, int Changes, string? Trade = null);
+public sealed record CaseView(string Id, string Title, string Kind, int Changes, string? Trade = null, string? Note = null);
 
 /// <summary>What <c>vary</c> did: the state it left, the cases it made by title, and each value it skipped with why.</summary>
 public sealed record VaryAnswer(WorkspaceState State, IReadOnlyList<string> Made, IReadOnlyList<string> Skipped);
+
+/// <summary>What <c>add trades</c> did: the state it left, the cases it made by title, and those of the set it replaced.</summary>
+public sealed record AddAnswer(WorkspaceState State, IReadOnlyList<string> Made, IReadOnlyList<string> Replaced);
 
 /// <summary>
 /// The cases of a portfolio workspace and how its layers compose (ADR-0010 §3 and its note of 2026-11-08). A case is a
@@ -42,11 +46,60 @@ public static class PortfolioCases
         [.. state.Created.Values.Where(c => Entity.Split(c.Entity).Kind == Entity.Case).OrderBy(c => c.Seq)];
 
     /// <summary>Every case Price prices, the Base first (ADR-0010 §3's note of 2026-11-08).</summary>
-    public static IReadOnlyList<CaseView> All(WorkspaceState state) =>
-        [new(BaseId, BaseTitle, "base", 0), .. Made(state).Select(c => new CaseView(Entity.Split(c.Entity).Id, Title(c), c.Fields["kind"]!.GetValue<string>(),
-            state.Overrides.Keys.Count(t => t.Layer == c.Entity), c.Fields["trade"]?.GetValue<string>()))];
+    public static IReadOnlyList<CaseView> All(WorkspaceState state)
+    {
+        var made = Made(state);
+        // Every case of iterative addition says the common change it carries (docs/03 §5), read from the Base now.
+        var common = made.Any(c => KindOf(c) == Add) ? CommonChange(Base(state)) : null;
+        return [new(BaseId, BaseTitle, "base", 0), .. made.Select(c => new CaseView(Entity.Split(c.Entity).Id, Title(c), KindOf(c),
+            state.Overrides.Keys.Count(t => t.Layer == c.Entity), c.Fields["trade"]?.GetValue<string>(), KindOf(c) == Add ? common : null))];
+    }
 
     static string Title(CreatedEntity c) => c.Fields["title"]!.GetValue<string>();
+
+    /// <summary>A case's kind: <c>vary</c> or <c>add</c>.</summary>
+    public static string KindOf(CreatedEntity c) => c.Fields["kind"]!.GetValue<string>();
+
+    /// <summary>The trades iterative addition prices alone, one per case, in the order their cases were made.</summary>
+    public static IReadOnlyList<string> AdditionSet(WorkspaceState state) =>
+        [.. Made(state).Where(c => KindOf(c) == Add).Select(c => c.Fields["trade"]!.GetValue<string>())];
+
+    /// <summary>
+    /// The common change every case of iterative addition carries (docs/03 §5): the existing trades whose After the Base
+    /// holds otherwise than their Before. Null where it holds none, so no case says a change it does not carry.
+    /// </summary>
+    public static string? CommonChange(WorkspaceState baseline)
+    {
+        var moved = PortfolioMaterialiser.Trades(baseline).Where(t => !t.IsNew && t.Before != t.After).ToList();
+        if (moved.Count == 0) return null;
+        static string Named(List<EffectiveTrade> trades) =>
+            trades.Count <= 3 ? $"existing {string.Join(", ", trades.Select(t => t.TradeId))}" : $"{trades.Count} existing trades";
+        var parts = new List<string>();
+        if (moved.Where(t => t.Before).ToList() is { Count: > 0 } outOf) parts.Add($"{Named(outOf)} out of After");
+        if (moved.Where(t => t.After).ToList() is { Count: > 0 } into) parts.Add($"{Named(into)} in After only");
+        return $"with {string.Join(" and ", parts)}";
+    }
+
+    /// <summary>
+    /// Refuses, naming the trades, a set of iterative addition that no longer matches the New rows with A ticked in the
+    /// Base, or that holds one in Before (docs/03 §5: never another set quietly). <c>add trades</c> again makes it anew.
+    /// </summary>
+    public static void CheckAdditionSet(WorkspaceState raw)
+    {
+        var set = AdditionSet(raw);
+        if (set.Count == 0) return;
+        var rows = PortfolioMaterialiser.Trades(Base(raw)).Where(t => t.IsNew).ToList();
+        var ticked = rows.Where(t => t.After).Select(t => t.TradeId).ToList();
+        static string Are(List<string> ids) => $"{string.Join(", ", ids)} {(ids.Count == 1 ? "is" : "are")}";
+        var problems = new List<string>();
+        if (ticked.Except(set).ToList() is { Count: > 0 } added) problems.Add($"{Are(added)} ticked and in no case");
+        if (set.Except(ticked).ToList() is { Count: > 0 } gone) problems.Add($"{Are(gone)} in a case and no longer ticked");
+        var before = rows.Where(t => t.Before && set.Contains(t.TradeId)).Select(t => t.TradeId).ToList();
+        if (before.Count > 0) problems.Add($"{Are(before)} in Before");
+        if (problems.Count > 0)
+            throw new WorkspaceRefused("AdditionSetChanged",
+                $"add trades prices {string.Join(", ", set)} alone, and {string.Join("; ", problems)}. Run add trades again to make the set anew{(before.Count > 0 ? ", with B clear on each" : "")}.");
+    }
 
     /// <summary>The Base: Original plus the Common edits. The state itself where no edit is in a layer.</summary>
     public static WorkspaceState Base(WorkspaceState state) => Reading(state, null);
@@ -67,7 +120,9 @@ public static class PortfolioCases
                 var mine = own.Select(o => o.Key).ToHashSet();
                 return common.Where(c => !mine.Contains(c.Key)).Concat(own).ToImmutableDictionary();
             }
-            var overrides = Read(state.Overrides, (o, t) => o with { Target = t });
+            // A case's edits come after every Common one, whenever made: where precedence goes by when an edit was made,
+            // as a row's B or A over its grid's (ADR-0010 §6), the case's still wins, since a case is the Base plus its own.
+            var overrides = Read(state.Overrides, (o, t) => o with { Target = t, Seq = state.Revision + o.Seq });
             var conflicts = Read(state.Conflicts, (c, t) => c with { Override = c.Override with { Target = t } });
             var lost = Read(state.Lost, (l, t) => l with { Override = l.Override with { Target = t } });
             // A field the case sets is the case's: a Common edit held back on it does not hold the case back.
@@ -152,8 +207,8 @@ public static partial class PortfolioCells
         new("curve", CellName.Form.Id, "curve", "discount curve"),
         new("imR", CellName.Form.OptionalId, "im-r", "imr"),
         new("imP", CellName.Form.OptionalId, "im-p", "imp"),
-        new("before", CellName.Form.Flag, "b", "before"),
-        new("after", CellName.Form.Flag, "a", "after"),
+        new("before", CellName.Form.Flag, "B", "before"),
+        new("after", CellName.Form.Flag, "A", "after"),
     ];
 
     /// <summary>
@@ -174,7 +229,7 @@ public static partial class PortfolioCells
         if (rows.Count > 1) throw new WorkspaceRefused("AmbiguousCell", $"{row.Trim()} names {string.Join(" and ", rows.Select(r => r.Entity))}.");
         var (id, entity, columns) = rows[0];
         var name = Words(column);
-        var found = columns.Where(c => c.Names.Any(n => n == name)).ToList();
+        var found = columns.Where(c => c.Names.Any(n => string.Equals(n, name, StringComparison.OrdinalIgnoreCase))).ToList();
         if (found.Count == 0)
             throw new WorkspaceRefused("UnknownCell", $"{id} has no column {column.Trim()}; its columns are {string.Join(", ", columns.Select(c => c.Names[0]))}.");
         if (found.Count > 1)

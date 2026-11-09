@@ -37,11 +37,11 @@ export function XvaChanges({ list, actions, focusRef }: {
           <Section title="Common" note={list.common.length === 0 ? 'No Common change: every case reads the source.' : undefined} />
           {list.common.map((c) => <Change key={`${c.entity}.${c.field}`} change={c} scope="Common" actions={actions} />)}
           {list.cases.map(({ case: c, changes }) => [
-            <Section key={c.id} title={c.title} kind={c.kind}
-              note={changes.length === 0 ? 'No change of its own: it prices as the Base.' : undefined}
+            <Section key={c.id} title={c.title} kind={c.kind} note={caseNote(c.note, changes.length)}
               action={<Button size="compact-xs" variant="default" onClick={() => actions.removeCase(c.id, c.title)}
                 aria-label={`Remove case ${c.title}`}>Remove case</Button>} />,
-            ...changes.map((change) => <Change key={`${c.id}.${change.entity}.${change.field}`} change={change} scope={c.title} actions={actions} />),
+            ...changes.map((change) => <Change key={`${c.id}.${change.entity}.${change.field}`} change={change} scope={c.title} actions={actions}
+              whole={c.kind === 'add'} />),
           ])}
         </Table.Tbody>
       </Table>
@@ -65,10 +65,19 @@ function Section({ title, kind, note, action }: { readonly title: string; readon
   );
 }
 
+/** What a case's row says beside its title: the common change a case of `add trades` carries, and that it has no change. */
+function caseNote(common: string | null, changes: number): string | undefined {
+  const notes = [...(common === null ? [] : [common]), ...(changes === 0 ? ['No change of its own: it prices as the Base.'] : [])];
+  return notes.length === 0 ? undefined : notes.join(' · ');
+}
+
 const HELD = { conflict: 'held: its source moved, resolve it above the grids', lost: 'lost: its row is not in this version' } as const;
 
-/** A change: its value typed again where it is a cell's and set, or said with why it is held. */
-function Change({ change, scope, actions }: { readonly change: ChangeItem; readonly scope: string; readonly actions: ChangeActions }) {
+/**
+ * A change: its value typed again where it is a cell's and set, or said with why it is held. A case of `add trades` is
+ * its membership and is removed whole (ADR-0010 §3's note of 2026-11-08), so its changes offer no removal of their own.
+ */
+function Change({ change, scope, actions, whole = false }: { readonly change: ChangeItem; readonly scope: string; readonly actions: ChangeActions; readonly whole?: boolean }) {
   const label = `${change.title} in ${scope}`;
   return (
     <Table.Tr data-state={change.state}>
@@ -81,7 +90,7 @@ function Change({ change, scope, actions }: { readonly change: ChangeItem; reado
       <Table.Td className="qwb-number-text">{change.originalText}</Table.Td>
       <Table.Td>
         {/* A conflict is resolved where it is shown, by keeping it or taking the source; it is no plain removal. */}
-        {change.state !== 'conflict' && (
+        {change.state !== 'conflict' && !whole && (
           <Button size="compact-xs" variant="default" onClick={() => actions.remove(change)} aria-label={`Remove ${label}`}>Remove</Button>
         )}
       </Table.Td>

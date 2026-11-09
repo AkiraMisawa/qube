@@ -389,6 +389,35 @@ test('ADR-0010 §3: the Changes tab counts every change, sets a case\'s value, a
   await expect(page.getByTestId('price')).toHaveText('Price CVA FVA · 1 case');
 });
 
+test('docs/03 §5, ADR-0010 §3: `add trades` makes a case per new trade alone, refuses one in Before by name, and Price refuses a set the rows left', async ({ page, problems }) => {
+  const refused = 'error: Failed to load resource: the server responded with a status of 422 (Unprocessable Entity)';
+  await open(page);
+  await newWorkspace(page, 'ABC/LE-01', 5);
+  await command(page, 'measures', 'cva fva');
+
+  await command(page, 'add trades');
+  await expect(page.getByTestId('notice')).toHaveText('Made 3 case(s): add DRAFT-1, add DRAFT-2, add DRAFT-3.');
+  await expect(page.getByTestId('price')).toHaveText('Price CVA FVA · 4 cases');
+  // B on every new trade after the set was made: Price says which trades left it, and prices nothing.
+  await command(page, 'before', 'all grid=new');
+  await command(page, 'price');
+  await expect(page.getByTestId('notice')).toHaveText('Price was refused: add trades prices DRAFT-1, DRAFT-2, DRAFT-3 alone, and DRAFT-1, DRAFT-2, DRAFT-3 are in Before. '
+    + 'Run add trades again to make the set anew, with B clear on each.');
+  // Made again, a candidate in Before is refused by name, never unticked.
+  await command(page, 'add trades');
+  await expect(page.getByTestId('notice')).toHaveText('add trades made no case: DRAFT-1, DRAFT-2, DRAFT-3 are in Before, and a new trade is priced alone only out of Before. '
+    + 'Clear B on them, or A to leave them out, then add trades again.');
+  expect(problems.splice(0)).toEqual([refused, refused]);
+
+  await command(page, 'before', 'none grid=new');
+  await command(page, 'add trades');
+  await expect(page.getByTestId('notice')).toHaveText('Made 3 case(s): add DRAFT-1, add DRAFT-2, add DRAFT-3; replaced add DRAFT-1, add DRAFT-2, add DRAFT-3.');
+  await command(page, 'price');
+  const result = page.getByTestId('xva-result');
+  await expect(result.getByTestId('xva-result-status')).toHaveText('succeeded');
+  await expect(result.getByRole('table', { name: 'Metrics' }).getByRole('rowheader')).toHaveText(['Base', 'add DRAFT-1', 'add DRAFT-2', 'add DRAFT-3']);
+});
+
 test('ADR-0010 §3: Vary values… on a CSA threshold\'s Context Menu makes three cases, by keyboard; a read-only cell offers none', async ({ page, problems }) => {
   await open(page);
   await newWorkspace(page, 'ABC/LE-01', 5);

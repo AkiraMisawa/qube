@@ -27,6 +27,8 @@ public static class XvaApi
     public sealed record VaryRequest(long Revision, IReadOnlyList<string> Values, string? Cell = null, string? Entity = null, string? Field = null);
     /// <summary>What <c>vary</c> made, by title, and each value it skipped with why.</summary>
     public sealed record Varied(PortfolioWorkspaceView Workspace, IReadOnlyList<string> Made, IReadOnlyList<string> Skipped);
+    /// <summary>What <c>add trades</c> made, by title, and the cases of the set it replaced (docs/03 §5).</summary>
+    public sealed record TradesAdded(PortfolioWorkspaceView Workspace, IReadOnlyList<string> Made, IReadOnlyList<string> Replaced);
     public sealed record ValueDateRequest(long Revision, DateOnly ValueDate);
     public sealed record CounterpartyRequest(long Revision, string Registration, int ConfirmedCount);
     public sealed record PriceRequest(long Revision, string IdempotencyKey);
@@ -100,6 +102,12 @@ public static class XvaApi
                 _ => throw new WorkspaceRefused("UnknownCell", "vary names a cell, or an entity and its field, and not both."),
             };
             return Results.Ok(new Varied(service.View(id, user.Id), answer.Made, answer.Skipped));
+        }));
+
+        ws.MapPost("/{id}/add-trades", (string id, CaseRequest request, CurrentUser user, PortfolioWorkspaces service) => Guard(() =>
+        {
+            var answer = service.AddTrades(id, request.Revision, user.Id);
+            return Results.Ok(new TradesAdded(service.View(id, user.Id), answer.Made, answer.Replaced));
         }));
 
         ws.MapGet("/{id}/changes", (string id, CurrentUser user, PortfolioWorkspaces service) =>
