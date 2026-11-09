@@ -1,4 +1,5 @@
-import type { RegisteredMeasure, ScenarioSetView } from './contracts';
+import type { Completion } from '../../platform/commands/commands';
+import type { CdsCatalogue, CdsCurve, RegisteredMeasure, ScenarioSetView } from './contracts';
 import type { DockTab } from './dock';
 import type { InputTab } from './XvaInputs';
 
@@ -7,6 +8,11 @@ import type { InputTab } from './XvaInputs';
 
 export interface XvaPage {
   price(): void;
+  /** The counterparty's CDS as written (`cds ABC USD SNR`, `cds proxy financials asia A`, `cds none`, ADR-0010 §8's note of
+   * 2026-11-09); the server reads it against its catalogue and says what it chose. */
+  chooseCds(text: string): void;
+  /** The CDS catalogue as last read, for the command line to offer; none until it has been read. */
+  cdsCatalogue(): CdsCatalogue | undefined;
   /** Sets the measures Price prices; the server refuses an unknown one, or none, by name. */
   setMeasures(measures: readonly string[]): void;
   /** B or A for every row of a grid (ADR-0010 §6); the grid the keyboard was last in when none is named. */
@@ -148,4 +154,29 @@ export function setTyped(text: string): { readonly rows: readonly string[]; read
   if (rest.length < 2 || value === undefined || rows.some((r) => r === ''))
     throw new Error('set needs a row, a column and a value, such as set CSA-A threshold 5mm; rows are separated by commas.');
   return { rows, column: rest.slice(0, -1).join(' '), text: value };
+}
+
+/**
+ * What `cds` offers for the word being typed (ADR-0010 §8's note of 2026-11-09), given every word typed so far: `none`,
+ * `proxy` and the single names' tickers first; after `proxy`, the sectors, regions and ratings it has none of yet; after a
+ * single name's word, the other words of the names it still matches. What the words choose is the server's to read; a
+ * line that names nothing, or several, is refused there by name.
+ */
+export function cdsCompletions(typed: string, catalogue: CdsCatalogue | undefined): readonly Completion[] {
+  if (catalogue === undefined) return [];
+  const words = typed.trim().toLowerCase().split(/\s+/).filter((w) => w !== '');
+  const is = (w: string, values: readonly string[]) => values.some((v) => v.toLowerCase() === w);
+  if (words[0] === 'proxy') {
+    const keys = [['sector', catalogue.sectors], ['region', catalogue.regions], ['rating', catalogue.ratings]] as const;
+    return keys.filter(([, values]) => !words.some((w) => is(w, values)))
+      .flatMap(([what, values]) => values.map((v) => ({ value: v, detail: `the proxy's ${what}` })));
+  }
+  const of = (c: CdsCurve) => [[c.ticker, c.reference], [c.currency, 'currency'], [c.seniority, 'seniority'], [c.docClause, 'doc clause']] as const;
+  const last = words[words.length - 1];
+  // The words before the one being typed are whole; the one being typed is whole once it is a word of a name.
+  const done = last !== undefined && catalogue.singleNames.some((c) => is(last, of(c).map(([w]) => w))) ? words : words.slice(0, -1);
+  const matching = catalogue.singleNames.filter((c) => done.every((w) => is(w, of(c).map(([x]) => x))));
+  const offered = new Map<string, string>(done.length === 0 ? [['none', 'no CDS: CVA is refused'], ['proxy', 'a sector, a region and a rating']] : []);
+  for (const c of matching) for (const [w, detail] of of(c)) if (!is(w.toLowerCase(), done) && !offered.has(w)) offered.set(w, detail);
+  return [...offered].map(([value, detail]) => ({ value, detail }));
 }

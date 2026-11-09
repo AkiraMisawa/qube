@@ -98,7 +98,7 @@ public sealed class XvaMeasures(Pv01Provider pv01, decimal fvaLimitGbp = 1_000_0
     };
 
     /// <summary>CVA's recovery on the Netting tab (ADR-0010 §8, §11): empty, the CDS recovery applies (XV15).</summary>
-    public IReadOnlyList<MeasureInput> Inputs { get; } = [new("netting", "cvaRecovery", Cva)];
+    public IReadOnlyList<MeasureInput> Inputs { get; } = [new("netting", "cvaRecovery", Cva), new("credit", "cds", Cva)];
 
     /// <summary>A trade's field for one of XVA's columns, as the trade grids and the frozen input name it.</summary>
     public static string Field(string column) => $"{Module}.{column}";

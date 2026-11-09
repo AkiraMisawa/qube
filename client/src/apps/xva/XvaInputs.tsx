@@ -3,12 +3,15 @@ import { Button, Group, Table, Tabs, Text, useMantineTheme } from '@mantine/core
 import { GridSource, type CellState, type GridColumn, type GridContextMenuContext, type GridEditIntent } from '@ex-grid/core';
 import type { ExGridApi } from '@ex-grid/react';
 import { WorkbenchGrid } from '../../platform/grid/WorkbenchGrid';
-import type { Agreement, ChangesList, EffectiveCsa, RegisteredMeasure, XvaWorkspaceView } from './contracts';
+import type { Agreement, CdsCatalogue, ChangesList, EffectiveCsa, RegisteredMeasure, XvaWorkspaceView } from './contracts';
+import { creditChanges, emptyRecovery, nettingChanges } from './credit';
+import { XvaCredit } from './XvaCredit';
+import { XvaSettings } from './XvaSettings';
 import { XvaChanges, type ChangeActions } from './XvaChanges';
 import { XvaScenarios, type ScenarioActions } from './XvaScenarios';
 import type { ShiftGridRow } from './scenarios';
 import { VARY_COMMAND, type VaryTarget } from './VaryDialog';
-import { csaFields, parseRecovery } from './editing';
+import { csaFields, parseRecovery, type SetText } from './editing';
 import { CommitField } from './fields';
 import { compactGridHeight, GRID_FRAME, partHeight, pixels } from './layout';
 import { declaring, membershipColumn } from './membership';
@@ -62,10 +65,11 @@ const csaColumnsOf = (agreement: Agreement, reading: readonly RegisteredMeasure[
 const csaCellState = (row: CsaRow, col: GridColumn<CsaRow>): CellState => (differs(row, col.name) ? 'modified' : 'normal');
 const csaCellMessage = (row: CsaRow, col: GridColumn<CsaRow>): string | undefined => originalMessage(row, col.name, row[col.name as keyof CsaRow]);
 
-/** The input tabs every page has (ADR-0010 §1), those a selected measure registers, spot IM's IM tab (ADR-0012 §3),
- * Scenarios, the market shifts Price prices beside the base market (ADR-0010 §4), and Changes, last, which lists every
- * change and case (ADR-0010 §3's note of 2026-11-08). */
-export type InputTab = 'netting' | 'csa' | 'im' | 'scenarios' | 'changes';
+/** The input tabs every page has (ADR-0010 §1), those a selected measure registers, CVA's Credit (§8's note of
+ * 2026-11-09) and spot IM's IM tab (ADR-0012 §3), Scenarios, the market shifts Price prices beside the base market
+ * (ADR-0010 §4), Settings, the selected modules' settings (§8), and Changes, last, which lists every change and case
+ * (ADR-0010 §3's note of 2026-11-08). */
+export type InputTab = 'netting' | 'csa' | 'credit' | 'im' | 'scenarios' | 'settings' | 'changes';
 
 /** The Scenarios tab (ADR-0010 §4). */
 export const SCENARIOS_TAB = 'scenarios' satisfies InputTab;
@@ -76,23 +80,37 @@ export const CHANGES_TAB = 'changes' satisfies InputTab;
 /** Spot IM's own tab, as its input names it (ADR-0012 §3). */
 export const IM_TAB = 'im' satisfies InputTab;
 
+/** CVA's Credit tab, as its input names it (ADR-0010 §8's note of 2026-11-09). */
+export const CREDIT_TAB = 'credit' satisfies InputTab;
+
+/** The Settings tab, shown while a selected module has a setting a selected measure needs (ADR-0010 §8). */
+export const SETTINGS_TAB = 'settings' satisfies InputTab;
+
 /** Each tab's title, as its tab and the page's words name it. */
-export const TAB_TITLES: Readonly<Record<InputTab, string>> = { netting: 'Netting', csa: 'CSA', im: 'IM', scenarios: 'Scenarios', changes: 'Changes' };
+export const TAB_TITLES: Readonly<Record<InputTab, string>> = {
+  netting: 'Netting', csa: 'CSA', credit: 'Credit', im: 'IM', scenarios: 'Scenarios', settings: 'Settings', changes: 'Changes',
+};
 
 /** Whether a tab is shown: Netting, CSA, Scenarios and Changes always, a measure's own while a selected measure needs it
- * (ADR-0010 §10). */
-export const tabShown = (ws: Pick<XvaWorkspaceView, 'inputs'>, tab: InputTab): boolean =>
-  tab === 'netting' || tab === 'csa' || tab === SCENARIOS_TAB || tab === CHANGES_TAB || ws.inputs.some((i) => i.tab === tab);
+ * (ADR-0010 §10), and Settings while a selected measure needs a setting (§8). */
+export const tabShown = (ws: Pick<XvaWorkspaceView, 'inputs' | 'settings'>, tab: InputTab): boolean =>
+  tab === 'netting' || tab === 'csa' || tab === SCENARIOS_TAB || tab === CHANGES_TAB
+  || (tab === SETTINGS_TAB ? ws.settings.length > 0 : ws.inputs.some((i) => i.tab === tab));
 
 /** The tab that shows for the one chosen: itself, or Netting where it is a measure's own and that measure went. */
-export const shownTab = (ws: Pick<XvaWorkspaceView, 'inputs'>, tab: InputTab): InputTab => (tabShown(ws, tab) ? tab : 'netting');
+export const shownTab = (ws: Pick<XvaWorkspaceView, 'inputs' | 'settings'>, tab: InputTab): InputTab => (tabShown(ws, tab) ? tab : 'netting');
 
 /**
  * The tabs, one open at a time and collapsible to their tab row (ADR-0010 §1). The page keeps which tab is open,
  * whether it is open and its height, so that a command opens a tab as a press does.
  */
-export function XvaInputs({ ws, push, onIssue, tab, onTab, open, onOpen, height, focusRequest, changeList, changeActions, scenarioActions, onVary, commandLabel }: {
+export function XvaInputs({ ws, push, setText, catalogue, onIssue, tab, onTab, open, onOpen, height, focusRequest, changeList, changeActions, scenarioActions, onVary, commandLabel }: {
   readonly ws: XvaWorkspaceView;
+  /** A value as written, for the server to read as the cell reads it (a spread, a setting), and the cell's title for what
+   * the page says if it is refused; answers whether it took it. */
+  readonly setText: SetText;
+  /** The CDS catalogue the Credit tab searches; none until it has been read. */
+  readonly catalogue: CdsCatalogue | undefined;
   /** The Changes tab's list, read while the tab is open; none until it has been read. */
   readonly changeList: ChangesList | undefined;
   readonly changeActions: ChangeActions;
@@ -121,6 +139,8 @@ export function XvaInputs({ ws, push, onIssue, tab, onTab, open, onOpen, height,
   const imCsas = useRef<HTMLDivElement>(null);
   const changesBody = useRef<HTMLDivElement>(null);
   const scenarioGrid = useRef<ExGridApi<ShiftGridRow>>(null);
+  const creditType = useRef<HTMLSelectElement>(null);
+  const firstSetting = useRef<HTMLInputElement>(null);
   const gap = pixels(useMantineTheme().spacing.xs);
   // The fields of these tabs the selected measures need (§10): CVA's recovery while CVA is selected.
   const needed = (tab: InputTab, field: string) => ws.inputs.some((i) => i.tab === tab && i.field === field);
@@ -133,6 +153,8 @@ export function XvaInputs({ ws, push, onIssue, tab, onTab, open, onOpen, height,
   const csaColumns = useMemo(() => csaColumnsOf(columnsNow.current.agreement, columnsNow.current.reading), [columnsKey]);
   // A measure's own tab shows while it is selected; the tab open when it went is Netting again.
   const imShown = tabShown(ws, IM_TAB);
+  const creditShown = tabShown(ws, CREDIT_TAB);
+  const settingsShown = tabShown(ws, SETTINGS_TAB);
   const shown = shownTab(ws, tab);
   useEffect(() => {
     if (focusRequest === 0) return;
@@ -140,13 +162,17 @@ export function XvaInputs({ ws, push, onIssue, tab, onTab, open, onOpen, height,
     else if (shown === IM_TAB) imCsas.current?.focus();
     else if (shown === CHANGES_TAB) changesBody.current?.focus();
     else if (shown === SCENARIOS_TAB) scenarioGrid.current?.focus();
+    else if (shown === CREDIT_TAB) creditType.current?.focus();
+    else if (shown === SETTINGS_TAB) firstSetting.current?.focus();
     else csaGrid.current?.focus();
   // Only a command's request moves the keyboard; a tab pressed keeps it where the press left it.
   }, [focusRequest]);
 
   // Each tab counts the values in it that differ from Original (ADR-0010 §1, §2).
   const csaChanges = changes(ws.csas);
-  const nettingChanges = changes([ws.credit]);
+  const nettingCount = nettingChanges(ws.credit);
+  const creditCount = creditChanges(ws.credit);
+  const settingsCount = ws.settings.reduce((n, m) => n + m.settings.filter((x) => x.changed).length, 0);
   const count = (n: number) => (n === 0 ? '' : ` ●${n}`);
 
   return (
@@ -154,13 +180,15 @@ export function XvaInputs({ ws, push, onIssue, tab, onTab, open, onOpen, height,
       className="qwb-xva-inputs" data-open={open}>
       <Group gap="xs" wrap="nowrap" className="qwb-xva-inputs-row">
         <Tabs.List className="qwb-xva-inputs-tabs" aria-label="Inputs">
-          <Tabs.Tab value="netting">{TAB_TITLES.netting}{count(nettingChanges)}</Tabs.Tab>
+          <Tabs.Tab value="netting">{TAB_TITLES.netting}{count(nettingCount)}</Tabs.Tab>
           <Tabs.Tab value="csa">{TAB_TITLES.csa}{count(csaChanges)}</Tabs.Tab>
+          {creditShown && <Tabs.Tab value={CREDIT_TAB} {...(ws.credit.missing == null ? {} : { color: 'red', title: ws.credit.missing })}>{TAB_TITLES.credit}{count(creditCount)}</Tabs.Tab>}
           {imShown && <Tabs.Tab value={IM_TAB}>{TAB_TITLES.im}</Tabs.Tab>}
           <Tabs.Tab value={SCENARIOS_TAB}>{TAB_TITLES.scenarios}{ws.scenarios.length === 0 ? '' : ` (${ws.scenarios.length})`}</Tabs.Tab>
+          {settingsShown && <Tabs.Tab value={SETTINGS_TAB}>{TAB_TITLES.settings}{count(settingsCount)}</Tabs.Tab>}
           <Tabs.Tab value={CHANGES_TAB}>{TAB_TITLES.changes}{count(ws.changes)}</Tabs.Tab>
         </Tabs.List>
-        <Button size="compact-xs" variant="subtle" ml="auto" aria-expanded={open} aria-controls={bodyId}
+        <Button size="compact-xs" variant="subtle" ml="auto" className="qwb-xva-inputs-toggle" aria-expanded={open} aria-controls={bodyId}
           onClick={() => onOpen(!open)}>{open ? 'Hide inputs' : 'Show inputs'}</Button>
       </Group>
       {open && (
@@ -181,7 +209,7 @@ export function XvaInputs({ ws, push, onIssue, tab, onTab, open, onOpen, height,
                     <Table.Td>{ws.agreement.maId}</Table.Td>
                     <Table.Td>{ws.agreement.enforceable ? 'Yes' : 'No'}</Table.Td>
                     {recoveryShown && <Table.Td>
-                      <CommitField label="CVA recovery" placeholder={`empty: CDS ${ws.credit.cdsRecovery}`}
+                      <CommitField label="CVA recovery" placeholder={emptyRecovery(ws.credit)}
                         value={ws.credit.cvaRecovery == null ? '' : String(ws.credit.cvaRecovery)} modified={differs(ws.credit, 'cvaRecovery')} description={originalMessage(ws.credit, 'cvaRecovery', ws.credit.cvaRecovery)}
                         parse={parseRecovery} onIssue={onIssue} inputRef={recovery}
                         onCommit={(value) => push(`netting:${ws.agreement.nettingSetId}`, 'cvaRecovery', value)} />
@@ -196,6 +224,12 @@ export function XvaInputs({ ws, push, onIssue, tab, onTab, open, onOpen, height,
               ? <Text size="sm">{ws.agreement.maId} has no CSA: its trades are uncollateralised ({ws.agreement.noCsa}).</Text>
               : <CsaGrid csas={ws.csas} columns={csaColumns} push={push} height={height - gap - GRID_FRAME} gridRef={csaGrid} onVary={onVary} commandLabel={commandLabel} />}
           </Tabs.Panel>
+          {creditShown && (
+            <Tabs.Panel value={CREDIT_TAB} pt="xs">
+              <XvaCredit credit={ws.credit} registration={ws.registration.key} catalogue={catalogue} push={push} setText={setText}
+                onVary={onVary} commandLabel={commandLabel} focusRef={creditType} />
+            </Tabs.Panel>
+          )}
           {imShown && (
             <Tabs.Panel value={IM_TAB} pt="xs">
               <ImCsas ws={ws} focusRef={imCsas} />
@@ -204,6 +238,11 @@ export function XvaInputs({ ws, push, onIssue, tab, onTab, open, onOpen, height,
           <Tabs.Panel value={SCENARIOS_TAB} pt="xs">
             <XvaScenarios shifts={ws.shifts} scenarios={ws.scenarios} actions={scenarioActions} height={height - gap - GRID_FRAME} gridRef={scenarioGrid} commandLabel={commandLabel} />
           </Tabs.Panel>
+          {settingsShown && (
+            <Tabs.Panel value={SETTINGS_TAB} pt="xs">
+              <XvaSettings settings={ws.settings} measures={ws.measures} push={push} setText={setText} focusRef={firstSetting} />
+            </Tabs.Panel>
+          )}
           <Tabs.Panel value={CHANGES_TAB} pt="xs">
             <XvaChanges list={changeList} actions={changeActions} focusRef={changesBody} />
           </Tabs.Panel>

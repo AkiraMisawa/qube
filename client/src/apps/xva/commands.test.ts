@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { ambiguousComma, measureNamed, measuresTyped, setTyped, varyTyped } from './commands';
-import type { RegisteredMeasure } from './contracts';
+import { ambiguousComma, cdsCompletions, measureNamed, measuresTyped, setTyped, varyTyped } from './commands';
+import type { CdsCatalogue, CdsCurve, RegisteredMeasure } from './contracts';
 
 describe('`measures` as typed (ADR-0010 §9)', () => {
   it('names a registered measure whatever its case, once each, in the order typed', () => {
@@ -71,5 +71,30 @@ describe('A list of values separated by commas (ADR-0010 §9, spine 1)', () => {
   it('reads a comma after a unit, or before a space, as a separator', () => {
     expect(ambiguousComma('10mm,5mm, 0')).toBeUndefined();
     expect(varyTyped('CSA-A threshold 10mm,5mm, 0').values).toEqual(['10mm', '5mm', '0']);
+  });
+});
+
+describe('`cds` completes from the catalogue (ADR-0010 §8\'s note of 2026-11-09)', () => {
+  const name = (ticker: string, currency: string, seniority: string): CdsCurve => ({
+    id: `${ticker}-${currency}-${seniority}`, type: 'singleName', ticker, currency, seniority, docClause: 'XR14', name: `${ticker} Holdings (synthetic)`, recovery: 0.4,
+    spreads: {}, reference: `${ticker} | ${currency} | ${seniority} | XR14 | ${ticker} Holdings (synthetic)`,
+  });
+  const catalogue: CdsCatalogue = {
+    singleNames: [name('ABC', 'USD', 'SNR'), name('ABC', 'JPY', 'SNR'), name('XYZ', 'USD', 'SUB')],
+    sectors: ['financials', 'utilities'], regions: ['asia'], ratings: ['A', 'BBB'], tenors: ['1y', '5y'],
+  };
+  const values = (typed: string) => cdsCompletions(typed, catalogue).map((c) => c.value);
+
+  it('offers none, proxy and the tickers first, then the other words of the names still matched', () => {
+    expect(values('')).toEqual(['none', 'proxy', 'ABC', 'USD', 'SNR', 'XR14', 'JPY', 'XYZ', 'SUB']);
+    expect(values('abc')).toEqual(['USD', 'SNR', 'XR14', 'JPY']);
+    expect(values('abc usd')).toEqual(['SNR', 'XR14']);
+    expect(cdsCompletions('', catalogue)[2]).toEqual({ value: 'ABC', detail: 'ABC | USD | SNR | XR14 | ABC Holdings (synthetic)' });
+  });
+
+  it('after proxy, offers the keys of the kinds it has none of yet; nothing before the catalogue is read', () => {
+    expect(values('proxy')).toEqual(['financials', 'utilities', 'asia', 'A', 'BBB']);
+    expect(values('proxy utilities a')).toEqual(['asia']);
+    expect(cdsCompletions('', undefined)).toEqual([]);
   });
 });

@@ -54,6 +54,8 @@
 /* The input tabs (ADR-0010 §1): the tab row, with Show or Hide inputs at its end; the open tab at the height its
    handle sets, scrolling inside it. */
 .qwb-xva-inputs-tabs { flex: 1 1 auto; min-width: 0; }
+/* The tabs wrap onto a second row on a phone; Show or Hide inputs keeps its words whole beside them. */
+.qwb-xva-inputs-toggle { flex: none; }
 .qwb-xva-inputs-body {
   height: var(--qwb-part-height);
   overflow: auto;
@@ -154,3 +156,9 @@
   .qwb-xva-scenarios-grid { width: 100%; }
   .qwb-xva-scenarios-list { flex-basis: auto; width: 100%; }
 }
+
+/* A date in a table cell is one line: 2026-10-26 never breaks at its hyphens. */
+.qwb-nowrap { white-space: nowrap; }
+
+/* The CDS reference reads whole: ticker | ccy | seniority | doc clause | name (ADR-0010 §8's note of 2026-11-09). */
+.qwb-xva-credit .qwb-toolbar-input--wide { width: min(30rem, 100%); }

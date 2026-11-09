@@ -42,11 +42,18 @@ describe('membership in words', () => {
 
 describe("spot IM's inputs (ADR-0012 §3)", () => {
   it('shows the IM tab only while a selected measure needs it; Netting and CSA always', () => {
-    const selected = { inputs: [{ tab: 'trades', field: 'imR', measure: spotIm }, { tab: 'im', field: 'imCsas', measure: spotIm }] };
+    const selected = { inputs: [{ tab: 'trades', field: 'imR', measure: spotIm }, { tab: 'im', field: 'imCsas', measure: spotIm }], settings: [] };
+    const none = { inputs: [], settings: [] };
     expect(tabShown(selected, 'im')).toBe(true);
-    expect(tabShown({ inputs: [] }, 'im')).toBe(false);
-    expect(tabShown({ inputs: [] }, 'netting')).toBe(true);
-    expect(tabShown({ inputs: [] }, 'csa')).toBe(true);
+    expect(tabShown(none, 'im')).toBe(false);
+    expect(tabShown(none, 'netting')).toBe(true);
+    expect(tabShown(none, 'csa')).toBe(true);
+  });
+
+  it('ADR-0010 §8\'s note of 2026-11-09: Credit shows while CVA needs it, Settings while a selected measure has a setting', () => {
+    const cva = { inputs: [{ tab: 'credit', field: 'cds', measure: 'cva' }], settings: [{ module: 'xva', title: 'XVA', settings: [] }] };
+    expect([tabShown(cva, 'credit'), tabShown(cva, 'settings')]).toEqual([true, true]);
+    expect([tabShown({ inputs: [], settings: [] }, 'credit'), tabShown({ inputs: [], settings: [] }, 'settings')]).toEqual([false, false]);
   });
 
   it('reads an IM CSA as typed, and empty as none in that direction, never a made-up ID', () => {

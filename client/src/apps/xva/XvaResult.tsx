@@ -89,8 +89,9 @@ export function XvaResult({ runId, pricedRevision, revision, register, selected,
   const market = markets.find((m) => m.key === scenario) ?? BASE_MARKET;
   const table = all === undefined ? undefined : inMarket(all, market.key);
   const grid = table === undefined ? undefined : metricsGrid(table);
-  // A measure priced on no side has no trace to draw: its tab says why, as the Metrics do (ADR-0012 §1).
-  const unpriced = shown.view === 'metrics' ? undefined : unpricedReasons(table, shown.measure);
+  // A measure priced on no side has no trace to draw: its tab says why, as the Metrics do (ADR-0012 §1). A tab of several
+  // measures, such as Risks, says for each why it has nothing, from the request's own rows.
+  const unpriced = shown.view === 'trace' ? unpricedReasons(table, shown.measure) : undefined;
   const simulated = datasets.some((d) => d.data?.provenance.executionMode === 'simulated');
   const counts = table === undefined ? [] : tradeCounts(table);
   const behind = pricedRevision !== undefined && pricedRevision < revision;
@@ -185,7 +186,7 @@ export function XvaResult({ runId, pricedRevision, revision, register, selected,
             ? <Text size="sm">The {shown.title} tab draws once the Run has finished.</Text>
             : unpriced !== undefined
               ? <Stack gap={0} data-testid="xva-result-tab-unpriced">{unpriced.map((r) => <Text key={r.text} size="sm" {...(r.failed ? { c: 'red' } : {})}>{r.text}</Text>)}</Stack>
-              : renderTab(shown, conversionOf(table, shown.measure), inView, market.key)}
+              : renderTab(shown, shown.view === 'trace' ? conversionOf(table, shown.measure) : undefined, inView, market.key)}
         </div>
       )}
       {open && shown.view === 'metrics' && (

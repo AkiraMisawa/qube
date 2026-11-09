@@ -8,18 +8,28 @@ import { reasons, type MetricsTable } from './metrics';
 /** A tab of the dock: Metrics, or a measure's own with the measure it draws. */
 export type DockTab = { readonly id: 'metrics'; readonly title: 'Metrics'; readonly view: 'metrics' } | MeasureTab;
 
-/** A tab a measure registers, with the measure it draws. */
-export type MeasureTab = ResultTab & { readonly measure: string };
+/**
+ * A tab measures register, with the measures it draws: one for a trace, which is one measure's, or several for a tab
+ * several register under one id, such as CVA's and FVA's Risks, drawn once (ADR-0010 §8's note of 2026-11-09). `measure`
+ * is the first of them.
+ */
+export type MeasureTab = ResultTab & { readonly measure: string; readonly measures: readonly string[] };
 
 export const METRICS_TAB: DockTab = { id: 'metrics', title: 'Metrics', view: 'metrics' };
 
 /**
  * Metrics, then the tabs of each measure both selected and priced, in the register's order; Metrics alone where the
- * Run names no measures.
+ * Run names no measures. A tab several measures register is one tab, where the first of them puts it, listing each.
  */
 export function dockTabs(register: readonly RegisteredMeasure[], priced: readonly string[] | undefined, selected: readonly string[]): readonly DockTab[] {
   if (priced === undefined) return [METRICS_TAB];
-  return [METRICS_TAB, ...register.filter((m) => priced.includes(m.id) && selected.includes(m.id)).flatMap((m) => m.tabs.map((t) => ({ ...t, measure: m.id })))];
+  const tabs = new Map<string, MeasureTab>();
+  for (const m of register.filter((r) => priced.includes(r.id) && selected.includes(r.id)))
+    for (const t of m.tabs) {
+      const seen = tabs.get(t.id);
+      tabs.set(t.id, seen === undefined ? { ...t, measure: m.id, measures: [m.id] } : { ...seen, measures: [...seen.measures, m.id] });
+    }
+  return [METRICS_TAB, ...tabs.values()];
 }
 
 /**
