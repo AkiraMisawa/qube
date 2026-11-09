@@ -98,4 +98,18 @@ public class PricerCommandTests(WorkbenchFactory factory) : IClassFixture<Workbe
         Assert.Equal("UnknownCell", error["code"]!.GetValue<string>());
         Assert.StartsWith("No row CSA-Z: a row is a CSA (CSA-A, CSA-B", error["message"]!.GetValue<string>());
     }
+
+    [Fact] // ADR-0010 §9, spine 1: a comma between two digits could be a separator of values or of thousands, so the list is refused, never read either way
+    public async Task A_comma_between_two_digits_is_refused_never_split_as_a_guess()
+    {
+        var id = (await Create())["workspaceId"]!.GetValue<string>();
+
+        var response = await Command("xva.vary", new JsonObject { ["workspaceId"] = id, ["cell"] = "CSA-A threshold", ["values"] = "10,000k, 5mm" });
+
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        var error = (await response.Content.ReadFromJsonAsync<JsonObject>())!;
+        Assert.Equal(("NothingToVary", "10,000k could be one value or two: a comma separates values here, so write an amount without separators, such as 10000k or 10mm."),
+            (error["code"]!.GetValue<string>(), error["message"]!.GetValue<string>()));
+        Assert.Equal(["Base"], (await View(id))["cases"]!.AsArray().Select(c => c!["title"]!.GetValue<string>()));
+    }
 }

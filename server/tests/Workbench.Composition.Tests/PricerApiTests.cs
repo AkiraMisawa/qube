@@ -137,6 +137,11 @@ public class PricerApiTests(WorkbenchFactory factory) : IClassFixture<WorkbenchF
         var error = (await response.Content.ReadFromJsonAsync<JsonObject>())!;
         Assert.Equal(("UnknownCell", "Name a cell as its row and its column, such as CSA-A threshold; CSA-A is one word."),
             (error["code"]!.GetValue<string>(), error["message"]!.GetValue<string>()));
+        // A body with no values, or a set with no rows, is refused as it arrives, before anything reads it.
+        var none = await Post(ws, "vary", new { revision = Revision(ws), cell = "CSA-A threshold" });
+        var rowless = await Post(ws, "set", new { revision = Revision(ws), column = "threshold", text = "5mm" });
+        Assert.Equal(HttpStatusCode.BadRequest, none.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, rowless.StatusCode);
     }
 
     [Fact] // ADR-0010 §10, §11, ADR-0013 §1, ADR-0012 §7's note: the workspace lists the registered measures, and the request that prices each

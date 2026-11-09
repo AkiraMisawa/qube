@@ -125,6 +125,22 @@ public class PricerCaseTests
         Assert.True(Row(rows, raised, "fva")["tradesAfter"]!.GetValue<int>() > Row(rows, "base", "fva")["tradesAfter"]!.GetValue<int>());
     }
 
+    [Fact] // ADR-0010 §3: a case's change of a new trade's own field wins over the Common edit of it, whatever scope each is kept in
+    public async Task A_cases_change_of_a_new_trades_own_field_wins_over_the_common_edit()
+    {
+        var (service, runs, store) = Priced();
+        var ws = service.Create("akira", "ABC/LE-01", Day1, 40);
+        // A new trade's own content is kept in its own scope, so it stays when the counterparty changes; a case's is the counterparty's.
+        ws = service.Edit(ws.WorkspaceId, ws.Revision, "akira", "trade:DRAFT-1", "notional", 30_000_000m);
+        ws = service.Vary(ws.WorkspaceId, ws.Revision, "akira", "DRAFT-1 notional", ["10mm"]).State;
+
+        var (input, _, _) = await Price(runs, store, service, ws);
+
+        decimal Notional(PricedCase c) => c.Input["trades"]!.AsArray().Single(t => t!["tradeId"]!.GetValue<string>() == "DRAFT-1")!["notional"]!.GetValue<decimal>();
+        Assert.Equal([30_000_000m, 10_000_000m], PortfolioInput.Cases(input).Select(Notional));
+        Assert.Equal(30_000_000m, service.Page(ws.WorkspaceId, "akira", 0, 10, [], "new").Rows.Single(t => t.TradeId == "DRAFT-1").Notional);
+    }
+
     [Fact] // ADR-0010 §3: a case is the Base plus its own change; its value wins on a field the Base edits too, and the Base's other edits are in every case
     public async Task A_case_reads_the_base_with_its_own_change_winning()
     {
@@ -492,5 +508,33 @@ public class PricerCaseTests
             $"CSA-A threshold 200mm: CVA Charge {Diff(raised, "cvaCharge")} · PV {Diff(raised, "pv")}",
         ], quote.Text.Split('\n').Select(l => l.TrimEnd('\r')).Skip(2));
         Assert.Contains("<td>CSA-A threshold 200mm</td>", quote.Html);
+    }
+
+    [Theory] // ADR-0010 §9, spine 1: a value is written in the form a cell reads back to the same value, never bare where bare is millions
+    [InlineData(500, "0.5k")]
+    [InlineData(1_234.567, "1.234567k")]
+    [InlineData(5_000_000, "5mm")]
+    [InlineData(1_234_567, "1.234567mm")]
+    [InlineData(-2_500_000, "-2.5mm")]
+    [InlineData(1_500_000_000, "1.5bn")]
+    [InlineData(0, "0")]
+    public void An_amount_is_written_as_it_reads_back(double amount, string written)
+    {
+        var cell = new CellName("csa:CSA-A", "counterpartyMta", "CSA-A", "mta", CellName.Form.SignedAmount);
+        var value = JsonValue.Create((decimal)amount);
+
+        Assert.Equal(written, PortfolioCells.Write(cell, value));
+        Assert.Equal((decimal)amount, PortfolioCells.Read(cell, written)!.GetValue<decimal>());
+    }
+
+    [Fact] // ADR-0010 §3: a workspace with cases is read through a reading; read as stored, it is refused, never read as some layer's value
+    public void A_workspace_with_cases_is_read_through_a_reading_only()
+    {
+        var (service, _, _) = Priced();
+        var ws = service.Create("akira", "ABC/LE-01", Day1, 40);
+        ws = service.Vary(ws.WorkspaceId, ws.Revision, "akira", "CSA-A threshold", ["5mm"]).State;
+
+        Assert.Throws<InvalidOperationException>(() => PortfolioMaterialiser.Csas(ws));
+        Assert.Equal(0m, PortfolioMaterialiser.Csas(PortfolioCases.Base(ws)).Single(c => c.CsaId == "CSA-A").CounterpartyThreshold);
     }
 }

@@ -9,6 +9,7 @@ describe('Vary values… reads its list as typed (ADR-0010 §3)', () => {
   it('refuses an empty list and an empty value rather than send a guess', () => {
     expect(valuesTyped('  ')).toEqual({ ok: false, message: 'Type one value or more, separated by commas.' });
     expect(valuesTyped('5mm,,10mm')).toEqual({ ok: false, message: 'A value between two commas is empty.' });
+    expect(valuesTyped('1,000k, 5mm')).toEqual({ ok: false, message: '1,000k could be one value or two: a comma separates values here, so write an amount without separators, such as 10000k or 10mm.' });
   });
 });
 

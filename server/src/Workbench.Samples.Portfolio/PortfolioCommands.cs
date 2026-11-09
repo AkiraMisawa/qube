@@ -1,4 +1,5 @@
 using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
 using Workbench.Composition.Application;
 using Workbench.Composition.Application.Workspaces;
 using Workbench.Composition.Contracts;
@@ -11,13 +12,26 @@ namespace Workbench.Samples.Portfolio;
 /// and goes through the same workspace service, so its checks and its answer are the command line's; what it does is in
 /// the workspace's log with the caller's origin.
 /// </summary>
-public static class PortfolioCommandContracts
+public static partial class PortfolioCommandContracts
 {
     public const string VaryRequest = "xva.vary-request";
     public const string TradesAddRequest = "xva.trades-add-request";
     public const string SetRequest = "xva.set-request";
     public const string CasesMade = "xva.cases-made";
     public const string Edited = "xva.workspace-edited";
+
+    /// <summary>
+    /// A list of values as written, separated by commas, as the command line reads it. A comma between two digits could
+    /// separate two values or the thousands of one (<c>10,000k</c>), so such a list is refused rather than read either way.
+    /// </summary>
+    public static IReadOnlyList<string> ValuesOf(string text) =>
+        CommaBetweenDigits().Match(text) is { Success: true } ambiguous
+            ? throw new WorkspaceRefused("NothingToVary",
+                $"{ambiguous.Value} could be one value or two: a comma separates values here, so write an amount without separators, such as 10000k or 10mm.")
+            : [.. text.Split(',').Select(v => v.Trim())];
+
+    [GeneratedRegex(@"[^\s,]*\d(?:,\d[^\s,]*)+")]
+    private static partial Regex CommaBetweenDigits();
 
     /// <summary>What vary says back, in the command line's words.</summary>
     public static string Varied(VaryAnswer answer) =>
@@ -41,7 +55,7 @@ public sealed class PortfolioVary(Func<PortfolioWorkspaces> workspaces) : ICapab
     public Task<IReadOnlyDictionary<string, JsonNode?>> InvokeAsync(CapabilityInvocation invocation, CancellationToken cancellationToken) =>
         PortfolioCommand.Run(invocation, workspaces, (service, request, caller, revision) =>
         {
-            var values = PortfolioCommand.Text(request, "values").Split(',').Select(v => v.Trim()).ToList();
+            var values = PortfolioCommandContracts.ValuesOf(PortfolioCommand.Text(request, "values"));
             var answer = service.Vary(PortfolioCommand.Text(request, "workspaceId"), revision, caller.UserId, PortfolioCommand.Text(request, "cell"), values, caller.Origin);
             return (answer.State, answer.Made.Count, PortfolioCommandContracts.Varied(answer));
         });

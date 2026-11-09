@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Button, Group, Modal, Stack, Text, TextInput } from '@mantine/core';
+import { ambiguousComma } from './commands';
 import type { TradesAdded, Varied } from './contracts';
 
 // *Vary values…* (ADR-0010 §3): the cell's Context Menu opens this for a list of values, and the cases made are those
@@ -27,6 +28,8 @@ export const addedText = ({ made, replaced }: Pick<TradesAdded, 'made' | 'replac
 
 /** The values as typed, separated by commas; an empty one is refused here, never sent as a guess. */
 export function valuesTyped(text: string): { readonly ok: true; readonly values: readonly string[] } | { readonly ok: false; readonly message: string } {
+  const ambiguous = ambiguousComma(text);
+  if (ambiguous !== undefined) return { ok: false, message: ambiguous };
   const values = text.split(',').map((v) => v.trim());
   if (values.length === 0 || values.every((v) => v === '')) return { ok: false, message: 'Type one value or more, separated by commas.' };
   if (values.some((v) => v === '')) return { ok: false, message: 'A value between two commas is empty.' };

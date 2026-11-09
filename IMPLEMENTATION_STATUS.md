@@ -586,11 +586,65 @@ As step 2: the CRIF comes from the fake Rates provider, the SIMM parameters are 
 - The view's settings are kept per view for the session and are not saved.
 - A trade in the entity grid does not yet go to its row in the trade grids (ADR-0011 §6's leaf action).
 
+## Cases, ADR-0010 Delivery step 2 (tickets 01–08, 2026-11-09)
+
+### What runs
+
+- **The kernel's edit gains a layer** (spec `docs/specs/pricer-cases`): an edit target is a scope, an entity, a field
+  and an optional layer, persisted, carried and refused as before; removing a created entity can remove a layer's
+  edits in one log entry. The portfolio module, not the kernel, says how layers compose.
+- **A case** is a created entity in the counterparty's scope with its changes in its own layer. The Base is Original
+  plus the Common edits; a case reads the Base plus its own, its edit winning on the same field of the same entity in
+  whatever scope each is kept, and coming after every Common edit (a row's B or A over a later grid edit). The page
+  shows the Base. A state with layers is refused by the materialisers unless read through a reading.
+- **`vary CSA-A threshold 10mm, 5mm, 0`**, and *Vary values…* on an editable cell's Context Menu (the CSA grid and both
+  trade grids): a case per value, named from its change; the workspace's own value and a case already made are
+  skipped and said. A comma between two digits is refused rather than split as a guess.
+- **`add trades`** (docs/03 §5): a case per New row with A ticked, each that trade alone over the existing trades. A
+  candidate in Before is refused by name and nothing is made; making it again replaces the set. Price refuses, naming
+  the trades, a set the ticked rows no longer match, and each case's title says a common change to the existing trades.
+- **`set <rows> <column> <value>`**: a typed cell's edit in the Base, on each row named, all or none.
+- **Price** prices the Base and every case in one Run, one request per module holding every case (XVA, spot IM, spot
+  CCR capital); the cap counts the Base (50, `Portfolio:CaseCap`) and Price over it says by how much. The Metrics have
+  a row per case; Copy quote a line per case.
+- **The Changes tab**: every Common change, then each case with its own, against Original; a value typed again or
+  removed, a case removed whole (`case remove`, `cases clear`). A case of `add trades` is changed only whole.
+- **The SIMM and CCR tabs** draw the case in view: a case's Metrics cell opens its tab on that case, and the dock's
+  case selector moves it.
+- **The AI**: `xva.vary`, `xva.trades.add` and `xva.set` are command capabilities with the command line's fields and
+  words, logged with origin `ai`; the AI pane names the XVA workspace in view, and the page reads its grids again for a
+  revision someone else made.
+
+### Verification performed
+
+| Suite | Result |
+|---|---|
+| `dotnet test server/Workbench.slnx` | 504 passed: cases against the value typed into the workspace for XVA, spot IM and spot CCR capital, layering and its precedence, the frozen input, the cap, the Changes list, `add trades` against each trade priced alone, `set`, the commands over HTTP and as agent tools, and the review's cases |
+| `npm run typecheck`, `npx vitest run` | Clean; 160 passed |
+| `npx playwright test` (Chromium, headless, Linux) | 39 passed before the review's fixes; the tests each ticket added with `--repeat-each=3`: `vary`, the Changes tab, *Vary values…* by keyboard, `add trades`, `set`, and the SIMM tab's case selector |
+
+Code review (`/code-review`, high) found a case over a new trade's own Common edit crashing Price (the two were kept in
+different scopes and met as two edits of one field), a list split on a thousands separator into two plausible cases,
+an amount under 1,000 written bare and read back as millions, a reading cache keyed by the revision, a held change
+offered as editable, one equality rule written twice, and this file not updated; all fixed, each with a test.
+
+### Providers
+
+As step 1: every figure is simulated and says so.
+
+### Known limits
+
+- Scenarios (step 4) are not built: a case is priced on the unshifted market only.
+- Side-only changes within a case (Advanced, step 3) are not built: a case's change applies to both sides.
+- The scripted agent has no XVA requests; the commands are reached by a model through their tools.
+- `add trades <ids>` (trades by pasted IDs) is not built.
+
 ## Next
 
-1. ADR-0010 Delivery step 2: cases (`vary`, iterative individual addition, the changes panel).
-2. MVA with SIMM (`docs/12-implementation-plan.md` P2): spot IM from the XVA request's MVA option.
-3. The owner's review of ADR-0003 §7 (scopes, carry and conflict), then a synthetic source change that can produce a conflict, and the browser cases still open above (reload, failed case unavailable).
-4. Rates.
-5. ME-ID sign-in through MSAL (C30) and the visibility rules (C31, C32); AI over AG-UI with the company's Copilot behind the adapter port (C34).
-6. Slice 01b: Save and Pin (CO06), and the browser parts of CO03 and CO04.
+1. ADR-0010 Delivery step 4: scenarios.
+2. ADR-0010 Delivery step 5: the Credit and Settings tabs, Risks and Profile.
+3. MVA with SIMM (`docs/12-implementation-plan.md` P2): spot IM from the XVA request's MVA option.
+4. The owner's review of ADR-0003 §7 (scopes, carry and conflict), then a synthetic source change that can produce a conflict, and the browser cases still open above (reload, failed case unavailable).
+5. Rates.
+6. ME-ID sign-in through MSAL (C30) and the visibility rules (C31, C32); AI over AG-UI with the company's Copilot behind the adapter port (C34).
+7. Slice 01b: Save and Pin (CO06), and the browser parts of CO03 and CO04.

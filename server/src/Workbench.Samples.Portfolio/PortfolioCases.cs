@@ -55,7 +55,8 @@ public static class PortfolioCases
             state.Overrides.Keys.Count(t => t.Layer == c.Entity), c.Fields["trade"]?.GetValue<string>(), KindOf(c) == Add ? common : null))];
     }
 
-    static string Title(CreatedEntity c) => c.Fields["title"]!.GetValue<string>();
+    /// <summary>A case's title, as it was made.</summary>
+    public static string Title(CreatedEntity c) => c.Fields["title"]!.GetValue<string>();
 
     /// <summary>A case's kind: <c>vary</c> or <c>add</c>.</summary>
     public static string KindOf(CreatedEntity c) => c.Fields["kind"]!.GetValue<string>();
@@ -104,36 +105,48 @@ public static class PortfolioCases
     /// <summary>The Base: Original plus the Common edits. The state itself where no edit is in a layer.</summary>
     public static WorkspaceState Base(WorkspaceState state) => Reading(state, null);
 
-    /// <summary>A case's reading, or the Base's for <c>base</c> or null.</summary>
+    /// <summary>
+    /// A case's reading, or the Base's for <c>base</c> or null. A case's own edit wins over a Common one on the same field
+    /// of the same entity, whatever scope each is kept in: a new trade's own content is kept in its own scope, a case's
+    /// change in the counterparty's (<see cref="PortfolioEditRules.Target"/>).
+    /// </summary>
     public static WorkspaceState Reading(WorkspaceState state, string? caseId)
     {
         var layer = caseId is null or BaseId ? null : Of(caseId);
         if (layer is null && !Layered(state)) return state;
         return Readings.GetOrCreateValue(state).GetOrAdd(layer ?? "", _ =>
         {
-            ImmutableDictionary<EditTarget, T> Read<T>(ImmutableDictionary<EditTarget, T> items, Func<T, EditTarget, T> retarget)
-            {
-                var common = items.Where(i => i.Key.Layer is null);
-                if (layer is null) return common.ToImmutableDictionary();
-                // The case's own edit wins over the Common one on its field.
-                var own = items.Where(i => i.Key.Layer == layer).Select(i => KeyValuePair.Create(i.Key with { Layer = null }, retarget(i.Value, i.Key with { Layer = null }))).ToList();
-                var mine = own.Select(o => o.Key).ToHashSet();
-                return common.Where(c => !mine.Contains(c.Key)).Concat(own).ToImmutableDictionary();
-            }
+            // The fields the case holds an edit of, applied or held: on those the Common edit is not the case's value.
+            var mine = layer is null ? [] : state.Overrides.Keys.Concat(state.Conflicts.Keys).Concat(state.Lost.Keys)
+                .Where(k => k.Layer == layer).Select(k => (k.Entity, k.Field)).ToHashSet();
+            ImmutableDictionary<EditTarget, T> Read<T>(ImmutableDictionary<EditTarget, T> items, Func<T, EditTarget, T> retarget) =>
+                items.Where(i => i.Key.Layer is null && !mine.Contains((i.Key.Entity, i.Key.Field)))
+                    .Concat(layer is null ? [] : items.Where(i => i.Key.Layer == layer)
+                        .Select(i => KeyValuePair.Create(i.Key with { Layer = null }, retarget(i.Value, i.Key with { Layer = null }))))
+                    .ToImmutableDictionary();
             // A case's edits come after every Common one, whenever made: where precedence goes by when an edit was made,
             // as a row's B or A over its grid's (ADR-0010 §6), the case's still wins, since a case is the Base plus its own.
-            var overrides = Read(state.Overrides, (o, t) => o with { Target = t, Seq = state.Revision + o.Seq });
+            // The offset is fixed, so a reading's edits keep their order and the same reading the same numbers.
+            var overrides = Read(state.Overrides, (o, t) => o with { Target = t, Seq = CaseSeq + o.Seq });
+            // A Common edit held back on a field the case holds is not the case's, and the case's own held edits are.
             var conflicts = Read(state.Conflicts, (c, t) => c with { Override = c.Override with { Target = t } });
             var lost = Read(state.Lost, (l, t) => l with { Override = l.Override with { Target = t } });
-            // A field the case sets is the case's: a Common edit held back on it does not hold the case back.
-            if (layer is not null)
-            {
-                var own = overrides.Keys.Where(k => state.Overrides.ContainsKey(k with { Layer = layer })).ToHashSet();
-                conflicts = conflicts.RemoveRange(own);
-                lost = lost.RemoveRange(own);
-            }
             return state with { Overrides = overrides, Conflicts = conflicts, Lost = lost };
         });
+    }
+
+    // Above every sequence number a log will reach.
+    const long CaseSeq = 1L << 48;
+
+    /// <summary>
+    /// Refuses a state whose edits are in layers where a reading is wanted: the materialisers read one edit per field,
+    /// which only a reading (<see cref="Base"/>, <see cref="Reading"/>) gives. A call site that forgets is a defect, said
+    /// at once rather than read as some layer's value.
+    /// </summary>
+    public static void Unlayered(WorkspaceState state)
+    {
+        if (Layered(state))
+            throw new InvalidOperationException("A workspace with cases is read through PortfolioCases.Base or PortfolioCases.Reading, never as it is stored.");
     }
 
     static bool Layered(WorkspaceState state) =>
@@ -150,16 +163,6 @@ public static class PortfolioCases
         var each = All(state).Select(c => PortfolioMaterialiser.PricedEntities(Reading(state, c.Id))).ToList();
         return entity => each.Any(priced => priced(entity));
     }
-
-    /// <summary>Whether two values an edit writes are the same value: numbers by value, whatever their written form.</summary>
-    public static bool Same(JsonNode? a, JsonNode? b) => (a, b) switch
-    {
-        (null, null) => true,
-        (null, _) or (_, null) => false,
-        (JsonValue x, JsonValue y) when x.GetValueKind() == System.Text.Json.JsonValueKind.Number && y.GetValueKind() == System.Text.Json.JsonValueKind.Number =>
-            x.GetValue<decimal>() == y.GetValue<decimal>(),
-        _ => JsonNode.DeepEquals(a, b),
-    };
 
     /// <summary>A case's own edits, each with its value: what makes it that case.</summary>
     public static IReadOnlyList<Override> ChangesOf(WorkspaceState state, string caseId) =>
@@ -274,8 +277,11 @@ public static partial class PortfolioCells
         _ => null,
     };
 
-    /// <summary>A value as the Changes tab and a case's title write it, in the form <see cref="Read"/> reads back: an amount
-    /// as ADR-0008 writes it (5mm, 250k, 1.5bn), a rate in %, a flag on or off, empty for none.</summary>
+    /// <summary>
+    /// A value as the Changes tab and a case's title write it, in the form <see cref="Read"/> reads back to the same value:
+    /// an amount as ADR-0008 writes it (5mm, 250k, 1.5bn), never bare, since a bare number is read as millions, and with
+    /// every decimal it has; a rate in %; a flag on or off; empty for none.
+    /// </summary>
     public static string Write(CellName cell, JsonNode? value)
     {
         if (value is null) return "empty";
@@ -284,20 +290,23 @@ public static partial class PortfolioCells
             case CellName.Form.Amount or CellName.Form.SignedAmount:
             {
                 var n = value.GetValue<decimal>();
-                foreach (var (scale, unit) in new[] { (1_000_000_000m, "bn"), (1_000_000m, "mm"), (1_000m, "k") })
-                    if (Math.Abs(n) >= scale && n % (scale / 1_000m) == 0) return $"{(n / scale).ToString("0.###", CultureInfo.InvariantCulture)}{unit}";
-                return n == 0 ? "0" : n.ToString("#,0.##", CultureInfo.InvariantCulture);
+                if (n == 0) return "0";
+                var (scale, unit) = Math.Abs(n) >= 1_000_000_000m ? (1_000_000_000m, "bn") : Math.Abs(n) >= 1_000_000m ? (1_000_000m, "mm") : (1_000m, "k");
+                return $"{Exact(n / scale)}{unit}";
             }
             case CellName.Form.Rate:
-                return $"{(value.GetValue<decimal>() * 100m).ToString("0.####", CultureInfo.InvariantCulture)}%";
+                return $"{Exact(value.GetValue<decimal>() * 100m)}%";
             case CellName.Form.Number:
-                return value.GetValue<decimal>().ToString("0.##########", CultureInfo.InvariantCulture);
+                return Exact(value.GetValue<decimal>());
             case CellName.Form.Flag:
                 return value.GetValue<bool>() ? "on" : "off";
             default:
                 return value.GetValue<string>();
         }
     }
+
+    // Every decimal a value has, and no trailing zero: written back, it reads as the same value.
+    static string Exact(decimal n) => n.ToString("0.############################", CultureInfo.InvariantCulture);
 
     // A module's typed trade column (ADR-0010 §10) is named by its id or its title, such as XVA's Margin.
     static IReadOnlyList<Column> Trade(MeasureRegister register) =>

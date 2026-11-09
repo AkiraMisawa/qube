@@ -168,7 +168,7 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
             {
                 var was = PortfolioCells.Current(original, register, cell);
                 return new(t.Entity, t.Field, CaseIdOf(t), $"{cell.Row} {cell.Column}", o.Value?.DeepClone(), PortfolioCells.Write(cell, o.Value), was?.DeepClone(), PortfolioCells.Write(cell, was),
-                    state, state != "lost" && !(t.Layer is { } layer && whole.Contains(layer)));
+                    state, state == "set" && !(t.Layer is { } layer && whole.Contains(layer)));
             }
             // A whole grid's B or A (ADR-0010 §6): every row of the grid at once, over each row's own.
             if (Entity.Split(t.Entity).Kind == Entity.Grid)
@@ -235,7 +235,7 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
         var made = raw.Created[layer];
         return PortfolioCases.KindOf(made) != PortfolioCases.Add ? layer
             : throw new WorkspaceRefused("NotEditable",
-                $"Case {made.Fields["title"]!.GetValue<string>()} is its trade alone: remove the case whole, or run add trades again to make the set anew.");
+                $"Case {PortfolioCases.Title(made)} is its trade alone: remove the case whole, or run add trades again to make the set anew.");
     }
 
     // The case an edit is a change of, as the wire names it: none for a Common edit.
@@ -356,8 +356,8 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
         foreach (var (_, value) in read) Check(baseline, cell.Entity, cell.Field, value);
         var held = PortfolioCells.Current(baseline, register, cell);
         // A case another vary made already holds the one change.
-        var existing = PortfolioCases.Made(raw).Where(c => c.Fields["kind"]?.GetValue<string>() == PortfolioCases.Vary)
-            .Select(c => (Title: c.Fields["title"]!.GetValue<string>(), Changes: PortfolioCases.ChangesOf(raw, Entity.Split(c.Entity).Id)))
+        var existing = PortfolioCases.Made(raw).Where(c => PortfolioCases.KindOf(c) == PortfolioCases.Vary)
+            .Select(c => (Title: PortfolioCases.Title(c), Changes: PortfolioCases.ChangesOf(raw, Entity.Split(c.Entity).Id)))
             .Where(c => c.Changes.Count == 1)
             .Select(c => (c.Title, Change: c.Changes[0]))
             .ToList();
@@ -365,9 +365,9 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
         var skipped = new List<string>();
         foreach (var (text, value) in read)
         {
-            if (PortfolioCases.Same(value, held)) { skipped.Add($"{text} is the workspace's value"); continue; }
-            var same = existing.Where(e => e.Change.Target.Entity == cell.Entity && e.Change.Target.Field == cell.Field && PortfolioCases.Same(e.Change.Value, value))
-                .Select(e => e.Title).Concat(made.Where(m => PortfolioCases.Same(m.Value, value)).Select(m => m.Title)).FirstOrDefault();
+            if (PortfolioMaterialiser.Same(value, held)) { skipped.Add($"{text} is the workspace's value"); continue; }
+            var same = existing.Where(e => e.Change.Target.Entity == cell.Entity && e.Change.Target.Field == cell.Field && PortfolioMaterialiser.Same(e.Change.Value, value))
+                .Select(e => e.Title).Concat(made.Where(m => PortfolioMaterialiser.Same(m.Value, value)).Select(m => m.Title)).FirstOrDefault();
             if (same is not null) { skipped.Add($"{text} is case {same}, made already"); continue; }
             made.Add(($"{cell.Row} {cell.Column} {text}", value));
         }
@@ -448,7 +448,7 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
                 .Select(other => new WorkspaceChange.Set(PortfolioEditRules.Target(source, Entity.Of(Entity.Trade, other), "after", layer), JsonValue.Create(false))));
         }
         return new AddAnswer(workspaces.Batch(workspaceId, revision, user, changes, origin), [.. ids.Select(t => $"add {t}")],
-            [.. replaced.Select(c => c.Fields["title"]!.GetValue<string>())]);
+            [.. replaced.Select(PortfolioCases.Title)]);
     }
 
     /// <summary>

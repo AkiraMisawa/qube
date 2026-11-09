@@ -85,11 +85,23 @@ export function measureNamed(word: string, measures: readonly RegisteredMeasure[
 }
 
 /**
+ * Why a list of values separated by commas cannot be read, if it cannot: a comma between two digits could separate two
+ * values or the thousands of one (`10,000k`), so the list is refused rather than split as a guess. The server's
+ * `xva.vary` refuses it in the same words.
+ */
+export function ambiguousComma(text: string): string | undefined {
+  const found = /[^\s,]*\d(?:,\d[^\s,]*)+/.exec(text);
+  return found === null ? undefined : `${found[0]} could be one value or two: a comma separates values here, so write an amount without separators, such as 10000k or 10mm.`;
+}
+
+/**
  * `vary CSA-A threshold 10mm, 5mm, 0` as typed (ADR-0010 §9's note of 2026-11-08): the cell, its row and its column, then
  * the values separated by commas. The first value is the last word before the first comma. Each value goes as written,
  * for the server to read as the cell reads it; a line with no cell or no value is refused here by name.
  */
 export function varyTyped(text: string): { readonly cell: string; readonly values: readonly string[] } {
+  const ambiguous = ambiguousComma(text);
+  if (ambiguous !== undefined) throw new Error(ambiguous);
   const [first = '', ...rest] = text.split(',');
   const words = first.trim().split(/\s+/).filter((w) => w !== '');
   const value = words[words.length - 1];

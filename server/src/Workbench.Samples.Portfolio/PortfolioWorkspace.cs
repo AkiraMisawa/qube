@@ -123,6 +123,7 @@ public static class PortfolioMaterialiser
 
     public static IReadOnlyList<EffectiveTrade> Trades(WorkspaceState state)
     {
+        PortfolioCases.Unlayered(state);
         var source = (PortfolioSourceVersion)state.Source;
         var overrides = state.Overrides.Values.ToDictionary(o => (o.Target.Entity, o.Target.Field));
         var held = state.Conflicts.Keys.Select(t => (t, "conflict")).Concat(state.Lost.Keys.Select(t => (t, "lost")))
@@ -210,6 +211,7 @@ public static class PortfolioMaterialiser
 
     public static IReadOnlyList<EffectiveCsa> Csas(WorkspaceState state)
     {
+        PortfolioCases.Unlayered(state);
         var source = (PortfolioSourceVersion)state.Source;
         return [.. source.Agreement.Csas.Select(c =>
         {
@@ -234,6 +236,7 @@ public static class PortfolioMaterialiser
     /// </summary>
     public static EffectiveCredit Credit(WorkspaceState state)
     {
+        PortfolioCases.Unlayered(state);
         var source = (PortfolioSourceVersion)state.Source;
         Override? Set(string entity) => state.Overrides.Values.SingleOrDefault(x => x.Target.Entity == entity && x.Target.Field == "cvaRecovery");
         var o = Set(Entity.Of(Entity.Netting, source.Agreement.NettingSetId)) ?? Set(Entity.Of(Entity.Credit, source.Registration.Key));
