@@ -81,7 +81,7 @@ public class PricerSettingsTests
         var ws = service.Create("akira", "ABC/LE-01", Day1, 5);
 
         string Refused(string column, string text) => Assert.Throws<WorkspaceRefused>(() => Set(service, ws, column, text)).Message;
-        Assert.Equal("A cost of capital is from 0% up to 100%, never empty.", Refused("cost of capital", "100%"));
+        Assert.Equal("A cost of capital is from 0% and below 100%, never empty.", Refused("cost of capital", "100%"));
         Assert.Equal("A charge ratio is a number above 0 and up to 10.", Refused("charge ratio", "0"));
         Assert.Equal("An MPOR override is a whole number of days from 1 to 250, or empty for the model's 10.", Refused("mpor", "0d"));
         Assert.Equal("xva mpor override is a whole number of days, 10 or 10d, or empty; ten is not.", Refused("mpor", "ten"));
@@ -92,6 +92,9 @@ public class PricerSettingsTests
             Assert.Throws<WorkspaceRefused>(() => service.Edit(ws.WorkspaceId, ws.Revision, "akira", "settings:xva", XvaMeasures.ChargeRatio, "1.5")).Message);
 
         ws = Set(service, ws, "mpor", "20d");
+        // The Changes tab names a setting set in the Base as its cell, its value and its default.
+        var common = Assert.Single(service.Changes(ws.WorkspaceId, "akira").Common, c => c.Title.StartsWith("xva ", StringComparison.Ordinal));
+        Assert.Equal(("xva mpor override", "20d", "empty"), (common.Title, common.Text, common.OriginalText));
         var drop = service.PreviewCounterpartyChange(ws.WorkspaceId, "akira");
         var (moved, _) = service.ChangeCounterparty(ws.WorkspaceId, ws.Revision, "akira", "ABC/LE-02", drop.Count);
 

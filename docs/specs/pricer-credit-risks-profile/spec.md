@@ -1,6 +1,6 @@
 # The pricer workbench, delivery step 5: Credit and Settings tabs, Risks and Profile
 
-Status: ready-for-agent
+Status: done
 
 The decisions are ADR-0010 §7 (the result dock), §8 (the input tabs' contents), §10 (what a measure registers), §11
 (XVA's registration) and its OPEN (the Risks and Profile contents, decided by the owner on 2026-11-08), with §8's note of

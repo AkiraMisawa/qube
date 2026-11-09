@@ -1,4 +1,4 @@
-import type { EffectiveCredit } from './contracts';
+import type { CdsCatalogue, EffectiveCredit } from './contracts';
 import type { Parsed } from './editing';
 import { differs } from './original';
 
@@ -6,13 +6,25 @@ import { differs } from './original';
 // screen (52); what a typed spread means is the server's to read, so the tab sends it as written, with the grid's unit
 // where none was typed.
 
+/** The CDS catalogue as the page has read it: not yet, the catalogue, or why it could not be read. */
+export type CatalogueRead = CdsCatalogue | { readonly refused: string } | undefined;
+
+/** The catalogue, once it has been read. */
+export const catalogueOf = (read: CatalogueRead): CdsCatalogue | undefined => (read === undefined || 'refused' in read ? undefined : read);
+
+/** Why the catalogue could not be read, where it could not. */
+export const catalogueRefused = (read: CatalogueRead): string | undefined => (read !== undefined && 'refused' in read ? read.refused : undefined);
+
 const bp = new Intl.NumberFormat('en-US', { maximumFractionDigits: 4 });
 
 /** A spread in bp, the unit the curve's grid shows: 0.0052 is 52. */
 export const inBp = (spread: number): number => spread * 10_000;
 
+/** A figure already in bp as the curve's grid shows it: `52`, `52.5`. */
+export const bpFigure = (inBp: number): string => bp.format(inBp);
+
 /** A spread as the tab writes it: `52bp`. */
-export const bpText = (spread: number): string => `${bp.format(inBp(spread))}bp`;
+export const bpText = (spread: number): string => `${bpFigure(inBp(spread))}bp`;
 
 /**
  * A spread as typed in the curve's grid, as the server reads a spread: a bare number is bp, the grid's unit (`60` is

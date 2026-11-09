@@ -149,6 +149,14 @@ public class CcrPricerTests
             Assert.True(points.Zip(points.Skip(1)).All(p => p.First["trades"]!.GetValue<int>() >= p.Second["trades"]!.GetValue<int>()));
             var kva = Row(priced.Rows, "kva", "kva")[side]!.GetValue<decimal>();
             Assert.True(kva < 0, $"KVA {kva} is a cost.");
+            // KVA is the cost of the very profile the Profile tab draws: −CoC · Σ K(tᵢ) · (tᵢ₊₁ − tᵢ), the last period running
+            // to the side's last maturity, at the default cost of capital of 10% (ADR-0013 §2, ADR-0010 §8).
+            var last = priced.Input["trades"]!.AsArray().Where(t => t![side]!.GetValue<bool>())
+                .Max(t => DateOnly.ParseExact(t!["maturity"]!.GetValue<string>(), "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture));
+            var ends = points.Skip(1).Select(p => p["years"]!.GetValue<double>()).Append(Decompose.Years(Day1, last));
+            var cost = points.Zip(ends).Sum(p => p.First["value"]!.GetValue<decimal>() * (decimal)(p.Second - p.First["years"]!.GetValue<double>()));
+            // The rows are rounded to the cent and KVA is made from the unrounded profile, so the two agree to a few cents.
+            Assert.InRange(kva, -0.10m * cost - 0.05m, -0.10m * cost + 0.05m);
         }
 
         // Without spot capital selected, the profile and KVA are still returned, and no spot capital row or trace.

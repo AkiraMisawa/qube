@@ -2,8 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, type Ref } from 'react';
 import { NativeSelect, Select, Stack, Text } from '@mantine/core';
 import { GridSource, type CellState, type GridColumn, type GridContextMenuContext, type GridEditIntent } from '@ex-grid/core';
 import { WorkbenchGrid } from '../../platform/grid/WorkbenchGrid';
-import type { CdsCatalogue, EffectiveCds, EffectiveCredit } from './contracts';
-import { bpText, inBp, spreadTyped } from './credit';
+import type { EffectiveCds, EffectiveCredit } from './contracts';
+import { bpFigure, bpText, catalogueOf, catalogueRefused, inBp, spreadTyped, type CatalogueRead } from './credit';
 import type { SetText } from './editing';
 import { ToolbarField } from './fields';
 import { compactGridHeight } from './layout';
@@ -22,7 +22,6 @@ const TYPES = [
 ];
 
 const percent = new Intl.NumberFormat('en-US', { style: 'percent', maximumFractionDigits: 2 });
-const bp = new Intl.NumberFormat('en-US', { maximumFractionDigits: 4 });
 const word = (v: unknown) => String(v);
 
 type Row = EffectiveCds;
@@ -37,7 +36,7 @@ const curveColumnsOf = (tenors: readonly string[]): readonly GridColumn<Row>[] =
   { name: 'recovery', header: 'Recovery', type: 'number', width: 104, value: (r) => r.recovery, format: (v) => percent.format(v as number) },
   ...tenors.map((t): GridColumn<Row> => ({
     name: t, header: `${t.toUpperCase()} bp`, type: 'number', width: 88, editable: true,
-    value: (r) => (r.spreads[t] === undefined ? undefined : inBp(r.spreads[t])), format: (v) => bp.format(v as number),
+    value: (r) => (r.spreads[t] === undefined ? undefined : inBp(r.spreads[t])), format: (v) => bpFigure(v as number),
   })),
 ];
 
@@ -50,12 +49,12 @@ const curveCellMessage = (row: Row, col: GridColumn<Row>): string | undefined =>
   return typeof was === 'number' && now !== undefined ? `Catalogue ${bpText(was)} · now ${bpText(now)}` : undefined;
 };
 
-export function XvaCredit({ credit, registration, catalogue, push, setText, onVary, commandLabel, focusRef }: {
+export function XvaCredit({ credit, registration, catalogue: read, push, setText, onVary, commandLabel, focusRef }: {
   readonly credit: EffectiveCredit;
   /** The counterparty's registration key, whose CDS the choice is. */
   readonly registration: string;
-  /** The catalogue the reference search offers; none until it has been read. */
-  readonly catalogue: CdsCatalogue | undefined;
+  /** The catalogue the reference search offers; none until it has been read, and why where it could not be. */
+  readonly catalogue: CatalogueRead;
   readonly push: (entity: string, field: string, value: unknown) => void;
   /** A spread as written, with its unit, for the server to read as the cell reads it. */
   readonly setText: SetText;
@@ -65,6 +64,8 @@ export function XvaCredit({ credit, registration, catalogue, push, setText, onVa
   readonly focusRef: Ref<HTMLSelectElement>;
 }) {
   const entity = `credit:${registration}`;
+  const catalogue = catalogueOf(read);
+  const refused = catalogueRefused(read);
   const type = credit.choice.type ?? 'none';
   const marked = (field: string) => (differs(credit, field)
     ? { 'data-modified': true, title: originalMessage(credit, field, credit.choice[keyOf(field)]) ?? 'Set by you', classNames: { input: 'qwb-modified' } } : {});
@@ -92,7 +93,7 @@ export function XvaCredit({ credit, registration, catalogue, push, setText, onVa
             {(id) => (
               <Select id={id} size="xs" className="qwb-toolbar-input qwb-toolbar-input--wide" searchable allowDeselect={false} {...marked('cdsReference')}
                 value={credit.choice.reference ?? null} placeholder="Search ticker, ccy, seniority, doc clause or name"
-                nothingFoundMessage="No single name of the catalogue matches."
+                nothingFoundMessage={refused === undefined ? 'No single name of the catalogue matches.' : 'The CDS catalogue could not be read.'}
                 data={(catalogue?.singleNames ?? []).map((c) => ({ value: c.id, label: c.reference }))}
                 onChange={(value) => { if (value !== null) push(entity, 'cdsReference', value); }} comboboxProps={{ withinPortal: true }} />
             )}
@@ -106,6 +107,7 @@ export function XvaCredit({ credit, registration, catalogue, push, setText, onVa
           </>
         )}
       </div>
+      {refused !== undefined && <Text size="sm" c="red" data-testid="cds-catalogue-refused">The CDS catalogue could not be read: {refused}</Text>}
       {credit.missing != null && <Text size="sm" c="red" data-testid="cds-missing">{credit.missing}</Text>}
       {credit.cds != null && (
         <CurveGrid curve={credit.cds} tenors={catalogue?.tenors ?? Object.keys(credit.cds.spreads)} setText={setText} onVary={onVary}

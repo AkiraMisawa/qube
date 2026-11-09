@@ -188,6 +188,33 @@ public class PricerCreditTests
         Assert.Equal(("Credit", "cds", "all", "abs", "+50bp"), (row.Category, row.Index, row.Factor, row.Type, row.SizeText));
     }
 
+    [Fact] // ADR-0010 §4, §10: a Credit shift CVA cannot take refuses CVA alone, by name; FVA and its exposure are priced as on the base market
+    public async Task A_credit_shift_cva_cannot_take_refuses_cva_alone()
+    {
+        var (service, runs, store) = Priced();
+        var ws = service.Create("akira", "ABC/LE-01", Day1, 20);
+        ws = service.SetMeasures(ws.WorkspaceId, ws.Revision, "akira", ["cva", "fva"]);
+        ws = service.SetCells(ws.WorkspaceId, ws.Revision, "akira", ["xva"], "risks", "on");
+        // ABC Holdings' 6m spread is 18bp: 50bp tighter has no default probability.
+        ws = service.DefineScenario(ws.WorkspaceId, ws.Revision, "akira", "tight", "cds -50bp").State;
+        var accepted = Assert.IsType<SubmissionResult.Accepted>(service.Price(ws.WorkspaceId, ws.Revision, "akira", Guid.NewGuid().ToString()));
+        await runs.Completion(accepted.Run.RunId);
+        var outputs = runs.Find(accepted.Run.RunId)!.Invocations.Single(i => i.StepId == XvaMeasures.Module).Outputs;
+        IReadOnlyList<JsonNode> Read(string output) => [.. store.ReadRequired(outputs[output])["rows"]!.AsArray().Select(r => r!)];
+        var rows = Read("result");
+
+        JsonNode On(string scenario, string metric) => rows.Single(r => r["metric"]!.GetValue<string>() == metric && r["case"]!.GetValue<string>() == PortfolioCases.BaseId
+            && r["scenario"]!.GetValue<string>() == scenario);
+        const string why = "Under tight: the CDS spread at 6m is -32bp under the shifts, and a spread of 0 or below has no default probability.";
+        Assert.All(new[] { "cva", "cvaCharge", "pv" }, metric => Assert.Equal(("refused", why), (On("s1", metric)["afterStatus"]!.GetValue<string>(), On("s1", metric)["reason"]!.GetValue<string>())));
+        Assert.Equal(On(PortfolioScenarios.BaseId, "fva")["after"]!.GetValue<decimal>(), On("s1", "fva")["after"]!.GetValue<decimal>());
+
+        // Its deltas say the same; FVA's are taken, and the exposure both integrate is drawn.
+        var risks = Read("risks").Where(r => r["scenario"]!.GetValue<string>() == "s1").ToList();
+        Assert.Equal(why, Assert.Single(risks, r => r["measure"]!.GetValue<string>() == XvaMeasures.Cva)["reason"]!.GetValue<string>());
+        Assert.Contains(risks, r => r["measure"]!.GetValue<string>() == XvaMeasures.Fva && r["afterStatus"]!.GetValue<string>() == "priced");
+    }
+
     [Fact] // ADR-0010 §4's note of 2026-11-09: a key-rate Credit shift falls to nothing at the CDS tenors either side of its own
     public void A_key_rate_credit_shift_moves_only_the_points_around_its_tenor()
     {

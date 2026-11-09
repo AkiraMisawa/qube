@@ -1,6 +1,7 @@
 import type { TypedDataRef } from '../../platform/contracts';
 import { useDatasets, useRun } from '../../platform/workspace/WorkspaceProvider';
 import type { RegisteredMeasure } from './contracts';
+import { registered } from './runRows';
 
 // A result tab's rows (ADR-0010 §7, §10): an output each request of the tab's measures returned beside its figures, such
 // as XVA's `risks` and `profiles`, read from the Run's retained data and never recomputed. An output the Run's request
@@ -14,7 +15,7 @@ export type RequestRows =
 /** The rows of `output` from every request the tab's measures are priced by, in the measures' order. */
 export function useRequestRows(runId: string, measures: readonly string[], register: readonly RegisteredMeasure[], output: string, what: string): RequestRows {
   const run = useRun(runId);
-  const requests = [...new Set(measures.map((id) => register.find((m) => m.id === id)?.request ?? id))];
+  const requests = [...new Set(measures.map((id) => registered(register, id).request))];
   const invocations = requests.map((request) => ({ request, invocation: run.data?.invocations.find((i) => i.stepId === request) }));
   const references = invocations.flatMap((i) => (i.invocation?.outputs[output] === undefined ? [] : [i.invocation.outputs[output] as TypedDataRef]));
   const datasets = useDatasets(references);

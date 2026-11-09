@@ -361,6 +361,15 @@ public static partial class PortfolioCells
         }
     }
 
+    // A rate or a spread with its unit, as a fraction (40% is 0.4, 25bp 0.0025), or none where it is not one.
+    static decimal? Fraction(string t)
+    {
+        var m = RatePattern().Match(t);
+        if (!m.Success) return null;
+        var n = decimal.Parse(m.Groups[1].Value, NumberStyles.Number | NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture);
+        return m.Groups[2].Value.Equals("bp", StringComparison.OrdinalIgnoreCase) ? n / 10_000m : n / 100m;
+    }
+
     // Every decimal a value has, and no trailing zero: written back, it reads as the same value.
     static string Exact(decimal n) => n.ToString("0.############################", CultureInfo.InvariantCulture);
 
@@ -390,21 +399,11 @@ public static partial class PortfolioCells
                 return n * scale switch { "k" => 1_000m, "mm" => 1_000_000m, "bn" => 1_000_000_000m, _ => 1_000_000m };
             }
             case CellName.Form.Rate:
-            {
                 if (t.Equals("empty", StringComparison.OrdinalIgnoreCase) || t.Equals("none", StringComparison.OrdinalIgnoreCase)) return null;
-                var m = RatePattern().Match(t);
-                if (!m.Success) return Refuse("a rate with its unit, 40% or 25bp, or empty");
-                var n = decimal.Parse(m.Groups[1].Value, NumberStyles.Number | NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture);
-                return m.Groups[2].Value.Equals("bp", StringComparison.OrdinalIgnoreCase) ? n / 10_000m : n / 100m;
-            }
+                return Fraction(t) is { } rate ? rate : Refuse("a rate with its unit, 40% or 25bp, or empty");
             case CellName.Form.Spread:
-            {
                 // A spread is never empty: an edit back to the catalogue's is the Changes tab's reset.
-                var m = RatePattern().Match(t);
-                if (!m.Success) return Refuse("a spread with its unit, 120bp or 1.2%");
-                var n = decimal.Parse(m.Groups[1].Value, NumberStyles.Number | NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture);
-                return m.Groups[2].Value.Equals("bp", StringComparison.OrdinalIgnoreCase) ? n / 10_000m : n / 100m;
-            }
+                return Fraction(t) is { } spread ? spread : Refuse("a spread with its unit, 120bp or 1.2%");
             case CellName.Form.Number:
             {
                 var m = NumberPattern().Match(t);

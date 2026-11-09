@@ -449,7 +449,9 @@ What was XVA's in this ADR, gathered:
   SIMM's and SA-CCR's registrations (ADR-0012, ADR-0013), whichever request computes them.
 - **Membership**: FVA's (§5).
 - **Inputs**: the Credit tab, CVA recovery on Netting, the *Imperfect* column on CSA (§8), and the Settings section:
-  MPOR override, cost of capital (for CVA Charge and KVA), charge ratio, PV adjustment, risks included, advanced
+  MPOR override, cost of capital (KVA's, as §8's note of 2026-11-09 settles it; this line said "for CVA Charge and
+  KVA" until then, and whether the engine's CVA Charge reads it too is OPEN below), charge ratio, PV adjustment, risks
+  included, advanced
   configuration.
 - **Trade columns**: PV01, Margin and PV Adj (§6).
 - **Results**: CVA Charge in Metrics, the Risks and Profile tabs (the SIMM and capital profiles MVA and KVA return

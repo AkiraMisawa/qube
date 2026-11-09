@@ -130,23 +130,22 @@ public static class MeasureRisks
 
     /// <summary>One factor's delta of a measure's metric on both sides.</summary>
     public static JsonObject Row(PricedCase @case, string measure, MetricDefinition metric, string currency, string riskClass, string factor, string bump,
-        MeasureResult.Side before, MeasureResult.Side after) => new()
-    {
-        ["case"] = @case.Id, ["caseTitle"] = @case.Title, ["scenario"] = @case.Scenario.Id, ["scenarioTitle"] = @case.Scenario.Title,
-        ["measure"] = measure, ["metric"] = metric.Id, ["metricTitle"] = metric.Title,
-        ["riskClass"] = riskClass, ["factor"] = factor, ["bump"] = bump, ["currency"] = currency,
-        ["before"] = before.Value, ["after"] = after.Value,
-        ["diff"] = before.Status == MeasureResult.Priced && after.Status == MeasureResult.Priced ? after.Value - before.Value : null,
-        ["beforeStatus"] = before.Status, ["afterStatus"] = after.Status, ["reason"] = before.Reason ?? after.Reason,
-    };
+        MeasureResult.Side before, MeasureResult.Side after) =>
+        Of(@case, measure, metric, currency, (riskClass, factor, bump), (before, after), before.Reason ?? after.Reason);
 
     /// <summary>Why a measure has no deltas for the pair: a row with no factor and no figure.</summary>
-    public static JsonObject None(PricedCase @case, string measure, MetricDefinition metric, string currency, string reason) => new()
+    public static JsonObject None(PricedCase @case, string measure, MetricDefinition metric, string currency, string reason) =>
+        Of(@case, measure, metric, currency, null, null, reason);
+
+    static JsonObject Of(PricedCase @case, string measure, MetricDefinition metric, string currency, (string RiskClass, string Factor, string Bump)? factor,
+        (MeasureResult.Side Before, MeasureResult.Side After)? sides, string? reason) => new()
     {
         ["case"] = @case.Id, ["caseTitle"] = @case.Title, ["scenario"] = @case.Scenario.Id, ["scenarioTitle"] = @case.Scenario.Title,
         ["measure"] = measure, ["metric"] = metric.Id, ["metricTitle"] = metric.Title,
-        ["riskClass"] = null, ["factor"] = null, ["bump"] = null, ["currency"] = currency,
-        ["before"] = null, ["after"] = null, ["diff"] = null, ["beforeStatus"] = null, ["afterStatus"] = null, ["reason"] = reason,
+        ["riskClass"] = factor?.RiskClass, ["factor"] = factor?.Factor, ["bump"] = factor?.Bump, ["currency"] = currency,
+        ["before"] = sides?.Before.Value, ["after"] = sides?.After.Value,
+        ["diff"] = sides is ({ Status: MeasureResult.Priced } b, { Status: MeasureResult.Priced } a) ? a.Value - b.Value : null,
+        ["beforeStatus"] = sides?.Before.Status, ["afterStatus"] = sides?.After.Status, ["reason"] = reason,
     };
 }
 

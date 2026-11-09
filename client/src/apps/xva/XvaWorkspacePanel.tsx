@@ -118,10 +118,11 @@ const SHIFT_ROWS = 10;
  * in its frame under the panel's top gap (`gap`, the theme's `xs`), or the IM CSAs' table a row each. The table's numbers
  * are geometry the theme has no name for: its header row with the panel's top gap and border (40px), and a row of `sm`
  * text at `xs` vertical spacing (28px), as drawn at 1440px (2026-11-08). The Credit tab is its row of controls (one
- * Control Height, 30px), the sentence that says why CVA is refused (20px) and the curve's one row; the Settings tab a
+ * Control Height, 30px), the sentences that say the catalogue could not be read and why CVA is refused (20px each) and
+ * the curve's one row; the Settings tab a
  * table a module, its header (32px) and a row a setting: a text input's 39px (the Control Height in 4px spacing and a
  * border), a switch's 30px. */
-const inputsFit = (tab: InputTab, ws: XvaWorkspaceView, gap: number) => {
+const inputsFit = (tab: InputTab, ws: XvaWorkspaceView, gap: number, catalogueRefused: boolean) => {
   switch (tab) {
     case 'netting': return 84;
     case 'im': return ws.agreement.imCsas.length === 0 ? 40 : 40 + 28 * ws.agreement.imCsas.length;
@@ -133,7 +134,7 @@ const inputsFit = (tab: InputTab, ws: XvaWorkspaceView, gap: number) => {
       return rows === 0 ? 40 : 72 + 32 * Math.min(rows, CHANGE_ROWS);
     }
     case CREDIT_TAB:
-      return gap + 30 + (ws.credit.missing == null ? 0 : gap + 20) + (ws.credit.cds == null ? 0 : gap + GRID_FRAME + compactGridHeight(1));
+      return gap + 30 + (catalogueRefused ? gap + 20 : 0) + (ws.credit.missing == null ? 0 : gap + 20) + (ws.credit.cds == null ? 0 : gap + GRID_FRAME + compactGridHeight(1));
     case SETTINGS_TAB: return ws.settings.reduce((h, m) => h + gap + 32 + m.settings.reduce((r, x) => r + (x.form === 'flag' ? 30 : 39), 0), 0);
     case 'csa': return ws.csas.length === 0 ? 40 : gap + GRID_FRAME + compactGridHeight(Math.min(ws.csas.length, CSA_ROWS));
   }
@@ -531,20 +532,16 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
    * Base; refused, the page says why and the answer is the reason. */
   const setText: SetText = (entity, field, text, title) =>
     attempt(`${title} was not changed`, (revision) => api.setChange(workspaceId, revision, entity, field, text));
-  /** `cds ABC USD SNR`, `cds proxy financials asia A`, `cds none` (ADR-0010 §8's note of 2026-11-09): the server reads the
+  /** `cds ABCH USD SNRFOR`, `cds proxy financials asia A`, `cds none` (ADR-0010 §8's note of 2026-11-09): the server reads the
    * words against its catalogue and says what it chose; one it cannot resolve is refused by name. */
   const chooseCds = async (text: string) => {
-    try {
-      const chosen = await queue.after(async (revision) => {
-        const answer = await api.cds(workspaceId, revision, text);
-        queue.rebase(answer.workspace.revision);
-        return answer;
-      });
-      show(chosen.workspace);
-      workspace.notify(chosen.said);
-    } catch (error) {
-      workspace.notify(`cds chose nothing: ${describe(error)}`);
-    }
+    const said: string[] = [];
+    const chosen = await apply('cds chose nothing', async (revision) => {
+      const answer = await api.cds(workspaceId, revision, text);
+      said.push(answer.said);
+      return answer.workspace;
+    });
+    if (chosen) workspace.notify(said.join(' '));
   };
   const changeActions: ChangeActions = {
     set: (change, text) => void apply(`${change.title} was not changed`, (revision) =>
@@ -697,8 +694,9 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   const setCurrency = (currency: string) => void queue.push({ entity: SETTINGS_ENTITY, field: 'displayCurrency', value: currency });
 
   // The commands run what the page's own controls run, as the page stands when they run (ADR-0010 §9).
-  const pageRef = useRef({ chooseCds, cdsCatalogue: () => catalogue.data, price, setMeasures, setSide, retry, copyQuote, download, refresh, setCurrency, openTab, explain, openResult, setDockFull, resultTabs, traceInView, vary, set, addTrades, removeCase, clearCases, defineScenario, includeScenario, removeScenario, duplicate, clearScenarios, generateScenarios, saveScenarios, loadScenarios, scenarioSets: () => scenarioSets.data ?? [], scenarios: () => view.data?.scenarios ?? [], pricing: () => (view.data === undefined ? undefined : { cases: view.data.cases.length, cap: view.data.caseCap }), measures: () => view.data?.measures ?? [], currencies: () => view.data?.currencies ?? [] });
-  pageRef.current = { chooseCds, cdsCatalogue: () => catalogue.data, price, setMeasures, setSide, retry, copyQuote, download, refresh, setCurrency, openTab, explain, openResult, setDockFull, resultTabs, traceInView, vary, set, addTrades, removeCase, clearCases, defineScenario, includeScenario, removeScenario, duplicate, clearScenarios, generateScenarios, saveScenarios, loadScenarios, scenarioSets: () => scenarioSets.data ?? [], scenarios: () => view.data?.scenarios ?? [], pricing: () => (view.data === undefined ? undefined : { cases: view.data.cases.length, cap: view.data.caseCap }), measures: () => view.data?.measures ?? [], currencies: () => view.data?.currencies ?? [] };
+  const pageCommands = { chooseCds, cdsCatalogue: () => catalogue.data, price, setMeasures, setSide, retry, copyQuote, download, refresh, setCurrency, openTab, explain, openResult, setDockFull, resultTabs, traceInView, vary, set, addTrades, removeCase, clearCases, defineScenario, includeScenario, removeScenario, duplicate, clearScenarios, generateScenarios, saveScenarios, loadScenarios, scenarioSets: () => scenarioSets.data ?? [], scenarios: () => view.data?.scenarios ?? [], pricing: () => (view.data === undefined ? undefined : { cases: view.data.cases.length, cap: view.data.caseCap }), measures: () => view.data?.measures ?? [], currencies: () => view.data?.currencies ?? [] };
+  const pageRef = useRef(pageCommands);
+  pageRef.current = pageCommands;
   useEffect(() => {
     registerXvaPage(panelId, {
       price: () => void pageRef.current.price(),
@@ -752,7 +750,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   const notBusy = busy === undefined;
 
   const enforceable = ws.agreement.enforceable ? 'enforceable' : 'not enforceable';
-  const inputsHeight = inputsDragged ?? inputsFit(shownTab(ws, inputTab), ws, pixels(theme.spacing.xs));
+  const inputsHeight = inputsDragged ?? inputsFit(shownTab(ws, inputTab), ws, pixels(theme.spacing.xs), catalogue.isError);
   const newHeight = compactGridHeight(Math.max(1, Math.min(ws.newTrades, 8)));
   // What the parts other than Existing take, from the heights the page set (never measured): Existing has the rest.
   const taken = TAKEN + (inputsOpen ? inputsHeight + RESIZER : 0) + newHeight
@@ -809,7 +807,8 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
       <SegmentedControl hiddenFrom="sm" size="xs" fullWidth aria-label="Part of the page" value={section} onChange={(v) => setSection(v as Section)}
         data={[{ value: 'inputs', label: 'Inputs' }, { value: 'trades', label: 'Trades' }, { value: 'results', label: 'Results' }]} />
       <div data-part="inputs" className="qwb-xva-part">
-        <XvaInputs ws={ws} onIssue={setIssue} push={(entity, field, value) => void queue.push({ entity, field, value })} setText={setText} catalogue={catalogue.data}
+        <XvaInputs ws={ws} onIssue={setIssue} push={(entity, field, value) => void queue.push({ entity, field, value })} setText={setText}
+          catalogue={catalogue.isError ? { refused: describe(catalogue.error) } : catalogue.data}
           tab={inputTab} onTab={(tab) => { setInputTab(tab); setInputsOpen(true); }} open={inputsOpen} onOpen={setInputsOpen} height={inputsHeight} focusRequest={focusRequest}
           changeList={changeList.data} changeActions={changeActions} scenarioActions={scenarioActions} onVary={setVarying} commandLabel={commandLabel} />
         <VaryDialog target={varying} vary={(target, values) => varyCell({ entity: target.entity, field: target.field }, values)} onClose={() => setVarying(undefined)} />

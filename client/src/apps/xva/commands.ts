@@ -8,7 +8,7 @@ import type { InputTab } from './XvaInputs';
 
 export interface XvaPage {
   price(): void;
-  /** The counterparty's CDS as written (`cds ABC USD SNR`, `cds proxy financials asia A`, `cds none`, ADR-0010 §8's note of
+  /** The counterparty's CDS as written (`cds ABCH USD SNRFOR`, `cds proxy financials asia A`, `cds none`, ADR-0010 §8's note of
    * 2026-11-09); the server reads it against its catalogue and says what it chose. */
   chooseCds(text: string): void;
   /** The CDS catalogue as last read, for the command line to offer; none until it has been read. */

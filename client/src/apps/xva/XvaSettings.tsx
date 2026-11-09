@@ -1,7 +1,8 @@
-import { useEffect, useState, type Ref } from 'react';
+import { useEffect, useRef, useState, type Ref } from 'react';
 import { Stack, Switch, Table, TextInput } from '@mantine/core';
 import type { ModuleSettings, RegisteredMeasure, SettingView } from './contracts';
 import type { SetText } from './editing';
+import { registered } from './runRows';
 
 // The Settings tab (ADR-0010 §8's note of 2026-11-09): a section per selected module, each setting a selected measure
 // needs, with its default and the measures it serves. A setting is an input of the workspace, frozen by Price and read
@@ -24,7 +25,7 @@ export function XvaSettings({ settings, measures, push, setText, focusRef }: {
   /** The first setting, where `open settings` puts the keyboard. */
   readonly focusRef: Ref<HTMLInputElement>;
 }) {
-  const title = (id: string) => measures.find((m) => m.id === id)?.title ?? id;
+  const title = (id: string) => registered(measures, id).title;
   return (
     <Stack gap="xs" className="qwb-xva-settings">
       {settings.map((m, mi) => (
@@ -70,25 +71,30 @@ function SettingInput({ setting, module, push, setText, inputRef }: {
   const value = setting.value == null ? '' : setting.text;
   const [draft, setDraft] = useState(value);
   const [invalid, setInvalid] = useState(false);
-  useEffect(() => { setDraft(value); setInvalid(false); }, [value]);
+  // What was last sent of this typing: Enter, then the blur that follows it, sends it once, and a refused value is not
+  // sent again until it is typed again (spine 6).
+  const sent = useRef<string | undefined>(undefined);
+  useEffect(() => { setDraft(value); setInvalid(false); sent.current = undefined; }, [value]);
   const marked = setting.changed
     ? { 'data-modified': true, title: `Default ${defaultWords(setting)} · now ${setting.value == null ? 'empty' : setting.text}`, classNames: { input: 'qwb-modified' } } : {};
 
   if (setting.form === 'flag') {
     return (
-      <Switch size="sm" aria-label={setting.title} checked={setting.value === true} {...(inputRef === undefined ? {} : { ref: inputRef })}
+      <Switch size="xs" aria-label={setting.title} checked={setting.value === true} {...(inputRef === undefined ? {} : { ref: inputRef })}
         {...(setting.changed ? { 'data-modified': true, title: `Default ${defaultWords(setting)}` } : {})}
         onChange={(e) => push(entity, setting.id, e.currentTarget.checked)} label={setting.value === true ? 'On' : 'Off'} />
     );
   }
   const commit = async () => {
     if (draft === value) { setInvalid(false); return; }
+    if (draft === sent.current) return;
+    sent.current = draft;
     setInvalid((await setText(entity, setting.id, draft.trim() === '' ? 'empty' : draft.trim(), setting.title)) !== undefined);
   };
   return (
     <TextInput size="xs" className="qwb-toolbar-input qwb-toolbar-input--text" aria-label={setting.title} value={draft} error={invalid} {...marked}
       {...(setting.empty == null ? {} : { placeholder: `empty: ${setting.empty}` })} {...(inputRef === undefined ? {} : { ref: inputRef })}
-      onChange={(e) => setDraft(e.currentTarget.value)} onBlur={() => void commit()}
-      onKeyDown={(e) => { if (e.key === 'Enter') void commit(); if (e.key === 'Escape') { setDraft(value); setInvalid(false); } }} />
+      onChange={(e) => { setDraft(e.currentTarget.value); sent.current = undefined; }} onBlur={() => void commit()}
+      onKeyDown={(e) => { if (e.key === 'Enter') void commit(); if (e.key === 'Escape') { setDraft(value); setInvalid(false); sent.current = undefined; } }} />
   );
 }

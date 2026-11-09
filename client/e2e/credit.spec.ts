@@ -87,6 +87,20 @@ test('ADR-0010 §8\'s note of 2026-11-09: the Credit tab chooses a CDS and edits
   await expect(page.getByRole('combobox', { name: 'CDS' })).toHaveValue('proxy');
   await expect(page.getByRole('combobox', { name: 'Sector' })).toHaveValue('financials');
   await expect(page.getByLabel('CDS curve').getByRole('row', { name: /^Proxy / })).toBeVisible();
+
+  // The tab's own controls choose the same: another sector of the proxy, then a single name found by its words.
+  await page.getByRole('combobox', { name: 'Sector' }).selectOption('utilities');
+  await expect(page.getByLabel('CDS curve').getByRole('row', { name: /^Proxy PROXY\.UTILITIES\.ASIA\.A / })).toBeVisible();
+  // Back to a single name, the reference is the one the counterparty had, until another is chosen.
+  await page.getByRole('combobox', { name: 'CDS' }).selectOption('singleName');
+  const reference = page.getByRole('combobox', { name: 'Reference' });
+  await expect(reference).toHaveValue('ABCH | USD | SNRFOR | XR14 | ABC Holdings (synthetic)');
+  await reference.fill('ABCS');
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Enter');
+  await expect(reference).toHaveValue('ABCS | USD | SNRFOR | XR14 | ABC Securities (synthetic)');
+  await expect(page.getByLabel('CDS curve').getByRole('row', { name: /^Single name ABCS / })).toBeVisible();
+  await expect(page.getByTestId('cds-missing')).toHaveCount(0);
   expect(problems).toEqual([]);
 });
 
@@ -118,12 +132,18 @@ test('ADR-0010 §8: a setting typed in the Settings tab is marked and moves KVA 
   await expect(page.getByRole('tab', { name: 'Settings ●2' })).toBeVisible();
 
   // A value out of bounds is the server's to refuse, by name; the field stays as typed and marked until it is put back.
+  // Enter sends it, and leaving the field after does not send it again (spine 6): the one 422 is the one console
+  // message this test expects.
   const ratio = page.getByRole('textbox', { name: 'Charge ratio' });
   await ratio.fill('20');
   await page.keyboard.press('Enter');
+  await page.keyboard.press('Tab');
   await expect(page.getByTestId('notice')).toHaveText('Charge ratio was not changed: A charge ratio is a number above 0 and up to 10.');
   await expect(ratio).toHaveAttribute('aria-invalid', 'true');
+  await ratio.focus();
+  await price(page);
   expect(problems.splice(0)).toEqual(['error: Failed to load resource: the server responded with a status of 422 (Unprocessable Entity)']);
+  await ratio.focus();
   await page.keyboard.press('Escape');
   await expect(ratio).toHaveValue('1.5');
   await expect(ratio).not.toHaveAttribute('aria-invalid', 'true');
@@ -177,6 +197,16 @@ test('the owner\'s Profile of 2026-11-08: the Profile tab draws the exposure and
   await expect(chart.locator('svg').first()).toBeVisible();
   await expect(chart).toContainText('EE After');
   await expect(chart).toContainText('ENE Before');
+  // A series is hidden and shown again from the legend, by keyboard; the table keeps every series.
+  const entry = chart.locator('.ex-chart-legend-entry', { hasText: 'EE After' });
+  await entry.focus();
+  await page.keyboard.press('Enter');
+  await expect(entry).toHaveAttribute('aria-pressed', 'false');
+  await expect(exposure.getByRole('columnheader', { name: 'EE After' })).toBeVisible();
+  // ExChart paints its legend again on a toggle, and the entry painted does not keep the keyboard (0.2.0-beta.3).
+  await entry.focus();
+  await page.keyboard.press('Enter');
+  await expect(entry).toHaveAttribute('aria-pressed', 'true');
 
   await profile.getByRole('combobox', { name: 'Profile' }).selectOption('Capital');
   const capital = profile.getByRole('table', { name: 'Capital profile' });
@@ -185,7 +215,7 @@ test('the owner\'s Profile of 2026-11-08: the Profile tab draws the exposure and
   await expect(chart).toContainText('Capital After');
 });
 
-test('ADR-0010 §1, UX03: at 390px the Credit and Settings tabs and the Profile chart fit the phone, and the page never scrolls sideways', async ({ page }) => {
+test('ADR-0010 §1, UX03: at 390px the Credit and Settings tabs, the Risks and the Profile chart fit the phone, and the page never scrolls sideways', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await open(page);
   await newWorkspace(page, 'ABC/LE-01', 3);
@@ -201,7 +231,13 @@ test('ADR-0010 §1, UX03: at 390px the Credit and Settings tabs and the Profile 
   await expect(page.getByRole('table', { name: 'XVA settings' })).toBeVisible();
   expect(await sideways()).toBe(0);
 
+  await command(page, 'set', 'xva risks on');
   await price(page);
+  // The deltas stack a measure under the other, each table scrolling inside the dock.
+  await command(page, 'open result', 'risks');
+  await expect(result(page).getByRole('table', { name: 'CVA deltas' })).toBeVisible();
+  await expect(result(page).getByRole('table', { name: 'FVA deltas' })).toBeVisible();
+  expect(await sideways()).toBe(0);
   await command(page, 'open result', 'profile');
   await expect(result(page).getByTestId('xva-profile-chart').locator('svg').first()).toBeVisible();
   await expect(result(page).getByRole('table', { name: 'Exposure profile' })).toBeVisible();

@@ -35,11 +35,14 @@ describe('riskSections', () => {
     expect(fva).toMatchObject({ lines: [], reason: 'This Run returned no deltas of FVA for this case and market.' });
   });
 
-  it('ADR-0010 §4, §7: the section follows the case and the market in view; a row of no scenario is the base market\'s', () => {
-    const rows = [row({ scenario: undefined }), row({ case: 'c1', factor: 'cds 1y' }), row({ scenario: 's1', factor: 'cds 3y' })];
+  it('ADR-0010 §4, §7: the section follows the case and the market in view; a row that names no market is refused', () => {
+    const rows = [row({}), row({ case: 'c1', factor: 'cds 1y' }), row({ scenario: 's1', factor: 'cds 3y' })];
     expect(riskSections(rows, ['cva'], register, 'base', 'base')[0]?.lines.map((l) => l.factor)).toEqual(['cds 5y']);
     expect(riskSections(rows, ['cva'], register, 'c1', 'base')[0]?.lines.map((l) => l.factor)).toEqual(['cds 1y']);
     expect(riskSections(rows, ['cva'], register, 'base', 's1')[0]?.lines.map((l) => l.factor)).toEqual(['cds 3y']);
+    // Every row the request writes names its market: one that does not is never filed under the base market (spine 1).
+    expect(() => riskSections([row({ scenario: undefined })], ['cva'], register, 'base', 'base')).toThrow('A row of the deltas has no scenario');
+    expect(() => riskSections([row({})], ['kva'], register, 'base', 'base')).toThrow('kva is no registered measure.');
   });
 
   it('spine 1: a side not priced says so and has no Diff; a delta that names no bump is refused', () => {

@@ -76,7 +76,7 @@ export interface XvaApi {
   loadScenarios(workspaceId: string, revision: number, set: string): Promise<ScenariosMade>;
   /** The saved sets the user can see: their own, their desk's and all's. */
   scenarioSets(): Promise<readonly ScenarioSetView[]>;
-  /** `cds ABC USD SNR` or `cds proxy financials asia A` or `cds none` (ADR-0010 §8's note of 2026-11-09): the counterparty's
+  /** `cds ABCH USD SNRFOR` or `cds proxy financials asia A` or `cds none` (ADR-0010 §8's note of 2026-11-09): the counterparty's
    * CDS as written, read by the server against its catalogue; the answer says what it chose. */
   cds(workspaceId: string, revision: number, text: string): Promise<CdsChosen>;
   /** The CDS catalogue the Credit tab searches: its single names, a proxy's keys and the tenors. */

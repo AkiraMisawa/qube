@@ -1,5 +1,6 @@
 import type { RegisteredMeasure } from './contracts';
 import { diffOf, side, type MetricCell } from './metrics';
+import { registered, rowsInView, textOf as text, type RunRow as Row } from './runRows';
 
 // The Risks tab as a reading of the Run (the owner's Risks of 2026-11-08, ADR-0010 §8's note of 2026-11-09): per measure
 // of the tab, its credit, IR and FX deltas, Before, After and Diff, for the case and the market in view. The deltas are
@@ -30,19 +31,14 @@ export interface RiskSection {
   readonly reason: string | undefined;
 }
 
-type Row = Readonly<Record<string, unknown>>;
-
-const text = (v: unknown): string | undefined => (typeof v === 'string' && v !== '' ? v : undefined);
-
 /**
  * The tab's sections, a measure each in the order the tab lists them, from the rows of the case and the market in view. A
- * row written with no scenario is the base market's. A measure the Run returned no row for says so, rather than show an
- * empty table as if it had no sensitivity.
+ * measure the Run returned no row for says so, rather than show an empty table as if it had no sensitivity.
  */
 export function riskSections(rows: readonly Row[], measures: readonly string[], register: readonly RegisteredMeasure[], caseId: string, scenario: string): readonly RiskSection[] {
-  const inView = rows.filter((r) => r.case === caseId && (text(r.scenario) ?? 'base') === scenario);
+  const inView = rowsInView(rows, caseId, scenario, 'deltas');
   return measures.map((measure) => {
-    const title = register.find((m) => m.id === measure)?.title ?? measure;
+    const { title } = registered(register, measure);
     const own = inView.filter((r) => r.measure === measure);
     const first = own[0];
     if (first === undefined)

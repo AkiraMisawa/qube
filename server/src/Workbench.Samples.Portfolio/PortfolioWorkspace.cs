@@ -258,7 +258,7 @@ public static class PortfolioMaterialiser
         var recovery = o is null ? source.CvaRecovery : o.Value?.GetValue<decimal>();
         if (o is not null && recovery != source.CvaRecovery) original["cvaRecovery"] = source.CvaRecovery;
         // Each key of the choice is the user's where set, else the source's; one set back to the source's is not marked.
-        string? Key(string field, string? sourced)
+        string? ChoiceKey(string field, string? sourced)
         {
             if (Set(credit, field) is not { } edit) return sourced;
             var chosen = edit.Value?.GetValue<string>();
@@ -266,8 +266,8 @@ public static class PortfolioMaterialiser
             return chosen;
         }
         var given = source.Cds;
-        var choice = new CdsChoice(Key("cdsType", given.Type), Key("cdsReference", given.Reference), Key("proxySector", given.Sector),
-            Key("proxyRegion", given.Region), Key("proxyRating", given.Rating));
+        var choice = new CdsChoice(ChoiceKey("cdsType", given.Type), ChoiceKey("cdsReference", given.Reference), ChoiceKey("proxySector", given.Sector),
+            ChoiceKey("proxyRegion", given.Region), ChoiceKey("proxyRating", given.Rating));
         var (curve, missing) = CdsCatalog.Resolve(choice, source.Registration.Key);
         return new(recovery, o is null ? Ownership.Source : Ownership.User, choice, curve is null ? null : CurveOf(state, curve), missing,
             original.Count == 0 ? null : original);

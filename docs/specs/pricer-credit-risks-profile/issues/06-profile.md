@@ -7,9 +7,10 @@ capital (with the KVA option); CVA, FVA and KVA register the Profile tab; the Pr
 
 **Blocked by:** 01.
 
-**Status:** open
+**Status:** done
 
-- [ ] EE at the value date is the sum of the side's positive PVs, held; EE and ENE run off to 0 at the last maturity.
-- [ ] KVA is still the cost of the capital profile, now read from `portfolio.profiles`.
-- [ ] The Profile tab follows the case and scenario selectors and says which profiles the Run returned.
-- [ ] In a browser, the Profile tab draws the table and the chart without a console error, on a laptop and a phone.
+- [x] EE at the value date is the sum of the side's positive PVs, held, a collateralised trade's scaled by its margin
+      period (ticket 04); EE and ENE run off to 0 at the last maturity.
+- [x] KVA is still the cost of the capital profile, now read from `portfolio.profiles`.
+- [x] The Profile tab follows the case and scenario selectors and says which profiles the Run returned.
+- [x] In a browser, the Profile tab draws the table and the chart without a console error, on a laptop and a phone.

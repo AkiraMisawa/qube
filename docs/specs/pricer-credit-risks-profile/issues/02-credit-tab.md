@@ -9,9 +9,9 @@ The Netting tab's CVA recovery placeholder names the curve's recovery.
 
 **Blocked by:** 01.
 
-**Status:** open
+**Status:** done
 
-- [ ] The Credit tab shows while CVA is selected and counts the curve's changed spreads.
-- [ ] Choosing a single name, a proxy or none sends the choice and the grid shows the new curve.
-- [ ] A spread typed in bp is sent and marked; one the server refuses is said on the cell.
-- [ ] In a browser, `cds` from the command line and a spread typed in the grid change the Metrics after Price.
+- [x] The Credit tab shows while CVA is selected and counts the curve's changed spreads.
+- [x] Choosing a single name, a proxy or none sends the choice and the grid shows the new curve.
+- [x] A spread typed in bp is sent and marked; one the server refuses is said on the cell.
+- [x] In a browser, `cds` from the command line and a spread typed in the grid change the Metrics after Price.

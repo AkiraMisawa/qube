@@ -472,7 +472,7 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
     {
       id: 'xva.cds',
       words: 'cds',
-      title: 'Choose the counterparty\'s CDS: a single name, such as cds ABC USD SNR, a proxy, or none',
+      title: 'Choose the counterparty\'s CDS: a single name, such as cds ABCH USD SNRFOR, a proxy, or none',
       group: 'XVA',
       ...onXva,
       args: [{

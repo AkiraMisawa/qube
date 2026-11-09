@@ -84,13 +84,13 @@ public static class ScenarioCatalog
     public static string? TenorIssue(RiskIndex index, string tenor) =>
         index.Category == Fx ? $"{index.Id} is a spot rate and has no tenor"
         : TenorsOf(index.Category).Contains(tenor) ? null
-        : $"{index.Id} has no tenor {tenor}: {A(index.Category)} tenor is {string.Join(", ", TenorsOf(index.Category))}";
+        : $"{index.Id} has no tenor {tenor}: {WithArticle(index.Category)} tenor is {string.Join(", ", TenorsOf(index.Category))}";
 
     /// <summary>How a category shifts: IR and Credit absolutely, FX relatively.</summary>
     public static string TypeOf(string category) => category == Fx ? Relative : Absolute;
 
     /// <summary>A category with its article, as a sentence names it: an IR, an FX, a Credit.</summary>
-    public static string A(string category) => category == Credit ? $"a {category}" : $"an {category}";
+    public static string WithArticle(string category) => category == Credit ? $"a {category}" : $"an {category}";
 
     /// <summary>How a category's shift is written, as a refusal says it.</summary>
     public static string Takes(string category) => TypeOf(category) == Absolute ? "absolute, in bp" : "relative, in %";
@@ -195,7 +195,7 @@ public static partial class ShiftReader
         var shiftType = byUnit ?? type ?? (value == 0 ? ScenarioCatalog.TypeOf(index.Category)
             : throw Refused(written, $"has a size with no unit, and the unit says how it shifts: write {Example(index)}"));
         if (shiftType != ScenarioCatalog.TypeOf(index.Category))
-            throw Refused(written, $"shifts {index.Id} {(shiftType == ScenarioCatalog.Absolute ? "absolutely" : "relatively")}, and {ScenarioCatalog.A(index.Category)} shift is " +
+            throw Refused(written, $"shifts {index.Id} {(shiftType == ScenarioCatalog.Absolute ? "absolutely" : "relatively")}, and {ScenarioCatalog.WithArticle(index.Category)} shift is " +
                 $"{ScenarioCatalog.Takes(index.Category)}: write {Example(index)}");
         return new Shift(index.Category, index.Id, tenor, shiftType, value);
     }
@@ -312,7 +312,7 @@ public static partial class PortfolioScenarios
             : size is null || type is null ? ("it has no size", "size")
             : size == 0 ? ("a size of 0 shifts nothing", "size")
             : type != ScenarioCatalog.TypeOf(index.Category)
-                ? ($"{ScenarioCatalog.A(index.Category)} shift is in {ScenarioCatalog.UnitOfType(ScenarioCatalog.TypeOf(index.Category))}, and its size is in {unit}: type the size again", "size")
+                ? ($"{ScenarioCatalog.WithArticle(index.Category)} shift is in {ScenarioCatalog.UnitOfType(ScenarioCatalog.TypeOf(index.Category))}, and its size is in {unit}: type the size again", "size")
             : ((string?)null, (string?)null);
         var factor = index is null ? tenor : tenor ?? (index.Category == ScenarioCatalog.Fx ? ScenarioCatalog.Spot : WholeIndex);
         return new ShiftRow(id, row, name, index?.Category, index?.Id, tenor, factor, type, size,
@@ -396,7 +396,7 @@ public static partial class PortfolioScenarios
                     || (string.Equals(word, ScenarioCatalog.Spot, StringComparison.OrdinalIgnoreCase) && index?.Category == ScenarioCatalog.Fx) ? null
                 : index?.Category == ScenarioCatalog.Fx ? throw Refused("factor", $"{index.Id} is a spot rate and has no tenor: leave it spot")
                 : index is not null ? ScenarioCatalog.TenorsOf(index.Category).FirstOrDefault(t => string.Equals(t, word, StringComparison.OrdinalIgnoreCase))
-                    ?? throw Refused("factor", $"{word} is no tenor of {index.Id}: {ScenarioCatalog.A(index.Category)} tenor is {string.Join(", ", ScenarioCatalog.TenorsOf(index.Category))}, or {WholeIndex} for the whole curve")
+                    ?? throw Refused("factor", $"{word} is no tenor of {index.Id}: {ScenarioCatalog.WithArticle(index.Category)} tenor is {string.Join(", ", ScenarioCatalog.TenorsOf(index.Category))}, or {WholeIndex} for the whole curve")
                 : ScenarioCatalog.TenorOf(word) ?? throw Refused("factor", $"{word} is no tenor: an IR tenor is {string.Join(", ", ScenarioCatalog.Tenors)}, a Credit tenor {string.Join(", ", CdsCatalog.Tenors)}, or {WholeIndex} for the whole curve");
         }
         if (edit.Cells.ContainsKey("size"))
@@ -409,7 +409,7 @@ public static partial class PortfolioScenarios
                     : $"{written} is no size: write it as {(ScenarioCatalog.TypeOf(index.Category) == ScenarioCatalog.Absolute ? "+10bp" : "-5%")}");
                 var takes = ScenarioCatalog.UnitOfType(ScenarioCatalog.TypeOf(index?.Category ?? (unit == ScenarioCatalog.Bp ? ScenarioCatalog.Ir : ScenarioCatalog.Fx)));
                 if (index is not null && unit != takes)
-                    throw Refused("size", $"{ScenarioCatalog.A(index.Category)} shift is {ScenarioCatalog.Takes(index.Category)}: write {Shift.Signed(size, takes)}");
+                    throw Refused("size", $"{ScenarioCatalog.WithArticle(index.Category)} shift is {ScenarioCatalog.Takes(index.Category)}: write {Shift.Signed(size, takes)}");
                 after["size"] = size;
                 after["unit"] = unit;
             }

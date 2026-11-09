@@ -42,19 +42,30 @@ public class PricerProfileTests
     [Fact] // the owner's Profile of 2026-11-08: EE at the value date is the sum of the positive PVs held, and EE and ENE run off to 0 at the last maturity
     public async Task The_exposure_starts_at_the_positive_pvs_and_runs_off()
     {
-        var (service, runs, store) = Priced();
         // XYZ Industries has no CSA, so every trade's exposure is its whole value (the toy's collateral factor is 1).
-        var ws = service.Create("akira", "XYZ/LE-03", Day1, 20);
+        await TheExposureStartsAtThePositivePvs("XYZ/LE-03", null, 0.2m);
+        // ABC Holdings' trades are collateralised: each one's is what moves over the margin period, 0.2 · √(MPOR / 10) of
+        // it, the model's 10 days or the override (ADR-0010 §8), a trade without a CSA still its whole value.
+        await TheExposureStartsAtThePositivePvs("ABC/LE-01", null, 0.2m);
+        await TheExposureStartsAtThePositivePvs("ABC/LE-01", "40d", 0.4m);
+    }
+
+    static async Task TheExposureStartsAtThePositivePvs(string counterparty, string? mpor, decimal collateralised)
+    {
+        var (service, runs, store) = Priced();
+        var ws = service.Create("akira", counterparty, Day1, 20);
         ws = service.SetMeasures(ws.WorkspaceId, ws.Revision, "akira", ["cva"]);
+        if (mpor is not null) ws = service.SetCells(ws.WorkspaceId, ws.Revision, "akira", ["xva"], "mpor", mpor);
 
         var (input, profiles) = await Price(runs, store, service, ws);
 
         var market = new ScenarioMarket([], Day1);
         var currency = input["displayCurrency"]!.GetValue<string>();
+        decimal Factor(JsonNode t) => t["csa"]!.GetValue<string>().StartsWith("nocsa_", StringComparison.Ordinal) ? 1m : collateralised;
         foreach (var side in new[] { "before", "after" })
         {
             var held = input["trades"]!.AsArray().Where(t => t![side]!.GetValue<bool>())
-                .Sum(t => Math.Max(0m, market.ToGbp(t!["isNew"]!.GetValue<bool>() ? 0m : t["officialPv"]!.GetValue<decimal>(), t["currency"]!.GetValue<string>()) * market.UnitsPerGbp("JPY")));
+                .Sum(t => Factor(t!) * Math.Max(0m, market.ToGbp(t!["isNew"]!.GetValue<bool>() ? 0m : t["officialPv"]!.GetValue<decimal>(), t["currency"]!.GetValue<string>()) * market.UnitsPerGbp("JPY")));
             var ee = Series(profiles, side, "ee");
             var ene = Series(profiles, side, "ene");
             Assert.Equal(0d, ee[0]["years"]!.GetValue<double>());

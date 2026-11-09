@@ -8,12 +8,12 @@ section per module with a selected measure; `open settings`.
 
 **Blocked by:** none.
 
-**Status:** open
+**Status:** done
 
-- [ ] The view lists each selected module's settings with value, default and Original; a setting shows while a measure
+- [x] The view lists each selected module's settings with value, default and Original; a setting shows while a measure
       it serves is selected.
-- [ ] A value out of its form or bounds is refused by name; a setting survives a counterparty change.
-- [ ] A higher cost of capital makes KVA more negative; the charge ratio scales CVA Charge; a longer MPOR raises the
+- [x] A value out of its form or bounds is refused by name; a setting survives a counterparty change.
+- [x] A higher cost of capital makes KVA more negative; the charge ratio scales CVA Charge; a longer MPOR raises the
       collateralised exposure; PV adjustment off prices new trades with no PV Adj and no longer refuses a pending one.
-- [ ] `set xva cost of capital 12%` and `vary xva charge ratio 1, 1.5` work; the Changes tab names them.
-- [ ] In a browser, a setting typed in the Settings tab is marked and moves the figure after Price.
+- [x] `set xva cost of capital 12%` and `vary xva charge ratio 1, 1.5` work; the Changes tab names them.
+- [x] In a browser, a setting typed in the Settings tab is marked and moves the figure after Price.

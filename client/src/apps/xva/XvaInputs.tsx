@@ -3,8 +3,8 @@ import { Button, Group, Table, Tabs, Text, useMantineTheme } from '@mantine/core
 import { GridSource, type CellState, type GridColumn, type GridContextMenuContext, type GridEditIntent } from '@ex-grid/core';
 import type { ExGridApi } from '@ex-grid/react';
 import { WorkbenchGrid } from '../../platform/grid/WorkbenchGrid';
-import type { Agreement, CdsCatalogue, ChangesList, EffectiveCsa, RegisteredMeasure, XvaWorkspaceView } from './contracts';
-import { creditChanges, emptyRecovery, nettingChanges } from './credit';
+import type { Agreement, ChangesList, EffectiveCsa, RegisteredMeasure, XvaWorkspaceView } from './contracts';
+import { creditChanges, emptyRecovery, nettingChanges, type CatalogueRead } from './credit';
 import { XvaCredit } from './XvaCredit';
 import { XvaSettings } from './XvaSettings';
 import { XvaChanges, type ChangeActions } from './XvaChanges';
@@ -106,11 +106,10 @@ export const shownTab = (ws: Pick<XvaWorkspaceView, 'inputs' | 'settings'>, tab:
  */
 export function XvaInputs({ ws, push, setText, catalogue, onIssue, tab, onTab, open, onOpen, height, focusRequest, changeList, changeActions, scenarioActions, onVary, commandLabel }: {
   readonly ws: XvaWorkspaceView;
-  /** A value as written, for the server to read as the cell reads it (a spread, a setting), and the cell's title for what
-   * the page says if it is refused; answers whether it took it. */
+  /** A value as written, for the server to read as the cell reads it (a spread, a setting). */
   readonly setText: SetText;
-  /** The CDS catalogue the Credit tab searches; none until it has been read. */
-  readonly catalogue: CdsCatalogue | undefined;
+  /** The CDS catalogue the Credit tab searches; none until it has been read, and why where it could not be. */
+  readonly catalogue: CatalogueRead;
   /** The Changes tab's list, read while the tab is open; none until it has been read. */
   readonly changeList: ChangesList | undefined;
   readonly changeActions: ChangeActions;
@@ -182,7 +181,7 @@ export function XvaInputs({ ws, push, setText, catalogue, onIssue, tab, onTab, o
         <Tabs.List className="qwb-xva-inputs-tabs" aria-label="Inputs">
           <Tabs.Tab value="netting">{TAB_TITLES.netting}{count(nettingCount)}</Tabs.Tab>
           <Tabs.Tab value="csa">{TAB_TITLES.csa}{count(csaChanges)}</Tabs.Tab>
-          {creditShown && <Tabs.Tab value={CREDIT_TAB} {...(ws.credit.missing == null ? {} : { color: 'red', title: ws.credit.missing })}>{TAB_TITLES.credit}{count(creditCount)}</Tabs.Tab>}
+          {creditShown && <Tabs.Tab value={CREDIT_TAB} {...(ws.credit.missing == null ? {} : { color: 'red', title: ws.credit.missing })}>{TAB_TITLES.credit}{count(creditCount)}{ws.credit.missing == null ? '' : ' · no CDS'}</Tabs.Tab>}
           {imShown && <Tabs.Tab value={IM_TAB}>{TAB_TITLES.im}</Tabs.Tab>}
           <Tabs.Tab value={SCENARIOS_TAB}>{TAB_TITLES.scenarios}{ws.scenarios.length === 0 ? '' : ` (${ws.scenarios.length})`}</Tabs.Tab>
           {settingsShown && <Tabs.Tab value={SETTINGS_TAB}>{TAB_TITLES.settings}{count(settingsCount)}</Tabs.Tab>}

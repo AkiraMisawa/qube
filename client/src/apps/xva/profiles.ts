@@ -1,3 +1,5 @@
+import { requiredText, rowsInView, textOf as text, type RunRow as Row } from './runRows';
+
 // The Profile tab as a reading of the Run (the owner's Profile of 2026-11-08, ADR-0010 §8's note of 2026-11-09): the
 // profiles a request returned (`portfolio.profiles`), such as the exposure profile CVA and FVA integrate and the capital
 // profile KVA charges for, for the case and the market in view. A profile is a table of its dates, each series Before,
@@ -27,20 +29,16 @@ export interface ProfileTable {
   readonly sides: { readonly before: boolean; readonly after: boolean };
 }
 
-type Row = Readonly<Record<string, unknown>>;
-
-const text = (v: unknown): string | undefined => (typeof v === 'string' && v !== '' ? v : undefined);
 const number = (v: unknown): number | undefined => (typeof v === 'number' && Number.isFinite(v) ? v : undefined);
 
-const inView = (rows: readonly Row[], caseId: string, scenario: string) =>
-  rows.filter((r) => r.case === caseId && (text(r.scenario) ?? 'base') === scenario);
+const inView = (rows: readonly Row[], caseId: string, scenario: string) => rowsInView(rows, caseId, scenario, 'profiles');
 
 /** The profiles of the case and market in view, in the order the Run returned them. */
 export function profilesOf(rows: readonly Row[], caseId: string, scenario: string): readonly ProfileChoice[] {
   const found = new Map<string, ProfileChoice>();
   for (const r of inView(rows, caseId, scenario)) {
-    const id = text(r.profile);
-    if (id !== undefined && !found.has(id)) found.set(id, { id, title: text(r.profileTitle) ?? id, currency: text(r.currency) });
+    const id = requiredText(r, 'profile', 'profiles');
+    if (!found.has(id)) found.set(id, { id, title: requiredText(r, 'profileTitle', 'profiles'), currency: text(r.currency) });
   }
   return [...found.values()];
 }
@@ -62,7 +60,7 @@ export function profileTable(rows: readonly Row[], profile: ProfileChoice, caseI
     const date = text(r.date);
     if (id === undefined || years === undefined || date === undefined || side === undefined || value === undefined)
       throw new Error(`A point of the ${profile.title} profile has no series, time, date, side or figure; the Run's profile cannot be read.`);
-    if (!series.has(id)) series.set(id, { id, title: text(r.seriesTitle) ?? id });
+    if (!series.has(id)) series.set(id, { id, title: requiredText(r, 'seriesTitle', 'profiles') });
     const at = dates.get(years) ?? { date, values: {} };
     const cell = at.values[id] ?? { before: undefined, after: undefined, diff: undefined };
     cell[side] = value;

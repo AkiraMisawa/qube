@@ -75,7 +75,8 @@ public sealed class XvaMeasures(Pv01Provider pv01, decimal fvaLimitGbp = 1_000_0
     /// <summary>
     /// XVA's settings (ADR-0010 §8's note of 2026-11-09, DEFAULT): the MPOR override the exposure of a collateralised
     /// trade is the move over, empty for the model's; the cost of capital KVA charges a year; the ratio CVA Charge applies
-    /// to CVA; whether new trades' PV Adj is priced; and whether the request computes the deltas the Risks tab shows. The
+    /// to CVA; whether new trades' PV Adj is priced (for CVA and FVA, whose exposure reads it, and for KVA, which a PV Adj
+    /// not known refuses while it is on, ADR-0010 §6); and whether the request computes the deltas the Risks tab shows. The
     /// defaults are the simulated engine's, and what each approximates is OPEN with the engine.
     /// </summary>
     public IReadOnlyList<MeasureSetting> Settings { get; } =
@@ -91,7 +92,7 @@ public sealed class XvaMeasures(Pv01Provider pv01, decimal fvaLimitGbp = 1_000_0
     {
         Mpor => value is null || value is JsonValue m && m.TryGetValue<decimal>(out var days) && days == decimal.Truncate(days) && days is >= 1 and <= 250
             ? null : $"An MPOR override is a whole number of days from 1 to 250, or empty for the model's {ModelMpor}.",
-        CostOfCapital => value is JsonValue c && c.TryGetValue<decimal>(out var rate) && rate is >= 0 and < 1 ? null : "A cost of capital is from 0% up to 100%, never empty.",
+        CostOfCapital => value is JsonValue c && c.TryGetValue<decimal>(out var rate) && rate is >= 0 and < 1 ? null : "A cost of capital is from 0% and below 100%, never empty.",
         ChargeRatio => value is JsonValue r && r.TryGetValue<decimal>(out var ratio) && ratio is > 0 and <= 10 ? null : "A charge ratio is a number above 0 and up to 10.",
         PvAdjustment or Risks => value is JsonValue b && b.TryGetValue<bool>(out _) ? null : $"{Settings.Single(x => x.Id == setting).Title} is on or off.",
         _ => $"XVA has no setting {setting}.",
@@ -270,10 +271,11 @@ public sealed class FakeXvaPrice : ICapabilityHandler
         ExecutionKind.RequestResponse, [CapabilityEffect.Compute]);
 
     /// <summary>
-    /// One side's toy figures, in the result's currency: CVA (none without a CDS curve, when CVA is refused), FVA and PV,
-    /// how many trades it priced and FVA counted, and the exposure profile CVA integrates.
+    /// One side's toy figures, in the result's currency: CVA (none where it is not priced: refused, or not selected), why the
+    /// market could not price it (a credit shift that takes a spread to 0 or below), FVA and PV, how many trades it priced
+    /// and FVA counted, and the exposure profile CVA and FVA integrate.
     /// </summary>
-    readonly record struct SideFigures(decimal? Cva, decimal Fva, decimal Pv, int Count, int FvaCount, IReadOnlyList<ExposurePoint> Profile);
+    readonly record struct SideFigures(decimal? Cva, string? CvaUnapplied, decimal Fva, decimal Pv, int Count, int FvaCount, IReadOnlyList<ExposurePoint> Profile);
 
     /// <summary>A point of the toy exposure profile, in the result's currency: EE and ENE at a time in years.</summary>
     internal readonly record struct ExposurePoint(double Years, decimal Ee, decimal Ene);
@@ -332,6 +334,9 @@ public sealed class FakeXvaPrice : ICapabilityHandler
         var credit = input["modules"]![XvaMeasures.Module]!["credit"]!;
         // The CDS curve CVA reads (ADR-0010 §8's note of 2026-11-09); none where CVA is refused for its want.
         var cds = credit["cds"] as JsonObject;
+        // CVA is priced, and the CDS curve read, only where it is selected and not refused: a credit shift CVA cannot take
+        // never refuses FVA or PV, whose figures do not read the curve (ADR-0010 §10).
+        var cvaPriced = input["measures"]!.AsArray().Any(m => m!["id"]!.GetValue<string>() == XvaMeasures.Cva && m["refused"] is not JsonObject);
         var trades = input["trades"]!.AsArray().Select(t => t!).ToList();
         var definitions = XvaMeasures.Definitions.ToDictionary(m => m.Id);
         // The toy figures are made in JPY and reported in the display currency Price froze (ADR-0010 §1, §7), at the
@@ -465,17 +470,25 @@ public sealed class FakeXvaPrice : ICapabilityHandler
                     fva -= (own[k - 1] + own[k]) / 2 * FundingSpread(t, grid[k], m) * (decimal)(grid[k] - grid[k - 1]);
             }
             decimal? cva = null;
-            if (cds is not null)
+            string? cvaUnapplied = null;
+            if (cds is not null && cvaPriced)
             {
                 // An empty CVA recovery is not zero: the CDS recovery applies (docs/03, XV15).
                 var recovery = credit["cvaRecovery"]?.GetValue<decimal>() ?? cds["recovery"]!.GetValue<decimal>();
-                var hazards = Hazards(cds, m);
-                decimal loss = 0;
-                for (var k = 1; k < grid.Length; k++)
-                    loss += (ee[k - 1] + ee[k]) / 2 * (decimal)(Survival(grid[k - 1], hazards) - Survival(grid[k], hazards));
-                cva = Shown(-(1 - recovery) * loss, m);
+                try
+                {
+                    var hazards = Hazards(cds, m);
+                    decimal loss = 0;
+                    for (var k = 1; k < grid.Length; k++)
+                        loss += (ee[k - 1] + ee[k]) / 2 * (decimal)(Survival(grid[k - 1], hazards) - Survival(grid[k], hazards));
+                    cva = Shown(-(1 - recovery) * loss, m);
+                }
+                catch (ScenarioUnapplied e)
+                {
+                    cvaUnapplied = e.Message;
+                }
             }
-            return new(cva, Shown(fva, m), Shown(pv, m), members.Count, fvaCount,
+            return new(cva, cvaUnapplied, Shown(fva, m), Shown(pv, m), members.Count, fvaCount,
                 [.. grid.Select((x, k) => new ExposurePoint(x, Shown(ee[k], m), Shown(ene[k], m)))]);
         }
 
@@ -553,6 +566,13 @@ public sealed class FakeXvaPrice : ICapabilityHandler
                     rows.Add(MeasureResult.Row(@case, definition.Id, metric, currency, side, side));
                     continue;
                 }
+                // A market CVA cannot be priced on refuses CVA's metrics alone, by name, as a missing curve does.
+                if (definition.Id == XvaMeasures.Cva && (figures.Before.CvaUnapplied ?? figures.After.CvaUnapplied) is { } cvaWhy)
+                {
+                    var side = new MeasureResult.Side(MeasureResult.Refused, null, null, $"Under {@case.Scenario.Title}: {cvaWhy}");
+                    rows.Add(MeasureResult.Row(@case, definition.Id, metric, currency, side, side));
+                    continue;
+                }
                 Func<SideFigures, decimal> value = metric.Id switch
                 {
                     "cva" => s => CvaOf(s),
@@ -568,20 +588,19 @@ public sealed class FakeXvaPrice : ICapabilityHandler
         // The deltas (the Risks tab): with risks asked, each factor bumped on top of the pair's market and both sides priced
         // again, the delta the bumped figure minus the priced one; a measure with none says why.
         var risks = new List<JsonObject>();
-        var bumped = new Dictionary<string, (SideFigures Before, SideFigures After)?>();
-        string? bumpUnapplied = null;
-        (SideFigures Before, SideFigures After)? On(Shift bump)
+        // A bump is priced once for every measure that takes it, kept with why it could not be applied where it could not.
+        var bumped = new Dictionary<string, ((SideFigures Before, SideFigures After)? Moved, string? Unapplied)>();
+        ((SideFigures Before, SideFigures After)? Moved, string? Unapplied) Bumped(Shift bump)
         {
             if (bumped.TryGetValue(bump.Text, out var known)) return known;
             var moved = new ScenarioMarket([.. market.Shifts, bump], market.ValueDate);
             try
             {
-                return bumped[bump.Text] = (Side("before", moved), Side("after", moved));
+                return bumped[bump.Text] = ((Side("before", moved), Side("after", moved)), null);
             }
             catch (ScenarioUnapplied e)
             {
-                bumpUnapplied = e.Message;
-                return bumped[bump.Text] = null;
+                return bumped[bump.Text] = (null, e.Message);
             }
         }
         foreach (var selected in measures.Where(m => m["id"]!.GetValue<string>() is XvaMeasures.Cva or XvaMeasures.Fva))
@@ -604,16 +623,25 @@ public sealed class FakeXvaPrice : ICapabilityHandler
                 risks.Add(MeasureRisks.None(@case, definition.Id, headline, currency, unapplied ?? throw new InvalidOperationException("A pair not priced says why.")));
                 continue;
             }
-            Func<SideFigures, decimal> value = definition.Id == XvaMeasures.Cva ? CvaOf : s => s.Fva;
+            var isCva = definition.Id == XvaMeasures.Cva;
+            if (isCva && (figures.Before.CvaUnapplied ?? figures.After.CvaUnapplied) is { } cvaWhy)
+            {
+                risks.Add(MeasureRisks.None(@case, definition.Id, headline, currency, $"Under {@case.Scenario.Title}: {cvaWhy}"));
+                continue;
+            }
+            Func<SideFigures, decimal> value = isCva ? CvaOf : s => s.Fva;
             MeasureResult.Side Delta(SideFigures priced, SideFigures moved) =>
                 priced.Count == 0 ? MeasureResult.Side.NotPricedWith(0) : MeasureResult.Side.Of(value(moved) - value(priced), priced.Count);
             foreach (var bump in Bumps(definition.Id))
             {
                 var factor = bump.Tenor is null ? bump.Index : $"{bump.Index} {bump.Tenor}";
                 var size = Shift.Signed(bump.Size, bump.Unit);
-                if (On(bump) is not { } moved)
+                var (bumpedSides, bumpWhy) = Bumped(bump);
+                // A bump CVA cannot take refuses CVA's delta to it alone; FVA's, priced on the same market, stands.
+                if (isCva && bumpedSides is { } b) bumpWhy ??= b.Before.CvaUnapplied ?? b.After.CvaUnapplied;
+                if (bumpedSides is not { } moved || bumpWhy is not null)
                 {
-                    var side = new MeasureResult.Side(MeasureResult.Refused, null, null, $"Under {bump.Text}: {bumpUnapplied}");
+                    var side = new MeasureResult.Side(MeasureResult.Refused, null, null, $"Under {bump.Text}: {bumpWhy}");
                     risks.Add(MeasureRisks.Row(@case, definition.Id, headline, currency, bump.Category, factor, size, side, side));
                     continue;
                 }

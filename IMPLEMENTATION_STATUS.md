@@ -334,8 +334,8 @@ provider is wired.
 - No column filters, and no *in FVA* filter, on the trade grids yet (§6).
 - The Before and After fills wait on ExGrid's Split Fill (ex-grid ADR-0490, PR #545); until step 3 every change
   differs on both sides and wears `modified`.
-- No Credit tab or Settings section (step 5); no *Add CSA*; the CSA type is the source's and read-only (DEFAULT); the
-  trades show no start date.
+- No *Add CSA*; the CSA type is the source's and read-only (DEFAULT); the trades show no start date. (The Credit tab
+  and the Settings section came with step 5.)
 - PV is a metric of CVA's (DEFAULT): the request that prices CVA values the portfolio.
 - The module columns (PV01, Margin, PV Adj) are on the New grid only; an existing trade shows its official PV.
 - docs/03 §2.5 OPEN: a new trade with no PV Adj is priced without an adjustment, and the Run does not yet say so.
@@ -688,17 +688,81 @@ As before: every figure is simulated and says so. The shifted market is one synt
 
 ### Known limits
 
-- Credit shifts (CDS spreads) come with the Credit tab (step 5).
+- Credit shifts (CDS spreads) came with the Credit tab in step 5.
 - The reply sentences are written on the server for the AI and on the client for the page; the REST answers could
   carry the server's.
 - The dock's header row mixes 30px selectors with 22px buttons (design-guidelines §3), as the case selector did.
 - The scripted agent has no XVA requests; the commands are reached by a model through their tools.
 
+## Credit, Settings, Risks and Profile, ADR-0010 Delivery step 5 (tickets 01–06, 2026-11-09)
+
+### What runs
+
+- **The counterparty's CDS** (spec `docs/specs/pricer-credit-risks-profile`): a synthetic catalogue of single names
+  (`ticker | ccy | seniority | doc clause | name`) and proxies (sector × region × rating); each registration's CDS
+  from the source, a single name or a proxy. The **Credit tab** (while CVA is selected) chooses the type, a single
+  name by a searchable select or a proxy by its three keys, or none; the chosen curve is one ExGrid row with its
+  spreads editable in bp, marked against the catalogue, with *Vary values…*; a spread the server refuses keeps the
+  editor open with its reason. None refuses CVA (and its charge and PV) by name, and the tab says why in words. `cds
+  ABCH USD SNRFOR`, `cds proxy financials asia A` and `cds none` choose from the command line, completed from the
+  catalogue; the AI reaches it as `xva.cds`. An empty CVA recovery takes the curve's.
+- **Credit shifts**: the Scenarios catalogue's Credit category, the index `cds`, whole or at a CDS tenor, absolute in
+  bp, key-rate on the CDS tenors. A shift CVA cannot take (a spread at or below 0) refuses CVA alone for that market,
+  and FVA, PV and the exposure profile are priced as on the base market.
+- **Settings** are registered by a module (form, default, the measures each serves) and are inputs of the workspace,
+  frozen by Price and read by the provider. XVA's (DEFAULT): MPOR override (empty is the model's 10 days), cost of
+  capital (10%, KVA's), charge ratio (1.25, CVA Charge's), PV adjustment (on) and risks included (off). The **Settings
+  tab** is a table a module (value, default, the measures it is for); `set xva charge ratio 1.5` and `vary xva mpor
+  20d, 40d` reach them; the server checks each form and bound and refuses by name.
+- **Risks** (with risks included): per measure, CVA's credit delta at each CDS tenor (+1bp key-rate), IR per discount
+  curve (+1bp) and FX per currency against JPY (+1%); FVA's IR on discount and funding curves and its FX; each the
+  bumped figure minus the priced one, Before, After and Diff. A measure with none says why. One tab for CVA and FVA,
+  following the case and scenario selectors.
+- **Profile**: the exposure profile (EE and ENE, when CVA or FVA is priced) and the capital profile (EAD and capital,
+  with KVA), one at a time, as a table of dates × series and an ExChart line chart (`@ex-grid/chart-react`
+  0.2.0-beta.3 in Mantine's Chrome), After solid and Before dashed, each series hidden or shown from the legend. KVA
+  is the cost of that capital profile.
+
+### Verification performed
+
+| Suite | Result |
+|---|---|
+| `dotnet test server/Workbench.slnx` | 596 passed: the catalogue and `cds`, a spread edit kept on its curve, CVA reading the curve and refused without one, Credit shifts and their refusals, a Credit shift CVA cannot take refusing CVA alone, the settings' forms, bounds, freezing and effect on each figure, the deltas and their reasons, the exposure profile with and without collateral and MPOR, and KVA as the cost of the capital profile's rows |
+| `npm run typecheck`, `npx vitest run` | Clean; 197 passed |
+| `npx playwright test` (Chromium, headless, Linux) | 50 passed; the five tests of `e2e/credit.spec.ts` with `--repeat-each=3`: the Credit tab by its own controls and by `cds`, a refused spread at the cell, the Settings tab and `set`, a refused setting sent once, the Risks tab before and after risks are included, the Profile table and chart with a series toggled from the legend, and the phone (390px) with no sideways scroll |
+
+Looked at by screenshot at 390 (dark), 768 and 1440 (light): the Credit row, the Settings table, the Risks tables and
+the Profile chart and table.
+
+Code review (`/code-review`, two axes) found a Credit shift refusing FVA too, a cached bump giving another bump's
+reason, Enter then a blur sending a setting twice, the catalogue's read error shown as an empty search, the `cds`
+example in the command line naming no curve, a bound's message saying 100% where 100% is refused, rows with no market
+filed under the base market and titles made up from ids, colour alone marking a missing CDS, a switch a size larger than
+the guidelines', duplicated parse and row writers, and thin tests (the tab's own selects, the legend, Risks on a phone,
+the Changes tab for a `set`, KVA from the profile's rows, a collateralised exposure); all fixed. Kept as they are: the
+five CDS choice keys mapped field by field at each site (each maps them to a different thing: cells, edits, the view),
+and the CDS type as strings on the wire.
+
+### Providers
+
+As before: every figure is simulated and says so. FVA's toy now integrates the same EE profile the Profile tab draws,
+so a collateralised trade's exposure is what moves over its margin period, and every FVA figure differs from step 4's.
+
+### Known limits
+
+- ExChart paints its legend again on a toggle, and the entry it paints does not keep the keyboard (0.2.0-beta.3): a
+  keyboard user toggling two series moves focus back by hand. To be raised in ex-grid.
+- A command that opens an input tab while the dock is full now brings the inputs back (`openTab`), so the keyboard
+  lands on what it opened.
+- Advanced configuration is the engine's (OPEN); the risks' bumps are fixed (DEFAULT); a delta table is a
+  Mantine table, as the Metrics are, not a grid.
+- What CVA Charge is computed from beside the charge ratio is the engine's (ADR-0010 OPEN).
+
 ## Next
 
-1. ADR-0010 Delivery step 5: the Credit and Settings tabs, Risks and Profile.
-2. MVA with SIMM (`docs/12-implementation-plan.md` P2): spot IM from the XVA request's MVA option.
+1. MVA with SIMM (`docs/12-implementation-plan.md` P2): spot IM from the XVA request's MVA option.
+2. ADR-0010 Delivery step 3 (Advanced: Before-only and After-only edits, the split fill), when the owner asks for it.
 3. The owner's review of ADR-0003 §7 (scopes, carry and conflict), then a synthetic source change that can produce a conflict, and the browser cases still open above (reload, failed case unavailable).
 4. Rates.
-6. ME-ID sign-in through MSAL (C30) and the visibility rules (C31, C32); AI over AG-UI with the company's Copilot behind the adapter port (C34).
-7. Slice 01b: Save and Pin (CO06), and the browser parts of CO03 and CO04.
+5. ME-ID sign-in through MSAL (C30) and the visibility rules (C31, C32); AI over AG-UI with the company's Copilot behind the adapter port (C34).
+6. Slice 01b: Save and Pin (CO06), and the browser parts of CO03 and CO04.

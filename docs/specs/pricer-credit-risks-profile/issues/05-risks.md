@@ -8,9 +8,9 @@ measures register once; the client's Risks view reads the rows of the case and t
 
 **Blocked by:** 01, 04.
 
-**Status:** open
+**Status:** done
 
-- [ ] With risks included, each delta is the bumped figure minus the priced one, per side, and Diff is After − Before.
-- [ ] Without it, or with the measure refused, the tab says why for that measure, never a table of zeros.
-- [ ] The Risks tab is one tab while CVA and FVA are both selected, and follows the case and scenario selectors.
-- [ ] In a browser, after Price with risks included, the Risks tab shows CVA's credit deltas.
+- [x] With risks included, each delta is the bumped figure minus the priced one, per side, and Diff is After − Before.
+- [x] Without it, or with the measure refused, the tab says why for that measure, never a table of zeros.
+- [x] The Risks tab is one tab while CVA and FVA are both selected, and follows the case and scenario selectors.
+- [x] In a browser, after Price with risks included, the Risks tab shows CVA's credit deltas.

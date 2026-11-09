@@ -7,8 +7,8 @@ the fake XVA provider's default probabilities. The grid, the reader and the gene
 
 **Blocked by:** 01.
 
-**Status:** open
+**Status:** done
 
-- [ ] `scenario wide cds +50bp` prices a more negative CVA than the base market, and the same FVA.
-- [ ] `cds 5y +20bp` moves only the buckets around 5y; `cds 30y` and `jpy_ois 7y` are refused with the category's tenors.
-- [ ] The Scenarios grid and `scenario ladder cds …` take a Credit shift.
+- [x] `scenario wide cds +50bp` prices a more negative CVA than the base market, and the same FVA.
+- [x] `cds 5y +20bp` moves only the buckets around 5y; `cds 30y` and `jpy_ois 7y` are refused with the category's tenors.
+- [x] The Scenarios grid and `scenario ladder cds …` take a Credit shift.
