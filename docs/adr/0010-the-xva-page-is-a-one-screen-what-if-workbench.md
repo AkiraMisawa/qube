@@ -179,6 +179,62 @@ variants the workspace is one case.
   - *The AI* uses these same commands, so one request ("cross JPY OIS ±50bp with USDJPY ±10%") is one generator
     call, not a shift at a time.
 
+*Note of 2026-11-09 (DEFAULT, writing Delivery step 4's spec; told to the owner the same day, as the owner asked on
+2026-11-08 to go with the recommendation and hear it afterwards):*
+
+- **The market-data catalogue is the portfolio's, and synthetic.** *IR*: each curve the portfolio prices on, the
+  discount curves (`jpy_ois`, `usd_sofr`, `eur_estr`) and the funding curves (`jpy_funding`, `usd_funding`,
+  `eur_funding`), whole or at one of the tenors `1m 3m 6m 1y 2y 5y 10y 30y`, shifted absolutely, in bp. *FX*: each
+  currency against JPY, the bank's domestic currency (`usdjpy`, `eurjpy`, `gbpjpy`), shifted relatively, in %; every
+  cross moves with the two it is made of. A size in a unit its category does not take is refused, naming the one it
+  does: a relative rate shift and an absolute FX shift come when a provider needs one. *Credit*, the counterparty's
+  CDS spreads, joins the catalogue with the Credit tab (Delivery step 5).
+- **A tenor shift is a key-rate shift**: whole at its tenor, falling linearly to nothing at the catalogue's tenors
+  either side of it, and whole beyond the first and the last. A shift of the whole index moves every point. So
+  `jpy_ois +10bp` and `jpy_ois 5y +3bp` touch one risk factor and are refused together (§4); `jpy_ois 5y` and
+  `jpy_ois 10y` do not touch.
+- **A scenario belongs to the workspace, not to the counterparty**: a counterparty change keeps every scenario, since
+  market data is no counterparty's. Each shift is a row the workspace created (ADR-0004), edited as any cell is; the
+  Category follows from the index and the Shift type from the size's unit, so both are read-only. The grid always
+  ends in blank rows to type or paste into, so a block copied from a spreadsheet lands on them (ExGrid's spilled
+  paste, ex-grid ADR-0050 §3); clearing every cell of a row removes it. A row that is incomplete or does not resolve
+  says why on the row, and Price refuses an included scenario that holds one, naming the scenario and the row.
+- **A scenario is included when it is made.** Its include box, or `scenario include <name>` and `scenario exclude
+  <name>`, leave it out of Price without removing it. `scenario <name> <shift>; …` defines a scenario whole: it replaces
+  the rows of one of that name, keeps whether it is included, and says what it replaced. A generated scenario replaces
+  one of its name the same way.
+- **The cap counts pairs**: cases × (the included scenarios and the base market), DEFAULT 50 as in §3, and Price over
+  it says by how much. A generator makes at most the scenarios the cap could price with the Base alone (49), and is
+  refused over that; the number it would make, and the pairs that leaves against the cap, are said on the command line
+  before it runs.
+- **Each provider applies the shifts to what it reads**, the accepted input carrying each scenario's shifts beside the
+  cases. Spot IM generates its CRIF again on the snapshot's curves and the FX shifted. The simulated XVA provider and
+  spot CCR capital revalue each trade by a toy sensitivity to its curve and its currencies, and say they are simulated
+  as their figures already do. A provider that reads a shifted risk factor and cannot apply the shift refuses its
+  measure for that scenario, by name; it never prices the base market under the scenario's name.
+- **The dock's scenario selector** (§7) lists the base market first, then each scenario the Run priced. Metrics, the
+  collapsed line, the measures' result tabs and Copy quote follow it, and Copy quote names the scenario when it is not
+  the base market.
+- **The grid's Category and Shift type take a value, yet stay derived.** A block of all seven columns copied from a
+  spreadsheet must paste whole, and ExGrid refuses a paste whose target holds a read-only cell; so both columns take
+  what is typed or pasted, and the server keeps it only where it is what the index or the size gives, refusing it by
+  row and column otherwise. The grid ends in a read-only *Issue* column, after the seven, which says why a row cannot
+  be priced, as "says why on the row" asks, and the cell the issue is of is marked.
+- **A scenario whose rows are gone is left out of nothing.** Clearing or renaming every row of an excluded scenario
+  drops its name from those left out of Price, so a scenario of that name made later is included, as one made is.
+- **Saved sets.** `scenario save <set> [desk|all]` saves every scenario of the workspace, included or not, under a name
+  of the user's; saved again, it replaces the user's own set of that name. A set is the user's alone unless `desk` or
+  `all` says otherwise; a user's desk is configuration (`Workbench:Desks`), and `desk` without one is refused. Only its
+  owner replaces a set (and an administrator, once roles exist, C32). `scenario load <set>` adds the set's scenarios,
+  replacing those of the same name, and says what it replaced; a name that two sets the user can see share is refused,
+  naming their owners, and `<set>@<owner>` picks one. A set's name is one word without `@`, so `desk` or `all` can
+  follow it. A loaded scenario is made as `scenario` makes one: one that replaces a scenario of its name keeps whether
+  that one was included, and one made anew is included, whatever its box said where it was saved. *(The store is the kernel's, generic over kinds, as saved workflows and views will be (C32): it keeps
+  an item by kind, owner and name and decides who sees it, and never reads what the item holds. `xva.scenario.save`'s
+  effect is `SaveItem`, DEFAULT 2026-11-09: it changes no workspace, so it is not `EditWorkspace`, yet it keeps
+  something for its caller, which no Run may do; `SaveItem` joins `EditWorkspace`, `Subscribe` and `ReadRun` as an
+  effect that makes a capability a command, as ADR-0011 added `ReadRun`.)*
+
 ### 5. FVA prices only imperfectly collateralised CSAs (CONFIRMED, owner 2026-11-06; XVA's registration)
 
 A CSA is **imperfectly collateralised** when any of these holds:

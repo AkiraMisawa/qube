@@ -264,5 +264,93 @@ public class PricerApiTests(WorkbenchFactory factory) : IClassFixture<WorkbenchF
         Assert.StartsWith("<p><b>XVA quote (simulated)", quote["html"]!.GetValue<string>());
         Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync("/api/xva/runs/run-none/quote")).StatusCode);
     }
-}
 
+    [Fact] // ADR-0010 §4 and its note of 2026-11-09: a scenario over HTTP, a row per pair in its Run, a pair's trace, and the quote of a scenario
+    public async Task A_scenario_is_defined_and_priced_with_a_row_per_pair_over_http()
+    {
+        var ws = await Measures(await Create(), "cva", "ccr.spotCapital");
+
+        var defined = await Post(ws, "scenarios", new { revision = Revision(ws), name = "up", shifts = "usd_sofr +100bp; usdjpy -5%" });
+        Assert.Equal(HttpStatusCode.OK, defined.StatusCode);
+        var made = (await defined.Content.ReadFromJsonAsync<JsonObject>())!;
+        Assert.Equal(["up"], Strings(made["made"]));
+        Assert.Empty(Strings(made["replaced"]));
+        ws = made["workspace"]!.AsObject();
+        Assert.Equal(("up", 2, true), (ws["scenarios"]![0]!["name"]!.GetValue<string>(), ws["scenarios"]![0]!["shifts"]!.GetValue<int>(), ws["scenarios"]![0]!["included"]!.GetValue<bool>()));
+        Assert.Equal(["usd_sofr", "usdjpy"], ws["shifts"]!.AsArray().Select(r => r!["index"]!.GetValue<string>()));
+        var refused = await Post(ws, "scenarios", new { revision = Revision(ws), name = "s2", shifts = "jpy_ois +10%" });
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, refused.StatusCode);
+        Assert.Contains("an IR shift is absolute, in bp", (await refused.Content.ReadFromJsonAsync<JsonObject>())!["message"]!.GetValue<string>());
+
+        var (run, rows) = await Price(ws);
+        var runId = run["runId"]!.GetValue<string>();
+
+        // The Run names its markets by position, each with its title.
+        Assert.Equal([("base", "Base market"), ("s1", "up")], rows.Where(r => r["metric"]!.GetValue<string>() == "cva")
+            .Select(r => (r["scenario"]!.GetValue<string>(), r["scenarioTitle"]!.GetValue<string>())));
+        var trace = await client.GetAsync($"/api/runs/{runId}/cases/base/traces/ccr.spotCapital?scenario=s1");
+        Assert.Equal(HttpStatusCode.OK, trace.StatusCode);
+        var unpriced = await client.GetAsync($"/api/runs/{runId}/cases/base/traces/ccr.spotCapital?scenario=s2");
+        Assert.Equal(HttpStatusCode.NotFound, unpriced.StatusCode);
+        Assert.Contains("scenario s2", (await unpriced.Content.ReadFromJsonAsync<JsonObject>())!["message"]!.GetValue<string>());
+        var quote = (await client.GetFromJsonAsync<JsonObject>($"/api/xva/runs/{runId}/quote?scenario=s1"))!;
+        Assert.Contains("Scenario up", quote["text"]!.GetValue<string>());
+        Assert.Equal("up", quote["scenario"]!.GetValue<string>());
+        Assert.DoesNotContain("Scenario", (await client.GetFromJsonAsync<JsonObject>($"/api/xva/runs/{runId}/quote"))!["text"]!.GetValue<string>());
+        Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync($"/api/xva/runs/{runId}/quote?scenario=s9")).StatusCode);
+    }
+
+    [Fact] // ADR-0010 §4: the Scenarios tab over HTTP: a block pasted, a cell refused by row and column, include, duplicate, remove and clear
+    public async Task The_scenarios_tab_edits_and_lists_over_http()
+    {
+        var ws = await Create();
+        async Task<JsonObject> Ok(string path, object body)
+        {
+            var response = await Post(ws, path, body);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            var answer = (await response.Content.ReadFromJsonAsync<JsonObject>())!;
+            return answer["workspace"]?.AsObject() ?? answer;
+        }
+        static object Row(int row, string scenario, string index, string size) => new { id = (string?)null, row, cells = new Dictionary<string, string?> { ["scenario"] = scenario, ["index"] = index, ["size"] = size } };
+
+        ws = await Ok("shifts", new { revision = Revision(ws), rows = new[] { Row(1, "up", "jpy_ois", "+10bp"), Row(2, "up", "usdjpy", "-5%") } });
+        Assert.Equal([("IR", "abs", "all"), ("FX", "rel", "spot")], ws["shifts"]!.AsArray().Select(r => (r!["category"]!.GetValue<string>(), r["type"]!.GetValue<string>(), r["factor"]!.GetValue<string>())));
+        var refused = await Post(ws, "shifts", new { revision = Revision(ws), rows = new[] { Row(3, "up", "jpy_ojs", "+1bp") } });
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, refused.StatusCode);
+        Assert.StartsWith("Row 3, Index: jpy_ojs is no index", (await refused.Content.ReadFromJsonAsync<JsonObject>())!["message"]!.GetValue<string>());
+
+        ws = await Ok("scenarios/duplicate", new { revision = Revision(ws), name = "up", copy = "up2" });
+        ws = await Ok("scenarios/include", new { revision = Revision(ws), name = "up", included = false });
+        Assert.Equal([("up", false), ("up2", true)], ws["scenarios"]!.AsArray().Select(s => (s!["name"]!.GetValue<string>(), s["included"]!.GetValue<bool>())));
+        ws = await Ok("scenarios/remove", new { revision = Revision(ws), name = "up2" });
+        Assert.Equal(["up"], ws["scenarios"]!.AsArray().Select(s => s!["name"]!.GetValue<string>()));
+        ws = await Ok("scenarios/clear", new { revision = Revision(ws) });
+        Assert.Empty(ws["scenarios"]!.AsArray());
+    }
+
+    [Fact] // ADR-0010 §4, C32: a set is saved, listed for the user and loaded into another workspace over HTTP
+    public async Task A_scenario_set_is_saved_listed_and_loaded_over_http()
+    {
+        var ws = await Create();
+        var defined = await Post(ws, "scenarios", new { revision = Revision(ws), name = "up", shifts = "jpy_ois +10bp" });
+        ws = (await defined.Content.ReadFromJsonAsync<JsonObject>())!["workspace"]!.AsObject();
+
+        var saved = await Post(ws, "scenarios/save", new { revision = Revision(ws), set = "http-set", share = "all" });
+        Assert.Equal(HttpStatusCode.OK, saved.StatusCode);
+        var said = (await saved.Content.ReadFromJsonAsync<JsonObject>())!;
+        Assert.Equal(("http-set", "all", 1), (said["set"]!.GetValue<string>(), said["visibility"]!.GetValue<string>(), said["scenarios"]!.GetValue<int>()));
+        var desk = await Post(ws, "scenarios/save", new { revision = Revision(ws), set = "http-set", share = "desk" });
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, desk.StatusCode);
+
+        var sets = (await client.GetFromJsonAsync<JsonArray>("/api/xva/scenario-sets"))!;
+        Assert.Contains(sets, s => s!["label"]!.GetValue<string>() == "http-set" && s["owner"]!.GetValue<string>() == "akira");
+        var other = await Create();
+        var loaded = await Post(other, "scenarios/load", new { revision = Revision(other), set = "http-set" });
+        Assert.Equal(HttpStatusCode.OK, loaded.StatusCode);
+        var answer = (await loaded.Content.ReadFromJsonAsync<JsonObject>())!;
+        Assert.Equal(["up"], answer["made"]!.AsArray().Select(m => m!.GetValue<string>()));
+        Assert.Equal(["up"], answer["workspace"]!["scenarios"]!.AsArray().Select(s => s!["name"]!.GetValue<string>()));
+        var unknown = await Post(other, "scenarios/load", new { revision = Revision(answer["workspace"]!.AsObject()), set = "no-such-set" });
+        Assert.Equal(HttpStatusCode.NotFound, unknown.StatusCode);
+    }
+}

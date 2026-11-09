@@ -137,3 +137,20 @@
   overflow: auto;
 }
 .qwb-xva-result-tab[data-full='true'], .qwb-xva-result-body[data-full='true'] { max-height: none; overflow: visible; }
+
+/* The Scenarios tab (ADR-0010 §4): the grid of shifts, and the list of scenarios beside it; below `sm` the list goes
+   under the grid, and the grid scrolls sideways inside its own frame, never the page. */
+.qwb-xva-scenarios {
+  display: flex;
+  gap: var(--mantine-spacing-sm);
+  align-items: flex-start;
+}
+.qwb-xva-scenarios-grid { flex: 1 1 auto; min-width: 0; }
+/* The list's width: a scenario's name, its shift count and its two buttons on one line, geometry the theme has no
+   name for (docs/design-guidelines.md §2). */
+.qwb-xva-scenarios-list { flex: 0 0 22rem; min-width: 0; }
+@media (max-width: 47.99em) {
+  .qwb-xva-scenarios { flex-direction: column; }
+  .qwb-xva-scenarios-grid { width: 100%; }
+  .qwb-xva-scenarios-list { flex-basis: auto; width: 100%; }
+}

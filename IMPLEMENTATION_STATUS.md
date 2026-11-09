@@ -634,17 +634,71 @@ As step 1: every figure is simulated and says so.
 
 ### Known limits
 
-- Scenarios (step 4) are not built: a case is priced on the unshifted market only.
 - Side-only changes within a case (Advanced, step 3) are not built: a case's change applies to both sides.
 - The scripted agent has no XVA requests; the commands are reached by a model through their tools.
 - `add trades <ids>` (trades by pasted IDs) is not built.
 
+## Scenarios, ADR-0010 Delivery step 4 (tickets 01–06, 2026-11-09)
+
+### What runs
+
+- **A scenario** (spec `docs/specs/pricer-scenarios`) is a named set of market-data shifts, kept as created rows of the
+  workspace in its own scope, so a counterparty change keeps them. The catalogue is the portfolio's and synthetic: IR
+  discount and funding curves of JPY, USD and EUR at eight tenors (absolute, in bp) and GBPJPY, USDJPY and EURJPY
+  (relative, in %). A tenor shift is a key-rate shift, triangular between the catalogue's tenors; two shifts of one
+  scenario that touch one risk factor are refused.
+- **`scenario s1 jpy_ois +10bp; usdjpy -5%`** defines a scenario whole, replacing one of its name and keeping whether
+  it is included. **Price** prices every case on the base market and on each included scenario, in one Run; the cap
+  counts pairs (cases × markets, 50). XVA, spot IM and spot CCR capital each apply the shifts to what they read, and a
+  shift a provider cannot apply refuses its measure for that scenario by name. The dock's scenario selector moves the
+  Metrics, the collapsed line, the measures' tabs and Copy quote, which names the scenario. A pick holds in its Run.
+- **The Scenarios tab**: a grid of every shift (Scenario, Category, Index, Risk factor, Shift type, Size, Description,
+  and a read-only Issue) ending in blank rows; a block pasted from a spreadsheet is ExGrid's spilled paste, one batch
+  refused whole by row and column; Delete clears; a row with every cell cleared goes. Beside it the list: an include
+  box, Duplicate (a dialog), Remove, and Remove all.
+- **Generators**: `scenario ladder jpy_ois -50bp..+50bp step 10bp` and `scenario cross jpy_ois -50bp, 0, +50bp x usdjpy
+  -10%, 0, +10%` make a set at once, named from their shifts, the zero left out; the command line says how many before
+  Enter and the pairs against the cap, and refuses what the server would.
+- **Saved sets**: `scenario save <set> [desk|all]` and `scenario load <set>` over the kernel's generic saved-item store
+  (C32), in memory and in SQLite beside the workspaces; a user's desk is `Workbench:Desks`. A name two visible sets share
+  is refused naming their owners, and `<set>@<owner>` picks one. `scenario load` completes from the sets the user sees.
+- **The AI**: the ten scenario commands are command capabilities (define, include, exclude, remove, duplicate, clear,
+  ladder, cross, save, load), logged with origin `ai`; saving carries the new effect `SaveItem`.
+- **The command line** takes a scenario's name of several words (`scenario exclude jpy_ois +50bp · usdjpy +10%`) and a
+  completion of several words whole, and refuses a value typed last once every slot is filled instead of dropping it.
+
+### Verification performed
+
+| Suite | Result |
+|---|---|
+| `dotnet test server/Workbench.slnx` | 572 passed: the reader and its refusals, each provider under a shift against the base market, the cross of cases and scenarios and the cap, traces and Copy quote per scenario, the grid's batches, include/duplicate/remove/clear, the generators, saved sets' visibility and SQLite across a restart, and the ten commands as agent tools |
+| `npm run typecheck`, `npx vitest run` | Clean; 181 passed |
+| `npx playwright test` (Chromium, headless, Linux) | 45 passed after the review's fixes; each test the step added or changed with `--repeat-each=3`: the scenario command and selector, the paste and the list by keyboard, the phone layout with the selector, the cross preview, save and load, and the SIMM tab under a scenario |
+
+Code review (`/code-review`, two axes) found duplicate and clear unreachable by the AI, a generated name (with
+spaces) unreachable by the command line, an excluded name outliving its rows so a scenario made later started excluded,
+a load restoring inclusion against "included when it is made", the generator preview counting unitless sizes the
+server refuses, a scenario pick carried to another Run, made-up values in a quote title, a trade count and a desk, a
+floored toy funding spread, and spacing literals; all fixed, each with a test where it is behaviour. Kept, with the
+reason in ADR-0010 §4's note: Category and Shift type take a value so a seven-column block pastes whole.
+
+### Providers
+
+As before: every figure is simulated and says so. The shifted market is one synthetic helper every provider reads.
+
+### Known limits
+
+- Credit shifts (CDS spreads) come with the Credit tab (step 5).
+- The reply sentences are written on the server for the AI and on the client for the page; the REST answers could
+  carry the server's.
+- The dock's header row mixes 30px selectors with 22px buttons (design-guidelines §3), as the case selector did.
+- The scripted agent has no XVA requests; the commands are reached by a model through their tools.
+
 ## Next
 
-1. ADR-0010 Delivery step 4: scenarios.
-2. ADR-0010 Delivery step 5: the Credit and Settings tabs, Risks and Profile.
-3. MVA with SIMM (`docs/12-implementation-plan.md` P2): spot IM from the XVA request's MVA option.
-4. The owner's review of ADR-0003 §7 (scopes, carry and conflict), then a synthetic source change that can produce a conflict, and the browser cases still open above (reload, failed case unavailable).
-5. Rates.
+1. ADR-0010 Delivery step 5: the Credit and Settings tabs, Risks and Profile.
+2. MVA with SIMM (`docs/12-implementation-plan.md` P2): spot IM from the XVA request's MVA option.
+3. The owner's review of ADR-0003 §7 (scopes, carry and conflict), then a synthetic source change that can produce a conflict, and the browser cases still open above (reload, failed case unavailable).
+4. Rates.
 6. ME-ID sign-in through MSAL (C30) and the visibility rules (C31, C32); AI over AG-UI with the company's Copilot behind the adapter port (C34).
 7. Slice 01b: Save and Pin (CO06), and the browser parts of CO03 and CO04.

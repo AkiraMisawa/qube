@@ -214,6 +214,8 @@ export function finish(reading: Extract<LineReading, { kind: 'arguments' }>): { 
   // A rest of words is given whole; what is typed now is only its last word.
   if (slot !== undefined && typed !== '' && slot.words !== true) args[slot.name] = typed;
   const problems = [...reading.problems];
+  // A value typed last once every slot is filled is one more than the command takes, as one typed before it is.
+  if (slot === undefined && typed !== '') problems.push(`${command.words} takes no more values: ${typed}.`);
   const missing = (command.args ?? []).filter((a) => a.required && (args[a.name] ?? '') === '').map((a) => a.name);
   if (missing.length > 0) problems.push(`Missing: ${missing.join(', ')}.`);
   for (const arg of command.args ?? []) {
@@ -229,7 +231,9 @@ export function finish(reading: Extract<LineReading, { kind: 'arguments' }>): { 
 export function take(text: string, reading: LineReading, completion: Command | Completion): string {
   if ('words' in completion) return `${completion.words} `;
   if (reading.kind === 'choosing') return text;
-  const keep = text.replace(/\S*$/, '');
+  // A rest taken whole, spaces and all, is replaced whole: a name of several words is not appended to its first ones.
+  const whole = reading.slot?.rest === true && reading.slot.words !== true;
+  const keep = whole ? text.slice(0, text.length - reading.typed.length) : text.replace(/\S*$/, '');
   const named = reading.slot !== undefined && !reading.slot.required ? `${reading.slot.name}=` : '';
   return completion.value.endsWith('=') ? `${keep}${completion.value}` : `${keep}${named}${completion.value} `;
 }

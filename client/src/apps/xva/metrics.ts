@@ -19,6 +19,10 @@ export interface MetricLine {
   /** The case the line is of; none where its module gave no rows, which then holds for every case. */
   readonly case: string | undefined;
   readonly caseTitle: string | undefined;
+  /** The market the line is of (ADR-0010 §4): the base market or a scenario the Run priced; none where its module gave
+   * no rows, which then holds for every market. A row written before scenarios is the base market's. */
+  readonly scenario: string | undefined;
+  readonly scenarioTitle: string | undefined;
   readonly measure: string;
   readonly measureTitle: string;
   readonly metric: string;
@@ -97,7 +101,7 @@ const count = (v: unknown) => (typeof v === 'number' ? v : undefined);
 export function metricsTable(register: readonly RegisteredMeasure[], priced: readonly string[], results: Readonly<Record<string, ModuleResult>>): MetricsTable {
   const lines: MetricLine[] = [];
   const blank = (measure: string, measureTitle: string, metric: string, metricTitle: string, cell: MetricCell, reason: string | undefined): MetricLine => ({
-    key: `${measure}.${metric}`, case: undefined, caseTitle: undefined, measure, measureTitle, metric, metricTitle, currency: undefined,
+    key: `${measure}.${metric}`, case: undefined, caseTitle: undefined, scenario: undefined, scenarioTitle: undefined, measure, measureTitle, metric, metricTitle, currency: undefined,
     before: cell, after: cell, diff: cell, tradesBefore: undefined, tradesAfter: undefined, reason, basis: undefined, conversion: undefined,
     term: termOf(register.find((m) => m.id === measure), metric),
   });
@@ -118,8 +122,10 @@ export function metricsTable(register: readonly RegisteredMeasure[], priced: rea
       const before = side(row.beforeStatus, row.before, row.beforeNote);
       const after = side(row.afterStatus, row.after, row.afterNote);
       const metric = String(row.metric);
+      const scenario = text(row.scenario) ?? BASE_MARKET.key;
       lines.push({
-        key: `${String(row.case)}.${measure.id}.${metric}`, case: String(row.case), caseTitle: String(row.caseTitle), measure: measure.id, measureTitle: measure.title,
+        key: `${scenario}.${String(row.case)}.${measure.id}.${metric}`, case: String(row.case), caseTitle: String(row.caseTitle),
+        scenario, scenarioTitle: text(row.scenarioTitle) ?? BASE_MARKET.title, measure: measure.id, measureTitle: measure.title,
         metric, metricTitle: String(row.metricTitle), currency: text(row.currency), before, after, diff: diffOf(before, after, row.diff),
         tradesBefore: count(row.tradesBefore), tradesAfter: count(row.tradesAfter), reason: text(row.reason), basis: text(row.basis), conversion: text(row.conversion),
         term: termOf(measure, metric),
@@ -127,13 +133,39 @@ export function metricsTable(register: readonly RegisteredMeasure[], priced: rea
     }
   }
 
-  // A side is drawn while any line has something to say on it; only "not priced" everywhere hides it.
+  return tableOf(lines);
+}
+
+/** The sides drawn and the note said for a set of lines: a side is drawn while any line has something to say on it;
+ * only "not priced" everywhere hides it. */
+function tableOf(lines: readonly MetricLine[]): MetricsTable {
   const drawn = (pick: (l: MetricLine) => MetricCell) => lines.length === 0 || lines.some((l) => pick(l).status !== 'notPriced');
   const sides = { before: drawn((l) => l.before), after: drawn((l) => l.after) };
   const note = !sides.before && sides.after ? 'After only: Before was not priced'
     : sides.before && !sides.after ? 'Before only: After was not priced'
       : undefined;
   return { lines, sides, note };
+}
+
+/** The base market, as the Run names it (ADR-0010 §4's note of 2026-11-09). */
+export const BASE_MARKET = { key: 'base', title: 'Base market' } as const;
+
+/**
+ * The markets a Run priced, the base market first, then each scenario in the Run's order (ADR-0010 §4): what the dock's
+ * scenario selector offers. A Run with no row yet, or one priced before scenarios, has the base market alone.
+ */
+export function marketsOf(table: MetricsTable): readonly { readonly key: string; readonly title: string }[] {
+  const markets = new Map<string, string>([[BASE_MARKET.key, BASE_MARKET.title]]);
+  for (const line of table.lines) if (line.scenario !== undefined && !markets.has(line.scenario)) markets.set(line.scenario, line.scenarioTitle ?? line.scenario);
+  return [...markets].map(([key, title]) => ({ key, title }));
+}
+
+/**
+ * The lines of one market (ADR-0010 §4, §7): the Metrics, the collapsed line and the reasons follow the scenario in view.
+ * A line of no market, whose module has not answered or failed, stands in every one.
+ */
+export function inMarket(table: MetricsTable, scenario: string): MetricsTable {
+  return tableOf(table.lines.filter((l) => l.scenario === undefined || l.scenario === scenario));
 }
 
 export interface MetricsGrid {
@@ -220,12 +252,14 @@ export function pricedMeasures(input: Readonly<Record<string, unknown>>): readon
 }
 
 /**
- * What Price will run (ADR-0010 §1, §3): `Price CVA FVA · 1 case`, and `Price After only · CVA FVA · 1 case` when no
- * trade is in Before, since that side will not be priced. With neither side holding a trade, Price is refused.
+ * What Price will run (ADR-0010 §1, §3, §4): `Price CVA FVA · 1 case`, `Price CVA FVA · 3 cases × 3 markets` with two
+ * scenarios included beside the base market, and `Price After only · CVA FVA · 1 case` when no trade is in Before,
+ * since that side will not be priced. With neither side holding a trade, Price is refused.
  */
 export function priceLabel(register: readonly RegisteredMeasure[], selected: readonly string[], cases: number,
-  sides: { readonly before: boolean; readonly after: boolean } = { before: true, after: true }): string {
+  sides: { readonly before: boolean; readonly after: boolean } = { before: true, after: true }, markets = 1): string {
   const titles = selected.map((id) => register.find((m) => m.id === id)?.title ?? id);
   const only = sides.before && !sides.after ? 'Before only · ' : !sides.before && sides.after ? 'After only · ' : '';
-  return `Price ${only}${titles.join(' ')} · ${cases} ${cases === 1 ? 'case' : 'cases'}`;
+  const crossed = markets === 1 ? '' : ` × ${markets} markets`;
+  return `Price ${only}${titles.join(' ')} · ${cases} ${cases === 1 ? 'case' : 'cases'}${crossed}`;
 }

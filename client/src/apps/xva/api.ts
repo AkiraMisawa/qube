@@ -1,6 +1,6 @@
 import { call } from '../../platform/api';
 import type { RunRecord } from '../../platform/contracts';
-import type { CarrySummary, ChangesList, EffectiveTrade, Registration, Agreement, Resolution, RowPage, ScopeDrop, TradesAdded, Varied, XvaWorkspaceView } from './contracts';
+import type { CarrySummary, ChangesList, EffectiveTrade, Registration, Agreement, Resolution, RowPage, ScenarioSetView, ScenariosMade, ScopeDrop, SetSaved, ShiftEdit, TradesAdded, Varied, XvaWorkspaceView } from './contracts';
 
 export interface RowQuery {
   readonly start: number;
@@ -53,8 +53,32 @@ export interface XvaApi {
   set(workspaceId: string, revision: number, rows: readonly string[], column: string, text: string): Promise<XvaWorkspaceView>;
   /** `add trades` (docs/03 §5): a case per New row with A ticked, each that trade alone; a set made before is replaced. */
   addTrades(workspaceId: string, revision: number): Promise<TradesAdded>;
-  /** Copy quote's content, read by the server from the Run alone (ADR-0010 §7). */
-  quote(runId: string): Promise<{ readonly text: string; readonly html: string }>;
+  /**
+   * `scenario s1 jpy_ois +10bp; usdjpy -5%` (ADR-0010 §4): the scenario of that name with every shift written, as typed,
+   * for the server to read; one of the same name is replaced, and the answer says so.
+   */
+  defineScenario(workspaceId: string, revision: number, name: string, shifts: string): Promise<ScenariosMade>;
+  /** `scenario ladder …` and `scenario cross …` (ADR-0010 §4): a set of scenarios at once, the generator's text as typed. */
+  generateScenarios(workspaceId: string, revision: number, generator: 'ladder' | 'cross', text: string): Promise<ScenariosMade>;
+  /** The Scenarios grid's edits as one batch (ADR-0010 §4): a cell typed, a block pasted, or cells cleared. */
+  editShifts(workspaceId: string, revision: number, rows: readonly ShiftEdit[]): Promise<XvaWorkspaceView>;
+  /** Whether Price prices a scenario, as its box says (`scenario include`, `scenario exclude`). */
+  includeScenario(workspaceId: string, revision: number, name: string, included: boolean): Promise<XvaWorkspaceView>;
+  /** `scenario remove <name>`: its rows. */
+  removeScenario(workspaceId: string, revision: number, name: string): Promise<XvaWorkspaceView>;
+  /** `scenario duplicate <name> <new name>`: its rows under the new name. */
+  duplicateScenario(workspaceId: string, revision: number, name: string, copy: string): Promise<ScenariosMade>;
+  /** `scenarios clear`: every shift row. */
+  clearScenarios(workspaceId: string, revision: number): Promise<XvaWorkspaceView>;
+  /** `scenario save <set> [desk|all]` (ADR-0010 §4, C32): every scenario of the workspace, under the user's name for the set. */
+  saveScenarios(workspaceId: string, revision: number, set: string, share?: 'desk' | 'all'): Promise<SetSaved>;
+  /** `scenario load <set>`: the set's scenarios added, replacing those of the same name; `<set>@<owner>` names another's. */
+  loadScenarios(workspaceId: string, revision: number, set: string): Promise<ScenariosMade>;
+  /** The saved sets the user can see: their own, their desk's and all's. */
+  scenarioSets(): Promise<readonly ScenarioSetView[]>;
+  /** Copy quote's content, read by the server from the Run alone (ADR-0010 §7), of the market named: the base by default.
+   * A scenario's quote names it, by the title the Run gave it. */
+  quote(runId: string, scenario?: string): Promise<{ readonly text: string; readonly html: string; readonly scenario?: string | null }>;
 }
 
 export const httpXvaApi: XvaApi = {
@@ -81,7 +105,17 @@ export const httpXvaApi: XvaApi = {
   vary: (workspaceId, revision, cell, values) => post(`${base(workspaceId)}/vary`, { revision, values, ...cell }),
   set: (workspaceId, revision, rows, column, text) => post(`${base(workspaceId)}/set`, { revision, rows, column, text }),
   addTrades: (workspaceId, revision) => post(`${base(workspaceId)}/add-trades`, { revision }),
-  quote: (runId) => call(`/api/xva/runs/${encodeURIComponent(runId)}/quote`),
+  defineScenario: (workspaceId, revision, name, shifts) => post(`${base(workspaceId)}/scenarios`, { revision, name, shifts }),
+  generateScenarios: (workspaceId, revision, generator, text) => post(`${base(workspaceId)}/scenarios/generate`, { revision, generator, text }),
+  editShifts: (workspaceId, revision, rows) => post(`${base(workspaceId)}/shifts`, { revision, rows }),
+  includeScenario: (workspaceId, revision, name, included) => post(`${base(workspaceId)}/scenarios/include`, { revision, name, included }),
+  removeScenario: (workspaceId, revision, name) => post(`${base(workspaceId)}/scenarios/remove`, { revision, name }),
+  duplicateScenario: (workspaceId, revision, name, copy) => post(`${base(workspaceId)}/scenarios/duplicate`, { revision, name, copy }),
+  clearScenarios: (workspaceId, revision) => post(`${base(workspaceId)}/scenarios/clear`, { revision }),
+  saveScenarios: (workspaceId, revision, set, share) => post(`${base(workspaceId)}/scenarios/save`, { revision, set, ...(share === undefined ? {} : { share }) }),
+  loadScenarios: (workspaceId, revision, set) => post(`${base(workspaceId)}/scenarios/load`, { revision, set }),
+  scenarioSets: () => call('/api/xva/scenario-sets'),
+  quote: (runId, scenario) => call(`/api/xva/runs/${encodeURIComponent(runId)}/quote${scenario === undefined ? '' : `?scenario=${encodeURIComponent(scenario)}`}`),
 };
 
 export type { EffectiveTrade };

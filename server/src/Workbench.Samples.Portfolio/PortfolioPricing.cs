@@ -35,6 +35,9 @@ public static class MeasureResult
     [
         new("case", DatasetColumnType.String, false),
         new("caseTitle", DatasetColumnType.String, false),
+        // The market the row is priced on (ADR-0010 §4): the base market, or a scenario of the Run.
+        new("scenario", DatasetColumnType.String, false),
+        new("scenarioTitle", DatasetColumnType.String, false),
         new("measure", DatasetColumnType.String, false),
         new("metric", DatasetColumnType.String, false),
         new("metricTitle", DatasetColumnType.String, false),
@@ -61,14 +64,16 @@ public static class MeasureResult
     }
 
     /// <summary>
-    /// A metric's row. <paramref name="basis"/> names what the figures stand on where it is not a model of record, and
-    /// <paramref name="conversion"/> says, once, the rate a figure computed in another currency is shown at.
+    /// A metric's row for a case on its market. <paramref name="basis"/> names what the figures stand on where it is not a
+    /// model of record, and <paramref name="conversion"/> says, once, the rate a figure computed in another currency is shown at.
     /// </summary>
-    public static JsonObject Row(string @case, string caseTitle, string measure, MetricDefinition metric, string currency, Side before, Side after,
+    public static JsonObject Row(PricedCase @case, string measure, MetricDefinition metric, string currency, Side before, Side after,
         string? basis = null, string? conversion = null) => new()
     {
-        ["case"] = @case,
-        ["caseTitle"] = caseTitle,
+        ["case"] = @case.Id,
+        ["caseTitle"] = @case.Title,
+        ["scenario"] = @case.Scenario.Id,
+        ["scenarioTitle"] = @case.Scenario.Title,
         ["measure"] = measure,
         ["metric"] = metric.Id,
         ["metricTitle"] = metric.Title,
@@ -90,11 +95,18 @@ public static class MeasureResult
 }
 
 /// <summary>
-/// A case of an accepted input in the shape a one-case input had (ADR-0010 §3's note of 2026-11-08): what the cases share,
-/// and the case's own trades, module parts and measures, so a provider loops over cases with its body unchanged and writes
-/// each row and trace entry with the case's id and title.
+/// A case of an accepted input on one of its markets, in the shape a one-case input had (ADR-0010 §3's note of
+/// 2026-11-08, §4's of 2026-11-09): what the cases share, and the case's own trades, module parts and measures, so a
+/// provider loops over pairs with its body unchanged and writes each row and trace entry with the case's id and title and
+/// the scenario's. The scenario's shifts are the provider's to apply to what it reads.
 /// </summary>
-public sealed record PricedCase(string Id, string Title, string Kind, JsonObject Input);
+public sealed record PricedCase(string Id, string Title, string Kind, JsonObject Input, PricedScenario Scenario)
+{
+    /// <summary>The market the pair is priced on, on the input's value date.</summary>
+    public ScenarioMarket Market => new(Scenario.Shifts, DateOnly.ParseExact(
+        (Input["context"]?["valueDate"] ?? throw new CapabilityFailure("InvalidInput", "The accepted input names no value date.")).GetValue<string>(),
+        "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture));
+}
 
 /// <summary>
 /// Builds the accepted input Price freezes: what the cases share at its top (the context, the display currency, the
@@ -109,10 +121,14 @@ public static class PortfolioInput
     {
         var raw = freeze.State;
         var cases = PortfolioCases.All(raw);
-        // The cap counts the Base (ADR-0010 §3's note): a Run nobody can read is refused before it is made.
-        if (cases.Count > caseCap)
-            throw new WorkspaceRefused("TooManyCases",
-                $"Price prices {caseCap} cases at most, the Base among them; this workspace holds {cases.Count}, {cases.Count - caseCap} over. Remove {cases.Count - caseCap} to price.");
+        var scenarios = PortfolioScenarios.Priced(raw);
+        // The cap counts the Base (ADR-0010 §3's note), and pairs of a case and a market where scenarios are included
+        // (§4's note of 2026-11-09): a Run nobody can read is refused before it is made.
+        var pairs = cases.Count * scenarios.Count;
+        if (pairs > caseCap)
+            throw new WorkspaceRefused("TooManyCases", scenarios.Count == 1
+                ? $"Price prices {caseCap} cases at most, the Base among them; this workspace holds {cases.Count}, {cases.Count - caseCap} over. Remove {cases.Count - caseCap} to price."
+                : $"Price prices {caseCap} pairs of a case and a market at most: {cases.Count} case(s) × {scenarios.Count} markets (the base market and {scenarios.Count - 1} scenario(s)) are {pairs}, {pairs - caseCap} over. Remove a case or exclude a scenario to price.");
         PortfolioCases.CheckAdditionSet(raw);
         var state = PortfolioCases.Base(raw);
         var source = (PortfolioSourceVersion)state.Source;
@@ -132,6 +148,16 @@ public static class PortfolioInput
             // Each membership rule's version, frozen with the trades it classified (ADR-0010 §5).
             ["membership"] = new JsonObject([.. register.Rules(state).Select(r => KeyValuePair.Create(r.Measure, (JsonNode?)new JsonObject { ["version"] = r.Version }))]),
             ["selection"] = new JsonArray([.. selected.Select(id => JsonValue.Create(id))]),
+            // The markets every case is priced on, the base market first (ADR-0010 §4): each scenario with its shifts.
+            ["scenarios"] = new JsonArray([.. scenarios.Select(sc => new JsonObject
+            {
+                ["id"] = sc.Id,
+                ["title"] = sc.Title,
+                ["shifts"] = new JsonArray([.. sc.Shifts.Select(sh => new JsonObject
+                {
+                    ["category"] = sh.Category, ["index"] = sh.Index, ["tenor"] = sh.Tenor, ["type"] = sh.Type, ["size"] = sh.Size,
+                })]),
+            })]),
             ["cases"] = new JsonArray([.. cases.Select(c => Case(c, raw, register, selected))]),
             ["overrides"] = new JsonArray([.. freeze.Overrides.Select(o => new JsonObject
             {
@@ -188,24 +214,42 @@ public static class PortfolioInput
     }
 
     /// <summary>
-    /// Each case of an accepted input, the Base first, in the shape a one-case input had: the shared fields with the
-    /// case's own trades, module parts and measures. An input that holds no case is one no provider can read.
+    /// Each case of an accepted input on each of its markets, the base market first and on each market the Base first
+    /// (ADR-0010 §4: every scenario crossed with every case), in the shape a one-case input had: the shared fields with the
+    /// case's own trades, module parts and measures. An input that holds no case, or no market, is one no provider can read.
     /// </summary>
     public static IReadOnlyList<PricedCase> Cases(JsonNode input)
     {
         var top = input as JsonObject ?? throw new CapabilityFailure("InvalidInput", "The accepted input is not an object.");
         if (top["cases"] is not JsonArray { Count: > 0 } cases)
             throw new CapabilityFailure("InvalidInput", "The accepted input holds no cases.");
-        var shared = top.Where(p => p.Key is not ("cases" or "overrides")).ToList();
-        return [.. cases.Select(node =>
+        if (top["scenarios"] is not JsonArray { Count: > 0 } markets)
+            throw new CapabilityFailure("InvalidInput", "The accepted input holds no market to price on.");
+        var scenarios = markets.Select(Scenario).ToList();
+        if (scenarios[0].Id != PortfolioScenarios.BaseId || scenarios[0].Shifts.Count > 0)
+            throw new CapabilityFailure("InvalidInput", "The accepted input's first market is not the base market.");
+        var shared = top.Where(p => p.Key is not ("cases" or "overrides" or "scenarios")).ToList();
+        return [.. scenarios.SelectMany(scenario => cases.Select(node =>
         {
             var c = node as JsonObject ?? throw new CapabilityFailure("InvalidInput", "A case of the accepted input is not an object.");
             string Text(string key) => c[key]?.GetValue<string>() ?? throw new CapabilityFailure("InvalidInput", $"A case of the accepted input has no {key}.");
             var one = new JsonObject([.. shared.Select(p => KeyValuePair.Create(p.Key, p.Value?.DeepClone()))]);
             foreach (var key in new[] { "trades", "modules", "measures" })
                 one[key] = (c[key] ?? throw new CapabilityFailure("InvalidInput", $"Case {Text("id")} of the accepted input has no {key}.")).DeepClone();
-            return new PricedCase(Text("id"), Text("title"), Text("kind"), one);
-        })];
+            return new PricedCase(Text("id"), Text("title"), Text("kind"), one, scenario);
+        }))];
+    }
+
+    // A market of the accepted input as Price froze it: its id, title and shifts, each read whole.
+    static PricedScenario Scenario(JsonNode? node)
+    {
+        var s = node as JsonObject ?? throw new CapabilityFailure("InvalidInput", "A market of the accepted input is not an object.");
+        string Text(JsonNode? n, string what) => n?.GetValue<string>() ?? throw new CapabilityFailure("InvalidInput", $"A market of the accepted input has no {what}.");
+        var id = Text(s["id"], "id");
+        var shifts = (s["shifts"] as JsonArray ?? throw new CapabilityFailure("InvalidInput", $"Market {id} of the accepted input has no shifts.")).Select(x =>
+            new Shift(Text(x?["category"], "shift category"), Text(x?["index"], "shift index"), x?["tenor"]?.GetValue<string>(), Text(x?["type"], "shift type"),
+                x?["size"]?.GetValue<decimal>() ?? throw new CapabilityFailure("InvalidInput", $"A shift of market {id} has no size."))).ToList();
+        return new PricedScenario(id, Text(s["title"], "title"), shifts);
     }
 }
 

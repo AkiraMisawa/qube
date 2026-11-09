@@ -2,6 +2,7 @@ using Workbench.Composition.Application.Products;
 using System.Text.Json.Nodes;
 using Workbench.Agent;
 using Workbench.Composition.Application;
+using Workbench.Composition.Application.Saved;
 using Workbench.Composition.Application.Traces;
 using Workbench.Composition.Application.Workspaces;
 using Workbench.Composition.Contracts;
@@ -96,6 +97,11 @@ builder.Services.AddSingleton<IMeasureModule>(_ => new SimmMeasures(conventions,
 builder.Services.AddSingleton<MeasureRegister>();
 // How many cases one Price prices, the Base among them (ADR-0010 §3's note of 2026-11-08): 50 unless configured.
 builder.Services.AddSingleton(new PortfolioOptions(builder.Configuration.GetValue("Portfolio:CaseCap", PortfolioCases.DefaultCap)));
+// Saved sets (C32, ADR-0010 §4) beside the workspaces; a user's desk is configuration, Workbench:Desks: { "<user>": "<desk>" }.
+builder.Services.AddSingleton<ISavedItemStore>(_ => new SqliteSavedItemStore(database));
+builder.Services.AddSingleton(new Desks(builder.Configuration.GetSection("Workbench:Desks").GetChildren()
+    .ToDictionary(d => d.Key, d => d.Value ?? throw new InvalidOperationException($"Workbench:Desks:{d.Key} names no desk."), StringComparer.OrdinalIgnoreCase)));
+builder.Services.AddSingleton<SavedItems>();
 builder.Services.AddSingleton<PortfolioWorkspaces>();
 // The AI pane (ADR-0007): the agent runtime is chosen here and nowhere else, by configuration, and an unknown one stops
 // startup rather than falling back to another. "copilot" talks to the agent host, a separate process under the agent's

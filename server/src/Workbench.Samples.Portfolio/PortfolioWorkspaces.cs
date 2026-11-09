@@ -4,9 +4,16 @@ using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Text.Json.Nodes;
 using Workbench.Composition.Application;
+using Workbench.Composition.Application.Saved;
 using Workbench.Composition.Application.Workspaces;
 
 namespace Workbench.Samples.Portfolio;
+
+/// <summary>What <c>scenario save</c> says back: the set as saved, how many scenarios it holds, and whether it replaced the user's own.</summary>
+public sealed record SetSaved(string Set, string Owner, SavedVisibility Visibility, string? Desk, int Scenarios, bool Replaced);
+
+/// <summary>A scenario set the user can see, and the name <c>scenario load</c> takes for it.</summary>
+public sealed record ScenarioSetView(string Label, string Name, string Owner, SavedVisibility Visibility, string? Desk, DateTimeOffset SavedAt, int Scenarios);
 
 /// <summary>A sort the grid asked for: a column of <see cref="EffectiveTrade"/> and its direction.</summary>
 public sealed record RowSort(string Column, string Direction);
@@ -46,7 +53,9 @@ public sealed record PortfolioWorkspaceView(
     IReadOnlyList<string> Simulated,
     IReadOnlyList<CaseView> Cases,
     int CaseCap,
-    int Changes);
+    int Changes,
+    IReadOnlyList<ScenarioView> Scenarios,
+    IReadOnlyList<ShiftRow> Shifts);
 
 /// <summary>
 /// One change as the Changes tab lists it (ADR-0010 §3's note of 2026-11-08): its entity and field, the case it is a
@@ -82,7 +91,8 @@ public sealed record ScopeDrop(string Scope, int Count, IReadOnlyDictionary<stri
 /// endpoints call. It decides scopes and sources; the generic
 /// kernel stores and checks the edits. The user is passed in; who may act is decided before this is called.
 /// </summary>
-public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore store, RunService runs, MeasureRegister register, PortfolioOptions? options = null)
+public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore store, RunService runs, MeasureRegister register, PortfolioOptions? options = null,
+    SavedItems? saved = null)
 {
     readonly int caseCap = (options ?? new PortfolioOptions()).CaseCap;
 
@@ -137,7 +147,147 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
             [.. register.TradeColumns.Where(c => register.Selected(state).Any(m => m.Id == c.Module))], register.Inputs(state),
             register.WithCells(state, [.. Rows(state).Where(t => t.IsNew)]).Sum(t => t.Cells?.Values.Count(c => c.State == TradeCell.Pending) ?? 0),
             PortfolioMaterialiser.DisplayCurrency(state), PortfolioMarket.Currencies, [.. register.Selected(state).Where(m => m.Simulated).Select(m => m.Id)],
-            PortfolioCases.All(raw), caseCap, DataEdits(raw).Count());
+            PortfolioCases.All(raw), caseCap, DataEdits(raw).Count(), PortfolioScenarios.All(raw), PortfolioScenarios.Rows(raw));
+    }
+
+    /// <summary>
+    /// <c>scenario &lt;name&gt; &lt;shift&gt;; …</c> (ADR-0010 §4 and its note of 2026-11-09): the scenario whole, its shifts read as
+    /// written, in one log entry per row; one of that name is replaced, and stays included or excluded as it was.
+    /// </summary>
+    public ScenarioAnswer DefineScenario(string workspaceId, long revision, string user, string name, string shifts, RunOrigin? origin = null)
+    {
+        var raw = Owned(workspaceId, user);
+        var read = ShiftReader.ReadAll(shifts);
+        var named = PortfolioScenarios.Checked(name);
+        var (changes, replaced) = PortfolioScenarios.Define(raw, named, read, revision);
+        return new ScenarioAnswer(workspaces.Batch(workspaceId, revision, user, changes, origin), [named], replaced ? [named] : []);
+    }
+
+    /// <summary>
+    /// <c>scenario ladder …</c> and <c>scenario cross …</c> (ADR-0010 §4): a set of scenarios at once, each named from its
+    /// shifts and replacing one of its name, in one batch; the answer names those it made and those it replaced.
+    /// </summary>
+    public ScenarioAnswer GenerateScenarios(string workspaceId, long revision, string user, string generator, string text, RunOrigin? origin = null)
+    {
+        var made = generator switch
+        {
+            "ladder" => ScenarioGenerators.Ladder(text, caseCap),
+            "cross" => ScenarioGenerators.Cross(text, caseCap),
+            _ => throw new WorkspaceRefused("InvalidGenerator", $"There is no generator {generator}; there are ladder and cross."),
+        };
+        IReadOnlyList<string> replaced = [];
+        var state = Apply(workspaceId, revision, user, raw =>
+        {
+            var (changes, gone) = PortfolioScenarios.DefineAll(raw, made, revision);
+            replaced = gone;
+            return changes;
+        }, origin);
+        return new ScenarioAnswer(state, [.. made.Select(m => m.Name)], replaced);
+    }
+
+    /// <summary>
+    /// The Scenarios grid's edits as one batch (ADR-0010 §4): a cell typed, a block pasted onto it, or cells cleared, each
+    /// read as its column reads it; one cell that does not resolve refuses the edit whole, naming its row and column.
+    /// </summary>
+    public WorkspaceState EditShifts(string workspaceId, long revision, string user, IReadOnlyList<ShiftEdit> edits, RunOrigin? origin = null) =>
+        Apply(workspaceId, revision, user, raw => PortfolioScenarios.Edit(raw, edits, revision), origin);
+
+    /// <summary><c>scenario include|exclude &lt;name&gt;</c>: whether Price prices it, as its box says; its rows stay.</summary>
+    public WorkspaceState IncludeScenario(string workspaceId, long revision, string user, string name, bool included, RunOrigin? origin = null) =>
+        Apply(workspaceId, revision, user, raw => PortfolioScenarios.Include(raw, name, included), origin);
+
+    /// <summary><c>scenario remove &lt;name&gt;</c>: its rows, in one batch.</summary>
+    public WorkspaceState RemoveScenario(string workspaceId, long revision, string user, string name, RunOrigin? origin = null) =>
+        Apply(workspaceId, revision, user, raw => PortfolioScenarios.Remove(raw, name), origin);
+
+    /// <summary><c>scenarios clear</c>: every shift row.</summary>
+    public WorkspaceState ClearScenarios(string workspaceId, long revision, string user, RunOrigin? origin = null) =>
+        Apply(workspaceId, revision, user, PortfolioScenarios.Clear, origin);
+
+    /// <summary><c>scenario duplicate &lt;name&gt; &lt;new name&gt;</c>: the scenario's rows under the new name, to be edited.</summary>
+    public ScenarioAnswer DuplicateScenario(string workspaceId, long revision, string user, string name, string copy, RunOrigin? origin = null)
+    {
+        var state = Apply(workspaceId, revision, user, raw => PortfolioScenarios.Duplicate(raw, name, copy, revision), origin);
+        return new ScenarioAnswer(state, [PortfolioScenarios.Checked(copy)], []);
+    }
+
+    /// <summary>
+    /// <c>scenario save &lt;set&gt; [desk|all]</c> (ADR-0010 §4, C32): every scenario of the workspace, included or not, saved
+    /// under the user's name for the set, for them alone unless shared with their desk or with all; saved again, it
+    /// replaces their own set of that name. The workspace does not change.
+    /// </summary>
+    public SetSaved SaveScenarios(string workspaceId, long revision, string user, string set, string? share = null)
+    {
+        var raw = At(workspaceId, revision, user);
+        var count = PortfolioScenarios.All(raw).Count;
+        if (count == 0) throw new WorkspaceRefused("NothingToSave", "The workspace has no scenario to save. Define one first, such as scenario up jpy_ois +10bp.");
+        var visibility = share?.Trim().ToLowerInvariant() switch
+        {
+            null or "" => SavedVisibility.Private,
+            "desk" => SavedVisibility.Desk,
+            "all" => SavedVisibility.All,
+            var other => throw new WorkspaceRefused("InvalidShare", $"scenario save {set.Trim()} shares the set with desk or all, not {other}."),
+        };
+        var (item, replaced) = Saving(s => s.Save(PortfolioScenarios.SetKind, SetNoun, user, set, visibility, PortfolioScenarios.SetOf(raw)));
+        return new SetSaved(item.Name, item.Owner, item.Visibility, item.Desk, count, replaced);
+    }
+
+    /// <summary>
+    /// <c>scenario load &lt;set&gt;</c> (ADR-0010 §4): the set's scenarios added in one batch, replacing those of the same name
+    /// and included as they were saved. A set named <c>&lt;set&gt;@&lt;owner&gt;</c> is that owner's; a name two sets the user
+    /// can see share is refused, naming their owners.
+    /// </summary>
+    public ScenarioAnswer LoadScenarios(string workspaceId, long revision, string user, string set, RunOrigin? origin = null)
+    {
+        IReadOnlyList<string> made = [], replaced = [];
+        var state = Apply(workspaceId, revision, user, raw =>
+        {
+            var item = Saving(s => s.Find(PortfolioScenarios.SetKind, SetNoun, user, set));
+            var (changes, loaded, gone) = PortfolioScenarios.Load(raw, item.Content, revision);
+            (made, replaced) = (loaded, gone);
+            return changes;
+        }, origin);
+        return new ScenarioAnswer(state, made, replaced);
+    }
+
+    /// <summary>The scenario sets the user can see, for <c>scenario load</c> to offer: their own, their desk's and all's.</summary>
+    public IReadOnlyList<ScenarioSetView> ScenarioSets(string user)
+    {
+        var visible = Saving(s => s.Visible(PortfolioScenarios.SetKind, user));
+        return [.. visible.Select(i => new ScenarioSetView(SavedItems.Label(i, visible), i.Name, i.Owner, i.Visibility, i.Desk, i.SavedAt,
+            i.Content["scenarios"]?.AsArray().Count ?? throw new InvalidOperationException($"The saved set {i.Name} holds no scenarios.")))];
+    }
+
+    const string SetNoun = "set";
+
+    // A saved-item rule's refusal is the command's, by code; a server built without the saved items is a defect.
+    T Saving<T>(Func<SavedItems, T> act)
+    {
+        var service = saved ?? throw new InvalidOperationException("The portfolio workspaces were built without saved items, so no set can be saved or loaded.");
+        try
+        {
+            return act(service);
+        }
+        catch (SavedItemRefused refused)
+        {
+            throw new WorkspaceRefused(refused.Code, refused.Message);
+        }
+    }
+
+    // A scenario command's changes as one batch, against the revision named; one that changes nothing leaves the
+    // workspace as it stands.
+    WorkspaceState Apply(string workspaceId, long revision, string user, Func<WorkspaceState, IReadOnlyList<WorkspaceChange>> change, RunOrigin? origin)
+    {
+        var raw = At(workspaceId, revision, user);
+        var changes = change(raw);
+        return changes.Count == 0 ? raw : workspaces.Batch(workspaceId, revision, user, changes, origin);
+    }
+
+    // The user's workspace at the revision a command was taken against; one that has moved since is refused (spine 6).
+    WorkspaceState At(string workspaceId, long revision, string user)
+    {
+        var raw = Owned(workspaceId, user);
+        return raw.Revision == revision ? raw : throw new WorkspaceRefused("RevisionMoved", $"The workspace is at revision {raw.Revision}, not {revision}.");
     }
 
     // The edits to the portfolio's data in any layer, as the Changes tab counts them: the selection and the settings

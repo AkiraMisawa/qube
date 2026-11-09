@@ -21,7 +21,7 @@ public class ApiTests(WorkbenchFactory factory) : IClassFixture<WorkbenchFactory
     public async Task Catalog_lists_what_modules_registered()
     {
         var catalog = (await client.GetFromJsonAsync<JsonObject>("/api/catalog"))!;
-        Assert.Equal(20, catalog["capabilities"]!.AsArray().Count); // entity.create (ADR-0008), ccr.spotCapital (ADR-0013), trace.read (ADR-0011), im.source.freeze, risk.crif.generate, margin.simm.calculate and simm.spotIm (ADR-0012), and xva.vary, xva.trades.add and xva.set (ADR-0010 §9)
+        Assert.Equal(30, catalog["capabilities"]!.AsArray().Count); // entity.create (ADR-0008), ccr.spotCapital (ADR-0013), trace.read (ADR-0011), im.source.freeze, risk.crif.generate, margin.simm.calculate and simm.spotIm (ADR-0012), xva.vary, xva.trades.add and xva.set (ADR-0010 §9), and the ten scenario commands (ADR-0010 §4)
         Assert.Contains(catalog["capabilities"]!.AsArray(), c => c!["capabilityId"]!.GetValue<string>() == "entity.create");
         Assert.Contains(catalog["actions"]!.AsArray(), a => a!["target"]!["kind"]!.GetValue<string>() == "openView");
     }

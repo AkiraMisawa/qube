@@ -1,4 +1,4 @@
-import type { RegisteredMeasure } from './contracts';
+import type { RegisteredMeasure, ScenarioSetView } from './contracts';
 import type { DockTab } from './dock';
 import type { InputTab } from './XvaInputs';
 
@@ -21,6 +21,28 @@ export interface XvaPage {
   removeCase(name: string): void;
   /** Removes every case (`cases clear`). */
   clearCases(): void;
+  /** The scenario of that name with every shift written (`scenario s1 jpy_ois +10bp; usdjpy -5%`, ADR-0010 §4). */
+  defineScenario(name: string, shifts: string): void;
+  /** Whether Price prices a scenario, as its box says (`scenario include s1`, `scenario exclude s1`). */
+  includeScenario(name: string, included: boolean): void;
+  /** Removes a scenario's rows (`scenario remove s1`). */
+  removeScenario(name: string): void;
+  /** Copies a scenario's rows under a new name, to be edited (`scenario duplicate s1 s2`). */
+  duplicateScenario(name: string, copy: string): void;
+  /** Removes every scenario (`scenarios clear`). */
+  clearScenarios(): void;
+  /** A set of scenarios at once (`scenario ladder jpy_ois -50bp..+50bp step 10bp`, `scenario cross …`, ADR-0010 §4). */
+  generateScenarios(generator: 'ladder' | 'cross', text: string): void;
+  /** Saves every scenario as a set, for the user alone unless shared (`scenario save rates desk`, ADR-0010 §4, C32). */
+  saveScenarios(set: string, share?: 'desk' | 'all'): void;
+  /** Adds a saved set's scenarios, replacing those of the same name (`scenario load rates`, `scenario load rates@ben`). */
+  loadScenarios(set: string): void;
+  /** The saved sets the user can see, as last read, for the command line to offer. */
+  scenarioSets(): readonly ScenarioSetView[];
+  /** The cases Price prices and its cap of pairs, for a generator's preview to count against. */
+  pricing(): { readonly cases: number; readonly cap: number } | undefined;
+  /** The workspace's scenarios, for the command line to offer. */
+  scenarios(): readonly { readonly name: string; readonly shifts: number; readonly included: boolean }[];
   /** Saves the Run the dock shows as a zip (`download run`, ADR-0010 §7). */
   downloadRun(): void;
   /** Puts the dock's Run's quote on the clipboard as HTML and text (`copy quote`, ADR-0010 §7). */
