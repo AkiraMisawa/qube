@@ -277,6 +277,9 @@ public sealed class PortfolioSourceVersion : ISourceVersion
             // The workspace's own settings (ADR-0010 §1): the display currency starts as the profile's.
             case Entity.Settings when id == Entity.WorkspaceId:
                 return field == Entity.DisplayCurrency ? new(PortfolioCatalog.Profile.DisplayCurrency) : null;
+            // A module's settings (ADR-0010 §8): the source holds none, so each starts at the module's default.
+            case Entity.Settings when id.Length > 0:
+                return new((JsonNode?)null);
             case Entity.Credit when id == Registration.Key:
                 return field switch
                 {

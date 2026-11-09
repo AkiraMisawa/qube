@@ -55,7 +55,8 @@ public sealed record PortfolioWorkspaceView(
     int CaseCap,
     int Changes,
     IReadOnlyList<ScenarioView> Scenarios,
-    IReadOnlyList<ShiftRow> Shifts);
+    IReadOnlyList<ShiftRow> Shifts,
+    IReadOnlyList<ModuleSettings> Settings);
 
 /// <summary>
 /// One change as the Changes tab lists it (ADR-0010 §3's note of 2026-11-08): its entity and field, the case it is a
@@ -147,7 +148,7 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
             [.. register.TradeColumns.Where(c => register.Selected(state).Any(m => m.Id == c.Module))], register.Inputs(state),
             register.WithCells(state, [.. Rows(state).Where(t => t.IsNew)]).Sum(t => t.Cells?.Values.Count(c => c.State == TradeCell.Pending) ?? 0),
             PortfolioMaterialiser.DisplayCurrency(state), PortfolioMarket.Currencies, [.. register.Selected(state).Where(m => m.Simulated).Select(m => m.Id)],
-            PortfolioCases.All(raw), caseCap, DataEdits(raw).Count(), PortfolioScenarios.All(raw), PortfolioScenarios.Rows(raw));
+            PortfolioCases.All(raw), caseCap, DataEdits(raw).Count(), PortfolioScenarios.All(raw), PortfolioScenarios.Rows(raw), register.Settings(state));
     }
 
     /// <summary>
@@ -290,11 +291,11 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
         return raw.Revision == revision ? raw : throw new WorkspaceRefused("RevisionMoved", $"The workspace is at revision {raw.Revision}, not {revision}.");
     }
 
-    // The edits to the portfolio's data in any layer, as the Changes tab counts them: the selection and the settings
-    // are the page's, shown on their own.
-    static IEnumerable<Override> DataEdits(WorkspaceState raw) =>
+    // The edits to the portfolio's data in any layer, as the Changes tab counts them: the selection, the display currency
+    // and the scenarios are the page's, shown on their own; a module's settings are inputs and listed (ADR-0010 §8).
+    IEnumerable<Override> DataEdits(WorkspaceState raw) =>
         raw.Overrides.Values.Concat(raw.Conflicts.Values.Select(c => c.Override)).Concat(raw.Lost.Values.Select(l => l.Override))
-            .Where(o => o.Target.Scope != PortfolioEditRules.WorkspaceScope);
+            .Where(o => o.Target.Scope != PortfolioEditRules.WorkspaceScope || register.SettingsOf(o.Target.Entity) is not null);
 
     /// <summary>
     /// The Changes tab (ADR-0010 §3's note of 2026-11-08): each Common change, then each case with its own, in the order
@@ -464,6 +465,14 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
     void Check(WorkspaceState reading, string entity, string field, JsonNode? value)
     {
         if (register.ColumnOf(field) is { } column) CheckCell(reading, entity, field, column, value);
+        // A module's setting is checked by the module that reads it (ADR-0010 §8, §10).
+        else if (register.SettingsOf(entity) is { } module)
+        {
+            if (module.Settings.All(x => x.Id != field))
+                throw new WorkspaceRefused("NotEditable", $"{module.Title} has no setting {field}; its settings are {string.Join(", ", module.Settings.Select(x => x.Id))}.");
+            if (module.CheckSetting(field, value) is { } problem)
+                throw new WorkspaceRefused("InvalidValue", problem, [PortfolioEditRules.Target(Source(reading), entity, field)]);
+        }
         else
         {
             if (!Editable(entity, field))

@@ -170,6 +170,24 @@ public class PricerApiTests(WorkbenchFactory factory) : IClassFixture<WorkbenchF
         Assert.Equal(HttpStatusCode.UnprocessableEntity, unknown.StatusCode);
     }
 
+    [Fact] // ADR-0010 §8, §10: a module's settings over HTTP: listed while a measure they serve is selected, set by `set`, and checked
+    public async Task A_modules_settings_are_listed_and_set_over_http()
+    {
+        var ws = await Measures(await Create(), "kva");
+        var xva = Assert.Single(ws["settings"]!.AsArray())!;
+        Assert.Equal(["costOfCapital", "pvAdjustment"], xva["settings"]!.AsArray().Select(s => s!["id"]!.GetValue<string>()));
+        Assert.Equal("rate", xva["settings"]![0]!["form"]!.GetValue<string>());
+
+        var set = await Post(ws, "set", new { revision = Revision(ws), rows = new[] { "xva" }, column = "cost of capital", text = "12%" });
+
+        Assert.Equal(HttpStatusCode.OK, set.StatusCode);
+        ws = (await set.Content.ReadFromJsonAsync<JsonObject>())!;
+        var coc = ws["settings"]![0]!["settings"]![0]!;
+        Assert.Equal(("12%", "10%", true), (coc["text"]!.GetValue<string>(), coc["defaultText"]!.GetValue<string>(), coc["changed"]!.GetValue<bool>()));
+        var refused = await Post(ws, "edits", new { revision = Revision(ws), entity = "settings:xva", field = "costOfCapital", value = 1.5 });
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, refused.StatusCode);
+    }
+
     [Fact] // ADR-0010 §10, §11, ADR-0013 §1, ADR-0012 §7's note: the workspace lists the registered measures, and the request that prices each
     public async Task A_workspace_lists_the_registered_measures()
     {

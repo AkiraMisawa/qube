@@ -176,7 +176,7 @@ public static class PortfolioCases
 /// </summary>
 public sealed record CellName(string Entity, string Field, string Row, string Column, CellName.Form Kind)
 {
-    public enum Form { Amount, SignedAmount, Rate, Number, Flag, Id, OptionalId, Currency, Frequency, Schedule, Spread }
+    public enum Form { Amount, SignedAmount, Rate, Number, Flag, Id, OptionalId, Currency, Frequency, Schedule, Spread, Days }
 }
 
 public static partial class PortfolioCells
@@ -247,11 +247,13 @@ public static partial class PortfolioCells
             .Append((Id: CreditRow, Entity: Entity.Of(Entity.Credit, source.Registration.Key), Columns: CreditColumns))
             .Concat(credit.Cds is { } cds ? [(Id: CdsRow, Entity: Entity.Of(Entity.Cds, cds.CurveId), Columns: SpreadColumns)] : [])
             .Concat(source.Existing.Concat(source.New).Select(t => (Id: t.TradeId, Entity: Entity.Of(Entity.Trade, t.TradeId), Columns: Trade(register))))
+            // A module's settings, row its id (ADR-0010 §8): `set xva cost of capital 12%`.
+            .Concat(register.Modules.Where(m => m.Settings.Count > 0).Select(m => (Id: m.Id, Entity: MeasureSettings.EntityOf(m.Id), Columns: Settings(m))))
             .Where(r => string.Equals(r.Id, row.Trim(), StringComparison.OrdinalIgnoreCase))
             .ToList();
         if (rows.Count == 0)
             throw new WorkspaceRefused("UnknownCell", $"No row {row.Trim()}: a row is a CSA ({string.Join(", ", source.Agreement.Csas.Select(c => c.CsaId))}), "
-                + $"the netting set ({source.Agreement.NettingSetId}), {CreditRow}, {CdsRow} or a trade's id.");
+                + $"the netting set ({source.Agreement.NettingSetId}), {CreditRow}, {CdsRow}, a trade's id{string.Concat(register.Modules.Where(m => m.Settings.Count > 0).Select(m => $", or {m.Id} for {m.Title}'s settings"))}.");
         if (rows.Count > 1) throw new WorkspaceRefused("AmbiguousCell", $"{row.Trim()} names {string.Join(" and ", rows.Select(r => r.Entity))}.");
         var (id, entity, columns) = rows[0];
         var name = Words(column);
@@ -267,8 +269,8 @@ public static partial class PortfolioCells
     public static CellName Of(WorkspaceState state, MeasureRegister register, string entity, string field)
     {
         var (kind, id) = Entity.Split(entity);
-        var columns = ColumnsOf(kind, register)
-            ?? throw new WorkspaceRefused("UnknownCell", $"{entity} is not a row a cell is named on: a row is a CSA, the netting set, the credit, the CDS or a trade.");
+        var columns = ColumnsOf(entity, register)
+            ?? throw new WorkspaceRefused("UnknownCell", $"{entity} is not a row a cell is named on: a row is a CSA, the netting set, the credit, the CDS, a trade or a module's settings.");
         var column = columns.FirstOrDefault(c => c.Field == field)
             ?? throw new WorkspaceRefused("UnknownCell", $"{id} has no column {field}; its columns are {string.Join(", ", columns.Select(c => c.Names[0]))}.");
         // A curve's spread is a cell of its own row whether or not it is the curve chosen now (the Changes tab sets it).
@@ -293,9 +295,10 @@ public static partial class PortfolioCells
             Entity.Trade => source.Trade(id) is not null,
             Entity.Credit => source.Registration.Key == id,
             Entity.Cds => CdsCatalog.Find(id) is not null,
+            Entity.Settings => register.SettingsOf(entity) is not null,
             _ => false,
         };
-        var column = exists ? ColumnsOf(kind, register)?.FirstOrDefault(c => c.Field == field) : null;
+        var column = exists ? ColumnsOf(entity, register)?.FirstOrDefault(c => c.Field == field) : null;
         return column is null ? null : new CellName(entity, field, RowOf(state, entity), column.Names[0], column.Form);
     }
 
@@ -312,15 +315,19 @@ public static partial class PortfolioCells
         };
     }
 
-    static IReadOnlyList<Column>? ColumnsOf(string kind, MeasureRegister register) => kind switch
+    static IReadOnlyList<Column>? ColumnsOf(string entity, MeasureRegister register) => Entity.Split(entity).Kind switch
     {
         Entity.Csa => CsaColumns,
         Entity.Netting => NettingColumns,
         Entity.Credit => CreditColumns,
         Entity.Cds => SpreadColumns,
         Entity.Trade => Trade(register),
+        Entity.Settings => register.SettingsOf(entity) is { } module ? Settings(module) : null,
         _ => null,
     };
+
+    // A module's settings are named by their titles' words and their own names (ADR-0010 §8).
+    static IReadOnlyList<Column> Settings(IMeasureModule module) => [.. module.Settings.Select(s => new Column(s.Id, s.Form, [.. MeasureSettings.Names(s)]))];
 
     /// <summary>
     /// A value as the Changes tab and a case's title write it, in the form <see cref="Read"/> reads back to the same value:
@@ -347,6 +354,8 @@ public static partial class PortfolioCells
                 return CdsCatalog.Bp(value.GetValue<decimal>());
             case CellName.Form.Flag:
                 return value.GetValue<bool>() ? "on" : "off";
+            case CellName.Form.Days:
+                return $"{Exact(value.GetValue<decimal>())}d";
             default:
                 return value.GetValue<string>();
         }
@@ -402,6 +411,12 @@ public static partial class PortfolioCells
                 if (!m.Success) return Refuse("a number, with k, mm or bn for its scale, or bp");
                 var n = decimal.Parse(m.Groups[1].Value.Replace(",", "", StringComparison.Ordinal), NumberStyles.Number | NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture);
                 return n * m.Groups[2].Value.ToLowerInvariant() switch { "k" => 1_000m, "mm" => 1_000_000m, "bn" => 1_000_000_000m, _ => 1m };
+            }
+            case CellName.Form.Days:
+            {
+                if (t.Equals("empty", StringComparison.OrdinalIgnoreCase) || t.Equals("none", StringComparison.OrdinalIgnoreCase)) return null;
+                var m = DaysPattern().Match(t);
+                return m.Success && decimal.TryParse(m.Groups[1].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var days) ? days : Refuse("a whole number of days, 10 or 10d, or empty");
             }
             case CellName.Form.Flag:
                 return t.ToLowerInvariant() switch
@@ -474,6 +489,11 @@ public static partial class PortfolioCells
                     _ => throw new InvalidOperationException($"A trade has no {cell.Field}."),
                 };
             }
+            case Entity.Settings:
+            {
+                var module = register.SettingsOf(cell.Entity) ?? throw new InvalidOperationException($"{cell.Entity} is no module's settings.");
+                return MeasureSettings.Value(reading, module.Id, module.Settings.Single(s => s.Id == cell.Field))?.DeepClone();
+            }
             default:
                 throw new InvalidOperationException($"{cell.Entity} is not a cell's row.");
         }
@@ -487,6 +507,9 @@ public static partial class PortfolioCells
 
     [GeneratedRegex("^(-?[0-9][0-9,]*(?:\\.[0-9]+)?)(k|mm|bn|bp)?$", RegexOptions.IgnoreCase)]
     private static partial Regex NumberPattern();
+
+    [GeneratedRegex("^([0-9]+)\\s*(?:d|days?)?$", RegexOptions.IgnoreCase)]
+    private static partial Regex DaysPattern();
 
     [GeneratedRegex("\\s*\\([^)]*\\)")]
     private static partial Regex Unit();

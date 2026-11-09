@@ -101,6 +101,25 @@ public sealed record TradeCell(JsonNode? Value, string State, string? Note, bool
 public sealed record RegisteredMeasure(string Id, string Title, string Module, IReadOnlyList<MetricDefinition> Metrics, string Headline, bool DeclaresMembership, bool Traced,
     bool Quoted, string Request, IReadOnlyList<ResultTab> Tabs);
 
+/// <summary>
+/// A setting a module registers (ADR-0010 §8, §10), as it registers its trade columns: a model input the user sets
+/// before a quote, such as XVA's cost of capital. <paramref name="Form"/> is how it is written and read, as a cell's;
+/// <paramref name="Default"/> the value it has until set, none where empty means the model's own, which
+/// <paramref name="Empty"/> then says; <paramref name="Measures"/> the measures it serves, which it shows beside and
+/// only while one of them is selected; <paramref name="Names"/> the names a cell is named by after the module's row
+/// (`set xva cost of capital 12%`), its title's words first. Its value is an edit on <c>settings:&lt;module&gt;</c>, the
+/// workspace's own, so it survives a counterparty change.
+/// </summary>
+public sealed record MeasureSetting(string Id, string Title, CellName.Form Form, JsonNode? Default, IReadOnlyList<string> Measures, string? Empty = null,
+    IReadOnlyList<string>? Names = null);
+
+/// <summary>One setting in the workspace view: its value as the reading holds it and as written, its default, and whether it differs.</summary>
+public sealed record SettingView(string Id, string Title, CellName.Form Form, JsonNode? Value, string Text, JsonNode? Default, string DefaultText, string? Empty,
+    IReadOnlyList<string> Measures, bool Changed);
+
+/// <summary>A module's settings in the workspace view (the Settings tab's section of it): those a selected measure needs.</summary>
+public sealed record ModuleSettings(string Module, string Title, IReadOnlyList<SettingView> Settings);
+
 /// <summary>A domain module's registration into the pricer (ADR-0010 §10). XVA's is the first (§11).</summary>
 public interface IMeasureModule
 {
@@ -115,8 +134,17 @@ public interface IMeasureModule
     /// </summary>
     string PricedBy => Id;
 
+    /// <summary>Its title, as the Settings tab heads its section: its id in capitals unless it says.</summary>
+    string Title => Id.ToUpperInvariant();
+
     /// <summary>The measures it owns, in the order the page shows them.</summary>
     IReadOnlyList<MeasureDefinition> Measures { get; }
+
+    /// <summary>The settings it reads in its input part (ADR-0010 §8, §10), in the order the Settings tab shows them; none unless it says.</summary>
+    IReadOnlyList<MeasureSetting> Settings => [];
+
+    /// <summary>Why a value cannot be one of its settings, by its type and bounds; null when it can.</summary>
+    string? CheckSetting(string setting, JsonNode? value) => $"{Id} has no setting {setting}.";
 
     /// <summary>
     /// Whether its figures come from a simulated provider, which the page says (`SIMULATED`, ADR-0010 §1). A module
@@ -206,6 +234,26 @@ public sealed class MeasureRegister
         return [.. Modules.SelectMany(m => m.Inputs).Where(i => selected.Contains(i.Measure))];
     }
 
+    /// <summary>
+    /// The settings of each selected module that a selected measure needs, with their values on the reading (ADR-0010 §8):
+    /// only they show, and a hidden one keeps its value. A module none of whose settings is needed has no section.
+    /// </summary>
+    public IReadOnlyList<ModuleSettings> Settings(WorkspaceState state)
+    {
+        var selected = PortfolioMaterialiser.SelectedMeasures(state, this);
+        return [.. Selected(state).Select(m => new ModuleSettings(m.Id, m.Title, [.. m.Settings.Where(s => s.Measures.Any(selected.Contains)).Select(s =>
+        {
+            var value = MeasureSettings.Value(state, m.Id, s);
+            var cell = MeasureSettings.Cell(m, s);
+            return new SettingView(s.Id, s.Title, s.Form, value?.DeepClone(), PortfolioCells.Write(cell, value), s.Default?.DeepClone(), PortfolioCells.Write(cell, s.Default),
+                s.Empty, s.Measures, !PortfolioMaterialiser.Same(value, s.Default));
+        })])).Where(m => m.Settings.Count > 0)];
+    }
+
+    /// <summary>The module whose settings an entity is (<c>settings:&lt;module&gt;</c>), or null where it is no module's settings.</summary>
+    public IMeasureModule? SettingsOf(string entity) =>
+        Entity.Split(entity) is (Entity.Settings, var id) && id != Entity.WorkspaceId ? Modules.SingleOrDefault(m => m.Id == id && m.Settings.Count > 0) : null;
+
     /// <summary>The module and column a trade field names, or null where it is not a module's column.</summary>
     public (IMeasureModule Module, TradeColumn Column)? ColumnOf(string field) =>
         Modules.SelectMany(m => m.TradeColumns.Select(c => (Module: m, Column: c))).Where(x => $"{x.Module.Id}.{x.Column.Id}" == field)
@@ -289,4 +337,31 @@ public sealed class MeasureRegister
             throw new WorkspaceRefused("NoMeasure", "Select at least one measure to price.");
         return [.. Ids.Where(expanded.Contains)];
     }
+}
+
+/// <summary>A module's settings as a reading holds them (ADR-0010 §8): the user's value where set, else the default.</summary>
+public static class MeasureSettings
+{
+    /// <summary>The entity a module's settings are edits on.</summary>
+    public static string EntityOf(string module) => Entity.Of(Entity.Settings, module);
+
+    /// <summary>One setting's value on a reading: the user's where set, empty included, else its default.</summary>
+    public static JsonNode? Value(WorkspaceState state, string module, MeasureSetting setting)
+    {
+        PortfolioCases.Unlayered(state);
+        var entity = EntityOf(module);
+        return state.Overrides.Values.SingleOrDefault(o => o.Target.Entity == entity && o.Target.Field == setting.Id) is { } set ? set.Value : setting.Default;
+    }
+
+    /// <summary>Every setting of a module on a reading, by id, as its input part carries them: frozen by Price, never defaulted again.</summary>
+    public static JsonObject Values(WorkspaceState state, IMeasureModule module) =>
+        new([.. module.Settings.Select(s => KeyValuePair.Create(s.Id, Value(state, module.Id, s)?.DeepClone()))]);
+
+    /// <summary>The cell a setting is, on its module's row.</summary>
+    public static CellName Cell(IMeasureModule module, MeasureSetting setting) =>
+        new(EntityOf(module.Id), setting.Id, module.Id, Names(setting)[0], setting.Form);
+
+    /// <summary>The names a setting's cell is named by: its title's words, then its own names.</summary>
+    public static IReadOnlyList<string> Names(MeasureSetting setting) =>
+        [.. new[] { setting.Title }.Concat(setting.Names ?? []).Select(n => string.Join(' ', n.Trim().ToLowerInvariant().Split(' ', StringSplitOptions.RemoveEmptyEntries))).Distinct()];
 }

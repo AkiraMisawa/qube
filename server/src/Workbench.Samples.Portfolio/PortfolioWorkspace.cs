@@ -205,7 +205,8 @@ public static class PortfolioMaterialiser
             .Append(Entity.Measures)
             .Append(Entity.WorkspaceSettings)
             .ToHashSet();
-        return entities.Contains;
+        // A module's settings are read by its request whenever one of its measures is priced (ADR-0010 §8).
+        return e => entities.Contains(e) || Entity.Split(e).Kind == Entity.Settings;
     }
 
     /// <summary>The measures Price runs: the user's selection, else every registered measure (ADR-0010 §10).</summary>

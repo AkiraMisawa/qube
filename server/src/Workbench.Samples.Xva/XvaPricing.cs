@@ -38,6 +38,14 @@ public sealed class XvaMeasures(Pv01Provider pv01, decimal fvaLimitGbp = 1_000_0
     public const string Pv01 = "pv01";
     public const string Margin = "margin";
     public const string PvAdj = "pvAdj";
+    /// <summary>XVA's settings (ADR-0010 §8's note of 2026-11-09): what its request is computed with.</summary>
+    public const string Mpor = "mpor";
+    public const string CostOfCapital = "costOfCapital";
+    public const string ChargeRatio = "chargeRatio";
+    public const string PvAdjustment = "pvAdjustment";
+    public const string Risks = "risks";
+    /// <summary>The model's margin period of risk in days, which an empty MPOR override leaves (simulated).</summary>
+    public const int ModelMpor = 10;
 
     public string Id => Module;
 
@@ -58,6 +66,31 @@ public sealed class XvaMeasures(Pv01Provider pv01, decimal fvaLimitGbp = 1_000_0
 
     public IReadOnlyList<TradeColumn> TradeColumns { get; } =
         [new(Pv01, "PV01", "number", false), new(Margin, "Margin (bp)", "number", true), new(PvAdj, "PV Adj", "number", true)];
+
+    /// <summary>
+    /// XVA's settings (ADR-0010 §8's note of 2026-11-09, DEFAULT): the MPOR override the exposure of a collateralised
+    /// trade is the move over, empty for the model's; the cost of capital KVA charges a year; the ratio CVA Charge applies
+    /// to CVA; whether new trades' PV Adj is priced; and whether the request computes the deltas the Risks tab shows. The
+    /// defaults are the simulated engine's, and what each approximates is OPEN with the engine.
+    /// </summary>
+    public IReadOnlyList<MeasureSetting> Settings { get; } =
+    [
+        new(Mpor, "MPOR override", CellName.Form.Days, null, [Cva, Fva], Empty: $"the model's {ModelMpor} days", Names: ["mpor"]),
+        new(CostOfCapital, "Cost of capital", CellName.Form.Rate, 0.10m, [Kva], Names: ["coc"]),
+        new(ChargeRatio, "Charge ratio", CellName.Form.Number, 1.25m, [Cva]),
+        new(PvAdjustment, "PV adjustment", CellName.Form.Flag, true, [Cva, Fva, Kva], Names: ["pv adj"]),
+        new(Risks, "Risks included", CellName.Form.Flag, false, [Cva, Fva], Names: ["risks"]),
+    ];
+
+    public string? CheckSetting(string setting, JsonNode? value) => setting switch
+    {
+        Mpor => value is null || value is JsonValue m && m.TryGetValue<decimal>(out var days) && days == decimal.Truncate(days) && days is >= 1 and <= 250
+            ? null : $"An MPOR override is a whole number of days from 1 to 250, or empty for the model's {ModelMpor}.",
+        CostOfCapital => value is JsonValue c && c.TryGetValue<decimal>(out var rate) && rate is >= 0 and < 1 ? null : "A cost of capital is from 0% up to 100%, never empty.",
+        ChargeRatio => value is JsonValue r && r.TryGetValue<decimal>(out var ratio) && ratio is > 0 and <= 10 ? null : "A charge ratio is a number above 0 and up to 10.",
+        PvAdjustment or Risks => value is JsonValue b && b.TryGetValue<bool>(out _) ? null : $"{Settings.Single(x => x.Id == setting).Title} is on or off.",
+        _ => $"XVA has no setting {setting}.",
+    };
 
     /// <summary>CVA's recovery on the Netting tab (ADR-0010 §8, §11): empty, the CDS recovery applies (XV15).</summary>
     public IReadOnlyList<MeasureInput> Inputs { get; } = [new("netting", "cvaRecovery", Cva)];
@@ -126,6 +159,8 @@ public sealed class XvaMeasures(Pv01Provider pv01, decimal fvaLimitGbp = 1_000_0
         ["credit"] = JsonSerializer.SerializeToNode(PortfolioMaterialiser.Credit(state), WireJson.Options),
         // Each CSA's FVA discount curve, which a funding shift moves (ADR-0010 §4's note of 2026-11-09).
         ["fundingCurves"] = new JsonObject([.. PortfolioMaterialiser.Csas(state).Select(c => KeyValuePair.Create(c.CsaId, (JsonNode?)c.FvaCurve))]),
+        // Its settings as the reading holds them, the defaults among them: the provider reads these, never its own (§8).
+        ["settings"] = MeasureSettings.Values(state, this),
     };
 
     public IReadOnlyList<MeasureRefusal> Validate(WorkspaceState state, IReadOnlyList<string> selected) =>
@@ -137,7 +172,10 @@ public sealed class XvaMeasures(Pv01Provider pv01, decimal fvaLimitGbp = 1_000_0
     /// </summary>
     public IReadOnlyList<MeasureRefusal> Validate(WorkspaceState state, IReadOnlyList<string> selected, IReadOnlyList<EffectiveTrade> priced)
     {
-        var unknown = priced.SelectMany(t => t.Cells?.GetValueOrDefault(Field(PvAdj)) is { State: not TradeCell.Shown } cell ? [(t.TradeId, Cell: cell)] : Array.Empty<(string TradeId, TradeCell Cell)>()).ToList();
+        // With PV adjustment off, new trades are priced with none, so a PV Adj not known refuses nothing (ADR-0010 §8).
+        var adjusted = MeasureSettings.Value(state, Module, Settings.Single(x => x.Id == PvAdjustment))?.GetValue<bool>()
+            ?? throw new InvalidOperationException("PV adjustment is on or off, never empty.");
+        List<(string TradeId, TradeCell Cell)> unknown = !adjusted ? [] : priced.SelectMany(t => t.Cells?.GetValueOrDefault(Field(PvAdj)) is { State: not TradeCell.Shown } cell ? [(t.TradeId, Cell: cell)] : Array.Empty<(string TradeId, TradeCell Cell)>()).ToList();
         if (unknown.Count > 0)
         {
             var (tradeId, first) = unknown[0];
@@ -217,10 +255,6 @@ public sealed class FakeXvaPrice : ICapabilityHandler
 {
     public const string CapabilityId = "xva.price";
     public const string CapabilityVersion = "2.1.0";
-    /// <summary>The simulated charge ratio CVA Charge applies to CVA (ADR-0010 OPEN: what the charge approximates).</summary>
-    public const decimal ChargeRatio = 1.25m;
-    /// <summary>The simulated cost of capital KVA charges a year (ADR-0010 §11: a setting, OPEN).</summary>
-    public const decimal CostOfCapital = 0.10m;
 
     public CapabilityDescriptor Descriptor { get; } = new(CapabilityId, CapabilityVersion, "Price CVA, FVA, KVA and spot CCR capital (simulated)",
         [new("acceptedInput", PortfolioContracts.AcceptedInput, PortfolioContracts.Version, Cardinality.One)],
@@ -296,9 +330,16 @@ public sealed class FakeXvaPrice : ICapabilityHandler
         // The market of the pair's scenario: the base market's where it shifts nothing.
         var market = @case.Market;
         decimal Shown(decimal jpy, ScenarioMarket m) => Math.Round(m.ToGbp(jpy, "JPY") * m.UnitsPerGbp(currency), 2);
-        // The model's margin period in days, which a collateralised trade's exposure is the move over.
-        const double mpor = 10;
         var fundingCurves = input["modules"]![XvaMeasures.Module]!["fundingCurves"] as JsonObject;
+        // XVA's settings as Price froze them (ADR-0010 §8): read here, never defaulted again by the provider.
+        var settings = input["modules"]![XvaMeasures.Module]!["settings"] as JsonObject
+            ?? throw new CapabilityFailure("InvalidInput", "The accepted input holds no XVA settings.");
+        JsonNode Setting(string id) => settings[id] ?? throw new CapabilityFailure("InvalidInput", $"The accepted input's XVA setting {id} is empty.");
+        // The margin period in days a collateralised trade's exposure is the move over: the override, else the model's.
+        var mpor = settings[XvaMeasures.Mpor]?.GetValue<double>() ?? XvaMeasures.ModelMpor;
+        var chargeRatio = Setting(XvaMeasures.ChargeRatio).GetValue<decimal>();
+        var costOfCapital = Setting(XvaMeasures.CostOfCapital).GetValue<decimal>();
+        var adjusted = Setting(XvaMeasures.PvAdjustment).GetValue<bool>();
 
         // FVA prices only its members (ADR-0010 §5), as the accepted input froze them; a trade without its membership is
         // an input this provider cannot read, never a trade it guesses about.
@@ -309,6 +350,8 @@ public sealed class FakeXvaPrice : ICapabilityHandler
         // this provider cannot read, since Price refuses XVA's measures then.
         decimal Adjustment(JsonNode t)
         {
+            // With PV adjustment off, new trades are priced with none, whatever their cells hold (ADR-0010 §8).
+            if (!adjusted) return 0m;
             if (t["cells"]?[XvaMeasures.Field(XvaMeasures.PvAdj)] is not { } cell) return 0m;
             if (cell["state"]!.GetValue<string>() != TradeCell.Shown)
                 throw new CapabilityFailure("InvalidInput", $"PV Adj of {t["tradeId"]} is {cell["state"]}; Price refuses XVA's measures then.");
@@ -390,7 +433,7 @@ public sealed class FakeXvaPrice : ICapabilityHandler
                 var value = Value(t, m);
                 pv += value;
                 var collateralised = !t["csa"]!.GetValue<string>().StartsWith("nocsa_", StringComparison.Ordinal);
-                var kappa = collateralised ? 0.2m * (decimal)Math.Sqrt(mpor / 10.0) : 1m;
+                var kappa = collateralised ? 0.2m * (decimal)Math.Sqrt(mpor / XvaMeasures.ModelMpor) : 1m;
                 var curveFactor = t["curve"]!.GetValue<string>() == "usd_sofr" ? 1.1m : 1m;
                 var scale = Math.Abs(t["notional"]!.GetValue<decimal>()) * m.JpyPer(t["currency"]!.GetValue<string>()) * 0.004m * curveFactor;
                 var own = new decimal[grid.Length];
@@ -466,7 +509,7 @@ public sealed class FakeXvaPrice : ICapabilityHandler
             var last = capital!.Portfolio!.Trades.Where(t => side.Side == SpotCapitalPricing.Before ? t.Before : t.After).Max(t => t.Maturity);
             var end = Decompose.Years(capital.Portfolio.ValuationDate, last);
             var cost = points.Select((x, i) => (decimal)x.Capital * (decimal)((i + 1 < points.Count ? points[i + 1].Years : end) - x.Years)).Sum();
-            return MeasureResult.Side.Of(Math.Round(-CostOfCapital * cost, 2), side.Trades);
+            return MeasureResult.Side.Of(Math.Round(-costOfCapital * cost, 2), side.Trades);
         }
 
         var rows = new List<JsonObject>(capital?.Rows ?? []);
@@ -502,7 +545,7 @@ public sealed class FakeXvaPrice : ICapabilityHandler
                 Func<SideFigures, decimal> value = metric.Id switch
                 {
                     "cva" => s => CvaOf(s),
-                    "cvaCharge" => s => Math.Round(CvaOf(s) * ChargeRatio, 2),
+                    "cvaCharge" => s => Math.Round(CvaOf(s) * chargeRatio, 2),
                     "pv" => s => s.Pv,
                     "fva" => s => s.Fva,
                     _ => throw new InvalidOperationException($"XVA has no metric {metric.Id}."),
