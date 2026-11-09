@@ -259,6 +259,9 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
     public (WorkspaceState State, CarrySummary Summary) Refresh(string workspaceId, long revision, string user) =>
         ChangeValueDate(workspaceId, revision, user, Source(Owned(workspaceId, user)).ValueDate);
 
+    /// <summary>The revision a workspace of the user's holds now, for a command that names none.</summary>
+    public long Revision(string workspaceId, string user) => Owned(workspaceId, user).Revision;
+
     public IReadOnlyList<WorkspaceState> OwnedBy(string user) =>
         [.. workspaces.OwnedBy(user).Where(w => w.App == PortfolioEditRules.App)];
 

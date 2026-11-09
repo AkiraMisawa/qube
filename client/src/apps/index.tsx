@@ -71,6 +71,18 @@ registerAiEffect('entity.create', (outputs, { workspace, queryClient }) => {
   const title = valuationDate === undefined ? 'Rates' : `Rates ${valuationDate}`;
   return { panelId: workspace.openPanelBehind(RATES_WORKSPACE, title, { workspaceId: entity.workspaceId }), title };
 });
+// What the AI pane knows of XVA (ADR-0010 §9): the workspace open is the one `vary`, `add trades` and `set` act on, and
+// what they change is read again where the page shows it. The page itself takes up a revision someone else made.
+registerAiContext(XVA_WORKSPACE, (panel) => panel.params.workspaceId === undefined ? undefined : {
+  description: 'The XVA workspace open in the active panel',
+  value: JSON.stringify({ kind: 'xva.workspace', workspaceId: panel.params.workspaceId }),
+});
+for (const capability of ['xva.vary', 'xva.trades.add', 'xva.set'])
+  registerAiEffect(capability, (outputs, { queryClient }) => {
+    const answer = outputs.answer as { readonly workspaceId: string };
+    void queryClient.invalidateQueries({ queryKey: ['xva', answer.workspaceId] });
+    return undefined;
+  });
 for (const capability of ['rates.live.start', 'rates.live.stop'])
   registerAiEffect(capability, (outputs, { queryClient }) => {
     const subscription = outputs.subscription as { readonly workspaceId: string };

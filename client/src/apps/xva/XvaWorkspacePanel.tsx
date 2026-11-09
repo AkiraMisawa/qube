@@ -189,7 +189,13 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   }, [api, workspaceId]);
   useEffect(() => () => sources.dispose(), [sources]);
 
-  const show = useCallback((next: XvaWorkspaceView) => queryClient.setQueryData(['xva', workspaceId], next), [queryClient, workspaceId]);
+  // The revision the page last showed of its own doing, so that one someone else made (the AI, another page) is told
+  // from it: the grids' rows are read again for that one, as for the page's own edits.
+  const ownRevision = useRef<number | undefined>(undefined);
+  const show = useCallback((next: XvaWorkspaceView) => {
+    ownRevision.current = next.revision;
+    queryClient.setQueryData(['xva', workspaceId], next);
+  }, [queryClient, workspaceId]);
 
   const queue = useMemo(() => new EditQueue(0,
     (revision, edit: PendingEdit) => edit.measures !== undefined
@@ -206,6 +212,11 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   // (the AI, another page), so the next edit is not refused for a change the user can already see.
   const shownRevision = view.data?.revision;
   useEffect(() => { if (shownRevision !== undefined) queue.shown(shownRevision); }, [shownRevision, queue]);
+  useEffect(() => {
+    if (shownRevision === undefined) return;
+    if (ownRevision.current !== undefined && shownRevision !== ownRevision.current) sources.changed();
+    ownRevision.current = shownRevision;
+  }, [shownRevision, sources]);
 
   // The selected modules' trade columns (ADR-0010 §10), made again only when they change (ExGrid ADR-0003).
   const tradeColumns = view.data?.tradeColumns;

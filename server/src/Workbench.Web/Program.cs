@@ -51,6 +51,7 @@ builder.Services.AddSingleton<IWorkbenchModule>(sp => new SimmModule(new Synthet
     simmTables));
 // The commands reach the workspace service only when invoked: it is built from the registry they are part of.
 builder.Services.AddSingleton<IWorkbenchModule>(sp => new RatesCommandsModule(sp.GetRequiredService<RatesWorkspaces>));
+builder.Services.AddSingleton<IWorkbenchModule>(sp => new PortfolioCommandsModule(sp.GetRequiredService<PortfolioWorkspaces>));
 // Products are descriptions from catalogs (ADR-0008 §7); the kernel's entity.create reads them. Rates describes its IRS and CCS.
 builder.Services.AddSingleton<IProductCatalog>(new RatesProductCatalog(conventions));
 builder.Services.AddSingleton<IProductRules>(sp => new IrsRules(conventions, sp.GetRequiredService<RatesWorkspaces>));

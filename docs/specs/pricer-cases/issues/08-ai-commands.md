@@ -6,7 +6,7 @@ their origin.
 
 **Blocked by:** 02, 05, 06.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Each capability is listed with its input contract and refuses a bad cell by name.
-- [ ] An AI `vary` makes the same cases the command line does, logged with origin `ai`.
+- [x] Each capability is listed with its input contract and refuses a bad cell by name.
+- [x] An AI `vary` makes the same cases the command line does, logged with origin `ai`.
