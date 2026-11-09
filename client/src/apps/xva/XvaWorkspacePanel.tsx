@@ -470,6 +470,11 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   const removeCase = async (name: string, title: string = name) => {
     if (await apply(`${title} was not removed`, (revision) => api.removeCase(workspaceId, revision, name))) workspace.notify(`Removed the case ${title}.`);
   };
+  /** `set` (ADR-0010 §9): a typed cell's edit on each row named, in the Base, so the grids are read again. */
+  const set = async (rows: readonly string[], column: string, text: string) => {
+    if (await apply('set changed nothing', (revision) => api.set(workspaceId, revision, rows, column, text)))
+      workspace.notify(rows.length === 1 ? `Set ${rows[0]} ${column} to ${text}.` : `Set ${column} to ${text} on ${rows.join(', ')}.`);
+  };
   const clearCases = async () => {
     if (await apply('No case was removed', (revision) => api.clearCases(workspaceId, revision))) workspace.notify('Removed every case.');
   };
@@ -524,14 +529,15 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   const setCurrency = (currency: string) => void queue.push({ entity: SETTINGS_ENTITY, field: 'displayCurrency', value: currency });
 
   // The commands run what the page's own controls run, as the page stands when they run (ADR-0010 §9).
-  const pageRef = useRef({ price, setMeasures, setSide, retry, copyQuote, download, refresh, setCurrency, openTab, explain, openResult, setDockFull, resultTabs, traceInView, vary, addTrades, removeCase, clearCases, measures: () => view.data?.measures ?? [], currencies: () => view.data?.currencies ?? [] });
-  pageRef.current = { price, setMeasures, setSide, retry, copyQuote, download, refresh, setCurrency, openTab, explain, openResult, setDockFull, resultTabs, traceInView, vary, addTrades, removeCase, clearCases, measures: () => view.data?.measures ?? [], currencies: () => view.data?.currencies ?? [] };
+  const pageRef = useRef({ price, setMeasures, setSide, retry, copyQuote, download, refresh, setCurrency, openTab, explain, openResult, setDockFull, resultTabs, traceInView, vary, set, addTrades, removeCase, clearCases, measures: () => view.data?.measures ?? [], currencies: () => view.data?.currencies ?? [] });
+  pageRef.current = { price, setMeasures, setSide, retry, copyQuote, download, refresh, setCurrency, openTab, explain, openResult, setDockFull, resultTabs, traceInView, vary, set, addTrades, removeCase, clearCases, measures: () => view.data?.measures ?? [], currencies: () => view.data?.currencies ?? [] };
   useEffect(() => {
     registerXvaPage(panelId, {
       price: () => void pageRef.current.price(),
       setMeasures: (measures) => pageRef.current.setMeasures(measures),
       setSide: (side, value, grid) => pageRef.current.setSide(side, value, grid),
       vary: (cell, values) => void pageRef.current.vary({ cell }, values),
+      set: (rows, column, text) => void pageRef.current.set(rows, column, text),
       addTrades: () => void pageRef.current.addTrades(),
       removeCase: (name) => void pageRef.current.removeCase(name),
       clearCases: () => void pageRef.current.clearCases(),

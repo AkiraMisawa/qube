@@ -389,6 +389,26 @@ test('ADR-0010 §3: the Changes tab counts every change, sets a case\'s value, a
   await expect(page.getByTestId('price')).toHaveText('Price CVA FVA · 1 case');
 });
 
+test('ADR-0010 §9: `set` makes a typed cell\'s edit on each row named, and is refused with the grid\'s reason', async ({ page, problems }) => {
+  await open(page);
+  await newWorkspace(page, 'ABC/LE-01', 5);
+  await command(page, 'measures', 'cva fva');
+
+  await command(page, 'set', 'CSA-A threshold 5mm');
+  await expect(page.getByTestId('notice')).toHaveText('Set CSA-A threshold to 5mm.');
+  await expect(page.getByTestId('workspace-summary')).toContainText('1 edit(s)');
+  await command(page, 'set', 'DRAFT-1, DRAFT-2 a off');
+  await expect(page.getByTestId('notice')).toHaveText('Set a to off on DRAFT-1, DRAFT-2.');
+  await expect(page.getByTestId('workspace-summary')).toContainText('3 edit(s)');
+  // An edit of the workspace, not a case.
+  await expect(page.getByTestId('price')).toHaveText('Price CVA FVA · 1 case');
+
+  await command(page, 'set', 'CSA-A threshold -1mm');
+  await expect(page.getByTestId('notice')).toHaveText('set changed nothing: CSA-A threshold is an amount of 0 or more; -1mm is not.');
+  expect(problems.splice(0)).toEqual(['error: Failed to load resource: the server responded with a status of 422 (Unprocessable Entity)']);
+  await expect(page.getByTestId('workspace-summary')).toContainText('3 edit(s)');
+});
+
 test('docs/03 §5, ADR-0010 §3: `add trades` makes a case per new trade alone, refuses one in Before by name, and Price refuses a set the rows left', async ({ page, problems }) => {
   const refused = 'error: Failed to load resource: the server responded with a status of 422 (Unprocessable Entity)';
   await open(page);

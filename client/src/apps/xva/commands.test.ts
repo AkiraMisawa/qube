@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { measureNamed, measuresTyped, varyTyped } from './commands';
+import { measureNamed, measuresTyped, setTyped, varyTyped } from './commands';
 import type { RegisteredMeasure } from './contracts';
 
 describe('`measures` as typed (ADR-0010 §9)', () => {
@@ -42,5 +42,22 @@ describe('`vary` as typed (ADR-0010 §9\'s note of 2026-11-08)', () => {
   it('refuses a line with no cell or an empty value by name, never guessing one', () => {
     expect(() => varyTyped('CSA-A 10mm')).toThrow('vary needs a cell, its row and its column, and the values');
     expect(() => varyTyped('CSA-A threshold 10mm, , 0')).toThrow('none of them empty');
+  });
+});
+
+describe('`set` as typed (ADR-0010 §9)', () => {
+  it('takes one row, a column of one word or more, and the value, its last word', () => {
+    expect(setTyped('CSA-A threshold 5mm')).toEqual({ rows: ['CSA-A'], column: 'threshold', text: '5mm' });
+    expect(setTyped(' CSA-A  self threshold 10,000k ')).toEqual({ rows: ['CSA-A'], column: 'self threshold', text: '10,000k' });
+  });
+
+  it('takes the rows as a list separated by commas, with or without a space', () => {
+    expect(setTyped('T-1001, T-1002 csa CSA-B')).toEqual({ rows: ['T-1001', 'T-1002'], column: 'csa', text: 'CSA-B' });
+    expect(setTyped('T-1001,T-1002, T-1003 A off')).toEqual({ rows: ['T-1001', 'T-1002', 'T-1003'], column: 'A', text: 'off' });
+  });
+
+  it('refuses a line with no column or value, or an empty row, rather than guess', () => {
+    expect(() => setTyped('CSA-A 5mm')).toThrow(/set needs a row, a column and a value/);
+    expect(() => setTyped('T-1001,, T-1002 csa CSA-B')).toThrow(/set needs a row/);
   });
 });

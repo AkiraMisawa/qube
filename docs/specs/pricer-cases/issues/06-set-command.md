@@ -6,8 +6,8 @@ Margin is entered included. `set T-1001, T-1002 csa CSA-B` sets each row named; 
 
 **Blocked by:** 02.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] `set CSA-A threshold 5mm` changes the workspace's value and marks it against Original.
-- [ ] A value the grid would refuse is refused with the grid's reason.
-- [ ] Several rows are set in one revision, or none is when one is refused.
+- [x] `set CSA-A threshold 5mm` changes the workspace's value and marks it against Original.
+- [x] A value the grid would refuse is refused with the grid's reason.
+- [x] Several rows are set in one command, or none is when one is refused.

@@ -11,7 +11,7 @@ import { httpRatesApi, type RatesApi } from './rates/api';
 import { ratesCommandsOf } from './rates/commands';
 import { RatesWorkspacePanel } from './rates/RatesWorkspacePanel';
 import { httpXvaApi, type XvaApi } from './xva/api';
-import { measureNamed, measuresTyped, varyTyped, xvaPageOf } from './xva/commands';
+import { measureNamed, measuresTyped, setTyped, varyTyped, xvaPageOf } from './xva/commands';
 import { XvaWorkspacePanel } from './xva/XvaWorkspacePanel';
 import { registerAiContext, registerAiEffect } from '../ai/effects';
 import { registerGridFocus } from '../shell/focus';
@@ -232,6 +232,18 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
       run: (a) => {
         const typed = varyTyped(a.cell ?? '');
         xvaPage().vary(typed.cell, typed.values);
+      },
+    },
+    {
+      id: 'xva.set',
+      words: 'set',
+      title: 'Set one value of a cell, on one row or several, such as set CSA-A threshold 5mm',
+      group: 'XVA',
+      ...onXva,
+      args: [{ name: 'cell', required: true, rest: true, hint: 'the rows separated by commas, a column and the value: T-1001, T-1002 csa CSA-B' }],
+      run: (a) => {
+        const typed = setTyped(a.cell ?? '');
+        xvaPage().set(typed.rows, typed.column, typed.text);
       },
     },
     {

@@ -385,6 +385,30 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
     }
 
     /// <summary>
+    /// <c>set &lt;rows&gt; &lt;column&gt; &lt;value&gt;</c> (ADR-0010 §9): the edit a typed cell makes, in the Common layer, on
+    /// each row named, without making a case. Each cell is named as <c>vary</c> names it, and the value read and checked
+    /// on each as the grid checks it typed, before any is set: one refused sets none.
+    /// </summary>
+    public WorkspaceState SetCells(string workspaceId, long revision, string user, IReadOnlyList<string> rows, string column, string text, RunOrigin? origin = null)
+    {
+        if (rows.Count == 0 || rows.Any(r => r.Trim().Length == 0) || column.Trim().Length == 0 || text.Trim().Length == 0)
+            throw new WorkspaceRefused("UnknownCell", "set names one row or more, separated by commas, then a column and a value, such as set CSA-A threshold 5mm.");
+        var raw = Owned(workspaceId, user);
+        var baseline = PortfolioCases.Base(raw);
+        var source = Source(raw);
+        var cells = rows.Select(row => PortfolioCells.Resolve(baseline, register, row, column)).ToList();
+        if (cells.GroupBy(c => c.Entity).FirstOrDefault(g => g.Count() > 1) is { } twice)
+            throw new WorkspaceRefused("UnknownCell", $"set names {twice.First().Row} twice; name each row once.");
+        var changes = cells.Select(cell =>
+        {
+            var value = PortfolioCells.Read(cell, text.Trim());
+            Check(baseline, cell.Entity, cell.Field, value);
+            return (WorkspaceChange)new WorkspaceChange.Set(PortfolioEditRules.Target(source, cell.Entity, cell.Field), value);
+        }).ToList();
+        return workspaces.Batch(workspaceId, revision, user, changes, origin);
+    }
+
+    /// <summary>
     /// <c>add trades</c> (docs/03 §5, ADR-0010 §3's note of 2026-11-08): one case per New row with A ticked, at this
     /// moment, each holding that trade alone on top of the existing trades, never the others of the set: in its reading
     /// only, A is off on every other New row of the set. A candidate in Before is refused by name, never unticked, and
