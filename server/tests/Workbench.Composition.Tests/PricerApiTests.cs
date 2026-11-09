@@ -144,6 +144,32 @@ public class PricerApiTests(WorkbenchFactory factory) : IClassFixture<WorkbenchF
         Assert.Equal(HttpStatusCode.BadRequest, rowless.StatusCode);
     }
 
+    [Fact] // ADR-0010 §8's note of 2026-11-09: the CDS catalogue the Credit tab searches, and `cds` over HTTP, which a missing CDS refuses CVA by
+    public async Task The_cds_is_listed_and_chosen_over_http()
+    {
+        var catalogue = (await client.GetFromJsonAsync<JsonObject>("/api/xva/cds"))!;
+        Assert.Equal(["6m", "1y", "2y", "3y", "5y", "7y", "10y"], Strings(catalogue["tenors"]));
+        Assert.Contains("ABCH | USD | SNRFOR | XR14 | ABC Holdings (synthetic)", catalogue["singleNames"]!.AsArray().Select(c => c!["reference"]!.GetValue<string>()));
+        var ws = await Measures(await Create(), "cva", "fva");
+        Assert.Equal("singleName", ws["credit"]!["choice"]!["type"]!.GetValue<string>());
+
+        var none = await Post(ws, "cds", new { revision = Revision(ws), cds = "none" });
+
+        Assert.Equal(HttpStatusCode.OK, none.StatusCode);
+        var chosen = (await none.Content.ReadFromJsonAsync<JsonObject>())!;
+        Assert.StartsWith("No CDS for ABC/LE-01", chosen["said"]!.GetValue<string>());
+        ws = chosen["workspace"]!.AsObject();
+        Assert.Null(ws["credit"]!["cds"]);
+        var price = await Post(ws, "price", new { revision = Revision(ws), idempotencyKey = Guid.NewGuid().ToString() });
+        Assert.Equal(HttpStatusCode.Accepted, price.StatusCode);
+        var proxy = await Post(ws, "cds", new { revision = Revision(ws), cds = "proxy industrials asia bbb" });
+        Assert.Equal(HttpStatusCode.OK, proxy.StatusCode);
+        ws = (await proxy.Content.ReadFromJsonAsync<JsonObject>())!["workspace"]!.AsObject();
+        Assert.Equal("PROXY.INDUSTRIALS.ASIA.BBB", ws["credit"]!["cds"]!["curveId"]!.GetValue<string>());
+        var unknown = await Post(ws, "cds", new { revision = Revision(ws), cds = "nobody" });
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, unknown.StatusCode);
+    }
+
     [Fact] // ADR-0010 §10, §11, ADR-0013 §1, ADR-0012 §7's note: the workspace lists the registered measures, and the request that prices each
     public async Task A_workspace_lists_the_registered_measures()
     {

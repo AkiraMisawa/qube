@@ -17,6 +17,7 @@ public static partial class PortfolioCommandContracts
     public const string VaryRequest = "xva.vary-request";
     public const string TradesAddRequest = "xva.trades-add-request";
     public const string SetRequest = "xva.set-request";
+    public const string CdsRequest = "xva.cds-request";
     public const string CasesMade = "xva.cases-made";
     public const string Edited = "xva.workspace-edited";
 
@@ -95,6 +96,23 @@ public sealed class PortfolioSet(Func<PortfolioWorkspaces> workspaces) : ICapabi
         });
 }
 
+/// <summary><c>xva.cds</c>: the counterparty's CDS, a single name by its words, a proxy, or none (ADR-0010 §8's note of 2026-11-09).</summary>
+public sealed class PortfolioCds(Func<PortfolioWorkspaces> workspaces) : ICapabilityHandler
+{
+    public CapabilityDescriptor Descriptor { get; } = new("xva.cds", PortfolioContracts.Version, "Choose the counterparty's CDS curve of an XVA workspace",
+        [new("request", PortfolioCommandContracts.CdsRequest, PortfolioContracts.Version, Cardinality.One)],
+        [new("answer", PortfolioCommandContracts.Edited, PortfolioContracts.Version, Cardinality.One)],
+        ExecutionKind.RequestResponse, [CapabilityEffect.EditWorkspace]);
+
+    public Task<IReadOnlyDictionary<string, JsonNode?>> InvokeAsync(CapabilityInvocation invocation, CancellationToken cancellationToken) =>
+        PortfolioCommand.Run(invocation, workspaces, (service, request, caller, revision) =>
+        {
+            var workspaceId = PortfolioCommand.Text(request, "workspaceId");
+            var (state, credit) = service.ChooseCds(workspaceId, revision, caller.UserId, PortfolioCommand.Text(request, "cds"), caller.Origin);
+            return (state, null, PortfolioWorkspaces.CdsSaid(((PortfolioSourceVersion)state.Source).Registration, credit));
+        });
+}
+
 static class PortfolioCommand
 {
     public static string Text(JsonNode request, string name) =>
@@ -149,6 +167,7 @@ public sealed class PortfolioCommandsModule(Func<PortfolioWorkspaces> workspaces
         builder.AddCapability(new PortfolioVary(workspaces));
         builder.AddCapability(new PortfolioTradesAdd(workspaces));
         builder.AddCapability(new PortfolioSet(workspaces));
+        builder.AddCapability(new PortfolioCds(workspaces));
         PortfolioScenarioCommands.Register(builder, workspaces);
         JsonObject Workspace() => new() { ["type"] = "string", ["minLength"] = 1, ["title"] = "Workspace", ["description"] = "The XVA workspace's id, as the context names it." };
         JsonObject Revision() => new()
@@ -185,6 +204,12 @@ public sealed class PortfolioCommandsModule(Func<PortfolioWorkspaces> workspaces
             ["column"] = Text("Column", "The column, as the command line names it: threshold, csa, notional, A."),
             ["value"] = Text("Value", "The value as written: 5mm, CSA-B, off."),
         }, "workspaceId", "rows", "column", "value");
+        Request(PortfolioCommandContracts.CdsRequest, "Choose the CDS", new JsonObject
+        {
+            ["workspaceId"] = Workspace(),
+            ["revision"] = Revision(),
+            ["cds"] = Text("CDS", "A single name's words in any order (ABCH USD SNRFOR), proxy with a sector, a region and a rating (proxy industrials asia BBB), or none."),
+        }, "workspaceId", "cds");
         Request(PortfolioCommandContracts.CasesMade, "Cases made", new JsonObject
         {
             ["workspaceId"] = new JsonObject { ["type"] = "string", ["title"] = "Workspace" },

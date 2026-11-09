@@ -176,7 +176,7 @@ public static class PortfolioCases
 /// </summary>
 public sealed record CellName(string Entity, string Field, string Row, string Column, CellName.Form Kind)
 {
-    public enum Form { Amount, SignedAmount, Rate, Number, Flag, Id, OptionalId, Currency, Frequency, Schedule }
+    public enum Form { Amount, SignedAmount, Rate, Number, Flag, Id, OptionalId, Currency, Frequency, Schedule, Spread }
 }
 
 public static partial class PortfolioCells
@@ -201,6 +201,24 @@ public static partial class PortfolioCells
 
     static readonly IReadOnlyList<Column> NettingColumns = [new("cvaRecovery", CellName.Form.Rate, "recovery", "cva recovery")];
 
+    // The counterparty's CDS choice, row `credit`, and the chosen curve's spreads, row `cds` (ADR-0010 §8's note of 2026-11-09).
+    static readonly IReadOnlyList<Column> CreditColumns =
+    [
+        new("cdsType", CellName.Form.OptionalId, "cds type", "type"),
+        new("cdsReference", CellName.Form.OptionalId, "cds reference", "reference"),
+        new("proxySector", CellName.Form.OptionalId, "proxy sector", "sector"),
+        new("proxyRegion", CellName.Form.OptionalId, "proxy region", "region"),
+        new("proxyRating", CellName.Form.OptionalId, "proxy rating", "rating"),
+    ];
+
+    static readonly IReadOnlyList<Column> SpreadColumns = [.. CdsCatalog.Tenors.Select(t => new Column(t, CellName.Form.Spread, t))];
+
+    /// <summary>The row that names the counterparty's CDS choice.</summary>
+    public const string CreditRow = "credit";
+
+    /// <summary>The row that names the chosen CDS curve's spreads.</summary>
+    public const string CdsRow = "cds";
+
     static readonly IReadOnlyList<Column> TradeColumns =
     [
         new("notional", CellName.Form.SignedAmount, "notional"),
@@ -221,14 +239,19 @@ public static partial class PortfolioCells
     public static CellName Resolve(WorkspaceState state, MeasureRegister register, string row, string column)
     {
         var source = (PortfolioSourceVersion)state.Source;
+        var credit = PortfolioMaterialiser.Credit(state);
+        if (string.Equals(row.Trim(), CdsRow, StringComparison.OrdinalIgnoreCase) && credit.Cds is null)
+            throw new WorkspaceRefused("UnknownCell", credit.Missing ?? throw new InvalidOperationException("A credit with no curve says why."));
         var rows = source.Agreement.Csas.Select(c => (Id: c.CsaId, Entity: Entity.Of(Entity.Csa, c.CsaId), Columns: CsaColumns))
             .Append((Id: source.Agreement.NettingSetId, Entity: Entity.Of(Entity.Netting, source.Agreement.NettingSetId), Columns: NettingColumns))
+            .Append((Id: CreditRow, Entity: Entity.Of(Entity.Credit, source.Registration.Key), Columns: CreditColumns))
+            .Concat(credit.Cds is { } cds ? [(Id: CdsRow, Entity: Entity.Of(Entity.Cds, cds.CurveId), Columns: SpreadColumns)] : [])
             .Concat(source.Existing.Concat(source.New).Select(t => (Id: t.TradeId, Entity: Entity.Of(Entity.Trade, t.TradeId), Columns: Trade(register))))
             .Where(r => string.Equals(r.Id, row.Trim(), StringComparison.OrdinalIgnoreCase))
             .ToList();
         if (rows.Count == 0)
             throw new WorkspaceRefused("UnknownCell", $"No row {row.Trim()}: a row is a CSA ({string.Join(", ", source.Agreement.Csas.Select(c => c.CsaId))}), "
-                + $"the netting set ({source.Agreement.NettingSetId}) or a trade's id.");
+                + $"the netting set ({source.Agreement.NettingSetId}), {CreditRow}, {CdsRow} or a trade's id.");
         if (rows.Count > 1) throw new WorkspaceRefused("AmbiguousCell", $"{row.Trim()} names {string.Join(" and ", rows.Select(r => r.Entity))}.");
         var (id, entity, columns) = rows[0];
         var name = Words(column);
@@ -245,10 +268,15 @@ public static partial class PortfolioCells
     {
         var (kind, id) = Entity.Split(entity);
         var columns = ColumnsOf(kind, register)
-            ?? throw new WorkspaceRefused("UnknownCell", $"{entity} is not a row a cell is named on: a row is a CSA, the netting set or a trade.");
+            ?? throw new WorkspaceRefused("UnknownCell", $"{entity} is not a row a cell is named on: a row is a CSA, the netting set, the credit, the CDS or a trade.");
         var column = columns.FirstOrDefault(c => c.Field == field)
             ?? throw new WorkspaceRefused("UnknownCell", $"{id} has no column {field}; its columns are {string.Join(", ", columns.Select(c => c.Names[0]))}.");
-        return Resolve(state, register, id, column.Names[0]) is var cell && cell.Entity == entity ? cell
+        // A curve's spread is a cell of its own row whether or not it is the curve chosen now (the Changes tab sets it).
+        if (kind == Entity.Cds)
+            return CdsCatalog.Find(id) is not null ? new CellName(entity, field, RowOf(state, entity), column.Names[0], column.Form)
+                : throw new WorkspaceRefused("UnknownCell", $"{entity} is not a curve of the CDS catalogue.");
+        var row = kind == Entity.Credit ? CreditRow : id;
+        return Resolve(state, register, row, column.Names[0]) is var cell && cell.Entity == entity ? cell
             : throw new WorkspaceRefused("UnknownCell", $"{entity} is not a row of this workspace.");
     }
 
@@ -263,16 +291,33 @@ public static partial class PortfolioCells
             Entity.Csa => source.Agreement.Csas.Any(c => c.CsaId == id),
             Entity.Netting => source.Agreement.NettingSetId == id,
             Entity.Trade => source.Trade(id) is not null,
+            Entity.Credit => source.Registration.Key == id,
+            Entity.Cds => CdsCatalog.Find(id) is not null,
             _ => false,
         };
         var column = exists ? ColumnsOf(kind, register)?.FirstOrDefault(c => c.Field == field) : null;
-        return column is null ? null : new CellName(entity, field, id, column.Names[0], column.Form);
+        return column is null ? null : new CellName(entity, field, RowOf(state, entity), column.Names[0], column.Form);
+    }
+
+    // How a row is named: the credit's and the chosen curve's by their rows' names, a curve not chosen by its id.
+    static string RowOf(WorkspaceState state, string entity)
+    {
+        var (kind, id) = Entity.Split(entity);
+        return kind switch
+        {
+            Entity.Credit => CreditRow,
+            // The Base's curve: a case changes spreads, never the CDS chosen (ADR-0010 §8's note of 2026-11-09).
+            Entity.Cds => PortfolioMaterialiser.Credit(PortfolioCases.Base(state)).Cds?.CurveId == id ? CdsRow : id,
+            _ => id,
+        };
     }
 
     static IReadOnlyList<Column>? ColumnsOf(string kind, MeasureRegister register) => kind switch
     {
         Entity.Csa => CsaColumns,
         Entity.Netting => NettingColumns,
+        Entity.Credit => CreditColumns,
+        Entity.Cds => SpreadColumns,
         Entity.Trade => Trade(register),
         _ => null,
     };
@@ -298,6 +343,8 @@ public static partial class PortfolioCells
                 return $"{Exact(value.GetValue<decimal>() * 100m)}%";
             case CellName.Form.Number:
                 return Exact(value.GetValue<decimal>());
+            case CellName.Form.Spread:
+                return CdsCatalog.Bp(value.GetValue<decimal>());
             case CellName.Form.Flag:
                 return value.GetValue<bool>() ? "on" : "off";
             default:
@@ -338,6 +385,14 @@ public static partial class PortfolioCells
                 if (t.Equals("empty", StringComparison.OrdinalIgnoreCase) || t.Equals("none", StringComparison.OrdinalIgnoreCase)) return null;
                 var m = RatePattern().Match(t);
                 if (!m.Success) return Refuse("a rate with its unit, 40% or 25bp, or empty");
+                var n = decimal.Parse(m.Groups[1].Value, NumberStyles.Number | NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture);
+                return m.Groups[2].Value.Equals("bp", StringComparison.OrdinalIgnoreCase) ? n / 10_000m : n / 100m;
+            }
+            case CellName.Form.Spread:
+            {
+                // A spread is never empty: an edit back to the catalogue's is the Changes tab's reset.
+                var m = RatePattern().Match(t);
+                if (!m.Success) return Refuse("a spread with its unit, 120bp or 1.2%");
                 var n = decimal.Parse(m.Groups[1].Value, NumberStyles.Number | NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture);
                 return m.Groups[2].Value.Equals("bp", StringComparison.OrdinalIgnoreCase) ? n / 10_000m : n / 100m;
             }
@@ -392,6 +447,21 @@ public static partial class PortfolioCells
             }
             case Entity.Netting:
                 return PortfolioMaterialiser.Credit(reading).CvaRecovery;
+            case Entity.Credit:
+            {
+                var choice = PortfolioMaterialiser.Credit(reading).Choice;
+                return cell.Field switch
+                {
+                    "cdsType" => choice.Type, "cdsReference" => choice.Reference, "proxySector" => choice.Sector, "proxyRegion" => choice.Region,
+                    "proxyRating" => choice.Rating,
+                    _ => throw new InvalidOperationException($"The credit has no {cell.Field}."),
+                };
+            }
+            case Entity.Cds:
+            {
+                var curve = CdsCatalog.Find(id) ?? throw new InvalidOperationException($"{cell.Entity} is not a curve of the catalogue.");
+                return PortfolioMaterialiser.CurveOf(reading, curve).Spreads[cell.Field];
+            }
             case Entity.Trade:
             {
                 var t = PortfolioMaterialiser.Trades(reading).Single(x => x.TradeId == id);

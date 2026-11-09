@@ -86,6 +86,30 @@ public class PricerCommandTests(WorkbenchFactory factory) : IClassFixture<Workbe
         Assert.Equal(HttpStatusCode.Conflict, moved.StatusCode);
     }
 
+    [Fact] // ADR-0010 §8's note of 2026-11-09: the AI's cds chooses the CDS the Credit tab does, and the page's endpoint says the same
+    public async Task The_ais_cds_chooses_the_counterpartys_curve_as_the_command_line_does()
+    {
+        var id = (await Create())["workspaceId"]!.GetValue<string>();
+
+        var answer = await Ok(await Command("xva.cds", new JsonObject { ["workspaceId"] = id, ["cds"] = "proxy financials europe A" }));
+        Assert.Equal("The CDS of ABC/LE-01 is the proxy PROXY.FINANCIALS.EUROPE.A | USD | SNRFOR | XR14 | Proxy Financials · Europe · A (synthetic), recovery 40%.",
+            answer["said"]!.GetValue<string>());
+        Assert.Equal("PROXY.FINANCIALS.EUROPE.A", (await View(id))["credit"]!["cds"]!["curveId"]!.GetValue<string>());
+
+        var revision = (await View(id))["revision"]!.GetValue<long>();
+        var page = await client.PostAsJsonAsync($"/api/xva/workspaces/{id}/cds", new { revision, cds = "none" });
+        Assert.True(page.IsSuccessStatusCode, await page.Content.ReadAsStringAsync());
+        var chosen = (await page.Content.ReadFromJsonAsync<JsonObject>())!;
+        Assert.Equal("No CDS for ABC/LE-01: choose a single name or a proxy on the Credit tab, or with cds.", chosen["said"]!.GetValue<string>());
+        Assert.Null(chosen["workspace"]!["credit"]!["cds"]);
+
+        var ambiguous = await client.PostAsJsonAsync($"/api/xva/workspaces/{id}/cds", new { revision = revision + 1, cds = "abch" });
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, ambiguous.StatusCode);
+        var catalogue = (await client.GetFromJsonAsync<JsonObject>("/api/xva/cds"))!;
+        Assert.Contains(catalogue["singleNames"]!.AsArray(), c => c!["reference"]!.GetValue<string>() == "ABCH | USD | SNRFOR | XR14 | ABC Holdings (synthetic)");
+        Assert.Equal(["6m", "1y", "2y", "3y", "5y", "7y", "10y"], catalogue["tenors"]!.AsArray().Select(t => t!.GetValue<string>()));
+    }
+
     [Fact] // ADR-0005, ADR-0010 §9: a cell the command cannot name is refused by name, as the command line refuses it
     public async Task A_cell_the_command_cannot_name_is_refused_by_name()
     {

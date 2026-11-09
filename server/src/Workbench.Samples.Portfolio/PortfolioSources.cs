@@ -161,8 +161,9 @@ public sealed class PortfolioSourceVersion : ISourceVersion
     public DateOnly ValueDate { get; }
     public IReadOnlyList<SourceTrade> Existing { get; }
     public IReadOnlyList<SourceTrade> New { get; }
-    public decimal CdsRecovery { get; }
     public decimal? CvaRecovery { get; }
+    /// <summary>The counterparty's CDS as the source names it (ADR-0010 §8's note of 2026-11-09).</summary>
+    public CdsChoice Cds { get; }
     public string Version { get; }
     public JsonObject Descriptor => new() { ["registration"] = Registration.Key, ["valueDate"] = ValueDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), ["existingCount"] = existingCount };
 
@@ -179,7 +180,13 @@ public sealed class PortfolioSourceVersion : ISourceVersion
         // Drafts the user loaded belong to no counterparty, so they stay through a counterparty change (D07).
         New = [.. Enumerable.Range(1, 3).Select(i => Generate(Registration, $"DRAFT-{i}", true, valueDate)).OfType<SourceTrade>()];
         trades = Existing.Concat(New).ToDictionary(t => t.TradeId);
-        CdsRecovery = 0.4m;
+        // Each ABC entity has a single name; XYZ Industries, an unrated corporate, is proxied.
+        Cds = Registration.Key switch
+        {
+            "ABC/LE-01" => new CdsChoice(CdsCatalog.SingleName, "ABCH.SNRFOR.USD.XR14", null, null, null),
+            "ABC/LE-02" => new CdsChoice(CdsCatalog.SingleName, "ABCS.SNRFOR.USD.XR14", null, null, null),
+            _ => new CdsChoice(CdsCatalog.Proxy, null, "industrials", "asia", "BBB"),
+        };
         // One registration has an explicit empty CVA recovery: analytics then uses the CDS recovery (docs/03).
         CvaRecovery = Registration.LegalEntity == "LE-01" ? null : 0.35m;
         Version = $"{registrationKey}@{valueDate:yyyy-MM-dd}#{existingCount}";
@@ -274,9 +281,16 @@ public sealed class PortfolioSourceVersion : ISourceVersion
                 return field switch
                 {
                     "cvaRecovery" => new(CvaRecovery),
-                    "cdsRecovery" => new(CdsRecovery),
+                    "cdsType" => new(Cds.Type),
+                    "cdsReference" => new(Cds.Reference),
+                    "proxySector" => new(Cds.Sector),
+                    "proxyRegion" => new(Cds.Region),
+                    "proxyRating" => new(Cds.Rating),
                     _ => null,
                 };
+            // A curve of the CDS catalogue, one field a tenor (ADR-0010 §8's note of 2026-11-09).
+            case Entity.Cds when CdsCatalog.Find(id) is { } curve:
+                return curve.Spreads.TryGetValue(field, out var spread) ? new(spread) : null;
             default:
                 return null;
         }
@@ -342,6 +356,8 @@ public static class Entity
     public const string NewGrid = "new";
     public const string ExistingGrid = "existing";
     public const string Credit = "credit";
+    /// <summary>A curve of the CDS catalogue, <c>cds:&lt;curve id&gt;</c>, its fields its tenors' spreads.</summary>
+    public const string Cds = "cds";
     public const string Selection = "selection";
     public const string Settings = "settings";
     /// <summary>A case of the workspace (ADR-0010 §3), <c>case:&lt;id&gt;</c>: created by <c>vary</c> or <c>add trades</c>, and the

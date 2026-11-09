@@ -10,13 +10,13 @@ none), with its capability `xva.cds`; and the CDS catalogue endpoint the page se
 
 **Blocked by:** none.
 
-**Status:** open
+**Status:** done
 
-- [ ] Each registration has the source's CDS: ABC/LE-01 and ABC/LE-02 a single name, XYZ/LE-03 a proxy.
-- [ ] `cds` chooses a single name by any of its words, refusing words that name none or several with what they could
+- [x] Each registration has the source's CDS: ABC/LE-01 and ABC/LE-02 a single name, XYZ/LE-03 a proxy.
+- [x] `cds` chooses a single name by any of its words, refusing words that name none or several with what they could
       be; `cds proxy <sector> <region> <rating>` a proxy; `cds none` none.
-- [ ] A spread edit is kept on its curve: choosing another curve leaves it out of Price, and choosing the curve again
+- [x] A spread edit is kept on its curve: choosing another curve leaves it out of Price, and choosing the curve again
       prices it; a spread is > 0 bp, refused otherwise.
-- [ ] A wider spread makes CVA more negative; an empty CVA recovery takes the curve's recovery.
-- [ ] With no CDS, or a proxy without one of its keys, CVA and CVA Charge are refused by name and FVA is priced.
-- [ ] `set cds 5y 120bp` and `vary cds 5y 100bp, 140bp` reach the chosen curve; the Changes tab names them.
+- [x] A wider spread makes CVA more negative; an empty CVA recovery takes the curve's recovery.
+- [x] With no CDS, or a proxy without one of its keys, CVA and CVA Charge are refused by name and FVA is priced.
+- [x] `set cds 5y 120bp` and `vary cds 5y 100bp, 140bp` reach the chosen curve; the Changes tab names them.

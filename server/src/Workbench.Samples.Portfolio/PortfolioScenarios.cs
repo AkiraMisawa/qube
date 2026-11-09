@@ -24,6 +24,8 @@ public static class ScenarioCatalog
 {
     public const string Ir = "IR";
     public const string Fx = "FX";
+    /// <summary>The counterparty's CDS spreads (ADR-0010 §8's note of 2026-11-09).</summary>
+    public const string Credit = "Credit";
     public const string Absolute = "abs";
     public const string Relative = "rel";
     public const string Bp = "bp";
@@ -754,8 +756,8 @@ public sealed class ScenarioMarket(IReadOnlyList<Shift> shifts, DateOnly valueDa
     /// <summary>A currency's move against JPY, as a factor: 1 where no shift moves it.</summary>
     public decimal FxFactor(string currency) =>
         currency == ScenarioCatalog.Domestic ? 1m
-        : shifts.SingleOrDefault(s => s.Category == ScenarioCatalog.Fx && IndexOf(s).Currency == currency) is { } shift ? 1m + shift.Size / 100m
-        : 1m;
+        // A scenario moves a rate once (§4); a bump on top of it, for a delta, moves it again from where it stands.
+        : shifts.Where(s => s.Category == ScenarioCatalog.Fx && IndexOf(s).Currency == currency).Aggregate(1m, (f, s) => f * (1m + s.Size / 100m));
 
     /// <summary>
     /// Units of the currency one GBP buys on the value date, under the FX shifts: each currency's rate against JPY moved by
@@ -776,14 +778,25 @@ public sealed class ScenarioMarket(IReadOnlyList<Shift> shifts, DateOnly valueDa
         shifts.Where(s => s.Category == ScenarioCatalog.Ir && s.Index == curve).Sum(s => s.Size * (decimal)Weight(s.Tenor, years));
 
     /// <summary>
-    /// A key-rate shift's weight at a point: 1 at its tenor, falling linearly to 0 at the tenors either side, and 1 beyond
-    /// the first and the last; a shift of the whole index weighs 1 everywhere.
+    /// The shift in bp the counterparty's CDS curve takes at a point in years (ADR-0010 §8's note of 2026-11-09): a whole-curve
+    /// Credit shift everywhere, a key-rate one by its weight on the CDS tenors.
     /// </summary>
-    public static double Weight(string? tenor, double years)
+    public decimal CreditShiftBp(double years) =>
+        shifts.Where(s => s.Category == ScenarioCatalog.Credit).Sum(s => s.Size * (decimal)Weight(s.Tenor, years, CdsCatalog.Tenors));
+
+    /// <summary>
+    /// A key-rate shift's weight at a point on the IR tenors: 1 at its tenor, falling linearly to 0 at the tenors either
+    /// side, and 1 beyond the first and the last; a shift of the whole index weighs 1 everywhere.
+    /// </summary>
+    public static double Weight(string? tenor, double years) => Weight(tenor, years, ScenarioCatalog.Tenors);
+
+    /// <summary>As <see cref="Weight(string?, double)"/>, on a category's own tenors.</summary>
+    public static double Weight(string? tenor, double years, IReadOnlyList<string> tenors)
     {
         if (tenor is null) return 1;
-        var points = ScenarioCatalog.Tenors.Select(ScenarioCatalog.YearsOf).ToList();
-        var k = ScenarioCatalog.Tenors.ToList().IndexOf(tenor);
+        var points = tenors.Select(ScenarioCatalog.YearsOf).ToList();
+        var k = tenors.ToList().IndexOf(tenor);
+        if (k < 0) throw new ArgumentException($"{tenor} is not one of the tenors {string.Join(", ", tenors)}.");
         var at = points[k];
         if (years <= at) return k == 0 ? 1 : years <= points[k - 1] ? 0 : (years - points[k - 1]) / (at - points[k - 1]);
         return k == points.Count - 1 ? 1 : years >= points[k + 1] ? 0 : (points[k + 1] - years) / (points[k + 1] - at);

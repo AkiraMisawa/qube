@@ -62,9 +62,17 @@ public sealed record EffectiveCsa(
     IReadOnlyDictionary<string, Membership>? Membership = null,
     IReadOnlyDictionary<string, JsonNode?>? Original = null);
 
-/// <summary>The netting set's credit inputs. An empty CVA recovery stays empty; analytics uses the CDS recovery.</summary>
-public sealed record EffectiveCredit(decimal? CvaRecovery, Ownership CvaRecoveryOwner, decimal CdsRecovery,
-    IReadOnlyDictionary<string, JsonNode?>? Original = null);
+/// <summary>
+/// The counterparty's credit inputs: the netting set's CVA recovery, and the CDS chosen with its curve, or why there is
+/// none (ADR-0010 §8's note of 2026-11-09). An empty CVA recovery stays empty; analytics uses the curve's recovery (XV15).
+/// <c>Original</c> holds each field that differs from the source's, the CVA recovery's and the choice's, with the source's value.
+/// </summary>
+public sealed record EffectiveCredit(decimal? CvaRecovery, Ownership CvaRecoveryOwner, CdsChoice Choice, EffectiveCds? Cds, string? Missing,
+    IReadOnlyDictionary<string, JsonNode?>? Original = null)
+{
+    /// <summary>The CDS recovery an empty CVA recovery takes: the chosen curve's; none without a curve.</summary>
+    public decimal? CdsRecovery => Cds?.Recovery;
+}
 
 /// <summary>The portfolio's edit kinds, scopes and conflict groups (ADR-0003 §7), registered with the kernel.</summary>
 public sealed class PortfolioEditRules : IEditRules
@@ -83,7 +91,7 @@ public sealed class PortfolioEditRules : IEditRules
         (Entity.Trade, _) => "xva.trade",
         (Entity.Csa, _) => "xva.csa",
         (Entity.Netting, _) => "portfolio.netting",
-        (Entity.Credit, _) => "xva.credit",
+        (Entity.Credit or Entity.Cds, _) => "xva.credit",
         (Entity.Selection, _) => "portfolio.selection",
         (Entity.Settings, _) => "portfolio.settings",
         (Entity.Case, _) => "portfolio.case",
@@ -193,6 +201,7 @@ public static class PortfolioMaterialiser
             .Append(Entity.Of(Entity.Grid, Entity.NewGrid))
             .Append(Entity.Of(Entity.Grid, Entity.ExistingGrid))
             .Append(Entity.Of(Entity.Credit, source.Registration.Key))
+            .Concat(Credit(state).Cds is { } cds ? [Entity.Of(Entity.Cds, cds.CurveId)] : Array.Empty<string>())
             .Append(Entity.Measures)
             .Append(Entity.WorkspaceSettings)
             .ToHashSet();
@@ -233,19 +242,47 @@ public static class PortfolioMaterialiser
     }
 
     /// <summary>
-    /// The netting set's CVA recovery (ADR-0010 §8), and the counterparty's CDS recovery. A recovery the user set on the
+    /// The netting set's CVA recovery (ADR-0010 §8), and the counterparty's CDS: the source's choice or the user's, and the
+    /// curve it names with the user's spreads on that curve (§8's note of 2026-11-09). A recovery the user set on the
     /// counterparty before it moved to the netting set still applies until one is set on the netting set.
     /// </summary>
     public static EffectiveCredit Credit(WorkspaceState state)
     {
         PortfolioCases.Unlayered(state);
         var source = (PortfolioSourceVersion)state.Source;
-        Override? Set(string entity) => state.Overrides.Values.SingleOrDefault(x => x.Target.Entity == entity && x.Target.Field == "cvaRecovery");
-        var o = Set(Entity.Of(Entity.Netting, source.Agreement.NettingSetId)) ?? Set(Entity.Of(Entity.Credit, source.Registration.Key));
-        if (o is null) return new(source.CvaRecovery, Ownership.Source, source.CdsRecovery);
-        var recovery = o.Value?.GetValue<decimal>();
-        return new(recovery, Ownership.User, source.CdsRecovery,
-            recovery == source.CvaRecovery ? null : new Dictionary<string, JsonNode?> { ["cvaRecovery"] = source.CvaRecovery });
+        var credit = Entity.Of(Entity.Credit, source.Registration.Key);
+        Override? Set(string entity, string field) => state.Overrides.Values.SingleOrDefault(x => x.Target.Entity == entity && x.Target.Field == field);
+        var original = new Dictionary<string, JsonNode?>();
+        var o = Set(Entity.Of(Entity.Netting, source.Agreement.NettingSetId), "cvaRecovery") ?? Set(credit, "cvaRecovery");
+        var recovery = o is null ? source.CvaRecovery : o.Value?.GetValue<decimal>();
+        if (o is not null && recovery != source.CvaRecovery) original["cvaRecovery"] = source.CvaRecovery;
+        // Each key of the choice is the user's where set, else the source's; one set back to the source's is not marked.
+        string? Key(string field, string? sourced)
+        {
+            if (Set(credit, field) is not { } edit) return sourced;
+            var chosen = edit.Value?.GetValue<string>();
+            if (chosen != sourced) original[field] = sourced;
+            return chosen;
+        }
+        var given = source.Cds;
+        var choice = new CdsChoice(Key("cdsType", given.Type), Key("cdsReference", given.Reference), Key("proxySector", given.Sector),
+            Key("proxyRegion", given.Region), Key("proxyRating", given.Rating));
+        var (curve, missing) = CdsCatalog.Resolve(choice, source.Registration.Key);
+        return new(recovery, o is null ? Ownership.Source : Ownership.User, choice, curve is null ? null : CurveOf(state, curve), missing,
+            original.Count == 0 ? null : original);
+    }
+
+    /// <summary>A curve with the user's spreads, each edit kept on the curve it was made on (ADR-0010 §8's note of 2026-11-09).</summary>
+    public static EffectiveCds CurveOf(WorkspaceState state, CdsCurve curve)
+    {
+        var entity = Entity.Of(Entity.Cds, curve.Id);
+        var set = state.Overrides.Values.Where(x => x.Target.Entity == entity && curve.Spreads.ContainsKey(x.Target.Field))
+            .ToDictionary(x => x.Target.Field, x => x.Value?.GetValue<decimal>()
+                ?? throw new InvalidOperationException($"The spread {curve.Id} {x.Target.Field} was set to nothing, which no edit may set."));
+        var spreads = CdsCatalog.Tenors.ToDictionary(t => t, t => set.TryGetValue(t, out var typed) ? typed : curve.Spreads[t]);
+        var differs = CdsCatalog.Tenors.Where(t => spreads[t] != curve.Spreads[t]).ToDictionary(t => t, t => (JsonNode?)curve.Spreads[t]);
+        return new(curve.Id, curve.Type, curve.Ticker, curve.Currency, curve.Seniority, curve.DocClause, curve.Name, curve.Reference, curve.Recovery, spreads,
+            [.. CdsCatalog.Tenors.Where(set.ContainsKey)], curve.Sector, curve.Region, curve.Rating, differs.Count == 0 ? null : differs);
     }
 
     static EffectiveTrade Trade(PortfolioSourceVersion source, SourceTrade t, IReadOnlyDictionary<(string, string), Override> overrides, ILookup<string, string> held)

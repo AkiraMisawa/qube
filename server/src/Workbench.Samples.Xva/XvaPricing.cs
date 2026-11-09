@@ -144,10 +144,14 @@ public sealed class XvaMeasures(Pv01Provider pv01, decimal fvaLimitGbp = 1_000_0
             var why = $"PV Adj of {tradeId} is unknown: {first.Note}" + (unknown.Count > 1 ? $" ({unknown.Count - 1} more trade(s) too)" : "");
             return [.. selected.Select(id => new MeasureRefusal(id, "PvAdjUnknown", why))];
         }
+        var refusals = new List<MeasureRefusal>();
+        // CVA reads the counterparty's CDS curve; without one it is refused, and CVA Charge with it (ADR-0010 §11).
+        if (selected.Contains(Cva) && PortfolioMaterialiser.Credit(state) is { Cds: null } credit)
+            refusals.Add(new MeasureRefusal(Cva, "NoCds", credit.Missing ?? throw new InvalidOperationException("A credit with no curve says why.")));
         // KVA is the cost of spot CCR capital's profile, so what refuses spot capital refuses KVA (ADR-0013 §6).
-        return selected.Contains(Kva) && CcrMeasures.Problem(state, priced) is { } problem
-            ? [new MeasureRefusal(Kva, "SpotCapitalRefused", $"KVA reads spot CCR capital: {problem}")]
-            : [];
+        if (selected.Contains(Kva) && CcrMeasures.Problem(state, priced) is { } problem)
+            refusals.Add(new MeasureRefusal(Kva, "SpotCapitalRefused", $"KVA reads spot CCR capital: {problem}"));
+        return refusals;
     }
 
     public WorkflowStep Step(TypedDataRef acceptedInput) => new(Module, FakeXvaPrice.CapabilityId, FakeXvaPrice.CapabilityVersion, [],
@@ -225,8 +229,17 @@ public sealed class FakeXvaPrice : ICapabilityHandler
          new("profile", XvaContracts.CapitalProfile, XvaContracts.Version, Cardinality.One)],
         ExecutionKind.RequestResponse, [CapabilityEffect.Compute]);
 
-    /// <summary>One side's toy figures, in the result's currency, and how many trades it priced and FVA counted.</summary>
-    readonly record struct SideFigures(decimal Cva, decimal Fva, decimal Pv, int Count, int FvaCount);
+    /// <summary>
+    /// One side's toy figures, in the result's currency: CVA (none without a CDS curve, when CVA is refused), FVA and PV,
+    /// how many trades it priced and FVA counted, and the exposure profile CVA integrates.
+    /// </summary>
+    readonly record struct SideFigures(decimal? Cva, decimal Fva, decimal Pv, int Count, int FvaCount, IReadOnlyList<ExposurePoint> Profile);
+
+    /// <summary>A point of the toy exposure profile, in the result's currency: EE and ENE at a time in years.</summary>
+    internal readonly record struct ExposurePoint(double Years, decimal Ee, decimal Ene);
+
+    /// <summary>The toy's dates in years, cut at a side's last maturity, which is the last.</summary>
+    static readonly double[] Grid = [0, 0.25, 0.5, 1, 2, 3, 5, 7, 10, 15, 20, 30];
 
     static readonly IReadOnlyList<DatasetColumn> ProfileColumns =
     [
@@ -273,8 +286,8 @@ public sealed class FakeXvaPrice : ICapabilityHandler
         var input = @case.Input;
         var valueDate = DateOnly.ParseExact(input["context"]!["valueDate"]!.GetValue<string>(), "yyyy-MM-dd", CultureInfo.InvariantCulture);
         var credit = input["modules"]![XvaMeasures.Module]!["credit"]!;
-        // An empty CVA recovery is not zero: the CDS recovery applies (docs/03).
-        var recovery = credit["cvaRecovery"]?.GetValue<decimal>() ?? credit["cdsRecovery"]!.GetValue<decimal>();
+        // The CDS curve CVA reads (ADR-0010 §8's note of 2026-11-09); none where CVA is refused for its want.
+        var cds = credit["cds"] as JsonObject;
         var trades = input["trades"]!.AsArray().Select(t => t!).ToList();
         var definitions = XvaMeasures.Definitions.ToDictionary(m => m.Id);
         // The toy figures are made in JPY and reported in the display currency Price froze (ADR-0010 §1, §7), at the
@@ -282,7 +295,9 @@ public sealed class FakeXvaPrice : ICapabilityHandler
         var currency = (input["displayCurrency"] ?? throw new CapabilityFailure("InvalidInput", "The accepted input names no display currency.")).GetValue<string>();
         // The market of the pair's scenario: the base market's where it shifts nothing.
         var market = @case.Market;
-        decimal Shown(decimal jpy) => Math.Round(market.ToGbp(jpy, "JPY") * market.UnitsPerGbp(currency), 2);
+        decimal Shown(decimal jpy, ScenarioMarket m) => Math.Round(m.ToGbp(jpy, "JPY") * m.UnitsPerGbp(currency), 2);
+        // The model's margin period in days, which a collateralised trade's exposure is the move over.
+        const double mpor = 10;
         var fundingCurves = input["modules"]![XvaMeasures.Module]!["fundingCurves"] as JsonObject;
 
         // FVA prices only its members (ADR-0010 §5), as the accepted input froze them; a trade without its membership is
@@ -303,54 +318,115 @@ public sealed class FakeXvaPrice : ICapabilityHandler
 
         // A trade's PV as the engine is given it (docs/03 §2.5), in JPY at the value date's FX: an
         // existing trade's official PV, a new trade's PV Adj. A new trade with neither is dealt at market: PV 0 (a toy).
-        decimal Value(JsonNode t)
+        decimal Value(JsonNode t, ScenarioMarket m)
         {
             var own = t["isNew"]!.GetValue<bool>() ? Adjustment(t)
                 : (t["officialPv"] ?? throw new CapabilityFailure("InvalidInput", $"Existing trade {t["tradeId"]} carries no official PV.")).GetValue<decimal>();
-            return market.ToGbp(own, t["currency"]!.GetValue<string>()) * market.UnitsPerGbp("JPY") + Change(t);
+            return m.ToGbp(own, t["currency"]!.GetValue<string>()) * m.UnitsPerGbp("JPY") + Change(t, m);
         }
 
         // A trade's change of value in JPY under the scenario, by the portfolio's toy revaluation; none on the base market.
-        decimal Change(JsonNode t) => market.PvChangeJpy(t["tradeId"]!.GetValue<string>(), t["product"]!.GetValue<string>(), t["currency"]!.GetValue<string>(),
+        decimal Change(JsonNode t, ScenarioMarket m) => m.PvChangeJpy(t["tradeId"]!.GetValue<string>(), t["product"]!.GetValue<string>(), t["currency"]!.GetValue<string>(),
             t["notional"]!.GetValue<decimal>(), DateOnly.ParseExact(t["maturity"]!.GetValue<string>(), "yyyy-MM-dd", CultureInfo.InvariantCulture),
             t["direction"]?.GetValue<string>(), t["curve"]!.GetValue<string>(), t["counterCurrency"]?.GetValue<string>(), t["counterNotional"]?.GetValue<decimal>());
 
-        // The toy funding spread FVA charges at a trade's maturity: 30bp, moved by its CSA's funding curve under a scenario,
-        // below zero too, so a shift past 30bp shows as the benefit it is in the toy, never floored to no FVA.
-        decimal FundingSpread(JsonNode t, double years)
+        // The toy funding spread FVA charges at a point: 30bp, moved by the CSA's funding curve under a scenario, below zero
+        // too, so a shift past 30bp shows as the benefit it is in the toy, never floored to no FVA.
+        decimal FundingSpread(JsonNode t, double years, ScenarioMarket m)
         {
-            if (market.IsBase) return 0.003m;
+            if (m.IsBase) return 0.003m;
             var csa = t["csa"]!.GetValue<string>();
             var curve = fundingCurves?[csa]?.GetValue<string>()
                 ?? throw new CapabilityFailure("InvalidInput", $"Trade {t["tradeId"]} is in FVA on {csa}, and the accepted input names no funding curve of {csa}.");
-            return 0.003m + market.RateShiftBp(curve, years) / 10_000m;
+            return 0.003m + m.RateShiftBp(curve, years) / 10_000m;
         }
 
-        SideFigures Side(string side)
+        // Each CDS tenor's hazard: its spread, moved by the scenario's credit shifts at that tenor, over 1 − the curve's
+        // recovery. A spread the shifts take to 0 or below has no default probability, so the scenario cannot be applied.
+        double[] Hazards(JsonObject curve, ScenarioMarket m)
+        {
+            var cdsRecovery = curve["recovery"]!.GetValue<decimal>();
+            var spreads = curve["spreads"]!.AsObject();
+            return [.. CdsCatalog.Tenors.Select(tenor =>
+            {
+                var spread = (spreads[tenor] ?? throw new CapabilityFailure("InvalidInput", $"The CDS curve {curve["curveId"]} has no spread at {tenor}.")).GetValue<decimal>()
+                    + m.CreditShiftBp(ScenarioCatalog.YearsOf(tenor)) / 10_000m;
+                if (spread <= 0) throw new ScenarioUnapplied($"the CDS spread at {tenor} is {CdsCatalog.Bp(spread)} under the shifts, and a spread of 0 or below has no default probability.");
+                return (double)(spread / (1 - cdsRecovery));
+            })];
+        }
+
+        // Survival to a time: each bucket's hazard from the tenor before to its own, the last one's beyond.
+        static double Survival(double years, double[] hazards)
+        {
+            double integral = 0, from = 0;
+            for (var j = 0; j < hazards.Length && from < years; j++)
+            {
+                var to = j == hazards.Length - 1 ? years : Math.Min(years, ScenarioCatalog.YearsOf(CdsCatalog.Tenors[j]));
+                integral += hazards[j] * Math.Max(0, to - from);
+                from = to;
+            }
+            return Math.Exp(-integral);
+        }
+
+        // One side on one market (the scenario's, or it with a bump): each trade's toy exposure through time in JPY, its EE
+        // the part above zero of its value held and running off, and a diffusion that peaks between today and its
+        // maturity, its ENE the part below; a collateralised trade's is what moves over the margin period. CVA integrates
+        // EE against the CDS curve's default probabilities; FVA its members' EE against the funding spread; PV is today's.
+        SideFigures Side(string side, ScenarioMarket m)
         {
             var members = trades.Where(t => t[side]!.GetValue<bool>()).ToList();
-            decimal cva = 0, fva = 0, pv = 0;
+            var lives = members.Select(t => Math.Max(0, (DateOnly.ParseExact(t["maturity"]!.GetValue<string>(), "yyyy-MM-dd", CultureInfo.InvariantCulture).DayNumber - valueDate.DayNumber) / 365.0)).ToList();
+            var last = lives.Count == 0 ? 0 : lives.Max();
+            var grid = Grid.Where(x => x < last).Append(last).Distinct().ToArray();
+            var ee = new decimal[grid.Length];
+            var ene = new decimal[grid.Length];
+            decimal fva = 0, pv = 0;
             var fvaCount = 0;
-            foreach (var t in members)
+            for (var i = 0; i < members.Count; i++)
             {
-                var days = DateOnly.ParseExact(t["maturity"]!.GetValue<string>(), "yyyy-MM-dd", CultureInfo.InvariantCulture).DayNumber - valueDate.DayNumber;
-                var years = (decimal)days / 365m;
-                var tradeCurrency = t["currency"]!.GetValue<string>();
-                // A toy exposure in JPY; one in another currency moves with that currency against JPY under a scenario.
-                var exposure = Math.Abs(t["notional"]!.GetValue<decimal>()) * Math.Max(years, 0) * (tradeCurrency == "JPY" ? 0.0001m : 0.015m * market.FxFactor(tradeCurrency));
-                // The engine aligns the exposure to the trade's PV (docs/03 §2.5); here, a toy shift by its PV Adj and by its
-                // change of value under the scenario.
-                exposure = Math.Max(0, exposure + Adjustment(t) * 0.01m + Change(t) * 0.01m);
-                var uncollateralised = t["csa"]!.GetValue<string>().StartsWith("nocsa_", StringComparison.Ordinal);
+                var t = members[i];
+                var life = lives[i];
+                var value = Value(t, m);
+                pv += value;
+                var collateralised = !t["csa"]!.GetValue<string>().StartsWith("nocsa_", StringComparison.Ordinal);
+                var kappa = collateralised ? 0.2m * (decimal)Math.Sqrt(mpor / 10.0) : 1m;
                 var curveFactor = t["curve"]!.GetValue<string>() == "usd_sofr" ? 1.1m : 1m;
-                cva -= exposure * (1 - recovery) * (uncollateralised ? 0.02m : 0.004m) * curveFactor;
-                pv += Value(t);
+                var scale = Math.Abs(t["notional"]!.GetValue<decimal>()) * m.JpyPer(t["currency"]!.GetValue<string>()) * 0.004m * curveFactor;
+                var own = new decimal[grid.Length];
+                var ownNegative = new decimal[grid.Length];
+                for (var k = 0; k < grid.Length; k++)
+                {
+                    if (life <= 0 || grid[k] >= life) continue;
+                    var left = (decimal)(1 - grid[k] / life);
+                    var diffusion = scale * (decimal)Math.Sqrt(grid[k]) * left;
+                    own[k] = kappa * (Math.Max(value, 0) * left + diffusion);
+                    ownNegative[k] = kappa * (Math.Min(value, 0) * left - diffusion);
+                    ee[k] += own[k];
+                    ene[k] += ownNegative[k];
+                }
                 if (!InFva(t)) continue;
-                fva -= exposure * FundingSpread(t, Math.Max(days, 0) / 365.0) * curveFactor;
                 fvaCount++;
+                for (var k = 1; k < grid.Length; k++)
+                    fva -= (own[k - 1] + own[k]) / 2 * FundingSpread(t, grid[k], m) * (decimal)(grid[k] - grid[k - 1]);
             }
-            return new(Shown(cva), Shown(fva), Shown(pv), members.Count, fvaCount);
+            decimal? cva = null;
+            if (cds is not null)
+            {
+                // An empty CVA recovery is not zero: the CDS recovery applies (docs/03, XV15).
+                var recovery = credit["cvaRecovery"]?.GetValue<decimal>() ?? cds["recovery"]!.GetValue<decimal>();
+                var hazards = Hazards(cds, m);
+                decimal loss = 0;
+                for (var k = 1; k < grid.Length; k++)
+                    loss += (ee[k - 1] + ee[k]) / 2 * (decimal)(Survival(grid[k - 1], hazards) - Survival(grid[k], hazards));
+                cva = Shown(-(1 - recovery) * loss, m);
+            }
+            return new(cva, Shown(fva, m), Shown(pv, m), members.Count, fvaCount,
+                [.. grid.Select((x, k) => new ExposurePoint(x, Shown(ee[k], m), Shown(ene[k], m)))]);
         }
+
+        // CVA is priced only where it was not refused, so a curve is there: one missing is an input this provider cannot read.
+        decimal CvaOf(SideFigures side) => side.Cva ?? throw new CapabilityFailure("InvalidInput", "CVA is asked for, and the accepted input holds no CDS curve.");
 
         // Read only when a measure is priced: a measure refused at Price is reported, never computed. A trade the toy cannot
         // revalue under the scenario refuses XVA's measures for this pair, by name (ADR-0010 §4's note of 2026-11-09).
@@ -359,7 +435,7 @@ public sealed class FakeXvaPrice : ICapabilityHandler
         {
             try
             {
-                return (Side("before"), Side("after"));
+                return (Side("before", market), Side("after", market));
             }
             catch (ScenarioUnapplied e)
             {
@@ -425,8 +501,8 @@ public sealed class FakeXvaPrice : ICapabilityHandler
                 }
                 Func<SideFigures, decimal> value = metric.Id switch
                 {
-                    "cva" => s => s.Cva,
-                    "cvaCharge" => s => Math.Round(s.Cva * ChargeRatio, 2),
+                    "cva" => s => CvaOf(s),
+                    "cvaCharge" => s => Math.Round(CvaOf(s) * ChargeRatio, 2),
                     "pv" => s => s.Pv,
                     "fva" => s => s.Fva,
                     _ => throw new InvalidOperationException($"XVA has no metric {metric.Id}."),
