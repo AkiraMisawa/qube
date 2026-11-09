@@ -132,7 +132,6 @@ public sealed class SpotImPrice(IRatesPricingProvider provider, Func<string, Mar
 {
     public const string CapabilityId = "simm.spotIm";
     public const string CapabilityVersion = "1.0.0";
-    public const string Scenario = "base";
 
     public CapabilityDescriptor Descriptor { get; } = new(CapabilityId, CapabilityVersion, "Spot IM, IM-R and IM-P from CRIF (simulated)",
         [new("acceptedInput", PortfolioContracts.AcceptedInput, PortfolioContracts.Version, Cardinality.One)],
@@ -185,8 +184,14 @@ public sealed class SpotImPrice(IRatesPricingProvider provider, Func<string, Mar
         var valueDate = DateOnly.ParseExact(Required(input["context"]?["valueDate"], "value date"), "yyyy-MM-dd", CultureInfo.InvariantCulture);
         var registration = Required(input["registration"], "registration");
         var currency = Required(input["displayCurrency"], "display currency");
-        var part = input["modules"]?[SimmMeasures.Module].Deserialize<SpotImInput>(WireJson.Options)
+        var pinned = input["modules"]?[SimmMeasures.Module].Deserialize<SpotImInput>(WireJson.Options)
             ?? throw new CapabilityFailure("InvalidInput", "The accepted input has no part of SIMM's.");
+        // Under a scenario every amount converts at its FX (ADR-0010 §4's note of 2026-11-09), the conversion said included.
+        var scenario = @case.Market;
+        var part = scenario.IsBase ? pinned : pinned with
+        {
+            Market = pinned.Market with { Fx = pinned.Market.Fx.ToDictionary(p => p.Key, p => p.Value * (double)(scenario.FxFactor("GBP") / scenario.FxFactor(p.Key))) },
+        };
         IReadOnlyList<PricedImTrade> trades;
         try
         {
@@ -209,24 +214,24 @@ public sealed class SpotImPrice(IRatesPricingProvider provider, Func<string, Mar
         if (selected is not null && refusedAtPrice is not null)
         {
             var refused = new MeasureResult.Side(MeasureResult.Refused, null, null, refusedAtPrice);
-            rows.AddRange(definition.Metrics.Select(m => MeasureResult.Row(@case.Id, @case.Title, SimmMeasures.SpotIm, m, currency, refused, refused)));
+            rows.AddRange(definition.Metrics.Select(m => MeasureResult.Row(@case, SimmMeasures.SpotIm, m, currency, refused, refused)));
         }
         else if (selected is not null)
         {
             var (found, unusable) = TableFor(part.ImCsas, tables);
             if (unusable is not null) throw new CapabilityFailure("UnknownParameterTable", unusable);
             table = found;
-            var market = Market(part, valueDate);
+            var market = Market(part, valueDate, scenario, @case.Scenario.Title);
             var sides = new Dictionary<string, IReadOnlyDictionary<string, MeasureResult.Side>>();
             foreach (var side in new[] { Before, After })
             {
                 var (figures, crif, trace) = await PriceSide(side, trades, part, registration, valueDate, market, table, currency, requestId, provenance, cancellationToken);
                 sides[side] = figures;
                 if (crif is not null) crifs[side] = crif;
-                if (trace is not null) traces.Add(new TraceEntry(@case.Id, Scenario, side, SimmMeasures.SpotIm, trace));
+                if (trace is not null) traces.Add(new TraceEntry(@case.Id, @case.Scenario.Id, side, SimmMeasures.SpotIm, trace));
             }
             var conversion = Conversion(part.Market, currency, valueDate);
-            rows.AddRange(definition.Metrics.Select(m => MeasureResult.Row(@case.Id, @case.Title, SimmMeasures.SpotIm, m, currency, sides[Before][m.Id], sides[After][m.Id],
+            rows.AddRange(definition.Metrics.Select(m => MeasureResult.Row(@case, SimmMeasures.SpotIm, m, currency, sides[Before][m.Id], sides[After][m.Id],
                 table?.IsDemo == true ? DemoBasis : null, conversion)));
         }
 
@@ -271,8 +276,13 @@ public sealed class SpotImPrice(IRatesPricingProvider provider, Func<string, Mar
             : (null, $"No SIMM parameter table {versions[0]} is loaded; loaded: {(tables.Count == 0 ? "none" : string.Join(", ", tables.Select(t => t.Version)))}.");
     }
 
-    /// <summary>The pinned market: the snapshot's curves, with the portfolio's FX, so one set of rates converts every amount.</summary>
-    MarketSnapshot Market(SpotImInput part, DateOnly valueDate)
+    /// <summary>
+    /// The pinned market: the snapshot's curves, with the portfolio's FX, so one set of rates converts every amount. Under a
+    /// scenario (ADR-0010 §4's note of 2026-11-09) each discount curve's shift moves the snapshot's curve of its currency at
+    /// every pillar by its key-rate weight there, and the FX is the scenario's, as the part already holds it; CRIF is then
+    /// generated again on it. A funding curve's shift moves nothing spot IM reads.
+    /// </summary>
+    MarketSnapshot Market(SpotImInput part, DateOnly valueDate, ScenarioMarket scenario, string title)
     {
         foreach (var frozen in part.Conventions)
         {
@@ -283,7 +293,18 @@ public sealed class SpotImPrice(IRatesPricingProvider provider, Func<string, Mar
         }
         var snapshot = resolveMarket(part.Market.Snapshot)
             ?? throw new CapabilityFailure("UnknownMarket", $"The market snapshot {part.Market.Snapshot} does not resolve.");
-        return snapshot with { Id = $"{snapshot.Id} with the portfolio's FX of {valueDate:yyyy-MM-dd}", Fx = part.Market.Fx };
+        var pinned = snapshot with { Id = $"{snapshot.Id} with the portfolio's FX of {valueDate:yyyy-MM-dd}", Fx = part.Market.Fx };
+        if (scenario.IsBase) return pinned;
+        var curves = pinned.Curves.ToDictionary(p => p.Key, p =>
+        {
+            var discount = ScenarioCatalog.Indices.SingleOrDefault(i => i.Kind == ScenarioCatalog.Discount && i.Currency == p.Value.Currency
+                && PortfolioRatesLines.OvernightIndex.GetValueOrDefault(p.Value.Currency) == p.Value.Index);
+            return discount is null || !scenario.Moves(discount.Id) ? p.Value : p.Value with
+            {
+                Pillars = [.. p.Value.Pillars.Select(x => (x.Tenor, x.LevelPercent + (double)scenario.RateShiftBp(discount.Id, SyntheticMarket.YearsOf(x.Tenor)) / 100))],
+            };
+        });
+        return pinned with { Id = $"{pinned.Id} under {title}", Curves = curves };
     }
 
     async Task<(IReadOnlyDictionary<string, MeasureResult.Side> Figures, CrifDocument? Crif, CalculationTrace? Trace)> PriceSide(string side,

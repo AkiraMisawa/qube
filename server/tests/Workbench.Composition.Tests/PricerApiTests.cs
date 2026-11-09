@@ -264,5 +264,34 @@ public class PricerApiTests(WorkbenchFactory factory) : IClassFixture<WorkbenchF
         Assert.StartsWith("<p><b>XVA quote (simulated)", quote["html"]!.GetValue<string>());
         Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync("/api/xva/runs/run-none/quote")).StatusCode);
     }
-}
 
+    [Fact] // ADR-0010 §4 and its note of 2026-11-09: a scenario over HTTP, a row per pair in its Run, a pair's trace, and the quote of a scenario
+    public async Task A_scenario_is_defined_and_priced_with_a_row_per_pair_over_http()
+    {
+        var ws = await Measures(await Create(), "cva", "ccr.spotCapital");
+
+        var defined = await Post(ws, "scenarios", new { revision = Revision(ws), name = "s1", shifts = "usd_sofr +100bp; usdjpy -5%" });
+        Assert.Equal(HttpStatusCode.OK, defined.StatusCode);
+        var made = (await defined.Content.ReadFromJsonAsync<JsonObject>())!;
+        Assert.Equal(["s1"], Strings(made["made"]));
+        Assert.Empty(Strings(made["replaced"]));
+        ws = made["workspace"]!.AsObject();
+        Assert.Equal(("s1", 2, true), (ws["scenarios"]![0]!["name"]!.GetValue<string>(), ws["scenarios"]![0]!["shifts"]!.GetValue<int>(), ws["scenarios"]![0]!["included"]!.GetValue<bool>()));
+        Assert.Equal(["usd_sofr", "usdjpy"], ws["shifts"]!.AsArray().Select(r => r!["index"]!.GetValue<string>()));
+        var refused = await Post(ws, "scenarios", new { revision = Revision(ws), name = "s2", shifts = "jpy_ois +10%" });
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, refused.StatusCode);
+        Assert.Contains("an IR shift is absolute, in bp", (await refused.Content.ReadFromJsonAsync<JsonObject>())!["message"]!.GetValue<string>());
+
+        var (run, rows) = await Price(ws);
+        var runId = run["runId"]!.GetValue<string>();
+
+        Assert.Equal([("base", "Base market"), ("s1", "s1")], rows.Where(r => r["metric"]!.GetValue<string>() == "cva")
+            .Select(r => (r["scenario"]!.GetValue<string>(), r["scenarioTitle"]!.GetValue<string>())));
+        var trace = await client.GetAsync($"/api/runs/{runId}/cases/base/traces/ccr.spotCapital?scenario=s1");
+        Assert.Equal(HttpStatusCode.OK, trace.StatusCode);
+        var quote = (await client.GetFromJsonAsync<JsonObject>($"/api/xva/runs/{runId}/quote?scenario=s1"))!;
+        Assert.Contains("Scenario s1", quote["text"]!.GetValue<string>());
+        Assert.DoesNotContain("Scenario", (await client.GetFromJsonAsync<JsonObject>($"/api/xva/runs/{runId}/quote"))!["text"]!.GetValue<string>());
+        Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync($"/api/xva/runs/{runId}/quote?scenario=s9")).StatusCode);
+    }
+}

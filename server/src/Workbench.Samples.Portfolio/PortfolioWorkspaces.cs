@@ -46,7 +46,9 @@ public sealed record PortfolioWorkspaceView(
     IReadOnlyList<string> Simulated,
     IReadOnlyList<CaseView> Cases,
     int CaseCap,
-    int Changes);
+    int Changes,
+    IReadOnlyList<ScenarioView> Scenarios,
+    IReadOnlyList<ShiftRow> Shifts);
 
 /// <summary>
 /// One change as the Changes tab lists it (ADR-0010 §3's note of 2026-11-08): its entity and field, the case it is a
@@ -137,7 +139,20 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
             [.. register.TradeColumns.Where(c => register.Selected(state).Any(m => m.Id == c.Module))], register.Inputs(state),
             register.WithCells(state, [.. Rows(state).Where(t => t.IsNew)]).Sum(t => t.Cells?.Values.Count(c => c.State == TradeCell.Pending) ?? 0),
             PortfolioMaterialiser.DisplayCurrency(state), PortfolioMarket.Currencies, [.. register.Selected(state).Where(m => m.Simulated).Select(m => m.Id)],
-            PortfolioCases.All(raw), caseCap, DataEdits(raw).Count());
+            PortfolioCases.All(raw), caseCap, DataEdits(raw).Count(), PortfolioScenarios.All(raw), PortfolioScenarios.Rows(raw));
+    }
+
+    /// <summary>
+    /// <c>scenario &lt;name&gt; &lt;shift&gt;; …</c> (ADR-0010 §4 and its note of 2026-11-09): the scenario whole, its shifts read as
+    /// written, in one log entry per row; one of that name is replaced, and stays included or excluded as it was.
+    /// </summary>
+    public ScenarioAnswer DefineScenario(string workspaceId, long revision, string user, string name, string shifts, RunOrigin? origin = null)
+    {
+        var raw = Owned(workspaceId, user);
+        var read = ShiftReader.ReadAll(shifts);
+        var named = PortfolioScenarios.Checked(name);
+        var (changes, replaced) = PortfolioScenarios.Define(raw, named, read, revision);
+        return new ScenarioAnswer(workspaces.Batch(workspaceId, revision, user, changes, origin), [named], replaced ? [named] : []);
     }
 
     // The edits to the portfolio's data in any layer, as the Changes tab counts them: the selection and the settings

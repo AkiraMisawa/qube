@@ -2,6 +2,8 @@ using System.Globalization;
 using System.Text.Json.Nodes;
 using Workbench.Composition.Contracts;
 
+using Workbench.Samples.Portfolio;
+
 namespace Workbench.Samples.Ccr;
 
 // Spot CCR capital over a frozen portfolio (ADR-0013 §2, §3, §6): what the reference implementation reads from the
@@ -16,7 +18,14 @@ namespace Workbench.Samples.Ccr;
 public sealed record CapitalTrade(
     string TradeId, bool IsNew, string Product, string Currency, double Notional, DateOnly Maturity, string Csa,
     bool Before, bool After, double? OfficialPv = null, DateOnly? Start = null, string? Direction = null,
-    string? CounterCurrency = null, double? CounterNotional = null);
+    string? CounterCurrency = null, double? CounterNotional = null, string? Curve = null)
+{
+    /// <summary>
+    /// Its change of value in its currency under the scenario the portfolio is priced on, by the portfolio's toy
+    /// revaluation (ADR-0010 §4's note of 2026-11-09); none on the base market.
+    /// </summary>
+    public double ScenarioChange { get; init; }
+}
 
 /// <summary>A CSA's terms as SA-CCR reads them: how often it margins and the counterparty's threshold and MTA.</summary>
 public sealed record CapitalCsa(
@@ -63,6 +72,28 @@ public sealed record CapitalPortfolio(
     CapitalSettings Settings)
 {
     public CapitalMarket Market => new(ValuationDate, ReportingCurrency, ToReporting, Settings.DomesticCurrency);
+
+    /// <summary>The scenario the portfolio is priced under, as its trades' values name it; none on the base market.</summary>
+    public string? Scenario { get; init; }
+
+    /// <summary>
+    /// The portfolio under a scenario's market (ADR-0010 §4's note of 2026-11-09): every rate to the reporting currency
+    /// moved by the FX shifts, and each trade's value moved by the portfolio's toy revaluation, in its own currency. The base
+    /// market leaves it as it is. A trade the toy cannot revalue throws <see cref="ScenarioUnapplied"/>.
+    /// </summary>
+    public CapitalPortfolio Under(ScenarioMarket market, string title)
+    {
+        if (market.IsBase) return this;
+        var fx = ToReporting.ToDictionary(p => p.Key, p => p.Value * (double)(market.FxFactor(p.Key) / market.FxFactor(ReportingCurrency)));
+        var trades = Trades.Select(t =>
+        {
+            var change = market.PvChangeJpy(t.TradeId, t.Product, t.Currency, (decimal)t.Notional, t.Maturity, t.Direction,
+                t.Curve ?? throw new SaCcrRefused($"{t.TradeId}: the accepted input names no curve, which its value under {title} reads."),
+                t.CounterCurrency, t.CounterNotional is { } n ? (decimal)n : null);
+            return change == 0 ? t : t with { ScenarioChange = (double)(change / market.JpyPer(t.Currency)) };
+        }).ToList();
+        return this with { ToReporting = fx, Trades = trades, Scenario = title };
+    }
 }
 
 /// <summary>Spot capital on one side: the figure and its trace, or why it could not be computed and a trace that says so. Never 0 for either.</summary>
@@ -207,9 +238,11 @@ public static class SpotCapitalPricing
         var exposures = Exposures(t, p.Market);
         if (horizonYears > 0) exposures = [.. exposures.Select(e => Rolled(e, horizonYears))];
         // V (CRE52.10): the official PV for an existing trade (ADR-0010 §6); a new one is at market when it is traded.
+        // Under a scenario either moves by the toy revaluation, and says so (ADR-0010 §4's note of 2026-11-09).
         var (value, source) = t.IsNew
             ? (0.0, "new trade, at market (simulated)")
             : (t.OfficialPv ?? throw new SaCcrRefused($"{t.TradeId}: an existing trade without its official PV."), "official PV");
+        if (t.ScenarioChange != 0) (value, source) = (value + t.ScenarioChange, $"{source}, revalued under {p.Scenario} (simulated)");
         return new SaCcrTrade(t.TradeId, value * Rate(t.TradeId, t.Currency, p.Market), exposures, source);
     }
 
@@ -388,7 +421,7 @@ public static class CapitalInput
                 t["officialPv"] is { } pv ? Number(pv, "trade.officialPv") : null,
                 OptionalText(t["start"]) is { } start ? DateOnly.ParseExact(start, "yyyy-MM-dd", CultureInfo.InvariantCulture) : null,
                 OptionalText(t["direction"]), OptionalText(t["counterCurrency"]),
-                t["counterNotional"] is { } counter ? Number(counter, "trade.counterNotional") : null))],
+                t["counterNotional"] is { } counter ? Number(counter, "trade.counterNotional") : null, OptionalText(t["curve"])))],
             new CapitalSettings(
                 new CapitalRatio(Number(kappa["value"], "settings.kappa.value"), Text(kappa["key"], "settings.kappa.key"), Text(kappa["version"], "settings.kappa.version")),
                 new SaCcrSettings(Text(saCcr["version"], "settings.saCcr.version"), Bool(saCcr["irOffsetAcrossBuckets"], "settings.saCcr.irOffsetAcrossBuckets")),

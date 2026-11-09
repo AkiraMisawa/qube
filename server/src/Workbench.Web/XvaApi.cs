@@ -31,6 +31,10 @@ public static class XvaApi
     public sealed record SetRequest(long Revision, IReadOnlyList<string> Rows, string Column, string Text);
     /// <summary>What <c>add trades</c> made, by title, and the cases of the set it replaced (docs/03 §5).</summary>
     public sealed record TradesAdded(PortfolioWorkspaceView Workspace, IReadOnlyList<string> Made, IReadOnlyList<string> Replaced);
+    /// <summary><c>scenario &lt;name&gt; &lt;shift&gt;; …</c> (ADR-0010 §4): the scenario's name and its shifts as written.</summary>
+    public sealed record ScenarioRequest(long Revision, string Name, string Shifts);
+    /// <summary>What a scenario command made, and those of the same name it replaced.</summary>
+    public sealed record ScenariosMade(PortfolioWorkspaceView Workspace, IReadOnlyList<string> Made, IReadOnlyList<string> Replaced);
     public sealed record ValueDateRequest(long Revision, DateOnly ValueDate);
     public sealed record CounterpartyRequest(long Revision, string Registration, int ConfirmedCount);
     public sealed record PriceRequest(long Revision, string IdempotencyKey);
@@ -55,11 +59,12 @@ public static class XvaApi
         }));
 
         // Copy quote (ADR-0010 §7, §11): read from the Run's retained input and result, never from a screen.
-        api.MapGet("/runs/{runId}/quote", (string runId, RunService runs, IDataStore store, CurrentUser user) => Guard(() =>
+        // It quotes the scenario in view, the base market unless one is named (ADR-0010 §4's note of 2026-11-09).
+        api.MapGet("/runs/{runId}/quote", (string runId, string? scenario, RunService runs, IDataStore store, CurrentUser user) => Guard(() =>
         {
             if (runs.Find(runId) is not { } run) throw new WorkspaceRefused("UnknownRun", $"Run {runId} does not exist.");
             if (run.Owner != user.Id) throw new WorkspaceRefused("NotOwner", $"Run {runId} belongs to another user.");
-            return Results.Ok(XvaQuote.Of(run, store));
+            return Results.Ok(XvaQuote.Of(run, store, scenario ?? PortfolioScenarios.BaseId));
         }));
 
         var ws = api.MapGroup("/workspaces");
@@ -116,6 +121,13 @@ public static class XvaApi
         {
             var answer = service.AddTrades(id, request.Revision, user.Id);
             return Results.Ok(new TradesAdded(service.View(id, user.Id), answer.Made, answer.Replaced));
+        }));
+
+        // Scenarios (ADR-0010 §4 and its note of 2026-11-09): named sets of market-data shifts, crossed with every case.
+        ws.MapPost("/{id}/scenarios", (string id, ScenarioRequest request, CurrentUser user, PortfolioWorkspaces service) => Guard(() =>
+        {
+            var answer = service.DefineScenario(id, request.Revision, user.Id, request.Name, request.Shifts);
+            return Results.Ok(new ScenariosMade(service.View(id, user.Id), answer.Made, answer.Replaced));
         }));
 
         ws.MapGet("/{id}/changes", (string id, CurrentUser user, PortfolioWorkspaces service) =>
@@ -198,7 +210,7 @@ public static class XvaApi
             var issues = refused.Targets.Select(t => new CompositionIssue(refused.Code, $"/{t.Entity}/{t.Field}", refused.Message)).ToList();
             var status = refused.Code switch
             {
-                "UnknownWorkspace" or "UnknownRun" => 404,
+                "UnknownWorkspace" or "UnknownRun" or "UnknownScenario" => 404,
                 "NotOwner" => 403,
                 "RevisionMoved" or "ConfirmationStale" or "UnresolvedEdits" or "ConflictUnresolved" or "RunRunning" => 409,
                 _ => 422,

@@ -124,6 +124,8 @@ public sealed class XvaMeasures(Pv01Provider pv01, decimal fvaLimitGbp = 1_000_0
     public JsonObject Input(WorkspaceState state) => new()
     {
         ["credit"] = JsonSerializer.SerializeToNode(PortfolioMaterialiser.Credit(state), WireJson.Options),
+        // Each CSA's FVA discount curve, which a funding shift moves (ADR-0010 §4's note of 2026-11-09).
+        ["fundingCurves"] = new JsonObject([.. PortfolioMaterialiser.Csas(state).Select(c => KeyValuePair.Create(c.CsaId, (JsonNode?)c.FvaCurve))]),
     };
 
     public IReadOnlyList<MeasureRefusal> Validate(WorkspaceState state, IReadOnlyList<string> selected) =>
@@ -202,7 +204,10 @@ public sealed class ImperfectCsa : IMembershipRule
 /// recovery, and its PV the sum of the PVs it is given, chosen only so that edits visibly move the figures. They are not a model of anything and every result
 /// says so (executionMode simulated). Before and After are computed independently; a side with no trade in it is not
 /// priced, never priced as zero (ADR-0010 §3). It prices only the selected XVA measures, and a refused one is reported
-/// with its reason and not computed.
+/// with its reason and not computed. Under a scenario (ADR-0010 §4's note of 2026-11-09) each trade is revalued by the
+/// portfolio's toy revaluation, its toy exposure moves with that value and its currency, FVA's toy funding spread moves
+/// with its CSA's funding curve, and every amount converts at the scenario's FX; a trade the toy cannot revalue refuses
+/// XVA's measures for that scenario, by name.
 /// </summary>
 public sealed class FakeXvaPrice : ICapabilityHandler
 {
@@ -226,6 +231,7 @@ public sealed class FakeXvaPrice : ICapabilityHandler
     static readonly IReadOnlyList<DatasetColumn> ProfileColumns =
     [
         new("case", DatasetColumnType.String, false),
+        new("scenario", DatasetColumnType.String, false),
         new("side", DatasetColumnType.String, false),
         new("years", DatasetColumnType.Number, false),
         new("date", DatasetColumnType.String, false),
@@ -274,7 +280,10 @@ public sealed class FakeXvaPrice : ICapabilityHandler
         // The toy figures are made in JPY and reported in the display currency Price froze (ADR-0010 §1, §7), at the
         // value date's synthetic FX.
         var currency = (input["displayCurrency"] ?? throw new CapabilityFailure("InvalidInput", "The accepted input names no display currency.")).GetValue<string>();
-        decimal Shown(decimal jpy) => Math.Round(PortfolioMarket.ToGbp(jpy, "JPY", valueDate) * PortfolioMarket.UnitsPerGbp(currency, valueDate), 2);
+        // The market of the pair's scenario: the base market's where it shifts nothing.
+        var market = @case.Market;
+        decimal Shown(decimal jpy) => Math.Round(market.ToGbp(jpy, "JPY") * market.UnitsPerGbp(currency), 2);
+        var fundingCurves = input["modules"]![XvaMeasures.Module]!["fundingCurves"] as JsonObject;
 
         // FVA prices only its members (ADR-0010 §5), as the accepted input froze them; a trade without its membership is
         // an input this provider cannot read, never a trade it guesses about.
@@ -298,7 +307,22 @@ public sealed class FakeXvaPrice : ICapabilityHandler
         {
             var own = t["isNew"]!.GetValue<bool>() ? Adjustment(t)
                 : (t["officialPv"] ?? throw new CapabilityFailure("InvalidInput", $"Existing trade {t["tradeId"]} carries no official PV.")).GetValue<decimal>();
-            return PortfolioMarket.ToGbp(own, t["currency"]!.GetValue<string>(), valueDate) * PortfolioMarket.UnitsPerGbp("JPY", valueDate);
+            return market.ToGbp(own, t["currency"]!.GetValue<string>()) * market.UnitsPerGbp("JPY") + Change(t);
+        }
+
+        // A trade's change of value in JPY under the scenario, by the portfolio's toy revaluation; none on the base market.
+        decimal Change(JsonNode t) => market.PvChangeJpy(t["tradeId"]!.GetValue<string>(), t["product"]!.GetValue<string>(), t["currency"]!.GetValue<string>(),
+            t["notional"]!.GetValue<decimal>(), DateOnly.ParseExact(t["maturity"]!.GetValue<string>(), "yyyy-MM-dd", CultureInfo.InvariantCulture),
+            t["direction"]?.GetValue<string>(), t["curve"]!.GetValue<string>(), t["counterCurrency"]?.GetValue<string>(), t["counterNotional"]?.GetValue<decimal>());
+
+        // The toy funding spread FVA charges at a trade's maturity: 30bp, moved by its CSA's funding curve under a scenario.
+        decimal FundingSpread(JsonNode t, double years)
+        {
+            if (market.IsBase) return 0.003m;
+            var csa = t["csa"]!.GetValue<string>();
+            var curve = fundingCurves?[csa]?.GetValue<string>()
+                ?? throw new CapabilityFailure("InvalidInput", $"Trade {t["tradeId"]} is in FVA on {csa}, and the accepted input names no funding curve of {csa}.");
+            return Math.Max(0m, 0.003m + market.RateShiftBp(curve, years) / 10_000m);
         }
 
         SideFigures Side(string side)
@@ -308,23 +332,40 @@ public sealed class FakeXvaPrice : ICapabilityHandler
             var fvaCount = 0;
             foreach (var t in members)
             {
-                var years = (decimal)(DateOnly.ParseExact(t["maturity"]!.GetValue<string>(), "yyyy-MM-dd", CultureInfo.InvariantCulture).DayNumber - valueDate.DayNumber) / 365m;
-                var exposure = Math.Abs(t["notional"]!.GetValue<decimal>()) * Math.Max(years, 0) * (t["currency"]!.GetValue<string>() == "JPY" ? 0.0001m : 0.015m);
-                // The engine aligns the exposure to the trade's PV (docs/03 §2.5); here, a toy shift by its PV Adj.
-                exposure = Math.Max(0, exposure + Adjustment(t) * 0.01m);
+                var days = DateOnly.ParseExact(t["maturity"]!.GetValue<string>(), "yyyy-MM-dd", CultureInfo.InvariantCulture).DayNumber - valueDate.DayNumber;
+                var years = (decimal)days / 365m;
+                var tradeCurrency = t["currency"]!.GetValue<string>();
+                // A toy exposure in JPY; one in another currency moves with that currency against JPY under a scenario.
+                var exposure = Math.Abs(t["notional"]!.GetValue<decimal>()) * Math.Max(years, 0) * (tradeCurrency == "JPY" ? 0.0001m : 0.015m * market.FxFactor(tradeCurrency));
+                // The engine aligns the exposure to the trade's PV (docs/03 §2.5); here, a toy shift by its PV Adj and by its
+                // change of value under the scenario.
+                exposure = Math.Max(0, exposure + Adjustment(t) * 0.01m + Change(t) * 0.01m);
                 var uncollateralised = t["csa"]!.GetValue<string>().StartsWith("nocsa_", StringComparison.Ordinal);
                 var curveFactor = t["curve"]!.GetValue<string>() == "usd_sofr" ? 1.1m : 1m;
                 cva -= exposure * (1 - recovery) * (uncollateralised ? 0.02m : 0.004m) * curveFactor;
                 pv += Value(t);
                 if (!InFva(t)) continue;
-                fva -= exposure * 0.003m * curveFactor;
+                fva -= exposure * FundingSpread(t, Math.Max(days, 0) / 365.0) * curveFactor;
                 fvaCount++;
             }
             return new(Shown(cva), Shown(fva), Shown(pv), members.Count, fvaCount);
         }
 
-        // Read only when a measure is priced: a measure refused at Price is reported, never computed.
-        var sides = new Lazy<(SideFigures Before, SideFigures After)>(() => (Side("before"), Side("after")));
+        // Read only when a measure is priced: a measure refused at Price is reported, never computed. A trade the toy cannot
+        // revalue under the scenario refuses XVA's measures for this pair, by name (ADR-0010 §4's note of 2026-11-09).
+        string? unapplied = null;
+        var sides = new Lazy<(SideFigures Before, SideFigures After)?>(() =>
+        {
+            try
+            {
+                return (Side("before"), Side("after"));
+            }
+            catch (ScenarioUnapplied e)
+            {
+                unapplied = $"Under {@case.Scenario.Title}: {e.Message}";
+                return null;
+            }
+        });
         // A side with no trade is not priced; a side whose trades are all outside FVA is priced, and its FVA is 0 (§5).
         MeasureResult.Side Figure(SideFigures side, Func<SideFigures, decimal> value, bool fva) =>
             side.Count == 0 ? MeasureResult.Side.NotPricedWith(0) : MeasureResult.Side.Of(value(side), fva ? side.FvaCount : side.Count);
@@ -360,12 +401,25 @@ public sealed class FakeXvaPrice : ICapabilityHandler
                 if (selected["refused"] is JsonObject refused)
                 {
                     var side = new MeasureResult.Side(MeasureResult.Refused, null, null, refused["message"]!.GetValue<string>());
-                    rows.Add(MeasureResult.Row(@case.Id, @case.Title, definition.Id, metric, currency, side, side));
+                    rows.Add(MeasureResult.Row(@case, definition.Id, metric, currency, side, side));
                     continue;
                 }
                 if (definition.Id == XvaMeasures.Kva)
                 {
-                    rows.Add(MeasureResult.Row(@case.Id, @case.Title, definition.Id, metric, currency, Kva(capital!.Before), Kva(capital.After)));
+                    // KVA is the cost of spot capital's profile, so a scenario spot capital cannot apply refuses it too.
+                    if (capital!.Unapplied is { } why)
+                    {
+                        var side = new MeasureResult.Side(MeasureResult.Refused, null, null, $"KVA reads spot CCR capital: {why}");
+                        rows.Add(MeasureResult.Row(@case, definition.Id, metric, currency, side, side));
+                        continue;
+                    }
+                    rows.Add(MeasureResult.Row(@case, definition.Id, metric, currency, Kva(capital.Before), Kva(capital.After)));
+                    continue;
+                }
+                if (sides.Value is not { } figures)
+                {
+                    var side = new MeasureResult.Side(MeasureResult.Refused, null, null, unapplied);
+                    rows.Add(MeasureResult.Row(@case, definition.Id, metric, currency, side, side));
                     continue;
                 }
                 Func<SideFigures, decimal> value = metric.Id switch
@@ -377,12 +431,12 @@ public sealed class FakeXvaPrice : ICapabilityHandler
                     _ => throw new InvalidOperationException($"XVA has no metric {metric.Id}."),
                 };
                 var fva = definition.Id == XvaMeasures.Fva;
-                rows.Add(MeasureResult.Row(@case.Id, @case.Title, definition.Id, metric, currency, Figure(sides.Value.Before, value, fva), Figure(sides.Value.After, value, fva)));
+                rows.Add(MeasureResult.Row(@case, definition.Id, metric, currency, Figure(figures.Before, value, fva), Figure(figures.After, value, fva)));
             }
         }
         return (rows, capital?.Traces.Traces ?? [], [.. profiles.SelectMany(p => p.Value.Select(x => new JsonObject
         {
-            ["case"] = @case.Id, ["side"] = p.Key, ["years"] = x.Years,
+            ["case"] = @case.Id, ["scenario"] = @case.Scenario.Id, ["side"] = p.Key, ["years"] = x.Years,
             ["date"] = x.Date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), ["trades"] = x.Trades,
             ["ead"] = Math.Round(x.Ead, 2), ["capital"] = Math.Round(x.Capital, 2), ["currency"] = capital!.Portfolio!.ReportingCurrency,
         }))]);

@@ -200,7 +200,7 @@ public sealed class CcrMeasures(CapitalRatio? kappa = null) : IMeasureModule
         t.TradeId, t.IsNew, t.Product, t.Currency, (double)t.Notional, DateOnly.ParseExact(t.Maturity, "yyyy-MM-dd", CultureInfo.InvariantCulture), t.Csa,
         t.Before, t.After, (double?)t.OfficialPv,
         t.Start is { } start ? DateOnly.ParseExact(start, "yyyy-MM-dd", CultureInfo.InvariantCulture) : null,
-        t.Direction, t.CounterCurrency, (double?)t.CounterNotional);
+        t.Direction, t.CounterCurrency, (double?)t.CounterNotional, t.Curve);
 
     /// <summary>Spot capital's membership: every derivative SA-CCR can decompose; one it cannot is out, with why.</summary>
     sealed class Decomposable(CapitalMarket market, string nettingSet) : IMembershipRule
@@ -225,8 +225,12 @@ public sealed class CcrMeasures(CapitalRatio? kappa = null) : IMeasureModule
     }
 }
 
-/// <summary>Spot capital's answer to one request: each side, its result rows and its traces.</summary>
-public sealed record SpotCapitalAnswer(SideCapital Before, SideCapital After, CapitalPortfolio? Portfolio, IReadOnlyList<JsonObject> Rows, TraceSet Traces);
+/// <summary>
+/// Spot capital's answer to one request: each side, its result rows and its traces. <paramref name="Unapplied"/> says why
+/// a scenario's shifts could not be applied, where they could not; spot capital is then refused for that scenario.
+/// </summary>
+public sealed record SpotCapitalAnswer(SideCapital Before, SideCapital After, CapitalPortfolio? Portfolio, IReadOnlyList<JsonObject> Rows, TraceSet Traces,
+    string? Unapplied = null);
 
 /// <summary>
 /// Spot capital over a portfolio accepted input, as any request that prices it answers (ADR-0013 §2): XVA's KVA option
@@ -235,9 +239,10 @@ public sealed record SpotCapitalAnswer(SideCapital Before, SideCapital After, Ca
 /// </summary>
 public static class SpotCapitalResults
 {
-    public const string Scenario = "base";
-
-    /// <summary>One case's answer, read from the case as a one-case input (ADR-0010 §3's note of 2026-11-08).</summary>
+    /// <summary>
+    /// One case's answer on its market, read from the case as a one-case input (ADR-0010 §3's note of 2026-11-08), under
+    /// its scenario's shifts (§4's note of 2026-11-09).
+    /// </summary>
     public static SpotCapitalAnswer Answer(PricedCase @case, string requestId, DatasetProvenance provenance)
     {
         var acceptedInput = @case.Input;
@@ -245,11 +250,19 @@ public static class SpotCapitalResults
         var refusedAtPrice = selected?["refused"]?["message"]?.GetValue<string>();
         CapitalPortfolio? portfolio = null;
         SideCapital before, after;
+        string? unapplied = null;
         try
         {
-            portfolio = CapitalInput.Read(acceptedInput, CcrMeasures.Module);
+            portfolio = CapitalInput.Read(acceptedInput, CcrMeasures.Module).Under(@case.Market, @case.Scenario.Title);
             (before, after) = (SpotCapitalPricing.Price(portfolio, SpotCapitalPricing.Before, requestId, provenance),
                 SpotCapitalPricing.Price(portfolio, SpotCapitalPricing.After, requestId, provenance));
+        }
+        catch (ScenarioUnapplied e)
+        {
+            // A trade the scenario moves and the toy cannot revalue: spot capital is refused for this scenario, by name.
+            unapplied = $"Under {@case.Scenario.Title}: {e.Message}";
+            portfolio = null;
+            (before, after) = (new SideCapital(SpotCapitalPricing.Before, 0, Refused: unapplied), new SideCapital(SpotCapitalPricing.After, 0, Refused: unapplied));
         }
         catch (Exception e) when (e is SaCcrRefused or RiskWeightRefused)
         {
@@ -267,19 +280,19 @@ public static class SpotCapitalResults
         {
             foreach (var metric in CcrMeasures.Definitions.Single().Metrics)
             {
-                if (refusedAtPrice is not null)
+                if ((refusedAtPrice ?? unapplied) is { } why)
                 {
-                    var refused = new MeasureResult.Side(MeasureResult.Refused, null, null, refusedAtPrice);
-                    rows.Add(MeasureResult.Row(@case.Id, @case.Title, CcrMeasures.SpotCapital, metric, currency, refused, refused));
+                    var refused = new MeasureResult.Side(MeasureResult.Refused, null, null, why);
+                    rows.Add(MeasureResult.Row(@case, CcrMeasures.SpotCapital, metric, currency, refused, refused));
                     continue;
                 }
-                rows.Add(MeasureResult.Row(@case.Id, @case.Title, CcrMeasures.SpotCapital, metric, currency, Figure(before, metric.Id), Figure(after, metric.Id)));
+                rows.Add(MeasureResult.Row(@case, CcrMeasures.SpotCapital, metric, currency, Figure(before, metric.Id), Figure(after, metric.Id)));
             }
-            if (refusedAtPrice is null)
+            if (refusedAtPrice is null && unapplied is null)
                 foreach (var side in new[] { before, after })
-                    if (side.Trace is { } trace) traces.Add(new TraceEntry(@case.Id, Scenario, side.Side, CcrMeasures.SpotCapital, trace));
+                    if (side.Trace is { } trace) traces.Add(new TraceEntry(@case.Id, @case.Scenario.Id, side.Side, CcrMeasures.SpotCapital, trace));
         }
-        return new SpotCapitalAnswer(before, after, portfolio, rows, new TraceSet(traces));
+        return new SpotCapitalAnswer(before, after, portfolio, rows, new TraceSet(traces), unapplied);
     }
 
     // Rounded as the other measures' figures are; the trace keeps every figure as computed.

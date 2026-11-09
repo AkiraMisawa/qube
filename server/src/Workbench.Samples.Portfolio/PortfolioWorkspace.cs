@@ -87,6 +87,7 @@ public sealed class PortfolioEditRules : IEditRules
         (Entity.Selection, _) => "portfolio.selection",
         (Entity.Settings, _) => "portfolio.settings",
         (Entity.Case, _) => "portfolio.case",
+        (PortfolioScenarios.ShiftKind or PortfolioScenarios.ScenariosKind, _) => "portfolio.scenario",
         _ => throw new ArgumentException($"No portfolio edit kind for {target.Entity}.{target.Field}."),
     };
 
@@ -104,8 +105,9 @@ public sealed class PortfolioEditRules : IEditRules
         // A case's change is the counterparty's, as the case is (ADR-0010 §3's note of 2026-11-08): a counterparty change
         // drops the case with every change it holds, a new trade's included.
         if (layer is not null) return new EditTarget($"cp:{source.Registration.Key}", entity, field, layer);
-        // The selection of measures and the settings are the workspace's, whichever counterparty it is on.
-        if (kind is Entity.Selection or Entity.Settings) return new EditTarget(WorkspaceScope, entity, field);
+        // The selection of measures, the settings and the scenarios are the workspace's, whichever counterparty it is on:
+        // market data is no counterparty's (ADR-0010 §4's note of 2026-11-09).
+        if (kind is Entity.Selection or Entity.Settings or PortfolioScenarios.ShiftKind or PortfolioScenarios.ScenariosKind) return new EditTarget(WorkspaceScope, entity, field);
         var tradeContent = kind == Entity.Trade && field is not ("before" or "after" or "csa" or "curve" or "imR" or "imP");
         var isNew = kind == Entity.Trade && source.Trade(id)?.IsNew == true;
         return new EditTarget(tradeContent && isNew ? $"new:{id}" : $"cp:{source.Registration.Key}", entity, field);
