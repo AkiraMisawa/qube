@@ -125,8 +125,9 @@ name for the user, their desk or everyone, and loaded again. The AI reaches ever
 - **The page**: the Scenarios tab (a grid of shifts ending in blank rows, ExGrid's spilled paste declared, and the list
   beside it); the dock's scenario selector, beside the case selector; the result tabs' trace address takes the scenario
   in view. The command line's `scenario` commands read their text on the server, which answers what it made.
-- **Saved sets** are a store of the portfolio module (memory, and SQLite where the workspaces are), holding a set's
-  name, owner, visibility, desk, saved time and scenarios. Desks are configuration by user. The page completes `scenario
+- **Saved sets** are items of the kernel's generic saved-item store (C32; memory, and SQLite where the workspaces
+  are), of the kind `portfolio.scenarioSet`, holding a set's name, owner, visibility, desk, saved time and scenarios;
+  the store decides who sees an item and never reads it (ADR-0010 §4's note). Desks are configuration by user. The page completes `scenario
   load` from the sets the user can see.
 - **Commands** (ADR-0005, ADR-0006): `scenario <name> <shifts>`, `scenario include|exclude|remove <name>`, `scenario
   duplicate <name> <new name>`, `scenarios clear`, `scenario ladder …`, `scenario cross …`, `scenario save <set>

@@ -315,14 +315,15 @@ public sealed class FakeXvaPrice : ICapabilityHandler
             t["notional"]!.GetValue<decimal>(), DateOnly.ParseExact(t["maturity"]!.GetValue<string>(), "yyyy-MM-dd", CultureInfo.InvariantCulture),
             t["direction"]?.GetValue<string>(), t["curve"]!.GetValue<string>(), t["counterCurrency"]?.GetValue<string>(), t["counterNotional"]?.GetValue<decimal>());
 
-        // The toy funding spread FVA charges at a trade's maturity: 30bp, moved by its CSA's funding curve under a scenario.
+        // The toy funding spread FVA charges at a trade's maturity: 30bp, moved by its CSA's funding curve under a scenario,
+        // below zero too, so a shift past 30bp shows as the benefit it is in the toy, never floored to no FVA.
         decimal FundingSpread(JsonNode t, double years)
         {
             if (market.IsBase) return 0.003m;
             var csa = t["csa"]!.GetValue<string>();
             var curve = fundingCurves?[csa]?.GetValue<string>()
                 ?? throw new CapabilityFailure("InvalidInput", $"Trade {t["tradeId"]} is in FVA on {csa}, and the accepted input names no funding curve of {csa}.");
-            return Math.Max(0m, 0.003m + market.RateShiftBp(curve, years) / 10_000m);
+            return 0.003m + market.RateShiftBp(curve, years) / 10_000m;
         }
 
         SideFigures Side(string side)

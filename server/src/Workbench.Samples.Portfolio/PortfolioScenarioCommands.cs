@@ -7,8 +7,8 @@ using Workbench.Composition.Contracts;
 namespace Workbench.Samples.Portfolio;
 
 /// <summary>
-/// The scenario commands as command capabilities (ADR-0005, ADR-0010 §4): define, include, exclude, remove, ladder,
-/// cross, save and load, for the AI through the command gateway. Each takes what the command line takes, as written,
+/// The scenario commands as command capabilities (ADR-0005, ADR-0010 §4): define, include, exclude, remove, duplicate,
+/// clear, ladder, cross, save and load, for the AI through the command gateway. Each takes what the command line takes, as written,
 /// goes through the same workspace service, and says back what the command line says; what it does is in the
 /// workspace's log with the caller's origin. A cross asked of the AI is one call, as it is one command.
 /// </summary>
@@ -16,6 +16,8 @@ public static class PortfolioScenarioCommands
 {
     public const string DefineRequest = "xva.scenario-request";
     public const string NameRequest = "xva.scenario-name-request";
+    public const string DuplicateRequest = "xva.scenario-duplicate-request";
+    public const string ClearRequest = "xva.scenarios-clear-request";
     public const string GeneratorRequest = "xva.scenario-generator-request";
     public const string SaveRequest = "xva.scenario-save-request";
     public const string LoadRequest = "xva.scenario-load-request";
@@ -49,7 +51,8 @@ public static class PortfolioScenarioCommands
         {
             SavedVisibility.All => "every user",
             SavedVisibility.Desk => $"the desk {saved.Desk ?? throw new InvalidOperationException($"The set {saved.Set} is shared with a desk it does not name.")}",
-            _ => "you alone",
+            SavedVisibility.Private => "you alone",
+            _ => throw new InvalidOperationException($"No visibility {saved.Visibility}."),
         };
         return $"Saved {saved.Scenarios} scenario(s) as the set {saved.Set}, for {who}{(saved.Replaced ? $", replacing your {saved.Set}" : "")}.";
     }
@@ -84,6 +87,16 @@ public static class PortfolioScenarioCommands
                 var name = Text(request, "name");
                 return Edited(service.RemoveScenario(Text(request, "workspaceId"), revision, caller.UserId, name, caller.Origin), $"Removed the scenario {name}.");
             });
+        Add("xva.scenario.duplicate", "Copy a scenario of an XVA workspace under a new name, to be edited", DuplicateRequest, ScenariosMade, CapabilityEffect.EditWorkspace,
+            (service, request, caller, revision) =>
+            {
+                var (name, copy) = (Text(request, "name"), Text(request, "copy"));
+                var answer = service.DuplicateScenario(Text(request, "workspaceId"), revision, caller.UserId, name, copy, caller.Origin);
+                return Made(answer, $"Duplicated {name} as {string.Join(", ", answer.Made)}.");
+            });
+        Add("xva.scenarios.clear", "Remove every scenario of an XVA workspace; Price then prices the base market alone", ClearRequest, PortfolioCommandContracts.Edited,
+            CapabilityEffect.EditWorkspace, (service, request, caller, revision) =>
+                Edited(service.ClearScenarios(Text(request, "workspaceId"), revision, caller.UserId, caller.Origin), "Removed every scenario; Price prices the base market alone."));
         foreach (var (generator, title) in new[]
         {
             ("ladder", "Make a scenario per size of one factor of an XVA workspace, such as jpy_ois -50bp..+50bp step 10bp"),
@@ -138,6 +151,18 @@ public static class PortfolioScenarioCommands
             ["revision"] = Revision(),
             ["name"] = Field("Scenario", "The scenario's name, as the workspace lists it."),
         }, "workspaceId", "name");
+        Contract(DuplicateRequest, "Duplicate a scenario", new JsonObject
+        {
+            ["workspaceId"] = Workspace(),
+            ["revision"] = Revision(),
+            ["name"] = Field("Scenario", "The scenario to copy, as the workspace lists it."),
+            ["copy"] = Field("New name", "The copy's name, which no scenario of the workspace has."),
+        }, "workspaceId", "name", "copy");
+        Contract(ClearRequest, "Remove every scenario", new JsonObject
+        {
+            ["workspaceId"] = Workspace(),
+            ["revision"] = Revision(),
+        }, "workspaceId");
         Contract(GeneratorRequest, "Generate scenarios", new JsonObject
         {
             ["workspaceId"] = Workspace(),

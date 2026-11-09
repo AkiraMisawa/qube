@@ -112,6 +112,13 @@ describe('the generators\' preview', () => {
     expect(generatorParts('cross', 'jpy_ois -10bp, +10bp', context).map((p) => p.name)).toEqual(['lists']);
   });
 
+  it('spine 1: a size with no unit, or a ladder mixing bp and %, is said as the server refuses it, never counted', () => {
+    expect(generatorParts('ladder', 'jpy_ois -50..+50 step 10', undefined)).toEqual([{ name: '?', value: 'a unit on each size other than 0: bp for a curve, % for an FX rate', required: true }]);
+    expect(generatorParts('ladder', 'jpy_ois -50bp..+50% step 10bp', undefined)).toEqual([{ name: '?', value: 'one unit for the range and the step: it mixes bp and %', required: true }]);
+    expect(generatorParts('cross', 'jpy_ois -50, 0 x usdjpy -10%, 0', undefined)[0]?.name).toBe('?');
+    expect(generated('cross', 'jpy_ois -50bp, 0 x usdjpy -10%, 0')).toEqual({ names: ['jpy_ois -50bp · usdjpy -10%', 'jpy_ois -50bp', 'usdjpy -10%'] });
+  });
+
   it('ADR-0010 §4: says how many a generator made and replaced', () => {
     expect(generatedText({ made: ['a', 'b'], replaced: ['b'] })).toBe('Made 2 scenario(s), replacing 1 of the same name: a, b.');
   });

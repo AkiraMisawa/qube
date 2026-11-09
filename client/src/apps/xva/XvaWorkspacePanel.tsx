@@ -257,8 +257,8 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   // over the input tabs and the trade grids, as opening a measure's tab does (owner, 2026-11-08).
   const [resultTab, setResultTab] = useState<string>(METRICS_TAB.id);
   const [traceCase, setTraceCase] = useState(BASE_CASE);
-  // The market the dock shows (ADR-0010 §4): the base market, or a scenario the Run priced.
-  const [scenarioInView, setScenarioInView] = useState(BASE_SCENARIO);
+  // The market the dock shows (ADR-0010 §4): the base market, or a scenario the Run priced, picked in that Run.
+  const [scenarioPick, setScenarioPick] = useState<{ readonly runId: string | undefined; readonly scenario: string }>({ runId: undefined, scenario: BASE_SCENARIO });
   const [dockFull, setDockFull] = useState(false);
   const [focusRequest, setFocusRequest] = useState(0);
   /** `open netting`, `open csa`, `open im`: the tab open and in view, with the keyboard in it (ADR-0010 §9). A measure's
@@ -396,6 +396,10 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
 
   /** The Run the dock shows: the one priced here last, else the workspace's latest. */
   const dockRun = () => priced ?? view.data?.runs[0]?.runId;
+  // A scenario's id is its position in the Run that priced it (s1, s2), so a pick holds in that Run alone: the dock
+  // showing another Run shows the base market until one of its scenarios is picked (spine 6).
+  const scenarioInView = scenarioPick.runId !== undefined && scenarioPick.runId === dockRun() ? scenarioPick.scenario : BASE_SCENARIO;
+  const setScenarioInView = (scenario: string) => setScenarioPick({ runId: dockRun(), scenario });
   /** Copy quote of the market in view (ADR-0010 §4): a scenario's quote names it, so a stressed figure is never the quote. */
   const copyQuote = async (scenario: string = scenarioInView) => {
     const runId = dockRun();
@@ -553,13 +557,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
    */
   const defineScenario = async (name: string, shifts: string) => {
     try {
-      const answer = await queue.after(async (revision) => {
-        const made: ScenariosMade = await api.defineScenario(workspaceId, revision, name, shifts);
-        queue.rebase(made.workspace.revision);
-        return made;
-      });
-      show(answer.workspace);
-      workspace.notify(scenariosText(answer));
+      workspace.notify(scenariosText(await scenariosMade((revision) => api.defineScenario(workspaceId, revision, name, shifts))));
     } catch (error) {
       workspace.notify(`scenario made nothing: ${describe(error)}`);
     }
@@ -576,6 +574,13 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
     });
     show(next);
     return next;
+  };
+  /** A scenario command whose answer says what it made, after the edits already sent; refused, it throws. */
+  const scenariosMade = async (run: (revision: number) => Promise<ScenariosMade>): Promise<ScenariosMade> => {
+    let made: ScenariosMade | undefined;
+    await scenarioCommand(async (revision) => { made = await run(revision); return made.workspace; });
+    if (made === undefined) throw new Error('The scenario command answered nothing.');
+    return made;
   };
   const editShifts = async (rows: readonly ShiftEdit[]) => { await scenarioCommand((revision) => api.editShifts(workspaceId, revision, rows)); };
   const includeScenario = async (name: string, included: boolean) => {
@@ -596,9 +601,8 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   };
   /** Duplicate: the dialog stays open with the server's reason when it is refused, so this throws. */
   const duplicateScenario = async (name: string, copy: string) => {
-    let made: ScenariosMade | undefined;
-    await scenarioCommand(async (revision) => { made = await api.duplicateScenario(workspaceId, revision, name, copy); return made.workspace; });
-    workspace.notify(`Duplicated ${name} as ${made?.made.join(', ') ?? copy}.`);
+    const made = await scenariosMade((revision) => api.duplicateScenario(workspaceId, revision, name, copy));
+    workspace.notify(`Duplicated ${name} as ${made.made.join(', ')}.`);
   };
   const duplicate = async (name: string, copy: string) => {
     try { await duplicateScenario(name, copy); } catch (error) { workspace.notify(`${name} was not duplicated: ${describe(error)}`); }
@@ -606,9 +610,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   /** `scenario ladder …`, `scenario cross …`: the page says how many it made and which of the same name it replaced. */
   const generateScenarios = async (generator: 'ladder' | 'cross', text: string) => {
     try {
-      let made: ScenariosMade | undefined;
-      await scenarioCommand(async (revision) => { made = await api.generateScenarios(workspaceId, revision, generator, text); return made.workspace; });
-      if (made !== undefined) workspace.notify(generatedText(made));
+      workspace.notify(generatedText(await scenariosMade((revision) => api.generateScenarios(workspaceId, revision, generator, text))));
     } catch (error) {
       workspace.notify(`scenario ${generator} made nothing: ${describe(error)}`);
     }
@@ -636,9 +638,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   /** `scenario load <set>`: the page says which scenarios it added and which of the same name it replaced. */
   const loadScenarios = async (set: string) => {
     try {
-      let made: ScenariosMade | undefined;
-      await scenarioCommand(async (revision) => { made = await api.loadScenarios(workspaceId, revision, set); return made.workspace; });
-      if (made !== undefined) workspace.notify(loadedText(set, made));
+      workspace.notify(loadedText(set, await scenariosMade((revision) => api.loadScenarios(workspaceId, revision, set))));
     } catch (error) {
       workspace.notify(`scenario load loaded nothing: ${describe(error)}`);
     }
@@ -648,6 +648,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
     include: (name, included) => void includeScenario(name, included),
     duplicate: duplicateScenario,
     remove: (name) => void removeScenario(name),
+    clear: () => void clearScenarios(),
     notify: (message) => workspace.notify(message),
   };
   // *Vary values…* (ADR-0010 §3): the cell whose Context Menu opened the dialog, while it is open.

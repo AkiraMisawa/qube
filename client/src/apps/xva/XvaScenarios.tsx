@@ -17,6 +17,8 @@ export interface ScenarioActions {
   readonly include: (name: string, included: boolean) => void;
   readonly duplicate: (name: string, copy: string) => Promise<void>;
   readonly remove: (name: string) => void;
+  /** Removes every scenario, as `scenarios clear` does. */
+  readonly clear: () => void;
   /** Says why a paste or a clear wrote nothing, where the grid's own refusal says only that it did not. */
   readonly notify: (message: string) => void;
 }
@@ -26,25 +28,29 @@ const text = (pick: (s: ShiftRow) => string | null | undefined) => (row: ShiftGr
   const value = row.shift === undefined ? undefined : pick(row.shift);
   return value === null ? undefined : value;
 };
-const said = (v: string | null | undefined): v is string => v !== undefined && v !== null;
-const column = (name: ShiftColumn | 'issue', header: string, width: number, value: (row: ShiftGridRow) => unknown, editable = true): GridColumn<ShiftGridRow> =>
-  ({ name, header, type: 'text', width, value, editable, queryable: false });
+const present = (v: string | null | undefined): v is string => v !== undefined && v !== null;
+const column = (name: ShiftColumn | 'issue', header: string, width: number, value: (row: ShiftGridRow) => unknown, editable = true, align: 'left' | 'right' = 'left'): GridColumn<ShiftGridRow> =>
+  ({ name, header, type: 'text', width, value, editable, queryable: false, align });
 
-/** Made once (ExGrid ADR-0003), in the order a block is pasted in: the order of `SHIFT_COLUMNS`, then the row's issue. */
+/**
+ * Made once (ExGrid ADR-0003), in the order a block is pasted in: the order of `SHIFT_COLUMNS`, then the row's issue.
+ * Category and Shift type follow the index and the size, yet take a value, so that a block of all seven columns copied
+ * from a spreadsheet pastes whole: the server takes one only where it is what they give, and refuses it otherwise.
+ */
 const COLUMNS: readonly GridColumn<ShiftGridRow>[] = [
   column('scenario', 'Scenario', 120, text((s) => s.scenario)),
   column('category', 'Category', 96, text((s) => s.category)),
   column('index', 'Index', 120, text((s) => s.index)),
   column('factor', 'Risk factor', 112, text((s) => s.factor)),
   column('type', 'Shift type', 104, text((s) => s.type)),
-  column('size', 'Size', 88, text((s) => s.sizeText)),
+  column('size', 'Size', 88, text((s) => s.sizeText), true, 'right'),
   column('description', 'Description', 200, text((s) => s.description)),
   column('issue', 'Issue', 320, text((s) => s.issue), false),
 ];
 
 // A row that cannot be priced marks the cell its issue is of, and says it there and in its Issue.
 const issueAt = (row: ShiftGridRow, col: GridColumn<ShiftGridRow>): string | undefined =>
-  row.shift === undefined || !said(row.shift.issue) || (col.name !== row.shift.issueColumn && col.name !== 'issue') ? undefined : row.shift.issue;
+  row.shift === undefined || !present(row.shift.issue) || (col.name !== row.shift.issueColumn && col.name !== 'issue') ? undefined : row.shift.issue;
 const cellState = (row: ShiftGridRow, col: GridColumn<ShiftGridRow>): CellState => (issueAt(row, col) === undefined ? 'normal' : 'error');
 const cellMessage = (row: ShiftGridRow, col: GridColumn<ShiftGridRow>): string | undefined => {
   const issue = issueAt(row, col);
@@ -113,13 +119,18 @@ export function XvaScenarios({ shifts, scenarios, actions, height, gridRef, comm
           cellState={cellState} cellMessage={cellMessage} commandLabel={commandLabel} hideColumnMenu showSelectionSummary={false}
           density="compact" viewportWidth="stretch" viewportHeight={height} pinnedColumnCount={1} locale="en-US" />
       </div>
-      <Stack gap={4} className="qwb-xva-scenarios-list">
-        <Text size="xs" data-testid="scenarios-summary">
-          {scenarios.length === 0 ? 'No scenario: Price prices the base market alone. Type or paste shifts into the grid, or use scenario.'
-            : `${scenarios.length} scenario(s), ${included} included: Price prices the base market and ${included} more.`}
-        </Text>
+      <Stack gap="xs" className="qwb-xva-scenarios-list">
+        <Group gap="xs" justify="space-between" wrap="nowrap">
+          <Text size="xs" data-testid="scenarios-summary">
+            {scenarios.length === 0 ? 'No scenario: Price prices the base market alone. Type or paste shifts into the grid, or use scenario.'
+              : `${scenarios.length} scenario(s), ${included} included: Price prices the base market and ${included} more.`}
+          </Text>
+          {scenarios.length > 0 && (
+            <Button size="compact-xs" variant="default" color="red" onClick={actions.clear} title="Remove every scenario, as scenarios clear does">Remove all</Button>
+          )}
+        </Group>
         {scenarios.length > 0 && (
-          <Table withTableBorder withColumnBorders verticalSpacing={2} horizontalSpacing="xs" fz="sm" aria-label="Scenarios">
+          <Table withTableBorder withColumnBorders verticalSpacing="xs" horizontalSpacing="xs" fz="sm" aria-label="Scenarios">
             <Table.Thead>
               <Table.Tr><Table.Th>Price</Table.Th><Table.Th>Scenario</Table.Th><Table.Th className="qwb-number">Shifts</Table.Th><Table.Th aria-label="Actions" /></Table.Tr>
             </Table.Thead>
@@ -131,11 +142,11 @@ export function XvaScenarios({ shifts, scenarios, actions, height, gridRef, comm
                   </Table.Td>
                   <Table.Td>
                     <Text size="sm">{s.name}</Text>
-                    {said(s.issue) && <Text size="xs" c="red" data-testid="scenario-issue">{s.issue}</Text>}
+                    {present(s.issue) && <Text size="xs" c="red" data-testid="scenario-issue">{s.issue}</Text>}
                   </Table.Td>
                   <Table.Td className="qwb-number">{s.shifts}</Table.Td>
                   <Table.Td>
-                    <Group gap={4} wrap="nowrap">
+                    <Group gap="xs" wrap="nowrap">
                       <Button size="compact-xs" variant="default" onClick={() => setDuplicating(s.name)} aria-label={`Duplicate ${s.name}`}>Duplicate</Button>
                       <Button size="compact-xs" variant="default" color="red" onClick={() => actions.remove(s.name)} aria-label={`Remove ${s.name}`}>Remove</Button>
                     </Group>
@@ -183,7 +194,7 @@ function DuplicateDialog({ name, taken, duplicate, onClose }: {
     }
   };
   return (
-    <Modal opened={name !== undefined} onClose={onClose} title={`Duplicate ${name ?? ''}`} trapFocus transitionProps={{ duration: 0 }}>
+    <Modal opened={name !== undefined} onClose={onClose} title={name === undefined ? undefined : `Duplicate ${name}`} trapFocus transitionProps={{ duration: 0 }}>
       <form onSubmit={(e) => { e.preventDefault(); void submit(); }}>
         <Stack gap="sm">
           <TextInput data-autofocus label="New name" value={copy} onChange={(e) => setCopy(e.currentTarget.value)} error={said} />

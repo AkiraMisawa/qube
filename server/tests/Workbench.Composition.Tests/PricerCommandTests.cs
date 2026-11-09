@@ -123,6 +123,8 @@ public class PricerCommandTests(WorkbenchFactory factory) : IClassFixture<Workbe
         Assert.Equal(["workspaceId", "revision", "name", "shifts"], Fields("xva_scenario"));
         Assert.Equal(["workspaceId", "name", "shifts"], Required("xva_scenario"));
         foreach (var verb in new[] { "include", "exclude", "remove" }) Assert.Equal(["workspaceId", "revision", "name"], Fields($"xva_scenario_{verb}"));
+        Assert.Equal(["workspaceId", "name", "copy"], Required("xva_scenario_duplicate"));
+        Assert.Equal(["workspaceId", "revision"], Fields("xva_scenarios_clear"));
         foreach (var generator in new[] { "ladder", "cross" }) Assert.Equal(["workspaceId", "text"], Required($"xva_scenario_{generator}"));
         Assert.Equal(["workspaceId", "revision", "set", "share"], Fields("xva_scenario_save"));
         Assert.Equal(["workspaceId", "set"], Required("xva_scenario_save"));
@@ -161,6 +163,7 @@ public class PricerCommandTests(WorkbenchFactory factory) : IClassFixture<Workbe
         var loaded = await Ok(await Command("xva.scenario.load", new JsonObject { ["workspaceId"] = other, ["set"] = "ai-cross" }));
         var refused = await Command("xva.scenario", new JsonObject { ["workspaceId"] = other, ["name"] = "up", ["shifts"] = "jpy_ois +10%" });
         var removed = await Ok(await Command("xva.scenario.remove", new JsonObject { ["workspaceId"] = other, ["name"] = "jpy_ois +50bp" }));
+        var duplicated = await Ok(await Command("xva.scenario.duplicate", new JsonObject { ["workspaceId"] = other, ["name"] = "jpy_ois -50bp", ["copy"] = "down" }));
 
         Assert.Equal(8, crossed["made"]!.GetValue<int>());
         Assert.StartsWith("Made 8 scenario(s): jpy_ois -50bp · usdjpy -10%, ", crossed["said"]!.GetValue<string>());
@@ -170,6 +173,10 @@ public class PricerCommandTests(WorkbenchFactory factory) : IClassFixture<Workbe
         Assert.Equal(HttpStatusCode.UnprocessableEntity, refused.StatusCode);
         Assert.Equal("InvalidShift", (await refused.Content.ReadFromJsonAsync<JsonObject>())!["code"]!.GetValue<string>());
         Assert.Equal("Removed the scenario jpy_ois +50bp.", removed["said"]!.GetValue<string>());
-        Assert.Equal(7, (await View(other))["scenarios"]!.AsArray().Count);
+        Assert.Equal("Duplicated jpy_ois -50bp as down.", duplicated["said"]!.GetValue<string>());
+        Assert.Equal(8, (await View(other))["scenarios"]!.AsArray().Count);
+        var cleared = await Ok(await Command("xva.scenarios.clear", new JsonObject { ["workspaceId"] = other }));
+        Assert.Equal("Removed every scenario; Price prices the base market alone.", cleared["said"]!.GetValue<string>());
+        Assert.Empty((await View(other))["scenarios"]!.AsArray());
     }
 }

@@ -262,14 +262,14 @@ public static class SpotCapitalResults
             // A trade the scenario moves and the toy cannot revalue: spot capital is refused for this scenario, by name.
             unapplied = $"Under {@case.Scenario.Title}: {e.Message}";
             portfolio = null;
-            (before, after) = (new SideCapital(SpotCapitalPricing.Before, 0, Refused: unapplied), new SideCapital(SpotCapitalPricing.After, 0, Refused: unapplied));
+            (before, after) = (new SideCapital(SpotCapitalPricing.Before, TradesIn(acceptedInput, "before"), Refused: unapplied),
+                new SideCapital(SpotCapitalPricing.After, TradesIn(acceptedInput, "after"), Refused: unapplied));
         }
         catch (Exception e) when (e is SaCcrRefused or RiskWeightRefused)
         {
             // The part spot capital reads could not be read: every side is unavailable, with why.
-            var trades = acceptedInput["trades"]?.AsArray() ?? [];
-            int Count(string side) => trades.Count(t => t?[side]?.GetValue<bool>() == true);
-            (before, after) = (new SideCapital(SpotCapitalPricing.Before, Count("before"), Refused: e.Message), new SideCapital(SpotCapitalPricing.After, Count("after"), Refused: e.Message));
+            (before, after) = (new SideCapital(SpotCapitalPricing.Before, TradesIn(acceptedInput, "before"), Refused: e.Message),
+                new SideCapital(SpotCapitalPricing.After, TradesIn(acceptedInput, "after"), Refused: e.Message));
         }
 
         var rows = new List<JsonObject>();
@@ -294,6 +294,11 @@ public static class SpotCapitalResults
         }
         return new SpotCapitalAnswer(before, after, portfolio, rows, new TraceSet(traces), unapplied);
     }
+
+    // The trades a side holds in the accepted input, for a side refused before spot capital read them.
+    static int TradesIn(JsonNode acceptedInput, string side) =>
+        (acceptedInput["trades"] as JsonArray ?? throw new InvalidOperationException("The accepted input holds no trades."))
+            .Count(t => t?[side]?.GetValue<bool>() == true);
 
     // Rounded as the other measures' figures are; the trace keeps every figure as computed.
     static MeasureResult.Side Figure(SideCapital side, string metric) =>

@@ -46,7 +46,9 @@ public sealed class InMemorySavedItemStore : ISavedItemStore
 /// <summary>Each user's desk, as configuration names it (C32, ADR-0010 §4); a user it does not name has none.</summary>
 public sealed class Desks(IReadOnlyDictionary<string, string> byUser)
 {
-    readonly Dictionary<string, string> desks = new(byUser.Where(d => d.Value.Trim().Length > 0), StringComparer.OrdinalIgnoreCase);
+    // A user named with no desk is a configuration mistake, said at start, never read as no desk.
+    readonly Dictionary<string, string> desks = new(byUser.Select(d => d.Value.Trim().Length > 0 ? KeyValuePair.Create(d.Key, d.Value.Trim())
+        : throw new InvalidOperationException($"The desks name {d.Key} with no desk.")), StringComparer.OrdinalIgnoreCase);
 
     /// <summary>No user has a desk.</summary>
     public static Desks None { get; } = new(new Dictionary<string, string>());

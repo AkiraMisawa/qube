@@ -66,6 +66,9 @@ public static class ScenarioCatalog
     /// <summary>The unit a shift type's size is written in: bp absolute, % relative.</summary>
     public static string UnitOfType(string type) => type == Absolute ? Bp : Percent;
 
+    /// <summary>The shift type a size's unit gives: bp absolute, % relative; none for no unit.</summary>
+    public static string? TypeOfUnit(string? unit) => unit switch { Bp => Absolute, Percent => Relative, _ => null };
+
     public static double YearsOf(string tenor) => tenor[^1] switch
     {
         'm' => int.Parse(tenor[..^1], CultureInfo.InvariantCulture) / 12.0,
@@ -150,7 +153,7 @@ public static partial class ShiftReader
         if (index is null) throw Refused(written, $"names no index: {ScenarioCatalog.Listed}");
         if (size is not { } value) throw Refused(written, $"has no size: write it as {Example(index)}");
         if (index.Category == ScenarioCatalog.Fx && tenor is not null) throw Refused(written, $"{index.Id} is a spot rate and has no tenor");
-        var byUnit = unit switch { ScenarioCatalog.Bp => ScenarioCatalog.Absolute, ScenarioCatalog.Percent => ScenarioCatalog.Relative, _ => null };
+        var byUnit = ScenarioCatalog.TypeOfUnit(unit);
         if (byUnit is not null && type is not null && byUnit != type)
             throw Refused(written, $"is in {unit}, which is not {type}: leave {type} out, or write the size's unit as {ScenarioCatalog.UnitOfType(type)}");
         var shiftType = byUnit ?? type ?? (value == 0 ? ScenarioCatalog.TypeOf(index.Category)
@@ -261,12 +264,12 @@ public static partial class PortfolioScenarios
     static ShiftRow RowOf(string id, int row, JsonObject fields)
     {
         string? Text(string field) => fields[field] is JsonValue v && v.TryGetValue<string>(out var s) && s.Length > 0 ? s : null;
-        var name = Text("scenario");
+        var name = NameIn(fields);
         var index = Text("index") is { } named ? ScenarioCatalog.Find(named) : null;
         var tenor = Text("tenor");
         var size = fields["size"] is JsonValue n && n.TryGetValue<decimal>(out var d) ? d : (decimal?)null;
         var unit = Text("unit");
-        var type = unit switch { ScenarioCatalog.Bp => ScenarioCatalog.Absolute, ScenarioCatalog.Percent => ScenarioCatalog.Relative, _ => null };
+        var type = ScenarioCatalog.TypeOfUnit(unit);
         var (issue, column) = name is null ? ("it names no scenario", "scenario")
             : index is null ? ("it has no index", "index")
             : index.Category == ScenarioCatalog.Fx && tenor is not null ? ($"{index.Id} is a spot rate and has no tenor", "factor")
@@ -293,6 +296,8 @@ public static partial class PortfolioScenarios
     {
         var raw = Raw(state).ToDictionary(r => Entity.Split(r.Entity).Id, r => r.Fields);
         var changes = new List<WorkspaceChange>();
+        // The scenario each row names once the edit is in, for the names left out of Price that no row holds any more.
+        var names = raw.ToDictionary(r => r.Key, r => NameIn(r.Value));
         foreach (var edit in edits)
         {
             var unknown = edit.Cells.Keys.FirstOrDefault(c => !Columns.Contains(c));
@@ -303,16 +308,29 @@ public static partial class PortfolioScenarios
             var empty = RowFields.All(f => after[f] is null);
             if (edit.Id is null)
             {
-                if (!empty) changes.Add(new WorkspaceChange.Create(PortfolioEditRules.WorkspaceScope, Entity.Of(ShiftKind, $"s{revision + 1 + changes.Count}"), after));
+                if (empty) continue;
+                var made = NewRow(revision, changes.Count);
+                names[Entity.Split(made).Id] = NameIn(after);
+                changes.Add(new WorkspaceChange.Create(PortfolioEditRules.WorkspaceScope, made, after));
                 continue;
             }
             var entity = Entity.Of(ShiftKind, edit.Id);
-            if (empty) { changes.Add(new WorkspaceChange.Remove(entity)); continue; }
+            if (empty) { names.Remove(edit.Id); changes.Add(new WorkspaceChange.Remove(entity)); continue; }
+            names[edit.Id] = NameIn(after);
             foreach (var field in RowFields.Where(f => !JsonNode.DeepEquals(before[f], after[f])))
                 changes.Add(new WorkspaceChange.Set(new EditTarget(PortfolioEditRules.WorkspaceScope, entity, field), after[field]?.DeepClone()));
         }
+        // A scenario whose rows are gone, cleared or renamed, is no longer left out of anything: made again, it is included.
+        var excluded = ExcludedNames(state);
+        if (excluded.RemoveWhere(n => !names.Values.Any(v => Same(v, n))) > 0) changes.Add(Leaving(state, excluded));
         return changes;
     }
+
+    // The scenario a row's fields name, as a row reads it: none for an empty name.
+    static string? NameIn(JsonObject fields) => fields["scenario"] is JsonValue v && v.TryGetValue<string>(out var s) && s.Length > 0 ? s : null;
+
+    // The entity of a row a batch makes, named by the log entry that makes it, so no id is given twice.
+    static string NewRow(long revision, int made) => Entity.Of(ShiftKind, $"s{revision + 1 + made}");
 
     static JsonObject Blank() => new() { ["scenario"] = null, ["index"] = null, ["tenor"] = null, ["size"] = null, ["unit"] = null, ["description"] = null };
 
@@ -359,10 +377,11 @@ public static partial class PortfolioScenarios
             }
         }
         var unitNow = after["unit"]?.GetValue<string>();
-        if (Typed("type") is { } type && !string.Equals(type, unitNow is null ? null : unitNow == ScenarioCatalog.Bp ? ScenarioCatalog.Absolute : ScenarioCatalog.Relative, StringComparison.OrdinalIgnoreCase))
-            throw Refused("type", unitNow is null
+        var typeNow = ScenarioCatalog.TypeOfUnit(unitNow);
+        if (Typed("type") is { } type && !string.Equals(type, typeNow, StringComparison.OrdinalIgnoreCase))
+            throw Refused("type", typeNow is null
                 ? $"{type} is no shift type of the row: the shift type follows the size's unit, and the row has no size"
-                : $"the size is in {unitNow}, so the shift is {(unitNow == ScenarioCatalog.Bp ? ScenarioCatalog.Absolute : ScenarioCatalog.Relative)}, not {type}: the shift type follows the size");
+                : $"the size is in {unitNow}, so the shift is {typeNow}, not {type}: the shift type follows the size");
         if (edit.Cells.ContainsKey("description"))
             after["description"] = Typed("description");
         return after;
@@ -430,7 +449,7 @@ public static partial class PortfolioScenarios
         {
             var copied = (JsonObject)fields.DeepClone();
             copied["scenario"] = named;
-            changes.Add(new WorkspaceChange.Create(PortfolioEditRules.WorkspaceScope, Entity.Of(ShiftKind, $"s{revision + 1 + changes.Count}"), copied));
+            changes.Add(new WorkspaceChange.Create(PortfolioEditRules.WorkspaceScope, NewRow(revision, changes.Count), copied));
         }
         var excluded = ExcludedNames(state);
         if (excluded.Remove(named)) changes.Add(Leaving(state, excluded));
@@ -499,18 +518,28 @@ public static partial class PortfolioScenarios
         IReadOnlyList<(string Name, IReadOnlyList<Shift> Shifts)> scenarios, long revision)
     {
         var named = scenarios.Select(s => (Name: Checked(s.Name), s.Shifts)).ToList();
+        return Replace(state, [.. named.Select(s => (s.Name, (IReadOnlyList<JsonObject>)[.. s.Shifts.Select(shift => Fields(s.Name, shift))]))], revision);
+    }
+
+    // Scenarios whole, each replacing the rows of one of its name, in one batch (ADR-0010 §4): a replaced scenario keeps
+    // whether it is included, and one made anew is included, whatever a scenario of its name was before it went.
+    static (IReadOnlyList<WorkspaceChange> Changes, IReadOnlyList<string> Replaced) Replace(WorkspaceState state,
+        IReadOnlyList<(string Name, IReadOnlyList<JsonObject> Rows)> scenarios, long revision)
+    {
         var rows = Rows(state);
         var changes = new List<WorkspaceChange>();
         var replaced = new List<string>();
-        foreach (var (name, _) in named)
+        foreach (var (name, _) in scenarios)
         {
             var gone = rows.Where(r => Same(r.Scenario, name)).ToList();
             if (gone.Count > 0) replaced.Add(name);
             changes.AddRange(gone.Select(r => (WorkspaceChange)new WorkspaceChange.Remove(Entity.Of(ShiftKind, r.Id))));
         }
-        foreach (var (name, shifts) in named)
-            foreach (var shift in shifts)
-                changes.Add(new WorkspaceChange.Create(PortfolioEditRules.WorkspaceScope, Entity.Of(ShiftKind, $"s{revision + 1 + changes.Count}"), Fields(name, shift)));
+        foreach (var (_, made) in scenarios)
+            foreach (var fields in made)
+                changes.Add(new WorkspaceChange.Create(PortfolioEditRules.WorkspaceScope, NewRow(revision, changes.Count), fields));
+        var excluded = ExcludedNames(state);
+        if (excluded.RemoveWhere(n => scenarios.Any(s => Same(s.Name, n)) && !replaced.Any(r => Same(r, n))) > 0) changes.Add(Leaving(state, excluded));
         return (changes, replaced);
     }
 
@@ -518,19 +547,17 @@ public static partial class PortfolioScenarios
     public const string SetKind = "portfolio.scenarioSet";
 
     /// <summary>
-    /// The workspace's scenarios as a saved set holds them (ADR-0010 §4): every one, included or not, by name, with
-    /// whether it is included and its rows' fields as they stand, so a row not yet complete loads as it was.
+    /// The workspace's scenarios as a saved set holds them (ADR-0010 §4): every one, included or not, by name, with its
+    /// rows' fields as they stand, so a row not yet complete loads as it was.
     /// </summary>
     public static JsonObject SetOf(WorkspaceState state)
     {
-        var excluded = ExcludedNames(state);
         var rows = Raw(state).Zip(Rows(state), (raw, row) => (row.Scenario, raw.Fields)).Where(r => r.Scenario is not null);
         return new JsonObject
         {
             ["scenarios"] = new JsonArray([.. rows.GroupBy(r => r.Scenario!, StringComparer.OrdinalIgnoreCase).Select(g => (JsonNode)new JsonObject
             {
                 ["name"] = g.First().Scenario,
-                ["included"] = !excluded.Contains(g.Key),
                 ["rows"] = new JsonArray([.. g.Select(r => (JsonNode)new JsonObject([.. RowFields.Where(f => f != "scenario")
                     .Select(f => KeyValuePair.Create(f, r.Fields[f]?.DeepClone()))]))]),
             })]),
@@ -539,33 +566,16 @@ public static partial class PortfolioScenarios
 
     /// <summary>
     /// <c>scenario load &lt;set&gt;</c> (ADR-0010 §4): the set's scenarios added in one batch, each replacing the rows of one
-    /// of its name and included or excluded as it was saved. Returns the names it made and those it replaced.
+    /// of its name as <c>scenario</c> does: a replaced one keeps whether it is included, and one made anew is included.
+    /// Returns the names it made and those it replaced.
     /// </summary>
     public static (IReadOnlyList<WorkspaceChange> Changes, IReadOnlyList<string> Made, IReadOnlyList<string> Replaced) Load(WorkspaceState state, JsonNode set, long revision)
     {
         var scenarios = (set["scenarios"] as JsonArray ?? throw new InvalidOperationException("A saved scenario set holds its scenarios."))
-            .Select(s => (Name: s!["name"]!.GetValue<string>(), Included: s["included"]!.GetValue<bool>(), Rows: s["rows"]!.AsArray()))
+            .Select(s => (Name: s!["name"]!.GetValue<string>(), Rows: (IReadOnlyList<JsonObject>)[.. s["rows"]!.AsArray().Select(row =>
+                new JsonObject([.. RowFields.Select(f => KeyValuePair.Create(f, f == "scenario" ? (JsonNode?)JsonValue.Create(s["name"]!.GetValue<string>()) : row![f]?.DeepClone()))]))]))
             .ToList();
-        var rows = Rows(state);
-        var changes = new List<WorkspaceChange>();
-        var replaced = new List<string>();
-        foreach (var (name, _, _) in scenarios)
-        {
-            var gone = rows.Where(r => Same(r.Scenario, name)).ToList();
-            if (gone.Count > 0) replaced.Add(name);
-            changes.AddRange(gone.Select(r => (WorkspaceChange)new WorkspaceChange.Remove(Entity.Of(ShiftKind, r.Id))));
-        }
-        foreach (var (name, _, saved) in scenarios)
-            foreach (var row in saved)
-            {
-                var fields = new JsonObject([.. RowFields.Select(f => KeyValuePair.Create(f, f == "scenario" ? (JsonNode?)JsonValue.Create(name) : row![f]?.DeepClone()))]);
-                changes.Add(new WorkspaceChange.Create(PortfolioEditRules.WorkspaceScope, Entity.Of(ShiftKind, $"s{revision + 1 + changes.Count}"), fields));
-            }
-        var before = ExcludedNames(state);
-        var excluded = new HashSet<string>(before, StringComparer.OrdinalIgnoreCase);
-        foreach (var (name, included, _) in scenarios)
-            if (included) excluded.Remove(name); else excluded.Add(name);
-        if (!excluded.SetEquals(before)) changes.Add(Leaving(state, excluded));
+        var (changes, replaced) = Replace(state, scenarios, revision);
         return (changes, [.. scenarios.Select(s => s.Name)], replaced);
     }
 
@@ -737,10 +747,14 @@ public sealed class ScenarioMarket(IReadOnlyList<Shift> shifts, DateOnly valueDa
     public DateOnly ValueDate => valueDate;
     public bool IsBase => shifts.Count == 0;
 
+    // A shift's index: the reader resolved it, so one the catalogue does not hold is a defect, not a market to guess.
+    static RiskIndex IndexOf(Shift shift) =>
+        ScenarioCatalog.Find(shift.Index) ?? throw new InvalidOperationException($"The shift {shift.Text} names {shift.Index}, which the catalogue does not hold.");
+
     /// <summary>A currency's move against JPY, as a factor: 1 where no shift moves it.</summary>
     public decimal FxFactor(string currency) =>
         currency == ScenarioCatalog.Domestic ? 1m
-        : shifts.SingleOrDefault(s => s.Category == ScenarioCatalog.Fx && ScenarioCatalog.Find(s.Index)!.Currency == currency) is { } shift ? 1m + shift.Size / 100m
+        : shifts.SingleOrDefault(s => s.Category == ScenarioCatalog.Fx && IndexOf(s).Currency == currency) is { } shift ? 1m + shift.Size / 100m
         : 1m;
 
     /// <summary>

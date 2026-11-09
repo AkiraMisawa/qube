@@ -146,6 +146,8 @@
   align-items: flex-start;
 }
 .qwb-xva-scenarios-grid { flex: 1 1 auto; min-width: 0; }
+/* The list's width: a scenario's name, its shift count and its two buttons on one line, geometry the theme has no
+   name for (docs/design-guidelines.md §2). */
 .qwb-xva-scenarios-list { flex: 0 0 22rem; min-width: 0; }
 @media (max-width: 47.99em) {
   .qwb-xva-scenarios { flex-direction: column; }

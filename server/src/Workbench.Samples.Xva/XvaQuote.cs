@@ -46,7 +46,9 @@ public static class XvaQuote
         var rows = all.Where(r => MarketOf(r) == scenario).ToList();
         if (rows.Count == 0)
             throw new WorkspaceRefused("UnknownScenario", $"Run {run.RunId} priced no scenario {scenario}; it priced {string.Join(", ", all.Select(MarketOf).Distinct())}.");
-        var market = rows[0]["scenarioTitle"]?.GetValue<string>();
+        // A scenario's rows carry its title; the base market's need none.
+        var market = scenario == PortfolioScenarios.BaseId ? null : rows[0]["scenarioTitle"]?.GetValue<string>()
+            ?? throw new InvalidOperationException($"Run {run.RunId}'s rows of scenario {scenario} carry no title.");
 
         var simulated = result["provenance"]?["executionMode"]?.GetValue<string>() == "simulated";
         var currency = rows.Select(r => r["currency"]!.GetValue<string>()).Distinct().Single();

@@ -512,4 +512,26 @@ public class PricerScenarioTests
         var view = service.View(answer.State.WorkspaceId, "akira");
         Assert.Equal([("jpy_ois -10bp", "all"), ("jpy_ois +10bp", "all")], view.Shifts.Select(r => (r.Scenario!, r.Factor!)));
     }
+
+    [Fact] // ADR-0010 §4: a scenario is included when it is made, even where one of its name was excluded before its rows went
+    public void A_scenario_made_again_after_its_rows_went_is_included()
+    {
+        var (service, _, _) = Priced();
+        var ws = service.Create("akira", "ABC/LE-01", Day1, 40);
+        ws = Define(service, ws, "down", "jpy_ois -10bp");
+        ws = Define(service, ws, "flat", "usdjpy -5%");
+        ws = service.IncludeScenario(ws.WorkspaceId, ws.Revision, "akira", "down", false);
+        ws = service.IncludeScenario(ws.WorkspaceId, ws.Revision, "akira", "flat", false);
+        var rows = service.View(ws.WorkspaceId, "akira").Shifts;
+
+        // down's row cleared in the grid, flat's renamed: neither name has a row left.
+        ws = service.EditShifts(ws.WorkspaceId, ws.Revision, "akira", [
+            new ShiftEdit(rows[0].Id, 1, Columns().ToDictionary(c => c, _ => (string?)null)),
+            new ShiftEdit(rows[1].Id, 2, new Dictionary<string, string?> { ["scenario"] = "flat2" })]);
+        ws = Define(service, ws, "down", "jpy_ois -20bp");
+        ws = service.DuplicateScenario(ws.WorkspaceId, ws.Revision, "akira", "flat2", "flat").State;
+
+        Assert.Equal([("flat2", true), ("down", true), ("flat", true)], service.View(ws.WorkspaceId, "akira").Scenarios.Select(s => (s.Name, s.Included)));
+        static IEnumerable<string> Columns() => PortfolioScenarios.Columns;
+    }
 }

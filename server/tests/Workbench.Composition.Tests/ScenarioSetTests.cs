@@ -95,7 +95,7 @@ public sealed class ScenarioSetTests : IDisposable
 
     [Theory] // ADR-0010 §4: a save that cannot be made is refused, and nothing is saved
     [InlineData(null, "rates up", "InvalidName", "A set's name is one word without @")]
-    [InlineData("team", "rates", "InvalidName", "scenario save rates shares the set with desk or all, not team.")]
+    [InlineData("team", "rates", "InvalidShare", "scenario save rates shares the set with desk or all, not team.")]
     [InlineData(null, "", "InvalidName", "A set needs a name")]
     public void A_save_that_cannot_be_made_is_refused(string? share, string set, string code, string said)
     {
@@ -111,7 +111,7 @@ public sealed class ScenarioSetTests : IDisposable
         Assert.Equal("NothingToSave", Assert.Throws<WorkspaceRefused>(() => Save(service, empty, "rates")).Code);
     }
 
-    [Fact] // ADR-0010 §4: load adds the set's scenarios, replacing those of the same name, included as saved, rows as they stood
+    [Fact] // ADR-0010 §4: load adds the set's scenarios, replacing those of its name as scenario does, the rows as they stood
     public void Load_adds_the_scenarios_replaces_those_of_the_same_name_and_says_so()
     {
         var service = Service();
@@ -121,13 +121,15 @@ public sealed class ScenarioSetTests : IDisposable
             [new ShiftEdit(null, 4, new Dictionary<string, string?> { ["scenario"] = "half", ["index"] = "usd_sofr", ["description"] = "to finish" })]);
         Save(service, saved, "rates");
         var ws = Workspace(service, "akira", ("UP", "eur_estr +1bp"), ("keep", "gbpjpy +2%"));
+        ws = service.IncludeScenario(ws.WorkspaceId, ws.Revision, "akira", "UP", false);
 
         var answer = service.LoadScenarios(ws.WorkspaceId, ws.Revision, "akira", "rates");
 
         Assert.Equal(["up", "down", "half"], answer.Made);
         Assert.Equal(["up"], answer.Replaced);
+        // A scenario replaced keeps whether it is included; one made anew is included, as a scenario is when it is made.
         var view = service.View(ws.WorkspaceId, "akira");
-        Assert.Equal([("keep", 1, true), ("up", 2, true), ("down", 1, false), ("half", 1, true)], view.Scenarios.Select(s => (s.Name, s.Shifts, s.Included)));
+        Assert.Equal([("keep", 1, true), ("up", 2, false), ("down", 1, true), ("half", 1, true)], view.Scenarios.Select(s => (s.Name, s.Shifts, s.Included)));
         Assert.Equal(["gbpjpy +2%", "jpy_ois +10bp", "usdjpy -5%", "jpy_ois -10bp", null], view.Shifts.Select(r => r.SizeText is null ? null : $"{r.Index} {r.SizeText}"));
         var half = view.Shifts.Single(r => r.Scenario == "half");
         Assert.Equal(("usd_sofr", "to finish", "it has no size"), (half.Index!, half.Description!, half.Issue!));

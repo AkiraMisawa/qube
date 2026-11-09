@@ -159,11 +159,17 @@ function sizeOf(word: string): { readonly value: number; readonly unit: string |
 // A size written as the server names it: `+50bp`, `-10%`.
 const signed = (value: number, unit: string) => `${value > 0 ? '+' : ''}${String(value)}${unit}`;
 
+// A size other than 0 says how it shifts by its unit, or the factor says it (`abs`, `rel`); the server refuses one that
+// says neither, so the preview never counts what it would refuse.
+const UNITLESS = 'a unit on each size other than 0: bp for a curve, % for an FX rate';
+const typed = (factor: string) => factor.split(/\s+/).some((w) => w === 'abs' || w === 'rel');
+
 /**
  * The scenarios a generator would make, by name, or why it cannot be read. A ladder's sizes are counted in hundredths,
  * so a step such as 2.5bp divides as it does on the server.
  */
-export function generated(generator: 'ladder' | 'cross', text: string): { readonly names: readonly string[] } | { readonly problem: string } {
+export function generated(generator: 'ladder' | 'cross', text: string):
+  { readonly names: readonly string[] } | { readonly problem: string; readonly refused?: boolean } {
   if (generator === 'ladder') {
     const words = text.trim().replace(/\s*\.\.\s*/g, '..').split(/\s+/).filter((w) => w !== '');
     const range = words.findIndex((w) => w.includes('..'));
@@ -173,7 +179,10 @@ export function generated(generator: 'ladder' | 'cross', text: string): { readon
     const [from, to] = [sizeOf(ends[0] ?? ''), sizeOf(ends[1] ?? '')];
     const factor = words.filter((_, i) => i !== range && i !== step && i !== step + 1).join(' ').toLowerCase();
     if (factor === '' || from === undefined || to === undefined || by === undefined) return { problem: 'a factor, a range and a step: jpy_ois -50bp..+50bp step 10bp' };
-    const unit = from.unit ?? to.unit ?? by.unit ?? '';
+    const units = new Set([from.unit, to.unit, by.unit].filter((u) => u !== undefined));
+    if (units.size > 1) return { problem: 'one unit for the range and the step: it mixes bp and %', refused: true };
+    const [unit = ''] = units;
+    if (unit === '' && !typed(factor)) return { problem: UNITLESS, refused: true };
     const [a, b, s] = [from.value, to.value, by.value].map((v) => Math.round(v * 100));
     if (a === undefined || b === undefined || s === undefined || s <= 0 || b <= a || (b - a) % s !== 0)
       return { problem: `a step that divides a rising range: ${ends[0] ?? ''}..${ends[1] ?? ''} by ${words[step + 1] ?? ''} does not` };
@@ -189,6 +198,7 @@ export function generated(generator: 'ladder' | 'cross', text: string): { readon
   });
   if (lists.length < 2 || lists.some((l) => l.factor === '' || l.sizes.some((s) => s === undefined)))
     return { problem: 'two lists or more separated by x, each a factor and its sizes: jpy_ois -50bp, 0, +50bp x usdjpy -10%, 0, +10%' };
+  if (lists.some((l) => !typed(l.factor) && l.sizes.some((s) => s !== undefined && s.value !== 0 && s.unit === undefined))) return { problem: UNITLESS, refused: true };
   let combinations: string[][] = [[]];
   for (const list of lists) {
     const unit = list.sizes.find((s) => s?.unit !== undefined)?.unit ?? '';
@@ -205,7 +215,9 @@ export function generatorParts(generator: 'ladder' | 'cross', text: string, cont
   readonly { readonly name: string; readonly value?: string; readonly required: boolean }[] {
   if (text.trim() === '') return [{ name: generator === 'ladder' ? 'factor, range and step' : 'lists', required: true }];
   const made = generated(generator, text);
-  if ('problem' in made) return [{ name: generator === 'ladder' ? 'factor, range and step' : 'lists', required: true }];
+  // A line still being typed names what it needs; one the server would refuse says why.
+  if ('problem' in made) return made.refused === true ? [{ name: '?', value: made.problem, required: true }]
+    : [{ name: generator === 'ladder' ? 'factor, range and step' : 'lists', required: true }];
   const count = made.names.length;
   if (context === undefined) return [{ name: 'makes', value: `${count} scenario(s)`, required: true }];
   const most = mostScenarios(context.cap);

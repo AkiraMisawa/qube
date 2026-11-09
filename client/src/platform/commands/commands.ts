@@ -231,7 +231,9 @@ export function finish(reading: Extract<LineReading, { kind: 'arguments' }>): { 
 export function take(text: string, reading: LineReading, completion: Command | Completion): string {
   if ('words' in completion) return `${completion.words} `;
   if (reading.kind === 'choosing') return text;
-  const keep = text.replace(/\S*$/, '');
+  // A rest taken whole, spaces and all, is replaced whole: a name of several words is not appended to its first ones.
+  const whole = reading.slot?.rest === true && reading.slot.words !== true;
+  const keep = whole ? text.slice(0, text.length - reading.typed.length) : text.replace(/\S*$/, '');
   const named = reading.slot !== undefined && !reading.slot.required ? `${reading.slot.name}=` : '';
   return completion.value.endsWith('=') ? `${keep}${completion.value}` : `${keep}${named}${completion.value} `;
 }

@@ -636,9 +636,16 @@ test('ADR-0010 §4: a block pasted onto the Scenarios grid makes its shifts, and
   await expect(page.getByTestId('notice')).toHaveText('Duplicated up as up-big.');
   await expect(list.getByRole('row').filter({ has: page.getByRole('checkbox', { name: 'Include up-big' }) }).getByRole('cell').nth(2)).toHaveText('2');
   await expect(page.getByTestId('price')).toHaveText('Price CVA · 1 case × 3 markets');
+
+  // Remove all, beside the summary, removes every scenario, as scenarios clear does.
+  await page.getByRole('button', { name: 'Remove all' }).focus();
+  await page.keyboard.press('Enter');
+  await expect(page.getByTestId('notice')).toHaveText('Removed every scenario; Price prices the base market alone.');
+  await expect(page.getByTestId('scenarios-summary')).toHaveText(/^No scenario: Price prices the base market alone\./);
+  await expect(page.getByTestId('price')).toHaveText('Price CVA · 1 case');
 });
 
-test('ADR-0010 §4, UX03: at 390px the Scenarios tab is among the Inputs, and the page never scrolls sideways', async ({ page }) => {
+test('ADR-0010 §4, UX03: at 390px the Scenarios tab is among the Inputs, the scenario selector in Results, and the page never scrolls sideways', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await open(page);
   await newWorkspace(page, 'ABC/LE-01', 3);
@@ -652,6 +659,17 @@ test('ADR-0010 §4, UX03: at 390px the Scenarios tab is among the Inputs, and th
   await expect(page.getByRole('table', { name: 'Scenarios' }).getByRole('checkbox', { name: 'Include up' })).toBeVisible();
   // The grid is wider than a phone: it scrolls inside its frame, never the page.
   expect(await sideways()).toBe(0);
+
+  await command(page, 'measures', 'cva');
+  await command(page, 'price');
+  await page.getByText('Results', { exact: true }).click();
+  const result = page.getByTestId('xva-result');
+  await expect(result.getByTestId('xva-result-status')).toHaveText('succeeded');
+  const selector = result.getByRole('combobox', { name: 'Scenario' });
+  await expect(selector).toBeVisible();
+  await selector.selectOption({ label: 'up' });
+  await expect(selector.locator('option:checked')).toHaveText('up');
+  expect(await sideways()).toBe(0);
 });
 
 test('ADR-0010 §4: `scenario cross` says what it makes against the cap as it is typed, then makes the set in one command', async ({ page }) => {
@@ -660,7 +678,9 @@ test('ADR-0010 §4: `scenario cross` says what it makes against the cap as it is
   await command(page, 'measures', 'cva');
   await command(page, 'scenarios clear');
 
+  // The line drops a key typed before it has the keyboard, so the line is typed once it has it.
   await page.keyboard.press('ControlOrMeta+K');
+  await expect(page.getByRole('combobox', { name: 'Command' })).toBeFocused();
   await page.keyboard.type('scenario cross jpy_ois -50bp, 0, +50bp x usdjpy -10%, 0, +10%');
   await expect(page.getByTestId('command-pending')).toContainText('makes 8 scenario(s)');
   await expect(page.getByTestId('command-pending')).toContainText('pairs 9 of 50');
@@ -669,6 +689,11 @@ test('ADR-0010 §4: `scenario cross` says what it makes against the cap as it is
   await expect(page.getByTestId('notice')).toHaveText(/^Made 8 scenario\(s\): jpy_ois -50bp · usdjpy -10%, jpy_ois -50bp, /);
   await expect(page.getByRole('tab', { name: 'Scenarios (8)' })).toBeVisible();
   await expect(page.getByTestId('price')).toHaveText('Price CVA · 1 case × 9 markets');
+
+  // A generated name has spaces, and the command line takes it whole.
+  await command(page, 'scenario exclude', 'jpy_ois +50bp · usdjpy +10%');
+  await expect(page.getByTestId('notice')).toHaveText('Price leaves the scenario jpy_ois +50bp · usdjpy +10% out; its shifts stay.');
+  await expect(page.getByTestId('price')).toHaveText('Price CVA · 1 case × 8 markets');
 });
 
 test('ADR-0010 §4, C32: `scenario save` keeps every scenario as a set, and `scenario load` offers it and adds it to another workspace', async ({ page }) => {
@@ -687,6 +712,7 @@ test('ADR-0010 §4, C32: `scenario save` keeps every scenario as a set, and `sce
   await newWorkspace(page, 'XYZ/LE-03', 3);
   await command(page, 'measures', 'cva');
   await page.keyboard.press('ControlOrMeta+K');
+  await expect(page.getByRole('combobox', { name: 'Command' })).toBeFocused();
   await page.keyboard.type('scenario load e2e');
   await expect(page.getByRole('listbox').getByRole('option', { name: /^e2e-rates / })).toContainText('2 scenario(s), for all, saved by');
   await page.keyboard.type('-rates');
@@ -694,6 +720,6 @@ test('ADR-0010 §4, C32: `scenario save` keeps every scenario as a set, and `sce
 
   await expect(page.getByTestId('notice')).toHaveText('Loaded 2 scenario(s) from e2e-rates: up, down.');
   await expect(page.getByRole('tab', { name: 'Scenarios (2)' })).toBeVisible();
-  // Each scenario is included as it was saved.
-  await expect(page.getByTestId('price')).toHaveText('Price CVA · 1 case × 2 markets');
+  // A scenario is included when it is made, as scenario makes it, whatever the box said where it was saved.
+  await expect(page.getByTestId('price')).toHaveText('Price CVA · 1 case × 3 markets');
 });

@@ -218,8 +218,7 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
     /// </summary>
     public SetSaved SaveScenarios(string workspaceId, long revision, string user, string set, string? share = null)
     {
-        var raw = Owned(workspaceId, user);
-        if (raw.Revision != revision) throw new WorkspaceRefused("RevisionMoved", $"The workspace is at revision {raw.Revision}, not {revision}.");
+        var raw = At(workspaceId, revision, user);
         var count = PortfolioScenarios.All(raw).Count;
         if (count == 0) throw new WorkspaceRefused("NothingToSave", "The workspace has no scenario to save. Define one first, such as scenario up jpy_ois +10bp.");
         var visibility = share?.Trim().ToLowerInvariant() switch
@@ -227,7 +226,7 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
             null or "" => SavedVisibility.Private,
             "desk" => SavedVisibility.Desk,
             "all" => SavedVisibility.All,
-            var other => throw new WorkspaceRefused("InvalidName", $"scenario save {set.Trim()} shares the set with desk or all, not {other}."),
+            var other => throw new WorkspaceRefused("InvalidShare", $"scenario save {set.Trim()} shares the set with desk or all, not {other}."),
         };
         var (item, replaced) = Saving(s => s.Save(PortfolioScenarios.SetKind, SetNoun, user, set, visibility, PortfolioScenarios.SetOf(raw)));
         return new SetSaved(item.Name, item.Owner, item.Visibility, item.Desk, count, replaced);
@@ -279,10 +278,16 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
     // workspace as it stands.
     WorkspaceState Apply(string workspaceId, long revision, string user, Func<WorkspaceState, IReadOnlyList<WorkspaceChange>> change, RunOrigin? origin)
     {
-        var raw = Owned(workspaceId, user);
-        if (raw.Revision != revision) throw new WorkspaceRefused("RevisionMoved", $"The workspace is at revision {raw.Revision}, not {revision}.");
+        var raw = At(workspaceId, revision, user);
         var changes = change(raw);
         return changes.Count == 0 ? raw : workspaces.Batch(workspaceId, revision, user, changes, origin);
+    }
+
+    // The user's workspace at the revision a command was taken against; one that has moved since is refused (spine 6).
+    WorkspaceState At(string workspaceId, long revision, string user)
+    {
+        var raw = Owned(workspaceId, user);
+        return raw.Revision == revision ? raw : throw new WorkspaceRefused("RevisionMoved", $"The workspace is at revision {raw.Revision}, not {revision}.");
     }
 
     // The edits to the portfolio's data in any layer, as the Changes tab counts them: the selection and the settings

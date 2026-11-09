@@ -42,6 +42,7 @@ public static class XvaApi
     public sealed record DuplicateRequest(long Revision, string Name, string Copy);
     /// <summary><c>scenario ladder …</c> or <c>scenario cross …</c>: the generator and its text as typed.</summary>
     public sealed record GenerateRequest(long Revision, string Generator, string Text);
+    public sealed record RevisionRequest(long Revision);
     public sealed record SaveSetRequest(long Revision, string Set, string? Share = null);
     public sealed record LoadSetRequest(long Revision, string Set);
     /// <summary>What a scenario command made, and those of the same name it replaced.</summary>
@@ -184,7 +185,7 @@ public static class XvaApi
 
         api.MapGet("/scenario-sets", (CurrentUser user, PortfolioWorkspaces service) => Guard(() => Results.Ok(service.ScenarioSets(user.Id))));
 
-        ws.MapPost("/{id}/scenarios/clear", (string id, CaseRequest request, CurrentUser user, PortfolioWorkspaces service) => Guard(() =>
+        ws.MapPost("/{id}/scenarios/clear", (string id, RevisionRequest request, CurrentUser user, PortfolioWorkspaces service) => Guard(() =>
         {
             service.ClearScenarios(id, request.Revision, user.Id);
             return Results.Ok(service.View(id, user.Id));

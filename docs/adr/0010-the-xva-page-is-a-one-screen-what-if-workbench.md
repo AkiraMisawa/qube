@@ -215,13 +215,21 @@ variants the workspace is one case.
 - **The dock's scenario selector** (§7) lists the base market first, then each scenario the Run priced. Metrics, the
   collapsed line, the measures' result tabs and Copy quote follow it, and Copy quote names the scenario when it is not
   the base market.
+- **The grid's Category and Shift type take a value, yet stay derived.** A block of all seven columns copied from a
+  spreadsheet must paste whole, and ExGrid refuses a paste whose target holds a read-only cell; so both columns take
+  what is typed or pasted, and the server keeps it only where it is what the index or the size gives, refusing it by
+  row and column otherwise. The grid ends in a read-only *Issue* column, after the seven, which says why a row cannot
+  be priced, as "says why on the row" asks, and the cell the issue is of is marked.
+- **A scenario whose rows are gone is left out of nothing.** Clearing or renaming every row of an excluded scenario
+  drops its name from those left out of Price, so a scenario of that name made later is included, as one made is.
 - **Saved sets.** `scenario save <set> [desk|all]` saves every scenario of the workspace, included or not, under a name
   of the user's; saved again, it replaces the user's own set of that name. A set is the user's alone unless `desk` or
   `all` says otherwise; a user's desk is configuration (`Workbench:Desks`), and `desk` without one is refused. Only its
   owner replaces a set (and an administrator, once roles exist, C32). `scenario load <set>` adds the set's scenarios,
   replacing those of the same name, and says what it replaced; a name that two sets the user can see share is refused,
   naming their owners, and `<set>@<owner>` picks one. A set's name is one word without `@`, so `desk` or `all` can
-  follow it. *(The store is the kernel's, generic over kinds, as saved workflows and views will be (C32): it keeps
+  follow it. A loaded scenario is made as `scenario` makes one: one that replaces a scenario of its name keeps whether
+  that one was included, and one made anew is included, whatever its box said where it was saved. *(The store is the kernel's, generic over kinds, as saved workflows and views will be (C32): it keeps
   an item by kind, owner and name and decides who sees it, and never reads what the item holds. `xva.scenario.save`'s
   effect is `SaveItem`, DEFAULT 2026-11-09: it changes no workspace, so it is not `EditWorkspace`, yet it keeps
   something for its caller, which no Run may do; `SaveItem` joins `EditWorkspace`, `Subscribe` and `ReadRun` as an

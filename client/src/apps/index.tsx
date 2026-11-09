@@ -326,7 +326,8 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
         title,
         group: 'XVA',
         ...onXva,
-        args: [{ name: 'scenario', required: true, hint: 'the scenario\'s name', complete: () => scenarioNames((s) => s.included !== included) }],
+        // The name is the rest of the line: a generated one has spaces (`jpy_ois +50bp · usdjpy -10%`).
+        args: [{ name: 'scenario', required: true, rest: true, hint: 'the scenario\'s name', complete: () => scenarioNames((s) => s.included !== included) }],
         run: (a) => xvaPage().includeScenario(scenarioNamed(a.scenario, `scenario ${verb}`), included),
       })),
     {
@@ -335,7 +336,7 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
       title: 'Remove a scenario with all its shifts',
       group: 'XVA',
       ...onXva,
-      args: [{ name: 'scenario', required: true, hint: 'the scenario\'s name', complete: () => scenarioNames() }],
+      args: [{ name: 'scenario', required: true, rest: true, hint: 'the scenario\'s name', complete: () => scenarioNames() }],
       run: (a) => xvaPage().removeScenario(scenarioNamed(a.scenario, 'scenario remove')),
     },
     {
@@ -344,11 +345,14 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
       title: 'Copy a scenario\'s shifts under a new name, to be edited',
       group: 'XVA',
       ...onXva,
-      args: [
-        { name: 'scenario', required: true, hint: 'the scenario to copy', complete: () => scenarioNames() },
-        { name: 'copy', required: true, hint: 'the new scenario\'s name' },
-      ],
-      run: (a) => xvaPage().duplicateScenario(scenarioNamed(a.scenario, 'scenario duplicate'), scenarioNamed(a.copy, 'scenario duplicate')),
+      // The scenario is every word but the last, which is the copy's name: a generated name has spaces.
+      args: [{ name: 'scenario', required: true, rest: true, hint: 'the scenario to copy, then the copy\'s name in one word', complete: () => scenarioNames() }],
+      run: (a) => {
+        const text = scenarioNamed(a.scenario, 'scenario duplicate');
+        const cut = text.search(/\s\S+$/);
+        if (cut < 0) throw new Error('scenario duplicate needs the scenario to copy, then the copy\'s name.');
+        xvaPage().duplicateScenario(text.slice(0, cut).trim(), text.slice(cut).trim());
+      },
     },
     // The generators (ADR-0010 §4): a set at once, the line saying how many it makes and the pairs left against the cap.
     ...([['ladder', 'Make a scenario per size of one factor, such as scenario ladder jpy_ois -50bp..+50bp step 10bp',

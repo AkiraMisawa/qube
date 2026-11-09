@@ -77,6 +77,18 @@ describe('completing arguments one slot at a time (ADR-0006 §4)', () => {
     expect(finish(bad)).toEqual({ problems: ['new irs has no option spread.', 'new irs takes no more values: extra.', 'end: a tenor such as 10y'] });
   });
 
+  it('ADR-0006: a completion taken into a rest of several words replaces the rest whole', () => {
+    const include = command('scenario include', { args: [{ name: 'scenario', required: true, rest: true, complete: () => [{ value: 'jpy_ois +50bp · usdjpy -10%' }] }] });
+    const text = 'scenario include jpy_ois +5';
+    const reading = readLine(text, [include]);
+    expect(completionsOf(reading, [include]).values).toEqual([{ value: 'jpy_ois +50bp · usdjpy -10%' }]);
+    const taken = take(text, reading, { value: 'jpy_ois +50bp · usdjpy -10%' });
+    expect(taken).toBe('scenario include jpy_ois +50bp · usdjpy -10% ');
+    const read = readLine(taken, [include]);
+    if (read.kind !== 'arguments') throw new Error('not chosen');
+    expect(finish(read)).toEqual({ args: { scenario: 'jpy_ois +50bp · usdjpy -10% ' } });
+  });
+
   it('keeps the rest of the line for a request to the AI', () => {
     const ai = command('ai', { args: [{ name: 'request', required: true, rest: true }] });
     const reading = readLine('ai make a 10y swap  and tick it', [ai]);
