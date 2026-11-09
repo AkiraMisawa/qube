@@ -10,7 +10,7 @@ import { useWorkspaceContext } from '../../platform/workspace/WorkspaceProvider'
 import { keyOf } from '../../platform/workspace/workspaceStore';
 import { registerGridFocus } from '../../shell/focus';
 import type { VaryCell, XvaApi } from './api';
-import type { EffectiveTrade, HeldEdit, RegisteredColumn, RegisteredMeasure, Resolution, ScopeDrop, Varied, XvaWorkspaceView } from './contracts';
+import type { EffectiveTrade, HeldEdit, RegisteredColumn, RegisteredMeasure, Resolution, ScenariosMade, ScopeDrop, Varied, XvaWorkspaceView } from './contracts';
 import { measureNamed, registerXvaPage } from './commands';
 import { XvaResult } from './XvaResult';
 import { BASE_CASE, BASE_SCENARIO, openTrace, requestTerm } from '../../platform/traces/open';
@@ -22,6 +22,7 @@ import { ToolbarField } from './fields';
 import { CHANGES_TAB, shownTab, TAB_TITLES, tabShown, XvaInputs, type InputTab } from './XvaInputs';
 import type { ChangeActions } from './XvaChanges';
 import { VARY_COMMAND, VaryDialog, addedText, variedText, type VaryTarget } from './VaryDialog';
+import { scenariosText } from './scenarios';
 import { compactGridHeight, GRID_FRAME, pixels, Resizer } from './layout';
 import { declaring, measureOfField, membershipColumn, scopesOf } from './membership';
 import { priceLabel, pricedMeasures } from './metrics';
@@ -251,6 +252,8 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   // over the input tabs and the trade grids, as opening a measure's tab does (owner, 2026-11-08).
   const [resultTab, setResultTab] = useState<string>(METRICS_TAB.id);
   const [traceCase, setTraceCase] = useState(BASE_CASE);
+  // The market the dock shows (ADR-0010 §4): the base market, or a scenario the Run priced.
+  const [scenarioInView, setScenarioInView] = useState(BASE_SCENARIO);
   const [dockFull, setDockFull] = useState(false);
   const [focusRequest, setFocusRequest] = useState(0);
   /** `open netting`, `open csa`, `open im`: the tab open and in view, with the keyboard in it (ADR-0010 §9). A measure's
@@ -388,13 +391,15 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
 
   /** The Run the dock shows: the one priced here last, else the workspace's latest. */
   const dockRun = () => priced ?? view.data?.runs[0]?.runId;
-  const copyQuote = async () => {
+  /** Copy quote of the market in view (ADR-0010 §4): a scenario's quote names it, so a stressed figure is never the quote. */
+  const copyQuote = async (scenario: string = scenarioInView) => {
     const runId = dockRun();
     if (runId === undefined) { workspace.notify('Nothing is priced yet, so there is no quote to copy.'); return; }
     try {
-      const quote = await api.quote(runId);
+      const quote = await api.quote(runId, scenario === BASE_SCENARIO ? undefined : scenario);
       await copyRich(quote.text, quote.html);
-      workspace.notify(`The quote of ${runId} is on the clipboard.`);
+      workspace.notify(quote.scenario === undefined || quote.scenario === null
+        ? `The quote of ${runId} is on the clipboard.` : `The quote of ${runId} under scenario ${quote.scenario} is on the clipboard.`);
     } catch (error) {
       workspace.notify(`The quote was not copied: ${describe(error)}`);
     }
@@ -429,9 +434,10 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   /**
    * Opens a measure's trace for a case of the dock's Run, at a term or its root (ADR-0011 §6, §7): in the measure's own
    * tab where it registers one and the Run priced it (ADR-0012 §7), widening the dock; otherwise in a trace panel. The
-   * case is the one the tab shows unless a Metrics cell names another, so the line a trace offers comes back to it.
+   * case and the market are those the tab shows unless a Metrics cell names others, so the line a trace offers comes back
+   * to them.
    */
-  const explain = (measure: string, path?: string, caseId: string = traceCase) => {
+  const explain = (measure: string, path?: string, caseId: string = traceCase, scenario: string = scenarioInView) => {
     const runId = dockRun();
     if (runId === undefined) { workspace.notify('Nothing is priced yet, so there is no trace to explain.'); return; }
     const registered = measureNamed(measure, view.data?.measures ?? []);
@@ -440,11 +446,12 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
     if (!registered.traced) { workspace.notify(`${registered.title} keeps no trace to explain. The measures that do: ${traced.join(', ') || 'none'}.`); return; }
     const own = resultTabs().find((t): t is MeasureTab => t.view === 'trace' && t.measure === registered.id);
     if (own !== undefined) {
-      setResultTab(own.id); setTraceCase(caseId); setDockOpen(true); setDockFull(true); setSection('results');
+      setResultTab(own.id); setTraceCase(caseId); setScenarioInView(scenario); setDockOpen(true); setDockFull(true); setSection('results');
       requestTerm(tabIdOf(own.id), path);
       return;
     }
-    openTrace(workspace.store.getState(), { runId, case: caseId, scenario: BASE_SCENARIO, measure: registered.id }, `${registered.title} · ${view.data?.registration.key ?? ''}`.trim(), path);
+    const under = scenario === BASE_SCENARIO ? '' : ` · ${scenario}`;
+    openTrace(workspace.store.getState(), { runId, case: caseId, scenario, measure: registered.id }, `${registered.title} · ${view.data?.registration.key ?? ''}${under}`.trim(), path);
   };
 
   const setMeasures = (measures: readonly string[]) => void queue.push({ entity: MEASURES_ENTITY, field: 'measures', measures });
@@ -535,13 +542,30 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
       workspace.notify(`add trades made no case: ${describe(error)}`);
     }
   };
+  /**
+   * `scenario s1 jpy_ois +10bp; usdjpy -5%` (ADR-0010 §4): the scenario with every shift, after the edits already sent
+   * (spine 6). The server reads the shifts and refuses one it cannot resolve by name; the workspace's trades do not move.
+   */
+  const defineScenario = async (name: string, shifts: string) => {
+    try {
+      const answer = await queue.after(async (revision) => {
+        const made: ScenariosMade = await api.defineScenario(workspaceId, revision, name, shifts);
+        queue.rebase(made.workspace.revision);
+        return made;
+      });
+      show(answer.workspace);
+      workspace.notify(scenariosText(answer));
+    } catch (error) {
+      workspace.notify(`scenario made nothing: ${describe(error)}`);
+    }
+  };
   // *Vary values…* (ADR-0010 §3): the cell whose Context Menu opened the dialog, while it is open.
   const [varying, setVarying] = useState<VaryTarget | undefined>(undefined);
   const setCurrency = (currency: string) => void queue.push({ entity: SETTINGS_ENTITY, field: 'displayCurrency', value: currency });
 
   // The commands run what the page's own controls run, as the page stands when they run (ADR-0010 §9).
-  const pageRef = useRef({ price, setMeasures, setSide, retry, copyQuote, download, refresh, setCurrency, openTab, explain, openResult, setDockFull, resultTabs, traceInView, vary, set, addTrades, removeCase, clearCases, measures: () => view.data?.measures ?? [], currencies: () => view.data?.currencies ?? [] });
-  pageRef.current = { price, setMeasures, setSide, retry, copyQuote, download, refresh, setCurrency, openTab, explain, openResult, setDockFull, resultTabs, traceInView, vary, set, addTrades, removeCase, clearCases, measures: () => view.data?.measures ?? [], currencies: () => view.data?.currencies ?? [] };
+  const pageRef = useRef({ price, setMeasures, setSide, retry, copyQuote, download, refresh, setCurrency, openTab, explain, openResult, setDockFull, resultTabs, traceInView, vary, set, addTrades, removeCase, clearCases, defineScenario, measures: () => view.data?.measures ?? [], currencies: () => view.data?.currencies ?? [] });
+  pageRef.current = { price, setMeasures, setSide, retry, copyQuote, download, refresh, setCurrency, openTab, explain, openResult, setDockFull, resultTabs, traceInView, vary, set, addTrades, removeCase, clearCases, defineScenario, measures: () => view.data?.measures ?? [], currencies: () => view.data?.currencies ?? [] };
   useEffect(() => {
     registerXvaPage(panelId, {
       price: () => void pageRef.current.price(),
@@ -552,6 +576,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
       addTrades: () => void pageRef.current.addTrades(),
       removeCase: (name) => void pageRef.current.removeCase(name),
       clearCases: () => void pageRef.current.clearCases(),
+      defineScenario: (name, shifts) => void pageRef.current.defineScenario(name, shifts),
       retry: () => void pageRef.current.retry(),
       downloadRun: () => pageRef.current.download(),
       copyQuote: () => void pageRef.current.copyQuote(),
@@ -626,7 +651,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
           })}
         </div>
         <Button size="xs" onClick={() => void price()} loading={busy === 'Pricing'} disabled={!notBusy && busy !== 'Pricing'} data-testid="price"
-          {...(blocking > 0 ? { title: `${blocking} held edit(s) on priced trades must be resolved first.` } : {})}>{priceLabel(ws.measures, ws.selectedMeasures, ws.cases.length, { before: ws.inBefore > 0, after: ws.inAfter > 0 })}</Button>
+          {...(blocking > 0 ? { title: `${blocking} held edit(s) on priced trades must be resolved first.` } : {})}>{priceLabel(ws.measures, ws.selectedMeasures, ws.cases.length, { before: ws.inBefore > 0, after: ws.inAfter > 0 }, 1 + ws.scenarios.filter((x) => x.included).length)}</Button>
       </div>
       {/* The status line: what the figures stand on, and SIMULATED while a provider is. */}
       <Group gap="xs" wrap="wrap" className="qwb-xva-status">
@@ -674,14 +699,14 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
             <>
               {dockOpen && !full && <Resizer label="Height of the result dock" value={dockHeight} min={48} max={560} grows="up" onChange={setDockHeight} />}
               <XvaResult runId={pricedRun} pricedRevision={pricedRevision} revision={ws.revision} register={ws.measures} selected={ws.selectedMeasures} onOpen={() => openRun(pricedRun)}
-                onCopyQuote={() => void copyQuote()} onTrace={(measure, caseId, term) => explain(measure, term, caseId)}
+                onCopyQuote={(scenario) => void copyQuote(scenario)} onTrace={(measure, caseId, scenario, term) => explain(measure, term, caseId, scenario)}
                 open={dockOpen} onOpenChange={setDockOpen} height={dockHeight}
                 tab={resultTab} onTab={(tab) => { setResultTab(tab); if (tab !== METRICS_TAB.id) setDockFull(true); }} full={full} onFull={setDockFull}
-                traceCase={traceCase} onTraceCase={setTraceCase}
-                renderTab={(tab, caption, caseId) => (
+                traceCase={traceCase} onTraceCase={setTraceCase} scenario={scenarioInView} onScenario={setScenarioInView}
+                renderTab={(tab, caption, caseId, scenario) => (
                   <Suspense fallback={<Text size="sm">Reading the trace…</Text>}>
-                    <TraceTab key={`${pricedRun}:${caseId}:${tab.measure}`} tabId={tabIdOf(tab.id)} api={traceApi} registerFocus={registerTreeFocus}
-                      address={{ runId: pricedRun, case: caseId, scenario: BASE_SCENARIO, measure: tab.measure }} caption={caption} />
+                    <TraceTab key={`${pricedRun}:${caseId}:${scenario}:${tab.measure}`} tabId={tabIdOf(tab.id)} api={traceApi} registerFocus={registerTreeFocus}
+                      address={{ runId: pricedRun, case: caseId, scenario, measure: tab.measure }} caption={caption} />
                   </Suspense>
                 )} />
             </>

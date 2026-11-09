@@ -8,16 +8,16 @@ shifts; the Metrics dock and its collapsed line follow a scenario selector, and 
 
 **Blocked by:** none.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] A shift's words read in any order; an unknown index, tenor or size, or a size in a unit its category does not
+- [x] A shift's words read in any order; an unknown index, tenor or size, or a size in a unit its category does not
       take, is refused with what it could be.
-- [ ] `scenario <name> <shifts>` makes the scenario whole, replaces one of its name and says so; a counterparty change
+- [x] `scenario <name> <shifts>` makes the scenario whole, replaces one of its name and says so; a counterparty change
       keeps it.
-- [ ] The Run's accepted input holds the base market first, then each included scenario with its shifts, and a result
+- [x] The Run's accepted input holds the base market first, then each included scenario with its shifts, and a result
       row per case, scenario, measure and metric.
-- [ ] A curve shift moves CVA, FVA and PV of trades on that curve, a funding shift moves FVA alone, an FX shift moves
+- [x] A curve shift moves CVA, FVA and PV of trades on that curve, a funding shift moves FVA alone, an FX shift moves
       the figures of trades in that currency, and a shift on a curve no trade is on leaves them equal to the base market.
-- [ ] Two shifts touching one risk factor in one scenario, and pairs over the cap, are refused at Price by name.
-- [ ] In a browser, `scenario` from the command line, then Price, shows the scenario in the dock's selector, and
+- [x] Two shifts touching one risk factor in one scenario, and pairs over the cap, are refused at Price by name.
+- [x] In a browser, `scenario` from the command line, then Price, shows the scenario in the dock's selector, and
       Metrics and the collapsed line follow it.

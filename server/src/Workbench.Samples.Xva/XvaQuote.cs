@@ -10,7 +10,8 @@ using Workbench.Samples.Portfolio;
 namespace Workbench.Samples.Xva;
 
 /// <summary>A quote as the clipboard takes it: the same content as plain text and as HTML.</summary>
-public sealed record Quote(string Text, string Html);
+/// <param name="Scenario">The scenario quoted, by its title; none for the base market (ADR-0010 §4).</param>
+public sealed record Quote(string Text, string Html, string? Scenario = null);
 
 /// <summary>
 /// Copy quote (ADR-0010 §7, §11): what a trader sends sales to charge, read from the Run's retained input and result
@@ -75,7 +76,7 @@ public static class XvaQuote
         foreach (var (caseTitle, charge, pv) in cases)
             html.Append($"<tr><td>{Html(caseTitle)}</td><td>{Html(charge.Side)}</td><td style=\"text-align:right\">{Html(charge.Text)}</td><td style=\"text-align:right\">{Html(pv.Text)}</td></tr>");
         html.Append("</tbody></table>");
-        return new(text.ToString().TrimEnd(), html.ToString());
+        return new(text.ToString().TrimEnd(), html.ToString(), scenario == PortfolioScenarios.BaseId ? null : market);
     }
 
     /// <summary>A case's quoted figure, the side it is (Diff, After only or Before only), and how it reads.</summary>

@@ -545,3 +545,49 @@ test('ADR-0010 §7: Download saves the Run as a zip, from the dock and the Prici
   expect(fromHistory.suggestedFilename()).toBe(`${runId}.zip`);
 });
 
+
+test('ADR-0010 §4: `scenario` defines a scenario whole, Price prices it beside the base market, and the dock, its line and Copy quote follow the selector', async ({ page, problems }) => {
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  await open(page);
+  await newWorkspace(page, 'ABC/LE-01', 5);
+  await command(page, 'measures', 'cva fva');
+  await expect(page.getByTestId('price')).toHaveText('Price CVA FVA · 1 case');
+
+  // A shift that does not resolve is refused with what it could be, and nothing is made.
+  await command(page, 'scenario', 'up jpy_ois +10%');
+  await expect(page.getByTestId('notice')).toContainText('an IR shift is absolute, in bp: write jpy_ois +10bp');
+  expect(problems.splice(0)).toEqual(['error: Failed to load resource: the server responded with a status of 422 (Unprocessable Entity)']);
+  await expect(page.getByTestId('price')).toHaveText('Price CVA FVA · 1 case');
+  await command(page, 'scenario', 'up jpy_ois +100bp; usd_sofr +100bp; usdjpy -5%');
+  await expect(page.getByTestId('notice')).toHaveText('Made the scenario up.');
+  await expect(page.getByTestId('price')).toHaveText('Price CVA FVA · 1 case × 2 markets');
+  // A scenario is no edit of the portfolio.
+  await expect(page.getByTestId('workspace-summary')).toContainText('0 edit(s)');
+
+  await command(page, 'price');
+  const result = page.getByTestId('xva-result');
+  await expect(result.getByTestId('xva-result-status')).toHaveText('succeeded');
+  const selector = result.getByRole('combobox', { name: 'Scenario' });
+  await expect(selector.locator('option')).toHaveText(['Base market', 'up']);
+  await expect(selector.locator('option:checked')).toHaveText('Base market');
+  const after = result.getByRole('table', { name: 'Metrics' }).getByRole('row', { name: /^Base / }).locator('td').nth(1);
+  await expect(after).toHaveText(/^-?[\d,]+\.\d\d$/);
+  const base = await after.innerText();
+
+  await selector.selectOption({ label: 'up' });
+  await expect(selector.locator('option:checked')).toHaveText('up');
+  await expect(after).toHaveText(/^-?[\d,]+\.\d\d$/);
+  await expect(after).not.toHaveText(base);
+  // Collapsed, the line a case is of the scenario in view, as the Metrics are.
+  await result.getByRole('button', { name: 'Collapse' }).click();
+  await expect(result.getByTestId('xva-result-lines').locator('p')).toHaveText([/^Base · CVA Diff /]);
+  const line = await result.getByTestId('xva-result-lines').innerText();
+  await selector.selectOption({ label: 'Base market' });
+  await expect(result.getByTestId('xva-result-lines')).not.toHaveText(line);
+
+  // Copy quote quotes the market in view, and names a scenario.
+  await selector.selectOption({ label: 'up' });
+  await result.getByRole('button', { name: 'Copy quote' }).click();
+  await expect(page.getByTestId('notice')).toContainText('under scenario up is on the clipboard');
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toMatch(/ · Revision \d+ · Scenario up · JPY\n/);
+});

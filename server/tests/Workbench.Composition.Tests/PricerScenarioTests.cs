@@ -328,5 +328,11 @@ public class PricerScenarioTests
         Assert.NotEqual(After(priced, "base", "ead"), After(priced, "s2", "ead"));
         Assert.Equal(After(priced, "base", "ead"), After(priced, "s3", "ead"));
         Assert.Equal(["base", "s1", "s2", "s3"], priced.Traces.Where(t => t.Measure == CcrMeasures.SpotCapital && t.Side == "after").Select(t => t.Scenario));
+        // Through its replacement cost, whose market value the curve shift revalues, and through its add-on, whose
+        // notionals the FX shift converts at another rate.
+        double Sum(string scenario, string kind) => priced.Traces.Single(t => t.Measure == CcrMeasures.SpotCapital && t.Side == "after" && t.Scenario == scenario)
+            .Trace.Terms.Where(t => t.Kind == kind).Sum(t => t.Value!.GetValue<double>());
+        Assert.NotEqual(Sum("base", "saccr.marketValue"), Sum("s1", "saccr.marketValue"));
+        Assert.NotEqual(Sum("base", "saccr.addOnAggregate"), Sum("s2", "saccr.addOnAggregate"));
     }
 }

@@ -12,6 +12,7 @@ import { ratesCommandsOf } from './rates/commands';
 import { RatesWorkspacePanel } from './rates/RatesWorkspacePanel';
 import { httpXvaApi, type XvaApi } from './xva/api';
 import { measureNamed, measuresTyped, setTyped, varyTyped, xvaPageOf } from './xva/commands';
+import { scenarioParts, scenarioTyped } from './xva/scenarios';
 import { XvaWorkspacePanel } from './xva/XvaWorkspacePanel';
 import { registerAiContext, registerAiEffect } from '../ai/effects';
 import { registerGridFocus } from '../shell/focus';
@@ -285,6 +286,22 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
       group: 'XVA',
       ...onXva,
       run: () => xvaPage().clearCases(),
+    },
+    // Scenarios (ADR-0010 §4): a named set of market-data shifts, priced under every case by the same Price.
+    {
+      id: 'xva.scenario',
+      words: 'scenario',
+      title: 'Define a scenario with all its shifts, such as scenario s1 jpy_ois +10bp; usdjpy -5%',
+      group: 'XVA',
+      ...onXva,
+      args: [{
+        name: 'scenario', required: true, rest: true, parts: scenarioParts,
+        hint: 'a name, then the shifts separated by semicolons: s1 jpy_ois +10bp; usdjpy -5%; jpy_ois 5y +3bp',
+      }],
+      run: (a) => {
+        const typed = scenarioTyped(a.scenario ?? '');
+        xvaPage().defineScenario(typed.name, typed.shifts);
+      },
     },
     {
       id: 'xva.run.download',

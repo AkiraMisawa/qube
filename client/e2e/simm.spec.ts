@@ -391,3 +391,29 @@ test('ADR-0012 §6, §7: the SIMM tab shows a card per direction, marks the regi
   await expect(children.locator('[data-governs="true"]').getByTestId('trace-governs')).toHaveText('Governs');
   await expect(children.locator('[data-governs="false"]').getByTestId('trace-governs')).toHaveText('Not governing');
 });
+
+test('ADR-0010 §4 with ADR-0012 §7: the SIMM tab draws the market the dock\'s scenario selector shows', async ({ page }) => {
+  await open(page);
+  await newWorkspace(page, 'ABC/LE-01', 3);
+  await selectSpotIm(page);
+  await command(page, 'scenario', 'rates jpy_ois +100bp; usd_sofr +100bp; usdjpy -10%');
+  await expect(page.getByTestId('price')).toHaveText(/ · 1 case × 2 markets$/);
+  await command(page, 'price');
+  const result = page.getByTestId('xva-result');
+  await expect(result.getByTestId('xva-result-status')).toHaveText('succeeded');
+
+  await command(page, 'open result', 'simm');
+  await expect(page.getByRole('tab', { name: 'SIMM', exact: true })).toHaveAttribute('aria-selected', 'true');
+  await settled(page, 'Terms');
+  const cards = page.getByTestId('trace-card');
+  await expect(cards).toHaveCount(2);
+  const ofBase = await cards.first().innerText();
+
+  // The scenario's trace is its own: its shifted curves and FX give another CRIF, so collect reads otherwise.
+  const selector = result.getByRole('combobox', { name: 'Scenario' });
+  await selector.selectOption({ label: 'rates' });
+  await expect(selector.locator('option:checked')).toHaveText('rates');
+  await settled(page, 'Terms');
+  await expect(cards).toHaveCount(2);
+  await expect(cards.first()).not.toHaveText(ofBase);
+});

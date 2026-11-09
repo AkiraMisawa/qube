@@ -193,6 +193,39 @@ export interface TradesAdded {
   readonly replaced: readonly string[];
 }
 
+/**
+ * A row of the Scenarios grid (ADR-0010 §4): one shift, the scenario it belongs to by name, and what it lacks, said on
+ * the row. The Category and the Shift type are derived from the index and the size; none is a guess.
+ */
+export interface ShiftRow {
+  readonly id: string;
+  readonly row: number;
+  readonly scenario: string | null;
+  readonly category: string | null;
+  readonly index: string | null;
+  readonly tenor: string | null;
+  readonly type: string | null;
+  readonly size: number | null;
+  readonly sizeText: string | null;
+  readonly description: string | null;
+  readonly issue: string | null;
+}
+
+/** A scenario as the list beside the grid shows it: its shift count, whether Price prices it, and what blocks it. */
+export interface ScenarioView {
+  readonly name: string;
+  readonly shifts: number;
+  readonly included: boolean;
+  readonly issue: string | null;
+}
+
+/** What a scenario command made, by name, and the scenarios of the same name it replaced (ADR-0010 §4). */
+export interface ScenariosMade {
+  readonly workspace: XvaWorkspaceView;
+  readonly made: readonly string[];
+  readonly replaced: readonly string[];
+}
+
 /** What `vary` made, by title, and each value it skipped with why (ADR-0010 §3). */
 export interface Varied {
   readonly workspace: XvaWorkspaceView;
@@ -268,6 +301,10 @@ export interface XvaWorkspaceView {
   readonly caseCap: number;
   /** How many changes the Changes tab lists, a case's among them. */
   readonly changes: number;
+  /** The scenarios in order of their first row, and every shift row in the order made (ADR-0010 §4). Price prices the
+   * base market and each included scenario, crossed with every case, and the cap counts those pairs. */
+  readonly scenarios: readonly ScenarioView[];
+  readonly shifts: readonly ShiftRow[];
 }
 
 export interface RowPage {

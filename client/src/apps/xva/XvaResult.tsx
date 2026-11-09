@@ -7,15 +7,16 @@ import { partHeight } from './layout';
 import { useDatasets, useRun } from '../../platform/workspace/WorkspaceProvider';
 import type { RegisteredMeasure } from './contracts';
 import { conversionOf, dockTabs, METRICS_TAB, unpricedReasons, type MeasureTab } from './dock';
-import { headlines, metricsGrid, metricsTable, pricedMeasures, reasons, tradeCounts, type MetricCell, type MetricLine, type ModuleResult } from './metrics';
+import { BASE_MARKET, headlines, inMarket, marketsOf, metricsGrid, metricsTable, pricedMeasures, reasons, tradeCounts, type MetricCell, type MetricLine, type ModuleResult } from './metrics';
 
 // The latest Price's Metrics, on the workspace page itself (ADR-0010 §7): a row per case, per priced measure Before,
 // After and Diff. They are read from the Run's retained results, never recomputed here, and say what they are:
 // simulated, of which revision, and whether the workspace has moved on since. Each module's figures show as its
 // request answers, and a failed request leaves only its own measures unavailable (§10). Collapsed, the dock is its
-// header and one line a case with each measure's headline Diff (§7).
+// header and one line a case with each measure's headline Diff (§7). A Run that priced scenarios shows one market at a
+// time, the base market first, chosen with the scenario selector; the Metrics, the line and the tabs follow it (§4).
 
-export function XvaResult({ runId, pricedRevision, revision, register, selected, onOpen, onCopyQuote, onTrace, open, onOpenChange, height, tab, onTab, full, onFull, traceCase, onTraceCase, renderTab }: {
+export function XvaResult({ runId, pricedRevision, revision, register, selected, onOpen, onCopyQuote, onTrace, open, onOpenChange, height, tab, onTab, full, onFull, traceCase, onTraceCase, scenario, onScenario, renderTab }: {
   readonly runId: string;
   /** The workspace revision the Run froze; unknown until the workspace lists the Run. */
   readonly pricedRevision: number | undefined;
@@ -25,11 +26,11 @@ export function XvaResult({ runId, pricedRevision, revision, register, selected,
   /** The measures selected now: a measure's own tab is shown while it is selected and the Run priced it (ADR-0010 §7). */
   readonly selected: readonly string[];
   readonly onOpen: () => void;
-  /** Copy quote (ADR-0010 §7), which the server reads from the Run alone. */
-  readonly onCopyQuote: () => void;
-  /** Opens a measure's trace for a case (ADR-0011 §6), from a Metrics cell of a measure that keeps one: at the term its
-   * metric names, or at the root (ADR-0010 §7's note of 2026-11-08). */
-  readonly onTrace: (measure: string, caseId: string, term: string | undefined) => void;
+  /** Copy quote (ADR-0010 §7), which the server reads from the Run alone, of the market in view (§4). */
+  readonly onCopyQuote: (scenario: string) => void;
+  /** Opens a measure's trace for a case under a market (ADR-0011 §6), from a Metrics cell of a measure that keeps one: at
+   * the term its metric names, or at the root (ADR-0010 §7's note of 2026-11-08). */
+  readonly onTrace: (measure: string, caseId: string, scenario: string, term: string | undefined) => void;
   /** The Metrics shown, or only a line a case. */
   readonly open: boolean;
   readonly onOpenChange: (open: boolean) => void;
@@ -44,11 +45,15 @@ export function XvaResult({ runId, pricedRevision, revision, register, selected,
   /** The case a measure's own tab draws, chosen with the dock's case selector, the Base by default (ADR-0010 §7). */
   readonly traceCase: string;
   readonly onTraceCase: (caseId: string) => void;
+  /** The market in view, chosen with the dock's scenario selector, the base market by default (ADR-0010 §4). */
+  readonly scenario: string;
+  readonly onScenario: (scenario: string) => void;
   /**
    * What a measure's own tab draws while it is shown, such as its trace, under what the page says of every figure in it
-   * (ADR-0012 §7), for the case in view: the one chosen where this Run priced it, else the Base.
+   * (ADR-0012 §7), for the case and the market in view: those chosen where this Run priced them, else the Base and the
+   * base market.
    */
-  readonly renderTab: (tab: MeasureTab, caption: string | undefined, caseId: string) => ReactNode;
+  readonly renderTab: (tab: MeasureTab, caption: string | undefined, caseId: string, scenario: string) => ReactNode;
 }) {
   const bodyId = useId();
   const run = useRun(runId);
@@ -78,7 +83,11 @@ export function XvaResult({ runId, pricedRevision, revision, register, selected,
     if (read?.isError === true) results[step.stepId] = { kind: 'unavailable', reason: `The result could not be read: ${read.error.message}` };
     else if (read?.data !== undefined) results[step.stepId] = { kind: 'rows', rows: read.data.rows };
   }
-  const table = priced === undefined ? undefined : metricsTable(register, priced, results);
+  const all = priced === undefined ? undefined : metricsTable(register, priced, results);
+  // The markets the Run priced, the base market first (ADR-0010 §4); one another Run priced is not this one's.
+  const markets = all === undefined ? [BASE_MARKET] : marketsOf(all);
+  const market = markets.find((m) => m.key === scenario) ?? BASE_MARKET;
+  const table = all === undefined ? undefined : inMarket(all, market.key);
   const grid = table === undefined ? undefined : metricsGrid(table);
   // A measure priced on no side has no trace to draw: its tab says why, as the Metrics do (ADR-0012 §1).
   const unpriced = shown.view === 'metrics' ? undefined : unpricedReasons(table, shown.measure);
@@ -127,6 +136,11 @@ export function XvaResult({ runId, pricedRevision, revision, register, selected,
         {currencies.length > 0 && (
           <Badge variant="light" color="gray" data-testid="xva-result-currency" title="The currency this Run's figures are in.">{currencies.join(' · ')}</Badge>
         )}
+        {markets.length > 1 && (
+          <NativeSelect size="xs" aria-label="Scenario" data-testid="xva-result-scenario" value={market.key}
+            title="The market the Metrics, the line a case and the tabs show: the base market, or a scenario this Run priced."
+            data={markets.map((m) => ({ value: m.key, label: m.title }))} onChange={(e) => onScenario(e.currentTarget.value)} />
+        )}
         {open && shown.view !== 'metrics' && cases.length > 1 && (
           <NativeSelect size="xs" aria-label="Case" data-testid="xva-result-case" value={inView} title={`The case the ${shown.title} tab draws.`}
             data={cases.map((c) => ({ value: c.key, label: c.title }))} onChange={(e) => onTraceCase(e.currentTarget.value)} />
@@ -136,8 +150,10 @@ export function XvaResult({ runId, pricedRevision, revision, register, selected,
         )}
         {/* A Run's actions (ADR-0010 §7): each once the Run has finished, Copy quote while it priced CVA. */}
         <Group gap="xs" ml="auto">
-          <Button size="compact-xs" variant="default" onClick={onCopyQuote} disabled={status === 'running' || !quotes}
-            title={quotes ? 'Copy what each case adds, as HTML and text, for a quote.' : `This Run did not price ${quotedNames}, so it has no quote.`}>Copy quote</Button>
+          <Button size="compact-xs" variant="default" onClick={() => onCopyQuote(market.key)} disabled={status === 'running' || !quotes}
+            title={!quotes ? `This Run did not price ${quotedNames}, so it has no quote.`
+              : market.key === BASE_MARKET.key ? 'Copy what each case adds, as HTML and text, for a quote.'
+                : `Copy what each case adds under ${market.title}, as HTML and text; the quote names the scenario.`}>Copy quote</Button>
           {status === 'running'
             ? <Button size="compact-xs" variant="default" disabled>Download</Button>
             : <Button size="compact-xs" variant="default" component="a" href={archiveUrl(runId)} download={`${runId}.zip`}>Download</Button>}
@@ -169,7 +185,7 @@ export function XvaResult({ runId, pricedRevision, revision, register, selected,
             ? <Text size="sm">The {shown.title} tab draws once the Run has finished.</Text>
             : unpriced !== undefined
               ? <Stack gap={0} data-testid="xva-result-tab-unpriced">{unpriced.map((r) => <Text key={r.text} size="sm" {...(r.failed ? { c: 'red' } : {})}>{r.text}</Text>)}</Stack>
-              : renderTab(shown, conversionOf(table, shown.measure), inView)}
+              : renderTab(shown, conversionOf(table, shown.measure), inView, market.key)}
         </div>
       )}
       {open && shown.view === 'metrics' && (
@@ -203,7 +219,7 @@ export function XvaResult({ runId, pricedRevision, revision, register, selected,
                         const caseId = line?.case;
                         const traced = status !== 'running' && caseId !== undefined && register.find((m) => m.id === line!.measure)?.traced === true;
                         return <Figure key={`${c.key}.${side}`} cell={line?.[side]} line={line} label={`${c.metricTitle} ${title}`}
-                          {...(traced ? { onTrace: () => onTrace(line!.measure, caseId, line!.term) } : {})} />;
+                          {...(traced ? { onTrace: () => onTrace(line!.measure, caseId, market.key, line!.term) } : {})} />;
                       }))}
                     </Table.Tr>
                   ))}

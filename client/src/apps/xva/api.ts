@@ -1,6 +1,6 @@
 import { call } from '../../platform/api';
 import type { RunRecord } from '../../platform/contracts';
-import type { CarrySummary, ChangesList, EffectiveTrade, Registration, Agreement, Resolution, RowPage, ScopeDrop, TradesAdded, Varied, XvaWorkspaceView } from './contracts';
+import type { CarrySummary, ChangesList, EffectiveTrade, Registration, Agreement, Resolution, RowPage, ScenariosMade, ScopeDrop, TradesAdded, Varied, XvaWorkspaceView } from './contracts';
 
 export interface RowQuery {
   readonly start: number;
@@ -53,8 +53,14 @@ export interface XvaApi {
   set(workspaceId: string, revision: number, rows: readonly string[], column: string, text: string): Promise<XvaWorkspaceView>;
   /** `add trades` (docs/03 §5): a case per New row with A ticked, each that trade alone; a set made before is replaced. */
   addTrades(workspaceId: string, revision: number): Promise<TradesAdded>;
-  /** Copy quote's content, read by the server from the Run alone (ADR-0010 §7). */
-  quote(runId: string): Promise<{ readonly text: string; readonly html: string }>;
+  /**
+   * `scenario s1 jpy_ois +10bp; usdjpy -5%` (ADR-0010 §4): the scenario of that name with every shift written, as typed,
+   * for the server to read; one of the same name is replaced, and the answer says so.
+   */
+  defineScenario(workspaceId: string, revision: number, name: string, shifts: string): Promise<ScenariosMade>;
+  /** Copy quote's content, read by the server from the Run alone (ADR-0010 §7), of the market named: the base by default.
+   * A scenario's quote names it, by the title the Run gave it. */
+  quote(runId: string, scenario?: string): Promise<{ readonly text: string; readonly html: string; readonly scenario?: string | null }>;
 }
 
 export const httpXvaApi: XvaApi = {
@@ -81,7 +87,8 @@ export const httpXvaApi: XvaApi = {
   vary: (workspaceId, revision, cell, values) => post(`${base(workspaceId)}/vary`, { revision, values, ...cell }),
   set: (workspaceId, revision, rows, column, text) => post(`${base(workspaceId)}/set`, { revision, rows, column, text }),
   addTrades: (workspaceId, revision) => post(`${base(workspaceId)}/add-trades`, { revision }),
-  quote: (runId) => call(`/api/xva/runs/${encodeURIComponent(runId)}/quote`),
+  defineScenario: (workspaceId, revision, name, shifts) => post(`${base(workspaceId)}/scenarios`, { revision, name, shifts }),
+  quote: (runId, scenario) => call(`/api/xva/runs/${encodeURIComponent(runId)}/quote${scenario === undefined ? '' : `?scenario=${encodeURIComponent(scenario)}`}`),
 };
 
 export type { EffectiveTrade };

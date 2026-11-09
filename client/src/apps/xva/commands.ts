@@ -21,6 +21,8 @@ export interface XvaPage {
   removeCase(name: string): void;
   /** Removes every case (`cases clear`). */
   clearCases(): void;
+  /** The scenario of that name with every shift written (`scenario s1 jpy_ois +10bp; usdjpy -5%`, ADR-0010 §4). */
+  defineScenario(name: string, shifts: string): void;
   /** Saves the Run the dock shows as a zip (`download run`, ADR-0010 §7). */
   downloadRun(): void;
   /** Puts the dock's Run's quote on the clipboard as HTML and text (`copy quote`, ADR-0010 §7). */

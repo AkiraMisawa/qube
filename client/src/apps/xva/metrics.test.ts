@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { RegisteredMeasure } from './contracts';
-import { headlines, metricsGrid, metricsTable, pricedMeasures, priceLabel, reasons, tradeCounts, type ModuleResult } from './metrics';
+import { headlines, inMarket, marketsOf, metricsGrid, metricsTable, pricedMeasures, priceLabel, reasons, tradeCounts, type ModuleResult } from './metrics';
 
 // The Metrics dock as a pure reading of the Run (ADR-0010 §7): a line per case and measure metric, Before, After and
 // Diff, and a status in words where there is no figure. Every name and figure is synthetic.
@@ -188,6 +188,36 @@ describe('priceLabel', () => {
   it('ADR-0010 §3: says when a side has no trade and will not be priced', () => {
     expect(priceLabel(register, ['cva', 'fva'], 1, { before: false, after: true })).toBe('Price After only · CVA FVA · 1 case');
     expect(priceLabel(register, ['cva'], 1, { before: true, after: false })).toBe('Price Before only · CVA · 1 case');
+  });
+
+  it('ADR-0010 §4: says the pairs it prices, cases crossed with the base market and each included scenario', () => {
+    expect(priceLabel(register, ['cva', 'fva'], 3, undefined, 3)).toBe('Price CVA FVA · 3 cases × 3 markets');
+    expect(priceLabel(register, ['cva'], 1, undefined, 2)).toBe('Price CVA · 1 case × 2 markets');
+  });
+});
+
+describe('markets', () => {
+  const under = (scenario: string, title: string, before: number, after: number) =>
+    [row('cva', 'cva', before, after, { scenario, scenarioTitle: title }), row('fva', 'fva', before / 10, after / 10, { scenario, scenarioTitle: title })];
+  const table = metricsTable(register, ['cva', 'fva'], { xva: answered([...under('base', 'Base market', -100, -150), ...under('s1', 'jpy_ois +50bp · usdjpy -10%', -100, -170)]) });
+
+  it('ADR-0010 §4: the scenario selector offers the base market first, then each scenario the Run priced', () => {
+    expect(marketsOf(table)).toEqual([{ key: 'base', title: 'Base market' }, { key: 's1', title: 'jpy_ois +50bp · usdjpy -10%' }]);
+  });
+
+  it('ADR-0010 §4, §7: the Metrics and the collapsed line follow the scenario in view', () => {
+    expect(metricsGrid(inMarket(table, 's1')).rows.map((r) => r.cells['cva.cva']?.after.text)).toEqual(['-170.00']);
+    expect(headlines(register, inMarket(table, 'base')).map((l) => l.text)).toEqual(['Workspace · CVA Diff -50.00 · FVA Diff -5.00']);
+    expect(headlines(register, inMarket(table, 's1')).map((l) => l.text)).toEqual(['Workspace · CVA Diff -70.00 · FVA Diff -7.00']);
+  });
+
+  it('ADR-0010 §4: a Run priced before scenarios is the base market alone, and a module not answered stands in every market', () => {
+    const before = metricsTable(register, ['cva'], { xva: answered([row('cva', 'cva', -1, -2), row('cva', 'cvaCharge', -1.25, -2.5)]) });
+    const pending = metricsTable(register, ['cva'], {});
+
+    expect(marketsOf(before)).toEqual([{ key: 'base', title: 'Base market' }]);
+    expect(inMarket(before, 'base').lines).toHaveLength(2);
+    expect(inMarket(pending, 's1').lines.map((l) => l.after.status)).toEqual(['pending', 'pending']);
   });
 });
 
