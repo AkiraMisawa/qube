@@ -78,12 +78,19 @@ registerAiContext(XVA_WORKSPACE, (panel) => panel.params.workspaceId === undefin
   description: 'The XVA workspace open in the active panel',
   value: JSON.stringify({ kind: 'xva.workspace', workspaceId: panel.params.workspaceId }),
 });
-for (const capability of ['xva.vary', 'xva.trades.add', 'xva.set'])
+// The scenario commands (ADR-0010 §4) likewise; a set the AI saved is offered by `scenario load` once read again.
+const XVA_EDITS = ['xva.vary', 'xva.trades.add', 'xva.set', 'xva.scenario', 'xva.scenario.include', 'xva.scenario.exclude', 'xva.scenario.remove',
+  'xva.scenario.ladder', 'xva.scenario.cross', 'xva.scenario.load'];
+for (const capability of XVA_EDITS)
   registerAiEffect(capability, (outputs, { queryClient }) => {
     const answer = outputs.answer as { readonly workspaceId: string };
     void queryClient.invalidateQueries({ queryKey: ['xva', answer.workspaceId] });
     return undefined;
   });
+registerAiEffect('xva.scenario.save', (_outputs, { queryClient }) => {
+  void queryClient.invalidateQueries({ queryKey: ['xva', 'scenario-sets'] });
+  return undefined;
+});
 for (const capability of ['rates.live.start', 'rates.live.stop'])
   registerAiEffect(capability, (outputs, { queryClient }) => {
     const subscription = outputs.subscription as { readonly workspaceId: string };

@@ -100,12 +100,24 @@ static class PortfolioCommand
     public static string Text(JsonNode request, string name) =>
         request[name]?.GetValue<string>() ?? throw new CapabilityFailure("InvalidInput", $"The request has no {name}.");
 
+    /// <summary>An optional field: absent is none, never a value made up for it.</summary>
+    public static string? Optional(JsonNode request, string name) => request[name]?.GetValue<string>();
+
     /// <summary>
     /// Runs a command for its caller on the revision the request names, or the one the workspace holds when it names none,
     /// and answers the revision it left and what it said; the workspace service's refusal is the command's, by code.
     /// </summary>
     public static Task<IReadOnlyDictionary<string, JsonNode?>> Run(CapabilityInvocation invocation, Func<PortfolioWorkspaces> workspaces,
-        Func<PortfolioWorkspaces, JsonNode, Caller, long, (WorkspaceState State, int? Made, string Said)> act)
+        Func<PortfolioWorkspaces, JsonNode, Caller, long, (WorkspaceState State, int? Made, string Said)> act) =>
+        Answer(invocation, workspaces, (service, request, caller, revision) =>
+        {
+            var (state, made, said) = act(service, request, caller, revision);
+            return (state.WorkspaceId, state.Revision, made, said);
+        });
+
+    /// <summary>As <see cref="Run"/>, for a command that may leave the workspace where it stands, such as a save.</summary>
+    public static Task<IReadOnlyDictionary<string, JsonNode?>> Answer(CapabilityInvocation invocation, Func<PortfolioWorkspaces> workspaces,
+        Func<PortfolioWorkspaces, JsonNode, Caller, long, (string WorkspaceId, long Revision, int? Made, string Said)> act)
     {
         var caller = invocation.Caller ?? throw new CapabilityFailure("NoCaller", "A command is invoked for a caller, through the command gateway.");
         var request = invocation.Inputs["request"] ?? throw new CapabilityFailure("InvalidInput", "The command takes a request.");
@@ -114,8 +126,8 @@ static class PortfolioCommand
         {
             var workspaceId = Text(request, "workspaceId");
             var revision = request["revision"]?.GetValue<long>() ?? service.Revision(workspaceId, caller.UserId);
-            var (state, made, said) = act(service, request, caller, revision);
-            var answer = new JsonObject { ["workspaceId"] = state.WorkspaceId, ["revision"] = state.Revision, ["said"] = said };
+            var (id, at, made, said) = act(service, request, caller, revision);
+            var answer = new JsonObject { ["workspaceId"] = id, ["revision"] = at, ["said"] = said };
             if (made is { } count) answer["made"] = count;
             return Task.FromResult<IReadOnlyDictionary<string, JsonNode?>>(new Dictionary<string, JsonNode?> { ["answer"] = answer });
         }
@@ -137,6 +149,7 @@ public sealed class PortfolioCommandsModule(Func<PortfolioWorkspaces> workspaces
         builder.AddCapability(new PortfolioVary(workspaces));
         builder.AddCapability(new PortfolioTradesAdd(workspaces));
         builder.AddCapability(new PortfolioSet(workspaces));
+        PortfolioScenarioCommands.Register(builder, workspaces);
         JsonObject Workspace() => new() { ["type"] = "string", ["minLength"] = 1, ["title"] = "Workspace", ["description"] = "The XVA workspace's id, as the context names it." };
         JsonObject Revision() => new()
         {

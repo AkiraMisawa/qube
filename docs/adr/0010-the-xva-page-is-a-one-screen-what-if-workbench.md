@@ -220,7 +220,12 @@ variants the workspace is one case.
   `all` says otherwise; a user's desk is configuration (`Workbench:Desks`), and `desk` without one is refused. Only its
   owner replaces a set (and an administrator, once roles exist, C32). `scenario load <set>` adds the set's scenarios,
   replacing those of the same name, and says what it replaced; a name that two sets the user can see share is refused,
-  naming their owners, and `<set>@<owner>` picks one.
+  naming their owners, and `<set>@<owner>` picks one. A set's name is one word without `@`, so `desk` or `all` can
+  follow it. *(The store is the kernel's, generic over kinds, as saved workflows and views will be (C32): it keeps
+  an item by kind, owner and name and decides who sees it, and never reads what the item holds. `xva.scenario.save`'s
+  effect is `SaveItem`, DEFAULT 2026-11-09: it changes no workspace, so it is not `EditWorkspace`, yet it keeps
+  something for its caller, which no Run may do; `SaveItem` joins `EditWorkspace`, `Subscribe` and `ReadRun` as an
+  effect that makes a capability a command, as ADR-0011 added `ReadRun`.)*
 
 ### 5. FVA prices only imperfectly collateralised CSAs (CONFIRMED, owner 2026-11-06; XVA's registration)
 

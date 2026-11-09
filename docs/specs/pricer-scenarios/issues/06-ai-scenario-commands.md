@@ -6,8 +6,8 @@ service, logged with the caller's origin, and the open page picking up what the 
 
 **Blocked by:** 01, 04, 05.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Each capability is listed as a tool with its contract, and its refusals are the command line's, by code.
-- [ ] A scenario the AI defines is in the log with origin `ai`, and a revision the AI moved is refused when stale.
-- [ ] A cross asked of the AI is one generator call.
+- [x] Each capability is listed as a tool with its contract, and its refusals are the command line's, by code.
+- [x] A scenario the AI defines is in the log with origin `ai`, and a revision the AI moved is refused when stale.
+- [x] A cross asked of the AI is one generator call.

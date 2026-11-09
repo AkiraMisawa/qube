@@ -357,7 +357,8 @@
               "persistAnalysis",
               "editWorkspace",
               "subscribe",
-              "readRun"
+              "readRun",
+              "saveItem"
             ]
           },
           "minItems": 0

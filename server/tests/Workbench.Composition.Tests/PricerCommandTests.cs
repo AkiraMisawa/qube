@@ -112,4 +112,64 @@ public class PricerCommandTests(WorkbenchFactory factory) : IClassFixture<Workbe
             (error["code"]!.GetValue<string>(), error["message"]!.GetValue<string>()));
         Assert.Equal(["Base"], (await View(id))["cases"]!.AsArray().Select(c => c!["title"]!.GetValue<string>()));
     }
+
+    [Fact] // ADR-0005, ADR-0010 §4: each scenario command is a tool with its contract, the fields the command line takes
+    public void Each_scenario_command_is_offered_to_the_agent_with_its_contract()
+    {
+        var tools = factory.Services.GetRequiredService<AgentToolGateway>().Tools.ToDictionary(t => t.Name);
+
+        string[] Fields(string tool) => [.. tools[tool].Parameters["properties"]!["request"]!["properties"]!.AsObject().Select(p => p.Key)];
+        string[] Required(string tool) => [.. tools[tool].Parameters["properties"]!["request"]!["required"]!.AsArray().Select(r => r!.GetValue<string>())];
+        Assert.Equal(["workspaceId", "revision", "name", "shifts"], Fields("xva_scenario"));
+        Assert.Equal(["workspaceId", "name", "shifts"], Required("xva_scenario"));
+        foreach (var verb in new[] { "include", "exclude", "remove" }) Assert.Equal(["workspaceId", "revision", "name"], Fields($"xva_scenario_{verb}"));
+        foreach (var generator in new[] { "ladder", "cross" }) Assert.Equal(["workspaceId", "text"], Required($"xva_scenario_{generator}"));
+        Assert.Equal(["workspaceId", "revision", "set", "share"], Fields("xva_scenario_save"));
+        Assert.Equal(["workspaceId", "set"], Required("xva_scenario_save"));
+        Assert.Equal(["workspaceId", "revision", "set"], Fields("xva_scenario_load"));
+    }
+
+    [Fact] // ADR-0010 §4, ADR-0005: a scenario the AI defines is in the log as the AI's, and a revision the AI moved is refused when stale
+    public async Task A_scenario_the_ai_defines_is_logged_as_the_ais_and_a_stale_revision_is_refused()
+    {
+        var ws = await Create();
+        var id = ws["workspaceId"]!.GetValue<string>();
+        var revision = ws["revision"]!.GetValue<long>();
+
+        var defined = await Ok(await Command("xva.scenario", new JsonObject { ["workspaceId"] = id, ["revision"] = revision, ["name"] = "up", ["shifts"] = "jpy_ois +10bp; usdjpy -5%" }));
+        var excluded = await Ok(await Command("xva.scenario.exclude", new JsonObject { ["workspaceId"] = id, ["name"] = "up" }));
+        var stale = await Command("xva.scenario", new JsonObject { ["workspaceId"] = id, ["revision"] = revision, ["name"] = "down", ["shifts"] = "jpy_ois -10bp" });
+
+        Assert.Equal(("Made the scenario up.", 1), (defined["said"]!.GetValue<string>(), defined["made"]!.GetValue<int>()));
+        Assert.Equal("Price leaves the scenario up out; its shifts stay.", excluded["said"]!.GetValue<string>());
+        var made = factory.Services.GetRequiredService<WorkspaceService>().Find(id)!.Log.Where(e => e.Seq > revision).ToList();
+        Assert.Equal(3, made.Count);
+        Assert.All(made, e => Assert.Equal(RunOrigin.Ai, e.Origin));
+        Assert.Equal(HttpStatusCode.Conflict, stale.StatusCode);
+        Assert.Equal("RevisionMoved", (await stale.Content.ReadFromJsonAsync<JsonObject>())!["code"]!.GetValue<string>());
+        Assert.Equal([("up", false)], (await View(id))["scenarios"]!.AsArray().Select(s => (s!["name"]!.GetValue<string>(), s["included"]!.GetValue<bool>())));
+    }
+
+    [Fact] // ADR-0010 §4: a cross asked of the AI is one generator call, saved and loaded as the command line does, refusals by code
+    public async Task A_cross_asked_of_the_ai_is_one_generator_call_and_its_set_saves_and_loads()
+    {
+        var id = (await Create())["workspaceId"]!.GetValue<string>();
+
+        var crossed = await Ok(await Command("xva.scenario.cross", new JsonObject { ["workspaceId"] = id, ["text"] = "jpy_ois -50bp, 0, +50bp x usdjpy -10%, 0, +10%" }));
+        var saved = await Ok(await Command("xva.scenario.save", new JsonObject { ["workspaceId"] = id, ["set"] = "ai-cross", ["share"] = "all" }));
+        var other = (await Create())["workspaceId"]!.GetValue<string>();
+        var loaded = await Ok(await Command("xva.scenario.load", new JsonObject { ["workspaceId"] = other, ["set"] = "ai-cross" }));
+        var refused = await Command("xva.scenario", new JsonObject { ["workspaceId"] = other, ["name"] = "up", ["shifts"] = "jpy_ois +10%" });
+        var removed = await Ok(await Command("xva.scenario.remove", new JsonObject { ["workspaceId"] = other, ["name"] = "jpy_ois +50bp" }));
+
+        Assert.Equal(8, crossed["made"]!.GetValue<int>());
+        Assert.StartsWith("Made 8 scenario(s): jpy_ois -50bp · usdjpy -10%, ", crossed["said"]!.GetValue<string>());
+        Assert.Matches(@"^Saved 8 scenario\(s\) as the set ai-cross, for every user(, replacing your ai-cross)?\.$", saved["said"]!.GetValue<string>());
+        Assert.Equal(8, loaded["made"]!.GetValue<int>());
+        Assert.StartsWith("Loaded 8 scenario(s) from ai-cross: ", loaded["said"]!.GetValue<string>());
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, refused.StatusCode);
+        Assert.Equal("InvalidShift", (await refused.Content.ReadFromJsonAsync<JsonObject>())!["code"]!.GetValue<string>());
+        Assert.Equal("Removed the scenario jpy_ois +50bp.", removed["said"]!.GetValue<string>());
+        Assert.Equal(7, (await View(other))["scenarios"]!.AsArray().Count);
+    }
 }
