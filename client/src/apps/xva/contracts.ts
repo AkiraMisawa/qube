@@ -239,6 +239,30 @@ export interface ScenariosMade {
   readonly replaced: readonly string[];
 }
 
+/** Who sees a saved set besides its owner (C32): no one, the owner's desk, or every user. */
+export type SetVisibility = 'private' | 'desk' | 'all';
+
+/** What `scenario save` says back (ADR-0010 §4): the set as saved, its scenarios, and whether it replaced the user's own. */
+export interface SetSaved {
+  readonly set: string;
+  readonly owner: string;
+  readonly visibility: SetVisibility;
+  readonly desk?: string | null;
+  readonly scenarios: number;
+  readonly replaced: boolean;
+}
+
+/** A saved set the user can see, and the name `scenario load` takes for it: its name, or `<set>@<owner>` where two share it. */
+export interface ScenarioSetView {
+  readonly label: string;
+  readonly name: string;
+  readonly owner: string;
+  readonly visibility: SetVisibility;
+  readonly desk?: string | null;
+  readonly savedAt: string;
+  readonly scenarios: number;
+}
+
 /** What `vary` made, by title, and each value it skipped with why (ADR-0010 §3). */
 export interface Varied {
   readonly workspace: XvaWorkspaceView;

@@ -74,7 +74,7 @@ describe('completing arguments one slot at a time (ADR-0006 §4)', () => {
 
     const bad = readLine('new irs JPY TONA ten spread=1 extra', [irs]);
     if (bad.kind !== 'arguments') throw new Error('not chosen');
-    expect(finish(bad)).toEqual({ problems: ['new irs has no option spread.', 'end: a tenor such as 10y'] });
+    expect(finish(bad)).toEqual({ problems: ['new irs has no option spread.', 'new irs takes no more values: extra.', 'end: a tenor such as 10y'] });
   });
 
   it('keeps the rest of the line for a request to the AI', () => {

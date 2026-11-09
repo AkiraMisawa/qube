@@ -8,11 +8,11 @@ load` from the sets the user can see.
 
 **Blocked by:** 01.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] A private set is seen by its owner alone, a desk's by that desk, one for all by every user.
-- [ ] Saving again replaces the owner's set; another user cannot replace it.
-- [ ] `desk` from a user with no desk is refused by name.
-- [ ] Load adds the scenarios, replaces those of the same name and says so; an ambiguous name is refused naming the
+- [x] A private set is seen by its owner alone, a desk's by that desk, one for all by every user.
+- [x] Saving again replaces the owner's set; another user cannot replace it.
+- [x] `desk` from a user with no desk is refused by name.
+- [x] Load adds the scenarios, replaces those of the same name and says so; an ambiguous name is refused naming the
       owners.
-- [ ] A set saved before a restart loads after it (SQLite).
+- [x] A set saved before a restart loads after it (SQLite).

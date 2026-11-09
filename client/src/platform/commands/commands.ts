@@ -214,6 +214,8 @@ export function finish(reading: Extract<LineReading, { kind: 'arguments' }>): { 
   // A rest of words is given whole; what is typed now is only its last word.
   if (slot !== undefined && typed !== '' && slot.words !== true) args[slot.name] = typed;
   const problems = [...reading.problems];
+  // A value typed last once every slot is filled is one more than the command takes, as one typed before it is.
+  if (slot === undefined && typed !== '') problems.push(`${command.words} takes no more values: ${typed}.`);
   const missing = (command.args ?? []).filter((a) => a.required && (args[a.name] ?? '') === '').map((a) => a.name);
   if (missing.length > 0) problems.push(`Missing: ${missing.join(', ')}.`);
   for (const arg of command.args ?? []) {

@@ -1,4 +1,4 @@
-import type { RegisteredMeasure } from './contracts';
+import type { RegisteredMeasure, ScenarioSetView } from './contracts';
 import type { DockTab } from './dock';
 import type { InputTab } from './XvaInputs';
 
@@ -33,6 +33,12 @@ export interface XvaPage {
   clearScenarios(): void;
   /** A set of scenarios at once (`scenario ladder jpy_ois -50bp..+50bp step 10bp`, `scenario cross …`, ADR-0010 §4). */
   generateScenarios(generator: 'ladder' | 'cross', text: string): void;
+  /** Saves every scenario as a set, for the user alone unless shared (`scenario save rates desk`, ADR-0010 §4, C32). */
+  saveScenarios(set: string, share?: 'desk' | 'all'): void;
+  /** Adds a saved set's scenarios, replacing those of the same name (`scenario load rates`, `scenario load rates@ben`). */
+  loadScenarios(set: string): void;
+  /** The saved sets the user can see, as last read, for the command line to offer. */
+  scenarioSets(): readonly ScenarioSetView[];
   /** The cases Price prices and its cap of pairs, for a generator's preview to count against. */
   pricing(): { readonly cases: number; readonly cap: number } | undefined;
   /** The workspace's scenarios, for the command line to offer. */

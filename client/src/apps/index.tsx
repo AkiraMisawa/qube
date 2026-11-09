@@ -157,8 +157,8 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
   const scenarioNames = (keep: (s: { readonly included: boolean }) => boolean = () => true) =>
     (xvaPageOf(xva)?.scenarios() ?? []).filter(keep).map((s) => ({ value: s.name, detail: `${s.shifts} shift(s)${s.included ? '' : ', excluded'}` }));
   /** A scenario's name as typed; none is refused here by name, the server refuses one it does not hold. */
-  const scenarioNamed = (name: string | undefined, words: string): string => {
-    if (name === undefined || name.trim() === '') throw new Error(`${words} needs the scenario's name.`);
+  const scenarioNamed = (name: string | undefined, words: string, what = 'the scenario\'s name'): string => {
+    if (name === undefined || name.trim() === '') throw new Error(`${words} needs ${what}.`);
     return name.trim();
   };
   const onTraceView = trace !== undefined ? { target: trace.title } : xvaPanel !== undefined ? { target: xvaPanel.title }
@@ -368,6 +368,37 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
           xvaPage().generateScenarios(generator, a[generator]);
         },
       })),
+    // Saved sets (ADR-0010 §4, C32): every scenario of the workspace, for oneself, the desk or all, loaded into another.
+    {
+      id: 'xva.scenario.save',
+      words: 'scenario save',
+      title: 'Save every scenario as a set, for yourself alone unless shared with your desk or all, such as scenario save rates desk',
+      group: 'XVA',
+      ...onXva,
+      args: [{ name: 'set', required: true, rest: true, hint: 'the set\'s name, one word such as rates-up, then desk or all to share it' }],
+      run: (a) => {
+        const [set, share, ...more] = scenarioNamed(a.set, 'scenario save', 'the set\'s name').split(/\s+/);
+        const shared = share?.toLowerCase();
+        if (more.length > 0) throw new Error(`scenario save takes a set's name and desk or all, not ${more.join(' ')} after them.`);
+        if (shared !== undefined && shared !== 'desk' && shared !== 'all') throw new Error(`scenario save shares a set with desk or all, not ${share}.`);
+        xvaPage().saveScenarios(scenarioNamed(set, 'scenario save', 'the set\'s name'), shared);
+      },
+    },
+    {
+      id: 'xva.scenario.load',
+      words: 'scenario load',
+      title: 'Add a saved set\'s scenarios, replacing those of the same name, such as scenario load rates',
+      group: 'XVA',
+      ...onXva,
+      args: [{
+        name: 'set', required: true, hint: 'a set you can see; set@owner where two share a name',
+        complete: () => (xvaPageOf(xva)?.scenarioSets() ?? []).map((s) => ({
+          value: s.label,
+          detail: `${s.scenarios} scenario(s), for ${s.visibility === 'all' ? 'all' : s.visibility === 'desk' ? 'the desk' : 'you alone'}, saved by ${s.owner}`,
+        })),
+      }],
+      run: (a) => xvaPage().loadScenarios(scenarioNamed(a.set, 'scenario load', 'the set\'s name')),
+    },
     {
       id: 'xva.scenarios.clear',
       words: 'scenarios clear',

@@ -42,6 +42,8 @@ public static class XvaApi
     public sealed record DuplicateRequest(long Revision, string Name, string Copy);
     /// <summary><c>scenario ladder …</c> or <c>scenario cross …</c>: the generator and its text as typed.</summary>
     public sealed record GenerateRequest(long Revision, string Generator, string Text);
+    public sealed record SaveSetRequest(long Revision, string Set, string? Share = null);
+    public sealed record LoadSetRequest(long Revision, string Set);
     /// <summary>What a scenario command made, and those of the same name it replaced.</summary>
     public sealed record ScenariosMade(PortfolioWorkspaceView Workspace, IReadOnlyList<string> Made, IReadOnlyList<string> Replaced);
     public sealed record ValueDateRequest(long Revision, DateOnly ValueDate);
@@ -170,6 +172,18 @@ public static class XvaApi
             return Results.Ok(new ScenariosMade(service.View(id, user.Id), answer.Made, answer.Replaced));
         }));
 
+        // Saved sets (ADR-0010 §4, C32): the user's, their desk's and all's; load adds a set's scenarios to the workspace.
+        ws.MapPost("/{id}/scenarios/save", (string id, SaveSetRequest request, CurrentUser user, PortfolioWorkspaces service) =>
+            Guard(() => Results.Ok(service.SaveScenarios(id, request.Revision, user.Id, request.Set, request.Share))));
+
+        ws.MapPost("/{id}/scenarios/load", (string id, LoadSetRequest request, CurrentUser user, PortfolioWorkspaces service) => Guard(() =>
+        {
+            var answer = service.LoadScenarios(id, request.Revision, user.Id, request.Set);
+            return Results.Ok(new ScenariosMade(service.View(id, user.Id), answer.Made, answer.Replaced));
+        }));
+
+        api.MapGet("/scenario-sets", (CurrentUser user, PortfolioWorkspaces service) => Guard(() => Results.Ok(service.ScenarioSets(user.Id))));
+
         ws.MapPost("/{id}/scenarios/clear", (string id, CaseRequest request, CurrentUser user, PortfolioWorkspaces service) => Guard(() =>
         {
             service.ClearScenarios(id, request.Revision, user.Id);
@@ -256,7 +270,7 @@ public static class XvaApi
             var issues = refused.Targets.Select(t => new CompositionIssue(refused.Code, $"/{t.Entity}/{t.Field}", refused.Message)).ToList();
             var status = refused.Code switch
             {
-                "UnknownWorkspace" or "UnknownRun" or "UnknownScenario" => 404,
+                "UnknownWorkspace" or "UnknownRun" or "UnknownScenario" or "UnknownSaved" => 404,
                 "NotOwner" => 403,
                 "RevisionMoved" or "ConfirmationStale" or "UnresolvedEdits" or "ConflictUnresolved" or "RunRunning" => 409,
                 _ => 422,

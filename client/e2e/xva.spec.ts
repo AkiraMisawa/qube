@@ -670,3 +670,30 @@ test('ADR-0010 §4: `scenario cross` says what it makes against the cap as it is
   await expect(page.getByRole('tab', { name: 'Scenarios (8)' })).toBeVisible();
   await expect(page.getByTestId('price')).toHaveText('Price CVA · 1 case × 9 markets');
 });
+
+test('ADR-0010 §4, C32: `scenario save` keeps every scenario as a set, and `scenario load` offers it and adds it to another workspace', async ({ page }) => {
+  await open(page);
+  await newWorkspace(page, 'ABC/LE-01', 3);
+  await command(page, 'measures', 'cva');
+  await command(page, 'scenario', 'up jpy_ois +10bp; usdjpy -5%');
+  await command(page, 'scenario', 'down jpy_ois -10bp');
+  await command(page, 'scenario exclude', 'down');
+  await expect(page.getByTestId('price')).toHaveText('Price CVA · 1 case × 2 markets');
+
+  // Saved again by its owner, a set replaces their own: a repeated run says so.
+  await command(page, 'scenario save', 'e2e-rates all');
+  await expect(page.getByTestId('notice')).toHaveText(/^Saved 2 scenario\(s\) as the set e2e-rates, for every user(, replacing your e2e-rates)?\.$/);
+
+  await newWorkspace(page, 'XYZ/LE-03', 3);
+  await command(page, 'measures', 'cva');
+  await page.keyboard.press('ControlOrMeta+K');
+  await page.keyboard.type('scenario load e2e');
+  await expect(page.getByRole('listbox').getByRole('option', { name: /^e2e-rates / })).toContainText('2 scenario(s), for all, saved by');
+  await page.keyboard.type('-rates');
+  await page.keyboard.press('Enter');
+
+  await expect(page.getByTestId('notice')).toHaveText('Loaded 2 scenario(s) from e2e-rates: up, down.');
+  await expect(page.getByRole('tab', { name: 'Scenarios (2)' })).toBeVisible();
+  // Each scenario is included as it was saved.
+  await expect(page.getByTestId('price')).toHaveText('Price CVA · 1 case × 2 markets');
+});

@@ -327,4 +327,30 @@ public class PricerApiTests(WorkbenchFactory factory) : IClassFixture<WorkbenchF
         ws = await Ok("scenarios/clear", new { revision = Revision(ws) });
         Assert.Empty(ws["scenarios"]!.AsArray());
     }
+
+    [Fact] // ADR-0010 §4, C32: a set is saved, listed for the user and loaded into another workspace over HTTP
+    public async Task A_scenario_set_is_saved_listed_and_loaded_over_http()
+    {
+        var ws = await Create();
+        var defined = await Post(ws, "scenarios", new { revision = Revision(ws), name = "up", shifts = "jpy_ois +10bp" });
+        ws = (await defined.Content.ReadFromJsonAsync<JsonObject>())!["workspace"]!.AsObject();
+
+        var saved = await Post(ws, "scenarios/save", new { revision = Revision(ws), set = "http-set", share = "all" });
+        Assert.Equal(HttpStatusCode.OK, saved.StatusCode);
+        var said = (await saved.Content.ReadFromJsonAsync<JsonObject>())!;
+        Assert.Equal(("http-set", "all", 1), (said["set"]!.GetValue<string>(), said["visibility"]!.GetValue<string>(), said["scenarios"]!.GetValue<int>()));
+        var desk = await Post(ws, "scenarios/save", new { revision = Revision(ws), set = "http-set", share = "desk" });
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, desk.StatusCode);
+
+        var sets = (await client.GetFromJsonAsync<JsonArray>("/api/xva/scenario-sets"))!;
+        Assert.Contains(sets, s => s!["label"]!.GetValue<string>() == "http-set" && s["owner"]!.GetValue<string>() == "akira");
+        var other = await Create();
+        var loaded = await Post(other, "scenarios/load", new { revision = Revision(other), set = "http-set" });
+        Assert.Equal(HttpStatusCode.OK, loaded.StatusCode);
+        var answer = (await loaded.Content.ReadFromJsonAsync<JsonObject>())!;
+        Assert.Equal(["up"], answer["made"]!.AsArray().Select(m => m!.GetValue<string>()));
+        Assert.Equal(["up"], answer["workspace"]!["scenarios"]!.AsArray().Select(s => s!["name"]!.GetValue<string>()));
+        var unknown = await Post(other, "scenarios/load", new { revision = Revision(answer["workspace"]!.AsObject()), set = "no-such-set" });
+        Assert.Equal(HttpStatusCode.NotFound, unknown.StatusCode);
+    }
 }

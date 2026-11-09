@@ -1,4 +1,4 @@
-import type { ScenariosMade, ShiftEdit, ShiftRow } from './contracts';
+import type { ScenariosMade, SetSaved, ShiftEdit, ShiftRow } from './contracts';
 
 // Scenarios on the command line (ADR-0010 §4 and its note of 2026-11-09): what the page reads of a line before the
 // server reads the shifts. Which index, tenor or size a word is, and whether a shift resolves, is the server's to say;
@@ -114,6 +114,20 @@ function editsOver(rows: readonly ShiftGridRow[], targets: readonly GridRange[],
 /** What a generator said back: how many it made, and those of the same name it replaced. */
 export const generatedText = ({ made, replaced }: Pick<ScenariosMade, 'made' | 'replaced'>): string =>
   `Made ${made.length} scenario(s)${replaced.length === 0 ? '' : `, replacing ${replaced.length} of the same name`}: ${made.join(', ')}.`;
+
+/** What `scenario save` says (ADR-0010 §4): the set, how many scenarios it holds, who sees it, and what it replaced. */
+export const savedText = (saved: SetSaved): string => {
+  const desk = () => {
+    if (saved.desk === undefined || saved.desk === null) throw new Error(`The set ${saved.set} is shared with a desk the server did not name.`);
+    return saved.desk;
+  };
+  const who = saved.visibility === 'all' ? 'every user' : saved.visibility === 'desk' ? `the desk ${desk()}` : 'you alone';
+  return `Saved ${saved.scenarios} scenario(s) as the set ${saved.set}, for ${who}${saved.replaced ? `, replacing your ${saved.set}` : ''}.`;
+};
+
+/** What `scenario load` says: the set's scenarios, and those of the same name it replaced. */
+export const loadedText = (set: string, { made, replaced }: Pick<ScenariosMade, 'made' | 'replaced'>): string =>
+  `Loaded ${made.length} scenario(s) from ${set}${replaced.length === 0 ? '' : `, replacing ${replaced.join(', ')}`}: ${made.join(', ')}.`;
 
 /** What the list's and the commands' answers say. */
 export const includedText = (name: string, included: boolean) =>

@@ -514,6 +514,61 @@ public static partial class PortfolioScenarios
         return (changes, replaced);
     }
 
+    /// <summary>The kind a saved scenario set has among saved items (C32).</summary>
+    public const string SetKind = "portfolio.scenarioSet";
+
+    /// <summary>
+    /// The workspace's scenarios as a saved set holds them (ADR-0010 §4): every one, included or not, by name, with
+    /// whether it is included and its rows' fields as they stand, so a row not yet complete loads as it was.
+    /// </summary>
+    public static JsonObject SetOf(WorkspaceState state)
+    {
+        var excluded = ExcludedNames(state);
+        var rows = Raw(state).Zip(Rows(state), (raw, row) => (row.Scenario, raw.Fields)).Where(r => r.Scenario is not null);
+        return new JsonObject
+        {
+            ["scenarios"] = new JsonArray([.. rows.GroupBy(r => r.Scenario!, StringComparer.OrdinalIgnoreCase).Select(g => (JsonNode)new JsonObject
+            {
+                ["name"] = g.First().Scenario,
+                ["included"] = !excluded.Contains(g.Key),
+                ["rows"] = new JsonArray([.. g.Select(r => (JsonNode)new JsonObject([.. RowFields.Where(f => f != "scenario")
+                    .Select(f => KeyValuePair.Create(f, r.Fields[f]?.DeepClone()))]))]),
+            })]),
+        };
+    }
+
+    /// <summary>
+    /// <c>scenario load &lt;set&gt;</c> (ADR-0010 §4): the set's scenarios added in one batch, each replacing the rows of one
+    /// of its name and included or excluded as it was saved. Returns the names it made and those it replaced.
+    /// </summary>
+    public static (IReadOnlyList<WorkspaceChange> Changes, IReadOnlyList<string> Made, IReadOnlyList<string> Replaced) Load(WorkspaceState state, JsonNode set, long revision)
+    {
+        var scenarios = (set["scenarios"] as JsonArray ?? throw new InvalidOperationException("A saved scenario set holds its scenarios."))
+            .Select(s => (Name: s!["name"]!.GetValue<string>(), Included: s["included"]!.GetValue<bool>(), Rows: s["rows"]!.AsArray()))
+            .ToList();
+        var rows = Rows(state);
+        var changes = new List<WorkspaceChange>();
+        var replaced = new List<string>();
+        foreach (var (name, _, _) in scenarios)
+        {
+            var gone = rows.Where(r => Same(r.Scenario, name)).ToList();
+            if (gone.Count > 0) replaced.Add(name);
+            changes.AddRange(gone.Select(r => (WorkspaceChange)new WorkspaceChange.Remove(Entity.Of(ShiftKind, r.Id))));
+        }
+        foreach (var (name, _, saved) in scenarios)
+            foreach (var row in saved)
+            {
+                var fields = new JsonObject([.. RowFields.Select(f => KeyValuePair.Create(f, f == "scenario" ? (JsonNode?)JsonValue.Create(name) : row![f]?.DeepClone()))]);
+                changes.Add(new WorkspaceChange.Create(PortfolioEditRules.WorkspaceScope, Entity.Of(ShiftKind, $"s{revision + 1 + changes.Count}"), fields));
+            }
+        var before = ExcludedNames(state);
+        var excluded = new HashSet<string>(before, StringComparer.OrdinalIgnoreCase);
+        foreach (var (name, included, _) in scenarios)
+            if (included) excluded.Remove(name); else excluded.Add(name);
+        if (!excluded.SetEquals(before)) changes.Add(Leaving(state, excluded));
+        return (changes, [.. scenarios.Select(s => s.Name)], replaced);
+    }
+
     /// <summary>A shift row's fields as created: the scenario's name, the shift, no description.</summary>
     public static JsonObject Fields(string scenario, Shift shift, string? description = null) => new()
     {

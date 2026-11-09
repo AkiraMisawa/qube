@@ -1,6 +1,6 @@
 import { call } from '../../platform/api';
 import type { RunRecord } from '../../platform/contracts';
-import type { CarrySummary, ChangesList, EffectiveTrade, Registration, Agreement, Resolution, RowPage, ScenariosMade, ScopeDrop, ShiftEdit, TradesAdded, Varied, XvaWorkspaceView } from './contracts';
+import type { CarrySummary, ChangesList, EffectiveTrade, Registration, Agreement, Resolution, RowPage, ScenarioSetView, ScenariosMade, ScopeDrop, SetSaved, ShiftEdit, TradesAdded, Varied, XvaWorkspaceView } from './contracts';
 
 export interface RowQuery {
   readonly start: number;
@@ -70,6 +70,12 @@ export interface XvaApi {
   duplicateScenario(workspaceId: string, revision: number, name: string, copy: string): Promise<ScenariosMade>;
   /** `scenarios clear`: every shift row. */
   clearScenarios(workspaceId: string, revision: number): Promise<XvaWorkspaceView>;
+  /** `scenario save <set> [desk|all]` (ADR-0010 §4, C32): every scenario of the workspace, under the user's name for the set. */
+  saveScenarios(workspaceId: string, revision: number, set: string, share?: 'desk' | 'all'): Promise<SetSaved>;
+  /** `scenario load <set>`: the set's scenarios added, replacing those of the same name; `<set>@<owner>` names another's. */
+  loadScenarios(workspaceId: string, revision: number, set: string): Promise<ScenariosMade>;
+  /** The saved sets the user can see: their own, their desk's and all's. */
+  scenarioSets(): Promise<readonly ScenarioSetView[]>;
   /** Copy quote's content, read by the server from the Run alone (ADR-0010 §7), of the market named: the base by default.
    * A scenario's quote names it, by the title the Run gave it. */
   quote(runId: string, scenario?: string): Promise<{ readonly text: string; readonly html: string; readonly scenario?: string | null }>;
@@ -106,6 +112,9 @@ export const httpXvaApi: XvaApi = {
   removeScenario: (workspaceId, revision, name) => post(`${base(workspaceId)}/scenarios/remove`, { revision, name }),
   duplicateScenario: (workspaceId, revision, name, copy) => post(`${base(workspaceId)}/scenarios/duplicate`, { revision, name, copy }),
   clearScenarios: (workspaceId, revision) => post(`${base(workspaceId)}/scenarios/clear`, { revision }),
+  saveScenarios: (workspaceId, revision, set, share) => post(`${base(workspaceId)}/scenarios/save`, { revision, set, ...(share === undefined ? {} : { share }) }),
+  loadScenarios: (workspaceId, revision, set) => post(`${base(workspaceId)}/scenarios/load`, { revision, set }),
+  scenarioSets: () => call('/api/xva/scenario-sets'),
   quote: (runId, scenario) => call(`/api/xva/runs/${encodeURIComponent(runId)}/quote${scenario === undefined ? '' : `?scenario=${encodeURIComponent(scenario)}`}`),
 };
 
