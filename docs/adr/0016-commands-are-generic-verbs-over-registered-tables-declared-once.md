@@ -1,0 +1,428 @@
+# ADR-0016: Commands are generic verbs over registered tables, declared once for the line, the buttons and the AI
+
+Status: PROPOSED 2026-11-10, not yet accepted; every decision below is a DEFAULT until the owner confirms it. Raised by
+the owner after a review of the pricer's commands found that trades can be picked by command only as all, none, or a
+list of exact ids: "I want commands to be as generic as possible. Not only the XVA trade selection: think about how
+commands should be designed for operating this workbench's applications in general" (2026-11-10). Completes ADR-0006 §1
+and its first consequence, and ADR-0010 §9's generic `set`. Amends ADR-0005 §5 and ADR-0008's forms, and adds to
+ADR-0003's log entry. Changes nothing a Run does. Nothing here is implemented.
+
+## Context
+
+What is generic today: the command model, its ranking and its slot completion (`client/src/platform/commands`);
+`run <workflow>`, `show <view>` and `set <context field>`, which the shell builds from the catalog; `new <product>`
+(ADR-0008); and a workspace's edits, which every domain writes as `EditTarget(scope, entity, field, layer)` at a
+revision (ADR-0003).
+
+What is not, on main at 4696820:
+
+- **The commands themselves.** The pricer's and Rates' 47 commands are written by hand in
+  `client/src/apps/index.tsx`, and the pricer's call some thirty-five functions the page registers while it is mounted.
+  ADR-0006 decided that "a command a module registers through the catalog gets the same treatment, so no module edits
+  the shell". The code does not do that yet.
+- **Two doors.** The page writes through its own endpoints (35 in `XvaApi.cs`); the AI goes through the command
+  gateway. Fourteen of the pricer's actions are command capabilities. Price, `measures`, `before`/`after`, `refresh`
+  and the case commands are not, so the AI cannot do what the page does, against ADR-0006 §1 and ADR-0010 §9.
+- **Two readers.** `set` and `vary` are read on the client (`setTyped`, `varyTyped`) and again on the server
+  (`PortfolioCells.Resolve`). The client's reader throws inside the command's `run`, and the line closes without a
+  word.
+- **`set` is the pricer's.** Its rows and columns live in the XVA sample (`PortfolioCells`), though ADR-0010 §9 says
+  "one generic command in the kernel, and each domain registers the rows and fields it reaches".
+- **A column is declared several times.** A trade's columns are written in `EffectiveTrade`, in `TradeColumns` for
+  `set`, and in the client's grid. How a value is written has four vocabularies (`FieldForm`, `CellName.Form`,
+  `ColumnFormat`, `DatasetColumnType`), and the client's cell editor is a fifth: it takes `TRUE`/`FALSE` where `set`
+  takes `on`/`off`.
+- **Nothing says which rows.** There is `before all`, and a list of exact ids. Nothing names the grid's selection, the
+  rows a filter leaves, or the rows that meet a condition.
+- **A capability does not say how it is typed.** A `CapabilityDescriptor` has contracts and effects, and no words or
+  argument forms, so the command line cannot be built from it. A view's row actions (`ActionDefinition`) and a grid's
+  context commands are two more mechanisms beside it.
+- **Rates shows the same gap from the other side** (its line driven in a browser on main at f37bbbb, 2026-11-10).
+  The line makes lines (`new irs`, `new ccs`, `add line`), sets the defaults, starts and stops live, captures and
+  prices, and says why when the server refuses. It cannot change a cell of a line, remove a line, pick lines, or open
+  a leg or its flows: `set` there is the pricer's and answers "Open an XVA workspace first." A refusal from the server
+  closes the line, and what was typed has to be typed again.
+
+So a new command is written in up to four places (an endpoint, a capability, a client command, a page function), and a
+new domain application cannot be driven by commands without client code. That is ADR-0002's acceptance criterion,
+unmet for commands.
+
+## Decision
+
+### 1. A domain registers its tables
+
+A **table** is a named set of rows of one kind that a command can address. A cell's address is `table row field`, the
+shape `EditTarget` already has, so the kernel gains no new way to edit: it gains the description of what there is.
+"Dataset" is not used for this: a `Dataset` is a document a capability outputs, and may be what a read-only table
+shows.
+
+**A table is written in the vocabulary the kernel already has, not in a registry beside it** (checked against the AI
+and saved workflows at the owner's request, 2026-11-10). Its row shape is a versioned contract. A table at a revision
+is a `TypedDataRef` (data id, contract, revision), which a workflow binding, a view's data and a row action already
+take. So a workflow, a view and the AI reach a table with what they have, and the validator checks them as it checks
+any binding.
+
+A domain module registers each table as data, through a catalog port as products are (ADR-0008 §7):
+
+- its **id and version** (`xva.trades` 1.0) and its row contract. A saved definition and an AI's call name these, never
+  the words below, so the words can change without breaking what was saved;
+- its **words** (`trades`), the workspace app it lives in, and whether its rows come from a **workspace** (editable) or
+  a **Run** (read-only);
+- its **key**, the field that names a row;
+- its **fields**: name, title, the words it answers to (`after`, `A`), its form, its **unit** or the field that
+  carries it (docs/09: a unit or a currency is column metadata, never inferred from a title), whether it is editable,
+  and for an id the table it points into (`csa` of a trade names a row of `csa`);
+- its fields' **groups**, where it has them (a trade's identity, agreement, dates and model; a CSA's counterparty
+  side and own side): a form draws a group as a section and a grid as a header group, and a field's words may be said
+  with its group's (`cpty threshold`, `self threshold`);
+- its **templates**: named sets of field values, which may take a few values of their own (a two-way CSA in a
+  currency). `new` makes a row from one (ADR-0008 §4), and `set <rows> as <template>` writes one over rows (§3);
+- its **subsets**, groups of rows the domain names (`existing`, `new`);
+- its **row reader**: the rows at a revision. The selector, completion, the AI's read (§7) and a grid all use it.
+
+**The fields are resolved for a scope, not fixed for an app.** The selected measures add trade columns (ADR-0010
+§10), so what a table has is asked of a workspace. **An address is complete outside a page**: its scope (the
+workspace or the Run), the revision, the layer where there is one (ADR-0010 §2), and for a result its case and
+scenario. The command line fills these from the context; the AI and a workflow always pass them.
+
+A table of one row (settings, a workspace's defaults, the shell's context) is addressed without a row:
+`set currency JPY`. `set <context field>` is already built this way from the context contract.
+
+**A table may belong to a row** (the owner's examples of 2026-11-10: a detail dialog shows what a grid has no room
+for). A trade's legs, each with a currency, a PV and a notional, and its independent amounts are tables scoped by the
+trade, as a CSA's eligible collateral is by the CSA. Their rows are addressed through the parent's
+(`set legs E00003/0 pv 250,000`, `new leg E00003 eur …`, `remove legs E00003/1`), and by their own key where the
+parent is the context (§9, §10). Whether a field or a table is on a grid, in a dialog or on no screen at all changes
+nothing about how a command names it.
+
+**A field may hold several values, or be a figure of the rows under its row.** A cross-currency trade has two
+currencies: a field's form may be a set of a form (§2). A trade's PV on a grid is the sum of its legs' PVs in the
+display currency: the registration says a field is such a figure, names its unit, and says whether it can be
+written. What a write means is the domain's rule and never the kernel's guess. In the owner's example, writing a
+trade's PV leaves the trade one leg of that amount: the preview says "2 legs replaced by 1 leg", the write is one
+command, and `reset` brings the source's legs back.
+
+**One form vocabulary.** `FieldForm` (ADR-0008) takes in what `CellName.Form` has and it lacks (an id of a table, a
+signed amount, a schedule, a spread, a number of days). How a column is drawn (`ColumnFormat`) and stored
+(`DatasetColumnType`) follow from its form. The command line, a grid cell and the AI all write a value in the same
+spellings, read once, on the server: a flag is `on`/`off`/`yes`/`no`/`true`/`false` wherever it is typed.
+
+**The domain's rules stay the domain's.** Validation and following (a CSA's discount curve reaching the trades that
+name it) remain its `IWorkspaceRules`. The kernel turns `(rows, field, text)` into edits and knows no financial word.
+
+### 2. One selector says which rows
+
+Every command that takes rows takes them in one grammar:
+
+| Written | Means | Resolved by |
+|---|---|---|
+| `E00003, E00004` | Rows by id. The end of an id is accepted when it names exactly one row; otherwise refused with what it could mean. | server |
+| `all` | Every row of the table, whatever the grid's filter (docs/03 §4). | server |
+| `new`, `existing` | A registered subset. | server |
+| `selected` | The rows the grid's selection touches. | client where it holds them, else server from the view |
+| `shown` | The rows the grid's filter leaves. Never called `all`, always counted (docs/03 §4). | the same |
+| `where ccy=USD and maturity>5y` | Rows by their values, each value read by its field's form. | server |
+
+`where` is kept small: `=`, `!=`, `<`, `<=`, `>`, `>=`, `~` (contains) and `in`, joined by `and`. There is no `or` and
+no parentheses: it has to be typed in one line by a person and built reliably by a model, and it can grow later
+without breaking what was written. A subset or `selected` may be narrowed by `where`. On a field that holds several
+values, `=` and `in` are true when one of them matches and `!=` when none does, and the preview says so ("has
+USD").
+
+**The selector is a typed value, and the line is one spelling of it.** Its contract holds the table, a subset, ids and
+conditions (field, operator, value). The command line's text is read into it; the AI and a workflow pass it as it is;
+one resolver serves all three.
+
+`selected` and `shown` are not words the server reads; the client sends what they mean. Where it holds every row it
+sends ids. The trade grids are paged and sorted on the server (ADR-0010 §6), so the client holds a window and cannot
+name a row it has not loaded: there it sends **the view it shows**, which is the table, the subset, the filter's
+conditions, the sort and the selected row ranges, at a revision, and the server resolves the ranges with the row
+reader that pages the grid. The rows are then the ones the user saw, or the command is refused because the workspace
+moved. The AI is given the selection in its context (ADR-0007 §8, a description and no authority) and names rows
+itself; a saved definition holds neither word, and may bind rows from the context it is run with.
+
+**An amount is not compared across currencies.** A condition on an amount whose currency differs by row is refused
+unless the currency is pinned too (`ccy=USD and notional>100mm`). A shape that matches is not an economic comparison.
+
+Three rules make the outcome independent of timing:
+
+1. **The count is shown before Enter**: the table, how many rows, and what would change ("trades, 12 rows; After: 9
+   on to off, 3 already off").
+2. **A command carries the revision it was read at**, as an edit does today. A workspace that has moved on refuses it.
+3. **The log records the rows that matched, not the condition.** A trade added later that also matches is not
+   switched off silently.
+
+A whole set is the exception that stays one edit: a table or a subset may register a whole-set target, as each trade
+grid's B and A have (ADR-0010 §6: one edit on the grid, a row's later edit wins). `set existing …` writes that one
+edit, and `set all …` writes one for each subset. Rows chosen by id or by `where` are one all-or-none batch.
+
+"Selecting trades" meant two things, and they are now two words. The grid's selection is view state: `selected` names
+it and `select <rows>` moves it. Membership of Before and After is the value of two flag fields:
+`set <rows> after off`.
+
+### 3. A small set of verbs in the kernel
+
+**Edit verbs**, over any workspace table, each a command capability (ADR-0005) beside `entity.create`:
+`set <rows> <field> <value>` (`entity.set`, replacing `xva.set`), `reset <rows> [<field>]` (`entity.reset`),
+`remove <rows>` (`entity.remove`), and `undo` and `redo` (§11). `set` takes several fields as `name=value`
+(`set E00003 notional=5bn rate=1.25%`), written as one all-or-none batch at one revision, and
+`set <rows> as <template> [name=value …]` writes a registered template's values the same way.
+
+**View verbs**, over any grid bound to a table, in the client only: `open <tab, view or row>`, `go <place>` and
+`find <row> [<field>]` (§9), `select <rows>`, `filter <table> where …` and `filter off`, `sort <table> by <field>`,
+`copy <rows> [<fields>]`, `export <table>`, and `apply` and `cancel` for an open draft (§10). They change no
+workspace, are not logged and are not the AI's (CLAUDE.md: the AI calls capabilities, not grid automation). A view
+declares its tabs, places and options; the shell builds their commands, as it builds `show`. `filter` and `sort` set
+the view's conditions, and the row reader applies them where the server pages the grid, as it sorts the trade grids
+today (they refuse a filter until it does).
+
+**Domain verbs** are capabilities a domain registers, and only for what is more than writing cells: something
+**executes** (`price`, `refresh`, `capture`, `live start`), one command **makes many things** (`vary`, `add trades`,
+`scenario ladder`), the command **works out what to write** (solve a line's rate, roll the picked trades to their next
+date), or something **leaves** the workbench (`download run`, `copy quote`). Their arguments use the same forms and
+the same selector, so completion, the preview and the result are theirs without code.
+
+Sorted this way, of today's 47 hand-written commands 12 become kernel edit verbs, 14 become view verbs, 2 come from
+the app's registration, and 19 remain domain verbs, declared on the server instead of the client.
+
+A domain may register **short forms** that expand to a kernel command. `before all` acts on one grid today, the one
+the keyboard was last in or the one named, so it is `set existing before on` or `set new before on`, with the grid
+shown in the line before Enter (§9); `set all before on` is every trade of both grids. A short form has no behaviour
+of its own. Users still define no aliases (ADR-0006 §6).
+
+**Generic first, and a special command where it saves real work** (the owner, 2026-11-10: pages made later and
+user-defined flows are served by the generic commands as far as they go, and a special command is right when it makes
+something much easier). A page made later registers its tables and has the edit and view verbs with no command
+written. A saved workflow's result is a table at a `TypedDataRef` (§8), so the view verbs reach it the same way, and
+`run <workflow>` is built from the catalog as today. A special command is then added for what is typed often and is
+long, or needs a calculation, when said with the generic ones. It is a short form or a domain verb as above, and it
+stays a command like the others:
+
+- it is declared once on the server (§4), with the same forms, selector, preview and result;
+- what it writes goes through the same batch as `set` (§5), so the preview names the cells, the log records them and
+  `undo` takes them back (§11);
+- it does not take the generic path away: what it does to cells can still be said with `set`, and the AI and a saved
+  definition may use either;
+- the line shows what a short form expands to before Enter.
+
+What this ADR removes is the other kind: a command only one page understands, read on the client, or written past the
+gateway.
+
+### 4. A command is declared once, on the server
+
+A command capability's descriptor gains its **command form**: its words, and for each argument its name, whether it is
+required, whether it may be typed without its name, and its form or the table whose rows it takes. The catalog serves
+it, as it serves capabilities and contracts today.
+
+- The **command line** builds its entries, slots and completions from the catalog.
+- A **button** or a **context menu item** names a command id and fixed arguments, and can show the line that does the
+  same. A row action of a declarative view (`ActionDefinition`) gains a `command` target beside `openView` and
+  `runWorkflow`.
+- The **AI's tools** are the same descriptors, as the fourteen are now.
+
+This is what ADR-0006 §1 and its first consequence already require. Only view verbs are declared in the client.
+
+### 5. One gateway, and a preview (amends ADR-0005 §5)
+
+The page's commands go through the command gateway too: `POST /api/commands/{id}/{version}`, the caller and its origin
+set by the server as now. ADR-0005 §5 had the page's endpoints and the commands share the application service; they
+now share the door, and the page's write endpoints go as their commands move. Reads stay endpoints.
+
+`POST /api/commands/preview` takes the line as typed with its context (workspace, revision, the focused table, the
+selection's ids when `selected` or `shown` is typed) and executes nothing. It returns the command it read, each
+argument as read and where it came from (typed, default, context), the rows resolved (count and the first few), what
+would change, or the word that cannot be read, why, and what it could be. This is ADR-0008 §6's product preview for
+every command. **The server owns the reading**: the client completes and shows, and reads nothing itself. While a line
+cannot be read, Enter runs nothing, the line stays open and keeps its text.
+
+### 6. One result
+
+`CommandResult.Done` carries a sentence in the registered titles (never `selection:measures`), how many rows changed
+and how many already held the value, the new revision, what undoes it, and where to look (table and rows).
+`Refused` carries its code, a sentence, the word at fault and the candidates. The line colours a notice by this kind
+and never by its text. A command that changed nothing is done, and says why.
+
+### 7. The AI describes, reads and previews with the same model
+
+The agent is offered one tool per command capability (ADR-0007 §3). Verbs of each domain's own would add tools with
+every application (the pricer alone has fourteen); the kernel's verbs stay a handful whatever is registered. Three
+capabilities make that enough:
+
+- **Describe.** A tool's arguments are a contract's fixed schema, which cannot list a workspace's tables or fields. One
+  capability answers, for a scope, its tables, their fields, forms, units and which are editable. It is the
+  registration, read out. Without it the agent learns a field's name only from a refusal.
+- **Read.** A table, a selector and the fields wanted; the answer is the count and a bounded page, never every cell
+  (docs/09), and it may be retained as a dataset a view binds, so "show me the USD trades" is answered with a grid.
+  Today the agent has no way to read a trade row.
+- **Preview.** §5's preview as a capability, so the agent can say what a command would change before it runs it.
+
+The agent has no page: it names the scope in every call, as the pricer's commands already take `workspaceId` and an
+optional `revision`. Because a command is declared on the server, none of this needs the page open (AI03).
+
+### 8. A workflow reads tables; it still does not edit
+
+Reading a table at a pinned revision is a function of its inputs, so it may be a workflow step and the source of a
+step's `forEach`: "for each USD trade, compute" needs no code. A saved definition holds ids with versions and the
+selector as written (the condition, not the rows it matched); each execution resolves it at its revision and freezes
+the rows in its accepted input, as Price freezes a revision. A definition that names a field a measure adds is
+validated again when it is rebound (CO04). Because fields are registered, a definition is checked when it is saved:
+that `csa` is an editable field of the table, and that the value has its form.
+
+A command is still not a workflow step (ADR-0005 §2; the validator's `CommandAsStep`), so a Run stays a function of
+its accepted input. A saved sequence of edits is therefore not a workflow, and is OPEN below.
+
+### 9. Focus is context: the line reads it, shows it, and moves it by name
+
+Raised by the owner (2026-11-10): operating by a chain of commands with no mouse needs commands that move the focus
+between a page's components and commands that act on where the focus is.
+
+Today the line gives the keyboard back to where it was, `open <tab>` puts it in the tab (ADR-0010 §9), `focus grid`
+reaches a panel's first grid only, and the pricer's `before all` acts on "the grid the keyboard was last in", which
+nothing on the screen shows. No command acts on the focused row or cell.
+
+- **Read.** ADR-0006 §5's context ("Rates · W-12, revision 9") gains the focused table, its selection and its focused
+  cell ("trades (existing), 3 selected, E00003 · csa"). A table left out is the focused grid's table; rows left out
+  are that grid's selection (`set csa CSA-B`); a command on one cell (`explain`, `reset`) takes the focused cell. Each
+  is shown in its slot as "from context" with the count before Enter (ADR-0006 §4), and a command whose target would
+  be empty is refused with that reason.
+- **Snapshot.** The focus is read once, when the line opens, and the client makes it explicit: the request carries
+  the table, the rows (their keys, or §2's view and ranges where the grid is paged) and the revision, never "the
+  focused row". The server, the log and a result never know a focus, so an outcome cannot depend on where the keyboard
+  went while the line was open.
+- **Move by name.** A view declares its **places**: each grid, tab, form and the dock, by a word. The shell builds
+  `go <place>` from them, as it builds `open <tab>`, and `find <row> [<field>]` puts a grid's Focus on a row or a
+  cell. `focus grid` and the panel chords are `go` with a key. ExGrid's handle already takes these (`focus`,
+  `placeSelection` and `placeMatch`, each refused when the row order it was taken against has moved).
+- **Where the keyboard is afterwards.** A command that edits or executes returns the keyboard to where it was. Only
+  `go`, `find` and `open` move it, and they say where it went.
+- **Chain.** Ctrl+Enter in the line (owner, 2026-11-10) runs the command and keeps the line open: its result is shown
+  in the line, the text is cleared, the context is read again, and the list completes the next command from its first
+  letter as it does when the line opens. So `go existing`, `select where ccy=USD`, `set csa CSA-B`, `price` is four
+  lines and no reach for the mouse. It is a key of the line, not a shell chord (ADR-0006 §8), and is checked with an
+  IME composing before it ships.
+
+Not supported, deliberately:
+
+- **Relative moves as commands** (`next`, `down 3`). The grid's own keys do this, and a typed step's outcome depends
+  on a position no line shows.
+- **Focus in what is not a person at this screen.** The AI names its scope and never moves the focus (ADR-0007 §7);
+  a saved definition holds ids and a selector (§8). `selected`, `shown` and `go` are refused for both.
+- **Several commands in one line.** One preview could not show what the second would read after the first, and a
+  refusal in the middle leaves half done. The chain key gives each command its own preview and result.
+
+### 10. A form or a dialog is a pending command
+
+Raised by the owner (2026-11-10): a grid short of room shows a trade's other fields in a detail dialog, opened by an
+icon button in a column of the grid, and a command should change values in the dialog, confirm them and close it.
+
+- **A dialog's fields are the table's fields.** A grid shows some of a table's fields and a detail dialog the rest;
+  whether a field is on the screen and whether a command can name it are separate. `set E00003 notional=5bn` needs no
+  dialog, and is the form the AI and a saved definition use: they never drive a dialog.
+- **The dialog is a draft of one batch**, drawn as a form from the registration, as the dialog `run <workflow>` opens
+  is drawn from the workflow's input contract today: the fields' groups are its sections, and the tables that belong
+  to the row (§1) are grids in it. A draft is view state: the row, its layer, the revision it was opened at, and the
+  changes, which are fields set and rows added to, changed in or removed from the tables under the row. Each change
+  is read by §5's preview, so a field's refusal and what follows from it are the server's and the dialog has no
+  rules of its own.
+- **The button, the keys and the line are one command.** The icon button is a row action naming `open <row>` (§4);
+  ExGrid's Action Column reports the action and the row, and a button in a Template Column calls the same. With the
+  dialog open the line acts on the draft: `set notional 5bn` (no row) fills the field, `new leg eur 20mm` and
+  `remove leg 1` change the rows under it, `set as 2way ccy=USD` fills a template as a template button does, `apply`
+  invokes the batch, closes the dialog and returns to the row, `cancel` discards. A refusal leaves the dialog open
+  with the field at fault marked (an issue's path names it). A row with several actions (edit, view, download) has
+  one row action for each.
+- **A dialog shows one layer.** The owner's examples show the original beside the editable layers as tabs. The
+  original is read-only, a draft belongs to the layer it was opened on, and the tabs are places (§9).
+- **The same `set` is never ambiguous about where it goes.** A grid cell commits each edit (ADR-0003); a draft commits
+  on `apply`. While a draft is open the line says so ("editing E00003, 2 pending") and the preview says "pending";
+  only the draft's own `set`, `apply`, `cancel` and view verbs are available, and the rest are listed unavailable with
+  that reason. Price takes committed state only (CLAUDE.md), so `price` is among the refused.
+- **A draft carries its revision.** If the workspace moved while it was open, `apply` is refused with what changed.
+
+### 11. `undo` takes back the workspace's last command, and `redo` puts it back
+
+Wanted by the owner (2026-11-10). ADR-0003 already makes an undo a new log entry. There is no command for it, and the
+log cannot yet say which entries were one command, or what an entry replaced.
+
+- **A command is one accepted write.** The workspace service stamps the entries of one accepted call (a `set`, a
+  batch over thousands of rows, a cell typed in a grid, an `apply`) with one command id, whichever door it came
+  through, and each entry records what it replaced. The log alone is then enough to write a command's inverse.
+- **`undo` is linear.** It appends, as one all-or-none batch, the inverse of the workspace's latest command not yet
+  taken back: a `Set` becomes the value or the reset it replaced, a `Reset` the override it removed, a `Create` a
+  `Remove`, a `Remove` the row as it was. `undo` again takes back the one before. Nothing was written after the
+  command it inverts, so there is nothing to merge and no cell that a later edit owns.
+- **`redo`** applies again what the last `undo` took back, while that `undo` is still the workspace's last command.
+  Any other command ends what can be redone.
+- **It says what it will take back.** In the line the preview names the command, its rows, who ran it and when ("set
+  where ccy=USD after off, 12 rows, the AI for you, 19:20"), and the request carries the revision, so a workspace
+  that moved refuses it (§2). In a grid, ExGrid reports its undo and redo keys (`onUndo`, `onRedo`) and the page
+  invokes the same two commands; no preview is shown there, so the notice says what was taken back and `redo`
+  restores it.
+- **Whose.** The caller's own commands, whether typed, clicked, or made by the AI for them. Where the latest command
+  is another user's, `undo` is refused and names them. The AI's `undo` names the command id it means (a result
+  carries it, §6) and is refused unless that command is the latest.
+- **What it does not reach.** Only a command whose changes are `Set`, `Reset`, `Create` and `Remove` is taken back.
+  One that takes a new source or decides a held edit (a refresh, a change of counterparty) is not: `undo` then
+  refuses and names it, and never reaches past it to an older command, whose inverse would be written against a base
+  that has changed. A Run already priced is unchanged; the page shows it as of its revision, as after any edit. Saved
+  items, view state and the text being typed in an editor are not workspace edits and are not `undo`'s.
+- **A draft** (§10) has no `undo`. After `apply`, one `undo` takes back the whole batch.
+
+## Consequences
+
+- The kernel gains the table registry and its catalog port, the unified forms, the selector's reader, `entity.set`,
+  `entity.reset`, `entity.remove`, `undo` and `redo` (with a command id and the replaced value on a log entry, an
+  addition to ADR-0003's entry), the command form on descriptors, the preview, and the richer result. All are
+  domain-free: a test registers a non-financial table (station readings, as ADR-0008's test does) and sets its rows by
+  `where` with no kernel or client change.
+- XVA registers its tables and `PortfolioCells`' tables leave the module; `setTyped` and `varyTyped` leave the client.
+  Rates registers `lines` and its defaults.
+- `client/src/apps/index.tsx` shrinks to what is view-only, and then to what views declare.
+- The acceptance test of this ADR: a new domain application writes its table registrations and its domain verbs, and
+  no client command code, and is driven by the command line, buttons and the AI.
+
+### Delivery order (DEFAULT)
+
+0. The review's fixes that need no decision (an error is always shown; notices by kind; one spelling for a flag; the
+   list's order). Independent of this ADR.
+1. Tables, forms, the selector, `entity.set`/`reset`/`remove`, `undo` and `redo`, the preview; XVA registers. `set
+   where ccy=USD after off` works with its count and can be taken back, and `set` completes.
+2. The grid's selection (`selected`, `shown`), the context on the line down to the focused cell, `go` and `find`,
+   the chain key, context menus from declarations.
+3. The pricer's remaining commands as capabilities through the gateway; Rates registers.
+4. View verbs and the AI's row read.
+5. Drafts (§10): a detail dialog drawn from a registration, with the tables under its row and its templates. The
+   pricer's trade and CSA must carry those fields and tables first; its sample has neither them nor such a dialog.
+
+## Rejected
+
+- **A range syntax of the pricer's own** (`after off where ccy=USD`, the review's R6). A second grammar per domain,
+  and nothing for a CSA, a Rates line or the next application.
+- **Recording `where` as a rule** that keeps applying. A figure would change because a trade was added, with no edit
+  that says so.
+- **Reading on the client.** Two readers disagree, and one of them already fails silently.
+- **A full query language** (`or`, parentheses, functions). Not typed in one line, and the AI's read (§7) covers what
+  a person would not type.
+- **The AI driving view verbs.** Grid automation, against CLAUDE.md.
+
+## Open
+
+- The owner's confirmation of §1 to §5 as written: the direction; `set <rows> <field> <value>` as the one form for
+  row sets, with the short forms kept; resolved rows in the log; the page's writes through the gateway.
+- Whether a user may save a sequence of edits ("clear After, put the USD trades back, price"). Proposed: a second
+  kind of saved definition beside the workflow, an ordered list of commands invoked through the gateway for the caller
+  with origin `workflow`, each in the edit log, stopping at the first refusal and naming the revision it began at, and
+  then optionally submitting a workflow at the revision it left. Not commands as Run steps: a retry would edit twice
+  and a Run would stop being a function of its input. It can follow delivery step 4; §1 and §2 serve it either way.
+- How many selected ids the pane gives the agent as context before it gives only their count.
+- How an edit over many matched rows, and its `undo`, are recorded so the workspace stays fast. A batch writes one
+  log entry a row today. The owner's sizing (2026-11-10): a workspace holds at most about 10,000 trades, and about
+  100 at the median. To be measured at 10,000 rows before §2 is built for `where` (ADR-0003 measures at 10,000 and
+  50,000).
+- Writing a template over existing rows: the word (`as`), and whether a template sets only the fields it names.
+- Whether `undo` takes back a context field that takes no new source (the reporting currency). Refused until
+  decided.
+- How a layer is named. ADR-0010 §9 writes `set after CSA-A threshold 5mm`; with `after` also a field of a trade, a
+  named option (`layer=after`) reads without ambiguity. Decided when ADR-0010's Advanced step is built.
+- Whether loading trades by id is `load trades <ids>`, leaving `add trades` to the iterative cases (the review's R8;
+  ADR-0010 §6 and §3 use `add trades` for both).
