@@ -4,7 +4,7 @@
 #
 #   docker compose -f tools/observability/compose.yaml up -d      # Grafana on http://localhost:3000
 #   docker compose -f tools/observability/compose.yaml down       # stop it; add -v to forget what it kept
-name: quant-workbench-observability
+name: qube-observability
 services:
   lgtm:
     image: grafana/otel-lgtm:0.36.0
@@ -17,6 +17,6 @@ services:
       - ./grafana/dashboards.yaml:/otel-lgtm/grafana/conf/provisioning/dashboards/custom.yaml:ro
       - ./grafana/dashboards:/otel-lgtm/grafana/conf/provisioning/dashboards/custom:ro
     environment:
-      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /otel-lgtm/grafana/conf/provisioning/dashboards/custom/workbench.json
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /otel-lgtm/grafana/conf/provisioning/dashboards/custom/qube.json
 volumes:
   lgtm-data:

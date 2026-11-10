@@ -9,7 +9,7 @@ Start with `START_HERE.md` and `docs/00-decisions.md`; what runs today is in
 
 | Path | Contents |
 |---|---|
-| `server/` | ASP.NET Core host and the composition kernel (`Workbench.slnx`, .NET 10) |
+| `server/` | ASP.NET Core host and the composition kernel (`Qube.slnx`, .NET 10) |
 | `client/` | React + TypeScript client (Vite, Mantine, TanStack Query, Zustand, ExGrid React) |
 | `docs/` | Requirements, ADRs (`docs/adr/`), plans and reviews |
 
@@ -20,17 +20,17 @@ repository root, or prefix it with `nix develop <root> -c`.
 
 ```sh
 # Server: build and the xUnit suite (composition, validation, API)
-nix develop -c dotnet test server/Workbench.slnx
+nix develop -c dotnet test server/Qube.slnx
 
 # Client: install, typecheck, unit tests (Vitest)
 nix develop -c bash -c 'cd client && npm ci && npm run typecheck && npm test'
 
-# Client build: written into server/src/Workbench.Web/wwwroot, which the host serves
+# Client build: written into server/src/Qube.Web/wwwroot, which the host serves
 nix develop -c bash -c 'cd client && npm run build'
 
 # Run the workbench on http://localhost:5080 (after the client build). Workspaces, Runs and results are
-# kept in server/src/Workbench.Web/App_Data/workbench.db unless Workbench__Database names another file.
-nix develop -c dotnet run --project server/src/Workbench.Web --urls http://localhost:5080
+# kept in server/src/Qube.Web/App_Data/qube.db unless Qube__Database names another file.
+nix develop -c dotnet run --project server/src/Qube.Web --urls http://localhost:5080
 
 # Development, both at once: the host on :5080 and Vite on http://localhost:5173 (open this one; it reloads on
 # save and forwards /api to the host). Ctrl-C stops both. --port moves the host.
@@ -43,7 +43,7 @@ nix develop -c bash -c 'cd client && npm run dev'
 nix develop -c bash -c 'cd client && npm run build && npx playwright test'
 ```
 
-Logs go to the console and to `server/src/Workbench.Web/App_Data/logs`. To collect logs, traces and metrics from the
+Logs go to the console and to `server/src/Qube.Web/App_Data/logs`. To collect logs, traces and metrics from the
 client and the server in Grafana, start `docker compose -f tools/observability/compose.yaml up -d` and run the
 workbench with `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317`; see
 [`docs/running-with-observability.md`](docs/running-with-observability.md).
@@ -54,10 +54,30 @@ own, and to open the workbench from a phone or another Mac over Tailscale, see
 
 Playwright uses its own Chromium (`npx playwright install chromium`). Where a Chromium is already
 installed for another Playwright version, name it with `PLAYWRIGHT_CHROMIUM=/path/to/chrome`.
-`WORKBENCH_PORT` moves the host to another port. Each browser run starts the host on a database file of its own in the
-temporary directory (`WORKBENCH_DB` names one instead).
+`QUBE_PORT` moves the host to another port. Each browser run starts the host on a database file of its own in the
+temporary directory (`QUBE_DB` names one instead).
 
 ExGrid comes from npm at one exact version, 0.2.0 (`@ex-grid/core`, `data`, `react`, `mantine`, `chart`, `chart-react` and `chart-mantine` in `client/package.json`). To move it, set all seven to the same new version and run `npm install` in `client/`; the packages must move together.
+
+## Coming from before the rename
+
+Until 2026-11-10 the application was called Quant Workbench and its identifiers said so (C50). On a machine that ran
+it then, these carry its local state over:
+
+- **Database.** `App_Data/workbench.db` is `App_Data/qube.db` now. Rename the file (and its `-wal` and `-shm` files,
+  if it has them). The host refuses to start beside the earlier file alone, so it never starts empty next to your data.
+- **Configuration.** `Workbench:*` keys are `Qube:*` (`Qube__Database` in the environment), and the host refuses to
+  start while an earlier key is set. `WORKBENCH_PORT`, `WORKBENCH_DB` and `WORKBENCH_API` are `QUBE_PORT`, `QUBE_DB`
+  and `QUBE_API`; these three are not checked, so an earlier one is ignored.
+- **Copilot token.** The Keychain item is `qube-copilot`. `tools/run-with-copilot.sh` still reads the earlier item,
+  `quant-workbench-copilot`, and says so each time, until `--store-token` has stored the new one.
+- **Agent host.** Its folder is `qube/agent-host` under the user's local application data (it was
+  `quant-workbench/agent-host`). Move the folder to keep the SDK's state and the earlier logs, or leave it: a new one
+  is made.
+- **Observability.** The compose project is `qube-observability`, the services report as `qube` and
+  `qube-agent-host`, and the instruments are `qube.*`. `docker compose -p quant-workbench-observability down -v`
+  removes the earlier containers and what they collected.
+- **Browser.** The command line's usage ranking starts again (its storage key changed).
 
 ## Rules
 

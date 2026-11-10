@@ -9,7 +9,7 @@
       "inputPorts": [
         {
           "name": "comparison",
-          "contractId": "qwb.margin.comparison-input",
+          "contractId": "qube.margin.comparison-input",
           "contractVersion": "1.0.0",
           "cardinality": "one"
         }
@@ -17,7 +17,7 @@
       "outputPorts": [
         {
           "name": "portfolioSides",
-          "contractId": "qwb.portfolio-side",
+          "contractId": "qube.portfolio-side",
           "contractVersion": "1.0.0",
           "cardinality": "many"
         }
@@ -36,7 +36,7 @@
       "inputPorts": [
         {
           "name": "portfolioSide",
-          "contractId": "qwb.portfolio-side",
+          "contractId": "qube.portfolio-side",
           "contractVersion": "1.0.0",
           "cardinality": "one"
         }
@@ -44,7 +44,7 @@
       "outputPorts": [
         {
           "name": "crif",
-          "contractId": "qwb.crif-reference",
+          "contractId": "qube.crif-reference",
           "contractVersion": "1.0.0",
           "cardinality": "one"
         }
@@ -63,7 +63,7 @@
       "inputPorts": [
         {
           "name": "crif",
-          "contractId": "qwb.crif-reference",
+          "contractId": "qube.crif-reference",
           "contractVersion": "1.0.0",
           "cardinality": "one"
         }
@@ -71,7 +71,7 @@
       "outputPorts": [
         {
           "name": "result",
-          "contractId": "qwb.simm-side-result",
+          "contractId": "qube.simm-side-result",
           "contractVersion": "1.0.0",
           "cardinality": "one"
         }
@@ -90,13 +90,13 @@
       "inputPorts": [
         {
           "name": "results",
-          "contractId": "qwb.simm-side-outcome",
+          "contractId": "qube.simm-side-outcome",
           "contractVersion": "1.0.0",
           "cardinality": "many"
         },
         {
           "name": "plannedComparison",
-          "contractId": "qwb.margin.comparison-input",
+          "contractId": "qube.margin.comparison-input",
           "contractVersion": "1.0.0",
           "cardinality": "one"
         }
@@ -104,7 +104,7 @@
       "outputPorts": [
         {
           "name": "comparison",
-          "contractId": "qwb.simm-comparison-dataset",
+          "contractId": "qube.simm-comparison-dataset",
           "contractVersion": "1.0.0",
           "cardinality": "one"
         }

@@ -15,7 +15,7 @@ ticking live against the synthetic market.
 
 ## Built first (does not depend on an OPEN convention)
 
-- The live subscription's rules (`Workbench.Samples.Rates/RatesLive.cs`): one calculation in flight, the
+- The live subscription's rules (`Qube.Samples.Rates/RatesLive.cs`): one calculation in flight, the
   newest market update waiting behind it, frames shown only for the current input revision and a newer
   market, stop keeping the last frame (RT03, RT04, RT05 part). Done, with xUnit tests.
 - Next: the live service that drives those rules with a bounded worker pool and a provider, the seeded

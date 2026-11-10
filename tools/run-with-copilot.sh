@@ -22,7 +22,9 @@ set -euo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd)
 model="" port=5080 host_port=5395 as_user="" host_dir="" token_file="" install_dir="" store_token=""
-keychain_item=quant-workbench-copilot
+keychain_item=qube-copilot
+# The item's name until 2026-11-10 (C50). It is read while the one above is absent, and never written.
+earlier_keychain_item=quant-workbench-copilot
 
 die() { echo "run-with-copilot: $*" >&2; exit 1; }
 
@@ -59,7 +61,7 @@ fi
 
 if [[ -n $install_dir ]]; then
   staging=$(mktemp -d)
-  nix develop -c dotnet publish server/src/Workbench.AgentHost -c Release -o "$staging"
+  nix develop -c dotnet publish server/src/Qube.AgentHost -c Release -o "$staging"
   sudo mkdir -p "$install_dir"
   sudo cp -R "$staging/." "$install_dir/"
   sudo chmod -R a+rX "$install_dir"
@@ -80,19 +82,25 @@ if [[ -n $as_user ]]; then
   # OTEL_* passes through, so the host sends its telemetry where the workbench does (ADR-0014).
   sudo -H -u "$as_user" --preserve-env=AgentHost__Key,AgentHost__Url,OTEL_EXPORTER_OTLP_ENDPOINT,OTEL_EXPORTER_OTLP_PROTOCOL \
     env AgentHost__Copilot__TokenFile="$token_file" DOTNET_ROOT="$dotnet_root" \
-    bash -c 'cd "$1" && exec "$2/dotnet" Workbench.AgentHost.dll' _ "$host_dir" "$dotnet_root" &
+    bash -c 'cd "$1" && exec "$2/dotnet" Qube.AgentHost.dll' _ "$host_dir" "$dotnet_root" &
 else
   if [[ -z ${COPILOT_GITHUB_TOKEN:-} && -n $token_file ]]; then
     export AgentHost__Copilot__TokenFile="$token_file"
   elif [[ -z ${COPILOT_GITHUB_TOKEN:-} ]] && command -v security >/dev/null; then
-    COPILOT_GITHUB_TOKEN=$(security find-generic-password -a "$USER" -s "$keychain_item" -w 2>/dev/null) \
-      || die "no token: COPILOT_GITHUB_TOKEN is not set and the Keychain has no $keychain_item (run --store-token)"
+    if COPILOT_GITHUB_TOKEN=$(security find-generic-password -a "$USER" -s "$keychain_item" -w 2>/dev/null); then
+      :
+    elif COPILOT_GITHUB_TOKEN=$(security find-generic-password -a "$USER" -s "$earlier_keychain_item" -w 2>/dev/null); then
+      echo "run-with-copilot: the token was read from the Keychain item $earlier_keychain_item, its name before the" \
+        "application was named Qube. Store it as $keychain_item with --store-token; this one can then be deleted." >&2
+    else
+      die "no token: COPILOT_GITHUB_TOKEN is not set and the Keychain has no $keychain_item (run --store-token)"
+    fi
     export COPILOT_GITHUB_TOKEN
   fi
   [[ -n ${COPILOT_GITHUB_TOKEN:-} || -n ${AgentHost__Copilot__TokenFile:-} ]] \
     || die "no token: set COPILOT_GITHUB_TOKEN, pass --token-file, or store it with --store-token (macOS)"
-  nix develop -c dotnet build server/src/Workbench.AgentHost >/dev/null
-  (cd server/src/Workbench.AgentHost && exec "$dotnet_root/dotnet" bin/Debug/net10.0/Workbench.AgentHost.dll) &
+  nix develop -c dotnet build server/src/Qube.AgentHost >/dev/null
+  (cd server/src/Qube.AgentHost && exec "$dotnet_root/dotnet" bin/Debug/net10.0/Qube.AgentHost.dll) &
 fi
 host_pid=$!
 trap 'kill "$host_pid" 2>/dev/null || true' EXIT
@@ -110,4 +118,4 @@ export Agent__Copilot__HostUrl="$AgentHost__Url"
 export Agent__Copilot__HostKey="$AgentHost__Key"
 export Agent__Copilot__Model="$model"
 env -u COPILOT_GITHUB_TOKEN -u GH_TOKEN -u GITHUB_TOKEN -u AgentHost__Key -u AgentHost__Copilot__TokenFile \
-  nix develop -c dotnet run --project server/src/Workbench.Web --urls "http://localhost:$port"
+  nix develop -c dotnet run --project server/src/Qube.Web --urls "http://localhost:$port"

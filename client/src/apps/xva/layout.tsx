@@ -6,7 +6,7 @@ import { px } from '@mantine/core';
 
 const STEP = 24;
 
-/** What a `WorkbenchGrid` adds outside its viewport: its paper's 1px border above and below. */
+/** What a `QubeGrid` adds outside its viewport: its paper's 1px border above and below. */
 export const GRID_FRAME = 2;
 
 /** A theme length, such as `theme.spacing.xs`, in pixels: what a grid's height in pixels leaves for it. */
@@ -20,10 +20,10 @@ export function pixels(length: string): number {
 export { compactGridHeight } from '../../platform/grid/metrics';
 
 /**
- * A part's height as the stylesheet reads it (`--qwb-part-height`), so that below `sm`, where a part is a tab as high
+ * A part's height as the stylesheet reads it (`--qube-part-height`), so that below `sm`, where a part is a tab as high
  * as its content, the stylesheet sets it aside.
  */
-export const partHeight = (height: number): CSSProperties => ({ ['--qwb-part-height' as string]: `${height}px` });
+export const partHeight = (height: number): CSSProperties => ({ ['--qube-part-height' as string]: `${height}px` });
 
 /**
  * A horizontal separator that sets a height in pixels, between `min` and `max`. Dragging it moves the height with the
@@ -58,7 +58,7 @@ export function Resizer({ label, value, min, max, grows, onChange }: {
   };
   return (
     <div role="separator" aria-orientation="horizontal" aria-label={label} aria-valuenow={value} aria-valuemin={min} aria-valuemax={max}
-      tabIndex={0} className="qwb-resizer" onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}
+      tabIndex={0} className="qube-resizer" onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}
       onPointerCancel={onPointerUp} onKeyDown={onKeyDown} />
   );
 }

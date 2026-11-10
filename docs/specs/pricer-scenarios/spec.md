@@ -147,7 +147,7 @@ The seams, the same four as steps 1 and 2 (DEFAULT, per the owner's standing pre
 1. **The portfolio workspace service with the registered measures** (xUnit, prior art `PricerCaseTests`): the shift
    reader, the scenario commands and generators, the readings, the accepted input crossing cases with scenarios, each
    provider's rows per pair, the cap and the refusals, and the saved sets' visibility.
-2. **The HTTP API through the in-process host** (xUnit with `WorkbenchFactory`, prior art `PricerApiTests` and
+2. **The HTTP API through the in-process host** (xUnit with `QubeFactory`, prior art `PricerApiTests` and
    `PricerCommandTests`): the scenario endpoints, Price to a Run with a row per pair, the trace of a pair, and the
    command capabilities through the command gateway.
 3. **The client's pure functions** (Vitest, prior art `commands.test.ts`, `metrics.test.ts`): the generators' preview,

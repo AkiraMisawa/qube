@@ -39,7 +39,7 @@ None of these shows in a unit test, and each looked acceptable in the component 
 6. **The focus ring follows `:focus-visible`** (`focusRing: 'auto'`): always for the keyboard, never as the
    remainder of a click or tap.
 7. **Grids are drawn by `@ex-grid/mantine`, and the workbench takes the grid's font.** Asked by the owner on
-   2026-11-06 ("switch to @ex-grid/mantine"). `WorkbenchGrid` wraps `MantineExGrid` with the paper decided once
+   2026-11-06 ("switch to @ex-grid/mantine"). `QubeGrid` wraps `MantineExGrid` with the paper decided once
    (bordered, square), and the hand-written `--ex-` bridge in `theme.css` is removed (ADR-0001's DEFAULT, rewritten).
    The theme's `fontFamily` is `mantineDefaultFont.family`, Mantine's default system stack, the face whose widths
    ExGrid judges `####` by: a figure reads in one face in a grid and beside it, and no web font is loaded. Inter was

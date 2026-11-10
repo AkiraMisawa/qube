@@ -2,7 +2,7 @@
 // (ADR-0006 §6). Kept in this browser until the user settings store arrives with sign-in (C30); a browser that keeps
 // nothing ranks by match alone.
 
-const KEY = 'qwb.commandUsage.v1';
+const KEY = 'qube.commandUsage.v1';
 const HALF_LIFE_DAYS = 14;
 
 interface Use { readonly count: number; readonly last: number }

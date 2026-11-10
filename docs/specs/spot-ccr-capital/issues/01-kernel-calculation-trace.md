@@ -9,6 +9,6 @@ trace that is not a regulation.
 
 ## Comments
 
-- 2026-11-07: done in `Workbench.Composition.Contracts/Traces.cs` and `Workbench.Composition.Application/Traces/`,
+- 2026-11-07: done in `Qube.Composition.Contracts/Traces.cs` and `Qube.Composition.Application/Traces/`,
   proven by `TraceTests` over the synthetic garden-water method. The tests were written after the evaluator; each rule
   was then checked by breaking it and seeing a test fail.

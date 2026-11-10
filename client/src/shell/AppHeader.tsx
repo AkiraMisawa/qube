@@ -25,16 +25,16 @@ export function AppHeader() {
   const aiOpen = useAi((s) => s.open);
   const ai = useAiContext().store;
   return (
-    <div className="qwb-header">
-      <div className="qwb-header-brand">
-        <Title order={1} className="qwb-header-title">QUBE</Title>
+    <div className="qube-header">
+      <div className="qube-header-brand">
+        <Title order={1} className="qube-header-title">QUBE</Title>
         <Button size="xs" variant="default" onClick={openPalette} aria-label="Open command line"
           leftSection={<IconTerminal2 size={ICON} stroke={1.75} aria-hidden />}
           rightSection={<Kbd size="xs" visibleFrom="sm">Ctrl K</Kbd>}>Commands</Button>
       </div>
-      <ContextBar className="qwb-header-context" />
-      <div className="qwb-header-actions">
-        <Divider orientation="vertical" visibleFrom="md" className="qwb-header-divider" />
+      <ContextBar className="qube-header-context" />
+      <div className="qube-header-actions">
+        <Divider orientation="vertical" visibleFrom="md" className="qube-header-divider" />
         <Button size="xs" variant={aiOpen ? 'light' : 'default'} onClick={() => ai.getState().setOpen(!aiOpen)}
           aria-pressed={aiOpen} aria-label={aiOpen ? 'Hide the AI pane' : 'Show the AI pane'}
           leftSection={<IconSparkles size={ICON} stroke={1.75} aria-hidden />}>AI</Button>

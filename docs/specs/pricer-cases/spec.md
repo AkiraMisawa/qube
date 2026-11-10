@@ -138,7 +138,7 @@ recommendation and report it):
 2. **The portfolio workspace service with the registered measures** (xUnit, prior art `PricerTests`): `vary`, `add
    trades`, `set`, the layered readings, the Changes list, the frozen accepted input per case, each provider's rows per
    case, the cap and docs/03 §5's refusals.
-3. **The HTTP API through the in-process host** (xUnit with `WorkbenchFactory`, prior art `XvaApiTests` and
+3. **The HTTP API through the in-process host** (xUnit with `QubeFactory`, prior art `XvaApiTests` and
    `AgentApiTests`): the case commands and the Changes list on the wire, Price to a Run with a row per case, and the
    command capabilities through the command gateway.
 4. **The client's pure functions** (Vitest, prior art `metrics.test.ts`) and **the page in a browser** (Playwright,

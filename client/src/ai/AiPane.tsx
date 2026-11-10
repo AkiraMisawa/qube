@@ -115,7 +115,7 @@ export function AiPane() {
       <ScrollArea style={{ flex: 1 }} type="auto" offsetScrollbars>
         <Stack gap="xs">
           {cards.length === 0 && !help && (
-            <Text size="sm" c="dimmed">Ask in your own words. The AI acts through the workbench's commands, and what it opens appears behind your panel. Type <Kbd size="xs">/</Kbd> for chat commands.</Text>
+            <Text size="sm" c="dimmed">Ask in your own words. The AI acts through Qube's commands, and what it opens appears behind your panel. Type <Kbd size="xs">/</Kbd> for chat commands.</Text>
           )}
           {help && (
             <Alert variant="light" withCloseButton onClose={() => setHelp(false)} title="What the AI can be asked">

@@ -45,7 +45,7 @@ idempotency keys through the application executor, and a scripted transcript lab
    web process, so the two identities never share one. That account reaches the model and nothing else. The runtime
    proposes tool calls; the loop invokes them in the workbench for the signed-in user (§3), so what the agent can
    change is what the user may change through a registered command, never what either service account may write.
-   **The two processes meet on a narrow wire.** The agent host (`Workbench.AgentHost`) listens on a loopback address
+   **The two processes meet on a narrow wire.** The agent host (`Qube.AgentHost`) listens on a loopback address
    only and answers only a caller holding a key the two share. The workbench posts a turn (the latest request with its
    context, the conversation before it written out, the tools by their schemas, the model) and reads the answer as
    one JSON line per step: words, a tool call, the end, or a failure. A tool call is invoked by the loop as in §3 and
@@ -71,7 +71,7 @@ idempotency keys through the application executor, and a scripted transcript lab
 
 ## Consequences
 
-- A new project `Workbench.Agent` holds the AG-UI events, threads, the loop, the tool gateway, the runtime port and the
+- A new project `Qube.Agent` holds the AG-UI events, threads, the loop, the tool gateway, the runtime port and the
   scripted runtime. It knows no domain; the Rates module registers its scripted requests.
 - The Copilot adapter is one more `IAgentRuntime` (`copilot`, `CopilotAgentRuntime`), configured in the composition
   root, talking to the agent host built on the Copilot SDK (C44). At the company the host authenticates as a GitHub

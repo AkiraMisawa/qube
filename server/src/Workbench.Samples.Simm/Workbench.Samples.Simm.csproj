@@ -1,9 +1,0 @@
-<Project Sdk="Microsoft.NET.Sdk">
-
-  <ItemGroup>
-    <ProjectReference Include="..\Workbench.Composition.Application\Workbench.Composition.Application.csproj" />
-    <ProjectReference Include="..\Workbench.Samples.Rates\Workbench.Samples.Rates.csproj" />
-    <ProjectReference Include="..\Workbench.Samples.Portfolio\Workbench.Samples.Portfolio.csproj" />
-  </ItemGroup>
-
-</Project>

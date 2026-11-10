@@ -44,7 +44,7 @@ output lands.
   provider's (ADR-0010 §10), so selecting spot capital without KVA still asks the XVA request with KVA on, and
   the page shows KVA only if it is selected. The engine adapter maps the engine's drill-down output onto this ADR's
   kinds (§4). When a request for spot capital alone exists, it is another adapter behind the same capability.
-- **PoC**: a reference implementation of SA-CCR and SA-RW in a domain module (`Workbench.Samples.Ccr`), behind the
+- **PoC**: a reference implementation of SA-CCR and SA-RW in a domain module (`Qube.Samples.Ccr`), behind the
   fake XVA provider's KVA option and callable as its own capability `ccr.spotCapital` (C12, C27). Its Runs are
   `Simulated`, and its trace says so on every level (ADR-0011 §3). There is never a silent fallback from the engine
   to it.
@@ -83,7 +83,7 @@ output lands.
 The catalogue of kinds, ids and leaf sets is the format proposal's §8 and §9, registered by the domain module for
 method `sa-ccr` version `2023-01-01` (ADR-0011 §2). Ids start at the netting set (`NS-002/pfe/addon/ir/USD/en/b3`); a
 margined netting set has `/m` and `/u` beneath it for its margined and unmargined figures. Declared depth: trade.
-(Implemented 2026-11-08 in `Workbench.Samples.Ccr/SpotCapitalTrace.cs`, which the proposal now follows: each basis's
+(Implemented 2026-11-08 in `Qube.Samples.Ccr/SpotCapitalTrace.cs`, which the proposal now follows: each basis's
 V, C and NICA beneath its replacement cost, since the haircuts differ by basis; an effective notional term above
 every set of rows; and a margined leaf set for each asset class, whose maturity factor reads the MPOR.)
 
@@ -139,7 +139,7 @@ out of `ccr.spotCapital`'s membership with that reason.
 ### 7. What the PoC chose where the rule leaves it to the bank (DEFAULT, 2026-11-08)
 
 The reference implementation behind the fake XVA provider (§2) needed these to compute at all. Each is a DEFAULT,
-written in `Workbench.Samples.Ccr/SpotCapitalPricing.cs` where it is applied, and none is the engine's: the engine
+written in `Qube.Samples.Ccr/SpotCapitalPricing.cs` where it is applied, and none is the engine's: the engine
 adapter maps what the engine decided.
 
 - **Netting sets by CSA.** A netting set's trades are calculated by the CSA they are on, each group with its CSA's
@@ -166,7 +166,7 @@ adapter maps what the engine decided.
 
 ## Consequences
 
-- `Workbench.Samples.Ccr` is new: the calculator, the risk weight resolver, the kinds' registration, and tests
+- `Qube.Samples.Ccr` is new: the calculator, the risk weight resolver, the kinds' registration, and tests
   against the BCBS SA-CCR worked examples (the first netting set's EAD is 569) and against cases built for each rule
   above.
 - The synthetic sources gain what §3 and §6 read: trade start, end, direction, legs and option terms; both parties'

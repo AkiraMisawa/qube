@@ -56,8 +56,8 @@ export function applyEvent(card: AiCard, event: BaseEvent): AiCard {
   const e = event as unknown as Fields;
   switch (event.type) {
     case EventType.RUN_STARTED: {
-      const workbench = (e.metadata as Fields | undefined)?.workbench as Fields | undefined;
-      const runtime = workbench === undefined ? undefined : { label: text(workbench, 'label'), simulated: workbench.simulated === true };
+      const qube = (e.metadata as Fields | undefined)?.qube as Fields | undefined;
+      const runtime = qube === undefined ? undefined : { label: text(qube, 'label'), simulated: qube.simulated === true };
       return { ...card, status: 'running', runtime };
     }
     case EventType.TEXT_MESSAGE_CONTENT:

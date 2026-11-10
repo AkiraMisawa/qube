@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, type Ref } from 'react';
 import { NativeSelect, Select, Stack, Text } from '@mantine/core';
 import { GridSource, type CellState, type GridColumn, type GridContextMenuContext, type GridEditIntent } from '@ex-grid/core';
-import { WorkbenchGrid } from '../../platform/grid/WorkbenchGrid';
+import { QubeGrid } from '../../platform/grid/QubeGrid';
 import type { EffectiveCds, EffectiveCredit } from './contracts';
 import { bpFigure, bpText, catalogueOf, catalogueRefused, inBp, spreadTyped, type CatalogueRead } from './credit';
 import type { SetText } from './editing';
@@ -74,11 +74,11 @@ export function XvaCredit({ panelId, credit, registration, catalogue: read, push
   const refused = catalogueRefused(read);
   const type = credit.choice.type ?? 'none';
   const marked = (field: string) => (differs(credit, field)
-    ? { 'data-modified': true, title: originalMessage(credit, field, credit.choice[keyOf(field)]) ?? 'Set by you', classNames: { input: 'qwb-modified' } } : {});
+    ? { 'data-modified': true, title: originalMessage(credit, field, credit.choice[keyOf(field)]) ?? 'Set by you', classNames: { input: 'qube-modified' } } : {});
   const key = (field: string, label: string, values: readonly string[] | undefined, chosen: string | null | undefined) => (
     <ToolbarField label={label}>
       {(id) => (
-        <NativeSelect id={id} size="xs" className="qwb-toolbar-input" value={chosen ?? ''} {...marked(field)}
+        <NativeSelect id={id} size="xs" className="qube-toolbar-input" value={chosen ?? ''} {...marked(field)}
           data={[...(chosen == null ? [{ value: '', label: 'Choose…' }] : []), ...(values ?? (chosen == null ? [] : [chosen])).map((v) => ({ value: v, label: v }))]}
           onChange={(e) => push(entity, field, e.currentTarget.value === '' ? null : e.currentTarget.value)} />
       )}
@@ -86,18 +86,18 @@ export function XvaCredit({ panelId, credit, registration, catalogue: read, push
   );
 
   return (
-    <Stack gap="xs" className="qwb-xva-credit">
-      <div className="qwb-toolbar" role="group" aria-label="CDS">
+    <Stack gap="xs" className="qube-xva-credit">
+      <div className="qube-toolbar" role="group" aria-label="CDS">
         <ToolbarField label="CDS">
           {(id) => (
-            <NativeSelect id={id} size="xs" className="qwb-toolbar-input" value={type} data={TYPES} ref={focusRef} {...marked('cdsType')}
+            <NativeSelect id={id} size="xs" className="qube-toolbar-input" value={type} data={TYPES} ref={focusRef} {...marked('cdsType')}
               onChange={(e) => push(entity, 'cdsType', e.currentTarget.value === 'none' ? null : e.currentTarget.value)} />
           )}
         </ToolbarField>
         {type === 'singleName' && (
           <ToolbarField label="Reference" wide>
             {(id) => (
-              <Select id={id} size="xs" className="qwb-toolbar-input qwb-toolbar-input--wide" searchable allowDeselect={false} {...marked('cdsReference')}
+              <Select id={id} size="xs" className="qube-toolbar-input qube-toolbar-input--wide" searchable allowDeselect={false} {...marked('cdsReference')}
                 value={credit.choice.reference ?? null} placeholder="Search ticker, ccy, seniority, doc clause or name"
                 nothingFoundMessage={refused === undefined ? 'No single name of the catalogue matches.' : 'The CDS catalogue could not be read.'}
                 data={(catalogue?.singleNames ?? []).map((c) => ({ value: c.id, label: c.reference }))}
@@ -173,7 +173,7 @@ function CurveGrid({ panelId, curve, tenors, setText, onVary, commandLabel }: {
 
   return (
     <div aria-label="CDS curve">
-      <WorkbenchGrid<Row> columns={columns} onColumnWidthChanged={onColumnWidthChanged} source={source} onEdit={onEdit} cellState={curveCellState} cellMessage={curveCellMessage}
+      <QubeGrid<Row> columns={columns} onColumnWidthChanged={onColumnWidthChanged} source={source} onEdit={onEdit} cellState={curveCellState} cellMessage={curveCellMessage}
         contextCommands={contextCommands} commandLabel={commandLabel}
         density="compact" viewportWidth="stretch" viewportHeight={compactGridHeight(1)} pinnedColumnCount={2}
         showSelectionSummary={false} locale="en-US" />

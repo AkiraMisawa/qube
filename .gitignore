@@ -5,5 +5,5 @@ dist/
 test-results/
 playwright-report/
 *.tsbuildinfo
-server/src/Workbench.Web/wwwroot/
-server/src/Workbench.Web/App_Data/
+server/src/Qube.Web/wwwroot/
+server/src/Qube.Web/App_Data/

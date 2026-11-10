@@ -242,7 +242,7 @@ of that day; the CCR sample was ported to it the same day (links in §6's last p
   substituted, once for each side the case priced, then the term's Diff when it priced both. An absent operand keeps its symbol, drawn
   faint, and is never written as 0. Its citation, the operand that governed, and its parameters with their sources
   sit beside it; a matrix parameter is typeset as a matrix. Each operand of the formula selects that term in the tree.
-- **A leaf set** is a grid (`WorkbenchGrid`) below the tree for the selected term's rows, with the trade's membership
+- **A leaf set** is a grid (`QubeGrid`) below the tree for the selected term's rows, with the trade's membership
   on each side and an action that goes to the trade's row on its page; opening a row typesets its leaf set's column
   formulas with the row's values.
 - **A decision** (SA's risk weight) is drawn as its steps in order, each with its outcome, its reasons, the inputs it
@@ -279,7 +279,7 @@ Mathematics is set by KaTeX at an exact pinned version, in strict mode, with tru
 the renderer itself writes around each `\slot` to make the operand selectable. Templates come from the registered
 catalogue only.
 
-The tree is ExGrid (`WorkbenchGrid`), drawn as ExPivot draws its Compact form: the term column is a pinned Template
+The tree is ExGrid (`QubeGrid`), drawn as ExPivot draws its Compact form: the term column is a pinned Template
 Column carrying the label, its indent and the open / close button, the grid reports the press, and the page holds what
 is open and pushes the rows (ex-grid ADR-0059's table of what ExPivot asks, ADR-0020). It needs no change to ExGrid.
 The samples of 2026-11-07 are the SIMM one (https://claude.ai/artifact/S1P64xEfAW4WNonthA6Hf8) and the CCR one

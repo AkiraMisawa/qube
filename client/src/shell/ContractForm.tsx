@@ -42,7 +42,7 @@ function Field({ name, field, value, error, onChange, autoFocus, layout }: {
       size={layout === 'toolbar' ? 'xs' : 'sm'} />;
 
   const input = layout === 'toolbar'
-    ? { id, size: 'xs', error: error !== undefined, className: `qwb-toolbar-input qwb-toolbar-input--${kind(field)}` } as const
+    ? { id, size: 'xs', error: error !== undefined, className: `qube-toolbar-input qube-toolbar-input--${kind(field)}` } as const
     : { id, size: 'sm', label, error } as const;
   const common = { ...input, 'data-autofocus': autoFocus || undefined } as const;
 
@@ -58,8 +58,8 @@ function Field({ name, field, value, error, onChange, autoFocus, layout }: {
 
   if (layout === 'stacked') return control;
   return (
-    <div className="qwb-toolbar-field">
-      <Text component="label" htmlFor={id} size="xs" c="dimmed" className="qwb-toolbar-label">{label}</Text>
+    <div className="qube-toolbar-field">
+      <Text component="label" htmlFor={id} size="xs" c="dimmed" className="qube-toolbar-label">{label}</Text>
       {control}
     </div>
   );

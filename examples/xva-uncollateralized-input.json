@@ -67,7 +67,7 @@
       "tradeInstanceId": "existing-001",
       "tradeInput": {
         "dataId": "input-jpy-existing-001",
-        "contractId": "qwb.trade-input",
+        "contractId": "qube.trade-input",
         "contractVersion": "1.0.0",
         "revision": "1"
       },
@@ -90,7 +90,7 @@
       "tradeInstanceId": "new-001",
       "tradeInput": {
         "dataId": "input-jpy-new-001",
-        "contractId": "qwb.trade-input",
+        "contractId": "qube.trade-input",
         "contractVersion": "1.0.0",
         "revision": "1"
       },
@@ -113,7 +113,7 @@
       "tradeInstanceId": "new-002",
       "tradeInput": {
         "dataId": "input-jpy-new-002",
-        "contractId": "qwb.trade-input",
+        "contractId": "qube.trade-input",
         "contractVersion": "1.0.0",
         "revision": "1"
       },

@@ -14,7 +14,7 @@ interface Workspace {
 
 const WorkspaceContext = createContext<Workspace | undefined>(undefined);
 
-export const CONTEXT_CONTRACT = 'workbench.context';
+export const CONTEXT_CONTRACT = 'qube.context';
 
 export function WorkspaceProvider({ api, catalog, initialContext, notify, children }: {
   readonly api: Api;

@@ -3,55 +3,55 @@
 
 /* From `md` the tree and the formula sit side by side; from `sm` to `md` the formula is below the tree. The formula
    takes what the tree leaves, and a wide formula scrolls inside its part, never the page (§9). */
-.qwb-trace-body {
+.qube-trace-body {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: var(--mantine-spacing-sm);
   align-items: start;
 }
 @media (min-width: 62em) {
-  .qwb-trace-body { grid-template-columns: minmax(0, 3fr) minmax(20rem, 2fr); }
+  .qube-trace-body { grid-template-columns: minmax(0, 3fr) minmax(20rem, 2fr); }
 }
-.qwb-trace-tree-part, .qwb-trace-detail-part { min-width: 0; }
-.qwb-trace-detail-part {
+.qube-trace-tree-part, .qube-trace-detail-part { min-width: 0; }
+.qube-trace-detail-part {
   border: 1px solid var(--mantine-color-default-border);
   padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm);
 }
 
 /* The term cell: indent, the 22px open/close button or the space it would take, then the label, centred on the row. */
-.qwb-trace-term {
+.qube-trace-term {
   display: flex;
   align-items: center;
   gap: var(--mantine-spacing-xs);
   height: 100%;
   min-width: 0;
 }
-.qwb-trace-leaf { display: inline-block; width: 22px; flex: none; }
-.qwb-trace-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qube-trace-leaf { display: inline-block; width: 22px; flex: none; }
+.qube-trace-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* An operand of its parent's max, min or clamp: the one taken is marked by its Badge, the others drawn faint (ADR-0011
    §6). The Badge's word says which, so the colour is never the only sign. */
-.qwb-trace-mark { flex: none; }
-.qwb-trace-term[data-governs='false'] .qwb-trace-label,
-.qwb-trace-child[data-governs='false'] .qwb-trace-child-label { color: var(--mantine-color-dimmed); }
+.qube-trace-mark { flex: none; }
+.qube-trace-term[data-governs='false'] .qube-trace-label,
+.qube-trace-child[data-governs='false'] .qube-trace-child-label { color: var(--mantine-color-dimmed); }
 
 /* A formula, its lines labelled on the left; a line wider than its part scrolls inside it. */
-.qwb-trace-formula { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: var(--mantine-spacing-xs); align-items: center; }
-.qwb-trace-formula-line { display: contents; }
-.qwb-trace-formula .qwb-tex-display { overflow-x: auto; overflow-y: hidden; max-width: 100%; }
-.qwb-tex-display .katex-display { margin: 0.25em 0; text-align: left; }
-.qwb-tex-display .katex-display > .katex { text-align: left; }
+.qube-trace-formula { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: var(--mantine-spacing-xs); align-items: center; }
+.qube-trace-formula-line { display: contents; }
+.qube-trace-formula .qube-tex-display { overflow-x: auto; overflow-y: hidden; max-width: 100%; }
+.qube-tex-display .katex-display { margin: 0.25em 0; text-align: left; }
+.qube-tex-display .katex-display > .katex { text-align: left; }
 
 /* Each operand selects its term; one with no value on the side keeps its symbol, faint, and the words below say why. */
-.qwb-tex [data-operand] { cursor: pointer; border-radius: var(--mantine-radius-xs); }
-.qwb-tex [data-operand]:hover { background: var(--mantine-color-default-hover); }
-.qwb-tex [data-state='absent'], .qwb-tex [data-state='pending'] { color: var(--mantine-color-dimmed); }
-.qwb-tex [data-state='unavailable'], .qwb-tex [data-state='notReturned'] { text-decoration: underline wavy var(--mantine-color-red-text); }
-.qwb-tex-error { color: var(--mantine-color-red-text); font-size: var(--mantine-font-size-xs); }
+.qube-tex [data-operand] { cursor: pointer; border-radius: var(--mantine-radius-xs); }
+.qube-tex [data-operand]:hover { background: var(--mantine-color-default-hover); }
+.qube-tex [data-state='absent'], .qube-tex [data-state='pending'] { color: var(--mantine-color-dimmed); }
+.qube-tex [data-state='unavailable'], .qube-tex [data-state='notReturned'] { text-decoration: underline wavy var(--mantine-color-red-text); }
+.qube-tex-error { color: var(--mantine-color-red-text); font-size: var(--mantine-font-size-xs); }
 
 /* A parameter: its symbol, then its value or matrix with its source beneath. A matrix scrolls inside its own box. */
-.qwb-trace-detail { min-width: 0; }
-.qwb-trace-param {
+.qube-trace-detail { min-width: 0; }
+.qube-trace-param {
   display: grid;
   grid-template-columns: 2rem minmax(0, 1fr);
   column-gap: var(--mantine-spacing-xs);
@@ -59,17 +59,17 @@
   padding-block: var(--mantine-spacing-xs);
   border-top: 1px solid var(--mantine-color-default-border);
 }
-.qwb-trace-param-values { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--mantine-spacing-xs); }
-.qwb-trace-param-values > * { min-width: 0; }
-.qwb-trace-matrix { max-width: 100%; overflow-x: auto; overflow-y: hidden; }
-.qwb-trace-param-source { overflow-wrap: anywhere; }
-.qwb-trace-param-toggle { align-self: flex-start; }
+.qube-trace-param-values { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--mantine-spacing-xs); }
+.qube-trace-param-values > * { min-width: 0; }
+.qube-trace-matrix { max-width: 100%; overflow-x: auto; overflow-y: hidden; }
+.qube-trace-param-source { overflow-wrap: anywhere; }
+.qube-trace-param-toggle { align-self: flex-start; }
 
-.qwb-trace-steps { margin: 0; padding-inline-start: var(--mantine-spacing-lg); display: grid; gap: var(--mantine-spacing-xs); }
+.qube-trace-steps { margin: 0; padding-inline-start: var(--mantine-spacing-lg); display: grid; gap: var(--mantine-spacing-xs); }
 
 /* Below `sm`: a child is a row of the list, at least 44px for a finger (§8), its figure right-aligned. */
-.qwb-trace-children { border-top: 1px solid var(--mantine-color-default-border); }
-.qwb-trace-child {
+.qube-trace-children { border-top: 1px solid var(--mantine-color-default-border); }
+.qube-trace-child {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   column-gap: var(--mantine-spacing-sm);
@@ -79,20 +79,20 @@
   border-bottom: 1px solid var(--mantine-color-default-border);
   font-size: var(--mantine-font-size-sm);
 }
-.qwb-trace-child:focus-visible, .qwb-trace-child:hover { background: var(--mantine-color-default-hover); }
-.qwb-trace-child-lead { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.qwb-trace-child-state { grid-column: 1 / -1; font-size: var(--mantine-font-size-xs); font-style: italic; }
-.qwb-trace-child-label { overflow-wrap: anywhere; }
+.qube-trace-child:focus-visible, .qube-trace-child:hover { background: var(--mantine-color-default-hover); }
+.qube-trace-child-lead { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.qube-trace-child-state { grid-column: 1 / -1; font-size: var(--mantine-font-size-xs); font-style: italic; }
+.qube-trace-child-label { overflow-wrap: anywhere; }
 
-.qwb-trace-path { flex-wrap: wrap; row-gap: var(--mantine-spacing-xs); }
-.qwb-trace-explain { min-width: 0; }
-.qwb-trace-explain-text { min-width: 0; flex: 0 1 auto; overflow-wrap: anywhere; }
-.qwb-trace-explain > button { flex: none; }
+.qube-trace-path { flex-wrap: wrap; row-gap: var(--mantine-spacing-xs); }
+.qube-trace-explain { min-width: 0; }
+.qube-trace-explain-text { min-width: 0; flex: 0 1 auto; overflow-wrap: anywhere; }
+.qube-trace-explain > button { flex: none; }
 
 /* A trace tab's cards (ADR-0012 §7): one per root, the chosen one marked by its border and fill as well as by
    aria-pressed; each figure under its title, at least 44px tall for a finger (§8). A pointer over a card and the
    keyboard on it show alike; the keyboard's ring is Mantine's own. */
-.qwb-trace-card {
+.qube-trace-card {
   display: grid;
   gap: var(--mantine-spacing-xs);
   min-height: 44px;
@@ -100,13 +100,13 @@
   border: 1px solid var(--mantine-color-default-border);
   border-radius: var(--mantine-radius-sm);
 }
-.qwb-trace-card:hover, .qwb-trace-card:focus-visible { background: var(--mantine-color-default-hover); }
-.qwb-trace-card[data-chosen='true'] { border-color: var(--mantine-primary-color-filled); background: var(--mantine-primary-color-light); }
-.qwb-trace-card-figures {
+.qube-trace-card:hover, .qube-trace-card:focus-visible { background: var(--mantine-color-default-hover); }
+.qube-trace-card[data-chosen='true'] { border-color: var(--mantine-primary-color-filled); background: var(--mantine-primary-color-light); }
+.qube-trace-card-figures {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr));
   gap: var(--mantine-spacing-xs);
   margin: 0;
 }
-.qwb-trace-card-figures dt { font-size: var(--mantine-font-size-xs); }
-.qwb-trace-card-figures dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; }
+.qube-trace-card-figures dt { font-size: var(--mantine-font-size-xs); }
+.qube-trace-card-figures dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; }

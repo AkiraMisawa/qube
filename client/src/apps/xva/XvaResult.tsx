@@ -116,7 +116,7 @@ export function XvaResult({ runId, pricedRevision, revision, register, selected,
     : [[l.measure, { measure: l.measure, title: l.measureTitle, basis: l.basis }] as const]))).values()];
 
   return (
-    <Stack gap="xs" className="qwb-xva-result" data-testid="xva-result" aria-label="Latest price">
+    <Stack gap="xs" className="qube-xva-result" data-testid="xva-result" aria-label="Latest price">
       <Group gap="xs" wrap="wrap">
         <Button size="compact-xs" variant="subtle" aria-expanded={open} aria-controls={bodyId} onClick={() => onOpenChange(!open)}
           title={open ? 'Collapse the result to a line a case.' : 'Show the Metrics.'}>{open ? 'Collapse' : 'Expand'}</Button>
@@ -177,11 +177,11 @@ export function XvaResult({ runId, pricedRevision, revision, register, selected,
       {status === 'failed' && <Alert color="red" variant="light" title={run.data?.error?.code ?? 'Failed'}>{run.data?.error?.message}</Alert>}
       {!open && lines.length > 0 && (
         <Stack gap={0} data-testid="xva-result-lines" aria-label="Headline per case">
-          {lines.map((l) => <Text key={l.key} size="xs" className="qwb-number-text">{l.text}</Text>)}
+          {lines.map((l) => <Text key={l.key} size="xs" className="qube-number-text">{l.text}</Text>)}
         </Stack>
       )}
       {open && shown.view !== 'metrics' && (
-        <div id={bodyId} className="qwb-xva-result-tab" data-testid="xva-result-tab" data-full={full} style={partHeight(height)}>
+        <div id={bodyId} className="qube-xva-result-tab" data-testid="xva-result-tab" data-full={full} style={partHeight(height)}>
           {status === 'running'
             ? <Text size="sm">The {shown.title} tab draws once the Run has finished.</Text>
             : unpriced !== undefined
@@ -190,22 +190,22 @@ export function XvaResult({ runId, pricedRevision, revision, register, selected,
         </div>
       )}
       {open && shown.view === 'metrics' && (
-        <Stack gap="xs" id={bodyId} className="qwb-xva-result-body" data-testid="xva-result-body" data-full={full} style={partHeight(height)}>
+        <Stack gap="xs" id={bodyId} className="qube-xva-result-body" data-testid="xva-result-body" data-full={full} style={partHeight(height)}>
           {priced === undefined && (
             <Text size="xs">This Run was priced before measures were registered. Open it to see its figures, or Price again.</Text>
           )}
           {table?.note !== undefined && <Text size="xs" data-testid="xva-result-note">{table.note}</Text>}
           {grid !== undefined && grid.rows.length > 0 && (
-            <div className="qwb-xva-result-table">
+            <div className="qube-xva-result-table">
               <Table withTableBorder withColumnBorders verticalSpacing="xs" horizontalSpacing="sm" fz="sm" aria-label="Metrics">
                 <Table.Thead>
                   <Table.Tr>
                     <Table.Th rowSpan={2}>Case</Table.Th>
-                    {grid.columns.map((c) => <Table.Th key={c.key} colSpan={sides.length} className="qwb-xva-result-group">{c.metricTitle}</Table.Th>)}
+                    {grid.columns.map((c) => <Table.Th key={c.key} colSpan={sides.length} className="qube-xva-result-group">{c.metricTitle}</Table.Th>)}
                   </Table.Tr>
                   <Table.Tr>
                     {grid.columns.flatMap((c) => sides.map(([side, title]) => (
-                      <Table.Th key={`${c.key}.${side}`} className="qwb-number" aria-label={`${c.metricTitle} ${title}`}>{title}</Table.Th>
+                      <Table.Th key={`${c.key}.${side}`} className="qube-number" aria-label={`${c.metricTitle} ${title}`}>{title}</Table.Th>
                     )))}
                   </Table.Tr>
                 </Table.Thead>
@@ -245,16 +245,16 @@ export function XvaResult({ runId, pricedRevision, revision, register, selected,
 function Figure({ cell, line, label, onTrace }: {
   readonly cell: MetricCell | undefined; readonly line: MetricLine | undefined; readonly label: string; readonly onTrace?: () => void;
 }) {
-  if (cell === undefined) return <Table.Td className="qwb-number" aria-label={`${label}: not asked`} />;
+  if (cell === undefined) return <Table.Td className="qube-number" aria-label={`${label}: not asked`} />;
   const word = cell.status !== 'priced' && cell.status !== 'pending';
   const noted = cell.note === undefined ? '' : `${cell.note} `;
   return (
-    <Table.Td className={word ? 'qwb-number qwb-xva-result-word' : 'qwb-number'} data-status={cell.status}
+    <Table.Td className={word ? 'qube-number qube-xva-result-word' : 'qube-number'} data-status={cell.status}
       {...(cell.negative ? { 'data-negative': true } : {})} {...(line?.reason === undefined ? {} : { title: line.reason })}>
-      {cell.note !== undefined && <Text span size="xs" className="qwb-xva-result-cell-note" data-testid="xva-result-cell-note">{cell.note}</Text>}
+      {cell.note !== undefined && <Text span size="xs" className="qube-xva-result-cell-note" data-testid="xva-result-cell-note">{cell.note}</Text>}
       {onTrace === undefined || cell.status === 'pending' || cell.status === 'notPriced'
         ? cell.text
-        : <Anchor component="button" size="sm" className="qwb-xva-result-trace" onClick={onTrace} data-testid="xva-result-trace"
+        : <Anchor component="button" size="sm" className="qube-xva-result-trace" onClick={onTrace} data-testid="xva-result-trace"
           aria-label={`${label} ${noted}${cell.text}: open its trace`}>{cell.text}</Anchor>}
     </Table.Td>
   );

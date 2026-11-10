@@ -11,7 +11,7 @@ const created = JSON.stringify({ status: 'done', capability: 'rates.workspace.cr
 const refused = JSON.stringify({ status: 'refused', capability: 'rates.live.start', code: 'ValidationFailed', issues: [{ code: 'Required', path: '/inputs/workspace/workspaceId', message: 'workspaceId is required.' }] });
 
 const run: BaseEvent[] = [
-  { type: EventType.RUN_STARTED, threadId: 't', runId: 'r', metadata: { workbench: { runtime: 'scripted', label: 'scripted · no model', simulated: true } } } as BaseEvent,
+  { type: EventType.RUN_STARTED, threadId: 't', runId: 'r', metadata: { qube: { runtime: 'scripted', label: 'scripted · no model', simulated: true } } } as BaseEvent,
   { type: EventType.TOOL_CALL_START, toolCallId: 'c-1', toolCallName: 'rates_workspace_create', parentMessageId: 'm' } as BaseEvent,
   { type: EventType.TOOL_CALL_ARGS, toolCallId: 'c-1', delta: '{"request":{}}' } as BaseEvent,
   { type: EventType.TOOL_CALL_END, toolCallId: 'c-1' } as BaseEvent,

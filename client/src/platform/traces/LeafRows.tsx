@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Group, SegmentedControl, Stack, Text } from '@mantine/core';
 import { GridSource, type GridColumn, type GridSelection } from '@ex-grid/core';
 import { compactGridHeight } from '../grid/metrics';
-import { WorkbenchGrid } from '../grid/WorkbenchGrid';
+import { QubeGrid } from '../grid/QubeGrid';
 import { MAX_PAGE, refusalText, type TraceApi } from './api';
 import type { LeafSetKind, PairedLeafRow, Side, TraceAddress, TraceHeader } from './contracts';
 import { leafFormulaTex } from './formula';
@@ -115,7 +115,7 @@ export function LeafRows({ panelId, api, address, header, path, set, rows }: {
         )}
       </Group>
       {failure !== undefined && <Alert color="red" variant="light" withCloseButton onClose={() => setFailure(undefined)} title="The rows could not be read">{failure}</Alert>}
-      <WorkbenchGrid<PairedLeafRow> columns={columns} onColumnWidthChanged={onColumnWidthChanged} source={source} density="compact" viewportWidth="stretch"
+      <QubeGrid<PairedLeafRow> columns={columns} onColumnWidthChanged={onColumnWidthChanged} source={source} density="compact" viewportWidth="stretch"
         viewportHeight={compactGridHeight(Math.min(total === undefined ? 1 : Math.max(total, 1), 8))} pinnedColumnCount={1} locale="en-US" hideColumnMenu
         onSelectionChanged={onSelectionChanged} />
       {focus !== undefined && focusRow !== undefined && focusRow !== null && computed.length > 0 && (

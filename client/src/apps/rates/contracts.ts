@@ -1,5 +1,5 @@
 // The Rates line pricer's wire shapes, as the server's RatesWorkspaces and RatesApi answer them
-// (server/src/Workbench.Samples.Rates, server/src/Workbench.Web/RatesApi.cs). Figures are simulated and the
+// (server/src/Qube.Samples.Rates, server/src/Qube.Web/RatesApi.cs). Figures are simulated and the
 // market synthetic; the shapes are the contract.
 
 import type { RunOrigin } from '../../platform/contracts';

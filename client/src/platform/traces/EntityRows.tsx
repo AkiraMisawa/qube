@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Alert, Group, Stack, Text } from '@mantine/core';
 import { GridSource, type GridColumn } from '@ex-grid/core';
 import { compactGridHeight } from '../grid/metrics';
-import { WorkbenchGrid } from '../grid/WorkbenchGrid';
+import { QubeGrid } from '../grid/QubeGrid';
 import { toneOf } from '../grid/amounts';
 import { useColumnWidths } from '../grid/columnWidths';
 import { MAX_PAGE, refusalText, type TraceApi } from './api';
@@ -80,7 +80,7 @@ export function EntityRows({ panelId, api, address, header, path, set }: {
   return (
     <Stack gap="xs" data-testid="trace-entities" aria-label="Entities below the term">
       {failure !== undefined && <Alert color="red" variant="light" withCloseButton onClose={() => setFailure(undefined)} title="The entities could not be read">{failure}</Alert>}
-      <WorkbenchGrid<EntityRow> columns={columns} onColumnWidthChanged={onColumnWidthChanged} source={source} density="compact" viewportWidth="stretch"
+      <QubeGrid<EntityRow> columns={columns} onColumnWidthChanged={onColumnWidthChanged} source={source} density="compact" viewportWidth="stretch"
         viewportHeight={compactGridHeight(Math.min(total === undefined ? 1 : Math.max(total, 1), 8))} pinnedColumnCount={1} locale="en-US" hideColumnMenu />
       {line !== undefined && (
         <Group gap="xs" wrap="wrap">

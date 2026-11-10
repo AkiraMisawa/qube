@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://example.invalid/qwb/simm-comparison-input.schema.json",
+  "$id": "https://example.invalid/qube/simm-comparison-input.schema.json",
   "title": "Domain example: resolved SIMM comparison input",
   "description": "Synthetic example contract belonging to the margin domain module, not generic composition.",
   "type": "object",

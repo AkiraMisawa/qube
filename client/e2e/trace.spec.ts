@@ -36,7 +36,7 @@ test('ADR-0011 §6: a figure opens its trace, each side\'s values typeset in its
   // The formula with its symbols, then with Before's values, After's and the Diff, each typeset by KaTeX.
   await expect.poll(() => lines(page)).toEqual(['symbolic', 'before', 'after', 'diff']);
   await expect(page.getByTestId('trace-formula').locator('.katex')).toHaveCount(4);
-  await expect(view(page).locator('.qwb-tex-error')).toHaveCount(0);
+  await expect(view(page).locator('.qube-tex-error')).toHaveCount(0);
 
   // An operand of the formula opens its term, which the tree then shows below its parent.
   await page.getByTestId('trace-operand').filter({ hasText: 'Risk-weighted assets' }).click();
@@ -79,7 +79,7 @@ test('ADR-0011 §6: a figure opens its trace, each side\'s values typeset in its
   // The row at the Focus has its leaf set's formulas typeset with its values.
   await leaves.getByRole('row').filter({ has: page.getByRole('gridcell') }).first().getByRole('gridcell').first().click({ force: true });
   await expect(page.getByTestId('trace-leaf-formulas').locator('.katex').first()).toBeVisible();
-  await expect(view(page).locator('.qwb-tex-error')).toHaveCount(0);
+  await expect(view(page).locator('.qube-tex-error')).toHaveCount(0);
 });
 
 // Akira, 2026-11-07: computing without Before gives After alone, so no comparison is wanted, and drilling down still
@@ -142,10 +142,10 @@ test('ADR-0011 §6, docs/design-guidelines.md §7, §9: at 390px the trace drill
     await expect(page.locator('html')).toHaveAttribute('data-mantine-color-scheme', scheme);
     await page.setViewportSize({ width: 390, height: 844 });
     await expect(view(page)).toHaveAttribute('data-layout', 'drill');
-    expect(await page.locator('.qwb-trace').evaluate(textBelowContrast, 4.5), `${scheme} at 390px: text below 4.5:1`).toEqual([]);
+    expect(await page.locator('.qube-trace').evaluate(textBelowContrast, 4.5), `${scheme} at 390px: text below 4.5:1`).toEqual([]);
     await page.setViewportSize({ width: 1440, height: 900 });
     await expect(view(page)).toHaveAttribute('data-layout', 'tree');
     await settled(page, 'Terms');
-    expect(await page.locator('.qwb-trace').evaluate(textBelowContrast, 4.5), `${scheme} at 1440px: text below 4.5:1`).toEqual([]);
+    expect(await page.locator('.qube-trace').evaluate(textBelowContrast, 4.5), `${scheme} at 1440px: text below 4.5:1`).toEqual([]);
   }
 });

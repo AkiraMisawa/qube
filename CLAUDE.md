@@ -73,9 +73,9 @@ where one disagrees with this document, this document wins.
 
 `/implement` works a spec or ticket under `docs/specs/` through `tdd`. Its generic steps map onto this repository:
 
-- **Typechecking** is `nix develop -c dotnet build server/Workbench.slnx` for the server and
+- **Typechecking** is `nix develop -c dotnet build server/Qube.slnx` for the server and
   `nix develop -c bash -c 'cd client && npm run typecheck'` for the client.
-- **A single test file** is `nix develop -c dotnet test server/Workbench.slnx --filter <Class>`, or
+- **A single test file** is `nix develop -c dotnet test server/Qube.slnx --filter <Class>`, or
   `nix develop -c bash -c 'cd client && npx vitest run <file>'`.
 - **The full suite** is the server's `dotnet test`, the client's `npm run typecheck && npm test`, and the Playwright
   specs the change bears on (README "Commands").

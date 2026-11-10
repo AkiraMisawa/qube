@@ -43,8 +43,8 @@ export function XvaProfile({ runId, measures, register, caseId, scenario }: {
   const table = profileTable(read.rows, profile, caseId, scenario);
   return (
     <Stack gap="xs" data-testid="xva-profile">
-      <div className="qwb-toolbar" role="group" aria-label="Profile">
-        <NativeSelect size="xs" aria-label="Profile" className="qwb-toolbar-input" value={profile.id} data-testid="xva-profile-choice"
+      <div className="qube-toolbar" role="group" aria-label="Profile">
+        <NativeSelect size="xs" aria-label="Profile" className="qube-toolbar-input" value={profile.id} data-testid="xva-profile-choice"
           data={profiles.map((p) => ({ value: p.id, label: p.title }))} onChange={(e) => setPicked(e.currentTarget.value)} />
         <Text size="xs" data-testid="xva-profile-returned">
           Returned: {profiles.map((p) => p.title).join(', ')}{profile.currency === undefined ? '' : ` · ${profile.title} in ${profile.currency}`}
@@ -62,31 +62,31 @@ const SIDES = [['before', 'Before'], ['after', 'After'], ['diff', 'Diff']] as co
 
 /** An exposure as every amount is shown (C48): grouped in threes, in whole units, red when negative; blank where none. */
 function Figure({ value }: { readonly value: ProfileValue }) {
-  if (value === undefined) return <Table.Td className="qwb-number" />;
-  return <Table.Td className="qwb-number" {...(isLoss(value) ? { 'data-negative': true } : {})}>{formatAmount(value)}</Table.Td>;
+  if (value === undefined) return <Table.Td className="qube-number" />;
+  return <Table.Td className="qube-number" {...(isLoss(value) ? { 'data-negative': true } : {})}>{formatAmount(value)}</Table.Td>;
 }
 
 /** The profile's dates, each series' sides: a side with no point at a date, past its last maturity, is blank, never 0. */
 function ProfileGrid({ table }: { readonly table: ProfileTable }) {
   const sides = SIDES.filter(([side]) => (side === 'diff' ? table.sides.before && table.sides.after : table.sides[side]));
   return (
-    <div className="qwb-xva-scroll" data-testid="xva-profile-table">
+    <div className="qube-xva-scroll" data-testid="xva-profile-table">
       <Table withTableBorder withColumnBorders verticalSpacing={4} horizontalSpacing="sm" fz="sm" aria-label={`${table.profile.title} profile`}>
         <Table.Thead>
           <Table.Tr>
             <Table.Th rowSpan={2}>Date</Table.Th>
-            <Table.Th rowSpan={2} className="qwb-number">Years</Table.Th>
-            {table.series.map((s) => <Table.Th key={s.id} colSpan={sides.length} className="qwb-xva-result-group">{s.title}</Table.Th>)}
+            <Table.Th rowSpan={2} className="qube-number">Years</Table.Th>
+            {table.series.map((s) => <Table.Th key={s.id} colSpan={sides.length} className="qube-xva-result-group">{s.title}</Table.Th>)}
           </Table.Tr>
           <Table.Tr>
-            {table.series.flatMap((s) => sides.map(([side, title]) => <Table.Th key={`${s.id}.${side}`} className="qwb-number" aria-label={`${s.title} ${title}`}>{title}</Table.Th>))}
+            {table.series.flatMap((s) => sides.map(([side, title]) => <Table.Th key={`${s.id}.${side}`} className="qube-number" aria-label={`${s.title} ${title}`}>{title}</Table.Th>))}
           </Table.Tr>
         </Table.Thead>
         <Table.Tbody>
           {table.rows.map((r) => (
             <Table.Tr key={r.years}>
-              <Table.Th scope="row" fw={400} className="qwb-nowrap">{r.date}</Table.Th>
-              <Table.Td className="qwb-number">{years.format(r.years)}</Table.Td>
+              <Table.Th scope="row" fw={400} className="qube-nowrap">{r.date}</Table.Th>
+              <Table.Td className="qube-number">{years.format(r.years)}</Table.Td>
               {table.series.flatMap((s) => sides.map(([side]) => (
                 <Figure key={`${s.id}.${side}`} value={r.values[s.id]?.[side]} />
               )))}
@@ -126,7 +126,7 @@ function ProfileChart({ table }: { readonly table: ProfileTable }) {
     }
   }, [pointsKey]);
   return (
-    <div ref={ref} className="qwb-xva-profile-chart" data-testid="xva-profile-chart">
+    <div ref={ref} className="qube-xva-profile-chart" data-testid="xva-profile-chart">
       {'refused' in drawn
         ? <Alert color="red" variant="light" title="The chart was not drawn">{drawn.refused}</Alert>
         : width > 0 && (

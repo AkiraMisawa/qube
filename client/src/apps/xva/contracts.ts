@@ -1,4 +1,4 @@
-// The XVA workspace's wire shapes, as the server's XvaWorkspaces answers them (server/src/Workbench.Samples.Xva).
+// The XVA workspace's wire shapes, as the server's XvaWorkspaces answers them (server/src/Qube.Samples.Xva).
 // The figures and identifiers are synthetic; the shapes are the contract.
 
 export type Ownership = 'source' | 'automatic' | 'user';

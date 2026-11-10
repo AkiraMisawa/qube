@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type Ref } from 'rea
 import { Button, Checkbox, Group, Modal, Stack, Table, Text, TextInput } from '@mantine/core';
 import { GridSource, type CellState, type GridClearIntent, type GridColumn, type GridEditIntent, type GridPasteIntent } from '@ex-grid/core';
 import type { ExGridApi } from '@ex-grid/react';
-import { WorkbenchGrid } from '../../platform/grid/WorkbenchGrid';
+import { QubeGrid } from '../../platform/grid/QubeGrid';
 import type { ScenarioView, ShiftEdit, ShiftRow } from './contracts';
 import { clearedEdits, pastedEdits, shiftGridRows, type ShiftColumn, type ShiftGridRow } from './scenarios';
 import { useColumnWidths } from '../../platform/grid/columnWidths';
@@ -117,13 +117,13 @@ export function XvaScenarios({ panelId, shifts, scenarios, actions, height, grid
   const included = scenarios.filter((s) => s.included).length;
 
   return (
-    <div className="qwb-xva-scenarios">
-      <div className="qwb-xva-scenarios-grid" aria-label="Shifts">
-        <WorkbenchGrid<ShiftGridRow> ref={gridRef} columns={columns} onColumnWidthChanged={onColumnWidthChanged} source={source} onEdit={onEdit} onPaste={onPaste} onClear={onClear} pasteMaySpill
+    <div className="qube-xva-scenarios">
+      <div className="qube-xva-scenarios-grid" aria-label="Shifts">
+        <QubeGrid<ShiftGridRow> ref={gridRef} columns={columns} onColumnWidthChanged={onColumnWidthChanged} source={source} onEdit={onEdit} onPaste={onPaste} onClear={onClear} pasteMaySpill
           cellState={cellState} cellMessage={cellMessage} commandLabel={commandLabel} hideColumnMenu showSelectionSummary={false}
           density="compact" viewportWidth="stretch" viewportHeight={height} pinnedColumnCount={1} locale="en-US" />
       </div>
-      <Stack gap="xs" className="qwb-xva-scenarios-list">
+      <Stack gap="xs" className="qube-xva-scenarios-list">
         <Group gap="xs" justify="space-between" wrap="nowrap">
           <Text size="xs" data-testid="scenarios-summary">
             {scenarios.length === 0 ? 'No scenario: Price prices the base market alone. Type or paste shifts into the grid, or use scenario.'
@@ -136,7 +136,7 @@ export function XvaScenarios({ panelId, shifts, scenarios, actions, height, grid
         {scenarios.length > 0 && (
           <Table withTableBorder withColumnBorders verticalSpacing="xs" horizontalSpacing="xs" fz="sm" aria-label="Scenarios">
             <Table.Thead>
-              <Table.Tr><Table.Th>Price</Table.Th><Table.Th>Scenario</Table.Th><Table.Th className="qwb-number">Shifts</Table.Th><Table.Th aria-label="Actions" /></Table.Tr>
+              <Table.Tr><Table.Th>Price</Table.Th><Table.Th>Scenario</Table.Th><Table.Th className="qube-number">Shifts</Table.Th><Table.Th aria-label="Actions" /></Table.Tr>
             </Table.Thead>
             <Table.Tbody>
               {scenarios.map((s) => (
@@ -148,7 +148,7 @@ export function XvaScenarios({ panelId, shifts, scenarios, actions, height, grid
                     <Text size="sm">{s.name}</Text>
                     {present(s.issue) && <Text size="xs" c="red" data-testid="scenario-issue">{s.issue}</Text>}
                   </Table.Td>
-                  <Table.Td className="qwb-number">{s.shifts}</Table.Td>
+                  <Table.Td className="qube-number">{s.shifts}</Table.Td>
                   <Table.Td>
                     <Group gap="xs" wrap="nowrap">
                       <Button size="compact-xs" variant="default" onClick={() => setDuplicating(s.name)} aria-label={`Duplicate ${s.name}`}>Duplicate</Button>

@@ -1,0 +1,20 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Qube.Agent/Qube.Agent.csproj" />
+    <Project Path="src/Qube.AgentHost.Contracts/Qube.AgentHost.Contracts.csproj" />
+    <Project Path="src/Qube.AgentHost/Qube.AgentHost.csproj" />
+    <Project Path="src/Qube.Composition.Application/Qube.Composition.Application.csproj" />
+    <Project Path="src/Qube.Composition.Contracts/Qube.Composition.Contracts.csproj" />
+    <Project Path="src/Qube.Samples.Synthetic/Qube.Samples.Synthetic.csproj" />
+    <Project Path="src/Qube.Samples.Portfolio/Qube.Samples.Portfolio.csproj" />
+    <Project Path="src/Qube.Samples.Xva/Qube.Samples.Xva.csproj" />
+    <Project Path="src/Qube.Samples.Ccr/Qube.Samples.Ccr.csproj" />
+    <Project Path="src/Qube.Samples.Rates/Qube.Samples.Rates.csproj" />
+    <Project Path="src/Qube.Samples.Simm/Qube.Samples.Simm.csproj" />
+    <Project Path="src/Qube.Persistence.Sqlite/Qube.Persistence.Sqlite.csproj" />
+    <Project Path="src/Qube.Web/Qube.Web.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Qube.Composition.Tests/Qube.Composition.Tests.csproj" />
+  </Folder>
+</Solution>

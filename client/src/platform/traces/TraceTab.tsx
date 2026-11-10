@@ -45,7 +45,7 @@ export function TraceTab({ tabId, address, api, registerFocus, caption }: {
   const choose = (id: string) => { setChosen(id); requestTerm(tabId, id); };
 
   return (
-    <Stack gap="sm" className="qwb-trace-tab" data-testid="trace-tab">
+    <Stack gap="sm" className="qube-trace-tab" data-testid="trace-tab">
       {caption !== undefined && <Text size="xs" data-testid="trace-tab-caption">{caption}</Text>}
       {roots.length > 1 && (
         <SimpleGrid cols={{ base: 1, sm: Math.min(roots.length, 4) }} spacing="xs" role="group" aria-label="Roots">
@@ -69,7 +69,7 @@ function Card({ id, label, card, chosen, onChoose }: {
   readonly id: string; readonly label: string; readonly card: RootCard | undefined; readonly chosen: boolean; readonly onChoose: () => void;
 }) {
   return (
-    <UnstyledButton className="qwb-trace-card" data-chosen={chosen} aria-pressed={chosen} onClick={onChoose} data-testid="trace-card" data-root={id}>
+    <UnstyledButton className="qube-trace-card" data-chosen={chosen} aria-pressed={chosen} onClick={onChoose} data-testid="trace-card" data-root={id}>
       <Group gap="xs" wrap="wrap">
         <Text size="sm" fw={600}>{label}</Text>
         {card?.detail !== undefined && <Text size="sm">{card.detail}</Text>}
@@ -78,11 +78,11 @@ function Card({ id, label, card, chosen, onChoose }: {
       {card === undefined
         ? <Text size="xs">Reading…</Text>
         : (
-          <dl className="qwb-trace-card-figures">
+          <dl className="qube-trace-card-figures">
             {card.figures.map((f) => (
               <div key={f.key}>
                 <dt>{f.title}</dt>
-                <dd className="qwb-number-text">{f.text}</dd>
+                <dd className="qube-number-text">{f.text}</dd>
               </div>
             ))}
           </dl>

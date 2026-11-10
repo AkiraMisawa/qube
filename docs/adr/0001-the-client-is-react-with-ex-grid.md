@@ -51,7 +51,7 @@ it names client technology; the behaviour it describes is unchanged.
   *(Changed 2026-11-10: ex-grid released `0.2.0`, its first version on npm that is not a prerelease, and
   this project moved to it; the rule said "one exact prerelease version" only because none was released.)*
 - **Theming ExGrid.** Every grid is drawn by ExGrid's Mantine Wrapper, `@ex-grid/mantine`, at the
-  family's version, through one component of this repository (`client/src/platform/grid/WorkbenchGrid.tsx`),
+  family's version, through one component of this repository (`client/src/platform/grid/QubeGrid.tsx`),
   with its stylesheet `@ex-grid/mantine/styles.css` loaded after Mantine's and the core's. The Wrapper
   maps the Mantine theme onto ExGrid's `--ex-` Visual Tokens in both schemes, draws the grid's menus,
   filter panel and editor with Mantine's components, and draws the cells in the font it has widths for

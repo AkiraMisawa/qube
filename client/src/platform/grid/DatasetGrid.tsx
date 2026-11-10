@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { actionColumn, type GridActionEvent, type GridColumn } from '@ex-grid/core';
 import type { ExGridApi } from '@ex-grid/react';
-import { WorkbenchGrid } from './WorkbenchGrid';
+import { QubeGrid } from './QubeGrid';
 import type { Dataset, ViewAction, ViewColumn } from '../contracts';
 import { amountTone, formatAmount } from './amounts';
 import { useColumnWidths } from './columnWidths';
@@ -71,7 +71,7 @@ export function DatasetGrid({ panelId, grid: gridKey, dataset, columns, actions,
 
   return (
     <div aria-label={label} data-rows={dataset.rows.length}>
-      <WorkbenchGrid<Row>
+      <QubeGrid<Row>
         ref={grid}
         columns={widths.columns}
         onColumnWidthChanged={widths.onColumnWidthChanged}
