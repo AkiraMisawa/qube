@@ -185,7 +185,7 @@ public static class RatesApi
             {
                 "UnknownWorkspace" or "UnknownEntity" => 404,
                 "NotOwner" => 403,
-                "RevisionMoved" or "UnresolvedEdits" or "FrameMoved" or "EntityExists" => 409,
+                "RevisionMoved" or "UnresolvedEdits" or "FrameNotKept" or "EntityExists" => 409,
                 _ => 422,
             };
             return Results.Json(new Api.ErrorEnvelope(refused.Code, refused.Message, issues), statusCode: status);

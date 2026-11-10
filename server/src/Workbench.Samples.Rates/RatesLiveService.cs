@@ -55,12 +55,22 @@ public sealed class RatesLiveService(IRatesPricingProvider provider, Func<string
         public string WorkspaceId { get; } = workspaceId;
         public LiveInput Input { get; set; } = input;
         public Dictionary<long, LiveInput> Inputs { get; } = new() { [input.Revision] = input };
-        public ShownFrame? Shown { get; set; }
+        /// <summary>The frames shown, oldest first, at most <see cref="KeptFrames"/>: the last is the one shown now.</summary>
+        public List<ShownFrame> Kept { get; } = [];
+        public ShownFrame? Shown => Kept.Count == 0 ? null : Kept[^1];
         /// <summary>One channel per attached page: the newest frame only, when that page falls behind.</summary>
         public List<Channel<LiveDelivery>> Viewers { get; } = [];
         /// <summary>Since when nobody has watched it; null while someone does.</summary>
         public DateTimeOffset? UnwatchedSince { get; set; }
     }
+
+    /// <summary>
+    /// How many of its last frames a subscription keeps for capture (docs/07 §3, §7). A page shows a frame a moment after
+    /// the server has shown it, and the next tick may land between the user's Capture and its arrival; the capture names
+    /// the frame it was taken against and saves that one, so whether it succeeds never depends on the market's timing
+    /// (spine 6). Thirty-two frames are half a minute of the synthetic market at its fastest default step of a second.
+    /// </summary>
+    public const int KeptFrames = 32;
 
     readonly Dictionary<string, Entry> subscriptions = [];
     readonly Dictionary<string, LiveStatus> stopped = [];
@@ -209,6 +219,17 @@ public sealed class RatesLiveService(IRatesPricingProvider provider, Func<string
         lock (gate) return Owned(owner, subscriptionId).Shown;
     }
 
+    /// <summary>
+    /// A frame the subscription showed, by what names it, with the input it was calculated from: null when it is not
+    /// one of the last <see cref="KeptFrames"/>, or was never shown.
+    /// </summary>
+    public ShownFrame? Kept(string owner, string subscriptionId, int subscriptionRevision, long inputRevision, string marketSnapshotId)
+    {
+        lock (gate)
+            return Owned(owner, subscriptionId).Kept.LastOrDefault(f => f.Delivery.SubscriptionRevision == subscriptionRevision
+                && f.Delivery.InputRevision == inputRevision && f.Delivery.Market.SnapshotId == marketSnapshotId);
+    }
+
     /// <summary>The workspace a subscription prices.</summary>
     public string WorkspaceOf(string owner, string subscriptionId)
     {
@@ -284,7 +305,8 @@ public sealed class RatesLiveService(IRatesPricingProvider provider, Func<string
             {
                 var delivery = new LiveDelivery(work.SubscriptionId, work.SubscriptionRevision, work.InputRevision, work.Market,
                     frame.CompletedAt, result.Provider, result.CalculationMode, result.Rows, input.NotPriced);
-                entry.Shown = new ShownFrame(delivery, input);
+                entry.Kept.Add(new ShownFrame(delivery, input));
+                if (entry.Kept.Count > KeptFrames) entry.Kept.RemoveAt(0);
                 foreach (var viewer in entry.Viewers) viewer.Writer.TryWrite(delivery);
             }
             foreach (var old in entry.Inputs.Keys.Where(r => r < entry.Rules.InputRevision && entry.Rules.InFlight?.InputRevision != r).ToList())

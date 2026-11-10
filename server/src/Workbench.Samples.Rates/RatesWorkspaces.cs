@@ -323,19 +323,19 @@ public sealed class RatesWorkspaces(WorkspaceService workspaces, IDataStore stor
     }
 
     /// <summary>
-    /// Captures the frame the user saw as a Run (docs/07 §3): refused when the shown frame is no longer that one,
-    /// so a newer frame or a newer edit is never saved under what the user chose.
+    /// Captures the frame the user saw as a Run (docs/07 §3): the frame the capture names, with its own input and
+    /// market, never a newer frame or a newer edit relabelled as it. A newer frame shown meanwhile changes nothing
+    /// (spine 6); a frame the subscription no longer keeps (<see cref="RatesLiveService.KeptFrames"/>) is refused.
     /// </summary>
     public SubmissionResult Capture(string subscriptionId, string user, FrameIdentity seen, string idempotencyKey)
     {
         var workspaceId = live.WorkspaceOf(user, subscriptionId);
         Owned(workspaceId, user);
-        var shown = live.Shown(user, subscriptionId)
-            ?? throw new WorkspaceRefused("NoFrame", "The subscription has shown no frame yet.");
+        if (live.Shown(user, subscriptionId) is null) throw new WorkspaceRefused("NoFrame", "The subscription has shown no frame yet.");
+        var shown = live.Kept(user, subscriptionId, seen.SubscriptionRevision, seen.InputRevision, seen.MarketSnapshotId)
+            ?? throw new WorkspaceRefused("FrameNotKept",
+                $"The frame captured ({seen.MarketSnapshotId} at revision {seen.InputRevision}) is not one of the last {RatesLiveService.KeptFrames} this subscription showed. Capture the frame on screen now.");
         var d = shown.Delivery;
-        if (d.SubscriptionRevision != seen.SubscriptionRevision || d.InputRevision != seen.InputRevision || d.Market.SnapshotId != seen.MarketSnapshotId)
-            throw new WorkspaceRefused("FrameMoved",
-                $"The shown frame is {d.Market.SnapshotId} at revision {d.InputRevision}, not the one captured ({seen.MarketSnapshotId} at {seen.InputRevision}).");
         var context = Context(shown.Input.ValuationDate);
         var accepted = RatesAcceptedInput.Build(workspaceId, d.InputRevision, context, d.Market, shown.Input, null);
         var key = $"{workspaceId}-r{d.InputRevision}-{Sanitise(d.Market.SnapshotId)}-{subscriptionId}-s{d.SubscriptionRevision}";

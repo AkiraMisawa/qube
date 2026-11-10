@@ -155,8 +155,8 @@ public class RatesApplicationTests
         Assert.Equal(seen.Rows.Single(r => r.RowKey == line).Measures[Measures.Pv].Value, Row(lines, line)["pv"]!.GetValue<double>());
     }
 
-    [Fact] // Spine 6: a capture names its frame; once another is shown, the capture is refused rather than saving the newer one
-    public async Task Capture_of_a_frame_no_longer_shown_is_refused()
+    [Fact] // Spine 6, docs/07 §3: a capture saves the frame it names, whether or not a newer one was shown before it arrived
+    public async Task Capture_saves_the_frame_it_names_after_a_newer_one_is_shown()
     {
         var rig = Build();
         var (id, _, line, _) = Workspace(rig);
@@ -164,12 +164,37 @@ public class RatesApplicationTests
         await rig.Market.AdvanceAsync();
         var seen = await NextFrame(rig, subscription);
         await rig.Market.AdvanceAsync();
-        await NextFrame(rig, subscription);
+        var newer = await NextFrame(rig, subscription);
+        Assert.NotEqual(seen.Market.SnapshotId, newer.Market.SnapshotId);
 
-        var refused = Assert.Throws<WorkspaceRefused>(() => rig.Service.Capture(subscription, "akira",
+        var (run, lines, _) = await Completed(rig, rig.Service.Capture(subscription, "akira",
             new FrameIdentity(seen.SubscriptionRevision, seen.InputRevision, seen.Market.SnapshotId), "k1"));
 
-        Assert.Equal("FrameMoved", refused.Code);
+        // The frame named, never the newer one relabelled (docs/07 §3).
+        Assert.Equal(seen.Market.SnapshotId, run.Input["marketSnapshotId"]!.GetValue<string>());
+        Assert.Equal(seen.Rows.Single(r => r.RowKey == line).Measures[Measures.Pv].Value, Row(lines, line)["pv"]!.GetValue<double>());
+    }
+
+    [Fact] // docs/07 §7: a subscription keeps its last frames, a bounded count; a capture naming one it does not keep is refused
+    public async Task Capture_of_a_frame_no_longer_kept_is_refused()
+    {
+        var rig = Build();
+        var (id, _, _, _) = Workspace(rig);
+        var subscription = rig.Service.StartLive(id, "akira");
+        await rig.Market.AdvanceAsync();
+        var oldest = await NextFrame(rig, subscription);
+        for (var i = 0; i < RatesLiveService.KeptFrames; i++)
+        {
+            await rig.Market.AdvanceAsync();
+            await NextFrame(rig, subscription);
+        }
+
+        var gone = Assert.Throws<WorkspaceRefused>(() => rig.Service.Capture(subscription, "akira",
+            new FrameIdentity(oldest.SubscriptionRevision, oldest.InputRevision, oldest.Market.SnapshotId), "k1"));
+        var never = Assert.Throws<WorkspaceRefused>(() => rig.Service.Capture(subscription, "akira",
+            new FrameIdentity(oldest.SubscriptionRevision, oldest.InputRevision, "synthetic:test-1:never"), "k2"));
+
+        Assert.Equal(["FrameNotKept", "FrameNotKept"], new[] { gone.Code, never.Code });
     }
 
     [Fact] // C39: a period's cashflow edit is checked by type and lands on the priced period
