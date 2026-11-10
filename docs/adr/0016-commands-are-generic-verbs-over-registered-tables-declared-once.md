@@ -76,7 +76,11 @@ A domain module registers each table as data, through a catalog port as products
   side and own side): a form draws a group as a section and a grid as a header group, and a field's words may be said
   with its group's (`cpty threshold`, `self threshold`);
 - its **templates**: named sets of field values, which may take a few values of their own (a two-way CSA in a
-  currency). `new` makes a row from one (ADR-0008 §4), and `set <rows> as <template>` writes one over rows (§3);
+  currency). `new` makes a row from one (ADR-0008 §4), and `set <rows> as <template>` writes one over rows (§3).
+  A template is where a row starts, and it holds nothing afterwards (owner, 2026-11-10: a CSA template is a CSA only
+  once its currency is given, and what it made is then changed further, which is the usual way to work). So a value
+  a template needs and is not given refuses it, naming the value; the row it made is changed with `set` like any
+  other; and a template changed later moves no row made from it (DEFAULT, read from the owner's words);
 - its **subsets**, groups of rows the domain names (`existing`, `new`);
 - its **row reader**: the rows at a revision. The selector, completion, the AI's read (§7) and a grid all use it.
 
@@ -99,8 +103,9 @@ nothing about how a command names it.
 currencies: a field's form may be a set of a form (§2). A trade's PV on a grid is the sum of its legs' PVs in the
 display currency: the registration says a field is such a figure, names its unit, and says whether it can be
 written. What a write means is the domain's rule and never the kernel's guess. In the owner's example, writing a
-trade's PV leaves the trade one leg of that amount: the preview says "2 legs replaced by 1 leg", the write is one
-command, and `reset` brings the source's legs back.
+trade's PV leaves the trade one leg of that amount, in the currency written with the amount (`-350,000 USD`) or, with
+none written, in the display currency (owner, 2026-11-10). The preview says "2 legs replaced by 1 leg, USD", the
+write is one command, and `reset` brings the source's legs back.
 
 **One form vocabulary.** `FieldForm` (ADR-0008) takes in what `CellName.Form` has and it lacks (an id of a table, a
 signed amount, a schedule, a spread, a number of days). How a column is drawn (`ColumnFormat`) and stored
@@ -166,7 +171,8 @@ it and `select <rows>` moves it. Membership of Before and After is the value of 
 `set <rows> <field> <value>` (`entity.set`, replacing `xva.set`), `reset <rows> [<field>]` (`entity.reset`),
 `remove <rows>` (`entity.remove`), and `undo` and `redo` (§11). `set` takes several fields as `name=value`
 (`set E00003 notional=5bn rate=1.25%`), written as one all-or-none batch at one revision, and
-`set <rows> as <template> [name=value …]` writes a registered template's values the same way.
+`set <rows> as <template> [name=value …]` writes a registered template's values the same way: the fields the
+template names, with the values it was given, and no other field of the row (DEFAULT; the preview names each cell).
 
 **View verbs**, over any grid bound to a table, in the client only: `open <tab, view or row>`, `go <place>` and
 `find <row> [<field>]` (§9), `select <rows>`, `filter <table> where …` and `filter off`, `sort <table> by <field>`,
@@ -177,10 +183,17 @@ the view's conditions, and the row reader applies them where the server pages th
 today (they refuse a filter until it does).
 
 **Domain verbs** are capabilities a domain registers, and only for what is more than writing cells: something
-**executes** (`price`, `refresh`, `capture`, `live start`), one command **makes many things** (`vary`, `add trades`,
+**executes** (`price`, `refresh`, `capture`, `live start`), one command **makes many things** (`vary`, `add each`,
 `scenario ladder`), the command **works out what to write** (solve a line's rate, roll the picked trades to their next
 date), or something **leaves** the workbench (`download run`, `copy quote`). Their arguments use the same forms and
 the same selector, so completion, the preview and the result are theirs without code.
+
+Three acts on trades have three names (the review's R8). The owner, 2026-11-10: loading and adding are different
+acts and must read differently, and the second is `each`. `load trades <ids>` brings trades that exist into the New
+grid, by id or from a file, and computes nothing (DEFAULT name). `add each` makes the cases of iterative individual
+addition, one per candidate (ADR-0010 §3): it adds no trade, so it does not say "trades". `new <product>` makes a
+trade from typed terms (ADR-0008). `add trades`, which ADR-0010 wrote for the first two, is retired when these are
+built; until then the code says `add trades` for the second and has no command for the first.
 
 Sorted this way, of today's 47 hand-written commands 12 become kernel edit verbs, 14 become view verbs, 2 come from
 the app's registration, and 19 remain domain verbs, declared on the server instead of the client.
@@ -269,7 +282,14 @@ validated again when it is rebound (CO04). Because fields are registered, a defi
 that `csa` is an editable field of the table, and that the value has its form.
 
 A command is still not a workflow step (ADR-0005 §2; the validator's `CommandAsStep`), so a Run stays a function of
-its accepted input. A saved sequence of edits is therefore not a workflow, and is OPEN below.
+its accepted input: a retry would edit twice. A saved sequence of edits is therefore not a workflow.
+
+**A saved sequence of edits is a second kind of saved definition** (owner, 2026-11-10: wanted, and not at once). A
+user saves "clear After, put the USD trades back, price" under a name: an ordered list of commands, holding
+selectors as written and never the rows they matched, so it serves another counterparty. Running it invokes each
+command through the gateway for the caller, with origin `workflow`: each is in the edit log and `undo` reaches it,
+the run stops at the first refusal and names the revision it began at, and it may end by submitting a workflow at
+the revision it left. Its shape is a DEFAULT until its spec is written; it follows delivery step 5.
 
 ### 9. Focus is context: the line reads it, shows it, and moves it by name
 
@@ -395,6 +415,7 @@ log cannot yet say which entries were one command, or what an entry replaced.
 4. View verbs and the AI's row read.
 5. Drafts (§10): a detail dialog drawn from a registration, with the tables under its row and its templates. The
    pricer's trade and CSA must carry those fields and tables first; its sample has neither them nor such a dialog.
+6. Saved sequences of edits (§8). §1 and §2 serve them as they are.
 
 ## Rejected
 
@@ -411,18 +432,12 @@ log cannot yet say which entries were one command, or what an entry replaced.
 
 - The owner's confirmation of §1 to §5 as written: the direction; `set <rows> <field> <value>` as the one form for
   row sets, with the short forms kept; resolved rows in the log; the page's writes through the gateway.
-- Whether a user may save a sequence of edits ("clear After, put the USD trades back, price"). Proposed: a second
-  kind of saved definition beside the workflow, an ordered list of commands invoked through the gateway for the caller
-  with origin `workflow`, each in the edit log, stopping at the first refusal and naming the revision it began at, and
-  then optionally submitting a workflow at the revision it left. Not commands as Run steps: a retry would edit twice
-  and a Run would stop being a function of its input. It can follow delivery step 4; §1 and §2 serve it either way.
 - How many selected ids the pane gives the agent as context before it gives only their count.
 - How an edit over many matched rows, and its `undo`, are recorded so the workspace stays fast. A batch writes one
   log entry a row today. The owner's sizing (2026-11-10): a workspace holds at most about 10,000 trades, and about
   100 at the median. To be measured at 10,000 rows before §2 is built for `where` (ADR-0003 measures at 10,000 and
   50,000).
-- Writing a template over existing rows: the word (`as`), and whether a template sets only the fields it names.
 - How a layer is named. ADR-0010 §9 writes `set after CSA-A threshold 5mm`; with `after` also a field of a trade, a
   named option (`layer=after`) reads without ambiguity. Decided when ADR-0010's Advanced step is built.
-- Whether loading trades by id is `load trades <ids>`, leaving `add trades` to the iterative cases (the review's R8;
-  ADR-0010 §6 and §3 use `add trades` for both).
+- How a currency is written with an amount (`-350,000 USD`), as a form of `FieldForm`, where the field's unit is not
+  fixed by the row.

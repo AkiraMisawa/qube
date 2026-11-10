@@ -257,6 +257,9 @@ the first case of a measure's membership, which every measure now declares (§10
 
 - **New trades**: as high as their rows, at most about eight before the grid scrolls. Above it one input line: trade
   IDs pasted and Enter, or XML dropped or uploaded (also `add trades <ids>`).
+  *Note of 2026-11-10 (owner; ADR-0016 §3):* bringing trades in and making the set of iterative addition (§3) are
+  different acts and take different names: `load trades <ids>` here, and `add each` for the set. `add trades` stays
+  the set's name in the code, and this line has no command, until those are built.
 - **Existing trades** take the rest of the height and filter from their column headers.
 - Both have B and A columns whose header selects or clears every row of the grid, not only those drawn (docs/03 §4).
   *Note of 2026-11-07, writing Delivery step 1's spec:* ExGrid has no header action a Consumer can give a column, so
