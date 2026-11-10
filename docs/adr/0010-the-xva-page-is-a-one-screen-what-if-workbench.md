@@ -143,6 +143,11 @@ variants the workspace is one case.
 - **Every measure is priced for every case**, as for every scenario (§4): one request per module still, holding every
   case, so a provider prices them as it prices Before and After, independently.
 
+*Note of 2026-11-10 (owner; ADR-0016 §3):* an iteration of iterative addition may add several candidates together,
+and take existing trades out of After in the same case (`add each DRAFT-1+DRAFT-2 without E00003`). The set is still
+every New row with A ticked, and no iteration is cumulative. Designed there and not built: `add trades` still makes
+one case per candidate.
+
 ### 4. Scenarios (CONFIRMED, owner 2026-11-07)
 
 - A **scenario** is a named set of market-data shifts; one scenario may shift several data at once. The Scenarios tab
