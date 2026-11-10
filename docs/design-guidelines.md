@@ -234,7 +234,7 @@ A UI change is not done when it compiles (CLAUDE.md, "Completion reporting"):
 Seen while writing this, and not fixed by ADR-0009's change:
 
 - On a phone, the Rates toolbar wraps to several rows; a phone may want its secondary actions in a menu.
-- A grid's Action Column buttons (Rates' `Flows` and `✕`) are drawn by ExGrid's core, not by the Wrapper, and read
+- A grid's Action Column buttons (Rates' `Flows`) are drawn by ExGrid's core, not by the Wrapper, and read
   as the browser's own grey buttons in both themes. Seen after the switch to `@ex-grid/mantine`; still so in 0.2.0,
   ex-grid#553.
 - A required context field's message repeats its name (`As of: asOf is required.`), because `validate` names the

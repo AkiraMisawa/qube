@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Badge, Button, Group, Stack, Table, Text, TextInput } from '@mantine/core';
-import { GridSource, type GridActionEvent, type GridColumn, type GridEditIntent, type GridSelection, type HeaderGroupToggle } from '@ex-grid/core';
+import { GridSource, type CellPosition, type GridActionEvent, type GridColumn, type GridContextMenuContext, type GridEditIntent, type GridSelection, type HeaderGroupToggle } from '@ex-grid/core';
 import type { ExGridApi } from '@ex-grid/react';
 import { WorkbenchGrid } from '../../platform/grid/WorkbenchGrid';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -13,8 +13,8 @@ import type { FrameStream, RatesApi } from './api';
 import { registerRatesCommands } from './commands';
 import type { CashflowsView, HeldEdit, LiveFrame, PeriodView, RatesWorkspaceView, Resolution } from './contracts';
 import {
-  LEG_GROUPS, PINNED_COLUMNS, lineCellMessage, lineResult, lineCellState, lineColumns, hiddenEdits, lineHeaderGroups, lineRows, parserOf, periodCellState, periodColumns, periodParserOf,
-  type LineRow,
+  FOLDED, PINNED_COLUMNS, headerTiers, lineCellMessage, lineResult, lineCellState, lineColumns, hiddenEdits, lineHeaderGroups, lineRows, openedAt, parserOf, periodCellState,
+  periodColumns, periodParserOf, toggled, type HiddenEdits, type LineLayout, type LineRow,
 } from './lines';
 
 // The fixed Rates line pricer (docs/07, C37 to C43): one line per trade in ExGrid, its terms sparse, its
@@ -37,15 +37,23 @@ const describe = (error: unknown) => (error instanceof Error ? error.message : S
 /** Each column set made once: a new column is a new declaration, and every row paints again (ExGrid ADR-0003). */
 const columnSets = new Map<string, ReturnType<typeof lineColumns>>();
 const groupSets = new Map<string, ReturnType<typeof lineHeaderGroups>>();
-function layoutOf(leg1: boolean, leg2: boolean, hides: { readonly leg1: number; readonly leg2: number }) {
-  const key = `${leg1}/${leg2}`;
-  let columns = columnSets.get(key);
-  if (columns === undefined) columnSets.set(key, columns = lineColumns({ leg1, leg2 }));
-  const groupKey = `${key}/${hides.leg1}/${hides.leg2}`;
-  let groups = groupSets.get(groupKey);
-  if (groups === undefined) groupSets.set(groupKey, groups = lineHeaderGroups({ leg1, leg2 }, hides));
-  return { columns, groups };
+const keyOfLayout = (layout: LineLayout) => `${layout.trade}/${layout.leg1}/${layout.leg2}`;
+function columnsOf(layout: LineLayout) {
+  let columns = columnSets.get(keyOfLayout(layout));
+  if (columns === undefined) columnSets.set(keyOfLayout(layout), columns = lineColumns(layout));
+  return columns;
 }
+function groupsOf(layout: LineLayout, hides: HiddenEdits) {
+  const key = `${keyOfLayout(layout)}/${Object.values(hides).join('/')}`;
+  let groups = groupSets.get(key);
+  if (groups === undefined) groupSets.set(key, groups = lineHeaderGroups(layout, hides));
+  return groups;
+}
+
+/** What each page opened, kept while the application runs, so a page left and come back to is as it was (ADR-0015 §7). */
+const openedByPanel = new Map<string, LineLayout>();
+const commandLabel = (id: string) => (id === REMOVE_LINE ? 'Remove line' : undefined);
+const REMOVE_LINE = 'remove-line';
 
 export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly panelId: string; readonly workspaceId: string; readonly api: RatesApi }) {
   const workspace = useWorkspaceContext();
@@ -54,7 +62,8 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
   const market = useQuery({ queryKey: ['rates', 'market'], queryFn: () => api.market(), refetchInterval: 2000 });
   const products = useQuery({ queryKey: ['products', 'rates'], queryFn: () => api.products(), staleTime: Infinity });
   const grid = useRef<ExGridApi<LineRow>>(null);
-  const [expanded, setExpanded] = useState({ leg1: false, leg2: false });
+  const [opened, setOpened] = useState<LineLayout>(() => openedByPanel.get(panelId) ?? FOLDED);
+  useEffect(() => { openedByPanel.set(panelId, opened); }, [panelId, opened]);
   const [frame, setFrame] = useState<LiveFrame | undefined>(undefined);
   const [subscription, setSubscription] = useState<string | undefined>(undefined);
   const [detail, setDetail] = useState<string | undefined>(undefined);
@@ -152,20 +161,30 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
     void queue.push({ kind: 'line', line: intent.row.line, field: intent.column, value: parsed.value });
   }, [queue]);
 
-  // A leg's Header Group draws ExGrid's toggle; the page holds which legs are open and answers with the columns (ADR-0400).
-  const onLegToggled = useCallback((toggle: HeaderGroupToggle) => {
-    if (toggle.id === LEG_GROUPS.leg1) setExpanded((e) => ({ ...e, leg1: toggle.expanded }));
-    else if (toggle.id === LEG_GROUPS.leg2) setExpanded((e) => ({ ...e, leg2: toggle.expanded }));
-    else throw new Error(`The grid toggled a Header Group it was not given: ${toggle.id}.`);
-  }, []);
+  // The trade's and each leg's Header Group draw ExGrid's toggle; the page holds what is open and answers with the
+  // columns (ExGrid ADR-0400, ADR-0015 §2).
+  const onGroupToggled = useCallback((toggle: HeaderGroupToggle) => setOpened((layout) => toggled(layout, toggle)), []);
+
+  // A double click on a folded column opens what it folds (ADR-0015 §1).
+  const columns = columnsOf(opened);
+  const onCellDoubleClick = useCallback((cell: CellPosition) => {
+    const column = columns[cell.column];
+    if (column === undefined) throw new Error(`The grid reported a double click on column ${cell.column}, which it was not given.`);
+    setOpened((layout) => openedAt(layout, column.name) ?? layout);
+  }, [columns]);
 
   const onAction = useCallback((event: GridActionEvent<LineRow>) => {
     if (event.action === 'cashflows') setDetail(event.row.line);
-    else if (event.action === 'remove') {
-      if (detail === event.row.line) setDetail(undefined);
-      void queue.push({ kind: 'remove', line: event.row.line });
-    } else throw new Error(`The grid reported an action it was not given: ${event.action}.`);
-  }, [queue, detail]);
+    else throw new Error(`The grid reported an action it was not given: ${event.action}.`);
+  }, []);
+
+  // Removing a line is in its context menu, not a button beside Flows (ADR-0015 §5).
+  const contextCommands = useCallback((context: GridContextMenuContext<LineRow>) => [{
+    id: REMOVE_LINE, enabled: true, invoke: () => {
+      setDetail((shown) => (shown === context.row.line ? undefined : shown));
+      void queue.push({ kind: 'remove', line: context.row.line });
+    },
+  }], [queue]);
 
   const price = async () => {
     const snapshot = market.data?.snapshotId;
@@ -252,8 +271,11 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
   if (view.isPending) return <Text c="dimmed">Loading workspace…</Text>;
   if (view.isError) return <Alert color="red" title="Workspace">{view.error.message}</Alert>;
   const ws = view.data;
-  const layout = layoutOf(expanded.leg1, expanded.leg2, hiddenEdits(ws.lines));
-  const height = Math.min(64 + Math.max(ws.lines.length, 3) * 28, 420);
+  const groups = groupsOf(opened, hiddenEdits(ws.lines));
+  // The rows under a header of its tiers and the column headings, each a row high, so an open leg's extra tier takes no
+  // row from view (ADR-0015 §2).
+  const header = (headerTiers(opened) + 1) * 28;
+  const height = 8 + header + Math.min(Math.max(ws.lines.length, 3) * 28, 356);
 
   return (
     <Stack gap="sm">
@@ -290,9 +312,10 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
       <HeldEdits conflicts={ws.conflicts} lost={ws.lost} resolve={(held, resolution) => void queue.push({ kind: 'resolve', held, resolution })} />
       <ResultStrip row={(focusLine === undefined ? undefined : shownRows.get(focusLine)) ?? (shownRows.size === 1 ? [...shownRows.values()][0] : undefined)} />
       <div aria-label="Lines">
-        <WorkbenchGrid<LineRow> ref={grid} columns={layout.columns} headerGroups={layout.groups} source={source} onEdit={onEdit} onAction={onAction}
+        <WorkbenchGrid<LineRow> ref={grid} columns={columns} headerGroups={groups} source={source} onEdit={onEdit} onAction={onAction}
           cellState={lineCellState} cellMessage={lineCellMessage} density="compact" viewportWidth="stretch" viewportHeight={height}
-          pinnedColumnCount={PINNED_COLUMNS} locale="en-US" onHeaderGroupToggled={onLegToggled} onSelectionChanged={onSelectionChanged} />
+          pinnedColumnCount={PINNED_COLUMNS} locale="en-US" onHeaderGroupToggled={onGroupToggled} onSelectionChanged={onSelectionChanged}
+          hideColumnMenu onCellDoubleClick={onCellDoubleClick} contextCommands={contextCommands} commandLabel={commandLabel} />
       </div>
       {detail !== undefined && ws.lines.some((l) => l.line === detail) && (
         <Cashflows workspaceId={workspaceId} line={detail} revision={ws.revision} api={api} onClose={() => setDetail(undefined)}
@@ -304,8 +327,9 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
 }
 
 /**
- * The focused line's result above the grid (owner, 2026-11-04): the result columns stand after the inputs and are off
- * screen on a narrow display, so what was calculated for the line in hand is shown here whatever the grid scrolled to.
+ * The focused line's result above the grid (owner, 2026-11-04): the result columns stand after the inputs, and are off
+ * screen while a leg is open or the AI pane narrows the grid (ADR-0015), so what was calculated for the line in hand is
+ * shown here whatever the grid scrolled to.
  */
 function ResultStrip({ row }: { readonly row: LineRow | undefined }) {
   if (row === undefined) return <Text size="xs" c="dimmed" data-testid="line-result">Select a line to see its result here.</Text>;

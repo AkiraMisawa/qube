@@ -185,13 +185,14 @@ const plain = (v: unknown) => (typeof v === 'boolean' ? (v ? 'TRUE' : 'FALSE') :
 
 /**
  * A column as wide as its values were laid out for (a billion notional), and never narrower than its header reads
- * whole with its menu and sort mark, charged as ExGrid charges it (ADR-0016). A bare width cut headers to "P…".
+ * whole, charged as ExGrid charges it (ADR-0016). A bare width cut headers to "P…". The line grid's headers carry no
+ * column menu and no sort mark (ADR-0015 §4), so neither band is charged.
  */
 const fitted = (header: string, values: number) =>
-  Math.max(values, gridHeaderRequiredPx(header, { density: 'compact', menuButton: true, sortable: true }));
+  Math.max(values, gridHeaderRequiredPx(header, { density: 'compact', menuButton: false, sortable: false }));
 
 const field = (name: string, header: string, type: GridColumn<LineRow>['type'], width: number, format?: (v: unknown) => string): GridColumn<LineRow> => ({
-  name, header, type, width: fitted(header, width), editable: true, value: (row) => row.view.fields[name] ?? undefined, format: format ?? plain,
+  name, header, type, width: fitted(header, width), editable: true, queryable: false, value: (row) => row.view.fields[name] ?? undefined, format: format ?? plain,
 });
 
 const legHeaders: Readonly<Record<string, readonly [string, GridColumn<LineRow>['type'], number, ((v: unknown) => string)?]>> = {
@@ -214,79 +215,195 @@ const legHeaders: Readonly<Record<string, readonly [string, GridColumn<LineRow>[
   currentReset: ['Cur. reset', 'number', 78],
 };
 
-function legColumns(leg: 1 | 2, expanded: boolean): GridColumn<LineRow>[] {
-  return [...legBasic, ...(expanded ? legDetail : [])].map((f) => {
-    const [header, type, width, format] = legHeaders[f] as readonly [string, GridColumn<LineRow>['type'], number, ((v: unknown) => string)?];
+/** How far a leg is opened (ADR-0015 §2): one line, its basic terms (C40), or those and its conventions (C43). */
+export type LegLevel = 'summary' | 'basic' | 'conventions';
+
+/** What the user opened in the line grid (ADR-0015): the trade's second terms, and how far each leg is open. */
+export interface LineLayout {
+  readonly trade: boolean;
+  readonly leg1: LegLevel;
+  readonly leg2: LegLevel;
+}
+
+/** Everything folded: how a page first shows its lines, at every width (ADR-0015). */
+export const FOLDED: LineLayout = { trade: false, leg1: 'summary', leg2: 'summary' };
+
+/** The Header Group ids the grid names in `onHeaderGroupToggled` (ExGrid ADR-0400). */
+export const GROUPS = {
+  trade: 'trade',
+  leg1: 'leg1', leg2: 'leg2',
+  leg1Conventions: 'leg1.conventions', leg2Conventions: 'leg2.conventions',
+} as const;
+
+/** The layout after one of the grid's toggles. Closing a leg closes its conventions with it. */
+export function toggled(layout: LineLayout, toggle: { readonly id: string; readonly expanded: boolean }): LineLayout {
+  switch (toggle.id) {
+    case GROUPS.trade: return { ...layout, trade: toggle.expanded };
+    case GROUPS.leg1: return { ...layout, leg1: toggle.expanded ? 'basic' : 'summary' };
+    case GROUPS.leg2: return { ...layout, leg2: toggle.expanded ? 'basic' : 'summary' };
+    case GROUPS.leg1Conventions: return { ...layout, leg1: toggle.expanded ? 'conventions' : 'basic' };
+    case GROUPS.leg2Conventions: return { ...layout, leg2: toggle.expanded ? 'conventions' : 'basic' };
+    default: throw new Error(`The grid toggled a Header Group it was not given: ${toggle.id}.`);
+  }
+}
+
+/** The layout a double click on a folded column opens: a leg's line opens the leg, its overrides its conventions. */
+export function openedAt(layout: LineLayout, column: string): LineLayout | undefined {
+  const m = /^leg([12])\.(summary|overrides)$/.exec(column);
+  if (m === null) return undefined;
+  return { ...layout, [`leg${m[1]}`]: m[2] === 'summary' ? 'basic' : 'conventions' };
+}
+
+/** The leg's terms the one-line summary reads, so a value set in one of them is not hidden by folding the leg. */
+const SUMMARIZED: ReadonlySet<string> = new Set(['currency', 'notional', 'index', 'quoteKind', 'quote', 'paymentFrequency', 'floating']);
+
+const scaled = (v: number) => (v >= 1e9 ? `${millions.format(v / 1e9)}bn` : `${millions.format(v / MILLION)}mm`);
+const spread = new Intl.NumberFormat('en-US', { maximumFractionDigits: 5, signDisplay: 'always' });
+const fixedRate = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 5 });
+
+/**
+ * A leg in one line, as a trader reads it (ADR-0015 §1): its currency and notional in the scale they are typed in, what
+ * it pays, and how often. Leg 2 leaves out a currency and notional that are leg 1's, as on every IRS. A term the line
+ * does not have reads `?`, never a made-up value: such a line also shows its issue.
+ */
+export function legSummary(fields: Readonly<Record<string, unknown>>, leg: 1 | 2): string {
+  const of = (term: string) => fields[`leg${leg}.${term}`];
+  const quote = of('quote');
+  const kind = of('quoteKind');
+  const floating = of('floating') === true;
+  const solved = quote === null || quote === undefined;
+  const pays = kind === 'AtmOffsetBp' && !solved ? `ATM${spread.format(quote as number)}bp`
+    : kind === 'FxForwardPoints' && !solved ? `${String(quote)} pts`
+    : floating ? `${String(of('index') ?? '?')} ${solved ? '+fair' : `${spread.format(quote as number)}%`}`
+    : `Fixed ${solved ? 'par' : `${fixedRate.format(quote as number)}%`}`;
+  const notional = of('notional');
+  const sameAsLeg1 = leg === 2 && fields['leg1.currency'] === of('currency') && fields['leg1.notional'] === notional;
+  const size = sameAsLeg1 ? '' : `${String(of('currency') ?? '?')} ${typeof notional === 'number' ? scaled(notional) : '?'} `;
+  return `${size}${pays} ${String(of('paymentFrequency') ?? '?')}`;
+}
+
+/** A leg's second-level terms that override its convention profile (C43), in words, or `Profile` when none does. */
+export function legOverrides(fields: Readonly<Record<string, unknown>>, leg: 1 | 2): string {
+  const set = legDetail.flatMap((term) => {
+    const value = fields[`leg${leg}.${term}`];
+    if (value === null || value === undefined) return [];
+    const [header, , , format] = legHeaders[term]!;
+    return [`${header} ${format === undefined ? plain(value) : format(value)}`];
+  });
+  return set.length === 0 ? 'Profile' : set.join(', ');
+}
+
+const folded = (name: string, header: string, read: (row: LineRow) => string, maxPx: number): GridColumn<LineRow> => ({
+  name, header, type: 'text', width: { auto: true, minPx: fitted(header, 0), maxPx }, queryable: false, value: read, format: plain,
+});
+
+function legColumns(leg: 1 | 2, level: LegLevel): GridColumn<LineRow>[] {
+  if (level === 'summary') return [folded(`leg${leg}.summary`, 'Summary', (row) => legSummary(row.view.fields, leg), 280)];
+  const terms = [...legBasic, ...(level === 'conventions' ? legDetail : [])].map((f) => {
+    const [header, type, width, format] = legHeaders[f]!;
     return field(`leg${leg}.${f}`, header, type, width, format);
   });
+  return level === 'conventions' ? terms : [...terms, folded(`leg${leg}.overrides`, 'Overrides', (row) => legOverrides(row.view.fields, leg), 240)];
 }
 
 const figure = (name: string, header: string, type: GridColumn<LineRow>['type'], width: number, read: (f: LineFigures) => unknown, format: (v: unknown) => string): GridColumn<LineRow> => ({
-  name, header, type, width: fitted(header, width), value: (row) => (row.figures === undefined ? undefined : read(row.figures) ?? undefined), format,
+  name, header, type, width: fitted(header, width), queryable: false, value: (row) => (row.figures === undefined ? undefined : read(row.figures) ?? undefined), format,
 });
 
 export const ACTIONS = 'Actions';
 
-/** The line grid's columns for which legs are expanded. Made once per combination (ExGrid ADR-0003). */
-export function lineColumns(expanded: { readonly leg1: boolean; readonly leg2: boolean }): readonly GridColumn<LineRow>[] {
+/** The trade's second terms, behind the Trade group's toggle (ADR-0015 §3). */
+const TRADE_MORE = ['collateral', 'mandatoryBreak', 'risk'] as const;
+
+/** The line grid's columns for a layout. Made once per layout (ExGrid ADR-0003). */
+export function lineColumns(layout: LineLayout): readonly GridColumn<LineRow>[] {
   return [
-    // Pinned: which line, and what to do with it, stay in view however far the terms scroll. Both sized to their content.
-    { name: 'line', header: 'Line', type: 'text', width: { auto: true, minPx: 40, maxPx: 72 }, value: (row) => row.line, format: plain },
-    actionColumn<LineRow>(ACTIONS, [{ name: 'cashflows', label: 'Flows' }, { name: 'remove', label: '✕' }], { header: '', width: { auto: true, minPx: 40, maxPx: 120 } }),
-    // The inputs, left to right as a trade is read: the trade, each leg, its terms.
+    // Pinned: which line, and its cashflows, stay in view however far the terms scroll. Both sized to their content.
+    // Removing a line is in its context menu (ADR-0015 §5).
+    { name: 'line', header: 'Line', type: 'text', width: { auto: true, minPx: 40, maxPx: 72 }, queryable: false, value: (row) => row.line, format: plain },
+    actionColumn<LineRow>(ACTIONS, [{ name: 'cashflows', label: 'Flows' }], { header: '', width: { auto: true, minPx: 40, maxPx: 120 } }),
+    // The inputs, left to right as a trade is read: the trade, then each leg.
     field('product', 'Product', 'text', 64, (v) => String(v).toUpperCase()),
     field('start', 'Start', 'text', 96),
     field('end', 'End', 'text', 96),
     field('direction', 'P/R', 'text', 52, (v) => (v === 'pay' ? 'Pay' : v === 'receive' ? 'Rec' : String(v))),
-    ...legColumns(1, expanded.leg1),
-    ...legColumns(2, expanded.leg2),
-    field('collateral', 'Collateral', 'text', 90),
-    field('mandatoryBreak', 'Break', 'text', 96),
-    field('risk', 'Risk', 'boolean', 56),
-    // The outputs after the inputs (owner, 2026-11-04): what was calculated, then why a line was not.
-    figure('status', 'Status', 'text', 82, (f) => f.status, plain),
+    ...(layout.trade ? [field('collateral', 'Collateral', 'text', 90), field('mandatoryBreak', 'Break', 'text', 96), field('risk', 'Risk', 'boolean', 56)] : []),
+    ...legColumns(1, layout.leg1),
+    ...legColumns(2, layout.leg2),
+    // The outputs after the inputs (owner, 2026-11-04): what was calculated, then whether and why a line was not.
     figure('pv', 'PV', 'number', 140, (f) => f.pv, (v) => amount.format(v as number)),
-    figure('pvCurrency', 'Ccy', 'text', 52, (f) => f.pvCurrency, plain),
-    figure('par', 'Par / fair %', 'number', 100, (f) => f.par, (v) => pct.format(v as number)),
-    { name: 'message', header: 'Issues', type: 'text', width: 320, value: (row) => message(row), format: plain },
+    figure('pvCurrency', 'Ccy', 'text', 44, (f) => f.pvCurrency, plain),
+    figure('par', 'Par %', 'number', 84, (f) => f.par, (v) => pct.format(v as number)),
+    figure('status', 'Status', 'text', 82, (f) => f.status, plain),
+    { name: 'message', header: 'Issues', type: 'text', width: 320, queryable: false, value: (row) => message(row), format: plain },
   ];
 }
 
-/** How many columns from the left stay in place: the line and its actions. */
+/** How many tiers of Header Groups stand over the columns: one, and two while a leg is open (ADR-0015 §2). */
+export const headerTiers = (layout: LineLayout): 1 | 2 => (layout.leg1 !== 'summary' || layout.leg2 !== 'summary' ? 2 : 1);
+
+/** How many columns from the left stay in place: the line and its Flows. */
 export const PINNED_COLUMNS = 2;
 
-/** The Header Group ids of the legs, as `onHeaderGroupToggled` names them (ExGrid ADR-0400). */
-export const LEG_GROUPS = { leg1: 'leg1', leg2: 'leg2' } as const;
-
-/**
- * How many values the user set hide in each collapsed leg, on any line (owner, 2026-10-27): collapsing only hides
- * them, and they are still priced, so the group says so with ExGrid's hidden mark.
- */
-export function hiddenEdits(lines: readonly LineView[]): { readonly leg1: number; readonly leg2: number } {
-  const hides = (n: 1 | 2) => lines.reduce((count, l) => count + legDetail.filter((f) => l.userFields.includes(`leg${n}.${f}`)).length, 0);
-  return { leg1: hides(1), leg2: hides(2) };
+/** How many values the user set each folded group hides, on any line (ExGrid ADR-0400's hidden mark). */
+export interface HiddenEdits {
+  readonly trade: number;
+  /** Set in a leg's terms its one-line summary does not read. */
+  readonly leg1: number;
+  readonly leg2: number;
+  /** Set in a leg's second level (C43). */
+  readonly leg1Conventions: number;
+  readonly leg2Conventions: number;
 }
 
 /**
- * The Header Groups over the columns (ExGrid ADR-0032): the trade, each leg and its terms, then the result. Each
- * leg's group draws ExGrid's toggle (ADR-0400), which opens and closes its second level (C43).
+ * How many values the user set hide in each folded group, on any line (owner, 2026-10-27): folding only hides them, and
+ * they are still priced, so the group says so with ExGrid's hidden mark.
  */
-export function lineHeaderGroups(expanded: { readonly leg1: boolean; readonly leg2: boolean },
-  hidden: { readonly leg1: number; readonly leg2: number } = { leg1: 0, leg2: 0 }): readonly GridHeaderGroup[] {
-  const leg = (n: 1 | 2, open: boolean): GridHeaderGroup => {
-    const count = n === 1 ? hidden.leg1 : hidden.leg2;
-    return {
-      id: n === 1 ? LEG_GROUPS.leg1 : LEG_GROUPS.leg2, label: `Leg ${n}`, expanded: open,
-      columns: [...legBasic, ...(open ? legDetail : [])].map((f) => `leg${n}.${f}`),
-      ...(!open && count > 0 ? { hiddenMark: { state: 'modified', reason: `${count} field(s) you set in hidden columns` } } : {}),
-    };
+export function hiddenEdits(lines: readonly LineView[]): HiddenEdits {
+  const count = (fields: readonly string[]) => lines.reduce((n, l) => n + fields.filter((f) => l.userFields.includes(f)).length, 0);
+  const unsummarized = (leg: 1 | 2) => [...legBasic, ...legDetail].filter((f) => !SUMMARIZED.has(f)).map((f) => `leg${leg}.${f}`);
+  return {
+    trade: count([...TRADE_MORE]),
+    leg1: count(unsummarized(1)), leg2: count(unsummarized(2)),
+    leg1Conventions: count(legDetail.map((f) => `leg1.${f}`)), leg2Conventions: count(legDetail.map((f) => `leg2.${f}`)),
+  };
+}
+
+const NONE_HIDDEN: HiddenEdits = { trade: 0, leg1: 0, leg2: 0, leg1Conventions: 0, leg2Conventions: 0 };
+const marked = (count: number) => (count > 0 ? { hiddenMark: { state: 'modified' as const, reason: `${count} field(s) you set in hidden columns` } } : {});
+
+/**
+ * The Header Groups over the columns (ExGrid ADR-0032): the trade, each leg, then the result. The trade and each leg draw
+ * ExGrid's toggle (ADR-0400). An open leg has a second tier under it, its basic terms and its conventions, which have a
+ * toggle of their own (ADR-0015 §2); while one is there, the groups with no level under them stand both tiers tall.
+ */
+export function lineHeaderGroups(layout: LineLayout, hidden: HiddenEdits = NONE_HIDDEN): readonly GridHeaderGroup[] {
+  const full = headerTiers(layout) === 2 ? { tier: 2, tierSpan: 2 } : {};
+  const leg = (n: 1 | 2): GridHeaderGroup[] => {
+    const level = n === 1 ? layout.leg1 : layout.leg2;
+    const id = n === 1 ? GROUPS.leg1 : GROUPS.leg2;
+    const columns = legColumns(n, level).map((c) => c.name);
+    if (level === 'summary') return [{ id, label: `Leg ${n}`, expanded: false, columns, ...full, ...marked(n === 1 ? hidden.leg1 : hidden.leg2) }];
+    const open = level === 'conventions';
+    return [
+      { id, label: `Leg ${n}`, expanded: true, columns, tier: 2 },
+      { label: 'Basic', columns: legBasic.map((f) => `leg${n}.${f}`), tier: 1 },
+      {
+        id: n === 1 ? GROUPS.leg1Conventions : GROUPS.leg2Conventions, label: 'Conventions', expanded: open, tier: 1,
+        columns: open ? legDetail.map((f) => `leg${n}.${f}`) : [`leg${n}.overrides`],
+        ...(open ? {} : marked(n === 1 ? hidden.leg1Conventions : hidden.leg2Conventions)),
+      },
+    ];
   };
   return [
-    { label: 'Trade', columns: ['product', 'start', 'end', 'direction'] },
-    leg(1, expanded.leg1),
-    leg(2, expanded.leg2),
-    { label: 'Terms', columns: ['collateral', 'mandatoryBreak', 'risk'] },
-    { label: 'Result', columns: ['status', 'pv', 'pvCurrency', 'par'] },
+    {
+      id: GROUPS.trade, label: 'Trade', expanded: layout.trade, ...full,
+      columns: ['product', 'start', 'end', 'direction', ...(layout.trade ? TRADE_MORE : [])], ...(layout.trade ? {} : marked(hidden.trade)),
+    },
+    ...leg(1),
+    ...leg(2),
+    { label: 'Result', columns: ['pv', 'pvCurrency', 'par'], ...full },
   ];
 }
 
@@ -333,18 +450,35 @@ export function lineCellState(row: LineRow, column: GridColumn<LineRow>): CellSt
     return row.figures.status === 'priced' ? 'normal' : 'error';
   }
   if (column.name === 'message') return message(row) === undefined ? 'normal' : 'error';
-  if (row.view.held.some((h) => h.startsWith(`${row.line} ${column.name}:`))) return 'stale';
-  if (row.view.userFields.includes(column.name)) return 'modified';
+  // A folded column stands for the terms it reads, and takes their state (ADR-0015).
+  const terms = foldedTerms(column.name) ?? [column.name];
+  if (row.view.held.some((h) => terms.some((t) => h.startsWith(`${row.line} ${t}:`)))) return 'stale';
+  if (terms.some((t) => row.view.userFields.includes(t))) return 'modified';
   return 'normal';
+}
+
+/** The terms a folded column reads: a leg's summarized terms, or its second level (ADR-0015 §1, §2). */
+function foldedTerms(column: string): readonly string[] | undefined {
+  const m = /^leg([12])\.(summary|overrides)$/.exec(column);
+  if (m === null) return undefined;
+  return (m[2] === 'summary' ? [...SUMMARIZED] : legDetail).map((t) => `leg${m[1]}.${t}`);
 }
 
 export function lineCellMessage(row: LineRow, column: GridColumn<LineRow>): string | undefined {
   if (RESULT.has(column.name) && row.figures !== undefined) {
     const f = row.figures;
     const when = `revision ${f.inputRevision}, market ${f.snapshotId}, ${f.mode}`;
-    return row.figuresStale ? `Calculated on an older revision (${when}); the line changed since.` : `Calculated on ${when}.`;
+    const what = column.name !== 'par' || f.par === undefined ? '' : f.parMeasure === 'fairSpread' ? 'Fair spread of the floating leg. ' : 'Par rate of the fixed leg. ';
+    return row.figuresStale ? `${what}Calculated on an older revision (${when}); the line changed since.` : `${what}Calculated on ${when}.`;
   }
   if (column.name === 'message') return message(row);
+  const folded = /^leg([12])\.(summary|overrides)$/.exec(column.name);
+  if (folded !== null) {
+    const set = foldedTerms(column.name)!.filter((t) => row.view.userFields.includes(t)).map((t) => legHeaders[t.slice(5)]![0]);
+    const opens = folded[2] === 'summary' ? `Leg ${folded[1]} in one line. Double-click it, or press Alt+Shift+↓, to open its terms.`
+      : `The conventions that override the leg's profile. Double-click it, or press Alt+Shift+↓, to open them.`;
+    return set.length === 0 ? opens : `${opens} Set by you: ${set.join(', ')}.`;
+  }
   if (column.name.startsWith('leg') && row.view.profiles.length > 0 && (column.name.endsWith('.index') || column.name.endsWith('.currency')))
     return `Conventions: ${row.view.profiles.join(', ')}`;
   if (row.view.userFields.includes(column.name)) return 'Set by you.';
