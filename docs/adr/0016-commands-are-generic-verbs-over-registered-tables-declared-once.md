@@ -361,7 +361,9 @@ log cannot yet say which entries were one command, or what an entry replaced.
 - **Whose.** The caller's own commands, whether typed, clicked, or made by the AI for them. Where the latest command
   is another user's, `undo` is refused and names them. The AI's `undo` names the command id it means (a result
   carries it, §6) and is refused unless that command is the latest.
-- **What it does not reach.** Only a command whose changes are `Set`, `Reset`, `Create` and `Remove` is taken back.
+- **What it does not reach.** A command is taken back when its changes are `Set`, `Reset`, `Create` and `Remove`, or
+  a change of a context field that takes no new source (the reporting currency), which goes back to the context it
+  replaced (owner, 2026-11-10: `undo` reaches such a change).
   One that takes a new source or decides a held edit (a refresh, a change of counterparty) is not: `undo` then
   refuses and names it, and never reaches past it to an older command, whose inverse would be written against a base
   that has changed. A Run already priced is unchanged; the page shows it as of its revision, as after any edit. Saved
@@ -420,8 +422,6 @@ log cannot yet say which entries were one command, or what an entry replaced.
   100 at the median. To be measured at 10,000 rows before §2 is built for `where` (ADR-0003 measures at 10,000 and
   50,000).
 - Writing a template over existing rows: the word (`as`), and whether a template sets only the fields it names.
-- Whether `undo` takes back a context field that takes no new source (the reporting currency). Refused until
-  decided.
 - How a layer is named. ADR-0010 §9 writes `set after CSA-A threshold 5mm`; with `after` also a field of a trade, a
   named option (`layer=after`) reads without ambiguity. Decided when ADR-0010's Advanced step is built.
 - Whether loading trades by id is `load trades <ids>`, leaving `add trades` to the iterative cases (the review's R8;
