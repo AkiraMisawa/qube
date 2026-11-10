@@ -41,7 +41,7 @@ it without a rewrite, and the workbench must run at home without it.
    of being left running.
 7. **Locally, one container collects and shows it all** (DEFAULT): `grafana/otel-lgtm` 0.36.0 (an OpenTelemetry
    Collector, Loki, Tempo, Prometheus and Grafana), started by `tools/observability/compose.yaml` on ports bound to
-   this machine only, with a provisioned *Quant Workbench* dashboard: Runs finished and failed, server and browser
+   this machine only, with a provisioned *Qube* dashboard: Runs finished and failed, server and browser
    errors, requests and latency by route, Runs by workflow and status, commands and agent runs by outcome, errors and
    warnings from both services, the browser's events, recent and failed spans, and one Run's logs and trace by its id.
 

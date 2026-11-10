@@ -5,7 +5,7 @@ Status: **Accepted** (2026-10-26, owner's decision).
 ## Context
 
 The handoff already put capability and UI composition first (C01, P1 before P2). The owner's update of
-2026-10-26 sharpened it: the project is not an XVA pricer. It is Quant Workbench, an AI-native,
+2026-10-26 sharpened it: the project is not an XVA pricer. It is Qube (Quant Workbench until 2026-11-10), an AI-native,
 keyboard-first, composable front-office platform inspired by Bloomberg Terminal workflows. XVA, Rates,
 IM/SIMM and Position Management are domain applications on it.
 

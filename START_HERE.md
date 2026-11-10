@@ -1,6 +1,6 @@
 # Start here
 
-Prepared 2026-10-24. Working name: **Quant Workbench**. This name is a placeholder, not a branding decision.
+Prepared 2026-10-24. Name: **Qube**, from "quant bench" (owner, 2026-11-10). Until then the working name was Quant Workbench.
 
 ## Objective
 

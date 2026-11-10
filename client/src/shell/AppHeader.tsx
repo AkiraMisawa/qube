@@ -27,7 +27,7 @@ export function AppHeader() {
   return (
     <div className="qwb-header">
       <div className="qwb-header-brand">
-        <Title order={1} className="qwb-header-title">QUANT WORKBENCH</Title>
+        <Title order={1} className="qwb-header-title">QUBE</Title>
         <Button size="xs" variant="default" onClick={openPalette} aria-label="Open command line"
           leftSection={<IconTerminal2 size={ICON} stroke={1.75} aria-hidden />}
           rightSection={<Kbd size="xs" visibleFrom="sm">Ctrl K</Kbd>}>Commands</Button>

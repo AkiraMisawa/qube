@@ -1,7 +1,7 @@
 import { createTheme, type CSSVariablesResolver, type MantineColorsTuple } from '@mantine/core';
 import { mantineDefaultFont } from '@ex-grid/mantine';
 
-// Quant Workbench's own look: dense, dark-first, with a signal amber for focus and primary actions and
+// Qube's own look: dense, dark-first, with a signal amber for focus and primary actions and
 // tabular figures everywhere numbers line up. Mantine supplies the components; this supplies the system.
 // docs/design-guidelines.md says how to use it, and ADR-0009 why: one Control Height (Mantine `xs`, 30px) for
 // every control in a toolbar, spacing on a 4px grid, the type ramp below, and colour only from the theme.

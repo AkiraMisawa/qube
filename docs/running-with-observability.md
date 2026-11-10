@@ -30,7 +30,7 @@ nix develop -c dotnet run --project server/src/Workbench.Web --urls http://local
 ```
 
 Each process says at startup where its telemetry goes. Open Grafana at http://localhost:3000 (first login `admin` /
-`admin`). The home dashboard is **Quant Workbench**:
+`admin`). The home dashboard is **Qube**:
 
 - **At a glance**: Runs finished and failed, server errors (5xx) and browser errors in the selected range.
 - **HTTP**: requests and p95 latency by route.

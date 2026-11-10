@@ -1,4 +1,4 @@
-# Quant Workbench — implementation instructions
+# Qube — implementation instructions
 
 This repository handoff describes a composable quant application platform. It is not an implemented application. Read `START_HERE.md` and `docs/00-decisions.md` first.
 
