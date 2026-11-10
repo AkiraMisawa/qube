@@ -51,10 +51,10 @@ client/  React + TypeScript (Vite)
   src/platform/grid/         ExGrid adapter: stable row/column IDs, edit intents to commands, Mantine-to-token theme
   src/samples/               nothing domain-specific; the slice needs no client code per capability
 server/  ASP.NET Core (.NET 10)
-  Workbench.Composition.Contracts     descriptors, TypedDataRef, Workflow/View definitions, Outcome
-  Workbench.Composition.Application   registry, composition validator, binding, reference DAG executor, run store port
-  Workbench.Samples.Synthetic         the three capabilities above (no reference from the kernel to it)
-  Workbench.Web                       thin endpoints: catalog, runs, data rows, definitions
+  Qube.Composition.Contracts     descriptors, TypedDataRef, Workflow/View definitions, Outcome
+  Qube.Composition.Application   registry, composition validator, binding, reference DAG executor, run store port
+  Qube.Samples.Synthetic         the three capabilities above (no reference from the kernel to it)
+  Qube.Web                       thin endpoints: catalog, runs, data rows, definitions
 vendor/ex-grid/  packed @ex-grid tarballs + stylesheets + PIN (commit)
 ```
 

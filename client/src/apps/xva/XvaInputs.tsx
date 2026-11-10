@@ -2,7 +2,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, type Ref } from 'react'
 import { Button, Group, Table, Tabs, Text, useMantineTheme } from '@mantine/core';
 import { GridSource, type CellState, type GridColumn, type GridContextMenuContext, type GridEditIntent } from '@ex-grid/core';
 import type { ExGridApi } from '@ex-grid/react';
-import { WorkbenchGrid } from '../../platform/grid/WorkbenchGrid';
+import { QubeGrid } from '../../platform/grid/QubeGrid';
 import type { Agreement, ChangesList, EffectiveCsa, RegisteredMeasure, XvaWorkspaceView } from './contracts';
 import { creditChanges, emptyRecovery, nettingChanges, type CatalogueRead } from './credit';
 import { XvaCredit } from './XvaCredit';
@@ -179,9 +179,9 @@ export function XvaInputs({ panelId, ws, push, setText, catalogue, onIssue, tab,
 
   return (
     <Tabs value={shown} onChange={(value) => { const chosen = Object.keys(TAB_TITLES).find((t) => t === value); if (chosen !== undefined) onTab(chosen as InputTab); }} keepMounted={false}
-      className="qwb-xva-inputs" data-open={open}>
-      <Group gap="xs" wrap="nowrap" className="qwb-xva-inputs-row">
-        <Tabs.List className="qwb-xva-inputs-tabs" aria-label="Inputs">
+      className="qube-xva-inputs" data-open={open}>
+      <Group gap="xs" wrap="nowrap" className="qube-xva-inputs-row">
+        <Tabs.List className="qube-xva-inputs-tabs" aria-label="Inputs">
           <Tabs.Tab value="netting">{TAB_TITLES.netting}{count(nettingCount)}</Tabs.Tab>
           <Tabs.Tab value="csa">{TAB_TITLES.csa}{count(csaChanges)}</Tabs.Tab>
           {creditShown && <Tabs.Tab value={CREDIT_TAB} {...(ws.credit.missing == null ? {} : { color: 'red', title: ws.credit.missing })}>{TAB_TITLES.credit}{count(creditCount)}{ws.credit.missing == null ? '' : ' · no CDS'}</Tabs.Tab>}
@@ -190,14 +190,14 @@ export function XvaInputs({ panelId, ws, push, setText, catalogue, onIssue, tab,
           {settingsShown && <Tabs.Tab value={SETTINGS_TAB}>{TAB_TITLES.settings}{count(settingsCount)}</Tabs.Tab>}
           <Tabs.Tab value={CHANGES_TAB}>{TAB_TITLES.changes}{count(ws.changes)}</Tabs.Tab>
         </Tabs.List>
-        <Button size="compact-xs" variant="subtle" ml="auto" className="qwb-xva-inputs-toggle" aria-expanded={open} aria-controls={bodyId}
+        <Button size="compact-xs" variant="subtle" ml="auto" className="qube-xva-inputs-toggle" aria-expanded={open} aria-controls={bodyId}
           onClick={() => onOpen(!open)}>{open ? 'Hide inputs' : 'Show inputs'}</Button>
       </Group>
       {open && (
-        <div id={bodyId} className="qwb-xva-inputs-body" data-testid="xva-inputs-body" style={partHeight(height)}>
+        <div id={bodyId} className="qube-xva-inputs-body" data-testid="xva-inputs-body" style={partHeight(height)}>
           <Tabs.Panel value="netting" pt="xs">
-            <div className="qwb-xva-scroll">
-              <Table withTableBorder withColumnBorders verticalSpacing="xs" horizontalSpacing="sm" fz="sm" aria-label="Netting" className="qwb-xva-netting">
+            <div className="qube-xva-scroll">
+              <Table withTableBorder withColumnBorders verticalSpacing="xs" horizontalSpacing="sm" fz="sm" aria-label="Netting" className="qube-xva-netting">
                 <Table.Thead>
                   <Table.Tr>
                     <Table.Th>Main</Table.Th><Table.Th>Netting set</Table.Th><Table.Th>Agreement</Table.Th><Table.Th>Enforceable</Table.Th>
@@ -266,7 +266,7 @@ function ImCsas({ ws, focusRef }: { readonly ws: XvaWorkspaceView; readonly focu
   if (csas.length === 0)
     return <Text size="sm" tabIndex={-1} ref={focusRef}>{ws.registration.key} has no IM CSA: it exchanges no initial margin, so spot IM has no scope.</Text>;
   return (
-    <div className="qwb-xva-scroll" tabIndex={0} ref={focusRef} aria-label="IM CSAs">
+    <div className="qube-xva-scroll" tabIndex={0} ref={focusRef} aria-label="IM CSAs">
       <Table withTableBorder withColumnBorders verticalSpacing="xs" horizontalSpacing="sm" fz="sm" aria-label="IM CSAs">
         <Table.Thead>
           <Table.Tr>
@@ -331,7 +331,7 @@ function CsaGrid({ panelId, csas, columns: declared, push, height, gridRef, onVa
 
   return (
     <div aria-label="CSA terms">
-      <WorkbenchGrid<CsaRow> ref={gridRef} columns={columns} onColumnWidthChanged={onColumnWidthChanged} source={source} onEdit={onEdit} cellState={csaCellState} cellMessage={csaCellMessage}
+      <QubeGrid<CsaRow> ref={gridRef} columns={columns} onColumnWidthChanged={onColumnWidthChanged} source={source} onEdit={onEdit} cellState={csaCellState} cellMessage={csaCellMessage}
         contextCommands={contextCommands} commandLabel={commandLabel}
         density="compact" viewportWidth="stretch" viewportHeight={Math.max(compactGridHeight(1), Math.min(compactGridHeight(csas.length), height))} pinnedColumnCount={2} showSelectionSummary={false} locale="en-US" />
     </div>

@@ -1,6 +1,6 @@
 // The browser's part of ADR-0014: what goes wrong on the page reaches the server's log, joined to the trace of the call
 // it is about. No SDK: each call to the server carries a W3C `traceparent` header, and events are sent in small
-// batches to /api/telemetry/client, which writes them into the server's log as `Workbench.Client`.
+// batches to /api/telemetry/client, which writes them into the server's log as `Qube.Client`.
 
 export type ClientLevel = 'error' | 'warning' | 'info';
 

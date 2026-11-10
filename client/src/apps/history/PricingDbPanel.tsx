@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Group, SegmentedControl, Stack, Text } from '@mantine/core';
 import { actionColumn, GridSource, type GridActionEvent, type GridColumn } from '@ex-grid/core';
 import type { ExGridApi } from '@ex-grid/react';
-import { WorkbenchGrid } from '../../platform/grid/WorkbenchGrid';
+import { QubeGrid } from '../../platform/grid/QubeGrid';
 import { useQuery } from '@tanstack/react-query';
 import { call } from '../../platform/api';
 import { amountTone, formatAmount } from '../../platform/grid/amounts';
@@ -111,7 +111,7 @@ function HistoryGrid({ panelId, domain, columns, notify }: {
     <Stack gap="xs">
       {failure !== undefined && <Alert color="red" variant="light" title="The history could not be read" withCloseButton onClose={() => setFailure(undefined)}>{failure}</Alert>}
       <div aria-label="Pricing DB" data-total={total}>
-        <WorkbenchGrid<Row> ref={grid} columns={widths.columns} onColumnWidthChanged={widths.onColumnWidthChanged} source={source} onAction={onAction}
+        <QubeGrid<Row> ref={grid} columns={widths.columns} onColumnWidthChanged={widths.onColumnWidthChanged} source={source} onAction={onAction}
           density="compact" viewportWidth="stretch" viewportHeight={460} pinnedColumnCount={2} locale="en-US" />
       </div>
     </Stack>

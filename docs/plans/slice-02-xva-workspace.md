@@ -18,7 +18,7 @@ responsive at 10,000 and 50,000 existing trades.
 
 ## What is built
 
-**Synthetic XVA module** (`Workbench.Samples.Xva`, no kernel reference to it)
+**Synthetic XVA module** (`Qube.Samples.Xva`, no kernel reference to it)
 - Sources: counterparty registrations, two of them sharing a code under different legal entities (XV01);
   agreements, netting sets and CSAs, including an uncollateralised `nocsa_{ma id}` agreement with a
   configured default curve (XV16); existing portfolios of IRS and FX forwards, generated to 50,000 rows

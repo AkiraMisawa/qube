@@ -4,7 +4,7 @@
   "definitionId": "workflow.simm-compare",
   "version": "1.0.0",
   "title": "Compare incremental SIMM across resolved contexts",
-  "inputContractId": "qwb.margin.comparison-input",
+  "inputContractId": "qube.margin.comparison-input",
   "inputContractVersion": "1.0.0",
   "steps": [
     {

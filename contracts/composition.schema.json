@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://example.invalid/qwb/composition.schema.json",
+  "$id": "https://example.invalid/qube/composition.schema.json",
   "title": "Qube bounded composition vocabulary",
   "description": "Draft starter contracts. Domain semantics, authorization and registry compatibility need separate validation.",
   "oneOf": [

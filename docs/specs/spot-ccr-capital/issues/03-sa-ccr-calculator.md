@@ -9,7 +9,7 @@ worked examples and a case per rule.
 
 ## Comments
 
-- 2026-11-08: done in `Workbench.Samples.Ccr/SaCcr.cs` and `Decompose.cs`, proven by `CcrSaCcrTests` (36 cases) and
+- 2026-11-08: done in `Qube.Samples.Ccr/SaCcr.cs` and `Decompose.cs`, proven by `CcrSaCcrTests` (36 cases) and
   `CcrDecompositionTests` (6), tests first, each rule then checked by breaking it. The BCBS worked examples hold their
   published EADs: interest rate 569 (569.47), credit 381 and commodity 5,406. The other expected figures are a
   separate hand calculation of the rule each test names.

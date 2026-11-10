@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\Qube.Composition.Application\Qube.Composition.Application.csproj" />
+    <ProjectReference Include="..\Qube.Samples.Rates\Qube.Samples.Rates.csproj" />
+    <ProjectReference Include="..\Qube.Samples.Portfolio\Qube.Samples.Portfolio.csproj" />
+  </ItemGroup>
+
+</Project>

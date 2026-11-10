@@ -224,7 +224,7 @@ variants the workspace is one case.
   drops its name from those left out of Price, so a scenario of that name made later is included, as one made is.
 - **Saved sets.** `scenario save <set> [desk|all]` saves every scenario of the workspace, included or not, under a name
   of the user's; saved again, it replaces the user's own set of that name. A set is the user's alone unless `desk` or
-  `all` says otherwise; a user's desk is configuration (`Workbench:Desks`), and `desk` without one is refused. Only its
+  `all` says otherwise; a user's desk is configuration (`Qube:Desks`), and `desk` without one is refused. Only its
   owner replaces a set (and an administrator, once roles exist, C32). `scenario load <set>` adds the set's scenarios,
   replacing those of the same name, and says what it replaced; a name that two sets the user can see share is refused,
   naming their owners, and `<set>@<owner>` picks one. A set's name is one word without `@`, so `desk` or `all` can

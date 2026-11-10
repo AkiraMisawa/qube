@@ -42,13 +42,13 @@ curl -s -H "X-Agent-Host-Key: $AgentHost__Key" http://127.0.0.1:5395/models
 # Terminal 1: the agent host, the only process with the token
 export COPILOT_GITHUB_TOKEN=github_pat_...
 export AgentHost__Key=$(openssl rand -hex 32)    # give the same value to terminal 2
-nix develop -c dotnet run --project server/src/Workbench.AgentHost
+nix develop -c dotnet run --project server/src/Qube.AgentHost
 
 # Terminal 2: the workbench, without the token
 export Agent__Runtime=copilot
 export Agent__Copilot__HostKey=<the same key>
 export Agent__Copilot__Model=<model id>
-nix develop -c dotnet run --project server/src/Workbench.Web --urls http://localhost:5080
+nix develop -c dotnet run --project server/src/Qube.Web --urls http://localhost:5080
 ```
 
 If the host is not running, a request fails with "The agent host … could not be reached". It never falls back to the scripted agent. If `Agent:Copilot:HostKey` or `Agent:Copilot:Model` is missing, the workbench does not start.
@@ -57,14 +57,14 @@ If the host is not running, a request fails with "The agent host … could not b
 
 The host can run as a user of its own. The OS then keeps the workbench's database and your credentials (`~/.ssh`, `gh`'s login, the repository) out of its reach. This is the company's separate service account, at home.
 
-1. Create the user. On macOS, use System Settings → Users & Groups, or `sudo sysadminctl -addUser _qwagent`. On Linux, use `sudo useradd --system --create-home qwagent`.
+1. Create the user. On macOS, use System Settings → Users & Groups, or `sudo sysadminctl -addUser _qubeagent`. On Linux, use `sudo useradd --system --create-home qubeagent`.
 2. Publish the host where that user can read it:
-   `tools/run-with-copilot.sh --install-host /usr/local/lib/qw-agent-host`
-3. Put the token in a file only that user can read, for example `/Users/_qwagent/.copilot-token`. Set its mode with `sudo chmod 600` and its owner with `sudo chown _qwagent`.
+   `tools/run-with-copilot.sh --install-host /usr/local/lib/qube-agent-host`
+3. Put the token in a file only that user can read, for example `/Users/_qubeagent/.copilot-token`. Set its mode with `sudo chmod 600` and its owner with `sudo chown _qubeagent`.
 4. Start both:
-   `tools/run-with-copilot.sh --model <id> --as-user _qwagent --host-dir /usr/local/lib/qw-agent-host --token-file /Users/_qwagent/.copilot-token`
+   `tools/run-with-copilot.sh --model <id> --as-user _qubeagent --host-dir /usr/local/lib/qube-agent-host --token-file /Users/_qubeagent/.copilot-token`
 
-The SDK keeps its state under that user's home (`~/.local/share/quant-workbench/agent-host` or its macOS equivalent).
+The SDK keeps its state under that user's home (`~/.local/share/qube/agent-host` or its macOS equivalent).
 A loopback port is open to every user of the machine, which is why the shared key is required in this form too.
 To start the host at login, a launchd plist with `UserName` (macOS) or a systemd unit with `User=` (Linux) runs the
 same command.
@@ -86,6 +86,6 @@ The agent host always runs on the same machine as the workbench.
 
 ## What is checked, and what is not
 
-- Checked in `server/tests/Workbench.Composition.Tests/CopilotRuntimeTests.cs`: the wire, the host and the workbench's side, with a fake model behind the host.
+- Checked in `server/tests/Qube.Composition.Tests/CopilotRuntimeTests.cs`: the wire, the host and the workbench's side, with a fake model behind the host.
 - Checked in the development container: the SDK's runtime starts, and a run made with a made-up token ends with the SDK's own error, shown on the card.
 - Not checked: a real model answering. That needs your token, on your machine.

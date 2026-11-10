@@ -200,10 +200,10 @@ export function TraceView({ panelId, address, api, registerFocus, root }: {
   const explainText = selectedPage === undefined ? undefined : explainLine(address.measure, selectedPage.term.id);
 
   return (
-    <Stack gap="xs" className="qwb-trace" data-testid="trace-view" data-layout={phone ? 'drill' : 'tree'}>
+    <Stack gap="xs" className="qube-trace" data-testid="trace-view" data-layout={phone ? 'drill' : 'tree'}>
       <TraceHeaderBar header={trace} title={trace.roots.find((r) => r.id === rootIds[0])?.label ?? trace.measure} order={order} onOrder={reorder} />
       {selectedPage !== undefined && (
-        <Breadcrumbs separator="›" separatorMargin="xs" className="qwb-trace-path" aria-label="Path from the root" data-testid="trace-path">
+        <Breadcrumbs separator="›" separatorMargin="xs" className="qube-trace-path" aria-label="Path from the root" data-testid="trace-path">
           {selectedPage.path.map((crumb, i) => (i === selectedPage.path.length - 1
             ? <Text key={crumb.id} size="xs" fw={600} aria-current="page">{crumb.label}</Text>
             : <Anchor key={crumb.id} component="button" size="xs" onClick={() => select(crumb.id)}>{crumb.label}</Anchor>))}
@@ -217,13 +217,13 @@ export function TraceView({ panelId, address, api, registerFocus, root }: {
           {leafRows}
         </Stack>
       ) : (
-        <div className="qwb-trace-body">
-          <Stack gap="xs" className="qwb-trace-tree-part">
+        <div className="qube-trace-body">
+          <Stack gap="xs" className="qube-trace-tree-part">
             <TraceTree panelId={panelId} header={trace} rows={shown} selected={selectedId} onSelect={setSelected} onGoTo={select} onToggle={toggle} onMore={more}
               place={place} registerFocus={registerFocus} />
             {leafRows}
           </Stack>
-          <div className="qwb-trace-detail-part">{detail}</div>
+          <div className="qube-trace-detail-part">{detail}</div>
         </div>
       )}
     </Stack>
@@ -249,8 +249,8 @@ function leavesOf(term: TermRead, header: TraceHeader): { readonly leafSet: stri
  */
 function ExplainLine({ text }: { readonly text: string }) {
   return (
-    <Group gap="xs" wrap="nowrap" className="qwb-trace-explain" data-testid="trace-explain">
-      <Code className="qwb-trace-explain-text" title="Type this in Commands, or give it to the AI, to come back to this term">{text}</Code>
+    <Group gap="xs" wrap="nowrap" className="qube-trace-explain" data-testid="trace-explain">
+      <Code className="qube-trace-explain-text" title="Type this in Commands, or give it to the AI, to come back to this term">{text}</Code>
       <CopyButton value={text}>
         {({ copied, copy }) => (
           <Button size="compact-xs" variant="default" onClick={copy} data-testid="trace-explain-copy" aria-label={`Copy ${text}`}>{copied ? 'Copied' : 'Copy'}</Button>
@@ -270,7 +270,7 @@ function TraceHeaderBar({ header, title, order, onOrder }: {
   const only = header.sides.length === 1 ? header.sides[0]! : undefined;
   return (
     <Stack gap="xs">
-      <div className="qwb-toolbar" role="toolbar" aria-label="Trace">
+      <div className="qube-toolbar" role="toolbar" aria-label="Trace">
         <Text size="sm" fw={600} data-testid="trace-title">{title}</Text>
         {origin?.subject && <Text size="sm">{origin.subject.id}{origin.subject.label ? ` · ${origin.subject.label}` : ''}</Text>}
         <SegmentedControl size="xs" value={order} onChange={(v) => onOrder(v as ChildOrder)} aria-label="Order of the children"
@@ -308,7 +308,7 @@ function ChildrenList({ header, read, onSelect, onMore }: {
   const total = read.pages.at(-1)?.childTotal ?? 0;
   if (total === 0) return null;
   return (
-    <Stack gap={0} className="qwb-trace-children" data-testid="trace-children" aria-label="Terms below">
+    <Stack gap={0} className="qube-trace-children" data-testid="trace-children" aria-label="Terms below">
       {children.map((child) => {
         const states = header.sides.flatMap((side) => {
           const value = child[side];
@@ -316,14 +316,14 @@ function ChildrenList({ header, read, onSelect, onMore }: {
         });
         const mark = governsMark(child, header);
         return (
-          <UnstyledButton key={child.id} className="qwb-trace-child" onClick={() => onSelect(child.id)} data-state={states.length > 0 ? 'other' : 'value'}
+          <UnstyledButton key={child.id} className="qube-trace-child" onClick={() => onSelect(child.id)} data-state={states.length > 0 ? 'other' : 'value'}
             {...(mark === undefined ? {} : { 'data-governs': mark.governs })}>
-            <span className="qwb-trace-child-label">
+            <span className="qube-trace-child-label">
               {child.label}
               {mark !== undefined && <Badge size="sm" variant="light" {...(mark.governs ? {} : { color: 'gray' })} ml="xs" data-testid="trace-governs">{mark.text}</Badge>}
             </span>
-            <span className="qwb-trace-child-lead">{leadText(child, header)}</span>
-            {states.length > 0 && <span className="qwb-trace-child-state">{states.join(' · ')}</span>}
+            <span className="qube-trace-child-lead">{leadText(child, header)}</span>
+            {states.length > 0 && <span className="qube-trace-child-state">{states.join(' · ')}</span>}
           </UnstyledButton>
         );
       })}

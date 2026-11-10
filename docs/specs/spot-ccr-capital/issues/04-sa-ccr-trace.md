@@ -7,7 +7,7 @@ writing every term it computes with ids from the netting set down to trade rows.
 
 ## Comments
 
-- 2026-11-08: done in `Workbench.Samples.Ccr/SpotCapitalTrace.cs`, proven by `CcrTraceTests` (20 cases, tests first).
+- 2026-11-08: done in `Qube.Samples.Ccr/SpotCapitalTrace.cs`, proven by `CcrTraceTests` (20 cases, tests first).
   Every term of fourteen portfolios reconciles against its kind, and every computed column of every row against its
   row: the BCBS netting sets, several asset classes, margined FX with collateral, threshold and MTA less NICA,
   haircuts with segregated and foreign collateral, basis and volatility hedging sets, shifted and sold options, a CDO

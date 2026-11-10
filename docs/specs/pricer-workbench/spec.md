@@ -148,7 +148,7 @@ The seams (the owner took the recommendation, 2026-11-07):
 1. **The portfolio workspace service with the registered measures** (xUnit, prior art `XvaTests`): effective rows,
    CSA terms, FVA membership and reasons, Original differences, the grid-wide B/A edit, PV01/Margin/PV Adj, per-measure
    validation and the frozen accepted input. Catches the rules; misses the wire shape.
-2. **The HTTP API through the in-process host** (xUnit with `WorkbenchFactory`, prior art `XvaApiTests`): the two
+2. **The HTTP API through the in-process host** (xUnit with `QubeFactory`, prior art `XvaApiTests`): the two
    trade pages, edits and refusals with their status codes, Price to a finished Run with its result dataset, and the
    Run's zip. Catches the wire contract and the provider end to end; misses the screen.
 3. **The client's pure functions** (Vitest, prior art `editing.test.ts`): reading Metrics rows from a result dataset

@@ -8,8 +8,8 @@ import type { Parsed } from './editing';
 export function ToolbarField({ label, wide, children }: { readonly label: string; readonly wide?: boolean; readonly children: (id: string) => ReactNode }) {
   const id = useId();
   return (
-    <div className={wide === true ? 'qwb-toolbar-field qwb-toolbar-field--wide' : 'qwb-toolbar-field'}>
-      <Text component="label" htmlFor={id} size="xs" c="dimmed" className="qwb-toolbar-label">{label}</Text>
+    <div className={wide === true ? 'qube-toolbar-field qube-toolbar-field--wide' : 'qube-toolbar-field'}>
+      <Text component="label" htmlFor={id} size="xs" c="dimmed" className="qube-toolbar-label">{label}</Text>
       {children(id)}
     </div>
   );
@@ -46,9 +46,9 @@ export function CommitField({ label, value, placeholder, modified, description, 
   return (
     <ToolbarField label={label}>
       {(id) => (
-        <TextInput id={id} size="xs" className="qwb-toolbar-input qwb-toolbar-input--text" value={draft} error={invalid}
+        <TextInput id={id} size="xs" className="qube-toolbar-input qube-toolbar-input--text" value={draft} error={invalid}
           {...(placeholder === undefined ? {} : { placeholder })} {...(inputRef === undefined ? {} : { ref: inputRef })}
-          {...(modified === true ? { 'data-modified': true, title: description ?? 'Set by you', classNames: { input: 'qwb-modified' } } : {})}
+          {...(modified === true ? { 'data-modified': true, title: description ?? 'Set by you', classNames: { input: 'qube-modified' } } : {})}
           onChange={(e) => setDraft(e.currentTarget.value)} onBlur={commit}
           onKeyDown={(e) => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') { setDraft(value); if (invalid) settle(undefined); } }} />
       )}

@@ -2,14 +2,14 @@
    maps its --ex- Visual Tokens onto the variables MantineProvider writes (ex-grid ADR-0390 §5). The hand-written
    bridge this file held until ADR-0009 also set --ex-font-family to the theme's font, whose widths the grid did not
    know, so its `####` judgement was made for another face (ex-grid ADR-0027/0390 §9). What stays here is paint an
-   owner decision asked for, on WorkbenchGrid's own class, never a font or a geometry (docs/design-guidelines.md §7). */
+   owner decision asked for, on QubeGrid's own class, never a font or a geometry (docs/design-guidelines.md §7). */
 
 /* A Header Group (ex-grid ADR-0029's stable class) reads from its left edge, beside its toggle, and its edges are
    ruled, so where Trade ends and a leg begins shows even when the group is wider than the screen; the toggle is in the
    primary colour so it can be found (owner, 2026-11-04). Paint only: a rule is a background image, never a border, so
-   no geometry moves (ex-grid ADR-0027). `.qwb-grid.mantine-ex-grid` outranks the Wrapper's `.mantine-ex-grid`
+   no geometry moves (ex-grid ADR-0027). `.qube-grid.mantine-ex-grid` outranks the Wrapper's `.mantine-ex-grid`
    whatever order the stylesheets load in. */
-.qwb-grid.mantine-ex-grid {
+.qube-grid.mantine-ex-grid {
   --ex-header-group-toggle-color: var(--mantine-primary-color-filled);
 }
 /* A marked heading's line is drawn in the Focus outline's colour, which the Wrapper takes in the light scheme from the
@@ -18,16 +18,16 @@
    light scheme the mark is the primary's text colour, which reads 5.78:1 and 7.62:1 there. The marked heading's words
    have had their own token since 0.2.0, which the Wrapper maps to 4.5:1 (ex-grid#550), so this colours the line and
    the corner's triangle only. The dark scheme holds. */
-[data-mantine-color-scheme='light'] .qwb-grid.mantine-ex-grid {
+[data-mantine-color-scheme='light'] .qube-grid.mantine-ex-grid {
   --ex-heading-mark: var(--mantine-primary-color-light-color);
 }
 /* A negative amount (C48) is painted in the Wrapper's tone colour, the theme's error red, which read at 3.86:1 on the
    dark grid (2026-11-09). A figure needs 4.5:1 (docs/design-guidelines.md §7), so the tone takes red's text colour: the
    theme darkens it in the light scheme, and Mantine lightens it in the dark. */
-.qwb-grid.mantine-ex-grid {
+.qube-grid.mantine-ex-grid {
   --ex-tone-negative-color: var(--mantine-color-red-text);
 }
-.qwb-grid .ex-header-group {
+.qube-grid .ex-header-group {
   text-align: left;
   color: var(--mantine-color-text);
   background-image:

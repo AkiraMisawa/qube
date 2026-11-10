@@ -4,7 +4,7 @@ import { IconChevronDown, IconChevronRight } from '@tabler/icons-react';
 import { GridSource, type CellState, type GridColumn, type GridDeclaredKeyPress, type GridSelection, type GridTemplateCell } from '@ex-grid/core';
 import { templateColumn, type ExGridApi } from '@ex-grid/react';
 import { compactGridHeight } from '../grid/metrics';
-import { WorkbenchGrid } from '../grid/WorkbenchGrid';
+import { QubeGrid } from '../grid/QubeGrid';
 import type { TraceHeader } from './contracts';
 import { symbolTex } from './formula';
 import { Tex } from './Tex';
@@ -46,28 +46,28 @@ function TermCell({ cell }: { readonly cell: GridTemplateCell<TreeRow> }) {
   const indent = { paddingInlineStart: `${row.depth * 16}px` };
   if (row.kind === 'more') {
     return (
-      <div className="qwb-trace-term" style={indent}>
+      <div className="qube-trace-term" style={indent}>
         <Button ref={button} size="compact-xs" variant="subtle" tabIndex={-1} className="ex-interactive" onClick={() => actions.more(row)}>Read {row.note}</Button>
       </div>
     );
   }
   if (row.kind !== 'term') {
-    return <div className="qwb-trace-term" style={indent}><Text size="xs" {...(row.kind === 'failed' ? { c: 'red' } : {})} truncate>{row.note}</Text></div>;
+    return <div className="qube-trace-term" style={indent}><Text size="xs" {...(row.kind === 'failed' ? { c: 'red' } : {})} truncate>{row.note}</Text></div>;
   }
   const label = row.term?.label ?? row.termId;
   // The operand its parent's max took is marked, and the others drawn faint: an operand that did not govern (ADR-0011 §6).
   const mark = row.term === undefined ? undefined : governsMark(row.term, actions.header);
   return (
-    <div className="qwb-trace-term" style={indent} data-open={row.open} {...(mark === undefined ? {} : { 'data-governs': mark.governs })}>
+    <div className="qube-trace-term" style={indent} data-open={row.open} {...(mark === undefined ? {} : { 'data-governs': mark.governs })}>
       {row.opens ? (
         <ActionIcon ref={button} size="sm" variant="subtle" tabIndex={-1} className="ex-interactive" aria-expanded={row.open}
           aria-label={`${row.open ? 'Close' : 'Open'} ${label}`} title={`${row.open ? 'Close' : 'Open'} ${label} (${row.open ? 'Alt+←' : 'Alt+→'})`}
           onClick={() => actions.toggle(row)}>
           {row.open ? <IconChevronDown size={14} stroke={1.75} /> : <IconChevronRight size={14} stroke={1.75} />}
         </ActionIcon>
-      ) : <span className="qwb-trace-leaf" aria-hidden />}
-      <span className="qwb-trace-label" title={label}>{label}</span>
-      {mark !== undefined && <Badge size="sm" variant="light" {...(mark.governs ? {} : { color: 'gray' })} className="qwb-trace-mark" data-testid="trace-governs">{mark.text}</Badge>}
+      ) : <span className="qube-trace-leaf" aria-hidden />}
+      <span className="qube-trace-label" title={label}>{label}</span>
+      {mark !== undefined && <Badge size="sm" variant="light" {...(mark.governs ? {} : { color: 'gray' })} className="qube-trace-mark" data-testid="trace-governs">{mark.text}</Badge>}
     </div>
   );
 }
@@ -230,7 +230,7 @@ export function TraceTree({ panelId, header, rows, selected, onSelect, onGoTo, o
   return (
     <Actions.Provider value={actions}>
       <div aria-label="Terms" data-testid="trace-tree" data-rows={rows.length}>
-        <WorkbenchGrid<TreeRow> ref={grid} columns={columns} onColumnWidthChanged={onColumnWidthChanged} source={source} density="compact" viewportWidth="stretch" viewportHeight={height}
+        <QubeGrid<TreeRow> ref={grid} columns={columns} onColumnWidthChanged={onColumnWidthChanged} source={source} density="compact" viewportWidth="stretch" viewportHeight={height}
           pinnedColumnCount={1} locale="en-US" headerClickSelects hideColumnMenu highlightFocusRow
           cellType={cellType} cellState={cellState} declaredKeys={DECLARED_KEYS} onDeclaredKey={onDeclaredKey} onSelectionChanged={onSelectionChanged} />
       </div>

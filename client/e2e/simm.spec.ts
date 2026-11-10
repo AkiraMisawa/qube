@@ -37,9 +37,9 @@ async function typeImR(page: Page, value: string): Promise<void> {
 
 /** The regime that governs collect in the SIMM tab's tree, by the mark on its row: `JFSA` of `JFSA regime`. */
 async function governingRegime(page: Page): Promise<string> {
-  const governing = page.getByTestId('trace-tree').locator('.qwb-trace-term[data-governs="true"]');
+  const governing = page.getByTestId('trace-tree').locator('.qube-trace-term[data-governs="true"]');
   await expect(governing.getByTestId('trace-governs')).toHaveText('Governs');
-  return (await governing.locator('.qwb-trace-label').innerText()).replace(/ regime$/, '');
+  return (await governing.locator('.qube-trace-label').innerText()).replace(/ regime$/, '');
 }
 
 /**
@@ -151,17 +151,17 @@ test('ADR-0012 §3, §7: spot IM shows its columns and IM tab, refuses a wrong I
       await expect(imCsas).toBeVisible();
       await expect(result.getByTestId('xva-result-basis')).toBeVisible();
       expect(await sideways(page), `${scheme} at ${width}px: the page scrolls sideways`).toBe(0);
-      expect(await page.locator('.qwb-xva').evaluate(textBelowContrast, 4.5), `${scheme} at ${width}px: text below 4.5:1`).toEqual([]);
+      expect(await page.locator('.qube-xva').evaluate(textBelowContrast, 4.5), `${scheme} at ${width}px: text below 4.5:1`).toEqual([]);
     }
     await page.setViewportSize({ width: 390, height: 844 });
     await page.getByText('Inputs', { exact: true }).click();
     await expect(imCsas).toBeVisible();
     expect(await sideways(page)).toBe(0);
-    expect(await page.locator('.qwb-xva').evaluate(textBelowContrast, 4.5), `${scheme} at 390px, Inputs: text below 4.5:1`).toEqual([]);
+    expect(await page.locator('.qube-xva').evaluate(textBelowContrast, 4.5), `${scheme} at 390px, Inputs: text below 4.5:1`).toEqual([]);
     await page.getByText('Results', { exact: true }).click();
     await expect(result.getByTestId('xva-result-basis')).toBeVisible();
     expect(await sideways(page)).toBe(0);
-    expect(await page.locator('.qwb-xva').evaluate(textBelowContrast, 4.5), `${scheme} at 390px, Results: text below 4.5:1`).toEqual([]);
+    expect(await page.locator('.qube-xva').evaluate(textBelowContrast, 4.5), `${scheme} at 390px, Results: text below 4.5:1`).toEqual([]);
     await page.getByText('Trades', { exact: true }).click();
   }
 });
@@ -296,7 +296,7 @@ test('ADR-0012 §6, §7: the SIMM tab shows a card per direction, marks the regi
   // rate the page's figures were converted at said once above them.
   await result.getByRole('button', { name: /^IM-R After .+: open its trace$/ }).click();
   await expect(page.getByRole('tab', { name: 'SIMM', exact: true })).toHaveAttribute('aria-selected', 'true');
-  await expect(page.locator('.qwb-xva')).toHaveAttribute('data-dock', 'full');
+  await expect(page.locator('.qube-xva')).toHaveAttribute('data-dock', 'full');
   await expect(page.getByTestId('trace-tab-caption')).toHaveText(/^Computed in USD; shown in ([A-Z]{3}) at [\d.]+ \1 per USD, the pinned FX of \d{4}-\d{2}-\d{2}\.$/);
   const cards = page.getByTestId('trace-card');
   await expect(cards).toHaveCount(2);
@@ -315,7 +315,7 @@ test('ADR-0012 §6, §7: the SIMM tab shows a card per direction, marks the regi
   // Under collect, one regime governs and the other is marked as not governing.
   await settled(page, 'Terms');
   const regime = await governingRegime(page);
-  await expect(page.getByTestId('trace-tree').locator('.qwb-trace-term[data-governs="false"]').getByTestId('trace-governs')).toHaveText('Not governing');
+  await expect(page.getByTestId('trace-tree').locator('.qube-trace-term[data-governs="false"]').getByTestId('trace-governs')).toHaveText('Not governing');
 
   // The governing regime: its trades, largest change first, each side adding up to the regime's allocation, and the
   // line that comes back to it, copied whole.
@@ -362,7 +362,7 @@ test('ADR-0012 §6, §7: the SIMM tab shows a card per direction, marks the regi
 
   // Restored, the dock gives the page back its inputs and grids.
   await page.getByTestId('xva-result-full').click();
-  await expect(page.locator('.qwb-xva')).toHaveAttribute('data-dock', 'part');
+  await expect(page.locator('.qube-xva')).toHaveAttribute('data-dock', 'part');
 
   // Widened again, in both themes and at each width ADR-0009 names, every text reads at 4.5:1 and nothing scrolls the
   // page sideways, the matrices included; on a phone the trace drills in a level at a time.
@@ -376,13 +376,13 @@ test('ADR-0012 §6, §7: the SIMM tab shows a card per direction, marks the regi
       // The view keeps its fold from pane to pane, so the matrices above are drawn, and measured, at every width.
       await expect(page.locator('[data-testid="trace-parameter"][data-name="rho"]')).toBeVisible();
       expect(await sideways(page), `${scheme} at ${width}px: the page scrolls sideways`).toBe(0);
-      expect(await page.locator('.qwb-xva').evaluate(textBelowContrast, 4.5), `${scheme} at ${width}px: text below 4.5:1`).toEqual([]);
+      expect(await page.locator('.qube-xva').evaluate(textBelowContrast, 4.5), `${scheme} at ${width}px: text below 4.5:1`).toEqual([]);
     }
     await page.setViewportSize({ width: 390, height: 844 });
     await page.getByText('Results', { exact: true }).click();
     await expect(page.getByTestId('trace-view')).toHaveAttribute('data-layout', 'drill');
     expect(await sideways(page), `${scheme} at 390px: the page scrolls sideways`).toBe(0);
-    expect(await page.locator('.qwb-xva').evaluate(textBelowContrast, 4.5), `${scheme} at 390px: text below 4.5:1`).toEqual([]);
+    expect(await page.locator('.qube-xva').evaluate(textBelowContrast, 4.5), `${scheme} at 390px: text below 4.5:1`).toEqual([]);
   }
 
   // On a phone the regimes are a list, and say which governs as the tree's rows do.

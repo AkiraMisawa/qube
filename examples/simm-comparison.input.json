@@ -5,7 +5,7 @@
   "reportingCurrency": "USD",
   "tradeInput": {
     "dataId": "input-new-001",
-    "contractId": "qwb.trade-input",
+    "contractId": "qube.trade-input",
     "contractVersion": "1.0.0",
     "revision": "1"
   },

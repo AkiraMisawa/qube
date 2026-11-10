@@ -199,7 +199,7 @@ const NO_AI = createStore<{ readonly open: boolean }>()(() => ({ open: false }))
 
 /** Opens the command line (Ctrl+K anywhere; `/` where it would not be typed into something). */
 export function openPalette(): void {
-  if (document.activeElement?.closest('.qwb-palette') != null) return;
+  if (document.activeElement?.closest('.qube-palette') != null) return;
   if (keyboardBefore === null && document.activeElement instanceof HTMLElement && document.activeElement !== document.body)
     keyboardBefore = document.activeElement;
   letGo();
@@ -331,16 +331,16 @@ export function CommandPalette() {
     }
   };
 
-  const optionId = (i: number) => `qwb-line-option-${i}`;
+  const optionId = (i: number) => `qube-line-option-${i}`;
   const head = reading.kind === 'arguments' ? reading.command : chosen !== undefined && 'words' in chosen ? chosen : undefined;
 
   return (
     <Modal opened={opened} onClose={close} withCloseButton={false} trapFocus returnFocus={false} size="lg" yOffset="10vh"
-      transitionProps={{ duration: 0 }} className="qwb-palette" aria-label="Command line" padding="sm">
+      transitionProps={{ duration: 0 }} className="qube-palette" aria-label="Command line" padding="sm">
       <Stack gap={6}>
         <TextInput ref={input} data-autofocus value={text} onChange={(e) => change(e.currentTarget.value)} onKeyDown={onKeyDown}
           placeholder="Type what you want to do: price, new irs, live start… (? lists them)" aria-label="Command"
-          role="combobox" aria-expanded={items.length > 0} aria-controls="qwb-line-options" aria-autocomplete="list"
+          role="combobox" aria-expanded={items.length > 0} aria-controls="qube-line-options" aria-autocomplete="list"
           {...(chosen === undefined ? {} : { 'aria-activedescendant': optionId(at) })}
           styles={{ input: { fontFamily: 'var(--mantine-font-family-monospace)' } }} />
         {head !== undefined && <Head command={head} reading={reading} />}
@@ -349,11 +349,11 @@ export function CommandPalette() {
             {problems.map((p) => <Text key={p} size="xs" c="red">{p}</Text>)}
           </Stack>
         )}
-        <Stack gap={0} id="qwb-line-options" role="listbox" aria-label={reading.kind === 'choosing' ? 'Commands' : `Values for ${reading.slot?.name ?? 'options'}`}
+        <Stack gap={0} id="qube-line-options" role="listbox" aria-label={reading.kind === 'choosing' ? 'Commands' : `Values for ${reading.slot?.name ?? 'options'}`}
           style={{ maxHeight: '50vh', overflowY: 'auto' }}>
           {items.slice(0, 50).map((item, i) => (
             <UnstyledButton key={'words' in item ? item.id : item.value} id={optionId(i)} role="option" aria-selected={i === at} tabIndex={-1}
-              className="qwb-line-option" data-selected={i === at || undefined} onMouseDown={(e) => e.preventDefault()}
+              className="qube-line-option" data-selected={i === at || undefined} onMouseDown={(e) => e.preventDefault()}
               onClick={() => ('words' in item && !(item.args ?? []).some((a) => a.required) && item.unavailable === undefined ? runNow(item, {}) : takeItem(item))}
               px="xs" py={4} style={{ borderRadius: 4, background: i === at ? 'var(--mantine-color-default-hover)' : undefined }}>
               {'words' in item ? <CommandOption command={item} /> : <ValueOption completion={item} />}

@@ -310,10 +310,10 @@ test('ADR-0010 §1, docs/design-guidelines.md §7: in the dark and the light the
     await expect(page.locator('html')).toHaveAttribute('data-mantine-color-scheme', scheme);
     // On a desktop screen, then on a phone's, where the page's parts are tabs.
     await page.setViewportSize({ width: 1440, height: 900 });
-    expect(await page.locator('.qwb-xva').evaluate(textBelowContrast, 4.5), `${scheme} at 1440px: text below 4.5:1`).toEqual([]);
+    expect(await page.locator('.qube-xva').evaluate(textBelowContrast, 4.5), `${scheme} at 1440px: text below 4.5:1`).toEqual([]);
     await page.setViewportSize({ width: 390, height: 844 });
     await expect(page.getByText('Results', { exact: true })).toBeVisible();
-    expect(await page.locator('.qwb-xva').evaluate(textBelowContrast, 4.5), `${scheme} at 390px: text below 4.5:1`).toEqual([]);
+    expect(await page.locator('.qube-xva').evaluate(textBelowContrast, 4.5), `${scheme} at 390px: text below 4.5:1`).toEqual([]);
   }
 });
 

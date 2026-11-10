@@ -20,16 +20,16 @@ it without a rewrite, and the workbench must run at home without it.
    the current trace and span, so a log line finds its trace. A successful request is not written (the pages poll);
    a refusal is a warning and a server failure an error, and the HTTP metrics count all of them.
 3. **Traces and metrics go through the OpenTelemetry SDK**: ASP.NET Core and HttpClient instrumentation, .NET runtime
-   metrics, and the workbench's own source and meter, named `Workbench`. The kernel speaks only the BCL's
+   metrics, and the workbench's own source and meter, named `Qube`. The kernel speaks only the BCL's
    `ActivitySource` and `Meter` and the `ILogger` abstraction; the hosts choose Serilog and OpenTelemetry. Spans:
    `run {workflow}`, `invoke {capability}`, `command {capability}`, `agent run`, `agent tool {name}`. Metrics:
-   `workbench.runs.completed`, `workbench.run.duration`, `workbench.commands`, `workbench.agent.runs`,
-   `workbench.agent.tool_calls`, `workbench.client.events`. Business identifiers ride as tags and log properties
-   (`workbench.run.id` / `RunId`, `workbench.workspace.id`, `workbench.agent.thread.id`, …), so a RunId finds its
+   `qube.runs.completed`, `qube.run.duration`, `qube.commands`, `qube.agent.runs`,
+   `qube.agent.tool_calls`, `qube.client.events`. Business identifiers ride as tags and log properties
+   (`qube.run.id` / `RunId`, `qube.workspace.id`, `qube.agent.thread.id`, …), so a RunId finds its
    logs and trace. Telemetry explains; the Run's record stays the authority (docs/05).
 4. **The browser reports to its own server, not to a collector.** No SDK: every call carries a fresh W3C
    `traceparent`, and the page sends its events in batches to `POST /api/telemetry/client`, which writes them into the
-   server's log as `Workbench.Client` in the trace of the call they are about. Reported: uncaught errors, unhandled
+   server's log as `Qube.Client` in the trace of the call they are about. Reported: uncaught errors, unhandled
    rejections, render errors with their component stack, calls the server failed (5xx) or never answered, and the
    notices the user was shown. A refusal (4xx) is not reported by the page; the server's log already has it. The
    endpoint bounds a batch (50 events) and cuts long texts rather than refusing them; the page bounds what it holds

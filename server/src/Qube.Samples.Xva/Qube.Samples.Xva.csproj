@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\Qube.Composition.Application\Qube.Composition.Application.csproj" />
+    <ProjectReference Include="..\Qube.Samples.Portfolio\Qube.Samples.Portfolio.csproj" />
+    <!-- The fake provider's KVA option computes spot CCR capital through SA-CCR's reference implementation (ADR-0013 §2). -->
+    <ProjectReference Include="..\Qube.Samples.Ccr\Qube.Samples.Ccr.csproj" />
+  </ItemGroup>
+
+</Project>

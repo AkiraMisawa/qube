@@ -8,7 +8,7 @@ values; a national rule's differences are configuration.
 
 ## Comments
 
-- 2026-11-07: done in `Workbench.Samples.Ccr/RiskWeights.cs`, proven by `CcrRiskWeightTests` (46 cases, tests first),
+- 2026-11-07: done in `Qube.Samples.Ccr/RiskWeights.cs`, proven by `CcrRiskWeightTests` (46 cases, tests first),
   with each rule checked by breaking it. Every class of ADR-0013 §5: sovereigns (Table 1, ECA scores, the
   domestic-currency discretion, the CRE20.10 organisations), PSEs (both options, and treatment as the sovereign), MDBs,
   banks (ECRA with short-term and due diligence, SCRA with footnote 15's 30% and the CRE20.32 floor), securities firms

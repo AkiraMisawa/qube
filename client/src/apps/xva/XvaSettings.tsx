@@ -27,9 +27,9 @@ export function XvaSettings({ settings, measures, push, setText, focusRef }: {
 }) {
   const title = (id: string) => registered(measures, id).title;
   return (
-    <Stack gap="xs" className="qwb-xva-settings">
+    <Stack gap="xs" className="qube-xva-settings">
       {settings.map((m, mi) => (
-        <div key={m.module} className="qwb-xva-scroll">
+        <div key={m.module} className="qube-xva-scroll">
           <Table withTableBorder withColumnBorders verticalSpacing={4} horizontalSpacing="sm" fz="sm" aria-label={`${m.title} settings`}>
             <Table.Thead>
               <Table.Tr><Table.Th>{m.title}</Table.Th><Table.Th>Value</Table.Th><Table.Th>Default</Table.Th><Table.Th>For</Table.Th></Table.Tr>
@@ -76,7 +76,7 @@ function SettingInput({ setting, module, push, setText, inputRef }: {
   const sent = useRef<string | undefined>(undefined);
   useEffect(() => { setDraft(value); setInvalid(false); sent.current = undefined; }, [value]);
   const marked = setting.changed
-    ? { 'data-modified': true, title: `Default ${defaultWords(setting)} · now ${setting.value == null ? 'empty' : setting.text}`, classNames: { input: 'qwb-modified' } } : {};
+    ? { 'data-modified': true, title: `Default ${defaultWords(setting)} · now ${setting.value == null ? 'empty' : setting.text}`, classNames: { input: 'qube-modified' } } : {};
 
   if (setting.form === 'flag') {
     return (
@@ -92,7 +92,7 @@ function SettingInput({ setting, module, push, setText, inputRef }: {
     setInvalid((await setText(entity, setting.id, draft.trim() === '' ? 'empty' : draft.trim(), setting.title)) !== undefined);
   };
   return (
-    <TextInput size="xs" className="qwb-toolbar-input qwb-toolbar-input--text" aria-label={setting.title} value={draft} error={invalid} {...marked}
+    <TextInput size="xs" className="qube-toolbar-input qube-toolbar-input--text" aria-label={setting.title} value={draft} error={invalid} {...marked}
       {...(setting.empty == null ? {} : { placeholder: `empty: ${setting.empty}` })} {...(inputRef === undefined ? {} : { ref: inputRef })}
       onChange={(e) => { setDraft(e.currentTarget.value); sent.current = undefined; }} onBlur={() => void commit()}
       onKeyDown={(e) => { if (e.key === 'Enter') void commit(); if (e.key === 'Escape') { setDraft(value); setInvalid(false); sent.current = undefined; } }} />

@@ -44,12 +44,12 @@ function Section({ section }: { readonly section: RiskSection }) {
   return (
     <Stack gap={4} data-testid="xva-risks-section" data-measure={section.measure}>
       <Text size="sm" fw={600}>{heading}</Text>
-      <div className="qwb-xva-scroll">
+      <div className="qube-xva-scroll">
         <Table withTableBorder withColumnBorders verticalSpacing={4} horizontalSpacing="sm" fz="sm" aria-label={`${section.title} deltas`} stickyHeader>
           <Table.Thead>
             <Table.Tr>
               <Table.Th>Risk class</Table.Th><Table.Th>Factor</Table.Th><Table.Th>Bump</Table.Th>
-              {sides.map(([side, title]) => <Table.Th key={side} className="qwb-number">{title}</Table.Th>)}
+              {sides.map(([side, title]) => <Table.Th key={side} className="qube-number">{title}</Table.Th>)}
             </Table.Tr>
           </Table.Thead>
           <Table.Tbody>
@@ -72,7 +72,7 @@ function Section({ section }: { readonly section: RiskSection }) {
 function Delta({ cell, label, reason }: { readonly cell: MetricCell; readonly label: string; readonly reason: string | undefined }) {
   const word = cell.status !== 'priced' && cell.status !== 'pending';
   return (
-    <Table.Td className={word ? 'qwb-number qwb-xva-result-word' : 'qwb-number'} data-status={cell.status} aria-label={`${label}: ${cell.text === '' ? 'none' : cell.text}`}
+    <Table.Td className={word ? 'qube-number qube-xva-result-word' : 'qube-number'} data-status={cell.status} aria-label={`${label}: ${cell.text === '' ? 'none' : cell.text}`}
       {...(cell.negative ? { 'data-negative': true } : {})}
       {...(word && reason !== undefined ? { title: reason } : {})}>{cell.text}</Table.Td>
   );

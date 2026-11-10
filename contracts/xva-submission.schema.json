@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://example.invalid/qwb/xva-submission.schema.json",
+  "$id": "https://example.invalid/qube/xva-submission.schema.json",
   "title": "Fixed XVA effective input submission (starter subset)",
   "description": "Full committed typed input. Does not specify every company product or original analytics payload.",
   "type": "object",

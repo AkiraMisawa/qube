@@ -67,7 +67,7 @@ Four principles follow, and every rule below is one of them made concrete.
 - **Inside content** (a resolution line under a grid, a card in the AI pane): `compact-xs` buttons (22px) are allowed
   where no input shares the row and the button sits in running text. They still meet the target size rule of §8 by
   their spacing.
-- **Grids:** every grid is `WorkbenchGrid` (`client/src/platform/grid/WorkbenchGrid.tsx`), which is ExGrid drawn by
+- **Grids:** every grid is `QubeGrid` (`client/src/platform/grid/QubeGrid.tsx`), which is ExGrid drawn by
   its Mantine Wrapper `@ex-grid/mantine`, with `density="compact"`. **MUST NOT** render `ExGrid` from `@ex-grid/react`
   directly: it would miss the theme's colours and Mantine's menus. A row's height is ExGrid's, set through its
   parameters, never in CSS (ex-grid ADR-0013/0016): a CSS row height breaks its virtualisation arithmetic and
@@ -137,7 +137,7 @@ The shell is the header, the panels under their tabs, and the AI pane (ADR-0007 
 - **MUST** take colour from the theme and Mantine's variables. CSS that differs by theme uses `light-dark()` or
   Mantine's scheme attribute. ExGrid's colours come from `@ex-grid/mantine/styles.css`, which maps its `--ex-`
   tokens onto Mantine's variables. Paint an owner decision asks for beyond that (the Rates Header Groups' ruled edges
-  and primary toggle, 2026-11-04) goes in `client/src/theme.css` on `WorkbenchGrid`'s class `qwb-grid`, with the
+  and primary toggle, 2026-11-04) goes in `client/src/theme.css` on `QubeGrid`'s class `qube-grid`, with the
   decision named: colour and paint only, never `--ex-font-family` (metrics-bearing: see §10) and never a geometry
   (ex-grid ADR-0027/0030).
 - **Meaning of colour** — one meaning each, everywhere:

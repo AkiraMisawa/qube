@@ -8,7 +8,7 @@ not. This slice is ADR-0012's delivery step 1: nothing in it needs the page.
 
 ## In this slice
 
-- The reference SIMM engine in `Workbench.Samples.Simm`: the SIMM v2.x aggregation from risk factor to the worst
+- The reference SIMM engine in `Qube.Samples.Simm`: the SIMM v2.x aggregation from risk factor to the worst
   of the regimes, per direction and IM CSA, with the Euler allocation down to the CRIF line (ADR-0012 §1, §5, §6).
 - The DEMO parameter table, labelled DEMO wherever a figure computed with it is shown (ADR-0012 §5).
 - CRIF for the synthetic IRS, CCS and FX forward, from the Rates module's pricing at the value date; the FX forward

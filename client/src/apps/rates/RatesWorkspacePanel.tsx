@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Badge, Button, Group, Stack, Table, Text, TextInput } from '@mantine/core';
 import { GridSource, type CellPosition, type GridActionEvent, type GridColumn, type GridContextMenuContext, type GridEditIntent, type GridSelection, type HeaderGroupToggle } from '@ex-grid/core';
 import type { ExGridApi } from '@ex-grid/react';
-import { WorkbenchGrid } from '../../platform/grid/WorkbenchGrid';
+import { QubeGrid } from '../../platform/grid/QubeGrid';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiError } from '../../platform/api';
 import { useColumnWidths } from '../../platform/grid/columnWidths';
@@ -316,7 +316,7 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
       <HeldEdits conflicts={ws.conflicts} lost={ws.lost} resolve={(held, resolution) => void queue.push({ kind: 'resolve', held, resolution })} />
       <ResultStrip row={(focusLine === undefined ? undefined : shownRows.get(focusLine)) ?? (shownRows.size === 1 ? [...shownRows.values()][0] : undefined)} />
       <div aria-label="Lines">
-        <WorkbenchGrid<LineRow> ref={grid} columns={columns} onColumnWidthChanged={onColumnWidthChanged} headerGroups={groups} source={source}
+        <QubeGrid<LineRow> ref={grid} columns={columns} onColumnWidthChanged={onColumnWidthChanged} headerGroups={groups} source={source}
           onEdit={onEdit} onAction={onAction}
           cellState={lineCellState} cellMessage={lineCellMessage} density="compact" viewportWidth="stretch" viewportHeight={height}
           pinnedColumnCount={PINNED_COLUMNS} locale="en-US" onHeaderGroupToggled={onGroupToggled} onSelectionChanged={onSelectionChanged}
@@ -400,7 +400,7 @@ function Cashflows({ panelId, workspaceId, line, revision, api, edit, onClose }:
         <Text size="xs" c="dimmed">This line generates no schedule until its terms resolve; see its issues.</Text>
       )}
       <div aria-label={`Cashflows of ${line}`}>
-        <WorkbenchGrid<PeriodView> columns={widths.columns} onColumnWidthChanged={widths.onColumnWidthChanged} source={source} onEdit={onEdit}
+        <QubeGrid<PeriodView> columns={widths.columns} onColumnWidthChanged={widths.onColumnWidthChanged} source={source} onEdit={onEdit}
           cellState={periodCellState} cellMessage={cellMessage}
           density="compact" viewportWidth="stretch" viewportHeight={Math.min(64 + (flows.data?.periods.length ?? 3) * 28, 320)} locale="en-US" />
       </div>

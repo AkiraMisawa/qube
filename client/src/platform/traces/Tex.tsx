@@ -38,7 +38,7 @@ export function Tex({ tex, display = false, onOperand }: {
 }) {
   const set = useMemo(() => typeset(tex, display), [tex, display]);
   if ('error' in set) {
-    return <span className="qwb-tex-error" role="alert">The formula could not be typeset: {set.error}</span>;
+    return <span className="qube-tex-error" role="alert">The formula could not be typeset: {set.error}</span>;
   }
   const press = (event: MouseEvent<HTMLElement>) => {
     const target = (event.target as Element).closest('[data-operand]');
@@ -49,6 +49,6 @@ export function Tex({ tex, display = false, onOperand }: {
   return (
     // The operands are also offered as buttons beside the formula, so the keyboard and a screen reader reach them;
     // KaTeX's MathML is what a screen reader reads of the formula itself.
-    <span className={display ? 'qwb-tex qwb-tex-display' : 'qwb-tex'} onClick={press} dangerouslySetInnerHTML={{ __html: set.html }} />
+    <span className={display ? 'qube-tex qube-tex-display' : 'qube-tex'} onClick={press} dangerouslySetInnerHTML={{ __html: set.html }} />
   );
 }

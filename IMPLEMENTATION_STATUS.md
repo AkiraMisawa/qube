@@ -28,7 +28,7 @@ Plan: [docs/plans/slice-01-generic-workbench.md](docs/plans/slice-01-generic-wor
 
 | Suite | Result |
 |---|---|
-| `dotnet test server/Workbench.slnx` | 26 passed |
+| `dotnet test server/Qube.slnx` | 26 passed |
 | `npm test` (Vitest) | 16 passed |
 | `npx playwright test --repeat-each=3` (Chromium, headless, Linux) | 15 passed (5 tests × 3) |
 
@@ -53,7 +53,7 @@ Every provider is simulated. All data is synthetic and labelled as such on scree
 
 ### ExGrid
 
-- `@ex-grid/core`, `@ex-grid/data`, `@ex-grid/react` and `@ex-grid/mantine`, with `@ex-grid/chart`, `@ex-grid/chart-react` and `@ex-grid/chart-mantine` since step 5, at `0.2.0` from npm (since 2026-11-10; `0.2.0-beta.3` from 2026-11-04; before that, tarballs packed from ex-grid commit `3bf523d` in `vendor/ex-grid/`). Since 2026-11-06 (ADR-0009) every grid is `WorkbenchGrid`, ExGrid drawn by its Mantine Wrapper; the stylesheets are `@ex-grid/core/styles.css` and `@ex-grid/mantine/styles.css`.
+- `@ex-grid/core`, `@ex-grid/data`, `@ex-grid/react` and `@ex-grid/mantine`, with `@ex-grid/chart`, `@ex-grid/chart-react` and `@ex-grid/chart-mantine` since step 5, at `0.2.0` from npm (since 2026-11-10; `0.2.0-beta.3` from 2026-11-04; before that, tarballs packed from ex-grid commit `3bf523d` in `vendor/ex-grid/`). Since 2026-11-06 (ADR-0009) every grid is `QubeGrid`, ExGrid drawn by its Mantine Wrapper; the stylesheets are `@ex-grid/core/styles.css` and `@ex-grid/mantine/styles.css`.
 - A key sent to a newly drawn grid before it carries its Settled Mark is lost, by ExGrid's own contract. Browser tests wait for the mark, as ex-grid's own tests do.
 - ExGrid's TypeScript core has no touch support yet.
 - Column widths (ExGrid ADR-0016): in the grids that take them (below), a declared width is raised to what its header needs (`gridHeaderRequiredPx`, as the grid charges an Auto column's, with no menu button on the Rates line grid, which hides its column menu, ADR-0015 §4), so a header is never cut at the default; a longer value may be. The grids of 2026-10-28 take `onColumnWidthChanged` (a view's grid, the Pricing DB, the Rates lines and cashflows, and the XVA page's New and Existing trades): a drag on a header's right edge (or a double click, which fits the column) moves it, and the width is kept per panel in the workspace store until the panel closes. Widths are not saved with a workspace. Since 2026-11-10 (owner: every grid gets the grip) the XVA CSA, Credit and Scenarios grids and the calculation trace's tree, entities and rows take it too, each kept per panel under its own key; the grids that hide their column menu (the Rates lines, Scenarios, the trace's three) are charged no menu button.
@@ -71,10 +71,10 @@ Plan: [docs/plans/slice-02-xva-workspace.md](docs/plans/slice-02-xva-workspace.m
 
 ### What runs
 
-- **Generic workspace kernel** (`Workbench.Composition.Application/Workspaces`): an append-only edit log, overrides with their base, the carry check (carried, conflicted, lost), conflict groups, `DropScope` with the confirmed count, an atomic counterparty change (`ChangeScope`), and `Freeze` refused while a priced entity holds an unresolved edit. Every command names the revision it was taken against.
-- **SQLite** (`Workbench.Persistence.Sqlite`, Microsoft.Data.Sqlite 10.0.14 with SQLitePCLRaw 2.1.13): one file holds generic tables for every domain: `Workspace` (current state), `EditLog` (append-only, `domain_kind` per entry), `AnalysisRun`, `SubmissionKey` and `RetainedData`. A workspace is restored after a restart from its source descriptor, and a descriptor that now acquires another version is refused. Deleting a workspace keeps its log. A Run left running by a stopped process is recorded as failed with code `Interrupted`.
+- **Generic workspace kernel** (`Qube.Composition.Application/Workspaces`): an append-only edit log, overrides with their base, the carry check (carried, conflicted, lost), conflict groups, `DropScope` with the confirmed count, an atomic counterparty change (`ChangeScope`), and `Freeze` refused while a priced entity holds an unresolved edit. Every command names the revision it was taken against.
+- **SQLite** (`Qube.Persistence.Sqlite`, Microsoft.Data.Sqlite 10.0.14 with SQLitePCLRaw 2.1.13): one file holds generic tables for every domain: `Workspace` (current state), `EditLog` (append-only, `domain_kind` per entry), `AnalysisRun`, `SubmissionKey` and `RetainedData`. A workspace is restored after a restart from its source descriptor, and a descriptor that now acquires another version is refused. Deleting a workspace keeps its log. A Run left running by a stopped process is recorded as failed with code `Interrupted`.
 - **Runs** record their owner, origin (`pricer`, `ai`, `workflow`, `action`), explicit relations (workspace and revision, parent Run, analysis group, conversation) and the result contracts their workflow declares. Idempotency keys are per owner and survive a restart. A submission under a used key is the same one when its whole content is, or, when the caller names an idempotency basis, when that is: a portfolio Price is named by the workspace revision priced, because its accepted input freezes cells that answer on their own (PV01), so a retry after one answered, or after the workspace moved on, is the first Run, and the key on another revision is refused (XV13).
-- **Synthetic XVA module** (`Workbench.Samples.Xva`): three registrations (two share code ABC under different legal entities), agreements with CSAs and one uncollateralised (`nocsa_MA-003`), up to 100,000 generated existing trades per counterparty (matured ones are absent at a later date, and the last fixing moves with the date), three draft trades that belong to no counterparty, an empty CVA recovery on LE-01. The rules: a new trade takes the main CSA, a curve follows its CSA (including a CSA curve edit) unless the user set it, an uncollateralised trade starts on the profile curve, an ineligible CSA is an issue on the row and Price refuses it. A simulated CVA/FVA provider prices Before and After independently and falls back to the CDS recovery when the CVA recovery is empty.
+- **Synthetic XVA module** (`Qube.Samples.Xva`): three registrations (two share code ABC under different legal entities), agreements with CSAs and one uncollateralised (`nocsa_MA-003`), up to 100,000 generated existing trades per counterparty (matured ones are absent at a later date, and the last fixing moves with the date), three draft trades that belong to no counterparty, an empty CVA recovery on LE-01. The rules: a new trade takes the main CSA, a curve follows its CSA (including a CSA curve edit) unless the user set it, an uncollateralised trade starts on the profile curve, an ineligible CSA is an issue on the row and Price refuses it. A simulated CVA/FVA provider prices Before and After independently and falls back to the CDS recovery when the CVA recovery is empty.
 - **HTTP**: `/api/xva/...` creates a workspace, pages effective rows (sorted on the server, Blank last as ExGrid's ADR-0023), edits, resolves held edits, moves the value date, previews and confirms a counterparty change, prices and deletes. `/api/history/...` serves the Pricing DB.
 - **Pricing DB**: every Run newest first; a module registers a history projection; the XVA view adds value date, registration, trade counts, CVA and FVA Before, After and incremental. An unknown domain is refused.
 - **Client**: the XVA workspace page (ExGrid over a fetching source with a Row Key; user-set, held and invalid cells painted as Cell States with their reasons; a counterparty change that shows what it drops by edit kind and asks first; Price as a button and the `Price XVA workspace` command) and the Pricing DB page (one domain at a time, `Open` opens a Run). `new xva`, `open pricing db` and `price` are commands (their chords were removed by ADR-0006).
@@ -83,7 +83,7 @@ Plan: [docs/plans/slice-02-xva-workspace.md](docs/plans/slice-02-xva-workspace.m
 
 | Suite | Result |
 |---|---|
-| `dotnet test server/Workbench.slnx` | 58 passed |
+| `dotnet test server/Qube.slnx` | 58 passed |
 | `npm test` (Vitest) | 21 passed |
 | `npx playwright test` (Chromium, headless, Linux) | 7 passed; the two new XVA tests also with `--repeat-each=3` (6 passed) |
 
@@ -120,7 +120,7 @@ Every provider is simulated and every figure synthetic, labelled `simulated` in 
 ### Known limits
 
 - The trades grid does not filter: a filter set from a column header is refused with a message, not ignored. Paste is not wired.
-- Requests act as one configured demo user (`Workbench:DemoUser`) until ME-ID sign-in (C30); roles (C31) are not enforced, so a user sees only their own Runs.
+- Requests act as one configured demo user (`Qube:DemoUser`) until ME-ID sign-in (C30); roles (C31) are not enforced, so a user sees only their own Runs.
 - Run views are matched to Runs by output name, not by contract.
 - Touch waits for ExGrid's touch release (C36).
 
@@ -131,7 +131,7 @@ Plan: [docs/plans/slice-03-rates-line-pricer.md](docs/plans/slice-03-rates-line-
 ### What runs
 
 - **Kernel (ADR-0004)**: entities the user creates (`Create`, `Remove`), sources a module derives from the workspace (`IEditRules.Derive`, one scope per line), a Derive log entry with its carry summary whenever a derived source moves, and derivation again on load.
-- **Rates module** (`Workbench.Samples.Rates`): a line's flat fields (C40, C43) read into typed terms; a resolver that refuses what it cannot honour on the row; a standard schedule generator; a schedule per line as a derived source whose periods are identified by leg and unadjusted dates, so cashflow edits carry, conflict or are lost when the terms move.
+- **Rates module** (`Qube.Samples.Rates`): a line's flat fields (C40, C43) read into typed terms; a resolver that refuses what it cannot honour on the row; a standard schedule generator; a schedule per line as a derived source whose periods are identified by leg and unadjusted dates, so cashflow edits carry, conflict or are lost when the terms move.
 - **Pricing**: `IRatesPricingProvider` with the fake provider (`fake-rates/1`, every figure `simulated`): PV, the par rate or fair spread of the leg left without a quote, and 1bp pillar deltas when the row asks for risk, standing in for the engine's AD sensitivities (C38). A seeded synthetic market whose snapshot n is a function of its configuration.
 - **Price** (`rates.price`): freezes the revision the user saw, prices its priceable lines against the snapshot the request names (an unknown one is refused), lists every other line as `notPriced` with its reasons, and refuses when nothing is priceable. One Run per Price.
 - **Live**: subscriptions price the newest market with at most one calculation in flight and the newest update waiting; an accepted edit moves a subscription to its revision; a frame names its subscription revision, input revision and snapshot. No Run per tick. Frames stream as server-sent events. A workspace has one subscription on the server; pages attach to it (a new page first hears the frame shown now) and detach when they go. Once nobody has watched it for `Rates:LiveIdleStopSeconds` (300 by default), the next tick stops it and the workspace records why; a page opening on it then shows the last frame and offers Resume, which starts a new subscription on the current revision (owner, 2026-10-27).
@@ -146,7 +146,7 @@ Plan: [docs/plans/slice-03-rates-line-pricer.md](docs/plans/slice-03-rates-line-
 
 | Suite | Result |
 |---|---|
-| `dotnet test server/Workbench.slnx` | 130 passed (the 8 command tests of ADR-0005 included) |
+| `dotnet test server/Qube.slnx` | 130 passed (the 8 command tests of ADR-0005 included) |
 | `dotnet run` (Development) | Started; `/api/rates/market` advanced with the ticker |
 | `npm test` (Vitest) | 28 passed |
 | `npx playwright test` (Chromium, headless, Linux) | 9 passed; the Rates spec again after the commands (2 passed) |
@@ -197,7 +197,7 @@ The provider and the market are simulated. Real holiday calendars, the confirmed
 | Suite | Result |
 |---|---|
 | `npm test` (Vitest) | 36 passed (ranking, slot reading, completion, missing arguments, the AI's rest-of-line) |
-| `dotnet test server/Workbench.slnx` | 131 passed (the terms endpoint at the page's revision, logged as the page's) |
+| `dotnet test server/Qube.slnx` | 131 passed (the terms endpoint at the page's revision, logged as the page's) |
 | `npx playwright test` (Chromium, headless, Linux) | 10 passed; the new command-line test and the two rewritten ones with `--repeat-each=3` (9 passed) |
 
 ### Known limits
@@ -210,17 +210,17 @@ The provider and the market are simulated. Real holiday calendars, the confirmed
 
 ### What runs
 
-- **AG-UI** (`Workbench.Agent`, `/api/agent/...`): the pane posts AG-UI's `RunAgentInput` to `POST /api/agent/runs` and reads the run's events as server-sent events, in the shapes of `@ag-ui/core` 1.0.3 (protocol 1.0). The server holds the conversation per thread and owner and takes only new user messages from the client; frontend tools and client-written history are refused. A run goes on when its reader leaves; `GET /api/agent/threads/{t}/runs/{r}/events?after=n` reads the rest, `GET /api/agent/threads/{t}` reads the messages, `POST …/cancel` stops a run before its next tool call. The same run id posted again is read again, never run twice. An agent run is not a workbench Run.
+- **AG-UI** (`Qube.Agent`, `/api/agent/...`): the pane posts AG-UI's `RunAgentInput` to `POST /api/agent/runs` and reads the run's events as server-sent events, in the shapes of `@ag-ui/core` 1.0.3 (protocol 1.0). The server holds the conversation per thread and owner and takes only new user messages from the client; frontend tools and client-written history are refused. A run goes on when its reader leaves; `GET /api/agent/threads/{t}/runs/{r}/events?after=n` reads the rest, `GET /api/agent/threads/{t}` reads the messages, `POST …/cancel` stops a run before its next tool call. The same run id posted again is read again, never run twice. An agent run is not a workbench Run.
 - **Tools**: one per registered command capability (ADR-0005), named by its id with `_` (`entity_create`), whose parameters are its input contracts. A call goes through `CommandService` for `Caller(user, ai)` with the key `agent:{thread}:{toolCall}`; its result is the outputs or every issue of the refusal.
 - **Runtime port** `IAgentRuntime`, chosen by `Agent:Runtime`; anything but a configured runtime stops startup. The only runtime is `scripted` (**no model**, labelled `scripted · no model` in the pane and on every card): modules register the requests it understands. Rates registers a new workspace (a valuation date, when none is open or the request says "new workspace"), an IRS (written as the words `new irs` takes and created through `entity.create`, so what the request leaves out comes from the same defaults as on the command line), `start ticking` and `stop ticking`. It passes on only stated terms, stops at a refusal and asks for what it names; the answer is joined to the refused request unless it asks for that thing afresh, so "pay fixed and start ticking" completes the swap, in the workspace the first turn made, and ticks it.
-- **Copilot runtime** (`Agent:Runtime=copilot`, C44, C46): `CopilotAgentRuntime` posts each turn to the **agent host** (`Workbench.AgentHost`, a process of its own on `127.0.0.1:5395`, behind a shared key) and reads its answer as JSON lines (words, a tool call, the end, a failure); each call is invoked by the loop for the user and its result posted back, and cancelling a run aborts the host's turn. The host runs `GitHub.Copilot.SDK` 1.0.27 (CLI 1.0.104) in its empty mode: no built-in tool, only the workbench's tools, every other permission rejected, one session per thread. Its token comes from its own environment or a file; the workbench is started without it. `tools/run-with-copilot.sh` starts both, optionally with the host as another OS user; `docs/running-with-copilot.md` says how, and how to reach it over Tailscale.
+- **Copilot runtime** (`Agent:Runtime=copilot`, C44, C46): `CopilotAgentRuntime` posts each turn to the **agent host** (`Qube.AgentHost`, a process of its own on `127.0.0.1:5395`, behind a shared key) and reads its answer as JSON lines (words, a tool call, the end, a failure); each call is invoked by the loop for the user and its result posted back, and cancelling a run aborts the host's turn. The host runs `GitHub.Copilot.SDK` 1.0.27 (CLI 1.0.104) in its empty mode: no built-in tool, only the workbench's tools, every other permission rejected, one session per thread. Its token comes from its own environment or a file; the workbench is started without it. `tools/run-with-copilot.sh` starts both, optionally with the host as another OS user; `docs/running-with-copilot.md` says how, and how to reach it over Tailscale.
 - **Client** (`client/src/ai/`): the AI pane on the right (a full-screen drawer below 768 px), one card per request with each tool call, its outcome and the reply, a runtime badge, and the chat input with its own `/` commands (`/new`, `/stop`, `/help`, `/close`; the command line's `/` stays out of the chat). `ai <request>` and `open ai pane` / `close ai pane` are commands, and the header has an AI button. The active panel's app gives the context (an open Rates workspace); a result's app effect opens the workspace a new line is in **behind** the active panel, with a Show button on the card, and refreshes what live start and stop changed. Nothing the AI does moves the keyboard.
 
 ### Verification performed
 
 | Suite | Result |
 |---|---|
-| `dotnet test server/Workbench.slnx` | 145 passed (7: commands through AG-UI, asking for missing terms and completing them, read again rather than run twice, client tools and history refused, an invented tool refused, cancel, an unknown runtime stops startup; 7 for Copilot with a fake model behind the real host: a model's call runs as the user's command, the conversation goes with each turn, an invented tool is refused back to the model, cancel aborts the model's turn, a model failure ends the run with its message, the host refuses a caller without the key and will not start without one, `copilot` without its settings stops startup) |
+| `dotnet test server/Qube.slnx` | 145 passed (7: commands through AG-UI, asking for missing terms and completing them, read again rather than run twice, client tools and history refused, an invented tool refused, cancel, an unknown runtime stops startup; 7 for Copilot with a fake model behind the real host: a model's call runs as the user's command, the conversation goes with each turn, an invented tool is refused back to the model, cancel aborts the model's turn, a model failure ends the run with its message, the host refuses a caller without the key and will not start without one, `copilot` without its settings stops startup) |
 | `tools/run-with-copilot.sh` in the container | The host and the workbench start; the SDK's runtime starts; a run with a made-up token ends in `RUN_ERROR` carrying the SDK's message ("No GitHub OAuth token or Copilot HMAC key provided"). No real model was reached. |
 | `npm test` (Vitest) | 42 passed (6 new: cards from events, a failed run, the request sent alone with its context, an effect applied once, busy refusals, chat commands) |
 | `npx playwright test` (Chromium, headless, Linux) | 13 passed; the three AI tests with `--repeat-each=3` (9 passed). Every event of a run is parsed with `@ag-ui/core`'s own schemas. |
@@ -252,8 +252,8 @@ The provider and the market are simulated. Real holiday calendars, the confirmed
 ### What runs
 
 - **Server logs** through Serilog (C49): the console, a daily CLEF file (`App_Data/logs`, 14 kept), and OTLP when `OTEL_EXPORTER_OTLP_ENDPOINT` is set. Each process says at startup where its telemetry goes. A request is logged only when it was refused (warning) or failed (error).
-- **Traces and metrics** through OpenTelemetry: ASP.NET Core, HttpClient and runtime instrumentation, and the kernel's `Workbench` source and meter (BCL types only): spans `run {workflow}`, `invoke {capability}`, `command {capability}`, `agent run`, `agent tool {name}`; metrics for Runs (by workflow, origin, status; duration), commands, agent runs and tool calls, and the browser's events. RunId, workspace, step, capability, origin, outcome and agent thread ride as tags and log properties. The agent host exports the same way, and the workbench's calls carry their trace context to it.
-- **The browser** sends a `traceparent` with every call and reports uncaught errors, unhandled rejections, render errors, failed or unanswered calls (5xx, network) and the notices it showed, in batches to `POST /api/telemetry/client`; the server logs them as `Workbench.Client` in the call's trace.
+- **Traces and metrics** through OpenTelemetry: ASP.NET Core, HttpClient and runtime instrumentation, and the kernel's `Qube` source and meter (BCL types only): spans `run {workflow}`, `invoke {capability}`, `command {capability}`, `agent run`, `agent tool {name}`; metrics for Runs (by workflow, origin, status; duration), commands, agent runs and tool calls, and the browser's events. RunId, workspace, step, capability, origin, outcome and agent thread ride as tags and log properties. The agent host exports the same way, and the workbench's calls carry their trace context to it.
+- **The browser** sends a `traceparent` with every call and reports uncaught errors, unhandled rejections, render errors, failed or unanswered calls (5xx, network) and the notices it showed, in batches to `POST /api/telemetry/client`; the server logs them as `Qube.Client` in the call's trace.
 - A Run that throws something other than a capability's refusal now ends `Failed` with `InternalError`, logged with its RunId; it used to stay `running`.
 - **Local stack**: `tools/observability/compose.yaml` runs `grafana/otel-lgtm` 0.36.0 on ports bound to localhost, with the provisioned *Qube* dashboard (`docs/running-with-observability.md`).
 - Versions: OpenTelemetry.Extensions.Hosting and Exporter.OpenTelemetryProtocol 1.19.1; Instrumentation.AspNetCore, .Http and .Runtime 1.19.0; Serilog.AspNetCore 10.0.0; Serilog.Sinks.OpenTelemetry 4.2.0; Microsoft.Extensions.Logging.Abstractions 10.0.0 in the kernel.
@@ -262,10 +262,10 @@ The provider and the market are simulated. Real holiday calendars, the confirmed
 
 | Command | Result |
 |---|---|
-| `dotnet test server/Workbench.slnx` | 148 passed (3 new: a page's events are taken and long texts cut, an oversized or unknown-level batch is refused, a Run whose capability throws ends `InternalError`) |
+| `dotnet test server/Qube.slnx` | 148 passed (3 new: a page's events are taken and long texts cut, an oversized or unknown-level batch is refused, a Run whose capability throws ends `InternalError`) |
 | `npm test` (Vitest) | 53 passed (new: trace context format, batching under one session, the first events kept with the dropped counted, a refused batch never throws; amounts; column widths; `show panel`) |
 | `npx playwright test` (Chromium, headless, macOS, against a host already running) | 15 passed (new: a column dragged wider keeps its width across tabs; Ctrl+N/P and `show panel`) |
-| The local stack, driven in a browser (2026-10-28, macOS, Docker Desktop 27.3.1) | An XVA price, a scripted AI request, a page error and a client event posted with a `traceparent` all reached Grafana: Loki held the logs with RunId and the client's properties, the client event in the trace it named; Prometheus held `workbench_*` and `http_server_*`; Tempo held the request → `run workflow.xva.price` → `invoke xva.price` trace. The agent host's logs reached Loki as `workbench-agent-host`. Every dashboard panel queried without error. |
+| The local stack, driven in a browser (2026-10-28, macOS, Docker Desktop 27.3.1) | An XVA price, a scripted AI request, a page error and a client event posted with a `traceparent` all reached Grafana: Loki held the logs with RunId and the client's properties, the client event in the trace it named; Prometheus held `qube_*` and `http_server_*`; Tempo held the request → `run workflow.xva.price` → `invoke xva.price` trace. The agent host's logs reached Loki as `qube-agent-host`. Every dashboard panel queried without error. |
 
 ### Known limits
 
@@ -296,7 +296,7 @@ judged twice (`fitted` in `lines.ts`, then `headerFitted`, which agree).
 
 | Suite | Result |
 |---|---|
-| `dotnet test server/Workbench.slnx` | 599 passed |
+| `dotnet test server/Qube.slnx` | 599 passed |
 | `npm run typecheck`, `npm test` (Vitest) | passed, 212 tests |
 | `npx playwright test` (Chromium headless shell 156.0.8078.4, macOS, a host of its own on port 5187) | 53 passed; the width, the CSA and the Ctrl+N tests with `--repeat-each=3` (9 passed) |
 
@@ -314,7 +314,7 @@ The local monitoring stack was not run again after the merge.
 - The header is three zones of 30px controls: title and Commands; Region and As of with their labels beside them; AI and theme, with icons from `@tabler/icons-react` 3.50.0. It is one row of 44px from 992px and two rows of 82px below; it no longer covers the top of a panel on a phone.
 - An invalid context field is marked in the header and explained above the panels (`ContextIssues`).
 - The focus ring follows `:focus-visible`.
-- Every grid is drawn by `@ex-grid/mantine` (`WorkbenchGrid`): the theme's colours in both schemes, Mantine's menus and filter panel, and the cells in the face ExGrid has widths for. The workbench takes the same face (Mantine's default system stack); the hand-written `--ex-` bridge is gone.
+- Every grid is drawn by `@ex-grid/mantine` (`QubeGrid`): the theme's colours in both schemes, Mantine's menus and filter panel, and the cells in the face ExGrid has widths for. The workbench takes the same face (Mantine's default system stack); the hand-written `--ex-` bridge is gone.
 
 ### Verification performed
 
@@ -351,7 +351,7 @@ The guidelines' §12: the Rates toolbar's rows on a phone, the Action Column's b
 
 ### What runs
 
-- **A portfolio domain module** (`Workbench.Samples.Portfolio`) holds what XVA, SIMM and SA-CCR will share: the context,
+- **A portfolio domain module** (`Qube.Samples.Portfolio`) holds what XVA, SIMM and SA-CCR will share: the context,
   netting set, CSAs with their terms, trades with B and A, Original, and the **measures register** (§10). XVA registers
   CVA (with CVA Charge and PV) and FVA (§11). The composition kernel gained nothing domain-specific.
 - **Measures**: `measures cva fva` (or the page's toggles) selects what Price prices; Price says what it will run
@@ -381,7 +381,7 @@ The guidelines' §12: the Rates toolbar's rows on a phone, the Action Column's b
 
 | Suite | Result |
 |---|---|
-| `dotnet test server/Workbench.slnx` | 210 passed |
+| `dotnet test server/Qube.slnx` | 210 passed |
 | `npm run typecheck`, `npx vitest run` | passed, 83 tests |
 | `npx playwright test` (Chromium, headless, Linux) | 26 passed; the three `xva.spec.ts` tests the review changed with `--repeat-each=3` (9 passed) |
 | Screenshots at 1440, 992, 768 and 390px, dark and light, before the review's fixes; at 1440 in the dark theme after them | no sideways scroll; at 1440 × 900 no page scroll; looked at by hand |
@@ -422,7 +422,7 @@ provider is wired.
   and notReturned, reconciliation of every term against its children, and a set of traces per (case, scenario, side,
   measure) as the `calculation-traces` contract.
 - SA-CCR in full (CRE52 as of 2023-01-01) and SA's risk weight resolved at run time from the counterparty (CRE20,
-  CRE21), in `Workbench.Samples.Ccr`, writing a trace to trade level in which every term reconciles.
+  CRE21), in `Qube.Samples.Ccr`, writing a trace to trade level in which every term reconciles.
 - `ccr.spotCapital` registers into the pricer page: membership (a trade SA-CCR can decompose), its part of the
   request (the counterparty's reference data, the CSAs' margining, the collateral, the FX and the settings, read from
   the synthetic sources), an SA-CCR class column on new trades, and validation that refuses it by name while CVA and FVA stand. KVA registers as XVA's
@@ -436,7 +436,7 @@ provider is wired.
   formulas. `trace.read` (effect `ReadRun`, a command, ADR-0005's note of 2026-11-08) answers the same for the AI.
   Only the Run's owner reads it.
 - The trace view (ADR-0011 §6, ticket 07) opens from a traced figure of the result dock, and by `explain <measure>
-  [path]` on the XVA page or on a trace. On desktop the tree of terms is a `WorkbenchGrid` with a pinned Template
+  [path]` on the XVA page or on a trace. On desktop the tree of terms is a `QubeGrid` with a pinned Template
   Column (indent and open/close), its Before, After, Diff, unit, state, governed and citation columns, beside the
   selected term's formula typeset by KaTeX 0.19.1 (pinned exactly, strict, trust for `\htmlData` alone, fonts bundled
   by Vite): the symbols, then each priced side's values, then the Diff, each operand selecting its term. A decision
@@ -457,7 +457,7 @@ provider is wired.
 
 | Suite | Result |
 |---|---|
-| `dotnet test server/Workbench.slnx` | 378 passed (five runs in a row after the XVA branch's retry fix, XV13), among them the BCBS SA-CCR worked examples, a case per rule, the KVA option and the trace read over HTTP |
+| `dotnet test server/Qube.slnx` | 378 passed (five runs in a row after the XVA branch's retry fix, XV13), among them the BCBS SA-CCR worked examples, a case per rule, the KVA option and the trace read over HTTP |
 | `npm run typecheck`, `npm test` (Vitest) | Clean; 119 passed, among them the formula's typesetting (strict, untrusted commands refused), the tree's rows and `explain` |
 | `npx playwright test` (Chromium, headless, Linux) | 29 passed; `trace.spec.ts` with `--repeat-each=10` (30 passed), and again with `--repeat-each=5` after the review fixes (15 passed): both sides by pointer, keyboard and `explain`, After alone, and 390px drill-in with 4.5:1 text in both themes |
 | Screenshot of a Price with every measure selected, 1600px, dark | Spot capital, RWA, EAD and KVA in the dock, Trades 5 → 8; looked at by hand |
@@ -486,7 +486,7 @@ Spec: [docs/specs/spot-simm/spec.md](docs/specs/spot-simm/spec.md). Decisions: A
 
 ### What runs
 
-- **Reference engine** (`Workbench.Samples.Simm`, `SimmEngine`): the ISDA SIMM v2.x aggregation for IR delta (the 12 tenors, sub-curves, cross-currency basis, concentration, `S_b` bounded by `±K_b`, `γ g_bc` across currencies) and FX delta (each currency's own CR, and `f_kl` between them), through the risk class and the Rates/FX product class to each regime, then the largest regime per direction. A regime is computed when the IM CSA serves it and a line it holds names it; a direction with none has no IM, not an IM of 0. Euler allocation down to the CRIF line, with each concentration factor held, so contributions add up exactly at every term and per trade. A currency the table places in no volatility group, or a tenor it lacks, is refused by line.
+- **Reference engine** (`Qube.Samples.Simm`, `SimmEngine`): the ISDA SIMM v2.x aggregation for IR delta (the 12 tenors, sub-curves, cross-currency basis, concentration, `S_b` bounded by `±K_b`, `γ g_bc` across currencies) and FX delta (each currency's own CR, and `f_kl` between them), through the risk class and the Rates/FX product class to each regime, then the largest regime per direction. A regime is computed when the IM CSA serves it and a line it holds names it; a direction with none has no IM, not an IM of 0. Euler allocation down to the CRIF line, with each concentration factor held, so contributions add up exactly at every term and per trade. A currency the table places in no volatility group, or a tenor it lacks, is refused by line.
 - **Parameters**: one table, `DEMO-2.x`, made up and labelled DEMO: risk weights, the tenor correlation matrix, the other correlations and the concentration thresholds. ISDA's calibration is not in the repository.
 - **IM source** (`IImSource`, a port): `SyntheticImSource` holds one synthetic counterparty `ABC/LE-01` with IM CSAs `IMR-ABC-01` (collect: JFSA, CFTC) and `IMP-ABC-01` (post: JFSA, EMIR), two JPY IRS, a USD IRS, a USD/JPY CCS and a USD/JPY FX forward (exempt), all starting at spot on the value date. A company source replaces it in `Program.cs` and nowhere else.
 - **CRIF** (`CrifGenerator`): from the Rates pricing provider at the value date. Pillar deltas are split onto SIMM's tenors linearly in years; only an overnight index maps to the OIS sub-curve, and any other curve is refused by name until a mapping is configured; FX delta is the USD value's change for a 1% stronger currency, with a cross-currency swap's principal exchanges left out (exempt under the BCBS-IOSCO framework, ADR-0012 §5); cross-currency basis is the change for 1bp more spread on the non-USD floating leg. Exempt trades, provider failures, rows the provider did not return and missing FX rates are excluded with their reason. The CRIF's header names its registration and value date.
@@ -497,7 +497,7 @@ Spec: [docs/specs/spot-simm/spec.md](docs/specs/spot-simm/spec.md). Decisions: A
 
 | Suite | Result |
 |---|---|
-| `dotnet test server/Workbench.slnx` | 418 passed, after merging the CCR branch at 7d0bf02 (SIMM: 24 engine, 8 sample cases, 10 CRIF, 7 over HTTP, 5 trace; and the kernel's new `children` case) |
+| `dotnet test server/Qube.slnx` | 418 passed, after merging the CCR branch at 7d0bf02 (SIMM: 24 engine, 8 sample cases, 10 CRIF, 7 over HTTP, 5 trace; and the kernel's new `children` case) |
 | Client | Not touched, not run |
 
 | Acceptance (spec "Done when") | Status |
@@ -570,7 +570,7 @@ Spec: [docs/specs/spot-simm-page/spec.md](docs/specs/spot-simm-page/spec.md), ti
 
 | Suite | Result |
 |---|---|
-| `dotnet test server/Workbench.slnx` | 448 passed: 13 spot IM cases in process (`SimmPricerTests`), 1 over HTTP (`SimmPricerApiTests`), the executor's half-failing workflow, and the registration counts updated |
+| `dotnet test server/Qube.slnx` | 448 passed: 13 spot IM cases in process (`SimmPricerTests`), 1 over HTTP (`SimmPricerApiTests`), the executor's half-failing workflow, and the registration counts updated |
 | `npm run typecheck`, `npm test` (Vitest) | Clean; 127 passed, among them Metrics' notes, basis, term and reasons, and the scope text |
 | `npx playwright test` (Chromium, headless, Linux) | 32 passed; `simm.spec.ts` with `--repeat-each=3` (9 passed): columns and IM tab while selected and gone once deselected, a wrong IM-R refused by name, Metrics with regime and DEMO, the trace at `collect` and `post`, After alone, a counterparty with no IM CSA not priced with why, 4.5:1 text in both themes at 1440, 992, 768 and 390px with no sideways scroll |
 | Screenshots at 1440, 992, 768 and 390px, dark and light | IM tab, both grids' IM columns, the dock with regimes and the DEMO badge; looked at by hand |
@@ -634,7 +634,7 @@ and §10, ADR-0011 §5 and §6, ADR-0012 §7 and ADR-0013 §6.
 
 | Suite | Result |
 |---|---|
-| `dotnet test server/Workbench.slnx` | 458 passed: the entities of a synthetic orchard trace (sums, Diff, order, one side, refusals, no Diff where a side does not add up or is not returned), the rows at every depth below a term, `governs` by position and by slot, SIMM's regimes and labels, the conversion said on each row, the registered tabs over HTTP, and spot IM's trades over HTTP adding up to the regime on both sides and to their own CRIF lines at a risk factor |
+| `dotnet test server/Qube.slnx` | 458 passed: the entities of a synthetic orchard trace (sums, Diff, order, one side, refusals, no Diff where a side does not add up or is not returned), the rows at every depth below a term, `governs` by position and by slot, SIMM's regimes and labels, the conversion said on each row, the registered tabs over HTTP, and spot IM's trades over HTTP adding up to the regime on both sides and to their own CRIF lines at a risk factor |
 | `npm run typecheck`, `npm test` (Vitest) | Clean; 148 passed, among them the dock's tabs (selected and priced), an unpriced tab's reason and the conversion, the cards from the children's `governs`, the views below a term, the entity words, the governs mark, the allocation cells, the parameters split, the `explain` line and how `explain` names a measure |
 | `npx playwright test` (Chromium, headless, Linux) | 33 passed; the two changed `simm.spec.ts` tests with `--repeat-each=3` (6 passed): the SIMM tab from a Metrics cell and by command, the FX said once, the cards switching roots, the governing and not-governing regimes, a regime's trades adding up and its CRIF lines at every depth, the copied `explain` line, a risk factor reached by the keyboard with each trade's CRIF lines listed, the `trace` commands, restore, After alone in the cards and at a factor, `explain simm …`, a counterparty with no IM CSA, the regimes' marks in the phone's list, and 4.5:1 text with no sideways scroll at 1440, 992, 768 and 390px in both themes |
 | Screenshots at 1440 and 390px, dark | The SIMM tab with the FX caption, a regime's CRIF lines, a bucket with its trades and every parameter unfolded, and the phone's list of regimes; looked at by hand, no console message. A 7×7 ρ matrix scrolled the page sideways at 1440 until it was boxed, found by the browser test |
@@ -687,7 +687,7 @@ As step 2: the CRIF comes from the fake Rates provider, the SIMM parameters are 
 
 | Suite | Result |
 |---|---|
-| `dotnet test server/Workbench.slnx` | 504 passed: cases against the value typed into the workspace for XVA, spot IM and spot CCR capital, layering and its precedence, the frozen input, the cap, the Changes list, `add trades` against each trade priced alone, `set`, the commands over HTTP and as agent tools, and the review's cases |
+| `dotnet test server/Qube.slnx` | 504 passed: cases against the value typed into the workspace for XVA, spot IM and spot CCR capital, layering and its precedence, the frozen input, the cap, the Changes list, `add trades` against each trade priced alone, `set`, the commands over HTTP and as agent tools, and the review's cases |
 | `npm run typecheck`, `npx vitest run` | Clean; 160 passed |
 | `npx playwright test` (Chromium, headless, Linux) | 39 passed before the review's fixes; the tests each ticket added with `--repeat-each=3`: `vary`, the Changes tab, *Vary values…* by keyboard, `add trades`, `set`, and the SIMM tab's case selector |
 
@@ -728,7 +728,7 @@ As step 1: every figure is simulated and says so.
   -10%, 0, +10%` make a set at once, named from their shifts, the zero left out; the command line says how many before
   Enter and the pairs against the cap, and refuses what the server would.
 - **Saved sets**: `scenario save <set> [desk|all]` and `scenario load <set>` over the kernel's generic saved-item store
-  (C32), in memory and in SQLite beside the workspaces; a user's desk is `Workbench:Desks`. A name two visible sets share
+  (C32), in memory and in SQLite beside the workspaces; a user's desk is `Qube:Desks`. A name two visible sets share
   is refused naming their owners, and `<set>@<owner>` picks one. `scenario load` completes from the sets the user sees.
 - **The AI**: the ten scenario commands are command capabilities (define, include, exclude, remove, duplicate, clear,
   ladder, cross, save, load), logged with origin `ai`; saving carries the new effect `SaveItem`.
@@ -739,7 +739,7 @@ As step 1: every figure is simulated and says so.
 
 | Suite | Result |
 |---|---|
-| `dotnet test server/Workbench.slnx` | 572 passed: the reader and its refusals, each provider under a shift against the base market, the cross of cases and scenarios and the cap, traces and Copy quote per scenario, the grid's batches, include/duplicate/remove/clear, the generators, saved sets' visibility and SQLite across a restart, and the ten commands as agent tools |
+| `dotnet test server/Qube.slnx` | 572 passed: the reader and its refusals, each provider under a shift against the base market, the cross of cases and scenarios and the cap, traces and Copy quote per scenario, the grid's batches, include/duplicate/remove/clear, the generators, saved sets' visibility and SQLite across a restart, and the ten commands as agent tools |
 | `npm run typecheck`, `npx vitest run` | Clean; 181 passed |
 | `npx playwright test` (Chromium, headless, Linux) | 45 passed after the review's fixes; each test the step added or changed with `--repeat-each=3`: the scenario command and selector, the paste and the list by keyboard, the phone layout with the selector, the cross preview, save and load, and the SIMM tab under a scenario |
 
@@ -795,7 +795,7 @@ As before: every figure is simulated and says so. The shifted market is one synt
 
 | Suite | Result |
 |---|---|
-| `dotnet test server/Workbench.slnx` | 596 passed: the catalogue and `cds`, a spread edit kept on its curve, CVA reading the curve and refused without one, Credit shifts and their refusals, a Credit shift CVA cannot take refusing CVA alone, the settings' forms, bounds, freezing and effect on each figure, the deltas and their reasons, the exposure profile with and without collateral and MPOR, and KVA as the cost of the capital profile's rows |
+| `dotnet test server/Qube.slnx` | 596 passed: the catalogue and `cds`, a spread edit kept on its curve, CVA reading the curve and refused without one, Credit shifts and their refusals, a Credit shift CVA cannot take refusing CVA alone, the settings' forms, bounds, freezing and effect on each figure, the deltas and their reasons, the exposure profile with and without collateral and MPOR, and KVA as the cost of the capital profile's rows |
 | `npm run typecheck`, `npx vitest run` | Clean; 197 passed |
 | `npx playwright test` (Chromium, headless, Linux) | 50 passed; the five tests of `e2e/credit.spec.ts` with `--repeat-each=3`: the Credit tab by its own controls and by `cds`, a refused spread at the cell, the Settings tab and `set`, a refused setting sent once, the Risks tab before and after risks are included, the Profile table and chart with a series toggled from the legend, and the phone (390px) with no sideways scroll |
 
@@ -858,6 +858,43 @@ so a collateralised trade's exposure is what moves over its margin period, and e
   colour is a design choice of the owner's.
 - ExGrid's Mantine Wrapper still draws a disabled column-menu item as a grey block (ex-grid#552) and the Action
   Column's buttons in the browser's colours (ex-grid#553).
+
+## The name Qube and its identifiers (C50, 2026-11-10)
+
+### What runs
+
+- The product's displayed name is Qube: the header reads `QUBE` and the browser's title `Qube` (read in Chromium at
+  1440 × 900 with an XVA workspace open: every class on the page is `qube-*`, and the console is clean).
+- Every identifier follows it. Projects, namespaces and assemblies are `Qube.*` (`server/Qube.slnx`), configuration
+  keys `Qube:*`, environment variables `QUBE_*`, the kernel's source and meter `Qube` with instruments and tags
+  `qube.*`, the services `qube` and `qube-agent-host`, CSS classes and variables `qube-*`, the handoff's contract ids
+  and schema ids `qube.*`, and the names of local state `qube` (database file, agent host's folder, Keychain item,
+  compose project, dashboard). Prose still says "the workbench" for the kind of thing the product is.
+- An earlier name is not passed over in silence where data or a credential hangs on it (`LocalState`, README "Coming
+  from before the rename"): the host refuses to start on `Workbench:*` keys, or beside an `App_Data/workbench.db` with
+  no `qube.db`; `tools/run-with-copilot.sh` reads the earlier Keychain item while the new one is absent, and says so.
+- Nothing stored is rewritten. A Run kept from before still carries the contract ids and producer names it was
+  written with (`qwb.mapped-outcomes`, `workbench-simm-reference`); nothing matches on them.
+
+### Verification performed
+
+| What | Result |
+|---|---|
+| `dotnet build server/Qube.slnx` | 0 warnings, 0 errors |
+| `dotnet test server/Qube.slnx` | 604 passed, 4 of them `LocalStateTests` |
+| Client: `npm run typecheck`, `npm test`, `npm run build` | 228 passed in 30 files |
+| `npx playwright test` (Chromium, headless, Linux) | 54 passed |
+| The built host started beside an `App_Data/workbench.db` alone, then with `Workbench__Database` set | Refused each time, naming the file or the key and what to do |
+| `tools/run-with-copilot.sh` with a stand-in for `security`, in the container | Only the earlier item: both hosts start and the script says which item it read. Both items: the new one is read, nothing is said. Neither: refused, naming `qube-copilot` |
+| `python3 tools/validate_handoff.py` | Passes |
+
+### Known limits
+
+- Not run: the observability stack. The dashboard's queries and the compose project were renamed with the
+  instruments they read and the file parses as JSON, but no Grafana was started here.
+- Not run: the macOS Keychain itself. The script's choice between the two items was exercised with a stand-in.
+- `WORKBENCH_PORT`, `WORKBENCH_DB` and `WORKBENCH_API` are ignored without a word if still set; only the host's own
+  keys are checked.
 
 ## Next
 

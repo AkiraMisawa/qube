@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <ItemGroup>
+    <ProjectReference Include="..\Qube.Composition.Application\Qube.Composition.Application.csproj" />
+    <ProjectReference Include="..\Qube.Samples.Synthetic\Qube.Samples.Synthetic.csproj" />
+    <ProjectReference Include="..\Qube.Samples.Portfolio\Qube.Samples.Portfolio.csproj" />
+    <ProjectReference Include="..\Qube.Samples.Ccr\Qube.Samples.Ccr.csproj" />
+    <ProjectReference Include="..\Qube.Samples.Xva\Qube.Samples.Xva.csproj" />
+    <ProjectReference Include="..\Qube.Samples.Rates\Qube.Samples.Rates.csproj" />
+    <ProjectReference Include="..\Qube.Samples.Simm\Qube.Samples.Simm.csproj" />
+    <ProjectReference Include="..\Qube.Agent\Qube.Agent.csproj" />
+    <ProjectReference Include="..\Qube.Persistence.Sqlite\Qube.Persistence.Sqlite.csproj" />
+  </ItemGroup>
+
+  <!-- Observability (ADR-0014): logs through Serilog, traces and metrics through OpenTelemetry, both out over OTLP. -->
+  <ItemGroup>
+    <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.19.1" />
+    <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.19.1" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.19.0" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.Http" Version="1.19.0" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.Runtime" Version="1.19.0" />
+    <PackageReference Include="Serilog.AspNetCore" Version="10.0.0" />
+    <PackageReference Include="Serilog.Sinks.OpenTelemetry" Version="4.2.0" />
+  </ItemGroup>
+
+</Project>

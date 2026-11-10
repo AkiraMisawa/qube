@@ -3,7 +3,7 @@ import './xva.css';
 import { Alert, Badge, Button, Group, Modal, SegmentedControl, Select, Stack, Table, Text, TextInput, useMantineTheme } from '@mantine/core';
 import { GridSource, type CellState, type GridColumn, type GridContextMenuContext, type GridEditIntent } from '@ex-grid/core';
 import type { ExGridApi } from '@ex-grid/react';
-import { WorkbenchGrid } from '../../platform/grid/WorkbenchGrid';
+import { QubeGrid } from '../../platform/grid/QubeGrid';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiError } from '../../platform/api';
 import { useColumnWidths } from '../../platform/grid/columnWidths';
@@ -762,33 +762,33 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   const taken = TAKEN + (inputsOpen ? inputsHeight + RESIZER : 0) + newHeight
     + (pricedRun === undefined ? 24 : dockOpen ? dockHeight + RESIZER + 32 : 48);
   return (
-    <Stack gap="sm" className="qwb-xva" data-section={section} data-dock={full ? 'full' : 'part'} style={{ ['--qwb-xva-taken' as string]: `${taken}px` }}>
+    <Stack gap="sm" className="qube-xva" data-section={section} data-dock={full ? 'full' : 'part'} style={{ ['--qube-xva-taken' as string]: `${taken}px` }}>
       {/* The context bar (ADR-0010 §1; docs/design-guidelines.md §3, §4): one 30px Control Height, each label beside its input. */}
-      <div className="qwb-toolbar" role="toolbar" aria-label="Workspace">
+      <div className="qube-toolbar" role="toolbar" aria-label="Workspace">
         <ValueDate value={ws.context.valueDate} disabled={!notBusy}
           onCommit={(date) => void reacquire('Value date moved', (revision) => api.changeValueDate(workspaceId, revision, date))} />
         <ToolbarField label="Counterparty" wide>
           {(id) => (
-            <Select id={id} size="xs" className="qwb-toolbar-input qwb-toolbar-input--wide" allowDeselect={false} searchable value={ws.registration.key}
+            <Select id={id} size="xs" className="qube-toolbar-input qube-toolbar-input--wide" allowDeselect={false} searchable value={ws.registration.key}
               data={(registrations.data ?? [ws.registration]).map((r) => ({ value: r.key, label: `${r.code} | ${r.legalEntity} | ${r.name}` }))}
               onChange={(value) => void chooseCounterparty(value)} disabled={!notBusy} comboboxProps={{ withinPortal: true }} />
           )}
         </ToolbarField>
-        <div className="qwb-toolbar-field" data-testid="netting-set">
-          <Text size="xs" c="dimmed" className="qwb-toolbar-label">Netting set</Text>
+        <div className="qube-toolbar-field" data-testid="netting-set">
+          <Text size="xs" c="dimmed" className="qube-toolbar-label">Netting set</Text>
           <Badge variant="light" color={ws.agreement.enforceable ? 'gray' : 'yellow'} size="lg" radius="sm"
             title={`${ws.agreement.maId}, the main netting set, is ${enforceable} (the source's).`}>{ws.agreement.nettingSetId} · {enforceable}</Badge>
         </div>
         <ToolbarField label="Currency">
           {(id) => (
-            <Select id={id} size="xs" className="qwb-toolbar-input qwb-toolbar-input--currency" allowDeselect={false} value={ws.displayCurrency}
+            <Select id={id} size="xs" className="qube-toolbar-input qube-toolbar-input--currency" allowDeselect={false} value={ws.displayCurrency}
               data={ws.currencies} onChange={(value) => { if (value !== null) setCurrency(value); }} disabled={!notBusy} comboboxProps={{ withinPortal: true }} />
           )}
         </ToolbarField>
         <Button size="xs" variant="default" onClick={() => void refresh()} loading={busy === 'Refreshed'} disabled={!notBusy && busy !== 'Refreshed'}
           title="Acquire the trades again for this value date; your edits carry or are held.">Refresh</Button>
-        <div className="qwb-toolbar-field qwb-toolbar-field--measures" role="group" aria-label="Measures">
-          <Text size="xs" c="dimmed" className="qwb-toolbar-label" aria-hidden>Measures</Text>
+        <div className="qube-toolbar-field qube-toolbar-field--measures" role="group" aria-label="Measures">
+          <Text size="xs" c="dimmed" className="qube-toolbar-label" aria-hidden>Measures</Text>
           {ws.measures.map((m) => {
             const on = ws.selectedMeasures.includes(m.id);
             return (
@@ -802,7 +802,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
           {...(blocking > 0 ? { title: `${blocking} held edit(s) on priced trades must be resolved first.` } : {})}>{priceLabel(ws.measures, ws.selectedMeasures, ws.cases.length, { before: ws.inBefore > 0, after: ws.inAfter > 0 }, 1 + ws.scenarios.filter((x) => x.included).length)}</Button>
       </div>
       {/* The status line: what the figures stand on, and SIMULATED while a provider is. */}
-      <Group gap="xs" wrap="wrap" className="qwb-xva-status">
+      <Group gap="xs" wrap="wrap" className="qube-xva-status">
         <Text size="xs" data-testid="workspace-summary">{ws.trades} trades · {ws.overrides} edit(s) · revision {ws.revision} · {ws.sourceVersion}</Text>
         <Text size="xs">{ws.agreement.maId} · {ws.agreement.collateralised ? `main CSA ${ws.agreement.mainCsaId}` : ws.agreement.noCsa}</Text>
         {ws.simulated.length > 0 && (
@@ -812,7 +812,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
       {/* Below `sm` the screen is three tabs (ADR-0010 §1), with the context bar above them. */}
       <SegmentedControl hiddenFrom="sm" size="xs" fullWidth aria-label="Part of the page" value={section} onChange={(v) => setSection(v as Section)}
         data={[{ value: 'inputs', label: 'Inputs' }, { value: 'trades', label: 'Trades' }, { value: 'results', label: 'Results' }]} />
-      <div data-part="inputs" className="qwb-xva-part">
+      <div data-part="inputs" className="qube-xva-part">
         <XvaInputs panelId={panelId} ws={ws} onIssue={setIssue} push={(entity, field, value) => void queue.push({ entity, field, value })} setText={setText}
           catalogue={catalogue.isError ? { refused: describe(catalogue.error) } : catalogue.data}
           tab={inputTab} onTab={(tab) => { setInputTab(tab); setInputsOpen(true); }} open={inputsOpen} onOpen={setInputsOpen} height={inputsHeight} focusRequest={focusRequest}
@@ -821,20 +821,20 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
         {inputsOpen && <Resizer label="Height of the input tabs" value={inputsHeight} min={48} max={640} grows="down" onChange={setInputsDragged} />}
       </div>
       {issue !== undefined && <Text size="xs" c="red" role="alert" data-testid="field-issue">{issue}</Text>}
-      <div data-part="trades" className="qwb-xva-part">
+      <div data-part="trades" className="qube-xva-part">
         <HeldEdits conflicts={ws.conflicts} lost={ws.lost} resolve={(edit, resolution) => void queue.push({ entity: edit.entity, field: edit.field, resolution, case: edit.case ?? undefined })} />
         {failure !== undefined && <Alert color="red" variant="light" withCloseButton onClose={() => setFailure(undefined)} title="The trades could not be read">{failure}</Alert>}
         {/* New trades above Existing (ADR-0010 §6): New as high as its rows, about eight at most; Existing takes the rest. */}
-        <div className="qwb-xva-grids">
+        <div className="qube-xva-grids">
           <TradeCaption title="New trades" count={ws.newTrades} grid="new" setSide={setSide} disabled={!notBusy} />
           <div aria-label="New trades" onFocusCapture={() => { lastGrid.current = 'new'; }}>
-            <WorkbenchGrid<Row> ref={newGrid} columns={newWidths.columns} onColumnWidthChanged={newWidths.onColumnWidthChanged} source={sources.new} onEdit={onEdit} cellState={cellState} cellMessage={cellMessage}
+            <QubeGrid<Row> ref={newGrid} columns={newWidths.columns} onColumnWidthChanged={newWidths.onColumnWidthChanged} source={sources.new} onEdit={onEdit} cellState={cellState} cellMessage={cellMessage}
               contextCommands={newCommands} commandLabel={commandLabel}
               density="compact" viewportWidth="stretch" viewportHeight={newHeight} pinnedColumnCount={1} locale="en-US" />
           </div>
           <TradeCaption title="Existing trades" count={ws.trades - ws.newTrades} grid="existing" setSide={setSide} disabled={!notBusy} />
           <div aria-label="Existing trades" onFocusCapture={() => { lastGrid.current = 'existing'; }}>
-            <WorkbenchGrid<Row> className="qwb-xva-trades" columns={existingWidths.columns} onColumnWidthChanged={existingWidths.onColumnWidthChanged}
+            <QubeGrid<Row> className="qube-xva-trades" columns={existingWidths.columns} onColumnWidthChanged={existingWidths.onColumnWidthChanged}
               source={sources.existing} onEdit={onEdit} cellState={cellState} cellMessage={cellMessage}
               contextCommands={existingCommands} commandLabel={commandLabel}
               density="compact" viewportWidth="stretch" viewportHeight="stretch" pinnedColumnCount={1} locale="en-US" />
@@ -842,7 +842,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
         </div>
       </div>
       {/* The result dock (ADR-0010 §7) at the bottom, in view while the trades scroll: one line a case collapsed. */}
-      <div data-part="results" className="qwb-xva-part qwb-xva-dock">
+      <div data-part="results" className="qube-xva-part qube-xva-dock">
         {pricedRun === undefined
           ? <Text size="sm" data-testid="xva-result-none">Nothing is priced yet. Price shows its figures here.</Text>
           : (
@@ -907,7 +907,7 @@ function TradeCaption({ title, count, grid, setSide, disabled }: {
 }) {
   const one = grid === 'new' ? 'new trade' : 'existing trade';
   return (
-    <Group gap="xs" wrap="wrap" className="qwb-grid-caption">
+    <Group gap="xs" wrap="wrap" className="qube-grid-caption">
       <Text size="sm" fw={600}>{title}</Text>
       <Text size="xs">{count}</Text>
       <Group gap="xs" ml="auto" role="group" aria-label={`Before and After for every ${one}`}>
@@ -928,7 +928,7 @@ function ValueDate({ value, disabled, onCommit }: { readonly value: string; read
   return (
     <ToolbarField label="Value date">
       {(id) => (
-        <TextInput id={id} type="date" size="xs" className="qwb-toolbar-input qwb-toolbar-input--date" value={draft} disabled={disabled}
+        <TextInput id={id} type="date" size="xs" className="qube-toolbar-input qube-toolbar-input--date" value={draft} disabled={disabled}
           onChange={(e) => setDraft(e.currentTarget.value)} onBlur={commit} onKeyDown={(e) => { if (e.key === 'Enter') commit(); }} />
       )}
     </ToolbarField>

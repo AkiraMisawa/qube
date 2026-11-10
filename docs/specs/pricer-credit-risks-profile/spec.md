@@ -115,7 +115,7 @@ The seams are the four of steps 1, 2 and 4 (DEFAULT, per the owner's standing pr
 
 1. **The portfolio workspace service with the registered measures** (xUnit, prior art `PricerCaseTests`,
    `PricerScenarioTests`).
-2. **The HTTP API through the in-process host** (xUnit with `WorkbenchFactory`, prior art `PricerApiTests`,
+2. **The HTTP API through the in-process host** (xUnit with `QubeFactory`, prior art `PricerApiTests`,
    `PricerCommandTests`).
 3. **The client's pure functions** (Vitest, prior art `metrics.test.ts`, `dock.test.ts`): the risks and profile tables.
 4. **The page in a browser** (Playwright, prior art `xva.spec.ts`): a CDS chosen and a spread edited, a setting set,

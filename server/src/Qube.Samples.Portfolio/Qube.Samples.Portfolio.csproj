@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\Qube.Composition.Application\Qube.Composition.Application.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -3,7 +3,7 @@ import type { Catalog, ContractDefinition, ViewDefinition, WorkflowDefinition } 
 // Small synthetic definitions for unit tests. Shapes follow the wire contract; names are illustrative.
 
 export const contextContract: ContractDefinition = {
-  contractId: 'workbench.context',
+  contractId: 'qube.context',
   contractVersion: '1.0.0',
   title: 'Context',
   schema: {

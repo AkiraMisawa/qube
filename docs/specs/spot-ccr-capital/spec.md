@@ -10,7 +10,7 @@ weight), within ADR-0010's shared pricer page. This spec only orders the work; i
 - The kernel's calculation trace: contract, kinds and their registration check, the closed operation set and its
   evaluator, reconciliation, pairing of sides including a case priced on one side, reading by term (ADR-0011 §1–§5).
 - The SA risk weight, resolved at run time with every step as a term (ADR-0013 §5).
-- SA-CCR in full, as the reference implementation in `Workbench.Samples.Ccr`, writing its trace (ADR-0013 §3–§4).
+- SA-CCR in full, as the reference implementation in `Qube.Samples.Ccr`, writing its trace (ADR-0013 §3–§4).
 - The fake XVA provider's KVA option returning spot capital, its trace, a capital profile and KVA (ADR-0013 §2).
 - The read endpoint, `trace.read` and `explain` (ADR-0011 §5, §7).
 - The trace view in the client: the tree beside the typeset formula, drill-in on a phone, leaf rows (ADR-0011 §6).

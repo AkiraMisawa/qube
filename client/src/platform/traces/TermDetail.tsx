@@ -30,7 +30,7 @@ export function TermDetail({ header, page, kinds, operand, onSelect, above, onAb
   const steps = page.children.filter((c) => kinds.get(c.kind)?.valueType === 'text' || sides.some((s) => (c[s]?.because?.length ?? 0) > 0));
 
   return (
-    <Stack gap="xs" className="qwb-trace-detail" data-testid="trace-detail" aria-label={`${term.label}, its formula`}>
+    <Stack gap="xs" className="qube-trace-detail" data-testid="trace-detail" aria-label={`${term.label}, its formula`}>
       <Group gap="xs" wrap="wrap">
         <Text fw={600} size="sm" data-testid="trace-detail-label">{term.label}</Text>
         <Tex tex={symbolTex(term.symbol)} />
@@ -42,10 +42,10 @@ export function TermDetail({ header, page, kinds, operand, onSelect, above, onAb
         </Alert>
       )}
       {formula !== undefined && (
-        <div className="qwb-trace-formula" data-testid="trace-formula">
+        <div className="qube-trace-formula" data-testid="trace-formula">
           {formula.lines.map((line) => (
-            <div key={line.side} className="qwb-trace-formula-line" data-side={line.side}>
-              <Text size="xs" c="dimmed" className="qwb-trace-formula-title">{LINE_TITLE[line.side]}</Text>
+            <div key={line.side} className="qube-trace-formula-line" data-side={line.side}>
+              <Text size="xs" c="dimmed" className="qube-trace-formula-title">{LINE_TITLE[line.side]}</Text>
               <Tex tex={line.tex} display onOperand={(i) => { const o = formula.operands[i]; if (o !== undefined) onSelect(o.termId); }} />
             </div>
           ))}
@@ -120,7 +120,7 @@ function Decision({ side, value, both, header, unit }: {
 }) {
   const inputs = Object.entries(value.inputs ?? {});
   return (
-    <Stack gap={0} className="qwb-trace-decision" data-testid="trace-decision">
+    <Stack gap={0} className="qube-trace-decision" data-testid="trace-decision">
       <Text size="sm">{both ? `${SIDE_TITLE[side]}: ` : ''}<b>{valueText(value, unit)}</b>{value.citation ? ` (${value.citation})` : ''}</Text>
       {(value.because ?? []).map((b, i) => <Text key={i} size="xs">{b}</Text>)}
       {inputs.length > 0 && (
@@ -146,7 +146,7 @@ function Steps({ steps, header, onSelect }: { readonly steps: readonly TermRead[
   return (
     <Stack gap="xs" data-testid="trace-steps">
       <Text size="xs" fw={600}>Steps</Text>
-      <ol className="qwb-trace-steps">
+      <ol className="qube-trace-steps">
         {steps.map((step) => (
           <li key={step.id}>
             <Group gap="xs" wrap="wrap">
@@ -199,19 +199,19 @@ function Parameters({ kind, term, header, parameters, operand, above, onAbove }:
     const shown = same ? [bySide[0]!] : bySide;
     const source = bySide.find(([, p]) => p !== undefined)?.[1];
     return (
-      <div key={name} className="qwb-trace-param" data-testid="trace-parameter" data-name={name}>
+      <div key={name} className="qube-trace-param" data-testid="trace-parameter" data-name={name}>
         <Tex tex={parameterTex(name)} />
-        <div className="qwb-trace-param-values">
+        <div className="qube-trace-param-values">
           {shown.map(([side, p]) => (
             <div key={side}>
               {!same && <Text span size="xs" c="dimmed">{SIDE_TITLE[side]} </Text>}
               {p === undefined ? <Text span size="xs">not in scope</Text>
-                : p.matrix ? <div className="qwb-trace-matrix"><Tex tex={matrixTex(p, marked[side]?.[name])} display /></div>
-                  : <Text span size="xs" className="qwb-number-text">{p.value !== undefined && p.value !== null ? formatNumber(p.value, p.unit) : p.text ?? ''}</Text>}
+                : p.matrix ? <div className="qube-trace-matrix"><Tex tex={matrixTex(p, marked[side]?.[name])} display /></div>
+                  : <Text span size="xs" className="qube-number-text">{p.value !== undefined && p.value !== null ? formatNumber(p.value, p.unit) : p.text ?? ''}</Text>}
             </div>
           ))}
           {source !== undefined && (
-            <Text size="xs" c="dimmed" className="qwb-trace-param-source">
+            <Text size="xs" c="dimmed" className="qube-trace-param-source">
               {parameterSource(source)}{source.because?.length ? ` · ${source.because.join(' ')}` : ''}
             </Text>
           )}
@@ -225,7 +225,7 @@ function Parameters({ kind, term, header, parameters, operand, above, onAbove }:
       {own.map(draw)}
       {inherited.length > 0 && (
         <>
-          <Button size="compact-xs" variant="subtle" className="qwb-trace-param-toggle" aria-expanded={above} onClick={() => onAbove(!above)}
+          <Button size="compact-xs" variant="subtle" className="qube-trace-param-toggle" aria-expanded={above} onClick={() => onAbove(!above)}
             data-testid="trace-parameters-above">
             {above ? 'Hide' : 'Show'} the parameters of the terms above ({inherited.length})
           </Button>

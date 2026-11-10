@@ -3,7 +3,7 @@
   "schemaVersion": "1.0.0",
   "reference": {
     "dataId": "dataset-simm-demo-001",
-    "contractId": "qwb.simm-comparison-dataset",
+    "contractId": "qube.simm-comparison-dataset",
     "contractVersion": "1.0.0",
     "revision": "1"
   },
@@ -99,7 +99,7 @@
     }
   ],
   "metadata": {
-    "contractId": "qwb.simm-comparison-basis",
+    "contractId": "qube.simm-comparison-basis",
     "contractVersion": "1.0.0",
     "value": {
       "valueDate": "2026-10-23",

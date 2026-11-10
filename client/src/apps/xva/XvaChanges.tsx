@@ -26,8 +26,8 @@ export function XvaChanges({ list, actions, focusRef }: {
   if (list.count === 0 && list.cases.length === 0)
     return <Text size="sm" tabIndex={-1} ref={focusRef}>No change and no case: the workspace is its source. A value typed in, or vary, adds one here.</Text>;
   return (
-    <div className="qwb-xva-scroll" tabIndex={-1} ref={focusRef} aria-label="Changes">
-      <Table withTableBorder withColumnBorders verticalSpacing={4} horizontalSpacing="sm" fz="sm" aria-label="Changes" className="qwb-xva-changes">
+    <div className="qube-xva-scroll" tabIndex={-1} ref={focusRef} aria-label="Changes">
+      <Table withTableBorder withColumnBorders verticalSpacing={4} horizontalSpacing="sm" fz="sm" aria-label="Changes" className="qube-xva-changes">
         <Table.Thead>
           <Table.Tr>
             <Table.Th>Change</Table.Th><Table.Th>Value</Table.Th><Table.Th>Original</Table.Th><Table.Th aria-label="Actions" />
@@ -55,7 +55,7 @@ export function XvaChanges({ list, actions, focusRef }: {
 /** A section's row: Common, or a case with its kind, and what the section holds when it holds no change. */
 function Section({ title, kind, note, action }: { readonly title: string; readonly kind?: string; readonly note?: string | undefined; readonly action?: ReactNode }) {
   return (
-    <Table.Tr className="qwb-xva-changes-section">
+    <Table.Tr className="qube-xva-changes-section">
       <Table.Th scope="rowgroup" colSpan={3}>
         {title}{kind === undefined ? '' : <Text span size="xs" c="dimmed">{` · ${kind}`}</Text>}
         {note !== undefined && <Text span size="xs" c="dimmed">{` · ${note}`}</Text>}
@@ -87,7 +87,7 @@ function Change({ change, scope, actions, whole = false }: { readonly change: Ch
           ? <ChangeValue label={label} text={change.text} onCommit={(text) => actions.set(change, text)} />
           : <Text size="sm" span>{change.text}{change.state === 'set' ? '' : ` · ${HELD[change.state]}`}</Text>}
       </Table.Td>
-      <Table.Td className="qwb-number-text">{change.originalText}</Table.Td>
+      <Table.Td className="qube-number-text">{change.originalText}</Table.Td>
       <Table.Td>
         {/* A conflict is resolved where it is shown, by keeping it or taking the source; it is no plain removal. */}
         {change.state !== 'conflict' && !whole && (
@@ -104,7 +104,7 @@ function ChangeValue({ label, text, onCommit }: { readonly label: string; readon
   useEffect(() => setDraft(text), [text]);
   const commit = () => { if (draft.trim() !== text && draft.trim() !== '') onCommit(draft.trim()); };
   return (
-    <TextInput size="xs" aria-label={label} value={draft} className="qwb-xva-changes-value"
+    <TextInput size="xs" aria-label={label} value={draft} className="qube-xva-changes-value"
       onChange={(e) => setDraft(e.currentTarget.value)} onBlur={commit}
       onKeyDown={(e) => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') setDraft(text); }} />
   );

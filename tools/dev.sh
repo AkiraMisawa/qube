@@ -33,9 +33,9 @@ stop() {
 }
 trap stop INT TERM EXIT
 
-dotnet run --project server/src/Workbench.Web --urls "http://localhost:$port" &
+dotnet run --project server/src/Qube.Web --urls "http://localhost:$port" &
 pids+=($!)
-(cd client && WORKBENCH_API="http://localhost:$port" npm run dev) &
+(cd client && QUBE_API="http://localhost:$port" npm run dev) &
 pids+=($!)
 
 echo "dev: server on http://localhost:$port, client on http://localhost:5173 (open this one). Ctrl-C stops both."

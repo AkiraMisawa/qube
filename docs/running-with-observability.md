@@ -8,10 +8,10 @@ logs, traces and metrics over OTLP, and Grafana shows them together ([ADR-0014](
 | Where | What |
 |---|---|
 | Console | One line per event: `[time level] category: message trace-id` |
-| `server/src/Workbench.Web/App_Data/logs/workbench-YYYYMMDD.clef` | The workbench's log as compact JSON (CLEF), 14 days kept. `Workbench:LogDirectory` moves it. |
-| `~/Library/Application Support/quant-workbench/agent-host/logs/` (macOS) | The agent host's log, under the agent's own home. `AgentHost:LogDirectory` moves it. |
+| `server/src/Qube.Web/App_Data/logs/qube-YYYYMMDD.clef` | The workbench's log as compact JSON (CLEF), 14 days kept. `Qube:LogDirectory` moves it. |
+| `~/Library/Application Support/qube/agent-host/logs/` (macOS) | The agent host's log, under the agent's own home. `AgentHost:LogDirectory` moves it. |
 
-A CLEF file reads with `jq` (`jq -c 'select(."@l" == "Error")' workbench-*.clef`) or opens in Seq.
+A CLEF file reads with `jq` (`jq -c 'select(."@l" == "Error")' qube-*.clef`) or opens in Seq.
 
 ## With the local monitoring stack
 
@@ -25,7 +25,7 @@ Then start the workbench (and the agent host) with the collector's address:
 
 ```sh
 export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
-nix develop -c dotnet run --project server/src/Workbench.Web --urls http://localhost:5080
+nix develop -c dotnet run --project server/src/Qube.Web --urls http://localhost:5080
 # or, with the AI on Copilot: tools/run-with-copilot.sh --model <id>   (the host gets the same setting)
 ```
 
@@ -42,12 +42,12 @@ Grafana's *Explore* reads any of it directly. Useful queries:
 
 | Source | Query | Finds |
 |---|---|---|
-| Loki | `{service_name="workbench"} \| RunId="run-…"` | Every log line of one Run |
-| Loki | `{service_name="workbench"} \| scope_name="Workbench.Client"` | What the browser reported |
-| Loki | `{service_name=~"workbench.*"} \| severity_number >= 13` | Warnings and errors |
-| Tempo | `{ span.workbench.run.id = "run-…" }` | One Run's trace |
-| Tempo | `{ span.workbench.agent.thread.id = "…" }` | An AI conversation's runs and tool calls |
-| Prometheus | `workbench_runs_completed_total` | Runs finished, by workflow, origin and status |
+| Loki | `{service_name="qube"} \| RunId="run-…"` | Every log line of one Run |
+| Loki | `{service_name="qube"} \| scope_name="Qube.Client"` | What the browser reported |
+| Loki | `{service_name=~"qube.*"} \| severity_number >= 13` | Warnings and errors |
+| Tempo | `{ span.qube.run.id = "run-…" }` | One Run's trace |
+| Tempo | `{ span.qube.agent.thread.id = "…" }` | An AI conversation's runs and tool calls |
+| Prometheus | `qube_runs_completed_total` | Runs finished, by workflow, origin and status |
 
 A log line's details hold its `trace_id`; Grafana links it to the trace. A trace begun by the browser shows
 "root span not yet received": the page makes the trace context but sends no spans of its own.
