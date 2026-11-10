@@ -6,6 +6,8 @@ import type { ExGridApi } from '@ex-grid/react';
 import { WorkbenchGrid } from '../../platform/grid/WorkbenchGrid';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiError } from '../../platform/api';
+import { useColumnWidths } from '../../platform/grid/columnWidths';
+import { amountTone, formatAmount } from '../../platform/grid/amounts';
 import { useWorkspaceContext } from '../../platform/workspace/WorkspaceProvider';
 import { keyOf } from '../../platform/workspace/workspaceStore';
 import { registerGridFocus } from '../../shell/focus';
@@ -42,7 +44,8 @@ const XvaProfile = lazy(() => import('./XvaProfile').then((m) => ({ default: m.X
 
 export const XVA_RESULT_VIEW = 'view.xva.result';
 
-const amount = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 });
+/** A typed term, such as a notional, reads back as typed, grouped; a figure the page shows is an amount (C48). */
+const asTyped = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 });
 const rate = new Intl.NumberFormat('en-US', { minimumFractionDigits: 5, maximumFractionDigits: 5 });
 const text = (v: unknown) => String(v);
 
@@ -61,7 +64,7 @@ const leading: readonly GridColumn<Row>[] = [
   column('tradeId', 'Trade', 'text', 168),
   column('product', 'Product', 'text', 104),
   column('currency', 'Ccy', 'text', 76),
-  column('notional', 'Notional', 'number', 168, { editable: true, format: (v) => amount.format(v as number) }),
+  column('notional', 'Notional', 'number', 168, { editable: true, format: (v) => asTyped.format(v as number) }),
   column('maturity', 'Maturity', 'text', 112),
   column('fixedRate', 'Fixed rate', 'number', 112, { editable: true, format: (v) => rate.format(v as number) }),
   column('schedule', 'Schedule', 'text', 104, { editable: true }),
@@ -92,7 +95,7 @@ const existingTerms: readonly GridColumn<Row>[] = [
   ...leading,
   column('lastFixing', 'Last fixing', 'number', 116, { format: (v) => rate.format(v as number) }),
   // The books' PV, the source's and read-only (ADR-0010 §6): the PV an adjustment uses.
-  column('officialPv', 'Official PV', 'number', 152, { format: (v) => amount.format(v as number) }),
+  column('officialPv', 'Official PV', 'number', 152, { format: formatAmount, tone: amountTone }),
 ];
 
 export type TradeGrid = 'new' | 'existing';
@@ -261,6 +264,9 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   const newColumns = useMemo<readonly GridColumn<Row>[]>(() => [...leading, ...assignment, ...moduleColumns(registered.current), ...membership, ...derived], [columnsKey, assignment, membership]);
   const existingColumns = useMemo<readonly GridColumn<Row>[]>(() => [...existingTerms, ...assignment, ...membership, ...derived], [assignment, membership]);
   gridColumns.current = { new: newColumns, existing: existingColumns };
+  // Each grid's columns at the widths the user dragged them to, kept per panel while it is open.
+  const newWidths = useColumnWidths(panelId, 'trades/new', newColumns);
+  const existingWidths = useColumnWidths(panelId, 'trades/existing', existingColumns);
 
   // The layout (ADR-0010 §1): the input tabs open, or collapsed to their row, at a height the user drags; the dock the
   // same at the bottom; and below `sm` the part in view.
@@ -807,7 +813,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
       <SegmentedControl hiddenFrom="sm" size="xs" fullWidth aria-label="Part of the page" value={section} onChange={(v) => setSection(v as Section)}
         data={[{ value: 'inputs', label: 'Inputs' }, { value: 'trades', label: 'Trades' }, { value: 'results', label: 'Results' }]} />
       <div data-part="inputs" className="qwb-xva-part">
-        <XvaInputs ws={ws} onIssue={setIssue} push={(entity, field, value) => void queue.push({ entity, field, value })} setText={setText}
+        <XvaInputs panelId={panelId} ws={ws} onIssue={setIssue} push={(entity, field, value) => void queue.push({ entity, field, value })} setText={setText}
           catalogue={catalogue.isError ? { refused: describe(catalogue.error) } : catalogue.data}
           tab={inputTab} onTab={(tab) => { setInputTab(tab); setInputsOpen(true); }} open={inputsOpen} onOpen={setInputsOpen} height={inputsHeight} focusRequest={focusRequest}
           changeList={changeList.data} changeActions={changeActions} scenarioActions={scenarioActions} onVary={setVarying} commandLabel={commandLabel} />
@@ -822,13 +828,14 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
         <div className="qwb-xva-grids">
           <TradeCaption title="New trades" count={ws.newTrades} grid="new" setSide={setSide} disabled={!notBusy} />
           <div aria-label="New trades" onFocusCapture={() => { lastGrid.current = 'new'; }}>
-            <WorkbenchGrid<Row> ref={newGrid} columns={newColumns} source={sources.new} onEdit={onEdit} cellState={cellState} cellMessage={cellMessage}
+            <WorkbenchGrid<Row> ref={newGrid} columns={newWidths.columns} onColumnWidthChanged={newWidths.onColumnWidthChanged} source={sources.new} onEdit={onEdit} cellState={cellState} cellMessage={cellMessage}
               contextCommands={newCommands} commandLabel={commandLabel}
               density="compact" viewportWidth="stretch" viewportHeight={newHeight} pinnedColumnCount={1} locale="en-US" />
           </div>
           <TradeCaption title="Existing trades" count={ws.trades - ws.newTrades} grid="existing" setSide={setSide} disabled={!notBusy} />
           <div aria-label="Existing trades" onFocusCapture={() => { lastGrid.current = 'existing'; }}>
-            <WorkbenchGrid<Row> className="qwb-xva-trades" columns={existingColumns} source={sources.existing} onEdit={onEdit} cellState={cellState} cellMessage={cellMessage}
+            <WorkbenchGrid<Row> className="qwb-xva-trades" columns={existingWidths.columns} onColumnWidthChanged={existingWidths.onColumnWidthChanged}
+              source={sources.existing} onEdit={onEdit} cellState={cellState} cellMessage={cellMessage}
               contextCommands={existingCommands} commandLabel={commandLabel}
               density="compact" viewportWidth="stretch" viewportHeight="stretch" pinnedColumnCount={1} locale="en-US" />
           </div>

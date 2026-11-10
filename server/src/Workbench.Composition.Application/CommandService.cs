@@ -1,6 +1,8 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Text.Json.Nodes;
 using Workbench.Composition.Contracts;
+using Tags = Workbench.Composition.Application.WorkbenchTelemetry.Tags;
 
 namespace Workbench.Composition.Application;
 
@@ -24,6 +26,32 @@ public sealed class CommandService(CompositionRegistry registry, IDataReader dat
     readonly ConcurrentDictionary<(string User, string Key), (string Request, Lazy<Task<CommandResult>> Result)> done = new();
 
     public async Task<CommandResult> InvokeAsync(string capabilityId, string version, JsonObject inputs, Caller caller, string idempotencyKey,
+        CancellationToken cancellationToken)
+    {
+        using var activity = WorkbenchTelemetry.Source.StartActivity($"command {capabilityId}");
+        activity?.SetTag(Tags.CapabilityId, capabilityId);
+        activity?.SetTag(Tags.Origin, caller.Origin.ToString());
+        var outcome = "failed";
+        try
+        {
+            var result = await InvokeOnceAsync(capabilityId, version, inputs, caller, idempotencyKey, cancellationToken);
+            outcome = result is CommandResult.Refused refused ? refused.Code : "done";
+            return result;
+        }
+        catch (Exception failure)
+        {
+            activity?.SetStatus(ActivityStatusCode.Error, failure.Message);
+            throw;
+        }
+        finally
+        {
+            // A refusal is the command answering, not the workbench failing: it is an outcome, not an error status.
+            activity?.SetTag(Tags.Outcome, outcome);
+            WorkbenchTelemetry.Commands.Add(1, new(Tags.CapabilityId, capabilityId), new(Tags.Origin, caller.Origin.ToString()), new(Tags.Outcome, outcome));
+        }
+    }
+
+    async Task<CommandResult> InvokeOnceAsync(string capabilityId, string version, JsonObject inputs, Caller caller, string idempotencyKey,
         CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(idempotencyKey))

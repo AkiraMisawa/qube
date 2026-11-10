@@ -124,9 +124,9 @@ test('ADR-0012 §3, §7: spot IM shows its columns and IM tab, refuses a wrong I
   await expect(result.getByTestId('xva-result-status')).toHaveText('succeeded');
   await expect(result.getByTestId('xva-result-revision')).toHaveText(/^revision \d+$/);
   await expect(result.getByTestId('xva-result-basis')).toHaveText('Spot IM · SIMM PARAMETERS DEMO');
-  const imRAfter = result.getByRole('button', { name: /^IM-R After (JFSA|CFTC) [\d,]+\.\d{2}: open its trace$/ });
+  const imRAfter = result.getByRole('button', { name: /^IM-R After (JFSA|CFTC) [\d,]+: open its trace$/ });
   await expect(imRAfter).toBeVisible();
-  await expect(result.getByRole('button', { name: /^IM-P Before (JFSA|EMIR) [\d,]+\.\d{2}: open its trace$/ })).toBeVisible();
+  await expect(result.getByRole('button', { name: /^IM-P Before (JFSA|EMIR) [\d,]+: open its trace$/ })).toBeVisible();
   await expect(result.getByTestId('xva-result-cell-note').first()).toHaveText(/^(JFSA|CFTC|EMIR)$/);
 
   // An IM-R cell opens the SIMM tab at collect, an IM-P cell at post (ADR-0012 §7's note of 2026-11-08).
@@ -209,7 +209,7 @@ test('ADR-0012 §7, ADR-0011 §4: with Before not priced, spot IM is After alone
   await expect(result.getByTestId('xva-result-status')).toHaveText('succeeded');
   await expect(result.getByTestId('xva-result-note')).toHaveText('After only: Before was not priced');
   await expect(result.getByRole('columnheader', { name: 'IM-R Before' })).toHaveCount(0);
-  await result.getByRole('button', { name: /^IM-R After (JFSA|CFTC) [\d,]+\.\d{2}: open its trace$/ }).click();
+  await result.getByRole('button', { name: /^IM-R After (JFSA|CFTC) [\d,]+: open its trace$/ }).click();
 
   await expect(page.getByTestId('trace-one-side')).toHaveText('After only: Before was not priced.');
   await expect(page.getByTestId('trace-detail-label')).toHaveText('IM-R · collect');

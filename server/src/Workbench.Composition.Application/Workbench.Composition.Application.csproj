@@ -4,7 +4,9 @@
     <ProjectReference Include="..\Workbench.Composition.Contracts\Workbench.Composition.Contracts.csproj" />
   </ItemGroup>
 
-  <PropertyGroup>
-  </PropertyGroup>
+  <!-- The logging abstraction only: the host chooses the logger (Serilog, ADR-0014). -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.0" />
+  </ItemGroup>
 
 </Project>

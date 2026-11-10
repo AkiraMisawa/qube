@@ -5,6 +5,8 @@ import type { ExGridApi } from '@ex-grid/react';
 import { WorkbenchGrid } from '../../platform/grid/WorkbenchGrid';
 import { useQuery } from '@tanstack/react-query';
 import { call } from '../../platform/api';
+import { amountTone, formatAmount } from '../../platform/grid/amounts';
+import { useColumnWidths } from '../../platform/grid/columnWidths';
 import type { DatasetColumnType } from '../../platform/contracts';
 import { viewsFor } from '../../platform/views/binding';
 import { useWorkspaceContext } from '../../platform/workspace/WorkspaceProvider';
@@ -23,7 +25,6 @@ interface HistoryPage { readonly rows: readonly Row[]; readonly start: number; r
 const ALL = 'all';
 const OPEN = 'open';
 const DOWNLOAD = 'download';
-const amount = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 const label = (field: string) => field.replace(/([A-Z])/g, ' $1').replace(/^./, (c) => c.toUpperCase());
 
@@ -36,7 +37,9 @@ function gridColumn(column: Column): GridColumn<Row> {
     // The server orders the history; the grid offers no sort or filter of its own over it.
     queryable: false,
     value: (row) => row[column.field] ?? undefined,
-    format: column.type === 'number' ? (v) => amount.format(v as number) : (v) => String(v),
+    // A domain's figures (CVA, FVA) are its only `number` columns; counts are `integer`.
+    format: column.type === 'number' ? formatAmount : (v) => String(v),
+    ...(column.type === 'number' ? { tone: amountTone } : {}),
     width: column.field === 'runId' ? 270 : column.field === 'acceptedAt' ? 190 : numeric ? 110 : 110,
   };
 }
@@ -93,6 +96,7 @@ function HistoryGrid({ panelId, domain, columns, notify }: {
     actionColumn<Row>('Actions', [{ name: OPEN, label: 'Open' }, { name: DOWNLOAD, label: 'Download' }], { width: 176 }),
     ...columns.map(gridColumn),
   ], [columns]);
+  const widths = useColumnWidths(panelId, `history/${domain ?? ALL}`, gridColumns);
 
   const onAction = useCallback((event: GridActionEvent<Row>) => {
     const runId = event.row.runId as string;
@@ -107,7 +111,7 @@ function HistoryGrid({ panelId, domain, columns, notify }: {
     <Stack gap="xs">
       {failure !== undefined && <Alert color="red" variant="light" title="The history could not be read" withCloseButton onClose={() => setFailure(undefined)}>{failure}</Alert>}
       <div aria-label="Pricing DB" data-total={total}>
-        <WorkbenchGrid<Row> ref={grid} columns={gridColumns} source={source} onAction={onAction}
+        <WorkbenchGrid<Row> ref={grid} columns={widths.columns} onColumnWidthChanged={widths.onColumnWidthChanged} source={source} onAction={onAction}
           density="compact" viewportWidth="stretch" viewportHeight={460} pinnedColumnCount={2} locale="en-US" />
       </div>
     </Stack>

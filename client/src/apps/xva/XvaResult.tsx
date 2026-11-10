@@ -250,7 +250,7 @@ function Figure({ cell, line, label, onTrace }: {
   const noted = cell.note === undefined ? '' : `${cell.note} `;
   return (
     <Table.Td className={word ? 'qwb-number qwb-xva-result-word' : 'qwb-number'} data-status={cell.status}
-      {...(line?.reason === undefined ? {} : { title: line.reason })}>
+      {...(cell.negative ? { 'data-negative': true } : {})} {...(line?.reason === undefined ? {} : { title: line.reason })}>
       {cell.note !== undefined && <Text span size="xs" className="qwb-xva-result-cell-note" data-testid="xva-result-cell-note">{cell.note}</Text>}
       {onTrace === undefined || cell.status === 'pending' || cell.status === 'notPriced'
         ? cell.text

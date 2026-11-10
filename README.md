@@ -43,6 +43,11 @@ nix develop -c bash -c 'cd client && npm run dev'
 nix develop -c bash -c 'cd client && npm run build && npx playwright test'
 ```
 
+Logs go to the console and to `server/src/Workbench.Web/App_Data/logs`. To collect logs, traces and metrics from the
+client and the server in Grafana, start `docker compose -f tools/observability/compose.yaml up -d` and run the
+workbench with `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317`; see
+[`docs/running-with-observability.md`](docs/running-with-observability.md).
+
 The AI pane runs on the scripted agent (no model) by default. To run it on Copilot, with the agent in a process of its
 own, and to open the workbench from a phone or another Mac over Tailscale, see
 [`docs/running-with-copilot.md`](docs/running-with-copilot.md) (`tools/run-with-copilot.sh --model <id>`).

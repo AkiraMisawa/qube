@@ -78,8 +78,10 @@ public sealed record MeasureRefusal(string Measure, string Code, string Message)
 
 /// <summary>
 /// A column a module adds to the trade grids (ADR-0010 §10), such as XVA's PV01. On a trade its field is
-/// <c>{module}.{id}</c>, which no source holds: a module's input on a trade starts empty. <paramref name="Editable"/>
-/// says whether it is ever typed; whether it may be now is its cell's.
+/// <c>{module}.{id}</c>, which no source holds: a module's input on a trade starts empty. <paramref name="Type"/> is
+/// <c>amount</c> for money, which the page shows as every amount (C48), <c>number</c> for any other figure, such as a
+/// margin in bp, or <c>text</c>. <paramref name="Editable"/> says whether it is ever typed; whether it may be now is
+/// its cell's.
 /// </summary>
 public sealed record TradeColumn(string Id, string Title, string Type, bool Editable);
 

@@ -44,8 +44,10 @@ test('docs/03, ADR-0003: a new trade takes the main CSA, a CSA typed in moves it
   // Both differ from Original now, the curve moved by the rule rather than typed, and are marked (ADR-0010 §2).
   await expect(trade(page, 'DRAFT-1').getByRole('gridcell').nth(CSA)).toHaveClass(/ex-state-modified/);
   await expect(trade(page, 'DRAFT-1').getByRole('gridcell').nth(CSA + 1)).toHaveClass(/ex-state-modified/);
-  // B and A are shown by their boxes and never marked.
-  await expect(trade(page, 'DRAFT-1').getByRole('gridcell').nth(CSA + 2)).not.toHaveClass(/ex-state-modified/);
+  // B and A are shown by their boxes and never marked. Before is right of the view once every header reads whole, so
+  // the Focus brings it in and its column names it.
+  await focusCell(page, CSA + 2);
+  await expect(cell(page, 'DRAFT-1', CSA + 3)).not.toHaveClass(/ex-state-modified/);
   await expect(page.getByTestId('workspace-summary')).toContainText('1 edit(s)');
 
   await command(page, 'price');
@@ -74,7 +76,9 @@ test('docs/03, ADR-0003: a new trade takes the main CSA, a CSA typed in moves it
   await expect(row.getByRole('gridcell').nth(5)).toHaveText('2026-10-26');
   await expect(row.getByRole('gridcell').nth(6)).toHaveText('ABC/LE-01');
   await expect(row.getByRole('gridcell').nth(7)).toHaveText('0');
-  await expect(row.getByRole('gridcell').nth(8)).toHaveText('3');
+  // Trades After is right of the view once every header reads whole: the Focus brings it in, and its column names it.
+  await focusCell(page, 8);
+  await expect(row.locator('[aria-colindex="9"]')).toHaveText('3');
 });
 
 test('ADR-0003 §6: a counterparty change asks before dropping its edits, and keeps a new trade\'s own', async ({ page }) => {
@@ -248,7 +252,7 @@ test('ADR-0010 §1, §7: the input tabs and the dock collapse to their row and t
   await result.getByRole('button', { name: 'Collapse' }).focus();
   await page.keyboard.press('Enter');
   await expect(result.getByRole('table', { name: 'Metrics' })).toHaveCount(0);
-  await expect(result.getByTestId('xva-result-lines')).toHaveText(/^Base · CVA Diff -?[\d,]+\.\d\d · FVA Diff -?[\d,]+\.\d\d$/);
+  await expect(result.getByTestId('xva-result-lines')).toHaveText(/^Base · CVA Diff -?[\d,]+ · FVA Diff -?[\d,]+$/);
   await expect(dock).toHaveCount(0);
   await page.keyboard.press('Enter');
   await expect(result.getByRole('table', { name: 'Metrics' })).toBeVisible();
@@ -310,6 +314,28 @@ test('ADR-0010 §1, docs/design-guidelines.md §7: in the dark and the light the
     await page.setViewportSize({ width: 390, height: 844 });
     await expect(page.getByText('Results', { exact: true })).toBeVisible();
     expect(await page.locator('.qwb-xva').evaluate(textBelowContrast, 4.5), `${scheme} at 390px: text below 4.5:1`).toEqual([]);
+  }
+});
+
+// C48: a negative amount is painted as a loss, and docs/design-guidelines.md §7 still holds: its figure reads at 4.5:1
+// in both themes. The Run's view declares Before, After and Diff `currency`; the simulated CVA is negative.
+test('C48, docs/design-guidelines.md §7: a negative amount in a view is painted as a loss and reads at 4.5:1 in both themes', async ({ page }) => {
+  await open(page);
+  await newWorkspace(page, 'ABC/LE-01', 3);
+  await command(page, 'measures', 'cva fva');
+  await command(page, 'price');
+  const result = page.getByTestId('xva-result');
+  await expect(result.getByTestId('xva-result-status')).toHaveText('succeeded');
+  await result.getByRole('button', { name: 'Open run' }).click();
+  const view = page.getByLabel('CVA and FVA (simulated)');
+  const cva = view.getByRole('row', { name: /^Base CVA -/ });
+  await expect(cva).toBeVisible();
+  await expect(cva.locator('.ex-tone-negative').first()).toHaveText(/^-\d{1,3}(,\d{3})*$/);
+
+  for (const scheme of ['dark', 'light'] as const) {
+    if (scheme === 'light') await command(page, 'toggle theme');
+    await expect(page.locator('html')).toHaveAttribute('data-mantine-color-scheme', scheme);
+    expect(await view.evaluate(textBelowContrast, 4.5), `${scheme}: text below 4.5:1`).toEqual([]);
   }
 });
 
@@ -485,8 +511,9 @@ test('ADR-0010 §6: a new trade\'s PV01 arrives with no reload, and Margin gives
   await focusCell(page, 0);
   await page.keyboard.press('End');
   // The simulated engine answers after a moment; the page reads the grid again once it has, and never shows 0.
-  await expect(cell(page, 'DRAFT-1', XVA.pv01)).toHaveText(/^-\d{1,3}(,\d{3})*(\.\d{1,2})?$/);
-  const pv01 = Number((await cell(page, 'DRAFT-1', XVA.pv01).textContent())?.replaceAll(',', ''));
+  // An amount in whole units, grouped (C48), and red as a loss.
+  await expect(cell(page, 'DRAFT-1', XVA.pv01)).toHaveText(/^-\d{1,3}(,\d{3})*$/);
+  await expect(cell(page, 'DRAFT-1', XVA.pv01)).toHaveClass(/ex-tone-negative/);
 
   await focusCell(page, XVA.margin - 1);
   await page.keyboard.type('2');
@@ -496,9 +523,13 @@ test('ADR-0010 §6: a new trade\'s PV01 arrives with no reload, and Margin gives
   await expect(cell(page, 'DRAFT-1', XVA.margin)).toHaveClass(/ex-state-modified/);
   await page.keyboard.press('ArrowUp');
   await page.keyboard.press('ArrowRight');
-  const pvAdj = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(Math.round(pv01 * 2 * 100) / 100);
+  // The note gives PV01 to the cent, which the cell shows in whole units: PV Adj is 2 bp of it, shown as an amount.
+  const note = page.getByText(/^From Margin: 2 bp × PV01 -/);
+  await expect(note).toBeVisible();
+  const pv01 = Number(/PV01 (-[\d,.]+)$/.exec((await note.textContent()) ?? '')?.[1]?.replaceAll(',', ''));
+  expect(Number.isFinite(pv01)).toBe(true);
+  const pvAdj = new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(Math.round(pv01 * 2 * 100) / 100);
   await expect(cell(page, 'DRAFT-1', XVA.pvAdj)).toHaveText(pvAdj);
-  await expect(page.getByText(/^From Margin: 2 bp × PV01 -/)).toBeVisible();
   // While Margin is entered, PV Adj is read-only, and typing into it is refused with the reason.
   await page.keyboard.type('5');
   await page.keyboard.press('Enter');
@@ -571,12 +602,12 @@ test('ADR-0010 §4: `scenario` defines a scenario whole, Price prices it beside 
   await expect(selector.locator('option')).toHaveText(['Base market', 'up']);
   await expect(selector.locator('option:checked')).toHaveText('Base market');
   const after = result.getByRole('table', { name: 'Metrics' }).getByRole('row', { name: /^Base / }).locator('td').nth(1);
-  await expect(after).toHaveText(/^-?[\d,]+\.\d\d$/);
+  await expect(after).toHaveText(/^-?[\d,]+$/);
   const base = await after.innerText();
 
   await selector.selectOption({ label: 'up' });
   await expect(selector.locator('option:checked')).toHaveText('up');
-  await expect(after).toHaveText(/^-?[\d,]+\.\d\d$/);
+  await expect(after).toHaveText(/^-?[\d,]+$/);
   await expect(after).not.toHaveText(base);
   // Collapsed, the line a case is of the scenario in view, as the Metrics are.
   await result.getByRole('button', { name: 'Collapse' }).click();

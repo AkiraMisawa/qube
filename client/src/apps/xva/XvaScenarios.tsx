@@ -5,6 +5,7 @@ import type { ExGridApi } from '@ex-grid/react';
 import { WorkbenchGrid } from '../../platform/grid/WorkbenchGrid';
 import type { ScenarioView, ShiftEdit, ShiftRow } from './contracts';
 import { clearedEdits, pastedEdits, shiftGridRows, type ShiftColumn, type ShiftGridRow } from './scenarios';
+import { useColumnWidths } from '../../platform/grid/columnWidths';
 
 // The Scenarios input tab (ADR-0010 §4 and its note of 2026-11-09): every shift in one grid, rows sharing a name being
 // one scenario, typed or pasted many rows at a time onto the blank rows it ends in; beside it the scenarios with their
@@ -59,8 +60,10 @@ const cellMessage = (row: ShiftGridRow, col: GridColumn<ShiftGridRow>): string |
 
 const describe = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
-export function XvaScenarios({ shifts, scenarios, actions, height, gridRef, commandLabel }: {
+export function XvaScenarios({ panelId, shifts, scenarios, actions, height, gridRef, commandLabel }: {
   readonly shifts: readonly ShiftRow[];
+  /** The panel the page is in, which keeps the widths the user dragged in its grids. */
+  readonly panelId: string;
   readonly scenarios: readonly ScenarioView[];
   readonly actions: ScenarioActions;
   /** The tab's height in pixels, which the grid fills. */
@@ -70,6 +73,7 @@ export function XvaScenarios({ shifts, scenarios, actions, height, gridRef, comm
   readonly commandLabel: (id: string) => string | undefined;
 }) {
   const rows = useMemo(() => shiftGridRows(shifts), [shifts]);
+  const { columns, onColumnWidthChanged } = useColumnWidths(panelId, 'scenarios', COLUMNS, { hideColumnMenu: true });
   const source = useMemo(() => GridSource.from<ShiftGridRow>([], { rowKey: (row) => row.key }), []);
   useEffect(() => { source.replaceAll(rows); }, [rows, source]);
   const actionsNow = useRef(actions);
@@ -115,7 +119,7 @@ export function XvaScenarios({ shifts, scenarios, actions, height, gridRef, comm
   return (
     <div className="qwb-xva-scenarios">
       <div className="qwb-xva-scenarios-grid" aria-label="Shifts">
-        <WorkbenchGrid<ShiftGridRow> ref={gridRef} columns={COLUMNS} source={source} onEdit={onEdit} onPaste={onPaste} onClear={onClear} pasteMaySpill
+        <WorkbenchGrid<ShiftGridRow> ref={gridRef} columns={columns} onColumnWidthChanged={onColumnWidthChanged} source={source} onEdit={onEdit} onPaste={onPaste} onClear={onClear} pasteMaySpill
           cellState={cellState} cellMessage={cellMessage} commandLabel={commandLabel} hideColumnMenu showSelectionSummary={false}
           density="compact" viewportWidth="stretch" viewportHeight={height} pinnedColumnCount={1} locale="en-US" />
       </div>

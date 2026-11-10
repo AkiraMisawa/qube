@@ -1,5 +1,6 @@
 import type { CellState, GridColumn } from '@ex-grid/core';
 import type { EffectiveTrade, RegisteredColumn, TradeCell } from './contracts';
+import { amountTone, formatAmount } from '../../platform/grid/amounts';
 import { parseNumber, type Parsed } from './editing';
 import { differs, originalMessage } from './original';
 
@@ -7,7 +8,7 @@ import { differs, originalMessage } from './original';
 // decides every cell: its value, whether it is pending or failed, what it says and whether it may be typed now. The page
 // draws what it answers and sends what was typed.
 
-const amount = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 });
+const figure = new Intl.NumberFormat('en-US', { maximumFractionDigits: 6 });
 
 /** The module's cell on a row, or undefined where the module adds none to it (an existing trade has no PV01). */
 export const cellOf = (row: EffectiveTrade, field: string): TradeCell | undefined => row.cells?.[field];
@@ -19,8 +20,11 @@ export function cellValue(cell: TradeCell | undefined): number | string | undefi
   return cell.value === null ? undefined : cell.value;
 }
 
-/** A figure as amounts are written, and a word as it is. */
-export const cellText = (value: unknown): string => (typeof value === 'number' ? amount.format(value) : String(value));
+/** An amount as every amount is written (C48), and a word as it is. */
+export const amountText = (value: unknown): string => (typeof value === 'number' ? formatAmount(value) : String(value));
+
+/** A figure that is not money, such as a margin in bp, grouped and to its digits, and a word as it is. */
+export const figureText = (value: unknown): string => (typeof value === 'number' ? figure.format(value) : String(value));
 
 /** Pending is drawn as missing and failed as an error, never as a figure; a typed value that differs from Original is marked. */
 export function cellState(row: EffectiveTrade, field: string): CellState {
@@ -58,19 +62,21 @@ export const failed = (row: EffectiveTrade, field: string): boolean => cellOf(ro
 
 /**
  * The grid columns of the registered module columns, in order. The server neither sorts nor filters by them, so the grid
- * does not offer to. A number column is as wide as the notional column, so that an amount of the synthetic notionals'
- * size with its cents (a PV Adj of -47,500,000.00) never falls to `####`. A text column, such as SA-CCR's class of a
- * trade (`Interest rate · JPY · 1-5y · long`), takes the width of its words, within bounds.
+ * does not offer to. A figure column is as wide as the notional column, so that an amount of the synthetic notionals'
+ * size (a PV Adj of -47,500,000) never falls to `####`; an amount is grouped in whole units and red when negative
+ * (C48), any other figure, such as a margin in bp, keeps its digits. A text column, such as SA-CCR's class of a trade
+ * (`Interest rate · JPY · 1-5y · long`), takes the width of its words, within bounds.
  */
 export function moduleColumns(columns: readonly RegisteredColumn[]): readonly GridColumn<EffectiveTrade>[] {
   return columns.map((c) => ({
     name: c.field,
     header: c.title,
-    type: c.type,
+    type: c.type === 'amount' ? 'number' : c.type,
     width: c.type === 'text' ? { auto: true, minPx: 120, maxPx: 280 } : 168,
     editable: c.editable,
     queryable: false,
     value: (row: EffectiveTrade) => cellValue(cellOf(row, c.field)),
-    format: cellText,
+    format: c.type === 'amount' ? amountText : figureText,
+    ...(c.type === 'amount' ? { tone: amountTone } : {}),
   }));
 }

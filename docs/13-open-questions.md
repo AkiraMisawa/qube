@@ -22,6 +22,7 @@ These questions are not an instruction to ask the owner everything before coding
 | Production DB/retention/HA? | SQLite in production first (C35). Retention rule per C33; the period itself is still to be set. HA/multi-instance open. | Multi-instance company rollout |
 | Display charge and CVA sign rules? | Keep raw signed CVA and explicitly named delta; charge ratio is a separate measure. | Charge display |
 | Exact public OSS licensing/package split? | Keep generic modules independently buildable and private domain boundaries. | Any publication |
+| Company monitoring backend, retention and alerting? | OTLP out of both processes (ADR-0014, D15); a local Grafana stack shows it. Point `OTEL_EXPORTER_OTLP_ENDPOINT` at the company's collector; set alert rules there. | Company rollout |
 | Performance thresholds? | Measure documented workloads first, then agree targets. | Performance acceptance |
 
 ## Escalation format

@@ -27,4 +27,18 @@ describe('workspace store', () => {
     store.getState().closePanel(c);
     expect(store.getState().activePanelId).toBe(a);
   });
+
+  // ExGrid ADR-0016: the grid reports a drag and the page keeps it; a panel's page unmounts when another tab shows.
+  it('keeps the widths dragged in a panel while it is open, and forgets them when it closes', () => {
+    const store = createWorkspaceStore(valid, contextContract);
+    const a = store.getState().openPanel({ kind: 'run', title: 'A', runId: 'r1', viewKey: undefined });
+    const b = store.getState().openPanel({ kind: 'run', title: 'B', runId: 'r2', viewKey: undefined });
+    store.getState().setColumnWidth(a, 'lines', 'pv', 180);
+    store.getState().setColumnWidth(a, 'lines', 'end', 90);
+    store.getState().setColumnWidth(b, 'lines', 'pv', 60);
+    expect(store.getState().columnWidths[a]).toEqual({ lines: { pv: 180, end: 90 } });
+    store.getState().closePanel(a);
+    expect(store.getState().columnWidths[a]).toBeUndefined();
+    expect(store.getState().columnWidths[b]).toEqual({ lines: { pv: 60 } });
+  });
 });

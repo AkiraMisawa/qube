@@ -224,7 +224,7 @@ public sealed class RatesModule(IRatesPricingProvider provider, Func<string, Mar
                 [new("line", "Line", ColumnFormat.Text), new("status", "Status", ColumnFormat.Status), new("pv", "PV", ColumnFormat.Currency, "pvCurrency"),
                  new("parMeasure", "Solved", ColumnFormat.Text), new("parQuote", "Par / fair (%)", ColumnFormat.Number), new("message", "Message", ColumnFormat.Text)], null),
              new ViewComponent("risk", ComponentKind.Grid, "Risk", new WorkflowOutputData("risk"),
-                [new("line", "Line", ColumnFormat.Text), new("measure", "Factor", ColumnFormat.Text), new("value", "Value", ColumnFormat.Number),
+                [new("line", "Line", ColumnFormat.Text), new("measure", "Factor", ColumnFormat.Text), new("value", "Value", ColumnFormat.Currency),
                  new("unit", "Unit", ColumnFormat.Text)], null)]));
     }
 

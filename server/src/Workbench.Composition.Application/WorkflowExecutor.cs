@@ -1,6 +1,8 @@
+using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Workbench.Composition.Contracts;
+using Tags = Workbench.Composition.Application.WorkbenchTelemetry.Tags;
 
 namespace Workbench.Composition.Application;
 
@@ -150,6 +152,10 @@ public sealed class WorkflowExecutor(CompositionRegistry registry, IDataStore st
         IReadOnlyDictionary<string, StepState> states, JsonNode? item, Action<InvocationRecord> record, CancellationToken cancellationToken)
     {
         var descriptor = handler.Descriptor;
+        using var activity = WorkbenchTelemetry.Source.StartActivity($"invoke {descriptor.CapabilityId}");
+        activity?.SetTag(Tags.RunId, runId);
+        activity?.SetTag(Tags.StepId, step.StepId);
+        activity?.SetTag(Tags.CapabilityId, descriptor.CapabilityId);
         record(new(key, step.StepId, descriptor.CapabilityId, descriptor.Version, InvocationStatus.Running, new Dictionary<string, TypedDataRef>(), null));
         try
         {
@@ -168,6 +174,8 @@ public sealed class WorkflowExecutor(CompositionRegistry registry, IDataStore st
         catch (CapabilityFailure failure)
         {
             var error = new OutcomeError(failure.Code, failure.Message);
+            activity?.SetTag(Tags.ErrorCode, failure.Code);
+            activity?.SetStatus(ActivityStatusCode.Error, failure.Message);
             record(new(key, step.StepId, descriptor.CapabilityId, descriptor.Version, InvocationStatus.Failed, new Dictionary<string, TypedDataRef>(), error));
             return new(OutcomeStatus.Failed, new Dictionary<string, TypedDataRef>(), error);
         }

@@ -19,8 +19,8 @@ describe('riskSections', () => {
     const rows = [row({}), row({ riskClass: 'FX', factor: 'usdjpy', bump: '+1%', before: 3, after: 4, diff: 1 }), row({ measure: 'fva', metric: 'fva', metricTitle: 'FVA', riskClass: 'IR', factor: 'jpy_ois', before: 1, after: 2, diff: 1 })];
     const [cva, fva] = riskSections(rows, ['cva', 'fva'], register, 'base', 'base');
     expect(cva?.lines.map((l) => [l.riskClass, l.factor, l.bump, l.before.text, l.after.text, l.diff.text])).toEqual([
-      ['Credit', 'cds 5y', '+1bp', '-120.50', '-130.25', '-9.75'],
-      ['FX', 'usdjpy', '+1%', '3.00', '4.00', '1.00'],
+      ['Credit', 'cds 5y', '+1bp', '-121', '-130', '-10'],
+      ['FX', 'usdjpy', '+1%', '3', '4', '1'],
     ]);
     expect([cva?.metricTitle, cva?.currency]).toEqual(['CVA', 'JPY']);
     expect(fva?.lines.map((l) => l.factor)).toEqual(['jpy_ois']);

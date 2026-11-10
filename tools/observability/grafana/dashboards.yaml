@@ -1,0 +1,9 @@
+# Grafana loads the workbench's dashboards from the mounted folder (grafana/docker-otel-lgtm's custom provisioning).
+apiVersion: 1
+providers:
+  - name: quant-workbench
+    folder: Quant Workbench
+    type: file
+    disableDeletion: true
+    options:
+      path: /otel-lgtm/grafana/conf/provisioning/dashboards/custom

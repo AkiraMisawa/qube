@@ -1,4 +1,5 @@
 import type { Catalog, Dataset, ErrorEnvelope, RunRecord, TypedDataRef, ViewDefinition, WorkflowDefinition } from './contracts';
+import { telemetry, traced } from './telemetry';
 
 /** A refusal from the server, carrying its code and the located issues. Never turned into an empty result. */
 export class ApiError extends Error {
@@ -7,22 +8,36 @@ export class ApiError extends Error {
   }
 }
 
-export async function call<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, {
-    ...init,
-    headers: { 'content-type': 'application/json', ...init?.headers },
-  });
-  if (!response.ok) {
-    const text = await response.text();
-    let envelope: ErrorEnvelope;
-    try {
-      envelope = JSON.parse(text) as ErrorEnvelope;
-    } catch {
-      envelope = { code: `Http${response.status}`, message: text || response.statusText, issues: [] };
-    }
-    throw new ApiError(response.status, envelope);
+/**
+ * Sends one call to the server in a trace of its own (ADR-0014) and returns its successful answer. A failure of the
+ * server's (5xx) or of the network is reported to the server's log in that trace; a refusal (4xx) is the server
+ * answering, and its own log already says so. Any answer but a success is thrown as an {@link ApiError}.
+ */
+export async function send(path: string, init?: RequestInit): Promise<Response> {
+  const { init: sent, traceparent } = traced({ ...init, headers: { 'content-type': 'application/json', ...init?.headers } });
+  const method = init?.method ?? 'GET';
+  let response: Response;
+  try {
+    response = await fetch(path, sent);
+  } catch (error) {
+    telemetry.report({ level: 'error', kind: 'api', message: `${method} ${path} was not answered: ${error instanceof Error ? error.message : String(error)}`, traceparent });
+    throw error;
   }
-  return (await response.json()) as T;
+  if (response.ok) return response;
+  const text = await response.text();
+  let envelope: ErrorEnvelope;
+  try {
+    envelope = JSON.parse(text) as ErrorEnvelope;
+  } catch {
+    envelope = { code: `Http${response.status}`, message: text || response.statusText, issues: [] };
+  }
+  if (response.status >= 500) telemetry.report({ level: 'error', kind: 'api', message: `${method} ${path} failed: ${response.status} ${envelope.code}: ${envelope.message}`, traceparent });
+  throw new ApiError(response.status, envelope);
+}
+
+/** Calls the server as {@link send} does and reads its answer as JSON. */
+export async function call<T>(path: string, init?: RequestInit): Promise<T> {
+  return (await (await send(path, init)).json()) as T;
 }
 
 export type ActionOutcome =

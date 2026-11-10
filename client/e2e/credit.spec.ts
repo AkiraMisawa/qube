@@ -21,7 +21,7 @@ async function figure(page: Page, label: string): Promise<string> {
   await expect(table.getByRole('columnheader', { name: label })).toBeVisible();
   const headers = await table.locator('thead tr').nth(1).locator('th').evaluateAll((ths) => ths.map((t) => t.getAttribute('aria-label')));
   const cell = table.getByRole('row', { name: /^Base / }).locator('td').nth(headers.indexOf(label));
-  await expect(cell).toHaveText(/^(-?[\d,]+\.\d\d|refused)$/);
+  await expect(cell).toHaveText(/^(-?[\d,]+|refused)$/);
   return cell.innerText();
 }
 
@@ -43,7 +43,6 @@ test('ADR-0010 §8\'s note of 2026-11-09: the Credit tab chooses a CDS and edits
   await settled(page, 'CDS curve');
   const curve = page.getByLabel('CDS curve').getByRole('row', { name: /^Single name ABCH / });
   const fiveYears = curve.locator('[aria-colindex="11"]');
-  await expect(fiveYears).toHaveText('52');
   // By keyboard, from the CDS type past the reference into the grid. Its first key only places its Focus (ex-grid
   // ADR-0037); End then takes it to the 10Y spread, and two to the left is the 5Y.
   await page.keyboard.press('Tab');
@@ -54,6 +53,8 @@ test('ADR-0010 §8\'s note of 2026-11-09: the Credit tab chooses a CDS and edits
   await page.keyboard.press('End');
   await page.keyboard.press('ArrowLeft');
   await page.keyboard.press('ArrowLeft');
+  // The Focus brings the 5Y into view: the columns are as wide as their headers read whole, so it may start off screen.
+  await expect(fiveYears).toHaveText('52');
   // A spread the server refuses keeps the editor open with its reason at the cell (ExGrid ADR-0380), and the catalogue's
   // spread is still what the cell shows once Escape closes it. The 422 is the one console message this test expects.
   await page.keyboard.type('0');
@@ -175,7 +176,7 @@ test('the owner\'s Risks of 2026-11-08: one Risks tab for CVA and FVA says why i
   await expect(cva.getByRole('row', { name: /^Credit cds 5y \+1bp / })).toBeVisible();
   await expect(cva.getByRole('rowheader')).toHaveText(['cds 6m', 'cds 1y', 'cds 2y', 'cds 3y', 'cds 5y', 'cds 7y', 'cds 10y', 'jpy_ois', 'usd_sofr', 'eur_estr', 'gbpjpy', 'usdjpy', 'eurjpy']);
   // Risk class and Bump are cells and the factor the row's header, so the Diff is the fifth cell.
-  await expect(cva.getByRole('row', { name: /^Credit cds 5y / }).locator('td').nth(4)).toHaveText(/^-?[\d,]+\.\d\d$/);
+  await expect(cva.getByRole('row', { name: /^Credit cds 5y / }).locator('td').nth(4)).toHaveText(/^-?[\d,]+$/);
   await expect(result(page).getByRole('table', { name: 'FVA deltas' }).getByRole('rowheader').first()).toHaveText('jpy_ois');
 });
 

@@ -120,7 +120,6 @@ public sealed class CopilotBackend(CopilotBackendOptions options, ILogger<Copilo
         }
         var available = new ToolSet();
         foreach (var tool in turn.Tools) available.AddCustom(tool.Name);
-        Directory.CreateDirectory(options.WorkingDirectory);
         thread.Session = await (await ClientAsync(cancellationToken)).CreateSessionAsync(new SessionConfig
         {
             Model = turn.Model,
@@ -179,7 +178,9 @@ public sealed class CopilotBackend(CopilotBackendOptions options, ILogger<Copilo
             var token = Environment.GetEnvironmentVariable(CopilotBackendOptions.TokenVariable);
             if (string.IsNullOrWhiteSpace(token))
                 throw new ModelFailed($"{CopilotBackendOptions.TokenVariable} is not set for the agent host; the agent has no credential of its own.");
-            Directory.CreateDirectory(options.BaseDirectory);
+            // The runtime process is started in the working directory, so it must exist before the first call, which
+            // may be /models rather than a turn. It lies under the base directory, which this creates too.
+            Directory.CreateDirectory(options.WorkingDirectory);
             var created = new CopilotClient(new CopilotClientOptions
             {
                 Mode = CopilotClientMode.Empty,

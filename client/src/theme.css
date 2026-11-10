@@ -21,6 +21,12 @@
 [data-mantine-color-scheme='light'] .qwb-grid.mantine-ex-grid {
   --ex-heading-mark: var(--mantine-primary-color-light-color);
 }
+/* A negative amount (C48) is painted in the Wrapper's tone colour, the theme's error red, which read at 3.86:1 on the
+   dark grid (2026-11-09). A figure needs 4.5:1 (docs/design-guidelines.md §7), so the tone takes red's text colour: the
+   theme darkens it in the light scheme, and Mantine lightens it in the dark. */
+.qwb-grid.mantine-ex-grid {
+  --ex-tone-negative-color: var(--mantine-color-red-text);
+}
 .qwb-grid .ex-header-group {
   text-align: left;
   color: var(--mantine-color-text);

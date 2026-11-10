@@ -16,6 +16,7 @@ import { CommitField } from './fields';
 import { compactGridHeight, GRID_FRAME, partHeight, pixels } from './layout';
 import { declaring, membershipColumn } from './membership';
 import { changes, differs, originalMessage } from './original';
+import { useColumnWidths } from '../../platform/grid/columnWidths';
 
 // The shared input tabs (ADR-0010 §1, §8): Netting and CSA. The server holds every term and every rule; these send what
 // the user changed and show what the server answers. What a measure adds to them is its registration's (§10): a field
@@ -104,8 +105,10 @@ export const shownTab = (ws: Pick<XvaWorkspaceView, 'inputs' | 'settings'>, tab:
  * The tabs, one open at a time and collapsible to their tab row (ADR-0010 §1). The page keeps which tab is open,
  * whether it is open and its height, so that a command opens a tab as a press does.
  */
-export function XvaInputs({ ws, push, setText, catalogue, onIssue, tab, onTab, open, onOpen, height, focusRequest, changeList, changeActions, scenarioActions, onVary, commandLabel }: {
+export function XvaInputs({ panelId, ws, push, setText, catalogue, onIssue, tab, onTab, open, onOpen, height, focusRequest, changeList, changeActions, scenarioActions, onVary, commandLabel }: {
   readonly ws: XvaWorkspaceView;
+  /** The panel the page is in, which keeps the widths the user dragged in its grids. */
+  readonly panelId: string;
   /** A value as written, for the server to read as the cell reads it (a spread, a setting). */
   readonly setText: SetText;
   /** The CDS catalogue the Credit tab searches; none until it has been read, and why where it could not be. */
@@ -221,11 +224,11 @@ export function XvaInputs({ ws, push, setText, catalogue, onIssue, tab, onTab, o
           <Tabs.Panel value="csa" pt="xs">
             {ws.csas.length === 0
               ? <Text size="sm">{ws.agreement.maId} has no CSA: its trades are uncollateralised ({ws.agreement.noCsa}).</Text>
-              : <CsaGrid csas={ws.csas} columns={csaColumns} push={push} height={height - gap - GRID_FRAME} gridRef={csaGrid} onVary={onVary} commandLabel={commandLabel} />}
+              : <CsaGrid panelId={panelId} csas={ws.csas} columns={csaColumns} push={push} height={height - gap - GRID_FRAME} gridRef={csaGrid} onVary={onVary} commandLabel={commandLabel} />}
           </Tabs.Panel>
           {creditShown && (
             <Tabs.Panel value={CREDIT_TAB} pt="xs">
-              <XvaCredit credit={ws.credit} registration={ws.registration.key} catalogue={catalogue} push={push} setText={setText}
+              <XvaCredit panelId={panelId} credit={ws.credit} registration={ws.registration.key} catalogue={catalogue} push={push} setText={setText}
                 onVary={onVary} commandLabel={commandLabel} focusRef={creditType} />
             </Tabs.Panel>
           )}
@@ -235,7 +238,7 @@ export function XvaInputs({ ws, push, setText, catalogue, onIssue, tab, onTab, o
             </Tabs.Panel>
           )}
           <Tabs.Panel value={SCENARIOS_TAB} pt="xs">
-            <XvaScenarios shifts={ws.shifts} scenarios={ws.scenarios} actions={scenarioActions} height={height - gap - GRID_FRAME} gridRef={scenarioGrid} commandLabel={commandLabel} />
+            <XvaScenarios panelId={panelId} shifts={ws.shifts} scenarios={ws.scenarios} actions={scenarioActions} height={height - gap - GRID_FRAME} gridRef={scenarioGrid} commandLabel={commandLabel} />
           </Tabs.Panel>
           {settingsShown && (
             <Tabs.Panel value={SETTINGS_TAB} pt="xs">
@@ -291,7 +294,9 @@ function ImCsas({ ws, focusRef }: { readonly ws: XvaWorkspaceView; readonly focu
  * The CSA terms, as high as their rows within `height`, what the tab's height leaves under the panel's top gap and the
  * grid's frame. It shows no Selection Summary: a sum or an average of terms in different currencies is no figure.
  */
-function CsaGrid({ csas, columns, push, height, gridRef, onVary, commandLabel }: {
+function CsaGrid({ panelId, csas, columns: declared, push, height, gridRef, onVary, commandLabel }: {
+  /** The panel the page is in, which keeps the widths the user dragged in its grids. */
+  readonly panelId: string;
   readonly onVary: (target: VaryTarget) => void;
   readonly commandLabel: (id: string) => string | undefined;
   readonly csas: readonly EffectiveCsa[];
@@ -301,6 +306,7 @@ function CsaGrid({ csas, columns, push, height, gridRef, onVary, commandLabel }:
   readonly gridRef: Ref<ExGridApi<CsaRow>>;
 }) {
   const source = useMemo(() => GridSource.from<CsaRow>([], { rowKey: (row) => row.csaId }), []);
+  const { columns, onColumnWidthChanged } = useColumnWidths(panelId, 'csas', declared);
   useEffect(() => { source.replaceAll(csas); }, [csas, source]);
 
   const onEdit = useCallback((intent: GridEditIntent<CsaRow>) => {
@@ -325,7 +331,7 @@ function CsaGrid({ csas, columns, push, height, gridRef, onVary, commandLabel }:
 
   return (
     <div aria-label="CSA terms">
-      <WorkbenchGrid<CsaRow> ref={gridRef} columns={columns} source={source} onEdit={onEdit} cellState={csaCellState} cellMessage={csaCellMessage}
+      <WorkbenchGrid<CsaRow> ref={gridRef} columns={columns} onColumnWidthChanged={onColumnWidthChanged} source={source} onEdit={onEdit} cellState={csaCellState} cellMessage={csaCellMessage}
         contextCommands={contextCommands} commandLabel={commandLabel}
         density="compact" viewportWidth="stretch" viewportHeight={Math.max(compactGridHeight(1), Math.min(compactGridHeight(csas.length), height))} pinnedColumnCount={2} showSelectionSummary={false} locale="en-US" />
     </div>

@@ -4,13 +4,15 @@ import type { Dataset, TypedDataRef, ViewAction, ViewComponent, ViewDefinition }
 import { ApiError } from '../api';
 import { DatasetGrid } from '../grid/DatasetGrid';
 import { useDataset, useWorkspaceContext, useWorkspace } from '../workspace/WorkspaceProvider';
+import { keyOf } from '../workspace/workspaceStore';
 import { actionParameters, referenceOf } from './binding';
 import { invokeAction } from '../actions';
 
 // Renders a validated declarative view through approved components only (grid, details). A kind
 // without a renderer is shown as refused, never approximated.
 
-export function ViewRenderer({ view, outputs, registerFocus }: {
+export function ViewRenderer({ panelId, view, outputs, registerFocus }: {
+  readonly panelId: string;
   readonly view: ViewDefinition;
   readonly outputs: Readonly<Record<string, TypedDataRef>>;
   readonly registerFocus?: (focus: (() => void) | undefined) => void;
@@ -18,14 +20,16 @@ export function ViewRenderer({ view, outputs, registerFocus }: {
   return (
     <SimpleGrid cols={{ base: view.layout.narrowColumns, md: view.layout.wideColumns }} spacing="md">
       {view.components.map((component, index) => (
-        <ComponentRenderer key={component.id} component={component} outputs={outputs}
+        <ComponentRenderer key={component.id} panelId={panelId} grid={`${keyOf(view)}/${component.id}`} component={component} outputs={outputs}
           {...(index === 0 && registerFocus !== undefined ? { registerFocus } : {})} />
       ))}
     </SimpleGrid>
   );
 }
 
-function ComponentRenderer({ component, outputs, registerFocus }: {
+function ComponentRenderer({ panelId, grid, component, outputs, registerFocus }: {
+  readonly panelId: string;
+  readonly grid: string;
   readonly component: ViewComponent;
   readonly outputs: Readonly<Record<string, TypedDataRef>>;
   readonly registerFocus?: (focus: (() => void) | undefined) => void;
@@ -52,7 +56,7 @@ function ComponentRenderer({ component, outputs, registerFocus }: {
         <Provenance dataset={data.data} />
       </Group>
       {component.kind === 'grid'
-        ? <GridComponent component={component} dataset={data.data} {...(registerFocus === undefined ? {} : { registerFocus })} />
+        ? <GridComponent panelId={panelId} grid={grid} component={component} dataset={data.data} {...(registerFocus === undefined ? {} : { registerFocus })} />
         : component.kind === 'details'
           ? <Details dataset={data.data} />
           : <Alert color="red">Component kind {component.kind} has no approved renderer.</Alert>}
@@ -60,7 +64,9 @@ function ComponentRenderer({ component, outputs, registerFocus }: {
   );
 }
 
-function GridComponent({ component, dataset, registerFocus }: {
+function GridComponent({ panelId, grid, component, dataset, registerFocus }: {
+  readonly panelId: string;
+  readonly grid: string;
   readonly component: ViewComponent;
   readonly dataset: Dataset;
   readonly registerFocus?: (focus: (() => void) | undefined) => void;
@@ -82,6 +88,8 @@ function GridComponent({ component, dataset, registerFocus }: {
 
   return (
     <DatasetGrid
+      panelId={panelId}
+      grid={grid}
       label={component.title}
       dataset={dataset}
       columns={component.columns ?? []}

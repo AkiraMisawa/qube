@@ -98,6 +98,9 @@ WCAG's minimum target size (§8). Smaller controls would save little: the grids,
   its column's alignment. Identifiers that happen to be digits (a Run ID, a trade number) are not quantities and are
   left-aligned ([Spectrum](#references)).
 - **Content in a row is vertically centred**, text and controls alike ([Spectrum](#references)).
+- **Column widths.** Every data grid takes `onColumnWidthChanged` through `useColumnWidths`
+  (`client/src/platform/grid/columnWidths.ts`): a drag on a header's right edge moves the column, and the width is kept
+  for the panel until it closes (owner, 2026-11-10). A declared width is a default that never cuts its header.
 
 ## 5. Icons
 
@@ -142,7 +145,7 @@ The shell is the header, the panels under their tabs, and the AI pane (ADR-0007 
   | Colour | Means | Examples |
   |---|---|---|
   | `signal` (amber, primary) | the primary action, focus, the selection | Price, the focus ring, the brand |
-  | `red` | an error, or an action that stops something | a refused edit, Stop live |
+  | `red` | an error, an action that stops something, or a negative amount (C48) | a refused edit, Stop live, a PV of `-1,250` |
   | `yellow` | a warning, something stale, or something simulated | the context in force is the previous one, `SCRIPTED · NO MODEL`, a live frame behind the workspace |
   | `teal` | live or succeeded | Start live, a frame in step |
   | `blue` | information or pending | an argument still to give |
@@ -150,6 +153,10 @@ The shell is the header, the panels under their tabs, and the AI pane (ADR-0007 
 
 - **MUST NOT** use colour as the only signal ([WCAG 1.4.1](#references)). A status badge says its status in words;
   a negative figure keeps its minus sign.
+- **A negative amount** is red as finance reads it (owner, 2026-11-10): the figure alone, in red's text colour
+  (`--mantine-color-red-text`, 4.5:1 in both schemes), never a note beside it. In a grid it is the column's `tone`
+  (`amountTone`, `client/src/platform/grid/amounts.ts`); in a table, `data-negative` on the cell. A percentage, a rate
+  or a spread is not an amount and is never red for its sign.
 - **Contrast**: text at least 4.5:1 against its background, and the edges of controls and focus indicators at
   least 3:1 ([WCAG 1.4.3, 1.4.11](#references)). `c="dimmed"` is for secondary text, never for a figure the user
   must read. The theme holds this, not each page: a filled control's label is dark or light by its fill

@@ -5,6 +5,7 @@ import type { ExGridApi } from '@ex-grid/react';
 import { WorkbenchGrid } from '../../platform/grid/WorkbenchGrid';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiError } from '../../platform/api';
+import { useColumnWidths } from '../../platform/grid/columnWidths';
 import { EditQueue } from '../../platform/workspace/editQueue';
 import { useWorkspaceContext } from '../../platform/workspace/WorkspaceProvider';
 import { keyOf } from '../../platform/workspace/workspaceStore';
@@ -165,8 +166,11 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
   // columns (ExGrid ADR-0400, ADR-0015 §2).
   const onGroupToggled = useCallback((toggle: HeaderGroupToggle) => setOpened((layout) => toggled(layout, toggle)), []);
 
+  // The columns at the widths the user dragged them to, kept per panel; the line grid hides its column menu, so a header
+  // needs no room for one (ADR-0015 §4).
+  const { columns, onColumnWidthChanged } = useColumnWidths(panelId, 'lines', columnsOf(opened), { hideColumnMenu: true });
+
   // A double click on a folded column opens what it folds (ADR-0015 §1).
-  const columns = columnsOf(opened);
   const onCellDoubleClick = useCallback((cell: CellPosition) => {
     const column = columns[cell.column];
     if (column === undefined) throw new Error(`The grid reported a double click on column ${cell.column}, which it was not given.`);
@@ -312,13 +316,14 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
       <HeldEdits conflicts={ws.conflicts} lost={ws.lost} resolve={(held, resolution) => void queue.push({ kind: 'resolve', held, resolution })} />
       <ResultStrip row={(focusLine === undefined ? undefined : shownRows.get(focusLine)) ?? (shownRows.size === 1 ? [...shownRows.values()][0] : undefined)} />
       <div aria-label="Lines">
-        <WorkbenchGrid<LineRow> ref={grid} columns={columns} headerGroups={groups} source={source} onEdit={onEdit} onAction={onAction}
+        <WorkbenchGrid<LineRow> ref={grid} columns={columns} onColumnWidthChanged={onColumnWidthChanged} headerGroups={groups} source={source}
+          onEdit={onEdit} onAction={onAction}
           cellState={lineCellState} cellMessage={lineCellMessage} density="compact" viewportWidth="stretch" viewportHeight={height}
           pinnedColumnCount={PINNED_COLUMNS} locale="en-US" onHeaderGroupToggled={onGroupToggled} onSelectionChanged={onSelectionChanged}
           hideColumnMenu onCellDoubleClick={onCellDoubleClick} contextCommands={contextCommands} commandLabel={commandLabel} />
       </div>
       {detail !== undefined && ws.lines.some((l) => l.line === detail) && (
-        <Cashflows workspaceId={workspaceId} line={detail} revision={ws.revision} api={api} onClose={() => setDetail(undefined)}
+        <Cashflows panelId={panelId} workspaceId={workspaceId} line={detail} revision={ws.revision} api={api} onClose={() => setDetail(undefined)}
           edit={(period, field, value) => void queue.push({ kind: 'cashflow', line: detail, period, field, value })} />
       )}
       {ws.runs.length > 0 && <Text size="xs" c="dimmed">Runs: {ws.runs.map((r) => `${r.runId.slice(-8)} (r${r.revision})`).join(', ')}</Text>}
@@ -359,7 +364,8 @@ const targetsOf = (error: unknown) =>
   error instanceof ApiError && error.envelope.issues.length > 0 ? ` (${error.envelope.issues.map((i) => i.path).join(', ')})` : '';
 
 /** A line's cashflows: its generated periods with the user's edits on them, and its notional exchanges. */
-function Cashflows({ workspaceId, line, revision, api, edit, onClose }: {
+function Cashflows({ panelId, workspaceId, line, revision, api, edit, onClose }: {
+  readonly panelId: string;
   readonly workspaceId: string;
   readonly line: string;
   readonly revision: number;
@@ -370,6 +376,7 @@ function Cashflows({ workspaceId, line, revision, api, edit, onClose }: {
   const flows = useQuery({ queryKey: ['rates', workspaceId, 'cashflows', line, revision], queryFn: () => api.cashflows(workspaceId, line) });
   const source = useMemo(() => GridSource.from<PeriodView>([], { rowKey: (p) => p.entity }), []);
   useEffect(() => { if (flows.data !== undefined) source.replaceAll(flows.data.periods); }, [flows.data, source]);
+  const widths = useColumnWidths(panelId, 'cashflows', periodColumns);
 
   const onEdit = useCallback((intent: GridEditIntent<PeriodView>) => {
     const parse = periodParserOf(intent.column);
@@ -393,7 +400,8 @@ function Cashflows({ workspaceId, line, revision, api, edit, onClose }: {
         <Text size="xs" c="dimmed">This line generates no schedule until its terms resolve; see its issues.</Text>
       )}
       <div aria-label={`Cashflows of ${line}`}>
-        <WorkbenchGrid<PeriodView> columns={periodColumns} source={source} onEdit={onEdit} cellState={periodCellState} cellMessage={cellMessage}
+        <WorkbenchGrid<PeriodView> columns={widths.columns} onColumnWidthChanged={widths.onColumnWidthChanged} source={source} onEdit={onEdit}
+          cellState={periodCellState} cellMessage={cellMessage}
           density="compact" viewportWidth="stretch" viewportHeight={Math.min(64 + (flows.data?.periods.length ?? 3) * 28, 320)} locale="en-US" />
       </div>
       {flows.data !== undefined && flows.data.exchanges.length > 0 && <Exchanges flows={flows.data} />}

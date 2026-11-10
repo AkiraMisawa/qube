@@ -9,6 +9,7 @@ import { ToolbarField } from './fields';
 import { compactGridHeight } from './layout';
 import { differs, originalMessage } from './original';
 import { VARY_COMMAND, type VaryTarget } from './VaryDialog';
+import { useColumnWidths } from '../../platform/grid/columnWidths';
 
 // XVA's Credit tab (ADR-0010 §8's note of 2026-11-09), shown while CVA is selected: the counterparty's CDS, a single name
 // found by its reference or a proxy by sector, region and rating, or none; and the chosen curve as one row, its spreads
@@ -26,16 +27,19 @@ const word = (v: unknown) => String(v);
 
 type Row = EffectiveCds;
 
-/** The curve's terms, read-only, then a column a tenor, editable, in bp (made once a tenor list, ExGrid ADR-0003). */
+/**
+ * The curve's terms, read-only, then a column a tenor, editable, in bp (made once a tenor list, ExGrid ADR-0003). It is
+ * one row, the counterparty's curve: nothing to sort or filter, so no header keeps room for a sort mark.
+ */
 const curveColumnsOf = (tenors: readonly string[]): readonly GridColumn<Row>[] => [
-  { name: 'type', header: 'Type', type: 'text', width: 104, value: (r) => (r.type === 'proxy' ? 'Proxy' : 'Single name'), format: word },
-  { name: 'ticker', header: 'Ticker', type: 'text', width: 112, value: (r) => r.ticker, format: word },
-  { name: 'currency', header: 'Ccy', type: 'text', width: 72, value: (r) => r.currency, format: word },
-  { name: 'seniority', header: 'Seniority', type: 'text', width: 104, value: (r) => r.seniority, format: word },
-  { name: 'docClause', header: 'Doc clause', type: 'text', width: 112, value: (r) => r.docClause, format: word },
-  { name: 'recovery', header: 'Recovery', type: 'number', width: 104, value: (r) => r.recovery, format: (v) => percent.format(v as number) },
+  { name: 'type', header: 'Type', type: 'text', queryable: false, width: 104, value: (r) => (r.type === 'proxy' ? 'Proxy' : 'Single name'), format: word },
+  { name: 'ticker', header: 'Ticker', type: 'text', queryable: false, width: 112, value: (r) => r.ticker, format: word },
+  { name: 'currency', header: 'Ccy', type: 'text', queryable: false, width: 72, value: (r) => r.currency, format: word },
+  { name: 'seniority', header: 'Seniority', type: 'text', queryable: false, width: 104, value: (r) => r.seniority, format: word },
+  { name: 'docClause', header: 'Doc clause', type: 'text', queryable: false, width: 112, value: (r) => r.docClause, format: word },
+  { name: 'recovery', header: 'Recovery', type: 'number', queryable: false, width: 104, value: (r) => r.recovery, format: (v) => percent.format(v as number) },
   ...tenors.map((t): GridColumn<Row> => ({
-    name: t, header: `${t.toUpperCase()} bp`, type: 'number', width: 88, editable: true,
+    name: t, header: `${t.toUpperCase()} bp`, type: 'number', queryable: false, width: 88, editable: true,
     value: (r) => (r.spreads[t] === undefined ? undefined : inBp(r.spreads[t])), format: (v) => bpFigure(v as number),
   })),
 ];
@@ -49,8 +53,10 @@ const curveCellMessage = (row: Row, col: GridColumn<Row>): string | undefined =>
   return typeof was === 'number' && now !== undefined ? `Catalogue ${bpText(was)} · now ${bpText(now)}` : undefined;
 };
 
-export function XvaCredit({ credit, registration, catalogue: read, push, setText, onVary, commandLabel, focusRef }: {
+export function XvaCredit({ panelId, credit, registration, catalogue: read, push, setText, onVary, commandLabel, focusRef }: {
   readonly credit: EffectiveCredit;
+  /** The panel the page is in, which keeps the widths the user dragged in its grids. */
+  readonly panelId: string;
   /** The counterparty's registration key, whose CDS the choice is. */
   readonly registration: string;
   /** The catalogue the reference search offers; none until it has been read, and why where it could not be. */
@@ -110,7 +116,7 @@ export function XvaCredit({ credit, registration, catalogue: read, push, setText
       {refused !== undefined && <Text size="sm" c="red" data-testid="cds-catalogue-refused">The CDS catalogue could not be read: {refused}</Text>}
       {credit.missing != null && <Text size="sm" c="red" data-testid="cds-missing">{credit.missing}</Text>}
       {credit.cds != null && (
-        <CurveGrid curve={credit.cds} tenors={catalogue?.tenors ?? Object.keys(credit.cds.spreads)} setText={setText} onVary={onVary}
+        <CurveGrid panelId={panelId} curve={credit.cds} tenors={catalogue?.tenors ?? Object.keys(credit.cds.spreads)} setText={setText} onVary={onVary}
           commandLabel={commandLabel} />
       )}
     </Stack>
@@ -134,7 +140,9 @@ function keyOf(field: string): keyof EffectiveCredit['choice'] {
  * bp. *Vary values…* on a spread makes a case per value (ADR-0010 §3). It shows no Selection Summary: a sum of spreads
  * at different tenors is no figure.
  */
-function CurveGrid({ curve, tenors, setText, onVary, commandLabel }: {
+function CurveGrid({ panelId, curve, tenors, setText, onVary, commandLabel }: {
+  /** The panel the page is in, which keeps the widths the user dragged in its grids. */
+  readonly panelId: string;
   readonly curve: EffectiveCds;
   readonly tenors: readonly string[];
   readonly setText: SetText;
@@ -144,7 +152,8 @@ function CurveGrid({ curve, tenors, setText, onVary, commandLabel }: {
   const source = useMemo(() => GridSource.from<Row>([], { rowKey: (r) => r.curveId }), []);
   useEffect(() => { source.replaceAll([curve]); }, [curve, source]);
   const tenorsKey = tenors.join('|');
-  const columns = useMemo(() => curveColumnsOf(tenorsKey.split('|')), [tenorsKey]);
+  const declared = useMemo(() => curveColumnsOf(tenorsKey.split('|')), [tenorsKey]);
+  const { columns, onColumnWidthChanged } = useColumnWidths(panelId, 'credit/curve', declared);
 
   // The server reads the spread and checks it; one it refuses keeps the editor open with its reason (ExGrid ADR-0380),
   // unless the user has cancelled the commit meanwhile.
@@ -164,7 +173,7 @@ function CurveGrid({ curve, tenors, setText, onVary, commandLabel }: {
 
   return (
     <div aria-label="CDS curve">
-      <WorkbenchGrid<Row> columns={columns} source={source} onEdit={onEdit} cellState={curveCellState} cellMessage={curveCellMessage}
+      <WorkbenchGrid<Row> columns={columns} onColumnWidthChanged={onColumnWidthChanged} source={source} onEdit={onEdit} cellState={curveCellState} cellMessage={curveCellMessage}
         contextCommands={contextCommands} commandLabel={commandLabel}
         density="compact" viewportWidth="stretch" viewportHeight={compactGridHeight(1)} pinnedColumnCount={2}
         showSelectionSummary={false} locale="en-US" />

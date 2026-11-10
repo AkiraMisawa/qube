@@ -62,7 +62,8 @@ export interface TradeCell {
 
 /** A column a module adds to the trade grids (ADR-0010 §10), by its field on a trade. `editable` says whether it is ever
  * typed; whether it may be now is its cell's. */
-export interface RegisteredColumn { readonly field: string; readonly title: string; readonly type: 'number' | 'text'; readonly editable: boolean; readonly module: string }
+/** A module's trade column; `amount` is money, shown as every amount is (C48), `number` any other figure. */
+export interface RegisteredColumn { readonly field: string; readonly title: string; readonly type: 'amount' | 'number' | 'text'; readonly editable: boolean; readonly module: string }
 
 /**
  * Whether a measure prices a trade, and why. Out is never silent: it says why. A measure priced per scope, as spot IM

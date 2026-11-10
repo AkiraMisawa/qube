@@ -70,7 +70,7 @@ public sealed class XvaMeasures(Pv01Provider pv01, decimal fvaLimitGbp = 1_000_0
     public IReadOnlyList<MeasureDefinition> Measures => Definitions;
 
     public IReadOnlyList<TradeColumn> TradeColumns { get; } =
-        [new(Pv01, "PV01", "number", false), new(Margin, "Margin (bp)", "number", true), new(PvAdj, "PV Adj", "number", true)];
+        [new(Pv01, "PV01", "amount", false), new(Margin, "Margin (bp)", "number", true), new(PvAdj, "PV Adj", "amount", true)];
 
     /// <summary>
     /// XVA's settings (ADR-0010 §8's note of 2026-11-09, DEFAULT): the MPOR override the exposure of a collateralised
@@ -676,7 +676,7 @@ public sealed class XvaModule : IWorkbenchModule
         builder.AddView(new ViewDefinition("view", CompositionValidator.SchemaVersion, XvaContracts.ResultView, "2.0.0", "CVA and FVA",
             new ViewLayout(1, 1),
             [new ViewComponent("result-grid", ComponentKind.Grid, "CVA and FVA (simulated)", new WorkflowOutputData(XvaMeasures.Module),
-                [new("caseTitle", "Case", ColumnFormat.Text), new("metricTitle", "Measure", ColumnFormat.Text), new("before", "Before", ColumnFormat.Number),
-                 new("after", "After", ColumnFormat.Number), new("diff", "Diff", ColumnFormat.Number), new("afterStatus", "Status", ColumnFormat.Status)], null)]));
+                [new("caseTitle", "Case", ColumnFormat.Text), new("metricTitle", "Measure", ColumnFormat.Text), new("before", "Before", ColumnFormat.Currency),
+                 new("after", "After", ColumnFormat.Currency), new("diff", "Diff", ColumnFormat.Currency), new("afterStatus", "Status", ColumnFormat.Status)], null)]));
     }
 }

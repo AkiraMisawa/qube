@@ -201,3 +201,26 @@ test('ADR-0008: a line is made from short words in any order, read against the p
   // The refusal is the server's 422, which the browser reports; it is the one console message this test expects.
   expect(problems.splice(0)).toEqual(['error: Failed to load resource: the server responded with a status of 422 (Unprocessable Entity)']);
 });
+
+test('ExGrid ADR-0016: a column dragged wider by its header grip keeps its width when its page comes back', async ({ page }) => {
+  await open(page);
+  await newWorkspace(page);
+  // A column in view at the left: off-screen columns, the result among them, are not in the DOM.
+  const product = lines(page).getByRole('columnheader', { name: 'Product', exact: true });
+  const width = async () => Math.round((await product.boundingBox())?.width ?? 0);
+  const before = (await product.boundingBox())!;
+
+  // The grip is the header's right edge; the width moves on release.
+  await page.mouse.move(before.x + before.width - 2, before.y + before.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(before.x + before.width + 98, before.y + before.height / 2, { steps: 10 });
+  await page.mouse.up();
+  await expect.poll(width).toBe(Math.round(before.width) + 100);
+
+  // Another tab unmounts the page; the width is the panel's, so it comes back with it.
+  await command(page, 'open pricing db');
+  await settled(page, 'Pricing DB');
+  await page.getByRole('tab', { name: 'Rates 2026-10-27' }).click();
+  await settled(page, 'Lines');
+  await expect.poll(width).toBe(Math.round(before.width) + 100);
+});

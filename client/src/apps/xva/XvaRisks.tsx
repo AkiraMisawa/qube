@@ -73,6 +73,7 @@ function Delta({ cell, label, reason }: { readonly cell: MetricCell; readonly la
   const word = cell.status !== 'priced' && cell.status !== 'pending';
   return (
     <Table.Td className={word ? 'qwb-number qwb-xva-result-word' : 'qwb-number'} data-status={cell.status} aria-label={`${label}: ${cell.text === '' ? 'none' : cell.text}`}
+      {...(cell.negative ? { 'data-negative': true } : {})}
       {...(word && reason !== undefined ? { title: reason } : {})}>{cell.text}</Table.Td>
   );
 }

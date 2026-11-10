@@ -3,6 +3,8 @@ import { actionColumn, type GridActionEvent, type GridColumn } from '@ex-grid/co
 import type { ExGridApi } from '@ex-grid/react';
 import { WorkbenchGrid } from './WorkbenchGrid';
 import type { Dataset, ViewAction, ViewColumn } from '../contracts';
+import { amountTone, formatAmount } from './amounts';
+import { useColumnWidths } from './columnWidths';
 
 // The adapter between a declarative grid component and ExGrid (ADR-0003 §3). ExGrid draws, scrolls,
 // selects and copies; it decides nothing. Rows keep their identity, so the grid compares them cheaply.
@@ -13,22 +15,30 @@ export const ACTIONS_COLUMN = 'Actions';
 
 const text = (value: unknown): string => (value === null || value === undefined ? '' : String(value));
 
-/** Maps a declared column onto an ExGrid column. A null number stays blank; it is never shown as 0. */
+/**
+ * Maps a declared column onto an ExGrid column. A null number stays blank; it is never shown as 0. A `currency`
+ * column is an amount of money, as its view declares it, never guessed from its title.
+ */
 export function gridColumnOf(column: ViewColumn, dataset: Dataset): GridColumn<Row> {
   const declared = dataset.columns.find((c) => c.field === column.field);
   if (declared === undefined) throw new Error(`Dataset "${dataset.title}" has no field ${column.field}.`);
-  const numeric = column.format === 'number' && (declared.type === 'number' || declared.type === 'integer');
+  const numeric = (column.format === 'number' || column.format === 'currency') && (declared.type === 'number' || declared.type === 'integer');
+  const amount = numeric && column.format === 'currency';
   return {
     name: column.field,
     header: column.label,
     type: numeric ? 'number' : 'text',
     value: (row: Row) => row[column.field] ?? undefined,
-    format: text,
+    format: amount ? formatAmount : text,
+    ...(amount ? { tone: amountTone } : {}),
     width: numeric ? 110 : column.format === 'status' ? 110 : 140,
   };
 }
 
-export function DatasetGrid({ dataset, columns, actions, onAction, registerFocus, label }: {
+export function DatasetGrid({ panelId, grid: gridKey, dataset, columns, actions, onAction, registerFocus, label }: {
+  readonly panelId: string;
+  /** Names this grid among its panel's, for the widths the user drags. */
+  readonly grid: string;
   readonly dataset: Dataset;
   readonly columns: readonly ViewColumn[];
   readonly actions: readonly ViewAction[];
@@ -44,6 +54,7 @@ export function DatasetGrid({ dataset, columns, actions, onAction, registerFocus
       ? mapped
       : [...mapped, actionColumn<Row>(ACTIONS_COLUMN, actions.map((a) => ({ name: a.actionId, label: a.label })), { width: 260 })];
   }, [columns, actions, dataset]);
+  const widths = useColumnWidths(panelId, gridKey, gridColumns);
 
   const handleAction = useCallback((event: GridActionEvent<Row>) => {
     const action = actions.find((a) => a.actionId === event.action);
@@ -62,7 +73,8 @@ export function DatasetGrid({ dataset, columns, actions, onAction, registerFocus
     <div aria-label={label} data-rows={dataset.rows.length}>
       <WorkbenchGrid<Row>
         ref={grid}
-        columns={gridColumns}
+        columns={widths.columns}
+        onColumnWidthChanged={widths.onColumnWidthChanged}
         rows={dataset.rows}
         onAction={handleAction}
         density="compact"

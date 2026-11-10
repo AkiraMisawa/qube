@@ -3,6 +3,7 @@ import { Alert, AppShell, CloseButton, Drawer, Group, Kbd, Loader, ScrollArea, S
 import { useMediaQuery } from '@mantine/hooks';
 import { useQuery } from '@tanstack/react-query';
 import type { Api } from './platform/api';
+import { telemetry } from './platform/telemetry';
 import { ViewRenderer } from './platform/views/ViewRenderer';
 import { WorkspaceProvider, useWorkspace } from './platform/workspace/WorkspaceProvider';
 import type { Panel } from './platform/workspace/workspaceStore';
@@ -25,7 +26,8 @@ export function App({ api, initialContext, agent }: {
 }) {
   const catalog = useQuery({ queryKey: ['catalog'], queryFn: () => api.catalog(), staleTime: Infinity });
   const [notice, setNotice] = useState<string | undefined>(undefined);
-  const notify = useCallback((message: string) => setNotice(message), []);
+  // A notice is what the user was told went wrong; the server's log keeps it too (ADR-0014).
+  const notify = useCallback((message: string) => { setNotice(message); telemetry.report({ level: 'warning', kind: 'notice', message }); }, []);
 
   if (catalog.isPending) return <Group p="xl"><Loader size="sm" /><Text>Loading the capability catalog…</Text></Group>;
   if (catalog.isError) return <Alert m="xl" color="red" title="The catalog could not be loaded">{catalog.error.message}</Alert>;
@@ -107,5 +109,5 @@ function PanelContent({ panel }: { readonly panel: Panel }) {
   const registerFocus = useCallback((focus: (() => void) | undefined) => registerGridFocus(panel.id, focus), [panel.id]);
   if (panel.kind === 'run') return <RunPanel panel={panel} />;
   if (panel.kind === 'app') return <AppPanel panel={panel} />;
-  return <ViewRenderer view={panel.view} outputs={{}} registerFocus={registerFocus} />;
+  return <ViewRenderer panelId={panel.id} view={panel.view} outputs={{}} registerFocus={registerFocus} />;
 }

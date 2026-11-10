@@ -12,6 +12,7 @@ const state = (overrides: Partial<WorkspaceState> = {}) => ({
   setPanelView: vi.fn(),
   closePanel: vi.fn(),
   cycle: vi.fn(),
+  activate: vi.fn(),
   requestContext: vi.fn(),
   ...overrides,
 }) as Parameters<typeof buildCommands>[0]['state'];
@@ -59,5 +60,28 @@ describe('palette commands', () => {
   it('ADR-0011 §7: `explain` says why it cannot run where nothing is open to explain', () => {
     const explain = build(catalog([], []), state({ showApp: vi.fn(), openAppDialog: vi.fn() })).find((c) => c.id === 'trace.explain')!;
     expect(explain.unavailable).toBe('Open an XVA workspace that has been priced, or a trace, first.');
+  });
+});
+
+// ADR-0006: `show panel` finds an open panel by typing part of its title, and names the candidates rather than guess.
+describe('show panel', () => {
+  const panels = [
+    { id: 'a', kind: 'run', title: 'XVA XYZ/LE-03', runId: 'r1', viewKey: undefined },
+    { id: 'b', kind: 'run', title: 'CVA/FVA XYZ/LE-03', runId: 'r2', viewKey: undefined },
+    { id: 'c', kind: 'run', title: 'Pricing DB', runId: 'r3', viewKey: undefined },
+  ] as const;
+
+  it('shows the panel a title or the only title containing the text names', () => {
+    const activate = vi.fn();
+    const show = build(catalog([], []), state({ panels: [...panels], activePanelId: 'a', activate })).find((c) => c.id === 'panel.show')!;
+    show.run({ panel: 'cva' });
+    show.run({ panel: 'pricing db' });
+    expect(activate.mock.calls).toEqual([['b'], ['c']]);
+  });
+
+  it('names the candidates back when the text fits several, and runs nothing', () => {
+    const show = build(catalog([], []), state({ panels: [...panels], activePanelId: 'a' })).find((c) => c.id === 'panel.show')!;
+    expect(show.args![0]!.check!('xyz', {})).toBe('2 panels match "xyz": XVA XYZ/LE-03, CVA/FVA XYZ/LE-03.');
+    expect(show.args![0]!.check!('rates', {})).toBe('No open panel is titled like "rates".');
   });
 });

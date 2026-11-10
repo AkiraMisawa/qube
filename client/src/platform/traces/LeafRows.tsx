@@ -8,6 +8,8 @@ import type { LeafSetKind, PairedLeafRow, Side, TraceAddress, TraceHeader } from
 import { leafFormulaTex } from './formula';
 import { Tex } from './Tex';
 import { SIDE_TITLE, sidesHolding } from './words';
+import { toneOf } from '../grid/amounts';
+import { useColumnWidths } from '../grid/columnWidths';
 
 // The leaf rows of a term (ADR-0011 §5, §6), or of every term below it (ADR-0012 §6's note of 2026-11-08): a grid paged
 // and sorted by the server, one side's columns at a time, each row saying which sides hold it and where a computed
@@ -22,6 +24,8 @@ export function mismatchText(row: PairedLeafRow, side: Side, set: LeafSetKind): 
 }
 
 const figure = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 6 });
+/** A column of amounts is red where one is negative (C48); a rate or a weight is never red for its sign. */
+const lossTone = toneOf((v) => figure.format(v));
 
 /** The side a grid of both shows first: After, the one a what-if asks about; a trace has at least one side. */
 function lastSide(header: TraceHeader): Side {
@@ -30,7 +34,9 @@ function lastSide(header: TraceHeader): Side {
   return side;
 }
 
-export function LeafRows({ api, address, header, path, set, rows }: {
+export function LeafRows({ panelId, api, address, header, path, set, rows }: {
+  /** The panel the trace is in, which keeps the widths the user dragged. */
+  readonly panelId: string;
   readonly api: TraceApi;
   readonly address: TraceAddress;
   readonly header: TraceHeader;
@@ -64,7 +70,7 @@ export function LeafRows({ api, address, header, path, set, rows }: {
   useEffect(() => () => source.dispose(), [source]);
   useEffect(() => setFocus(undefined), [source]);
 
-  const columns = useMemo((): readonly GridColumn<PairedLeafRow>[] => [
+  const declared = useMemo((): readonly GridColumn<PairedLeafRow>[] => [
     ...set.columns.map((c): GridColumn<PairedLeafRow> => {
       const numeric = c.unit !== undefined && c.unit !== null;
       return {
@@ -75,11 +81,13 @@ export function LeafRows({ api, address, header, path, set, rows }: {
           return v === null ? undefined : v;
         },
         ...(numeric ? { format: (v: unknown) => (typeof v === 'number' ? figure.format(v) : String(v)) } : {}),
+        ...(c.unit?.kind === 'amount' ? { tone: lossTone } : {}),
       };
     }),
     { name: 'membership', header: 'Sides', type: 'text', width: { auto: true, minPx: 96, maxPx: 200 }, queryable: false, value: (r) => sidesHolding(r, header.sides) },
     { name: 'mismatch', header: 'Reconciliation', type: 'text', width: { auto: true, minPx: 120, maxPx: 360 }, queryable: false, value: (r) => mismatchText(r, side, set) },
   ], [set, side, header.sides]);
+  const { columns, onColumnWidthChanged } = useColumnWidths(panelId, `trace/rows/${set.leafSet}`, declared, { hideColumnMenu: true });
 
   const rowsRef = useRef(source);
   rowsRef.current = source;
@@ -107,7 +115,7 @@ export function LeafRows({ api, address, header, path, set, rows }: {
         )}
       </Group>
       {failure !== undefined && <Alert color="red" variant="light" withCloseButton onClose={() => setFailure(undefined)} title="The rows could not be read">{failure}</Alert>}
-      <WorkbenchGrid<PairedLeafRow> columns={columns} source={source} density="compact" viewportWidth="stretch"
+      <WorkbenchGrid<PairedLeafRow> columns={columns} onColumnWidthChanged={onColumnWidthChanged} source={source} density="compact" viewportWidth="stretch"
         viewportHeight={compactGridHeight(Math.min(total === undefined ? 1 : Math.max(total, 1), 8))} pinnedColumnCount={1} locale="en-US" hideColumnMenu
         onSelectionChanged={onSelectionChanged} />
       {focus !== undefined && focusRow !== undefined && focusRow !== null && computed.length > 0 && (

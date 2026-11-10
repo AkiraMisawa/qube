@@ -185,8 +185,8 @@ export function TraceView({ panelId, address, api, registerFocus, root }: {
         </Alert>
       : view === undefined ? undefined
         : view.value === 'entities'
-          ? <EntityRows key={selectedPage.term.id} api={api} address={address} header={trace} path={selectedPage.term.id} set={view.set} />
-          : <LeafRows key={`${selectedPage.term.id}:${String(view.below)}`} api={api} address={address} header={trace} path={selectedPage.term.id} set={view.set}
+          ? <EntityRows key={selectedPage.term.id} panelId={panelId} api={api} address={address} header={trace} path={selectedPage.term.id} set={view.set} />
+          : <LeafRows key={`${selectedPage.term.id}:${String(view.below)}`} panelId={panelId} api={api} address={address} header={trace} path={selectedPage.term.id} set={view.set}
               rows={view.below ? { below: true } : { below: false, count: ownCount(selectedPage.term) }} />;
   const leafRows = shownBelow === undefined ? undefined : (
     <Stack gap="xs" data-testid="trace-below">
@@ -219,7 +219,7 @@ export function TraceView({ panelId, address, api, registerFocus, root }: {
       ) : (
         <div className="qwb-trace-body">
           <Stack gap="xs" className="qwb-trace-tree-part">
-            <TraceTree header={trace} rows={shown} selected={selectedId} onSelect={setSelected} onGoTo={select} onToggle={toggle} onMore={more}
+            <TraceTree panelId={panelId} header={trace} rows={shown} selected={selectedId} onSelect={setSelected} onGoTo={select} onToggle={toggle} onMore={more}
               place={place} registerFocus={registerFocus} />
             {leafRows}
           </Stack>

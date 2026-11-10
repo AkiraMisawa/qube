@@ -77,7 +77,8 @@ dotnet_root=$(nix develop -c bash -c 'echo "$DOTNET_ROOT"' 2>/dev/null | tail -1
 if [[ -n $as_user ]]; then
   [[ -n $host_dir && -n $token_file ]] || die "--as-user needs --host-dir and --token-file"
   sudo -v
-  sudo -H -u "$as_user" --preserve-env=AgentHost__Key,AgentHost__Url \
+  # OTEL_* passes through, so the host sends its telemetry where the workbench does (ADR-0014).
+  sudo -H -u "$as_user" --preserve-env=AgentHost__Key,AgentHost__Url,OTEL_EXPORTER_OTLP_ENDPOINT,OTEL_EXPORTER_OTLP_PROTOCOL \
     env AgentHost__Copilot__TokenFile="$token_file" DOTNET_ROOT="$dotnet_root" \
     bash -c 'cd "$1" && exec "$2/dotnet" Workbench.AgentHost.dll' _ "$host_dir" "$dotnet_root" &
 else

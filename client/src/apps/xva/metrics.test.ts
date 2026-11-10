@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { RegisteredMeasure } from './contracts';
-import { headlines, inMarket, marketsOf, metricsGrid, metricsTable, pricedMeasures, priceLabel, reasons, tradeCounts, type ModuleResult } from './metrics';
+import { diffOf, headlines, inMarket, marketsOf, metricsGrid, metricsTable, pricedMeasures, priceLabel, reasons, side, tradeCounts, type ModuleResult } from './metrics';
 
 // The Metrics dock as a pure reading of the Run (ADR-0010 §7): a line per case and measure metric, Before, After and
 // Diff, and a status in words where there is no figure. Every name and figure is synthetic.
@@ -23,9 +23,9 @@ describe('metricsTable', () => {
     const table = metricsTable(register, ['cva', 'fva'], { xva: answered([row('cva', 'cva', -100, -150), row('cva', 'cvaCharge', -125, -187.5), row('fva', 'fva', -10, -12)]) });
 
     expect(table.lines.map((l) => [l.measureTitle, l.metricTitle, l.before.text, l.after.text, l.diff.text])).toEqual([
-      ['CVA', 'CVA', '-100.00', '-150.00', '-50.00'],
-      ['CVA', 'CVA Charge', '-125.00', '-187.50', '-62.50'],
-      ['FVA', 'FVA', '-10.00', '-12.00', '-2.00'],
+      ['CVA', 'CVA', '-100', '-150', '-50'],
+      ['CVA', 'CVA Charge', '-125', '-188', '-63'],
+      ['FVA', 'FVA', '-10', '-12', '-2'],
     ]);
     expect(table.sides).toEqual({ before: true, after: true });
     expect(table.note).toBeUndefined();
@@ -43,7 +43,7 @@ describe('metricsTable', () => {
 
     const table = metricsTable([...register, capital], ['ccr.spotCapital'], { xva: answered([row('ccr.spotCapital', 'capital', null, 1_234.5)]) });
 
-    expect(table.lines.map((l) => [l.measureTitle, l.before.status, l.after.text])).toEqual([['Spot CCR capital', 'notPriced', '1,234.50']]);
+    expect(table.lines.map((l) => [l.measureTitle, l.before.status, l.after.text])).toEqual([['Spot CCR capital', 'notPriced', '1,235']]);
     expect(table.sides).toEqual({ before: false, after: true });
   });
 
@@ -85,7 +85,7 @@ describe('metricsTable', () => {
     expect(table.lines.map((l) => [l.metricTitle, l.after.text, l.diff.text, l.reason])).toEqual([
       ['CVA', 'refused', '', 'No CDS for ABC/LE-01.'],
       ['CVA Charge', 'refused', '', 'No CDS for ABC/LE-01.'],
-      ['FVA', '-12.00', '-2.00', undefined],
+      ['FVA', '-12', '-2', undefined],
     ]);
   });
 
@@ -124,7 +124,7 @@ describe('metricsGrid', () => {
     const grid = metricsGrid(metricsTable(register, ['cva', 'fva'], { xva: answered([row('cva', 'cva', -1, -2), row('cva', 'cvaCharge', -1.25, -2.5), row('fva', 'fva', -10, -12)]) }));
 
     expect(grid.columns.map((c) => c.metricTitle)).toEqual(['CVA', 'CVA Charge', 'FVA']);
-    expect(grid.rows.map((r) => [r.title, Object.values(r.cells).map((l) => l.after.text)])).toEqual([['Workspace', ['-2.00', '-2.50', '-12.00']]]);
+    expect(grid.rows.map((r) => [r.title, Object.values(r.cells).map((l) => l.after.text)])).toEqual([['Workspace', ['-2', '-3', '-12']]]);
   });
 
   it('a module that has not answered stands in every case, and alone names no case', () => {
@@ -206,9 +206,9 @@ describe('markets', () => {
   });
 
   it('ADR-0010 §4, §7: the Metrics and the collapsed line follow the scenario in view', () => {
-    expect(metricsGrid(inMarket(table, 's1')).rows.map((r) => r.cells['cva.cva']?.after.text)).toEqual(['-170.00']);
-    expect(headlines(register, inMarket(table, 'base')).map((l) => l.text)).toEqual(['Workspace · CVA Diff -50.00 · FVA Diff -5.00']);
-    expect(headlines(register, inMarket(table, 's1')).map((l) => l.text)).toEqual(['Workspace · CVA Diff -70.00 · FVA Diff -7.00']);
+    expect(metricsGrid(inMarket(table, 's1')).rows.map((r) => r.cells['cva.cva']?.after.text)).toEqual(['-170']);
+    expect(headlines(register, inMarket(table, 'base')).map((l) => l.text)).toEqual(['Workspace · CVA Diff -50 · FVA Diff -5']);
+    expect(headlines(register, inMarket(table, 's1')).map((l) => l.text)).toEqual(['Workspace · CVA Diff -70 · FVA Diff -7']);
   });
 
   it('ADR-0010 §4: a Run priced before scenarios is the base market alone, and a module not answered stands in every market', () => {
@@ -225,15 +225,24 @@ describe('headlines', () => {
   it('ADR-0010 §7: the collapsed dock gives each case each measure\'s headline Diff', () => {
     const table = metricsTable(register, ['cva', 'fva'], { xva: answered([row('cva', 'cva', -100, -150), row('cva', 'cvaCharge', -125, -187.5), row('fva', 'fva', -10, -12)]) });
 
-    expect(headlines(register, table)).toEqual([{ key: 'base', text: 'Workspace · CVA Diff -50.00 · FVA Diff -2.00' }]);
+    expect(headlines(register, table)).toEqual([{ key: 'base', text: 'Workspace · CVA Diff -50 · FVA Diff -2' }]);
   });
 
   it('ADR-0010 §7: a one-sided case shows its priced side, named, and a failed measure its word, never 0', () => {
     const oneSided = metricsTable(register, ['cva'], { xva: answered([row('cva', 'cva', null, -150), row('cva', 'cvaCharge', null, -187.5)]) });
     const failed = metricsTable(register, ['cva'], { xva: { kind: 'unavailable', reason: 'The engine is down.' } });
 
-    expect(headlines(register, oneSided).map((l) => l.text)).toEqual(['Workspace · CVA After -150.00']);
+    expect(headlines(register, oneSided).map((l) => l.text)).toEqual(['Workspace · CVA After -150']);
     expect(headlines(register, failed).map((l) => l.text)).toEqual(['All cases · CVA unavailable']);
   });
 });
 
+
+describe('a metric as an amount (C48)', () => {
+  it('shows every side and Diff in whole units, grouped, and marks a loss to be painted red, never one that rounds to 0', () => {
+    expect(side('priced', -1_234_567.6)).toEqual({ text: '-1,234,568', status: 'priced', negative: true });
+    expect(side('priced', 2_500.4)).toEqual({ text: '2,500', status: 'priced' });
+    expect(side('priced', -0.4)).toEqual({ text: '0', status: 'priced' });
+    expect(diffOf(side('priced', 10), side('priced', 4), -6)).toEqual({ text: '-6', status: 'priced', negative: true });
+  });
+});

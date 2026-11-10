@@ -1,0 +1,22 @@
+# The local monitoring stack (ADR-0014): one container with an OpenTelemetry Collector, Loki (logs), Tempo (traces),
+# Prometheus (metrics) and Grafana, which the workbench and the agent host send to over OTLP. Every port is bound to
+# this machine only: Grafana's first login is admin/admin. Data is kept in a named volume across restarts.
+#
+#   docker compose -f tools/observability/compose.yaml up -d      # Grafana on http://localhost:3000
+#   docker compose -f tools/observability/compose.yaml down       # stop it; add -v to forget what it kept
+name: quant-workbench-observability
+services:
+  lgtm:
+    image: grafana/otel-lgtm:0.36.0
+    ports:
+      - "127.0.0.1:3000:3000" # Grafana
+      - "127.0.0.1:4317:4317" # OTLP gRPC
+      - "127.0.0.1:4318:4318" # OTLP HTTP
+    volumes:
+      - lgtm-data:/data
+      - ./grafana/dashboards.yaml:/otel-lgtm/grafana/conf/provisioning/dashboards/custom.yaml:ro
+      - ./grafana/dashboards:/otel-lgtm/grafana/conf/provisioning/dashboards/custom:ro
+    environment:
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /otel-lgtm/grafana/conf/provisioning/dashboards/custom/workbench.json
+volumes:
+  lgtm-data:

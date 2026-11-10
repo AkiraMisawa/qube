@@ -30,6 +30,17 @@
   white-space: nowrap;
 }
 
+/* A negative amount is red, as finance reads it (C48, owner 2026-11-10): the figure, and its link to the trace, in red's
+   text colour, which reads at 4.5:1 in both schemes (docs/design-guidelines.md §7). A side's note beside it is not a
+   figure and keeps the text colour. */
+.qwb-xva .qwb-number[data-negative],
+.qwb-xva .qwb-number[data-negative] .qwb-xva-result-trace {
+  color: var(--mantine-color-red-text);
+}
+.qwb-xva .qwb-number[data-negative] .qwb-xva-result-cell-note {
+  color: var(--mantine-color-text);
+}
+
 /* A side's note (spot IM's governing regime, ADR-0012 §7) before its figure, a space apart, in the figure's colour:
    it is read with the figure, so it is never dimmed. Upright, as the figure is, whatever a word beside it is. */
 .qwb-xva-result-cell-note {

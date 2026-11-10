@@ -1,4 +1,4 @@
-import { call } from '../../platform/api';
+import { ApiError, call, send } from '../../platform/api';
 import type { RunRecord } from '../../platform/contracts';
 import type { ProductDescriptor } from '../../platform/products';
 import type { CarrySummary, CashflowsView, LiveFrame, MarketView, RatesWorkspaceView, Resolution } from './contracts';
@@ -53,8 +53,12 @@ export const httpRatesApi: RatesApi = {
   price: (workspaceId, revision, idempotencyKey, marketSnapshotId) => post(`${base(workspaceId)}/price`, { revision, idempotencyKey, marketSnapshotId }),
   startLive: (workspaceId) => post(`${base(workspaceId)}/live`, {}),
   stopLive: async (subscriptionId) => {
-    const response = await fetch(`/api/rates/live/${encodeURIComponent(subscriptionId)}`, { method: 'DELETE' });
-    if (!response.ok && response.status !== 404) throw new Error(`The live subscription could not be stopped (${response.status}).`);
+    try {
+      await send(`/api/rates/live/${encodeURIComponent(subscriptionId)}`, { method: 'DELETE' });
+    } catch (error) {
+      // A subscription that already ended is stopped.
+      if (!(error instanceof ApiError && error.status === 404)) throw error;
+    }
   },
   frames: (subscriptionId, onFrame, onEnded) => {
     const source = new EventSource(`/api/rates/live/${encodeURIComponent(subscriptionId)}/frames`);

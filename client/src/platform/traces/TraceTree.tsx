@@ -10,6 +10,7 @@ import { symbolTex } from './formula';
 import { Tex } from './Tex';
 import type { TreeRow } from './tree';
 import { SIDE_TITLE, allocationCell, allocationDiffCell, citationCell, diffCell, governedCell, governsMark, sideCell, stateCell, unitText } from './words';
+import { useColumnWidths } from '../grid/columnWidths';
 
 // The tree of terms (ADR-0011 §6) in ExGrid, drawn as ExPivot draws its Compact form: the term column is a pinned
 // Template Column with the label, its indent and the open/close button; the grid reports the press, and the page holds
@@ -124,7 +125,9 @@ function cellState(row: TreeRow, column: GridColumn<TreeRow>): CellState {
   return 'normal';
 }
 
-export function TraceTree({ header, rows, selected, onSelect, onGoTo, onToggle, onMore, place, registerFocus }: {
+export function TraceTree({ panelId, header, rows, selected, onSelect, onGoTo, onToggle, onMore, place, registerFocus }: {
+  /** The panel the trace is in, which keeps the widths the user dragged. */
+  readonly panelId: string;
   readonly header: TraceHeader;
   readonly rows: readonly TreeRow[];
   readonly selected: string | undefined;
@@ -148,7 +151,8 @@ export function TraceTree({ header, rows, selected, onSelect, onGoTo, onToggle, 
   // its paint and the Focus survives a change that moves no row (ADR-0141).
   const source = useMemo(() => GridSource.from<TreeRow>([], { rowKey: (r) => r.key }), []);
   const allocated = rows.some((r) => header.sides.some((side) => r.term?.[side]?.allocation !== undefined && r.term?.[side]?.allocation !== null));
-  const columns = useMemo(() => columnsOf(header, allocated), [header, allocated]);
+  const declared = useMemo(() => columnsOf(header, allocated), [header, allocated]);
+  const { columns, onColumnWidthChanged } = useColumnWidths(panelId, 'trace/tree', declared, { hideColumnMenu: true });
   const handlers = useRef({ onSelect, onGoTo, onToggle, onMore });
   handlers.current = { onSelect, onGoTo, onToggle, onMore };
   const selectedRef = useRef(selected);
@@ -226,7 +230,7 @@ export function TraceTree({ header, rows, selected, onSelect, onGoTo, onToggle, 
   return (
     <Actions.Provider value={actions}>
       <div aria-label="Terms" data-testid="trace-tree" data-rows={rows.length}>
-        <WorkbenchGrid<TreeRow> ref={grid} columns={columns} source={source} density="compact" viewportWidth="stretch" viewportHeight={height}
+        <WorkbenchGrid<TreeRow> ref={grid} columns={columns} onColumnWidthChanged={onColumnWidthChanged} source={source} density="compact" viewportWidth="stretch" viewportHeight={height}
           pinnedColumnCount={1} locale="en-US" headerClickSelects hideColumnMenu highlightFocusRow
           cellType={cellType} cellState={cellState} declaredKeys={DECLARED_KEYS} onDeclaredKey={onDeclaredKey} onSelectionChanged={onSelectionChanged} />
       </div>

@@ -1,9 +1,13 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Workbench.Composition.Contracts;
+using Tags = Workbench.Composition.Application.WorkbenchTelemetry.Tags;
 
 namespace Workbench.Composition.Application;
 
@@ -25,16 +29,18 @@ public sealed class RunService
     readonly IDataStore store;
     readonly IRunStore history;
     readonly TimeProvider clock;
+    readonly ILogger logger;
     readonly ConcurrentDictionary<string, RunRecord> live = new();
     readonly ConcurrentDictionary<string, Task> executions = new();
     readonly Lock gate = new();
 
-    public RunService(CompositionRegistry registry, IDataStore store, TimeProvider clock, IRunStore? history = null)
+    public RunService(CompositionRegistry registry, IDataStore store, TimeProvider clock, IRunStore? history = null, ILogger<RunService>? logger = null)
     {
         this.registry = registry;
         this.store = store;
         this.clock = clock;
         this.history = history ?? new InMemoryRunStore();
+        this.logger = logger ?? NullLogger<RunService>.Instance;
         // This process executes in-process: a Run another process left running stopped with it.
         foreach (var run in this.history.Unfinished())
             this.history.Complete(run with
@@ -131,6 +137,13 @@ public sealed class RunService
 
     async Task ExecuteAsync(RunRecord accepted)
     {
+        using var activity = WorkbenchTelemetry.Source.StartActivity($"run {accepted.Workflow.DefinitionId}");
+        activity?.SetTag(Tags.RunId, accepted.RunId);
+        activity?.SetTag(Tags.WorkflowId, accepted.Workflow.DefinitionId);
+        activity?.SetTag(Tags.Origin, accepted.Origin.ToString());
+        if (accepted.Relations.WorkspaceId is { } workspaceId) activity?.SetTag(Tags.WorkspaceId, workspaceId);
+        using var scope = logger.BeginScope(new Dictionary<string, object?> { ["RunId"] = accepted.RunId, ["WorkflowId"] = accepted.Workflow.DefinitionId });
+
         var invocations = new ConcurrentDictionary<string, InvocationRecord>();
         var order = new ConcurrentQueue<string>();
         void Record(InvocationRecord invocation)
@@ -150,6 +163,12 @@ public sealed class RunService
         {
             result = new(RunStatus.Failed, new Dictionary<string, TypedDataRef>(), new(failure.Code, failure.Message));
         }
+        catch (Exception failure)
+        {
+            // A fault of the workbench's own, not a capability's refusal: the Run ends failed rather than running forever.
+            logger.LogError(failure, "Run {RunId} failed unexpectedly", accepted.RunId);
+            result = new(RunStatus.Failed, new Dictionary<string, TypedDataRef>(), new("InternalError", "The workbench failed while executing this Run; it is logged with this Run's id."));
+        }
         var completed = live[accepted.RunId] with
         {
             Status = result.Status,
@@ -160,6 +179,20 @@ public sealed class RunService
         };
         history.Complete(completed);
         live.TryRemove(accepted.RunId, out _);
+
+        var status = completed.Status.ToString();
+        activity?.SetTag(Tags.RunStatus, status);
+        if (completed.Error is { } error)
+        {
+            activity?.SetTag(Tags.ErrorCode, error.Code);
+            activity?.SetStatus(ActivityStatusCode.Error, error.Message);
+        }
+        WorkbenchTelemetry.RunsCompleted.Add(1, new(Tags.WorkflowId, accepted.Workflow.DefinitionId), new(Tags.Origin, accepted.Origin.ToString()), new(Tags.RunStatus, status));
+        WorkbenchTelemetry.RunDuration.Record(((completed.CompletedAt ?? clock.GetUtcNow()) - accepted.AcceptedAt).TotalSeconds,
+            new(Tags.WorkflowId, accepted.Workflow.DefinitionId), new(Tags.RunStatus, status));
+        logger.Log(completed.Status == RunStatus.Succeeded ? LogLevel.Information : LogLevel.Warning,
+            "Run {RunId} of {WorkflowId} finished {RunStatus}{ErrorCode}", accepted.RunId, accepted.Workflow.DefinitionId, status,
+            completed.Error is null ? "" : $" ({completed.Error.Code})");
     }
 
     static string Digest(RunSubmission submission) => Hash(submission.IdempotencyBasis?.ToJsonString(WireJson.Options)

@@ -1,3 +1,4 @@
+import { formatAmount, isLoss } from '../../platform/grid/amounts';
 import type { RegisteredMeasure } from './contracts';
 
 // The Metrics dock as a reading of the Run (ADR-0010 §7, §10): a line per case and measure metric with Before, After
@@ -12,6 +13,8 @@ export interface MetricCell {
   readonly status: CellStatus;
   /** Said beside a side's figure, never a figure itself: spot IM's governing regime (ADR-0010 §7's note of 2026-11-08). */
   readonly note?: string | undefined;
+  /** A figure shown as a loss, painted red beside its minus sign (C48). */
+  readonly negative?: true;
 }
 
 export interface MetricLine {
@@ -56,7 +59,8 @@ export type ModuleResult =
   | { readonly kind: 'rows'; readonly rows: readonly Readonly<Record<string, unknown>>[] }
   | { readonly kind: 'unavailable'; readonly reason: string };
 
-const money = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+/** A priced figure: every metric is an amount (C48), grouped in threes, in whole units, and red when it is a loss. */
+const figure = (value: number) => ({ text: formatAmount(value), ...(isLoss(value) ? { negative: true as const } : {}) });
 
 const PENDING: MetricCell = { text: '…', status: 'pending' };
 const UNAVAILABLE: MetricCell = { text: 'unavailable', status: 'unavailable' };
@@ -69,7 +73,7 @@ const NO_DIFF: MetricCell = { text: '', status: 'notPriced' };
 export function side(status: unknown, value: unknown, note?: unknown): MetricCell {
   switch (status) {
     case 'priced': return typeof value === 'number' && Number.isFinite(value)
-      ? { text: money.format(value), status: 'priced', ...(text(note) === undefined ? {} : { note: text(note) }) }
+      ? { ...figure(value), status: 'priced', ...(text(note) === undefined ? {} : { note: text(note) }) }
       : UNAVAILABLE;
     case 'notPriced': return { text: 'not priced', status: 'notPriced' };
     case 'refused': return { text: 'refused', status: 'refused' };
@@ -80,7 +84,7 @@ export function side(status: unknown, value: unknown, note?: unknown): MetricCel
 /** The Diff exists only where both sides were priced; a one-sided or refused line has none, a failed one says so. */
 export function diffOf(before: MetricCell, after: MetricCell, value: unknown): MetricCell {
   if (before.status === 'priced' && after.status === 'priced')
-    return typeof value === 'number' && Number.isFinite(value) ? { text: money.format(value), status: 'priced' } : UNAVAILABLE;
+    return typeof value === 'number' && Number.isFinite(value) ? { ...figure(value), status: 'priced' } : UNAVAILABLE;
   if (before.status === 'pending' || after.status === 'pending') return PENDING;
   if (before.status === 'unavailable' || after.status === 'unavailable') return UNAVAILABLE;
   return NO_DIFF;

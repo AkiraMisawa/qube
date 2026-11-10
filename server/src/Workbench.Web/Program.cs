@@ -16,6 +16,7 @@ using Workbench.Samples.Xva;
 using Workbench.Web;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.AddObservability();
 builder.Services.ConfigureHttpJsonOptions(o =>
 {
     foreach (var converter in WireJson.Options.Converters) o.SerializerOptions.Converters.Add(converter);
@@ -130,6 +131,7 @@ switch (agentRuntime)
 builder.Services.AddSingleton(new CurrentUser(builder.Configuration["Workbench:DemoUser"] ?? "demo"));
 
 var app = builder.Build();
+app.UseRequestLogging();
 // Resolve the registry now, so an invalid registered definition stops startup instead of a later request.
 app.Services.GetRequiredService<CompositionRegistry>();
 
@@ -138,9 +140,11 @@ app.MapXvaApi();
 app.MapRatesApi();
 app.MapProductsApi();
 app.MapAgentApi();
+app.MapClientTelemetry();
 app.UseDefaultFiles();
 app.UseStaticFiles();
 app.MapFallbackToFile("index.html");
+app.LogDestination();
 app.Run();
 
 string Required(string key) => builder.Configuration[key] is { Length: > 0 } value

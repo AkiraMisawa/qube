@@ -1,4 +1,9 @@
+using System.Diagnostics;
 using System.Text.Json.Nodes;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+using Workbench.Composition.Application;
+using Tags = Workbench.Composition.Application.WorkbenchTelemetry.Tags;
 
 namespace Workbench.Agent;
 
@@ -16,8 +21,10 @@ sealed class AgentRunaway(string message) : Exception(message);
 /// the server, asks the configured runtime for each turn, invokes the tool calls it proposes through the tool
 /// gateway, and records every step as AG-UI events. The runtime proposes; only this loop acts.
 /// </summary>
-public sealed class AgentService(IAgentRuntime runtime, AgentToolGateway tools, AgentThreads threads)
+public sealed class AgentService(IAgentRuntime runtime, AgentToolGateway tools, AgentThreads threads, ILogger<AgentService>? logger = null)
 {
+    readonly ILogger log = logger ?? NullLogger<AgentService>.Instance;
+
     /// <summary>Tool calls a run may make before it is stopped as a runaway.</summary>
     public const int MaxToolCalls = 16;
 
@@ -54,23 +61,41 @@ public sealed class AgentService(IAgentRuntime runtime, AgentToolGateway tools, 
 
     async Task RunAsync(AgentThread thread, AgentRun run, IReadOnlyList<AgentContext> context, string userId)
     {
+        // The conversation's words are not logged or tagged: they may hold what the user would not have written down.
+        using var activity = WorkbenchTelemetry.Source.StartActivity("agent run");
+        activity?.SetTag(AgentTelemetry.ThreadId, run.ThreadId);
+        activity?.SetTag(AgentTelemetry.RunId, run.RunId);
+        activity?.SetTag(AgentTelemetry.Runtime, runtime.Info.Name);
+        var outcome = "finished";
         try
         {
             run.Append(AgUiEvents.RunStarted(run.ThreadId, run.RunId, runtime.Info));
             await runtime.RunAsync(new(run.ThreadId, run.RunId, thread.Messages, tools.Tools, context), new Sink(thread, run, tools, userId), run.Cancellation);
+            if (run.Cancellation.IsCancellationRequested) outcome = "cancelled";
             run.Append(AgUiEvents.RunFinished(run.ThreadId, run.RunId, cancelled: run.Cancellation.IsCancellationRequested), last: true);
         }
         catch (OperationCanceledException) when (run.Cancellation.IsCancellationRequested)
         {
+            outcome = "cancelled";
             run.Append(AgUiEvents.RunFinished(run.ThreadId, run.RunId, cancelled: true), last: true);
         }
         catch (AgentRunaway runaway)
         {
+            outcome = "runaway";
+            log.LogWarning("Agent run {AgentRunId} on thread {AgentThreadId} was stopped: {Reason}", run.RunId, run.ThreadId, runaway.Message);
             run.Append(AgUiEvents.RunError("TooManyToolCalls", runaway.Message), last: true);
         }
         catch (Exception failure)
         {
+            outcome = "failed";
+            activity?.SetStatus(ActivityStatusCode.Error, failure.Message);
+            log.LogError(failure, "Agent run {AgentRunId} on thread {AgentThreadId} failed in {AgentRuntime}", run.RunId, run.ThreadId, runtime.Info.Name);
             run.Append(AgUiEvents.RunError("AgentFailed", $"{runtime.Info.Label} failed: {failure.Message}"), last: true);
+        }
+        finally
+        {
+            activity?.SetTag(Tags.Outcome, outcome);
+            AgentTelemetry.Runs.Add(1, new(AgentTelemetry.Runtime, runtime.Info.Name), new(Tags.Outcome, outcome));
         }
     }
 
@@ -101,7 +126,12 @@ public sealed class AgentService(IAgentRuntime runtime, AgentToolGateway tools, 
             foreach (var e in AgUiEvents.ToolCall(call, messageId)) run.Append(e);
             thread.Add(new AgentMessage(messageId, "assistant", null, [call]));
             // A command once invoked is not interrupted: its effect may already be in place (ADR-0007 §4).
+            using var activity = WorkbenchTelemetry.Source.StartActivity($"agent tool {call.Name}");
+            activity?.SetTag(AgentTelemetry.Tool, call.Name);
             var result = await tools.InvokeAsync(call, userId, thread.ThreadId, CancellationToken.None);
+            var outcome = result.Succeeded ? "done" : "refused";
+            activity?.SetTag(Tags.Outcome, outcome);
+            AgentTelemetry.ToolCalls.Add(1, new(AgentTelemetry.Tool, call.Name), new(Tags.Outcome, outcome));
             var resultId = NewId("msg");
             thread.Add(AgentMessage.Tool(resultId, call.Id, result.Text));
             run.Append(AgUiEvents.ToolCallResult(resultId, call.Id, result.Text));

@@ -97,6 +97,33 @@ test('UX03: on a phone-width screen the page does not scroll sideways and runs b
   expect(overflow).toBe(0);
 });
 
+test('ADR-0006: Ctrl+N and Ctrl+P move through the command line\'s list as the arrows do, and show panel names a panel', async ({ page }) => {
+  await open(page);
+  await command(page, 'open pricing db');
+  await settled(page, 'Pricing DB');
+  await command(page, 'new rates');
+  // The dialog's field takes the keyboard as it mounts; Enter before that goes nowhere.
+  await expect(page.getByRole('dialog', { name: 'New Rates workspace' }).getByLabel('Valuation date')).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('tab', { name: 'Rates 2026-10-27' })).toHaveAttribute('aria-selected', 'true');
+
+  await page.keyboard.press('ControlOrMeta+K');
+  await page.keyboard.type('panel');
+  const options = page.getByRole('listbox', { name: 'Commands' }).getByRole('option');
+  const highlighted = page.getByRole('listbox', { name: 'Commands' }).getByRole('option', { selected: true });
+  const first = await options.nth(0).textContent();
+  const second = await options.nth(1).textContent();
+  await expect(highlighted).toHaveText(first!);
+  await page.keyboard.press('Control+n');
+  await expect(highlighted).toHaveText(second!);
+  await page.keyboard.press('Control+p');
+  await expect(highlighted).toHaveText(first!);
+  await page.keyboard.press('Escape');
+
+  await command(page, 'show panel', 'pricing');
+  await expect(page.getByRole('tab', { name: 'Pricing DB' })).toHaveAttribute('aria-selected', 'true');
+});
+
 // ADR-0009: what only a browser shows. A header control a few pixels off its neighbours, or a header taller than the
 // space AppShell keeps for it, still passes every other test; both were on screen before ADR-0009.
 for (const width of [1440, 992, 768, 390]) {

@@ -19,12 +19,27 @@ import { aiContextOf } from '../ai/effects';
 import { appCommands } from '../apps';
 
 /**
+ * The open panel a typed title names: the one titled so, else the only one whose title contains the text. Two of one
+ * title, or a part that several contain, are named back rather than guessed between.
+ */
+export function panelTitled(panels: readonly Panel[], text: string): { readonly panel: Panel } | { readonly reason: string } {
+  const t = text.trim().toLowerCase();
+  if (t === '') return { reason: 'Type the title of an open panel.' };
+  const exact = panels.filter((p) => p.title.toLowerCase() === t);
+  const matching = exact.length > 0 ? exact : panels.filter((p) => p.title.toLowerCase().includes(t));
+  if (matching.length === 1) return { panel: matching[0]! };
+  return matching.length === 0
+    ? { reason: `No open panel is titled like "${text.trim()}".` }
+    : { reason: `${matching.length} panels match "${text.trim()}": ${matching.map((p) => p.title).join(', ')}.` };
+}
+
+/**
  * Builds every command the workbench offers right now. Workflows, views and context values come from
  * the catalog, so a module that registers a workflow gets its command without a client change.
  */
 export function buildCommands(args: {
   readonly catalog: Catalog;
-  readonly state: Pick<WorkspaceState, 'panels' | 'activePanelId' | 'context' | 'openRunDialog' | 'setPanelView' | 'closePanel' | 'cycle' | 'requestContext' | 'showApp' | 'openAppDialog'>;
+  readonly state: Pick<WorkspaceState, 'panels' | 'activePanelId' | 'context' | 'openRunDialog' | 'setPanelView' | 'closePanel' | 'cycle' | 'activate' | 'requestContext' | 'showApp' | 'openAppDialog'>;
   readonly activeRun: RunRecord | undefined;
   readonly toggleTheme: () => void;
   readonly notify: (message: string) => void;
@@ -114,6 +129,19 @@ export function buildCommands(args: {
       shortcut: 'mod+alt+ArrowLeft',
       ...(state.panels.length < 2 ? { unavailable: 'There is no other panel.' } : {}),
       run: () => state.cycle(-1),
+    },
+    {
+      id: 'panel.show',
+      words: 'show panel',
+      title: 'Show an open panel by its title',
+      group: 'Panels',
+      args: [{
+        name: 'panel', required: true, rest: true, hint: 'its title, or a part of it',
+        complete: () => state.panels.map((p) => ({ value: p.title })),
+        check: (text) => { const named = panelTitled(state.panels, text); return 'reason' in named ? named.reason : undefined; },
+      }],
+      ...(state.panels.length === 0 ? { unavailable: 'No panel is open.' } : {}),
+      run: (a) => { const named = panelTitled(state.panels, a.panel ?? ''); if ('panel' in named) state.activate(named.panel.id); },
     },
     {
       id: 'panel.close',
@@ -286,9 +314,14 @@ export function CommandPalette() {
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+    // Ctrl+N and Ctrl+P move as the arrows do (owner, 2026-10-28): literal Ctrl, so not Cmd on a Mac, and never while an
+    // IME is composing, whose keys are its own.
+    const emacs = event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey && !event.nativeEvent.isComposing;
+    const key = event.key.toLowerCase();
+    const step = event.key === 'ArrowDown' || (emacs && key === 'n') ? 1 : event.key === 'ArrowUp' || (emacs && key === 'p') ? -1 : 0;
+    if (step !== 0) {
       event.preventDefault();
-      if (items.length > 0) setHighlight((at + (event.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length);
+      if (items.length > 0) setHighlight((at + step + items.length) % items.length);
     } else if (event.key === 'Tab') {
       event.preventDefault();
       if (chosen !== undefined) takeItem(chosen);

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { EffectiveTrade, RegisteredColumn, TradeCell } from './contracts';
-import { cellMessage, cellRefusal, cellState, cellText, cellValue, moduleColumns, parseCellNumber } from './cells';
+import { amountText, cellMessage, cellRefusal, cellState, cellValue, figureText, moduleColumns, parseCellNumber } from './cells';
 
 // ADR-0010 §6, §10: a module's trade columns show what the server answers for each cell, PV01 pending or failed as a
 // word and never as 0, and are typed only where the cell says so.
@@ -11,7 +11,7 @@ const trade = (cells: Record<string, TradeCell>, original?: Record<string, unkno
   issues: [], held: [], overridden: [], cells, ...(original === undefined ? {} : { original }),
 });
 
-const pvAdj: RegisteredColumn = { field: 'xva.pvAdj', title: 'PV Adj', type: 'number', editable: true, module: 'xva' };
+const pvAdj: RegisteredColumn = { field: 'xva.pvAdj', title: 'PV Adj', type: 'amount', editable: true, module: 'xva' };
 
 describe("a module's trade cells", () => {
   it('holds a pending or failed PV01 as its word, a figure as a number, and an empty cell as a Blank', () => {
@@ -20,7 +20,7 @@ describe("a module's trade cells", () => {
     expect(cellValue({ state: 'value', value: -1_500, editable: false })).toBe(-1_500);
     expect(cellValue({ state: 'value', editable: true })).toBeUndefined();
     expect(cellValue(undefined)).toBeUndefined();
-    expect([cellText(-3_000), cellText('pending')]).toEqual(['-3,000', 'pending']);
+    expect([amountText(-3_000.4), amountText('pending')]).toEqual(['-3,000', 'pending']);
   });
 
   it('draws pending as missing and failed as an error, and marks a typed Margin against an empty Original', () => {
@@ -48,9 +48,20 @@ describe("a module's trade cells", () => {
   });
 
   it('makes one grid column per registered column, neither sorted nor filtered by the grid', () => {
-    const columns = moduleColumns([{ field: 'xva.pv01', title: 'PV01', type: 'number', editable: false, module: 'xva' }, pvAdj]);
+    const columns = moduleColumns([{ field: 'xva.pv01', title: 'PV01', type: 'amount', editable: false, module: 'xva' }, pvAdj]);
 
     expect(columns.map((c) => [c.name, c.header, c.editable, c.queryable])).toEqual([['xva.pv01', 'PV01', false, false], ['xva.pvAdj', 'PV Adj', true, false]]);
+  });
+
+  it('C48: shows an amount column as every amount, red when negative, and a margin in bp to its digits, never red', () => {
+    const [pv01, margin] = moduleColumns([
+      { field: 'xva.pv01', title: 'PV01', type: 'amount', editable: false, module: 'xva' },
+      { field: 'xva.margin', title: 'Margin (bp)', type: 'number', editable: true, module: 'xva' },
+    ]);
+
+    expect([pv01?.type, pv01?.format?.(-1_234.56), pv01?.tone?.(-1_234.56), pv01?.tone?.(-0.4)]).toEqual(['number', '-1,235', 'negative', 'none']);
+    expect([margin?.type, margin?.format?.(-0.125), margin?.tone]).toEqual(['number', '-0.125', undefined]);
+    expect(figureText('pending')).toBe('pending');
   });
 
   it("ADR-0013 §3: draws SA-CCR's class of a trade as words in a text column, and a trade it refuses as an error saying why", () => {
@@ -60,7 +71,7 @@ describe("a module's trade cells", () => {
 
     expect([column?.type, column?.width]).toEqual(['text', { auto: true, minPx: 120, maxPx: 280 }]);
     expect(column?.value(swap)).toBe('Interest rate · JPY · 1-5y · long');
-    expect(cellText(column?.value(swap))).toBe('Interest rate · JPY · 1-5y · long');
+    expect(column?.format?.(column.value(swap))).toBe('Interest rate · JPY · 1-5y · long');
     expect([cellValue(refused['cells']?.['ccr.class']), cellState(refused, 'ccr.class'), cellMessage(refused, 'ccr.class')])
       .toEqual(['failed', 'error', 'SA-CCR cannot decompose a CDS.']);
   });

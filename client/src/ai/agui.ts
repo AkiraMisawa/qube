@@ -1,6 +1,5 @@
 import { EventType, type BaseEvent, type Context, type RunAgentInput } from '@ag-ui/core';
-import { ApiError, call } from '../platform/api';
-import type { ErrorEnvelope } from '../platform/contracts';
+import { ApiError, call, send } from '../platform/api';
 
 // The AI pane's side of AG-UI (ADR-0007 §1): a run is posted as RunAgentInput and its events are read as server-sent
 // events. A run belongs to the server: a stream that breaks is read again from the last event it delivered, never
@@ -48,27 +47,16 @@ export const httpAgentTransport: AgentTransport = {
   },
 
   async cancel(threadId, runId) {
-    const response = await fetch(`/api/agent/threads/${encodeURIComponent(threadId)}/runs/${encodeURIComponent(runId)}/cancel`, { method: 'POST' });
-    if (!response.ok) throw await refusal(response);
+    await send(`/api/agent/threads/${encodeURIComponent(threadId)}/runs/${encodeURIComponent(runId)}/cancel`, { method: 'POST' });
   },
 };
 
 async function open(path: string, init: RequestInit): Promise<Response> {
-  const response = await fetch(path, { ...init, headers: { 'content-type': 'application/json', accept: 'text/event-stream' } });
-  if (!response.ok) throw await refusal(response);
+  // In a trace of its own, so the agent's run on the server, and the agent host's turn, are found from the request; a
+  // stream the server failed or never answered is reported as any other call is (ADR-0014 §4).
+  const response = await send(path, { ...init, headers: { accept: 'text/event-stream' } });
   if (response.body === null) throw new Error('The agent answered without a stream.');
   return response;
-}
-
-async function refusal(response: Response): Promise<ApiError> {
-  const text = await response.text();
-  let envelope: ErrorEnvelope;
-  try {
-    envelope = JSON.parse(text) as ErrorEnvelope;
-  } catch {
-    envelope = { code: `Http${response.status}`, message: text || response.statusText, issues: [] };
-  }
-  return new ApiError(response.status, envelope);
 }
 
 /** Reads `data:` frames until the stream closes. A frame that is not an AG-UI event fails the read. */

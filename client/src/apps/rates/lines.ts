@@ -1,6 +1,7 @@
 import type { CellState, GridColumn, GridHeaderGroup } from '@ex-grid/core';
 import { actionColumn, gridHeaderRequiredPx } from '@ex-grid/core';
 import { parseBoolean, parseNumber, type Parsed } from '../xva/editing';
+import { amountTone, formatAmount } from '../../platform/grid/amounts';
 import type { LineView, LiveFrame, PeriodView } from './contracts';
 
 // The line grid's model (C40, C43): a line's flat fields as columns, the second level of each leg shown on
@@ -176,7 +177,6 @@ export function periodParserOf(field: string): ((text: string) => Parsed) | unde
   }
 }
 
-const amount = new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 });
 const millions = new Intl.NumberFormat('en-US', { maximumFractionDigits: 6 });
 /** A notional in millions, as typed: 1,000 for a billion, 2.5 for two and a half million. */
 const inMillions = (v: unknown) => millions.format((v as number) / MILLION);
@@ -306,8 +306,10 @@ function legColumns(leg: 1 | 2, level: LegLevel): GridColumn<LineRow>[] {
   return level === 'conventions' ? terms : [...terms, folded(`leg${leg}.overrides`, 'Overrides', (row) => legOverrides(row.view.fields, leg), 240)];
 }
 
-const figure = (name: string, header: string, type: GridColumn<LineRow>['type'], width: number, read: (f: LineFigures) => unknown, format: (v: unknown) => string): GridColumn<LineRow> => ({
+const figure = (name: string, header: string, type: GridColumn<LineRow>['type'], width: number, read: (f: LineFigures) => unknown, format: (v: unknown) => string,
+  tone?: GridColumn<LineRow>['tone']): GridColumn<LineRow> => ({
   name, header, type, width: fitted(header, width), queryable: false, value: (row) => (row.figures === undefined ? undefined : read(row.figures) ?? undefined), format,
+  ...(tone === undefined ? {} : { tone }),
 });
 
 export const ACTIONS = 'Actions';
@@ -331,7 +333,7 @@ export function lineColumns(layout: LineLayout): readonly GridColumn<LineRow>[] 
     ...legColumns(1, layout.leg1),
     ...legColumns(2, layout.leg2),
     // The outputs after the inputs (owner, 2026-11-04): what was calculated, then whether and why a line was not.
-    figure('pv', 'PV', 'number', 140, (f) => f.pv, (v) => amount.format(v as number)),
+    figure('pv', 'PV', 'number', 140, (f) => f.pv, formatAmount, amountTone),
     figure('pvCurrency', 'Ccy', 'text', 44, (f) => f.pvCurrency, plain),
     figure('par', 'Par %', 'number', 84, (f) => f.par, (v) => pct.format(v as number)),
     figure('status', 'Status', 'text', 82, (f) => f.status, plain),
@@ -436,7 +438,7 @@ export function lineResult(row: LineRow): LineResult {
     line: row.line,
     status: f === undefined ? 'none' : f.status,
     stale: row.figuresStale,
-    ...(f?.pv === undefined ? {} : { pv: `${amount.format(f.pv)}${f.pvCurrency === undefined ? '' : ` ${f.pvCurrency}`}` }),
+    ...(f?.pv === undefined ? {} : { pv: `${formatAmount(f.pv)}${f.pvCurrency === undefined ? '' : ` ${f.pvCurrency}`}` }),
     ...(f?.par === undefined ? {} : { par: `${pct.format(f.par)}%`, parLabel: f.parMeasure === 'fairSpread' ? 'Fair spread' : 'Par rate' }),
     ...(issues === undefined ? {} : { issues }),
   };

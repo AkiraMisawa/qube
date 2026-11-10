@@ -12,10 +12,12 @@ static class AgentHostProgram
         if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || !uri.IsLoopback)
             throw new InvalidOperationException($"AgentHost:Url is {url}; the agent host listens on a loopback address only.");
         builder.WebHost.UseUrls(url);
+        builder.AddObservability();
         CopilotBackendOptions.LoadToken(builder.Configuration);
         builder.Services.AddSingleton(CopilotBackendOptions.From(builder.Configuration, builder.Environment));
         builder.Services.AddSingleton<IModelBackend, CopilotBackend>();
         await using var app = AgentHostApp.Build(builder);
+        app.LogDestination();
         await app.RunAsync();
     }
 }

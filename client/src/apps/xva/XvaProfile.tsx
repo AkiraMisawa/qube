@@ -9,13 +9,13 @@ import { mantineChartChrome } from '@ex-grid/chart-mantine';
 import type { RegisteredMeasure } from './contracts';
 import { chartSeries, profilesOf, profileTable, type ProfileTable, type ProfileValue } from './profiles';
 import { useRequestRows } from './requestRows';
+import { formatAmount, isLoss } from '../../platform/grid/amounts';
 
 // The Profile tab (the owner's Profile of 2026-11-08): the profiles the Run returned
 // for the case and the market in view, chosen one at a time, as a table of its dates and a chart of the same points,
 // Before and After, each series shown or hidden from the chart's legend. ExChart draws the chart (ex-grid's
 // `@ex-grid/chart-react`, in Mantine's Chrome); its width is the one the browser reports for its box, never read here.
 
-const money = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const years = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 });
 const CHART_HEIGHT = 280;
 
@@ -60,10 +60,15 @@ export function XvaProfile({ runId, measures, register, caseId, scenario }: {
 
 const SIDES = [['before', 'Before'], ['after', 'After'], ['diff', 'Diff']] as const;
 
+/** An exposure as every amount is shown (C48): grouped in threes, in whole units, red when negative; blank where none. */
+function Figure({ value }: { readonly value: ProfileValue }) {
+  if (value === undefined) return <Table.Td className="qwb-number" />;
+  return <Table.Td className="qwb-number" {...(isLoss(value) ? { 'data-negative': true } : {})}>{formatAmount(value)}</Table.Td>;
+}
+
 /** The profile's dates, each series' sides: a side with no point at a date, past its last maturity, is blank, never 0. */
 function ProfileGrid({ table }: { readonly table: ProfileTable }) {
   const sides = SIDES.filter(([side]) => (side === 'diff' ? table.sides.before && table.sides.after : table.sides[side]));
-  const cell = (v: ProfileValue) => (v === undefined ? '' : money.format(v));
   return (
     <div className="qwb-xva-scroll" data-testid="xva-profile-table">
       <Table withTableBorder withColumnBorders verticalSpacing={4} horizontalSpacing="sm" fz="sm" aria-label={`${table.profile.title} profile`}>
@@ -83,7 +88,7 @@ function ProfileGrid({ table }: { readonly table: ProfileTable }) {
               <Table.Th scope="row" fw={400} className="qwb-nowrap">{r.date}</Table.Th>
               <Table.Td className="qwb-number">{years.format(r.years)}</Table.Td>
               {table.series.flatMap((s) => sides.map(([side]) => (
-                <Table.Td key={`${s.id}.${side}`} className="qwb-number">{cell(r.values[s.id]?.[side])}</Table.Td>
+                <Figure key={`${s.id}.${side}`} value={r.values[s.id]?.[side]} />
               )))}
             </Table.Tr>
           ))}
