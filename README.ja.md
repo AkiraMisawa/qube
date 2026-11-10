@@ -1,6 +1,6 @@
 # Claude Codeへの引き継ぎ資料
 
-作成日：2026年10月24日。仮称：Quant Workbench。
+作成日：2026年10月24日。名称：Qube（quant bench から。2026年11月10日までの仮称は Quant Workbench）。
 
 ## 今回作るもの
 

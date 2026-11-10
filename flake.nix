@@ -1,5 +1,5 @@
 {
-  description = "Quant Workbench: .NET and Node toolchain (nix-managed), the same pins as ex-grid's flake";
+  description = "Qube: .NET and Node toolchain (nix-managed), the same pins as ex-grid's flake";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 

@@ -23,7 +23,7 @@ What ExGrid offers React is recorded in
 | Concern | Choice |
 |---|---|
 | Language and framework | React + TypeScript |
-| Components, layout, theming, command interfaces | Mantine, themed into a distinct Quant Workbench visual system rather than default styling |
+| Components, layout, theming, command interfaces | Mantine, themed into a distinct Qube visual system rather than default styling |
 | Grids, spreadsheet interaction, pivots, supported charts | The ExGrid family through its React adapters (`@ex-grid/react`, `sheet-react`, `pivot-react`, `chart-react`, `board-react`) |
 | Server state | TanStack Query |
 | Client workspace state | Zustand, workspace-scoped; domain logic is not coupled to it ([ADR-0003](0003-client-state-and-the-effective-pricing-input.md)) |

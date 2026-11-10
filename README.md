@@ -1,4 +1,4 @@
-# Quant Workbench
+# Qube
 
 A keyboard-first workbench in which capabilities, workflows, views and context are composed rather
 than hard-wired into pages ([ADR-0002](docs/adr/0002-the-product-is-a-keyboard-first-workbench-and-the-generic-slice-comes-first.md)).

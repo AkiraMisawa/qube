@@ -1,4 +1,4 @@
--- Quant Workbench: illustrative local-demo SQLite schema, revision 1.
+-- Qube: illustrative local-demo SQLite schema, revision 1.
 -- Design scaffold; not a complete production migration or authorization model.
 -- Requires SQLite JSON functions. Enable foreign_keys on EVERY connection.
 -- All timestamps are application-written UTC ISO-8601 strings.
@@ -402,6 +402,6 @@ BEFORE UPDATE ON ResultDataset
 BEGIN SELECT RAISE(ABORT, 'ResultDataset is immutable; create a derived result'); END;
 
 INSERT INTO SchemaVersion(version, description, applied_at)
-VALUES (1, 'Illustrative Quant Workbench local schema', '2026-10-24T00:00:00Z');
+VALUES (1, 'Illustrative Qube local schema', '2026-10-24T00:00:00Z');
 
 COMMIT;
