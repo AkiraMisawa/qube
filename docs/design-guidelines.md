@@ -235,13 +235,13 @@ Seen while writing this, and not fixed by ADR-0009's change:
 
 - On a phone, the Rates toolbar wraps to several rows; a phone may want its secondary actions in a menu.
 - A grid's Action Column buttons (Rates' `Flows` and `✕`) are drawn by ExGrid's core, not by the Wrapper, and read
-  as the browser's own grey buttons in both themes. Seen after the switch to `@ex-grid/mantine`; to be raised with
-  ex-grid.
+  as the browser's own grey buttons in both themes. Seen after the switch to `@ex-grid/mantine`; still so in 0.2.0,
+  ex-grid#553.
 - A required context field's message repeats its name (`As of: asOf is required.`), because `validate` names the
   field and the message is shown without its label.
 - Touch sizes have not been checked on an iPhone (UX02).
-- In a grid's column menu, `@ex-grid/mantine` 0.2.0-beta.3 draws a disabled item as a filled grey block, where
-  Mantine's own Menu only dims the text. That is the Wrapper's, to be reported to ex-grid, not patched here.
+- In a grid's column menu, `@ex-grid/mantine` (0.2.0-beta.3, still so in 0.2.0) draws a disabled item as a filled grey
+  block, where Mantine's own Menu only dims the text. That is the Wrapper's, ex-grid#552, not patched here.
 
 ## References
 

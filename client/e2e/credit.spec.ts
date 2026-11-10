@@ -203,8 +203,8 @@ test('the owner\'s Profile of 2026-11-08: the Profile tab draws the exposure and
   await page.keyboard.press('Enter');
   await expect(entry).toHaveAttribute('aria-pressed', 'false');
   await expect(exposure.getByRole('columnheader', { name: 'EE After' })).toBeVisible();
-  // ExChart paints its legend again on a toggle, and the entry painted does not keep the keyboard (0.2.0-beta.3).
-  await entry.focus();
+  // The entry keeps the keyboard across the redraw a toggle makes (ExChart ADR-0271), so a second Enter shows it again.
+  await expect(entry).toBeFocused();
   await page.keyboard.press('Enter');
   await expect(entry).toHaveAttribute('aria-pressed', 'true');
 

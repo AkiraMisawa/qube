@@ -41,13 +41,15 @@ it names client technology; the behaviour it describes is unchanged.
 
 **DEFAULT (record a reason before changing):**
 
-- **Consuming ExGrid.** Install `@ex-grid/*` from npm at one exact prerelease version for the whole
-  family (the packages depend on each other at exactly their own version), and import the stylesheet
+- **Consuming ExGrid.** Install `@ex-grid/*` from npm at one exact version for the whole family (the
+  packages depend on each other at exactly their own version), and import the stylesheet
   `@ex-grid/core` ships (`@ex-grid/core/styles.css`). Record the version in `IMPLEMENTATION_STATUS.md`.
   Moving the version is a deliberate change.
   *(Changed 2026-11-04: ex-grid published its packages to npm as `0.2.0-beta.3`, with the stylesheet
   inside `@ex-grid/core`. Until then `@ex-grid/*` was unpublished, and this project packed tarballs and
   copied `ex-grid.min.css` from a pinned ex-grid commit into `vendor/ex-grid/`; both are removed.)*
+  *(Changed 2026-11-10: ex-grid released `0.2.0`, its first version on npm that is not a prerelease, and
+  this project moved to it; the rule said "one exact prerelease version" only because none was released.)*
 - **Theming ExGrid.** Every grid is drawn by ExGrid's Mantine Wrapper, `@ex-grid/mantine`, at the
   family's version, through one component of this repository (`client/src/platform/grid/WorkbenchGrid.tsx`),
   with its stylesheet `@ex-grid/mantine/styles.css` loaded after Mantine's and the core's. The Wrapper

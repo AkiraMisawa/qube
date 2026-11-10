@@ -53,7 +53,7 @@ Every provider is simulated. All data is synthetic and labelled as such on scree
 
 ### ExGrid
 
-- `@ex-grid/core`, `@ex-grid/data`, `@ex-grid/react` and `@ex-grid/mantine` `0.2.0-beta.3` from npm (since 2026-11-04; before that, tarballs packed from ex-grid commit `3bf523d` in `vendor/ex-grid/`). Since 2026-11-06 (ADR-0009) every grid is `WorkbenchGrid`, ExGrid drawn by its Mantine Wrapper; the stylesheets are `@ex-grid/core/styles.css` and `@ex-grid/mantine/styles.css`.
+- `@ex-grid/core`, `@ex-grid/data`, `@ex-grid/react` and `@ex-grid/mantine`, with `@ex-grid/chart`, `@ex-grid/chart-react` and `@ex-grid/chart-mantine` since step 5, at `0.2.0` from npm (since 2026-11-10; `0.2.0-beta.3` from 2026-11-04; before that, tarballs packed from ex-grid commit `3bf523d` in `vendor/ex-grid/`). Since 2026-11-06 (ADR-0009) every grid is `WorkbenchGrid`, ExGrid drawn by its Mantine Wrapper; the stylesheets are `@ex-grid/core/styles.css` and `@ex-grid/mantine/styles.css`.
 - A key sent to a newly drawn grid before it carries its Settled Mark is lost, by ExGrid's own contract. Browser tests wait for the mark, as ex-grid's own tests do.
 - ExGrid's TypeScript core has no touch support yet.
 
@@ -332,8 +332,8 @@ provider is wired.
 ### Known limits
 
 - No column filters, and no *in FVA* filter, on the trade grids yet (§6).
-- The Before and After fills wait on ExGrid's Split Fill (ex-grid ADR-0490, PR #545); until step 3 every change
-  differs on both sides and wears `modified`.
+- The Before and After fills wait on step 3, which uses ExGrid's Split Fill (ex-grid ADR-0490, PR #545, released in
+  `0.2.0`); until then every change differs on both sides and wears `modified`.
 - No *Add CSA*; the CSA type is the source's and read-only (DEFAULT); the trades show no start date. (The Credit tab
   and the Settings section came with step 5.)
 - PV is a metric of CVA's (DEFAULT): the request that prices CVA values the portfolio.
@@ -400,9 +400,9 @@ provider is wired.
 - The trace view is a panel the page and `explain` open. It is not yet a component a declarative view can name
   (ADR-0011 §6's first sentence), nor opened from the Pricing DB, and a leaf row has no action to its trade's row on
   the page yet (§6's leaf set): the XVA page cannot yet be asked to show a trade.
-- In the light theme ExGrid Mantine draws a marked heading's words in the primary, a colour made for a 3:1 line; the
-  workbench sets the mark to the primary's text colour (`theme.css`). The Wrapper's default fails 4.5:1 with an
-  amber primary, which is ex-grid's to fix.
+- In the light theme ExGrid Mantine draws a marked heading's line in the primary's filled amber, 2.04:1 on the marked
+  heading's grey; the workbench sets the mark to the primary's text colour (`theme.css`), 5.78:1. Its words read
+  6.62:1 by the Wrapper's own token since ExGrid 0.2.0 (ex-grid#550). The line is ex-grid's to fix (ex-grid#556).
 - The SA-CCR class column is on the New grid only: the Existing grid takes no module columns yet.
 - SA-CCR's inputs are not yet sections of the page (ADR-0013 §6): the counterparty's risk weight facts, the CSA terms
   only SA-CCR reads and the collateral come from the synthetic sources and cannot be edited, until the Credit tab
@@ -750,13 +750,46 @@ so a collateralised trade's exposure is what moves over its margin period, and e
 
 ### Known limits
 
-- ExChart paints its legend again on a toggle, and the entry it paints does not keep the keyboard (0.2.0-beta.3): a
-  keyboard user toggling two series moves focus back by hand. To be raised in ex-grid.
 - A command that opens an input tab while the dock is full now brings the inputs back (`openTab`), so the keyboard
   lands on what it opened.
 - Advanced configuration is the engine's (OPEN); the risks' bumps are fixed (DEFAULT); a delta table is a
   Mantine table, as the Metrics are, not a grid.
 - What CVA Charge is computed from beside the charge ratio is the engine's (ADR-0010 OPEN).
+
+## ExGrid 0.2.0 (2026-11-10)
+
+### What runs
+
+- The seven `@ex-grid/*` packages move from `0.2.0-beta.3` to `0.2.0`, the first release that is not a prerelease
+  (ADR-0001 says "one exact version" now). 0.2.0 is 0.2.0-rc.4's code; from beta.3 its public surface only adds
+  (Find All, `highlightFocusColumn`, `moveReference`, the Split Fill's `lowerRightFill`), so no call changed.
+- What 0.2.0 fixed is no longer worked around: ExChart's legend keeps the keyboard across a toggle (ex-grid PR #548),
+  so `e2e/credit.spec.ts` no longer focuses the entry again and reads that it kept the keyboard; and a marked
+  heading's words take the Wrapper's own token (ex-grid#550), so the light scheme's override in `theme.css` now
+  colours only the line, which the Wrapper still leaves in the primary's filled amber (ex-grid#556).
+- 0.2.0-rc.3's behaviour changes (a Window holding a null row or a Row Key twice is refused by name; a header band
+  past the browser's scroll limit is refused) meet nothing here: no test or page shows either refusal.
+- What a user sees changes only by the fixes 0.2.0 carries (ExChart's legend and its open table keep the keyboard);
+  no page takes up what 0.2.0 added yet (the Split Fill is ADR-0010 Delivery step 3's).
+
+### Verification performed
+
+| Suite | Result |
+|---|---|
+| `npm run typecheck`, `npx vitest run` | Clean; 197 passed |
+| `npx playwright test` (Chromium, headless, Linux) | 50 passed; the Profile test of `e2e/credit.spec.ts` (the legend toggled twice by keyboard alone) with `--repeat-each=3` |
+| Contrast in Chrome, the trace tree's marked Term at 1440 × 900 | light: words 6.62:1, the line 5.78:1 (2.04:1 without `theme.css`'s override), the Focus outline 2.70:1; dark: words 8.74:1, the line 6.57:1 |
+
+`dotnet test` was not run for this change: nothing under `server/` moved (the browser run builds and starts the host).
+
+### Known limits
+
+- In the light theme the grid's Focus outline is the primary's filled amber (`#e38800`), 2.70:1 on the white body,
+  where docs/design-guidelines.md §7 asks 3:1 of a focus indicator. Measured for the first time here; it is the
+  Wrapper's mapping (ex-grid#556) and was the same on 0.2.0-beta.3. Not patched in `theme.css`, because the Focus's
+  colour is a design choice of the owner's.
+- ExGrid's Mantine Wrapper still draws a disabled column-menu item as a grey block (ex-grid#552) and the Action
+  Column's buttons in the browser's colours (ex-grid#553).
 
 ## Next
 
