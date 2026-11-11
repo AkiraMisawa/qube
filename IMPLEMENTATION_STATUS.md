@@ -253,7 +253,7 @@ The provider and the market are simulated. Real holiday calendars, the confirmed
 
 - **Server logs** through Serilog (C49): the console, a daily CLEF file (`App_Data/logs`, 14 kept), and OTLP when `OTEL_EXPORTER_OTLP_ENDPOINT` is set. Each process says at startup where its telemetry goes. A request is logged only when it was refused (warning) or failed (error).
 - **Traces and metrics** through OpenTelemetry: ASP.NET Core, HttpClient and runtime instrumentation, and the kernel's `Qube` source and meter (BCL types only): spans `run {workflow}`, `invoke {capability}`, `command {capability}`, `agent run`, `agent tool {name}`; metrics for Runs (by workflow, origin, status; duration), commands, agent runs and tool calls, and the browser's events. RunId, workspace, step, capability, origin, outcome and agent thread ride as tags and log properties. The agent host exports the same way, and the workbench's calls carry their trace context to it.
-- **The browser** sends a `traceparent` with every call and reports uncaught errors, unhandled rejections, render errors, failed or unanswered calls (5xx, network) and the notices it showed, in batches to `POST /api/telemetry/client`; the server logs them as `Qube.Client` in the call's trace.
+- **The browser** sends a `traceparent` with every call and reports uncaught errors, unhandled rejections, render errors, failed or unanswered calls (5xx, network) and the notices it showed (since 2026-11-11 the refused ones only, ADR-0006's note 2 of that day), in batches to `POST /api/telemetry/client`; the server logs them as `Qube.Client` in the call's trace.
 - A Run that throws something other than a capability's refusal now ends `Failed` with `InternalError`, logged with its RunId; it used to stay `running`.
 - **Local stack**: `tools/observability/compose.yaml` runs `grafana/otel-lgtm` 0.36.0 on ports bound to localhost, with the provisioned *Qube* dashboard (`docs/running-with-observability.md`).
 - Versions: OpenTelemetry.Extensions.Hosting and Exporter.OpenTelemetryProtocol 1.19.1; Instrumentation.AspNetCore, .Http and .Runtime 1.19.0; Serilog.AspNetCore 10.0.0; Serilog.Sinks.OpenTelemetry 4.2.0; Microsoft.Extensions.Logging.Abstractions 10.0.0 in the kernel.
@@ -896,11 +896,81 @@ so a collateralised trade's exposure is what moves over its margin period, and e
 - `WORKBENCH_PORT`, `WORKBENCH_DB` and `WORKBENCH_API` are ignored without a word if still set; only the host's own
   keys are checked.
 
+## Generic commands, delivery step 0: the review's fixes (ADR-0016, ADR-0006's notes of 2026-11-11)
+
+ADR-0016 was accepted on 2026-11-11, when the owner asked for every step of its Delivery order to be built. Step 0 is
+the four fixes of the command review of 2026-11-10 that need no decision of the design
+(`docs/specs/commands-0-review-fixes`). What a command does on the server is unchanged; the one server change is the
+reader of a flag's words, which a product's term now shares with a cell.
+
+### What runs
+
+- **A line that cannot be read stays open** (note 1). A command reads its arguments before it does anything and
+  throws its reason as a `CommandRefused`; `execute` answers it, and the line keeps its text and shows the reason
+  where it shows a missing argument. Anything else a command throws is a defect and is thrown on. `set <trade> a`,
+  `vary CSA-A threshold` and `scenario duplicate s1` closed without a word. A chord that cannot run says why in a
+  notice (`focus grid` with no panel open: `focus grid: No panel is open.`).
+- **A notice has a kind** (note 2, ADR-0016 §6), stated by what raises it and never read from its text: `done` is
+  teal with a tick and `role="status"`, and leaves after six seconds unless the pointer or the keyboard is on it, each
+  by a hold of its own; `refused` is red with a cross and `role="alert"`, and stays until it is closed or replaced. A
+  done notice that counts edits in conflict or lost stays too. It is drawn over the top of the main area and takes no
+  room, so no grid moves when a command answers. Only refused notices are reported to the server's log (ADR-0014 §4).
+- **Commands that edit say what they did**, in titles: `before none` says `Cleared Before on 2 existing trades.`, from
+  the line or from the caption's buttons; Price on the XVA page says the Run it was accepted as. A refused edit names
+  its row and its column as the screen does (`CSA-A Ccy was not changed: …`, `The measures were not changed: …`), on
+  XVA and on Rates, never an entity's key or a field's name in the code.
+- **A flag is read one way** (note 4): `on`, `off`, `yes`, `no`, `true`, `false`, `y`, `n`, in any case, in a trade
+  grid's B and A cells, a CSA's flags, Rates' flags, `set`, and a product's `flag` term on the page and on the server
+  (`FlagWords.Read`). The hints of `set` and `vary` show a trade and a CSA of the open workspace; they showed an id no
+  workspace has.
+- **The empty line and `?` list the page's commands first** (note 3), under the active panel's title, then each group
+  of the other commands that can run, the applications' before the workflows' and the shell's, and on the empty line
+  what cannot run now, last, each with its reason. Nothing is highlighted in these two lists, so Enter alone runs
+  nothing and says to choose or to type: Ctrl+K and Enter would have priced. A list is cut at 200 commands or 50
+  values and then says how many more there are. The placeholder names the first three commands of that list, so it
+  follows the page.
+
+### Verification performed
+
+| What | Result |
+|---|---|
+| `dotnet test server/Qube.slnx` | 605 passed |
+| Client: `npm run typecheck`, `npm test`, `npm run build` | 253 passed in 31 files |
+| `npx playwright test` (Chromium, headless, Linux) | 62 passed |
+| The eight browser tests of ADR-0006's notes 1 to 4 (four of them one per width), each with `--repeat-each=3` | 24 passed |
+| Looked at in Chromium: a done and a refused notice, the empty line's list and the line after Enter alone, in both schemes at 1440, 992, 768 and 390 px | A notice lies under the header and inside the page at each width, and wraps to three lines on a phone; a refused one lies over the panel's tabs until it is closed; a heading reads as one, and no command is highlighted until an arrow chooses |
+| Code review (`code-review`, two axes, since `78415af`) | Its findings are fixed in this step, but those the Known limits name |
+
+### Providers
+
+Unchanged: every figure on these pages is simulated, and says so.
+
+### Known limits
+
+- The reason is shown at Enter. While a line is typed nothing reads it yet: that is the server's preview, step 1.
+- `set` and `vary` are still read on the client (`setTyped`, `varyTyped`), and a result does not yet say how a value
+  was read or how many rows it changed (the review's F4): both move with step 1's `entity.set` and its result.
+- When the server refuses a command the line has already closed, and the reason is a refused notice: keeping the line
+  open then needs the preview (step 1) and the chain key (step 2).
+- No list of the sample modules passes a cap, so the line `N more: type to narrow.` is held by a unit test of the
+  count and was not seen in a browser.
+- `measures` and `currency` say nothing when they are done: the toolbar's controls show what they set.
+- `Cleared Before on N existing trades.` counts the grid's rows, not the rows whose value changed: rows changed is
+  step 1's result.
+- A carry that leaves edits in conflict or lost was not made in a browser: that its notice stays is held by the unit
+  test of `leavesByItself`.
+- A refused notice lies over the panel's tabs until it is closed or replaced, at every width.
+- Not done here: history in the line, a run button on a phone, search words a command declares (the review's F10,
+  F12, F15), and Rates' three command defects of 2026-11-10 (with Rates' registration, step 3).
+
 ## Next
 
-1. MVA with SIMM (`docs/12-implementation-plan.md` P2): spot IM from the XVA request's MVA option.
-2. ADR-0010 Delivery step 3 (Advanced: Before-only and After-only edits, the split fill), when the owner asks for it.
-3. The owner's review of ADR-0003 §7 (scopes, carry and conflict), then a synthetic source change that can produce a conflict, and the browser cases still open above (reload, failed case unavailable).
-4. Rates.
-5. ME-ID sign-in through MSAL (C30) and the visibility rules (C31, C32); AI over AG-UI with the company's Copilot behind the adapter port (C34).
-6. Slice 01b: Save and Pin (CO06), and the browser parts of CO03 and CO04.
+1. Generic commands, delivery step 1 (ADR-0016): tables, forms, the selector, `entity.set`, `reset` and `remove`,
+   `undo` and `redo`, and the preview, with XVA's tables registered. Its first act is to measure a batch over 10,000
+   rows and its `undo`.
+2. MVA with SIMM (`docs/12-implementation-plan.md` P2): spot IM from the XVA request's MVA option.
+3. ADR-0010 Delivery step 3 (Advanced: Before-only and After-only edits, the split fill), when the owner asks for it.
+4. The owner's review of ADR-0003 §7 (scopes, carry and conflict), then a synthetic source change that can produce a conflict, and the browser cases still open above (reload, failed case unavailable).
+5. Rates.
+6. ME-ID sign-in through MSAL (C30) and the visibility rules (C31, C32); AI over AG-UI with the company's Copilot behind the adapter port (C34).
+7. Slice 01b: Save and Pin (CO06), and the browser parts of CO03 and CO04.

@@ -3,6 +3,7 @@ import { Alert, AppShell, CloseButton, Drawer, Group, Kbd, Loader, ScrollArea, S
 import { useMediaQuery } from '@mantine/hooks';
 import { useQuery } from '@tanstack/react-query';
 import type { Api } from './platform/api';
+import type { Notice, Notify } from './platform/notices';
 import { telemetry } from './platform/telemetry';
 import { ViewRenderer } from './platform/views/ViewRenderer';
 import { WorkspaceProvider, useWorkspace } from './platform/workspace/WorkspaceProvider';
@@ -10,6 +11,7 @@ import type { Panel } from './platform/workspace/workspaceStore';
 import { AppHeader, HEADER_HEIGHT } from './shell/AppHeader';
 import { CommandPalette } from './shell/CommandPalette';
 import { ContextIssues } from './shell/ContextBar';
+import { NoticeStrip } from './shell/Notice';
 import { RunDialog } from './shell/RunDialog';
 import { AppDialogs, AppPanel } from './apps';
 import { RunPanel } from './shell/RunPanel';
@@ -25,9 +27,15 @@ export function App({ api, initialContext, agent }: {
   readonly agent?: AgentTransport;
 }) {
   const catalog = useQuery({ queryKey: ['catalog'], queryFn: () => api.catalog(), staleTime: Infinity });
-  const [notice, setNotice] = useState<string | undefined>(undefined);
-  // A notice is what the user was told went wrong; the server's log keeps it too (ADR-0014).
-  const notify = useCallback((message: string) => { setNotice(message); telemetry.report({ level: 'warning', kind: 'notice', message }); }, []);
+  const [notice, setNotice] = useState<Notice | undefined>(undefined);
+  // A notice is a command's result (ADR-0006's note 2 of 2026-11-11). A refused one is what the user was told went
+  // wrong, and the server's log keeps it too (ADR-0014 §4).
+  const notify = useCallback<Notify>((kind, message, options) => {
+    // A new object each time: the same words said again are a new notice, with its own time on screen.
+    setNotice({ kind, message, ...(options?.stays === true ? { stays: true } : {}) });
+    if (kind === 'refused') telemetry.report({ level: 'warning', kind: 'notice', message });
+  }, []);
+  const clearNotice = useCallback(() => setNotice(undefined), []);
 
   if (catalog.isPending) return <Group p="xl"><Loader size="sm" /><Text>Loading the capability catalog…</Text></Group>;
   if (catalog.isError) return <Alert m="xl" color="red" title="The catalog could not be loaded">{catalog.error.message}</Alert>;
@@ -35,13 +43,13 @@ export function App({ api, initialContext, agent }: {
   return (
     <WorkspaceProvider api={api} catalog={catalog.data} initialContext={initialContext} notify={notify}>
       <AiProvider {...(agent === undefined ? {} : { transport: agent })}>
-        <Shell notice={notice} clearNotice={() => setNotice(undefined)} />
+        <Shell notice={notice} clearNotice={clearNotice} />
       </AiProvider>
     </WorkspaceProvider>
   );
 }
 
-function Shell({ notice, clearNotice }: { readonly notice: string | undefined; readonly clearNotice: () => void }) {
+function Shell({ notice, clearNotice }: { readonly notice: Notice | undefined; readonly clearNotice: () => void }) {
   const aiOpen = useAi((s) => s.open);
   const ai = useAiContext().store;
   // The AI pane is beside the panels (ADR-0007 §7). On a phone, where there is no room beside, it is a drawer over
@@ -54,10 +62,8 @@ function Shell({ notice, clearNotice }: { readonly notice: string | undefined; r
         <AppHeader />
       </AppShell.Header>
       <AppShell.Main>
+        <NoticeStrip notice={notice} onClose={clearNotice} />
         <ContextIssues />
-        {notice !== undefined && (
-          <Alert color="yellow" variant="light" mb="sm" role="status" withCloseButton onClose={clearNotice} data-testid="notice">{notice}</Alert>
-        )}
         <Panels />
       </AppShell.Main>
       <AppShell.Aside>{aiOpen && !phone && <AiPane />}</AppShell.Aside>

@@ -1,11 +1,14 @@
 # ADR-0016: Commands are generic verbs over registered tables, declared once for the line, the buttons and the AI
 
-Status: PROPOSED 2026-11-10, not yet accepted; every decision below is a DEFAULT until the owner confirms it. Raised by
-the owner after a review of the pricer's commands found that trades can be picked by command only as all, none, or a
-list of exact ids: "I want commands to be as generic as possible. Not only the XVA trade selection: think about how
-commands should be designed for operating this workbench's applications in general" (2026-11-10). Completes ADR-0006 §1
-and its first consequence, and ADR-0010 §9's generic `set`. Amends ADR-0005 §5 and ADR-0008's forms, and adds to
-ADR-0003's log entry. Changes nothing a Run does. Nothing here is implemented.
+Status: ACCEPTED 2026-11-11. The owner asked that day for every step of the Delivery order to be implemented, each
+through `/implement`, without a question at each step; this record takes that as his confirmation of §1 to §5, which
+was the first item under Open. A decision marked DEFAULT stays a DEFAULT, and what is still Open is settled when its
+slice is reached (CLAUDE.md, "Decision handling"). Proposed 2026-11-10, raised by the owner after a review of the
+pricer's commands found that trades can be picked by command only as all, none, or a list of exact ids: "I want
+commands to be as generic as possible. Not only the XVA trade selection: think about how commands should be designed
+for operating this workbench's applications in general" (2026-11-10). Completes ADR-0006 §1 and its first consequence,
+and ADR-0010 §9's generic `set`. Amends ADR-0005 §5 and ADR-0008's forms, and adds to ADR-0003's log entry. Changes
+nothing a Run does. What is built is said step by step under "Delivery order".
 
 ## Context
 
@@ -457,7 +460,9 @@ log cannot yet say which entries were one command, or what an entry replaced.
 ### Delivery order (DEFAULT)
 
 0. The review's fixes that need no decision (an error is always shown; notices by kind; one spelling for a flag; the
-   list's order). Independent of this ADR.
+   list's order). Independent of this ADR. **Built 2026-11-11** (`docs/specs/commands-0-review-fixes`); what it settled
+   is ADR-0006's notes of that day. A sentence that says how a value was read and how many rows it changed (§6) comes
+   with step 1's result, not here.
 1. Tables, forms, the selector, `entity.set`/`reset`/`remove`, `undo` and `redo`, the preview; XVA registers. `set
    where ccy=USD after off` works with its count and can be taken back, and `set` completes.
 2. The grid's selection (`selected`, `shown`), the context on the line down to the focused cell, `go` and `find`,
@@ -481,8 +486,6 @@ log cannot yet say which entries were one command, or what an entry replaced.
 
 ## Open
 
-- The owner's confirmation of §1 to §5 as written: the direction; `set <rows> <field> <value>` as the one form for
-  row sets, with the short forms kept; resolved rows in the log; the page's writes through the gateway.
 - How many selected ids the pane gives the agent as context before it gives only their count.
 - How an edit over many matched rows, and its `undo`, are recorded so the workspace stays fast. A batch writes one
   log entry a row today. The owner's sizing (2026-11-10): a workspace holds at most about 10,000 trades, and about

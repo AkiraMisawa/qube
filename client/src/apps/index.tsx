@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useState, type ReactNode } from 'react';
 import { Button, Group, Modal, NumberInput, Select, Stack, Text, TextInput } from '@mantine/core';
 import { useQuery } from '@tanstack/react-query';
-import type { Command } from '../platform/commands/commands';
+import { CommandRefused, type Command } from '../platform/commands/commands';
 import { termCompletions, termParts, type ProductDescriptor } from '../platform/products';
 import { parserOf } from './rates/lines';
 import { useWorkspace, useWorkspaceContext } from '../platform/workspace/WorkspaceProvider';
@@ -11,7 +11,7 @@ import { httpRatesApi, type RatesApi } from './rates/api';
 import { ratesCommandsOf } from './rates/commands';
 import { RatesWorkspacePanel } from './rates/RatesWorkspacePanel';
 import { httpXvaApi, type XvaApi } from './xva/api';
-import { cdsCompletions, measureNamed, measuresTyped, setTyped, varyTyped, xvaPageOf } from './xva/commands';
+import { cdsCompletions, measureNamed, measuresTyped, setHint, setTyped, varyHint, varyTyped, xvaPageOf } from './xva/commands';
 import { generatorParts, scenarioParts, scenarioTyped } from './xva/scenarios';
 import { XvaWorkspacePanel } from './xva/XvaWorkspacePanel';
 import { registerAiContext, registerAiEffect } from '../ai/effects';
@@ -131,9 +131,13 @@ function TracePanel({ panel }: { readonly panel: Extract<Panel, { kind: 'app' }>
 /** A command's word that must be one of a few, refused by name otherwise. */
 function oneOf<T extends string>(value: string | undefined, options: readonly T[], words: string): T {
   const found = options.find((o) => o === value);
-  if (found === undefined) throw new Error(`${words} needs one of ${options.join(', ')}.`);
+  if (found === undefined) throw new CommandRefused(`${words} needs one of ${options.join(', ')}.`);
   return found;
 }
+
+/** What a command of the page in this panel says of itself: what it acts on, and that the empty line lists it first
+ * (ADR-0006's note 3 of 2026-11-11). */
+const onPage = (panel: Panel): Pick<Command, 'target' | 'page'> => ({ target: panel.title, page: true });
 
 export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDialog' | 'panels' | 'activePanelId'>): Command[] {
   const active = state.panels.find((p) => p.id === state.activePanelId);
@@ -143,7 +147,8 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
   const xva = xvaPanel?.id;
   const rates = ratesPanel?.id;
   // What an XVA command acts on, or why it cannot: every XVA command but `new xva` needs the page.
-  const onXva = xvaPanel === undefined ? { unavailable: 'Open an XVA workspace first.' } : { target: xvaPanel.title };
+  // A command of the page in the active panel says so: the empty line lists those first (ADR-0006's note 3 of 2026-11-11).
+  const onXva = xvaPanel === undefined ? { unavailable: 'Open an XVA workspace first.' } : onPage(xvaPanel);
   const trace = active?.kind === 'app' && active.app === TRACE_VIEW ? active : undefined;
   // `explain` acts on the XVA page's Run or on the trace in view.
   const explainOn = xvaPanel ?? trace;
@@ -152,9 +157,9 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
     if (commands === undefined) throw new Error(`The Rates workspace in panel ${rates ?? '(none)'} registered no commands.`);
     return commands;
   };
-  const onRates = ratesPanel === undefined ? { unavailable: 'Open a Rates workspace first.' } : { target: ratesPanel.title };
+  const onRates = ratesPanel === undefined ? { unavailable: 'Open a Rates workspace first.' } : onPage(ratesPanel);
   const pricedPanel = xvaPanel ?? ratesPanel;
-  const priceTarget = pricedPanel === undefined ? { unavailable: 'Open an XVA or Rates workspace to price it.' } : { target: pricedPanel.title };
+  const priceTarget = pricedPanel === undefined ? { unavailable: 'Open an XVA or Rates workspace to price it.' } : onPage(pricedPanel);
   const xvaPage = () => {
     const registered = xvaPageOf(xva);
     if (registered === undefined) throw new Error(`The XVA workspace in panel ${xva ?? '(none)'} registered no commands.`);
@@ -165,16 +170,16 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
     (xvaPageOf(xva)?.scenarios() ?? []).filter(keep).map((s) => ({ value: s.name, detail: `${s.shifts} shift(s)${s.included ? '' : ', excluded'}` }));
   /** A scenario's name as typed; none is refused here by name, the server refuses one it does not hold. */
   const scenarioNamed = (name: string | undefined, words: string, what = 'the scenario\'s name'): string => {
-    if (name === undefined || name.trim() === '') throw new Error(`${words} needs ${what}.`);
+    if (name === undefined || name.trim() === '') throw new CommandRefused(`${words} needs ${what}.`);
     return name.trim();
   };
-  const onTraceView = trace !== undefined ? { target: trace.title } : xvaPanel !== undefined ? { target: xvaPanel.title }
+  const onTraceView = trace !== undefined ? onPage(trace) : xvaPanel !== undefined ? onPage(xvaPanel)
     : { unavailable: 'Open a trace, or an XVA workspace whose result dock shows one, first.' };
   /** The trace view a command acts on, when it runs: the trace panel in view, or the XVA dock's trace tab. */
   const traceView = (): string => {
     if (trace !== undefined) return trace.id;
     const shown = xvaPage().traceInView();
-    if (shown === undefined) throw new Error('The result dock shows no trace. Open a measure\'s own tab, such as with open result, first.');
+    if (shown === undefined) throw new CommandRefused('The result dock shows no trace. Open a measure\'s own tab, such as with open result, first.');
     return shown;
   };
   const traceViewCommands = (): Command[] => [
@@ -245,7 +250,7 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
         },
       }],
       run: (a) => {
-        if (a.measures === undefined) throw new Error('measures needs the measures to price, such as cva fva.');
+        if (a.measures === undefined) throw new CommandRefused('measures needs the measures to price, such as cva fva.');
         xvaPage().setMeasures(measuresTyped(a.measures, xvaPage().measures().map((m) => m.id)));
       },
     },
@@ -256,7 +261,7 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
       title: 'Make a case per value of a cell, such as vary CSA-A threshold 10mm, 5mm, 0',
       group: 'XVA',
       ...onXva,
-      args: [{ name: 'cell', required: true, rest: true, hint: 'a row and a column, then the values separated by commas: CSA-A threshold 10mm, 5mm, 0' }],
+      args: [{ name: 'cell', required: true, rest: true, hint: varyHint(xvaPageOf(xva)?.examples()) }],
       run: (a) => {
         const typed = varyTyped(a.cell ?? '');
         xvaPage().vary(typed.cell, typed.values);
@@ -268,7 +273,7 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
       title: 'Set one value of a cell, on one row or several, such as set CSA-A threshold 5mm',
       group: 'XVA',
       ...onXva,
-      args: [{ name: 'cell', required: true, rest: true, hint: 'the rows separated by commas, a column and the value: T-1001, T-1002 csa CSA-B' }],
+      args: [{ name: 'cell', required: true, rest: true, hint: setHint(xvaPageOf(xva)?.examples()) }],
       run: (a) => {
         const typed = setTyped(a.cell ?? '');
         xvaPage().set(typed.rows, typed.column, typed.text);
@@ -290,7 +295,7 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
       ...onXva,
       args: [{ name: 'case', required: true, rest: true, hint: 'the case\'s title, such as CSA-A threshold 5mm' }],
       run: (a) => {
-        if (a.case === undefined || a.case.trim() === '') throw new Error('case remove needs the case to remove, by its title.');
+        if (a.case === undefined || a.case.trim() === '') throw new CommandRefused('case remove needs the case to remove, by its title.');
         xvaPage().removeCase(a.case.trim());
       },
     },
@@ -350,7 +355,7 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
       run: (a) => {
         const text = scenarioNamed(a.scenario, 'scenario duplicate');
         const cut = text.search(/\s\S+$/);
-        if (cut < 0) throw new Error('scenario duplicate needs the scenario to copy, then the copy\'s name.');
+        if (cut < 0) throw new CommandRefused('scenario duplicate needs the scenario to copy, then the copy\'s name.');
         xvaPage().duplicateScenario(text.slice(0, cut).trim(), text.slice(cut).trim());
       },
     },
@@ -375,7 +380,7 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
           },
         }],
         run: (a) => {
-          if (a[generator] === undefined || a[generator].trim() === '') throw new Error(`scenario ${generator} needs ${hint}.`);
+          if (a[generator] === undefined || a[generator].trim() === '') throw new CommandRefused(`scenario ${generator} needs ${hint}.`);
           xvaPage().generateScenarios(generator, a[generator]);
         },
       })),
@@ -390,8 +395,8 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
       run: (a) => {
         const [set, share, ...more] = scenarioNamed(a.set, 'scenario save', 'the set\'s name').split(/\s+/);
         const shared = share?.toLowerCase();
-        if (more.length > 0) throw new Error(`scenario save takes a set's name and desk or all, not ${more.join(' ')} after them.`);
-        if (shared !== undefined && shared !== 'desk' && shared !== 'all') throw new Error(`scenario save shares a set with desk or all, not ${share}.`);
+        if (more.length > 0) throw new CommandRefused(`scenario save takes a set's name and desk or all, not ${more.join(' ')} after them.`);
+        if (shared !== undefined && shared !== 'desk' && shared !== 'all') throw new CommandRefused(`scenario save shares a set with desk or all, not ${share}.`);
         xvaPage().saveScenarios(scenarioNamed(set, 'scenario save', 'the set\'s name'), shared);
       },
     },
@@ -439,7 +444,7 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
       words: 'explain',
       title: 'Open the calculation trace of a measure, at a term if one is named',
       group: 'Traces',
-      ...(explainOn === undefined ? { unavailable: 'Open an XVA workspace that has been priced, or a trace, first.' } : { target: explainOn.title }),
+      ...(explainOn === undefined ? { unavailable: 'Open an XVA workspace that has been priced, or a trace, first.' } : onPage(explainOn)),
       args: [{
         name: 'measure', required: true, rest: true,
         hint: 'a measure that keeps a trace, or its module, then a term if wanted: simm collect',
@@ -481,7 +486,7 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
         complete: (given) => cdsCompletions(given.cds ?? '', xvaPageOf(xva)?.cdsCatalogue()),
       }],
       run: (a) => {
-        if (a.cds === undefined || a.cds.trim() === '') throw new Error('cds needs a single name\'s words, proxy with a sector, a region and a rating, or none.');
+        if (a.cds === undefined || a.cds.trim() === '') throw new CommandRefused('cds needs a single name\'s words, proxy with a sector, a region and a rating, or none.');
         xvaPage().chooseCds(a.cds.trim());
       },
     },
@@ -505,7 +510,7 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
       }],
       // The server refuses a currency it does not offer, by name; the line does not guess one.
       run: (a) => {
-        if (a.currency === undefined) throw new Error('currency needs the currency to show the figures in.');
+        if (a.currency === undefined) throw new CommandRefused('currency needs the currency to show the figures in.');
         xvaPage().setCurrency(a.currency.toUpperCase());
       },
     },
@@ -533,7 +538,7 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
         complete: () => (xvaPageOf(xva)?.resultTabs() ?? []).map((t) => ({ value: t.id, detail: t.title })),
       }],
       run: (a) => {
-        if (a.tab === undefined) throw new Error('open result needs the tab to show, such as metrics.');
+        if (a.tab === undefined) throw new CommandRefused('open result needs the tab to show, such as metrics.');
         xvaPage().openResult(a.tab);
       },
     },
@@ -619,7 +624,7 @@ function parsedValue(field: string, text: string): unknown {
  * product named. The words are read in any order; the line completes and shows them from the description, and the
  * server reads them again, fills what its defaults supply and refuses what is missing by name.
  */
-function productCommands(products: readonly ProductDescriptor[], on: Partial<Pick<Command, 'unavailable' | 'target'>>, create: (product: string, terms: string) => void): Command[] {
+function productCommands(products: readonly ProductDescriptor[], on: Partial<Pick<Command, 'unavailable' | 'target' | 'page'>>, create: (product: string, terms: string) => void): Command[] {
   return products.map((product) => ({
     id: `entity.create/${product.id}`,
     words: `new ${product.words}`,

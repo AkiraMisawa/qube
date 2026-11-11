@@ -15,7 +15,7 @@ import { registerRatesCommands } from './commands';
 import type { CashflowsView, HeldEdit, LiveFrame, PeriodView, RatesWorkspaceView, Resolution } from './contracts';
 import {
   FOLDED, PINNED_COLUMNS, headerTiers, lineCellMessage, lineResult, lineCellState, lineColumns, hiddenEdits, lineHeaderGroups, lineRows, openedAt, parserOf, periodCellState,
-  periodColumns, periodParserOf, toggled, type HiddenEdits, type LineLayout, type LineRow,
+  lineFieldTitle, periodColumns, periodFieldTitle, periodParserOf, toggled, type HiddenEdits, type LineLayout, type LineRow,
 } from './lines';
 
 // The fixed Rates line pricer (docs/07, C37 to C43): one line per trade in ExGrid, its terms sparse, its
@@ -34,6 +34,23 @@ type Edit =
   | { readonly kind: 'remove'; readonly line: string };
 
 const describe = (error: unknown) => (error instanceof Error ? error.message : String(error));
+
+/**
+ * What did not happen when an edit is refused (ADR-0006's note 2 of 2026-11-11), in the screen's words, before the
+ * server's reason: a field by its column's header, never by its key or by the edit's kind.
+ */
+function notDone(edit: Edit): string {
+  switch (edit.kind) {
+    case 'line': return `${edit.line} ${lineFieldTitle(edit.field)} was not changed`;
+    case 'cashflow': return `${edit.line} cashflow ${edit.period} ${periodFieldTitle(edit.field)} was not changed`;
+    // The list of held edits names one by its entity and its field, so its refusal does.
+    case 'resolve': return `${edit.held.entity} ${edit.held.field} was not resolved`;
+    case 'add': return 'The line was not added';
+    case 'new': return 'The line was not created';
+    case 'defaults': return 'The defaults were not set';
+    case 'remove': return `${edit.line} was not removed`;
+  }
+}
 
 /** Each column set made once: a new column is a new declaration, and every row paints again (ExGrid ADR-0003). */
 const columnSets = new Map<string, ReturnType<typeof lineColumns>>();
@@ -86,10 +103,7 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
     },
     (next) => { show(next); void queryClient.invalidateQueries({ queryKey: ['rates', workspaceId, 'cashflows'] }); },
     (edit, error) => {
-      workspace.notify(edit.kind === 'new'
-        ? `The line was not created: ${describe(error)}`
-        : edit.kind === 'defaults' ? `The defaults were not set: ${describe(error)}`
-        : `${edit.kind === 'line' || edit.kind === 'cashflow' ? `${edit.line} ${edit.field}` : edit.kind} was not changed: ${describe(error)}`);
+      workspace.notify('refused', `${notDone(edit)}: ${describe(error)}`);
       void api.view(workspaceId).then((fresh) => { queue.rebase(fresh.revision); show(fresh); });
     }), [api, workspaceId, show, workspace, queryClient]);
   // The queue follows the revision on screen: the one first read, and any read since that someone else moved
@@ -192,7 +206,7 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
 
   const price = async () => {
     const snapshot = market.data?.snapshotId;
-    if (snapshot === undefined) { workspace.notify('No market snapshot has been published yet; Price waits for one.'); return; }
+    if (snapshot === undefined) { workspace.notify('refused', 'No market snapshot has been published yet; Price waits for one.'); return; }
     setBusy('Pricing');
     try {
       // Price prices the edits already sent, once they have landed (spine 6).
@@ -200,20 +214,20 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
       const run = await queue.after((revision) => api.price(workspaceId, revision, key, snapshot));
       openRun(run.runId, `Rates ${snapshot.split(':').at(-1) ?? ''}`);
     } catch (error) {
-      workspace.notify(`Price was refused: ${describe(error)}${targetsOf(error)}`);
+      workspace.notify('refused', `Price was refused: ${describe(error)}${targetsOf(error)}`);
     } finally {
       setBusy(undefined);
     }
   };
 
   const capture = async () => {
-    if (subscription === undefined || frame === undefined) { workspace.notify('Capture needs a live frame on screen.'); return; }
+    if (subscription === undefined || frame === undefined) { workspace.notify('refused', 'Capture needs a live frame on screen.'); return; }
     setBusy('Capturing');
     try {
       const run = await api.capture(subscription, frame, crypto.randomUUID());
       openRun(run.runId, `Capture ${frame.market.snapshotId.split(':').at(-1) ?? ''}`);
     } catch (error) {
-      workspace.notify(`Capture was refused: ${describe(error)}`);
+      workspace.notify('refused', `Capture was refused: ${describe(error)}`);
     } finally {
       setBusy(undefined);
     }
@@ -235,9 +249,11 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
         return answer;
       });
       show(next);
-      workspace.notify(`Valuation date moved: ${carried.carried} cashflow edit(s) carried, ${carried.conflicted} in conflict, ${carried.lost} lost.`);
+      // Edits in conflict or lost wait for the user's decision: the notice that counts them does not leave by itself.
+      workspace.notify('done', `Valuation date moved: ${carried.carried} cashflow edit(s) carried, ${carried.conflicted} in conflict, ${carried.lost} lost.`,
+        { stays: carried.conflicted + carried.lost > 0 });
     } catch (error) {
-      workspace.notify(`The valuation date was not moved: ${describe(error)}`);
+      workspace.notify('refused', `The valuation date was not moved: ${describe(error)}`);
     } finally {
       setBusy(undefined);
     }
@@ -251,11 +267,11 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
     registerRatesCommands(panelId, {
       price: () => void commands.current.price(),
       startLive: () => {
-        if (commands.current.live) workspace.notify('Live is running already.');
+        if (commands.current.live) workspace.notify('done', 'Live is running already.');
         else void commands.current.startLive();
       },
       stopLive: () => {
-        if (!commands.current.live) workspace.notify('Live is not running.');
+        if (!commands.current.live) workspace.notify('done', 'Live is not running.');
         else void commands.current.stopLive();
       },
       capture: () => void commands.current.capture(),
@@ -263,7 +279,7 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
       newLine: (product, terms) => void commands.current.queue.push({ kind: 'new', product, terms }),
       setDefaults: (defaults) => {
         const shown = queryClient.getQueryData<RatesWorkspaceView>(['rates', workspaceId])?.defaults;
-        if (shown === undefined) { workspace.notify('The workspace has not loaded; its defaults were not set.'); return; }
+        if (shown === undefined) { workspace.notify('refused', 'The workspace has not loaded; its defaults were not set.'); return; }
         void commands.current.queue.push({ kind: 'defaults', defaults: { ...shown, ...defaults } });
       },
       products: () => commands.current.products,

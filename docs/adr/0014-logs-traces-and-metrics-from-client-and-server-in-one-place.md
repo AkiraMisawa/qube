@@ -31,7 +31,8 @@ it without a rewrite, and the workbench must run at home without it.
    `traceparent`, and the page sends its events in batches to `POST /api/telemetry/client`, which writes them into the
    server's log as `Qube.Client` in the trace of the call they are about. Reported: uncaught errors, unhandled
    rejections, render errors with their component stack, calls the server failed (5xx) or never answered, and the
-   notices the user was shown. A refusal (4xx) is not reported by the page; the server's log already has it. The
+   notices the user was shown (since 2026-11-11 the refused ones only, ADR-0006's note 2 of that day). A refusal
+   (4xx) is not reported by the page; the server's log already has it. The
    endpoint bounds a batch (50 events) and cuts long texts rather than refusing them; the page bounds what it holds
    (200 events, the first kept, the dropped counted) and never reports its own reporting's failure. The browser needs
    no route to the collector and no credential of its own.

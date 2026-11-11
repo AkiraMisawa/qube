@@ -15,7 +15,7 @@ export class EditQueue<Edit, View extends { readonly revision: number }> {
   constructor(
     revision: number,
     private readonly send: (revision: number, edit: Edit) => Promise<View>,
-    private readonly applied: (view: View) => void,
+    private readonly applied: (view: View, edit: Edit) => void,
     private readonly refused: (edit: Edit, error: unknown) => void,
   ) {
     this.#revision = revision;
@@ -51,7 +51,7 @@ export class EditQueue<Edit, View extends { readonly revision: number }> {
       try {
         const view = await this.send(this.#revision, edit);
         this.#revision = view.revision;
-        this.applied(view);
+        this.applied(view, edit);
       } catch (error) {
         if (error instanceof ApiError && error.envelope.code === 'RevisionMoved') this.#broken = true;
         this.refused(edit, error);

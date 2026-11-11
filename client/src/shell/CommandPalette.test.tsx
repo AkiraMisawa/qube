@@ -63,6 +63,39 @@ describe('palette commands', () => {
   });
 });
 
+describe('the page\'s commands (ADR-0006 note 3 of 2026-11-11)', () => {
+  const s = state({
+    panels: [{ id: 'p', kind: 'app', title: 'XVA ABC/LE-01', app: 'xva.workspace', params: { workspaceId: 'w' } }], activePanelId: 'p',
+    showApp: vi.fn(), openAppDialog: vi.fn(),
+  });
+  const commands = build(catalog([workflow('w.a', 'Station summary', ['s'])], []), s);
+  const of = (id: string) => commands.find((c) => c.id === id)!;
+
+  it('a command says that it acts on the page in the active panel, and only such a command does', () => {
+    expect(of('xva.set').page).toBe(true);
+    expect(of('workspace.price').page).toBe(true);
+    expect(of('trace.explain').page).toBe(true);
+    // Not of the page: one that opens another, one of another application, and the shell's own on the active panel.
+    expect(of('xva.new').page).toBeUndefined();
+    expect(of('rates.capture').page).toBeUndefined();
+    expect(of('panel.close').page).toBeUndefined();
+  });
+
+  it('a finished Run\'s views are its page\'s commands', () => {
+    const w = workflow('w.a', 'A', ['summary']);
+    const run = state({ panels: [{ id: 'p', kind: 'run', title: 'A', runId: 'r', viewKey: undefined }], activePanelId: 'p', showApp: vi.fn(), openAppDialog: vi.fn() });
+    const shown = build(catalog([w], [view('v.1', 'Summary', ['summary'])]), run, { runId: 'r', workflow: w, status: 'succeeded' } as RunRecord)
+      .find((c) => c.group === 'Views')!;
+    expect([shown.words, shown.target, shown.page]).toEqual(['show summary', 'A', true]);
+  });
+
+  it('the applications\' commands are registered before the catalog\'s and the shell\'s, so their groups are listed first', () => {
+    const at = (id: string) => commands.findIndex((c) => c.id === id);
+    expect(at('xva.new')).toBeLessThan(commands.findIndex((c) => c.group === 'Workflows'));
+    expect(at('history.open')).toBeLessThan(at('panel.close'));
+  });
+});
+
 // ADR-0006: `show panel` finds an open panel by typing part of its title, and names the candidates rather than guess.
 describe('show panel', () => {
   const panels = [

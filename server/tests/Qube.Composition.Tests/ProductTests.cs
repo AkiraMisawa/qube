@@ -83,6 +83,20 @@ public class ProductTests
         Assert.Contains("millions", issue.Message);
     }
 
+    [Fact] // ADR-0006's note 4 of 2026-11-11: a flag is written one way wherever it is typed, a product's term included
+    public void A_flag_term_takes_every_spelling_of_a_flag_and_no_other_word()
+    {
+        var flagged = Reading with { Fields = [.. Reading.Fields, new("checked", "Checked", FieldForm.Flag)] };
+        foreach (var on in new[] { "on", "yes", "true", "y", "ON", "True" })
+            Assert.True(ProductReader.Read(flagged, $"checked={on}").Values["checked"]!.GetValue<bool>(), on);
+        foreach (var off in new[] { "off", "no", "false", "n", "Off", "FALSE" })
+            Assert.False(ProductReader.Read(flagged, $"checked={off}").Values["checked"]!.GetValue<bool>(), off);
+
+        var (values, issues) = ProductReader.Read(flagged, "checked=maybe");
+        Assert.False(values.ContainsKey("checked"));
+        Assert.Equal("checked is on or off.", Assert.Single(issues).Message);
+    }
+
     sealed class Rules(WorkspaceService workspaces) : IProductRules
     {
         public string ProductId => Reading.Id;

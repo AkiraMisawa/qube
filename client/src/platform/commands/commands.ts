@@ -39,18 +39,46 @@ export interface Command {
   readonly group: string;
   /** What it acts on now: the active panel by default (ADR-0006 §5). */
   readonly target?: string;
+  /**
+   * It acts on the page in the active panel: an application's own command while its page is open, with that panel's
+   * title as its `target`. The empty line lists these first (ADR-0006's note 3 of 2026-11-11).
+   */
+  readonly page?: boolean;
   readonly args?: readonly CommandArgument[];
   /** A shell chord in Mantine's notation (`mod+shift+G`). Only the shell's commands carry one (ADR-0006 §8). */
   readonly shortcut?: string;
   /** Why the command cannot run now; absent when it can. */
   readonly unavailable?: string;
+  /**
+   * Does it. It reads its arguments before it does anything, and throws `CommandRefused` with the reason when it cannot
+   * read them, so that a refusal has changed nothing and the line can stay open with what was typed (ADR-0006's note 1
+   * of 2026-11-11).
+   */
   readonly run: (args: Readonly<Record<string, string>>) => void;
 }
 
-/** Runs a command if it is available. Returns the reason when it is not, so a caller can show it. */
+/**
+ * A command's reason for doing nothing, thrown by its `run` before any effect: what was typed cannot be read, or what
+ * it would act on is not there. Its message is said to the user as it is. Any other error a command throws is a defect,
+ * and is not caught as a reason.
+ */
+export class CommandRefused extends Error {
+  override readonly name = 'CommandRefused';
+}
+
+/**
+ * Runs a command if it is available. Returns the reason when it is not, or when it refused what it was given, so a
+ * caller can show it: a command that does not run never does so in silence. A defect is thrown on, to be reported as
+ * one (ADR-0014 §4), never shown as a reason.
+ */
 export function execute(command: Command, args: Readonly<Record<string, string>> = {}): string | undefined {
   if (command.unavailable !== undefined) return command.unavailable;
-  command.run(args);
+  try {
+    command.run(args);
+  } catch (error) {
+    if (error instanceof CommandRefused) return error.message;
+    throw error;
+  }
   return undefined;
 }
 
@@ -78,15 +106,13 @@ export function assertDistinct(commands: readonly Command[]): void {
 export type UsageScore = (commandId: string) => number;
 
 /**
- * The commands a query matches, best first. The words typed in full come first, then words that start with the
+ * The commands a typed query matches, best first. The words typed in full come first, then words that start with the
  * query, then commands whose words each start with the query's words in order (`op pr` → `open pricing db`), then
  * those whose words or title contain the query. Within a tier, what the user runs most comes first, then what can
- * run now. `?` lists every command that can run now.
+ * run now. The empty line and `?` are `listed`'s.
  */
 export function rankCommands(query: string, commands: readonly Command[], usage: UsageScore = () => 0): Command[] {
   const q = query.trim().toLowerCase().replace(/\s+/g, ' ');
-  if (q === '') return order(commands.map((command, index) => ({ command, index, tier: 0 })), usage);
-  if (q === '?') return order(commands.filter((c) => c.unavailable === undefined).map((command, index) => ({ command, index, tier: 0 })), usage);
   const typed = q.split(' ');
   const tier = (command: Command): number => {
     if (command.words === q) return 0;
@@ -96,6 +122,79 @@ export function rankCommands(query: string, commands: readonly Command[], usage:
     return typed.every((t) => haystack.includes(t)) ? 3 : -1;
   };
   return order(commands.map((command, index) => ({ command, index, tier: tier(command) })).filter((r) => r.tier >= 0), usage);
+}
+
+/** A part of the list the line shows while a command is chosen: its commands, under a heading where it has one. */
+export interface ListSection {
+  readonly heading: string | undefined;
+  readonly commands: readonly Command[];
+}
+
+/** The heading of the commands that cannot run now, which the empty line lists last, each with its reason. */
+export const NOT_AVAILABLE_NOW = 'Not available now';
+
+/**
+ * What the line lists while a command is being chosen (ADR-0006's note 3 of 2026-11-11). For the empty line and `?`:
+ * the commands of the page in the active panel first, under the panel's title; then the other commands that can run,
+ * a heading per group, in the order the groups were registered; and on the empty line those that cannot run now,
+ * last. Under a heading, what the user runs most comes first (ADR-0006 §6), then the order registered. A typed query
+ * is one list with no heading, as `rankCommands` ranks it.
+ */
+export function listed(query: string, commands: readonly Command[], usage: UsageScore = () => 0): readonly ListSection[] {
+  const q = query.trim();
+  if (q !== '' && q !== '?') {
+    const ranked = rankCommands(query, commands, usage);
+    return ranked.length === 0 ? [] : [{ heading: undefined, commands: ranked }];
+  }
+  const byUse = (list: readonly Command[]) => list.map((command, index) => ({ command, index }))
+    .sort((a, b) => usage(b.command.id) - usage(a.command.id) || a.index - b.index).map((r) => r.command);
+  const sections: ListSection[] = [];
+  const can = commands.filter((c) => c.unavailable === undefined);
+  const page = can.filter((c) => c.page === true);
+  const first = page[0];
+  if (first !== undefined) {
+    if (first.target === undefined) throw new Error(`Command ${first.id} acts on the page in the active panel and does not say which panel.`);
+    sections.push({ heading: first.target, commands: byUse(page) });
+  }
+  const groups = new Map<string, Command[]>();
+  for (const command of can) {
+    if (command.page === true) continue;
+    const group = groups.get(command.group);
+    if (group === undefined) groups.set(command.group, [command]);
+    else group.push(command);
+  }
+  for (const [heading, group] of groups) sections.push({ heading, commands: byUse(group) });
+  const cannot = commands.filter((c) => c.unavailable !== undefined);
+  if (q === '' && cannot.length > 0) sections.push({ heading: NOT_AVAILABLE_NOW, commands: byUse(cannot) });
+  return sections;
+}
+
+/** The line's placeholder: the first commands the empty line lists that can run, so it differs by page. */
+export function placeholder(sections: readonly ListSection[]): string {
+  const first = sections.flatMap((s) => s.commands).filter((c) => c.unavailable === undefined).slice(0, 3).map((c) => c.words);
+  return first.length === 0 ? 'Type what you want to do (? lists the commands)' : `Type what you want to do: ${first.join(', ')}… (? lists them)`;
+}
+
+/** What the line draws of a list: at most `cap` of it, and how many it leaves out, which it says. Never cut in silence. */
+export function drawn<T>(items: readonly T[], cap: number): { readonly shown: readonly T[]; readonly more: number } {
+  return { shown: items.slice(0, cap), more: Math.max(items.length - cap, 0) };
+}
+
+/** A section as the line draws it, with where its first command stands among all those drawn. */
+export interface DrawnSection extends ListSection { readonly start: number }
+
+/** As `drawn`, for a list in sections: the cap counts commands, and a section it leaves nothing of is not drawn. */
+export function drawnSections(sections: readonly ListSection[], cap: number): { readonly sections: readonly DrawnSection[]; readonly more: number } {
+  const out: DrawnSection[] = [];
+  let start = 0;
+  let more = 0;
+  for (const section of sections) {
+    const commands = section.commands.slice(0, Math.max(cap - start, 0));
+    more += section.commands.length - commands.length;
+    if (commands.length > 0) out.push({ heading: section.heading, commands, start });
+    start += commands.length;
+  }
+  return { sections: out, more };
 }
 
 function inOrder(typed: readonly string[], words: readonly string[]): boolean {
@@ -192,10 +291,9 @@ export function readLine(text: string, commands: readonly Command[]): LineReadin
   return { kind: 'arguments', command, given, slot, typed, problems };
 }
 
-/** The completions a reading offers: commands while choosing, the slot's values once a command is chosen. */
-export function completionsOf(reading: LineReading, commands: readonly Command[], usage: UsageScore = () => 0):
-  { readonly commands: readonly Command[]; readonly values: readonly Completion[] } {
-  if (reading.kind === 'choosing') return { commands: rankCommands(reading.query, commands, usage), values: [] };
+/** The values a reading's slot offers once a command is chosen; none while one is being chosen, which `listed` lists. */
+export function completionsOf(reading: LineReading): readonly Completion[] {
+  if (reading.kind === 'choosing') return [];
   const { command, given, slot, typed } = reading;
   const options = slot === undefined
     // Every required slot is filled: offer the options not given yet.
@@ -204,7 +302,7 @@ export function completionsOf(reading: LineReading, commands: readonly Command[]
   const t = typed.toLowerCase();
   const starts = options.filter((o) => o.value.toLowerCase().startsWith(t));
   const contains = options.filter((o) => !o.value.toLowerCase().startsWith(t) && (o.value.toLowerCase().includes(t) || (o.detail ?? '').toLowerCase().includes(t)));
-  return { commands: [], values: [...starts, ...contains] };
+  return [...starts, ...contains];
 }
 
 /** What Enter would run, or every reason it would not: missing arguments by name, refused values, unplaced ones. */

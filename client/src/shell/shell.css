@@ -102,3 +102,22 @@
   .qube-toolbar-field--wide { flex-basis: 100%; }
   .qube-toolbar-input { flex: 1 1 auto; width: auto; min-width: 0; }
 }
+
+/* A notice (ADR-0006's note 2 of 2026-11-11; docs/design-guidelines.md §6). The strip has no height, so what it holds
+   is drawn over the page and nothing under it moves; it stays under the header as the main area scrolls. It is over
+   the panels and under the header's own layer (Mantine's `app`, 100), every menu and every dialog. */
+.qube-notice-strip {
+  position: sticky;
+  top: calc(var(--app-shell-header-offset, 0rem) + var(--app-shell-padding));
+  z-index: 99;
+  height: 0;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  pointer-events: none;
+}
+
+.qube-notice {
+  pointer-events: auto;
+  max-width: min(45rem, 100%);
+}

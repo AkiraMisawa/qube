@@ -1,6 +1,7 @@
 import type { Api } from './api';
 import { ApiError } from './api';
 import type { Catalog, ViewAction } from './contracts';
+import type { Notify } from './notices';
 import { viewsFor } from './views/binding';
 import { keyOf, type WorkspaceStore } from './workspace/workspaceStore';
 
@@ -8,7 +9,7 @@ interface Target {
   readonly api: Api;
   readonly catalog: Catalog;
   readonly store: WorkspaceStore;
-  readonly notify: (message: string) => void;
+  readonly notify: Notify;
 }
 
 /**
@@ -26,7 +27,7 @@ export async function invokeAction(target: Target, action: ViewAction, parameter
       openPanel({ kind: 'run', title: outcome.run.workflow.title, runId: outcome.run.runId, viewKey: view === undefined ? undefined : keyOf(view) });
     }
   } catch (error) {
-    target.notify(error instanceof ApiError ? `${action.label}: ${error.envelope.message}` : `${action.label} failed: ${String(error)}`);
+    target.notify('refused', error instanceof ApiError ? `${action.label}: ${error.envelope.message}` : `${action.label} failed: ${String(error)}`);
   }
 }
 
@@ -40,7 +41,7 @@ export async function submitWorkflow(target: Target, workflowKey: string, input:
     target.store.getState().openPanel({ kind: 'run', title: workflow.title, runId: run.runId, viewKey: view === undefined ? undefined : keyOf(view) });
     return true;
   } catch (error) {
-    target.notify(error instanceof ApiError ? `${workflow.title}: ${error.envelope.issues.map((i) => `${i.path} ${i.message}`).join('; ') || error.envelope.message}` : String(error));
+    target.notify('refused', error instanceof ApiError ? `${workflow.title}: ${error.envelope.issues.map((i) => `${i.path} ${i.message}`).join('; ') || error.envelope.message}` : String(error));
     return false;
   }
 }

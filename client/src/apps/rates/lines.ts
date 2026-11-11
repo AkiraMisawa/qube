@@ -1,6 +1,7 @@
 import type { CellState, GridColumn, GridHeaderGroup } from '@ex-grid/core';
 import { actionColumn, gridHeaderRequiredPx } from '@ex-grid/core';
-import { parseBoolean, parseNumber, type Parsed } from '../xva/editing';
+import { readFlag } from '../../platform/flags';
+import { parseFlag, parseNumber, type Parsed } from '../xva/editing';
 import { amountTone, formatAmount } from '../../platform/grid/amounts';
 import type { LineView, LiveFrame, PeriodView } from './contracts';
 
@@ -94,8 +95,8 @@ function whole(text: string): Parsed {
 
 function flag(text: string): Parsed {
   if (empty(text)) return { ok: true, value: null };
-  const b = parseBoolean(text);
-  return b === undefined ? fail('Type TRUE or FALSE.') : { ok: true, value: b };
+  const b = readFlag(text);
+  return b === undefined ? fail('Type on or off, or leave it empty.') : { ok: true, value: b };
 }
 
 function frequency(allowEmpty: boolean) {
@@ -158,7 +159,7 @@ export function parserOf(field: string): ((text: string) => Parsed) | undefined 
     case 'direction': return choice({ p: 'pay', pay: 'pay', r: 'receive', receive: 'receive', rec: 'receive' }, 'Type P (pay) or R (receive).');
     case 'collateral': return (t) => (empty(t) ? { ok: true, value: null } : { ok: true, value: t.trim() });
     case 'mandatoryBreak': return (t) => (empty(t) ? { ok: true, value: null } : DATE.test(t.trim()) ? { ok: true, value: t.trim() } : fail('Type a date (yyyy-mm-dd), or leave it empty.'));
-    case 'risk': return (t) => { const b = parseBoolean(t); return b === undefined ? fail('Type TRUE or FALSE.') : { ok: true, value: b }; };
+    case 'risk': return parseFlag;
     default: {
       const m = /^leg[12]\.(.+)$/.exec(field);
       return m === null ? undefined : legParsers[m[1] as string];
@@ -339,6 +340,27 @@ export function lineColumns(layout: LineLayout): readonly GridColumn<LineRow>[] 
     figure('status', 'Status', 'text', 82, (f) => f.status, plain),
     { name: 'message', header: 'Issues', type: 'text', width: 320, queryable: false, value: (row) => message(row), format: plain },
   ];
+}
+
+// Every column a line has, with a leg open to its conventions: what a field is called is its header there.
+const EVERY_LINE_COLUMN: LineLayout = { trade: true, leg1: 'conventions', leg2: 'conventions' };
+
+/**
+ * What the screen calls a line's field (ADR-0006's note 2 of 2026-11-11): its column's header, after its leg's where it
+ * is a leg's (`Leg 1 Rate/Strike`). A refused edit is said with it, never with the field's key (`leg1.quote`).
+ */
+export function lineFieldTitle(name: string): string {
+  const header = lineColumns(EVERY_LINE_COLUMN).find((c) => c.name === name)?.header;
+  if (header === undefined) throw new Error(`The line grid has no column ${name} to name an edit by.`);
+  const leg = /^leg([12])\./.exec(name);
+  return leg === null ? header : `Leg ${leg[1]} ${header}`;
+}
+
+/** What the screen calls a cashflow period's field: its column's header in the cashflow grid. */
+export function periodFieldTitle(name: string): string {
+  const header = periodColumns.find((c) => c.name === name)?.header;
+  if (header === undefined) throw new Error(`The cashflow grid has no column ${name} to name an edit by.`);
+  return header;
 }
 
 /** How many tiers of Header Groups stand over the columns: one, and two while a leg is open (ADR-0015 §2). */

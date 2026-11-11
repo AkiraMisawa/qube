@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
+using Qube.Composition.Application;
 using Qube.Composition.Application.Workspaces;
 
 namespace Qube.Samples.Portfolio;
@@ -418,12 +419,7 @@ public static partial class PortfolioCells
                 return m.Success && decimal.TryParse(m.Groups[1].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var days) ? days : Refuse("a whole number of days, 10 or 10d, or empty");
             }
             case CellName.Form.Flag:
-                return t.ToLowerInvariant() switch
-                {
-                    "on" or "yes" or "true" or "y" => true,
-                    "off" or "no" or "false" or "n" => false,
-                    _ => Refuse("on or off"),
-                };
+                return FlagWords.Read(t) is { } flag ? flag : Refuse("on or off");
             case CellName.Form.Currency:
                 return PortfolioMarket.Currencies.FirstOrDefault(c => c.Equals(t, StringComparison.OrdinalIgnoreCase)) is { } code ? code
                     : Refuse($"a currency, {string.Join(", ", PortfolioMarket.Currencies)}");

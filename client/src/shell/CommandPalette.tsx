@@ -2,12 +2,13 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNod
 import { Badge, Group, Kbd, Modal, Stack, Text, TextInput, UnstyledButton, useMantineColorScheme } from '@mantine/core';
 import { useHotkeys } from '@mantine/hooks';
 import {
-  assertDistinct, completionsOf, execute, finish, readLine, signature, take,
+  assertDistinct, completionsOf, drawn, drawnSections, execute, finish, listed, placeholder, readLine, signature, take,
   type Command, type Completion,
 } from '../platform/commands/commands';
 import { recordUse, usageScore } from '../platform/commands/usage';
 import { useQuery } from '@tanstack/react-query';
 import type { Catalog, RunRecord } from '../platform/contracts';
+import type { Notify } from '../platform/notices';
 import { viewsFor } from '../platform/views/binding';
 import { CONTEXT_CONTRACT, useWorkspace, useWorkspaceContext } from '../platform/workspace/WorkspaceProvider';
 import { keyOf, type Panel, type WorkspaceState } from '../platform/workspace/workspaceStore';
@@ -42,13 +43,15 @@ export function buildCommands(args: {
   readonly state: Pick<WorkspaceState, 'panels' | 'activePanelId' | 'context' | 'openRunDialog' | 'setPanelView' | 'closePanel' | 'cycle' | 'activate' | 'requestContext' | 'showApp' | 'openAppDialog'>;
   readonly activeRun: RunRecord | undefined;
   readonly toggleTheme: () => void;
-  readonly notify: (message: string) => void;
+  readonly notify: Notify;
   /** The AI pane, where one is mounted: `ai <request>` hands the request to it (ADR-0006 §7, ADR-0007 §7). */
   readonly ai?: { readonly ask: (request: string) => string | undefined; readonly open: boolean; readonly setOpen: (open: boolean) => void };
 }): Command[] {
   const { catalog, state, activeRun } = args;
   const active: Panel | undefined = state.panels.find((p) => p.id === state.activePanelId);
-  const commands: Command[] = [];
+  // The applications' commands first: the empty line lists the groups in the order registered (ADR-0006's note 3 of
+  // 2026-11-11), and what an application offers comes before the catalog's workflows and the shell's own.
+  const commands: Command[] = [...appCommands(state)];
 
   for (const workflow of catalog.workflows)
     commands.push({
@@ -67,7 +70,9 @@ export function buildCommands(args: {
         words: `show ${wordsOf(view.title)}`,
         title: `Show as ${view.title}`,
         group: 'Views',
+        // A Run's views are its page's commands: the empty line lists them first (ADR-0006's note 3 of 2026-11-11).
         target: active.title,
+        page: true,
         run: () => state.setPanelView(active.id, keyOf(view)),
       });
 
@@ -110,7 +115,7 @@ export function buildCommands(args: {
       group: 'Panels',
       shortcut: 'mod+shift+G',
       ...(active === undefined ? { unavailable: 'No panel is open.' } : { target: active.title }),
-      run: () => { if (!focusGrid(active?.id)) args.notify('This panel has no grid yet.'); },
+      run: () => { if (!focusGrid(active?.id)) args.notify('refused', 'This panel has no grid yet.'); },
     },
     {
       id: 'panel.next',
@@ -170,7 +175,7 @@ export function buildCommands(args: {
       ...(active === undefined ? {} : { target: active.title }),
       run: (a) => {
         const refused = args.ai?.ask(a.request ?? '');
-        if (refused !== undefined) args.notify(`ai: ${refused}`);
+        if (refused !== undefined) args.notify('refused', `ai: ${refused}`);
       },
     },
     {
@@ -181,7 +186,6 @@ export function buildCommands(args: {
       ...(args.ai === undefined ? { unavailable: 'The AI pane is not shown here.' } : {}),
       run: () => args.ai?.setOpen(!args.ai.open),
     },
-    ...appCommands(state),
   );
   assertDistinct(commands);
   return commands;
@@ -193,6 +197,18 @@ export function wordsOf(title: string): string {
 }
 
 let openLine: (() => void) | undefined;
+
+// How much of a list the line draws before it says how many more there are (ADR-0006's note 3 of 2026-11-11): every
+// command an open page and the shell offer today, and a screenful of a slot's values, which may be a workspace's rows.
+const COMMANDS_DRAWN = 200;
+const VALUES_DRAWN = 50;
+
+/**
+ * No command is highlighted while the line lists them, empty or at `?` (ADR-0006's note 3 of 2026-11-11): the first one
+ * listed is the page's, which on a pricer's page is Price, and Enter alone must run nothing the user did not choose.
+ */
+const NONE = -1;
+const lists = (text: string): boolean => text.trim() === '' || text.trim() === '?';
 
 /** Stands in for the AI store where no pane is mounted, so the hook order never changes. */
 const NO_AI = createStore<{ readonly open: boolean }>()(() => ({ open: false }));
@@ -226,7 +242,7 @@ export function CommandPalette() {
   const [opened, setOpened] = useState(false);
   // The text is held here and starts empty at every opening.
   const [text, setText] = useState('');
-  const [highlight, setHighlight] = useState(0);
+  const [highlight, setHighlight] = useState(NONE);
   const [problems, setProblems] = useState<readonly string[]>([]);
   const input = useRef<HTMLInputElement>(null);
 
@@ -242,19 +258,26 @@ export function CommandPalette() {
   }, [workspace, panels, activePanelId, context, activeRun, toggleColorScheme, opened, aiStore, aiOpen, active]);
 
   useEffect(() => {
-    openLine = () => { setText(''); setProblems([]); setHighlight(0); setOpened(true); };
+    openLine = () => { setText(''); setProblems([]); setHighlight(NONE); setOpened(true); };
     return () => { openLine = undefined; };
   }, []);
 
-  const run = (command: Command, args: Readonly<Record<string, string>> = {}) => {
+  /** Runs a command, and answers why when nothing ran: it cannot run now, or it could not read its arguments. */
+  const run = (command: Command, args: Readonly<Record<string, string>> = {}): string | undefined => {
     const reason = execute(command, args);
-    if (reason !== undefined) workspace.notify(`${command.words}: ${reason}`);
-    else recordUse(command.id);
+    if (reason === undefined) recordUse(command.id);
+    return reason;
+  };
+
+  // A chord has no line to say why in: its reason is a notice.
+  const chord = (command: Command) => {
+    const reason = run(command);
+    if (reason !== undefined) workspace.notify('refused', `${command.words}: ${reason}`);
   };
 
   useHotkeys([
     ['mod+K', openPalette],
-    ...commands.filter((c) => c.shortcut !== undefined).map((c): [string, () => void] => [c.shortcut!, () => run(c)]),
+    ...commands.filter((c) => c.shortcut !== undefined).map((c): [string, () => void] => [c.shortcut!, () => chord(c)]),
   ], []);
 
   // `/` opens the line wherever it would not be typed into something: not in a text field, not in a grid, where it
@@ -272,17 +295,29 @@ export function CommandPalette() {
   }, []);
 
   const reading = readLine(text, commands);
-  const offered = completionsOf(reading, commands, usageScore);
-  const items: readonly (Command | Completion)[] = reading.kind === 'choosing' ? offered.commands : offered.values;
-  const at = Math.min(highlight, Math.max(items.length - 1, 0));
-  const chosen = items[at];
+  // While a command is chosen the list has sections (ADR-0006's note 3 of 2026-11-11); a slot's values have none.
+  // What is drawn is what the arrows reach; what is left out is counted and said, never cut in silence.
+  const sections = drawnSections(reading.kind === 'choosing' ? listed(reading.query, commands, usageScore) : [], COMMANDS_DRAWN);
+  const values = drawn(completionsOf(reading), VALUES_DRAWN);
+  const items: readonly (Command | Completion)[] = reading.kind === 'choosing' ? sections.sections.flatMap((s) => s.commands) : values.shown;
+  const more = reading.kind === 'choosing' ? sections.more : values.more;
+  const at = highlight === NONE || items.length === 0 ? NONE : Math.min(highlight, items.length - 1);
+  const chosen = at === NONE ? undefined : items[at];
 
-  const change = (next: string) => { setText(next); setHighlight(0); setProblems([]); };
+  const change = (next: string) => { setText(next); setHighlight(lists(next) ? NONE : 0); setProblems([]); };
   const close = () => { setOpened(false); returnKeyboard(); };
   const runNow = (command: Command, args: Readonly<Record<string, string>>) => {
     letGo();
     setOpened(false);
-    run(command, args);
+    const reason = run(command, args);
+    if (reason !== undefined) {
+      // Nothing ran (ADR-0006's note 1 of 2026-11-11): the line stays, with what was typed and why. It was closed and
+      // is opened again within this one event, so it is never drawn closed.
+      setOpened(true);
+      setProblems([reason]);
+      input.current?.focus();
+      return;
+    }
     // A command that opened a surface leaves the keyboard to it; any other gives it back.
     if (workspace.store.getState().runDialog === undefined && document.activeElement === document.body) returnKeyboard();
     else keyboardBefore = null;
@@ -296,10 +331,12 @@ export function CommandPalette() {
   const enter = () => {
     if (reading.kind === 'choosing') {
       if (!(chosen !== undefined && 'words' in chosen)) {
+        // A list with nothing chosen in it: Enter runs nothing, and says how to choose.
+        if (lists(text)) { setProblems(['Choose a command with the arrows, or type what you want to do.']); return; }
         // ADR-0006 §7: what matches no command is offered to the AI last.
         const ask = commands.find((c) => c.id === 'ai.ask');
-        if (text.trim() !== '' && ask !== undefined && ask.unavailable === undefined) { runNow(ask, { request: text.trim() }); return; }
-        setProblems([text.trim() === '' ? 'Type what you want to do.' : 'No command matches.']);
+        if (ask !== undefined && ask.unavailable === undefined) { runNow(ask, { request: text.trim() }); return; }
+        setProblems(['No command matches.']);
         return;
       }
       if (chosen.unavailable !== undefined) { setProblems([chosen.unavailable]); return; }
@@ -321,7 +358,8 @@ export function CommandPalette() {
     const step = event.key === 'ArrowDown' || (emacs && key === 'n') ? 1 : event.key === 'ArrowUp' || (emacs && key === 'p') ? -1 : 0;
     if (step !== 0) {
       event.preventDefault();
-      if (items.length > 0) setHighlight((at + step + items.length) % items.length);
+      // From nothing chosen, down is the first and up the last.
+      if (items.length > 0) setHighlight(at === NONE ? (step > 0 ? 0 : items.length - 1) : (at + step + items.length) % items.length);
     } else if (event.key === 'Tab') {
       event.preventDefault();
       if (chosen !== undefined) takeItem(chosen);
@@ -333,13 +371,22 @@ export function CommandPalette() {
 
   const optionId = (i: number) => `qube-line-option-${i}`;
   const head = reading.kind === 'arguments' ? reading.command : chosen !== undefined && 'words' in chosen ? chosen : undefined;
+  // `under` is the heading an option is drawn under: a command does not repeat the panel its heading names.
+  const option = (item: Command | Completion, i: number, under?: string) => (
+    <UnstyledButton key={'words' in item ? item.id : item.value} id={optionId(i)} role="option" aria-selected={i === at} tabIndex={-1}
+      className="qube-line-option" data-selected={i === at || undefined} onMouseDown={(e) => e.preventDefault()}
+      onClick={() => ('words' in item && !(item.args ?? []).some((a) => a.required) && item.unavailable === undefined ? runNow(item, {}) : takeItem(item))}
+      px="xs" py={4} style={{ borderRadius: 4, background: i === at ? 'var(--mantine-color-default-hover)' : undefined }}>
+      {'words' in item ? <CommandOption command={item} under={under} /> : <ValueOption completion={item} />}
+    </UnstyledButton>
+  );
 
   return (
     <Modal opened={opened} onClose={close} withCloseButton={false} trapFocus returnFocus={false} size="lg" yOffset="10vh"
       transitionProps={{ duration: 0 }} className="qube-palette" aria-label="Command line" padding="sm">
       <Stack gap={6}>
         <TextInput ref={input} data-autofocus value={text} onChange={(e) => change(e.currentTarget.value)} onKeyDown={onKeyDown}
-          placeholder="Type what you want to do: price, new irs, live start… (? lists them)" aria-label="Command"
+          placeholder={placeholder(listed('', commands, usageScore))} aria-label="Command"
           role="combobox" aria-expanded={items.length > 0} aria-controls="qube-line-options" aria-autocomplete="list"
           {...(chosen === undefined ? {} : { 'aria-activedescendant': optionId(at) })}
           styles={{ input: { fontFamily: 'var(--mantine-font-family-monospace)' } }} />
@@ -351,18 +398,21 @@ export function CommandPalette() {
         )}
         <Stack gap={0} id="qube-line-options" role="listbox" aria-label={reading.kind === 'choosing' ? 'Commands' : `Values for ${reading.slot?.name ?? 'options'}`}
           style={{ maxHeight: '50vh', overflowY: 'auto' }}>
-          {items.slice(0, 50).map((item, i) => (
-            <UnstyledButton key={'words' in item ? item.id : item.value} id={optionId(i)} role="option" aria-selected={i === at} tabIndex={-1}
-              className="qube-line-option" data-selected={i === at || undefined} onMouseDown={(e) => e.preventDefault()}
-              onClick={() => ('words' in item && !(item.args ?? []).some((a) => a.required) && item.unavailable === undefined ? runNow(item, {}) : takeItem(item))}
-              px="xs" py={4} style={{ borderRadius: 4, background: i === at ? 'var(--mantine-color-default-hover)' : undefined }}>
-              {'words' in item ? <CommandOption command={item} /> : <ValueOption completion={item} />}
-            </UnstyledButton>
-          ))}
+          {reading.kind === 'arguments' ? values.shown.map((item, i) => option(item, i)) : sections.sections.map((section) => (section.heading === undefined
+            ? section.commands.map((c, i) => option(c, section.start + i))
+            : (
+              <Stack key={section.heading} gap={0} role="group" aria-labelledby={`qube-line-heading-${section.start}`}>
+                {/* The heading names its group and is not one of the list's own children: a listbox holds options and groups of them. */}
+                <Text id={`qube-line-heading-${section.start}`} role="presentation" size="xs" fw={600} c="dimmed" px="xs" pt="xs" data-testid="command-heading">{section.heading}</Text>
+                {section.commands.map((c, i) => option(c, section.start + i, section.heading))}
+              </Stack>
+            )))}
           {items.length === 0 && reading.kind === 'choosing' && text.trim() !== '' && (
             <Text size="xs" c="dimmed" px="xs">No command matches. <Kbd size="xs">Enter</Kbd> asks the AI: <Kbd size="xs">ai {text.trim()}</Kbd></Text>
           )}
         </Stack>
+        {/* Said under the list, not in it: it is no option, and it is read out when the list is cut. */}
+        {more > 0 && <Text size="xs" c="dimmed" px="xs" role="status" data-testid="command-more">{more} more: type to narrow.</Text>}
         <Group gap="md">
           <Text size="xs" c="dimmed"><Kbd size="xs">Tab</Kbd> complete</Text>
           <Text size="xs" c="dimmed"><Kbd size="xs">Enter</Kbd> run</Text>
@@ -405,13 +455,14 @@ function Head({ command, reading }: { readonly command: Command; readonly readin
   );
 }
 
-function CommandOption({ command }: { readonly command: Command }): ReactNode {
+function CommandOption({ command, under }: { readonly command: Command; readonly under: string | undefined }): ReactNode {
+  const target = command.target === undefined || command.target === under ? '' : ` · ${command.target}`;
   return (
     <Group gap="xs" wrap="nowrap" justify="space-between">
       <Group gap="xs" wrap="wrap">
         <Text size="sm" ff="monospace" fw={600} {...(command.unavailable === undefined ? {} : { c: 'dimmed' })}>{command.words}</Text>
         {signature(command) !== '' && <Text size="xs" ff="monospace" c="dimmed">{signature(command)}</Text>}
-        <Text size="xs" c="dimmed">{command.title}{command.target === undefined ? '' : ` · ${command.target}`}</Text>
+        <Text size="xs" c="dimmed">{command.title}{target}</Text>
         {command.unavailable !== undefined && <Text size="xs" c="orange">{command.unavailable}</Text>}
       </Group>
       {command.shortcut !== undefined && <Kbd size="xs">{command.shortcut.replace('mod', 'Ctrl')}</Kbd>}

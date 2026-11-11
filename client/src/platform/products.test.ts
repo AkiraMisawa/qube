@@ -24,6 +24,12 @@ describe('reading typed words against a description (ADR-0008 §3)', () => {
     expect(readsAs(field('volume'), '3000000000')).toBe(false);
   });
 
+  it('ADR-0006 note 4 (2026-11-11): reads a flag as it is read everywhere', () => {
+    const checked = { name: 'checked', title: 'Checked', form: 'flag', required: false, unnamed: false } as const;
+    for (const word of ['on', 'off', 'yes', 'no', 'true', 'false', 'y', 'n', 'OFF']) expect(readsAs(checked, word), word).toBe(true);
+    for (const word of ['maybe', '1', '']) expect(readsAs(checked, word), word).toBe(false);
+  });
+
   it('fills fields by form in any order, a sequence in its order, and names what it cannot place', () => {
     const { filled, unread } = readTerms(reading, ['b', '6m', 'n', 'l=2d', 'a', 'purple']);
     expect(Object.fromEntries(filled)).toEqual({ from: 'b', window: '6m', station: 'n', lag: '2d', to: 'a' });

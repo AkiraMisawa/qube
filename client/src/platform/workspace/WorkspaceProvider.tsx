@@ -3,13 +3,14 @@ import { useQueries, useQuery } from '@tanstack/react-query';
 import { useStore } from 'zustand';
 import type { Api } from '../api';
 import type { Catalog, Dataset, RunRecord, TypedDataRef } from '../contracts';
+import type { Notify } from '../notices';
 import { createWorkspaceStore, type WorkspaceState, type WorkspaceStore } from './workspaceStore';
 
 interface Workspace {
   readonly api: Api;
   readonly catalog: Catalog;
   readonly store: WorkspaceStore;
-  readonly notify: (message: string) => void;
+  readonly notify: Notify;
 }
 
 const WorkspaceContext = createContext<Workspace | undefined>(undefined);
@@ -20,7 +21,7 @@ export function WorkspaceProvider({ api, catalog, initialContext, notify, childr
   readonly api: Api;
   readonly catalog: Catalog;
   readonly initialContext: Readonly<Record<string, unknown>>;
-  readonly notify: (message: string) => void;
+  readonly notify: Notify;
   readonly children: ReactNode;
 }) {
   const contract = catalog.contracts.find((c) => c.contractId === CONTEXT_CONTRACT);
