@@ -28,3 +28,9 @@ dock (ADR-0016 §9).
   Which of `open <tab>` and `go <tab>` goes is step 3's.
 - Looked at in Chromium at 1440 and 390 px, by a script and by eye; one browser test holds `go`, `focus grid`, the
   refusals and the three parts at 390 px.
+- From the review: `open <tab>` is `go` to that tab's place, so it says where the keyboard went too. A page offers
+  its places only while it draws them, and each has something to take the keyboard: a tab with nothing to work in
+  takes it on its own tab, the dock takes it itself where it draws no tab and no control. The line gives no keyboard
+  back once a place is taken (`keepKeyboard`), however late the page draws it. A second browser test holds the tab
+  that takes the keyboard itself, the notice of `open csa` and the refusals of a tab no selected measure needs; the
+  trace test holds `go trace`.

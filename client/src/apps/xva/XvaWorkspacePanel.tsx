@@ -306,9 +306,9 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   const [scenarioPick, setScenarioPick] = useState<{ readonly runId: string | undefined; readonly scenario: string }>({ runId: undefined, scenario: BASE_SCENARIO });
   const [dockFull, setDockFull] = useState(false);
   const [focusRequest, setFocusRequest] = useState(0);
-  /** `open netting`, `open csa`, `go im`: the tab open and in view, with the keyboard in it (ADR-0010 §9), so a dock
-   * widened over the tabs is put back. A measure's own tab opens while the measure is selected; otherwise nothing moves,
-   * and the reason is answered. */
+  /** `go csa`, `open netting`: the tab open and in view, with the keyboard in it (ADR-0010 §9), so a dock widened over
+   * the tabs is put back. A measure's own tab opens while the measure is selected; otherwise nothing moves, and the
+   * reason is answered. */
   const openTab = (tab: InputTab): string | undefined => {
     if (view.data !== undefined && !tabShown(view.data, tab)) {
       return tab === SETTINGS_TAB
@@ -318,24 +318,35 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
     setInputTab(tab); setInputsOpen(true); setDockFull(false); setSection('inputs'); setFocusRequest((n) => n + 1);
     return undefined;
   };
-  // The keyboard asked into a trade grid or the dock by name (`go existing`, `find`; ADR-0016 §9, notes 20 and 21): the
-  // part it is in is shown first, where the page is three parts or the dock is widened over the grids, and the keyboard
-  // follows once that is drawn.
+  // The keyboard asked into a trade grid, the dock or a trace by name (`go existing`, `find`; ADR-0016 §9, notes 20 and
+  // 21): the part it is in is shown first, where the page is three parts or the dock is widened over the grids, and the
+  // keyboard follows once that is drawn.
   const dock = useRef<HTMLDivElement>(null);
-  const [placeRequest, setPlaceRequest] = useState<{ readonly place: TradeGrid | 'results'; readonly request: number } | undefined>(undefined);
-  const goTo = (place: TradeGrid | 'results'): string | undefined => {
-    if (place !== 'results') { setDockFull(false); setSection('trades'); }
-    else if (dockRun() === undefined) return 'Nothing is priced yet: Price shows its results here.';
-    else { setDockOpen(true); setSection('results'); }
+  const treeFocus = useRef<(() => void) | undefined>(undefined);
+  const [placeRequest, setPlaceRequest] = useState<{ readonly place: TradeGrid | 'results' | 'trace'; readonly request: number } | undefined>(undefined);
+  const goTo = (place: TradeGrid | 'results' | 'trace'): string | undefined => {
+    if (place === 'new' || place === 'existing') { setDockFull(false); setSection('trades'); }
+    else if (place === 'results' && dockRun() === undefined) return 'Nothing is priced yet: Price shows its results here.';
+    else { if (place === 'results') setDockOpen(true); setSection('results'); }
     setPlaceRequest((last) => ({ place, request: (last?.request ?? 0) + 1 }));
     return undefined;
   };
   useEffect(() => {
     if (placeRequest === undefined) return;
-    if (placeRequest.place === 'new') newGrid.current?.focus();
-    else if (placeRequest.place === 'existing') existingGrid.current?.focus();
-    // The dock's keyboard starts on its tab in view, or on its first control where its Run has one tab.
-    else (dock.current?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]') ?? dock.current?.querySelector<HTMLElement>('button, select'))?.focus();
+    const { place } = placeRequest;
+    if (place === 'results') {
+      // The dock's keyboard starts on its tab in view, or on its first control where its Run has one tab; a dock that
+      // draws neither, such as a Run that could not be read, takes it itself.
+      const part = dock.current;
+      if (part === null) throw new Error('The pricer page was asked to put the keyboard in its dock, and has drawn none.');
+      (part.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]') ?? part.querySelector<HTMLElement>('button, select') ?? part).focus();
+      return;
+    }
+    // A place is offered only while what takes its keyboard is drawn (`places` below): one that is gone by now is a defect.
+    const grid = place === 'trace' ? undefined : (place === 'new' ? newGrid : existingGrid).current;
+    const take = place === 'trace' ? treeFocus.current : grid === undefined || grid === null ? undefined : () => grid.focus();
+    if (take === undefined) throw new Error(`The pricer page was asked to put the keyboard in ${place}, and has drawn nothing there to take it.`);
+    take();
   }, [placeRequest]);
 
   // A result that arrives changes the New grid's rows with no edit: they are read again when the count waiting moves.
@@ -372,13 +383,13 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   // The page's places (ADR-0016 §9, note 20): its two trade grids, its input tabs by the words `open` takes, and the
   // dock. `focus grid` goes to the first that is a grid: New trades, or a trace tab's tree while the dock is widened
   // over the grids.
-  const treeFocus = useRef<(() => void) | undefined>(undefined);
   const traceShown = useRef(false);
   const registerTreeFocus = useCallback((focus: (() => void) | undefined) => { treeFocus.current = focus; }, []);
   const places = (): readonly Place[] => {
-    const tree = treeFocus.current;
+    // While the workspace is being read, or could not be, the page draws no part to go to.
+    if (view.isPending || view.isError) return [];
     return [
-      ...(traceShown.current && tree !== undefined ? [{ word: 'trace', title: 'the trace', grid: true, go: () => { tree(); return undefined; } }] : []),
+      ...(traceShown.current && treeFocus.current !== undefined ? [{ word: 'trace', title: 'the trace', grid: true, go: () => goTo('trace') }] : []),
       { word: 'new', title: 'New trades', grid: true, go: () => goTo('new') },
       { word: 'existing', title: 'Existing trades', grid: true, go: () => goTo('existing') },
       ...(Object.keys(TAB_TITLES) as InputTab[]).map((tab) => ({ word: tab, title: `the ${TAB_TITLES[tab]} tab`, go: () => openTab(tab) })),
@@ -779,7 +790,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   const setCurrency = (currency: string) => void queue.push({ entity: SETTINGS_ENTITY, field: 'displayCurrency', value: currency, title: 'The display currency' });
 
   // The commands run what the page's own controls run, as the page stands when they run (ADR-0010 §9).
-  const pageCommands = { takeBack, chooseCds, cdsCatalogue: () => catalogue.data, price, setMeasures, setSide, retry, copyQuote, download, refresh, setCurrency, openTab, explain, openResult, setDockFull, resultTabs, traceInView, vary, addTrades, removeCase, clearCases, defineScenario, includeScenario, removeScenario, duplicate, clearScenarios, generateScenarios, saveScenarios, loadScenarios, scenarioSets: () => scenarioSets.data ?? [], scenarios: () => view.data?.scenarios ?? [], pricing: () => (view.data === undefined ? undefined : { cases: view.data.cases.length, cap: view.data.caseCap }), measures: () => view.data?.measures ?? [], currencies: () => view.data?.currencies ?? [], examples: () => ({ csa: view.data?.csas[0]?.csaId }) };
+  const pageCommands = { takeBack, chooseCds, cdsCatalogue: () => catalogue.data, price, setMeasures, setSide, retry, copyQuote, download, refresh, setCurrency, explain, openResult, setDockFull, resultTabs, traceInView, vary, addTrades, removeCase, clearCases, defineScenario, includeScenario, removeScenario, duplicate, clearScenarios, generateScenarios, saveScenarios, loadScenarios, scenarioSets: () => scenarioSets.data ?? [], scenarios: () => view.data?.scenarios ?? [], pricing: () => (view.data === undefined ? undefined : { cases: view.data.cases.length, cap: view.data.caseCap }), measures: () => view.data?.measures ?? [], currencies: () => view.data?.currencies ?? [], examples: () => ({ csa: view.data?.csas[0]?.csaId }) };
   const pageRef = useRef(pageCommands);
   pageRef.current = pageCommands;
   useEffect(() => {
@@ -809,7 +820,6 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
       copyQuote: () => void pageRef.current.copyQuote(),
       refresh: () => void pageRef.current.refresh(),
       setCurrency: (currency) => pageRef.current.setCurrency(currency),
-      openTab: (tab) => pageRef.current.openTab(tab),
       explain: (measure, path) => pageRef.current.explain(measure, path),
       openResult: (tab) => pageRef.current.openResult(tab),
       setDockFull: (full) => pageRef.current.setDockFull(full),
@@ -835,7 +845,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
       const read = shown.readView();
       return {
         view: pagedView(declared, read, sources[grid].snapshot(), sources.answered),
-        put: (place) => placeFocus(declared, shown, read, place, () => undefined) ?? goToNow.current(grid),
+        put: (place) => placeFocus(declared, shown, read, place) ?? goToNow.current(grid),
       };
     };
     return { new: of('new', newGrid), existing: of('existing', existingGrid) };
@@ -917,7 +927,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
         data={[{ value: 'inputs', label: 'Inputs' }, { value: 'trades', label: 'Trades' }, { value: 'results', label: 'Results' }]} />
       <div data-part="inputs" className="qube-xva-part">
         <XvaInputs panelId={panelId} ws={ws} onIssue={setIssue} push={(entity, field, value, title) => void queue.push({ entity, field, value, title })} setText={setText}
-          catalogue={catalogue.isError ? { refused: describe(catalogue.error) } : catalogue.data} onGridEntered={(seen) => { screen.current = seen; }} onPlaced={() => void openTab('csa')}
+          catalogue={catalogue.isError ? { refused: describe(catalogue.error) } : catalogue.data} onGridEntered={(seen) => { screen.current = seen; }} onPlaced={() => openTab('csa')}
           tab={inputTab} onTab={(tab) => { setInputTab(tab); setInputsOpen(true); }} open={inputsOpen} onOpen={setInputsOpen} height={inputsHeight} focusRequest={focusRequest}
           changeList={changeList.data} changeActions={changeActions} scenarioActions={scenarioActions} onVary={setVarying} commandLabel={commandLabel} />
         <VaryDialog target={varying} vary={(target, values) => varyCell({ entity: target.entity, field: target.field }, values)} onClose={() => setVarying(undefined)} />
@@ -945,7 +955,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
         </div>
       </div>
       {/* The result dock (ADR-0010 §7) at the bottom, in view while the trades scroll: one line a case collapsed. */}
-      <div ref={dock} data-part="results" className="qube-xva-part qube-xva-dock">
+      <div ref={dock} tabIndex={-1} data-part="results" className="qube-xva-part qube-xva-dock">
         {pricedRun === undefined
           ? <Text size="sm" data-testid="xva-result-none">Nothing is priced yet. Price shows its figures here.</Text>
           : (

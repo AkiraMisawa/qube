@@ -13,7 +13,8 @@ import type { Notify } from '../platform/notices';
 import { viewsFor } from '../platform/views/binding';
 import { CONTEXT_CONTRACT, useWorkspace, useWorkspaceContext } from '../platform/workspace/WorkspaceProvider';
 import { keyOf, type Panel, type WorkspaceState } from '../platform/workspace/workspaceStore';
-import { placesOf, type Place } from './places';
+import { keepKeyboard, letGo, rememberKeyboard, returnKeyboard } from './keyboard';
+import { goTo, placesOf } from './places';
 import { useStore } from 'zustand';
 import { createStore } from 'zustand/vanilla';
 import { useOptionalAiStore } from '../ai/AiProvider';
@@ -53,7 +54,7 @@ export function buildCommands(args: {
   // The applications' commands first: the empty line lists the groups in the order registered (ADR-0006's note 3 of
   // 2026-11-11), and what an application offers comes before the catalog's workflows and the shell's own.
   const commands: Command[] = [
-    ...appCommands(state),
+    ...appCommands(state, args.notify),
     // The commands the catalog says how to type (ADR-0016 §4): the server reads their lines, for the workspace of the
     // page in the active panel.
     ...servedCommands(catalog, active, commandDoorOf(active?.id), args.notify),
@@ -221,13 +222,6 @@ export function buildCommands(args: {
   return commands;
 }
 
-/** Puts the keyboard in a place and says where it went; a place that cannot take it now refuses, and nothing is said to have moved. */
-function goTo(place: Place, notify: Notify): void {
-  const why = place.go();
-  if (why !== undefined) throw new CommandRefused(why);
-  notify('done', `The keyboard is in ${place.title}.`);
-}
-
 /** A title as the words a command is typed with: lower case, single spaces, no punctuation. */
 export function wordsOf(title: string): string {
   return title.toLowerCase().replace(/[^a-z0-9.\-/ ]+/g, ' ').replace(/\s+/g, ' ').trim();
@@ -253,8 +247,7 @@ const NO_AI = createStore<{ readonly open: boolean }>()(() => ({ open: false }))
 /** Opens the command line (Ctrl+K anywhere; `/` where it would not be typed into something). */
 export function openPalette(): void {
   if (document.activeElement?.closest('.qube-palette') != null) return;
-  if (keyboardBefore === null && document.activeElement instanceof HTMLElement && document.activeElement !== document.body)
-    keyboardBefore = document.activeElement;
+  rememberKeyboard();
   letGo();
   openLine?.();
 }
@@ -413,7 +406,7 @@ export function CommandPalette() {
     }
     // A command that opened a surface leaves the keyboard to it; any other gives it back.
     if (workspace.store.getState().runDialog === undefined && document.activeElement === document.body) returnKeyboard();
-    else keyboardBefore = null;
+    else keepKeyboard();
   };
 
   /**
@@ -442,7 +435,7 @@ export function CommandPalette() {
         setOpened(false);
         // A command that put the keyboard somewhere itself keeps it there (ADR-0016 §9, note 22); any other gives it back.
         if (ended === undefined) returnKeyboard();
-        else keyboardBefore = null;
+        else keepKeyboard();
         return;
       }
       void queryClient.invalidateQueries({ queryKey: ['command-line'] });
@@ -670,19 +663,3 @@ function ValueOption({ completion }: { readonly completion: Completion }): React
   );
 }
 
-// Focus moves are owned here rather than left to Mantine's timers. Until a surface has mounted and
-// taken the keyboard, keys go to nothing: opening the line and running a command first let go of
-// the focused element, so a key typed at machine speed is dropped, never delivered to the grid behind
-// the line or to a line that is closing. The keyboard goes back where it was when the line
-// closes without opening a surface of its own.
-let keyboardBefore: HTMLElement | null = null;
-
-function letGo(): void {
-  if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
-}
-
-function returnKeyboard(): void {
-  const element = keyboardBefore;
-  keyboardBefore = null;
-  if (element !== null && element.isConnected) element.focus({ preventScroll: true });
-}

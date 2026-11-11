@@ -762,6 +762,12 @@ Notes 20 to 23 are 2b's (tickets 06 to 08 and 12).
       place is refused by the line's own check of an argument: `place: one of new, existing, …, results`. `open
       <tab>` for a tab that does not show now keeps the line with the reason too, where it was a refused notice.
       From the chord there is no line, and the reason is a notice: `focus grid: This panel has no grid yet.`
+    - *From the review of 2b.* `open <tab>` is `go` to that tab's place, so it too says where the keyboard went
+      (`The keyboard is in the CSA tab.`) and gives none back. A page offers its places only while it draws them:
+      while the pricer is still reading its workspace, or could not, it has none. And a place a page offers always
+      has something to take the keyboard. A tab with nothing to work in (Netting while no selected measure reads
+      the recovery, CSA where the agreement has none) takes it on its own tab, and a dock that draws no tab and no
+      control takes it itself. A place gone to with nothing drawn to take the keyboard is a defect, and throws.
 21. **`find` is read by the server and done by the page (§3, §9; amends §3 and §4's "in the client only").**
     `find <row> [<field>]` puts the Focus of the grid on screen on a row or on one of its cells. Its row may be one
     the page has not loaded, and the reading of a line is the server's (§5): so `POST /api/commands/preview` reads
@@ -794,9 +800,19 @@ Notes 20 to 23 are 2b's (tickets 06 to 08 and 12).
       whatever the page shows by then. It answers that the keyboard has moved, and the line then gives none back.
       The line's entry is `view.find`, among the workspace's commands. `find` completes the ids of the rows the
       grid shows that start or end with what is typed, twenty at a time, and then the table's fields.
+    - *From the review of 2b.* A position is answered only where the view names an order (`order`), whichever
+      reader the table has. A view that names its rows by key, and a paged one whose rows were in no one order,
+      are answered the key alone. A page that holds every row finds the key itself. A page that holds part of its
+      rows and was answered no position places nothing and says so: the grid `held its rows in no one order when
+      the line opened`. Where the grid refuses the place the reason says which it was: it has moved since the
+      line opened, or it keeps an edit open that it could not commit (told apart by ExGrid's `readEditText`).
+      None of these sentences names `find`: the next view verb that answers a place reads them too.
 22. **Where the keyboard is afterwards (§9).** A command that edits or executes gives the keyboard back to where
     it was when the line opened: `set`, `reset`, `undo`, Price. So it has been since step 1; a browser test now
     holds it. `go` and `find` leave it where they put it, and the line gives nothing back after them.
+    - *From the review of 2b.* Who gives the keyboard back is kept in one module (`shell/keyboard.ts`). `go`,
+      `find` and `open <tab>` say the keyboard is theirs as soon as the place is taken, before the page has drawn
+      it: the line then has none to give back, however late the page's own focus arrives.
 23. **A table left out is the screen's (§9; ticket 12, from the review of 2a).** With a view behind the line,
     rows said as `all` or by `where` alone, with no table, are rows of the view's table. A subset's word names
     the view's table where that table has such a subset, and the main table otherwise: on the CSA grid `existing`
@@ -808,6 +824,10 @@ Notes 20 to 23 are 2b's (tickets 06 to 08 and 12).
     - *What could follow* offers the subsets and, after `where`, the fields of the table the rows would be read in.
     - *Rows left out, `selected` and `shown` need no table named here*: the request already holds their keys and
       their table (note 18). An id is found in the one table that has it.
+    - *From the review of 2b.* The line's reader is the one place that decides the table of rows said with none,
+      and what it decided travels with the reading: the preview, the completions and the request read that, and
+      none works it out again. A subset's word that both the screen's table and the main one have names the
+      screen's, and the list offers it once.
 
 ## Rejected
 

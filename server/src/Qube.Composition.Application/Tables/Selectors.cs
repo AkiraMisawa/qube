@@ -43,7 +43,12 @@ sealed record OpenCondition(IReadOnlyList<string> Field, string? Operator);
 /// not finished, that condition and the refusal a command would get. What could follow is said from this (note 15).
 /// </summary>
 /// <param name="IdsFrom">The first word of the rows' ids, where rows are said by id, and <paramref name="IdsTo"/> the word after the last.</param>
-sealed record SelectorScan(RowSelector Selector, int Taken, OpenCondition? Open, TableRefused? Short, int IdsFrom = 0, int IdsTo = 0);
+/// <param name="Unsaid">
+/// The table of rows the line says with no table, by <c>all</c>, a subset or <c>where</c>, where a screen is behind
+/// it (ADR-0016 §9, note 23 of step 2): the screen's table, or the table a subset's word was read in. None where the
+/// line names its table, says its rows by id or as the screen's, says none, or has no screen behind it.
+/// </param>
+sealed record SelectorScan(RowSelector Selector, int Taken, OpenCondition? Open, TableRefused? Short, int IdsFrom = 0, int IdsTo = 0, TableDescriptor? Unsaid = null);
 
 /// <summary>
 /// The rows a selector means in a workspace. <paramref name="Whole"/> names the subsets the rows are the whole of, where
@@ -105,14 +110,22 @@ public static partial class SelectorReader
         var all = false;
         ScreenRows? screen = null;
         string? subset = null;
+        TableDescriptor? subsetOf = null;
         List<string> ids = [];
         var said = table ?? within;
         if (at < words.Length && Is(words[at], AllWord)) (all, at) = (true, at + 1);
         else if (at < words.Length && ScreenWord(words[at]) is { } rows) (screen, at) = (rows, at + 1);
-        // A registration's subsets share no word (TableRegister.Of), so the words name one of a table's. With no table
-        // said, the table is the screen's where it has such a subset, and the main one otherwise (note 23 of step 2).
-        else if (SubsetScopes(said, onScreen, tables).Select(scope => Longest(words, at, scope.Subsets, TableWords.Names)).FirstOrDefault(found => found is not null) is (var subsets, var length))
-            (subset, at) = (subsets[0].Name, at + length);
+        else
+        {
+            // A table's subsets share no word (TableRegister.Of), so the words name one of a table's. With no table
+            // said, the table is the screen's where it has such a subset, and the main one otherwise (note 23 of step 2).
+            foreach (var scope in SubsetScopes(said, onScreen, tables))
+            {
+                if (Longest(words, at, scope.Subsets, TableWords.Names) is not (var subsets, var length)) continue;
+                (subset, subsetOf, at) = (subsets[0].Name, scope, at + length);
+                break;
+            }
+        }
         var idsFrom = at;
         if (!all && screen is null && subset is null && at < words.Length && !Is(words[at], WhereWord) && said is not { SingleRow: true }
             && !(said is null && StartsWithAField(words, at, [.. tables.Where(t => t.SingleRow).SelectMany(t => t.Fields), .. onScreen?.Fields ?? []])))
@@ -122,7 +135,8 @@ public static partial class SelectorReader
         List<Condition> where = [];
         OpenCondition? open = null;
         TableRefused? unread = null;
-        if (at < words.Length && Is(words[at], WhereWord))
+        var narrowed = at < words.Length && Is(words[at], WhereWord);
+        if (narrowed)
         {
             do
             {
@@ -131,7 +145,11 @@ public static partial class SelectorReader
             }
             while (unread is null && at < words.Length && Is(words[at], AndWord));
         }
-        return new(new RowSelector(table?.TableId, all, subset, ids, where, screen), at, open, unread, idsFrom, idsTo);
+        // This is the one place that says which table such rows are of: the verbs and what could follow read it here.
+        var unsaid = said is not null || onScreen is null || screen is not null || ids.Count > 0 ? null
+            : subset is not null ? subsetOf
+            : all || narrowed ? onScreen : null;
+        return new(new RowSelector(table?.TableId, all, subset, ids, where, screen), at, open, unread, idsFrom, idsTo, unsaid);
     }
 
     // The tables a subset's word is looked for in, in turn: the one said; or the screen's, then the main one.
@@ -258,7 +276,9 @@ public static class Selectors
             : selector.Table is { } name ? TableRegister.Find(tables, name)
             : selector.Ids.Count > 0 ? TableOf(selector.Ids, tables, IndexOf)
             : selector.SaysNoRows ? throw NoRows(null, tables)
-            : Unsaid(selector, tables, view) ?? throw NoRows(null, tables);
+            // A selector that names no table and no row is the main table's. Where a screen is behind a line its reader
+            // names the table (SelectorScan.Unsaid), so no selector reaches here for the screen's table to be guessed.
+            : tables.FirstOrDefault(t => t.Descriptor.Main) ?? throw NoRows(null, tables);
         var all = RowsOf(table);
 
         IReadOnlyList<ITableRow> rows;
@@ -317,19 +337,6 @@ public static class Selectors
     }
 
     /// <summary>
-    /// The table of rows said with no table and by no id (ADR-0016 §9, note 23 of step 2): the screen's, where a
-    /// screen is behind the line, and the main table otherwise. A subset's word names the screen's table where that
-    /// table has such a subset, and the main table where it has not. None where there is neither.
-    /// </summary>
-    internal static BoundTable? Unsaid(RowSelector selector, IReadOnlyList<BoundTable> tables, LineView? view)
-    {
-        var main = tables.FirstOrDefault(t => t.Descriptor.Main);
-        if (view is null) return main;
-        var onScreen = Views.TableOf(view, tables);
-        return selector.Subset is { } word && !onScreen.Descriptor.Subsets.Any(s => TableWords.Names(s).Contains(TableWords.Of(word))) ? main : onScreen;
-    }
-
-    /// <summary>
     /// The rows a line that says none acts on, where a screen is behind it (note 18 of step 2): the screen's selection,
     /// or the row the keyboard is on where nothing is selected. With neither, the line is refused as one that says
     /// <c>selected</c> is.
@@ -384,7 +391,7 @@ public static class Selectors
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var id in ids)
         {
-            var row = Named(id, index) switch
+            var row = RowsNamed(id, index) switch
             {
                 [var one] => one,
                 [] => throw UnknownRow(id, all, table.Word),
@@ -397,7 +404,7 @@ public static class Selectors
     }
 
     /// <summary>The rows an id names among those indexed (note 7): the one of that id as written, or else every row whose id ends with it.</summary>
-    internal static IReadOnlyList<ITableRow> Named(string id, RowIndex index) => index.Row(id) is { } row ? [row] : index.Ending(id);
+    internal static IReadOnlyList<ITableRow> RowsNamed(string id, RowIndex index) => index.Row(id) is { } row ? [row] : index.Ending(id);
 
     /// <summary>An id that names no row of those looked in, which are said in <paramref name="within"/>'s words and listed where they are few.</summary>
     internal static TableRefused UnknownRow(string id, IReadOnlyList<ITableRow> among, string within) =>

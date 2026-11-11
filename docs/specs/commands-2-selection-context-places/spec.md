@@ -74,14 +74,15 @@ the lines worth a menu item, and every grid bound to it shows them in its Contex
 - **`find <row> [<field>]`** is a view verb the server reads (note 21). `GET /api/catalog` lists the view verbs
   (`viewVerbs`), and the line builds their entries as it builds a capability's. The preview answers a `place`
   (`table`, `subset?`, `key`, `position?`, `column?`, `said`) and no command.
-- **The door.** `DoorPage.place(place, view)` puts the keyboard there and answers why where it cannot. `enter` on a
-  reading with a place invokes nothing: it has the page place it, says the server's sentence as the notice, and
-  answers that the keyboard was moved, so the line gives none back.
+- **The door.** `DoorPage.screen()` answers the view and how the grid it was read of takes a place (`put`), which
+  answers why where it cannot. `enter` on a reading with a place invokes nothing: it has that grid take the place,
+  says the server's sentence as the notice, and answers that the keyboard was moved, so the line gives none back.
 - **The grid.** The page keeps, for each view it gave the line, how that grid takes a place: `placeSelection` of the
   one cell against the Row Sequence Version the view was read in.
-- Only `go`, `find` and `open` move the keyboard, and `go` and `find` say where it went.
-- **A table left out is the screen's** for `all` and `where` (note 23). `Selectors.Resolve` and the completions ask
-  one function which table rows said with no table mean, and the request names a table the screen gave.
+- Only `go`, `find` and `open` move the keyboard, and each says where it went.
+- **A table left out is the screen's** for `all` and `where` (note 23). The line's reader decides once which table
+  rows said with no table mean (`SelectorScan.Unsaid`); the preview, the completions and the request read that, and
+  the request names a table the screen gave.
 
 ### 2c. The chain key and menus (tickets 09 to 11; the notes are written when it is built)
 

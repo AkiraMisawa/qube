@@ -25,3 +25,7 @@ What could follow offers the screen's fields after `where`. Found by the review 
   reads `set csas where ccy=USD threshold 0`.
 - What could follow offers the subsets of the screen's table and of the main one, and after `where` the fields of the
   table the rows would be read in.
+- From the review: the table was worked out twice, by the reader and again for the request, and a subset's word
+  both tables have told the two apart. The reader now decides it once (`SelectorScan.Unsaid`) and the preview, the
+  completions and the request read that. Such a word names the screen's table and is offered once. The stations
+  fixture has a subset by a name the readings have too, which holds it.

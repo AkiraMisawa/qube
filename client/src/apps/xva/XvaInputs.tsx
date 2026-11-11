@@ -128,8 +128,8 @@ export function XvaInputs({ panelId, ws, push, setText, catalogue, onIssue, onGr
   readonly onIssue: (message: string | undefined) => void;
   /** The keyboard entered a grid of a table here: what the command line is told is on screen, read when it opens (ADR-0016 note 16). */
   readonly onGridEntered: (screen: () => Screen | undefined) => void;
-  /** A place was put in the CSA grid (`find`, ADR-0016 note 21): its tab is shown and the keyboard given to it. */
-  readonly onPlaced: () => void;
+  /** A place was put in the CSA grid (`find`, ADR-0016 note 21): its tab is shown and the keyboard given to it, or why not is answered. */
+  readonly onPlaced: () => string | undefined;
   readonly tab: InputTab;
   /** A tab pressed, which opens the tabs too. */
   readonly onTab: (tab: InputTab) => void;
@@ -165,15 +165,21 @@ export function XvaInputs({ panelId, ws, push, setText, catalogue, onIssue, onGr
   const creditShown = tabShown(ws, CREDIT_TAB);
   const settingsShown = tabShown(ws, SETTINGS_TAB);
   const shown = shownTab(ws, tab);
+  const tabList = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (focusRequest === 0) return;
-    if (shown === 'netting') recovery.current?.focus();
-    else if (shown === IM_TAB) imCsas.current?.focus();
-    else if (shown === CHANGES_TAB) changesBody.current?.focus();
-    else if (shown === SCENARIOS_TAB) scenarioGrid.current?.focus();
-    else if (shown === CREDIT_TAB) creditType.current?.focus();
-    else if (shown === SETTINGS_TAB) firstSetting.current?.focus();
-    else csaGrid.current?.focus();
+    const worked: { focus(): void } | null = shown === 'netting' ? recovery.current
+      : shown === IM_TAB ? imCsas.current
+      : shown === CHANGES_TAB ? changesBody.current
+      : shown === SCENARIOS_TAB ? scenarioGrid.current
+      : shown === CREDIT_TAB ? creditType.current
+      : shown === SETTINGS_TAB ? firstSetting.current
+      : csaGrid.current;
+    // A tab that draws nothing to work in, as Netting does while no measure reads the recovery and CSA where the
+    // agreement has none, takes the keyboard on its own tab (ADR-0016 note 20): a place always puts it somewhere.
+    const take = worked ?? tabList.current?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]');
+    if (take === null || take === undefined) throw new Error(`The input tabs were asked to take the keyboard on ${shown}, and have drawn no tab for it.`);
+    take.focus();
   // Only a command's request moves the keyboard; a tab pressed keeps it where the press left it.
   }, [focusRequest]);
 
@@ -188,7 +194,7 @@ export function XvaInputs({ panelId, ws, push, setText, catalogue, onIssue, onGr
     <Tabs value={shown} onChange={(value) => { const chosen = Object.keys(TAB_TITLES).find((t) => t === value); if (chosen !== undefined) onTab(chosen as InputTab); }} keepMounted={false}
       className="qube-xva-inputs" data-open={open}>
       <Group gap="xs" wrap="nowrap" className="qube-xva-inputs-row">
-        <Tabs.List className="qube-xva-inputs-tabs" aria-label="Inputs">
+        <Tabs.List ref={tabList} className="qube-xva-inputs-tabs" aria-label="Inputs">
           <Tabs.Tab value="netting">{TAB_TITLES.netting}{count(nettingCount)}</Tabs.Tab>
           <Tabs.Tab value="csa">{TAB_TITLES.csa}{count(csaChanges)}</Tabs.Tab>
           {creditShown && <Tabs.Tab value={CREDIT_TAB} {...(ws.credit.missing == null ? {} : { color: 'red', title: ws.credit.missing })}>{TAB_TITLES.credit}{count(creditCount)}{ws.credit.missing == null ? '' : ' · no CDS'}</Tabs.Tab>}
@@ -313,7 +319,7 @@ function CsaGrid({ panelId, csas, columns: declared, push, height, gridRef, onVa
   readonly height: number;
   readonly gridRef: RefObject<ExGridApi<CsaRow> | null>;
   readonly onGridEntered: (screen: () => Screen | undefined) => void;
-  readonly onPlaced: () => void;
+  readonly onPlaced: () => string | undefined;
 }) {
   const source = useMemo(() => GridSource.from<CsaRow>([], { rowKey: (row) => row.csaId }), []);
   const { columns, onColumnWidthChanged } = useColumnWidths(panelId, 'csas', declared);
@@ -353,14 +359,10 @@ function CsaGrid({ panelId, csas, columns: declared, push, height, gridRef, onVa
     const held = source.snapshot();
     return {
       view: heldView(declared, read, held, (row) => row.csaId),
-      put: (place) => {
-        const why = placeFocus(declared, grid, read, place, (key) => {
-          const at = held.window.findIndex((row) => row.csaId === key);
-          return at < 0 ? undefined : held.windowStart + at;
-        });
-        if (why === undefined) placed.current();
-        return why;
-      },
+      put: (place) => placeFocus(declared, grid, read, place, (key) => {
+        const at = held.window.findIndex((row) => row.csaId === key);
+        return at < 0 ? undefined : held.windowStart + at;
+      }) ?? placed.current(),
     };
   }, [gridRef, source]);
 

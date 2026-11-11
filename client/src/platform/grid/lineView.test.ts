@@ -98,13 +98,13 @@ describe('the cell a place names in a grid (ADR-0016 §9, note 21 of 2026-11-11)
   const grid: ScreenGrid = { table: 'w.readings', subset: 'manual', columns: ['id', 'station', 'note'] };
   const version: GridRead = { rowSequenceVersion: 4, selection: { ranges: [], focus: undefined } };
   const place: LinePlace = { table: 'w.readings', subset: 'manual', key: 'R2', said: 'The keyboard is on R2 in readings (manual).' };
-  const placing = (takes = true) => ({ placeSelection: vi.fn(() => takes) });
+  const placing = (takes = true, editing?: string) => ({ placeSelection: vi.fn(() => takes), readEditText: () => editing });
   const nowhere = () => undefined;
 
   it('is placed as one cell with the Focus on it, by its position where the server pages the grid and its column by name, in the version the view was read in', () => {
     const handle = placing();
 
-    expect(placeFocus(grid, handle, version, { ...place, position: 7, column: 'note' }, nowhere)).toBeUndefined();
+    expect(placeFocus(grid, handle, version, { ...place, position: 7, column: 'note' })).toBeUndefined();
 
     expect(handle.placeSelection.mock.calls).toEqual([[{ topRow: 7, rowCount: 1, leftColumn: 2, columnCount: 1 }, { row: 7, column: 2 }, 4]]);
   });
@@ -117,12 +117,16 @@ describe('the cell a place names in a grid (ADR-0016 §9, note 21 of 2026-11-11)
     expect(handle.placeSelection.mock.calls).toEqual([[{ topRow: 5, rowCount: 1, leftColumn: 0, columnCount: 1 }, { row: 5, column: 0 }, 4]]);
   });
 
-  it('is not placed, and says why, where the grid shows no such column, holds no such row, or has left the version the view was read in', () => {
+  it('is not placed, and says why, where the grid shows no such column, holds no such row, or was read in no one order while its page holds part of its rows', () => {
     const handle = placing();
-    expect(placeFocus(grid, handle, version, { ...place, position: 7, column: 'wind' }, nowhere)).toBe('The grid on screen shows no column for that field: find R2 alone goes to its row.');
+    expect(placeFocus(grid, handle, version, { ...place, position: 7, column: 'wind' }, nowhere)).toBe('The grid on screen shows no column wind: name R2 alone to go to its row.');
     expect(placeFocus(grid, handle, version, place, nowhere)).toBe('R2 is no longer a row the grid on screen holds: open the line again.');
+    expect(placeFocus(grid, handle, version, place)).toBe('The grid on screen held its rows in no one order when the line opened, so R2 has no position in it: open the line again.');
     expect(handle.placeSelection).not.toHaveBeenCalled();
+  });
 
-    expect(placeFocus(grid, placing(false), version, { ...place, position: 7 }, nowhere)).toBe('The grid on screen has moved since the line opened: open the line again.');
+  it('says which it is where the grid refuses the place: it has moved since the view was read, or it keeps an edit open that it could not commit', () => {
+    expect(placeFocus(grid, placing(false), version, { ...place, position: 7 })).toBe('The grid on screen has moved since the line opened: open the line again.');
+    expect(placeFocus(grid, placing(false, '12x'), version, { ...place, position: 7 })).toBe('The grid on screen keeps an edit open that it could not commit: correct or cancel it first.');
   });
 });

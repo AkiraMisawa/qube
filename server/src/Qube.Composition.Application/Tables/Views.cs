@@ -213,16 +213,18 @@ static class Views
 
     /// <summary>
     /// Where a row stands in the order the view's grid is drawn from, for a page to put its Focus there (note 21): its
-    /// position where the server pages the grid, refused where that order is no longer the grid's; none where the page
-    /// holds every row, and finds the row by its key.
+    /// position where the view names that order, refused where the order is no longer the table's. None where the view
+    /// names no order, as the view of a page that holds every row does: such a page finds the row by its key, and one
+    /// that cannot says so. How the view names its rows decides, never whether the table has a reader that pages it.
     /// </summary>
     public static int? PositionOf(LineView view, BoundTable table, WorkspaceState state, ITableRow row)
     {
         Shaped(view);
-        if (InOrder(view, table, state) is not { } ordered) return null;
-        if (ordered.Token != view.Order) throw new TableRefused(Moved, $"The {table.Word} are no longer in the order the grid shows them in: open the line again.");
-        for (var at = 0; at < ordered.Rows.Count; at++)
-            if (string.Equals(ordered.Rows[at].Key, row.Key, StringComparison.Ordinal)) return at;
+        if (view.Order is null) return null;
+        var sorted = Sorted(view, table, state);
+        if (sorted.Token != view.Order) throw new TableRefused(Moved, $"The {table.Word} are no longer in the order the grid shows them in: open the line again.");
+        for (var at = 0; at < sorted.Rows.Count; at++)
+            if (string.Equals(sorted.Rows[at].Key, row.Key, StringComparison.Ordinal)) return at;
         throw new InvalidOperationException($"{row.Key} is a row of {Named(view, table)}, and the order its grid is drawn from has no such row.");
     }
 

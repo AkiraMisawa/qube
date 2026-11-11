@@ -299,7 +299,7 @@ public class CommandLineTests
     [InlineData("set s", "R1,R3", "selected@4 (2 rows) | shown@4 (3 rows) | stations@4 | settings@4")]
     [InlineData("set ", "", "all | shown (3 rows) | manual | automatic | where | readings")]
     [InlineData("set readings ", "R1", "all | selected (1 row) | shown (3 rows) | manual | automatic | where | R1 | R2")]
-    [InlineData("set stations ", "R1", "all | high | where | N1 | S1 | X1")]
+    [InlineData("set stations ", "R1", "all | high | manual | where | N1 | S1 | X1")]
     [InlineData("set selected ", "R1", "volume | unit | checked | note | wind speed | wind direction | drift | where")]
     [InlineData("set shown where ", "R1", "id | station | volume | unit | taken | checked | note | wind speed | wind direction | window | drift")]
     [InlineData("set selected where unit=", "R1", "unit=M3@19 | unit=GAL@19")]
@@ -457,17 +457,32 @@ public class CommandLineTests
 
         var none = rig.Preview("find R1");
         var moved = rig.Preview("find R1", paged with { Order = "an earlier order" });
-        var unsaid = rig.Preview("find R1", paged with { Order = null });
         var hidden = rig.Preview("find N1", new LineView(Stations.Sites, Shown: ["S1", "X1"]));
         var shown = rig.Preview("find 1", new LineView(Stations.Sites, Shown: ["S1"]));
 
         Assert.Equal("NoView: find looks for a row in the grid on screen, and no grid of a table is behind this line: go to one first.", Read(none));
         Assert.Equal("ViewMoved: The readings are no longer in the order the grid shows them in: open the line again.", Read(moved));
-        Assert.Equal("ViewMoved", unsaid.Refused!.Code);
         Assert.Equal("NotOnScreen: N1 is a row of stations that the filter of the grid on screen leaves out.", Read(hidden));
         // Under a filter an id's end is read among the rows it leaves: 1 is S1 alone, though three stations end with it.
         Assert.Equal("S1", shown.Place!.Key);
-        Assert.All([none, moved, unsaid, hidden], refused => Assert.Null(refused.Place));
+        Assert.All([none, moved, hidden], refused => Assert.Null(refused.Place));
+    }
+
+    [Fact] // ADR-0016 §9, note 21: a position is answered in the order the view names; a view that names none is answered the key alone
+    public void Find_answers_a_position_only_in_the_order_the_view_names()
+    {
+        var rig = new Rig();
+        ViewSort[] largest = [new("volume", Descending: true)];
+
+        var paged = rig.Preview("find R2", new LineView(Stations.Readings, "manual", largest, rig.Order("manual", largest)));
+        // The readings have a reader that pages them, and this page holds them all: it names its rows by key and no order.
+        var held = rig.Preview("find R2", new LineView(Stations.Readings, "manual", Keys: ["R1"]));
+        // A grid the server pages whose rows in hand were of no one order names none either: its page says it cannot place.
+        var unsaid = rig.Preview("find R2", new LineView(Stations.Readings, "manual", largest));
+
+        Assert.Equal(("R2", 2), (paged.Place!.Key, paged.Place.Position));
+        Assert.Equal(("R2", null), (held.Place!.Key, held.Place.Position));
+        Assert.Equal(("R2", null), (unsaid.Place!.Key, unsaid.Place.Position));
     }
 
     [Theory] // ADR-0016 §5, note 21: after find, the rows the grid shows are offered, a few at a time, and after a row the table's fields
@@ -497,7 +512,10 @@ public class CommandLineTests
         var all = rig.Preview("reset all altitude", stations);
         // A subset's word names the screen's table where that table has it, and the main table where it has not.
         var high = rig.Preview("set high altitude 130", stations);
-        var manual = rig.Preview("set manual checked on", stations);
+        // The stations have a subset of the readings' name, `manual`: said by that name it is theirs, and by a word the
+        // readings' alone has, `by hand`, it is the readings'.
+        var manual = rig.Preview("set manual altitude 20", stations);
+        var byHand = rig.Preview("set by hand checked on", stations);
         // With no screen (the AI, a saved sequence) the main table, as in step 1; and a screen of the main table names none.
         var none = rig.Preview("set where unit=m3 checked on");
         var main = rig.Preview("reset where unit=m3 note", new LineView(Stations.Readings, "manual"));
@@ -505,7 +523,8 @@ public class CommandLineTests
         Assert.Equal((("stations", "where altitude>30"), "stations, 2 rows", "altitude: 2 to 50"), (Asked(where), where.Rows!.Title, where.Would));
         Assert.Equal((("stations", "all"), "stations, 3 rows"), (Asked(all), all.Rows!.Title));
         Assert.Equal((("stations", "high"), "stations, 1 row"), (Asked(high), high.Rows!.Title));
-        Assert.Equal(((null, "manual"), "readings, 3 rows"), (Asked(manual), manual.Rows!.Title));
+        Assert.Equal((("stations", "manual"), "stations, 1 row"), (Asked(manual), manual.Rows!.Title));
+        Assert.Equal(((null, "by hand"), "readings, 3 rows"), (Asked(byHand), byHand.Rows!.Title));
         Assert.Equal(((null, "where unit=m3"), "readings, 4 rows"), (Asked(none), none.Rows!.Title));
         // The table, not the grid's subset: `shown` says the rows of the grid.
         Assert.Equal(((null, "where unit=m3"), "readings, 4 rows"), (Asked(main), main.Rows!.Title));
@@ -519,7 +538,8 @@ public class CommandLineTests
     [InlineData("set where ", "id | altitude | backup")]
     [InlineData("set all ", "altitude | backup | where")]
     [InlineData("set where altitude>30 ", "and | altitude | backup")]
-    [InlineData("set manual ", "volume | unit | checked | note | wind speed | wind direction | drift | where")]
+    [InlineData("set manual ", "altitude | backup | where")]
+    [InlineData("set by hand ", "volume | unit | checked | note | wind speed | wind direction | drift | where")]
     public void With_a_table_left_out_what_could_follow_is_the_screens_tables(string line, string offered)
     {
         var preview = new Rig().Preview(line, new LineView(Stations.Sites));
@@ -614,7 +634,7 @@ public class CommandLineTests
     // A row is said by the end of its id too, and one that two tables have is offered with its table.
     [InlineData("set 1", "R1@4 (readings) | readings X1@4 | N1@4 (stations) | S1@4 (stations) | stations X1@4")]
     [InlineData("set al", "all@4 | alarm volume@4 (settings)")]
-    [InlineData("set stations ", "all | high | where | N1 | S1 | X1")]
+    [InlineData("set stations ", "all | high | manual | where | N1 | S1 | X1")]
     [InlineData("set R1, ", "R2 | R3 | R4 | R5")]
     [InlineData("set R1,r", "R1,R2@4 | R1,R3@4 | R1,R4@4 | R1,R5@4")]
     [InlineData("remove ", "all | manual | automatic | where | readings | stations | settings | R1 (readings) | R2 (readings) | R3 (readings) | R4 (readings) | R5 (readings) | readings X1 | N1 (stations) | S1 (stations) | stations X1")]

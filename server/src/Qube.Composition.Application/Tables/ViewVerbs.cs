@@ -34,7 +34,7 @@ sealed class FindVerb(TableRegister register) : IViewVerb
         var typed = string.Join(' ', words[1..]);
         var field = typed.Length == 0 ? null : TableRegister.Field(table, typed);
 
-        var row = Selectors.Named(id, new(table, screen.Shown)) switch
+        var row = Selectors.RowsNamed(id, new(table, screen.Shown)) switch
         {
             [var one] => one,
             [] => throw Missing(id, screen),
@@ -96,7 +96,7 @@ sealed class FindVerb(TableRegister register) : IViewVerb
     // that row is, and any other is no row.
     static TableRefused Missing(string id, Seen screen)
     {
-        if (screen.Shown.Count == screen.All.Count || Selectors.Named(id, new(screen.Table, screen.All)) is not [var elsewhere]) return Selectors.UnknownRow(id, screen.Shown, screen.Named);
+        if (screen.Shown.Count == screen.All.Count || Selectors.RowsNamed(id, new(screen.Table, screen.All)) is not [var elsewhere]) return Selectors.UnknownRow(id, screen.Shown, screen.Named);
         var table = screen.Table.Word;
         // A row of the grid's own subset is one its page's filter hides; any other is a row of another grid.
         return new("NotOnScreen", screen.View.Subset is null || elsewhere.Subset == screen.View.Subset

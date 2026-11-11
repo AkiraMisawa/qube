@@ -1145,6 +1145,41 @@ test('ADR-0016 §9, note 20: `go` puts the keyboard in a place of the page and s
   await expect(result.locator(':focus')).toHaveCount(1);
 });
 
+test('ADR-0016 §9, note 20: a tab with nothing to work in takes the keyboard on its own tab, `open <tab>` is `go` to that tab and says where, and a tab no selected measure needs refuses on the line', async ({ page }) => {
+  await open(page);
+  await newWorkspace(page, 'ABC/LE-01', 5);
+  // FVA alone reads no CVA recovery, so Netting draws no field; and no measure selected has a Credit or an IM tab.
+  await command(page, 'measures', 'fva');
+  const line = page.getByRole('combobox', { name: 'Command' });
+  const said = page.getByTestId('command-problems');
+  const notice = page.getByTestId('notice');
+  const inputs = page.getByRole('tablist', { name: 'Inputs' });
+
+  await command(page, 'go', 'netting');
+  await expect(line).toBeHidden();
+  await expect(notice).toHaveText('The keyboard is in the Netting tab.');
+  await expect(inputs.getByRole('tab', { name: /^Netting/ })).toBeFocused();
+
+  await command(page, 'open csa');
+  await expect(line).toBeHidden();
+  await expect(notice).toHaveText('The keyboard is in the CSA tab.');
+  await expect(keyboardIn(page, 'CSA terms')).toHaveCount(1);
+
+  for (const [words, reason] of [['go im', 'The IM tab shows only while a selected measure needs it, and none does now.'], ['open credit', 'The Credit tab shows only while a selected measure needs it, and none does now.']] as const) {
+    await page.keyboard.press('ControlOrMeta+K');
+    await expect(line).toBeFocused();
+    await page.keyboard.type(words);
+    await page.keyboard.press('Enter');
+    await expect(said).toHaveText(reason);
+    await expect(line).toHaveValue(words);
+    await page.keyboard.press('Escape');
+    await expect(line).toBeHidden();
+    // Nothing moved: the keyboard is back in the grid it was in, and the notice still says where it last went.
+    await expect(keyboardIn(page, 'CSA terms')).toHaveCount(1);
+    await expect(notice).toHaveText('The keyboard is in the CSA tab.');
+  }
+});
+
 test('ADR-0016 §9, note 22: after `set`, `reset`, `undo` and Price from the line the keyboard is back where it was before the line opened', async ({ page }) => {
   await open(page);
   await newWorkspace(page, 'ABC/LE-01', 5);

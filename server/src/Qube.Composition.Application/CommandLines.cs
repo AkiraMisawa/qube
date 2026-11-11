@@ -126,17 +126,23 @@ public static partial class LineWords
 
 /// <summary>
 /// Reads a line as typed for a workspace (ADR-0016 §5) and executes nothing: finds what its first words name, among the
-/// commands that say how they are typed and the verbs of the screen, and has it read the rest. It names no command and
-/// no table of its own: the commands are the registry's, and what a line's words mean is each command's to say.
+/// commands that say how they are typed and the verbs of the screen, and has it read the rest. The commands are the
+/// registry's, and it names none; the verbs of the screen are the kernel's own, and it holds them (note 21 of step 2).
+/// What a line's words mean is each command's and each verb's to say.
 /// </summary>
 public sealed class CommandLines
 {
-    // What a line's first words name: a command capability that reads its line, or a verb of the screen.
-    sealed record Named(string[] Words, string Said, string Id, ICapabilityHandler? Handler, IViewVerb? Verb);
+    // A line as what its first words name read it: a command's reading has the inputs to invoke it with, and a verb
+    // of the screen's has the place it asks the page for, and nothing to invoke.
+    sealed record Reading(JsonObject? Inputs, IReadOnlyList<LineArgument> Arguments, LineRows? Rows, string Would, DateTimeOffset? At, LinePlace? Place);
+
+    // What a line's first words name, a command capability that reads its line or a verb of the screen: how it is
+    // typed, the command Enter invokes where there is one, and how it completes and reads the rest of the line.
+    sealed record Typed(string[] Words, string Said, string Id, CommandForm Form, LineCommand? Command, Func<LineContext, LineCompletions> Complete, Func<LineContext, Reading> Read);
 
     readonly WorkspaceService workspaces;
     readonly TableRegister tables;
-    readonly IReadOnlyList<Named> typed;
+    readonly IReadOnlyList<Typed> typed;
 
     /// <summary>The verbs of the screen (ADR-0016 §3, note 21 of step 2), for the catalog to list apart from the capabilities.</summary>
     public IReadOnlyList<ViewVerbDescriptor> ViewVerbs { get; }
@@ -148,17 +154,30 @@ public sealed class CommandLines
         this.tables = tables;
         IViewVerb[] verbs = [new FindVerb(tables)];
         ViewVerbs = [.. verbs.Select(v => v.Descriptor)];
-        var named = new List<Named>();
+        var named = new List<Typed>();
         foreach (var descriptor in registry.CapabilityDescriptors)
         {
             if (descriptor.Command is not { } form) continue;
-            var handler = registry.FindCapability(descriptor.CapabilityId, descriptor.Version)!;
-            if (handler is not ILineCommand)
+            if (registry.FindCapability(descriptor.CapabilityId, descriptor.Version) is not ILineCommand reader)
                 throw new InvalidOperationException($"{descriptor.CapabilityId} says how it is typed and does not read its line.");
-            named.AddRange(form.Words.Select(w => new Named(TableWords.Of(w).Split(' '), TableWords.Of(w), descriptor.CapabilityId, handler, null)));
+            var command = new LineCommand(descriptor.CapabilityId, descriptor.Version);
+            Reading Read(LineContext line)
+            {
+                var read = reader.Read(line);
+                return new(read.Inputs, read.Arguments, read.Rows, read.Would, read.At, null);
+            }
+            named.AddRange(form.Words.Select(w => new Typed(TableWords.Of(w).Split(' '), TableWords.Of(w), descriptor.CapabilityId, form, command, reader.Complete, Read)));
         }
         foreach (var verb in verbs)
-            named.AddRange(verb.Descriptor.Command.Words.Select(w => new Named(TableWords.Of(w).Split(' '), TableWords.Of(w), verb.Descriptor.VerbId, null, verb)));
+        {
+            // A verb of the screen names no command: its reading answers a place, and Enter invokes nothing (note 21 of step 2).
+            Reading Read(LineContext line)
+            {
+                var asked = verb.Read(line);
+                return new(null, asked.Arguments, asked.Rows, asked.Would, null, asked.Place);
+            }
+            named.AddRange(verb.Descriptor.Command.Words.Select(w => new Typed(TableWords.Of(w).Split(' '), TableWords.Of(w), verb.Descriptor.VerbId, verb.Descriptor.Command, null, verb.Complete, Read)));
+        }
         if (named.GroupBy(n => n.Said).FirstOrDefault(g => g.Count() > 1) is { } shared)
             throw new InvalidOperationException($"{TableWords.And(shared.Select(n => n.Id))} answer to the same words, {shared.Key}.");
         // The longest words first: `add each` is read before `add`.
@@ -189,27 +208,18 @@ public sealed class CommandLines
             return Seen(new(state.Revision, null, null, null, null, null, null, refusal, [.. starting.Select(w => new LineCompletion(w, first.Start))], 0));
         }
 
-        // A verb of the screen names no command: its reading answers a place, and Enter invokes nothing (note 21 of step 2).
-        var reader = said.Handler as ILineCommand;
-        var form = said.Verb?.Descriptor.Command ?? said.Handler!.Descriptor.Command!;
-        var command = said.Handler is { } handler ? new LineCommand(handler.Descriptor.CapabilityId, handler.Descriptor.Version) : null;
         var last = words[said.Words.Length - 1];
         var from = last.Start + last.Word.Length;
         var context = new LineContext(state, caller, line[from..], view);
-        var completions = said.Verb?.Complete(context) ?? reader!.Complete(context);
+        var completions = said.Complete(context);
         IReadOnlyList<LineCompletion> complete = [.. completions.Items.Select(c => c with { Start = c.Start + from })];
         // A command that takes no argument takes no word after its own.
-        if (form.Arguments.Count == 0 && words.Count > said.Words.Length)
+        if (said.Form.Arguments.Count == 0 && words.Count > said.Words.Length)
             return Refused("UnreadWords", $"{said.Said} takes no words after it.", words[said.Words.Length].Word, []);
         try
         {
-            if (said.Verb is { } verb)
-            {
-                var asked = verb.Read(context);
-                return Seen(new(state.Revision, null, null, asked.Arguments, asked.Rows, asked.Would, null, null, complete, completions.More, Place: asked.Place));
-            }
-            var read = reader!.Read(context);
-            return Seen(new(state.Revision, command, read.Inputs, read.Arguments, read.Rows, read.Would, read.At, null, complete, completions.More));
+            var read = said.Read(context);
+            return Seen(new(state.Revision, said.Command, read.Inputs, read.Arguments, read.Rows, read.Would, read.At, null, complete, completions.More, Place: read.Place));
         }
         catch (TableRefused refused)
         {
@@ -223,7 +233,7 @@ public sealed class CommandLines
         LinePreview Refused(string code, string sentence, string? word, IReadOnlyList<string> candidates)
         {
             var place = word is null ? null : Place(line, from, word);
-            return Seen(new(state.Revision, command, null, null, null, null, null, new(code, sentence, word, place?.Start, place?.End, candidates), complete, completions.More));
+            return Seen(new(state.Revision, said.Command, null, null, null, null, null, new(code, sentence, word, place?.Start, place?.End, candidates), complete, completions.More));
         }
     }
 

@@ -53,8 +53,9 @@ static class TableCompletions
             var main = tables.FirstOrDefault(t => t.Descriptor.Main);
             // The rows of a screen are of the screen's table, whatever else the line names: one that names another is refused, and nothing follows it.
             if (selector.Screen is not null && (onScreen is null || (said is not null && said != onScreen))) return LineCompletions.None;
-            // Rows said with no table are read in the screen's, where a screen is behind the line (note 23 of step 2).
-            var unsaid = Selectors.Unsaid(selector, tables, view);
+            // Rows said with no table are read in the table the line's reader gives them, where a screen is behind the
+            // line (note 23 of step 2); before any are said, in the screen's, and with no screen in the main one.
+            var unsaid = scan.Unsaid is { } given ? tables.First(t => t.Descriptor == given) : onScreen ?? main;
             var target = selector.Screen is not null ? onScreen : said ?? unsaid;
 
             if (scan.Open is { } open)
@@ -122,8 +123,9 @@ static class TableCompletions
                 if (view.Selected > 0) Keyword(SelectorReader.SelectedWord, detail: Counted(view.Selected));
                 if ((view.Filtered ?? Views.Unfiltered(view, onScreen, onScreen.Table.Rows(state)).Count) is > 0 and var shown) Keyword(SelectorReader.ShownWord, detail: Counted(shown));
             }
-            // A subset's word names the screen's table where it has it, and the main table otherwise.
-            foreach (var subset in said is not null ? said.Descriptor.Subsets : new[] { onScreen, main }.OfType<BoundTable>().Distinct().SelectMany(t => t.Descriptor.Subsets))
+            // A subset's word names the screen's table where it has it, and the main table otherwise: a name both
+            // have is offered once, and is the screen's.
+            foreach (var subset in said is not null ? said.Descriptor.Subsets : new[] { onScreen, main }.OfType<BoundTable>().Distinct().SelectMany(t => t.Descriptor.Subsets).DistinctBy(s => s.Name))
                 Keyword(subset.Name, TableWords.Names(subset));
             Keyword(SelectorReader.WhereWord);
             if (said is null)

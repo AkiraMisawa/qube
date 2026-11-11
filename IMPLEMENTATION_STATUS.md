@@ -1368,35 +1368,44 @@ ADR-0016's notes 20 to 23.
   and how the keyboard is put there. `go <place>` puts it there and says so (`The keyboard is in Existing trades.`),
   offers the page's places, and keeps the line with the reason where a place cannot take the keyboard now (`go
   results` before anything is priced). It is the client's alone: nothing is read, written or logged.
+- **A place always takes the keyboard.** A page offers its places only while it draws them, and each has something
+  to take the keyboard: a tab with nothing to work in (Netting while no selected measure reads the recovery) takes
+  it on its own tab, and a dock that draws no tab and no control takes it itself.
+- **`open <tab>` is `go` to that tab's place**: the same act, the same notice (`The keyboard is in the CSA tab.`).
 - **The pricer's places** are `new`, `existing`, its input tabs by the words `open` takes, `results`, and `trace`
   while a trace is widened over the grids. Below `sm` the part a place is in is shown first. Rates, the Pricing DB
   and a Run have the one place `grid`.
 - **`focus grid`** and its chord are `go` to the page's first grid, with the same notice.
 - **`find <row> [<field>]`** puts the Focus of the grid on screen on a row, or on one of its cells. The server reads
-  the line with the view and answers a place: the row's key, its position in the view's order where the server pages
-  the grid, the column, and the sentence to say. Enter invokes nothing; the page puts the Focus there with ExGrid's
-  `placeSelection`, in the Row Sequence Version the view was read in, and the keyboard is in the grid afterwards.
+  the line with the view and answers a place: the row's key, its position in the order the view names, the column,
+  and the sentence to say. Enter invokes nothing; the page puts the Focus there with ExGrid's `placeSelection`, in
+  the Row Sequence Version the view was read in, and the keyboard is in the grid afterwards. A view that names no
+  order is answered the key alone: a page that holds every row finds it, and one that holds part says it cannot.
 - **`find` is a view verb**: declared by the server apart from the capabilities (`GET /api/catalog`, `viewVerbs`),
   built on the line like a capability's command, never invoked, never logged, and no tool of the agent's.
 - **What `find` refuses, by name:** a row the table has that this grid does not show, with where it is; an end of an
   id that names several, with them; a field the table has not; an order that has moved; no grid behind the line.
+  Where the grid itself refuses the place, the line says which it was: the grid has moved since the line opened, or
+  it keeps an edit open that it could not commit.
 - **A table left out is the screen's.** On the CSA grid `set where ccy=USD threshold 0` is the CSAs in USD, and the
   request the preview answers names `csas`, so Enter and the log say the same rows (`set csas where ccy=USD
   threshold 0`). A subset's word the screen's table has not is still the main table's: `set existing a off` on the
-  CSA grid is the existing trades. With no view, the main table, as in step 1.
+  CSA grid is the existing trades. With no view, the main table, as in step 1. The line's reader decides the table
+  once, and the preview, the completions and the request read what it decided.
 - **The keyboard afterwards.** After `set`, `reset`, `undo` and Price from the line it is where it was before the
-  line opened; `go` and `find` leave it where they put it.
+  line opened; `go`, `find` and `open <tab>` leave it where they put it, however late the page draws the place.
 
 ### Verification performed
 
 | What | Result |
 |---|---|
-| `dotnet test server/Qube.slnx` | 966 passed |
-| Client: `npm run typecheck`, `npm test`, `npm run build` | Clean; 298 passed in 33 files; built |
-| `npx playwright test` (Chromium, headless, Linux) | 74 passed |
-| The four browser tests this step added, with `--repeat-each=3` | 12 passed |
+| `dotnet test server/Qube.slnx` | 968 passed |
+| Client: `npm run typecheck`, `npm test`, `npm run build` | Clean; 300 passed in 33 files; built |
+| `npx playwright test` (Chromium, headless, Linux) | 75 passed |
+| The five browser tests this step added and the trace test it changed, with `--repeat-each=3` | 18 passed |
 | `go`, `focus grid` and `find` in Chromium at 1440 and 390 px, by a script and by eye | The keyboard in each place, the part shown first at 390 px, the notices; nothing scrolls sideways |
 | `find 0300 csa` in a workspace of 600 synthetic trades, the Existing grid sorted by notional | The row was in no page the grid had been answered with; the grid asked for its page, drew it, and the Focus is on its CSA |
+| Code review on two axes (standards, specification) before the merge | Fixed, each with a test: the table of rows said with none was worked out in two places, which a subset both tables have told apart (now the reader's alone); `find` answered a position by the table's reader, not by whether the view named an order; `go` said the keyboard had moved where nothing took it, and the line gave it back before the page's late focus (places only while drawn, a fallback on the tab and the dock, `keepKeyboard`); `open <tab>` did not say where the keyboard went; one refusal sentence for a grid that had moved and one that keeps an edit open. Left as judgement calls: the page asks its own dock element what takes the keyboard; the reading carries the screen's table through two returns |
 
 ### Providers
 
@@ -1410,7 +1419,10 @@ Unchanged: every figure on these pages is simulated, and says so.
 - Only the pricer's trade grids and CSA grid take `find`: they are the grids of a table (step 2a's limit). On its
   other grids `find` says to go to a grid of a table. Rates, the Pricing DB and a Run have no door for the server's
   commands yet (step 3), and list `find` as unable to run there.
-- `open <tab>` and `go <tab>` are two words for one act on the pricer. Which goes is step 3's.
+- `open <tab>` and `go <tab>` are two words for one act on the pricer, and now one code path. Which goes is step 3's.
+- A paged grid whose rows on screen were answered in more than one order when the line opened takes no `find`: the
+  line says so and asks to be opened again. The order token that moves only when the order does is 2c's.
+- Nothing in a browser test holds an edit open under `find`: the sentence for it is held by a unit test alone.
 - A place has no chord of its own: only `focus grid` has one.
 - `go` and `focus grid` say where the keyboard went in a notice each time, the chord included.
 - After a command on a **sorted** trade grid the grid still reads again and drops its selection (2a's first limit):

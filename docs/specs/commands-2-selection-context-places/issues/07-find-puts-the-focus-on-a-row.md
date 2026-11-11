@@ -31,3 +31,7 @@ refused by name with its candidates; an order that moved is refused (ADR-0016 §
   keyboard moved, so the line gives none back (`CommandDoor.enter` answers `{ moved: true }`).
 - The acceptance line's `E00003` is loaded with the first page. The browser test finds `0300` in a workspace of 600
   synthetic trades sorted by notional, and checks first that no answer the grid received held that row.
+- From the review: a position is answered only where the view names an order, whichever reader the table has; a
+  page that holds part of its rows and was answered none says so and places nothing. Where the grid refuses the
+  place the sentence says which it was, a grid that has moved or one that keeps an edit open (`readEditText`), and
+  no sentence of the page's names `find`.

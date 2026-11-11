@@ -6,6 +6,7 @@ import { termRequests } from '../platform/traces/open';
 import { registerCommandDoor } from '../platform/commands/served';
 import { execute } from '../platform/commands/commands';
 import { registerGridFocus, registerPlaces } from './places';
+import { rememberKeyboard, returnKeyboard } from './keyboard';
 
 const state = (overrides: Partial<WorkspaceState> = {}) => ({
   panels: [],
@@ -117,7 +118,6 @@ describe('the page\'s commands (ADR-0006 note 3 of 2026-11-11)', () => {
   });
 });
 
-// ADR-0006: `show panel` finds an open panel by typing part of its title, and names the candidates rather than guess.
 describe('places (ADR-0016 §9, note 20 of 2026-11-11)', () => {
   const s = state({ panels: [{ id: 'p', kind: 'app', title: 'Board 2026-11-11', app: 'xva.workspace', params: { workspaceId: 'w' } }], activePanelId: 'p', showApp: vi.fn(), openAppDialog: vi.fn() });
   const built = () => {
@@ -153,6 +153,34 @@ describe('places (ADR-0016 §9, note 20 of 2026-11-11)', () => {
 
     expect(execute(go, { place: 'results' })).toBe('Nothing is priced yet: Price shows its results here.');
     expect(notify).not.toHaveBeenCalled();
+  });
+
+  it('note 22: once `go` has put the keyboard in a place the line has none to give back, and a place that refuses leaves it the line\'s to return', () => {
+    const before = document.createElement('button');
+    const line = document.createElement('input');
+    document.body.append(before, line);
+    try {
+      // Taken: the place draws later than the line closes, and the line must not put the keyboard back meanwhile.
+      before.focus();
+      rememberKeyboard();
+      line.focus();
+      registerPlaces('p', () => [{ word: 'readings', title: 'Readings', grid: true, go: () => undefined }]);
+      expect(execute(built().go, { place: 'readings' })).toBeUndefined();
+      returnKeyboard();
+      expect(document.activeElement).toBe(line);
+
+      // Refused: nothing moved, so the keyboard is where it was once the line closes.
+      before.focus();
+      rememberKeyboard();
+      line.focus();
+      registerPlaces('p', () => [{ word: 'readings', title: 'Readings', grid: true, go: () => 'Not now.' }]);
+      expect(execute(built().go, { place: 'readings' })).toBe('Not now.');
+      returnKeyboard();
+      expect(document.activeElement).toBe(before);
+    } finally {
+      before.remove();
+      line.remove();
+    }
   });
 
   it('`focus grid` is `go` to the first place that is a grid, with the same notice', () => {
@@ -200,6 +228,7 @@ describe('places (ADR-0016 §9, note 20 of 2026-11-11)', () => {
   });
 });
 
+// ADR-0006: `show panel` finds an open panel by typing part of its title, and names the candidates rather than guess.
 describe('show panel', () => {
   const panels = [
     { id: 'a', kind: 'run', title: 'XVA XYZ/LE-03', runId: 'r1', viewKey: undefined },
