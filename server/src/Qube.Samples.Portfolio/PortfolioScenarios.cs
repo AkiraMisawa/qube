@@ -248,9 +248,6 @@ public sealed record ShiftEdit(string? Id, int Row, IReadOnlyDictionary<string, 
 /// <summary>A scenario as Price freezes it: its id in the Run (<c>base</c>, <c>s1</c>, …), its title and its shifts.</summary>
 public sealed record PricedScenario(string Id, string Title, IReadOnlyList<Shift> Shifts);
 
-/// <summary>What a scenario command made: the scenarios it made, and those of the same name it replaced.</summary>
-public sealed record ScenarioAnswer(WorkspaceState State, IReadOnlyList<string> Made, IReadOnlyList<string> Replaced);
-
 /// <summary>
 /// The workspace's scenarios (ADR-0010 §4's note of 2026-11-09): each shift a created entity, <c>shift:&lt;id&gt;</c>, in
 /// the workspace's own scope, so a counterparty change keeps it; the scenarios left out of Price are one created entity,
@@ -494,7 +491,9 @@ public static partial class PortfolioScenarios
         return changes;
     }
 
-    // A scenario named, by its name as the workspace holds it; one it does not hold is refused with those it does.
+    /// <summary>A scenario named, by its name as the workspace holds it; one it does not hold is refused with those it does.</summary>
+    public static string Named(WorkspaceState state, string name) => Existing(state, name);
+
     static string Existing(WorkspaceState state, string name)
     {
         var all = All(state);

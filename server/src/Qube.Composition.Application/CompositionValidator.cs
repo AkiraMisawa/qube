@@ -45,7 +45,7 @@ public sealed class CompositionValidator(CompositionRegistry registry)
                 yield return new("UnknownCapability", $"/steps/{i}/capabilityId", $"Capability {step.CapabilityId}@{step.CapabilityVersion} is not registered.");
             else if (descriptor.IsCommand())
                 yield return new("CommandAsStep", $"/steps/{i}/capabilityId",
-                    $"{step.CapabilityId} edits a workspace, runs a subscription or reads a Run for its caller; it is invoked for a caller, not as a workflow step.");
+                    $"{step.CapabilityId} is a command: it edits a workspace, runs a subscription, reads a Run, keeps an item or starts work for its caller, and is invoked for a caller, not as a workflow step.");
         }
 
         foreach (var (step, descriptor, i) in steps.Values)

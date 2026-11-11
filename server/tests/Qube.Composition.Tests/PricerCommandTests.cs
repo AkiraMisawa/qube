@@ -167,7 +167,7 @@ public class PricerCommandTests(QubeFactory factory) : IClassFixture<QubeFactory
         foreach (var verb in new[] { "include", "exclude", "remove" }) Assert.Equal(["workspaceId", "revision", "name"], Fields($"xva_scenario_{verb}"));
         Assert.Equal(["workspaceId", "name", "copy"], Required("xva_scenario_duplicate"));
         Assert.Equal(["workspaceId", "revision"], Fields("xva_scenarios_clear"));
-        foreach (var generator in new[] { "ladder", "cross" }) Assert.Equal(["workspaceId", "text"], Required($"xva_scenario_{generator}"));
+        foreach (var generator in new[] { "ladder", "cross" }) Assert.Equal(["workspaceId", "factors"], Required($"xva_scenario_{generator}"));
         Assert.Equal(["workspaceId", "revision", "set", "share"], Fields("xva_scenario_save"));
         Assert.Equal(["workspaceId", "set"], Required("xva_scenario_save"));
         Assert.Equal(["workspaceId", "revision", "set"], Fields("xva_scenario_load"));
@@ -199,7 +199,7 @@ public class PricerCommandTests(QubeFactory factory) : IClassFixture<QubeFactory
     {
         var id = (await Create())["workspaceId"]!.GetValue<string>();
 
-        var crossed = await Ok(await Command("xva.scenario.cross", new JsonObject { ["workspaceId"] = id, ["text"] = "jpy_ois -50bp, 0, +50bp x usdjpy -10%, 0, +10%" }));
+        var crossed = await Ok(await Command("xva.scenario.cross", new JsonObject { ["workspaceId"] = id, ["factors"] = "jpy_ois -50bp, 0, +50bp x usdjpy -10%, 0, +10%" }));
         var saved = await Ok(await Command("xva.scenario.save", new JsonObject { ["workspaceId"] = id, ["set"] = "ai-cross", ["share"] = "all" }));
         var other = (await Create())["workspaceId"]!.GetValue<string>();
         var loaded = await Ok(await Command("xva.scenario.load", new JsonObject { ["workspaceId"] = other, ["set"] = "ai-cross" }));

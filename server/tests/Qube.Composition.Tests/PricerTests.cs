@@ -533,11 +533,11 @@ public class PricerTests
         Assert.Equal(TradeCell.Failed, Cell(service, ws, "DRAFT-1", XvaMeasures.Pv01).State);
         Assert.Equal(3, calls);
 
-        Assert.Equal(3, service.Retry(ws.WorkspaceId, "akira"));
+        Assert.Equal(3, service.Retry(ws.WorkspaceId, ws.Revision, "akira"));
         await pv01.Settled();
 
         Assert.Equal(-1_500m, Cell(service, ws, "DRAFT-1", XvaMeasures.Pv01).Value!.GetValue<decimal>());
-        Assert.Equal(0, service.Retry(ws.WorkspaceId, "akira"));
+        Assert.Equal(0, service.Retry(ws.WorkspaceId, ws.Revision, "akira"));
     }
 
     [Theory] // ADR-0010 §6: XVA's columns are a new trade's; PV01 is a result; a Margin is a number of basis points

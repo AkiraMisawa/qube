@@ -475,9 +475,12 @@ log cannot yet say which entries were one command, or what an entry replaced.
 3. The pricer's remaining commands as capabilities through the gateway; Rates registers. **In progress**
    (`docs/specs/commands-3-domain-verbs-rates`, four pull requests); what it settles is notes 27 onward below.
    3a is built (2026-11-11): a command's application, short forms, the pricer's verbs that edit, `open` from tabs.
+   3b is built (2026-11-11): the pricer's scenario verbs, `price`, `refresh` and `pv01 retry` (notes 32 and 33).
 4. View verbs and the AI's row read.
 5. Drafts (§10): a detail dialog drawn from a registration, with the tables under its row and its templates. The
    pricer's trade and CSA must carry those fields and tables first; its sample has neither them nor such a dialog.
+   The pricer's scenarios as a registered table, a row computed from its shifts with their table under it, come
+   with this step too (note 32).
 6. Saved sequences of edits (§8). §1 and §2 serve them as they are.
 
 ### Notes of 2026-11-11: what step 1 settles (all DEFAULT)
@@ -936,7 +939,8 @@ Notes 20 to 23 are 2b's (tickets 06 to 08 and 12).
 
 Step 3 is four pull requests (`docs/specs/commands-3-domain-verbs-rates`): 3a short forms and the pricer's verbs
 that edit, 3b its scenarios and the verbs that execute, 3c Rates, 3d `add each` with lists. Notes 27 to 30 are 3a's
-and are built; note 31 is the step's as a whole; the later ones are added as each is built.
+and are built; note 31 is the step's as a whole; notes 32 and 33 are 3b's and are built; the later ones are added as
+each is built.
 
 27. **A command says which workspaces it is for (§4).** A command form names the workspace application its command
     acts on (`app`); a kernel verb names none, and acts on every workspace's tables. The line lists a command on a
@@ -1029,6 +1033,113 @@ and are built; note 31 is the step's as a whole; the later ones are added as eac
     clipboard written), and a result that carries a file or a text to copy is not built. `explain`, the trace's
     drawing options, `open result` and `dock` are verbs of the screen (§3). `new xva` and `new rates` open their
     application's dialog.
+32. **The pricer's scenarios are verbs of the pricer, and no table yet (§1, §3; 3b, changing its plan).** The
+    step's spec first made the scenarios a registered table, `xva.scenarios`, with `set s1 included off` and `remove
+    s1` the kernel's. Building it found three things the kernel's tables do not hold yet, so the table waits for
+    step 5 and the scenario commands are domain verbs, as a case's are (note 28).
+    - *Why no table.* A scenario's name may be several words: a generator names each scenario from its shifts
+      (`jpy_ois -50bp · usdjpy -10%`), and the selector names a row by an id of one word (note 7). Whether Price
+      prices a scenario is not a field of a row: it is one list the workspace holds, of the names left out. And a
+      scenario is not one entity `remove` could take: it is its shifts, each a row of its own. A table whose rows
+      are computed from several entities, with a table under each row, is step 5's (note 6).
+    - *The ten verbs:* `scenario`, `scenario include`, `scenario exclude`, `scenario remove`, `scenario duplicate`,
+      `scenarios clear`, `scenario ladder`, `scenario cross`, `scenario load` and `scenario save`. Each declares its
+      form for the pricer's application and reads its own line. The nine that write the workspace plan first
+      (`PlanScenario`, `PlanInclude`, `PlanRemoveScenario`, `PlanDuplicate`, `PlanClearScenarios`, `PlanGenerate`,
+      `PlanLoad`); the reading tries the plan with nothing written, and the capability writes the same plan
+      (`WriteScenarios`), so the two cannot differ.
+    - *How a name is typed.* A scenario's name is the rest of the line, since it may hold spaces. `scenario
+      duplicate` takes the copy's name as its last word, and the scenario to copy is every word before it. A name
+      the workspace does not hold is refused with the names it does.
+    - *What a reading says.* `scenario s1 jpy_ois +10bp; usdjpy -5%`: `Makes the scenario s1 with 2 shifts: …`, or
+      `Replaces the shifts of s1 with …` where one of that name stands. A generator: how many it makes, how many of
+      the same name it replaces, the first three names and how many more, and the pairs of a case and a market
+      Price would then price against its cap; a set that leaves more pairs than Price prices is still made, as
+      before, and the reading says Price would refuse it. `scenario include` and `exclude`: what Price would then
+      do, or `Nothing would change: Price already …` where it stands so already. `scenario remove` and `duplicate`
+      count the shifts that go or are copied. `scenario load`: the scenarios the set would add and those it would
+      replace. A reading names three scenarios at most, then how many more: a set may hold dozens.
+    - *What could follow.* `scenario include` offers the scenarios Price leaves out, `exclude` those it prices,
+      `remove` and `duplicate` all of them, each with its count of shifts. `scenario load` offers the sets the user
+      can see, by the name `load` takes for each, with how many scenarios, for whom, and who saved it. `scenario
+      save` offers `desk` and `all` after the set's name.
+    - *The log names each by its words* (`scenario s1 jpy_ois +10bp; usdjpy -5%`, `scenario exclude s1`, `scenarios
+      clear`), which is what `undo` says.
+    - *`scenarios clear` with no scenario is refused* (`NothingToChange`). The page's endpoint did nothing then and
+      said that it had removed every scenario.
+    - *A generator's request names its text `factors`*, as its form's argument does; it was `text`. The AI's tool
+      takes the same field.
+    - *`scenario save` writes no workspace.* Its effect is `saveItem`. Its reading checks the save as the save
+      checks it, says whom the set would be for and whether it replaces the user's own, and keeps nothing. It is in
+      no workspace's log, and `undo` does not take it back.
+    - *The Scenarios tab's gestures are the commands.* The include box, Remove, Duplicate… and Remove all invoke
+      the capabilities through the page's door, and the notice is the server's sentence. The grid's own edits
+      (cells typed, a block pasted, cells cleared) stay the page's `/shifts` endpoint: they are cells, as a trade
+      grid's are (note 28).
+    - *Gone with this:* the page's `/scenarios`, `/scenarios/generate`, `/scenarios/include`, `/scenarios/remove`,
+      `/scenarios/duplicate`, `/scenarios/clear`, `/scenarios/save` and `/scenarios/load` endpoints and `GET
+      /scenario-sets`; the client's ten hand-written commands, its readers of a `scenario` line and of the
+      generators, and its copies of the sentences. What the line showed of a generator as it was typed (`makes 8
+      scenario(s)`, `pairs 9 of 49`) is now the server's sentence, read once the line holds a generator whole.
+33. **`price`, `refresh` and `pv01 retry` go through the gateway (§3, §5; 3b).** Each is a capability that says how
+    it is typed, read by the server, and invoked by the line, the page's own control and the AI alike.
+    - *An effect of their own.* A command is a capability that edits a workspace, subscribes, reads a Run or saves
+      an item (§4). `price` submits a Run and `pv01 retry` asks a provider again; neither edits the workspace. So
+      there is a fifth effect, `execute`: what a capability with it starts is not taken back by `undo`.
+    - *The command is `xva.workspace.price`.* `xva.price` is already the step that prices XVA inside the Run, and a
+      capability's id names one thing.
+    - *`price` is not tried, and its reading builds what Price would freeze.* The reading freezes the workspace as
+      it stands and builds the Run's input, keeping and submitting nothing. So it says what would be priced (`Prices
+      CVA and FVA for 3 cases on 2 markets (the base market and 1 scenario), as one Run.`), names Before only or
+      After only where one side is empty, and refuses everything Price refuses before a Run exists: held edits, too
+      many pairs, an `add each` set that no longer matches. (A workspace never holds no measure: `measures`
+      refuses to leave none.) A figure a case's input already refuses is counted, and the first is said. Building
+      the input reads the trades' cells, so a result not asked for yet, such as a new trade's PV01, is asked for
+      by the reading as it is by the grid's rows. *Not measured:* what this costs on a workspace of 10,000 trades,
+      where it runs for each reading of the line; it is to be measured before the line is used at that size.
+    - *One submission, by the invocation's key.* A caller invokes a command with an idempotency key (note 4). The
+      gateway now hands that key to the handler (`CapabilityInvocation.IdempotencyKey`), and `price` submits its
+      Run under it. So the same invocation sent twice is one Run, also after the gateway's own memory of the key is
+      gone, and the request holds no key field for a caller to forget. That holds where the request names its
+      revision, as a line's reading and the page's door always do. A request that names none takes the revision
+      the workspace then holds, so sent again after the workspace has moved it is refused (`IdempotencyConflict`)
+      and still makes no second Run. Invoked with no key, `price` is refused.
+    - *A refusal is a sentence.* A line and a notice show a sentence alone, so a refusal that names the edits it
+      waits on, or the issues the Run service found, says them in its sentence.
+    - *`refresh`* reads the counterparty's trades and CSAs again on the value date the workspace holds. Its reading
+      reads no source: it says what would be read again. It is written as one command named `refresh`, with its
+      caller's origin, and `undo` takes it back where the source's version is still the one it replaced. Its
+      answer counts the edits carried, in conflict and lost, and says `stays` where any is held: the page's door
+      then raises a notice that does not leave by itself, as the page's own Refresh did.
+    - *`pv01 retry`* takes one trade, or none for every trade. Its reading names the trades with a failed result
+      and asks again for nothing; with none it says that nothing would be asked. It reads the cells as the grid's
+      rows do, so a result never asked for is asked for by that read. Though it writes no workspace, it names the
+      revision it was read at and is refused where the workspace has moved since, as every command is (§2). A
+      failed cell's *Ask again* invokes it with its trade.
+    - *The page's controls.* The Price and Refresh buttons invoke the two capabilities through the door; the dock
+      shows the workspace's latest Run, whoever priced it, so a Run the AI priced is shown too. The page reads its
+      workspace again after the AI invokes any of these commands or a scenario verb, as after any of its edits.
+    - *Where the source moved, the grids start over.* The page keeps what it last showed its trades were read of
+      (the counterparty, the value date, the source's version). A reading of the workspace in which that differs
+      reads the grids from their first row again, since the trades and their order may have moved; otherwise the
+      rows in view are read again where they are. So a `refresh` that read the same version of the source keeps
+      the rows in view and what is selected, where the page's own Refresh started the grids over every time. The
+      synthetic source is the same for a counterparty and a value date however often it is read, so in the sample
+      only a change of the value date or the counterparty moves it, and no browser test reaches this through
+      `refresh`; `undo` refuses to take back a `refresh` that read another version (note 2).
+    - *A command that needs no argument is read by its words alone.* The line asked the server to read a command
+      chosen in its list only where the command takes no argument (note 15). It now asks wherever every argument
+      may be left out, so `pv01 retry` says what it would ask again before Enter, as `price` and `refresh` do.
+      Enter on such a command in the list runs it, as it runs one that takes no argument, where it wrote the words
+      on the line for a second Enter before. That reaches the kernel's `reset` too: typed alone and entered, it
+      resets what the screen names, or is refused where the screen names nothing.
+    - *The list's order.* The line lists the commands of the page's application first, in the order its module
+      registers them, with `price` first; then the commands still written in the client; then the kernel's. A
+      served command says its application (`Served.app`) for this.
+    - *The client's `price` is the Rates page's until 3c*, and says where to price while neither page is open. On
+      the pricer's page the word is the server's alone (note 27: two applications may share words).
+    - *Gone with this:* the page's `/price`, `/refresh` and `/retry` endpoints, and the client's hand-written
+      `refresh` and `pv01 retry`.
 
 ## Rejected
 

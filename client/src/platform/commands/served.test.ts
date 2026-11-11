@@ -160,7 +160,12 @@ describe('what the line asks the server to read (ADR-0016 ยง5)', () => {
     expect(lineAsked('und', readLine('und', commands), undo)).toBe('undo');
   });
 
-  it('nothing while a command is chosen that takes arguments, or is not served, or none is', () => {
+  it('ADR-0016 note 33: the words of a command whose arguments may all be left out, while it is the one chosen, since its words alone are a line', () => {
+    const optional = servedCommands({ ...catalog, capabilities: [capability('gauge.retry', { words: ['gauge retry'], arguments: [{ name: 'gauge', kind: 'text', required: false }] })] }, panel, door(), vi.fn());
+    expect(lineAsked('gauge r', readLine('gauge r', optional), optional[0])).toBe('gauge retry');
+  });
+
+  it('nothing while a command is chosen that needs an argument, or is not served, or none is', () => {
     expect(lineAsked('se', readLine('se', commands), set)).toBeUndefined();
     expect(lineAsked('tog', readLine('tog', commands), commands[2])).toBeUndefined();
     expect(lineAsked('toggle theme ', readLine('toggle theme ', commands), undefined)).toBeUndefined();
@@ -418,6 +423,15 @@ describe('Enter on a line the server reads, through its page\'s door (ADR-0016 ย
     expect(p.notify.mock.calls).toEqual([['done', 'Took back: set R1 checked on. redo puts it back.']]);
 
     expect(await p.door.invoke('workspace.nothing', {})).toEqual({ sentence: 'This server has no command workspace.nothing.' });
+  });
+
+  it('ADR-0016 note 33: an answer that says it waits for the user is a notice that stays', async () => {
+    const p = page(7, 8);
+    p.command.mockResolvedValue({ capabilityId: 'workspace.undo', version: '1.0.0', outputs: { answer: { workspaceId: 'ws-1', revision: 8, said: 'Read again: 1 edit is held for you.', stays: true } } });
+
+    expect(await p.door.invoke('workspace.undo', {})).toBeUndefined();
+
+    expect(p.notify.mock.calls).toEqual([['done', 'Read again: 1 edit is held for you.', { stays: true }]]);
   });
 
   it('a caller that says the outcome itself is handed the sentence, and the page raises no notice of its own', async () => {

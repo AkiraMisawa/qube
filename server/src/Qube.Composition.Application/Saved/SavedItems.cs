@@ -76,14 +76,23 @@ public sealed class SavedItems(ISavedItemStore store, Desks desks, TimeProvider 
     /// <summary>Saves the content under the user's name for it, shared as asked; says whether it replaced their own.</summary>
     public (SavedItem Item, bool Replaced) Save(string kind, string noun, string user, string name, SavedVisibility visibility, JsonNode content)
     {
+        var planned = Planned(kind, noun, user, name, visibility, content);
+        store.Save(planned.Item);
+        return planned;
+    }
+
+    /// <summary>
+    /// The item a save would keep, and whether it would replace the user's own: checked as <see cref="Save"/> checks
+    /// it, with nothing kept. What a command says of a save before it is made.
+    /// </summary>
+    public (SavedItem Item, bool Replaced) Planned(string kind, string noun, string user, string name, SavedVisibility visibility, JsonNode content)
+    {
         var named = Name(noun, name);
         var desk = desks.Of(user);
         if (visibility == SavedVisibility.Desk && desk is null)
             throw new SavedItemRefused("NoDesk", $"{user} belongs to no desk, so the {noun} {named} cannot be shared with one: keep it to yourself, or share it with all.");
         var item = new SavedItem(kind, named, user, visibility, visibility == SavedVisibility.Desk ? desk : null, time.GetUtcNow(), content.DeepClone());
-        var replaced = store.All(kind).Any(i => i.Owner == user && i.Key == item.Key);
-        store.Save(item);
-        return (item, replaced);
+        return (item, store.All(kind).Any(i => i.Owner == user && i.Key == item.Key));
     }
 
     /// <summary>The items of a kind the user can see: their own, their desk's, and those shared with all, by name and owner.</summary>

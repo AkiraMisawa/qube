@@ -35,8 +35,11 @@ export interface DoorPage {
   readonly screen?: () => Screen | undefined;
 }
 
-/** What the door reads of a command's answer, which every command that writes a workspace gives: where it left it, and what it did. */
-type Told = Pick<TakenBack | RowsEdited, 'revision' | 'said'>;
+/**
+ * What the door reads of a command's answer, which every command of a workspace gives: where it left it, and what it
+ * did; and `stays`, where what it said waits for the user (ADR-0016 note 33), such as edits a refresh holds back.
+ */
+type Told = Pick<TakenBack | RowsEdited, 'revision' | 'said'> & { readonly stays?: boolean };
 
 interface Invocation {
   readonly id: string;
@@ -83,7 +86,8 @@ export function commandDoor(page: DoorPage): CommandDoor {
         heard?.(told.said);
         return undefined;
       }
-      if (heard === undefined) page.notify('done', told.said);
+      // What waits for the user's decision does not leave by itself.
+      if (heard === undefined) page.notify('done', told.said, ...(told.stays === true ? [{ stays: true }] : []));
       else heard(told.said);
       return undefined;
     // The page's own earlier edit was refused, and this with it: nothing was sent.
@@ -161,7 +165,7 @@ export function servedCommands(catalog: Pick<Catalog, 'capabilities' | 'viewVerb
       group: 'Workspace',
       ...(door === undefined || panel === undefined
         ? { unavailable: 'This panel has no workspace for it to act on.' }
-        : { target: panel.title, page: true, served: { arguments: form.arguments, door } }),
+        : { target: panel.title, page: true, served: { arguments: form.arguments, door, ...(form.app === undefined ? {} : { app: form.app }) } }),
       // From a key or a button there is no line: the words alone are read, with what is on screen at the press, and a
       // refusal is a notice.
       run: () => {
@@ -203,12 +207,14 @@ export function tableMenu(table: TableOnScreen | undefined, door: Pick<CommandDo
 
 /**
  * The line the server is asked to read, while it is typed: the text as it is once it holds a served command's words and
- * a space; the words of a served command that takes no argument while it is the one chosen in the list, so that what it
- * would do is seen before Enter; and nothing otherwise.
+ * a space; the words of a served command that needs no argument (it takes none, or every one may be left out, as `pv01
+ * retry` may its trade; ADR-0016 note 33) while it is the one chosen in the list, so that what it would do is seen
+ * before Enter; and nothing otherwise.
  */
 export function lineAsked(text: string, reading: LineReading, chosen: Command | Completion | undefined): string | undefined {
   if (reading.kind === 'arguments') return reading.command.served === undefined ? undefined : text;
-  return chosen !== undefined && 'words' in chosen && chosen.served?.arguments.length === 0 ? chosen.words : undefined;
+  if (chosen === undefined || !('words' in chosen) || chosen.served === undefined) return undefined;
+  return chosen.served.arguments.every((a) => !a.required) ? chosen.words : undefined;
 }
 
 /**

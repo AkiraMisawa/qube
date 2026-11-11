@@ -14,12 +14,14 @@ public enum Cardinality { One, Many }
 public enum ExecutionKind { RequestResponse, Job, Subscription }
 
 /// <summary>
-/// What invoking a capability does. <c>EditWorkspace</c>, <c>Subscribe</c>, <c>ReadRun</c> and <c>SaveItem</c> make it
-/// a command (ADR-0005): invoked for a caller outside Runs, never as a workflow step. <c>ReadRun</c> reads a retained
-/// Run's results for a caller who may see it, such as a term of its trace (ADR-0011 §7); <c>SaveItem</c> keeps a saved
-/// item for its caller, such as a scenario set (C32, ADR-0010 §4).
+/// What invoking a capability does. <c>EditWorkspace</c>, <c>Subscribe</c>, <c>ReadRun</c>, <c>SaveItem</c> and
+/// <c>Execute</c> make it a command (ADR-0005): invoked for a caller outside Runs, never as a workflow step.
+/// <c>ReadRun</c> reads a retained Run's results for a caller who may see it, such as a term of its trace (ADR-0011 §7);
+/// <c>SaveItem</c> keeps a saved item for its caller, such as a scenario set (C32, ADR-0010 §4); <c>Execute</c> starts
+/// work for its caller that the command does not wait for, such as a Run submitted or a failed result asked for again
+/// (ADR-0016 note 33): it writes no workspace.
 /// </summary>
-public enum CapabilityEffect { ReadData, Compute, PersistAnalysis, EditWorkspace, Subscribe, ReadRun, SaveItem }
+public enum CapabilityEffect { ReadData, Compute, PersistAnalysis, EditWorkspace, Subscribe, ReadRun, SaveItem, Execute }
 
 public sealed record Port(string Name, string ContractId, string ContractVersion, Cardinality Cardinality);
 

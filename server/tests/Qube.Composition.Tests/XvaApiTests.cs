@@ -95,12 +95,11 @@ public class XvaApiTests(QubeFactory factory) : IClassFixture<QubeFactory>
         var ws = await Create(size: 50);
         var key = Guid.NewGuid().ToString();
 
-        var response = await Post(ws, "price", new { revision = Revision(ws), idempotencyKey = key });
-        var again = await Post(ws, "price", new { revision = Revision(ws), idempotencyKey = key });
+        var response = await client.PriceWorkspace(ws, key);
+        var again = await client.PriceWorkspace(ws, key);
 
-        Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
-        var runId = (await response.Content.ReadFromJsonAsync<JsonObject>())!["runId"]!.GetValue<string>();
-        Assert.Equal(runId, (await again.Content.ReadFromJsonAsync<JsonObject>())!["runId"]!.GetValue<string>());
+        var runId = await GatewaySteps.RunOf(response);
+        Assert.Equal(runId, await GatewaySteps.RunOf(again));
         JsonObject run;
         do run = (await client.GetFromJsonAsync<JsonObject>($"/api/runs/{runId}"))!;
         while (run["status"]!.GetValue<string>() == "running");
@@ -124,8 +123,7 @@ public class XvaApiTests(QubeFactory factory) : IClassFixture<QubeFactory>
     public async Task The_pricing_db_lists_every_origin_and_the_xva_view_its_figures()
     {
         var ws = await Create(size: 30);
-        var priced = await Post(ws, "price", new { revision = Revision(ws), idempotencyKey = Guid.NewGuid().ToString() });
-        var xvaRun = (await priced.Content.ReadFromJsonAsync<JsonObject>())!["runId"]!.GetValue<string>();
+        var xvaRun = await GatewaySteps.RunOf(await client.PriceWorkspace(ws, Guid.NewGuid().ToString()));
         var catalog = (await client.GetFromJsonAsync<JsonObject>("/api/catalog"))!;
         var workflow = catalog["workflows"]!.AsArray().Single(w => w!["definitionId"]!.GetValue<string>() == "workflow.sample.station-summary")!.DeepClone();
         var other = await client.PostAsJsonAsync("/api/runs", new JsonObject

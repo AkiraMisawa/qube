@@ -522,7 +522,7 @@ test('ADR-0006 note 1 (2026-11-11): a line that cannot be read stays open with i
   for (const [words, args, reason] of [
     // A domain verb's line is the server's to read too (ADR-0016 note 28), and the reason is the verb's own.
     ['vary', 'CSA-A threshold', 'vary takes a cell, its row and its column, then the values separated by commas, such as vary CSA-A threshold 10mm, 5mm, 0.'],
-    ['scenario duplicate', 's1', 'scenario duplicate needs the scenario to copy, then the copy\'s name.'],
+    ['scenario duplicate', 's1', 'scenario duplicate takes the scenario to copy, then the copy\'s name in one word.'],
   ] as const) {
     await command(page, words, args);
     await expect(said).toHaveText(reason);
@@ -657,7 +657,8 @@ test('ADR-0006 note 3 (2026-11-11): the empty line and `?` list the page\'s comm
   await newWorkspace(page, 'ABC/LE-01', 5);
   await page.keyboard.press('ControlOrMeta+K');
   await expect(line).toBeFocused();
-  await expect(line).toHaveAttribute('placeholder', 'Type what you want to do: price, scenario, scenario include… (? lists them)');
+  // The pricer's own commands lead, in the order its module registers them (ADR-0016 note 33): `price` first.
+  await expect(line).toHaveAttribute('placeholder', 'Type what you want to do: price, vary, add each… (? lists them)');
   // The page's commands come first, under the panel's title; the sample workflows came first.
   await expect(headings.first()).toHaveText('XVA ABC/LE-01');
   // Nothing is chosen while the line lists: the first command here is Price, and Enter alone runs nothing.
@@ -1791,11 +1792,20 @@ test('docs/03 §5, ADR-0010 §3, ADR-0016 note 28: `add each` says the cases it 
   await page.keyboard.press('Enter');
   await expect(page.getByTestId('notice')).toHaveText('Made 3 case(s): add DRAFT-1, add DRAFT-2, add DRAFT-3.');
   await expect(page.getByTestId('price')).toHaveText('Price CVA FVA · 4 cases');
-  // B on every new trade after the set was made: Price says which trades left it, and prices nothing.
+  // B on every new trade after the set was made: Price says which trades left it, and prices nothing. The line reads
+  // `price` before it submits anything (ADR-0016 note 33), so the reason is the line's and no request was refused.
+  const left = 'add each prices DRAFT-1, DRAFT-2, DRAFT-3 alone, and DRAFT-1, DRAFT-2, DRAFT-3 are in Before. '
+    + 'Run add each again to make the set anew, with B clear on each.';
   await taken(page, 'before', 'all new');
   await command(page, 'price');
-  await expect(page.getByTestId('notice')).toHaveText('Price was refused: add each prices DRAFT-1, DRAFT-2, DRAFT-3 alone, and DRAFT-1, DRAFT-2, DRAFT-3 are in Before. '
-    + 'Run add each again to make the set anew, with B clear on each.');
+  await expect(page.getByTestId('command-problems')).toHaveText(left);
+  await expect(line).toHaveValue('price');
+  await page.keyboard.press('Escape');
+  await expect(line).toBeHidden();
+  expect(problems).toEqual([]);
+  // The button invokes the same command with no line to keep: its refusal is a notice, of a request the server refused.
+  await page.getByTestId('price').click();
+  await expect(page.getByTestId('notice')).toHaveText(`Price was refused: ${left}`);
   expect(problems.splice(0)).toEqual([refused]);
   // Made again, a candidate in Before is refused by name, never unticked: the server read the line before anything
   // ran, so the reason is the line's, and no request was refused.
@@ -1813,6 +1823,53 @@ test('docs/03 §5, ADR-0010 §3, ADR-0016 note 28: `add each` says the cases it 
   const result = page.getByTestId('xva-result');
   await expect(result.getByTestId('xva-result-status')).toHaveText('succeeded');
   await expect(result.getByRole('table', { name: 'Metrics' }).getByRole('rowheader')).toHaveText(['Base', 'add DRAFT-1', 'add DRAFT-2', 'add DRAFT-3']);
+});
+
+test('ADR-0016 note 33: `price` says what it would price before Enter, `refresh` and the Refresh button say what carried and `undo` names it, and `pv01 retry` says that nothing failed', async ({ page }) => {
+  await open(page);
+  await newWorkspace(page, 'ABC/LE-01', 5);
+  await taken(page, 'measures', 'cva fva');
+  const line = page.getByRole('combobox', { name: 'Command' });
+  const preview = page.getByTestId('command-preview');
+  const notice = page.getByTestId('notice');
+  const typing = async (text: string) => {
+    await expect(line).toBeHidden();
+    await page.keyboard.press('ControlOrMeta+K');
+    await expect(line).toBeFocused();
+    await page.keyboard.type(text);
+  };
+
+  // Price is not tried: the line says the measures, the cases and the markets it would price, and Enter submits one Run.
+  await typing('price');
+  await expect(preview).toHaveText('Prices CVA and FVA for 1 case, as one Run.');
+  await page.keyboard.press('Enter');
+  await expect(notice).toHaveText(/^Price was accepted as Run run-/);
+  await expect(page.getByTestId('xva-result').getByTestId('xva-result-status')).toHaveText('succeeded');
+
+  // Refresh reads the source again and carries the edit: the line says what it would read, and the answer what carried.
+  await taken(page, 'set', 'CSA-A threshold 5mm');
+  await expect(page.getByTestId('workspace-summary')).toContainText('1 edit(s)');
+  await typing('refresh');
+  await expect(preview).toHaveText(/^Reads ABC\/LE-01 again as of \d{4}-\d{2}-\d{2}, and carries your edits onto what it reads\.$/);
+  await page.keyboard.press('Enter');
+  await expect(notice).toHaveText('Refreshed: 1 edit(s) carried, 0 in conflict, 0 lost.');
+  await expect(page.getByTestId('workspace-summary')).toContainText('1 edit(s)');
+  await settled(page, 'Existing trades');
+  // The log names it by its word, and `undo` takes it back.
+  await typing('undo');
+  await expect(preview).toContainText(/^Takes back: refresh \(you, /);
+  await page.keyboard.press('Enter');
+  await expect(notice).toHaveText('Took back: refresh. redo puts it back.');
+  // The button is the same command.
+  await page.getByRole('button', { name: 'Refresh' }).click();
+  await expect(notice).toHaveText('Refreshed: 1 edit(s) carried, 0 in conflict, 0 lost.');
+  await settled(page, 'New trades');
+
+  // Nothing has failed, so `pv01 retry` says that nothing would be asked, and asks nothing.
+  await typing('pv01 retry');
+  await expect(preview).toHaveText('Nothing would be asked again: no result has failed.');
+  await page.keyboard.press('Enter');
+  await expect(notice).toHaveText('No result had failed, so nothing was asked again.');
 });
 
 test('ADR-0010 §3: Vary values… on a CSA threshold\'s Context Menu makes three cases, by keyboard; a read-only cell offers none', async ({ page, problems }) => {
@@ -1928,19 +1985,27 @@ test('ADR-0010 §7: Download saves the Run as a zip, from the dock and the Prici
 });
 
 
-test('ADR-0010 §4: `scenario` defines a scenario whole, Price prices it beside the base market, and the dock, its line and Copy quote follow the selector', async ({ page, problems }) => {
+test('ADR-0010 §4, ADR-0016 note 32: `scenario` says the scenario it would make and defines it whole, Price prices it beside the base market, and the dock, its line and Copy quote follow the selector', async ({ page }) => {
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
   await open(page);
   await newWorkspace(page, 'ABC/LE-01', 5);
   await taken(page, 'measures', 'cva fva');
   await expect(page.getByTestId('price')).toHaveText('Price CVA FVA · 1 case');
 
-  // A shift that does not resolve is refused with what it could be, and nothing is made.
+  // A shift that does not resolve is refused on the line with what it could be, and nothing is made.
+  const typed = page.getByRole('combobox', { name: 'Command' });
   await command(page, 'scenario', 'up jpy_ois +10%');
-  await expect(page.getByTestId('notice')).toContainText('an IR shift is absolute, in bp: write jpy_ois +10bp');
-  expect(problems.splice(0)).toEqual(['error: Failed to load resource: the server responded with a status of 422 (Unprocessable Entity)']);
+  await expect(page.getByTestId('command-problems')).toContainText('an IR shift is absolute, in bp: write jpy_ois +10bp');
+  await expect(typed).toHaveValue('scenario up jpy_ois +10%');
+  await page.keyboard.press('Escape');
+  await expect(typed).toBeHidden();
   await expect(page.getByTestId('price')).toHaveText('Price CVA FVA · 1 case');
-  await command(page, 'scenario', 'up jpy_ois +100bp; usd_sofr +100bp; usdjpy -5%');
+  // The server reads the line as it is typed: what Enter would make is said before it.
+  await page.keyboard.press('ControlOrMeta+K');
+  await expect(typed).toBeFocused();
+  await page.keyboard.type('scenario up jpy_ois +100bp; usd_sofr +100bp; usdjpy -5%');
+  await expect(page.getByTestId('command-preview')).toHaveText('Makes the scenario up with 3 shifts: jpy_ois +100bp; usd_sofr +100bp; usdjpy -5%.');
+  await page.keyboard.press('Enter');
   await expect(page.getByTestId('notice')).toHaveText('Made the scenario up.');
   await expect(page.getByTestId('price')).toHaveText('Price CVA FVA · 1 case × 2 markets');
   // A scenario is no edit of the portfolio.
@@ -2054,18 +2119,23 @@ test('ADR-0010 §4, UX03: at 390px the Scenarios tab is among the Inputs, the sc
   expect(await sideways()).toBe(0);
 });
 
-test('ADR-0010 §4: `scenario cross` says what it makes against the cap as it is typed, then makes the set in one command', async ({ page }) => {
+test('ADR-0010 §4, ADR-0016 note 32: `scenario cross` says what it makes against the cap as it is typed, then makes the set in one command, and `scenarios clear` with none says so', async ({ page }) => {
   await open(page);
   await newWorkspace(page, 'ABC/LE-01', 3);
   await taken(page, 'measures', 'cva');
+  const line = page.getByRole('combobox', { name: 'Command' });
+  // A workspace with no scenario has none to clear: the line says so and keeps its text (ADR-0016 note 32).
   await command(page, 'scenarios clear');
+  await expect(page.getByTestId('command-problems')).toHaveText('The workspace has no scenario to remove.');
+  await page.keyboard.press('Escape');
+  await expect(line).toBeHidden();
 
   // The line drops a key typed before it has the keyboard, so the line is typed once it has it.
   await page.keyboard.press('ControlOrMeta+K');
-  await expect(page.getByRole('combobox', { name: 'Command' })).toBeFocused();
+  await expect(line).toBeFocused();
   await page.keyboard.type('scenario cross jpy_ois -50bp, 0, +50bp x usdjpy -10%, 0, +10%');
-  await expect(page.getByTestId('command-pending')).toContainText('makes 8 scenario(s)');
-  await expect(page.getByTestId('command-pending')).toContainText('pairs 9 of 50');
+  await expect(page.getByTestId('command-preview')).toHaveText('Makes 8 scenario(s): jpy_ois -50bp · usdjpy -10%, jpy_ois -50bp, jpy_ois -50bp · usdjpy +10% and 5 more. '
+    + 'Price would then price 9 pairs of a case and a market, of 50 at most.');
   await page.keyboard.press('Enter');
 
   await expect(page.getByTestId('notice')).toHaveText(/^Made 8 scenario\(s\): jpy_ois -50bp · usdjpy -10%, jpy_ois -50bp, /);

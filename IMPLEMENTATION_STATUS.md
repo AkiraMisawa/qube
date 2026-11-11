@@ -1610,10 +1610,100 @@ Unchanged: every figure on these pages is simulated, and says so.
 - A caption button pressed where every row already holds the value writes nothing and says `Nothing changed`.
 - Rates has no door and no registered table (3c): none of the kernel's verbs work there.
 
+## Generic commands, delivery step 3b: scenarios and the verbs that execute (ADR-0016 notes 32 and 33, 2026-11-11)
+
+The second pull request of step 3 (`docs/specs/commands-3-domain-verbs-rates`, tickets 08 to 11). The pricer's ten
+scenario commands, `price`, `refresh` and `pv01 retry` are declared once on the server and read there. The page's
+Price and Refresh buttons, a failed cell's *Ask again* and the Scenarios tab's gestures on a scenario invoke the
+same capabilities. Twelve hand-written client commands are gone with twelve page endpoints.
+
+### What runs
+
+- **The scenario verbs read their own line**: `scenario`, `scenario include`, `scenario exclude`, `scenario remove`,
+  `scenario duplicate`, `scenarios clear`, `scenario ladder`, `scenario cross`, `scenario load` and `scenario save`.
+  The line says what each would do before Enter: `Makes the scenario up with 3 shifts: …`, `Makes 8 scenario(s): …
+  and 5 more. Price would then price 9 pairs of a case and a market, of 50 at most.`, `Price would leave the
+  scenario up out; its shifts stay.`, `Removes the scenario up, with its 3 shifts.`, `Loads 2 scenario(s) from
+  rates: up, down.`, `Saves 2 scenario(s) as the set rates, for every user.` The nine that write are a trial, as
+  3a's verbs are; `scenario save` writes no workspace, and its reading keeps nothing.
+- **What could follow**: the scenarios a verb would change, with their counts of shifts; the saved sets the user can
+  see, with whom each is for and who saved it; `desk` and `all` after a set's name.
+- **The scenarios are not a registered table.** The spec planned one; a name of several words, inclusion held as one
+  list of the workspace and a scenario being its shifts are step 5's to hold (ADR-0016 note 32). `set s1 included
+  off` and `remove s1` are therefore not read.
+- **`price` is read without being tried.** The reading freezes the workspace and builds the Run's input, keeps and
+  submits nothing, and says `Prices CVA and FVA for 3 cases on 2 markets (the base market and 1 scenario), as one
+  Run.`, or refuses as Price refuses: held edits by name, too many pairs, an `add each` set that no longer matches.
+  Enter submits one Run under the key the command was invoked with, so the same invocation sent twice is one Run.
+- **`refresh`** says what it would read again, and its answer what carried; the notice stays while an edit is held.
+  The log names it `refresh`, and `undo` takes it back. The grids start over from their first row only where what
+  the trades were read of has moved (the counterparty, the value date or the source's version); a `refresh` that
+  read the same version re-reads the rows in view where they are, where the Refresh button started the grids over
+  every time.
+- **`pv01 retry [trade]`** says the trades whose results failed before it asks, and that nothing would be asked
+  where none has. It names the revision it was read at and is refused where the workspace has moved since.
+- **A new effect, `execute`**, for a command that starts something `undo` does not take back (`price`, `pv01
+  retry`). The gateway hands a handler the idempotency key it was invoked with.
+- **The page's controls are the commands.** Price, Refresh, *Ask again*, and the Scenarios tab's include box,
+  Remove, Duplicate… and Remove all. The Scenarios grid's own edits (typed, pasted, cleared) stay the page's.
+  The dock shows the workspace's latest Run, whoever priced it.
+- **The line lists the pricer's own commands first**, in the order its module registers them, `price` first; then
+  the commands still written in the client, then the kernel's. The placeholder reads `price, vary, add each…`.
+- **A command whose arguments may all be left out is read by its words alone**, and Enter runs what that reading
+  showed: `pv01 retry`, and `reset` on the focused cell, without a space typed after them.
+- **The AI** calls the same capabilities; `xva.workspace.price`, `xva.refresh`, `xva.pv01.retry`,
+  `xva.scenario.duplicate` and `xva.scenarios.clear` are new to it, and the page reads the workspace again after
+  each.
+- **Gone:** the page's `/scenarios` (define), `/scenarios/generate`, `/include`, `/remove`, `/duplicate`, `/clear`,
+  `/save` and `/load`, `GET /api/xva/scenario-sets`, `/price`, `/refresh` and `/retry`; the client's readers of a
+  `scenario` line and of the generators, and its copies of the sentences; `caseCap` on the workspace's view, which
+  only those readers read (the cap is said in the sentences that count against it).
+
+### Verification performed
+
+| What | Result |
+|---|---|
+| `dotnet test server/Qube.slnx` | 1041 passed |
+| Client: `npm run typecheck`, `npm test`, `npm run build` | Clean; 290 passed in 33 files; built |
+| `npx playwright test` (Chromium, headless, Linux) | 82 passed |
+| The six browser tests this step adds or rewrites, with `--repeat-each=3` | 18 passed |
+
+Seen once and not explained: one earlier run of the whole browser suite failed one test this step does not change,
+"in the dark and the light theme every text on the XVA page reads at 4.5:1". `measures cva`, entered right after
+`price`, was not answered within the five seconds the test waits, and the line stayed busy. The same test then
+passed 37 times alone (25 of them with the processor and the disk kept busy) and in the whole run above, and the
+server's logs of the failed run were not kept. That run was the only one made while other work used the same
+machine. It is not known whether the server or the page was late; a recurrence should be run with a trace.
+
+### Providers
+
+Unchanged: every figure on these pages is simulated, and says so.
+
+### Known limits
+
+- What reading `price` costs on a workspace of 10,000 trades is not measured: the reading builds the Run's whole
+  input each time the line is read. To be measured before the line is used at that size (ADR-0016 note 33).
+- A scenario is named by its name alone: the kernel's `set`, `remove` and the row selector do not reach scenarios
+  until they are a table (step 5).
+- What the line showed of a generator while it was typed, part by part, is now the server's sentence, which is
+  read once the line holds a generator whole; before that the line shows the server's reason.
+- The client's `price` remains for the Rates page until Rates has its own (3c); on the pricer's page the word is
+  the server's.
+- A failed result cannot be produced in the browser with the simulated provider, so *Ask again* on a failed cell
+  is held by the server's tests of `pv01 retry` and the door's unit tests, not by a browser test.
+- The synthetic source holds no value that both moves with the value date and can be edited, so no edit of a
+  priced trade can be held in the sample: that `price` names the held edits in its refusal is held by a test of
+  the sentence alone, and the `refresh` that says it stays by an edit lost on a matured trade.
+- In the sample, `refresh` never reads another version of the source, so the grids starting over after one is
+  not exercised; a change of the value date or the counterparty, which starts them over itself, is.
+- Still written in the client: `new xva`, `explain`, the trace options, `open result`, `dock full|restore`,
+  `download run` and `copy quote` (note 31), and every command of Rates (3c).
+- `add each` takes no list yet (3d). Rates has no door and no registered table (3c).
+
 ## Next
 
-1. Generic commands, delivery step 3b to 3d (ADR-0016 §3, §4): scenarios as a table and the verbs that execute
-   (`price`, `refresh`, `pv01 retry`), Rates registers its tables and its door, and `add each` takes lists.
+1. Generic commands, delivery step 3c and 3d (ADR-0016 §3, §4): Rates registers its tables and its door, and `add
+   each` takes lists.
 2. MVA with SIMM (`docs/12-implementation-plan.md` P2): spot IM from the XVA request's MVA option.
 3. ADR-0010 Delivery step 3 (Advanced: Before-only and After-only edits, the split fill), when the owner asks for it.
 4. The owner's review of ADR-0003 §7 (scopes, carry and conflict), then a synthetic source change that can produce a conflict, and the browser cases still open above (reload, failed case unavailable).

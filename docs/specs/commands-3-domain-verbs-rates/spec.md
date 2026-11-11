@@ -22,8 +22,10 @@ pricer's `vary`, `add each`, `cds`, `measures`, `case remove` and `cases clear` 
 own line on the server, with a preview that is a trial of the command. `before all`, `after none` and `currency USD`
 are short forms that expand to `set`. The shell builds `open <tab>` from a page's tabs.
 
-**3b. Scenarios and the verbs that execute.** The pricer's scenarios are a registered table. The scenario verbs,
-`price`, `refresh` and `pv01 retry` say how they are typed and go through the door.
+**3b. Scenarios and the verbs that execute.** The scenario verbs, `price`, `refresh` and `pv01 retry` say how they
+are typed and go through the door. *Changed as built (2026-11-11):* this first said that the pricer's scenarios are
+a registered table. They are verbs of the pricer for now, and the table waits for step 5 (ADR-0016 note 32 says
+why).
 
 **3c. Rates registers.** Its lines and defaults are tables, its page has a door, a screen and places, and its verbs
 say how they are typed.
@@ -41,7 +43,9 @@ selections, and the Changes tab shows an iteration's lists.
 5. As a desk user on a Rates page, I am not offered `vary`.
 6. As a desk user, I chain `add each`, Ctrl+Enter, `price`.
 7. As the AI, I call `xva.vary` with the same `cell` and `values` a user types, and get the same refusal.
-8. As a desk user, I type `set s1 included off` and `remove s1` for a scenario (3b).
+8. As a desk user, I type `scenario exclude s1` and `scenario remove s1`, and see what each would do before Enter
+   (3b). *Changed as built:* this was `set s1 included off` and `remove s1`, which need the scenarios' table
+   (step 5; ADR-0016 note 32).
 9. As a desk user on Rates, I select two lines and type `set notional 5mm`, then `undo` (3c).
 10. As a desk user, I select two new trades and one existing trade and press `Add each of selection` (3d).
 11. As a developer of the next page, I declare a verb's form and its reader, and write no client command.
@@ -73,13 +77,21 @@ selections, and the Changes tab shows an iteration's lists.
 
 ### 3b. Scenarios and the verbs that execute (tickets 08 to 11)
 
-- `xva.scenarios` is a registered table keyed by the scenario's name: `included` is a flag, the shifts are counted,
-  and `remove` takes a scenario. `scenario include`, `scenario exclude`, `scenario remove` and `scenarios clear` are
-  short forms.
+Decided in ADR-0016 notes 32 and 33, which this section follows.
+
+- *Changed as built (note 32):* the scenarios are not a registered table in this step. A scenario's name may be
+  several words, whether Price prices it is one list of the workspace, and its rows are its shifts: the kernel's
+  tables hold none of the three until step 5. So `scenario include`, `scenario exclude`, `scenario remove` and
+  `scenarios clear` are domain verbs with a trial as their preview, as `case remove` is, and not short forms.
 - `scenario`, `scenario duplicate`, `scenario ladder`, `scenario cross`, `scenario save` and `scenario load` read
-  their own lines as 3a's verbs do.
-- `price`, `refresh` and `pv01 retry` are capabilities with forms. They are not tried: the preview says what would
-  start, and refuses what can be refused without starting.
+  their own lines as 3a's verbs do. `scenario save` writes no workspace: its reading checks the save and keeps
+  nothing.
+- `price`, `refresh` and `pv01 retry` are capabilities with forms (note 33). They are not tried: the preview says
+  what would start, and refuses what can be refused without starting. `price` and `pv01 retry` have the effect
+  `execute`; `price` is `xva.workspace.price`, and submits its Run under the key it was invoked with.
+- The Scenarios tab's gestures on a scenario by name, the Price and Refresh buttons and a failed cell's *Ask again*
+  invoke the same capabilities through the page's door, and the page's endpoints that wrote for them go.
+- The line lists the page's application's served commands first, in the module's order.
 
 ### 3c. Rates registers (tickets 12 to 15)
 
@@ -111,6 +123,11 @@ A test names the ADR it holds. Tested at these seams, each through its public in
 - Client, Playwright (`xva.spec.ts`): `vary` previewed, refused and run; `before all` showing its expansion and
   taken back; `measures` completed; the existing tests of `add trades`, `cds`, `case remove`, `cases clear`,
   `currency` and the caption buttons, on the new path.
+- 3b, the same seams: `PricerLineTests` holds each scenario verb's reading and write, `price` read without being
+  tried and submitted once under its key, `refresh` and `pv01 retry`; `CommandGatewayTests` the catalog's forms,
+  order and `execute`; Vitest the list's order, the client's `price` on a Rates page alone, and a command read by
+  its words where every argument may be left out; Playwright `price`, `refresh` and `pv01 retry` previewed and
+  run, the Refresh and Price buttons on the same commands, and the existing scenario tests on the new path.
 
 Not tested: what a domain service already holds by its own tests, and the kernel's reading of the expanded line.
 

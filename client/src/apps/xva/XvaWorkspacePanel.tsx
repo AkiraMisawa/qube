@@ -6,14 +6,13 @@ import type { ExGridApi } from '@ex-grid/react';
 import { QubeGrid } from '../../platform/grid/QubeGrid';
 import { GridUndoContext } from '../../platform/grid/gridUndo';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ApiError } from '../../platform/api';
 import { useColumnWidths } from '../../platform/grid/columnWidths';
 import { amountTone, formatAmount } from '../../platform/grid/amounts';
 import { useWorkspaceContext } from '../../platform/workspace/WorkspaceProvider';
 import { keyOf } from '../../platform/workspace/workspaceStore';
 import { registerPlaces, type Place } from '../../shell/places';
 import type { XvaApi } from './api';
-import type { EffectiveTrade, HeldEdit, RegisteredColumn, RegisteredMeasure, Resolution, ScenariosMade, SetSaved, ScopeDrop, ShiftEdit, XvaWorkspaceView } from './contracts';
+import type { EffectiveTrade, HeldEdit, RegisteredColumn, RegisteredMeasure, Resolution, ScopeDrop, ShiftEdit, XvaWorkspaceView } from './contracts';
 import { measureNamed, registerXvaPage } from './commands';
 import { commandDoor, registerCommandDoor, tableMenu, type TableMenu } from '../../platform/commands/served';
 import { menuView, pagedView, placeFocus, type Answered, type ScreenGrid } from '../../platform/grid/lineView';
@@ -30,7 +29,6 @@ import { XvaRisks } from './XvaRisks';
 import type { ScenarioActions } from './XvaScenarios';
 import type { ChangeActions } from './XvaChanges';
 import { VARY_COMMAND, VaryDialog, type VaryTarget } from './VaryDialog';
-import { generatedText, includedText, loadedText, savedText, scenariosText } from './scenarios';
 import { compactGridHeight, GRID_FRAME, pixels, Resizer } from './layout';
 import { declaring, measureOfField, membershipColumn, scopesOf } from './membership';
 import { priceLabel, pricedMeasures } from './metrics';
@@ -185,6 +183,9 @@ const NO_MENU: TableMenu = { commands: () => [], label: () => undefined };
 
 const describe = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
+/** What a workspace's trades were read of: the counterparty, the value date and the source's version of them. */
+const sourceOf = (view: XvaWorkspaceView) => `${view.registration.key} ${view.context.valueDate} ${view.sourceVersion}`;
+
 export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   readonly panelId: string; readonly workspaceId: string; readonly api: XvaApi; readonly traceApi: TraceApi;
 }) {
@@ -196,6 +197,15 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
     queryKey: ['xva', workspaceId], queryFn: () => api.view(workspaceId),
     refetchInterval: (query) => (query.state.data !== undefined && query.state.data.pendingCells > 0 ? 500 : false),
   });
+  // A Run the workspace gains, priced here, by the AI or on another page, is one more row of the Pricing DB.
+  const latestRun = view.data?.runs[0]?.runId;
+  const read = view.data !== undefined;
+  const seenRun = useRef<{ readonly runId: string | undefined } | undefined>(undefined);
+  useEffect(() => {
+    if (!read) return;
+    if (seenRun.current !== undefined && seenRun.current.runId !== latestRun) void queryClient.invalidateQueries({ queryKey: ['history'] });
+    seenRun.current = { runId: latestRun };
+  }, [read, latestRun, queryClient]);
   const registrations = useQuery({ queryKey: ['xva', 'registrations'], queryFn: () => api.registrations(), staleTime: Infinity });
   // The synthetic CDS catalogue the Credit tab searches and `cds` completes from (ADR-0010 §8's note of 2026-11-09).
   const catalogue = useQuery({ queryKey: ['xva', 'cds'], queryFn: () => api.cdsCatalogue(), staleTime: Infinity });
@@ -236,10 +246,14 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   useEffect(() => () => sources.dispose(), [sources]);
 
   // The revision the page last showed of its own doing, so that one someone else made (the AI, another page) is told
-  // from it: the grids' rows are read again for that one, as for the page's own edits.
+  // from it: the grids' rows are read again for that one, as for the page's own edits. And what its trades were read
+  // of then: where that has moved (`refresh`, or an `undo` of one), the order may have, so the grids start over
+  // (ExGrid ADR-0011).
   const ownRevision = useRef<number | undefined>(undefined);
+  const ownSource = useRef<string | undefined>(undefined);
   const show = useCallback((next: XvaWorkspaceView) => {
     ownRevision.current = next.revision;
+    ownSource.current = sourceOf(next);
     queryClient.setQueryData(['xva', workspaceId], next);
   }, [queryClient, workspaceId]);
 
@@ -259,11 +273,16 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   // (the AI, another page), so the next edit is not refused for a change the user can already see.
   const shownRevision = view.data?.revision;
   useEffect(() => { if (shownRevision !== undefined) queue.shown(shownRevision); }, [shownRevision, queue]);
+  const shownSource = view.data === undefined ? undefined : sourceOf(view.data);
   useEffect(() => {
     if (shownRevision === undefined) return;
-    if (ownRevision.current !== undefined && shownRevision !== ownRevision.current) sources.changed();
+    if (ownRevision.current !== undefined && shownRevision !== ownRevision.current) {
+      if (ownSource.current !== undefined && shownSource !== ownSource.current) sources.requery();
+      else sources.changed();
+    }
     ownRevision.current = shownRevision;
-  }, [shownRevision, sources]);
+    ownSource.current = shownSource;
+  }, [shownRevision, shownSource, sources]);
 
   // The selected modules' trade columns (ADR-0010 §10), made again only when they change (ExGrid ADR-0003).
   const tradeColumns = view.data?.tradeColumns;
@@ -434,21 +453,21 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
     else setConfirm({ registration, drop });
   };
 
-  // The figures of the latest Price stay on the page (XvaResult); the Run itself opens in a panel only when asked.
-  const [priced, setPriced] = useState<string | undefined>(undefined);
+  /** A control's command through the door (ADR-0016 §5): a refusal is a notice that opens with what was not done. */
+  const invoked = async (capability: string, request: Readonly<Record<string, string>>, notDone: string) => {
+    const reason = await door.invoke(capability, request);
+    if (reason !== undefined) workspace.notify('refused', `${notDone}: ${reason.sentence}`);
+  };
+  /**
+   * The Price button invokes `price`, the command the line types (ADR-0016 note 33), so the two cannot differ: one Run
+   * of the workspace as it stands once the edits already sent have landed (spine 6). The page reads the workspace again
+   * in that turn, and the dock shows its latest Run, which is the one just accepted; the figures stay on the page
+   * (XvaResult), and the Run itself opens in a panel only when asked.
+   */
   const price = async () => {
     setBusy('Pricing');
     try {
-      // Price prices the edits already sent, once they have landed (spine 6).
-      const key = crypto.randomUUID();
-      const run = await queue.after((revision) => api.price(workspaceId, revision, key));
-      setPriced(run.runId);
-      workspace.notify('done', `Price was accepted as Run ${run.runId}.`);
-      void queryClient.invalidateQueries({ queryKey: ['xva', workspaceId] });
-      void queryClient.invalidateQueries({ queryKey: ['history'] });
-    } catch (error) {
-      const targets = error instanceof ApiError && error.envelope.issues.length > 0 ? ` (${error.envelope.issues.map((i) => i.path).join(', ')})` : '';
-      workspace.notify('refused', `Price was refused: ${describe(error)}${targets}`);
+      await invoked('xva.workspace.price', {}, 'Price was refused');
     } finally {
       setBusy(undefined);
     }
@@ -459,17 +478,8 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
     workspace.store.getState().openPanel({ kind: 'run', title: `CVA/FVA ${view.data?.registration.key ?? ''}`, runId, viewKey: resultView === undefined ? undefined : keyOf(resultView) });
   };
 
-  /** Asks again for the failed results of one trade, or of all (`pv01 retry`, ADR-0010 §6). */
-  const retry = async (tradeId?: string) => {
-    try {
-      const { workspace: next, asked } = await api.retry(workspaceId, tradeId);
-      show(next);
-      sources.new.notifyChanged([]);
-      workspace.notify('done', asked === 0 ? 'No result had failed, so nothing was asked again.' : `Asked again for ${asked} result(s).`);
-    } catch (error) {
-      workspace.notify('refused', `Nothing was asked again: ${describe(error)}`);
-    }
-  };
+  /** A failed cell's Ask again (ADR-0010 §6): `pv01 retry` for its trade, as the line types it (ADR-0016 note 33). */
+  const retry = (tradeId: string) => invoked('xva.pv01.retry', { trade: tradeId }, 'Nothing was asked again');
   /** A trade grid as the line is told of it: the trades' table, the grid's subset, and its columns' names as shown. */
   const declaredOf = (grid: TradeGrid): ScreenGrid => ({ table: TRADES_TABLE, subset: grid, columns: gridColumns.current[grid].map((c) => c.name) });
   // A trade grid's Context Menu: what the trades' table offers on the rows selected and the cell under the menu
@@ -491,8 +501,8 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   const newCommands = useMemo(() => tradeCommands('new'), [tradeCommands]);
   const existingCommands = useMemo(() => tradeCommands('existing'), [tradeCommands]);
 
-  /** The Run the dock shows: the one priced here last, else the workspace's latest. */
-  const dockRun = () => priced ?? view.data?.runs[0]?.runId;
+  /** The Run the dock shows: the workspace's latest, whoever priced it. */
+  const dockRun = () => view.data?.runs[0]?.runId;
   // A scenario's id is its position in the Run that priced it (s1, s2), so a pick holds in that Run alone: the dock
   // showing another Run shows the base market until one of its scenarios is picked (spine 6).
   const scenarioInView = scenarioPick.runId !== undefined && scenarioPick.runId === dockRun() ? scenarioPick.scenario : BASE_SCENARIO;
@@ -580,7 +590,19 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
     if (ended !== undefined && 'sentence' in ended) workspace.notify('refused', `${line}: ${ended.sentence}`);
   };
 
-  const refresh = () => reacquire('Refreshed', (revision) => api.refresh(workspaceId, revision));
+  /**
+   * The Refresh button invokes `refresh`, the command the line types (ADR-0016 note 33): the notice is the server's
+   * count of what carried, and stays while an edit is held. The door reads the grids from their first row again where
+   * the source moved.
+   */
+  const refresh = async () => {
+    setBusy('Refreshed');
+    try {
+      await invoked('xva.refresh', {}, 'Refresh was refused');
+    } finally {
+      setBusy(undefined);
+    }
+  };
 
   // The Changes tab's list (ADR-0010 §3's note of 2026-11-08), read while the tab is open, at the revision on screen.
   const changesOpen = inputsOpen && view.data !== undefined && shownTab(view.data, inputTab) === CHANGES_TAB;
@@ -623,8 +645,12 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
     screen: () => screen.current?.(),
     reread: async () => {
       const fresh = await api.view(workspaceId);
+      // What `refresh` read, or what `undo` put back of it, may have moved the order: the grids start over then.
+      // Otherwise the rows in view are read again where they are.
+      const moved = ownSource.current !== undefined && ownSource.current !== sourceOf(fresh);
       show(fresh);
-      sources.changed();
+      if (moved) sources.requery();
+      else sources.changed();
       return fresh.revision;
     },
     notify: workspace.notify,
@@ -688,103 +714,32 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
     return said;
   };
   /**
-   * `scenario s1 jpy_ois +10bp; usdjpy -5%` (ADR-0010 §4): the scenario with every shift, after the edits already sent
-   * (spine 6). The server reads the shifts and refuses one it cannot resolve by name; the workspace's trades do not move.
+   * The Scenarios grid's own edit (ADR-0010 §4): cells typed, pasted or cleared, after the edits already sent (spine 6).
+   * The workspace's trades do not move, so the grids are not read again. Refused, it throws with the server's reason.
    */
-  const defineScenario = async (name: string, shifts: string) => {
-    try {
-      workspace.notify('done', scenariosText(await scenariosMade((revision) => api.defineScenario(workspaceId, revision, name, shifts))));
-    } catch (error) {
-      workspace.notify('refused', `scenario made nothing: ${describe(error)}`);
-    }
-  };
-  /**
-   * A scenario command or a gesture of the Scenarios tab (ADR-0010 §4), after the edits already sent (spine 6). The
-   * workspace's trades do not move, so the grids are not read again. Refused, it throws with the server's reason.
-   */
-  const scenarioCommand = async (run: (revision: number) => Promise<XvaWorkspaceView>): Promise<XvaWorkspaceView> => {
-    const next = await queue.after(async (revision) => {
-      const answer = await run(revision);
+  const editShifts = async (rows: readonly ShiftEdit[]) => {
+    show(await queue.after(async (revision) => {
+      const answer = await api.editShifts(workspaceId, revision, rows);
       queue.rebase(answer.revision);
       return answer;
-    });
-    show(next);
-    return next;
+    }));
   };
-  /** A scenario command whose answer says what it made, after the edits already sent; refused, it throws. */
-  const scenariosMade = async (run: (revision: number) => Promise<ScenariosMade>): Promise<ScenariosMade> => {
-    let made: ScenariosMade | undefined;
-    await scenarioCommand(async (revision) => { made = await run(revision); return made.workspace; });
-    if (made === undefined) throw new Error('The scenario command answered nothing.');
-    return made;
-  };
-  const editShifts = async (rows: readonly ShiftEdit[]) => { await scenarioCommand((revision) => api.editShifts(workspaceId, revision, rows)); };
-  const includeScenario = async (name: string, included: boolean) => {
-    try {
-      await scenarioCommand((revision) => api.includeScenario(workspaceId, revision, name, included));
-      workspace.notify('done', includedText(name, included));
-    } catch (error) {
-      workspace.notify('refused', `${name} was not ${included ? 'included' : 'excluded'}: ${describe(error)}`);
-    }
-  };
-  const removeScenario = async (name: string) => {
-    try {
-      await scenarioCommand((revision) => api.removeScenario(workspaceId, revision, name));
-      workspace.notify('done', `Removed the scenario ${name}.`);
-    } catch (error) {
-      workspace.notify('refused', `${name} was not removed: ${describe(error)}`);
-    }
-  };
-  /** Duplicate: the dialog stays open with the server's reason when it is refused, so this throws. */
+  /**
+   * The Scenarios tab's gestures on a scenario by name are the commands the line types (ADR-0016 note 32): `scenario
+   * include`, `exclude`, `remove`, `duplicate` and `scenarios clear`, so a box and a line cannot differ and `undo` names
+   * both the same. The notice is the server's sentence; refused, the page says what was not done and why.
+   * Duplicate's dialog stays open with the server's reason when it is refused, so that one throws.
+   */
   const duplicateScenario = async (name: string, copy: string) => {
-    const made = await scenariosMade((revision) => api.duplicateScenario(workspaceId, revision, name, copy));
-    workspace.notify('done', `Duplicated ${name} as ${made.made.join(', ')}.`);
-  };
-  const duplicate = async (name: string, copy: string) => {
-    try { await duplicateScenario(name, copy); } catch (error) { workspace.notify('refused', `${name} was not duplicated: ${describe(error)}`); }
-  };
-  /** `scenario ladder …`, `scenario cross …`: the page says how many it made and which of the same name it replaced. */
-  const generateScenarios = async (generator: 'ladder' | 'cross', text: string) => {
-    try {
-      workspace.notify('done', generatedText(await scenariosMade((revision) => api.generateScenarios(workspaceId, revision, generator, text))));
-    } catch (error) {
-      workspace.notify('refused', `scenario ${generator} made nothing: ${describe(error)}`);
-    }
-  };
-  const clearScenarios = async () => {
-    try {
-      await scenarioCommand((revision) => api.clearScenarios(workspaceId, revision));
-      workspace.notify('done', 'Removed every scenario; Price prices the base market alone.');
-    } catch (error) {
-      workspace.notify('refused', `No scenario was removed: ${describe(error)}`);
-    }
-  };
-  // The saved sets the user can see (ADR-0010 §4, C32), for `scenario load` to offer; read again after a save.
-  const scenarioSets = useQuery({ queryKey: ['xva', 'scenario-sets'], queryFn: () => api.scenarioSets() });
-  /** `scenario save <set> [desk|all]`: what the workspace holds once the edits already sent are in (spine 6). */
-  const saveScenarios = async (set: string, share?: 'desk' | 'all') => {
-    try {
-      const saved: SetSaved = await queue.after((revision) => api.saveScenarios(workspaceId, revision, set, share));
-      workspace.notify('done', savedText(saved));
-      await queryClient.invalidateQueries({ queryKey: ['xva', 'scenario-sets'] });
-    } catch (error) {
-      workspace.notify('refused', `scenario save saved nothing: ${describe(error)}`);
-    }
-  };
-  /** `scenario load <set>`: the page says which scenarios it added and which of the same name it replaced. */
-  const loadScenarios = async (set: string) => {
-    try {
-      workspace.notify('done', loadedText(set, await scenariosMade((revision) => api.loadScenarios(workspaceId, revision, set))));
-    } catch (error) {
-      workspace.notify('refused', `scenario load loaded nothing: ${describe(error)}`);
-    }
+    const reason = await door.invoke('xva.scenario.duplicate', { name, copy });
+    if (reason !== undefined) throw new Error(reason.sentence);
   };
   const scenarioActions: ScenarioActions = {
     edit: editShifts,
-    include: (name, included) => void includeScenario(name, included),
+    include: (name, included) => void invoked(`xva.scenario.${included ? 'include' : 'exclude'}`, { name }, `${name} was not ${included ? 'included' : 'excluded'}`),
     duplicate: duplicateScenario,
-    remove: (name) => void removeScenario(name),
-    clear: () => void clearScenarios(),
+    remove: (name) => void invoked('xva.scenario.remove', { name }, `${name} was not removed`),
+    clear: () => void invoked('xva.scenarios.clear', {}, 'No scenario was removed'),
     notify: workspace.notify,
   };
   // *Vary values…* (ADR-0010 §3): the cell whose Context Menu opened the dialog, while it is open.
@@ -792,27 +747,13 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   const setCurrency = (currency: string) => void queue.push({ entity: SETTINGS_ENTITY, field: 'displayCurrency', value: currency, title: 'The display currency' });
 
   // The commands run what the page's own controls run, as the page stands when they run (ADR-0010 §9).
-  const pageCommands = { takeBack, price, retry, copyQuote, download, refresh, explain, openResult, setDockFull, resultTabs, traceInView, defineScenario, includeScenario, removeScenario, duplicate, clearScenarios, generateScenarios, saveScenarios, loadScenarios, scenarioSets: () => scenarioSets.data ?? [], scenarios: () => view.data?.scenarios ?? [], pricing: () => (view.data === undefined ? undefined : { cases: view.data.cases.length, cap: view.data.caseCap }), measures: () => view.data?.measures ?? [] };
+  const pageCommands = { takeBack, retry, copyQuote, download, explain, openResult, setDockFull, resultTabs, traceInView, measures: () => view.data?.measures ?? [] };
   const pageRef = useRef(pageCommands);
   pageRef.current = pageCommands;
   useEffect(() => {
     registerXvaPage(panelId, {
-      price: () => void pageRef.current.price(),
-      defineScenario: (name, shifts) => void pageRef.current.defineScenario(name, shifts),
-      includeScenario: (name, included) => void pageRef.current.includeScenario(name, included),
-      removeScenario: (name) => void pageRef.current.removeScenario(name),
-      duplicateScenario: (name, copy) => void pageRef.current.duplicate(name, copy),
-      clearScenarios: () => void pageRef.current.clearScenarios(),
-      scenarios: () => pageRef.current.scenarios(),
-      generateScenarios: (generator, text) => void pageRef.current.generateScenarios(generator, text),
-      saveScenarios: (set, share) => void pageRef.current.saveScenarios(set, share),
-      loadScenarios: (set) => void pageRef.current.loadScenarios(set),
-      scenarioSets: () => pageRef.current.scenarioSets(),
-      pricing: () => pageRef.current.pricing(),
-      retry: () => void pageRef.current.retry(),
       downloadRun: () => pageRef.current.download(),
       copyQuote: () => void pageRef.current.copyQuote(),
-      refresh: () => void pageRef.current.refresh(),
       explain: (measure, path) => pageRef.current.explain(measure, path),
       openResult: (tab) => pageRef.current.openResult(tab),
       setDockFull: (full) => pageRef.current.setDockFull(full),
@@ -850,7 +791,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   const ws = view.data;
   const blocking = ws.conflicts.length + ws.lost.filter((l) => !l.acknowledged).length;
 
-  const pricedRun = priced ?? ws.runs[0]?.runId;
+  const pricedRun = ws.runs[0]?.runId;
   const pricedRevision = ws.runs.find((r) => r.runId === pricedRun)?.revision;
   // Widened, the dock covers the input tabs and the grids while it is open; collapsed, it is its line again.
   const full = dockFull && dockOpen && pricedRun !== undefined;
