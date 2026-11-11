@@ -44,8 +44,27 @@ export type ActionOutcome =
   | { readonly kind: 'openView'; readonly view: ViewDefinition }
   | { readonly kind: 'run'; readonly run: RunRecord };
 
+/** What a command answered: its outputs by port, as its contracts say (ADR-0005). */
+export interface CommandAnswer {
+  readonly capabilityId: string;
+  readonly version: string;
+  readonly outputs: Readonly<Record<string, unknown>>;
+}
+
+/** A command's output on one of its ports. A command that answers without it has broken its descriptor, and that is said. */
+export function outputOf<T>(answer: CommandAnswer, port: string): T {
+  const value = answer.outputs[port];
+  if (value === undefined || value === null) throw new Error(`${answer.capabilityId} answered without its ${port}.`);
+  return value as T;
+}
+
 export interface Api {
   catalog(): Promise<Catalog>;
+  /**
+   * Invokes a command capability through the page's door to the command gateway (ADR-0016 §5): the server names the
+   * caller and that it came from a page. A repeated key answers the first result instead of acting twice.
+   */
+  command(capabilityId: string, version: string, inputs: Readonly<Record<string, unknown>>, idempotencyKey: string): Promise<CommandAnswer>;
   submitRun(workflow: WorkflowDefinition, context: Record<string, unknown>, input: Record<string, unknown>, idempotencyKey: string): Promise<RunRecord>;
   run(runId: string): Promise<RunRecord>;
   dataset(reference: TypedDataRef): Promise<Dataset>;
@@ -54,6 +73,8 @@ export interface Api {
 
 export const httpApi: Api = {
   catalog: () => call('/api/catalog'),
+  command: (capabilityId, version, inputs, idempotencyKey) =>
+    call(`/api/commands/${encodeURIComponent(capabilityId)}/${encodeURIComponent(version)}`, { method: 'POST', body: JSON.stringify({ inputs, idempotencyKey }) }),
   submitRun: (workflow, context, input, idempotencyKey) =>
     call('/api/runs', { method: 'POST', body: JSON.stringify({ workflow, context, input, idempotencyKey }) }),
   run: (runId) => call(`/api/runs/${encodeURIComponent(runId)}`),

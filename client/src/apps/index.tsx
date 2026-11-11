@@ -279,6 +279,23 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
         xvaPage().set(typed.rows, typed.column, typed.text);
       },
     },
+    // Undo and redo (ADR-0016 §11): two kernel commands, run by the page so that they follow the edits it has already sent.
+    {
+      id: 'workspace.undo',
+      words: 'undo',
+      title: 'Take back the last command',
+      group: 'Workspace',
+      ...onXva,
+      run: () => xvaPage().undo(),
+    },
+    {
+      id: 'workspace.redo',
+      words: 'redo',
+      title: 'Put back the command last taken back',
+      group: 'Workspace',
+      ...onXva,
+      run: () => xvaPage().redo(),
+    },
     {
       id: 'xva.trades.add',
       words: 'add trades',

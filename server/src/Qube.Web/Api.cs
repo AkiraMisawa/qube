@@ -92,22 +92,24 @@ public static class Api
                 _ => throw new InvalidOperationException("Unhandled action result."),
             });
 
-        // Commands (ADR-0005), as the agent's tool calls reach them: the caller is the signed-in user, acting through
-        // the AI. The fixed pages keep their own endpoints, which call the same application services as the pricer.
-        api.MapPost("/agent/commands/{capabilityId}/{version}", async (string capabilityId, string version, CommandRequest request,
-            CommandService commands, CurrentUser user, CancellationToken cancellationToken) =>
-            await commands.InvokeAsync(capabilityId, version, request.Inputs, new Caller(user.Id, RunOrigin.Ai), request.IdempotencyKey, cancellationToken) switch
-            {
-                CommandResult.Done done => Results.Ok(new { capabilityId = done.CapabilityId, version = done.Version, outputs = done.Outputs }),
-                CommandResult.Refused { Code: "UnknownCapability" or "UnknownWorkspace" } refused =>
-                    Results.Json(new ErrorEnvelope(refused.Code, refused.Issues[0].Message, refused.Issues), statusCode: 404),
-                CommandResult.Refused { Code: "NotOwner" } refused =>
-                    Results.Json(new ErrorEnvelope(refused.Code, refused.Issues[0].Message, refused.Issues), statusCode: 403),
-                CommandResult.Refused { Code: "RevisionMoved" } refused =>
-                    Results.Json(new ErrorEnvelope(refused.Code, refused.Issues[0].Message, refused.Issues, Retryable: true), statusCode: 409),
-                CommandResult.Refused refused => Rejected(refused.Code, refused.Issues),
-                _ => throw new InvalidOperationException("Unhandled command result."),
-            });
+        // Commands (ADR-0005), through the one gateway and its two doors (ADR-0016 §5): the caller is the signed-in user,
+        // acting through the AI or on a page. The server names the caller and where the command came from, never the
+        // request. A page's write endpoints go as its commands move behind the second door.
+        foreach (var (door, origin) in new[] { ("/agent/commands", RunOrigin.Ai), ("/commands", RunOrigin.Pricer) })
+            api.MapPost(door + "/{capabilityId}/{version}", async (string capabilityId, string version, CommandRequest request,
+                CommandService commands, CurrentUser user, CancellationToken cancellationToken) =>
+                await commands.InvokeAsync(capabilityId, version, request.Inputs, new Caller(user.Id, origin), request.IdempotencyKey, cancellationToken) switch
+                {
+                    CommandResult.Done done => Results.Ok(new { capabilityId = done.CapabilityId, version = done.Version, outputs = done.Outputs }),
+                    CommandResult.Refused { Code: "UnknownCapability" or "UnknownWorkspace" } refused =>
+                        Results.Json(new ErrorEnvelope(refused.Code, refused.Issues[0].Message, refused.Issues), statusCode: 404),
+                    CommandResult.Refused { Code: "NotOwner" } refused =>
+                        Results.Json(new ErrorEnvelope(refused.Code, refused.Issues[0].Message, refused.Issues), statusCode: 403),
+                    CommandResult.Refused { Code: "RevisionMoved" } refused =>
+                        Results.Json(new ErrorEnvelope(refused.Code, refused.Issues[0].Message, refused.Issues, Retryable: true), statusCode: 409),
+                    CommandResult.Refused refused => Rejected(refused.Code, refused.Issues),
+                    _ => throw new InvalidOperationException("Unhandled command result."),
+                });
 
         // The Pricing DB. Until roles arrive with sign-in (C30, C31), a user sees their own Runs only.
         api.MapGet("/history/catalog", (HistoryService history) => history.Catalog());

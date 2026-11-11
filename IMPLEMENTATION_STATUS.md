@@ -963,11 +963,95 @@ Unchanged: every figure on these pages is simulated, and says so.
 - Not done here: history in the line, a run button on a phone, search words a command declares (the review's F10,
   F12, F15), and Rates' three command defects of 2026-11-10 (with Rates' registration, step 3).
 
+## Generic commands, delivery step 1a: the log, `undo` and `redo` (ADR-0016 §11, 2026-11-11)
+
+Step 1 of ADR-0016's Delivery order is three pull requests (`docs/specs/commands-1-tables-selector-undo`, fourteen
+tickets; the ADR's notes of 2026-11-11, "what step 1 settles"). This is the first, tickets 01 to 04: what the log
+records, `undo` and `redo` in the kernel, as two commands, on the pricer's line and on its grids' keys. The tables, the
+selector and the edit verbs are 1b; the preview and the line built from the catalog are 1c.
+
+### What runs
+
+- **A log entry says its command and what it replaced** (ADR-0003's entry, extended by ADR-0016 §11). One accepted call
+  is one command, `c` and the first sequence number it wrote (`c12`), on every entry the call writes, the derivation's
+  included; a batch may carry the words it was typed as. A `Set` or a `Reset` records the override or the lost edit it
+  found, a `Remove` the entity with the edits that ended with it, a change of context the context before. The SQLite log
+  has five new columns (`command`, `said`, `undoes`, `redoes`, `replaced_json`), added to an older log when it opens;
+  entries written before them have no command and are not taken back.
+- **`undo` and `redo` are linear and read from the log alone** (`CommandHistory`, `WorkspaceService.Undo`, `Redo`).
+  `undo` is one all-or-none command that puts back what each entry of the latest command replaced, as it stood, its
+  sequence number included, so "a row's later edit wins" (ADR-0010 §6) reads as before the command; a set, a reset, a
+  batch, a created entity, a removed one with its edits, and a change of context that kept the source version. `redo` is
+  the same act on the `undo`, so `undo, undo, redo, redo` works and survives a restart; any other command ends what can
+  be put back.
+- **What is refused, by name**: nothing to take back (`NothingToUndo`, the workspace as it was made) or to put back
+  (`NothingToRedo`); a command that took another source version, left a scope with its edits or decided a held edit, and
+  one written before commands had ids (`CannotUndo`); another user's command (`NotYourCommand`); a named command that is
+  not the latest (`NotLatestCommand`); a request that says neither the revision it read nor the command it means
+  (`CommandNotNamed`). Nothing older than a refused command is reached.
+- **A workspace's making is one command.** The pricer made a workspace and then set its owner's last selection of
+  measures as a second command, which the first `undo` would have taken back. `WorkspaceService.Create` takes the values
+  a workspace is made with and writes them in the making's own command; a selection taken back is no longer the owner's
+  last (ADR-0016's note 2).
+- **Two kernel commands and the page's door.** `workspace.undo` and `workspace.redo` 1.0.0 (`EditWorkspace`; the catalog
+  now lists 33 capabilities) take the workspace and what the request means: the revision its caller read, as the page
+  gives, or the id of the command, which the AI's request always names (ADR-0016 §11). They answer the new revision,
+  their own command id, the command taken back, whose it was, from where, when, how many edits and one sentence (`Took
+  back: set CSA-A threshold. redo puts it back.`). The owner of the workspace runs them, and the AI has them as tools
+  (`workspace_undo`), which no agent runtime has called. `POST /api/commands/{id}/{version}` is the page's door to the
+  same gateway as the agent's, with origin `pricer` and the same statuses (ADR-0016 §5).
+- **A command is named as its screen names it** (`IEditRules.TitleOf`): by its words where it was given them, else by
+  its edits' titles, the first three and a count. The pricer's rules answer `CSA-A threshold`, `DRAFT-1 A`, `Before on
+  the existing trades`, `the measures`, `the display currency`, a case by its title; never an entity's key.
+- **On the pricer's page**: `undo` and `redo` on the line, after `set` in the page's list, and Ctrl+Z and Ctrl+Y (or
+  Ctrl+Shift+Z) in every grid of the page, the input tabs' grids included, through ExGrid's `onUndo` and `onRedo`. While
+  a cell is being typed in the keys stay the editor's, by ExGrid's contract. The page runs them in its edit queue's
+  turn, after the edits it has already sent, reads the workspace again in that same turn, and the notice says what was
+  taken back or why not.
+
+### Verification performed
+
+| What | Result |
+|---|---|
+| `dotnet test server/Qube.slnx` | 630 passed |
+| Client: `npm run typecheck`, `npm test`, `npm run build` | 253 passed in 31 files |
+| `npx playwright test` (Chromium, headless, Linux) | 63 passed |
+| The browser test of `undo` and `redo` (line and keys), with `--repeat-each=3` | 3 passed; its first repeat found the making's second command, fixed above |
+| Looked at in Chromium: `undo` on the line, its notice and the list for `re`, in both schemes at 1440, 992, 768 and 390 px | The notice wraps to two lines on a phone; `undo` and `redo` list under the page's title |
+| Code review (`code-review`, two axes, since `492969f`) | Three defects fixed (a `redo` that left a removed case's changes behind, the page's read beside its queue, a refusal that misnamed a command), the request's rule of §11 enforced, six tests added; what was left is in the Known limits |
+
+### Providers
+
+Unchanged: every figure on these pages is simulated, and says so.
+
+### Known limits
+
+- Only the pricer's page has the two commands and the keys. The kernel takes back a Rates workspace's commands, a change
+  of valuation date and of defaults with the cashflow edits it moved among them (`RatesApplicationTests`, through the
+  kernel's service); Rates' page gets the line's words and the keys with its registration, step 3, and until then such a
+  change is named `changed the context`.
+- A command is not yet recorded with its words: `set CSA-A threshold 5mm` reaches the server as the page's edit and is
+  named by its cell (`set CSA-A threshold`). The words come with `entity.set` and the line's preview (1b, 1c).
+- Not measured at 10,000 rows: an `undo` writes an entry for each entry it takes back, as the batch did. The by-row
+  batch and its `undo` are measured when 1b builds them.
+- A refresh, a change of counterparty or of value date, and a held edit once kept or discarded are not taken back, nor
+  anything before them: the notice says which and why.
+- The derivation runs after an `undo` as after any command. A lost edit that was acknowledged asks to be seen again when
+  its scope moves, which was so before this step for every command and is not changed here.
+- The answer names the command by an id (`c12`) the page does not show yet; the Changes tab lists edits, not commands,
+  and words a whole grid's B or A its own way (`Existing B every row`, where the sentence says `Before on the existing
+  trades`): one title for both comes with the tables' registration, 1b.
+- What an entry replaced is one record with a field per case (an edit, an entity, a context), not a type per case; the
+  code review named it and it was left, the log's JSON being simpler for it.
+- No real model has called `workspace_undo`; the rule that the AI names the command is held over HTTP at the agent's
+  door.
+- The command's idempotency keys are held in memory, as every command's are (ADR-0005).
+
 ## Next
 
-1. Generic commands, delivery step 1 (ADR-0016): tables, forms, the selector, `entity.set`, `reset` and `remove`,
-   `undo` and `redo`, and the preview, with XVA's tables registered. Its first act is to measure a batch over 10,000
-   rows and its `undo`.
+1. Generic commands, delivery step 1b (ADR-0016; tickets 05 to 10): one form vocabulary, tables registered, the
+   selector, `entity.set`, `reset` and `remove`, with XVA's tables registered and `xva.set` retired. Its first act is to
+   measure a batch over 10,000 rows and its `undo`. Then 1c (tickets 11 to 14): the preview and the line.
 2. MVA with SIMM (`docs/12-implementation-plan.md` P2): spot IM from the XVA request's MVA option.
 3. ADR-0010 Delivery step 3 (Advanced: Before-only and After-only edits, the split fill), when the owner asks for it.
 4. The owner's review of ADR-0003 §7 (scopes, carry and conflict), then a synthetic source change that can produce a conflict, and the browser cases still open above (reload, failed case unavailable).

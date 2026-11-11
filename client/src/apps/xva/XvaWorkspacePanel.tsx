@@ -4,8 +4,9 @@ import { Alert, Badge, Button, Group, Modal, SegmentedControl, Select, Stack, Ta
 import { GridSource, type CellState, type GridColumn, type GridContextMenuContext, type GridEditIntent } from '@ex-grid/core';
 import type { ExGridApi } from '@ex-grid/react';
 import { QubeGrid } from '../../platform/grid/QubeGrid';
+import { GridUndoContext } from '../../platform/grid/gridUndo';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ApiError } from '../../platform/api';
+import { ApiError, outputOf } from '../../platform/api';
 import { useColumnWidths } from '../../platform/grid/columnWidths';
 import { amountTone, formatAmount } from '../../platform/grid/amounts';
 import { useWorkspaceContext } from '../../platform/workspace/WorkspaceProvider';
@@ -17,7 +18,7 @@ import { measureNamed, registerXvaPage } from './commands';
 import { XvaResult } from './XvaResult';
 import { BASE_CASE, BASE_SCENARIO, openTrace, requestTerm } from '../../platform/traces/open';
 import type { TraceApi } from '../../platform/traces/api';
-import type { RunRecord } from '../../platform/contracts';
+import type { RunRecord, TakenBack } from '../../platform/contracts';
 import { dockTabs, METRICS_TAB, type DockTab, type MeasureTab } from './dock';
 import { EditQueue, MEASURES_ENTITY, SETTINGS_ENTITY, refusedEdit, sideSaid, sideTitle, tradeFields, type PendingEdit, type SetText } from './editing';
 import { ToolbarField } from './fields';
@@ -525,8 +526,9 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
     enabled: changesOpen,
   });
   /** A command of the Changes tab, after the edits already sent (spine 6); a Common change moves the grids' rows.
-   * Refused, the page says why after `label`, and the answer is the server's reason; taken, it is `undefined`. */
-  const attempt = async (label: string, run: (revision: number) => Promise<XvaWorkspaceView>): Promise<string | undefined> => {
+   * Refused, the page says why, after `label` where the reason does not say what was not done, and the answer is the
+   * server's reason; taken, it is `undefined`. */
+  const attempt = async (label: string | undefined, run: (revision: number) => Promise<XvaWorkspaceView>): Promise<string | undefined> => {
     try {
       const next = await queue.after(async (revision) => {
         const answer = await run(revision);
@@ -538,7 +540,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
       return undefined;
     } catch (error) {
       const reason = describe(error);
-      workspace.notify('refused', `${label}: ${reason}`);
+      workspace.notify('refused', label === undefined ? reason : `${label}: ${reason}`);
       return reason;
     }
   };
@@ -551,6 +553,26 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   const set = async (rows: readonly string[], column: string, text: string) => {
     if (await apply('set changed nothing', (revision) => api.set(workspaceId, revision, rows, column, text)))
       workspace.notify('done', rows.length === 1 ? `Set ${rows[0]} ${column} to ${text}.` : `Set ${column} to ${text} on ${rows.join(', ')}.`);
+  };
+  /**
+   * `undo` and `redo` (ADR-0016 §11): the kernel's two commands, at the version the catalog lists, through the page's door
+   * to the gateway and in the queue's turn, after the edits already sent (spine 6). The workspace is read again in that
+   * same turn, since any of its rows may have moved, so this view never arrives after a later edit's. The notice says
+   * what was taken back; refused, it is the server's reason alone.
+   */
+  const takeBack = async (verb: 'undo' | 'redo') => {
+    let done: TakenBack | undefined;
+    const refused = await attempt(undefined, async (revision) => {
+      const id = `workspace.${verb}`;
+      const capability = workspace.catalog.capabilities.find((c) => c.capabilityId === id);
+      if (capability === undefined) throw new Error(`This server has no command ${id}.`);
+      const told = outputOf<TakenBack>(await workspace.api.command(id, capability.version, { request: { workspaceId, revision } }, crypto.randomUUID()), 'answer');
+      done = told;
+      queue.rebase(told.revision);
+      // The command is done whether or not the page can read what it left: the notice then says both.
+      return api.view(workspaceId).catch((error: unknown) => { throw new Error(`${told.said} The page could not read the workspace again: ${describe(error)}`); });
+    });
+    if (refused === undefined && done !== undefined) workspace.notify('done', done.said);
   };
   const clearCases = async () => {
     if (await apply('No case was removed', (revision) => api.clearCases(workspaceId, revision))) workspace.notify('done', 'Removed every case.');
@@ -721,12 +743,14 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   const setCurrency = (currency: string) => void queue.push({ entity: SETTINGS_ENTITY, field: 'displayCurrency', value: currency, title: 'The display currency' });
 
   // The commands run what the page's own controls run, as the page stands when they run (ADR-0010 §9).
-  const pageCommands = { chooseCds, cdsCatalogue: () => catalogue.data, price, setMeasures, setSide, retry, copyQuote, download, refresh, setCurrency, openTab, explain, openResult, setDockFull, resultTabs, traceInView, vary, set, addTrades, removeCase, clearCases, defineScenario, includeScenario, removeScenario, duplicate, clearScenarios, generateScenarios, saveScenarios, loadScenarios, scenarioSets: () => scenarioSets.data ?? [], scenarios: () => view.data?.scenarios ?? [], pricing: () => (view.data === undefined ? undefined : { cases: view.data.cases.length, cap: view.data.caseCap }), measures: () => view.data?.measures ?? [], currencies: () => view.data?.currencies ?? [], examples: () => ({ csa: view.data?.csas[0]?.csaId, trade: readTrade.current.existing ?? readTrade.current.new }) };
+  const pageCommands = { takeBack, chooseCds, cdsCatalogue: () => catalogue.data, price, setMeasures, setSide, retry, copyQuote, download, refresh, setCurrency, openTab, explain, openResult, setDockFull, resultTabs, traceInView, vary, set, addTrades, removeCase, clearCases, defineScenario, includeScenario, removeScenario, duplicate, clearScenarios, generateScenarios, saveScenarios, loadScenarios, scenarioSets: () => scenarioSets.data ?? [], scenarios: () => view.data?.scenarios ?? [], pricing: () => (view.data === undefined ? undefined : { cases: view.data.cases.length, cap: view.data.caseCap }), measures: () => view.data?.measures ?? [], currencies: () => view.data?.currencies ?? [], examples: () => ({ csa: view.data?.csas[0]?.csaId, trade: readTrade.current.existing ?? readTrade.current.new }) };
   const pageRef = useRef(pageCommands);
   pageRef.current = pageCommands;
   useEffect(() => {
     registerXvaPage(panelId, {
       price: () => void pageRef.current.price(),
+      undo: () => void pageRef.current.takeBack('undo'),
+      redo: () => void pageRef.current.takeBack('redo'),
       chooseCds: (text) => void pageRef.current.chooseCds(text),
       cdsCatalogue: () => pageRef.current.cdsCatalogue(),
       setMeasures: (measures) => pageRef.current.setMeasures(measures),
@@ -764,6 +788,9 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
     });
     return () => registerXvaPage(panelId, undefined);
   }, [panelId]);
+  // The grids' undo and redo keys run the same two commands; the functions are the same for the page's life, so no
+  // grid is made again for them.
+  const gridUndo = useMemo(() => ({ undo: () => void pageRef.current.takeBack('undo'), redo: () => void pageRef.current.takeBack('redo') }), []);
 
   if (view.isPending) return <Text c="dimmed">Loading workspace…</Text>;
   if (view.isError) return <Alert color="red" title="Workspace">{view.error.message}</Alert>;
@@ -783,7 +810,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   // What the parts other than Existing take, from the heights the page set (never measured): Existing has the rest.
   const taken = TAKEN + (inputsOpen ? inputsHeight + RESIZER : 0) + newHeight
     + (pricedRun === undefined ? 24 : dockOpen ? dockHeight + RESIZER + 32 : 48);
-  return (
+  const page = (
     <Stack gap="sm" className="qube-xva" data-section={section} data-dock={full ? 'full' : 'part'} style={{ ['--qube-xva-taken' as string]: `${taken}px` }}>
       {/* The context bar (ADR-0010 §1; docs/design-guidelines.md §3, §4): one 30px Control Height, each label beside its input. */}
       <div className="qube-toolbar" role="toolbar" aria-label="Workspace">
@@ -914,6 +941,8 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
       </Modal>
     </Stack>
   );
+  // A grid's Ctrl+Z and Ctrl+Y take back and put back the workspace's last command, as `undo` and `redo` do (ADR-0016 §11).
+  return <GridUndoContext.Provider value={gridUndo}>{page}</GridUndoContext.Provider>;
 }
 
 /**

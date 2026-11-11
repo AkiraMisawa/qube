@@ -8,6 +8,10 @@ import type { InputTab } from './XvaInputs';
 
 export interface XvaPage {
   price(): void;
+  /** Takes back the workspace's last command, saying what it was (`undo`, ADR-0016 §11); refused, the page says why. */
+  undo(): void;
+  /** Puts back the command last taken back (`redo`). */
+  redo(): void;
   /** The counterparty's CDS as written (`cds ABCH USD SNRFOR`, `cds proxy financials asia A`, `cds none`, ADR-0010 §8's note of
    * 2026-11-09); the server reads it against its catalogue and says what it chose. */
   chooseCds(text: string): void;

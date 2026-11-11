@@ -140,4 +140,52 @@ public sealed class SqliteWorkspaceStoreTests : IDisposable
 
         Assert.Equal([null, null, RunOrigin.Ai], restored.Log.Select(e => e.Origin));
     }
+
+    [Fact] // ADR-0016 §11: which command wrote an entry and what it replaced survive a restart; a log written before has neither
+    public void An_entrys_command_and_what_it_replaced_are_kept_and_an_older_log_has_neither()
+    {
+        var service = Service(Store());
+        var ws = service.Create("akira", PortfolioEditRules.App, Context(Day1), new PortfolioSourceVersion("ABC/LE-01", Day1, 40));
+        var threshold = PortfolioEditRules.Target((PortfolioSourceVersion)ws.Source, "csa:CSA-A", "counterpartyThreshold");
+        ws = service.Set(ws.WorkspaceId, ws.Revision, "akira", threshold, 5_000_000m);
+        ws = service.Batch(ws.WorkspaceId, ws.Revision, "akira", [new WorkspaceChange.Set(threshold, 7_000_000m)], said: "set CSA-A threshold 7mm");
+
+        var restored = Service(Store()).Find(ws.WorkspaceId)!;
+
+        Assert.Equal(["c1", "c1", "c3", "c4"], restored.Log.Select(e => e.Command?.Id));
+        Assert.Equal("set CSA-A threshold 7mm", restored.Log[^1].Command!.Said);
+        var replaced = restored.Log[^1].Replaced!.Override!;
+        Assert.Equal((5_000_000m, 3L, threshold), (replaced.Value!.GetValue<decimal>(), replaced.Seq, replaced.Target));
+        Assert.Null(restored.Log[^2].Replaced);
+
+        // An entry written before commands were recorded has no stamp.
+        using (var old = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}"))
+        {
+            old.Open();
+            using var command = old.CreateCommand();
+            command.CommandText = "UPDATE EditLog SET command = NULL, said = NULL, replaced_json = NULL";
+            command.ExecuteNonQuery();
+        }
+        var older = Service(Store());
+        Assert.All(older.Find(ws.WorkspaceId)!.Log, e => Assert.Equal((null, null), (e.Command, e.Replaced)));
+        // Such a change is not taken back, and nothing before it is reached (note 2).
+        Assert.Equal("CannotUndo", Assert.Throws<WorkspaceRefused>(() => older.Undo(ws.WorkspaceId, ws.Revision, "akira")).Code);
+    }
+
+    [Fact] // ADR-0016 §11: the log alone is enough to take a command back, so undo works after a restart, and its redo after another
+    public void A_command_written_before_a_restart_is_taken_back_after_it()
+    {
+        var service = Service(Store());
+        var ws = service.Create("akira", PortfolioEditRules.App, Context(Day1), new PortfolioSourceVersion("ABC/LE-01", Day1, 40));
+        var threshold = PortfolioEditRules.Target((PortfolioSourceVersion)ws.Source, "csa:CSA-A", "counterpartyThreshold");
+        ws = service.Set(ws.WorkspaceId, ws.Revision, "akira", threshold, 5_000_000m);
+        ws = service.Set(ws.WorkspaceId, ws.Revision, "akira", threshold, 7_000_000m);
+
+        var (undone, _) = Service(Store()).Undo(ws.WorkspaceId, ws.Revision, "akira");
+        var redone = Service(Store()).Redo(undone.WorkspaceId, undone.Revision, "akira").State;
+
+        Assert.Equal((5_000_000m, 3L), (undone.Overrides[threshold].Value!.GetValue<decimal>(), undone.Overrides[threshold].Seq));
+        Assert.Equal((7_000_000m, 4L), (redone.Overrides[threshold].Value!.GetValue<decimal>(), redone.Overrides[threshold].Seq));
+        Assert.Equal(Picture(redone), Picture(Service(Store()).Find(ws.WorkspaceId)!));
+    }
 }

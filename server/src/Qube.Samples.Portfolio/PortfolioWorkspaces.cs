@@ -108,24 +108,26 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
     /// <summary>A new workspace, on its owner's last selection of measures (ADR-0010 §10, DEFAULT).</summary>
     public WorkspaceState Create(string user, string registration, DateOnly valueDate, int existingCount)
     {
-        var last = LastSelection(user);
-        var created = workspaces.Create(user, PortfolioEditRules.App, Context(registration, valueDate, existingCount), new PortfolioSourceVersion(registration, valueDate, existingCount));
-        return last is null ? created : SetMeasures(created.WorkspaceId, created.Revision, user, last);
+        var source = new PortfolioSourceVersion(registration, valueDate, existingCount);
+        // The selection its owner set last is part of the workspace's making, so `undo` never takes it back (ADR-0016 §11, note 2).
+        IReadOnlyList<WorkspaceChange.Set>? last = LastSelection(user) is { } selection ? [new(PortfolioEditRules.Target(source, Entity.Measures, Entity.MeasuresField), Chosen(selection))] : null;
+        return workspaces.Create(user, PortfolioEditRules.App, Context(registration, valueDate, existingCount), source, with: last);
     }
+
+    JsonArray Chosen(IReadOnlyList<string> measures) => new([.. register.Checked(measures).Select(id => JsonValue.Create(id))]);
 
     /// <summary>Sets the measures Price runs (`measures cva fva`). An unknown one, or none, is refused by name.</summary>
     public WorkspaceState SetMeasures(string workspaceId, long revision, string user, IReadOnlyList<string> measures)
     {
         var state = Owned(workspaceId, user);
-        var selection = register.Checked(measures);
-        return workspaces.Set(workspaceId, revision, user, PortfolioEditRules.Target(Source(state), Entity.Measures, Entity.MeasuresField),
-            new JsonArray([.. selection.Select(id => JsonValue.Create(id))]));
+        return workspaces.Set(workspaceId, revision, user, PortfolioEditRules.Target(Source(state), Entity.Measures, Entity.MeasuresField), Chosen(measures));
     }
 
-    // The selection the owner set last, in any of their workspaces; none while they have only taken the default.
+    // The selection the owner set last, in any of their workspaces; none while they have only taken the default, or have
+    // taken their last choice back to it: a reset is what `undo` writes where the choice replaced none (ADR-0016 §11).
     IReadOnlyList<string>? LastSelection(string user) =>
         workspaces.OwnedBy(user).Where(w => w.App == PortfolioEditRules.App)
-            .SelectMany(w => w.Log.Where(e => e.Kind == EditKind.Set && e.Target?.Entity == Entity.Measures).Select(e => (e.At, e.Seq, e.Value)))
+            .SelectMany(w => w.Log.Where(e => e.Kind is EditKind.Set or EditKind.Reset && e.Target?.Entity == Entity.Measures).Select(e => (e.At, e.Seq, e.Value)))
             .OrderBy(e => e.At).ThenBy(e => e.Seq).LastOrDefault() is { Value: JsonArray chosen }
             ? [.. register.Ids.Where(id => chosen.Any(c => c!.GetValue<string>() == id))]
             : null;

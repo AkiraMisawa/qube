@@ -196,6 +196,24 @@ export interface RunRecord {
 /** What started a Run (docs/05 §7). */
 export type RunOrigin = 'pricer' | 'ai' | 'workflow' | 'action';
 
+/**
+ * What `workspace.undo` and `workspace.redo` answer (ADR-0016 §11; the contract `workspace.taken-back`): the command the
+ * answer is, the one it took back or put back, and the sentence that names it as its screen does.
+ */
+export interface TakenBack {
+  readonly workspaceId: string;
+  readonly revision: number;
+  /** This command's own id, by which it can be taken back in turn. */
+  readonly command: string;
+  readonly said: string;
+  /** The command taken back or put back. */
+  readonly took: string;
+  readonly by: string;
+  readonly at: string;
+  readonly edits: number;
+  readonly origin?: RunOrigin;
+}
+
 /** A Run's explicit links to related work; never inferred from names or timing. */
 export interface RunRelations {
   readonly workspaceId?: string;

@@ -81,10 +81,49 @@ public enum EditKind
 }
 
 /// <summary>
+/// The command an entry belongs to (ADR-0016 §11): one accepted call to the workspace service, whichever door it came
+/// through. <c>Id</c> is <c>c</c> and the first sequence number the call wrote, unique in its workspace. <c>Said</c>
+/// is the command in words where its caller gave them (<c>set where ccy=USD after off</c>). An undo names the command
+/// it takes back in <c>Undoes</c>, and a redo the undo it takes back in <c>Redoes</c>; their <c>Said</c> is the name
+/// of the command they act on, so a command put back and taken back again is still named.
+/// </summary>
+public sealed record CommandStamp(string Id, string? Said = null, string? Undoes = null, string? Redoes = null)
+{
+    /// <summary>The id of the command whose first entry has this sequence number.</summary>
+    public static string IdAt(long firstSeq) => $"c{firstSeq}";
+}
+
+/// <summary>
+/// What an undo took back, or a redo put back (ADR-0016 §11): the command's id, its words or its edits' titles, whose
+/// it was and from where, when it ran, and how many edits it held. The sentence holds no time: a client writes
+/// <c>At</c> in its user's zone.
+/// </summary>
+public sealed record TakenBack(string Command, string Said, string User, RunOrigin? Origin, DateTimeOffset At, int Edits);
+
+/// <summary>
+/// What an entry found where it wrote, as it stood (ADR-0016 §11): enough, with the entry, to write its inverse from
+/// the log alone. A set or a reset records the override and the lost edit on its target; a remove the entity, the
+/// layer it owned and the edits that ended with it; a change of context the context and the source version before it.
+/// An entity an undo puts back records the layer that came back with it, which ends with it again.
+/// </summary>
+public sealed record Replaced(
+    Override? Override = null,
+    LostTarget? Lost = null,
+    CreatedEntity? Created = null,
+    IReadOnlyList<Override>? Overrides = null,
+    IReadOnlyList<Conflict>? Conflicts = null,
+    IReadOnlyList<LostTarget>? LostEdits = null,
+    JsonObject? Context = null,
+    string? SourceVersion = null,
+    string? Layer = null);
+
+/// <summary>
 /// One entry of the append-only edit log. An undo is a new entry, never a removal. <c>DomainKind</c> names
 /// the module's edit kind (for example <c>xva.assignment</c>), so one log holds every domain's edits. <c>Origin</c>
 /// says where the edit came from (the page, the AI acting for the user; ADR-0005); null where the caller did not
-/// state it, and on entries written before origins were recorded.
+/// state it, and on entries written before origins were recorded. <c>Command</c> and <c>Replaced</c> say which
+/// command wrote the entry and what it replaced (ADR-0016 §11); an entry written before they were recorded has
+/// neither, and is not taken back.
 /// </summary>
 public sealed record EditEntry(
     long Seq,
@@ -95,7 +134,9 @@ public sealed record EditEntry(
     EditTarget? Target,
     JsonNode? Value,
     string? Note,
-    RunOrigin? Origin = null);
+    RunOrigin? Origin = null,
+    CommandStamp? Command = null,
+    Replaced? Replaced = null);
 
 /// <summary>What a module declares about its edits: which fields are compared together.</summary>
 public interface IEditRules
@@ -112,6 +153,12 @@ public interface IEditRules
     /// target scope is a derivation scope is read against that scope's source. Most modules derive nothing.
     /// </summary>
     IReadOnlyDictionary<string, ISourceVersion> Derive(WorkspaceState state) => NoDerivations;
+
+    /// <summary>
+    /// How an edit's target is named to the user, as the screen names it (ADR-0016 §11's note 3 of 2026-11-11): a row
+    /// and its column, never an entity's key where the module has a title. A whole entity's field is <c>*</c>.
+    /// </summary>
+    string TitleOf(WorkspaceState state, EditTarget target) => target.Field == "*" ? target.Entity : $"{target.Entity} {target.Field}";
 
     static readonly IReadOnlyDictionary<string, ISourceVersion> NoDerivations = new Dictionary<string, ISourceVersion>();
 }
