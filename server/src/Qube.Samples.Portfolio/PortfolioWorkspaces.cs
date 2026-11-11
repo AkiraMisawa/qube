@@ -98,11 +98,6 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
     readonly int caseCap = (options ?? new PortfolioOptions()).CaseCap;
     readonly PortfolioChecks checks = new(register);
 
-    // Effective rows per immutable state: a page request at the same revision does not materialise again.
-    readonly ConditionalWeakTable<WorkspaceState, IReadOnlyList<EffectiveTrade>> materialised = new();
-    readonly ConditionalWeakTable<WorkspaceState, ConcurrentDictionary<string, IReadOnlyList<EffectiveTrade>>> sorted = new();
-    readonly ConditionalWeakTable<WorkspaceState, ConcurrentDictionary<string, IReadOnlyList<EffectiveTrade>>> grouped = new();
-
     /// <summary>A new workspace, on its owner's last selection of measures (ADR-0010 §10, DEFAULT).</summary>
     public WorkspaceState Create(string user, string registration, DateOnly valueDate, int existingCount)
     {
@@ -432,10 +427,7 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
             "descending" => true,
             _ => throw new WorkspaceRefused("InvalidSort", $"Sort direction {sort.Direction} is not ascending or descending."),
         })));
-        // The order is kept per state and sort while the state is alive: scrolling asks for many pages of one order.
-        var rows = grid is null ? Rows(state) : grouped.GetOrCreateValue(state).GetOrAdd(grid, g => TradeOrder.Of(Rows(state), g));
-        var all = keys.Count == 0 ? rows
-            : sorted.GetOrCreateValue(state).GetOrAdd($"{grid}|{string.Join(",", keys.Select(k => $"{k.Column}:{k.Descending}"))}", _ => TradeOrder.Sorted(rows, keys));
+        var all = TradeOrder.Ordered(state, register, grid, keys);
         var token = TradeOrder.Token(state, keys);
         // The modules' cells are read for the page alone, each time: a result such as PV01 arrives with no edit.
         var page = start >= all.Count ? [] : register.WithCells(state, [.. all.Skip(start).Take(count)]);
@@ -659,7 +651,7 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
 
     public void Delete(string workspaceId, string user) => workspaces.Delete(workspaceId, user);
 
-    IReadOnlyList<EffectiveTrade> Rows(WorkspaceState state) => materialised.GetValue(state, s => register.WithMembership(s, PortfolioMaterialiser.Trades(s)));
+    IReadOnlyList<EffectiveTrade> Rows(WorkspaceState state) => TradeOrder.Ordered(state, register, null, []);
 
     WorkspaceState Owned(string workspaceId, string user)
     {
@@ -701,6 +693,22 @@ public static class TradeOrder
         var keys = sorts.ToList();
         return keys.FirstOrDefault(k => !SortableColumns.Contains(k.Column)) is { Column: { } unknown }
             ? throw new WorkspaceRefused("UnknownColumn", $"Rows cannot be sorted by {unknown}.") : keys;
+    }
+
+    // Kept per state while the state is alive: scrolling asks for many pages of one order, and a line read with a view
+    // asks for the order again at every key typed. A state is of one revision, so what is kept is never out of date.
+    static readonly ConditionalWeakTable<WorkspaceState, ConcurrentDictionary<(MeasureRegister Register, string Order), IReadOnlyList<EffectiveTrade>>> Orders = new();
+
+    /// <summary>
+    /// The trades of one grid, or of both, under a sort, with each measure's membership on them and no module's cell:
+    /// the one order the page's reader and the trades' table both answer (ADR-0016 §2, note 17 of 2026-11-11).
+    /// </summary>
+    public static IReadOnlyList<EffectiveTrade> Ordered(WorkspaceState state, MeasureRegister register, string? grid, IReadOnlyList<(string Column, bool Descending)> keys)
+    {
+        var orders = Orders.GetOrCreateValue(state);
+        IReadOnlyList<EffectiveTrade> Whole() => orders.GetOrAdd((register, ""), _ => register.WithMembership(state, PortfolioMaterialiser.Trades(state)));
+        IReadOnlyList<EffectiveTrade> Grid() => grid is null ? Whole() : orders.GetOrAdd((register, grid), _ => Of(Whole(), grid));
+        return keys.Count == 0 ? Grid() : orders.GetOrAdd((register, $"{grid}|{string.Join(",", keys.Select(k => $"{k.Column}:{k.Descending}"))}"), _ => Sorted(Grid(), keys));
     }
 
     /// <summary>The rows of one trade grid (<c>new</c> or <c>existing</c>), in the order given; every row where none is named.</summary>

@@ -152,10 +152,11 @@ export function taken(line: string, completion: LineCompletion): string {
 
 /**
  * An argument as the line names it under its command: its name and the words read for it. One the user did not type
- * says where it came from (ADR-0016 §9, note 18 of 2026-11-11), in words, since a colour alone would not be read out.
+ * says where it came from (ADR-0016 §9, note 18 of 2026-11-11): in words, since a colour alone would not be read out,
+ * and before the words read, so that a narrow line that cuts the end of many rows still says it.
  */
 export function argumentShown(argument: LineArgument): string {
-  return `${argument.name} ${argument.text}${argument.from === 'context' ? ' (from the screen)' : ''}`;
+  return argument.from === 'context' ? `${argument.name} from the screen: ${argument.text}` : `${argument.name} ${argument.text}`;
 }
 
 /** How many of a reading's first rows the line names; the server sends a few more than a line has room for. */

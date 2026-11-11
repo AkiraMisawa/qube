@@ -309,15 +309,14 @@ public sealed class PortfolioTables(MeasureRegister register) : ITableCatalog
                 f => columns.Contains(f) ? shared.WithCells.Value[i].Cells?.GetValueOrDefault(f)?.Value?.DeepClone() : PortfolioFields.Value(t, f)))];
         }
 
-        // The order a trade grid is paged in (ADR-0016 §2, note 17 of step 2): the page's own sorter over the trades as
-        // the page reads them, with each measure's membership on them, and the page's token.
+        // The order a trade grid is paged in (ADR-0016 §2, note 17 of step 2): the page's own order, which it keeps for
+        // the state, and the page's token. The rows are read each time: a module's cell arrives with no edit.
         public override OrderedRows? InOrder(WorkspaceState state, string? subset, IReadOnlyList<ViewSort> sorts)
         {
             var reading = PortfolioCases.Base(state);
             var keys = TradeOrder.Keys(sorts.Select(s => (s.Column, s.Descending)));
             var rows = Read(register, reading).ToDictionary(r => r.Key, StringComparer.Ordinal);
-            var ordered = TradeOrder.Sorted(TradeOrder.Of(register.WithMembership(reading, PortfolioMaterialiser.Trades(reading)), subset), keys);
-            return new([.. ordered.Select(t => rows[t.TradeId])], TradeOrder.Token(reading, keys));
+            return new([.. TradeOrder.Ordered(reading, register, subset, keys).Select(t => rows[t.TradeId])], TradeOrder.Token(reading, keys));
         }
 
         public override DateOnly? AsOf(WorkspaceState state) => Source(state).ValueDate;

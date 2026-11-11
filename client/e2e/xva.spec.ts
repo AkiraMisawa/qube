@@ -938,7 +938,7 @@ test('ADR-0016 §9, notes 16, 18, 19: the line says what is on screen, a field a
   await expect(screen).toHaveText('On screen: trades (new), 3 selected, DRAFT-1 · csa');
   // A field alone is theirs: the rows are read from the screen, and said to be.
   await page.keyboard.type('set csa CSA-B');
-  await expect(head).toContainText('rows DRAFT-1, DRAFT-2, DRAFT-3 (from the screen)');
+  await expect(head).toContainText('rows from the screen: DRAFT-1, DRAFT-2, DRAFT-3');
   await expect(read).toContainText('trades, 3 rows: DRAFT-1, DRAFT-2, DRAFT-3');
   await expect(read).toContainText('csa: 3 CSA-A to CSA-B');
   await page.keyboard.press('Enter');
@@ -964,8 +964,8 @@ test('ADR-0016 §9, notes 16, 18, 19: the line says what is on screen, a field a
   await page.keyboard.press('ControlOrMeta+K');
   await expect(line).toBeFocused();
   await page.keyboard.type('reset ');
-  await expect(head).toContainText('rows DRAFT-1 (from the screen)');
-  await expect(head).toContainText('field csa (from the screen)');
+  await expect(head).toContainText('rows from the screen: DRAFT-1');
+  await expect(head).toContainText('field from the screen: csa');
   await expect(read).toContainText('trades, 1 row: DRAFT-1');
   await page.keyboard.press('Enter');
   await expect(line).toBeHidden();
@@ -1019,7 +1019,7 @@ test('ADR-0016 §2, notes 16, 17: every row of a grid selected with one key is t
   await expect(line).toBeFocused();
   await expect(screen).toHaveText(`On screen: trades (existing), 2 selected, ${first} · trade id`);
   await page.keyboard.type('set curve usd_sofr');
-  await expect(head).toContainText(`rows ${first}, ${second} (from the screen)`);
+  await expect(head).toContainText(`rows from the screen: ${first}, ${second}`);
   await expect(read).toContainText(`trades, 2 rows: ${first}, ${second}`);
   await page.keyboard.press('Enter');
   await expect(line).toBeHidden();
@@ -1045,7 +1045,7 @@ test('ADR-0016 §9, notes 16, 19: the CSA grid is a screen of the CSAs, named by
   await expect(line).toBeFocused();
   await expect(screen).toHaveText('On screen: csas, 1 selected, CSA-A · currency');
   await page.keyboard.type('set threshold 5mm');
-  await expect(page.getByTestId('command-pending')).toContainText('rows CSA-A (from the screen)');
+  await expect(page.getByTestId('command-pending')).toContainText('rows from the screen: CSA-A');
   await expect(read).toContainText('threshold: 0 to 5mm');
   await page.keyboard.press('Enter');
   await expect(line).toBeHidden();

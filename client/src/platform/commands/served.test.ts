@@ -136,7 +136,7 @@ describe('what the line shows of the server\'s reading (ADR-0016 §5)', () => {
 
   it('an argument by its name and the words read for it, and one that was not typed says that it is from the screen (ADR-0016 note 18)', () => {
     expect(argumentShown({ name: 'set', text: 'csa=CSA-B', from: 'typed' })).toBe('set csa=CSA-B');
-    expect(argumentShown({ name: 'rows', text: 'R1, R2, R3 and 2 more', from: 'context' })).toBe('rows R1, R2, R3 and 2 more (from the screen)');
+    expect(argumentShown({ name: 'rows', text: 'R1, R2, R3 and 2 more', from: 'context' })).toBe('rows from the screen: R1, R2, R3 and 2 more');
   });
 
   it('a line that cannot be read by the reason alone', () => {
