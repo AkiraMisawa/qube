@@ -18,9 +18,9 @@ public class CommandLineTests
         public CommandLines Lines { get; }
         public string Id { get; }
 
-        public Rig()
+        public Rig(TableDescriptor? stations = null)
         {
-            var register = new TableRegister([new Stations.Catalog()]);
+            var register = new TableRegister([new Stations.Catalog(stations)]);
             var tables = new TableService(register, Workspaces);
             Registry = new CompositionRegistry([new TablesModule(() => tables), new WorkspaceCommandsModule(() => Workspaces)]);
             Commands = new CommandService(Registry, new InMemoryDataStore());
@@ -618,6 +618,35 @@ public class CommandLineTests
         Assert.Equal("Takes back: set R2 note wet (the AI for you, 1 edit)", rig.Preview("undo").Would);
         // Another user's workspace is not read at all.
         Assert.Equal("NotOwner", Assert.Throws<WorkspaceRefused>(() => rig.Preview("undo", user: "ben")).Code);
+    }
+
+    [Fact] // ADR-0016 §4, note 25 of step 2: a workspace's tables are told with their actions, each a title and the line that does it, the kernel's Reset this cell first
+    public void A_workspaces_tables_are_told_with_their_actions_the_kernels_first()
+    {
+        var rig = new Rig();
+
+        var tables = rig.Lines.Tables(rig.Id, new Caller("ana", RunOrigin.Pricer));
+
+        Assert.Equal(
+            ["weather.readings Readings: Reset this cell=reset, Mark checked=set selected checked on", "weather.stations Stations: Reset this cell=reset", "weather.settings Board settings: Reset this cell=reset"],
+            tables.Select(t => $"{t.TableId} {t.Title}: {string.Join(", ", t.Actions.Select(a => $"{a.Title}={a.Line}"))}"));
+        // Each line is one the preview reads with a screen behind it: the kernel's own on the cell the menu was opened on.
+        var view = new LineView(Stations.Readings, null, Keys: ["R1", "R2"], Focus: new("checked", Key: "R2"));
+        Assert.Equal(("entity.set", "R1, R2"), (rig.Preview(tables[0].Actions[1].Line, view).Command!.Id, rig.Preview(tables[0].Actions[1].Line, view).Inputs!["request"]!["rows"]!.GetValue<string>()));
+        Assert.Equal(("entity.reset", "R2", "checked"), (rig.Preview("reset", view).Command!.Id, rig.Preview("reset", view).Inputs!["request"]!["rows"]!.GetValue<string>(),
+            rig.Preview("reset", view).Inputs!["request"]!["field"]!.GetValue<string>()));
+        // Another user's workspace is not described at all.
+        Assert.Equal("NotOwner", Assert.Throws<WorkspaceRefused>(() => rig.Lines.Tables(rig.Id, new Caller("ben", RunOrigin.Pricer))).Code);
+    }
+
+    [Fact] // ADR-0016 §4, note 25 of step 2: an action whose line begins with no command's words is the registration's defect, and fails when the tables are read
+    public void An_action_of_no_command_fails_when_the_tables_are_read()
+    {
+        var rig = new Rig(Stations.SitesTable with { Actions = [new("Raise", "lift selected altitude 10")] });
+
+        var failure = Assert.Throws<InvalidOperationException>(() => rig.Lines.Tables(rig.Id, new Caller("ana", RunOrigin.Pricer)));
+
+        Assert.Equal("weather.stations offers Raise as the line `lift selected altitude 10`, which begins with no command's words.", failure.Message);
     }
 
     // What could follow, each with the place it is written from where that is not the line's end, and what it is where it says.

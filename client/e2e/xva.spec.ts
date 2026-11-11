@@ -1339,6 +1339,242 @@ test('ADR-0016 §9, note 23: on the CSA grid rows said by `where` alone are CSAs
   await expect(read).toContainText(/^Takes back: set csas where ccy=USD threshold 0 \(you, 1 edit\) · \d/);
 });
 
+test('ADR-0016 §9, note 24: Ctrl+Enter runs the line and keeps it open, saying what ran; each chained command is a new opening, a refused one stays with its reason, and the line closes on the place a chained `go` put the keyboard in', async ({ page }) => {
+  await open(page);
+  await newWorkspace(page, 'ABC/LE-01', 5);
+  const line = page.getByRole('combobox', { name: 'Command' });
+  const said = page.getByTestId('command-said');
+  const screen = page.getByTestId('command-context');
+  const summary = page.getByTestId('workspace-summary');
+
+  // Three new trades selected by keyboard, and two commands with no key between them but their own.
+  await focusCell(page, CSA);
+  await page.keyboard.press('Shift+ArrowDown');
+  await page.keyboard.press('Shift+ArrowDown');
+  await page.keyboard.press('ControlOrMeta+K');
+  await expect(line).toBeFocused();
+  await expect(said).toHaveCount(0);
+  await page.keyboard.type('set selected a off');
+  await page.keyboard.press('ControlOrMeta+Enter');
+  await expect(said).toHaveText('set selected a off: Set A to off on DRAFT-1, DRAFT-2 and DRAFT-3.');
+  await expect(said).toHaveAttribute('data-kind', 'done');
+  await expect(line).toBeFocused();
+  await expect(line).toHaveValue('');
+  await expect(summary).toContainText('3 edit(s)');
+  // The line is as one just opened: it lists the commands, and the grid's selection is still what `selected` means.
+  await expect(page.getByTestId('command-heading').first()).toHaveText('XVA ABC/LE-01');
+  await expect(screen).toHaveText('On screen: trades (new), 3 selected, DRAFT-1 · csa');
+  await page.keyboard.type('undo');
+  await page.keyboard.press('ControlOrMeta+Enter');
+  await expect(said).toHaveText('undo: Took back: set trades DRAFT-1, DRAFT-2, DRAFT-3 a off. redo puts it back.');
+  await expect(summary).toContainText('0 edit(s)');
+
+  // A line the server cannot read ran nothing: it stays with its text and the reason, and what was said before stands.
+  await page.keyboard.type('set selected nothing 1');
+  await page.keyboard.press('ControlOrMeta+Enter');
+  await expect(page.getByTestId('command-problems')).toContainText('trades has no field nothing; its fields are trade id, ');
+  await expect(line).toHaveValue('set selected nothing 1');
+  await expect(line).toBeFocused();
+  await expect(said).toHaveText('undo: Took back: set trades DRAFT-1, DRAFT-2, DRAFT-3 a off. redo puts it back.');
+  await expect(summary).toContainText('0 edit(s)');
+
+  // A chained `go` puts the keyboard in its place and the line takes it back: the next line's screen is that grid.
+  await page.keyboard.press('ControlOrMeta+A');
+  await page.keyboard.type('go existing');
+  await page.keyboard.press('ControlOrMeta+Enter');
+  await expect(said).toHaveText('go existing: The keyboard is in Existing trades.');
+  await expect(line).toBeFocused();
+  await expect(screen).toHaveText('On screen: trades (existing), nothing selected');
+  // A chained `find` puts the grid's Focus on its cell, and a field alone is then that cell's row.
+  await page.keyboard.type('find E00004 csa');
+  await page.keyboard.press('ControlOrMeta+Enter');
+  await expect(said).toHaveText('find E00004 csa: The keyboard is on ABC-LE-01-E00004 · csa in trades (existing).');
+  await expect(screen).toHaveText('On screen: trades (existing), 1 selected, ABC-LE-01-E00004 · csa');
+  await expect(line).toBeFocused();
+  await page.keyboard.type('set a off');
+  await page.keyboard.press('ControlOrMeta+Enter');
+  await expect(said).toHaveText('set a off: Set ABC-LE-01-E00004 A to off.');
+  await expect(summary).toContainText('1 edit(s)');
+
+  // Closed, the keyboard is where the chained commands put it, not in the New grid the line was opened from.
+  await page.keyboard.press('Escape');
+  await expect(line).toBeHidden();
+  await expect(keyboardIn(page, 'Existing trades')).toHaveCount(1);
+  await page.keyboard.press('ControlOrMeta+K');
+  await expect(line).toBeFocused();
+  await expect(said).toHaveCount(0);
+  await expect(screen).toHaveText('On screen: trades (existing), 1 selected, ABC-LE-01-E00004 · csa');
+});
+
+test('ADR-0016 §9, note 24: a result that arrives later is said in the open line, while an IME composes Enter and the chain key are the IME\'s, and a command that opens a dialog ends the chain', async ({ page }) => {
+  await open(page);
+  await newWorkspace(page, 'ABC/LE-01', 5);
+  await command(page, 'measures', 'cva fva');
+  const line = page.getByRole('combobox', { name: 'Command' });
+  const said = page.getByTestId('command-said');
+  const summary = page.getByTestId('workspace-summary');
+
+  // Price answers after its command has ended: the line, still open, says the result by itself.
+  await page.keyboard.press('ControlOrMeta+K');
+  await expect(line).toBeFocused();
+  await page.keyboard.type('price');
+  await page.keyboard.press('ControlOrMeta+Enter');
+  await expect(said).toHaveText(/^Price was accepted as Run \S+\.$/);
+  await expect(said).toHaveAttribute('data-kind', 'done');
+  await expect(line).toBeFocused();
+  await expect(line).toHaveValue('');
+
+  await page.keyboard.type('set DRAFT-1 a off');
+  await page.keyboard.press('ControlOrMeta+Enter');
+  await expect(said).toHaveText('set DRAFT-1 a off: Set DRAFT-1 A to off.');
+  await expect(summary).toContainText('1 edit(s)');
+  // `undo` held in an IME's composition: the Enter that would commit it, and the chain key, run nothing. Committed, the
+  // chain key runs it once: had either key run it before, this would be refused, or the line closed.
+  const ime = await page.context().newCDPSession(page);
+  await ime.send('Input.imeSetComposition', { text: 'undo', selectionStart: 4, selectionEnd: 4 });
+  await expect(line).toHaveValue('undo');
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('ControlOrMeta+Enter');
+  await ime.send('Input.insertText', { text: 'undo' });
+  await expect(line).toHaveValue('undo');
+  await page.keyboard.press('ControlOrMeta+Enter');
+  await expect(said).toHaveText('undo: Took back: set DRAFT-1 a off. redo puts it back.');
+  await expect(line).toBeFocused();
+  await expect(summary).toContainText('0 edit(s)');
+
+  // A command that opens a dialog ends the chain: the line closes, and the dialog has the keyboard.
+  await page.keyboard.type('new xva');
+  await page.keyboard.press('ControlOrMeta+Enter');
+  await expect(line).toBeHidden();
+  await expect(page.getByRole('dialog', { name: 'New XVA workspace' }).getByRole('combobox', { name: 'Counterparty' })).toBeFocused();
+});
+
+test('ADR-0016 §9, notes 24, 26: a sorted grid keeps its selection across two chained commands that move no row', async ({ page }) => {
+  await open(page);
+  await newWorkspace(page, 'ABC/LE-01', 60);
+  const line = page.getByRole('combobox', { name: 'Command' });
+  const said = page.getByTestId('command-said');
+  const screen = page.getByTestId('command-context');
+  const existing = page.getByLabel('Existing trades', { exact: true });
+  const at = (position: number) => existing.locator(`[aria-rowindex="${position + 2}"] [aria-colindex="1"]`);
+
+  // Sorted by notional, largest first, from the column's menu, and its first two rows selected.
+  await existing.getByRole('grid').focus();
+  await page.keyboard.press('ControlOrMeta+Home');
+  await page.keyboard.press('ControlOrMeta+Home');
+  for (let i = 0; i < 3; i++) await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('Alt+ArrowDown');
+  await page.getByRole('menuitem', { name: 'Sort descending' }).click();
+  await expect(existing.getByRole('columnheader', { name: 'Notional' })).toHaveAttribute('aria-sort', 'descending');
+  await settled(page, 'Existing trades');
+  await expect(at(0)).not.toHaveText('ABC-LE-01-E00003');
+  const [first, second] = [await at(0).innerText(), await at(1).innerText()];
+  await existing.getByRole('grid').focus();
+  await page.keyboard.press('ControlOrMeta+Home');
+  await page.keyboard.press('ControlOrMeta+Home');
+  await page.keyboard.press('Shift+ArrowDown');
+
+  // Neither command moves a row of that order, so the order's token stands and the grid keeps what is selected: the
+  // second command says the same rows with nothing selected again.
+  await page.keyboard.press('ControlOrMeta+K');
+  await expect(line).toBeFocused();
+  await expect(screen).toHaveText(`On screen: trades (existing), 2 selected, ${first} · trade id`);
+  await page.keyboard.type('set selected a off');
+  await page.keyboard.press('ControlOrMeta+Enter');
+  await expect(said).toHaveText(`set selected a off: Set A to off on ${first} and ${second}.`);
+  await expect(screen).toHaveText(`On screen: trades (existing), 2 selected, ${first} · trade id`);
+  await page.keyboard.type('set selected a on');
+  await page.keyboard.press('ControlOrMeta+Enter');
+  await expect(said).toHaveText(`set selected a on: Set A to on on ${first} and ${second}.`);
+  await page.keyboard.press('Escape');
+  await expect(line).toBeHidden();
+
+  // Once the grid has drawn what the commands left, its order and its selection are as they were.
+  await settled(page, 'Existing trades');
+  await expect(at(0)).toHaveText(first);
+  await expect(at(1)).toHaveText(second);
+  await page.keyboard.press('ControlOrMeta+K');
+  await expect(line).toBeFocused();
+  await expect(screen).toHaveText(`On screen: trades (existing), 2 selected, ${first} · trade id`);
+});
+
+test('ADR-0016 §4, note 25: a grid\'s Context Menu offers its table\'s actions with their lines, after the grid\'s own commands and before the page\'s, and an item runs its line on the menu\'s Selection and cell and says what it did as a notice', async ({ page }) => {
+  await open(page);
+  await newWorkspace(page, 'ABC/LE-01', 5);
+  // A new workspace starts on its owner's last selection of measures, which decides the grids' columns: the grids are
+  // drawn again for these, and take keys once they have settled.
+  await command(page, 'measures', 'cva fva');
+  await expect(page.getByTestId('price')).toHaveText('Price CVA FVA · 1 case');
+  await settled(page, 'New trades');
+  await settled(page, 'Existing trades');
+  const notice = page.getByTestId('notice');
+  const summary = page.getByTestId('workspace-summary');
+  const existing = page.getByLabel('Existing trades', { exact: true });
+  const actions = ['Reset this cell · reset', 'Take out of After · set selected after off', 'Put into After · set selected after on', 'Take out of Before · set selected before off', 'Put into Before · set selected before on'];
+
+  // Both existing trades selected by keyboard, and the menu by its key: the kernel's action first, then the table's.
+  await existing.getByRole('grid').focus();
+  await page.keyboard.press('ControlOrMeta+Home');
+  await page.keyboard.press('ControlOrMeta+Home');
+  await page.keyboard.press('Shift+ArrowDown');
+  await page.keyboard.press('Shift+F10');
+  await expect(page.getByRole('menuitem').first()).toBeFocused();
+  await expect(page.getByRole('menuitem')).toHaveText(['Copy', 'Copy with headers', ...actions]);
+  for (let i = 0; i < 3; i++) await page.keyboard.press('ArrowDown');
+  await expect(page.getByRole('menuitem', { name: 'Take out of After · set selected after off' })).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(notice).toHaveText('Set A to off on ABC-LE-01-E00003 and ABC-LE-01-E00004.');
+  await expect(notice).toHaveAttribute('data-kind', 'done');
+  await expect(summary).toContainText('2 edit(s)');
+  await expect(keyboardIn(page, 'Existing trades')).toHaveCount(1);
+  // The item ran its line: `undo` names it by its rows, as it names a typed line that says `selected`.
+  await command(page, 'undo');
+  await expect(notice).toHaveText('Took back: set trades ABC-LE-01-E00003, ABC-LE-01-E00004 after off. redo puts it back.');
+  await expect(summary).toContainText('0 edit(s)');
+
+  // A secondary press outside the Selection is on that cell alone (ExGrid): the action is its row's. One that changes
+  // nothing there says so.
+  await page.keyboard.press('ControlOrMeta+Home');
+  const second = await trade(page, 'ABC-LE-01-E00004').locator('[aria-colindex="1"]').boundingBox();
+  await page.mouse.click(second!.x + 20, second!.y + second!.height / 2, { button: 'right' });
+  await page.getByRole('menuitem', { name: 'Take out of Before · set selected before off' }).click();
+  await expect(notice).toHaveText('Set ABC-LE-01-E00004 B to off.');
+  await page.mouse.click(second!.x + 20, second!.y + second!.height / 2, { button: 'right' });
+  await page.getByRole('menuitem', { name: 'Take out of Before · set selected before off' }).click();
+  await expect(notice).toHaveText('Nothing changed: ABC-LE-01-E00004 already holds B off.');
+  await expect(summary).toContainText('1 edit(s)');
+
+  // `Reset this cell` is the cell the menu was opened on: a new trade's CSA, edited, goes back to its source. The
+  // page's own item, Vary values…, still ends the menu.
+  await focusCell(page, CSA);
+  await page.keyboard.type('CSA-B');
+  await page.keyboard.press('Enter');
+  await expect(cell(page, 'DRAFT-1', CSA + 1)).toHaveText('CSA-B');
+  await page.keyboard.press('ArrowUp');
+  await page.keyboard.press('Shift+F10');
+  await expect(page.getByRole('menuitem').first()).toBeFocused();
+  await expect(page.getByRole('menuitem')).toHaveText(['Copy', 'Copy with headers', ...actions, 'Vary values…']);
+  for (let i = 0; i < 2; i++) await page.keyboard.press('ArrowDown');
+  await expect(page.getByRole('menuitem', { name: 'Reset this cell · reset' })).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(notice).toHaveText('Reset DRAFT-1 csa.');
+  await expect(cell(page, 'DRAFT-1', CSA + 1)).toHaveText('CSA-A');
+  await expect(summary).toContainText('1 edit(s)');
+  await expect(keyboardIn(page, 'New trades')).toHaveCount(1);
+
+  // A cell of a column that is no field of the table, PV01: the server cannot read the line there, and its reason is
+  // a refused notice, with the line.
+  for (let i = CSA + 1; i < XVA.pv01; i++) await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('Shift+F10');
+  await expect(page.getByRole('menuitem').first()).toBeFocused();
+  for (let i = 0; i < 2; i++) await page.keyboard.press('ArrowDown');
+  await expect(page.getByRole('menuitem', { name: 'Reset this cell · reset' })).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(notice).toHaveText('reset: reset alone resets the cell the keyboard is on, and that cell is no field of trades: name the rows, or a field.');
+  await expect(notice).toHaveAttribute('data-kind', 'refused');
+  await expect(summary).toContainText('1 edit(s)');
+});
+
 test('docs/03 §5, ADR-0010 §3: `add trades` makes a case per new trade alone, refuses one in Before by name, and Price refuses a set the rows left', async ({ page, problems }) => {
   const refused = 'error: Failed to load resource: the server responded with a status of 422 (Unprocessable Entity)';
   await open(page);

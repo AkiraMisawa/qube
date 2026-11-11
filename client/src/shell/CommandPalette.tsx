@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { Badge, Group, Kbd, Modal, Stack, Text, TextInput, UnstyledButton, useMantineColorScheme } from '@mantine/core';
 import { useHotkeys } from '@mantine/hooks';
+import { IconCheck, IconX } from '@tabler/icons-react';
 import {
   assertDistinct, CommandRefused, completionsOf, drawn, drawnSections, execute, finish, listed, placeholder, readLine, signature, take,
   type Command, type CommandDoor, type Completion,
@@ -9,11 +10,11 @@ import { argumentShown, commandDoorOf, lineAsked, previewShown, screenShown, ser
 import { recordUse, usageScore } from '../platform/commands/usage';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { Catalog, LineCompletion, LinePreview, LineView, RunRecord } from '../platform/contracts';
-import type { Notify } from '../platform/notices';
+import type { Notice, Notify } from '../platform/notices';
 import { viewsFor } from '../platform/views/binding';
 import { CONTEXT_CONTRACT, useWorkspace, useWorkspaceContext } from '../platform/workspace/WorkspaceProvider';
 import { keyOf, type Panel, type WorkspaceState } from '../platform/workspace/workspaceStore';
-import { keepKeyboard, letGo, rememberKeyboard, returnKeyboard } from './keyboard';
+import { holdKeyboard, keepKeyboard, letGo, releaseKeyboard, rememberKeyboard, returnKeyboard } from './keyboard';
 import { goTo, placesOf } from './places';
 import { useStore } from 'zustand';
 import { createStore } from 'zustand/vanilla';
@@ -285,8 +286,14 @@ export function CommandPalette() {
   // from the page in the active panel, and sent with every reading of that opening and with its Enter.
   const [screen, setScreen] = useState<{ readonly door: CommandDoor; readonly view: LineView } | undefined>(undefined);
   const input = useRef<HTMLInputElement>(null);
+  // What the line last ran with its chain key, and the notice heard while it ran (ADR-0016 §9, note 24 of 2026-11-11);
+  // a notice heard later is no line's, and is said by itself. Nothing until this opening's first chained command.
+  const [said, setSaid] = useState<{ readonly ran?: string; readonly notice?: Notice } | undefined>(undefined);
+  // The chained command that is running, and the latest notice heard since it began.
+  const chained = useRef<{ heard?: Notice } | undefined>(undefined);
 
-  // Built when the line opens and as the panels change, so a page that registers its commands after mounting is seen.
+  // Built when the line opens, at each chained command and as the panels change, so a page that registers its commands
+  // after mounting is seen.
   const commands = useMemo(() => {
     const state = workspace.store.getState();
     const ai = aiStore === undefined ? undefined : {
@@ -295,17 +302,29 @@ export function CommandPalette() {
       ask: (request: string) => aiStore.getState().ask(request, aiContextOf(active)),
     };
     return buildCommands({ catalog: workspace.catalog, state: { ...state, panels, activePanelId, context }, activeRun, toggleTheme: toggleColorScheme, notify: workspace.notify, ...(ai === undefined ? {} : { ai }) });
-  }, [workspace, panels, activePanelId, context, activeRun, toggleColorScheme, opened, aiStore, aiOpen, active]);
+  }, [workspace, panels, activePanelId, context, activeRun, toggleColorScheme, opened, opening, aiStore, aiOpen, active]);
 
+  /** Reads what the page in the active panel shows now, as an opening: at each opening, and at each chained command. */
+  const readScreen = useCallback(() => {
+    const door = commandDoorOf(workspace.store.getState().activePanelId);
+    const view = door?.view();
+    setScreen(door === undefined || view === undefined ? undefined : { door, view });
+    setOpening((n) => n + 1);
+  }, [workspace]);
   useEffect(() => {
     openLine = () => {
-      const door = commandDoorOf(workspace.store.getState().activePanelId);
-      const view = door?.view();
-      setScreen(door === undefined || view === undefined ? undefined : { door, view });
-      turn.current += 1; setOpening((n) => n + 1); setEntering(false); setText(''); setProblems([]); setHighlight(NONE); setOpened(true);
+      readScreen();
+      chained.current = undefined;
+      turn.current += 1; setEntering(false); setText(''); setProblems([]); setHighlight(NONE); setSaid(undefined); setOpened(true);
     };
     return () => { openLine = undefined; };
-  }, [workspace]);
+  }, [readScreen]);
+  // The line hears what the application says (ADR-0016 §9, note 24): the notice of the chained command that is running
+  // is said with its line, and one that arrives once a chain has begun, such as a Price's result, is said by itself.
+  useEffect(() => workspace.hear((notice) => {
+    if (chained.current !== undefined) chained.current.heard = notice;
+    else setSaid((before) => (before === undefined ? before : { notice }));
+  }), [workspace]);
   /** The view this opening was read with, for a command of the workspace it is of. */
   const viewOn = (door: CommandDoor): LineView | undefined => (screen !== undefined && screen.door.workspaceId === door.workspaceId ? screen.view : undefined);
 
@@ -391,8 +410,46 @@ export function CommandPalette() {
   const chosen = at === NONE ? undefined : items[at];
 
   const change = (next: string) => { setText(next); setHighlight(lists(next) ? NONE : 0); setProblems([]); };
-  const close = () => { turn.current += 1; setEntering(false); setOpened(false); returnKeyboard(); };
-  const runNow = (command: Command, args: Readonly<Record<string, string>>) => {
+  /** The line closes, and holds nothing: no turn of it is left to answer, and no chained command to hear. */
+  const leave = () => { turn.current += 1; chained.current = undefined; setEntering(false); setOpened(false); };
+  const close = () => { leave(); returnKeyboard(); };
+  /**
+   * A chained command begins (ADR-0016 §9, note 24): from here the keyboard stays the line's, which reads the screen
+   * again each time it takes the keyboard back from a place, and closes when a dialog takes it.
+   */
+  const hold = () => { if (input.current !== null) holdKeyboard(input.current, { taken: readScreen, lost: leave }); };
+  const chain = () => { hold(); chained.current = {}; };
+  /** A chained command ran: the line says so, with what it heard meanwhile, and is as one just opened. */
+  const chainedRan = (ran: string) => {
+    const heard = chained.current?.heard;
+    chained.current = undefined;
+    setSaid({ ran, ...(heard === undefined ? {} : { notice: heard }) });
+    setText(''); setProblems([]); setHighlight(NONE);
+    readScreen();
+    input.current?.focus();
+  };
+  /** The line closes on a command that ran: one that opened a surface leaves the keyboard to it; any other gives it back. */
+  const closeOn = () => {
+    if (workspace.store.getState().runDialog === undefined && document.activeElement === document.body) returnKeyboard();
+    else keepKeyboard();
+  };
+  /** Runs a command of the client's now; `ran` is its line where the chain key ran it, and the line then stays. */
+  const runNow = (command: Command, args: Readonly<Record<string, string>>, ran?: string) => {
+    if (ran !== undefined) {
+      chain();
+      const reason = run(command, args);
+      if (reason !== undefined) { chained.current = undefined; setProblems([reason]); return; }
+      const { runDialog, appDialog } = workspace.store.getState();
+      // A command that opened a dialog ends the chain: the line closes, as with Enter, and the dialog has the keyboard.
+      if (runDialog === undefined && appDialog === undefined) { chainedRan(ran); return; }
+      releaseKeyboard();
+      letGo();
+      leave();
+      closeOn();
+      return;
+    }
+    // With Enter the line closes, so it holds the keyboard no longer: what the command focuses keeps it.
+    const held = releaseKeyboard();
     letGo();
     setOpened(false);
     const reason = run(command, args);
@@ -402,11 +459,10 @@ export function CommandPalette() {
       setOpened(true);
       setProblems([reason]);
       input.current?.focus();
+      if (held) hold();
       return;
     }
-    // A command that opened a surface leaves the keyboard to it; any other gives it back.
-    if (workspace.store.getState().runDialog === undefined && document.activeElement === document.body) returnKeyboard();
-    else keepKeyboard();
+    closeOn();
   };
 
   /**
@@ -414,13 +470,17 @@ export function CommandPalette() {
    * text, which a workspace that has moved since refuses; with none shown yet, the server reads `line` as the page's
    * workspace then stands. Taken, the line closes, and what was done is the page's to say. Refused, nothing ran: the
    * line stays, with what was typed and why (ADR-0006's note 1 of 2026-11-11), its word at fault marked, and the
-   * server is asked to read it again, since the workspace may not be as the reading on screen had it.
+   * server is asked to read it again, since the workspace may not be as the reading on screen had it. With the chain
+   * key (`chaining`, ADR-0016 §9, note 24) a line that was taken leaves the line open, saying what ran.
    */
-  const enterServed = (command: Command, line: string) => {
+  const enterServed = (command: Command, line: string, chaining: boolean) => {
     if (entering || command.served === undefined) return;
     const mine = turn.current += 1;
     const typed = line === text;
     setEntering(true);
+    // With Enter the line is closing, so it holds the keyboard no longer: a place the page gives it to keeps it.
+    const held = chaining ? false : releaseKeyboard();
+    if (chaining) chain();
     void command.served.door.enter(line, line === asked ? fresh : undefined, viewOn(command.served.door)).then((ended) => {
       const reason = ended !== undefined && 'sentence' in ended ? ended : undefined;
       // The line was closed, or opened again, meanwhile: its reason has no line left, and is a notice.
@@ -432,12 +492,19 @@ export function CommandPalette() {
       setEntering(false);
       if (reason === undefined) {
         recordUse(command.id);
-        setOpened(false);
         // A command that put the keyboard somewhere itself keeps it there (ADR-0016 §9, note 22); any other gives it back.
+        if (chaining) {
+          if (ended !== undefined) keepKeyboard();
+          chainedRan(line.trim());
+          return;
+        }
+        leave();
         if (ended === undefined) returnKeyboard();
         else keepKeyboard();
         return;
       }
+      chained.current = undefined;
+      if (held) hold();
       void queryClient.invalidateQueries({ queryKey: ['command-line'] });
       setProblems([reason.sentence]);
       input.current?.focus();
@@ -458,19 +525,23 @@ export function CommandPalette() {
     input.current?.focus();
   };
 
-  /** A command chosen in the list: one that needs words after its own is written on the line, and any other runs. */
-  const choose = (command: Command) => {
+  /**
+   * A command chosen in the list: one that needs words after its own is written on the line, and any other runs, with
+   * the chain key (`chaining`) leaving the line open.
+   */
+  const choose = (command: Command, chaining = false) => {
     if (command.unavailable !== undefined) { setProblems([command.unavailable]); return; }
     if (command.served !== undefined) {
       if (command.served.arguments.length > 0) takeItem(command);
-      else enterServed(command, command.words);
+      else enterServed(command, command.words, chaining);
       return;
     }
     if ((command.args ?? []).some((a) => a.required)) { takeItem(command); return; }
-    runNow(command, {});
+    runNow(command, {}, chaining ? command.words : undefined);
   };
 
-  const enter = () => {
+  /** Enter, and with `chaining` the chain key (ADR-0016 §9, note 24): the same line run, and the line kept open. */
+  const enter = (chaining: boolean) => {
     if (entering) return;
     if (reading.kind === 'choosing') {
       if (!(chosen !== undefined && 'words' in chosen)) {
@@ -478,24 +549,27 @@ export function CommandPalette() {
         if (lists(text)) { setProblems(['Choose a command with the arrows, or type what you want to do.']); return; }
         // ADR-0006 §7: what matches no command is offered to the AI last.
         const ask = commands.find((c) => c.id === 'ai.ask');
-        if (ask !== undefined && ask.unavailable === undefined) { runNow(ask, { request: text.trim() }); return; }
+        if (ask !== undefined && ask.unavailable === undefined) { runNow(ask, { request: text.trim() }, chaining ? `${ask.words} ${text.trim()}` : undefined); return; }
         setProblems(['No command matches.']);
         return;
       }
-      choose(chosen);
+      choose(chosen, chaining);
       return;
     }
     if (reading.command.unavailable !== undefined) { setProblems([reading.command.unavailable]); return; }
-    if (reading.command.served !== undefined) { enterServed(reading.command, text); return; }
+    if (reading.command.served !== undefined) { enterServed(reading.command, text, chaining); return; }
     const done = finish(reading);
     if ('problems' in done) { setProblems(done.problems); return; }
-    runNow(reading.command, done.args);
+    runNow(reading.command, done.args, chaining ? text.trim() : undefined);
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
-    // Ctrl+N and Ctrl+P move as the arrows do (owner, 2026-10-28): literal Ctrl, so not Cmd on a Mac, and never while an
-    // IME is composing, whose keys are its own.
-    const emacs = event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey && !event.nativeEvent.isComposing;
+    // While an IME composes, every key of the line is the IME's (ADR-0016 §9, note 24): the Enter that commits a
+    // composition runs nothing, and its arrows and Tab choose among the IME's candidates. 229 is what a browser that
+    // has already ended the composition still says of the key that ended it.
+    if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+    // Ctrl+N and Ctrl+P move as the arrows do (owner, 2026-10-28): literal Ctrl, so not Cmd on a Mac.
+    const emacs = event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey;
     const key = event.key.toLowerCase();
     const step = event.key === 'ArrowDown' || (emacs && key === 'n') ? 1 : event.key === 'ArrowUp' || (emacs && key === 'p') ? -1 : 0;
     if (step !== 0) {
@@ -507,7 +581,8 @@ export function CommandPalette() {
       if (chosen !== undefined && !entering) takeItem(chosen);
     } else if (event.key === 'Enter') {
       event.preventDefault();
-      enter();
+      // Ctrl+Enter, and ⌘+Enter on a Mac, is the chain key: the line runs and stays open for the next.
+      enter(event.ctrlKey || event.metaKey);
     }
   };
 
@@ -541,6 +616,18 @@ export function CommandPalette() {
           {...(chosen === undefined ? {} : { 'aria-activedescendant': optionId(at) })}
           {...(preview === undefined && screenSaid === undefined ? {} : { 'aria-describedby': [screenSaid === undefined ? [] : ['qube-line-context'], preview === undefined ? [] : ['qube-line-preview']].flat().join(' ') })}
           styles={{ input: { fontFamily: 'var(--mantine-font-family-monospace)' } }} />
+        {/* What the chain key last ran and what it said, or what the application said since (ADR-0016 §9, note 24). The
+            kind is the notice's, said by the icon and the colour (design guidelines §6); a command that said nothing ran. */}
+        {said !== undefined && (
+          <Group gap={4} wrap="nowrap" align="flex-start" role="status" data-testid="command-said" data-kind={said.notice?.kind ?? 'done'}
+            c={said.notice?.kind === 'refused' ? 'red' : 'teal'}>
+            {said.notice?.kind === 'refused' ? <IconX size={14} stroke={1.75} aria-hidden style={{ flex: 'none', marginTop: 2 }} /> : <IconCheck size={14} stroke={1.75} aria-hidden style={{ flex: 'none', marginTop: 2 }} />}
+            <Text size="xs">
+              {said.ran !== undefined && <Text span ff="monospace" fw={600}>{said.ran}</Text>}
+              {said.ran === undefined ? said.notice?.message : said.notice === undefined ? ': ran.' : `: ${said.notice.message}`}
+            </Text>
+          </Group>
+        )}
         {/* What the line was opened on (ADR-0016 note 19): what `selected`, `shown` and rows left out mean here. An order
             that has moved since is stale, said in the sentence and drawn as a warning (design guidelines §7). */}
         {screenSaid !== undefined && (
@@ -587,6 +674,7 @@ export function CommandPalette() {
         <Group gap="md">
           <Text size="xs" c="dimmed"><Kbd size="xs">Tab</Kbd> complete</Text>
           <Text size="xs" c="dimmed"><Kbd size="xs">Enter</Kbd> run</Text>
+          <Text size="xs" c="dimmed"><Kbd size="xs">Ctrl</Kbd>+<Kbd size="xs">Enter</Kbd> run and stay</Text>
           <Text size="xs" c="dimmed"><Kbd size="xs">↑</Kbd><Kbd size="xs">↓</Kbd> choose</Text>
           <Text size="xs" c="dimmed"><Kbd size="xs">Esc</Kbd> close</Text>
         </Group>

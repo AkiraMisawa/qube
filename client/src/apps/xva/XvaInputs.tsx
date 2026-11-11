@@ -3,7 +3,8 @@ import { Button, Group, Table, Tabs, Text, useMantineTheme } from '@mantine/core
 import { GridSource, type CellState, type GridColumn, type GridContextMenuContext, type GridEditIntent } from '@ex-grid/core';
 import type { ExGridApi } from '@ex-grid/react';
 import { QubeGrid } from '../../platform/grid/QubeGrid';
-import { heldView, placeFocus } from '../../platform/grid/lineView';
+import { heldView, menuView, placeFocus } from '../../platform/grid/lineView';
+import type { TableMenu } from '../../platform/commands/served';
 import type { Screen } from '../../platform/commands/commands';
 import type { Agreement, ChangesList, EffectiveCsa, RegisteredMeasure, XvaWorkspaceView } from './contracts';
 import { creditChanges, emptyRecovery, nettingChanges, type CatalogueRead } from './credit';
@@ -107,7 +108,7 @@ export const shownTab = (ws: Pick<XvaWorkspaceView, 'inputs' | 'settings'>, tab:
  * The tabs, one open at a time and collapsible to their tab row (ADR-0010 §1). The page keeps which tab is open,
  * whether it is open and its height, so that a command opens a tab as a press does.
  */
-export function XvaInputs({ panelId, ws, push, setText, catalogue, onIssue, onGridEntered, onPlaced, tab, onTab, open, onOpen, height, focusRequest, changeList, changeActions, scenarioActions, onVary, commandLabel }: {
+export function XvaInputs({ panelId, ws, push, setText, catalogue, onIssue, onGridEntered, onPlaced, tab, onTab, open, onOpen, height, focusRequest, changeList, changeActions, scenarioActions, onVary, commandLabel, csaMenu }: {
   readonly ws: XvaWorkspaceView;
   /** The panel the page is in, which keeps the widths the user dragged in its grids. */
   readonly panelId: string;
@@ -123,6 +124,8 @@ export function XvaInputs({ panelId, ws, push, setText, catalogue, onIssue, onGr
   /** *Vary values…* on an editable cell's Context Menu (ADR-0010 §3), and what the menu calls the page's commands. */
   readonly onVary: (target: VaryTarget) => void;
   readonly commandLabel: (id: string) => string | undefined;
+  /** What the CSAs' table offers in the CSA grid's Context Menu (ADR-0016 note 25), read when a menu opens. */
+  readonly csaMenu: { readonly current: { readonly csas: TableMenu } };
   /** An edit of a field, titled as the screen names it: its row and its column's header, or its label. */
   readonly push: PushEdit;
   readonly onIssue: (message: string | undefined) => void;
@@ -237,7 +240,7 @@ export function XvaInputs({ panelId, ws, push, setText, catalogue, onIssue, onGr
           <Tabs.Panel value="csa" pt="xs">
             {ws.csas.length === 0
               ? <Text size="sm">{ws.agreement.maId} has no CSA: its trades are uncollateralised ({ws.agreement.noCsa}).</Text>
-              : <CsaGrid panelId={panelId} csas={ws.csas} columns={csaColumns} push={push} height={height - gap - GRID_FRAME} gridRef={csaGrid} onVary={onVary} commandLabel={commandLabel} onGridEntered={onGridEntered} onPlaced={onPlaced} />}
+              : <CsaGrid panelId={panelId} csas={ws.csas} columns={csaColumns} push={push} height={height - gap - GRID_FRAME} gridRef={csaGrid} onVary={onVary} commandLabel={commandLabel} menu={csaMenu} onGridEntered={onGridEntered} onPlaced={onPlaced} />}
           </Tabs.Panel>
           {creditShown && (
             <Tabs.Panel value={CREDIT_TAB} pt="xs">
@@ -307,11 +310,12 @@ function ImCsas({ ws, focusRef }: { readonly ws: XvaWorkspaceView; readonly focu
  * The CSA terms, as high as their rows within `height`, what the tab's height leaves under the panel's top gap and the
  * grid's frame. It shows no Selection Summary: a sum or an average of terms in different currencies is no figure.
  */
-function CsaGrid({ panelId, csas, columns: declared, push, height, gridRef, onVary, commandLabel, onGridEntered, onPlaced }: {
+function CsaGrid({ panelId, csas, columns: declared, push, height, gridRef, onVary, commandLabel, menu, onGridEntered, onPlaced }: {
   /** The panel the page is in, which keeps the widths the user dragged in its grids. */
   readonly panelId: string;
   readonly onVary: (target: VaryTarget) => void;
   readonly commandLabel: (id: string) => string | undefined;
+  readonly menu: { readonly current: { readonly csas: TableMenu } };
   readonly csas: readonly EffectiveCsa[];
   readonly columns: readonly GridColumn<CsaRow>[];
   /** An edit of a field, titled as the screen names it: its row and its column's header, or its label. */
@@ -340,12 +344,17 @@ function CsaGrid({ panelId, csas, columns: declared, push, height, gridRef, onVa
   columnsNow.current = columns;
   const varyNow = useRef(onVary);
   varyNow.current = onVary;
+  // What the CSAs' table offers on the rows selected and the cell under the menu (ADR-0016 note 25) comes first.
   const contextCommands = useCallback((context: GridContextMenuContext<CsaRow>) => {
     const column = columnsNow.current.find((c) => c.name === context.column);
-    return column?.editable === true
-      ? [{ id: VARY_COMMAND, enabled: true, invoke: () => varyNow.current({ entity: `csa:${context.row.csaId}`, field: context.column, title: `${context.row.csaId} ${column.header}` }) }]
-      : [];
-  }, []);
+    const under = menuView((read) => heldView({ table: CSAS_TABLE, columns: columnsNow.current.map((c) => c.name) }, read, source.snapshot(), (row) => row.csaId), context, context.row.csaId);
+    return [
+      ...menu.current.csas.commands(under),
+      ...(column?.editable === true
+        ? [{ id: VARY_COMMAND, enabled: true, invoke: () => varyNow.current({ entity: `csa:${context.row.csaId}`, field: context.column, title: `${context.row.csaId} ${column.header}` }) }]
+        : []),
+    ];
+  }, [menu, source]);
 
   // The grid as the line is told of it (ADR-0016 note 16): the page holds every CSA, so its rows are named by their ids,
   // and a place read for that view (note 21) is the row of its key among the rows the grid then held.

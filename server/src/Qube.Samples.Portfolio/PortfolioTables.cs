@@ -198,8 +198,16 @@ public sealed class PortfolioTables(MeasureRegister register) : ITableCatalog
     ];
 
     static TableDescriptor Described(string id, string title, IReadOnlyList<string> words, string key, IReadOnlyList<TableField> fields, bool one = false, bool main = false,
-        IReadOnlyList<TableSubset>? subsets = null) =>
-        new(id, PortfolioContracts.Version, PortfolioEditRules.App, title, words, key, fields, subsets ?? [], one, main);
+        IReadOnlyList<TableSubset>? subsets = null, IReadOnlyList<TableAction>? actions = null) =>
+        new(id, PortfolioContracts.Version, PortfolioEditRules.App, title, words, key, fields, subsets ?? [], one, main, actions);
+
+    // What a trade grid's Context Menu offers on the rows selected in it (ADR-0016 §4, note 25 of step 2): each side's
+    // membership, out and in, by the line that does it.
+    static readonly IReadOnlyList<TableAction> TradeActions =
+    [
+        new("Take out of After", "set selected after off"), new("Put into After", "set selected after on"),
+        new("Take out of Before", "set selected before off"), new("Put into Before", "set selected before on"),
+    ];
 
     static Table OneRow(PortfolioChecks checks, TableDescriptor descriptor, Func<WorkspaceState, Row?> row, Func<WorkspaceState, string?>? whyEmpty = null) =>
         new(checks, descriptor, reading => row(reading) is { } one ? [one] : [],
@@ -265,7 +273,7 @@ public sealed class PortfolioTables(MeasureRegister register) : ITableCatalog
     /// </summary>
     sealed class TradeTable(MeasureRegister register, PortfolioChecks checks) : Table(checks,
         Described(Trades, "Trades", ["trades", "trade"], "tradeId", PortfolioFields.Trade(register), main: true,
-            subsets: [new(Entity.ExistingGrid, "Existing", [Entity.ExistingGrid]), new(Entity.NewGrid, "New", [Entity.NewGrid])]),
+            subsets: [new(Entity.ExistingGrid, "Existing", [Entity.ExistingGrid]), new(Entity.NewGrid, "New", [Entity.NewGrid])], actions: TradeActions),
         reading => Read(register, reading),
         row => $"{row.Key} is a trade the workspace was given, not one it made: take it out of After with set {row.Key} A off.")
     {
@@ -316,7 +324,7 @@ public sealed class PortfolioTables(MeasureRegister register) : ITableCatalog
             var reading = PortfolioCases.Base(state);
             var keys = TradeOrder.Keys(sorts.Select(s => (s.Column, s.Descending)));
             var rows = Read(register, reading).ToDictionary(r => r.Key, StringComparer.Ordinal);
-            return new([.. TradeOrder.Ordered(reading, register, subset, keys).Select(t => rows[t.TradeId])], TradeOrder.Token(reading, keys));
+            return new([.. TradeOrder.Ordered(reading, register, subset, keys).Select(t => rows[t.TradeId])], TradeOrder.Token(reading, register, subset, keys));
         }
 
         public override DateOnly? AsOf(WorkspaceState state) => Source(state).ValueDate;

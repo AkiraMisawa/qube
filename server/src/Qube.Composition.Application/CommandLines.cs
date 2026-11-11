@@ -196,7 +196,7 @@ public sealed class CommandLines
         var viewSaid = view is null ? null : Views.Say(view, tables.Of(state), state);
         LinePreview Seen(LinePreview preview) => viewSaid is null ? preview : preview with { View = viewSaid.Sentence, ViewMoved = viewSaid.Moved };
         var words = LineWords.Of(line);
-        var said = typed.FirstOrDefault(t => t.Words.Length <= words.Count && t.Words.Zip(words).All(p => p.First.Equals(p.Second.Word, StringComparison.OrdinalIgnoreCase)));
+        var said = Said(words);
         var all = typed.Select(t => t.Said).ToList();
         if (said is null)
         {
@@ -236,6 +236,29 @@ public sealed class CommandLines
             return Seen(new(state.Revision, said.Command, null, null, null, null, null, new(code, sentence, word, place?.Start, place?.End, candidates), complete, completions.More));
         }
     }
+
+    /// <summary>
+    /// The caller's own workspace's tables as a screen is told of them (ADR-0016 §4, note 25 of step 2): each with the
+    /// actions a grid bound to it offers, a title and the line that does it. The kernel's own comes first, on every
+    /// table: the cell the menu was opened on follows its source again. A registered action whose line begins with no
+    /// command's words is the registration's defect, and fails here.
+    /// </summary>
+    public IReadOnlyList<TableOnScreen> Tables(string workspaceId, Caller caller)
+    {
+        var state = WorkspaceCommands.Owned(workspaces, workspaceId, caller, null);
+        IReadOnlyList<TableAction> own = typed.FirstOrDefault(t => t.Id == EntityReset.Id) is { } reset ? [new("Reset this cell", reset.Said)] : [];
+        return [.. tables.Of(state).Select(t => t.Descriptor).Select(table =>
+        {
+            foreach (var action in table.Actions ?? [])
+                if (Said(LineWords.Of(action.Line)) is null)
+                    throw new InvalidOperationException($"{table.TableId} offers {action.Title} as the line `{action.Line}`, which begins with no command's words.");
+            return new TableOnScreen(table.TableId, table.Title, [.. own, .. table.Actions ?? []]);
+        })];
+    }
+
+    // What a line's first words name: the command or the verb of the screen whose words they are, the longest first.
+    Typed? Said(IReadOnlyList<(string Word, int Start)> words) =>
+        typed.FirstOrDefault(t => t.Words.Length <= words.Count && t.Words.Zip(words).All(p => p.First.Equals(p.Second.Word, StringComparison.OrdinalIgnoreCase)));
 
     // Where the word stands in the line after the command's own words, as a word of its own: bounded by the line's
     // ends, a space, a comma or an operator's sign. A word that stands there twice has no place: the reader names the

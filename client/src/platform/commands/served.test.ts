@@ -1,7 +1,7 @@
 import { ApiError, type Api, type CommandAnswer } from '../api';
 import type { CapabilityDescriptor, LinePlace, LinePreview, LineView, ViewVerbDescriptor } from '../contracts';
 import { readLine, signature, type Command, type CommandDoor } from './commands';
-import { argumentShown, commandDoor, lineAsked, previewShown, screenShown, servedCommands, taken } from './served';
+import { argumentShown, commandDoor, lineAsked, previewShown, screenShown, servedCommands, tableMenu, taken } from './served';
 
 // ADR-0016 §4, §5 and its note 15 of 2026-11-11: the line builds a command the catalog says how to type from the
 // catalog, and reads nothing of its line itself. What it does with the server's answer is held here; the names are made up.
@@ -90,6 +90,37 @@ describe('a command the catalog says how to type (ADR-0016 §4)', () => {
     const reading = readLine('set where unit=m3 checked on', commands);
 
     expect(reading.kind === 'arguments' && [reading.command.id, reading.given, reading.slot, reading.problems]).toEqual(['entity.set', {}, undefined, []]);
+  });
+});
+
+describe('a table\'s actions in a grid\'s Context Menu (ADR-0016 §4, note 25 of 2026-11-11)', () => {
+  const readings = { tableId: 'w.readings', title: 'Readings', actions: [{ title: 'Reset this cell', line: 'reset' }, { title: 'Mark checked', line: 'set selected checked on' }] };
+  const under: LineView = { table: 'w.readings', subset: 'manual', keys: ['R1', 'R3'], focus: { field: 'checked', key: 'R3' } };
+
+  it('makes one item per action, called by its title and the line that does the same, and runs that line through the door with the menu\'s view', async () => {
+    const enter = vi.fn<CommandDoor['enter']>(() => Promise.resolve(undefined));
+    const notify = vi.fn();
+    const menu = tableMenu(readings, door(enter), notify);
+
+    const items = menu.commands(under);
+
+    expect(items.map((item) => [menu.label(item.id), item.enabled])).toEqual([['Reset this cell · reset', true], ['Mark checked · set selected checked on', true]]);
+    // An id that is not one of its own is another's to name.
+    expect(menu.label('xva.retry')).toBeUndefined();
+    await items[1]!.invoke();
+    expect(enter.mock.calls).toEqual([['set selected checked on', undefined, under]]);
+    expect(notify).not.toHaveBeenCalled();
+  });
+
+  it('a line the server refuses is a notice with its reason, and a table not read yet, or with no door, offers nothing', async () => {
+    const notify = vi.fn();
+    const menu = tableMenu(readings, door(() => Promise.resolve({ sentence: 'No row of readings is selected.' })), notify);
+
+    await menu.commands(under)[1]!.invoke();
+
+    expect(notify.mock.calls).toEqual([['refused', 'set selected checked on: No row of readings is selected.']]);
+    expect(tableMenu(undefined, door(), notify).commands(under)).toEqual([]);
+    expect(tableMenu(readings, undefined, notify).commands(under)).toEqual([]);
   });
 });
 

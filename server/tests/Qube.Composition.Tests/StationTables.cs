@@ -34,7 +34,7 @@ static class Stations
         new("windDirection", "Wind direction", ["wind direction", "wind"], FieldForm.Id, Editable: true),
         new("window", "Window", ["window"], FieldForm.Period),
         new("drift", "Drift", ["drift"], FieldForm.Rate, Editable: true, Optional: true),
-    ], [Manual, Automatic], Main: true);
+    ], [Manual, Automatic], Main: true, Actions: [new("Mark checked", "set selected checked on")]);
 
     public static readonly TableSubset High = new("high", "High", ["high", "upland"]);
     // A subset of the stations with the name the readings' `manual` has, and not all of its words: `by hand` is the
@@ -177,9 +177,10 @@ static class Stations
                 : throw new WorkspaceRefused("NotRemovable", $"{row.Key} is a reading a station sent, and stays; set {row.Key} checked off leaves it out.");
     }
 
-    public sealed class Catalog : ITableCatalog
+    /// <summary>The three tables; <paramref name="stations"/> describes the stations another way, for a registration that is at fault.</summary>
+    public sealed class Catalog(TableDescriptor? stations = null) : ITableCatalog
     {
-        public IEnumerable<IWorkspaceTable> Tables => [new Table(ReadingsTable, "reading"), new Table(SitesTable, "station"), new Table(SettingsTable, "settings")];
+        public IEnumerable<IWorkspaceTable> Tables => [new Table(ReadingsTable, "reading"), new Table(stations ?? SitesTable, "station"), new Table(SettingsTable, "settings")];
     }
 
     public static WorkspaceService Service() => new(new Dictionary<string, IEditRules> { [App] = new Rules() }, TimeProvider.System);

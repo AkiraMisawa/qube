@@ -1336,7 +1336,8 @@ Unchanged: every figure on these pages is simulated, and says so.
 
 - After a command on a **sorted** trade grid the order token has moved (it holds the revision), so the grid reads
   again in a new sequence and drops its selection, as it does after a cell's edit: a second command needs the rows
-  selected again. An unsorted grid keeps its selection. A token that moves only when the order does is for 2c.
+  selected again. An unsorted grid keeps its selection. A token that moves only when the order does was built in 2c
+  (ticket 13, below).
 - The keyboard reached the Existing grid by a press or by Tab, not by a command: `go existing` is 2b's, below.
 - Only the pricer's trade grids and CSA grid are screens. The scenarios' shifts, the credit grid, a result and a trace
   are grids of no table, and the line has no screen once the keyboard has been in one; Rates has no door (step 3).
@@ -1425,12 +1426,102 @@ Unchanged: every figure on these pages is simulated, and says so.
 - Nothing in a browser test holds an edit open under `find`: the sentence for it is held by a unit test alone.
 - A place has no chord of its own: only `focus grid` has one.
 - `go` and `focus grid` say where the keyboard went in a notice each time, the chord included.
-- After a command on a **sorted** trade grid the grid still reads again and drops its selection (2a's first limit):
-  2c.
+- After a command on a **sorted** trade grid the grid still read again and dropped its selection (2a's first limit).
+  Built in 2c (ticket 13, below).
+
+## Generic commands, delivery step 2c: the chain key and menus from declarations (ADR-0016 §4, §9, 2026-11-11)
+
+The third pull request of step 2 (`docs/specs/commands-2-selection-context-places`, tickets 09 to 11 and 13), which
+ends the step: a chain of commands is typed with no mouse and no reopening between them, a grid's Context Menu is
+built from what its table declares, and a sorted grid keeps its selection across a command that moves no row. What
+it settled is ADR-0016's notes 24 to 26.
+
+### What runs
+
+- **The chain key.** Ctrl+Enter in the line, ⌘+Enter on a Mac, runs the line as Enter does and keeps the line open:
+  the text is cleared, the list is an opening's, and the line says under its input what ran and what it said (`set
+  selected a off: Set A to off on DRAFT-1, DRAFT-2 and DRAFT-3.`), with a tick or a cross and the notice's colour.
+  A refused line stays with its text and the reason, as with Enter.
+- **Each chained command is a new opening.** The screen is read again and the commands are built again: after `go
+  existing` the next line's context is the Existing grid, and after `find E00004 csa` a field alone is that cell's
+  row.
+- **The line hears notices.** What the application says while the line is open is said in the line too: with the
+  command's line while that command runs, and by itself when it arrives later (`Price was accepted as Run …`). A
+  command that said nothing while it ran reads `price: ran.`.
+- **The keyboard in a chain.** It stays the line's. A place a chained `go`, `find` or `open <tab>` puts it in has it
+  taken back at once, and is where the keyboard goes when the line closes; with none, it goes back where the line
+  was opened from. A command that opens a dialog ends the chain: the line closes and the dialog has the keyboard.
+- **While an IME composes** every key of the line is the IME's: Enter, Ctrl+Enter, Tab and the arrows. This also
+  ends a defect: the Enter that committed a composition used to run the line.
+- **A table's actions.** A table's description lists its actions, each a title and the line that does it. `GET
+  /api/workspaces/{id}/tables` answers a workspace's tables with them, the kernel's `Reset this cell` (`reset`)
+  first. An action whose line begins with no command's words fails the read: it is the registration's defect.
+- **The Context Menu.** The pricer's trade grids show `Reset this cell`, `Take out of After`, `Put into After`, `Take
+  out of Before` and `Put into Before`, each with its line (`Take out of After · set selected after off`), after the
+  grid's own commands and before the page's `Vary values…`. The CSA grid shows `Reset this cell`. An item runs its
+  line through the page's door, as a line typed: read by the server with the menu's Selection and the cell the menu
+  was opened on, in the page's turn, logged, and taken back by `undo`. What it did, that nothing changed, or why it
+  was refused is a notice.
+- **The order's token.** A sorted trade grid's token is its source's version and a digest of the row keys in that
+  order. An edit that moves no row leaves it: the grid keeps its sequence and its selection, and a second command
+  says the same rows with nothing selected again. An edit that moves a row moves it, as before.
+- **One context value.** The workspace's context value is one for the application's life. It was made anew at every
+  notice, which made every page's command door anew in the middle of the command that said it: a `find` after a
+  notice in one opening had no grid to put the keyboard on. Found by the chain, which is the first to do that.
+
+### Measurements
+
+Release build on this Linux container, the SQLite store, one request at a time, a workspace of 10,009 existing trades
+(14,286 requested), the Existing grid sorted by notional and every row selected by one range. Recorded, not gated.
+
+| What | Time |
+|---|---|
+| The grid's first page of a new workspace (sort and digest), then again | 116 ms, then 3 to 6 ms |
+| `set selected a off`: the preview (177 KB), then Enter | 343 ms, 580 ms |
+| The grid's first page after it (the state's first sort and digest), then again | 358 ms, then 9 ms |
+| `set selected a on` with the same view: the preview, then Enter | 131 ms, 588 ms |
+| The grid's first page after it, then again | 300 ms, then 8 to 9 ms |
+| `GET /api/workspaces/{id}/tables` (seven tables) | 9 ms |
+
+The token was the same after both commands, so neither was refused and the view was not read again between them.
+
+### Verification performed
+
+| What | Result |
+|---|---|
+| `dotnet test server/Qube.slnx` | 972 passed |
+| Client: `npm run typecheck`, `npm test`, `npm run build` | Clean; 308 passed in 34 files; built |
+| `npx playwright test` (Chromium, headless, Linux) | 79 passed |
+| The four browser tests this step added and the Vary values… test beside them, with `--repeat-each=3` | 15 passed |
+| The chain, the said line and the Context Menu in Chromium, dark and light at 1440 px and dark at 390 px, by a script and by eye | Each command said in the line, the context after `go` and `find`, the dialog taking the keyboard; nothing scrolls sideways |
+| An IME's composition through the browser's own input protocol (`Input.imeSetComposition`) | Enter and Ctrl+Enter ran nothing while it composed; committed, Ctrl+Enter ran the line once |
+
+### Providers
+
+Unchanged: every figure on these pages is simulated, and says so.
+
+### Known limits
+
+- After a chained edit that **does** move a row of a sorted grid, the line's view names the order the grid is leaving:
+  the next line that says `selected`, or leaves its rows out, is refused by name, and the context is drawn stale.
+  The line is closed and opened again. The grid has dropped its selection by then, as ExGrid does when its order
+  moves.
+- A notice heard after its command ended is said without that command's line: which command a late notice belongs
+  to is not known. Price's result in a chain reads `price: ran.` and then `Price was accepted as Run …`.
+- A dialog a page opens some time after its command (the counterparty's confirmation) ends the chain when it takes the
+  keyboard. What was typed into the line before that is lost with the line.
+- Every action is offered on every cell, enabled. One that changes nothing there says so when run; none is greyed
+  out by the cell's state, which the client does not know generically.
+- A declarative view's row action has no `command` target yet (ADR-0016 §4): no view asks for one.
+- The IME test drives Chromium's composition through its protocol. A real IME on Windows or macOS was not driven.
+- The footer says Ctrl+Enter on every platform; ⌘+Enter also works on a Mac and is not said there.
+- Step 2a's and 2b's other limits stand: `shown` is the grid's subset until `filter` (step 4), only the pricer's
+  trade grids and CSA grid are screens, and Rates has no door (step 3).
 
 ## Next
 
-1. Generic commands, delivery step 2c (ADR-0016 §4, §9): the chain key and context menus from declarations.
+1. Generic commands, delivery step 3 (ADR-0016 §3, §4): the pricer's remaining commands as capabilities through the
+   gateway, Rates registers its tables and its door, and one of `open <tab>` and `go <tab>` goes.
 2. MVA with SIMM (`docs/12-implementation-plan.md` P2): spot IM from the XVA request's MVA option.
 3. ADR-0010 Delivery step 3 (Advanced: Before-only and After-only edits, the split fill), when the owner asks for it.
 4. The owner's review of ADR-0003 §7 (scopes, carry and conflict), then a synthetic source change that can produce a conflict, and the browser cases still open above (reload, failed case unavailable).
