@@ -2,7 +2,7 @@
 // here and runs them, so availability and behaviour cannot differ between surfaces. A command is found by typing the
 // English words for what it does; its arguments are completed one slot at a time.
 
-import type { LinePreview } from '../contracts';
+import type { LinePreview, LineView } from '../contracts';
 
 /** A value a slot offers, with what it means. */
 export interface Completion {
@@ -80,13 +80,18 @@ export interface CommandDoor {
   /** Resolves once the edits the page has sent so far are answered: a reading asked for after it has seen them. */
   settled(): Promise<void>;
   /**
+   * What the user is looking at (ADR-0016 §9, note 16 of 2026-11-11): the grid the keyboard was last in, its selection
+   * and its focused cell. The line reads it once as it opens. None where the page has no such grid, or none was entered.
+   */
+  view(): LineView | undefined;
+  /**
    * Enter on a line, in the page's own turn, after the edits it has sent. The reading the line showed for exactly this
    * text is what is invoked, by its own inputs, which carry the revision it was read at: a workspace that has moved
-   * since refuses it (ADR-0016 §2). With none shown the server reads the line at the revision the page then holds, and
-   * that reading is invoked. Resolves once the command is taken or refused: with why nothing ran, and the line stays;
-   * or with nothing, the page showing what the command left and its notice said.
+   * since refuses it (ADR-0016 §2). With none shown the server reads the line at the revision the page then holds, with
+   * `view`, the one the line opened on, and that reading is invoked. Resolves once the command is taken or refused: with
+   * why nothing ran, and the line stays; or with nothing, the page showing what the command left and its notice said.
    */
-  enter(line: string, shown?: LinePreview): Promise<LineReason | undefined>;
+  enter(line: string, shown?: LinePreview, view?: LineView): Promise<LineReason | undefined>;
   /**
    * A command by its id, from a key or a button, which have no line: in the same turn, at the catalog's version and
    * the revision the page then holds. Resolves as `enter` does.

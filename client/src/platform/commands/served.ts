@@ -1,5 +1,5 @@
 import { ApiError, outputOf, type Api } from '../api';
-import type { Catalog, LineCompletion, LinePreview, RowsEdited, TakenBack } from '../contracts';
+import type { Catalog, LineArgument, LineCompletion, LinePreview, LineView, RowsEdited, TakenBack } from '../contracts';
 import type { Notify } from '../notices';
 import type { Command, CommandDoor, Completion, LineReading, LineReason } from './commands';
 
@@ -26,6 +26,8 @@ export interface DoorPage {
   /** Reads the workspace again and shows it; answers the revision it read. */
   reread(): Promise<number>;
   readonly notify: Notify;
+  /** What the user is looking at, where the page has a grid of a table (ADR-0016 note 16); read as the line opens. */
+  readonly view?: () => LineView | undefined;
 }
 
 /** What the door reads of a command's answer, which every command that writes a workspace gives: where it left it, and what it did. */
@@ -77,8 +79,9 @@ export function commandDoor(page: DoorPage): CommandDoor {
   return {
     workspaceId: page.workspaceId,
     settled: () => page.turns.settled(),
-    enter: (line, shown) => run(async (revision) => {
-      const reading = shown ?? await page.api.preview(line, page.workspaceId, revision);
+    view: () => page.view?.(),
+    enter: (line, shown, view) => run(async (revision) => {
+      const reading = shown ?? await page.api.preview(line, page.workspaceId, { revision, ...(view === undefined ? {} : { view }) });
       if (reading.refused !== undefined) return reading.refused;
       if (reading.command === undefined || reading.inputs === undefined) throw new Error('The server read the line and named no command to run.');
       return { ...reading.command, inputs: reading.inputs };
@@ -119,10 +122,11 @@ export function servedCommands(catalog: Pick<Catalog, 'capabilities'>, panel: { 
       ...(door === undefined || panel === undefined || capability.command === undefined
         ? { unavailable: 'This panel has no workspace for it to act on.' }
         : { target: panel.title, page: true, served: { arguments: capability.command.arguments, door } }),
-      // From a key or a button there is no line: the words alone are read, and a refusal is a notice.
+      // From a key or a button there is no line: the words alone are read, with what is on screen at the press, and a
+      // refusal is a notice.
       run: () => {
         if (door === undefined) throw new Error(`${words} ran with no workspace to act on.`);
-        void door.enter(words).then((reason) => { if (reason !== undefined) notify('refused', `${words}: ${reason.sentence}`); });
+        void door.enter(words, undefined, door.view()).then((reason) => { if (reason !== undefined) notify('refused', `${words}: ${reason.sentence}`); });
       },
     };
   }));
@@ -144,6 +148,31 @@ export function lineAsked(text: string, reading: LineReading, chosen: Command | 
  */
 export function taken(line: string, completion: LineCompletion): string {
   return `${line.slice(0, completion.start)}${completion.value}${/[^\s=<>!~]=$/.test(completion.value) ? '' : ' '}`;
+}
+
+/**
+ * An argument as the line names it under its command: its name and the words read for it. One the user did not type
+ * says where it came from (ADR-0016 §9, note 18 of 2026-11-11): in words, since a colour alone would not be read out,
+ * and before the words read, so that a narrow line that cuts the end of many rows still says it.
+ */
+export function argumentShown(argument: LineArgument): string {
+  return argument.from === 'context' ? `${argument.name} from the screen: ${argument.text}` : `${argument.name} ${argument.text}`;
+}
+
+/** The screen a line was opened on, as the line says it: the server's sentence, and whether its rows can still be said. */
+export interface ScreenShown {
+  readonly sentence: string;
+  readonly moved: boolean;
+}
+
+/**
+ * What the line says of its screen (ADR-0016 §9, note 19 of 2026-11-11): the sentence of its latest reading where that
+ * has one, so that a view gone stale while the line is open is said as soon as the server says it, and otherwise the
+ * sentence asked for as the line opened. Whether the order has moved is the same reading's word, never another's.
+ */
+export function screenShown(latest: LinePreview | undefined, opening: LinePreview | undefined): ScreenShown | undefined {
+  const said = latest?.view === undefined ? opening : latest;
+  return said?.view === undefined ? undefined : { sentence: said.view, moved: said.viewMoved === true };
 }
 
 /** How many of a reading's first rows the line names; the server sends a few more than a line has room for. */

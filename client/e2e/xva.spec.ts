@@ -912,6 +912,175 @@ test('ADR-0016 §11: `undo` says what it would take back before Enter and what i
   expect(problems.splice(0)).toEqual(['error: Failed to load resource: the server responded with a status of 422 (Unprocessable Entity)']);
 });
 
+test('ADR-0016 §9, notes 16, 18, 19: the line says what is on screen, a field alone acts on the trades selected, `selected where` narrows them, and `reset` alone is the focused cell', async ({ page }) => {
+  await open(page);
+  await newWorkspace(page, 'ABC/LE-01', 5);
+  const line = page.getByRole('combobox', { name: 'Command' });
+  const read = page.getByTestId('command-preview');
+  const head = page.getByTestId('command-pending');
+  const screen = page.getByTestId('command-context');
+
+  // No grid has had the keyboard yet: the line names no screen, and a line that needs one says so.
+  await page.keyboard.press('ControlOrMeta+K');
+  await expect(line).toBeFocused();
+  await page.keyboard.type('set selected a off');
+  await expect(read).toHaveText('selected means the rows selected on a screen, and no screen is behind this command: name the rows by their ids, all, a subset or where.');
+  await expect(screen).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await expect(line).toBeHidden();
+
+  // Three new trades selected by keyboard, from the CSA of the first: the line says so before anything is typed.
+  await focusCell(page, CSA);
+  await page.keyboard.press('Shift+ArrowDown');
+  await page.keyboard.press('Shift+ArrowDown');
+  await page.keyboard.press('ControlOrMeta+K');
+  await expect(line).toBeFocused();
+  await expect(screen).toHaveText('On screen: trades (new), 3 selected, DRAFT-1 · csa');
+  // A field alone is theirs: the rows are read from the screen, and said to be.
+  await page.keyboard.type('set csa CSA-B');
+  await expect(head).toContainText('rows from the screen: DRAFT-1, DRAFT-2, DRAFT-3');
+  await expect(read).toContainText('trades, 3 rows: DRAFT-1, DRAFT-2, DRAFT-3');
+  await expect(read).toContainText('csa: 3 CSA-A to CSA-B');
+  await page.keyboard.press('Enter');
+  await expect(line).toBeHidden();
+  await expect(page.getByTestId('notice')).toHaveText('Set csa to CSA-B on DRAFT-1, DRAFT-2 and DRAFT-3.');
+  for (const id of ['DRAFT-1', 'DRAFT-2', 'DRAFT-3']) await expect(cell(page, id, CSA + 1)).toHaveText('CSA-B');
+  await expect(page.getByTestId('workspace-summary')).toContainText('3 edit(s)');
+
+  // The grid keeps its selection: `selected where` takes the USD trades among the three, and the words are the user's.
+  await page.keyboard.press('ControlOrMeta+K');
+  await expect(line).toBeFocused();
+  await page.keyboard.type('set selected where ccy=USD a off');
+  await expect(head).toContainText('rows selected where ccy=USD');
+  await expect(head).not.toContainText('from the screen');
+  await expect(read).toContainText('trades, 2 rows: DRAFT-2, DRAFT-3');
+  await expect(read).toContainText('A: 2 on to off');
+  await page.keyboard.press('Enter');
+  await expect(line).toBeHidden();
+  await expect(page.getByTestId('notice')).toHaveText('Set A to off on DRAFT-2 and DRAFT-3.');
+  await expect(page.getByTestId('workspace-summary')).toContainText('5 edit(s)');
+
+  // `reset` with nothing after it is the cell the keyboard is on, DRAFT-1's CSA, whatever else is selected.
+  await page.keyboard.press('ControlOrMeta+K');
+  await expect(line).toBeFocused();
+  await page.keyboard.type('reset ');
+  await expect(head).toContainText('rows from the screen: DRAFT-1');
+  await expect(head).toContainText('field from the screen: csa');
+  await expect(read).toContainText('trades, 1 row: DRAFT-1');
+  await page.keyboard.press('Enter');
+  await expect(line).toBeHidden();
+  await expect(cell(page, 'DRAFT-1', CSA + 1)).toHaveText('CSA-A');
+  for (const id of ['DRAFT-2', 'DRAFT-3']) await expect(cell(page, id, CSA + 1)).toHaveText('CSA-B');
+  await expect(page.getByTestId('workspace-summary')).toContainText('4 edit(s)');
+});
+
+test('ADR-0016 §2, notes 16, 17: every row of a grid selected with one key is that many rows, and in a sorted grid the rows are those at the positions selected', async ({ page }) => {
+  await open(page);
+  await newWorkspace(page, 'ABC/LE-01', 60);
+  const line = page.getByRole('combobox', { name: 'Command' });
+  const read = page.getByTestId('command-preview');
+  const head = page.getByTestId('command-pending');
+  const screen = page.getByTestId('command-context');
+  const existing = page.getByLabel('Existing trades', { exact: true });
+  /** The trade drawn at a position of the Existing grid, from 0; the header is the grid's first row. */
+  const at = (position: number) => existing.locator(`[aria-rowindex="${position + 2}"] [aria-colindex="1"]`);
+
+  // Ctrl+A in the Existing grid: the rows are every one of its 43, most of them never drawn, and one command writes them.
+  await existing.getByRole('grid').focus();
+  await page.keyboard.press('ControlOrMeta+Home');
+  await page.keyboard.press('ControlOrMeta+Home');
+  await page.keyboard.press('ControlOrMeta+A');
+  await page.keyboard.press('ControlOrMeta+K');
+  await expect(line).toBeFocused();
+  await expect(screen).toHaveText('On screen: trades (existing), 43 selected, ABC-LE-01-E00003 · trade id');
+  await page.keyboard.type('set selected a off');
+  await expect(head).toContainText('rows selected');
+  await expect(read).toContainText('trades, 43 rows: ABC-LE-01-E00003, ');
+  await expect(read).toContainText('A: 43 on to off');
+  await page.keyboard.press('Enter');
+  await expect(line).toBeHidden();
+  await expect(page.getByTestId('notice')).toHaveText('Set A to off on 43 trades.');
+  await expect(page.getByTestId('workspace-summary')).toContainText('43 edit(s)');
+
+  // Sorted by notional, largest first, from the column's menu: a position is a row of that order.
+  await page.keyboard.press('ControlOrMeta+Home');
+  for (let i = 0; i < 3; i++) await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('Alt+ArrowDown');
+  await page.getByRole('menuitem', { name: 'Sort descending' }).click();
+  await expect(existing.getByRole('columnheader', { name: 'Notional' })).toHaveAttribute('aria-sort', 'descending');
+  await settled(page, 'Existing trades');
+  await expect(at(0)).not.toHaveText('ABC-LE-01-E00003');
+  const [first, second] = [await at(0).innerText(), await at(1).innerText()];
+  await existing.getByRole('grid').focus();
+  await page.keyboard.press('ControlOrMeta+Home');
+  await page.keyboard.press('ControlOrMeta+Home');
+  await page.keyboard.press('Shift+ArrowDown');
+  await page.keyboard.press('ControlOrMeta+K');
+  await expect(line).toBeFocused();
+  await expect(screen).toHaveText(`On screen: trades (existing), 2 selected, ${first} · trade id`);
+  await page.keyboard.type('set curve usd_sofr');
+  await expect(head).toContainText(`rows from the screen: ${first}, ${second}`);
+  await expect(read).toContainText(`trades, 2 rows: ${first}, ${second}`);
+  await page.keyboard.press('Enter');
+  await expect(line).toBeHidden();
+  await expect(page.getByTestId('notice')).toHaveText(`Set curve to usd_sofr on ${first} and ${second}.`);
+  await expect(page.getByTestId('workspace-summary')).toContainText('45 edit(s)');
+});
+
+test('ADR-0016 §2, §9, notes 16, 17, 19: the CSA grid is a screen of the CSAs, named by their ids, `shown` is the rows its filter leaves, and a grid of no table leaves the line none', async ({ page }) => {
+  await open(page);
+  await newWorkspace(page, 'ABC/LE-01', 5);
+  const line = page.getByRole('combobox', { name: 'Command' });
+  const read = page.getByTestId('command-preview');
+  const screen = page.getByTestId('command-context');
+
+  // The keyboard in the CSA grid, on CSA-A's currency, the first term after Main, the id, the type and the agreement.
+  await command(page, 'open', 'csa');
+  await expect(page.getByRole('tab', { name: /^CSA/ })).toHaveAttribute('aria-selected', 'true');
+  await settled(page, 'CSA terms');
+  await page.keyboard.press('ControlOrMeta+Home');
+  await page.keyboard.press('ControlOrMeta+Home');
+  for (let i = 0; i < 4; i++) await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ControlOrMeta+K');
+  await expect(line).toBeFocused();
+  await expect(screen).toHaveText('On screen: csas, 1 selected, CSA-A · currency');
+  await page.keyboard.type('set threshold 5mm');
+  await expect(page.getByTestId('command-pending')).toContainText('rows from the screen: CSA-A');
+  await expect(read).toContainText('threshold: 0 to 5mm');
+  await page.keyboard.press('Enter');
+  await expect(line).toBeHidden();
+  await expect(page.getByTestId('notice')).toHaveText('Set CSA-A threshold to 5mm.');
+
+  // Filtered from its column's menu, the grid shows CSA-B alone: `shown` is the rows the user sees (ADR-0016 §2), and
+  // the line says that the grid is filtered.
+  await page.keyboard.press('ControlOrMeta+Home');
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('Alt+ArrowDown');
+  await page.getByRole('dialog', { name: 'CSA', exact: true }).getByRole('textbox').first().focus();
+  await page.keyboard.type('CSA-B');
+  await page.keyboard.press('Enter');
+  await expect(page.getByLabel('CSA terms').getByRole('row')).toHaveCount(2);
+  await settled(page, 'CSA terms');
+  await page.keyboard.press('ControlOrMeta+K');
+  await expect(line).toBeFocused();
+  await expect(screen).toHaveText('On screen: csas, filtered to 1, nothing selected');
+  await page.keyboard.type('set shown threshold 7mm');
+  await expect(read).toContainText('csas, 1 row: CSA-B');
+  await page.keyboard.press('Escape');
+  await expect(line).toBeHidden();
+
+  // The Scenarios grid is a grid of no table: once the keyboard has been in it, the line has no screen to read.
+  await command(page, 'open scenarios');
+  await expect(page.getByRole('tab', { name: 'Scenarios' })).toHaveAttribute('aria-selected', 'true');
+  await settled(page, 'Shifts');
+  await page.keyboard.press('ControlOrMeta+K');
+  await expect(line).toBeFocused();
+  await page.keyboard.type('set threshold 5mm');
+  // With no rows on screen `threshold` is no field of theirs: the first word is read as a row, as it always was.
+  await expect(read).toHaveText('No row threshold in trades, csas, netting, credit, cds, workspace or xva.');
+  await expect(screen).toHaveCount(0);
+});
+
 test('docs/03 §5, ADR-0010 §3: `add trades` makes a case per new trade alone, refuses one in Before by name, and Price refuses a set the rows left', async ({ page, problems }) => {
   const refused = 'error: Failed to load resource: the server responded with a status of 422 (Unprocessable Entity)';
   await open(page);

@@ -164,7 +164,8 @@ public sealed class PortfolioTables(MeasureRegister register) : ITableCatalog
     static IReadOnlyList<IWorkspaceTable> Build(MeasureRegister register, PortfolioChecks checks) =>
     [
         new TradeTable(register, checks),
-        new Table(checks, Described(Csas, "CSAs", ["csas", "csa"], "csaId", PortfolioFields.Csa), reading =>
+        // `csa` alone is a trade's field, which a line with trades selected sets (ADR-0016 note 18 of step 2): the table is `csas`.
+        new Table(checks, Described(Csas, "CSAs", ["csas"], "csaId", PortfolioFields.Csa), reading =>
             [.. PortfolioMaterialiser.Csas(reading).Select(c => new Row(reading, Entity.Of(Entity.Csa, c.CsaId), c.CsaId, null, f => PortfolioFields.Value(c, f)))],
             row => $"{row.Key} is a CSA of the agreement, which the source holds: a command changes its terms and never removes it."),
         OneRow(checks, Described(Netting, "Netting set", ["netting"], "nettingSetId", PortfolioFields.Netting, one: true), reading =>
@@ -230,6 +231,9 @@ public sealed class PortfolioTables(MeasureRegister register) : ITableCatalog
         public IReadOnlyList<ITableRow> Rows(WorkspaceState state) => rows(PortfolioCases.Base(state));
         public string? WhyEmpty(WorkspaceState state) => whyEmpty?.Invoke(PortfolioCases.Base(state));
         public virtual DateOnly? AsOf(WorkspaceState state) => null;
+
+        /// <summary>No reader pages the table: the page holds its every row, and names rows by their keys.</summary>
+        public virtual OrderedRows? InOrder(WorkspaceState state, string? subset, IReadOnlyList<ViewSort> sorts) => null;
 
         public IReadOnlyList<WorkspaceChange> Set(WorkspaceState state, ITableRow row, TableField field, JsonNode? value)
         {
@@ -303,6 +307,16 @@ public sealed class PortfolioTables(MeasureRegister register) : ITableCatalog
             var columns = register.TradeColumns.Select(c => c.Field).ToHashSet();
             return [.. trades.Select((t, i) => new TradeRow(shared, i, reading, t,
                 f => columns.Contains(f) ? shared.WithCells.Value[i].Cells?.GetValueOrDefault(f)?.Value?.DeepClone() : PortfolioFields.Value(t, f)))];
+        }
+
+        // The order a trade grid is paged in (ADR-0016 §2, note 17 of step 2): the page's own order, which it keeps for
+        // the state, and the page's token. The rows are read each time: a module's cell arrives with no edit.
+        public override OrderedRows? InOrder(WorkspaceState state, string? subset, IReadOnlyList<ViewSort> sorts)
+        {
+            var reading = PortfolioCases.Base(state);
+            var keys = TradeOrder.Keys(sorts.Select(s => (s.Column, s.Descending)));
+            var rows = Read(register, reading).ToDictionary(r => r.Key, StringComparer.Ordinal);
+            return new([.. TradeOrder.Ordered(reading, register, subset, keys).Select(t => rows[t.TradeId])], TradeOrder.Token(reading, keys));
         }
 
         public override DateOnly? AsOf(WorkspaceState state) => Source(state).ValueDate;

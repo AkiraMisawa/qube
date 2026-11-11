@@ -1,5 +1,6 @@
 using System.Text.Json.Nodes;
 using Qube.Composition.Application;
+using Qube.Composition.Application.Tables;
 using Qube.Composition.Application.Traces;
 using Qube.Composition.Application.Workspaces;
 using Qube.Composition.Contracts;
@@ -25,7 +26,8 @@ public static class Api
     public sealed record CommandRequest(JsonObject Inputs, string IdempotencyKey);
 
     /// <summary>A line as typed, for a workspace, at the revision its caller read where it says one (ADR-0016 §5).</summary>
-    public sealed record PreviewRequest(string Line, string WorkspaceId, long? Revision = null);
+    /// <param name="View">What the screen behind the line showed as it opened (ADR-0016 §9, note 16 of step 2); none where no screen is.</param>
+    public sealed record PreviewRequest(string Line, string WorkspaceId, long? Revision = null, LineView? View = null);
 
     public sealed record ViewValidationRequest(ViewDefinition View, IReadOnlyList<string> BoundNames);
 
@@ -117,11 +119,13 @@ public static class Api
         {
             try
             {
-                return Results.Ok(lines.Preview(request.Line, request.WorkspaceId, request.Revision, new Caller(user.Id, RunOrigin.Pricer)));
+                return Results.Ok(lines.Preview(request.Line, request.WorkspaceId, request.Revision, new Caller(user.Id, RunOrigin.Pricer), request.View));
             }
             catch (WorkspaceRefused refused)
             {
-                var status = DoorStatus(refused.Code) ?? throw new InvalidOperationException($"No status is set for the preview's refusal {refused.Code}.");
+                // A view that names what the workspace has not is the page's own fault: a bad request, never a reading.
+                var status = refused.Code == "InvalidView" ? 400
+                    : DoorStatus(refused.Code) ?? throw new InvalidOperationException($"No status is set for the preview's refusal {refused.Code}.");
                 return Results.Json(new ErrorEnvelope(refused.Code, refused.Message, [], Retryable: status == 409), statusCode: status);
             }
         });

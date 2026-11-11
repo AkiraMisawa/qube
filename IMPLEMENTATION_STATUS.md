@@ -1207,114 +1207,6 @@ the edit verbs, the pricer registered) and this one. What it settled is ADR-0016
 ### Measurements
 
 Release build on this Linux container, the SQLite store, one request at a time with `curl`, a workspace of 10,009
-existing trades (14,286 requested). Recorded, not gated; the ranges are of four runs.
-
-| Step | Time |
-|---|---|
-| `set existing csa CSA-B`: 10,009 rows matched, 4,988 edits written by row | 0.20 to 0.25 s (0.30 s the first on a host) |
-| `set where ccy=JPY after off`: 5,999 edits written by row | 0.11 to 0.22 s |
-| `undo` of either, and `redo` | 0.10 to 0.20 s |
-| `set existing before off`: one whole-set edit over 10,009 rows, and its `undo` | 0.02 s, 0.01 s |
-| `set` of one row in a workspace with no other edit, and its `undo` | 0.02 s, 0.01 s |
-| With 15,000 edits standing: `set` of one trade | 0.04 to 0.07 s |
-| With 15,000 edits standing: `set` of one CSA's threshold, no table named | 0.09 to 0.16 s |
-| With 15,000 edits standing: the workspace's view | 0.15 to 0.26 s |
-| With 15,000 edits standing: `undo` of one edit | 0.03 to 0.06 s |
-| In a test, the in-memory store: `set` of 7,000 rows named by the ends of their ids | 0.2 to 0.4 s |
-| In a test, the in-memory store: two values over 5,999 rows (`after=off before=off`) | 0.5 to 0.65 s |
-
-The last four were 0.30 to 0.36 s, 0.27 to 0.36 s, 0.42 s and 0.03 s when first measured: every reader of a state
-worked its trades, CSAs and credit out again, and walked every edit of the workspace to find an entity's. The pricer
-now reads a state once (`PortfolioMaterialiser`), finds an entity's edits by an index, works a touched row out again
-only when what it reads has changed, and no longer works every row out again for a CSA term a row does not read. On
-the kernel's own fixture `where` on two fields resolves in 6 ms at 10,000 rows and 51 ms at 100,000 (ticket 07).
-Finding 7,000 rows by the ends of their ids took 1.1 s in the review's measurement, each end a scan of every id, before
-the ends were indexed. A second value costs a reading of the rows as the first left them, which the last row shows.
-
-### Verification performed
-
-| What | Result |
-|---|---|
-| `dotnet test server/Qube.slnx` | 797 passed |
-| Client: `npm run typecheck`, `npm test`, `npm run build` | 253 passed in 31 files |
-| `npx playwright test` (Chromium, headless, Linux) | 63 passed |
-| The browser tests of `set`, of `undo` after it and of a setting by `set xva`, with `--repeat-each=3` | 33 passed |
-| Code review (`code-review`, two axes, since 4f3446f) | Fixed before the merge: see below |
-
-The review's findings that changed behaviour, each with a test: a table said beside the rows now reads its own subsets;
-several values are checked in order (a value was checked against the rows as they stood before the command, so a pair
-the grid would refuse was written); a misspelt first field and a field given twice were refused under another name;
-`==` was read as `=` and a value `=x`; ends of ids cost a scan each; `in` split a grouped number; `=empty` on an amount
-was refused across units and `<empty` matched nothing in silence; a module's amount was compared across currencies; a
-module's column was a field while its module was not selected; the refusal's word and candidates were dropped at the
-gateway. The kernel's contract titles and comments no longer use a pricer's words as examples. Left as they are, and
-said in the pull request: three handlers of one shape, the operator of a condition as text, and the arguments a verb
-passes on together.
-
-### Providers
-
-Unchanged: every figure on these pages is simulated, and says so.
-
-### Known limits
-
-- The line does not read a selector yet: `set where ccy=USD after off` is the AI's tool and the gateway's, and the
-  page's `set` names rows by id, `all`, `new` or `existing`. The preview, the count before Enter and the completions
-  are 1c.
-- A revision counts edits, so a batch of 5,000 rows moves it by 5,000, and `undo` writes as many entries again: the
-  log of a workspace grows by the rows a command touched each time it is taken back or put back.
-- With many thousands of edits standing, each new state still costs a walk of them (0.05 s at 15,000) before the first
-  read, and the view more. No target is agreed.
-- Only the pricer registers tables. Rates' lines and defaults come with step 3; until then its line is as it was.
-- `reset` and `remove` have no words on the pricer's line and no button: they are commands of the gateway and tools
-  of the AI until 1c builds the line from the catalog.
-- No selector contract is registered: the edit verbs take the rows as the line spells them (ADR-0016's note 12).
-- Only a subset has a whole-set edit (B and A of a grid): no table registers one for `all` of its rows, so `set all`
-  on a table without subsets writes a row at a time.
-- A trade's `csa` set to an id that is no CSA is written and flagged on the row, as the grid does. A field says which
-  table its ids point into (`TableField.Table`), and nothing reads that until the preview completes ids in 1c.
-- A module's column that does not show is no field, so its edit cannot be reset by command until the module is
-  selected again.
-- No real model has called `entity_set`; that the AI's tools hold it and not `xva_set` is held over HTTP.
-
-## Generic commands, delivery step 1c: the preview and the line (ADR-0016 §4, §5, 2026-11-11)
-
-The third pull request of step 1 (`docs/specs/commands-1-tables-selector-undo`, tickets 11 to 14): a command says how
-it is typed, the server reads a line and answers what it would do with nothing executed, and the command line is built
-from the catalog for those commands. Step 1 is whole with it: 1a (the log, `undo`, `redo`), 1b (tables, the selector,
-the edit verbs, the pricer registered) and this one. What it settled is ADR-0016's note 15.
-
-### What runs
-
-- **A command says how it is typed** (`CommandForm` on `CapabilityDescriptor`, served by `GET /api/catalog`): its words
-  and its arguments in the order typed, each with a name, a kind (rows, assignments, a field, text) and whether it is
-  required. Five capabilities have one: `entity.set` (`set [rows] <set>`), `entity.reset` (`reset [rows] [field]`),
-  `entity.remove` (`remove <rows>`), `workspace.undo` and `workspace.redo`. A capability that has a form and cannot
-  read its line, and two that answer to the same words, stop the host at start.
-- **`POST /api/commands/preview`** (`CommandLines`) reads `{ line, workspaceId, revision? }` and writes nothing. It
-  answers the command, its inputs ready for the gateway, each argument as read, the rows (`trades, 2 rows` and their
-  first ids), and what would change in one sentence (`A: 2 on to off`, `csa: CSA-A to CSA-B`, `Nothing would change:
-  …`); or why the line cannot be read, with the word at fault and its place in the line (no place where the word
-  stands twice). For `undo` and `redo` it says what would be taken back, whose it was (`you`, or `the AI for you`) and
-  when. The verbs plan before they write, and the sentence is made from that plan.
-- **What could follow** comes with every answer: after the command's words `all`, the subsets, `where`, the tables,
-  the fields of the tables of one row and rows by id (twenty at a time, the rest counted); after rows, their table's
-  editable fields; after a field, its values where they are a closed set (a flag, a choice, the ids of the table it
-  points into); in a condition, the fields, the field's operators, its values and `and`.
-- **One value follows its field with no sign** in `entity.set` itself (`set CSA-A threshold 5mm`); several are
-  `name=value`. The client's own reader of `set` is gone.
-- **The line** builds `set`, `reset`, `remove`, `undo` and `redo` from the catalog, as commands of the page in the
-  active panel, and reads nothing after their words. While one is typed it shows the server's reading under the line
-  and lists what could follow; Tab takes the chosen one at its place. At Enter the pricer's page has the server read
-  the line again in the page's own turn, after its edits and at its revision, and invokes that reading: read, the line
-  closes and the notice is the server's sentence (`Set A to off on DRAFT-2 and DRAFT-3.`); unread, the line stays with
-  its text, the reason and the word at fault selected. `set where ccy=USD a off`, `reset existing csa` and `undo` are
-  typed on the pricer's page as they are sent by the AI.
-- **A grid's Ctrl+Z and Ctrl+Y** still invoke `workspace.undo` and `workspace.redo` directly; with nothing to take
-  back the reason is a notice, since a key has no line.
-
-### Measurements
-
-Release build on this Linux container, the SQLite store, one request at a time with `curl`, a workspace of 10,009
 existing trades (14,286 requested), five requests a line. Recorded, not gated.
 
 | Preview of | Time |
@@ -1370,10 +1262,103 @@ Unchanged: every figure on these pages is simulated, and says so.
 - No real model has called the preview or read a command form; the AI's tools are generated from the same descriptors
   and were not changed by this step.
 
+## Generic commands, delivery step 2a: the selection and the context (ADR-0016 §2, §9, 2026-11-11)
+
+The first pull request of step 2 (`docs/specs/commands-2-selection-context-places`, tickets 01 to 05): the rows
+selected in a grid are rows a command can name, a line that names none acts on them, and the line says what it was
+opened on. 2b (places, `go`, `find`) and 2c (the chain key, menu items from declarations) follow. What it settled is
+ADR-0016's notes 16 to 19.
+
+### What runs
+
+- **A view.** When the line opens, the page's door answers what the user was looking at (`CommandDoor.view()`): the
+  table of the grid the keyboard was last in, its subset, its selection and its focused cell. A grid whose page holds
+  every row names rows by key; a grid the server pages names them by position, with the sort and the order token its
+  reader answered for the rows on screen. The line sends the view with every reading, and the server keeps none of it.
+- **`selected` and `shown`** are rows where rows are said, alone or narrowed (`set selected where ccy=USD a off`).
+  The preview resolves them to row keys at the revision read, so the command that runs is rows by id: nothing in a
+  contract, the log or a result knows a screen. A command invoked with either word is refused (`NoView`).
+- **Rows left out** are the selection, or the focused row where nothing is selected: with three trades selected,
+  `set csa CSA-B` sets their CSA. `reset` with nothing after it resets the focused cell. Each argument says whether it
+  was typed or came from the view, and the line says so in words (`rows from the screen: DRAFT-1, DRAFT-2, DRAFT-3`).
+- **The line says its context** under the input, in the server's words: `On screen: trades (new), 3 selected,
+  DRAFT-1 · csa`. With no grid of a table behind it, it says nothing and `selected` is refused by name.
+- **Positions are never guessed.** A table gives the order its grid is paged in (`IWorkspaceTable.InOrder`) with that
+  order's token; positions sent with another token are refused (`ViewMoved`), and the sentence says `no longer in the
+  order it was shown in`. A view that names what the workspace has not, or is no view (a range of no row, a selection
+  said two ways), is the page's fault (HTTP 400, `InvalidView`), checked whole whatever the line.
+- **Rows of a screen run as those rows or not at all.** The preview writes their keys as a line lists ids and reads
+  that text again as Enter will: keys a command would read as other rows (a single key that is a subset's word) are
+  refused before Enter (`UnsayableRow`). Found by the review: such a key previewed one row and wrote a whole subset.
+- **`shown` is what the user sees.** The CSA grid can be filtered from its column's menu, and its view then names the
+  rows it shows; the sentence says `csas, filtered to 1, nothing selected`. Found by the review: `shown` took the
+  whole table, hidden rows included.
+- **The pricer's page** gives its New and Existing grids by position and its CSA grid by key. Its reader of pages and
+  its trades table answer one order, kept per state (`TradeOrder`). The CSA table now answers to `csas` only, since
+  `csa` is the trade's field.
+- **What could follow** offers `selected (3 rows)` and `shown (43 rows)` after `all`, and, where rows may be left out,
+  the fields of the screen's table with what they would act on.
+
+### Measurements
+
+Release build on this Linux container, the SQLite store, one request at a time, a workspace of 10,009 existing trades
+(14,286 requested), every one selected by one range, five requests a line, measured again after the review's checks
+were added. Recorded, not gated.
+
+| Preview of | Unsorted | Sorted by notional |
+|---|---|---|
+| The opening's sentence (no text) | 0.01 to 0.05 s | 0.01 s |
+| `set selected a off` (10,009 rows by key; the answer is 177 KB) | 0.09 to 0.25 s | 0.09 to 0.14 s |
+| `set csa CSA-B`, the rows left out | 0.05 to 0.08 s | 0.06 to 0.09 s |
+| `set selected where ccy=USD a off` (4,011 rows) | 0.04 to 0.08 s | 0.05 to 0.08 s |
+| `reset` on the focused cell | 0.02 to 0.06 s | 0.03 s |
+
+Enter on `set selected a off` took 0.52 s, its request 176 KB. Before the order was kept per state these previews took
+0.2 to 0.7 s: one reading asked the table for the grid's order five times, each 50 ms at this size.
+
+### Verification performed
+
+| What | Result |
+|---|---|
+| `dotnet test server/Qube.slnx` | 938 passed |
+| Client: `npm run typecheck`, `npm test`, `npm run build` | Clean; 285 passed in 33 files; built |
+| `npx playwright test` (Chromium, headless, Linux) | 70 passed |
+| The three browser tests this step added, with `--repeat-each=3` | 9 passed |
+| The line in Chromium at 1440, 992, 768 and 390 px, light and dark, by a script and by eye | The sentence, the mark and a reading of five rows; nothing scrolls sideways |
+| The CSA grid filtered from its column's menu in Chromium, then `set shown threshold 7mm` | One row, CSA-B; `On screen: csas, filtered to 1, nothing selected` |
+| Code review on two axes (standards, specification) before the merge | Two defects that wrote other rows than shown, both fixed with a test first: a screen key read again as a subset's word, and `shown` under the CSA grid's filter. Also fixed: views that are no view were read (a range of no row, an unchecked sort); the focused row's key by case; a stale order drawn as a normal sentence; names and repeated code. Left, and written down: a table left out (ticket 12, 2b); Enter before the reading arrives (ADR-0016 note 18); small repetitions between the selector's and the verbs' readers of a leading field |
+
+### Providers
+
+Unchanged: every figure on these pages is simulated, and says so.
+
+### Known limits
+
+- After a command on a **sorted** trade grid the order token has moved (it holds the revision), so the grid reads
+  again in a new sequence and drops its selection, as it does after a cell's edit: a second command needs the rows
+  selected again. An unsorted grid keeps its selection. A token that moves only when the order does is for 2c.
+- The keyboard reaches the Existing grid by a press or by Tab, not by a command: `go` is 2b.
+- Only the pricer's trade grids and CSA grid are screens. The scenarios' shifts, the credit grid, a result and a trace
+  are grids of no table, and the line has no screen once the keyboard has been in one; Rates has no door (step 3).
+- `shown` is the grid's subset on the trade grids, which refuse a filter until the server pages one (`filter` is
+  step 4). The CSA grid's own filter is read (above).
+- A table left out is not yet the screen's (ADR-0016 §9): `set where ccy=USD …` typed on the CSA grid still reads the
+  trades, as in step 1, and the preview says so before Enter. It is ticket 12, built with 2b.
+- Enter before the reading has arrived runs the line with the view read as the line opened (ADR-0016 note 18): the
+  count is then said by the notice and not before.
+- A column menu opened in a short grid (the CSA grid with two rows) shows two items at a time and scrolls: a popover
+  stays inside its grid's box (ExGrid ADR-0040). Its filter form is below the items, reached by Tab or by scrolling.
+- An answer that names 10,000 rows is 177 KB at each key typed. No target is agreed; the median workspace is 100 rows.
+- `set csa CSA-A threshold 5mm` no longer reads (`csa` is the trade's field): `set CSA-A threshold 5mm` does.
+- With trades and CSAs both able to take a word (`set ccy USD` on the CSA grid), the line is refused with both
+  spellings. Nothing remembers which one the user meant last time.
+- The selection is not given to the AI as context (ADR-0007 §8; ADR-0016's first open question).
+- This file held step 1c's section twice, the first with 1b's measurements under it; the copy was removed here.
+
 ## Next
 
-1. Generic commands, delivery step 2 (ADR-0016 §9, §4): the grid's selection as rows (`selected`, `shown`), the
-   context on the line down to the focused cell, `go` and `find`, the chain key, and context menus from declarations.
+1. Generic commands, delivery steps 2b and 2c (ADR-0016 §9, §4): places with `go` and `find`, then the chain key and
+   context menus from declarations.
 2. MVA with SIMM (`docs/12-implementation-plan.md` P2): spot IM from the XVA request's MVA option.
 3. ADR-0010 Delivery step 3 (Advanced: Before-only and After-only edits, the split fill), when the owner asks for it.
 4. The owner's review of ADR-0003 §7 (scopes, carry and conflict), then a synthetic source change that can produce a conflict, and the browser cases still open above (reload, failed case unavailable).

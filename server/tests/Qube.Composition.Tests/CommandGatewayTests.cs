@@ -139,10 +139,11 @@ public class CommandGatewayTests(QubeFactory factory) : IClassFixture<QubeFactor
         Assert.True(capabilities.Count > typed.Count, "The catalog serves capabilities no line names, as before.");
     }
 
-    async Task<(HttpStatusCode Status, JsonObject Body)> Preview(string line, string id, long? revision = null, HttpClient? by = null)
+    async Task<(HttpStatusCode Status, JsonObject Body)> Preview(string line, string id, long? revision = null, HttpClient? by = null, JsonObject? view = null)
     {
         var request = new JsonObject { ["line"] = line, ["workspaceId"] = id };
         if (revision is { } read) request["revision"] = read;
+        if (view is not null) request["view"] = view;
         var response = await (by ?? client).PostAsJsonAsync("/api/commands/preview", request);
         return (response.StatusCode, (await response.Content.ReadFromJsonAsync<JsonObject>())!);
     }
@@ -162,7 +163,9 @@ public class CommandGatewayTests(QubeFactory factory) : IClassFixture<QubeFactor
         Assert.Equal("""{"id":"entity.set","version":"1.0.0"}""", preview["command"]!.ToJsonString());
         Assert.Equal(new JsonObject { ["request"] = new JsonObject { ["workspaceId"] = id, ["revision"] = revision, ["rows"] = "CSA-A", ["set"] = "threshold 5mm" } }.ToJsonString(),
             preview["inputs"]!.ToJsonString());
-        Assert.Equal("""[{"name":"rows","text":"CSA-A"},{"name":"set","text":"threshold 5mm"}]""", preview["arguments"]!.ToJsonString());
+        Assert.Equal("""[{"name":"rows","text":"CSA-A","from":"typed"},{"name":"set","text":"threshold 5mm","from":"typed"}]""", preview["arguments"]!.ToJsonString());
+        // No screen was said to be behind the line, and the answer says none.
+        Assert.Null(preview["view"]);
         Assert.Equal("""{"table":"xva.csas","title":"csas, 1 row","count":1,"first":["CSA-A"]}""", preview["rows"]!.ToJsonString());
         Assert.Matches("^threshold: .+ to 5mm$", preview["would"]!.GetValue<string>());
         Assert.Null(preview["refused"]);
@@ -174,6 +177,36 @@ public class CommandGatewayTests(QubeFactory factory) : IClassFixture<QubeFactor
             new { inputs = preview["inputs"], idempotencyKey = Guid.NewGuid().ToString() });
         Assert.Equal("Set CSA-A threshold to 5mm.", (await Ok(ran))["said"]!.GetValue<string>());
         Assert.Equal(5_000_000m, Threshold((await client.GetFromJsonAsync<JsonObject>($"/api/xva/workspaces/{id}"))!));
+    }
+
+    [Fact] // ADR-0016 §2, §9, notes 16 to 19: the preview takes the view of the screen behind the line, answers it in a sentence, and what it answers runs as rows by key
+    public async Task The_preview_takes_a_view_says_it_and_answers_the_rows_of_the_screen_by_key()
+    {
+        var ws = await Create();
+        var id = ws["workspaceId"]!.GetValue<string>();
+        JsonObject View() => new() { ["table"] = "xva.csas", ["keys"] = new JsonArray("CSA-A"), ["focus"] = new JsonObject { ["field"] = "counterpartyThreshold", ["key"] = "CSA-A" } };
+
+        var (_, opened) = await Preview("", id, view: View());
+        var (_, preview) = await Preview("set selected threshold 5mm", id, view: View());
+        var (invalid, body) = await Preview("set selected threshold 5mm", id, view: new JsonObject { ["table"] = "xva.tides" });
+        // A page that filters the rows it holds names those it shows, and `shown` is those.
+        var filter = View();
+        filter["shown"] = new JsonArray("CSA-A");
+        var (_, left) = await Preview("set shown threshold 5mm", id, view: filter);
+
+        Assert.Equal(("csas, 1 selected, CSA-A · threshold", "UnknownCommand"), (opened["view"]!.GetValue<string>(), opened["refused"]!["code"]!.GetValue<string>()));
+        Assert.Equal("csas, 1 selected, CSA-A · threshold", preview["view"]!.GetValue<string>());
+        Assert.Equal(("csas", "CSA-A", "threshold 5mm"), (preview["inputs"]!["request"]!["table"]!.GetValue<string>(), preview["inputs"]!["request"]!["rows"]!.GetValue<string>(),
+            preview["inputs"]!["request"]!["set"]!.GetValue<string>()));
+        Assert.Equal("""{"name":"rows","text":"selected","from":"typed"}""", preview["arguments"]![0]!.ToJsonString());
+        Assert.Equal(("csas, filtered to 1, 1 selected, CSA-A · threshold", false, "CSA-A"),
+            (left["view"]!.GetValue<string>(), left["viewMoved"]!.GetValue<bool>(), left["inputs"]!["request"]!["rows"]!.GetValue<string>()));
+        // A view of what the workspace has not is a page's fault, and is refused whole.
+        Assert.Equal((HttpStatusCode.BadRequest, "InvalidView"), (invalid, body["code"]!.GetValue<string>()));
+
+        var ran = await client.PostAsJsonAsync($"/api/commands/{preview["command"]!["id"]!.GetValue<string>()}/{preview["command"]!["version"]!.GetValue<string>()}",
+            new { inputs = preview["inputs"], idempotencyKey = Guid.NewGuid().ToString() });
+        Assert.Equal("Set CSA-A threshold to 5mm.", (await Ok(ran))["said"]!.GetValue<string>());
     }
 
     [Fact] // ADR-0016 §5, §6: a line that cannot be read is an answer, with the word and its place; a workspace that cannot be read is a status

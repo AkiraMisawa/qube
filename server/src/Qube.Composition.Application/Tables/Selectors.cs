@@ -13,16 +13,23 @@ namespace Qube.Composition.Application.Tables;
 public sealed record Condition(string Field, string Operator, string Value);
 
 /// <summary>
-/// Which rows (ADR-0016 §2): the table, by id or by words, or none where the rows say it; then every row, a subset, or
-/// rows by id, each narrowed by conditions joined by <c>and</c>.
+/// Which rows (ADR-0016 §2): the table, by id or by words, or none where the rows say it; then every row, a subset,
+/// rows by id, or the rows a screen names (<c>selected</c>, <c>shown</c>), each narrowed by conditions joined by
+/// <c>and</c>. The rows of a screen are read with the view the line was given (note 17 of step 2).
 /// </summary>
-public sealed record RowSelector(string? Table = null, bool All = false, string? Subset = null, IReadOnlyList<string>? Ids = null, IReadOnlyList<Condition>? Where = null)
+public sealed record RowSelector(
+    string? Table = null,
+    bool All = false,
+    string? Subset = null,
+    IReadOnlyList<string>? Ids = null,
+    IReadOnlyList<Condition>? Where = null,
+    ScreenRows? Screen = null)
 {
     public IReadOnlyList<string> Ids { get; init; } = Ids ?? [];
     public IReadOnlyList<Condition> Where { get; init; } = Where ?? [];
 
     /// <summary>True where no row is said: the rows of a table of one row, or nothing a command can act on.</summary>
-    public bool SaysNoRows => !All && Subset is null && Ids.Count == 0 && Where.Count == 0;
+    public bool SaysNoRows => !All && Subset is null && Ids.Count == 0 && Where.Count == 0 && Screen is null;
 }
 
 /// <summary>A selector read from the start of a line, and the words it left for the verb.</summary>
@@ -35,7 +42,8 @@ sealed record OpenCondition(IReadOnlyList<string> Field, string? Operator);
 /// A line's rows as far as they could be read: the selector, how many words it took, and, where the last condition is
 /// not finished, that condition and the refusal a command would get. What could follow is said from this (note 15).
 /// </summary>
-sealed record SelectorScan(RowSelector Selector, int Taken, OpenCondition? Open, TableRefused? Short);
+/// <param name="IdsFrom">The first word of the rows' ids, where rows are said by id, and <paramref name="IdsTo"/> the word after the last.</param>
+sealed record SelectorScan(RowSelector Selector, int Taken, OpenCondition? Open, TableRefused? Short, int IdsFrom = 0, int IdsTo = 0);
 
 /// <summary>
 /// The rows a selector means in a workspace. <paramref name="Whole"/> names the subsets the rows are the whole of, where
@@ -48,6 +56,8 @@ public sealed record ResolvedRows(BoundTable Table, IReadOnlyList<ITableRow> Row
 public static partial class SelectorReader
 {
     public const string AllWord = "all";
+    public const string SelectedWord = "selected";
+    public const string ShownWord = "shown";
     public const string WhereWord = "where";
     public const string AndWord = "and";
     public const string InWord = "in";
@@ -55,20 +65,22 @@ public static partial class SelectorReader
     const string HowACondition = "a condition is a field, an operator (=, !=, <, <=, >, >=, ~, in) and a value, and conditions are joined by and.";
 
     /// <summary>
-    /// Reads the rows a line starts with: a table's words where it names one, then <c>all</c>, a subset, or ids separated
-    /// by commas, then <c>where</c> and its conditions. What follows is the verb's. A line that starts with a field of a
-    /// table of one row says no rows. Where the table is said beside the rows (<paramref name="within"/>), the rows are
+    /// Reads the rows a line starts with: a table's words where it names one, then <c>all</c>, <c>selected</c>,
+    /// <c>shown</c>, a subset, or ids separated by commas, then <c>where</c> and its conditions. What follows is the
+    /// verb's. A line that starts with a field of a table of one row says no rows, and so does one that starts with a
+    /// field of the table on the screen behind the line (<paramref name="onScreen"/>, note 18 of step 2): its rows are
+    /// then the screen's to say. Where the table is said beside the rows (<paramref name="within"/>), the rows are
     /// read as that table's: its subsets, and no row where it has one.
     /// </summary>
-    public static SelectorReading Read(string text, IReadOnlyList<TableDescriptor> tables, TableDescriptor? within = null)
+    public static SelectorReading Read(string text, IReadOnlyList<TableDescriptor> tables, TableDescriptor? within = null, TableDescriptor? onScreen = null)
     {
         var words = text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
-        var scan = Scan(words, tables, within);
+        var scan = Scan(words, tables, within, onScreen);
         return scan.Short is { } unread ? throw unread : new(scan.Selector, words[scan.Taken..]);
     }
 
     /// <summary>The one reading of a line's rows, which stops at a condition that is not finished and says so, where <see cref="Read"/> refuses.</summary>
-    internal static SelectorScan Scan(string[] words, IReadOnlyList<TableDescriptor> tables, TableDescriptor? within = null)
+    internal static SelectorScan Scan(string[] words, IReadOnlyList<TableDescriptor> tables, TableDescriptor? within = null, TableDescriptor? onScreen = null)
     {
         var at = 0;
 
@@ -78,19 +90,33 @@ public static partial class SelectorReader
             if (named.Count > 1)
                 throw new TableRefused("AmbiguousTable", $"{Said(words, at, taken)} could be {TableWords.Either(named.Select(t => t.TableId))}; name one by its id.",
                     Said(words, at, taken), [.. named.Select(t => t.TableId)]);
+            // Words that name a table and a field of the screen's table: which was meant is not guessed (note 18 of step 2).
+            if (within is null && onScreen is not null && Longest(words, at, onScreen.Fields, TableWords.Names) is (var fields, _))
+            {
+                var word = Said(words, at, taken);
+                var other = named[0].Words.FirstOrDefault(w => !TableWords.Names(fields[0]).Contains(TableWords.Of(w))) ?? named[0].TableId;
+                throw new TableRefused("AmbiguousWords",
+                    $"{word} could be the table {TableWords.Word(named[0])} or {TableWords.Word(fields[0])} of the {TableWords.Word(onScreen)} on screen; write {other} for the table, or {SelectedWord} {word} for the rows on screen.",
+                    word, [other, $"{SelectedWord} {word}"]);
+            }
             (table, at) = (named[0], at + taken);
         }
 
         var all = false;
+        ScreenRows? screen = null;
         string? subset = null;
         List<string> ids = [];
         var said = table ?? within;
         var scope = said ?? tables.FirstOrDefault(t => t.Main);
         if (at < words.Length && Is(words[at], AllWord)) (all, at) = (true, at + 1);
+        else if (at < words.Length && ScreenWord(words[at]) is { } rows) (screen, at) = (rows, at + 1);
         // A registration's subsets share no word (TableRegister.Of), so the words name one.
         else if (scope is not null && Longest(words, at, scope.Subsets, TableWords.Names) is (var subsets, var length)) (subset, at) = (subsets[0].Name, at + length);
-        else if (at < words.Length && !Is(words[at], WhereWord) && said is not { SingleRow: true } && !(said is null && StartsWithAFieldOfOneRow(words, at, tables)))
+        var idsFrom = at;
+        if (!all && screen is null && subset is null && at < words.Length && !Is(words[at], WhereWord) && said is not { SingleRow: true }
+            && !(said is null && StartsWithAField(words, at, [.. tables.Where(t => t.SingleRow).SelectMany(t => t.Fields), .. onScreen?.Fields ?? []])))
             at = List(words, at, ids);
+        var idsTo = at;
 
         List<Condition> where = [];
         OpenCondition? open = null;
@@ -104,8 +130,14 @@ public static partial class SelectorReader
             }
             while (unread is null && at < words.Length && Is(words[at], AndWord));
         }
-        return new(new RowSelector(table?.TableId, all, subset, ids, where), at, open, unread);
+        return new(new RowSelector(table?.TableId, all, subset, ids, where, screen), at, open, unread, idsFrom, idsTo);
     }
+
+    /// <summary>The rows of a screen a word names, or none: the two words are kept, so no subset or row is said by one.</summary>
+    internal static ScreenRows? ScreenWord(string word) => Is(word, SelectedWord) ? ScreenRows.Selected : Is(word, ShownWord) ? ScreenRows.Shown : null;
+
+    /// <summary>The word that names the rows of a screen.</summary>
+    public static string Word(ScreenRows rows) => rows == ScreenRows.Selected ? SelectedWord : ShownWord;
 
     // The longest run of words from `at` that names one of the items, and each item it names.
     internal static (IReadOnlyList<T> Items, int Length)? Longest<T>(string[] words, int at, IReadOnlyList<T> items, Func<T, IReadOnlySet<string>> names)
@@ -121,8 +153,14 @@ public static partial class SelectorReader
         return null;
     }
 
-    static bool StartsWithAFieldOfOneRow(string[] words, int at, IReadOnlyList<TableDescriptor> tables) =>
-        Longest(words, at, [.. tables.Where(t => t.SingleRow).SelectMany(t => t.Fields)], TableWords.Names) is not null;
+    // Whether the words name a field first: the longest run of them that names one, or, where a value follows with its
+    // sign, every word before the sign (`wind speed=4`).
+    static bool StartsWithAField(string[] words, int at, IReadOnlyList<TableField> fields)
+    {
+        if (Longest(words, at, fields, TableWords.Names) is not null) return true;
+        var rest = string.Join(' ', words, at, words.Length - at);
+        return rest.IndexOf('=') is > 0 and var sign && fields.Any(f => TableWords.Names(f).Contains(TableWords.Of(rest[..sign])));
+    }
 
     // Values separated by commas: a word that ends with a comma is followed by another.
     static int List(string[] words, int at, List<string> into)
@@ -198,7 +236,8 @@ public static class Selectors
 {
     const int Shown = 5;
 
-    public static ResolvedRows Resolve(RowSelector selector, IReadOnlyList<BoundTable> tables, WorkspaceState state)
+    /// <param name="view">What the screen behind the command showed, where there is one: <c>selected</c> and <c>shown</c> are read with it.</param>
+    public static ResolvedRows Resolve(RowSelector selector, IReadOnlyList<BoundTable> tables, WorkspaceState state, LineView? view = null)
     {
         // The rows of each table are read once, and only when the selector asks for them.
         var read = new Dictionary<string, IReadOnlyList<ITableRow>>();
@@ -207,7 +246,11 @@ public static class Selectors
         var indexed = new Dictionary<string, RowIndex>();
         RowIndex IndexOf(BoundTable t) => indexed.TryGetValue(t.Descriptor.TableId, out var index) ? index : indexed[t.Descriptor.TableId] = new(t, RowsOf(t));
 
-        var table = selector.Table is { } name ? TableRegister.Find(tables, name)
+        // The rows of a screen, where the selector says them, and the word that says them.
+        var screen = selector.Screen;
+        var screenWord = screen is null ? null : SelectorReader.Word(screen.Value);
+        var table = screen is not null ? ScreenTable(selector, screen.Value, tables, view)
+            : selector.Table is { } name ? TableRegister.Find(tables, name)
             : selector.Ids.Count > 0 ? TableOf(selector.Ids, tables, IndexOf)
             : selector.SaysNoRows ? throw NoRows(null, tables)
             : tables.FirstOrDefault(t => t.Descriptor.Main) ?? throw NoRows(null, tables);
@@ -216,7 +259,14 @@ public static class Selectors
         IReadOnlyList<ITableRow> rows;
         IReadOnlyList<TableSubset>? whole = null;
         if (selector.All && selector.Subset is not null) throw new TableRefused("RowsSaidTwice", "Rows are said as all or as a subset, not both.");
-        if (selector.Ids.Count > 0)
+        if (screen is not null)
+        {
+            if (selector.All || selector.Subset is not null || selector.Ids.Count > 0)
+                throw new TableRefused("RowsSaidTwice", $"Rows are said as {screenWord}, or by their ids, as all or as a subset, not both.");
+            // Rows of a screen are rows, never a whole set: no one edit stands for them.
+            rows = screen == ScreenRows.Shown ? Views.Shown(view!, table, all, IndexOf(table).Row) : Views.Selected(view!, table, state, IndexOf(table).Row);
+        }
+        else if (selector.Ids.Count > 0)
         {
             if (selector.All || selector.Subset is not null)
                 throw new TableRefused("RowsSaidTwice", "Rows are said by their ids, or as all or a subset, not both.");
@@ -251,9 +301,43 @@ public static class Selectors
             throw NoRows(table, tables);
         }
 
-        if (selector.Where.Count == 0) return new(table, rows, whole, []);
+        if (selector.Where.Count == 0)
+            return screen is null || rows.Count > 0 ? new(table, rows, whole, []) : throw new TableRefused("NothingShown", $"{Views.Named(view!, table)} shows no row.", SelectorReader.ShownWord);
         var conditions = Conditions.Compile(selector.Where, table, rows, state);
-        return new(table, [.. rows.Where(r => conditions.All(c => c.Holds(r)))], null, [.. conditions.Select(c => c.Text)]);
+        IReadOnlyList<ITableRow> matching = [.. rows.Where(r => conditions.All(c => c.Holds(r)))];
+        // The rows of a screen are run by their keys (note 17 of step 2), so none of them is nothing to run: refused.
+        if (screen is not null && matching.Count == 0)
+            throw new TableRefused("NoRowMatches", $"No {screenWord} row of {table.Word} matches {string.Join(" and ", conditions.Select(c => c.Text))}.", screenWord);
+        return new(table, matching, null, [.. conditions.Select(c => c.Text)]);
+    }
+
+    /// <summary>
+    /// The rows a line that says none acts on, where a screen is behind it (note 18 of step 2): the screen's selection,
+    /// or the row the keyboard is on where nothing is selected. With neither, the line is refused as one that says
+    /// <c>selected</c> is.
+    /// </summary>
+    public static ResolvedRows LeftOut(LineView view, IReadOnlyList<BoundTable> tables, WorkspaceState state) =>
+        view.Selected == 0 && Focused(view, tables, state) is { } focused ? focused : Resolve(new RowSelector(Screen: ScreenRows.Selected), tables, state, view);
+
+    /// <summary>The row the keyboard is on, as rows; none where the view has no focus.</summary>
+    public static ResolvedRows? Focused(LineView view, IReadOnlyList<BoundTable> tables, WorkspaceState state)
+    {
+        var table = Views.TableOf(view, tables);
+        // A key names its row as a selected row's key does, whatever its case.
+        RowIndex? index = null;
+        return Views.FocusedRow(view, table, state, key => (index ??= new(table, table.Table.Rows(state))).Row(key)) is { } row ? new(table, [row], null, []) : null;
+    }
+
+    // The table of the rows on screen (note 17 of step 2): the view's, and no other may be said beside it.
+    static BoundTable ScreenTable(RowSelector selector, ScreenRows screen, IReadOnlyList<BoundTable> tables, LineView? view)
+    {
+        var word = SelectorReader.Word(screen);
+        if (view is null)
+            throw new TableRefused("NoView", $"{word} means the rows {word} on a screen, and no screen is behind this command: name the rows by their ids, all, a subset or where.", word);
+        var table = Views.TableOf(view, tables);
+        if (selector.Table is { } said && TableRegister.Find(tables, said) is var other && other.Descriptor.TableId != table.Descriptor.TableId)
+            throw new TableRefused("TwoTables", $"The rows on screen are of {table.Word} and the table is said to be {other.Word}.", said);
+        return table;
     }
 
     // The one table that has the rows named (note 7): by an id as written first, then by the end of one.

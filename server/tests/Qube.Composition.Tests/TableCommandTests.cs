@@ -288,6 +288,23 @@ public class TableCommandTests
         Assert.Equal((before + 1, RunOrigin.Ai), (agent.Revision, rig.Board.Log[^1].Origin));
     }
 
+    [Fact] // ADR-0016 §2, note 17: no command takes the rows of a screen; one invoked with `selected` or `shown` is refused by name and writes nothing
+    public async Task A_command_invoked_with_the_rows_of_a_screen_is_refused()
+    {
+        var rig = new Rig();
+        var before = rig.Board.Revision;
+
+        var selected = Assert.IsType<CommandResult.Refused>(await rig.Invoke("entity.set", Rig.Request("selected where unit=m3", null, ("set", "note=wet")), new Caller("ana", RunOrigin.Ai)));
+        var shown = await rig.Refused("entity.reset", Rig.Request("shown", null));
+        var removed = await rig.Refused("entity.remove", Rig.Request("readings selected", null));
+
+        Assert.Equal(("NoView", "selected means the rows selected on a screen, and no screen is behind this command: name the rows by their ids, all, a subset or where.", "selected"),
+            (selected.Code, selected.Issues[0].Message, selected.Issues[0].Word));
+        Assert.Equal(("NoView", "shown means the rows shown on a screen, and no screen is behind this command: name the rows by their ids, all, a subset or where."), shown);
+        Assert.Equal("NoView", removed.Code);
+        Assert.Equal(before, rig.Board.Revision);
+    }
+
     [Fact] // ADR-0016 §3, note 10: reset removes the rows' own edits, of one field or of every field; a row with none is counted as such
     public async Task Reset_removes_the_edits_of_a_field_or_of_every_field()
     {

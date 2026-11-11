@@ -1,3 +1,4 @@
+using System.Globalization;
 using Qube.Composition.Application.Workspaces;
 using Qube.Composition.Contracts;
 
@@ -15,7 +16,8 @@ static class TableCompletions
     const int RowsListed = 20;
 
     /// <param name="afterRows">What the verb takes after its rows: values for fields, one field, or nothing.</param>
-    public static LineCompletions Of(string text, IReadOnlyList<BoundTable> tables, WorkspaceState state, CommandArgumentKind? afterRows)
+    /// <param name="view">What the screen behind the line showed, where there is one: its rows are then a way to say rows.</param>
+    public static LineCompletions Of(string text, IReadOnlyList<BoundTable> tables, WorkspaceState state, CommandArgumentKind? afterRows, LineView? view = null)
     {
         var words = LineWords.Of(text);
         // No space after the command's own words: they are still being typed, and nothing follows yet.
@@ -25,7 +27,7 @@ static class TableCompletions
         IReadOnlyList<(string Word, int Start)> done = typing ? [.. words.Take(words.Count - 1)] : words;
         try
         {
-            return new Offer(tables, state, afterRows, done, last.Word, last.Start).All();
+            return new Offer(tables, state, afterRows, view, done, last.Word, last.Start).All();
         }
         catch (TableRefused)
         {
@@ -34,7 +36,8 @@ static class TableCompletions
         }
     }
 
-    sealed class Offer(IReadOnlyList<BoundTable> tables, WorkspaceState state, CommandArgumentKind? afterRows, IReadOnlyList<(string Word, int Start)> done, string typed, int at)
+    sealed class Offer(
+        IReadOnlyList<BoundTable> tables, WorkspaceState state, CommandArgumentKind? afterRows, LineView? view, IReadOnlyList<(string Word, int Start)> done, string typed, int at)
     {
         readonly List<LineCompletion> items = [];
         readonly Dictionary<BoundTable, IReadOnlyList<string>> keys = [];
@@ -43,25 +46,29 @@ static class TableCompletions
         public LineCompletions All()
         {
             var words = done.Select(w => w.Word).ToArray();
-            var scan = SelectorReader.Scan(words, [.. tables.Select(t => t.Descriptor)]);
+            var onScreen = view is null ? null : Views.TableOf(view, tables);
+            var scan = SelectorReader.Scan(words, [.. tables.Select(t => t.Descriptor)], onScreen: onScreen?.Descriptor);
             var selector = scan.Selector;
             var said = selector.Table is { } id ? tables.First(t => t.Descriptor.TableId == id) : null;
             var main = tables.FirstOrDefault(t => t.Descriptor.Main);
+            // The rows of a screen are of the screen's table, whatever else the line names: one that names another is refused, and nothing follows it.
+            if (selector.Screen is not null && (onScreen is null || (said is not null && said != onScreen))) return LineCompletions.None;
+            var target = selector.Screen is not null ? onScreen : said ?? main;
 
             if (scan.Open is { } open)
             {
-                if ((said ?? main) is { } table) InCondition(table, open);
+                if (target is { } table) InCondition(table, open);
             }
             else if (scan.Taken < words.Length)
             {
                 // Words after the rows are the verb's own.
                 var pending = done.Skip(scan.Taken).ToList();
-                foreach (var table in TablesOf(selector, said, main, string.Join(' ', pending.Select(w => w.Word)))) AfterRows(table, pending);
+                foreach (var table in TablesOf(selector, said, main, onScreen, string.Join(' ', pending.Select(w => w.Word)))) AfterRows(table, pending);
             }
             else if (selector.Where.Count > 0)
             {
                 var condition = selector.Where[^1];
-                var table = said ?? main ?? throw new InvalidOperationException("A condition was read against a table.");
+                var table = target ?? throw new InvalidOperationException("A condition was read against a table.");
                 // A list after `in` goes on after a comma.
                 if (condition.Operator == SelectorReader.InWord && (words[^1].EndsWith(',') || typed.Contains(',')))
                     Values(TableRegister.Field(table, condition.Field), [.. condition.Value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)]);
@@ -79,9 +86,9 @@ static class TableCompletions
             {
                 AfterRows(Selectors.Resolve(selector, tables, state).Table, []);
             }
-            else if (selector.All || selector.Subset is not null)
+            else if (selector.All || selector.Subset is not null || selector.Screen is not null)
             {
-                AfterRows(said ?? main ?? throw new InvalidOperationException("All and a subset were read against a table."), []);
+                AfterRows(target ?? throw new InvalidOperationException("All, a subset and the rows of a screen were read against a table."), []);
                 Keyword(SelectorReader.WhereWord);
             }
             else if (said is { Descriptor.SingleRow: true })
@@ -90,14 +97,14 @@ static class TableCompletions
             }
             else
             {
-                RowsAwaited(said, main);
+                RowsAwaited(said, main, onScreen);
             }
             return new(items, more);
         }
 
         // Where the rows are still to be said: for a table that was named, its own ways; else the main table's, the
         // tables, the fields of a table of one row, which need no row, and rows of every table.
-        void RowsAwaited(BoundTable? said, BoundTable? main)
+        void RowsAwaited(BoundTable? said, BoundTable? main, BoundTable? onScreen)
         {
             // An id list that is typed with no space goes on in the same word: `R1,R`.
             if (typed.Contains(','))
@@ -106,6 +113,13 @@ static class TableCompletions
                 return;
             }
             Keyword(SelectorReader.AllWord);
+            // The rows of the screen behind the line, with how many they are, where it has some (note 17 of step 2).
+            if (view is not null && onScreen is not null && (said is null || said == onScreen))
+            {
+                string Counted(int rows) => $"{rows.ToString(CultureInfo.InvariantCulture)} row{(rows == 1 ? "" : "s")}";
+                if (view.Selected > 0) Keyword(SelectorReader.SelectedWord, detail: Counted(view.Selected));
+                if ((view.Filtered ?? Views.Unfiltered(view, onScreen, onScreen.Table.Rows(state)).Count) is > 0 and var shown) Keyword(SelectorReader.ShownWord, detail: Counted(shown));
+            }
             foreach (var subset in (said ?? main)?.Descriptor.Subsets ?? []) Keyword(subset.Name, TableWords.Names(subset));
             Keyword(SelectorReader.WhereWord);
             if (said is null)
@@ -114,9 +128,18 @@ static class TableCompletions
                 if (afterRows is not null)
                     foreach (var table in tables.Where(t => t.Descriptor.SingleRow))
                         foreach (var field in Fields(table, [], editable: true)) items.Add(new(TableWords.Word(field), at, table.Word));
+                // With a screen behind the line the rows may be left out (note 18 of step 2): the fields of its table,
+                // each saying what it would act on, the selection or the row the keyboard is on.
+                if (afterRows is not null && view is not null && onScreen is { Descriptor.SingleRow: false } && LeftOut(view) is { } rows)
+                    foreach (var field in Fields(onScreen, [], editable: true)) items.Add(new(TableWords.Word(field), at, rows));
             }
             Rows(said is null ? null : [said], []);
         }
+
+        // What a line that says no rows would act on, in a word or two: how many rows are selected, or the row the
+        // keyboard is on by its key where the page names it; none where the screen gives neither.
+        static string? LeftOut(LineView view) => view.Selected > 0 ? $"{view.Selected.ToString(CultureInfo.InvariantCulture)} selected"
+            : view.Focus is { Key: { } key } ? key : view.Focus is not null ? "the focused row" : null;
 
         // Rows by their ids, as far as typed: an id starts or ends with it, as the selector reads one. With no table
         // named, a row two tables have is offered with its table, since its id alone is refused; in a list, the rows of
@@ -231,9 +254,9 @@ static class TableCompletions
         }
 
         // A word of the line's own, or one a registration gives, where any of the names it answers to starts with what is typed.
-        void Keyword(string word, IEnumerable<string>? names = null)
+        void Keyword(string word, IEnumerable<string>? names = null, string? detail = null)
         {
-            if ((names ?? [word]).Any(n => n.StartsWith(typed, StringComparison.OrdinalIgnoreCase))) items.Add(new(word, at));
+            if ((names ?? [word]).Any(n => n.StartsWith(typed, StringComparison.OrdinalIgnoreCase))) items.Add(new(word, at, detail));
         }
 
         // The fields a name could be, as far as it is typed: whole words before, and the start of a word after them.
@@ -247,12 +270,14 @@ static class TableCompletions
         IReadOnlyList<string> Keys(BoundTable table) => keys.TryGetValue(table, out var read) ? read : keys[table] = [.. table.Table.Rows(state).Select(r => r.Key)];
 
         // The table the verb's words are read against: the one the rows say, or, with no rows, each table of one row that has the field they start with.
-        IEnumerable<BoundTable> TablesOf(RowSelector selector, BoundTable? said, BoundTable? main, string pending)
+        IEnumerable<BoundTable> TablesOf(RowSelector selector, BoundTable? said, BoundTable? main, BoundTable? onScreen, string pending)
         {
+            if (selector.Screen is not null) return onScreen is null ? [] : [onScreen];
             if (said is not null) return [said];
             if (selector.Ids.Count > 0) return [Selectors.Resolve(selector with { Where = [] }, tables, state).Table];
             if (!selector.SaysNoRows) return main is null ? [] : [main];
-            return tables.Where(t => t.Descriptor.SingleRow && Assignments.StartsWithAFieldOf(pending, t));
+            // No rows: a table of one row that has the field the words start with, and the screen's table where it has it.
+            return tables.Where(t => (t.Descriptor.SingleRow || t == onScreen) && Assignments.StartsWithAFieldOf(pending, t));
         }
     }
 }

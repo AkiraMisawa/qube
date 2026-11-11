@@ -81,6 +81,15 @@ public interface IWorkspaceTable
     /// <summary>Every row as the workspace stands, in the table's own order. Read once by a command.</summary>
     IReadOnlyList<ITableRow> Rows(WorkspaceState state);
 
+    /// <summary>
+    /// The rows of the table, or of one subset, in the order a page's reader gives them for a sort, with that order's
+    /// token (ADR-0016 note 17 of step 2): the one reader that pages the grid, so a position on a screen names the row
+    /// the screen drew there. Null where no reader pages the table, and its rows are then named by their keys. A sort
+    /// the reader does not take is refused as the reader refuses it (<see cref="WorkspaceRefused"/>), and nothing else
+    /// is: a view that names such a sort is read as the page's fault.
+    /// </summary>
+    OrderedRows? InOrder(WorkspaceState state, string? subset, IReadOnlyList<ViewSort> sorts) => null;
+
     /// <summary>The date a period counts from in a condition on a date (<c>&lt;field&gt;&gt;5y</c>); none where the table has none.</summary>
     DateOnly? AsOf(WorkspaceState state) => null;
 
@@ -130,7 +139,7 @@ public sealed class TableRefused(string code, string message, string? word = nul
 public sealed record BoundTable(IWorkspaceTable Table, TableDescriptor Descriptor)
 {
     /// <summary>The word a sentence uses for the table.</summary>
-    public string Word => Descriptor.Words.Count > 0 ? Descriptor.Words[0] : Descriptor.TableId;
+    public string Word => TableWords.Word(Descriptor);
 }
 
 /// <summary>The registered tables (ADR-0016 §1): found for a workspace by id or by words, and their fields by words.</summary>
@@ -208,6 +217,9 @@ public static class TableWords
 
     /// <summary>Every name a subset answers to: its name and its words.</summary>
     public static IReadOnlySet<string> Names(TableSubset subset) => new HashSet<string>(subset.Words.Select(Of).Append(Of(subset.Name)));
+
+    /// <summary>The word a sentence uses for a table: its first.</summary>
+    public static string Word(TableDescriptor table) => table.Words.Count > 0 ? table.Words[0] : table.TableId;
 
     /// <summary>The word a sentence uses for a field: its first, as the screen names its column.</summary>
     public static string Word(TableField field) => field.Words.Count > 0 ? field.Words[0] : field.Name;

@@ -110,6 +110,10 @@ export const SETTINGS_ENTITY = 'settings:workspace';
 /** The workspace's selection of measures, as an edit names it (ADR-0010 §10). */
 export const MEASURES_ENTITY = 'selection:measures';
 
+/** The tables the trade grids and the CSA grid show, by the ids the server registers them with (ADR-0016 §1). */
+export const TRADES_TABLE = 'xva.trades';
+export const CSAS_TABLE = 'xva.csas';
+
 /**
  * What the page says when the server refuses an edit (ADR-0006's note 2 of 2026-11-11): what the edit would have
  * changed, by the title the place that made it gave it, then the server's reason. An entity's key

@@ -24,8 +24,8 @@ static class Stations
     public static readonly TableDescriptor ReadingsTable = new(Readings, "1.0", App, "Readings", ["readings", "obs"], "id",
     [
         new("id", "Reading", ["id"], FieldForm.Id),
-        new("station", "Station", ["station"], FieldForm.Choice, Choices: Station, Table: Sites),
-        new("volume", "Volume", ["volume", "vol"], FieldForm.Amount, Editable: true, UnitField: "unit"),
+        new("station", "Station", ["station", "site"], FieldForm.Choice, Choices: Station, Table: Sites),
+        new("volume", "Volume", ["volume", "vol", "limit"], FieldForm.Amount, Editable: true, UnitField: "unit"),
         new("unit", "Unit", ["unit"], FieldForm.Choice, Editable: true, Choices: Units),
         new("taken", "Taken", ["taken", "date"], FieldForm.Date),
         new("checked", "Checked", ["checked", "ok"], FieldForm.Flag, Editable: true),
@@ -38,7 +38,9 @@ static class Stations
 
     public static readonly TableSubset High = new("high", "High", ["high", "upland"]);
 
-    public static readonly TableDescriptor SitesTable = new(Sites, "1.0", App, "Stations", ["stations"], "id",
+    // The table answers to a word a reading's field has too (`site`), and the settings' alarm to one the volume has
+    // (`limit`): a line that starts with either, with the readings on screen, cannot say which it means.
+    public static readonly TableDescriptor SitesTable = new(Sites, "1.0", App, "Stations", ["stations", "site"], "id",
     [
         new("id", "Station", ["id"], FieldForm.Id),
         new("altitude", "Altitude", ["altitude"], FieldForm.Number, Editable: true),
@@ -49,7 +51,7 @@ static class Stations
     public static readonly TableDescriptor SettingsTable = new(Settings, "1.0", App, "Board settings", ["settings", "board"], "id",
     [
         new("id", "Settings", ["id"], FieldForm.Id),
-        new("alarm", "Alarm volume", ["alarm volume", "alarm"], FieldForm.Amount, Editable: true),
+        new("alarm", "Alarm volume", ["alarm volume", "alarm", "limit"], FieldForm.Amount, Editable: true),
         new("daylight", "Daylight", ["daylight"], FieldForm.Flag, Editable: true),
     ], [], SingleRow: true);
 
@@ -131,6 +133,20 @@ static class Stations
         public string App => Stations.App;
         public TableDescriptor Describe(WorkspaceState state) => descriptor;
         public IReadOnlyList<ITableRow> Rows(WorkspaceState state) => RowsOf(state, kind);
+
+        // The readings have a reader that pages them in an order, as a grid's does; the other tables have none. Unsorted,
+        // the order is the source's and no edit moves it; sorted, any edit may.
+        public OrderedRows? InOrder(WorkspaceState state, string? subset, IReadOnlyList<ViewSort> sorts)
+        {
+            if (kind != "reading") return null;
+            var rows = RowsOf(state, kind).Where(r => subset is null || r.Subset == subset);
+            foreach (var sort in sorts.Reverse())
+            {
+                decimal Volume(ITableRow r) => sort.Column == "volume" ? r.Value("volume")!.GetValue<decimal>() : throw new WorkspaceRefused("UnknownColumn", $"Readings cannot be sorted by {sort.Column}.");
+                rows = sort.Descending ? rows.OrderByDescending(Volume) : rows.OrderBy(Volume);
+            }
+            return new([.. rows], sorts.Count == 0 ? "sent" : $"sent/r{state.Revision}");
+        }
         public DateOnly? AsOf(WorkspaceState state) => DateOnly.ParseExact(state.Context["day"]!.GetValue<string>(), "yyyy-MM-dd");
 
         public IReadOnlyList<WorkspaceChange> Set(WorkspaceState state, ITableRow row, TableField field, JsonNode? value)
