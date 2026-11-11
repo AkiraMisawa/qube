@@ -97,6 +97,11 @@ public static partial class PortfolioFields
         new("schedule", "Schedule", ["schedule"], FieldForm.Choice, Editable: true, Choices: Schedules),
         new("lastFixing", "Last fixing", ["last fixing"], FieldForm.Rate, Optional: true),
         new("officialPv", "Official PV", ["official pv"], FieldForm.SignedAmount, Optional: true, UnitField: "currency"),
+        // The legs' PVs in the display currency (ADR-0016 note 49). Written, it leaves the trade one leg of the amount,
+        // in the currency written with it or the display currency. The unit is the workspace's, which the table says
+        // when it describes itself for one (PortfolioTables).
+        new(PortfolioLegs.Pv, "PV", ["pv"], FieldForm.Number, Editable: true, Optional: true, Figure: new(PortfolioTables.Legs, new(FieldForm.Money, Choices: Currencies))),
+        new(PortfolioLegs.IndependentAmount, "Independent amount", ["independent amount", "ia"], FieldForm.Number, Optional: true, Figure: new(PortfolioTables.Amounts)),
         new("csa", "CSA", ["csa"], FieldForm.Id, Editable: true, Table: PortfolioTables.Csas),
         new("curve", "Discount curve", ["curve", "discount curve"], FieldForm.Id, Editable: true),
         new("imR", "IM-R", ["im-r", "imr"], FieldForm.Id, Editable: true, Optional: true),
@@ -107,6 +112,44 @@ public static partial class PortfolioFields
             [.. new[] { Words(c.Field[(c.Field.IndexOf('.') + 1)..]), Words(c.Title), Words(Unit().Replace(c.Title, "")) }.Distinct()], FieldForm.Number, Editable: true,
             UnitField: c.Type == "amount" ? "currency" : null)),
     ];
+
+    /// <summary>
+    /// A PV leg's fields (ADR-0016 note 49): its trade, and its currency, PV and notional in that currency, each a plain
+    /// number as a grid cell takes it, never in millions. A leg an overwritten PV made holds no notional.
+    /// </summary>
+    public static IReadOnlyList<TableField> Leg { get; } =
+    [
+        new("legId", "Leg", ["leg id", "id"], FieldForm.Id),
+        new("trade", "Trade", ["trade"], FieldForm.Id, Table: PortfolioTables.Trades),
+        new("currency", "Currency", ["ccy", "currency"], FieldForm.Choice, Editable: true, Choices: Currencies),
+        new("pv", "PV", ["pv"], FieldForm.Number, Editable: true, UnitField: "currency"),
+        new("notional", "Notional", ["notional"], FieldForm.Number, Editable: true, Optional: true, UnitField: "currency"),
+    ];
+
+    /// <summary>An independent amount's fields (ADR-0016 note 49). A command removes one and changes none.</summary>
+    public static IReadOnlyList<TableField> Amount { get; } =
+    [
+        new("amountId", "Independent amount", ["amount id", "id"], FieldForm.Id),
+        new("trade", "Trade", ["trade"], FieldForm.Id, Table: PortfolioTables.Trades),
+        new("currency", "Currency", ["ccy", "currency"], FieldForm.Choice, Choices: Currencies),
+        new("start", "Start", ["start"], FieldForm.Date),
+        new("end", "End", ["end"], FieldForm.Date),
+        new("value", "Value", ["value"], FieldForm.Number, UnitField: "currency"),
+    ];
+
+    /// <summary>The value a leg holds in a field.</summary>
+    public static JsonNode? Value(EffectiveLeg l, string field) => field switch
+    {
+        "legId" => l.LegId, "trade" => l.TradeId, "currency" => l.Currency, "pv" => l.Pv, "notional" => l.Notional,
+        _ => throw new InvalidOperationException($"A leg has no {field}."),
+    };
+
+    /// <summary>The value an independent amount holds in a field.</summary>
+    public static JsonNode? Value(EffectiveAmount a, string field) => field switch
+    {
+        "amountId" => a.AmountId, "trade" => a.TradeId, "currency" => a.Currency, "start" => a.Start, "end" => a.End, "value" => a.Value,
+        _ => throw new InvalidOperationException($"An independent amount has no {field}."),
+    };
 
     /// <summary>The value a trade holds in one of its own fields, as an edit would write it. A module's column is its cell's, not the trade's.</summary>
     public static JsonNode? Value(EffectiveTrade t, string field) => field switch
@@ -151,6 +194,10 @@ public sealed class PortfolioTables(MeasureRegister register) : ITableCatalog
 {
     public const string Trades = "xva.trades";
     public const string Csas = "xva.csas";
+    /// <summary>A trade's PV legs, under the trades (ADR-0016 note 49).</summary>
+    public const string Legs = "xva.legs";
+    /// <summary>A trade's independent amounts, under the trades (ADR-0016 note 49).</summary>
+    public const string Amounts = "xva.amounts";
     public const string Netting = "xva.netting";
     public const string Credit = "xva.credit";
     public const string Cds = "xva.cds";
@@ -164,6 +211,11 @@ public sealed class PortfolioTables(MeasureRegister register) : ITableCatalog
     static IReadOnlyList<IWorkspaceTable> Build(MeasureRegister register, PortfolioChecks checks) =>
     [
         new TradeTable(register, checks),
+        // Under the trades (ADR-0016 notes 46, 49): `legs E00003` is a trade's legs, `legs E00003/1` one of them.
+        new UnderTrade(checks, Described(Legs, "PV legs", ["legs", "leg"], "legId", PortfolioFields.Leg, under: Trades), Entity.Leg, reading =>
+            [.. PortfolioLegs.Legs(reading).Select(l => new Row(reading, Entity.Of(Entity.Leg, l.LegId), l.LegId, null, f => PortfolioFields.Value(l, f), l.TradeId, l.Made))]),
+        new UnderTrade(checks, Described(Amounts, "Independent amounts", ["independent amounts", "amounts", "ia"], "amountId", PortfolioFields.Amount, under: Trades), Entity.Amount,
+            reading => [.. PortfolioLegs.Amounts(reading).Select(a => new Row(reading, Entity.Of(Entity.Amount, a.AmountId), a.AmountId, null, f => PortfolioFields.Value(a, f), a.TradeId))]),
         // `csa` alone is a trade's field, which a line with trades selected sets (ADR-0016 note 18 of step 2): the table is `csas`.
         new Table(checks, Described(Csas, "CSAs", ["csas"], "csaId", PortfolioFields.Csa), reading =>
             [.. PortfolioMaterialiser.Csas(reading).Select(c => new Row(reading, Entity.Of(Entity.Csa, c.CsaId), c.CsaId, null, f => PortfolioFields.Value(c, f)))],
@@ -198,8 +250,8 @@ public sealed class PortfolioTables(MeasureRegister register) : ITableCatalog
     ];
 
     static TableDescriptor Described(string id, string title, IReadOnlyList<string> words, string key, IReadOnlyList<TableField> fields, bool one = false, bool main = false,
-        IReadOnlyList<TableSubset>? subsets = null, IReadOnlyList<TableAction>? actions = null) =>
-        new(id, PortfolioContracts.Version, PortfolioEditRules.App, title, words, key, fields, subsets ?? [], one, main, actions);
+        IReadOnlyList<TableSubset>? subsets = null, IReadOnlyList<TableAction>? actions = null, string? under = null) =>
+        new(id, PortfolioContracts.Version, PortfolioEditRules.App, title, words, key, fields, subsets ?? [], one, main, actions, under);
 
     // What a trade grid's Context Menu offers on the rows selected in it (ADR-0016 §4, note 25 of step 2): each side's
     // membership, out and in, by the line that does it.
@@ -215,13 +267,18 @@ public sealed class PortfolioTables(MeasureRegister register) : ITableCatalog
 
     static PortfolioSourceVersion Source(WorkspaceState state) => (PortfolioSourceVersion)state.Source;
 
-    /// <summary>A row as a command reads it: the Base it was read on, the entity its edits are on (<c>trade:ID</c>), and its values by field.</summary>
-    class Row(WorkspaceState reading, string entity, string key, string? subset, Func<string, JsonNode?> read) : ITableRow
+    /// <summary>
+    /// A row as a command reads it: the Base it was read on, the entity its edits are on (<c>trade:ID</c>), and its values
+    /// by field. A row under another says that row's key, and whether the workspace made it, which the source's rows are not.
+    /// </summary>
+    class Row(WorkspaceState reading, string entity, string key, string? subset, Func<string, JsonNode?> read, string? under = null, bool made = false) : ITableRow
     {
         public WorkspaceState Reading => reading;
         public string EntityId => entity;
         public string Key => key;
         public string? Subset => subset;
+        public string? Under => under;
+        public bool Made => made;
         public JsonNode? Value(string field) => read(field);
     }
 
@@ -243,7 +300,7 @@ public sealed class PortfolioTables(MeasureRegister register) : ITableCatalog
         /// <summary>No reader pages the table: the page holds its every row, and names rows by their keys.</summary>
         public virtual OrderedRows? InOrder(WorkspaceState state, string? subset, IReadOnlyList<ViewSort> sorts) => null;
 
-        public IReadOnlyList<WorkspaceChange> Set(WorkspaceState state, ITableRow row, TableField field, JsonNode? value)
+        public virtual IReadOnlyList<WorkspaceChange> Set(WorkspaceState state, ITableRow row, TableField field, JsonNode? value)
         {
             var at = (Row)row;
             Check(at, field, value);
@@ -254,17 +311,33 @@ public sealed class PortfolioTables(MeasureRegister register) : ITableCatalog
 
         public virtual IReadOnlyList<WorkspaceChange>? SetAll(WorkspaceState state, TableSubset subset, TableField field, JsonNode? value) => null;
 
-        public IReadOnlyList<WorkspaceChange> Reset(WorkspaceState state, ITableRow row, TableField? field) =>
+        public virtual string? SetSays(WorkspaceState state, ITableRow row, TableField field, JsonNode? value) => null;
+
+        public virtual IReadOnlyList<WorkspaceChange> Reset(WorkspaceState state, ITableRow row, TableField? field) =>
             Resets(state, ((Row)row).EntityId, field is null ? Describe(state).Fields.Where(f => f.Editable).Select(f => f.Name) : [field.Name]);
 
         public virtual IReadOnlyList<WorkspaceChange> ResetAll(WorkspaceState state, TableSubset subset, TableField? field) => [];
 
-        public IReadOnlyList<WorkspaceChange> Remove(WorkspaceState state, ITableRow row) => throw new WorkspaceRefused("NotRemovable", notRemovable((Row)row));
+        public virtual IReadOnlyList<WorkspaceChange> Remove(WorkspaceState state, ITableRow row) => throw new WorkspaceRefused("NotRemovable", notRemovable((Row)row));
 
         // The Common edits an entity holds on these fields, each to be removed; an edit held back as a conflict is the user's to decide.
         protected static IReadOnlyList<WorkspaceChange> Resets(WorkspaceState state, string entity, IEnumerable<string> fields) =>
             [.. fields.Select(f => PortfolioEditRules.Target(Source(state), entity, f)).Where(t => state.Overrides.ContainsKey(t) || state.Lost.ContainsKey(t))
                 .Select(t => new WorkspaceChange.Reset(t))];
+    }
+
+    /// <summary>
+    /// A table under the trades (ADR-0016 notes 46, 49): a trade's PV legs or its independent amounts. A row is removed
+    /// as what it is: one the workspace made is removed, and one the source holds is taken out by an edit of its own.
+    /// </summary>
+    sealed class UnderTrade(PortfolioChecks checks, TableDescriptor descriptor, string kind, Func<WorkspaceState, IReadOnlyList<ITableRow>> rows)
+        : Table(checks, descriptor, rows, row => throw new InvalidOperationException($"{row.Key} is removed as any row under a trade is."))
+    {
+        public override IReadOnlyList<WorkspaceChange> Remove(WorkspaceState state, ITableRow row)
+        {
+            var at = (Row)row;
+            return [PortfolioLegs.TakeOut(at.Reading, at.Key, at.Made, kind)];
+        }
     }
 
     /// <summary>
@@ -279,18 +352,21 @@ public sealed class PortfolioTables(MeasureRegister register) : ITableCatalog
     {
         static readonly IReadOnlyList<string> Sides = ["before", "after"];
 
-        // The table as a selection of modules has it, described once for each selection met.
+        // The table as a selection of modules and a display currency have it, described once for each met.
         readonly ConcurrentDictionary<string, TableDescriptor> described = new();
 
         // A module's column is a field while one of its measures is selected, as the grids show it then (ADR-0010 §10):
-        // one that does not show is no field, and a command that names it is told the fields there are.
+        // one that does not show is no field, and a command that names it is told the fields there are. A figure of the
+        // rows under a trade is in the display currency, which is the workspace's (ADR-0016 note 47).
         public override TableDescriptor Describe(WorkspaceState state)
         {
-            var selected = register.Selected(PortfolioCases.Base(state)).Select(m => m.Id).ToHashSet();
-            return described.GetOrAdd(string.Join(',', selected.Order(StringComparer.Ordinal)), _ =>
+            var reading = PortfolioCases.Base(state);
+            var selected = register.Selected(reading).Select(m => m.Id).ToHashSet();
+            var display = PortfolioMaterialiser.DisplayCurrency(reading);
+            return described.GetOrAdd($"{display}|{string.Join(',', selected.Order(StringComparer.Ordinal))}", _ =>
             {
                 var hidden = register.TradeColumns.Where(c => !selected.Contains(c.Module)).Select(c => c.Field).ToHashSet();
-                return Whole with { Fields = [.. Whole.Fields.Where(f => !hidden.Contains(f.Name))] };
+                return Whole with { Fields = [.. Whole.Fields.Where(f => !hidden.Contains(f.Name)).Select(f => f.Figure is null ? f : f with { Unit = display })] };
             });
         }
 
@@ -313,9 +389,31 @@ public sealed class PortfolioTables(MeasureRegister register) : ITableCatalog
             var trades = PortfolioMaterialiser.Trades(reading);
             var shared = new Shared(register, reading, trades);
             var columns = register.TradeColumns.Select(c => c.Field).ToHashSet();
-            return [.. trades.Select((t, i) => new TradeRow(shared, i, reading, t,
-                f => columns.Contains(f) ? shared.WithCells.Value[i].Cells?.GetValueOrDefault(f)?.Value?.DeepClone() : PortfolioFields.Value(t, f)))];
+            return [.. trades.Select((t, i) => new TradeRow(shared, i, reading, t, f => f switch
+            {
+                // The figures of the rows under the trade (ADR-0016 note 49), read when asked.
+                PortfolioLegs.Pv => PortfolioLegs.PvOf(reading, t.TradeId),
+                PortfolioLegs.IndependentAmount => PortfolioLegs.IndependentAmountOf(reading, t.TradeId),
+                _ => columns.Contains(f) ? shared.WithCells.Value[i].Cells?.GetValueOrDefault(f)?.Value?.DeepClone() : PortfolioFields.Value(t, f),
+            }))];
         }
+
+        // A trade's PV is written as its legs (ADR-0016 note 49): the table says what the write is, as for any figure.
+        public override IReadOnlyList<WorkspaceChange> Set(WorkspaceState state, ITableRow row, TableField field, JsonNode? value) =>
+            field.Name == PortfolioLegs.Pv ? PortfolioLegs.SetPv(((Row)row).Reading, row.Key, value) : base.Set(state, row, field, value);
+
+        public override string? SetSays(WorkspaceState state, ITableRow row, TableField field, JsonNode? value) =>
+            field.Name == PortfolioLegs.Pv ? PortfolioLegs.SetPvSays(((Row)row).Reading, row.Key, value) : null;
+
+        // A figure is reset as the rows it is worked out from: the source's legs and independent amounts come back. A
+        // whole row's reset is every field's, these among them.
+        public override IReadOnlyList<WorkspaceChange> Reset(WorkspaceState state, ITableRow row, TableField? field) => field?.Name switch
+        {
+            PortfolioLegs.Pv => PortfolioLegs.ResetPv(state, row.Key),
+            PortfolioLegs.IndependentAmount => PortfolioLegs.ResetAmounts(state, row.Key),
+            null => [.. base.Reset(state, row, null), .. PortfolioLegs.ResetPv(state, row.Key), .. PortfolioLegs.ResetAmounts(state, row.Key)],
+            _ => base.Reset(state, row, field),
+        };
 
         // The order a trade grid is paged in (ADR-0016 §2, note 17 of step 2): the page's own order, which it keeps for
         // the state, and the page's token. The rows are read each time: a module's cell arrives with no edit.

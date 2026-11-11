@@ -39,7 +39,7 @@ import { declaring, measureOfField, membershipColumn, scopesOf } from './members
 import { priceLabel, pricedMeasures } from './metrics';
 import { differs, originalMessage } from './original';
 import { copyRich, downloadRun } from '../../platform/runs';
-import { cellMessage as moduleCellMessage, cellRefusal, cellState as moduleCellState, failed, moduleColumns, parseCellNumber } from './cells';
+import { cellMessage as moduleCellMessage, cellRefusal, cellState as moduleCellState, failed, moduleColumns, parseCellNumber, pvRequest, type PvRequest } from './cells';
 
 // The trace tab draws with the trace view and KaTeX, read once a tab is opened (as the trace panel is).
 const TraceTab = lazy(() => import('../../platform/traces/TraceTab').then((m) => ({ default: m.TraceTab })));
@@ -107,6 +107,14 @@ const existingTerms: readonly GridColumn<Row>[] = [
   // The books' PV, the source's and read-only (ADR-0010 §6): the PV an adjustment uses.
   column('officialPv', 'Official PV', 'number', 152, { format: formatAmount, tone: amountTone }),
 ];
+const PV_COLUMN = 'pv';
+/**
+ * A trade's PV on both grids (ADR-0016 note 49): its PV legs' in the display currency, which the header says, since it
+ * is not the trade's own. Typed, it is written as the line writes it (`set <trade> pv -350,000 USD`): the trade is left
+ * one leg of that amount. As wide as the official PV, for the same figures.
+ */
+const pvColumn = (currency: string | undefined): GridColumn<Row> =>
+  column(PV_COLUMN, currency === undefined ? 'PV' : `PV (${currency})`, 'number', 152, { editable: true, format: formatAmount, tone: amountTone });
 
 export type TradeGrid = 'new' | 'existing';
 
@@ -327,8 +335,11 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   // The trade fields the selected measures need, on both grids (ADR-0010 §10): a hidden one keeps its value.
   const fieldsKey = (view.data?.inputs ?? []).filter((i) => i.tab === TRADES_TAB).map((i) => i.field).join('|');
   const assignment = useMemo(() => assignmentOf(fieldsKey === '' ? [] : fieldsKey.split('|')), [fieldsKey]);
-  const newColumns = useMemo<readonly GridColumn<Row>[]>(() => [...leading, ...assignment, ...moduleColumns(registered.current), ...membership, ...derived], [columnsKey, assignment, membership]);
-  const existingColumns = useMemo<readonly GridColumn<Row>[]>(() => [...existingTerms, ...assignment, ...membership, ...derived], [assignment, membership]);
+  // The PV column names the display currency: another currency is another declaration, and every row paints again.
+  const displayCurrency = view.data?.displayCurrency;
+  const pv = useMemo(() => pvColumn(displayCurrency), [displayCurrency]);
+  const newColumns = useMemo<readonly GridColumn<Row>[]>(() => [...leading, pv, ...assignment, ...moduleColumns(registered.current), ...membership, ...derived], [columnsKey, pv, assignment, membership]);
+  const existingColumns = useMemo<readonly GridColumn<Row>[]>(() => [...existingTerms, pv, ...assignment, ...membership, ...derived], [pv, assignment, membership]);
   gridColumns.current = { new: newColumns, existing: existingColumns };
   // Each grid's columns at the widths the user dragged them to, kept per panel while it is open.
   const newWidths = useColumnWidths(panelId, 'trades/new', newColumns);
@@ -394,6 +405,8 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
     take();
   }, [placeRequest]);
 
+  // What writes a typed PV, set once the page's door is made below; a grid cannot be typed in before it is.
+  const writePv = useRef<(tradeId: string, request: PvRequest) => void>(() => { throw new Error("The pricer page's command door is not made yet."); });
   // A result that arrives changes the New grid's rows with no edit: they are read again when the count waiting moves.
   const pendingCells = view.data?.pendingCells;
   const seenPending = useRef<number | undefined>(undefined);
@@ -404,6 +417,14 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   }, [pendingCells, sources]);
 
   const onEdit = useCallback((intent: GridEditIntent<Row>) => {
+    // A PV is written by the command the line types (ADR-0016 note 49), which the server alone reads.
+    if (intent.column === PV_COLUMN) {
+      if (intent.seenText !== intent.replacedText) { intent.refuse('The value changed while you were editing. Look at it again.'); return; }
+      const typed = pvRequest(intent.row.tradeId, intent.value);
+      if (!typed.ok) { intent.refuse(typed.message); return; }
+      writePv.current(intent.row.tradeId, typed.request);
+      return;
+    }
     const module = registered.current.find((c) => c.field === intent.column);
     if (module !== undefined) {
       // As the server would refuse it: PV Adj is read-only while Margin is entered, and says why (ADR-0010 §6).
@@ -684,6 +705,13 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
     },
     notify: workspace.notify,
   }), [api, workspaceId, workspace, queue, show, sources]);
+  // A typed PV goes through the door as any command does, in its turn after the edits already sent. The cell shows
+  // the outcome, as any typed cell does, so the door hands the sentence here and raises no notice of it.
+  writePv.current = (tradeId, request) => {
+    void door.invoke('entity.set', request, () => undefined).then((reason) => {
+      if (reason !== undefined) workspace.notify('refused', `The PV of ${tradeId} was not written: ${reason.sentence}`);
+    });
+  };
   // The tables' actions (ADR-0016 §4, note 25 of 2026-11-11): read once for the workspace, and run through the door.
   const tables = useQuery({ queryKey: ['workspace-tables', workspaceId], queryFn: () => workspace.api.tables(workspaceId), staleTime: Infinity });
   menus.current = useMemo(() => {

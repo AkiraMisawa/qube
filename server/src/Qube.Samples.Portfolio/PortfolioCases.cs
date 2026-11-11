@@ -226,8 +226,10 @@ public static class PortfolioCells
     sealed record Column(string Field, FieldSpec Spec, params string[] Names);
 
     // A cell is a field the registered tables say a command may set (ADR-0016 §1), named by that field's words and
-    // read and written by its form.
-    static IReadOnlyList<Column> Columns(IEnumerable<TableField> fields) => [.. fields.Where(f => f.Editable).Select(f => new Column(f.Name, f.Spec, [.. f.Words]))];
+    // read and written by its form. A figure of the rows under a row is no cell: it holds no value of its own for a
+    // case to vary, and is written as those rows (ADR-0016 note 47).
+    static IReadOnlyList<Column> Columns(IEnumerable<TableField> fields) =>
+        [.. fields.Where(f => f.Editable && f.Figure is null).Select(f => new Column(f.Name, f.Spec, [.. f.Words]))];
 
     static readonly IReadOnlyList<Column> CsaColumns = Columns(PortfolioFields.Csa), NettingColumns = Columns(PortfolioFields.Netting),
         // The counterparty's CDS choice, row `credit`, and the chosen curve's spreads, row `cds` (ADR-0010 §8's note of 2026-11-09).

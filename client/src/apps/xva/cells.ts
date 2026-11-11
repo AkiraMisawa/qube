@@ -1,7 +1,7 @@
 import type { CellState, GridColumn } from '@ex-grid/core';
 import type { EffectiveTrade, RegisteredColumn, TradeCell } from './contracts';
 import { amountTone, formatAmount } from '../../platform/grid/amounts';
-import { parseNumber, type Parsed } from './editing';
+import { parseNumber, TRADES_TABLE, type Parsed } from './editing';
 import { differs, originalMessage } from './original';
 
 // The columns modules add to the trade grids (ADR-0010 §10), such as XVA's PV01, Margin and PV Adj (§6). The server
@@ -55,6 +55,21 @@ export function parseCellNumber(text: string): Parsed {
   if (text.trim() === '') return { ok: true, value: null };
   const n = parseNumber(text);
   return n === undefined ? { ok: false, message: 'Type a number, such as -1,500 or 2.5, or leave it empty.' } : { ok: true, value: n };
+}
+
+/** What a typed PV asks of `entity.set`: the trade by its id in the trades' table, and the value as typed. */
+export type PvRequest = Readonly<Record<'table' | 'rows' | 'set', string>>;
+
+/**
+ * A PV typed into a trade's PV cell (ADR-0016 note 49), as the request of the command that writes it. The server reads
+ * what was typed, a number alone or followed by its currency, as it reads the line `set <trade> pv <typed>`: the page
+ * reads none of it. Nothing typed is refused here, since a PV is written and never emptied, and so is an `=`, which
+ * would name another field of the trade.
+ */
+export function pvRequest(tradeId: string, typed: string): { readonly ok: true; readonly request: PvRequest } | { readonly ok: false; readonly message: string } {
+  const text = typed.trim();
+  if (text === '' || text.includes('=')) return { ok: false, message: 'Type a PV as a number, alone or followed by its currency: -350,000 or -350,000 USD.' };
+  return { ok: true, request: { table: TRADES_TABLE, rows: tradeId, set: `pv ${text}` } };
 }
 
 /** Whether a cell has failed, so that asking again is its action (ADR-0010 §6). */

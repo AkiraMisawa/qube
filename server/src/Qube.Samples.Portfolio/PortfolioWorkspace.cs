@@ -49,7 +49,10 @@ public sealed record EffectiveTrade(
     string? ImR = null,
     Ownership ImROwner = Ownership.Source,
     string? ImP = null,
-    Ownership ImPOwner = Ownership.Source);
+    Ownership ImPOwner = Ownership.Source,
+    // The trade's PV (ADR-0016 note 49): a figure of its legs in the display currency, set where rows are read for a
+    // grid. Empty where the trade has no leg, and where the rows are read for a measure: none reads it.
+    decimal? Pv = null);
 
 /// <summary>
 /// A CSA of the agreement with its effective terms (ADR-0010 §8): the source's, or the user's where <c>Overridden</c>
@@ -95,6 +98,8 @@ public sealed class PortfolioEditRules(MeasureRegister? register = null) : IEdit
         (Entity.Trade, "csa" or "curve" or "imR" or "imP") => "xva.assignment",
         (Entity.Trade, _) => "xva.trade",
         (Entity.Csa, _) => "xva.csa",
+        (Entity.Leg, _) => "xva.leg",
+        (Entity.Amount, _) => "xva.amount",
         (Entity.Netting, _) => "portfolio.netting",
         (Entity.Credit or Entity.Cds, _) => "xva.credit",
         (Entity.Selection, _) => "portfolio.selection",
@@ -119,6 +124,8 @@ public sealed class PortfolioEditRules(MeasureRegister? register = null) : IEdit
             (Entity.Case, _) => state.Created.TryGetValue(target.Entity, out var made) ? $"the case {PortfolioCases.Title(made)}" : "a case",
             (PortfolioScenarios.ShiftKind, _) => "a scenario's shift",
             (PortfolioScenarios.ScenariosKind, _) => "the scenarios priced",
+            // A leg and an independent amount by what they are and their key (ADR-0016 note 49); one taken out says so.
+            (Entity.Leg or Entity.Amount, _) => $"{PortfolioLegs.Named(target.Entity)}{target.Field switch { "*" => "", Entity.TakenOut => " taken out", var f => $" {f}" }}",
             (_, "*") => id,
             _ => PortfolioCells.Find(state, register, target.Entity, target.Field) is { } cell ? $"{cell.Row} {cell.Column}" : $"{id} {target.Field}",
         };
@@ -143,8 +150,11 @@ public sealed class PortfolioEditRules(MeasureRegister? register = null) : IEdit
         // market data is no counterparty's (ADR-0010 §4's note of 2026-11-09).
         if (kind is Entity.Selection or Entity.Settings or PortfolioScenarios.ShiftKind or PortfolioScenarios.ScenariosKind) return new EditTarget(WorkspaceScope, entity, field);
         var tradeContent = kind == Entity.Trade && field is not ("before" or "after" or "csa" or "curve" or "imR" or "imP");
-        var isNew = kind == Entity.Trade && source.Trade(id)?.IsNew == true;
-        return new EditTarget(tradeContent && isNew ? $"new:{id}" : $"cp:{source.Registration.Key}", entity, field);
+        // A leg and an independent amount are their trade's content (ADR-0016 note 49): a new trade's stay with it.
+        var under = kind is Entity.Leg or Entity.Amount;
+        var trade = under ? Entity.TradeOf(id) : id;
+        var isNew = (kind == Entity.Trade || under) && source.Trade(trade)?.IsNew == true;
+        return new EditTarget((tradeContent || under) && isNew ? $"new:{trade}" : $"cp:{source.Registration.Key}", entity, field);
     }
 }
 

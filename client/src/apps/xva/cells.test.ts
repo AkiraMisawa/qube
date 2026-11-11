@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { EffectiveTrade, RegisteredColumn, TradeCell } from './contracts';
-import { amountText, cellMessage, cellRefusal, cellState, cellValue, figureText, moduleColumns, parseCellNumber } from './cells';
+import { amountText, cellMessage, cellRefusal, cellState, cellValue, figureText, moduleColumns, parseCellNumber, pvRequest } from './cells';
 
 // ADR-0010 §6, §10: a module's trade columns show what the server answers for each cell, PV01 pending or failed as a
 // word and never as 0, and are typed only where the cell says so.
@@ -74,5 +74,18 @@ describe("a module's trade cells", () => {
     expect(column?.format?.(column.value(swap))).toBe('Interest rate · JPY · 1-5y · long');
     expect([cellValue(refused['cells']?.['ccr.class']), cellState(refused, 'ccr.class'), cellMessage(refused, 'ccr.class')])
       .toEqual(['failed', 'error', 'SA-CCR cannot decompose a CDS.']);
+  });
+});
+
+// ADR-0016 note 49: a PV typed in a trade grid is written by the command the line types, and read by the server alone.
+describe("a trade's PV cell", () => {
+  it('asks entity.set for the trade by its id, with what was typed as its value', () => {
+    expect(pvRequest('ABC-LE-01-E00004', ' -350,000 USD ')).toEqual({ ok: true, request: { table: 'xva.trades', rows: 'ABC-LE-01-E00004', set: 'pv -350,000 USD' } });
+    expect(pvRequest('DRAFT-1', '-350k')).toEqual({ ok: true, request: { table: 'xva.trades', rows: 'DRAFT-1', set: 'pv -350k' } });
+  });
+
+  it('refuses nothing typed, and a value that would name another field', () => {
+    expect(pvRequest('DRAFT-1', '  ').ok).toBe(false);
+    expect(pvRequest('DRAFT-1', '5 after=off').ok).toBe(false);
   });
 });

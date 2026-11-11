@@ -16,6 +16,8 @@ export interface EffectiveTrade {
   readonly lastFixing?: number | null;
   /** The books' PV of an existing trade, the source's (ADR-0010 §6); absent for a new trade. */
   readonly officialPv?: number | null;
+  /** The trade's PV (ADR-0016 note 49): its PV legs' in the display currency; absent where it has no leg. */
+  readonly pv?: number | null;
   /** What SA-CCR reads of the trade (ADR-0013 §3): its start, its direction (`payFixed`, `receiveFixed`, `buy` or
    * `sell`) and an FX forward's counter leg. Absent where the source has none. */
   readonly start?: string | null;

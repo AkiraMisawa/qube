@@ -264,7 +264,7 @@ public static partial class FieldForms
             FieldForm.Days => "a whole number of days, 10 or 10d",
             FieldForm.Flag => "on or off",
             FieldForm.Id => "an identifier",
-            FieldForm.Money => $"a number, alone or followed by what it is in: {string.Join(" or ", Units(spec).Values.Distinct())}",
+            FieldForm.Money => $"a number, alone or followed by what it is in: {Or([.. Units(spec).Values.Distinct()])}",
             FieldForm.Choice when choicesBeside => "one of its choices",
             FieldForm.Choice => $"one of {string.Join(", ", (spec.Choices ?? throw new InvalidOperationException("A choice with nothing to choose from cannot be read.")).Values.Distinct())}",
             _ => throw new InvalidOperationException($"No reading of {spec.Form}."),
@@ -297,6 +297,9 @@ public static partial class FieldForms
     static decimal? Fraction(string t) => WithUnit(t) is (var n, var unit) ? unit == "bp" ? n / 10_000m : n / 100m : null;
 
     // Every decimal a value has, and no trailing zero: written back, it reads as the same value.
+    // Items as a sentence offers them: a, b or c.
+    static string Or(IReadOnlyList<string> items) => items.Count < 2 ? string.Concat(items) : $"{string.Join(", ", items.Take(items.Count - 1))} or {items[^1]}";
+
     static string Exact(decimal n) => n.ToString("0.############################", CultureInfo.InvariantCulture);
 
     static bool IsDate(string t) => DateOnly.TryParseExact(t, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out _);
