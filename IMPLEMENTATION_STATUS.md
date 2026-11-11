@@ -2220,6 +2220,98 @@ written (`yes` still offered `on`); the sentence for a row that is not there lis
 a choice registered with nothing to choose from would have thrown at each key typed, where it now fails when its
 table is read. Each is said in note 45 as "Corrected in review", with a test.
 
+## A user's settings: the store, preferences, defaults and the AI's model (ADR-0017, 2026-11-11)
+
+One pull request in three steps (`docs/specs/user-settings`, tickets 01 to 09). What a user prefers, and the values a
+workspace they make starts with, are kept by the server for that user and follow them to any browser. They are
+changed by the line, the settings dialog and the AI through the same three commands.
+
+### What runs
+
+- **One store that knows no setting.** A module registers its settings (`ISettingCatalog`) with a key or a family of
+  keys (`grid.widths.*`), words, a kind (preference or default), a form and a registered value. The kernel keeps a
+  user's values in SQLite's `UserSetting` beside `SavedItem`, checks each against its form, and refuses an
+  unregistered key or a value the form does not take by name. A value stored that the form no longer takes is never
+  replaced: it is read as unreadable, a preference then applies its registered value and the dialog says that theirs
+  is unreadable, and a default refuses the making that needs it, naming the setting and how to reset it.
+- **Three commands through the gateway**: `settings.read`, `settings.set` and `settings.reset`, with their own effect
+  (`UserSetting`) and permissions (`readSettings`, `editSettings`). The caller is the server's, never an input. A set
+  or a reset answers what applies now, what it replaced and the line that takes it back. The page reads them at start
+  with `GET /api/settings`, which answers as `settings.read` does. The agent is offered them as it is every command,
+  and a setting it changes applies at once on the page.
+- **The line**: `settings` opens the settings dialog; `settings <name> <value>` and `settings reset <name>` set and
+  reset, with names and values completed. The dialog lists each setting with its value, whether the user set it or
+  the registered value applies, and a reset; on a phone it keeps two columns and says the source and the reset under
+  the setting's name.
+- **Preferences** (step 1, step 3): the theme (`dark`, `light`, `auto`, which follows the device), a grid's column
+  widths, the command ranking and, where models are configured, the AI's default model. The page's own writes (a
+  theme toggled, a column dragged, a command run) are ordered per setting with the line's and the dialog's, and only
+  the last one made settles what applies. The theme the browser last drew is kept there for the first frame only.
+- **Defaults** (step 2): the pricer's display currency (registered as the company profile's, JPY) and a new Rates
+  line's currency, notional and direction (registered as none). The making of a workspace copies the ones the user
+  set: the pricer as the making's own edit, which `undo` never takes, and Rates into the workspace's defaults with a
+  record of which came from the settings. The page says where each came from, where it is read on every width: the
+  pricer's status line (`Display currency USD, from your settings as this workspace was made.`), the Rates status
+  line (`New lines default to JPY · 500mm · receive from your settings.`), and a new line's preview (`currency JPY from
+  settings`). A workspace made before a setting moved keeps what it was made with; Price reads only the workspace.
+- **The AI's model** (step 3): configuration lists the models the AI may use (`Agent:Copilot:Models`); the first is
+  the default model's registered value. A conversation holds its model from its first turn: one chosen in the pane
+  (its Model menu, or `/model <id>`), else the user's default. A chosen model not configured is refused with the list;
+  a default no longer configured gives way to the registered one. A choice changes neither the default nor another
+  conversation. Each run says its model in `RUN_STARTED`, its trace (`qube.agent.model`), its failure and its card
+  (`Copilot on gpt-5.1`). The scripted stand-in runs on no model, registers no default model and refuses one chosen.
+
+### Verification performed
+
+| What | Result |
+|---|---|
+| `dotnet test server/Qube.slnx` | 1295 passed |
+| Client: `npm run typecheck`, `npm test`, `npm run build` | Clean; 347 passed in 36 files; built |
+| `npx playwright test` (Chromium, headless, Linux) | 103 passed |
+| `e2e/settings.spec.ts`, which this pull request adds, with `--repeat-each=3` | 30 passed |
+| `python3 tools/validate_handoff.py` | Passed |
+| The settings dialog at 390, 768, 992 and 1440px, dark and light; the AI pane at 390 and 1440px | Looked at; no sideways scroll, nothing cut off |
+| The AI pane against a stand-in Copilot host with two models | Looked at: a conversation on the default model, `/model gpt-5.1`, and the next run on it |
+
+The server's tests read the store over a registration with no domain (`UserSettingsTests`), the commands through the
+gateway and the host, the defaults through the pricer's and Rates' makings (`PricerDefaultsTests`,
+`RatesLineCommandTests`) and the models through the agent's endpoint with a runtime that has models
+(`CopilotRuntimeTests`). The client's tests order the page's writes, the theme's double toggle, a setting the AI
+changes, an unreadable ranking and theme, and the conversation's model. The browser tests carry the theme and the
+ranking to another browser, follow the device's scheme, set and reset from the line and the dialog, keep a dragged
+width across a reload and another workspace, make a pricer and a Rates workspace from the user's defaults, and fit
+the dialog on a phone.
+
+### Providers
+
+Unchanged: every figure of the pricer and of Rates is simulated, and says so. The browser tests run the scripted
+agent, which has no model; the model choice was looked at against a stand-in host that answers as Copilot's does,
+not against Copilot.
+
+### Known limits
+
+- The user is `Qube:DemoUser` until sign-in (C30): every browser of one host is one user's.
+- Sort and filter are not remembered (ADR-0017 §6.4).
+- Column widths a browser dragged before were kept per panel and are not carried over.
+- A conflict kept by its holder re-writes the display currency's edit, so a workspace whose currency was copied from
+  the settings then says it was chosen in the workspace.
+- Model ids are compared exactly; a value typed on the line is matched to one ignoring case.
+- `Agent:Copilot:Model`, the one model of before, stops startup and says to list it (README, "Coming from before the
+  user's settings").
+
+### What the review changed
+
+Each step was reviewed on its two axes (standards and spec) and every finding was corrected. Step 1: the page's
+writes are ordered per setting, so a drag made while an earlier width was being kept is no longer lost; the AI's
+changes apply at once; a ranking no longer taken is neither applied nor written over; the workbench opens on the
+registered values when settings cannot be read, and says so. Step 2: the page says each default's source where it
+is read on every width, not in a title only; the display currency registers the profile's; the services take the
+settings as a required dependency; a default no longer taken refuses the making in the kernel; a Rates default's
+rule lives once; `undo` of a Rates default set in the workspace gives the settings' back. Step 3: an unreadable
+preference gives way to its registered value on the page as on the server; the default model is registered from the
+runtime's own models; a conversation's model is held by its thread; the pane offers `/model <id>`; the dialog fits a
+phone.
+
 ## Next
 
 1. Generic commands: delivery step 5 (drafts and the detail dialog; the owner is asked the choices of look and

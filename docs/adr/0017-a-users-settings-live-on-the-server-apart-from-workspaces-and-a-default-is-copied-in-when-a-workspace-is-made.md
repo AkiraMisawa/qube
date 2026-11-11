@@ -119,7 +119,9 @@ the page, `settings <name> <value>` sets one, `settings reset <name>` returns it
 ## Open
 
 - Whether an administrator may reset another user's settings (DEFAULT: reads only).
-- The line's words for the three capabilities (§4), settled in the spec.
+- The line's words for the three capabilities (§4), settled in the spec. (Settled on 2026-11-11 as built: `settings`
+  opens the settings dialog, `settings <name> <value>` sets, `settings reset <name>` resets; the AI pane adds
+  `/model <id>` for one conversation.)
 
 ## The first registrations
 
@@ -142,6 +144,9 @@ After ADR-0016's step 4 is merged, since the same files (the host's registration
 1. The store, its three capabilities, the settings page and the line; theme, command ranking and column widths.
 2. The defaults, with their source shown on the pricer and Rates pages.
 3. The AI's default model, and the pane's model for one conversation, once the allowed models are configured.
+
+Built on 2026-11-11, the three steps in one pull request (`docs/specs/user-settings`; `IMPLEMENTATION_STATUS.md`
+says what runs and what is left).
 
 ME-ID sign-in (C30) is its own work. The store runs on `Qube:DemoUser` until then, and only the id changes when it
 arrives.

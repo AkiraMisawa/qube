@@ -7,8 +7,8 @@ model each agent run records (ADR-0017 §1, §6.3).
 
 **Blocked by:** 02.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] A new conversation starts on the user's default model.
-- [ ] A model chosen for one conversation changes neither the default nor another conversation; one not allowed is refused.
-- [ ] An agent run says the model it ran on.
+- [x] A new conversation starts on the user's default model.
+- [x] A model chosen for one conversation changes neither the default nor another conversation; one not allowed is refused.
+- [x] An agent run says the model it ran on.

@@ -1,6 +1,6 @@
 # A user's settings: the store, its commands, preferences, defaults and the AI's model
 
-Status: in progress
+Status: built 2026-11-11 (steps 1, 2 and 3)
 
 The decisions are [ADR-0017](../../adr/0017-a-users-settings-live-on-the-server-apart-from-workspaces-and-a-default-is-copied-in-when-a-workspace-is-made.md),
 accepted on 2026-11-11 with the owner's answers to its §6, and the ADRs it builds on: ADR-0003 (the log, Price never
