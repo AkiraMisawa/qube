@@ -1,0 +1,17 @@
+# 04: `new` makes a row under a row
+
+**What to build:** A described product may say the table its entities are rows of and the term that names the row
+above; `new <product> <row above> <terms>` reads its first word as that row and writes it into the terms by name and
+whole key (ADR-0016 note 48).
+
+**Pull request:** 5a
+
+**Blocked by:** 01.
+
+**Status:** ready-for-agent
+
+- [ ] The first word after the product's words is the row above where it names one, whole or by how it ends, and the
+      request names it by its whole key.
+- [ ] The term typed by its name is read as any term.
+- [ ] With neither, the product is refused as missing the term.
+- [ ] A product that says a table the workspace has not, or a term it has not, fails at start, by name.
