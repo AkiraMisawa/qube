@@ -38,6 +38,7 @@ public sealed record TableField(
 /// </summary>
 /// <param name="SingleRow">A table of one row is addressed without a row: <c>set &lt;field&gt; &lt;value&gt;</c>.</param>
 /// <param name="Main">The application's main table, which <c>all</c>, a subset or <c>where</c> mean where no table is named (note 7).</param>
+/// <param name="Actions">What a grid bound to the table offers beside the kernel's own (note 25 of step 2); none where it is left out.</param>
 public sealed record TableDescriptor(
     string TableId,
     string Version,
@@ -48,7 +49,17 @@ public sealed record TableDescriptor(
     IReadOnlyList<TableField> Fields,
     IReadOnlyList<TableSubset> Subsets,
     bool SingleRow = false,
-    bool Main = false);
+    bool Main = false,
+    IReadOnlyList<TableAction>? Actions = null);
+
+/// <summary>
+/// An act on a table's rows that a screen offers by its title (ADR-0016 §4, note 25 of step 2): the line that does it,
+/// read with the screen's view when it is run (<c>Mark as checked</c>, <c>set selected checked on</c>).
+/// </summary>
+public sealed record TableAction(string Title, string Line);
+
+/// <summary>A table as a screen is told of it (ADR-0016 §4, note 25 of step 2): its id, its title and the actions a grid bound to it offers.</summary>
+public sealed record TableOnScreen(string TableId, string Title, IReadOnlyList<TableAction> Actions);
 
 /// <summary>One row at a revision: its key, the subset it is in, and its values by field as they stand.</summary>
 public interface ITableRow

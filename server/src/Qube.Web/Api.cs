@@ -132,6 +132,21 @@ public static class Api
             }
         });
 
+        // A workspace's tables as a screen is told of them (ADR-0016 §4, note 25 of step 2): the actions a grid bound to
+        // each offers in its Context Menu. Refused as the door refuses a workspace: unknown, or another user's.
+        api.MapGet("/workspaces/{workspaceId}/tables", (string workspaceId, CommandLines lines, CurrentUser user) =>
+        {
+            try
+            {
+                return Results.Ok(lines.Tables(workspaceId, new Caller(user.Id, RunOrigin.Pricer)));
+            }
+            catch (WorkspaceRefused refused)
+            {
+                var status = DoorStatus(refused.Code) ?? throw new InvalidOperationException($"No status is set for the tables' refusal {refused.Code}.");
+                return Results.Json(new ErrorEnvelope(refused.Code, refused.Message, []), statusCode: status);
+            }
+        });
+
         // The Pricing DB. Until roles arrive with sign-in (C30, C31), a user sees their own Runs only.
         api.MapGet("/history/catalog", (HistoryService history) => history.Catalog());
 

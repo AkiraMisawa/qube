@@ -152,6 +152,7 @@ public class PricerTableTests
         var page = rig.Service.Page(rig.Id, "akira", 0, 100_000, [new("notional", "descending")], "existing");
         string[] at = [page.Rows[1].TradeId, page.Rows[2].TradeId, page.Rows[5].TradeId];
         var view = new LineView(PortfolioTables.Trades, "existing", [new("notional", Descending: true)], page.OrderToken, Ranges: [new(1, 2), new(5, 1)], Focus: new("csa", Position: 5));
+        var byAfter = rig.Service.Page(rig.Id, "akira", 0, 100_000, [new("after", "descending")], "existing");
 
         var preview = rig.Preview("set selected a off", view);
 
@@ -161,12 +162,34 @@ public class PricerTableTests
         Assert.Equal($"Set A to off on {at[0]}, {at[1]} and {at[2]}.", await rig.Run(preview));
         Assert.Equal(at.Order(), rig.Trades().Where(t => !t.After).Select(t => t.TradeId).Order());
 
-        // Sorted, any edit may move the order: the grid reads again, and positions it drew before are no longer said.
-        var stale = rig.Preview("set selected a on", view);
+        // The edit moved no row of this order, so its positions still name their rows (note 26).
+        Assert.Equal("A: 3 off to on", rig.Preview("set selected a on", view).Would);
+        // An order the edit did move is another order: positions drawn before it are no longer said.
+        var stale = rig.Preview("set selected a on", view with { Sorts = [new("after", Descending: true)], Order = byAfter.OrderToken });
         Assert.Equal(("ViewMoved", "trades (existing), no longer in the order it was shown in"), (stale.Refused!.Code, stale.View));
         // A column the grid cannot sort by is the page's fault, and no reading.
         Assert.Equal("UnknownColumn", Assert.Throws<WorkspaceRefused>(() => rig.TradesTable.InOrder(rig.State, "existing", [new("mood")])).Code);
         Assert.Equal("InvalidView", Assert.Throws<WorkspaceRefused>(() => rig.Preview("", view with { Sorts = [new("mood")] })).Code);
+    }
+
+    [Fact] // ADR-0016 note 26 of step 2: a sorted order's token moves only when the order does, so a grid keeps its selection across an edit that moves no row
+    public async Task A_sorted_orders_token_moves_only_when_the_order_does()
+    {
+        var rig = new Rig();
+        string Token(string column, string grid) => rig.Service.Page(rig.Id, "akira", 0, 100_000, [new(column, "descending")], grid).OrderToken;
+        var before = (Notional: Token("notional", "existing"), After: Token("after", "existing"), New: Token("notional", "new"), Unsorted: rig.Service.Page(rig.Id, "akira", 0, 1, [], "existing").OrderToken);
+        var third = rig.Service.Page(rig.Id, "akira", 0, 100_000, [new("after", "descending")], "existing").Rows[2].TradeId;
+
+        // One trade out of After: no row moves by notional, and that trade moves to the end by After.
+        await rig.Run(rig.Preview($"set {third} a off"));
+        Assert.Equal(before.Notional, Token("notional", "existing"));
+        Assert.NotEqual(before.After, Token("after", "existing"));
+        Assert.Equal(before.Unsorted, rig.Service.Page(rig.Id, "akira", 0, 1, [], "existing").OrderToken);
+
+        // The New grid's orders are its own: an edit of an existing trade moves none of them.
+        Assert.Equal(before.New, Token("notional", "new"));
+        // One token for the page and for the table, as before (note 17).
+        Assert.Equal(Token("notional", "existing"), rig.TradesTable.InOrder(rig.State, "existing", [new("notional", Descending: true)])!.Token);
     }
 
     [Fact] // ADR-0016 §9, note 18 of step 2: with trades selected, `set csa CSA-B` is their CSA; a word a table of one row has is that table's unless a command could set it on the screen's rows too

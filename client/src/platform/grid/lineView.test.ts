@@ -1,5 +1,5 @@
 import type { LinePlace } from '../contracts';
-import { heldView, pagedView, placeFocus, type Answered, type GridRead, type ScreenGrid } from './lineView';
+import { heldView, menuView, pagedView, placeFocus, type Answered, type GridRead, type ScreenGrid } from './lineView';
 
 // ADR-0016 notes 16 and 17 of 2026-11-11: what a page reads of a grid for the command line. The names are made up.
 
@@ -128,5 +128,18 @@ describe('the cell a place names in a grid (ADR-0016 §9, note 21 of 2026-11-11)
   it('says which it is where the grid refuses the place: it has moved since the view was read, or it keeps an edit open that it could not commit', () => {
     expect(placeFocus(grid, placing(false), version, { ...place, position: 7 })).toBe('The grid on screen has moved since the line opened: open the line again.');
     expect(placeFocus(grid, placing(false, '12x'), version, { ...place, position: 7 })).toBe('The grid on screen keeps an edit open that it could not commit: correct or cancel it first.');
+  });
+});
+
+describe('the view a Context Menu\'s item is run with (ADR-0016 §4, note 25 of 2026-11-11)', () => {
+  const menu = { column: 'note', selection: [{ topRow: 2, rowCount: 3, leftColumn: 0, columnCount: 4 }], rowSequenceVersion: 4 };
+
+  it('is the grid\'s view of the Selection the menu was handed, in the version it was handed in, with the cell the menu was opened on as the focused cell, by its row\'s key', () => {
+    const seen: GridRead[] = [];
+    const view = menuView((read) => { seen.push(read); return { table: 'w.readings', subset: 'manual', order: 'v3/o1', ranges: [{ start: 2, count: 3 }] }; }, menu, 'R9');
+
+    // The grid's own Focus is not read: inside a Selection it may be another cell than the one under the menu.
+    expect(seen).toEqual([{ rowSequenceVersion: 4, selection: { ranges: [{ topRow: 2, rowCount: 3 }], focus: undefined } }]);
+    expect(view).toEqual({ table: 'w.readings', subset: 'manual', order: 'v3/o1', ranges: [{ start: 2, count: 3 }], focus: { field: 'note', key: 'R9' } });
   });
 });

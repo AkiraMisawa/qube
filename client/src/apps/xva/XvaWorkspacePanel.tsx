@@ -15,15 +15,15 @@ import { registerPlaces, type Place } from '../../shell/places';
 import type { VaryCell, XvaApi } from './api';
 import type { EffectiveTrade, HeldEdit, RegisteredColumn, RegisteredMeasure, Resolution, ScenariosMade, SetSaved, ScopeDrop, ShiftEdit, Varied, XvaWorkspaceView } from './contracts';
 import { measureNamed, registerXvaPage } from './commands';
-import { commandDoor, registerCommandDoor } from '../../platform/commands/served';
-import { pagedView, placeFocus, type Answered } from '../../platform/grid/lineView';
+import { commandDoor, registerCommandDoor, tableMenu, type TableMenu } from '../../platform/commands/served';
+import { menuView, pagedView, placeFocus, type Answered, type ScreenGrid } from '../../platform/grid/lineView';
 import type { Screen } from '../../platform/commands/commands';
 import { XvaResult } from './XvaResult';
 import { BASE_CASE, BASE_SCENARIO, openTrace, requestTerm } from '../../platform/traces/open';
 import type { TraceApi } from '../../platform/traces/api';
 import type { RunRecord } from '../../platform/contracts';
 import { dockTabs, METRICS_TAB, type DockTab, type MeasureTab } from './dock';
-import { EditQueue, MEASURES_ENTITY, SETTINGS_ENTITY, TRADES_TABLE, refusedEdit, sideSaid, sideTitle, tradeFields, type PendingEdit, type SetText } from './editing';
+import { CSAS_TABLE, EditQueue, MEASURES_ENTITY, SETTINGS_ENTITY, TRADES_TABLE, refusedEdit, sideSaid, sideTitle, tradeFields, type PendingEdit, type SetText } from './editing';
 import { ToolbarField } from './fields';
 import { CHANGES_TAB, CREDIT_TAB, SCENARIOS_TAB, SETTINGS_TAB, shownTab, TAB_TITLES, tabShown, XvaInputs, type InputTab } from './XvaInputs';
 import { XvaRisks } from './XvaRisks';
@@ -179,7 +179,9 @@ function cellMessage(row: Row, col: GridColumn<Row>): string | undefined {
 
 /** The failed cell's action (ADR-0010 §6): ask again for that trade's results. */
 const RETRY = 'xva.retry';
-const commandLabel = (id: string) => (id === RETRY ? 'Ask again' : id === VARY_COMMAND ? 'Vary values…' : undefined);
+const pageLabel = (id: string) => (id === RETRY ? 'Ask again' : id === VARY_COMMAND ? 'Vary values…' : undefined);
+/** No table's actions: what a grid's menu holds of them until the page has read its tables. */
+const NO_MENU: TableMenu = { commands: () => [], label: () => undefined };
 
 const describe = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
@@ -204,6 +206,9 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   // What the command line is told is on screen (ADR-0016 §9, note 16 of 2026-11-11): the grid of a table the keyboard
   // was last in, read when the line opens. None until one is entered, and none once a grid that is no table is.
   const screen = useRef<(() => Screen | undefined) | undefined>(undefined);
+  // The actions of the tables the grids are bound to (ADR-0016 §4, note 25 of 2026-11-11), as their Context Menus offer
+  // them: read by the functions the grids were given once, so no grid is made again when they arrive.
+  const menus = useRef<{ readonly trades: TableMenu; readonly csas: TableMenu }>({ trades: NO_MENU, csas: NO_MENU });
   const [busy, setBusy] = useState<string | undefined>(undefined);
   const [confirm, setConfirm] = useState<{ readonly registration: string; readonly drop: ScopeDrop } | undefined>(undefined);
   const [failure, setFailure] = useState<string | undefined>(undefined);
@@ -471,19 +476,24 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
       workspace.notify('refused', `Nothing was asked again: ${describe(error)}`);
     }
   };
-  // A trade grid's Context Menu: Ask again on a failed result, and Vary values… on a cell the user may type now
-  // (ADR-0010 §3), which a module's read-only cell, such as PV Adj while Margin is entered, is not.
+  /** A trade grid as the line is told of it: the trades' table, the grid's subset, and its columns' names as shown. */
+  const declaredOf = (grid: TradeGrid): ScreenGrid => ({ table: TRADES_TABLE, subset: grid, columns: gridColumns.current[grid].map((c) => c.name) });
+  // A trade grid's Context Menu: what the trades' table offers on the rows selected and the cell under the menu
+  // (ADR-0016 note 25), then the page's own: Ask again on a failed result, and Vary values… on a cell the user may type
+  // now (ADR-0010 §3), which a module's read-only cell, such as PV Adj while Margin is entered, is not.
   const tradeCommands = useCallback((grid: TradeGrid) => (context: GridContextMenuContext<Row>) => {
     const { row, column: name } = context;
     const column = gridColumns.current[grid].find((c) => c.name === name);
     const module = registered.current.find((c) => c.field === name);
     const typed = column?.editable === true && (module === undefined || cellRefusal(row, module) === undefined);
+    const under = menuView((read) => pagedView(declaredOf(grid), read, sources[grid].snapshot(), sources.answered), context, row.tradeId);
     return [
+      ...menus.current.trades.commands(under),
       ...(failed(row, name) ? [{ id: RETRY, enabled: true, invoke: () => void pageRef.current.retry(row.tradeId) }] : []),
       ...(typed && column !== undefined
         ? [{ id: VARY_COMMAND, enabled: true, invoke: () => setVarying({ entity: `trade:${row.tradeId}`, field: name, title: `${row.tradeId} ${column.header}` }) }] : []),
     ];
-  }, []);
+  }, [sources]);
   const newCommands = useMemo(() => tradeCommands('new'), [tradeCommands]);
   const existingCommands = useMemo(() => tradeCommands('existing'), [tradeCommands]);
 
@@ -616,6 +626,25 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
     },
     notify: workspace.notify,
   }), [api, workspaceId, workspace, queue, show, sources]);
+  // The tables' actions (ADR-0016 §4, note 25 of 2026-11-11): read once for the workspace, and run through the door.
+  const tables = useQuery({ queryKey: ['workspace-tables', workspaceId], queryFn: () => workspace.api.tables(workspaceId), staleTime: Infinity });
+  menus.current = useMemo(() => {
+    // Not read yet, a table has no actions to offer; read, the server lists every table a grid of this page is bound to.
+    const listed = (tableId: string) => {
+      if (tables.data === undefined) return undefined;
+      const table = tables.data.find((t) => t.tableId === tableId);
+      if (table === undefined) throw new Error(`The server lists no table ${tableId}, which a grid of the pricer's page is bound to.`);
+      return table;
+    };
+    return { trades: tableMenu(listed(TRADES_TABLE), door, workspace.notify), csas: tableMenu(listed(CSAS_TABLE), door, workspace.notify) };
+  }, [tables.data, door, workspace]);
+  const tablesUnread = tables.isError ? describe(tables.error) : undefined;
+  useEffect(() => {
+    if (tablesUnread !== undefined) workspace.notify('refused', `The grids' menus hold no command of their tables: ${tablesUnread}`);
+  }, [tablesUnread, workspace]);
+  // What a menu calls an item: the page's own words, else a table's action by its title and its line. One function for
+  // the page's life, so no grid is made again for it.
+  const commandLabel = useCallback((id: string) => pageLabel(id) ?? menus.current.trades.label(id) ?? menus.current.csas.label(id), []);
   /** The grids' undo and redo keys (ADR-0016 §11): the notice says what was taken back or put back, or why nothing was. */
   const takeBack = async (verb: 'undo' | 'redo') => {
     const reason = await door.invoke(`workspace.${verb}`, {});
@@ -841,7 +870,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
     const of = (grid: TradeGrid, handle: { readonly current: ExGridApi<Row> | null }) => (): Screen | undefined => {
       const shown = handle.current;
       if (shown === null) return undefined;
-      const declared = { table: TRADES_TABLE, subset: grid, columns: gridColumns.current[grid].map((c) => c.name) };
+      const declared = declaredOf(grid);
       const read = shown.readView();
       return {
         view: pagedView(declared, read, sources[grid].snapshot(), sources.answered),
@@ -929,7 +958,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
         <XvaInputs panelId={panelId} ws={ws} onIssue={setIssue} push={(entity, field, value, title) => void queue.push({ entity, field, value, title })} setText={setText}
           catalogue={catalogue.isError ? { refused: describe(catalogue.error) } : catalogue.data} onGridEntered={(seen) => { screen.current = seen; }} onPlaced={() => openTab('csa')}
           tab={inputTab} onTab={(tab) => { setInputTab(tab); setInputsOpen(true); }} open={inputsOpen} onOpen={setInputsOpen} height={inputsHeight} focusRequest={focusRequest}
-          changeList={changeList.data} changeActions={changeActions} scenarioActions={scenarioActions} onVary={setVarying} commandLabel={commandLabel} />
+          changeList={changeList.data} changeActions={changeActions} scenarioActions={scenarioActions} onVary={setVarying} commandLabel={commandLabel} csaMenu={menus} />
         <VaryDialog target={varying} vary={(target, values) => varyCell({ entity: target.entity, field: target.field }, values)} onClose={() => setVarying(undefined)} />
         {inputsOpen && <Resizer label="Height of the input tabs" value={inputsHeight} min={48} max={640} grows="down" onChange={setInputsDragged} />}
       </div>

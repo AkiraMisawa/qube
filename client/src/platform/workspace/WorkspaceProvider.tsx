@@ -1,9 +1,9 @@
-import { createContext, useContext, useState, type ReactNode } from 'react';
+import { createContext, useContext, useMemo, useState, type ReactNode } from 'react';
 import { useQueries, useQuery } from '@tanstack/react-query';
 import { useStore } from 'zustand';
 import type { Api } from '../api';
 import type { Catalog, Dataset, RunRecord, TypedDataRef } from '../contracts';
-import type { Notify } from '../notices';
+import { hearing, type Hearing, type Notify } from '../notices';
 import { createWorkspaceStore, type WorkspaceState, type WorkspaceStore } from './workspaceStore';
 
 interface Workspace {
@@ -11,6 +11,8 @@ interface Workspace {
   readonly catalog: Catalog;
   readonly store: WorkspaceStore;
   readonly notify: Notify;
+  /** Hears what `notify` says (ADR-0016 note 24): the command line, kept open, says it too. */
+  readonly hear: Hearing['hear'];
 }
 
 const WorkspaceContext = createContext<Workspace | undefined>(undefined);
@@ -27,7 +29,10 @@ export function WorkspaceProvider({ api, catalog, initialContext, notify, childr
   const contract = catalog.contracts.find((c) => c.contractId === CONTEXT_CONTRACT);
   if (contract === undefined) throw new Error(`No module registered the ${CONTEXT_CONTRACT} contract; the workbench has no context to bind.`);
   const [store] = useState(() => createWorkspaceStore(initialContext, contract));
-  return <WorkspaceContext.Provider value={{ api, catalog, store, notify }}>{children}</WorkspaceContext.Provider>;
+  // One value while its parts stand: a notice draws the application again, and a value made anew then would have every
+  // page make its command door anew in the middle of the command that said it.
+  const value = useMemo(() => { const { notify: said, hear } = hearing(notify); return { api, catalog, store, notify: said, hear }; }, [api, catalog, store, notify]);
+  return <WorkspaceContext.Provider value={value}>{children}</WorkspaceContext.Provider>;
 }
 
 export function useWorkspaceContext(): Workspace {

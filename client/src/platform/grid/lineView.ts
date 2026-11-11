@@ -99,6 +99,25 @@ export function heldView<Row>(
   };
 }
 
+/** What a Context Menu was opened over, as ExGrid hands it to a grid's `contextCommands`: the column, and the Selection in its Row Sequence Version. */
+export interface MenuOpened {
+  readonly column: string;
+  readonly selection: readonly { readonly topRow: number; readonly rowCount: number }[];
+  readonly rowSequenceVersion: number;
+}
+
+/**
+ * The view a Context Menu's item is run with (ADR-0016 §4, note 25 of 2026-11-11): the grid's view (`of`) of the
+ * Selection the menu was handed, with the cell the menu was opened on as the focused cell, its row by `key`. The
+ * grid's own Focus is not read: inside a Selection of several cells it may be another cell, and "this cell" is the
+ * one under the menu. The row is named by its key whether or not the server pages the grid, so no position is looked
+ * for in rows the page may have been answered again since.
+ */
+export function menuView(of: (read: GridRead) => LineView, menu: MenuOpened, key: string): LineView {
+  const ranges = menu.selection.map((r) => ({ topRow: r.topRow, rowCount: r.rowCount }));
+  return { ...of({ rowSequenceVersion: menu.rowSequenceVersion, selection: { ranges, focus: undefined } }), focus: { field: menu.column, key } };
+}
+
 /**
  * What of a grid's handle a place is put with: ExGrid's `placeSelection`, which refuses a Row Sequence Version the grid
  * has left and a grid that keeps an edit open, and `readEditText`, by which the two are told apart.

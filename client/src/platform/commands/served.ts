@@ -1,5 +1,5 @@
 import { ApiError, outputOf, type Api } from '../api';
-import type { Catalog, CommandForm, LineArgument, LineCompletion, LinePreview, LineView, RowsEdited, TakenBack } from '../contracts';
+import type { Catalog, CommandForm, LineArgument, LineCompletion, LinePreview, LineView, RowsEdited, TableOnScreen, TakenBack } from '../contracts';
 import type { Notify } from '../notices';
 import type { Command, CommandDoor, Completion, KeyboardMoved, LineReading, LineReason, Screen } from './commands';
 
@@ -160,6 +160,35 @@ export function servedCommands(catalog: Pick<Catalog, 'capabilities' | 'viewVerb
       },
     };
   }));
+}
+
+/** What a table's actions make of a grid's Context Menu: its items, and what the menu calls each. */
+export interface TableMenu {
+  /** One item per action, each running its line with `view`, what the menu was opened over. */
+  commands(view: LineView): readonly { readonly id: string; readonly enabled: boolean; readonly invoke: () => Promise<void> }[];
+  /** What the menu calls an item of its own: its title and the line that does the same. None for another's id. */
+  label(id: string): string | undefined;
+}
+
+/**
+ * A table's actions as the Context Menu of a grid bound to it offers them (ADR-0016 §4, note 25 of 2026-11-11). Each
+ * is run as a served command is from a key: the server reads its line with the menu's view, in the page's turn, and a
+ * refusal is a notice. Every action is offered on every cell: what one would do there is the server's to say. Until
+ * the page has read its tables (`table` is not there yet) the menu holds none of them.
+ */
+export function tableMenu(table: TableOnScreen | undefined, door: Pick<CommandDoor, 'enter'>, notify: Notify): TableMenu {
+  const actions = table === undefined ? [] : table.actions.map((action) => ({ ...action, id: `${table.tableId}:${action.line}` }));
+  return {
+    commands: (view) => actions.map((action) => ({
+      id: action.id,
+      enabled: true,
+      invoke: async () => {
+        const ended = await door.enter(action.line, undefined, view);
+        if (ended !== undefined && 'sentence' in ended) notify('refused', `${action.line}: ${ended.sentence}`);
+      },
+    })),
+    label: (id) => { const action = actions.find((a) => a.id === id); return action === undefined ? undefined : `${action.title} · ${action.line}`; },
+  };
 }
 
 /**

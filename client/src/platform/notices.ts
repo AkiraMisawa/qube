@@ -13,6 +13,33 @@ export interface Notice {
 
 export type Notify = (kind: NoticeKind, message: string, options?: { readonly stays?: boolean }) => void;
 
+/** What the application says, and how it is heard by something other than the strip that draws it. */
+export interface Hearing {
+  /** Says a notice as before, and tells whoever hears. */
+  readonly notify: Notify;
+  /** Hears every notice said from now on; the answer stops hearing. */
+  hear(listener: (notice: Notice) => void): () => void;
+}
+
+/**
+ * A `notify` that can be heard (ADR-0016 §9, note 24 of 2026-11-11): the command line, kept open by its chain key, says
+ * what the command it ran said, whichever page or command said it and however late.
+ */
+export function hearing(notify: Notify): Hearing {
+  const listeners = new Set<(notice: Notice) => void>();
+  return {
+    notify: (kind, message, options) => {
+      notify(kind, message, options);
+      const notice: Notice = { kind, message, ...(options?.stays === true ? { stays: true } : {}) };
+      for (const listener of [...listeners]) listener(notice);
+    },
+    hear: (listener) => {
+      listeners.add(listener);
+      return () => { listeners.delete(listener); };
+    },
+  };
+}
+
 /** How long a done notice stays while neither the pointer nor the keyboard is on it, in milliseconds. */
 export const DONE_NOTICE_MS = 6000;
 

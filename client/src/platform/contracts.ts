@@ -46,6 +46,19 @@ export interface ViewVerbDescriptor {
   readonly command: CommandForm;
 }
 
+/** An act on a table's rows that a screen offers by its title (ADR-0016 §4, note 25 of 2026-11-11): the line that does it. */
+export interface TableAction {
+  readonly title: string;
+  readonly line: string;
+}
+
+/** A table as a screen is told of it (note 25): its id, its title, and the actions a grid bound to it offers. */
+export interface TableOnScreen {
+  readonly tableId: string;
+  readonly title: string;
+  readonly actions: readonly TableAction[];
+}
+
 /** What could stand at the end of a line: the text, where in the line it is written from, and what it is where that helps. */
 export interface LineCompletion {
   readonly value: string;

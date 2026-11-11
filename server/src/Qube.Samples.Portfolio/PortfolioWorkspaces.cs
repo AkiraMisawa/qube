@@ -2,6 +2,8 @@ using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using System.Globalization;
 using System.Runtime.CompilerServices;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json.Nodes;
 using Qube.Composition.Application;
 using Qube.Composition.Application.Saved;
@@ -428,7 +430,7 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
             _ => throw new WorkspaceRefused("InvalidSort", $"Sort direction {sort.Direction} is not ascending or descending."),
         })));
         var all = TradeOrder.Ordered(state, register, grid, keys);
-        var token = TradeOrder.Token(state, keys);
+        var token = TradeOrder.Token(state, register, grid, keys);
         // The modules' cells are read for the page alone, each time: a result such as PV01 arrives with no edit.
         var page = start >= all.Count ? [] : register.WithCells(state, [.. all.Skip(start).Take(count)]);
         return new(page, start, all.Count, token, state.Revision);
@@ -708,7 +710,7 @@ public static class TradeOrder
         var orders = Orders.GetOrCreateValue(state);
         IReadOnlyList<EffectiveTrade> Whole() => orders.GetOrAdd((register, ""), _ => register.WithMembership(state, PortfolioMaterialiser.Trades(state)));
         IReadOnlyList<EffectiveTrade> Grid() => grid is null ? Whole() : orders.GetOrAdd((register, grid), _ => Of(Whole(), grid));
-        return keys.Count == 0 ? Grid() : orders.GetOrAdd((register, $"{grid}|{string.Join(",", keys.Select(k => $"{k.Column}:{k.Descending}"))}"), _ => Sorted(Grid(), keys));
+        return keys.Count == 0 ? Grid() : orders.GetOrAdd((register, OrderOf(grid, keys)), _ => Sorted(Grid(), keys));
     }
 
     /// <summary>The rows of one trade grid (<c>new</c> or <c>existing</c>), in the order given; every row where none is named.</summary>
@@ -728,9 +730,20 @@ public static class TradeOrder
             return 0;
         }))];
 
-    /// <summary>Unsorted, the order is the source's and moves only with a new version; sorted, any edit may move it.</summary>
-    public static string Token(WorkspaceState state, IReadOnlyList<(string Column, bool Descending)> keys) =>
-        keys.Count == 0 ? state.Source.Version : $"{state.Source.Version}/r{state.Revision}";
+    // A sorted order's digest, kept per state as its rows are: every page of one order asks for its token.
+    static readonly ConditionalWeakTable<WorkspaceState, ConcurrentDictionary<(MeasureRegister Register, string Order), string>> Digests = new();
+
+    /// <summary>
+    /// The token of a grid's order (ADR-0016 note 26 of step 2): it moves when the order does, and only then. Unsorted,
+    /// the order is the source's and moves with a new version. Sorted, an edit may move a row: the token is the version
+    /// and a digest of the keys in that order, so an edit that moves, adds and removes no row leaves it.
+    /// </summary>
+    public static string Token(WorkspaceState state, MeasureRegister register, string? grid, IReadOnlyList<(string Column, bool Descending)> keys) =>
+        keys.Count == 0 ? state.Source.Version
+        : Digests.GetOrCreateValue(state).GetOrAdd((register, OrderOf(grid, keys)), _ =>
+            $"{state.Source.Version}/o{Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join('\n', Ordered(state, register, grid, keys).Select(t => t.TradeId)))).AsSpan(0, 8))}");
+
+    static string OrderOf(string? grid, IReadOnlyList<(string Column, bool Descending)> keys) => $"{grid}|{string.Join(",", keys.Select(k => $"{k.Column}:{k.Descending}"))}";
 
     static IComparable? Key(EffectiveTrade row, string column) => column switch
     {

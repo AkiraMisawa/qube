@@ -209,6 +209,24 @@ public class CommandGatewayTests(QubeFactory factory) : IClassFixture<QubeFactor
         Assert.Equal("Set CSA-A threshold to 5mm.", (await Ok(ran))["said"]!.GetValue<string>());
     }
 
+    [Fact] // ADR-0016 §4, note 25 of step 2: a workspace's tables are served with their actions, the pricer's trades with After and Before in and out, and another user's are not
+    public async Task A_workspaces_tables_are_served_with_their_actions()
+    {
+        var id = (await Create())["workspaceId"]!.GetValue<string>();
+        using var other = factory.WithWebHostBuilder(b => b.UseSetting("Qube:DemoUser", "ben"));
+
+        var tables = (await client.GetFromJsonAsync<JsonArray>($"/api/workspaces/{id}/tables"))!;
+        var notOwner = await other.CreateClient().GetAsync($"/api/workspaces/{id}/tables");
+        var unknown = await client.GetAsync("/api/workspaces/W-none/tables");
+
+        string Actions(string table) => string.Join(", ", tables.Single(t => t!["tableId"]!.GetValue<string>() == table)!["actions"]!.AsArray().Select(a => $"{a!["title"]!.GetValue<string>()}={a["line"]!.GetValue<string>()}"));
+        Assert.Equal("Reset this cell=reset, Take out of After=set selected after off, Put into After=set selected after on, Take out of Before=set selected before off, Put into Before=set selected before on",
+            Actions("xva.trades"));
+        Assert.Equal("Reset this cell=reset", Actions("xva.csas"));
+        Assert.Equal("Trades", tables.Single(t => t!["tableId"]!.GetValue<string>() == "xva.trades")!["title"]!.GetValue<string>());
+        Assert.Equal((HttpStatusCode.Forbidden, HttpStatusCode.NotFound), (notOwner.StatusCode, unknown.StatusCode));
+    }
+
     [Fact] // ADR-0016 §3, §9, note 21: the catalog lists find among the verbs of the screen and among no capabilities, and the preview answers the place of a row as the grid's reader orders it
     public async Task The_catalog_lists_find_apart_from_the_capabilities_and_the_preview_answers_its_place()
     {

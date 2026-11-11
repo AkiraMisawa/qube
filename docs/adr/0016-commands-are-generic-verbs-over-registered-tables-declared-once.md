@@ -467,7 +467,10 @@ log cannot yet say which entries were one command, or what an entry replaced.
    where ccy=USD after off` works with its count and can be taken back, and `set` completes. **Built 2026-11-11**
    (`docs/specs/commands-1-tables-selector-undo`, three pull requests); what it settled is the notes below.
 2. The grid's selection (`selected`, `shown`), the context on the line down to the focused cell, `go` and `find`,
-   the chain key, context menus from declarations.
+   the chain key, context menus from declarations. **Built 2026-11-11**
+   (`docs/specs/commands-2-selection-context-places`, three pull requests); what it settled is notes 16 to 26 below.
+   Left for later steps: `shown` is the grid's subset until `filter` (step 4), and a declarative view's row action
+   has no `command` target yet (note 25).
 3. The pricer's remaining commands as capabilities through the gateway; Rates registers.
 4. View verbs and the AI's row read.
 5. Drafts (§10): a detail dialog drawn from a registration, with the tables under its row and its templates. The
@@ -635,7 +638,8 @@ and the edit verbs with XVA registered; the preview and the line.
 ### Notes of 2026-11-11: what step 2 settles (all DEFAULT)
 
 Step 2 is three pull requests (`docs/specs/commands-2-selection-context-places`): 2a the selection and the context,
-2b places with `go` and `find`, 2c the chain key and menu items from declarations. Notes 16 to 19 are 2a's.
+2b places with `go` and `find`, 2c the chain key and menu items from declarations. Notes 16 to 19 are 2a's, 20 to
+23 are 2b's and 24 to 26 are 2c's.
 
 16. **What the screen gives a line (§2, §9).** When the line opens, the page's door answers a **view**: the table of
     the grid the keyboard was last in, its subset, the order its rows are shown in, the selection and the focused
@@ -828,6 +832,102 @@ Notes 20 to 23 are 2b's (tickets 06 to 08 and 12).
       and what it decided travels with the reading: the preview, the completions and the request read that, and
       none works it out again. A subset's word that both the screen's table and the main one have names the
       screen's, and the list offers it once.
+24. **The chain key (§9).** Ctrl+Enter in the line, and ⌘+Enter on a Mac, runs the line as Enter does and keeps
+    the line open. It is a key of the line: no shell chord, and nothing outside the line takes it.
+    - *Taken*, the text is cleared, the list is the one an opening shows, and the line says what its chain has
+      done, in the order it happened: each line the chain key ran (`› set selected a off`), and each notice the
+      application has said since the chain began (`Set A to off on DRAFT-1, DRAFT-2 and DRAFT-3.`). The line hears
+      the notices while it is open, so a result that arrives later (Price) is said there too, when it arrives. No
+      notice is said to be any line's: which command a late one belongs to is not known. The notice is still drawn
+      in its own strip, behind the line.
+    - *Each chained command is a new opening*: the view is read again from the page, and the commands are built
+      again, as when the line opens. So after `go existing` the next line's context is the Existing grid.
+    - *Refused*, nothing ran: the line stays with its text and the reason, as with Enter (ADR-0006's note 1).
+    - *While a chained line runs, the next is typed.* The text is cleared as the chained line begins, the line says
+      it is running, and what is typed meanwhile is kept whole. Nothing runs before the chained line has ended:
+      Enter and the chain key are refused with the reason (`set selected a off has not ended yet. Press Enter again
+      once it has.`), and the server is asked to read nothing, since a reading then would be of the workspace the
+      running line is about to leave (spine 6). A chained line that is refused comes back on the line as typed, with
+      why; what was typed while it ran was typed for after it, and goes with it. With plain Enter the line is
+      closing and takes no key, as before.
+    - *A chained command that moves the keyboard has ended when the keyboard is there.* A place may take the
+      keyboard after its command returns (`go existing`, a tab the page has yet to draw). Until it has, the line
+      still says the command is running and runs nothing, so no line is read with the screen of before the move.
+    - *The keyboard stays the line's.* A chained `go`, `find` or `open <tab>` puts the keyboard in its place as it
+      always does; the line takes it back at once and remembers that place as where the keyboard goes when the line
+      closes (`shell/keyboard.ts`, `holdKeyboard`). The line listens for a focus outside itself only from the first
+      chained key until it closes. A command that opens a dialog ends the chain: the line closes, as with Enter.
+    - *While an IME composes, every key of the line is the IME's*: Enter, Ctrl+Enter, Tab and the arrows. Before
+      this note a plain Enter that committed a composition also ran the line.
+    - *A view read before the grid has drawn what the command left* may name an order the grid is about to leave.
+      The next line that says rows by position is then refused by name (`ViewMoved`), never run on other rows. Note
+      26 makes this rare: an edit that moves no row leaves the order's token as it was.
+    - *As built.* What the line says is a log under its input (`command-said`, `role="log"`): a row per line that
+      ran, dimmed, and a row per notice with its kind as a tick or a cross and its colour. It draws the last four
+      rows and counts the rest (`2 earlier not shown.`). A line that is running says so in words (`› price is
+      running…`). The workspace's `notify` is the one thing heard (`platform/notices.ts`, `hearing`).
+    - *As built: the keyboard.* A place that takes the keyboard a render after its command (`go existing`, `find`)
+      has it taken back when it arrives, and the screen is read again then, so the line's context is that grid's.
+      `keyboardAwaited` (`shell/keyboard.ts`) says whether a command gave the keyboard to a place that has not
+      taken it yet. The line closes on the last place a chained command put the keyboard in, or where it was opened
+      from when none did.
+    - *Changed in review, 2026-11-11.* As first built the line said one sentence, `<line>: <notice>`, with the
+      latest notice heard while the line ran, and took no key while a chained line ran. Both depended on timing: a
+      notice that arrived a moment late was said alone or with the next line, and of a line typed at machine speed
+      only the end landed, which Ctrl+Enter could then run as another command. The log names no owner for a
+      notice, and the next line is kept whole and run only once the one before has ended. A queue of Enters pressed
+      meanwhile was not built: a line that would run unseen after another's refusal is what the refusal prevents.
+    - *As built: a dialog.* Where the shell opens the dialog (`run <workflow>`, `new xva`) the chain ends in the
+      same key. A dialog a page opens later ends it when it takes the keyboard: the line closes and leaves the
+      keyboard to it, and keys typed into the line before that are lost with the line. No command of the line opens
+      such a dialog today (the counterparty's confirmation is opened from the context bar), so the rule is held by
+      the keyboard's unit test alone; when that dialog closes, the keyboard is where the dialog leaves it.
+    - *As built: what the chain found.* The workspace's context value was made anew at every notice, so every page
+      made its command door anew in the middle of the command that said it, and a `find` after a notice had no
+      grid to put the keyboard on. The value is now one for the application's life.
+    - *As built: what was not typed.* With no command matched, Ctrl+Enter asks the AI as Enter does, and the line
+      says `› ai <text>`. An option clicked with the pointer runs as Enter: the chain key is a key.
+25. **A table's actions, and the Context Menu (§4).** A table's description lists its **actions**: each a title and
+    the line that does it (`Take out of After`, `set selected after off`). `GET /api/workspaces/{id}/tables` answers
+    the workspace's tables with their actions; the kernel puts `Reset this cell` (`reset`) first on every table.
+    - *A grid bound to the table shows them in its Context Menu*, after the grid's own commands and before the
+      page's hand-written ones, each with its line (`Take out of After · set selected after off`): the menu teaches
+      the line.
+    - *An item runs its line through the page's door*, as a served command run from a key does: read by the server
+      with a view, in the page's turn, logged and taken back as that line. The view is the menu's: its Selection,
+      and for the focused cell the cell the menu was opened on, which inside a Selection is not always the Focus.
+    - *Every action is offered on every cell.* One that changes nothing there says so when run, and one the server
+      cannot read there (a column that is no field) is refused. Either is a notice with the server's sentence.
+    - *An action's line begins with a command's words*, checked when the tables are read: one that does not is the
+      registration's defect, and fails.
+    - *Not built here:* the `command` target of a declarative view's row action (`ActionDefinition`, §4), which no
+      view asks for yet. It comes with the first that does.
+    - *As built.* `TableDescriptor.Actions` holds a table's own (`TableAction`: a title and a line), and
+      `CommandLines.Tables` answers each table with the kernel's first, and fails on a host that registers tables
+      without `entity.reset`. The pricer's trades declare `Take out of
+      After`, `Put into After`, `Take out of Before` and `Put into Before`; its CSAs declare none, so their menu
+      has `Reset this cell` alone before `Vary values…`. A page reads the tables once for its workspace and builds
+      a grid's items with `tableMenu` (`platform/commands/served.ts`); the view an item runs with is `menuView`
+      (`platform/grid/lineView.ts`): the menu's Selection as the grid's, and the focused cell named by the row's
+      key and the column the menu was opened on.
+    - *As built: what an item says.* What it did is the command's own notice (`Set A to off on … and ….`), and
+      `undo` names its line with the rows it resolved to. One that changes nothing says so (`Nothing changed: …
+      already holds B off.`, `… has no edit of csa.`). A refusal is a refused notice that begins with the line
+      (`reset: reset alone resets the cell the keyboard is on, and that cell is no field of trades: …`). Tables
+      that could not be read are said once, as a refused notice, and the menus then hold the grid's own commands
+      and the page's. Tables that were read and lack one a grid of the page is bound to are a defect, and the page
+      fails.
+    - *As built: the pointer.* A secondary press outside the Selection is on that cell alone, and inside it the
+      Selection stands (ExGrid's rule), so an item acts on what the menu was opened on either way.
+26. **A sorted order's token moves only when the order does (amends note 17).** The pricer's token for a sorted
+    grid was its source's version and the revision, so every edit moved it and the grid dropped its selection.
+    It is now the source's version and a digest of the row keys in that order: an edit that moves no row, adds
+    none and removes none leaves it, the grid keeps its sequence and its selection, and a second command on the
+    same selection needs nothing selected again. An edit that does move a row moves the token, as before.
+    - *As built.* `TradeOrder.Token` in the pricer's sample: the digest is the first eight bytes of the SHA-256 of
+      the keys in order, joined by a line break, and is kept beside the sorted rows for the workspace state it was
+      taken of, so a state is digested once per order. An unsorted grid's token is still the source's version
+      alone. The reader of a page (`Page`) and `InOrder` answer the same token, which a test holds.
 
 ## Rejected
 
