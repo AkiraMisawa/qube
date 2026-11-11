@@ -28,8 +28,9 @@ public sealed class TableService(TableRegister register, WorkspaceService worksp
     // What a verb would do with a workspace as it stands: read and checked as the command checks, and not written. No
     // row touched is a command that changes nothing.
     /// <param name="Keyed">Where the rows were read from a screen: the table as a request names it, beside the rows by their keys (note 17 of step 2).</param>
+    /// <param name="Context">What the line left out and the screen behind it gave (note 18 of step 2): its rows, and for <c>reset</c> alone the field too.</param>
     sealed record Plan(WorkspaceState State, ResolvedRows Resolved, IReadOnlyList<WorkspaceChange> Changes, IReadOnlyList<ITableRow> Touched, string Said, string Would, string Words,
-        string? Keyed = null);
+        string? Keyed = null, TableField? Context = null);
 
     /// <summary>
     /// Writes one value or several into the rows (note 9): a row that holds a value gets no edit for it and is counted;
@@ -57,21 +58,24 @@ public sealed class TableService(TableRegister register, WorkspaceService worksp
     public LineRead SetLine(LineContext line)
     {
         var (rows, rest) = Split(line);
-        return Read(line, PlanSet(line.State, line.Caller, null, rows, rest, line.View), ("rows", rows), ("set", rest));
+        var plan = PlanSet(line.State, line.Caller, null, rows, rest, line.View);
+        return Read(line, plan, Rows(rows, plan), new("set", rest));
     }
 
     /// <summary><c>reset</c> as a line types it: the rows, then the field where one is named.</summary>
     public LineRead ResetLine(LineContext line)
     {
         var (rows, rest) = Split(line);
-        return Read(line, PlanReset(line.State, null, rows, rest.Length == 0 ? null : rest, line.View), ("rows", rows), ("field", rest));
+        var plan = PlanReset(line.State, null, rows, rest.Length == 0 ? null : rest, line.View);
+        // With no word at all, the field is the screen's too: the cell the keyboard is on.
+        return Read(line, plan, Rows(rows, plan), plan.Context is { } cell ? new("field", TableWords.Word(cell), ArgumentSource.Context) : new("field", rest));
     }
 
     /// <summary><c>remove</c> as a line types it: the rows, and no other word.</summary>
     public LineRead RemoveLine(LineContext line)
     {
         var rows = SelectorReader.Words(line.Text);
-        return Read(line, PlanRemove(line.State, null, rows, line.View), ("rows", rows));
+        return Read(line, PlanRemove(line.State, null, rows, line.View), new LineArgument("rows", rows));
     }
 
     /// <summary>What could follow the last word of a line of <c>set</c>, <c>reset</c> or <c>remove</c>: the verb says what comes after its rows.</summary>
@@ -87,9 +91,12 @@ public sealed class TableService(TableRegister register, WorkspaceService worksp
         if (alone.Count > 1)
             throw new TableRefused("AmbiguousTable", $"{set.Trim()} could be set on {TableWords.Either(alone.Select(t => t.Word))}; say which, as in {alone[0].Word} {set.Trim()}.",
                 candidates: [.. alone.Select(t => t.Word)]);
-        var resolved = Selectors.Resolve(alone.Count == 1 ? new RowSelector(alone[0].Descriptor.TableId) : selector, tables, state, view);
+        // With a screen behind the line, a field of its table acts on its selection (note 18 of step 2).
+        var onScreen = OnScreen(selector, tables, view, t => Assignments.StartsWithAFieldOf(set, t) ? Assignments.Leading(set, t) : null, alone, set.Trim());
+        var resolved = onScreen is not null ? Selectors.LeftOut(view!, tables, state)
+            : Selectors.Resolve(alone.Count == 1 ? new RowSelector(alone[0].Descriptor.TableId) : selector, tables, state, view);
         var bound = resolved.Table;
-        var keyed = Keyed(selector, bound, tables);
+        var keyed = Keyed(selector.Screen is not null || onScreen is not null, bound, tables);
         var subject = resolved.Rows.Count > 0 ? resolved.Rows[0].Key : bound.Word;
         var values = Assignments.Read(set, bound).Select(a =>
         {
@@ -151,10 +158,15 @@ public sealed class TableService(TableRegister register, WorkspaceService worksp
         if (alone.Count > 1)
             throw new TableRefused("AmbiguousTable", $"{field!.Trim()} could be reset on {TableWords.Either(alone.Select(t => t.Word))}; say which, as in {alone[0].Word}.",
                 candidates: [.. alone.Select(t => t.Word)]);
-        var resolved = Selectors.Resolve(alone.Count == 1 ? new RowSelector(alone[0].Descriptor.TableId) : selector, tables, state, view);
+        var onScreen = OnScreen(selector, tables, view, t => field is null ? [] : Assignments.Fields(t, field) is { Count: > 0 } fields ? fields : null, alone, field?.Trim() ?? "");
+        // With no word at all, the cell the keyboard is on (note 18 of step 2): its row and its field, and no other.
+        var cell = onScreen is not null && field is null ? Cell(view!, onScreen) : null;
+        var resolved = cell is not null ? Selectors.Focused(view!, tables, state) ?? throw new InvalidOperationException("A focused cell has a row.")
+            : onScreen is not null ? Selectors.LeftOut(view!, tables, state)
+            : Selectors.Resolve(alone.Count == 1 ? new RowSelector(alone[0].Descriptor.TableId) : selector, tables, state, view);
         var bound = resolved.Table;
-        var keyed = Keyed(selector, bound, tables);
-        var named = field is null ? null : TableRegister.Field(bound, field);
+        var keyed = Keyed(selector.Screen is not null || onScreen is not null, bound, tables);
+        var named = cell ?? (field is null ? null : TableRegister.Field(bound, field));
         var of = named is null ? "" : $" of {TableWords.Word(named)}";
 
         var changes = new List<WorkspaceChange>();
@@ -177,19 +189,20 @@ public sealed class TableService(TableRegister register, WorkspaceService worksp
         var words = Words("reset", table, said, field);
         var touched = resolved.Rows.Where(changed.Contains).ToList();
         var held = resolved.Rows.Count - touched.Count;
-        if (touched.Count == 0) return Unchanged(state, resolved, $"{Rows(bound, resolved.Rows, all: true)} {(resolved.Rows.Count == 1 ? "has" : "have")} no edit{of}", words, keyed);
+        if (touched.Count == 0)
+            return Unchanged(state, resolved, $"{Rows(bound, resolved.Rows, all: true)} {(resolved.Rows.Count == 1 ? "has" : "have")} no edit{of}", words, keyed) with { Context = cell };
         var without = held == 0 ? "" : $"; {held} had no edit";
         var done = touched.Count == 1 ? $"Reset {touched[0].Key}{(named is null ? "" : $" {TableWords.Word(named)}")}{without}."
             : named is null ? $"Reset {Rows(bound, touched)}{without}." : $"Reset {TableWords.Word(named)} on {Rows(bound, touched)}{without}.";
         var would = resolved.Rows.Count == 1 ? "reset" : $"{Counted(touched.Count)} reset{(held == 0 ? "" : $", {Counted(held)} with no edit")}";
-        return new(state, resolved, changes, touched, done, $"{(named is null ? "every field" : TableWords.Word(named))}: {would}", words, keyed);
+        return new(state, resolved, changes, touched, done, $"{(named is null ? "every field" : TableWords.Word(named))}: {would}", words, keyed, cell);
     }
 
     Plan PlanRemove(WorkspaceState state, string? table, string? rows, LineView? view = null)
     {
         var (tables, selector, said) = ReadRows(state, table, rows);
         var resolved = Selectors.Resolve(selector, tables, state, view);
-        var keyed = Keyed(selector, resolved.Table, tables);
+        var keyed = Keyed(selector.Screen is not null, resolved.Table, tables);
         var words = Words("remove", table, said, null);
         if (resolved.Rows.Count == 0) return Unchanged(state, resolved, "", words, keyed);
         var changes = resolved.Rows.SelectMany(r => resolved.Table.Table.Remove(state, r)).ToList();
@@ -199,8 +212,36 @@ public sealed class TableService(TableRegister register, WorkspaceService worksp
 
     // The table as a request names it beside rows read from a screen: by its word, which the log then reads as a line
     // does, or by its id where another table answers to that word.
-    static string? Keyed(RowSelector selector, BoundTable table, IReadOnlyList<BoundTable> tables) => selector.Screen is null ? null
+    static string? Keyed(bool fromScreen, BoundTable table, IReadOnlyList<BoundTable> tables) => !fromScreen ? null
         : tables.Count(t => TableWords.Names(t.Descriptor).Contains(TableWords.Of(table.Word))) == 1 ? table.Word : table.Descriptor.TableId;
+
+    // The table on the screen behind a line that says no rows, where the line's first words name a field of it (note 18
+    // of step 2); none with no screen, and for a table of one row, which needs no row. Words that name a field of a table
+    // of one row too are refused with the two spellings that say which.
+    static BoundTable? OnScreen(RowSelector selector, IReadOnlyList<BoundTable> tables, LineView? view, Func<BoundTable, IReadOnlyList<TableField>?> named,
+        IReadOnlyList<BoundTable> alone, string said)
+    {
+        if (view is null || selector.Table is not null || !selector.SaysNoRows) return null;
+        var table = Views.TableOf(view, tables);
+        if (table.Descriptor.SingleRow || named(table) is not { } there) return null;
+        if (alone.Count == 0 || there.Count == 0) return table;
+        var other = named(alone[0]) ?? throw new InvalidOperationException($"{alone[0].Word} was read as having the field.");
+        throw new TableRefused("AmbiguousField",
+            $"{Assignments.Name(said)} could be {TableWords.Word(other[0])} of {alone[0].Word} or {TableWords.Word(there[0])} of the {table.Word} on screen; "
+            + $"say which, as in {alone[0].Word} {said} or {SelectorReader.SelectedWord} {said}.",
+            Assignments.Name(said), [$"{alone[0].Word} {said}", $"{SelectorReader.SelectedWord} {said}"]);
+    }
+
+    // The field of the cell the keyboard is on, for a line that names none.
+    static TableField Cell(LineView view, BoundTable table) =>
+        view.Focus is null ? throw new TableRefused("NoFocus", $"reset alone resets the cell the keyboard is on, and it is on no cell of {table.Word}: name the rows, or a field.")
+        : Views.FocusedField(view, table) ?? throw new TableRefused("NoFocus", $"reset alone resets the cell the keyboard is on, and that cell is no field of {table.Word}: name the rows, or a field.");
+
+    // The rows as a line's argument: its own words, or, where it left them out and a screen gave them, the rows by
+    // their keys as a log names them. A table of one row has no rows to say.
+    static LineArgument Rows(string? typed, Plan plan) => typed is not null || plan.Keyed is null ? new("rows", typed ?? "")
+        : new("rows", plan.Resolved.Rows.Count <= Named ? string.Join(", ", plan.Resolved.Rows.Select(r => r.Key))
+            : $"{string.Join(", ", plan.Resolved.Rows.Take(Named).Select(r => r.Key))} and {Counted(plan.Resolved.Rows.Count - Named)} more", ArgumentSource.Context);
 
     // The rows as the caller said them, read in the tables the workspace has, and as a log names them: in the caller's
     // words, a list of many ids by its first few and how many more there are (note 17 of step 2).
@@ -228,14 +269,15 @@ public sealed class TableService(TableRegister register, WorkspaceService worksp
     (string? Rows, string Left) Split(LineContext line)
     {
         var words = line.Text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
-        var rest = SelectorReader.Read(line.Text, [.. register.Of(line.State).Select(t => t.Descriptor)]).Rest;
+        var tables = register.Of(line.State);
+        var rest = SelectorReader.Read(line.Text, [.. tables.Select(t => t.Descriptor)], onScreen: line.View is { } view ? Views.TableOf(view, tables).Descriptor : null).Rest;
         return (rest.Count == words.Length ? null : string.Join(' ', words[..^rest.Count]), string.Join(' ', rest));
     }
 
     // A line's reading: the request that runs it on the revision read, each argument it gave, its rows and what would change.
-    static LineRead Read(LineContext line, Plan plan, params (string Name, string? Text)[] arguments)
+    static LineRead Read(LineContext line, Plan plan, params LineArgument[] arguments)
     {
-        var given = arguments.Where(a => !string.IsNullOrEmpty(a.Text)).Select(a => new LineArgument(a.Name, a.Text!)).ToList();
+        var given = arguments.Where(a => a.Text.Length > 0).ToList();
         var request = new JsonObject { ["workspaceId"] = line.State.WorkspaceId, ["revision"] = line.State.Revision };
         foreach (var argument in given) request[argument.Name] = argument.Text;
         var (bound, rows) = (plan.Resolved.Table, plan.Resolved.Rows);
@@ -359,6 +401,17 @@ static class Assignments
         var field = TableRegister.Field(table, name);
         return named < words.Length ? (field, string.Join(' ', words.Skip(named))) : throw new TableRefused("UnreadValues", $"{TableWords.Word(field)} has no value: {How}", name);
     }
+
+    /// <summary>The fields the text's first name could be, where it starts with one: the words before a sign, or the longest run of words that names a field.</summary>
+    public static IReadOnlyList<TableField> Leading(string text, BoundTable table)
+    {
+        if (text.IndexOf('=') is > 0 and var sign) return Fields(table, text[..sign]);
+        var words = SelectorReader.Words(text).Split(' ');
+        return Leading(words, table) is { } count ? Fields(table, string.Join(' ', words.Take(count))) : [];
+    }
+
+    /// <summary>The text's first name as written: the words before a sign, or the first word.</summary>
+    public static string Name(string text) => text.IndexOf('=') is > 0 and var sign ? text[..sign].Trim() : SelectorReader.Words(text).Split(' ')[0];
 
     // How many words from the start name a field, taking the most that do; none where no run does.
     static int? Leading(string[] words, BoundTable table) =>

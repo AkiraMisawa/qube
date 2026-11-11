@@ -46,11 +46,11 @@ static class TableCompletions
         public LineCompletions All()
         {
             var words = done.Select(w => w.Word).ToArray();
-            var scan = SelectorReader.Scan(words, [.. tables.Select(t => t.Descriptor)]);
+            var onScreen = view is null ? null : Views.TableOf(view, tables);
+            var scan = SelectorReader.Scan(words, [.. tables.Select(t => t.Descriptor)], onScreen: onScreen?.Descriptor);
             var selector = scan.Selector;
             var said = selector.Table is { } id ? tables.First(t => t.Descriptor.TableId == id) : null;
             var main = tables.FirstOrDefault(t => t.Descriptor.Main);
-            var onScreen = view is null ? null : Views.TableOf(view, tables);
             // The rows of a screen are of the screen's table, whatever else the line names: one that names another is refused, and nothing follows it.
             if (selector.Screen is not null && (onScreen is null || (said is not null && said != onScreen))) return LineCompletions.None;
             var target = selector.Screen is not null ? onScreen : said ?? main;
@@ -63,7 +63,7 @@ static class TableCompletions
             {
                 // Words after the rows are the verb's own.
                 var pending = done.Skip(scan.Taken).ToList();
-                foreach (var table in TablesOf(selector, said, main, string.Join(' ', pending.Select(w => w.Word)))) AfterRows(table, pending);
+                foreach (var table in TablesOf(selector, said, main, onScreen, string.Join(' ', pending.Select(w => w.Word)))) AfterRows(table, pending);
             }
             else if (selector.Where.Count > 0)
             {
@@ -128,9 +128,18 @@ static class TableCompletions
                 if (afterRows is not null)
                     foreach (var table in tables.Where(t => t.Descriptor.SingleRow))
                         foreach (var field in Fields(table, [], editable: true)) items.Add(new(TableWords.Word(field), at, table.Word));
+                // With a screen behind the line the rows may be left out (note 18 of step 2): the fields of its table,
+                // each saying what it would act on, the selection or the row the keyboard is on.
+                if (afterRows is not null && view is not null && onScreen is { Descriptor.SingleRow: false } && LeftOut(view) is { } rows)
+                    foreach (var field in Fields(onScreen, [], editable: true)) items.Add(new(TableWords.Word(field), at, rows));
             }
             Rows(said is null ? null : [said], []);
         }
+
+        // What a line that says no rows would act on, in a word or two: how many rows are selected, or the row the
+        // keyboard is on by its key where the page names it; none where the screen gives neither.
+        static string? LeftOut(LineView view) => view.Selected > 0 ? $"{view.Selected.ToString(CultureInfo.InvariantCulture)} selected"
+            : view.Focus is { Key: { } key } ? key : view.Focus is not null ? "the focused row" : null;
 
         // Rows by their ids, as far as typed: an id starts or ends with it, as the selector reads one. With no table
         // named, a row two tables have is offered with its table, since its id alone is refused; in a list, the rows of
@@ -261,13 +270,14 @@ static class TableCompletions
         IReadOnlyList<string> Keys(BoundTable table) => keys.TryGetValue(table, out var read) ? read : keys[table] = [.. table.Table.Rows(state).Select(r => r.Key)];
 
         // The table the verb's words are read against: the one the rows say, or, with no rows, each table of one row that has the field they start with.
-        IEnumerable<BoundTable> TablesOf(RowSelector selector, BoundTable? said, BoundTable? main, string pending)
+        IEnumerable<BoundTable> TablesOf(RowSelector selector, BoundTable? said, BoundTable? main, BoundTable? onScreen, string pending)
         {
-            if (selector.Screen is not null) return view is null ? [] : [Views.TableOf(view, tables)];
+            if (selector.Screen is not null) return onScreen is null ? [] : [onScreen];
             if (said is not null) return [said];
             if (selector.Ids.Count > 0) return [Selectors.Resolve(selector with { Where = [] }, tables, state).Table];
             if (!selector.SaysNoRows) return main is null ? [] : [main];
-            return tables.Where(t => t.Descriptor.SingleRow && Assignments.StartsWithAFieldOf(pending, t));
+            // No rows: a table of one row that has the field the words start with, and the screen's table where it has it.
+            return tables.Where(t => (t.Descriptor.SingleRow || t == onScreen) && Assignments.StartsWithAFieldOf(pending, t));
         }
     }
 }

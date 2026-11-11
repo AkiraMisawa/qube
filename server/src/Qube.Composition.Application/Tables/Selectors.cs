@@ -66,19 +66,21 @@ public static partial class SelectorReader
 
     /// <summary>
     /// Reads the rows a line starts with: a table's words where it names one, then <c>all</c>, <c>selected</c>,
-    /// <c>shown</c>, a subset, or ids separated by commas, then <c>where</c> and its conditions. What follows is the verb's. A line that starts with a field of a
-    /// table of one row says no rows. Where the table is said beside the rows (<paramref name="within"/>), the rows are
+    /// <c>shown</c>, a subset, or ids separated by commas, then <c>where</c> and its conditions. What follows is the
+    /// verb's. A line that starts with a field of a table of one row says no rows, and so does one that starts with a
+    /// field of the table on the screen behind the line (<paramref name="onScreen"/>, note 18 of step 2): its rows are
+    /// then the screen's to say. Where the table is said beside the rows (<paramref name="within"/>), the rows are
     /// read as that table's: its subsets, and no row where it has one.
     /// </summary>
-    public static SelectorReading Read(string text, IReadOnlyList<TableDescriptor> tables, TableDescriptor? within = null)
+    public static SelectorReading Read(string text, IReadOnlyList<TableDescriptor> tables, TableDescriptor? within = null, TableDescriptor? onScreen = null)
     {
         var words = text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
-        var scan = Scan(words, tables, within);
+        var scan = Scan(words, tables, within, onScreen);
         return scan.Short is { } unread ? throw unread : new(scan.Selector, words[scan.Taken..]);
     }
 
     /// <summary>The one reading of a line's rows, which stops at a condition that is not finished and says so, where <see cref="Read"/> refuses.</summary>
-    internal static SelectorScan Scan(string[] words, IReadOnlyList<TableDescriptor> tables, TableDescriptor? within = null)
+    internal static SelectorScan Scan(string[] words, IReadOnlyList<TableDescriptor> tables, TableDescriptor? within = null, TableDescriptor? onScreen = null)
     {
         var at = 0;
 
@@ -88,6 +90,15 @@ public static partial class SelectorReader
             if (named.Count > 1)
                 throw new TableRefused("AmbiguousTable", $"{Said(words, at, taken)} could be {TableWords.Either(named.Select(t => t.TableId))}; name one by its id.",
                     Said(words, at, taken), [.. named.Select(t => t.TableId)]);
+            // Words that name a table and a field of the screen's table: which was meant is not guessed (note 18 of step 2).
+            if (within is null && onScreen is not null && Longest(words, at, onScreen.Fields, TableWords.Names) is (var fields, _))
+            {
+                var word = Said(words, at, taken);
+                var other = named[0].Words.FirstOrDefault(w => !TableWords.Names(fields[0]).Contains(TableWords.Of(w))) ?? named[0].TableId;
+                throw new TableRefused("AmbiguousWords",
+                    $"{word} could be the table {TableWords.Word(named[0])} or {TableWords.Word(fields[0])} of the {TableWords.Word(onScreen)} on screen; write {other} for the table, or {SelectedWord} {word} for the rows on screen.",
+                    word, [other, $"{SelectedWord} {word}"]);
+            }
             (table, at) = (named[0], at + taken);
         }
 
@@ -103,7 +114,7 @@ public static partial class SelectorReader
         else if (scope is not null && Longest(words, at, scope.Subsets, TableWords.Names) is (var subsets, var length)) (subset, at) = (subsets[0].Name, at + length);
         var idsFrom = at;
         if (!all && screen is null && subset is null && at < words.Length && !Is(words[at], WhereWord) && said is not { SingleRow: true }
-            && !(said is null && StartsWithAFieldOfOneRow(words, at, tables)))
+            && !(said is null && StartsWithAField(words, at, [.. tables.Where(t => t.SingleRow).SelectMany(t => t.Fields), .. onScreen?.Fields ?? []])))
             at = List(words, at, ids);
         var idsTo = at;
 
@@ -142,8 +153,14 @@ public static partial class SelectorReader
         return null;
     }
 
-    static bool StartsWithAFieldOfOneRow(string[] words, int at, IReadOnlyList<TableDescriptor> tables) =>
-        Longest(words, at, [.. tables.Where(t => t.SingleRow).SelectMany(t => t.Fields)], TableWords.Names) is not null;
+    // Whether the words name a field first: the longest run of them that names one, or, where a value follows with its
+    // sign, every word before the sign (`wind speed=4`).
+    static bool StartsWithAField(string[] words, int at, IReadOnlyList<TableField> fields)
+    {
+        if (Longest(words, at, fields, TableWords.Names) is not null) return true;
+        var rest = string.Join(' ', words, at, words.Length - at);
+        return rest.IndexOf('=') is > 0 and var sign && fields.Any(f => TableWords.Names(f).Contains(TableWords.Of(rest[..sign])));
+    }
 
     // Values separated by commas: a word that ends with a comma is followed by another.
     static int List(string[] words, int at, List<string> into)
@@ -289,6 +306,26 @@ public static class Selectors
         if (selector.Screen is { } word && matching.Count == 0)
             throw new TableRefused("NoRowMatches", $"No {SelectorReader.Word(word)} row of {table.Word} matches {string.Join(" and ", conditions.Select(c => c.Text))}.", SelectorReader.Word(word));
         return new(table, matching, null, [.. conditions.Select(c => c.Text)]);
+    }
+
+    /// <summary>
+    /// The rows a line that says none acts on, where a screen is behind it (note 18 of step 2): the screen's selection,
+    /// or the row the keyboard is on where nothing is selected. With neither, the line is refused as one that says
+    /// <c>selected</c> is.
+    /// </summary>
+    public static ResolvedRows LeftOut(LineView view, IReadOnlyList<BoundTable> tables, WorkspaceState state)
+    {
+        var selected = new RowSelector(Screen: ScreenRows.Selected);
+        if (view.Selected > 0 || view.Focus is null) return Resolve(selected, tables, state, view);
+        return Focused(view, tables, state) ?? Resolve(selected, tables, state, view);
+    }
+
+    /// <summary>The row the keyboard is on, as rows; none where the view has no focus.</summary>
+    public static ResolvedRows? Focused(LineView view, IReadOnlyList<BoundTable> tables, WorkspaceState state)
+    {
+        var table = Views.TableOf(view, tables);
+        IReadOnlyList<ITableRow>? all = null;
+        return Views.FocusedRow(view, table, state, key => (all ??= table.Table.Rows(state)).FirstOrDefault(r => r.Key == key)) is { } row ? new(table, [row], null, []) : null;
     }
 
     // The table of the rows on screen (note 17 of step 2): the view's, and no other may be said beside it.

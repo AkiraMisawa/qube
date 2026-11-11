@@ -137,7 +137,7 @@ public sealed class TableRefused(string code, string message, string? word = nul
 public sealed record BoundTable(IWorkspaceTable Table, TableDescriptor Descriptor)
 {
     /// <summary>The word a sentence uses for the table.</summary>
-    public string Word => Descriptor.Words.Count > 0 ? Descriptor.Words[0] : Descriptor.TableId;
+    public string Word => TableWords.Word(Descriptor);
 }
 
 /// <summary>The registered tables (ADR-0016 §1): found for a workspace by id or by words, and their fields by words.</summary>
@@ -215,6 +215,9 @@ public static class TableWords
 
     /// <summary>Every name a subset answers to: its name and its words.</summary>
     public static IReadOnlySet<string> Names(TableSubset subset) => new HashSet<string>(subset.Words.Select(Of).Append(Of(subset.Name)));
+
+    /// <summary>The word a sentence uses for a table: its first.</summary>
+    public static string Word(TableDescriptor table) => table.Words.Count > 0 ? table.Words[0] : table.TableId;
 
     /// <summary>The word a sentence uses for a field: its first, as the screen names its column.</summary>
     public static string Word(TableField field) => field.Words.Count > 0 ? field.Words[0] : field.Name;

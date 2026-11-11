@@ -104,6 +104,7 @@ public class CommandLineTests
     [InlineData("set stations N1 altitude 130", "stations, 1 row | altitude: 120 to 130")]
     [InlineData("set alarm 5mm", "settings | alarm volume: 10mm to 5mm")]
     [InlineData("set settings daylight off", "settings | daylight: on to off")]
+    [InlineData("set alarm=5mm daylight=off", "settings | alarm volume: 10mm to 5mm; daylight: on to off")]
     [InlineData("SET  r2   checked   on", "readings, 1 row | Nothing would change: R2 already holds checked on.")]
     [InlineData("set where wind speed>99 checked on", "readings, 0 rows | Nothing would change: no row of readings matches wind speed > 99.")]
     [InlineData("reset R1 note", "readings, 1 row | Nothing would change: R1 has no edit of note.")]
@@ -227,6 +228,92 @@ public class CommandLineTests
 
         // The first of them: the tables' rows follow as they did.
         Assert.Equal(offered, string.Join(" | ", all.Take(offered.Split(" | ").Length)));
+    }
+
+    [Fact] // ADR-0016 §9, note 18: set and reset with no rows act on the selection of the screen behind the line, or on the focused row where nothing is selected
+    public async Task Rows_left_out_are_the_selection_or_the_focused_row()
+    {
+        var rig = new Rig();
+        var two = new LineView(Stations.Readings, "manual", Keys: ["R1", "R3"], Focus: new("note", Key: "R3"));
+        var focused = new LineView(Stations.Readings, "manual", Focus: new("note", Key: "R2"));
+        ViewSort[] largest = [new("volume", Descending: true)];
+        var paged = new LineView(Stations.Readings, "manual", largest, rig.Order("manual", largest), Focus: new("checked", Position: 0));
+
+        var set = rig.Preview("set note wet", two);
+        var several = rig.Preview("set note=wet checked=on", two);
+        var one = rig.Preview("set checked off", focused);
+        var at = rig.Preview("set checked on", paged);
+        var reset = rig.Preview("reset note", two);
+        var nothing = rig.Preview("set note wet", new LineView(Stations.Readings, "manual"));
+        var gone = rig.Preview("set note wet", new LineView(Stations.Readings, Focus: new("note", Key: "R9")));
+
+        Assert.Equal("rows: R1, R3 (Context); set: note wet (Typed)", Given(set));
+        Assert.Equal((("readings", "R1, R3"), "readings, 2 rows", "note: 2 empty to wet"), (Asked(set), set.Rows!.Title, set.Would));
+        Assert.Equal("note: 2 empty to wet; checked: 2 off to on", several.Would);
+        Assert.Equal((("readings", "R2"), "rows: R2 (Context); set: checked off (Typed)", "checked: on to off"), (Asked(one), Given(one), one.Would));
+        Assert.Equal(("readings", "R3"), Asked(at));
+        Assert.Equal((("readings", "R1, R3"), "rows: R1, R3 (Context); field: note (Typed)"), (Asked(reset), Given(reset)));
+        Assert.Equal("NothingSelected: No row of readings (manual) is selected.", Read(nothing));
+        Assert.Equal("ViewMoved: R9 was the row the keyboard was on and is no longer a row of readings: select the rows again.", Read(gone));
+
+        Assert.Equal("Set note to wet on R1 and R3.", (await rig.Run(set))["said"]!.GetValue<string>());
+        Assert.Equal("Takes back: set readings R1, R3 note wet (you, 2 edits)", rig.Preview("undo").Would);
+    }
+
+    [Fact] // ADR-0016 §9, note 18: reset with no word at all resets the cell the keyboard is on, and no other
+    public async Task Reset_alone_is_the_cell_the_keyboard_is_on()
+    {
+        var rig = new Rig();
+        await rig.Said("set R1, R3 note=wet checked=on");
+
+        var reset = rig.Preview("reset", new LineView(Stations.Readings, "manual", Keys: ["R1", "R3"], Focus: new("note", Key: "R3")));
+        var nowhere = rig.Preview("reset", new LineView(Stations.Readings, Keys: ["R1"]));
+        var column = rig.Preview("reset", new LineView(Stations.Readings, Focus: new("age", Key: "R2")));
+
+        Assert.Equal("rows: R3 (Context); field: note (Context)", Given(reset));
+        Assert.Equal((("readings", "R3"), "note", "readings, 1 row", "note: reset"), (Asked(reset), reset.Inputs!["request"]!["field"]!.GetValue<string>(), reset.Rows!.Title, reset.Would));
+        Assert.Equal("NoFocus: reset alone resets the cell the keyboard is on, and it is on no cell of readings: name the rows, or a field.", Read(nowhere));
+        Assert.Equal("NoFocus: reset alone resets the cell the keyboard is on, and that cell is no field of readings: name the rows, or a field.", Read(column));
+        // With no screen behind it, the line reads as it did.
+        Assert.Equal("NoRows: Say which rows: their ids, all, manual, automatic, or where and a condition; or name a table (readings, stations, settings).", Read(rig.Preview("reset")));
+
+        Assert.Equal("Reset R3 note.", (await rig.Run(reset))["said"]!.GetValue<string>());
+        Assert.Equal(["reading:R1 checked", "reading:R1 note", "reading:R3 checked"], rig.Board.Overrides.Keys.Select(t => $"{t.Entity} {t.Field}").Order());
+    }
+
+    [Theory] // ADR-0016 §9, note 18: a field of a table of one row is read first, as before; words that name both, or a table and a field of the screen's, are refused with the spellings that say which
+    [InlineData("set alarm 5mm", true, "settings | alarm volume: 10mm to 5mm")]
+    [InlineData("set limit 5mm", true, "AmbiguousField: limit could be alarm volume of settings or volume of the readings on screen; say which, as in settings limit 5mm or selected limit 5mm.")]
+    [InlineData("reset limit", true, "AmbiguousField: limit could be alarm volume of settings or volume of the readings on screen; say which, as in settings limit or selected limit.")]
+    [InlineData("set site N1 altitude 130", true, "AmbiguousWords: site could be the table stations or station of the readings on screen; write stations for the table, or selected site for the rows on screen.")]
+    [InlineData("set stations N1 altitude 130", true, "stations, 1 row | altitude: 120 to 130")]
+    [InlineData("set readings note wet", true, "UnknownRow: No row note in readings.")]
+    [InlineData("remove", true, "NoRows: Say which rows: their ids, all, manual, automatic, or where and a condition; or name a table (readings, stations, settings).")]
+    // With no screen behind it, every line reads as it did in step 1.
+    [InlineData("set limit 5mm", false, "settings | alarm volume: 10mm to 5mm")]
+    [InlineData("set site N1 altitude 130", false, "stations, 1 row | altitude: 120 to 130")]
+    [InlineData("set note wet", false, "UnknownRow: No row note in readings, stations or settings.")]
+    public void Words_that_name_a_field_of_the_screens_table_and_something_else_are_refused_with_both_spellings(string line, bool screen, string read) =>
+        Assert.Equal(read, Read(new Rig().Preview(line, screen ? new LineView(Stations.Readings, "manual", Keys: ["R1", "R3"], Focus: new("note", Key: "R3")) : null)));
+
+    [Theory] // ADR-0016 §5, note 18: where rows may be left out, the fields of the screen's table are offered, saying what they would act on
+    [InlineData("set ", "R1,R3", "daylight (settings) | volume (2 selected) | unit (2 selected) | checked (2 selected) | note (2 selected) | wind speed (2 selected) | wind direction (2 selected) | drift (2 selected) | R1 (readings)")]
+    [InlineData("set ", "", "daylight (settings) | volume (R2) | unit (R2)")]
+    [InlineData("set no", "R1", "note@4 (1 selected)")]
+    [InlineData("set note ", "R1", "empty")]
+    [InlineData("set wind ", "R1", "wind speed@4 | wind direction@4")]
+    [InlineData("set note=wet ", "R1", "volume= | unit= | checked= | wind speed= | wind direction= | drift=")]
+    [InlineData("reset ", "R1", "volume (1 selected) | unit (1 selected)")]
+    [InlineData("reset no", "R1", "note@6 (1 selected)")]
+    public void Where_rows_may_be_left_out_the_fields_of_the_screens_table_are_offered(string line, string selected, string offered)
+    {
+        var keys = selected.Split(',', StringSplitOptions.RemoveEmptyEntries);
+        var preview = new Rig().Preview(line, new LineView(Stations.Readings, "manual", Keys: keys, Focus: new("note", Key: "R2")));
+
+        var all = preview.Complete.Select(c => $"{c.Value}{(c.Start == line.Length ? "" : $"@{c.Start}")}{(c.Detail is null ? "" : $" ({c.Detail})")}").ToList();
+        var from = all.IndexOf(offered.Split(" | ")[0]);
+
+        Assert.Equal(offered, string.Join(" | ", all.Skip(from).Take(offered.Split(" | ").Length)));
     }
 
     [Fact] // ADR-0016 §11, note 17: a command of many rows by id is named by its first three and how many more there are

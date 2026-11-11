@@ -97,7 +97,7 @@ static class Views
             if (view.Focus is { } focus)
             {
                 var key = Focused(view, table, state, focus).Key;
-                cell = table.Descriptor.Fields.FirstOrDefault(f => f.Name == focus.Field) is { } field ? $"{key} · {TableWords.Word(field)}" : key;
+                cell = FocusedField(view, table) is { } field ? $"{key} · {TableWords.Word(field)}" : key;
             }
         }
         catch (TableRefused moved) when (moved.Code == Moved)
@@ -121,6 +121,18 @@ static class Views
         { Key: null, Position: { } position } => At(view, table, state, [new(position, 1)])[0] is var row ? (row.Key, row) : default,
         _ => throw Invalid("A view names the focused row by its key or by its position, one of the two."),
     };
+
+    /// <summary>The row the keyboard is on, read; none where the view has no focus, and a row that is gone is refused.</summary>
+    public static ITableRow? FocusedRow(LineView view, BoundTable table, WorkspaceState state, Func<string, ITableRow?> byKey)
+    {
+        if (view.Focus is not { } focus) return null;
+        var (key, row) = Focused(view, table, state, focus);
+        return row ?? byKey(key) ?? throw new TableRefused(Moved, $"{key} was the row the keyboard was on and is no longer a row of {table.Word}: select the rows again.");
+    }
+
+    /// <summary>The field of the cell the keyboard is on; none where the view has no focus, or its column is no field of the table.</summary>
+    public static TableField? FocusedField(LineView view, BoundTable table) =>
+        view.Focus is { } focus ? table.Descriptor.Fields.FirstOrDefault(f => f.Name == focus.Field) : null;
 
     /// <summary>The table's words for the view: <c>readings (manual)</c>.</summary>
     public static string Named(LineView view, BoundTable table) => SubsetOf(view, table) is { } subset ? $"{table.Word} ({subset.Name})" : table.Word;
