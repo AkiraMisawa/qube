@@ -43,7 +43,7 @@ public sealed record WorkspaceState(
     /// True where the edit was written by the workspace's making: a value it was made with, such as a user's default
     /// (ADR-0017 §3), which is the workspace's from its start and which <c>undo</c> never takes back.
     /// </summary>
-    public bool IsMade(Override edit)
+    public bool WrittenByMaking(Override edit)
     {
         var entry = edit.Seq >= 1 && edit.Seq <= Log.Count ? Log[(int)edit.Seq - 1] : null;
         if (entry?.Seq != edit.Seq) throw new InvalidOperationException($"Workspace {WorkspaceId}'s log holds no entry {edit.Seq} where its edits say.");

@@ -23,6 +23,6 @@ public sealed class RatesNewLineSettings(ConventionRegistry conventions) : ISett
         new(Direction, "New line direction", ["new line direction"], SettingKind.Default, new FieldSpec(FieldForm.Choice, Choices: RatesProducts.Directions), null),
     ];
 
-    // As a workspace's own default notional (RatesTables): an amount of 0 is no notional a line is made with.
-    static string? MoreThanZero(JsonNode value) => RatesMaterialiser.Number(value) > 0 ? null : "an amount of more than 0";
+    // As a workspace's own default notional: an amount of 0 is no notional a line is made with.
+    static string? MoreThanZero(JsonNode value) => LineDefaults.NotANotional(value) is { } why ? $"an amount of {why}" : null;
 }

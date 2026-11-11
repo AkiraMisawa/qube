@@ -1,6 +1,7 @@
 using System.Text.Json.Nodes;
 using Qube.Composition.Application;
 using Qube.Composition.Application.Settings;
+using Qube.Composition.Application.Workspaces;
 using Qube.Persistence.Sqlite;
 
 namespace Qube.Composition.Tests;
@@ -120,7 +121,7 @@ public sealed class UserSettingsTests : IDisposable
     }
 
     [Fact] // ADR-0017 §2: a stored value its form no longer takes is unreadable, shown so, never another value
-    public void A_stored_value_no_longer_taken_is_unreadable_and_a_default_that_needs_it_is_refused()
+    public void A_stored_value_no_longer_taken_is_unreadable_and_a_default_that_needs_it_refuses_the_making()
     {
         var store = new InMemoryUserSettingStore();
         Service(store, new Garden("green", "red")).Set("akira", "colour", "red");
@@ -133,7 +134,7 @@ public sealed class UserSettingsTests : IDisposable
         Assert.True(colour.Set);
         Assert.NotNull(colour.Unreadable);
         Assert.Equal("red", colour.Stored!.GetValue<string>());
-        var refused = Assert.Throws<SettingRefused>(() => later.Default("akira", "garden.height"));
+        var refused = Assert.Throws<WorkspaceRefused>(() => later.Default("akira", "garden.height"));
         Assert.Equal("UnreadableSetting", refused.Code);
         Assert.Contains("settings reset height", refused.Message);
     }

@@ -30,7 +30,7 @@ public sealed record RowPage(IReadOnlyList<EffectiveTrade> Rows, int Start, int 
 /// the selection of measures is the page's choice, shown on its own. <c>TradeColumns</c> are the selected modules'
 /// (ADR-0010 §10), as are the shared tabs' <c>Inputs</c> they need, and <c>PendingCells</c> counts their cells on the new trades still waiting for a result, so the page
 /// asks again while any is. <c>DisplayCurrency</c> is the workspace's setting, <c>DisplayCurrencyFrom</c> where it came
-/// from (<c>setting</c>, <c>workspace</c> or <c>profile</c>, ADR-0017 §3), and <c>Simulated</c> names the modules whose
+/// from (<c>settings</c>, <c>workspace</c> or <c>profile</c>, ADR-0017 §3), and <c>Simulated</c> names the modules whose
 /// figures come from a simulated provider, which the page says (ADR-0010 §1).</summary>
 public sealed record PortfolioWorkspaceView(
     string WorkspaceId,
@@ -134,9 +134,9 @@ public sealed record ScopeDrop(string Scope, int Count, IReadOnlyDictionary<stri
 /// endpoints call. It decides scopes and sources; the generic
 /// kernel stores and checks the edits. The user is passed in; who may act is decided before this is called.
 /// </summary>
-/// <param name="settings">The users' settings, whose display currency a new workspace starts in (ADR-0017 §3); none in a test that makes no user's defaults.</param>
-public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore store, RunService runs, MeasureRegister register, PortfolioOptions? options = null,
-    SavedItems? saved = null, UserSettings? settings = null)
+/// <param name="settings">The users' settings, whose display currency a new workspace starts in (ADR-0017 §3).</param>
+public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore store, RunService runs, MeasureRegister register, UserSettings settings,
+    PortfolioOptions? options = null, SavedItems? saved = null)
 {
     readonly int caseCap = (options ?? new PortfolioOptions()).CaseCap;
     readonly PortfolioChecks checks = new(register);
@@ -156,21 +156,9 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
         // says the display currency came from the user's setting (ADR-0017 §3).
         var made = new List<WorkspaceChange.Set>();
         if (LastSelection(user) is { } selection) made.Add(new(PortfolioEditRules.Target(source, Entity.Measures, Entity.MeasuresField), Chosen(selection)));
-        if (DefaultDisplayCurrency(user) is { } currency) made.Add(new(PortfolioEditRules.Target(source, Entity.WorkspaceSettings, Entity.DisplayCurrency), currency));
+        if (settings.Default(user, PortfolioSettings.DisplayCurrency) is { } currency)
+            made.Add(new(PortfolioEditRules.Target(source, Entity.WorkspaceSettings, Entity.DisplayCurrency), currency));
         return workspaces.Create(user, PortfolioEditRules.App, Context(registration, valueDate, existingCount), source, with: made);
-    }
-
-    JsonNode? DefaultDisplayCurrency(string user)
-    {
-        if (settings is null) return null;
-        try
-        {
-            return settings.Default(user, PortfolioSettings.DisplayCurrency);
-        }
-        catch (SettingRefused refused)
-        {
-            throw new WorkspaceRefused(refused.Code, refused.Message);
-        }
     }
 
     JsonArray Chosen(IReadOnlyList<string> measures) => new([.. register.Checked(measures).Select(id => JsonValue.Create(id))]);

@@ -197,11 +197,11 @@ const sourceOf = (view: XvaWorkspaceView) => `${view.registration.key} ${view.co
  * Where the display currency came from, in words (ADR-0017 §3): the user's setting, copied in as the workspace was made;
  * a choice in this workspace; or the company profile's. A workspace keeps its own whatever the setting says later.
  */
-export function currencyFrom(currency: string, from: XvaWorkspaceView['displayCurrencyFrom']): string {
+function currencyFrom(currency: string, from: XvaWorkspaceView['displayCurrencyFrom']): string {
   switch (from) {
-    case 'setting': return `${currency}, from your settings, copied in as this workspace was made.`;
-    case 'workspace': return `${currency}, chosen in this workspace.`;
-    case 'profile': return `${currency}, the company profile's: your settings name no display currency.`;
+    case 'settings': return `Display currency ${currency}, from your settings as this workspace was made.`;
+    case 'workspace': return `Display currency ${currency}, chosen in this workspace.`;
+    case 'profile': return `Display currency ${currency}, the company profile's.`;
   }
 }
 
@@ -926,7 +926,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
         <ToolbarField label="Currency">
           {(id) => (
             <Select id={id} size="xs" className="qube-toolbar-input qube-toolbar-input--currency" allowDeselect={false} value={ws.displayCurrency}
-              title={currencyFrom(ws.displayCurrency, ws.displayCurrencyFrom)} data-from={ws.displayCurrencyFrom}
+              title={notBusy ? currencyFrom(ws.displayCurrency, ws.displayCurrencyFrom) : WAIT}
               data={ws.currencies} onChange={(value) => { if (value !== null) setCurrency(value); }} disabled={!notBusy} comboboxProps={{ withinPortal: true }} />
           )}
         </ToolbarField>
@@ -950,6 +950,8 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
       <Group gap="xs" wrap="wrap" className="qube-xva-status">
         <Text size="xs" data-testid="workspace-summary">{ws.trades} trades · {ws.overrides} edit(s) · revision {ws.revision} · {ws.sourceVersion}</Text>
         <Text size="xs">{ws.agreement.maId} · {ws.agreement.collateralised ? `main CSA ${ws.agreement.mainCsaId}` : ws.agreement.noCsa}</Text>
+        {/* Said where it is read on every width, a touch screen's too: the control's title is a pointer's alone. */}
+        <Text size="xs" data-testid="display-currency-from">{currencyFrom(ws.displayCurrency, ws.displayCurrencyFrom)}</Text>
         {ws.simulated.length > 0 && (
           <Badge variant="light" color="yellow" data-testid="simulated" title={`Figures from a simulated provider: ${ws.simulated.join(', ')}. They are not a model of anything.`}>SIMULATED</Badge>
         )}

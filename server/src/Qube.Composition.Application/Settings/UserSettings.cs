@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Qube.Composition.Application.Tables;
+using Qube.Composition.Application.Workspaces;
 
 namespace Qube.Composition.Application.Settings;
 
@@ -14,7 +15,7 @@ public enum SettingKind { Preference, Default }
 /// A setting as the module it belongs to registers it (ADR-0017 §2), as a table's field is registered: its key, its
 /// title and the words a line names it by, its kind, and how its value is written. A typed setting has a
 /// <see cref="FieldSpec"/>: it is typed as a field is and read by the one reader of values, and its module may refuse
-/// more than its form does (<see cref="Check"/>: a notional of more than 0). A structured one (a map of widths) is
+/// more than its form does (<see cref="Check"/>: an amount of more than 0). A structured one (a map of widths) is
 /// written by the page as JSON, and its module says why a value is refused (<see cref="Check"/>). A key that
 /// ends in <c>.*</c> is a family, whose members are kept by their own keys (<c>grid.widths.rates/lines</c>) and named
 /// by the family's words and the rest of the key (<c>widths rates/lines</c>).
@@ -190,11 +191,13 @@ public sealed class UserSettings
     public JsonNode? Default(string user, string key)
     {
         var read = One(user, key);
-        if (read.Unreadable is { } why)
-            throw new SettingRefused("UnreadableSetting",
-                $"Your {read.Definition.Title.ToLowerInvariant()} setting, {Stored(read)}, is no longer {why}: set it again, or type settings reset {read.Name}.");
+        if (read.Unreadable is not null) throw new WorkspaceRefused("UnreadableSetting", NoLongerTaken(read));
         return read.Set ? read.Value?.DeepClone() : null;
     }
+
+    /// <summary>What to tell a user whose value is no longer one the setting takes: which setting, what they set, and how to mend it.</summary>
+    public static string NoLongerTaken(SettingRead read) =>
+        $"Your {read.Definition.Title.ToLowerInvariant()} setting, {Stored(read)}, is no longer {read.Unreadable}: set it again, or type settings reset {read.Name}.";
 
     /// <summary>A setting's value as a line types it: as its form writes it, JSON for a structured one, <c>none</c> for no value.</summary>
     public string Text(SettingRead read) => Text(read.Definition, read.Value);

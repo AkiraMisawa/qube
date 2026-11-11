@@ -150,22 +150,25 @@ test("ADR-0017 §5: a column dragged in the pricer's existing trades keeps its w
   await expect.poll(width).toBe(Math.round(before.width));
 });
 
-test('ADR-0017 §3: a pricer workspace made after the display currency is set starts in it and says so; one chosen in the workspace is its own', async ({ page }) => {
+test('ADR-0017 §3: a pricer workspace made after the display currency is set starts in it and says so on the page; one chosen in the workspace is its own', async ({ page }) => {
   await open(page);
   await taken(page, 'settings display currency', 'USD');
-  await expect(page.getByTestId('notice')).toHaveText('Display currency is USD; it was none, as registered. To set it back: settings reset display currency.');
+  await expect(page.getByTestId('notice')).toHaveText('Display currency is USD; it was JPY, as registered. To set it back: settings reset display currency.');
   await newWorkspace(page, 'ABC/LE-01', 0);
-  const currency = page.getByRole('tabpanel').getByRole('combobox', { name: 'Currency', exact: true });
+  const panel = page.getByRole('tabpanel');
+  const currency = panel.getByRole('combobox', { name: 'Currency', exact: true });
+  // Said on the status line, which a touch screen reads too.
+  const from = panel.getByTestId('display-currency-from');
   await expect(currency).toHaveValue('USD');
-  await expect(currency).toHaveAttribute('title', 'USD, from your settings, copied in as this workspace was made.');
+  await expect(from).toHaveText('Display currency USD, from your settings as this workspace was made.');
 
   await currency.click();
   await page.getByRole('option', { name: 'EUR', exact: true }).click();
   await expect(currency).toHaveValue('EUR');
-  await expect(currency).toHaveAttribute('title', 'EUR, chosen in this workspace.');
+  await expect(from).toHaveText('Display currency EUR, chosen in this workspace.');
 });
 
-test("ADR-0017 §3: a Rates workspace starts with the user's defaults for a new line, and a new line says each came from them", async ({ page }) => {
+test("ADR-0017 §3: a Rates workspace starts with the user's defaults for a new line, says so on the page, and a new line says each came from them", async ({ page }) => {
   await open(page);
   await taken(page, 'settings new line currency', 'JPY');
   await taken(page, 'settings new line notional', '500');
@@ -174,6 +177,7 @@ test("ADR-0017 §3: a Rates workspace starts with the user's defaults for a new 
   await expect(page.getByRole('dialog', { name: 'New Rates workspace' }).getByLabel('Valuation date')).toBeFocused();
   await page.keyboard.press('Enter');
   await settled(page, 'Lines');
+  await expect(page.getByRole('tabpanel').getByTestId('line-defaults')).toHaveText('New lines default to JPY · 500mm · receive from your settings.');
 
   await page.keyboard.press('ControlOrMeta+K');
   await expect(page.getByRole('combobox', { name: 'Command' })).toBeFocused();

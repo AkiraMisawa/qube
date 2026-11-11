@@ -18,7 +18,7 @@ import { registerPlaces, type Place } from '../../shell/places';
 import type { FrameStream, RatesApi } from './api';
 import type { CashflowsView, HeldEdit, LiveFrame, PeriodView, RatesWorkspaceView, Resolution } from './contracts';
 import {
-  FOLDED, PINNED_COLUMNS, headerTiers, lineCellMessage, lineResult, lineCellState, lineColumns, hiddenEdits, lineHeaderGroups, lineRows, openedAt, parserOf, periodCellState,
+  FOLDED, PINNED_COLUMNS, defaultsSaid, headerTiers, lineCellMessage, lineResult, lineCellState, lineColumns, hiddenEdits, lineHeaderGroups, lineRows, openedAt, parserOf, periodCellState,
   lineFieldTitle, periodColumns, periodFieldTitle, periodParserOf, toggled, type HiddenEdits, type LineLayout, type LineRow,
 } from './lines';
 
@@ -371,6 +371,7 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
   if (view.isPending) return <Text c="dimmed">Loading workspace…</Text>;
   if (view.isError) return <Alert color="red" title="Workspace">{view.error.message}</Alert>;
   const ws = view.data;
+  const defaults = defaultsSaid(ws.defaults);
   const groups = groupsOf(opened, hiddenEdits(ws.lines));
   // The rows under a header of its tiers and the column headings, each a row high, so an open leg's extra tier takes no
   // row from view (ADR-0015 §2).
@@ -411,6 +412,7 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
           </Badge>
         )}
         <Text size="xs" c="dimmed" data-testid="workspace-summary">{ws.lines.length} line(s) · revision {ws.revision}</Text>
+        {defaults !== undefined && <Text size="xs" c="dimmed" data-testid="line-defaults">{defaults}</Text>}
       </Group>
       <HeldEdits conflicts={ws.conflicts} lost={ws.lost} resolve={(held, resolution) => void queue.push({ kind: 'resolve', held, resolution })} />
       <ResultStrip row={(focusLine === undefined ? undefined : shownRows.get(focusLine)) ?? (shownRows.size === 1 ? [...shownRows.values()][0] : undefined)} />

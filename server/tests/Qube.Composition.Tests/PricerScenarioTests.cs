@@ -37,7 +37,7 @@ public class PricerScenarioTests
         var runs = new RunService(new CompositionRegistry([new PortfolioModule(), new XvaModule(), new CcrModule(), simm]), store, TimeProvider.System);
         var register = new MeasureRegister([new XvaMeasures(Pv01Provider.Simulated(TimeSpan.Zero)), new CcrMeasures(),
             new SimmMeasures(Conventions, _ => Market.Snapshot(0), [SimmParameters.Demo])]);
-        return (new PortfolioWorkspaces(workspaces, store, runs, register, options), runs, store);
+        return (new PortfolioWorkspaces(workspaces, store, runs, register, UnsetSettings.Pricer(), options), runs, store);
     }
 
     sealed record PricedRun(RunRecord Run, JsonObject Input, IReadOnlyList<JsonNode> Rows, IReadOnlyList<TraceEntry> Traces);

@@ -3,7 +3,7 @@ import { actionColumn, gridHeaderRequiredPx } from '@ex-grid/core';
 import { readFlag } from '../../platform/flags';
 import { parseFlag, parseNumber, type Parsed } from '../xva/editing';
 import { amountTone, formatAmount } from '../../platform/grid/amounts';
-import type { LineView, LiveFrame, PeriodView } from './contracts';
+import type { LineView, LiveFrame, PeriodView, RatesWorkspaceView } from './contracts';
 
 // The line grid's model (C40, C43): a line's flat fields as columns, the second level of each leg shown on
 // request, and the latest figures beside them. Only the form of what was typed is checked here; whether the
@@ -281,6 +281,21 @@ export function legSummary(fields: Readonly<Record<string, unknown>>, leg: 1 | 2
   const sameAsLeg1 = leg === 2 && fields['leg1.currency'] === of('currency') && fields['leg1.notional'] === notional;
   const size = sameAsLeg1 ? '' : `${String(of('currency') ?? '?')} ${typeof notional === 'number' ? scaled(notional) : '?'} `;
   return `${size}${pays} ${String(of('paymentFrequency') ?? '?')}`;
+}
+
+/**
+ * The workspace's defaults for a new line in words, each with where it came from (ADR-0017 §3): the user's settings,
+ * copied in as the workspace was made, or set in the workspace since. None where the workspace holds no default.
+ */
+export function defaultsSaid(defaults: RatesWorkspaceView['defaults']): string | undefined {
+  const terms = ([['currency', defaults.currency], ['notional', defaults.notional === null ? null : scaled(defaults.notional)], ['direction', defaults.direction]] as const)
+    .flatMap(([field, value]) => (value === null ? [] : [{ value, fromSettings: defaults.fromSettings.includes(field) }]));
+  if (terms.length === 0) return undefined;
+  const from = (fromSettings: boolean) => {
+    const values = terms.filter((t) => t.fromSettings === fromSettings).map((t) => t.value);
+    return values.length === 0 ? [] : [`${values.join(' · ')} ${fromSettings ? 'from your settings' : 'set in this workspace'}`];
+  };
+  return `New lines default to ${[...from(true), ...from(false)].join('; ')}.`;
 }
 
 /** A leg's second-level terms that override its convention profile (C43), in words, or `Profile` when none does. */

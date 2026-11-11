@@ -40,7 +40,7 @@ public class SimmPricerTests
         var simm = new SimmModule(new SyntheticImSource(), provider ?? new FakeRatesPricing(), Market.Resolve, requestConventions ?? Conventions, [SimmParameters.Demo]);
         var runs = new RunService(new CompositionRegistry([new PortfolioModule(), new XvaModule(), simm]), store, TimeProvider.System);
         var register = new MeasureRegister([new XvaMeasures(Pv01Provider.Simulated(TimeSpan.Zero)), new SimmMeasures(Conventions, _ => Market.Snapshot(0), loaded ?? [SimmParameters.Demo])]);
-        return (new PortfolioWorkspaces(workspaces, store, runs, register), runs, store);
+        return (new PortfolioWorkspaces(workspaces, store, runs, register, UnsetSettings.Pricer()), runs, store);
     }
 
     sealed record Priced_(RunRecord Run, JsonObject Input, IReadOnlyList<JsonNode> Rows, TraceSet Traces, CrifDocument? Before, CrifDocument? After);

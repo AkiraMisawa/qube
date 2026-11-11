@@ -53,24 +53,48 @@ public sealed record LineDefaults(string? Currency, double? Notional, string? Di
 {
     public const string CurrencyField = "currency", NotionalField = "notional", DirectionField = "direction";
 
+    // Where the context keeps the fields the user's settings gave.
+    const string FromSettingsField = "fromSettings";
+
     /// <summary>
     /// The defaults the user's settings gave as the workspace was made (ADR-0017 §3), by field (<c>currency</c>,
     /// <c>notional</c>, <c>direction</c>); one set in the workspace since is the workspace's own, and is not listed.
     /// </summary>
     public IReadOnlyList<string> FromSettings { get; init; } = [];
 
+    /// <summary>The workspace's defaults. A workspace made before the settings has no record of them, and every default it holds is its own.</summary>
     public static LineDefaults Of(WorkspaceState state) => state.Context["defaults"] is JsonObject d
         ? new(d[CurrencyField]?.GetValue<string>(), d[NotionalField] is { } n ? RatesMaterialiser.Number(n) : null, d[DirectionField]?.GetValue<string>())
         {
-            FromSettings = d["fromSettings"] is JsonArray from ? [.. from.Select(f => f!.GetValue<string>())] : [],
+            FromSettings = d[FromSettingsField] switch
+            {
+                null => [],
+                JsonArray from => [.. from.Select(f => f?.GetValue<string>() ?? throw new InvalidOperationException($"Workspace {state.WorkspaceId} records an empty field among its defaults from settings."))],
+                var other => throw new InvalidOperationException($"Workspace {state.WorkspaceId} records its defaults from settings as {other.ToJsonString()}, not a list of fields."),
+            },
         }
         : new(null, null, null);
+
+    /// <summary>Why an amount is no default notional, in words that follow "is", or null where it is one.</summary>
+    public static string? NotANotional(JsonNode value) => RatesMaterialiser.Number(value) > 0 ? null : "more than 0";
 
     /// <summary>Where a line's default for this field comes from (ADR-0008 §4): the user's settings, copied in at making, or the workspace's own.</summary>
     public string SourceOf(string field) => FromSettings.Contains(field) ? "settings" : "workspace";
 
-    /// <summary>These defaults with one field set or cleared in the workspace: it is then the workspace's own.</summary>
-    public LineDefaults Edited(string field, Func<LineDefaults, LineDefaults> edit) => edit(this) with { FromSettings = [.. FromSettings.Where(f => f != field)] };
+    /// <summary>
+    /// These defaults with one field set, or cleared by none: it is then the workspace's own, whatever the user's
+    /// settings gave it at making (ADR-0017 §3). A notional that is not more than 0 is refused.
+    /// </summary>
+    public LineDefaults Edited(string field, JsonNode? value) => (field switch
+    {
+        CurrencyField => this with { Currency = value?.GetValue<string>() },
+        NotionalField => this with
+        {
+            Notional = value is null ? null : NotANotional(value) is { } why ? throw new WorkspaceRefused("InvalidValue", $"A default notional is {why}.") : RatesMaterialiser.Number(value),
+        },
+        DirectionField => this with { Direction = value?.GetValue<string>() },
+        _ => throw new InvalidOperationException($"A new line has no default {field}."),
+    }) with { FromSettings = [.. FromSettings.Where(f => f != field)] };
 
     // Two defaults are the same where their values and the fields the settings gave are.
     public bool Equals(LineDefaults? other) =>
@@ -84,7 +108,7 @@ public sealed record LineDefaults(string? Currency, double? Notional, string? Di
         if (!string.IsNullOrEmpty(Currency)) json[CurrencyField] = Currency;
         if (Notional is { } n) json[NotionalField] = n;
         if (!string.IsNullOrEmpty(Direction)) json[DirectionField] = Direction;
-        if (json.Count > 0 && FromSettings.Count > 0) json["fromSettings"] = new JsonArray([.. FromSettings.Select(f => (JsonNode)f)]);
+        if (json.Count > 0 && FromSettings.Count > 0) json[FromSettingsField] = new JsonArray([.. FromSettings.Select(f => (JsonNode)f)]);
         return json;
     }
 }
@@ -139,9 +163,9 @@ public sealed record RatesPricePlan(string MarketSnapshotId, IReadOnlyList<strin
 /// checks types. The generic kernel stores and carries the edits; the module derives the schedules, and a running
 /// live subscription is told of each accepted revision by the workspace's observer (<see cref="RatesLiveObserver"/>).
 /// </summary>
-/// <param name="settings">The users' settings, whose defaults for a new line a new workspace starts with (ADR-0017 §3); none in a test that makes no user's defaults.</param>
+/// <param name="settings">The users' settings, whose defaults for a new line a new workspace starts with (ADR-0017 §3).</param>
 public sealed class RatesWorkspaces(WorkspaceService workspaces, IDataStore store, RunService runs, RatesLiveService live, MarketFeed market,
-    ConventionRegistry conventions, IRatesPricingProvider provider, UserSettings? settings = null)
+    ConventionRegistry conventions, IRatesPricingProvider provider, UserSettings settings)
 {
     /// <summary>The source a Rates workspace acquires: none; everything priced is created or derived in it (ADR-0004).</summary>
     public static readonly ISourceVersion NoAcquiredSource = new EmptySource("rates:none");
@@ -158,22 +182,14 @@ public sealed class RatesWorkspaces(WorkspaceService workspaces, IDataStore stor
 
     LineDefaults DefaultsOf(string user)
     {
-        if (settings is null) return new(null, null, null);
-        try
+        var currency = settings.Default(user, RatesNewLineSettings.Currency);
+        var notional = settings.Default(user, RatesNewLineSettings.Notional);
+        var direction = settings.Default(user, RatesNewLineSettings.Direction);
+        (string Field, JsonNode? Value)[] given = [(LineDefaults.CurrencyField, currency), (LineDefaults.NotionalField, notional), (LineDefaults.DirectionField, direction)];
+        return new(currency?.GetValue<string>(), notional is null ? null : RatesMaterialiser.Number(notional), direction?.GetValue<string>())
         {
-            var currency = settings.Default(user, RatesNewLineSettings.Currency);
-            var notional = settings.Default(user, RatesNewLineSettings.Notional);
-            var direction = settings.Default(user, RatesNewLineSettings.Direction);
-            var given = new[] { (LineDefaults.CurrencyField, currency), (LineDefaults.NotionalField, notional), (LineDefaults.DirectionField, direction) };
-            return new(currency?.GetValue<string>(), notional is null ? null : RatesMaterialiser.Number(notional), direction?.GetValue<string>())
-            {
-                FromSettings = [.. given.Where(g => g.Item2 is not null).Select(g => g.Item1)],
-            };
-        }
-        catch (SettingRefused refused)
-        {
-            throw new WorkspaceRefused(refused.Code, refused.Message);
-        }
+            FromSettings = [.. given.Where(g => g.Value is not null).Select(g => g.Field)],
+        };
     }
 
     public IReadOnlyList<WorkspaceState> OwnedBy(string user) => [.. workspaces.OwnedBy(user).Where(w => w.App == RatesEditRules.App)];

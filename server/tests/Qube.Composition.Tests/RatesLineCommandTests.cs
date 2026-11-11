@@ -48,7 +48,7 @@ public class RatesLineCommandTests
         public RatesLiveService Live { get; }
         public string Id { get; }
 
-        /// <param name="settings">The users' settings a new workspace's defaults are copied from (ADR-0017 §3); none for a test of the workspace's own.</param>
+        /// <param name="settings">The users' settings a new workspace's defaults are copied from (ADR-0017 §3); none set where none is given.</param>
         public Rig(UserSettings? settings = null)
         {
             var market = new SyntheticMarket(MarketConfig);
@@ -66,7 +66,7 @@ public class RatesLineCommandTests
             var registry = new CompositionRegistry([new RatesModule(provider, market.Resolve), new TablesModule(() => tables), new WorkspaceCommandsModule(() => Workspaces),
                 new RatesCommandsModule(Built), new ProductsModule(() => products ?? throw new InvalidOperationException("The products are not built yet."))]);
             Runs = new RunService(registry, store, TimeProvider.System);
-            Service = service = new RatesWorkspaces(Workspaces, store, Runs, Live, Market, Conventions, provider, settings);
+            Service = service = new RatesWorkspaces(Workspaces, store, Runs, Live, Market, Conventions, provider, settings ?? UnsetSettings.Rates(Conventions));
             Products = products = new ProductService([new RatesProductCatalog(Conventions)], [new IrsRules(Conventions, Built), new CcsRules(Conventions, Built)], Workspaces);
             Commands = new CommandService(registry, store);
             Store = store;
@@ -335,6 +335,21 @@ public class RatesLineCommandTests
         Assert.Equal(("settings", "workspace"), (next.Defaulted["leg1.currency"], next.Defaulted["leg1.notional"]));
         // The setting moved after the workspace was made: the workspace keeps what it was made with.
         Assert.Equal("TST", rig.View.Defaults.Currency);
+    }
+
+    [Fact] // ADR-0017 §3, ADR-0016 §11: a default set in the workspace is its own, undo gives back the one the settings gave, and the making's copy is never undone
+    public async Task Undo_of_a_default_set_in_the_workspace_gives_back_the_settings_one()
+    {
+        var settings = new UserSettings([new RatesNewLineSettings(Conventions)], new InMemoryUserSettingStore(), TimeProvider.System);
+        settings.Set("akira", "new line notional", "250");
+        var rig = new Rig(settings);
+        await rig.Enter("set default notional=100");
+        var edited = rig.Workspaces.Find(rig.Id)!;
+
+        var (undone, _) = rig.Workspaces.Undo(rig.Id, edited.Revision, "akira");
+
+        Assert.Equal(new LineDefaults(null, 250e6, null) { FromSettings = ["notional"] }, LineDefaults.Of(undone));
+        Assert.Equal("NothingToUndo", Assert.Throws<WorkspaceRefused>(() => rig.Workspaces.Undo(rig.Id, undone.Revision, "akira")).Code);
     }
 
     [Fact] // ADR-0017 §3: a default the user set that is no longer one Rates takes refuses the making, by the setting's name

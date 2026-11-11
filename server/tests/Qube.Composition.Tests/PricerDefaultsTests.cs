@@ -25,7 +25,7 @@ public class PricerDefaultsTests
         var register = new MeasureRegister([new XvaMeasures(Pv01Provider.Simulated(TimeSpan.Zero)), new CcrMeasures()]);
         var store = new InMemoryUserSettingStore();
         var settings = new UserSettings([new ShellSettings(), new PortfolioSettings()], store, TimeProvider.System);
-        return new(new PortfolioWorkspaces(workspaces, data, runs, register, settings: settings), workspaces, settings, store);
+        return new(new PortfolioWorkspaces(workspaces, data, runs, register, settings), workspaces, settings, store);
     }
 
     static (string Currency, string From) Shown(Rig rig, WorkspaceState ws)
@@ -45,7 +45,7 @@ public class PricerDefaultsTests
         var other = rig.Service.Create("bea", "ABC/LE-01", Day1, 0);
 
         Assert.Equal(("JPY", "profile"), Shown(rig, before));
-        Assert.Equal(("USD", "setting"), Shown(rig, after));
+        Assert.Equal(("USD", "settings"), Shown(rig, after));
         Assert.Equal(("JPY", "profile"), Shown(rig, other));
     }
 
@@ -62,7 +62,7 @@ public class PricerDefaultsTests
         rig.Settings.Set("akira", "display currency", "GBP");
 
         Assert.Equal(("EUR", "workspace"), chosen);
-        Assert.Equal(("USD", "setting"), Shown(rig, undone));
+        Assert.Equal(("USD", "settings"), Shown(rig, undone));
         Assert.Equal("NothingToUndo", Assert.Throws<WorkspaceRefused>(() => rig.Workspaces.Undo(undone.WorkspaceId, undone.Revision, "akira")).Code);
     }
 

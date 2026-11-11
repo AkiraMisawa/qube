@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using Qube.Composition.Application;
 using Qube.Composition.Application.Settings;
 
@@ -11,9 +12,11 @@ public sealed class PortfolioSettings : ISettingCatalog
 {
     public const string DisplayCurrency = "pricer.displayCurrency";
 
-    // None registered: a user who sets none starts each workspace at the company profile's, which the page says.
+    // The company profile's is registered (ADR-0017's first registrations): a user who sets none starts each workspace
+    // in it, and the page says it is the profile's. The making copies in only what the user set (§6.1).
     public IEnumerable<SettingDefinition> Settings =>
     [
-        new(DisplayCurrency, "Display currency", ["display currency"], SettingKind.Default, new FieldSpec(FieldForm.Choice, Choices: PortfolioFields.Currencies), null),
+        new(DisplayCurrency, "Display currency", ["display currency"], SettingKind.Default, new FieldSpec(FieldForm.Choice, Choices: PortfolioFields.Currencies),
+            JsonValue.Create(PortfolioCatalog.Profile.DisplayCurrency)),
     ];
 }
