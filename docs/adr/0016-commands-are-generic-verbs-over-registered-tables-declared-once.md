@@ -195,23 +195,27 @@ addition, one per candidate (ADR-0010 §3): it adds no trade, so it does not say
 trade from typed terms (ADR-0008). `add trades`, which ADR-0010 wrote for the first two, is retired when these are
 built; until then the code says `add trades` for the second and has no command for the first.
 
-**An iteration of `add each` is a change of After's membership** (raised by the owner, 2026-11-10: an iteration that
-adds several trades is more flexible, and better still one that takes trades out in the same case). With no
-argument `add each` makes one case per New row with A ticked, as `add trades` does today. With iterations written,
-each is made as written (DEFAULT form): `+` joins the candidates one iteration adds together, `without` names the
-existing trades it takes out of After, and a comma starts the next iteration.
-`add each DRAFT-1+DRAFT-2 without E00003, DRAFT-3` makes two cases, titled as written
-(`add DRAFT-1+DRAFT-2 without E00003`): the first compares Before with After less `E00003` plus the two, so the
-trade taken out stays in Before and the difference is the whole change. The rules, all DEFAULT:
+**An iteration of `add each` is a change of After's membership, given as lists** (the owner, 2026-11-10 and
+2026-11-11: an iteration that adds several trades is more flexible, better still one that takes trades out in the
+same case, and it is passed a list in some form; how the line spells the list is left aside). The command's
+argument is a typed value, as the selector is (§2): a list of iterations, each a list of the candidates it adds and
+a list of the existing trades it takes out of After. The AI and a saved sequence pass that value as it is. With no
+argument `add each` makes one case per New row with A ticked, as `add trades` does today. An iteration that adds
+`DRAFT-1` and `DRAFT-2` and takes out `E00003` compares Before with After less `E00003` plus the two, so the trade
+taken out stays in Before and the difference is the whole change; its case names all three. The rules, all DEFAULT:
 
 - **The set is still every New row with A ticked** (docs/03 §5). A ticked candidate that no iteration names is one
-  iteration alone, and a candidate may be in several (`DRAFT-1, DRAFT-1+DRAFT-2`). A candidate named with A clear, or
+  iteration alone, and a candidate may be in several (alone, and with another). A candidate named with A clear, or
   with B ticked, is refused by name and never ticked or unticked for the user.
 - **What held holds**: no iteration is cumulative, the Base holds every candidate, a change common to every case is
   made in the grid and said in each case, and `add each` again makes the set anew.
-- **`without` takes a trade the Base has in After**, and refuses any other by name. An iteration adds one candidate at
-  least: a case that only takes a trade out is `vary E00003 A off`, which the code makes and prices today.
-- **No sign means "take out"**, because an id may hold a hyphen (`DRAFT-1`).
+- **A trade taken out is one the Base has in After**; any other is refused by name. An iteration adds one candidate
+  at least: a case that only takes a trade out is `vary E00003 A off`, which the code makes and prices today.
+
+**How the line spells the lists is open.** One spelling, not decided:
+`add each DRAFT-1+DRAFT-2 without E00003, DRAFT-3`, where `+` joins the candidates of one iteration, `without` names
+what it takes out and a comma starts the next. Whatever is chosen, no bare sign means "take out", because an id may
+hold a hyphen (`DRAFT-1`).
 
 In the workspace an iteration stays what it is today, a case whose layer switches A off on rows (ADR-0010 §3), so the
 log and Price's requests gain nothing. What changes when it is built: the reading of the line, a case that names its
@@ -463,3 +467,5 @@ log cannot yet say which entries were one command, or what an entry replaced.
   named option (`layer=after`) reads without ambiguity. Decided when ADR-0010's Advanced step is built.
 - How a currency is written with an amount (`-350,000 USD`), as a form of `FieldForm`, where the field's unit is not
   fixed by the row.
+- How the line spells the lists of an `add each` iteration (§3): the trades added together, the trades taken out,
+  and where the next iteration starts. Left aside by the owner (2026-11-11); the typed value does not wait for it.

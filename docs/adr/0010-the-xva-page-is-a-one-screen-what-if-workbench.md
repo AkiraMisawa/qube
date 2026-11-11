@@ -144,9 +144,9 @@ variants the workspace is one case.
   case, so a provider prices them as it prices Before and After, independently.
 
 *Note of 2026-11-10 (owner; ADR-0016 §3):* an iteration of iterative addition may add several candidates together,
-and take existing trades out of After in the same case (`add each DRAFT-1+DRAFT-2 without E00003`). The set is still
-every New row with A ticked, and no iteration is cumulative. Designed there and not built: `add trades` still makes
-one case per candidate.
+and take existing trades out of After in the same case. It is given as lists; how the line spells them is open
+there. The set is still every New row with A ticked, and no iteration is cumulative. Designed there and not built:
+`add trades` still makes one case per candidate.
 
 ### 4. Scenarios (CONFIRMED, owner 2026-11-07)
 
