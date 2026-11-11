@@ -118,7 +118,7 @@ static class TableCompletions
             {
                 string Counted(int rows) => $"{rows.ToString(CultureInfo.InvariantCulture)} row{(rows == 1 ? "" : "s")}";
                 if (view.Selected > 0) Keyword(SelectorReader.SelectedWord, detail: Counted(view.Selected));
-                if (Views.Shown(view, onScreen, onScreen.Table.Rows(state)).Count is > 0 and var shown) Keyword(SelectorReader.ShownWord, detail: Counted(shown));
+                if ((view.Filtered ?? Views.Unfiltered(view, onScreen, onScreen.Table.Rows(state)).Count) is > 0 and var shown) Keyword(SelectorReader.ShownWord, detail: Counted(shown));
             }
             foreach (var subset in (said ?? main)?.Descriptor.Subsets ?? []) Keyword(subset.Name, TableWords.Names(subset));
             Keyword(SelectorReader.WhereWord);

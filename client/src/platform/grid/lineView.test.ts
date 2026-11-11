@@ -66,7 +66,7 @@ describe('the view of a grid the server pages (ADR-0016 notes 16, 17)', () => {
 describe('the view of a grid whose page holds every row (ADR-0016 note 16)', () => {
   interface Row { readonly id: string }
   const window: readonly Row[] = [{ id: 'A' }, { id: 'B' }, { id: 'C' }, { id: 'D' }];
-  const source = { window, windowStart: 0, rowSequenceVersion: 4 };
+  const source = { window, windowStart: 0, rowSequenceVersion: 4, filter: undefined };
   const keyOf = (row: Row) => row.id;
   const held = { table: 'w.stations', columns: ['id', 'altitude'] };
 
@@ -78,6 +78,14 @@ describe('the view of a grid whose page holds every row (ADR-0016 note 16)', () 
 
   it('a selection written in a sequence the source has left names no row: the grid is about to drop it', () => {
     expect(heldView(held, read([[0, 2]], [0, 0], 3), source, keyOf)).toEqual({ table: 'w.stations' });
+  });
+
+  it('a grid its page filters names the rows it shows, which `shown` then means (ADR-0016 §2), whatever sequence its selection is written in', () => {
+    const filtered = { window: [{ id: 'B' }, { id: 'D' }], windowStart: 0, rowSequenceVersion: 5, filter: { conditions: 'altitude > 100' } };
+
+    expect(heldView(held, read([[1, 1]], [1, 0], 5), filtered, keyOf)).toEqual({ table: 'w.stations', shown: ['B', 'D'], keys: ['D'], focus: { field: 'id', key: 'D' } });
+    expect(heldView(held, read([[1, 1]], [1, 0], 4), filtered, keyOf)).toEqual({ table: 'w.stations', shown: ['B', 'D'] });
+    expect(heldView(held, read([]), { ...filtered, window: [] }, keyOf)).toEqual({ table: 'w.stations', shown: [] });
   });
 
   it('a position the page holds no row at is the page\'s defect', () => {

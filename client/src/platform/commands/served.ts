@@ -159,6 +159,22 @@ export function argumentShown(argument: LineArgument): string {
   return argument.from === 'context' ? `${argument.name} from the screen: ${argument.text}` : `${argument.name} ${argument.text}`;
 }
 
+/** The screen a line was opened on, as the line says it: the server's sentence, and whether its rows can still be said. */
+export interface ScreenShown {
+  readonly sentence: string;
+  readonly moved: boolean;
+}
+
+/**
+ * What the line says of its screen (ADR-0016 §9, note 19 of 2026-11-11): the sentence of its latest reading where that
+ * has one, so that a view gone stale while the line is open is said as soon as the server says it, and otherwise the
+ * sentence asked for as the line opened. Whether the order has moved is the same reading's word, never another's.
+ */
+export function screenShown(latest: LinePreview | undefined, opening: LinePreview | undefined): ScreenShown | undefined {
+  const said = latest?.view === undefined ? opening : latest;
+  return said?.view === undefined ? undefined : { sentence: said.view, moved: said.viewMoved === true };
+}
+
 /** How many of a reading's first rows the line names; the server sends a few more than a line has room for. */
 const ROWS_NAMED = 5;
 

@@ -25,3 +25,8 @@ came from (`typed`, `context`). The answer says the view in one sentence. What c
   after a `where`, `NothingShown` for an empty grid. A view that names a table or subset the workspace has not, or
   positions in a table no reader pages, is the page's fault: `InvalidView`, HTTP 400, never a reading.
 - The inputs name the table by its word where the word names one table (so the log reads as a line), else by its id.
+- The review of 2a (2026-11-11) found, and this pull request fixed: keys joined into a line's rows were read again at
+  Enter, so a single key that is a subset's word wrote the subset (now `UnsayableRow`, refused before Enter); a range
+  of no row read as nothing selected and fell back to the focused row, and a sort was checked only where a position
+  was read in it (now `InvalidView`, checked whole as the reading starts); a page that filters the rows it holds
+  names the rows it shows, and `shown` is those; the row of a table of one row is said by its table alone.

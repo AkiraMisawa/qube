@@ -66,12 +66,9 @@ export interface Api {
    */
   command(capabilityId: string, version: string, inputs: Readonly<Record<string, unknown>>, idempotencyKey: string): Promise<CommandAnswer>;
   /**
-   * Has the server read a line as typed for a workspace (ADR-0016 §5), as it stands or at the revision given, which a
-   * workspace that moved refuses. Nothing is executed. A line that cannot be read is an answer, not an error.
-   */
-  /**
-   * Reads a line and executes nothing (ADR-0016 §5): at `revision`, or as the workspace stands where none is given, and
-   * with the view the line was opened on, where its page gave one (note 16).
+   * Has the server read a line as typed for a workspace (ADR-0016 §5) and executes nothing: at `revision`, which a
+   * workspace that moved refuses, or as the workspace stands where none is given, and with the view the line was
+   * opened on, where its page gave one (note 16). A line that cannot be read is an answer, not an error.
    */
   preview(line: string, workspaceId: string, read?: { readonly revision?: number; readonly view?: LineView }, signal?: AbortSignal): Promise<LinePreview>;
   submitRun(workflow: WorkflowDefinition, context: Record<string, unknown>, input: Record<string, unknown>, idempotencyKey: string): Promise<RunRecord>;

@@ -1285,7 +1285,14 @@ ADR-0016's notes 16 to 19.
   DRAFT-1 · csa`. With no grid of a table behind it, it says nothing and `selected` is refused by name.
 - **Positions are never guessed.** A table gives the order its grid is paged in (`IWorkspaceTable.InOrder`) with that
   order's token; positions sent with another token are refused (`ViewMoved`), and the sentence says `no longer in the
-  order it was shown in`. A view that names what the workspace has not is the page's fault (HTTP 400, `InvalidView`).
+  order it was shown in`. A view that names what the workspace has not, or is no view (a range of no row, a selection
+  said two ways), is the page's fault (HTTP 400, `InvalidView`), checked whole whatever the line.
+- **Rows of a screen run as those rows or not at all.** The preview writes their keys as a line lists ids and reads
+  that text again as Enter will: keys a command would read as other rows (a single key that is a subset's word) are
+  refused before Enter (`UnsayableRow`). Found by the review: such a key previewed one row and wrote a whole subset.
+- **`shown` is what the user sees.** The CSA grid can be filtered from its column's menu, and its view then names the
+  rows it shows; the sentence says `csas, filtered to 1, nothing selected`. Found by the review: `shown` took the
+  whole table, hidden rows included.
 - **The pricer's page** gives its New and Existing grids by position and its CSA grid by key. Its reader of pages and
   its trades table answer one order, kept per state (`TradeOrder`). The CSA table now answers to `csas` only, since
   `csa` is the trade's field.
@@ -1295,29 +1302,31 @@ ADR-0016's notes 16 to 19.
 ### Measurements
 
 Release build on this Linux container, the SQLite store, one request at a time, a workspace of 10,009 existing trades
-(14,286 requested), every one selected by one range, five requests a line. Recorded, not gated.
+(14,286 requested), every one selected by one range, five requests a line, measured again after the review's checks
+were added. Recorded, not gated.
 
 | Preview of | Unsorted | Sorted by notional |
 |---|---|---|
-| The opening's sentence (no text) | 0.01 to 0.07 s | 0.01 to 0.03 s |
-| `set selected a off` (10,009 rows by key; the answer is 177 KB) | 0.08 to 0.19 s | 0.10 to 0.17 s |
-| `set csa CSA-B`, the rows left out | 0.07 to 0.10 s | 0.07 to 0.14 s |
-| `set selected where ccy=USD a off` (4,011 rows) | 0.05 to 0.07 s | 0.05 to 0.11 s |
-| `reset` on the focused cell | 0.02 to 0.05 s | 0.03 to 0.05 s |
+| The opening's sentence (no text) | 0.01 to 0.05 s | 0.01 s |
+| `set selected a off` (10,009 rows by key; the answer is 177 KB) | 0.09 to 0.25 s | 0.09 to 0.14 s |
+| `set csa CSA-B`, the rows left out | 0.05 to 0.08 s | 0.06 to 0.09 s |
+| `set selected where ccy=USD a off` (4,011 rows) | 0.04 to 0.08 s | 0.05 to 0.08 s |
+| `reset` on the focused cell | 0.02 to 0.06 s | 0.03 s |
 
-Enter on `set selected a off` took 0.48 s, its request 176 KB. Before the order was kept per state these previews took
+Enter on `set selected a off` took 0.52 s, its request 176 KB. Before the order was kept per state these previews took
 0.2 to 0.7 s: one reading asked the table for the grid's order five times, each 50 ms at this size.
 
 ### Verification performed
 
 | What | Result |
 |---|---|
-| `dotnet test server/Qube.slnx` | SERVER_COUNT passed |
-| Client: `npm run typecheck`, `npm test`, `npm run build` | CLIENT_COUNT |
-| `npx playwright test` (Chromium, headless, Linux) | PW_COUNT passed |
+| `dotnet test server/Qube.slnx` | 938 passed |
+| Client: `npm run typecheck`, `npm test`, `npm run build` | Clean; 285 passed in 33 files; built |
+| `npx playwright test` (Chromium, headless, Linux) | 70 passed |
 | The three browser tests this step added, with `--repeat-each=3` | 9 passed |
 | The line in Chromium at 1440, 992, 768 and 390 px, light and dark, by a script and by eye | The sentence, the mark and a reading of five rows; nothing scrolls sideways |
-| Code review on two axes (standards, specification) before the merge | REVIEW_RESULT |
+| The CSA grid filtered from its column's menu in Chromium, then `set shown threshold 7mm` | One row, CSA-B; `On screen: csas, filtered to 1, nothing selected` |
+| Code review on two axes (standards, specification) before the merge | Two defects that wrote other rows than shown, both fixed with a test first: a screen key read again as a subset's word, and `shown` under the CSA grid's filter. Also fixed: views that are no view were read (a range of no row, an unchecked sort); the focused row's key by case; a stale order drawn as a normal sentence; names and repeated code. Left, and written down: a table left out (ticket 12, 2b); Enter before the reading arrives (ADR-0016 note 18); small repetitions between the selector's and the verbs' readers of a leading field |
 
 ### Providers
 
@@ -1331,7 +1340,14 @@ Unchanged: every figure on these pages is simulated, and says so.
 - The keyboard reaches the Existing grid by a press or by Tab, not by a command: `go` is 2b.
 - Only the pricer's trade grids and CSA grid are screens. The scenarios' shifts, the credit grid, a result and a trace
   are grids of no table, and the line has no screen once the keyboard has been in one; Rates has no door (step 3).
-- `shown` is the grid's subset: no grid can filter yet (`filter` is step 4).
+- `shown` is the grid's subset on the trade grids, which refuse a filter until the server pages one (`filter` is
+  step 4). The CSA grid's own filter is read (above).
+- A table left out is not yet the screen's (ADR-0016 §9): `set where ccy=USD …` typed on the CSA grid still reads the
+  trades, as in step 1, and the preview says so before Enter. It is ticket 12, built with 2b.
+- Enter before the reading has arrived runs the line with the view read as the line opened (ADR-0016 note 18): the
+  count is then said by the notice and not before.
+- A column menu opened in a short grid (the CSA grid with two rows) shows two items at a time and scrolls: a popover
+  stays inside its grid's box (ExGrid ADR-0040). Its filter form is below the items, reached by Tab or by scrolling.
 - An answer that names 10,000 rows is 177 KB at each key typed. No target is agreed; the median workspace is 100 rows.
 - `set csa CSA-A threshold 5mm` no longer reads (`csa` is the trade's field): `set CSA-A threshold 5mm` does.
 - With trades and CSAs both able to take a word (`set ccy USD` on the CSA grid), the line is refused with both

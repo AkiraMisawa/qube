@@ -72,15 +72,18 @@ export function pagedView<Row>(
 
 /**
  * The view of a grid whose page holds every row: its rows are named by their keys, each once, in the order selected.
- * A selection written in a sequence the source has left is one the grid is about to drop, and names no row.
+ * A selection written in a sequence the source has left is one the grid is about to drop, and names no row. Where the
+ * source filters its rows, the Window is what the filter leaves, and the view names those rows: `shown` is then the
+ * rows the user sees, never the table's (ADR-0016 §2).
  */
 export function heldView<Row>(
   grid: ScreenGrid,
   read: GridRead,
-  source: { readonly window: readonly Row[]; readonly windowStart: number; readonly rowSequenceVersion: number },
+  source: { readonly window: readonly Row[]; readonly windowStart: number; readonly rowSequenceVersion: number; readonly filter: unknown },
   keyOf: (row: Row) => string,
 ): LineView {
-  if (read.rowSequenceVersion !== source.rowSequenceVersion) return named(grid);
+  const shown = source.filter === undefined ? {} : { shown: source.window.map(keyOf) };
+  if (read.rowSequenceVersion !== source.rowSequenceVersion) return { ...named(grid), ...shown };
   const keyAt = (position: number): string => {
     const row = source.window[position - source.windowStart];
     if (row === undefined) throw new Error(`A grid of ${grid.table} has row ${position} selected, and its page holds ${source.window.length} rows from ${source.windowStart}.`);
@@ -90,6 +93,7 @@ export function heldView<Row>(
   const keys = [...new Set(ranges.flatMap((r) => Array.from({ length: r.rowCount }, (_, i) => keyAt(r.topRow + i))))];
   return {
     ...named(grid),
+    ...shown,
     ...(keys.length === 0 ? {} : { keys }),
     ...(focus === undefined ? {} : { focus: { field: fieldAt(grid, focus.column), key: keyAt(focus.row) } }),
   };

@@ -5,7 +5,7 @@ import {
   assertDistinct, completionsOf, drawn, drawnSections, execute, finish, listed, placeholder, readLine, signature, take,
   type Command, type CommandDoor, type Completion,
 } from '../platform/commands/commands';
-import { argumentShown, commandDoorOf, lineAsked, previewShown, servedCommands, taken } from '../platform/commands/served';
+import { argumentShown, commandDoorOf, lineAsked, previewShown, screenShown, servedCommands, taken } from '../platform/commands/served';
 import { recordUse, usageScore } from '../platform/commands/usage';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { Catalog, LineCompletion, LinePreview, LineView, RunRecord } from '../platform/contracts';
@@ -353,7 +353,7 @@ export function CommandPalette() {
     gcTime: 0,
     retry: false,
   });
-  const onScreen = latest?.view ?? (opened && screen !== undefined ? seen.data?.view : undefined);
+  const screenSaid = screenShown(latest, opened && screen !== undefined ? seen.data : undefined);
   // What is drawn is of an earlier text, or of the workspace before it was asked about again, until this text's own
   // reading arrives: nothing is taken from it, and Enter does not run it.
   const waiting = asked !== undefined && (answer.isFetching || answer.isPending || answer.isPlaceholderData);
@@ -512,10 +512,15 @@ export function CommandPalette() {
           role="combobox" aria-expanded={items.length > 0} aria-controls="qube-line-options" aria-autocomplete="list"
           readOnly={entering} aria-busy={entering || undefined}
           {...(chosen === undefined ? {} : { 'aria-activedescendant': optionId(at) })}
-          {...(preview === undefined && onScreen === undefined ? {} : { 'aria-describedby': [onScreen === undefined ? [] : ['qube-line-context'], preview === undefined ? [] : ['qube-line-preview']].flat().join(' ') })}
+          {...(preview === undefined && screenSaid === undefined ? {} : { 'aria-describedby': [screenSaid === undefined ? [] : ['qube-line-context'], preview === undefined ? [] : ['qube-line-preview']].flat().join(' ') })}
           styles={{ input: { fontFamily: 'var(--mantine-font-family-monospace)' } }} />
-        {/* What the line was opened on (ADR-0016 note 19): what `selected`, `shown` and rows left out mean here. */}
-        {onScreen !== undefined && <Text size="xs" c="dimmed" id="qube-line-context" data-testid="command-context">On screen: {onScreen}</Text>}
+        {/* What the line was opened on (ADR-0016 note 19): what `selected`, `shown` and rows left out mean here. An order
+            that has moved since is stale, said in the sentence and drawn as a warning (design guidelines §7). */}
+        {screenSaid !== undefined && (
+          <Text size="xs" c={screenSaid.moved ? 'yellow' : 'dimmed'} id="qube-line-context" data-testid="command-context" {...(screenSaid.moved ? { 'data-moved': true } : {})}>
+            On screen: {screenSaid.sentence}
+          </Text>
+        )}
         {head !== undefined && <Head command={head} reading={reading} latest={latest} waiting={waiting} />}
         {preview !== undefined && (
           <Stack gap={0} id="qube-line-preview" className="qube-line-preview" data-testid="command-preview" aria-busy={waiting || undefined}>

@@ -246,7 +246,10 @@ public static class Selectors
         var indexed = new Dictionary<string, RowIndex>();
         RowIndex IndexOf(BoundTable t) => indexed.TryGetValue(t.Descriptor.TableId, out var index) ? index : indexed[t.Descriptor.TableId] = new(t, RowsOf(t));
 
-        var table = selector.Screen is { } screen ? OnScreen(selector, screen, tables, view)
+        // The rows of a screen, where the selector says them, and the word that says them.
+        var screen = selector.Screen;
+        var screenWord = screen is null ? null : SelectorReader.Word(screen.Value);
+        var table = screen is not null ? ScreenTable(selector, screen.Value, tables, view)
             : selector.Table is { } name ? TableRegister.Find(tables, name)
             : selector.Ids.Count > 0 ? TableOf(selector.Ids, tables, IndexOf)
             : selector.SaysNoRows ? throw NoRows(null, tables)
@@ -256,12 +259,12 @@ public static class Selectors
         IReadOnlyList<ITableRow> rows;
         IReadOnlyList<TableSubset>? whole = null;
         if (selector.All && selector.Subset is not null) throw new TableRefused("RowsSaidTwice", "Rows are said as all or as a subset, not both.");
-        if (selector.Screen is { } named)
+        if (screen is not null)
         {
             if (selector.All || selector.Subset is not null || selector.Ids.Count > 0)
-                throw new TableRefused("RowsSaidTwice", $"Rows are said as {SelectorReader.Word(named)}, or by their ids, as all or as a subset, not both.");
+                throw new TableRefused("RowsSaidTwice", $"Rows are said as {screenWord}, or by their ids, as all or as a subset, not both.");
             // Rows of a screen are rows, never a whole set: no one edit stands for them.
-            rows = named == ScreenRows.Shown ? Views.Shown(view!, table, all) : Views.Selected(view!, table, state, IndexOf(table).Row);
+            rows = screen == ScreenRows.Shown ? Views.Shown(view!, table, all, IndexOf(table).Row) : Views.Selected(view!, table, state, IndexOf(table).Row);
         }
         else if (selector.Ids.Count > 0)
         {
@@ -299,12 +302,12 @@ public static class Selectors
         }
 
         if (selector.Where.Count == 0)
-            return selector.Screen is null || rows.Count > 0 ? new(table, rows, whole, []) : throw new TableRefused("NothingShown", $"{Views.Named(view!, table)} shows no row.", SelectorReader.ShownWord);
+            return screen is null || rows.Count > 0 ? new(table, rows, whole, []) : throw new TableRefused("NothingShown", $"{Views.Named(view!, table)} shows no row.", SelectorReader.ShownWord);
         var conditions = Conditions.Compile(selector.Where, table, rows, state);
         IReadOnlyList<ITableRow> matching = [.. rows.Where(r => conditions.All(c => c.Holds(r)))];
         // The rows of a screen are run by their keys (note 17 of step 2), so none of them is nothing to run: refused.
-        if (selector.Screen is { } word && matching.Count == 0)
-            throw new TableRefused("NoRowMatches", $"No {SelectorReader.Word(word)} row of {table.Word} matches {string.Join(" and ", conditions.Select(c => c.Text))}.", SelectorReader.Word(word));
+        if (screen is not null && matching.Count == 0)
+            throw new TableRefused("NoRowMatches", $"No {screenWord} row of {table.Word} matches {string.Join(" and ", conditions.Select(c => c.Text))}.", screenWord);
         return new(table, matching, null, [.. conditions.Select(c => c.Text)]);
     }
 
@@ -313,23 +316,20 @@ public static class Selectors
     /// or the row the keyboard is on where nothing is selected. With neither, the line is refused as one that says
     /// <c>selected</c> is.
     /// </summary>
-    public static ResolvedRows LeftOut(LineView view, IReadOnlyList<BoundTable> tables, WorkspaceState state)
-    {
-        var selected = new RowSelector(Screen: ScreenRows.Selected);
-        if (view.Selected > 0 || view.Focus is null) return Resolve(selected, tables, state, view);
-        return Focused(view, tables, state) ?? Resolve(selected, tables, state, view);
-    }
+    public static ResolvedRows LeftOut(LineView view, IReadOnlyList<BoundTable> tables, WorkspaceState state) =>
+        view.Selected == 0 && Focused(view, tables, state) is { } focused ? focused : Resolve(new RowSelector(Screen: ScreenRows.Selected), tables, state, view);
 
     /// <summary>The row the keyboard is on, as rows; none where the view has no focus.</summary>
     public static ResolvedRows? Focused(LineView view, IReadOnlyList<BoundTable> tables, WorkspaceState state)
     {
         var table = Views.TableOf(view, tables);
-        IReadOnlyList<ITableRow>? all = null;
-        return Views.FocusedRow(view, table, state, key => (all ??= table.Table.Rows(state)).FirstOrDefault(r => r.Key == key)) is { } row ? new(table, [row], null, []) : null;
+        // A key names its row as a selected row's key does, whatever its case.
+        RowIndex? index = null;
+        return Views.FocusedRow(view, table, state, key => (index ??= new(table, table.Table.Rows(state))).Row(key)) is { } row ? new(table, [row], null, []) : null;
     }
 
     // The table of the rows on screen (note 17 of step 2): the view's, and no other may be said beside it.
-    static BoundTable OnScreen(RowSelector selector, ScreenRows screen, IReadOnlyList<BoundTable> tables, LineView? view)
+    static BoundTable ScreenTable(RowSelector selector, ScreenRows screen, IReadOnlyList<BoundTable> tables, LineView? view)
     {
         var word = SelectorReader.Word(screen);
         if (view is null)

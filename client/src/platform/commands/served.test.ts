@@ -1,7 +1,7 @@
 import { ApiError, type Api, type CommandAnswer } from '../api';
 import type { CapabilityDescriptor, LinePreview, LineView } from '../contracts';
 import { readLine, signature, type Command, type CommandDoor } from './commands';
-import { argumentShown, commandDoor, lineAsked, previewShown, servedCommands, taken } from './served';
+import { argumentShown, commandDoor, lineAsked, previewShown, screenShown, servedCommands, taken } from './served';
 
 // ADR-0016 §4, §5 and its note 15 of 2026-11-11: the line builds a command the catalog says how to type from the
 // catalog, and reads nothing of its line itself. What it does with the server's answer is held here; the names are made up.
@@ -137,6 +137,17 @@ describe('what the line shows of the server\'s reading (ADR-0016 §5)', () => {
   it('an argument by its name and the words read for it, and one that was not typed says that it is from the screen (ADR-0016 note 18)', () => {
     expect(argumentShown({ name: 'set', text: 'csa=CSA-B', from: 'typed' })).toBe('set csa=CSA-B');
     expect(argumentShown({ name: 'rows', text: 'R1, R2, R3 and 2 more', from: 'context' })).toBe('rows from the screen: R1, R2, R3 and 2 more');
+  });
+
+  it('the screen in the sentence of the latest reading that has one, else the opening\'s, with that reading\'s word on whether its order has moved (ADR-0016 note 19)', () => {
+    const opening = read({ view: 'readings (manual), 2 selected, R1 · note' });
+    const stale = read({ view: 'readings (manual), no longer in the order it was shown in', viewMoved: true });
+
+    expect(screenShown(undefined, opening)).toEqual({ sentence: 'readings (manual), 2 selected, R1 · note', moved: false });
+    expect(screenShown(stale, opening)).toEqual({ sentence: 'readings (manual), no longer in the order it was shown in', moved: true });
+    // A reading asked with no view says none: the opening's sentence stands, and so does its own word.
+    expect(screenShown(read({}), stale)).toEqual({ sentence: 'readings (manual), no longer in the order it was shown in', moved: true });
+    expect(screenShown(read({}), undefined)).toBeUndefined();
   });
 
   it('a line that cannot be read by the reason alone', () => {

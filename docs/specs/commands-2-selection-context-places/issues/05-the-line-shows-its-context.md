@@ -32,7 +32,11 @@ preview and with Enter's own reading, and marks an argument that came from conte
   none, and before any grid has had the keyboard there is none.
 - The mark of an argument from context is words before the value (`rows from the screen: DRAFT-1, DRAFT-2, DRAFT-3`):
   at 390 px a badge of many rows is cut at its end.
-- Measured (10,009 trades, all selected, Release, SQLite): `set selected a off` 0.08 to 0.19 s; ADR-0016 note 17
+- Measured (10,009 trades, all selected, Release, SQLite): `set selected a off` 0.09 to 0.25 s; ADR-0016 note 17
   has the rest. The pricer's page reader and its table now answer one order kept per state (`TradeOrder.Ordered`).
 - Looked at in Chromium at 1440, 992, 768 and 390 px in both schemes, by a script and by eye: nothing scrolls
   sideways, and the sentence wraps to two lines at 390 px.
+- The review of 2a (2026-11-11) found, and this pull request fixed: a held grid its page filters now names the rows
+  it shows (`heldView` sends `shown`), so `shown` on the filtered CSA grid is the rows seen; the sentence of a moved
+  order is drawn as a warning (`viewMoved`). Enter before the reading arrives still runs the line with the view read
+  at the opening (ADR-0016 note 18), and a table left out is ticket 12.

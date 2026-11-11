@@ -47,7 +47,8 @@ export interface LineCompletion {
  * What a user was looking at when the line opened (ADR-0016 §9, note 16 of 2026-11-11), sent with each reading of that
  * opening: the table of the grid the keyboard was last in and its subset; the selection as row keys where the page
  * holds every row, or as ranges of positions with the sort and the order token the grid's reader answered where the
- * server pages it; and the focused cell, its row named the same way. The server keeps none of it.
+ * server pages it; and the focused cell, its row named the same way. A page that holds every row and filters them
+ * names the rows it shows (`shown`), which the word `shown` then means. The server keeps none of it.
  */
 export interface LineView {
   readonly table: string;
@@ -57,6 +58,7 @@ export interface LineView {
   readonly keys?: readonly string[];
   readonly ranges?: readonly { readonly start: number; readonly count: number }[];
   readonly focus?: { readonly field: string; readonly key?: string; readonly position?: number };
+  readonly shown?: readonly string[];
 }
 
 /** An argument as the server read it: the words read for it, and whether they were typed or come from the view (note 18). */
@@ -71,7 +73,8 @@ export interface LineArgument {
  * command and either its reading or why it cannot be read, and what could follow the last word. `inputs` invoke the
  * command on the revision read. `at` is the moment the reading speaks of, where it speaks of one: the sentence holds
  * no time, and the line writes this in its user's zone. `view` is the view the reading was asked with, in one sentence
- * (note 19); a reading asked with none has none.
+ * (note 19), and `viewMoved` says that its positions are of an order that has moved since, so that its rows can no
+ * longer be said; a reading asked with no view has neither.
  */
 export interface LinePreview {
   readonly revision: number;
@@ -85,6 +88,7 @@ export interface LinePreview {
   readonly complete: readonly LineCompletion[];
   readonly more: number;
   readonly view?: string;
+  readonly viewMoved?: boolean;
 }
 
 export interface FieldSchema {

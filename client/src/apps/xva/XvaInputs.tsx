@@ -107,7 +107,7 @@ export const shownTab = (ws: Pick<XvaWorkspaceView, 'inputs' | 'settings'>, tab:
  * The tabs, one open at a time and collapsible to their tab row (ADR-0010 §1). The page keeps which tab is open,
  * whether it is open and its height, so that a command opens a tab as a press does.
  */
-export function XvaInputs({ panelId, ws, push, setText, catalogue, onIssue, onScreen, tab, onTab, open, onOpen, height, focusRequest, changeList, changeActions, scenarioActions, onVary, commandLabel }: {
+export function XvaInputs({ panelId, ws, push, setText, catalogue, onIssue, onGridEntered, tab, onTab, open, onOpen, height, focusRequest, changeList, changeActions, scenarioActions, onVary, commandLabel }: {
   readonly ws: XvaWorkspaceView;
   /** The panel the page is in, which keeps the widths the user dragged in its grids. */
   readonly panelId: string;
@@ -127,7 +127,7 @@ export function XvaInputs({ panelId, ws, push, setText, catalogue, onIssue, onSc
   readonly push: PushEdit;
   readonly onIssue: (message: string | undefined) => void;
   /** The keyboard entered a grid of a table here: what the command line is told is on screen, read when it opens (ADR-0016 note 16). */
-  readonly onScreen: (view: () => LineView | undefined) => void;
+  readonly onGridEntered: (view: () => LineView | undefined) => void;
   readonly tab: InputTab;
   /** A tab pressed, which opens the tabs too. */
   readonly onTab: (tab: InputTab) => void;
@@ -229,7 +229,7 @@ export function XvaInputs({ panelId, ws, push, setText, catalogue, onIssue, onSc
           <Tabs.Panel value="csa" pt="xs">
             {ws.csas.length === 0
               ? <Text size="sm">{ws.agreement.maId} has no CSA: its trades are uncollateralised ({ws.agreement.noCsa}).</Text>
-              : <CsaGrid panelId={panelId} csas={ws.csas} columns={csaColumns} push={push} height={height - gap - GRID_FRAME} gridRef={csaGrid} onVary={onVary} commandLabel={commandLabel} onScreen={onScreen} />}
+              : <CsaGrid panelId={panelId} csas={ws.csas} columns={csaColumns} push={push} height={height - gap - GRID_FRAME} gridRef={csaGrid} onVary={onVary} commandLabel={commandLabel} onGridEntered={onGridEntered} />}
           </Tabs.Panel>
           {creditShown && (
             <Tabs.Panel value={CREDIT_TAB} pt="xs">
@@ -299,7 +299,7 @@ function ImCsas({ ws, focusRef }: { readonly ws: XvaWorkspaceView; readonly focu
  * The CSA terms, as high as their rows within `height`, what the tab's height leaves under the panel's top gap and the
  * grid's frame. It shows no Selection Summary: a sum or an average of terms in different currencies is no figure.
  */
-function CsaGrid({ panelId, csas, columns: declared, push, height, gridRef, onVary, commandLabel, onScreen }: {
+function CsaGrid({ panelId, csas, columns: declared, push, height, gridRef, onVary, commandLabel, onGridEntered }: {
   /** The panel the page is in, which keeps the widths the user dragged in its grids. */
   readonly panelId: string;
   readonly onVary: (target: VaryTarget) => void;
@@ -310,7 +310,7 @@ function CsaGrid({ panelId, csas, columns: declared, push, height, gridRef, onVa
   readonly push: PushEdit;
   readonly height: number;
   readonly gridRef: RefObject<ExGridApi<CsaRow> | null>;
-  readonly onScreen: (view: () => LineView | undefined) => void;
+  readonly onGridEntered: (view: () => LineView | undefined) => void;
 }) {
   const source = useMemo(() => GridSource.from<CsaRow>([], { rowKey: (row) => row.csaId }), []);
   const { columns, onColumnWidthChanged } = useColumnWidths(panelId, 'csas', declared);
@@ -343,7 +343,7 @@ function CsaGrid({ panelId, csas, columns: declared, push, height, gridRef, onVa
     : heldView({ table: CSAS_TABLE, columns: columnsNow.current.map((c) => c.name) }, gridRef.current.readView(), source.snapshot(), (row) => row.csaId)), [gridRef, source]);
 
   return (
-    <div aria-label="CSA terms" onFocusCapture={() => onScreen(view)}>
+    <div aria-label="CSA terms" onFocusCapture={() => onGridEntered(view)}>
       <QubeGrid<CsaRow> ref={gridRef} columns={columns} onColumnWidthChanged={onColumnWidthChanged} source={source} onEdit={onEdit} cellState={csaCellState} cellMessage={csaCellMessage}
         contextCommands={contextCommands} commandLabel={commandLabel}
         density="compact" viewportWidth="stretch" viewportHeight={Math.max(compactGridHeight(1), Math.min(compactGridHeight(csas.length), height))} pinnedColumnCount={2} showSelectionSummary={false} locale="en-US" />

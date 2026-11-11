@@ -198,7 +198,7 @@ public class CommandLineTests
         // The line asks once as it opens, with no text: the answer is the sentence, and the commands there are.
         var opened = rig.Preview("", new LineView(Stations.Readings, "manual", Keys: ["R1", "R3"], Focus: new("note", Key: "R1")));
 
-        Assert.Equal(("readings (manual), 2 selected, R1 · note", "UnknownCommand"), (opened.View, opened.Refused!.Code));
+        Assert.Equal(("readings (manual), 2 selected, R1 · note", false, "UnknownCommand"), (opened.View, opened.ViewMoved, opened.Refused!.Code));
         Assert.Equal("readings (manual), 2 selected, R1 · wind speed", Said(paged));
         Assert.Equal("readings (manual), 2 selected, R1 · wind speed", Said(paged, "set R9 colour red"));
         Assert.Equal("readings, 1 selected", Said(new LineView(Stations.Readings, Keys: ["R5"])));
@@ -206,7 +206,92 @@ public class CommandLineTests
         // A column of the grid that is no field of the table is a place the keyboard can be, and names no field.
         Assert.Equal("readings, nothing selected, R2", Said(new LineView(Stations.Readings, Focus: new("age", Key: "R2"))));
         Assert.Equal("readings (manual), no longer in the order it was shown in", Said(paged with { Order = "an earlier order" }));
+        // Said apart from the sentence too, for a client to draw as what is stale: the screen's rows can no longer be said.
+        Assert.Equal((true, false), (rig.Preview("", paged with { Order = "an earlier order" }).ViewMoved, rig.Preview("", paged).ViewMoved));
+        // Positions the order has no rows at are of another order, whatever its token: none is counted as selected.
+        Assert.Equal("readings (manual), no longer in the order it was shown in", Said(paged with { Ranges = [new(2, 2)] }));
+        Assert.Equal("readings (manual), no longer in the order it was shown in", Said(paged with { Ranges = [new(int.MaxValue, 2)] }));
         Assert.Null(Said(null, "set R1 checked on"));
+    }
+
+    [Fact] // ADR-0016 §9, note 16: a view the workspace cannot have is the page's fault, refused whole whatever the line, never read as fewer rows or as other rows
+    public void A_view_the_workspace_cannot_have_is_refused_whole()
+    {
+        var rig = new Rig();
+        ViewSort[] largest = [new("volume", Descending: true)];
+        var paged = new LineView(Stations.Readings, "manual", largest, rig.Order("manual", largest));
+        string Why(LineView view, string line = "")
+        {
+            var refused = Assert.Throws<WorkspaceRefused>(() => rig.Preview(line, view));
+            return $"{refused.Code}: {refused.Message}";
+        }
+        const string Unordered = "InvalidView: stations has no order a position can be read in: its rows are named by their ids.";
+        const string NoRange = "InvalidView: A view names rows by position as ranges of one row or more, from the first row on.";
+
+        Assert.Equal("InvalidView: The view names a table, weather.tides, that this workspace has not.", Why(new LineView("weather.tides")));
+        Assert.Equal("InvalidView: The view names a subset, low, that stations has not.", Why(new LineView(Stations.Sites, "low")));
+        Assert.Equal("InvalidView: A view names its selection by keys or by positions, not both.", Why(paged with { Keys = ["R1"], Ranges = [new(0, 1)] }));
+        Assert.Equal("InvalidView: A view names the focused row by its key or by its position, one of the two.", Why(paged with { Focus = new("note") }));
+        Assert.Equal(Unordered, Why(new LineView(Stations.Sites, Ranges: [new(0, 1)])));
+        // A sort the grid never had is refused though no position is read in it, and so is a sort of a table no reader pages.
+        Assert.Equal("InvalidView: Readings cannot be sorted by mood.", Why(new LineView(Stations.Readings, "manual", [new("mood")])));
+        Assert.Equal("InvalidView: Readings cannot be sorted by mood.", Why(new LineView(Stations.Readings, Sorts: [new("mood")], Keys: ["R1"]), "set selected checked on"));
+        Assert.Equal(Unordered, Why(new LineView(Stations.Sites, Sorts: [new("altitude")])));
+        // A range of no row or fewer, or from before the first, is no selection: never "nothing selected", which acts on the focused row.
+        Assert.Equal(NoRange, Why(paged with { Ranges = [new(0, -1)], Focus = new("note", Position: 1) }, "set note wet"));
+        Assert.Equal(NoRange, Why(paged with { Ranges = [new(0, 0)] }));
+        Assert.Equal(NoRange, Why(paged with { Ranges = [new(-1, 2)] }));
+        Assert.Equal("InvalidView: A view names the focused row by a position from the first row on.", Why(paged with { Focus = new("note", Position: -1) }));
+    }
+
+    [Fact] // ADR-0016 §2, note 17: `shown` is the rows the grid's filter leaves: a page that holds every row and filters them says the rows it shows by key
+    public async Task Shown_is_the_rows_a_filtered_grid_shows()
+    {
+        var rig = new Rig();
+        var filtered = new LineView(Stations.Sites, Shown: ["S1", "X1"], Keys: ["S1"]);
+
+        var shown = rig.Preview("set shown altitude 130", filtered);
+        var narrowed = rig.Preview("set shown where altitude>20 altitude 130", filtered);
+        var offered = rig.Preview("set stations ", filtered);
+        var gone = rig.Preview("set shown altitude 130", filtered with { Shown = ["S1", "S9"] });
+        var none = rig.Preview("set shown altitude 130", filtered with { Shown = [], Keys = null });
+        var paged = Assert.Throws<WorkspaceRefused>(() => rig.Preview("", new LineView(Stations.Readings, Order: "sent", Shown: ["R1"], Ranges: [new(0, 1)])));
+
+        Assert.Equal(("stations, filtered to 2, 1 selected", ("stations", "S1, X1"), "stations, 2 rows | altitude: 2 to 130"), (shown.View, Asked(shown), Read(shown)));
+        Assert.Equal(("stations", "X1"), Asked(narrowed));
+        Assert.Contains("shown (2 rows)", offered.Complete.Select(c => $"{c.Value} ({c.Detail})"));
+        Assert.Equal("ViewMoved: S9 was shown and is no longer a row of stations: open the line again.", Read(gone));
+        Assert.Equal(("stations, filtered to 0, nothing selected", "NothingShown: stations shows no row."), (none.View, Read(none)));
+        Assert.Equal(("InvalidView", "A view names the rows it shows by key where its page holds them all, and no row by position."), (paged.Code, paged.Message));
+
+        Assert.Equal("Set altitude to 130 on S1 and X1.", (await rig.Run(shown))["said"]!.GetValue<string>());
+        Assert.Equal(["station:S1", "station:X1"], rig.Board.Overrides.Keys.Select(t => t.Entity).Order(StringComparer.Ordinal));
+    }
+
+    [Fact] // ADR-0016 §2, note 17: rows of a screen run by their keys; a key a command would read as other rows is refused before Enter, and the row of a table of one row is said by its table alone
+    public async Task Rows_of_a_screen_run_as_those_rows_or_are_refused()
+    {
+        var rig = new Rig();
+        Stations.Made(rig.Workspaces, rig.Board, "auto");
+        Stations.Made(rig.Workspaces, rig.Board, "wet 1");
+
+        // A subset's word alone is the subset; in a list of ids it is an id, as a line reads it.
+        var subset = rig.Preview("set selected checked on", new LineView(Stations.Readings, Keys: ["auto"]));
+        var listed = rig.Preview("set selected checked on", new LineView(Stations.Readings, Keys: ["auto", "R1"]));
+        var spaced = rig.Preview("set note dry", new LineView(Stations.Readings, Keys: ["wet 1"]));
+        var where = rig.Preview("set where id=auto checked on");
+        var one = rig.Preview("set selected daylight off", new LineView(Stations.Settings, Keys: ["board"]));
+
+        Assert.Equal("UnsayableRow: auto is a row on screen whose id a command would read as something else: say the rows another way, such as with where.", Read(subset));
+        Assert.Equal(("selected", 4, 12), (subset.Refused!.Word, subset.Refused.Start, subset.Refused.End));
+        Assert.Equal("UnsayableRow: wet 1 is a row on screen whose id a command would read as something else: say the rows another way, such as with where.", Read(spaced));
+        Assert.Null(spaced.Refused!.Word);
+        Assert.Equal("readings, 1 row | checked: off to on", Read(where));
+        Assert.Equal((("settings", null), "settings | daylight: on to off"), (Asked(one), Read(one)));
+        Assert.Equal((("readings", "auto, R1"), "readings, 2 rows | checked: 2 off to on"), (Asked(listed), Read(listed)));
+        Assert.Equal("Set checked to on on auto and R1.", (await rig.Run(listed))["said"]!.GetValue<string>());
+        Assert.Equal(["reading:R1", "reading:auto"], rig.Board.Overrides.Keys.Select(t => t.Entity).Order(StringComparer.Ordinal));
+        Assert.Equal("Set board daylight to off.", (await rig.Run(rig.Preview("set selected daylight off", new LineView(Stations.Settings, Keys: ["board"]))))["said"]!.GetValue<string>());
     }
 
     [Theory] // ADR-0016 §5, note 17: where rows are awaited, `selected` and `shown` are offered with their counts, only where the view has them
@@ -242,6 +327,8 @@ public class CommandLineTests
         var set = rig.Preview("set note wet", two);
         var several = rig.Preview("set note=wet checked=on", two);
         var one = rig.Preview("set checked off", focused);
+        // A key names its row whatever its case, the focused row's as a selected row's.
+        var cased = rig.Preview("set checked off", focused with { Focus = new("note", Key: "r2") });
         var at = rig.Preview("set checked on", paged);
         var reset = rig.Preview("reset note", two);
         var nothing = rig.Preview("set note wet", new LineView(Stations.Readings, "manual"));
@@ -251,6 +338,7 @@ public class CommandLineTests
         Assert.Equal((("readings", "R1, R3"), "readings, 2 rows", "note: 2 empty to wet"), (Asked(set), set.Rows!.Title, set.Would));
         Assert.Equal("note: 2 empty to wet; checked: 2 off to on", several.Would);
         Assert.Equal((("readings", "R2"), "rows: R2 (Context); set: checked off (Typed)", "checked: on to off"), (Asked(one), Given(one), one.Would));
+        Assert.Equal(("readings", "R2"), Asked(cased));
         Assert.Equal(("readings", "R3"), Asked(at));
         Assert.Equal((("readings", "R1, R3"), "rows: R1, R3 (Context); field: note (Typed)"), (Asked(reset), Given(reset)));
         Assert.Equal("NothingSelected: No row of readings (manual) is selected.", Read(nothing));

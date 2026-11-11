@@ -84,7 +84,9 @@ public interface IWorkspaceTable
     /// <summary>
     /// The rows of the table, or of one subset, in the order a page's reader gives them for a sort, with that order's
     /// token (ADR-0016 note 17 of step 2): the one reader that pages the grid, so a position on a screen names the row
-    /// the screen drew there. Null where no reader pages the table, and its rows are then named by their keys.
+    /// the screen drew there. Null where no reader pages the table, and its rows are then named by their keys. A sort
+    /// the reader does not take is refused as the reader refuses it (<see cref="WorkspaceRefused"/>), and nothing else
+    /// is: a view that names such a sort is read as the page's fault.
     /// </summary>
     OrderedRows? InOrder(WorkspaceState state, string? subset, IReadOnlyList<ViewSort> sorts) => null;
 

@@ -647,7 +647,12 @@ Step 2 is three pull requests (`docs/specs/commands-2-selection-context-places`)
       `{ field, key? | position? }`, its field the name of the grid's column. A column that is no field of the table
       (a result, an action) is a place the keyboard can be: the view then names the row and no field.
     - *A view the workspace cannot have* is the page's fault and no reading: an unknown table, subset or sort column,
-      a selection said both by keys and by positions, positions in a table no reader pages. HTTP 400, `InvalidView`.
+      a selection said both by keys and by positions, a sort or positions in a table no reader pages, a range of no
+      row or from before the first row, rows shown named beside positions. HTTP 400, `InvalidView`. It is checked
+      whole as the reading starts, whatever the line, and a sort though no position is read in it: a range of fewer
+      than no rows is never "nothing selected", which a line that leaves its rows out would read as the focused row.
+    - *A grid its page filters* names the rows it shows, by key (`shown`), where the page holds every row: the
+      pricer's CSA grid, filtered from its column's menu. The trade grids, which the server pages, refuse a filter.
     - *Which order a position is in.* The page keeps, for each row its reader answered, the sort and the token of
       that answer, and reads them from the rows the grid holds when the line opens, never from the answer that
       arrived last. Where the selection is written in another sequence than those rows, where they are not all of
@@ -665,6 +670,15 @@ Step 2 is three pull requests (`docs/specs/commands-2-selection-context-places`)
     word (the AI, a saved sequence) is refused by name (`NoView`). `shown` is the grid's subset until `filter`
     gives a view conditions (step 4), and is counted like any rows. A command of many keys is named in the log by
     its first three and how many more there are.
+    - *`shown` under a page's own filter* is the rows the view names (note 16), read by their keys, and one that is
+      gone is refused (`ViewMoved`). The note first took no grid to filter yet; the review of 2a found the CSA
+      grid's column menu, where `shown` would have written the rows the filter hid (corrected 2026-11-11).
+    - *Keys are read as the command will read them.* The preview writes the keys as a line lists ids and reads that
+      text again as Enter will. Keys it would read as anything but those rows are refused before Enter
+      (`UnsayableRow`): a single key that is a subset's word (`auto`), a key of two words. Run, they would have
+      been other rows. The row of a table of one row is said by its table alone, with no key.
+    - *Positions the order has no row at* are of another order, whatever its token: refused, and said as an order
+      that has moved.
     - *Rows of a screen that come to none are refused*, never "nothing would change": a command run by keys cannot
       say "no row". `NothingSelected`, `NothingShown` for a grid with no row, and `NoRowMatches` where a `where`
       leaves none of them (`No selected row of trades matches ccy = USD.`).
@@ -676,12 +690,12 @@ Step 2 is three pull requests (`docs/specs/commands-2-selection-context-places`)
     - *Left as it is:* after a command on a sorted grid the token has moved, so the grid reads again in a new
       sequence and drops its selection; the next line then says that nothing is selected. An unsorted grid keeps
       both. A token that moves only when the order does is for step 2c, where a second command follows the first.
-    - *Measured* at 10,009 trades, every one selected by one range (Release, SQLite, five requests each): the
-      preview of `set selected a off` 0.08 to 0.19 s, of `set csa CSA-B` with the rows left out 0.07 to 0.14 s, of
-      `set selected where ccy=USD a off` (4,011 rows) 0.05 to 0.11 s, of `reset` on the focused cell 0.02 to
-      0.05 s, and the opening's sentence 0.01 to 0.07 s. An answer that names 10,009 rows is 177 KB, and Enter on
-      it 0.48 s. Before the order was kept per state the same previews took 0.2 to 0.7 s: each read the order five
-      times.
+    - *Measured* at 10,009 trades, every one selected by one range (Release, SQLite, five requests each, after the
+      review's checks were added): the preview of `set selected a off` 0.09 to 0.25 s, of `set csa CSA-B` with the
+      rows left out 0.05 to 0.09 s, of `set selected where ccy=USD a off` (4,011 rows) 0.04 to 0.08 s, of `reset`
+      on the focused cell 0.02 to 0.06 s, and the opening's sentence 0.01 to 0.05 s. An answer that names 10,009
+      rows is 177 KB, and Enter on it 0.52 s. Before the order was kept per state the same previews took 0.2 to
+      0.7 s: each read the order five times.
 18. **Rows left out (§9).** `set` and `reset` with no rows, whose first words name a field of the view's table, act
     on the view's selection; with nothing selected, on the focused row. `reset` with no word at all acts on the
     focused cell. A field of a table of one row is read first, as before (`set alarm 5mm`); words that name both
@@ -706,6 +720,12 @@ Step 2 is three pull requests (`docs/specs/commands-2-selection-context-places`)
       with what it would act on (`3 selected`, or the focused row's id).
     - *The mark.* An argument from the view says so in words, before the words read for it, so that a narrow line
       that cuts many rows short still says it: `rows from the screen: DRAFT-1, DRAFT-2, DRAFT-3`.
+    - *Enter before the reading has arrived* runs the line with the view read as the line opened, as note 15 has it
+      for rows that are typed: the rows are those the screen showed at the opening, whenever Enter falls, so the
+      outcome does not depend on how fast the line was typed. The count is then said by the notice, not before.
+    - *A table left out is not yet the screen's.* `all`, a subset and `where` with no table still mean the main
+      table, as in step 1, though §9 gives them the focused grid's table. Built with the places (ticket 12, 2b),
+      where `go csa` first makes another grid the screen from the line.
 19. **The line says its context (§9, ADR-0006 §5).** Every preview asked with a view answers the view in the
     server's words, one sentence (`trades (existing), 3 selected, E00003 · csa`). The line asks once as it opens,
     with no text, and shows the sentence under the input until it closes.
@@ -714,6 +734,9 @@ Step 2 is three pull requests (`docs/specs/commands-2-selection-context-places`)
       said as that: `trades (existing), no longer in the order it was shown in`.
     - *On the line* it reads `On screen: …`, and the line shows the sentence of its latest reading where it has
       one, so a view that has gone stale while the line was open is said as soon as the server says it.
+    - *A filter and a moved order are said.* A grid its page filters says how many rows that leaves (`csas, filtered
+      to 1, nothing selected`). The answer also says apart that the order has moved (`viewMoved`), and the line
+      draws that sentence as a warning, since its rows can no longer be said (design guidelines §7).
 
 ## Rejected
 

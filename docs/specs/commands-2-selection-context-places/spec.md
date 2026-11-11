@@ -66,13 +66,14 @@ the lines worth a menu item, and every grid bound to it shows them in its Contex
 - **The line.** Reads the door's view once as it opens, asks the preview with no text for the sentence, shows it
   under the input, sends the view with each preview and with Enter's own reading, and marks an argument from context.
 
-### 2b. Places, `go` and `find` (tickets 06 to 08; the notes are written when it is built)
+### 2b. Places, `go` and `find` (tickets 06 to 08 and 12; the notes are written when it is built)
 
 - A page registers its places with the shell: a word, a title and how the keyboard is put there.
 - The shell builds `go <place>` from them. `focus grid` is `go` to the page's first grid, and keeps its chord.
 - `find <row> [<field>]`: the server answers the row's position in the view; the grid places its Focus there with
   `placeMatch`, refused when the order has moved.
 - Only `go`, `find` and `open` move the keyboard, and each says where it went.
+- A table left out is the screen's table for `all` and `where` (ADR-0016 §9; ticket 12, from the review of 2a).
 
 ### 2c. The chain key and menus (tickets 09 to 11; the notes are written when it is built)
 

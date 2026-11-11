@@ -1027,7 +1027,7 @@ test('ADR-0016 §2, notes 16, 17: every row of a grid selected with one key is t
   await expect(page.getByTestId('workspace-summary')).toContainText('45 edit(s)');
 });
 
-test('ADR-0016 §9, notes 16, 19: the CSA grid is a screen of the CSAs, named by their ids, and a grid of no table leaves the line none', async ({ page }) => {
+test('ADR-0016 §2, §9, notes 16, 17, 19: the CSA grid is a screen of the CSAs, named by their ids, `shown` is the rows its filter leaves, and a grid of no table leaves the line none', async ({ page }) => {
   await open(page);
   await newWorkspace(page, 'ABC/LE-01', 5);
   const line = page.getByRole('combobox', { name: 'Command' });
@@ -1050,6 +1050,24 @@ test('ADR-0016 §9, notes 16, 19: the CSA grid is a screen of the CSAs, named by
   await page.keyboard.press('Enter');
   await expect(line).toBeHidden();
   await expect(page.getByTestId('notice')).toHaveText('Set CSA-A threshold to 5mm.');
+
+  // Filtered from its column's menu, the grid shows CSA-B alone: `shown` is the rows the user sees (ADR-0016 §2), and
+  // the line says that the grid is filtered.
+  await page.keyboard.press('ControlOrMeta+Home');
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('Alt+ArrowDown');
+  await page.getByRole('dialog', { name: 'CSA', exact: true }).getByRole('textbox').first().focus();
+  await page.keyboard.type('CSA-B');
+  await page.keyboard.press('Enter');
+  await expect(page.getByLabel('CSA terms').getByRole('row')).toHaveCount(2);
+  await settled(page, 'CSA terms');
+  await page.keyboard.press('ControlOrMeta+K');
+  await expect(line).toBeFocused();
+  await expect(screen).toHaveText('On screen: csas, filtered to 1, nothing selected');
+  await page.keyboard.type('set shown threshold 7mm');
+  await expect(read).toContainText('csas, 1 row: CSA-B');
+  await page.keyboard.press('Escape');
+  await expect(line).toBeHidden();
 
   // The Scenarios grid is a grid of no table: once the keyboard has been in it, the line has no screen to read.
   await command(page, 'open scenarios');

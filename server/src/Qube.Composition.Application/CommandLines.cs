@@ -70,6 +70,7 @@ public sealed record LineRefusal(string Code, string Sentence, string? Word, int
 /// was shown or is refused.
 /// </summary>
 /// <param name="View">What the screen behind the line showed, in one sentence, where the preview was asked with a view (note 19 of step 2).</param>
+/// <param name="ViewMoved">True where that view's positions are of an order that has moved since: its rows can no longer be said.</param>
 public sealed record LinePreview(
     long Revision,
     LineCommand? Command,
@@ -81,7 +82,8 @@ public sealed record LinePreview(
     LineRefusal? Refused,
     IReadOnlyList<LineCompletion> Complete,
     int More,
-    string? View = null);
+    string? View = null,
+    bool ViewMoved = false);
 
 /// <summary>The words of a line as typed: what stands between its spaces, each with where it starts.</summary>
 public static partial class LineWords
@@ -132,7 +134,8 @@ public sealed class CommandLines
     public LinePreview Preview(string line, string workspaceId, long? revision, Caller caller, LineView? view = null)
     {
         var state = WorkspaceCommands.Owned(workspaces, workspaceId, caller, revision);
-        var shown = view is null ? null : Views.Say(view, tables.Of(state), state);
+        var viewSaid = view is null ? null : Views.Say(view, tables.Of(state), state);
+        LinePreview Seen(LinePreview preview) => viewSaid is null ? preview : preview with { View = viewSaid.Sentence, ViewMoved = viewSaid.Moved };
         var words = LineWords.Of(line);
         var said = typed.FirstOrDefault(t => t.Words.Length <= words.Count && t.Words.Zip(words).All(p => p.First.Equals(p.Second.Word, StringComparison.OrdinalIgnoreCase)));
         var all = typed.Select(t => t.Said).ToList();
@@ -143,7 +146,7 @@ public sealed class CommandLines
             var starting = words.Count <= 1 && !EndsInSpace(line) ? all.Where(w => w.StartsWith(first.Word, StringComparison.OrdinalIgnoreCase)).ToList() : [];
             var refusal = new LineRefusal("UnknownCommand", first.Word.Length == 0 ? $"Type a command: {TableWords.List(all)}." : $"No command {first.Word}: the commands are {TableWords.List(all)}.",
                 first.Word.Length == 0 ? null : first.Word, first.Word.Length == 0 ? null : first.Start, first.Word.Length == 0 ? null : first.Start + first.Word.Length, all);
-            return new(state.Revision, null, null, null, null, null, null, refusal, [.. starting.Select(w => new LineCompletion(w, first.Start))], 0, shown);
+            return Seen(new(state.Revision, null, null, null, null, null, null, refusal, [.. starting.Select(w => new LineCompletion(w, first.Start))], 0));
         }
 
         var descriptor = said.Handler.Descriptor;
@@ -160,7 +163,7 @@ public sealed class CommandLines
         try
         {
             var read = reader.Read(context);
-            return new(state.Revision, command, read.Inputs, read.Arguments, read.Rows, read.Would, read.At, null, complete, completions.More, shown);
+            return Seen(new(state.Revision, command, read.Inputs, read.Arguments, read.Rows, read.Would, read.At, null, complete, completions.More));
         }
         catch (TableRefused refused)
         {
@@ -174,7 +177,7 @@ public sealed class CommandLines
         LinePreview Refused(string code, string sentence, string? word, IReadOnlyList<string> candidates)
         {
             var place = word is null ? null : Place(line, from, word);
-            return new(state.Revision, command, null, null, null, null, null, new(code, sentence, word, place?.Start, place?.End, candidates), complete, completions.More, shown);
+            return Seen(new(state.Revision, command, null, null, null, null, null, new(code, sentence, word, place?.Start, place?.End, candidates), complete, completions.More));
         }
     }
 

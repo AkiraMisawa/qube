@@ -189,12 +189,18 @@ public class CommandGatewayTests(QubeFactory factory) : IClassFixture<QubeFactor
         var (_, opened) = await Preview("", id, view: View());
         var (_, preview) = await Preview("set selected threshold 5mm", id, view: View());
         var (invalid, body) = await Preview("set selected threshold 5mm", id, view: new JsonObject { ["table"] = "xva.tides" });
+        // A page that filters the rows it holds names those it shows, and `shown` is those.
+        var filter = View();
+        filter["shown"] = new JsonArray("CSA-A");
+        var (_, left) = await Preview("set shown threshold 5mm", id, view: filter);
 
         Assert.Equal(("csas, 1 selected, CSA-A · threshold", "UnknownCommand"), (opened["view"]!.GetValue<string>(), opened["refused"]!["code"]!.GetValue<string>()));
         Assert.Equal("csas, 1 selected, CSA-A · threshold", preview["view"]!.GetValue<string>());
         Assert.Equal(("csas", "CSA-A", "threshold 5mm"), (preview["inputs"]!["request"]!["table"]!.GetValue<string>(), preview["inputs"]!["request"]!["rows"]!.GetValue<string>(),
             preview["inputs"]!["request"]!["set"]!.GetValue<string>()));
         Assert.Equal("""{"name":"rows","text":"selected","from":"typed"}""", preview["arguments"]![0]!.ToJsonString());
+        Assert.Equal(("csas, filtered to 1, 1 selected, CSA-A · threshold", false, "CSA-A"),
+            (left["view"]!.GetValue<string>(), left["viewMoved"]!.GetValue<bool>(), left["inputs"]!["request"]!["rows"]!.GetValue<string>()));
         // A view of what the workspace has not is a page's fault, and is refused whole.
         Assert.Equal((HttpStatusCode.BadRequest, "InvalidView"), (invalid, body["code"]!.GetValue<string>()));
 
