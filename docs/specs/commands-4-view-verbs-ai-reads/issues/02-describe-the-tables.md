@@ -22,5 +22,8 @@ named. It is typed on no line.
 
 - *Corrected as built (ADR-0016 note 38):* another user's workspace is refused `NotOwner`, as every command of a
   workspace refuses it, where this ticket's first wording said "as an unknown one". The box above says it as built.
-- *Added as built:* how a value is written has one wording (`FieldForms.What`), which a refused value is told and
-  the description answers. A choice's `written` is `one of its choices`, with the choices beside it.
+- *Added as built:* how a value is written is said in one place, which a refused value is told and the description
+  answers. A choice's `written` is `one of its choices`, with the choices beside it.
+- *Corrected in review:* a choice's two sentences are both the reader's (`FieldForms.Takes`), the description's
+  being the one that lists the values beside it. One table is tested by its id as well as by its words, and a
+  workspace there is none of is tested for the three.

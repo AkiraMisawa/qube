@@ -112,16 +112,18 @@ public class TableReadTests
         rig.Meets("tables.describe", answer);
     }
 
-    [Fact] // ADR-0016 note 38: one table where one is named, by its words; an unknown one is refused with the tables there are
-    public async Task Describe_answers_one_table_by_its_words_and_refuses_an_unknown_one()
+    [Fact] // ADR-0016 note 38: one table where one is named, by its words or its id; an unknown one is refused with the tables there are
+    public async Task Describe_answers_one_table_by_its_words_or_its_id_and_refuses_an_unknown_one()
     {
         var rig = new Rig();
 
         var answer = await rig.Done("tables.describe", new JsonObject { ["table"] = "obs" });
+        var byId = await rig.Done("tables.describe", new JsonObject { ["table"] = "weather.stations" });
         var (code, issue) = await rig.Refused("tables.describe", new JsonObject { ["table"] = "tides" });
 
         Assert.Equal([Stations.Readings], answer["tables"]!.AsArray().Select(t => Text(t!, "table")));
         Assert.All(answer["fields"]!.AsArray(), f => Assert.Equal(Stations.Readings, Text(f!, "table")));
+        Assert.Equal(["weather.stations"], byId["tables"]!.AsArray().Select(t => Text(t!, "table")));
         Assert.Equal(("UnknownTable", "No table tides: the tables are readings, stations, settings.", "tides"), (code, issue.Message, issue.Word));
         Assert.Equal(["readings", "stations", "settings"], issue.Candidates);
     }
@@ -135,6 +137,9 @@ public class TableReadTests
         Assert.Equal("NotOwner", (await rig.Refused("tables.read", new JsonObject { ["rows"] = "all" }, new Caller("ben", RunOrigin.Ai))).Code);
         Assert.Equal("RevisionMoved", (await rig.Refused("tables.describe", new JsonObject { ["revision"] = rig.Board.Revision + 1 })).Code);
         Assert.Equal("RevisionMoved", (await rig.Refused("tables.read", new JsonObject { ["rows"] = "all", ["revision"] = rig.Board.Revision + 1 })).Code);
+        // A workspace there is none of is refused as that, never read as an empty one.
+        Assert.Equal("UnknownWorkspace", (await rig.Refused("tables.describe", new JsonObject { ["workspaceId"] = "ws-none" })).Code);
+        Assert.Equal("UnknownWorkspace", (await rig.Refused("tables.read", new JsonObject { ["workspaceId"] = "ws-none", ["rows"] = "all" })).Code);
     }
 
     static JsonArray Fields(params string[] fields) => new([.. fields.Select(f => (JsonNode)f)]);
@@ -213,6 +218,18 @@ public class TableReadTests
         Assert.Equal(((Stations.Readings, 6, 10, "", 0), 0), (Page(past), past["rows"]!.AsArray().Count));
     }
 
+    [Fact] // ADR-0016 note 38: a condition no row meets is an answer of no row, counted as none; a start past the last position a page can hold is refused by the contract
+    public async Task Read_answers_no_row_for_a_condition_none_meets_and_refuses_a_start_no_position_holds()
+    {
+        var rig = new Rig();
+
+        var none = await rig.Done("tables.read", new JsonObject { ["rows"] = "where station=north and station=south", ["fields"] = Fields("station") });
+        var (code, issue) = await rig.Refused("tables.read", new JsonObject { ["rows"] = "all", ["start"] = 3_000_000_000 });
+
+        Assert.Equal(((Stations.Readings, 0, 0, "station", 0), 0), (Page(none), none["rows"]!.AsArray().Count));
+        Assert.Equal(("ValidationFailed", "/inputs/request/start"), (code, issue.Path));
+    }
+
     [Fact] // ADR-0016 note 38: 50 rows where none is asked, 200 at most, and at most 2,000 cells: a page of many fields holds fewer rows, and says how many follow
     public async Task Read_bounds_a_page_by_rows_and_by_cells()
     {
@@ -257,6 +274,28 @@ public class TableReadTests
         Assert.Equal("NoRows", (await rig.Refused("tables.read", new JsonObject { ["table"] = "readings" })).Code);
         Assert.Equal("UnknownRow", (await rig.Refused("tables.read", new JsonObject { ["rows"] = "R9" })).Code);
     }
+
+    [Fact] // ADR-0016 note 38, docs/10: the handoff's schema of a catalog lists every effect a capability may declare, as the catalog writes it
+    public void The_handoffs_schema_lists_every_effect_a_capability_declares()
+    {
+        var schema = JsonNode.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Contracts", "composition.schema.json")))!;
+        var effects = Assert.Single(Effects(schema));
+
+        Assert.Equal(
+            ["readData", "compute", "persistAnalysis", "editWorkspace", "subscribe", "readRun", "saveItem", "execute", "readWorkspace"],
+            Enum.GetNames<CapabilityEffect>().Select(n => System.Text.Json.JsonNamingPolicy.CamelCase.ConvertName(n)));
+        Assert.Equal(Enum.GetNames<CapabilityEffect>().Select(n => System.Text.Json.JsonNamingPolicy.CamelCase.ConvertName(n)), effects);
+    }
+
+    // Every list of effects the schema declares, wherever it stands: the names its items may take.
+    static IEnumerable<string[]> Effects(JsonNode? node) => node switch
+    {
+        JsonObject o => o.SelectMany(p => p.Key == "effects" && p.Value?["items"]?["enum"] is JsonArray names
+            ? [[.. names.Select(n => n!.GetValue<string>())]]
+            : Effects(p.Value)),
+        JsonArray a => a.SelectMany(Effects),
+        _ => [],
+    };
 
     [Fact] // ADR-0005 §2, ADR-0016 note 38: a reading acts for a caller, so it is a command and never a workflow step
     public void A_reading_is_refused_as_a_workflow_step()

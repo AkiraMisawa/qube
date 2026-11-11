@@ -25,3 +25,5 @@ and a bounded page of rows, each with its key, its subset and its cells as text 
   fields give 100 rows; a limit over 200 is the contract's refusal (`ValidationFailed`), never a cut.
 - *Added as built:* a field asked twice is `FieldTwice`. The pricer's rows are compared with what the grid's own
   page endpoint answers, through the agent's endpoint.
+- *Added in review:* `start` has a maximum, so one no position holds is the contract's refusal; a condition that
+  reads and no row meets is tested as an answer of no row.

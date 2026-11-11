@@ -18,6 +18,7 @@
 
   <ItemGroup>
     <None Include="Fixtures\**" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\..\contracts\composition.schema.json" Link="Contracts\composition.schema.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

@@ -62,6 +62,11 @@ ADR-0010 §4. A capability with it starts something outside the workspace, which
 submission is still the Run service's, under the key the command was invoked with, so one invocation is one Run.
 The step that prices inside the Run (`xva.price`) is as it was, and a command is still no step of a workflow.)*
 
+*(2026-11-11, ADR-0016 note 38: a sixth effect, `ReadWorkspace`, makes a capability a command: it reads its caller's
+own workspace, as `tables.read` reads rows of one of its tables. Like `ReadRun` it changes nothing and starts
+nothing, and it acts for someone, which only a command's caller says: so it is invoked through the gateway, offered
+to the agent as a tool, and refused as a workflow step.)*
+
 ## Consequences
 
 - docs/09's "initial scope is read-only analytics" becomes "read-only analytics, and editing the caller's own

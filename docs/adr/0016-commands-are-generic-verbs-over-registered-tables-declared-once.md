@@ -1470,10 +1470,16 @@ as each is built.
       a second rule for who may read.
     - *Left for later.* Retaining a reading as a dataset a view binds (§7's "may"), so that the pane draws it
       as a grid: the pane shows a reading's answer as it does any tool's. A sort of the reading.
-    - *Added as built: how a value is written has one wording.* The sentence a description gives for a field
-      ("an amount: 5mm, 250k, 1bn, or a bare number of millions") is the one a refused value is told, from one
-      place in the reader, so the description cannot say a spelling the reader then refuses.
+    - *Added as built: how a value is written is said in one place.* The sentence a description gives for a
+      field ("an amount: 5mm, 250k, 1bn, or a bare number of millions") is the one a refused value is told, from
+      one place in the reader, so the description cannot say a spelling the reader then refuses. A choice is the
+      one form with two sentences, both there: a refusal names its values, and a description, which lists them
+      beside the sentence to fifty, says "one of its choices".
     - *Added as built: a field asked twice is refused* (`FieldTwice`), since a row's cells are held by field.
+    - *Added in review: where a page starts is bounded too.* A start past the last position a page can hold is
+      refused by the contract, as a limit over 200 is; the first build read it as a number it could not hold and
+      failed. And a preview always says what would change: `would` is part of every answer, since every command's
+      reading says it, and a reading that did not would be a defect, never an answer with a sentence made up.
     - *Added as built: the agent's instructions name the three by what they answer*, and only "where they are
       among your tools": read rather than guess, say a count as the tool gave it, and preview when asked what a
       command would do and before a command over many rows. The instructions still name no application.
@@ -1484,8 +1490,13 @@ as each is built.
       stand-in (ADR-0007), and without words for the three nothing on screen would show them. It takes
       `describe the tables`, `read <rows> [fields <a>, <b>]` and `preview <line>`, for the workspace the pane's
       context names, and says the count and the sentence as the tool answered them. It lower-cases what it is
-      told, as it always has, so a key typed in capitals is not found by it; the real agent passes words as
-      they are.
+      told, as it always has: rows, fields and choices read the same in either case, and a value whose capitals
+      matter (an identifier a `set` would write) reaches the tool in lower case, so its preview shows it so. The
+      real agent passes words as they are. *Corrected in review:* the first wording said a key typed in capitals
+      is not found, which is untrue, since keys are read without regard to case. And a reading that was refused
+      took every word after its own, so what is said next is a request of its own: the first build joined it to
+      the refused one, as it joins an answer to a question about a missing term, and read `describe the tables`
+      after a refused `read` as more rows.
     - *Corrected as built: a bound of a contract written as a whole number threw.* `minimum` and `maximum` are
       now read as the number is, whichever way the schema wrote them. No contract before this one had a bound.
 

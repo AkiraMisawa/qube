@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Qube.Composition.Application.Workspaces;
 using Qube.Composition.Contracts;
+using static Qube.Composition.Application.ContractShapes;
 
 namespace Qube.Composition.Application.Tables;
 
@@ -70,7 +71,7 @@ public sealed class TablesDescribe(Func<TableService> tables) : ICapabilityHandl
 
     public CapabilityDescriptor Descriptor { get; } = new(Id, TableContracts.Version, "Describe the tables of a workspace: their fields, how each value is written, and which a command sets",
         [new("request", TableReadContracts.DescribeRequest, TableContracts.Version, Cardinality.One)],
-        [new("answer", TableReadContracts.Described, TableContracts.Version, Cardinality.One)],
+        [new("answer", TableReadContracts.DescribeAnswer, TableContracts.Version, Cardinality.One)],
         ExecutionKind.RequestResponse, [CapabilityEffect.ReadWorkspace]);
 
     public Task<IReadOnlyDictionary<string, JsonNode?>> InvokeAsync(CapabilityInvocation invocation, CancellationToken cancellationToken) =>
@@ -92,10 +93,10 @@ public sealed class TablesDescribe(Func<TableService> tables) : ICapabilityHandl
         ["table"] = table.TableId,
         ["version"] = table.Version,
         ["title"] = table.Title,
-        ["words"] = TableReadContracts.List(table.Words),
+        ["words"] = List(table.Words),
         ["key"] = table.Key,
         ["rows"] = rows,
-        ["subsets"] = TableReadContracts.List(table.Subsets.Select(s => s.Name)),
+        ["subsets"] = List(table.Subsets.Select(s => s.Name)),
         ["singleRow"] = table.SingleRow,
         ["main"] = table.Main,
     };
@@ -107,10 +108,9 @@ public sealed class TablesDescribe(Func<TableService> tables) : ICapabilityHandl
             ["table"] = table.TableId,
             ["name"] = field.Name,
             ["title"] = field.Title,
-            ["words"] = TableReadContracts.List(field.Words),
+            ["words"] = List(field.Words),
             ["form"] = JsonNamingPolicy.CamelCase.ConvertName(field.Form.ToString()),
-            // A choice's values are listed beside it, and not said twice.
-            ["written"] = field.Form == FieldForm.Choice ? field.Optional ? "one of its choices, or empty" : "one of its choices" : FieldForms.What(field.Spec),
+            ["written"] = FieldForms.Takes(field.Spec, choicesBeside: true),
             ["editable"] = field.Editable,
             ["optional"] = field.Optional,
         };
@@ -118,7 +118,7 @@ public sealed class TablesDescribe(Func<TableService> tables) : ICapabilityHandl
         {
             // Each value once, as a cell writes it and a command reads it back.
             IReadOnlyList<string> written = [.. choices.Values.Distinct().Select(v => FieldForms.Write(field.Spec, v))];
-            described["choices"] = TableReadContracts.List(written.Take(MostChoices));
+            described["choices"] = List(written.Take(MostChoices));
             if (written.Count > MostChoices) described["moreChoices"] = written.Count - MostChoices;
         }
         if (field.UnitField is { } unit) described["unitField"] = unit;
@@ -135,7 +135,7 @@ public sealed class TablesRead(Func<TableService> tables) : ICapabilityHandler
 
     public CapabilityDescriptor Descriptor { get; } = new(Id, TableContracts.Version, "Read rows of a table of a workspace: how many match, and a page of the fields asked",
         [new("request", TableReadContracts.ReadRequest, TableContracts.Version, Cardinality.One)],
-        [new("answer", TableReadContracts.RowsRead, TableContracts.Version, Cardinality.One)],
+        [new("answer", TableReadContracts.ReadAnswer, TableContracts.Version, Cardinality.One)],
         ExecutionKind.RequestResponse, [CapabilityEffect.ReadWorkspace]);
 
     public Task<IReadOnlyDictionary<string, JsonNode?>> InvokeAsync(CapabilityInvocation invocation, CancellationToken cancellationToken) =>
@@ -151,7 +151,7 @@ public sealed class TablesRead(Func<TableService> tables) : ICapabilityHandler
                 ["table"] = read.Table.Descriptor.TableId,
                 ["count"] = read.Count,
                 ["start"] = read.Start,
-                ["fields"] = TableReadContracts.List(read.Fields.Select(f => f.Name)),
+                ["fields"] = List(read.Fields.Select(f => f.Name)),
                 ["rows"] = new JsonArray([.. read.Rows.Select(row => (JsonNode)Row(row, read.Fields))]),
                 ["more"] = read.More,
             };
@@ -162,7 +162,7 @@ public sealed class TablesRead(Func<TableService> tables) : ICapabilityHandler
     {
         var read = new JsonObject { ["key"] = row.Key };
         if (row.Subset is { } subset) read["subset"] = subset;
-        read["cells"] = TableReadContracts.List(fields.Select(f => FieldForms.Write(f.Spec, row.Value(f.Name))));
+        read["cells"] = List(fields.Select(f => FieldForms.Write(f.Spec, row.Value(f.Name))));
         return read;
     }
 }
@@ -171,43 +171,20 @@ public sealed class TablesRead(Func<TableService> tables) : ICapabilityHandler
 public static class TableReadContracts
 {
     public const string DescribeRequest = "tables.describe-request";
-    public const string Described = "tables.described";
+    public const string DescribeAnswer = "tables.described";
     public const string ReadRequest = "tables.read-request";
-    public const string RowsRead = "tables.rows-read";
+    public const string ReadAnswer = "tables.rows-read";
 
-    internal static JsonArray List(IEnumerable<string> items) => new([.. items.Select(i => (JsonNode)i)]);
-
-    static JsonObject Text(string title) => new() { ["type"] = "string", ["title"] = title };
-
-    static JsonObject Whole(string title) => new() { ["type"] = "integer", ["title"] = title };
-
-    static JsonObject Flag(string title) => new() { ["type"] = "boolean", ["title"] = title };
-
-    static JsonObject Texts(string title) => new() { ["type"] = "array", ["title"] = title, ["items"] = new JsonObject { ["type"] = "string" } };
-
-    static JsonObject Record(JsonObject properties, params string[] required) => new()
+    internal static void Register(CompositionRegistryBuilder builder)
     {
-        ["type"] = "object",
-        ["properties"] = properties,
-        ["required"] = new JsonArray([.. required.Select(r => (JsonNode)r)]),
-        ["additionalProperties"] = false,
-    };
-
-    static JsonObject Records(string title, JsonObject properties, params string[] required) => new() { ["type"] = "array", ["title"] = title, ["items"] = Record(properties, required) };
-
-    internal static void Register(CompositionRegistryBuilder builder, Func<TableService> tables)
-    {
-        builder.AddCapability(new TablesDescribe(tables));
-        builder.AddCapability(new TablesRead(tables));
-
         builder.AddContract(new ContractDefinition(DescribeRequest, TableContracts.Version, "Describe tables", Record(new JsonObject
         {
-            ["workspaceId"] = new JsonObject { ["type"] = "string", ["minLength"] = 1, ["title"] = "Workspace" },
+            ["workspaceId"] = Given("Workspace"),
             ["revision"] = Whole("Revision the workspace was read at; the one it holds when left out"),
-            ["table"] = new JsonObject { ["type"] = "string", ["minLength"] = 1, ["title"] = "One table, by its id or its words; every table of the workspace when left out" },
+            ["table"] = Given("One table, by its id or its words; every table of the workspace when left out"),
         }, "workspaceId")));
 
-        builder.AddContract(new ContractDefinition(Described, TableContracts.Version, "Tables described", Record(new JsonObject
+        builder.AddContract(new ContractDefinition(DescribeAnswer, TableContracts.Version, "Tables described", Record(new JsonObject
         {
             ["workspaceId"] = Text("Workspace"),
             ["revision"] = Whole("Revision read"),
@@ -234,7 +211,7 @@ public static class TableReadContracts
                 ["written"] = Text("How its value is written, in words"),
                 ["editable"] = Flag("Whether a command sets it"),
                 ["optional"] = Flag("Whether it may be empty, written empty"),
-                ["choices"] = Texts("The values it takes, where it takes one of a few; the first fifty"),
+                ["choices"] = Texts($"The values it takes, where it takes one of a few; the first {TablesDescribe.MostChoices}"),
                 ["moreChoices"] = Whole("How many more values it takes than are listed"),
                 ["unitField"] = Text("The field of the same row that holds its unit"),
                 ["pointsTo"] = Text("The id of the table whose row its value names"),
@@ -244,15 +221,16 @@ public static class TableReadContracts
 
         var read = TableContracts.Request(TableContracts.RowsTitle + "; all for every row",
             ("fields", Texts("The fields wanted, each by its name or its words, in the order wanted; the rows' keys alone when left out"), false),
-            ("start", new JsonObject { ["type"] = "integer", ["minimum"] = 0, ["title"] = "How many matching rows to pass over before the page; 0 when left out" }, false),
+            // A start past the last number a position holds is refused here, as a limit over the most is: never read as another.
+            ("start", new JsonObject { ["type"] = "integer", ["minimum"] = 0, ["maximum"] = int.MaxValue, ["title"] = "How many matching rows to pass over before the page; 0 when left out" }, false),
             ("limit", new JsonObject
             {
                 ["type"] = "integer", ["minimum"] = 1, ["maximum"] = TableService.MostRows,
-                ["title"] = "The most rows of the page; 50 when left out. An answer holds at most 2,000 cells, so a page of many fields holds fewer rows: more says how many follow",
+                ["title"] = $"The most rows of the page; {TableService.PageRows} when left out. An answer holds at most {TableService.MostCells} cells, so a page of many fields holds fewer rows: more says how many follow",
             }, false));
         builder.AddContract(new ContractDefinition(ReadRequest, TableContracts.Version, "Read rows", read));
 
-        builder.AddContract(new ContractDefinition(RowsRead, TableContracts.Version, "Rows read", Record(new JsonObject
+        builder.AddContract(new ContractDefinition(ReadAnswer, TableContracts.Version, "Rows read", Record(new JsonObject
         {
             ["workspaceId"] = Text("Workspace"),
             ["revision"] = Whole("Revision read"),

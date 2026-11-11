@@ -22,3 +22,7 @@ be read refuses the call with the reading's own code, sentence, word and candida
   with no command (a verb of the screen that did not refuse itself) is refused `NoView` too.
 - *Added as built:* the capability is registered by a module of its own (`CommandLinesModule`), given the lines
   when first asked for, since the lines are built from the registry it registers into.
+- *Corrected in review:* `would` is in every answer, and a reading without one is a defect, where the first build
+  left it out of the answer. A reading that names no command is the one refused `NoView`; one that names a command
+  with no inputs is a defect. `shown` is tested beside `selected` and `find`. The capability's refusals are mapped
+  where the tables' are (`TableContracts.Answered`).

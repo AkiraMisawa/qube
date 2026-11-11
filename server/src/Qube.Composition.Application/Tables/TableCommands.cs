@@ -622,7 +622,9 @@ public sealed class TablesModule(Func<TableService> tables) : IQubeModule
         builder.AddCapability(new EntitySet(tables));
         builder.AddCapability(new EntityReset(tables));
         builder.AddCapability(new EntityRemove(tables));
-        TableReadContracts.Register(builder, tables);
+        builder.AddCapability(new TablesDescribe(tables));
+        builder.AddCapability(new TablesRead(tables));
+        TableReadContracts.Register(builder);
         builder.AddContract(new ContractDefinition(TableContracts.SetRequest, TableContracts.Version, "Set fields of rows", TableContracts.Request(TableContracts.RowsTitle,
             ("set", new JsonObject { ["type"] = "string", ["minLength"] = 1, ["title"] = "Values as name=value, one or several (<field>=<value> <field>=<value>), each written as its field is typed and checked in the order given; one value may follow its field with no sign (<field> <value>)" }, true))));
         builder.AddContract(new ContractDefinition(TableContracts.ResetRequest, TableContracts.Version, "Reset fields of rows", TableContracts.Request(TableContracts.RowsTitle,

@@ -119,6 +119,7 @@ public class CommandPreviewTests
         var rig = new Rig();
 
         Assert.Equal("NoView", (await rig.Refused("set selected checked on")).Code);
+        Assert.Equal("NoView", (await rig.Refused("set shown checked on")).Code);
         Assert.Equal("NoView", (await rig.Refused("find R1")).Code);
     }
 
@@ -129,5 +130,8 @@ public class CommandPreviewTests
 
         Assert.Equal("NotOwner", (await rig.Refused("set R1 checked on", user: "ben")).Code);
         Assert.Equal("RevisionMoved", (await rig.Refused("set R1 checked on", rig.Board.Revision + 1)).Code);
+        // A workspace there is none of is refused as that.
+        var unknown = await rig.Invoke("commands.preview", new JsonObject { ["request"] = new JsonObject { ["workspaceId"] = "ws-none", ["line"] = "set R1 checked on" } });
+        Assert.Equal("UnknownWorkspace", Assert.IsType<CommandResult.Refused>(unknown).Code);
     }
 }

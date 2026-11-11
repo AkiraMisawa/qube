@@ -227,9 +227,9 @@ public class AgentApiTests : IClassFixture<QubeFactory>
     static JsonArray Showing(string workspaceId) =>
         [new JsonObject { ["description"] = "The XVA workspace open in the active panel", ["value"] = new JsonObject { ["kind"] = "xva.workspace", ["workspaceId"] = workspaceId }.ToJsonString() }];
 
-    async Task<List<JsonObject>> Asked(string thread, string words, JsonArray context)
+    async Task<List<JsonObject>> Asked(string thread, string words, JsonArray context, int turn = 1)
     {
-        var input = Input(thread, "r-1", ("m-1", words));
+        var input = Input(thread, $"r-{turn}", ($"m-{turn}", words));
         input["context"] = context;
         return await Events(await Post(input));
     }
@@ -273,5 +273,19 @@ public class AgentApiTests : IClassFixture<QubeFactory>
 
         Assert.Equal("refused", Results(events).Single()["status"]!.GetValue<string>());
         Assert.Contains("it needs workspaceId", Reply(events));
+    }
+
+    [Fact] // ADR-0016 note 38, ADR-0007 §6: a reading that was refused took every word after its own, so what is said next is a request of its own and never more rows of the refused one
+    public async Task What_follows_a_refused_reading_is_a_request_of_its_own()
+    {
+        var made = await client.PostAsJsonAsync("/api/xva/workspaces", new { registration = "ABC/LE-01", valueDate = "2026-10-26", portfolioSize = 10 });
+        var id = (await made.Content.ReadFromJsonAsync<JsonObject>())!["workspaceId"]!.GetValue<string>();
+
+        var refused = await Asked("t-refused", "read tides", Showing(id));
+        var next = await Asked("t-refused", "describe the tables", Showing(id), turn: 2);
+
+        Assert.Equal(("tables.read", "refused"), (Results(refused).Single()["capability"]!.GetValue<string>(), Results(refused).Single()["status"]!.GetValue<string>()));
+        Assert.Equal(["tables_describe"], Called(next));
+        Assert.StartsWith("The workspace has ", Reply(next));
     }
 }

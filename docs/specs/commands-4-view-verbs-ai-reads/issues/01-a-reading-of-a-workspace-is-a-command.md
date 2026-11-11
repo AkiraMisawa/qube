@@ -22,3 +22,5 @@ offered it as a tool, and a workflow step that names it is refused. The wire sch
   gives the three no `command`.
 - *Corrected as built:* a contract's `minimum` or `maximum` written as a whole number threw where it was checked;
   the bound is read as the number is. No contract before `tables.read-request` had one.
+- *Added in review:* a test reads `contracts/composition.schema.json` and holds its effects to the ones a
+  capability may declare, since no test read the file. ADR-0005 carries the note for the sixth effect.

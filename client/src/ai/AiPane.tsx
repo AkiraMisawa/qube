@@ -193,7 +193,9 @@ function Step({ step }: { readonly step: AiStep }) {
       )}
       {outcome?.status === 'done' && (
         // An answer may be a page of rows (ADR-0016 note 38): it scrolls in its own block, and the card stays a card.
-        <Code block tabIndex={0} aria-label={`Answer of ${name}`} style={{ fontSize: 11, whiteSpace: 'pre-wrap', wordBreak: 'break-all', maxHeight: '30vh', overflowY: 'auto' }}>
+        // 30vh is geometry the theme has no name for: the most of the window one answer takes, so the conversation
+        // under it stays in reach at every height.
+        <Code block fz="xs" tabIndex={0} aria-label={`Answer of ${name}`} style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all', maxHeight: '30vh', overflowY: 'auto' }}>
           {JSON.stringify(outcome.outputs)}
         </Code>
       )}

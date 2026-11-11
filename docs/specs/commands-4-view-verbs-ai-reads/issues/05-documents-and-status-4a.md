@@ -22,3 +22,8 @@ height. `docs/10-api-contracts.md`, `docs/09-ai-and-views.md` where it says what
   configured; a browser test reads a workspace of more than fifty trades through it and holds the block's scroll.
   Its refusal no longer ends with two full stops.
 - *Not done here:* a real model with the three tools. None is configured, and the status file says so.
+- *Corrected in review:* what follows a refused reading is a request of its own: the stand-in joined it to the
+  refused one and read `describe the tables` as more rows. The pane's block takes its font size from the theme.
+  docs/09 says the three were exercised through the gateway and the stand-in, and that no model was.
+- *Held by reading, not by a test:* "and no table". A test holds that the instructions name the three tools by the
+  names the gateway offers them under.

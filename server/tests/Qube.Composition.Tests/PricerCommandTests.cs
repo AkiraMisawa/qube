@@ -70,6 +70,8 @@ public class PricerCommandTests(QubeFactory factory) : IClassFixture<QubeFactory
             Assert.Equal(["readWorkspace"], listed["effects"]!.AsArray().Select(e => e!.GetValue<string>()));
             Assert.Null(listed["command"]);
         }
+        // The agent's instructions name the three by the names they are offered under, so a tool renamed is not still asked for.
+        Assert.All(["tables_describe", "tables_read", "commands_preview"], name => Assert.Contains(name, CopilotAgentRuntime.Instructions));
     }
 
     [Fact] // ADR-0016 §7, note 38: through the agent's door the AI learns the trades' fields, reads rows by a condition and is told what a line would change, and the workspace is as it was
@@ -89,7 +91,8 @@ public class PricerCommandTests(QubeFactory factory) : IClassFixture<QubeFactory
         // A trade's CSA is an id that names a row of the CSAs, and a command sets it.
         Assert.Equal(("xva.trades", true, "id", true, "xva.csas"), (described["tables"]![0]!["table"]!.GetValue<string>(), described["tables"]![0]!["main"]!.GetValue<bool>(),
             csa["form"]!.GetValue<string>(), csa["editable"]!.GetValue<bool>(), csa["pointsTo"]!.GetValue<string>()));
-        Assert.Equal((grid.Count, grid.Count - 2), (read["count"]!.GetValue<int>(), read["more"]!.GetValue<int>()));
+        // Six existing trades in a portfolio of ten: a page of two leaves four.
+        Assert.Equal((6, 6, 4), (grid.Count, read["count"]!.GetValue<int>(), read["more"]!.GetValue<int>()));
         Assert.Equal(grid.Take(2).Select(g => $"{g.Id}: {g.Ccy}|{g.Csa}"),
             read["rows"]!.AsArray().Select(r => $"{r!["key"]!.GetValue<string>()}: {string.Join("|", r["cells"]!.AsArray().Select(c => c!.GetValue<string>()))}"));
         Assert.Equal(("entity.set", grid.Count), (preview["command"]!.GetValue<string>(), preview["count"]!.GetValue<int>()));

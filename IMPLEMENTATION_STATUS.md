@@ -1915,20 +1915,22 @@ would change, through three capabilities of the kernel that write nothing.
   than guess, say a count as the tool gave it, preview when asked and before a command over many rows.
 - **The stand-in agent** (no model configured) takes `describe the tables`, `read <rows> [fields <a>, <b>]` and
   `preview <line>` for the workspace the pane's context names, and says the count and the sentence the tool
-  answered.
+  answered. What is said after a reading that was refused is a request of its own.
 - **The pane** keeps a step's answer inside its card: a long one scrolls within 30% of the window's height and
   takes the keyboard.
-- **One wording for how a value is written** (`FieldForms.What`): the description's and a refused value's.
+- **How a value is written is said in one place** (`FieldForms.Takes`): the description's sentence and a refused
+  value's. A choice's description says "one of its choices", with the values listed beside it.
 
 ### Verification performed
 
 | What | Result |
 |---|---|
-| `dotnet test server/Qube.slnx` | 1103 passed |
+| `dotnet test server/Qube.slnx` | 1106 passed |
 | Client: `npm run typecheck`, `npm test`, `npm run build` | Clean; 297 passed in 34 files; built |
 | `npx playwright test` (Chromium, headless, Linux) | 87 passed |
 | The browser test this step adds, with `--repeat-each=3` | 3 passed |
 | `python3 tools/validate_handoff.py` | Passed |
+| The pane with a page of rows at 390, 768, 992 and 1440px, dark and light | Looked at; no sideways scroll, the block inside the pane |
 
 The server's tests read the kernel's three capabilities over a registration with no financial word, then the
 pricer's tables through the agent's endpoint, compared with what the grid's own page endpoint answers for the
@@ -1936,6 +1938,13 @@ same rows. The browser test reads a workspace of more than fifty trades through 
 
 Not verified: a real model using the three tools. No model is configured here, so what the agent does with a
 description or a page of rows was exercised through the stand-in alone, which is scripted.
+
+The figures above are of the branch after the code review (two reviewers, the repository's standards and the
+spec). What the review changed: what follows a refused reading is no longer joined to it by the stand-in; `would`
+is in every preview and a start no position holds is refused by the contract; a reading that names a command with
+no inputs is a defect, not `NoView`; ADR-0005 carries the sixth effect; the documents no longer say that a key in
+capitals is not found, or that `rows` is required; and tests hold the schema file's effects, an unknown workspace,
+a condition no row meets and `shown` in a preview.
 
 ### Providers
 
@@ -1945,8 +1954,9 @@ Unchanged: every figure of the pricer is simulated, and says so. The agent is th
 
 - A reading does not sort, and is not retained as a dataset a view binds: the pane shows its answer as JSON, as
   it shows any tool's (note 38, "left for later").
-- The stand-in lower-cases what it is told, so a key typed in capitals (`read ABC-LE-01-E00006`) is not found by
-  it; `where`, subsets and field words read as typed. The real agent passes words as they are.
+- The stand-in lower-cases what it is told. Rows, fields and choices read the same in either case; a value whose
+  capitals matter (an identifier a `set` would write) reaches the tool in lower case, and its preview shows it
+  so. The real agent passes words as they are.
 - A choice's values beyond fifty are counted, not listed: the agent reads the rows to see them.
 - The gateway remembers an answer by its idempotency key in memory, a page of rows included, as it does every
   command's answer.

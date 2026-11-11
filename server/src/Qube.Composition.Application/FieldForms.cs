@@ -179,13 +179,15 @@ public static partial class FieldForms
 
     static Reading Take(JsonNode? value) => new(Problem.None, value, null);
 
-    static Reading Refuse(FieldSpec spec) => new(Problem.NotOfForm, null, What(spec));
+    static Reading Refuse(FieldSpec spec) => new(Problem.NotOfForm, null, Takes(spec));
 
     /// <summary>
     /// What a field takes, in words that follow "is" (<c>a rate with its unit, 40% or 25bp</c>): what a refusal of a
     /// value says the field is, and what a description of the field says before any value is tried (ADR-0016 note 38).
+    /// A refusal names a choice's values; a description that lists them beside the sentence (<paramref name="choicesBeside"/>)
+    /// says "one of its choices", since a field may take thousands.
     /// </summary>
-    public static string What(FieldSpec spec)
+    public static string Takes(FieldSpec spec, bool choicesBeside = false)
     {
         var what = spec.Form switch
         {
@@ -200,6 +202,7 @@ public static partial class FieldForms
             FieldForm.Days => "a whole number of days, 10 or 10d",
             FieldForm.Flag => "on or off",
             FieldForm.Id => "an identifier",
+            FieldForm.Choice when choicesBeside => "one of its choices",
             FieldForm.Choice => $"one of {string.Join(", ", (spec.Choices ?? throw new InvalidOperationException("A choice with nothing to choose from cannot be read.")).Values.Distinct())}",
             _ => throw new InvalidOperationException($"No reading of {spec.Form}."),
         };

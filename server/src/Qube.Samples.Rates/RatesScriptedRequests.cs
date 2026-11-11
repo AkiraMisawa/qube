@@ -28,23 +28,7 @@ public static class RatesScriptedRequests
         return OpenWorkspace(step)?["workspaceId"]?.GetValue<string>();
     }
 
-    static JsonObject? OpenWorkspace(ScriptedStep step)
-    {
-        foreach (var entry in step.Context)
-        {
-            JsonNode? value;
-            try
-            {
-                value = JsonNode.Parse(entry.Value);
-            }
-            catch (System.Text.Json.JsonException)
-            {
-                continue;
-            }
-            if (value is JsonObject open && open["kind"]?.GetValue<string>() == ContextKind) return open;
-        }
-        return null;
-    }
+    static JsonObject? OpenWorkspace(ScriptedStep step) => step.Shown.FirstOrDefault(shown => shown["kind"]?.GetValue<string>() == ContextKind);
 
     static readonly Regex Date = new(@"\b(\d{4}-\d{2}-\d{2})\b", RegexOptions.CultureInvariant);
     static readonly Regex NewWorkspacePhrase = new(@"\bnew\s+workspace\b", RegexOptions.CultureInvariant);
