@@ -2220,6 +2220,37 @@ written (`yes` still offered `on`); the sentence for a row that is not there lis
 a choice registered with nothing to choose from would have thrown at each key typed, where it now fails when its
 table is read. Each is said in note 45 as "Corrected in review", with a test.
 
+## Dates read yyyy-MM-dd (design guidelines §10, ADR-0009, 2026-11-11)
+
+### What runs
+
+- Every date field draws and takes its date as `yyyy-MM-dd`, whatever the browser's locale: the header's As of, a
+  workflow's date in the run dialog, the XVA toolbar's Value date, the Rates toolbar's Valuation date, and the New XVA
+  and New Rates workspace dialogs. Each was a native `<input type="date">`, which drew `11/11/2026` in en-US and
+  `2026/11/11` in ja-JP.
+- They are `IsoDateInput`: a text field, with Mantine's `DatePicker` in a popover that a click or a tap opens on the
+  month the text names. The field is its text: text that is not a date that exists (`2026-02-30`) stays as typed,
+  is marked invalid, and is said where its holder says things: the header's context issues, the dialog's field, and
+  for the toolbars' dates (`CommittedDateInput`, moved when the field is left or Enter is pressed) a refused notice
+  that names the date that stays. Escape with the calendar open closes the calendar only; Enter closes it too.
+- New dependencies, pinned exactly: `@mantine/dates` 9.7.4 (Mantine's own version) and `dayjs` 1.11.23, its peer.
+
+### Verification performed
+
+| Suite | Result |
+|---|---|
+| `npm run typecheck`, `npm test` (Vitest) | Clean; 328 passed |
+| `npx playwright test --grep "As of field\|Escape shuts" --repeat-each=3` (Chromium, headless, Linux) | 6 passed: the two new tests |
+| `npx playwright test` (Chromium, headless, Linux) | 95 passed |
+
+The header was looked at in screenshots at 390, 768, 992 and 1440px in both themes, with the calendar open, and the
+New Rates dialog and the Rates toolbar at 1440px.
+
+### Known limits
+
+- The calendar's days are reached by pointer or touch; the keyboard types the date. The native input's ArrowUp and
+  ArrowDown, which stepped a part of the date, are gone.
+
 ## Next
 
 1. Generic commands: delivery step 5 (drafts and the detail dialog; the owner is asked the choices of look and

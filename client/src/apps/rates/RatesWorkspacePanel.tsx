@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
-import { Alert, Badge, Button, Group, Stack, Table, Text, TextInput } from '@mantine/core';
+import { Alert, Badge, Button, Group, Stack, Table, Text } from '@mantine/core';
 import { GridSource, type CellPosition, type GridActionEvent, type GridColumn, type GridContextMenuContext, type GridEditIntent, type GridSelection, type HeaderGroupToggle } from '@ex-grid/core';
 import type { ExGridApi } from '@ex-grid/react';
 import { QubeGrid } from '../../platform/grid/QubeGrid';
@@ -15,6 +15,7 @@ import { EditQueue } from '../../platform/workspace/editQueue';
 import { useWorkspaceContext } from '../../platform/workspace/WorkspaceProvider';
 import { keyOf } from '../../platform/workspace/workspaceStore';
 import { registerPlaces, type Place } from '../../shell/places';
+import { CommittedDateInput } from '../../platform/IsoDateInput';
 import type { FrameStream, RatesApi } from './api';
 import type { CashflowsView, HeldEdit, LiveFrame, PeriodView, RatesWorkspaceView, Resolution } from './contracts';
 import {
@@ -381,7 +382,8 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
     // A grid entered is the screen only where it says so below, after this: a grid of no table leaves the line none.
     <Stack gap="sm" onFocusCapture={(event) => { if (event.target instanceof Element && event.target.closest('.ex-grid') !== null) screen.current = undefined; }}>
       <Group gap="sm" wrap="wrap" align="flex-end">
-        <ValuationDate value={ws.valuationDate} disabled={busy !== undefined} onCommit={(d) => void changeValuationDate(d)} />
+        <CommittedDateInput label="Valuation date" what="valuation date" size="xs" w={150} value={ws.valuationDate} disabled={busy !== undefined}
+          onCommit={(d) => void changeValuationDate(d)} onRefused={(sentence) => workspace.notify('refused', sentence)} />
         {/* Each button runs the line a user types (ADR-0016 note 36), so the two cannot differ. */}
         <Button size="xs" variant="default" onClick={() => void enter('add line irs')}>Add IRS</Button>
         <Button size="xs" variant="default" onClick={() => void enter('add line ccs')}>Add CCS</Button>
@@ -523,16 +525,6 @@ function Exchanges({ flows }: { readonly flows: CashflowsView }) {
         ))}
       </Table.Tbody>
     </Table>
-  );
-}
-
-function ValuationDate({ value, disabled, onCommit }: { readonly value: string; readonly disabled: boolean; readonly onCommit: (date: string) => void }) {
-  const [draft, setDraft] = useState(value);
-  useEffect(() => setDraft(value), [value]);
-  const commit = () => { if (draft !== value && /^\d{4}-\d{2}-\d{2}$/.test(draft)) onCommit(draft); };
-  return (
-    <TextInput label="Valuation date" type="date" size="xs" w={150} value={draft} disabled={disabled}
-      onChange={(e) => setDraft(e.currentTarget.value)} onBlur={commit} onKeyDown={(e) => { if (e.key === 'Enter') commit(); }} />
   );
 }
 

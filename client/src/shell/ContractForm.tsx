@@ -1,6 +1,7 @@
 import { useId } from 'react';
 import { NumberInput, Select, Switch, Text, TextInput } from '@mantine/core';
 import type { ContractDefinition, FieldSchema, ValueSchema } from '../platform/contracts';
+import { IsoDateInput } from '../platform/IsoDateInput';
 
 /**
  * How the fields are laid out (docs/design-guidelines.md, "Forms and toolbars"):
@@ -52,12 +53,15 @@ function Field({ name, field, value, error, onChange, autoFocus, layout }: {
   const control = field.type === 'string' && field.enum !== undefined
     ? <Select {...common} data={[...field.enum]} value={typeof value === 'string' ? value : null}
         onChange={(v) => onChange(v ?? undefined)} allowDeselect={false} comboboxProps={{ withinPortal: true }} />
-    : field.type === 'string'
-      ? <TextInput {...common} type={field.format === 'date' ? 'date' : 'text'} value={typeof value === 'string' ? value : ''}
-          onChange={(e) => onChange(e.currentTarget.value === '' ? undefined : e.currentTarget.value)} />
-      : <NumberInput {...common} value={typeof value === 'number' ? value : ''} allowDecimal={field.type === 'number'}
-          {...(field.minimum === undefined ? {} : { min: field.minimum })} {...(field.maximum === undefined ? {} : { max: field.maximum })}
-          onChange={(v) => onChange(typeof v === 'number' ? v : undefined)} />;
+    // A date reads yyyy-MM-dd whatever the browser's locale; text that is not one is the value, and `validate` says so.
+    : field.type === 'string' && field.format === 'date'
+      ? <IsoDateInput {...common} value={typeof value === 'string' ? value : ''} onChange={(t) => onChange(t === '' ? undefined : t)} />
+      : field.type === 'string'
+        ? <TextInput {...common} value={typeof value === 'string' ? value : ''}
+            onChange={(e) => onChange(e.currentTarget.value === '' ? undefined : e.currentTarget.value)} />
+        : <NumberInput {...common} value={typeof value === 'number' ? value : ''} allowDecimal={field.type === 'number'}
+            {...(field.minimum === undefined ? {} : { min: field.minimum })} {...(field.maximum === undefined ? {} : { max: field.maximum })}
+            onChange={(v) => onChange(typeof v === 'number' ? v : undefined)} />;
 
   if (layout === 'stacked') return control;
   return (
