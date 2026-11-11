@@ -76,7 +76,8 @@ public sealed class TableService(TableRegister register, WorkspaceService worksp
         var assigned = And(written.Select(v => $"{TableWords.Word(v.Field)} to {FieldForms.Write(v.Field.Spec, v.Value)}"));
         var already = held == 0 ? "" : $"; {held} already held {(written.Count == 1 ? "it" : "them")}";
         var said = touched.Count == 1 ? $"Set {touched[0].Key} {assigned}{already}." : $"Set {assigned} on {Rows(bound, touched)}{already}.";
-        return Write(state, caller, resolved, changes, touched, held, said, Words("set", table, rows, set));
+        // One value is named as the line first spells it, `<field> <value>`; several keep their signs.
+        return Write(state, caller, resolved, changes, touched, held, said, Words("set", table, rows, set.Count(c => c == '=') == 1 ? set.Replace('=', ' ') : set));
     }
 
     /// <summary>
@@ -227,8 +228,12 @@ static class Assignments
                 pending.Add(word);
                 continue;
             }
-            // The longest run of words before the sign that names a field is the name; what stands before it ends the value before.
-            var from = Enumerable.Range(0, pending.Count).FirstOrDefault(i => Fields(table, string.Join(' ', pending.Skip(i))).Count > 0, pending.Count - 1);
+            // The longest run of words before the sign that names a field is the name, and what stands before it ends the
+            // value before, which holds at least a word: `type=proxy sector=…` is a type of proxy and a sector, never a
+            // `proxy sector` after a type with no value.
+            int? Named(int start) => Enumerable.Range(start, Math.Max(0, pending.Count - start)).Cast<int?>()
+                .FirstOrDefault(i => i is { } at && Fields(table, string.Join(' ', pending.Skip(at))).Count > 0);
+            var from = (pairs.Count > 0 ? Named(1) : null) ?? Named(0) ?? pending.Count - 1;
             if (pending.Count == 0 || (from > 0 && pairs.Count == 0)) throw new TableRefused("UnreadValues", $"{text.Trim()} names no field before a value: {How}", "=");
             var field = TableRegister.Field(table, string.Join(' ', pending.Skip(from)));
             if (pairs.Any(p => p.Field == field)) throw new TableRefused("FieldTwice", $"{TableWords.Word(field)} is given twice; give each field one value.", TableWords.Word(field));

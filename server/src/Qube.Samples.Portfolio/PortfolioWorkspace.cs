@@ -156,7 +156,21 @@ public static class PortfolioMaterialiser
         ["currency", "curve", "fvaCurve", "frequency", "exchange", "oneWay",
          "counterpartyThreshold", "counterpartyMta", "counterpartyCurrency", "selfThreshold", "selfMta", "selfCurrency"];
 
-    public static IReadOnlyList<EffectiveTrade> Trades(WorkspaceState state)
+    // A state never changes, so what it reads as is worked out once and shared by all who read that state: the page's
+    // view, a command's selector, which looks in every table for the rows named, and its checks. Measured on 2026-11-11
+    // with 15,000 edits in a workspace of 10,000 trades: a `set` of one row read the trades and the credit several times.
+    static readonly ConditionalWeakTable<WorkspaceState, IReadOnlyList<EffectiveTrade>> TradesRead = new();
+    static readonly ConditionalWeakTable<WorkspaceState, IReadOnlyList<EffectiveCsa>> CsasRead = new();
+    static readonly ConditionalWeakTable<WorkspaceState, EffectiveCredit> CreditRead = new();
+    static readonly ConditionalWeakTable<WorkspaceState, ILookup<string, Override>> EditsRead = new();
+
+    // The edits of one entity, found without walking every edit of the workspace for each entity asked.
+    static IEnumerable<Override> EditsOf(WorkspaceState state, string entity) =>
+        EditsRead.GetValue(state, s => s.Overrides.Values.ToLookup(o => o.Target.Entity))[entity];
+
+    public static IReadOnlyList<EffectiveTrade> Trades(WorkspaceState state) => TradesRead.GetValue(state, ReadTrades);
+
+    static IReadOnlyList<EffectiveTrade> ReadTrades(WorkspaceState state)
     {
         PortfolioCases.Unlayered(state);
         var source = (PortfolioSourceVersion)state.Source;
@@ -166,7 +180,8 @@ public static class PortfolioMaterialiser
         // Most rows carry no edit of their own: they are the source under the rules, the CSA terms and B or A set for a
         // whole grid, which are computed once per source version and set of those edits. Only the rows the user
         // touched, or that hold an edit back, are worked out again.
-        var shared = overrides.Where(o => Entity.Split(o.Key.Entity).Kind is Entity.Csa or Entity.Grid)
+        // Of a CSA a row reads its curve alone, so a threshold's edit leaves every row as it was worked out.
+        var shared = overrides.Where(o => Entity.Split(o.Key.Entity).Kind is var kind && (kind == Entity.Grid || (kind == Entity.Csa && o.Key.Field == "curve")))
             .OrderBy(o => o.Key.Entity, StringComparer.Ordinal).ThenBy(o => o.Key.Field, StringComparer.Ordinal)
             .ToDictionary(o => o.Key, o => o.Value);
         var fingerprint = string.Join("|", shared.Select(o => $"{o.Key.Entity}.{o.Key.Field}={o.Value.Value?.ToJsonString()}#{o.Value.Seq}"));
@@ -177,12 +192,31 @@ public static class PortfolioMaterialiser
         var touched = overrides.Keys.Select(k => k.Entity).Concat(held.Select(h => h.Key))
             .Where(e => Entity.Split(e).Kind == Entity.Trade).ToHashSet();
         if (touched.Count == 0) return untouched;
+        // A touched row is worked out again only when what it reads has changed: its own edits, the ones held back on it,
+        // and the rows it shares with every other. After a command over thousands of rows, the next edit of one row
+        // then costs that row, not all of them (measured 2026-11-11: 150 ms a state at 15,000 edits before this).
+        var worked = Worked.GetOrCreateValue(source);
         var rows = (EffectiveTrade[])untouched.Clone();
         for (var i = 0; i < rows.Length; i++)
-            if (touched.Contains(Entity.Of(Entity.Trade, rows[i].TradeId)))
-                rows[i] = Marked(Trade(source, source.Trade(rows[i].TradeId)!, overrides, held), original[i]);
+        {
+            var entity = Entity.Of(Entity.Trade, rows[i].TradeId);
+            if (!touched.Contains(entity)) continue;
+            var own = new Override?[EditableFields.Count];
+            for (var f = 0; f < own.Length; f++) own[f] = overrides.GetValueOrDefault((entity, EditableFields[f]));
+            string[] holds = [.. held[entity]];
+            if (!worked.TryGetValue(i, out var was) || !ReferenceEquals(was.Untouched, untouched) || !was.Holds.SequenceEqual(holds)
+                || !was.Own.AsSpan().SequenceEqual(own, ReferenceEqualityComparer.Instance))
+                worked[i] = was = new(untouched, own, holds, Marked(Trade(source, source.Trade(rows[i].TradeId)!, overrides, held), original[i]));
+            rows[i] = was.Row;
+        }
         return rows;
     }
+
+    // A touched row as it was last worked out, with what it was worked out from: the shared rows, by the array that
+    // holds them, its own edits in the order of EditableFields, and what is held back on it.
+    sealed record WorkedRow(EffectiveTrade[] Untouched, Override?[] Own, string[] Holds, EffectiveTrade Row);
+
+    static readonly ConditionalWeakTable<PortfolioSourceVersion, ConcurrentDictionary<int, WorkedRow>> Worked = new();
 
     /// <summary>The trade fields Original is compared on. B and A are shown by their boxes and never marked (ADR-0010 §2).</summary>
     public static IReadOnlyList<string> ComparedFields { get; } = ["notional", "fixedRate", "schedule", "csa", "curve", "imR", "imP"];
@@ -236,24 +270,26 @@ public static class PortfolioMaterialiser
 
     /// <summary>The measures Price runs: the user's selection, else every registered measure (ADR-0010 §10).</summary>
     public static IReadOnlyList<string> SelectedMeasures(WorkspaceState state, MeasureRegister register) =>
-        state.Overrides.Values.SingleOrDefault(o => o.Target.Entity == Entity.Measures && o.Target.Field == Entity.MeasuresField) is { Value: JsonArray chosen }
+        EditsOf(state, Entity.Measures).SingleOrDefault(o => o.Target.Field == Entity.MeasuresField) is { Value: JsonArray chosen }
             ? [.. register.Ids.Where(id => chosen.Any(c => c!.GetValue<string>() == id))]
             : register.Ids;
 
     /// <summary>The currency the figures are shown in (ADR-0010 §1): the user's choice, else the profile's.</summary>
     public static string DisplayCurrency(WorkspaceState state) =>
-        state.Overrides.Values.SingleOrDefault(o => o.Target.Entity == Entity.WorkspaceSettings && o.Target.Field == Entity.DisplayCurrency) is { Value: { } chosen }
+        EditsOf(state, Entity.WorkspaceSettings).SingleOrDefault(o => o.Target.Field == Entity.DisplayCurrency) is { Value: { } chosen }
             ? chosen.GetValue<string>()
             : PortfolioCatalog.Profile.DisplayCurrency;
 
-    public static IReadOnlyList<EffectiveCsa> Csas(WorkspaceState state)
+    public static IReadOnlyList<EffectiveCsa> Csas(WorkspaceState state) => CsasRead.GetValue(state, ReadCsas);
+
+    static IReadOnlyList<EffectiveCsa> ReadCsas(WorkspaceState state)
     {
         PortfolioCases.Unlayered(state);
         var source = (PortfolioSourceVersion)state.Source;
         return [.. source.Agreement.Csas.Select(c =>
         {
             var entity = Entity.Of(Entity.Csa, c.CsaId);
-            var set = state.Overrides.Values.Where(o => o.Target.Entity == entity).ToDictionary(o => o.Target.Field, o => o.Value);
+            var set = EditsOf(state, entity).ToDictionary(o => o.Target.Field, o => o.Value);
             T Term<T>(string field, T value) => set.TryGetValue(field, out var v) ? v!.GetValue<T>() : value;
             var effective = new EffectiveCsa(c.CsaId, c.Type, Term("currency", c.Currency), Term("curve", c.Curve), set.ContainsKey("curve") ? Ownership.User : Ownership.Source,
                 Term("fvaCurve", c.FvaCurve), Term("frequency", c.Frequency), Term("exchange", c.Exchange), Term("oneWay", c.OneWay),
@@ -272,12 +308,14 @@ public static class PortfolioMaterialiser
     /// curve it names with the user's spreads on that curve (§8's note of 2026-11-09). A recovery the user set on the
     /// counterparty before it moved to the netting set still applies until one is set on the netting set.
     /// </summary>
-    public static EffectiveCredit Credit(WorkspaceState state)
+    public static EffectiveCredit Credit(WorkspaceState state) => CreditRead.GetValue(state, ReadCredit);
+
+    static EffectiveCredit ReadCredit(WorkspaceState state)
     {
         PortfolioCases.Unlayered(state);
         var source = (PortfolioSourceVersion)state.Source;
         var credit = Entity.Of(Entity.Credit, source.Registration.Key);
-        Override? Set(string entity, string field) => state.Overrides.Values.SingleOrDefault(x => x.Target.Entity == entity && x.Target.Field == field);
+        Override? Set(string entity, string field) => EditsOf(state, entity).SingleOrDefault(x => x.Target.Field == field);
         var original = new Dictionary<string, JsonNode?>();
         var o = Set(Entity.Of(Entity.Netting, source.Agreement.NettingSetId), "cvaRecovery") ?? Set(credit, "cvaRecovery");
         var recovery = o is null ? source.CvaRecovery : o.Value?.GetValue<decimal>();
@@ -302,7 +340,7 @@ public static class PortfolioMaterialiser
     public static EffectiveCds CurveOf(WorkspaceState state, CdsCurve curve)
     {
         var entity = Entity.Of(Entity.Cds, curve.Id);
-        var set = state.Overrides.Values.Where(x => x.Target.Entity == entity && curve.Spreads.ContainsKey(x.Target.Field))
+        var set = EditsOf(state, entity).Where(x => curve.Spreads.ContainsKey(x.Target.Field))
             .ToDictionary(x => x.Target.Field, x => x.Value?.GetValue<decimal>()
                 ?? throw new InvalidOperationException($"The spread {curve.Id} {x.Target.Field} was set to nothing, which no edit may set."));
         var spreads = CdsCatalog.Tenors.ToDictionary(t => t, t => set.TryGetValue(t, out var typed) ? typed : curve.Spreads[t]);

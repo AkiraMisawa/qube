@@ -49,8 +49,6 @@ export interface XvaApi {
    * its entity and field, as *Vary values…* names it. Each value goes as written, for the server to read and check.
    */
   vary(workspaceId: string, revision: number, cell: VaryCell, values: readonly string[]): Promise<Varied>;
-  /** `set` (ADR-0010 §9): the edit a typed cell makes on each row named, in the Base; the server names the cell and reads the value. */
-  set(workspaceId: string, revision: number, rows: readonly string[], column: string, text: string): Promise<XvaWorkspaceView>;
   /** `add trades` (docs/03 §5): a case per New row with A ticked, each that trade alone; a set made before is replaced. */
   addTrades(workspaceId: string, revision: number): Promise<TradesAdded>;
   /**
@@ -108,7 +106,6 @@ export const httpXvaApi: XvaApi = {
   retry: (workspaceId, tradeId) => post(`${base(workspaceId)}/retry`, tradeId === undefined ? {} : { tradeId }),
   refresh: (workspaceId, revision) => post(`${base(workspaceId)}/refresh`, { revision }),
   vary: (workspaceId, revision, cell, values) => post(`${base(workspaceId)}/vary`, { revision, values, ...cell }),
-  set: (workspaceId, revision, rows, column, text) => post(`${base(workspaceId)}/set`, { revision, rows, column, text }),
   addTrades: (workspaceId, revision) => post(`${base(workspaceId)}/add-trades`, { revision }),
   defineScenario: (workspaceId, revision, name, shifts) => post(`${base(workspaceId)}/scenarios`, { revision, name, shifts }),
   generateScenarios: (workspaceId, revision, generator, text) => post(`${base(workspaceId)}/scenarios/generate`, { revision, generator, text }),

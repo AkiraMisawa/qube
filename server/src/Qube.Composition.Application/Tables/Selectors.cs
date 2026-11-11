@@ -207,7 +207,13 @@ public static class Selectors
         }
         else if (table.Descriptor.SingleRow)
         {
-            rows = all.Count == 1 ? all : throw new InvalidOperationException($"{table.Descriptor.TableId} is a table of one row and has {all.Count}.");
+            // A table of one row may have none for now, as a curve not chosen yet: refused in its own words, never an empty edit.
+            rows = all.Count switch
+            {
+                1 => all,
+                0 => throw new TableRefused("NoRow", table.Table.WhyEmpty(state) ?? $"{table.Word} has no row in this workspace."),
+                _ => throw new InvalidOperationException($"{table.Descriptor.TableId} is a table of one row and has {all.Count}."),
+            };
         }
         else
         {

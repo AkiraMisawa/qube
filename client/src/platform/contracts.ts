@@ -214,6 +214,24 @@ export interface TakenBack {
   readonly origin?: RunOrigin;
 }
 
+/**
+ * What `entity.set`, `entity.reset` and `entity.remove` answer (ADR-0016 §6; the contract `entity.rows-edited`): what was
+ * done in one sentence, the table, how many rows matched, changed and already held the value, and the first rows to look
+ * at. `command` is the id to take it back by, absent where nothing changed.
+ */
+export interface RowsEdited {
+  readonly workspaceId: string;
+  readonly revision: number;
+  readonly command?: string;
+  readonly said: string;
+  readonly table: string;
+  readonly matched: number;
+  readonly changed: number;
+  readonly held: number;
+  /** The first rows' keys, separated by commas. */
+  readonly rows: string;
+}
+
 /** A Run's explicit links to related work; never inferred from names or timing. */
 export interface RunRelations {
   readonly workspaceId?: string;

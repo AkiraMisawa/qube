@@ -78,7 +78,7 @@ public class TableCommandTests
 
         Assert.Equal((before + 1, $"c{before + 1}", "Set R1 note to gusty.", Stations.Readings, 1, 1, 0, "R1"), told);
         Assert.Equal("\"gusty\"", rig.Edit("reading:R1", "note"));
-        Assert.Equal(("set R1 note=gusty", RunOrigin.Pricer), (rig.Board.Log[^1].Command?.Said, rig.Board.Log[^1].Origin));
+        Assert.Equal(("set R1 note gusty", RunOrigin.Pricer), (rig.Board.Log[^1].Command?.Said, rig.Board.Log[^1].Origin));
     }
 
     [Fact] // ADR-0016 §2, §6: rows by their values are one batch, counted, and the first of them are named
@@ -105,6 +105,19 @@ public class TableCommandTests
         Assert.Equal(("Set R1 note to very wet, wind speed to 14, unit to GAL and volume to 250k.", 1, 1, 0), (told.Said, told.Matched, told.Changed, told.Held));
         Assert.Equal(("\"very wet\"", "14", "\"GAL\"", "250000", "-"),
             (rig.Edit("reading:R1", "note"), rig.Edit("reading:R1", "windSpeed"), rig.Edit("reading:R1", "unit"), rig.Edit("reading:R1", "volume"), rig.Edit("reading:R1", "drift")));
+    }
+
+    [Fact] // ADR-0016 §3, note 12: a value is at least a word, so a field's name never takes the only word of the value before it
+    public async Task A_field_name_never_takes_the_only_word_of_the_value_before_it()
+    {
+        var rig = new Rig();
+
+        var told = Told(await rig.Set("R1", "note=wind speed=3"));
+        // Where no reading leaves the value a word, the name is the longer one and the refusal says what is missing.
+        var refused = await rig.SetRefused("R2", "note=wind direction=N");
+
+        Assert.Equal("Set R1 note to wind and wind speed to 3.", told.Said);
+        Assert.Equal(("UnreadValues", "note has no value: values are written name=value, one or several."), refused);
     }
 
     [Theory] // ADR-0016 §3, spine 1: one value that cannot be read, or that the domain refuses, leaves nothing written
@@ -183,7 +196,7 @@ public class TableCommandTests
         Assert.Equal(("Set board daylight to off and alarm volume to 7.5mm.", Stations.Settings), (unnamed.Said, unnamed.Table));
         Assert.Equal(("Set X1 altitude to 45.", Stations.Sites), (site.Said, site.Table));
         Assert.Equal(("TwoTables", "The rows are said to be of readings and the table to be stations."), both);
-        Assert.Equal("set stations X1 altitude=45", rig.Board.Log[^1].Command?.Said);
+        Assert.Equal("set stations X1 altitude 45", rig.Board.Log[^1].Command?.Said);
     }
 
     [Fact] // ADR-0016 §11: one command, so `undo` takes the whole batch back, and `redo` puts it back

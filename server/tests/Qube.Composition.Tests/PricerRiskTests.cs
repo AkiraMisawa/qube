@@ -52,7 +52,7 @@ public class PricerRiskTests
         var (service, runs, store) = Priced();
         var ws = service.Create("akira", "ABC/LE-01", Day1, 20);
         ws = service.SetMeasures(ws.WorkspaceId, ws.Revision, "akira", ["cva", "fva"]);
-        ws = service.SetCells(ws.WorkspaceId, ws.Revision, "akira", ["xva"], "risks", "on");
+        ws = service.SetText(ws.WorkspaceId, ws.Revision, "akira", MeasureSettings.EntityOf(XvaMeasures.Module), XvaMeasures.Risks, "on");
         // The bumps themselves, priced as scenarios beside the base market.
         ws = service.DefineScenario(ws.WorkspaceId, ws.Revision, "akira", "credit", "cds 3y +1bp").State;
         ws = service.DefineScenario(ws.WorkspaceId, ws.Revision, "akira", "fx", "usdjpy +1%").State;
@@ -94,7 +94,7 @@ public class PricerRiskTests
         Assert.All(off, r => Assert.Equal((null, null, "Risks were not asked: turn Risks included on in Settings, or set xva risks on, and Price again."),
             (r["factor"], r["after"], Text(r, "reason"))));
 
-        ws = service.SetCells(ws.WorkspaceId, ws.Revision, "akira", ["xva"], "risks", "on");
+        ws = service.SetText(ws.WorkspaceId, ws.Revision, "akira", MeasureSettings.EntityOf(XvaMeasures.Module), XvaMeasures.Risks, "on");
         ws = service.ChooseCds(ws.WorkspaceId, ws.Revision, "akira", "none").State;
         var (_, refused) = await Price(runs, store, service, ws);
 

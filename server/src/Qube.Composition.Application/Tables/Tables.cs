@@ -84,6 +84,9 @@ public interface IWorkspaceTable
     /// <summary>The date a period counts from in a condition on a date (<c>maturity&gt;5y</c>); none where the table has none.</summary>
     DateOnly? AsOf(WorkspaceState state) => null;
 
+    /// <summary>Why a table of one row has none as the workspace stands, in the domain's words; null where it does not say.</summary>
+    string? WhyEmpty(WorkspaceState state) => null;
+
     /// <summary>The changes that write a value into a row's field.</summary>
     IReadOnlyList<WorkspaceChange> Set(WorkspaceState state, ITableRow row, TableField field, JsonNode? value);
 

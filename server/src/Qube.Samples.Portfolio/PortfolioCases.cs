@@ -3,8 +3,8 @@ using System.Collections.Immutable;
 using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Text.Json.Nodes;
-using System.Text.RegularExpressions;
 using Qube.Composition.Application;
+using Qube.Composition.Application.Tables;
 using Qube.Composition.Application.Workspaces;
 
 namespace Qube.Samples.Portfolio;
@@ -150,8 +150,11 @@ public static class PortfolioCases
             throw new InvalidOperationException("A workspace with cases is read through PortfolioCases.Base or PortfolioCases.Reading, never as it is stored.");
     }
 
-    static bool Layered(WorkspaceState state) =>
-        state.Overrides.Keys.Any(k => k.Layer is not null) || state.Conflicts.Keys.Any(k => k.Layer is not null) || state.Lost.Keys.Any(k => k.Layer is not null);
+    // Asked by every reader of a state, and a state never changes: answered once for each.
+    static bool Layered(WorkspaceState state) => (bool)LayeredRead.GetValue(state, s =>
+        (object)(s.Overrides.Keys.Any(k => k.Layer is not null) || s.Conflicts.Keys.Any(k => k.Layer is not null) || s.Lost.Keys.Any(k => k.Layer is not null)));
+
+    static readonly ConditionalWeakTable<WorkspaceState, object> LayeredRead = new();
 
     static readonly ConditionalWeakTable<WorkspaceState, ConcurrentDictionary<string, WorkspaceState>> Readings = new();
 
@@ -178,66 +181,23 @@ public static class PortfolioCases
 /// </summary>
 public sealed record CellName(string Entity, string Field, string Row, string Column, FieldSpec Spec);
 
-public static partial class PortfolioCells
+public static class PortfolioCells
 {
     sealed record Column(string Field, FieldSpec Spec, params string[] Names);
 
-    // How the pricer's fields are written. That a rate, an id or a number of days may be empty is the field's.
-    static readonly FieldSpec Amount = new(FieldForm.Amount), SignedAmount = new(FieldForm.SignedAmount), Rate = new(FieldForm.Rate, Optional: true),
-        Number = new(FieldForm.Number), Flag = new(FieldForm.Flag), Id = new(FieldForm.Id), OptionalId = new(FieldForm.Id, Optional: true),
-        Spread = new(FieldForm.Spread), Currency = Choice(PortfolioMarket.Currencies), Frequency = Choice(PortfolioCatalog.Frequencies), Schedule = Choice(["3M", "6M"]);
+    // A cell is a field the registered tables say a command may set (ADR-0016 §1), named by that field's words and
+    // read and written by its form.
+    static IReadOnlyList<Column> Columns(IEnumerable<TableField> fields) => [.. fields.Where(f => f.Editable).Select(f => new Column(f.Name, f.Spec, [.. f.Words]))];
 
-    // A choice read by its own words, case ignored.
-    static FieldSpec Choice(IEnumerable<string> values) => new(FieldForm.Choice, Choices: values.ToDictionary(v => v.ToLowerInvariant(), v => v));
-
-    static readonly IReadOnlyList<Column> CsaColumns =
-    [
-        new("counterpartyThreshold", Amount, "threshold", "counterparty threshold"),
-        new("counterpartyMta", Amount, "mta", "counterparty mta"),
-        new("counterpartyCurrency", Currency, "counterparty currency"),
-        new("selfThreshold", Amount, "self threshold"),
-        new("selfMta", Amount, "self mta"),
-        new("selfCurrency", Currency, "self currency"),
-        new("currency", Currency, "currency", "ccy"),
-        new("curve", Id, "curve", "discount curve", "discount"),
-        new("fvaCurve", Id, "fva curve", "fva discount curve", "fva discount"),
-        new("frequency", Frequency, "frequency"),
-        new("exchange", Flag, "exchange"),
-        new("oneWay", Flag, "one-way", "one way", "oneway"),
-    ];
-
-    static readonly IReadOnlyList<Column> NettingColumns = [new("cvaRecovery", Rate, "recovery", "cva recovery")];
-
-    // The counterparty's CDS choice, row `credit`, and the chosen curve's spreads, row `cds` (ADR-0010 §8's note of 2026-11-09).
-    static readonly IReadOnlyList<Column> CreditColumns =
-    [
-        new("cdsType", OptionalId, "cds type", "type"),
-        new("cdsReference", OptionalId, "cds reference", "reference"),
-        new("proxySector", OptionalId, "proxy sector", "sector"),
-        new("proxyRegion", OptionalId, "proxy region", "region"),
-        new("proxyRating", OptionalId, "proxy rating", "rating"),
-    ];
-
-    static readonly IReadOnlyList<Column> SpreadColumns = [.. CdsCatalog.Tenors.Select(t => new Column(t, Spread, t))];
+    static readonly IReadOnlyList<Column> CsaColumns = Columns(PortfolioFields.Csa), NettingColumns = Columns(PortfolioFields.Netting),
+        // The counterparty's CDS choice, row `credit`, and the chosen curve's spreads, row `cds` (ADR-0010 §8's note of 2026-11-09).
+        CreditColumns = Columns(PortfolioFields.Credit), SpreadColumns = Columns(PortfolioFields.Cds);
 
     /// <summary>The row that names the counterparty's CDS choice.</summary>
     public const string CreditRow = "credit";
 
     /// <summary>The row that names the chosen CDS curve's spreads.</summary>
     public const string CdsRow = "cds";
-
-    static readonly IReadOnlyList<Column> TradeColumns =
-    [
-        new("notional", SignedAmount, "notional"),
-        new("fixedRate", Rate, "rate", "fixed rate"),
-        new("schedule", Schedule, "schedule"),
-        new("csa", Id, "csa"),
-        new("curve", Id, "curve", "discount curve"),
-        new("imR", OptionalId, "im-r", "imr"),
-        new("imP", OptionalId, "im-p", "imp"),
-        new("before", Flag, "B", "before"),
-        new("after", Flag, "A", "after"),
-    ];
 
     /// <summary>
     /// The cell a row and a column name, as the state stands. A row or a column that names nothing, or more than one,
@@ -334,7 +294,7 @@ public static partial class PortfolioCells
     };
 
     // A module's settings are named by their titles' words and their own names (ADR-0010 §8).
-    static IReadOnlyList<Column> Settings(IMeasureModule module) => [.. module.Settings.Select(s => new Column(s.Id, MeasureSettings.Spec(s), [.. MeasureSettings.Names(s)]))];
+    static IReadOnlyList<Column> Settings(IMeasureModule module) => Columns(PortfolioFields.Settings(module));
 
     /// <summary>
     /// A value as the Changes tab and a case's title write it, in the form <see cref="Read"/> reads back to the same value
@@ -342,10 +302,8 @@ public static partial class PortfolioCells
     /// </summary>
     public static string Write(CellName cell, JsonNode? value) => FieldForms.Write(cell.Spec, value);
 
-    // A module's typed trade column (ADR-0010 §10) is named by its id or its title, such as XVA's Margin.
-    static IReadOnlyList<Column> Trade(MeasureRegister register) =>
-        [.. TradeColumns, .. register.TradeColumns.Where(c => c.Editable).Select(c => new Column(c.Field, Number,
-            [.. new[] { Words(c.Field[(c.Field.IndexOf('.') + 1)..]), Words(c.Title), Words(Unit().Replace(c.Title, "")) }.Distinct()]))];
+    // A trade's own cells, then each module's typed column (ADR-0010 §10).
+    static IReadOnlyList<Column> Trade(MeasureRegister register) => Columns(PortfolioFields.Trade(register));
 
     static string Words(string text) => string.Join(' ', text.Trim().ToLowerInvariant().Split(' ', StringSplitOptions.RemoveEmptyEntries));
 
@@ -365,29 +323,11 @@ public static partial class PortfolioCells
         switch (kind)
         {
             case Entity.Csa:
-            {
-                var c = PortfolioMaterialiser.Csas(reading).Single(x => x.CsaId == id);
-                return cell.Field switch
-                {
-                    "counterpartyThreshold" => c.CounterpartyThreshold, "counterpartyMta" => c.CounterpartyMta, "counterpartyCurrency" => c.CounterpartyCurrency,
-                    "selfThreshold" => c.SelfThreshold, "selfMta" => c.SelfMta, "selfCurrency" => c.SelfCurrency,
-                    "currency" => c.Currency, "curve" => c.Curve, "fvaCurve" => c.FvaCurve, "frequency" => c.Frequency,
-                    "exchange" => c.Exchange, "oneWay" => c.OneWay,
-                    _ => throw new InvalidOperationException($"A CSA has no {cell.Field}."),
-                };
-            }
+                return PortfolioFields.Value(PortfolioMaterialiser.Csas(reading).Single(x => x.CsaId == id), cell.Field);
             case Entity.Netting:
                 return PortfolioMaterialiser.Credit(reading).CvaRecovery;
             case Entity.Credit:
-            {
-                var choice = PortfolioMaterialiser.Credit(reading).Choice;
-                return cell.Field switch
-                {
-                    "cdsType" => choice.Type, "cdsReference" => choice.Reference, "proxySector" => choice.Sector, "proxyRegion" => choice.Region,
-                    "proxyRating" => choice.Rating,
-                    _ => throw new InvalidOperationException($"The credit has no {cell.Field}."),
-                };
-            }
+                return PortfolioFields.Value(PortfolioMaterialiser.Credit(reading).Choice, cell.Field);
             case Entity.Cds:
             {
                 var curve = CdsCatalog.Find(id) ?? throw new InvalidOperationException($"{cell.Entity} is not a curve of the catalogue.");
@@ -396,14 +336,8 @@ public static partial class PortfolioCells
             case Entity.Trade:
             {
                 var t = PortfolioMaterialiser.Trades(reading).Single(x => x.TradeId == id);
-                if (register.ColumnOf(cell.Field) is not null)
-                    return register.WithCells(reading, [t])[0].Cells?.GetValueOrDefault(cell.Field)?.Value?.DeepClone();
-                return cell.Field switch
-                {
-                    "notional" => t.Notional, "fixedRate" => t.FixedRate, "schedule" => t.Schedule, "csa" => t.Csa, "curve" => t.Curve,
-                    "imR" => t.ImR, "imP" => t.ImP, "before" => t.Before, "after" => t.After,
-                    _ => throw new InvalidOperationException($"A trade has no {cell.Field}."),
-                };
+                return register.ColumnOf(cell.Field) is null ? PortfolioFields.Value(t, cell.Field)
+                    : register.WithCells(reading, [t])[0].Cells?.GetValueOrDefault(cell.Field)?.Value?.DeepClone();
             }
             case Entity.Settings:
             {
@@ -414,7 +348,4 @@ public static partial class PortfolioCells
                 throw new InvalidOperationException($"{cell.Entity} is not a cell's row.");
         }
     }
-
-    [GeneratedRegex("\\s*\\([^)]*\\)")]
-    private static partial Regex Unit();
 }

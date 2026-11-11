@@ -96,6 +96,7 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
     SavedItems? saved = null)
 {
     readonly int caseCap = (options ?? new PortfolioOptions()).CaseCap;
+    readonly PortfolioChecks checks = new(register);
 
     // Effective rows per immutable state: a page request at the same revision does not materialise again.
     readonly ConditionalWeakTable<WorkspaceState, IReadOnlyList<EffectiveTrade>> materialised = new();
@@ -340,7 +341,7 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
     }
 
     /// <summary>
-    /// Sets a change's value as written (the Changes tab, and <c>set</c>): read as its cell reads a value and checked as the
+    /// Sets a change's value as written (the Changes tab): read as its cell reads a value and checked as the
     /// grid checks it typed, on the reading it is a change of, the Base's or a case's, in that case's layer.
     /// </summary>
     public WorkspaceState SetText(string workspaceId, long revision, string user, string entity, string field, string text, string? caseId = null, RunOrigin? origin = null)
@@ -350,7 +351,7 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
         var reading = PortfolioCases.Reading(raw, caseId);
         var cell = PortfolioCells.Of(reading, register, entity, field);
         var value = PortfolioCells.Read(cell, text);
-        Check(reading, entity, field, value);
+        checks.Check(reading, entity, field, value);
         return workspaces.Set(workspaceId, revision, user, PortfolioEditRules.Target(Source(raw), entity, field, layer), value, origin);
     }
 
@@ -459,28 +460,8 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
     public WorkspaceState Edit(string workspaceId, long revision, string user, string entity, string field, JsonNode? value)
     {
         var state = PortfolioCases.Base(Owned(workspaceId, user));
-        Check(state, entity, field, value);
+        checks.Check(state, entity, field, value);
         return workspaces.Set(workspaceId, revision, user, PortfolioEditRules.Target(Source(state), entity, field), value);
-    }
-
-    // What a typed cell is checked for, on the reading it is typed into: whether it is editable, and its type.
-    void Check(WorkspaceState reading, string entity, string field, JsonNode? value)
-    {
-        if (register.ColumnOf(field) is { } column) CheckCell(reading, entity, field, column, value);
-        // A module's setting is checked by the module that reads it (ADR-0010 §8, §10).
-        else if (register.SettingsOf(entity) is { } module)
-        {
-            if (module.Settings.All(x => x.Id != field))
-                throw new WorkspaceRefused("NotEditable", $"{module.Title} has no setting {field}; its settings are {string.Join(", ", module.Settings.Select(x => x.Id))}.");
-            if (module.CheckSetting(field, value) is { } problem)
-                throw new WorkspaceRefused("InvalidValue", problem, [PortfolioEditRules.Target(Source(reading), entity, field)]);
-        }
-        else
-        {
-            if (!Editable(entity, field))
-                throw new WorkspaceRefused("NotEditable", $"{entity}.{field} is not editable in this workspace.");
-            Validate(reading, entity, field, value);
-        }
     }
 
     /// <summary>
@@ -514,7 +495,7 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
             throw new WorkspaceRefused("NothingToVary", $"vary takes one value or more for {cell.Row} {cell.Column}, separated by commas{(written.Count == 0 ? "" : ", none of them empty")}.");
         var baseline = PortfolioCases.Base(raw);
         var read = written.Select(v => (Text: v, Value: PortfolioCells.Read(cell, v))).ToList();
-        foreach (var (_, value) in read) Check(baseline, cell.Entity, cell.Field, value);
+        foreach (var (_, value) in read) checks.Check(baseline, cell.Entity, cell.Field, value);
         var held = PortfolioCells.Current(baseline, register, cell);
         // A case another vary made already holds the one change.
         var existing = PortfolioCases.Made(raw).Where(c => PortfolioCases.KindOf(c) == PortfolioCases.Vary)
@@ -546,30 +527,6 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
             };
         }).ToList();
         return new VaryAnswer(workspaces.Batch(raw.WorkspaceId, revision, user, changes, origin), [.. made.Select(m => m.Title)], skipped);
-    }
-
-    /// <summary>
-    /// <c>set &lt;rows&gt; &lt;column&gt; &lt;value&gt;</c> (ADR-0010 §9): the edit a typed cell makes, in the Common layer, on
-    /// each row named, without making a case. Each cell is named as <c>vary</c> names it, and the value read and checked
-    /// on each as the grid checks it typed, before any is set: one refused sets none.
-    /// </summary>
-    public WorkspaceState SetCells(string workspaceId, long revision, string user, IReadOnlyList<string> rows, string column, string text, RunOrigin? origin = null)
-    {
-        if (rows.Count == 0 || rows.Any(r => r.Trim().Length == 0) || column.Trim().Length == 0 || text.Trim().Length == 0)
-            throw new WorkspaceRefused("UnknownCell", "set names one row or more, separated by commas, then a column and a value, such as set CSA-A threshold 5mm.");
-        var raw = Owned(workspaceId, user);
-        var baseline = PortfolioCases.Base(raw);
-        var source = Source(raw);
-        var cells = rows.Select(row => PortfolioCells.Resolve(baseline, register, row, column)).ToList();
-        if (cells.GroupBy(c => c.Entity).FirstOrDefault(g => g.Count() > 1) is { } twice)
-            throw new WorkspaceRefused("UnknownCell", $"set names {twice.First().Row} twice; name each row once.");
-        var changes = cells.Select(cell =>
-        {
-            var value = PortfolioCells.Read(cell, text.Trim());
-            Check(baseline, cell.Entity, cell.Field, value);
-            return (WorkspaceChange)new WorkspaceChange.Set(PortfolioEditRules.Target(source, cell.Entity, cell.Field), value);
-        }).ToList();
-        return workspaces.Batch(workspaceId, revision, user, changes, origin);
     }
 
     /// <summary>
@@ -655,24 +612,6 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
         return register.Selected(state).Sum(m => m.Retry(state, trades));
     }
 
-    // A module's column is typed where its cell on the trade says it may be, as the page shows it: PV Adj is read-only
-    // while Margin is entered (ADR-0010 §6), and refused then with the cell's own note.
-    void CheckCell(WorkspaceState state, string entity, string field, (IMeasureModule Module, TradeColumn Column) owner, JsonNode? value)
-    {
-        var (kind, id) = Entity.Split(entity);
-        var title = owner.Column.Title;
-        var trade = kind == Entity.Trade ? Rows(state).FirstOrDefault(t => t.TradeId == id) : null;
-        if (trade is null) throw new WorkspaceRefused("NotEditable", $"{title} is a column of a trade, and {entity} is not one in this workspace.");
-        if (register.Selected(state).All(m => m != owner.Module))
-            throw new WorkspaceRefused("NotEditable", $"{title} shows while one of {owner.Module.Id}'s measures is selected.");
-        var cell = register.WithCells(state, [trade])[0].Cells?.GetValueOrDefault(field);
-        if (cell is null) throw new WorkspaceRefused("NotEditable", $"{trade.TradeId} has no {title}.");
-        if (!cell.Editable)
-            throw new WorkspaceRefused("NotEditable", cell.Note is null ? $"{title} of {trade.TradeId} is read-only." : $"{title} of {trade.TradeId} is read-only: {cell.Note}");
-        if (owner.Module.Check(owner.Column.Id, value) is { } problem)
-            throw new WorkspaceRefused("InvalidValue", problem, [PortfolioEditRules.Target(Source(state), entity, field)]);
-    }
-
     public WorkspaceState Resolve(string workspaceId, long revision, string user, string entity, string field, string resolution, string? caseId = null)
     {
         var raw = Owned(workspaceId, user);
@@ -753,60 +692,6 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
         ["valueDate"] = valueDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
         ["portfolioSize"] = existingCount,
     };
-
-    static bool Editable(string entity, string field) => (Entity.Split(entity).Kind, field) switch
-    {
-        (Entity.Trade, var f) => PortfolioMaterialiser.EditableFields.Contains(f),
-        (Entity.Csa, var f) => PortfolioMaterialiser.CsaFields.Contains(f),
-        // The CVA recovery is the netting set's since ADR-0010 §8; one set on the counterparty before still applies.
-        (Entity.Netting, "cvaRecovery") => true,
-        // The counterparty's CDS and the spreads of a curve of the catalogue (ADR-0010 §8's note of 2026-11-09).
-        (Entity.Credit, var f) => CdsCatalog.ChoiceFields.Contains(f),
-        (Entity.Cds, var f) => CdsCatalog.Find(Entity.Split(entity).Id) is not null && CdsCatalog.Tenors.Contains(f),
-        // B or A for every row of a grid at once (ADR-0010 §6).
-        (Entity.Grid, "before" or "after") => Entity.Split(entity).Id is Entity.NewGrid or Entity.ExistingGrid,
-        // The workspace's display currency (ADR-0010 §1).
-        (Entity.Settings, Entity.DisplayCurrency) => entity == Entity.WorkspaceSettings,
-        _ => false,
-    };
-
-    // Type checks only: the meaning (eligibility, availability) is the materialiser's, and shows on the row.
-    static void Validate(WorkspaceState state, string entity, string field, JsonNode? value)
-    {
-        string? problem = field switch
-        {
-            "notional" => value is JsonValue v && v.TryGetValue<decimal>(out var n) && n != 0 ? null : "A notional is a non-zero number.",
-            "fixedRate" => value is null || value is JsonValue r && r.TryGetValue<decimal>(out _) ? null : "A fixed rate is a number or empty.",
-            "cvaRecovery" => value is null || value is JsonValue c && c.TryGetValue<decimal>(out var rec) && rec is >= 0 and < 1 ? null : "A CVA recovery is empty or from 0 up to 1.",
-            "before" or "after" => value is JsonValue b && b.TryGetValue<bool>(out _) ? null : "Before and After are true or false.",
-            "schedule" => value is JsonValue s && s.TryGetValue<string>(out var t) && t is "3M" or "6M" ? null : "A schedule is 3M or 6M.",
-            "csa" or "curve" or "fvaCurve" => value is JsonValue x && x.TryGetValue<string>(out var id) && id.Length > 0 ? null : $"A {field} is an identifier.",
-            // Empty is no IM CSA of that direction (ADR-0012 §2).
-            "imR" or "imP" => value is null || value is JsonValue im && im.TryGetValue<string>(out var imId) && imId.Length > 0 ? null : $"{(field == "imR" ? "IM-R" : "IM-P")} is an IM CSA's identifier, or empty for none.",
-            "frequency" => value is JsonValue f && f.TryGetValue<string>(out var often) && PortfolioCatalog.Frequencies.Contains(often)
-                ? null : $"A frequency is {string.Join(", ", PortfolioCatalog.Frequencies)}.",
-            "exchange" or "oneWay" => value is JsonValue e && e.TryGetValue<bool>(out _) ? null : $"{field} is true or false.",
-            "counterpartyThreshold" or "counterpartyMta" or "selfThreshold" or "selfMta" =>
-                value is JsonValue a && a.TryGetValue<decimal>(out var amount) && amount >= 0 ? null : "A threshold or MTA is an amount of 0 or more.",
-            "currency" or "counterpartyCurrency" or "selfCurrency" or Entity.DisplayCurrency => value is JsonValue c3 && c3.TryGetValue<string>(out var code) && PortfolioMarket.Currencies.Contains(code)
-                ? null : $"A currency is {string.Join(", ", PortfolioMarket.Currencies)}.",
-            // The counterparty's CDS (ADR-0010 §8's note of 2026-11-09): each key is the catalogue's, or empty.
-            "cdsType" => value is null || value is JsonValue ct && ct.TryGetValue<string>(out var type) && type is CdsCatalog.SingleName or CdsCatalog.Proxy
-                ? null : $"A CDS type is {CdsCatalog.SingleName}, {CdsCatalog.Proxy}, or empty for none.",
-            "cdsReference" => value is null || value is JsonValue cr && cr.TryGetValue<string>(out var reference) && CdsCatalog.Find(reference) is { Type: CdsCatalog.SingleName }
-                ? null : $"A CDS reference is a single name of the catalogue: {string.Join(", ", CdsCatalog.SingleNames.Select(c => c.Id))}.",
-            "proxySector" => OneOf(value, CdsCatalog.Sectors, "A proxy's sector"),
-            "proxyRegion" => OneOf(value, CdsCatalog.Regions, "A proxy's region"),
-            "proxyRating" => OneOf(value, CdsCatalog.Ratings, "A proxy's rating"),
-            _ when Entity.Split(entity).Kind == Entity.Cds =>
-                value is JsonValue sp && sp.TryGetValue<decimal>(out var spread) && spread is > 0 and < 1 ? null : "A spread is above 0bp and below 10000bp.",
-            _ => null,
-        };
-        if (problem is not null) throw new WorkspaceRefused("InvalidValue", problem, [PortfolioEditRules.Target(Source(state), entity, field)]);
-    }
-
-    static string? OneOf(JsonNode? value, IReadOnlyList<string> allowed, string what) =>
-        value is null || value is JsonValue v && v.TryGetValue<string>(out var text) && allowed.Contains(text) ? null : $"{what} is one of {string.Join(", ", allowed)}, or empty.";
 
     // A field holds a Common edit and one per case at once; the layer says which (ADR-0010 §3).
     static EditTarget Held(WorkspaceState state, string entity, string field, string? layer) =>

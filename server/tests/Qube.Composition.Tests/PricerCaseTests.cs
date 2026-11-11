@@ -438,59 +438,6 @@ public class PricerCaseTests
         Assert.Equal(["DRAFT-1 A off"], service.Vary(removed.WorkspaceId, removed.Revision, "akira", "draft-1 a", ["off"]).Made);
     }
 
-    [Fact] // ADR-0010 §9: `set` makes the edit a typed cell makes, in the Common layer, marked against Original, and makes no case
-    public void Set_changes_the_workspaces_value_and_marks_it_against_original()
-    {
-        var (service, _, _) = Priced();
-        var ws = service.Create("akira", "ABC/LE-01", Day1, 40);
-
-        var set = service.SetCells(ws.WorkspaceId, ws.Revision, "akira", ["CSA-A"], "threshold", "5mm");
-
-        var view = service.View(set.WorkspaceId, "akira");
-        var csa = view.Csas.Single(c => c.CsaId == "CSA-A");
-        Assert.Equal(5_000_000m, csa.CounterpartyThreshold);
-        Assert.Equal(0m, csa.Original!["counterpartyThreshold"]!.GetValue<decimal>());
-        Assert.Equal(["Base"], view.Cases.Select(c => c.Title));
-        Assert.Equal([("CSA-A threshold", "5mm", "0")], service.Changes(set.WorkspaceId, "akira").Common.Select(c => (c.Title, c.Text, c.OriginalText)));
-    }
-
-    [Fact] // ADR-0010 §9: a value the grid would refuse is refused by `set` with the grid's reason, a PV Adj while Margin is entered included
-    public void Set_refuses_a_value_with_the_grids_reason()
-    {
-        var (service, _, _) = Priced();
-        var ws = service.Create("akira", "ABC/LE-01", Day1, 40);
-        ws = service.Edit(ws.WorkspaceId, ws.Revision, "akira", "trade:DRAFT-1", "xva.margin", 2m);
-
-        var typed = Assert.Throws<WorkspaceRefused>(() => service.Edit(ws.WorkspaceId, ws.Revision, "akira", "trade:DRAFT-1", "xva.pvAdj", 5m));
-        var set = Assert.Throws<WorkspaceRefused>(() => service.SetCells(ws.WorkspaceId, ws.Revision, "akira", ["DRAFT-1"], "pv adj", "5"));
-        var cell = Assert.Throws<WorkspaceRefused>(() => service.SetCells(ws.WorkspaceId, ws.Revision, "akira", ["CSA-A"], "colour", "red"));
-        var negative = Assert.Throws<WorkspaceRefused>(() => service.SetCells(ws.WorkspaceId, ws.Revision, "akira", ["CSA-A"], "threshold", "-1mm"));
-
-        Assert.Equal("NotEditable", set.Code);
-        Assert.Equal((typed.Code, typed.Message), (set.Code, set.Message));
-        Assert.Equal("UnknownCell", cell.Code);
-        Assert.Equal(("InvalidValue", "CSA-A threshold is an amount of 0 or more; -1mm is not."), (negative.Code, negative.Message));
-        Assert.Equal(ws.Revision, service.View(ws.WorkspaceId, "akira").Revision);
-    }
-
-    [Fact] // ADR-0010 §9: `set` on several rows sets each in one command, or none when one is refused; a box is set as on or off
-    public void Set_sets_several_rows_in_one_command_or_none()
-    {
-        var (service, _, _) = Priced();
-        var ws = service.Create("akira", "ABC/LE-01", Day1, 40);
-        var rows = service.Page(ws.WorkspaceId, "akira", 0, 2, [], "existing").Rows.Select(t => t.TradeId).ToList();
-
-        var both = service.SetCells(ws.WorkspaceId, ws.Revision, "akira", rows, "csa", "CSA-B");
-        var refused = Assert.Throws<WorkspaceRefused>(() => service.SetCells(both.WorkspaceId, both.Revision, "akira", [rows[0], "DRAFT-1"], "notional", "lots"));
-        var box = service.SetCells(both.WorkspaceId, both.Revision, "akira", [rows[1]], "a", "off");
-
-        Assert.Equal(ws.Revision + 2, both.Revision);
-        Assert.Equal("InvalidValue", refused.Code);
-        var page = service.Page(box.WorkspaceId, "akira", 0, 2, [], "existing").Rows;
-        Assert.Equal([("CSA-B", true), ("CSA-B", false)], page.Select(t => (t.Csa, t.After)));
-        Assert.Equal(both.Revision + 1, box.Revision);
-    }
-
     [Fact] // ADR-0010 §7 with §3: Copy quote holds a line per case of the Run, each named, with its CVA Charge and PV
     public async Task Copy_quote_holds_a_line_per_case_with_its_charge_and_pv()
     {

@@ -30,7 +30,7 @@ static class Stations
         new("taken", "Taken", ["taken", "date"], FieldForm.Date),
         new("checked", "Checked", ["checked", "ok"], FieldForm.Flag, Editable: true),
         new("note", "Note", ["note"], FieldForm.Id, Editable: true, Optional: true),
-        new("windSpeed", "Wind speed", ["wind speed", "wind"], FieldForm.Number, Editable: true),
+        new("windSpeed", "Wind speed", ["wind speed", "wind", "speed"], FieldForm.Number, Editable: true),
         new("windDirection", "Wind direction", ["wind direction", "wind"], FieldForm.Id, Editable: true),
         new("window", "Window", ["window"], FieldForm.Period),
         new("drift", "Drift", ["drift"], FieldForm.Rate, Editable: true, Optional: true),

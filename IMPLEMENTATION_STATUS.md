@@ -1047,11 +1047,97 @@ Unchanged: every figure on these pages is simulated, and says so.
   door.
 - The command's idempotency keys are held in memory, as every command's are (ADR-0005).
 
+## Generic commands, delivery step 1b: tables, the selector and the edit verbs (ADR-0016 §1 to §3, §6, 2026-11-11)
+
+The second pull request of step 1 (`docs/specs/commands-1-tables-selector-undo`, tickets 05 to 10): one form
+vocabulary, a domain's tables registered through a port, one selector, and `entity.set`, `entity.reset` and
+`entity.remove` over any registered table, with the pricer registered and `xva.set` gone. The preview and the line
+built from the catalog are 1c.
+
+### What runs
+
+- **One form vocabulary** (`FieldForms`, the kernel's): a period, a date, an amount, a signed amount, a percent, a rate,
+  a spread, a number, days, a choice, a flag and an id, each read from text and written back as it reads. A product's
+  term, a pricer cell, a condition and a command's value are read by it. A choice's refusal lists its choices, and no
+  value is said `empty` or `none`.
+- **A domain registers its tables** (`ITableCatalog`, `IWorkspaceTable`, `TableRegister`): an id, words, a key, fields
+  with their forms and words, subsets, a row reader, and what a write is, answered as workspace changes, so the domain
+  keeps its scopes and its checks and the kernel knows no financial word. A refusal carries the word at fault and what
+  it could have been (`TableRefused`).
+- **One selector** (`RowSelector`, `SelectorReader`, `Selectors.Resolve`): rows by id, where the end of an id is enough
+  when it names one row; `all`; a subset; and `where` with `=`, `!=`, `<`, `<=`, `>`, `>=`, `~` and `in`, joined by
+  `and`. With no table named, ids find the one table that has them and the rest mean the application's main table. A
+  period on a date counts from the table's date. An amount is compared only where its unit is one.
+- **`entity.set`, `entity.reset` and `entity.remove` 1.0.0** (`EditWorkspace`; the catalog lists 35 capabilities): one
+  all-or-none batch, written by row or as one whole-set edit where the rows are a subset or `all` and the field has
+  one. The answer counts (`matched`, `changed`, `held`), names the first rows, and says one sentence (`Set A to off on
+  9 trades; 3 already held it.`). A command that would change nothing writes nothing and is done. Each is one command
+  in the log under its own words, which `undo` then says (`Took back: set CSA-A threshold 5mm. redo puts it back.`).
+- **The pricer is registered** (`PortfolioTables`): `xva.trades` (main; `existing` and `new`, with B and A as whole-set
+  edits), `xva.csas`, and of one row each `xva.netting`, `xva.credit`, `xva.cds`, `xva.workspace` and
+  `xva.settings.<module>`. `PortfolioCells` names a cell from the same fields, so `vary`, the Changes tab and the
+  commands read one list, and one check (`PortfolioChecks`) serves a typed cell and a command. `remove` refuses every
+  row of the pricer by name and says what to do instead.
+- **`xva.set` is gone**, with `PortfolioWorkspaces.SetCells` and `POST /api/xva/workspaces/{id}/set`. The AI's tool is
+  `entity_set`. The page's `set` runs `entity.set` through the page's door, in its edit queue's turn, and its notice is
+  the server's sentence. The line still reads `set` with the client's reader, so `where` is typed by the AI and at the
+  gateway until 1c.
+
+### Measurements
+
+Release build on this Linux container, the SQLite store, one request at a time with `curl`, a workspace of 10,009
+existing trades (14,286 requested). Recorded, not gated; the ranges are of four runs.
+
+| Step | Time |
+|---|---|
+| `set existing csa CSA-B`: 10,009 rows matched, 4,988 edits written by row | 0.20 to 0.25 s (0.30 s the first on a host) |
+| `set where ccy=JPY after off`: 5,999 edits written by row | 0.11 to 0.22 s |
+| `undo` of either, and `redo` | 0.10 to 0.20 s |
+| `set existing before off`: one whole-set edit over 10,009 rows, and its `undo` | 0.02 s, 0.01 s |
+| `set` of one row in a workspace with no other edit, and its `undo` | 0.02 s, 0.01 s |
+| With 15,000 edits standing: `set` of one trade | 0.04 to 0.07 s |
+| With 15,000 edits standing: `set` of one CSA's threshold, no table named | 0.09 to 0.16 s |
+| With 15,000 edits standing: the workspace's view | 0.15 to 0.26 s |
+| With 15,000 edits standing: `undo` of one edit | 0.03 to 0.06 s |
+
+The last four were 0.30 to 0.36 s, 0.27 to 0.36 s, 0.42 s and 0.03 s when first measured: every reader of a state
+worked its trades, CSAs and credit out again, and walked every edit of the workspace to find an entity's. The pricer
+now reads a state once (`PortfolioMaterialiser`), finds an entity's edits by an index, works a touched row out again
+only when what it reads has changed, and no longer works every row out again for a CSA term a row does not read. On
+the kernel's own fixture `where` on two fields resolves in 6 ms at 10,000 rows and 51 ms at 100,000 (ticket 07).
+
+### Verification performed
+
+| What | Result |
+|---|---|
+| `dotnet test server/Qube.slnx` | 780 passed |
+| Client: `npm run typecheck`, `npm test`, `npm run build` | 253 passed in 31 files |
+| `npx playwright test` (Chromium, headless, Linux) | 63 passed |
+| The browser tests of `set`, of `undo` after it and of a setting by `set xva`, with `--repeat-each=3` | 33 passed |
+
+### Providers
+
+Unchanged: every figure on these pages is simulated, and says so.
+
+### Known limits
+
+- The line does not read a selector yet: `set where ccy=USD after off` is the AI's tool and the gateway's, and the
+  page's `set` names rows by id, `all`, `new` or `existing`. The preview, the count before Enter and the completions
+  are 1c.
+- A revision counts edits, so a batch of 5,000 rows moves it by 5,000, and `undo` writes as many entries again: the
+  log of a workspace grows by the rows a command touched each time it is taken back or put back.
+- With many thousands of edits standing, each new state still costs a walk of them (0.05 s at 15,000) before the first
+  read, and the view more. No target is agreed.
+- Only the pricer registers tables. Rates' lines and defaults come with step 3; until then its line is as it was.
+- `reset` and `remove` have no words on the pricer's line and no button: they are commands of the gateway and tools
+  of the AI until 1c builds the line from the catalog.
+- No selector contract is registered: the edit verbs take the rows as the line spells them (ADR-0016's note 12).
+- No real model has called `entity_set`; that the AI's tools hold it and not `xva_set` is held over HTTP.
+
 ## Next
 
-1. Generic commands, delivery step 1b (ADR-0016; tickets 05 to 10): one form vocabulary, tables registered, the
-   selector, `entity.set`, `reset` and `remove`, with XVA's tables registered and `xva.set` retired. Its first act is to
-   measure a batch over 10,000 rows and its `undo`. Then 1c (tickets 11 to 14): the preview and the line.
+1. Generic commands, delivery step 1c (ADR-0016 §4, §5; tickets 11 to 14): a command says how it is typed, the server
+   reads the line and previews it, and the line is built from the catalog. Then step 2, focus as context.
 2. MVA with SIMM (`docs/12-implementation-plan.md` P2): spot IM from the XVA request's MVA option.
 3. ADR-0010 Delivery step 3 (Advanced: Before-only and After-only edits, the split fill), when the owner asks for it.
 4. The owner's review of ADR-0003 §7 (scopes, carry and conflict), then a synthetic source change that can produce a conflict, and the browser cases still open above (reload, failed case unavailable).

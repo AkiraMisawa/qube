@@ -529,12 +529,21 @@ and the edit verbs with XVA registered; the preview and the line.
     answer holds the command and its inputs ready to invoke, the arguments as read, the rows (count and first few),
     what would change in one sentence, and what could follow the last word. The line asks while it is typed and Enter
     runs the server's reading of exactly that text, or nothing while it cannot be read.
-12. **The edit verbs' contracts are flat (§2, §3).** A contract holds fields of one value each (text, a number, a flag),
-    from which the forms and the AI's tools are generated, and no list. So `entity.set`, `entity.reset` and
+12. **The edit verbs' contracts are flat (§2, §3).** A contract holds fields of one value each (text, a number, a
+    flag), from which the forms and the AI's tools are generated, and no list. So `entity.set`, `entity.reset` and
     `entity.remove` take the rows as the line spells them (`rows`: ids, `all`, a subset, `where …`) and the values as
     `name=value` pairs, with the table where it is named; the server reads both with the selector's one reader, and the
     preview shows the typed reading. The typed selector as a value of the contract waits for contracts that hold lists,
     which `add each` needs (step 3).
+13. **The pricer's registration (§1, §3; settled while it was built).** Its tables are `xva.trades` (main; `existing`,
+    `new`), `xva.csas`, and of one row each `xva.netting`, `xva.credit`, `xva.cds`, `xva.workspace` and
+    `xva.settings.<module>`, named by the module's id (`set xva charge ratio 1.5`). A figure a module computes for a
+    row (PV01) is no field, since it changes with no edit. A table of one row that has none for now, the CDS while no
+    curve is chosen, refuses in the domain's words and never writes an edit of nothing. `remove` refuses every row of
+    the pricer by name and says what to do instead. In `name=value` a value holds at least one word, so
+    `type=proxy sector=financials` is two values. A command of one value is named in the log as the line spells it
+    (`set CSA-A threshold 5mm`), which is what `undo` then says. `xva.set` left with the page's `/set` endpoint in the
+    second pull request: the page's `set` runs `entity.set` through the page's door and shows the server's sentence.
 
 ## Rejected
 

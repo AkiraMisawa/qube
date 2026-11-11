@@ -7,16 +7,16 @@ using Qube.Composition.Contracts;
 namespace Qube.Samples.Portfolio;
 
 /// <summary>
-/// The XVA page's command capabilities (ADR-0005, ADR-0010 §9): <c>vary</c>, <c>add trades</c> and <c>set</c>, as the
+/// The XVA page's command capabilities (ADR-0005, ADR-0010 §9): <c>vary</c>, <c>add trades</c> and <c>cds</c>, as the
 /// command line has them, for the AI through the command gateway. Each takes what the command line takes, as written,
 /// and goes through the same workspace service, so its checks and its answer are the command line's; what it does is in
-/// the workspace's log with the caller's origin.
+/// the workspace's log with the caller's origin. <c>set</c> is the kernel's <c>entity.set</c> over the pricer's
+/// registered tables (ADR-0016 §3, <see cref="PortfolioTables"/>).
 /// </summary>
 public static partial class PortfolioCommandContracts
 {
     public const string VaryRequest = "xva.vary-request";
     public const string TradesAddRequest = "xva.trades-add-request";
-    public const string SetRequest = "xva.set-request";
     public const string CdsRequest = "xva.cds-request";
     public const string CasesMade = "xva.cases-made";
     public const string Edited = "xva.workspace-edited";
@@ -75,24 +75,6 @@ public sealed class PortfolioTradesAdd(Func<PortfolioWorkspaces> workspaces) : I
         {
             var answer = service.AddTrades(PortfolioCommand.Text(request, "workspaceId"), revision, caller.UserId, caller.Origin);
             return (answer.State, answer.Made.Count, PortfolioCommandContracts.Added(answer));
-        });
-}
-
-/// <summary><c>xva.set</c>: the edit a typed cell makes, on each row named, in the Base (ADR-0010 §9).</summary>
-public sealed class PortfolioSet(Func<PortfolioWorkspaces> workspaces) : ICapabilityHandler
-{
-    public CapabilityDescriptor Descriptor { get; } = new("xva.set", PortfolioContracts.Version, "Set one value of a cell of an XVA workspace, on one row or several",
-        [new("request", PortfolioCommandContracts.SetRequest, PortfolioContracts.Version, Cardinality.One)],
-        [new("answer", PortfolioCommandContracts.Edited, PortfolioContracts.Version, Cardinality.One)],
-        ExecutionKind.RequestResponse, [CapabilityEffect.EditWorkspace]);
-
-    public Task<IReadOnlyDictionary<string, JsonNode?>> InvokeAsync(CapabilityInvocation invocation, CancellationToken cancellationToken) =>
-        PortfolioCommand.Run(invocation, workspaces, (service, request, caller, revision) =>
-        {
-            var rows = PortfolioCommand.Text(request, "rows").Split(',').Select(r => r.Trim()).ToList();
-            var (column, value) = (PortfolioCommand.Text(request, "column"), PortfolioCommand.Text(request, "value"));
-            var state = service.SetCells(PortfolioCommand.Text(request, "workspaceId"), revision, caller.UserId, rows, column, value, caller.Origin);
-            return (state, null, rows.Count == 1 ? $"Set {rows[0]} {column} to {value}." : $"Set {column} to {value} on {string.Join(", ", rows)}.");
         });
 }
 
@@ -166,7 +148,6 @@ public sealed class PortfolioCommandsModule(Func<PortfolioWorkspaces> workspaces
     {
         builder.AddCapability(new PortfolioVary(workspaces));
         builder.AddCapability(new PortfolioTradesAdd(workspaces));
-        builder.AddCapability(new PortfolioSet(workspaces));
         builder.AddCapability(new PortfolioCds(workspaces));
         PortfolioScenarioCommands.Register(builder, workspaces);
         JsonObject Workspace() => new() { ["type"] = "string", ["minLength"] = 1, ["title"] = "Workspace", ["description"] = "The XVA workspace's id, as the context names it." };
@@ -196,14 +177,6 @@ public sealed class PortfolioCommandsModule(Func<PortfolioWorkspaces> workspaces
             ["workspaceId"] = Workspace(),
             ["revision"] = Revision(),
         }, "workspaceId");
-        Request(PortfolioCommandContracts.SetRequest, "Set a cell", new JsonObject
-        {
-            ["workspaceId"] = Workspace(),
-            ["revision"] = Revision(),
-            ["rows"] = Text("Rows", "The rows, separated by commas: a CSA's id, the netting set's id or a trade's id, such as T-1001, T-1002."),
-            ["column"] = Text("Column", "The column, as the command line names it: threshold, csa, notional, A."),
-            ["value"] = Text("Value", "The value as written: 5mm, CSA-B, off."),
-        }, "workspaceId", "rows", "column", "value");
         Request(PortfolioCommandContracts.CdsRequest, "Choose the CDS", new JsonObject
         {
             ["workspaceId"] = Workspace(),
@@ -221,7 +194,7 @@ public sealed class PortfolioCommandsModule(Func<PortfolioWorkspaces> workspaces
         {
             ["workspaceId"] = new JsonObject { ["type"] = "string", ["title"] = "Workspace" },
             ["revision"] = new JsonObject { ["type"] = "integer", ["title"] = "Revision" },
-            ["said"] = new JsonObject { ["type"] = "string", ["title"] = "What was set, as the command line says it" },
+            ["said"] = new JsonObject { ["type"] = "string", ["title"] = "What was done, as the command line says it" },
         }, "workspaceId", "revision", "said");
     }
 }
