@@ -79,6 +79,59 @@ public sealed class TableService(TableRegister register, WorkspaceService worksp
         return Write(state, caller, resolved, changes, touched, held, said, Words("set", table, rows, set));
     }
 
+    /// <summary>
+    /// Removes the rows' own edits, of one field or of every field where none is named (note 10): the field follows its
+    /// source or its rule again. Rows said as a whole subset, or as all, lose the whole-set edit too. A row with no edit
+    /// is counted as such.
+    /// </summary>
+    public TableResult Reset(string workspaceId, long? revision, Caller caller, string? table, string? rows, string? field)
+    {
+        var (state, tables, selector) = Open(workspaceId, revision, caller, table, rows);
+        var alone = field is not null && selector.Table is null && selector.SaysNoRows ? tables.Where(t => t.Descriptor.SingleRow && Assignments.Fields(t, field).Count > 0).ToList() : [];
+        if (alone.Count > 1)
+            throw new TableRefused("AmbiguousTable", $"{field!.Trim()} could be reset on {TableWords.Either(alone.Select(t => t.Word))}; say which, as in {alone[0].Word}.",
+                candidates: [.. alone.Select(t => t.Word)]);
+        var resolved = Selectors.Resolve(alone.Count == 1 ? new RowSelector(alone[0].Descriptor.TableId) : selector, tables, state);
+        var bound = resolved.Table;
+        var named = field is null ? null : TableRegister.Field(bound, field);
+        var of = named is null ? "" : $" of {TableWords.Word(named)}";
+
+        var changes = new List<WorkspaceChange>();
+        var changed = new HashSet<ITableRow>(ReferenceEqualityComparer.Instance);
+        foreach (var subset in resolved.Whole ?? [])
+        {
+            var whole = bound.Table.ResetAll(state, subset, named);
+            if (whole.Count == 0) continue;
+            changes.AddRange(whole);
+            changed.UnionWith(resolved.Rows.Where(r => r.Subset == subset.Name));
+        }
+        foreach (var row in resolved.Rows)
+        {
+            var own = bound.Table.Reset(state, row, named);
+            if (own.Count == 0) continue;
+            changes.AddRange(own);
+            changed.Add(row);
+        }
+
+        var touched = resolved.Rows.Where(changed.Contains).ToList();
+        var held = resolved.Rows.Count - touched.Count;
+        if (touched.Count == 0) return Unchanged(state, resolved, $"{Rows(bound, resolved.Rows, all: true)} {(resolved.Rows.Count == 1 ? "has" : "have")} no edit{of}");
+        var without = held == 0 ? "" : $"; {held} had no edit";
+        var said = touched.Count == 1 ? $"Reset {touched[0].Key}{(named is null ? "" : $" {TableWords.Word(named)}")}{without}."
+            : named is null ? $"Reset {Rows(bound, touched)}{without}." : $"Reset {TableWords.Word(named)} on {Rows(bound, touched)}{without}.";
+        return Write(state, caller, resolved, changes, touched, held, said, Words("reset", table, rows, field));
+    }
+
+    /// <summary>Removes rows the workspace made, with their edits (note 10); a row it did not make is refused by the table, by name, and nothing is removed.</summary>
+    public TableResult Remove(string workspaceId, long? revision, Caller caller, string? table, string? rows)
+    {
+        var (state, tables, selector) = Open(workspaceId, revision, caller, table, rows);
+        var resolved = Selectors.Resolve(selector, tables, state);
+        if (resolved.Rows.Count == 0) return Unchanged(state, resolved, "");
+        var changes = resolved.Rows.SelectMany(r => resolved.Table.Table.Remove(state, r)).ToList();
+        return Write(state, caller, resolved, changes, resolved.Rows, 0, $"Removed {Rows(resolved.Table, resolved.Rows)}.", Words("remove", table, rows, null));
+    }
+
     // The workspace a verb acts on, at the revision its caller read, with the rows as the caller said them.
     (WorkspaceState State, IReadOnlyList<BoundTable> Tables, RowSelector Selector) Open(string workspaceId, long? revision, Caller caller, string? table, string? rows)
     {
@@ -190,7 +243,7 @@ static class Assignments
         return [.. pairs.Select(p => (p.Field, string.Join(' ', p.Value)))];
     }
 
-    static IReadOnlyList<TableField> Fields(BoundTable table, string name)
+    public static IReadOnlyList<TableField> Fields(BoundTable table, string name)
     {
         var words = TableWords.Of(name);
         return [.. table.Descriptor.Fields.Where(f => TableWords.Names(f).Contains(words))];
@@ -212,11 +265,43 @@ public sealed class EntitySet(Func<TableService> tables) : ICapabilityHandler
             request["table"]?.GetValue<string>(), request["rows"]?.GetValue<string>(), TableContracts.Text(request, "set")));
 }
 
+/// <summary><c>entity.reset</c> (ADR-0016 §3): removes the edits on rows of a registered table, of one field or of every field.</summary>
+public sealed class EntityReset(Func<TableService> tables) : ICapabilityHandler
+{
+    public const string Id = "entity.reset";
+
+    public CapabilityDescriptor Descriptor { get; } = new(Id, TableContracts.Version, "Reset fields of rows of a table of a workspace to what they follow",
+        [new("request", TableContracts.ResetRequest, TableContracts.Version, Cardinality.One)],
+        [new("answer", TableContracts.Edited, TableContracts.Version, Cardinality.One)],
+        ExecutionKind.RequestResponse, [CapabilityEffect.EditWorkspace]);
+
+    public Task<IReadOnlyDictionary<string, JsonNode?>> InvokeAsync(CapabilityInvocation invocation, CancellationToken cancellationToken) =>
+        TableContracts.Answer(invocation, (request, caller) => tables().Reset(TableContracts.Text(request, "workspaceId"), request["revision"]?.GetValue<long>(), caller,
+            request["table"]?.GetValue<string>(), request["rows"]?.GetValue<string>(), request["field"]?.GetValue<string>()));
+}
+
+/// <summary><c>entity.remove</c> (ADR-0016 §3): removes rows the workspace made from a registered table.</summary>
+public sealed class EntityRemove(Func<TableService> tables) : ICapabilityHandler
+{
+    public const string Id = "entity.remove";
+
+    public CapabilityDescriptor Descriptor { get; } = new(Id, TableContracts.Version, "Remove rows a workspace made from a table",
+        [new("request", TableContracts.RemoveRequest, TableContracts.Version, Cardinality.One)],
+        [new("answer", TableContracts.Edited, TableContracts.Version, Cardinality.One)],
+        ExecutionKind.RequestResponse, [CapabilityEffect.EditWorkspace]);
+
+    public Task<IReadOnlyDictionary<string, JsonNode?>> InvokeAsync(CapabilityInvocation invocation, CancellationToken cancellationToken) =>
+        TableContracts.Answer(invocation, (request, caller) => tables().Remove(TableContracts.Text(request, "workspaceId"), request["revision"]?.GetValue<long>(), caller,
+            request["table"]?.GetValue<string>(), request["rows"]?.GetValue<string>()));
+}
+
 /// <summary>The edit verbs' contracts, flat as every contract is (ADR-0016 note 12), and how a verb's result and refusal are answered.</summary>
 public static class TableContracts
 {
     public const string Version = "1.0.0";
     public const string SetRequest = "entity.set-request";
+    public const string ResetRequest = "entity.reset-request";
+    public const string RemoveRequest = "entity.remove-request";
     public const string Edited = "entity.rows-edited";
 
     internal static string Text(JsonNode request, string name) =>
@@ -283,8 +368,13 @@ public sealed class TablesModule(Func<TableService> tables) : IQubeModule
     public void Register(CompositionRegistryBuilder builder)
     {
         builder.AddCapability(new EntitySet(tables));
+        builder.AddCapability(new EntityReset(tables));
+        builder.AddCapability(new EntityRemove(tables));
         builder.AddContract(new ContractDefinition(TableContracts.SetRequest, TableContracts.Version, "Set fields of rows", TableContracts.Request(TableContracts.RowsTitle,
             ("set", new JsonObject { ["type"] = "string", ["minLength"] = 1, ["title"] = "Values as name=value, one or several (notional=5bn rate=1.25%), each written as its field is typed" }, true))));
+        builder.AddContract(new ContractDefinition(TableContracts.ResetRequest, TableContracts.Version, "Reset fields of rows", TableContracts.Request(TableContracts.RowsTitle,
+            ("field", new JsonObject { ["type"] = "string", ["minLength"] = 1, ["title"] = "The field to reset, by its words; every field of the rows where left out" }, false))));
+        builder.AddContract(new ContractDefinition(TableContracts.RemoveRequest, TableContracts.Version, "Remove rows", TableContracts.Request(TableContracts.RowsTitle)));
         builder.AddContract(new ContractDefinition(TableContracts.Edited, TableContracts.Version, "Rows edited", new JsonObject
         {
             ["type"] = "object",

@@ -218,4 +218,96 @@ public class TableCommandTests
         Assert.Equal(("UnknownTable", "No table tides: the tables are readings, stations, settings."), unknown);
         Assert.Equal((before + 1, RunOrigin.Ai), (agent.Revision, rig.Board.Log[^1].Origin));
     }
+
+    [Fact] // ADR-0016 §3, note 10: reset removes the rows' own edits, of one field or of every field; a row with none is counted as such
+    public async Task Reset_removes_the_edits_of_a_field_or_of_every_field()
+    {
+        var rig = new Rig();
+        await rig.Set("R1, R3", "note=wet wind speed=1");
+        var before = rig.Board.Revision;
+
+        var field = Told(await rig.Done("entity.reset", Rig.Request("R1, R2", null, ("field", "note"))));
+        var every = Told(await rig.Done("entity.reset", Rig.Request("where station=south", null)));
+        var none = Told(await rig.Done("entity.reset", Rig.Request("R2, R4", null, ("field", "wind speed"))));
+        var nothing = Told(await rig.Done("entity.reset", Rig.Request("R4", null)));
+
+        Assert.Equal((before + 1, $"c{before + 1}", "Reset R1 note; 1 had no edit.", Stations.Readings, 2, 1, 1, "R1"), field);
+        Assert.Equal((before + 3, $"c{before + 2}", "Reset R3; 1 had no edit.", Stations.Readings, 2, 1, 1, "R3"), every);
+        Assert.Equal((before + 3, null, "Nothing changed: R2 and R4 have no edit of wind speed.", Stations.Readings, 2, 0, 2, "R2, R4"), none);
+        Assert.Equal((before + 3, null, "Nothing changed: R4 has no edit."), (nothing.Revision, nothing.Command, nothing.Said));
+        Assert.Equal(("-", "1", "-", "-"), (rig.Edit("reading:R1", "note"), rig.Edit("reading:R1", "windSpeed"), rig.Edit("reading:R3", "note"), rig.Edit("reading:R3", "windSpeed")));
+        Assert.Equal("reset where station=south", rig.Board.Log[^1].Command?.Said);
+    }
+
+    [Fact] // note 10: over a subset whose field has a whole-set edit, reset removes that edit and each row's own
+    public async Task Reset_over_a_subset_removes_the_whole_set_edit_and_each_rows_own()
+    {
+        var rig = new Rig();
+        await rig.Set("manual", "checked=on");
+        await rig.Set("R1", "checked=off note=wet");
+        await rig.Set("readings X1", "checked=on");
+        var before = rig.Board.Revision;
+
+        var manual = Told(await rig.Done("entity.reset", Rig.Request("manual", null, ("field", "checked"))));
+        var after = (rig.Edit("readings:manual", "checked"), rig.Edit("reading:R1", "checked"), rig.Edit("reading:R1", "note"), rig.Edit("reading:X1", "checked"));
+        var all = Told(await rig.Done("entity.reset", Rig.Request("all", null)));
+
+        // The whole-set edit and R1's own: two entries of one command, and every row of the subset follows what was sent again.
+        Assert.Equal((before + 2, "Reset checked on R1, R2 and R3.", 3, 3, 0), (manual.Revision, manual.Said, manual.Matched, manual.Changed, manual.Held));
+        Assert.Equal(("-", "-", "\"wet\"", "true"), after);
+        Assert.Equal((before + 4, "Reset R1 and X1; 4 had no edit.", 6, 2, 4), (all.Revision, all.Said, all.Matched, all.Changed, all.Held));
+        Assert.Empty(rig.Board.Overrides);
+    }
+
+    [Fact] // ADR-0016 §3: a table of one row is reset as it is set, by its words or by a field's
+    public async Task A_table_of_one_row_is_reset_without_a_row()
+    {
+        var rig = new Rig();
+        await rig.Set(null, "alarm=5 daylight=off");
+
+        var field = Told(await rig.Done("entity.reset", Rig.Request(null, null, ("field", "alarm"))));
+        var whole = Told(await rig.Done("entity.reset", Rig.Request("settings", null)));
+        var unknown = await rig.Refused("entity.reset", Rig.Request("R1", null, ("field", "colour")));
+        var unsaid = await rig.Refused("entity.reset", Rig.Request(null, null));
+
+        Assert.Equal(("Reset board alarm volume.", Stations.Settings), (field.Said, field.Table));
+        Assert.Equal("Reset board.", whole.Said);
+        Assert.Equal("UnknownField", unknown.Code);
+        Assert.Equal("NoRows", unsaid.Code);
+    }
+
+    [Fact] // ADR-0016 §3, note 10: remove takes rows the workspace made, with their edits; undo brings the row back as it was
+    public async Task Remove_takes_a_row_the_workspace_made_and_undo_brings_it_back()
+    {
+        var rig = new Rig();
+        Stations.Made(rig.Workspaces, rig.Board, "R7");
+        await rig.Set("R7", "note=wet");
+        var before = rig.Board.Revision;
+
+        var removed = Told(await rig.Done("entity.remove", Rig.Request("R7", null)));
+        var gone = (rig.Board.Created.ContainsKey("reading:R7"), rig.Edit("reading:R7", "note"));
+        var undone = await rig.Done("workspace.undo", new JsonObject { ["command"] = removed.Command });
+
+        Assert.Equal((before + 1, $"c{before + 1}", "Removed R7.", Stations.Readings, 1, 1, 0, "R7"), removed);
+        Assert.Equal((false, "-"), gone);
+        Assert.Equal("Took back: remove R7. redo puts it back.", undone["said"]!.GetValue<string>());
+        Assert.Equal((true, "\"wet\""), (rig.Board.Created.ContainsKey("reading:R7"), rig.Edit("reading:R7", "note")));
+    }
+
+    [Fact] // note 10, spine 1: a row the workspace did not make is refused by name, saying what to do instead, and nothing is removed
+    public async Task Remove_refuses_a_row_the_workspace_did_not_make()
+    {
+        var rig = new Rig();
+        Stations.Made(rig.Workspaces, rig.Board, "R7");
+        var before = rig.Board.Revision;
+
+        var sent = await rig.Refused("entity.remove", Rig.Request("R7, R1", null));
+        var unsaid = await rig.Refused("entity.remove", Rig.Request(null, null));
+        var nobody = Told(await rig.Done("entity.remove", Rig.Request("where wind speed>99", null)));
+
+        Assert.Equal(("NotRemovable", "R1 is a reading a station sent, and stays; set R1 checked off leaves it out."), sent);
+        Assert.Equal("NoRows", unsaid.Code);
+        Assert.Equal("Nothing changed: no row of readings matches wind speed > 99.", nobody.Said);
+        Assert.Equal((before, true), (rig.Board.Revision, rig.Board.Created.ContainsKey("reading:R7")));
+    }
 }
