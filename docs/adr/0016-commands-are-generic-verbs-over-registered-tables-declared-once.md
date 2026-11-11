@@ -1231,6 +1231,60 @@ each is built.
       `live/{id}/capture`).
     - *The three defects of 2026-11-10 end here.* A default is set alone; a refusal is the server's sentence and
       the line keeps what was typed (ADR-0006's note 1); and `set`, `reset` and `remove` edit and remove a line.
+    - *As built: the sentences.* `price` reads `Prices 1 of 2 lines on market …, as one Run. Left out: L4.` and
+      answers `Price was accepted as Run ….`, with the market the Run's own input names. `capture` reads `Captures
+      the frame of market … at revision 4, as a Run.` and answers the same in the past, with that market. `live
+      start` answers `Live is running.` whether it started the subscription or found one running: which of the two
+      happened cannot be said without a race between two pages, and the user's question is only whether it runs.
+      `new` reads `Makes L5: Interest rate swap. Not typed: index … from …, ….` and answers `Made L5: Interest
+      rate swap.`; with a term missing, `irs still needs notional: type it, or set a default for it.`
+    - *As built: what `new` offers.* After `new`, the products; after a product, each field not yet typed: its
+      choices as its form writes them, or its `Examples` (new on `ProductField`: the tenors of an end, which the
+      line offers and never fills in), and `name=` for a named field. A sequence (a CCS's two currencies) offers
+      its next field alone. The kernel names no tenor and no currency.
+    - *As built: capture's request and answer.* The request takes the `revision` the door sends with every
+      request and does not check it: a capture saves the frame it names whatever the workspace holds since, and
+      its contract says so. The answer's `revision` is the workspace's own, which a capture leaves as it is, and it
+      names the market of the frame, by which the page titles the Run's panel. A subscription that is not the
+      workspace's is refused.
+    - *As built: the door.* `toldOf` reads the output named `answer`, or the one output. An answer with several
+      outputs and none named `answer`, or one that says neither the revision nor a sentence, is said as the
+      command's defect (`… answered made and log, and none is its answer.`); no other output is read in its place.
+      A page may say what it does with what its own command answered (`DoorPage.answered`): the Rates page opens
+      the Run that `price` or `capture` made, titled by the market the answer names. It is told once the command
+      is done, whether or not the page could read the workspace again.
+    - *As built: what the line draws of a reading.* The server reads a product's terms under their fields' names
+      (`end 10y`, `notional 3bn`), which the form (`product`, `terms`) does not list. The line draws the form's
+      arguments, each with what was read for it, then those read under other names; an argument of the form that
+      may be left out and was not read by its own name is then not drawn as left out (`argumentsShown`).
+    - *As built: the page.* The page follows the workspace's live subscription from what the workspace says after
+      each command, whoever ran it (this page, another, the AI): it attaches to the one running, and leaves one
+      that stopped with its last frame shown. A stream is held by its subscription's id, so the end of one the
+      page already left says nothing of the one it hears now. The line grid's Context Menu holds its table's
+      actions (`Reset this cell · reset`, `Remove line · remove selected`); the hand-written *Remove line* is
+      gone. The grids' undo and redo keys run `undo` and `redo`. The page's places are `lines` and, while a line's
+      cashflows are open, `flows`; `focus grid` goes to the lines. The cashflows are a grid of no table: with the
+      keyboard there the line is told of no screen.
+    - *As built: the client's `price`* is listed only where neither a pricer's nor a Rates page is open, where it
+      says `Open an XVA or Rates workspace to price it.` and never runs. `new rates` is the one Rates command
+      still written in the client. On another page Rates' commands are no commands (note 27), so the empty line
+      no longer lists `capture` or `live start` there as unavailable with `Open a Rates workspace first.`, as it
+      does not list the pricer's.
+    - *As built: the AI.* It calls the same capabilities; `rates.workspace.price`, `rates.frame.capture` and
+      `rates.line.add` are new to it, and a page showing the workspace reads it again after each.
+    - *As built: also gone.* `GET /api/products` and `POST /api/products/{id}/preview`, with
+      `ProductService.Preview` and the client's `platform/products.ts`: the reading of a product's terms is the
+      line's (`ProductService.Would`, `ProductReader.Offers`). `RatesWorkspaces.ChangeDefaults`, `RemoveLine` and
+      `StopLive` by a subscription's id went with their endpoints. The host's Rates endpoints answer 409 for a
+      moved revision alone.
+    - *As built: moved to the kernel.* `WorkspaceRefused.Named()` (a refusal that names its targets in its
+      sentence), `TableWords.Counted` and `TableWords.Some` were the pricer's and are now shared with Rates.
+    - *Found, and left.* A line is named by the revision that makes it, so the first line of a workspace just made
+      is `L3`, and two made one after the other are `L3` and `L5`: a line from terms writes two entries. A context
+      change (`set default currency`) writes two as well. `new irs 5y` on a workspace with no defaults says six
+      terms are missing, the index and the frequencies among them, though typing a currency alone would give those
+      from its profile: the reading does not know which missing terms a profile would supply once another is
+      typed.
 
 ## Rejected
 

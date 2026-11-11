@@ -80,7 +80,7 @@ describe('the page\'s commands (ADR-0006 note 3 of 2026-11-11)', () => {
     expect(of('trace.explain').page).toBe(true);
     // Not of the page: one that opens another, one of another application, and the shell's own on the active panel.
     expect(of('xva.new').page).toBeUndefined();
-    expect(of('rates.capture').page).toBeUndefined();
+    expect(of('rates.new').page).toBeUndefined();
     expect(of('panel.close').page).toBeUndefined();
   });
 
@@ -121,12 +121,17 @@ describe('the page\'s commands (ADR-0006 note 3 of 2026-11-11)', () => {
     }
   });
 
-  it('ADR-0016 note 33: `price` on the pricer\'s page is the server\'s command alone; the client\'s is the Rates page\'s, and says where to price with neither open', () => {
+  it('ADR-0016 notes 33 and 36: `price` on the pricer\'s page and on a Rates page is the server\'s command alone; with neither open the client\'s says where to price', () => {
     expect(commands.some((c) => c.id === 'workspace.price')).toBe(false);
     const rates = state({ panels: [{ id: 'r', kind: 'app', title: 'Rates 2026-10-26', app: 'rates.workspace', params: { workspaceId: 'w' } }], activePanelId: 'r', showApp: vi.fn(), openAppDialog: vi.fn() });
-    const priced = (s: ReturnType<typeof state>) => build(catalog([], []), s).find((c) => c.words === 'price')!;
-    expect([priced(rates).id, priced(rates).page, priced(rates).target]).toEqual(['workspace.price', true, 'Rates 2026-10-26']);
-    expect(priced(state({ showApp: vi.fn(), openAppDialog: vi.fn() })).unavailable).toBe('Open an XVA or Rates workspace to price it.');
+    expect(build(catalog([], []), rates).some((c) => c.words === 'price')).toBe(false);
+    const elsewhere = build(catalog([], []), state({ showApp: vi.fn(), openAppDialog: vi.fn() })).find((c) => c.words === 'price')!;
+    expect([elsewhere.id, elsewhere.unavailable]).toEqual(['workspace.price', 'Open an XVA or Rates workspace to price it.']);
+  });
+
+  it('ADR-0016 note 36: the client writes no Rates command but the one that opens a workspace: the others are the server\'s, listed from the catalog', () => {
+    const rates = state({ panels: [{ id: 'r', kind: 'app', title: 'Rates 2026-10-26', app: 'rates.workspace', params: { workspaceId: 'w' } }], activePanelId: 'r', showApp: vi.fn(), openAppDialog: vi.fn() });
+    expect(build(catalog([], []), rates).filter((c) => c.group === 'Rates').map((c) => c.words)).toEqual(['new rates']);
   });
 
   it('a finished Run\'s views are its page\'s commands', () => {

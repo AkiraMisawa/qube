@@ -1,4 +1,4 @@
-import { ApiError, outputOf, type Api } from '../api';
+import { ApiError, outputOf, type Api, type CommandAnswer } from '../api';
 import type { Catalog, CommandForm, LineArgument, LineCompletion, LinePreview, LineView, RowsEdited, TableOnScreen, TakenBack } from '../contracts';
 import type { Notify } from '../notices';
 import type { Command, CommandDoor, Completion, KeyboardMoved, LineReading, LineReason, Screen } from './commands';
@@ -33,13 +33,34 @@ export interface DoorPage {
    * place read for it (note 21); read as the line opens.
    */
   readonly screen?: () => Screen | undefined;
+  /**
+   * What the page does with what a command of its own answered, beyond showing the workspace again, such as opening
+   * the Run it made (ADR-0016 note 36). Told once the command is done, whether or not the page could read what it left.
+   */
+  readonly answered?: (capabilityId: string, answer: Told) => void;
 }
 
 /**
  * What the door reads of a command's answer, which every command of a workspace gives: where it left it, and what it
- * did; and `stays`, where what it said waits for the user (ADR-0016 note 33), such as edits a refresh holds back.
+ * did; and `stays`, where what it said waits for the user (ADR-0016 note 33), such as edits a refresh holds back. What
+ * else a command answers is its own, for the page that knows the command.
  */
-type Told = Pick<TakenBack | RowsEdited, 'revision' | 'said'> & { readonly stays?: boolean };
+export type Told = Pick<TakenBack | RowsEdited, 'revision' | 'said'> & { readonly stays?: boolean } & Readonly<Record<string, unknown>>;
+
+/**
+ * A command's answer as the door reads it (ADR-0016 note 36): its output named `answer`, or its one output where it
+ * has one, as `entity.create` has its `entity`. Several outputs with none named `answer`, or an output that says
+ * neither where the workspace was left nor what was done, is a command that broke the door's contract: that is said,
+ * and no other output is read in its place.
+ */
+function toldOf(answer: CommandAnswer): Told {
+  const ports = Object.keys(answer.outputs);
+  const port = ports.includes('answer') ? 'answer' : ports.length === 1 ? ports[0]! : undefined;
+  if (port === undefined) throw new Error(`${answer.capabilityId} answered ${ports.length === 0 ? 'nothing' : ports.join(' and ')}, and none is its answer.`);
+  const told = outputOf<Partial<Told>>(answer, port);
+  if (typeof told.revision !== 'number' || typeof told.said !== 'string') throw new Error(`${answer.capabilityId} answered without the revision it left the workspace at and what it did.`);
+  return told as Told;
+}
 
 interface Invocation {
   readonly id: string;
@@ -64,11 +85,13 @@ export function commandDoor(page: DoorPage): CommandDoor {
   const run = <Ended extends LineReason | KeyboardMoved>(named: (revision: number) => Promise<Invocation | Ended>, heard?: (said: string) => void): Promise<Ended | LineReason | undefined> =>
     page.turns.after(async (revision): Promise<Ended | LineReason | undefined> => {
       let told: Told;
+      let done: string;
       try {
         const call = await named(revision);
         // Nothing to invoke: the line cannot be read, or what it asked for is done already.
         if (!('id' in call)) return call;
-        told = outputOf<Told>(await page.api.command(call.id, call.version, call.inputs, crypto.randomUUID()), 'answer');
+        told = toldOf(await page.api.command(call.id, call.version, call.inputs, crypto.randomUUID()));
+        done = call.id;
       } catch (error) {
         const sentence = describe(error);
         if (!(error instanceof ApiError && error.envelope.code === 'RevisionMoved')) return { sentence };
@@ -84,8 +107,10 @@ export function commandDoor(page: DoorPage): CommandDoor {
       } catch (error) {
         page.notify('refused', `${told.said} The page could not read the workspace again: ${describe(error)}`);
         heard?.(told.said);
+        page.answered?.(done, told);
         return undefined;
       }
+      page.answered?.(done, told);
       // What waits for the user's decision does not leave by itself.
       if (heard === undefined) page.notify('done', told.said, ...(told.stays === true ? [{ stays: true }] : []));
       else heard(told.said);
@@ -232,6 +257,31 @@ export function taken(line: string, completion: LineCompletion): string {
  */
 export function argumentShown(argument: LineArgument): string {
   return argument.from === 'context' ? `${argument.name} from the screen: ${argument.text}` : `${argument.name} ${argument.text}`;
+}
+
+/** An argument of a served command as the line draws it: by its name, with what the server read for it where it read it. */
+export interface ArgumentDrawn {
+  readonly name: string;
+  readonly required: boolean;
+  readonly read?: LineArgument;
+}
+
+/**
+ * A served command's arguments as the line draws them (ADR-0016 note 36): the form's, each with what the server read
+ * for it, then what the server read under a name the form does not list, as a product's terms are read by their
+ * fields. Those stand for an argument of the form that may be left out and was not read by its own name, so that one
+ * is not drawn beside them as left out.
+ */
+export function argumentsShown(form: readonly { readonly name: string; readonly required: boolean }[], read: readonly LineArgument[]): readonly ArgumentDrawn[] {
+  const beyond = read.filter((r) => !form.some((a) => a.name === r.name));
+  return [
+    ...form.flatMap((a): ArgumentDrawn[] => {
+      const of = read.find((r) => r.name === a.name);
+      if (of !== undefined) return [{ ...a, read: of }];
+      return a.required || beyond.length === 0 ? [{ ...a }] : [];
+    }),
+    ...beyond.map((r) => ({ name: r.name, required: false, read: r })),
+  ];
 }
 
 /** The screen a line was opened on, as the line says it: the server's sentence, and whether its rows can still be said. */

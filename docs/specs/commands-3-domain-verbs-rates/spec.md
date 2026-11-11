@@ -113,6 +113,10 @@ Decided in ADR-0016 notes 34 to 36, which this section follows.
 - The Rates page has a door, a screen and places; its buttons invoke through the door, and the page's endpoints
   whose writes moved go, with the client's hand-written Rates commands.
 - Rates' three command defects of 2026-11-10 end here.
+- *Added as built (note 36):* the door tells its page what the page's own command answered, by which the Rates page
+  opens the Run of `price` and `capture`; the line draws what the server read under names a form does not list (a
+  product's terms by their fields); `live start` says `Live is running.` whether it started or joined; a product's
+  field may carry examples the line offers (an end's tenors); and `GET /api/products` with its preview goes too.
 
 ### 3d. `add each` with lists (tickets 16 to 19)
 
@@ -150,7 +154,9 @@ A test names the ADR it holds. Tested at these seams, each through its public in
   moved writes through the gateway; Vitest the door's reading of a command's one output and `readLine`'s exact
   client command; Playwright (`rates.spec.ts`) two lines selected, `set notional 5mm` and `undo`, the line saying
   its screen, `find <line>`, a default set alone, `new irs` previewed and run, and the buttons on the same
-  commands.
+  commands. *Added as built:* Vitest also holds what the line draws of a reading whose arguments the form does
+  not list (`argumentsShown`), what the door tells its page of an answer, and that the client lists no Rates
+  command but `new rates` (`buildCommands`); Playwright also holds the menu's `Remove line` and the page's places.
 
 Not tested: what a domain service already holds by its own tests, and the kernel's reading of the expanded line.
 

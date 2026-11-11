@@ -1700,10 +1700,85 @@ Unchanged: every figure on these pages is simulated, and says so.
   `download run` and `copy quote` (note 31), and every command of Rates (3c).
 - `add each` takes no list yet (3d). Rates has no door and no registered table (3c).
 
+## Generic commands, delivery step 3c: Rates registers (ADR-0016 notes 34 to 36, 2026-11-11)
+
+The third pull request of step 3 (`docs/specs/commands-3-domain-verbs-rates`, tickets 12 to 15). A Rates workspace
+is reached as the pricer's is: its lines and its defaults are registered tables, its page has a door, a screen and
+places, and its verbs are declared once on the server and read there. Every hand-written Rates command of the
+client but `new rates` is gone, with eight page endpoints and the two product endpoints.
+
+### What runs
+
+- **`set`, `reset` and `remove` on a line** (`rates.lines`): `set L3 notional 5mm`, `set L3 rate 1.25%`, `set L3
+  freq1 3m`, `reset L3 end`, `remove L3`, and `set notional 5mm` on the lines selected in the grid. An IRS's terms
+  are fields as `new irs` names them (`notional` writes both legs); a term that does not apply to a line is refused
+  by the line's name, with the fields that do.
+- **The defaults are set one at a time** (`rates.workspace`): `set default currency jpy`, `set default notional=500
+  default direction=rec`, `reset default currency`. A new line takes them, and says so before Enter.
+- **`undo` and `redo`** take back and put back each of these, a change of defaults included, from the line and from
+  the grid's keys.
+- **A live subscription follows a kernel verb's write**: the workspace service tells Rates' observer after each
+  accepted command, so a `set` or an `undo` from the line reprices a ticking workspace.
+- **`new <product> <terms>` is the kernel's `entity.create`, read on the server.** `new ` offers the products; after
+  one, each field not yet typed (choices, an end's tenors, `name=`). The line shows how each word was read and
+  what Enter would make (`Makes L3: Interest rate swap. Not typed: index TONA from …`), and says what is missing by
+  name while it is typed. Nothing is sent to be refused.
+- **`price`** names the market snapshot it read and how many lines it would price (`Prices 1 of 2 lines on market
+  …, as one Run. Left out: L4.`); Enter prices on that snapshot, as one Run under the invocation's key. **`capture`**
+  names the frame the subscription showed when the line was read, with its time, and saves that one. **`live
+  start`** and **`live stop`** say what they would start or stop. **`add line <irs|ccs>`** adds an empty line.
+- **The page's controls are the commands.** Add IRS, Add CCS, Price, the live toggle and Capture run them through
+  the door; Capture names the frame the page drew. A Run that `price` or `capture` made opens in its own panel,
+  from the command's answer. The page follows the workspace's live subscription whoever started or stopped it.
+- **The line says the Rates screen** (`On screen: lines, 2 selected, L3 · line`), `find L5` puts the Focus on a
+  line, `go lines` and `go flows` put the keyboard in the lines and in an open line's cashflows, and the grid's
+  Context Menu holds `Reset this cell · reset` and `Remove line · remove selected`.
+- **`new rates` still opens its dialog**, beside the served `new`: a line that is exactly a client command's words
+  is that command's.
+- **The AI** calls the same capabilities; `rates.workspace.price`, `rates.frame.capture` and `rates.line.add` are
+  new to it.
+- **Gone:** `POST /api/rates/workspaces/{id}/lines`, `/lines/new`, `/lines/{line}/remove`, `/defaults`, `/price`
+  and `/live`, `POST /api/rates/live/{id}/capture`, `DELETE /api/rates/live/{id}`, `GET /api/products` and `POST
+  /api/products/{id}/preview`; the client's `set defaults`, `add line`, `live start`, `live stop`, `capture`,
+  `price` on a Rates page and `new irs`/`new ccs`, with its own reader of a product's terms.
+
+### Verification performed
+
+| What | Result |
+|---|---|
+| `dotnet test server/Qube.slnx` | 1061 passed |
+| Client: `npm run typecheck`, `npm test`, `npm run build` | Clean; 290 passed in 32 files; built |
+| `npx playwright test` (Chromium, headless, Linux) | 84 passed |
+| The six Rates browser tests this step adds or rewrites, with `--repeat-each=3` | 18 passed |
+| `credit.spec.ts`'s first test, whose `price` helper this step corrects, 14 times | 14 passed |
+
+A test of no part of this step failed in about one run of four: `credit.spec.ts`'s `price` helper read the result's
+revision as painted, in capitals, and compared it with its text, so it never waited for the new Run and read the
+figures of the Run before. It now waits for the line to close and for the revision of the workspace as it stands.
+
+### Providers
+
+Unchanged: the Rates market, its conventions' development profiles and every figure are simulated, and say so.
+
+### Known limits
+
+- `new irs 5y` on a workspace with no defaults says six terms are missing, the index and the frequencies among
+  them, though a currency alone would bring those from its profile: the reading does not know which missing terms
+  a profile would supply once another is typed (ADR-0016 note 36).
+- A line is named by the revision that makes it, so a workspace's first line is `L3` and its next `L5`.
+- The valuation date is not a field: it stays the page's control, and `undo` takes its change back.
+- The cashflows are a grid of no table: `set` and `find` do not reach a period, and with the keyboard there the
+  line is told of no screen. A cashflow's edit and a held edit's resolution stay the page's own writes.
+- `capture` from the line saves the frame the server showed when the line was read; the button saves the frame the
+  page drew. The two are the same frame unless a tick fell between the drawing and the reading.
+- What reading `price` costs is not measured here either; a Rates workspace holds few lines.
+- Still written in the client: `new xva`, `new rates`, `explain`, the trace options, `open result`, `dock
+  full|restore`, `download run` and `copy quote` (note 31).
+- `add each` takes no list yet (3d).
+
 ## Next
 
-1. Generic commands, delivery step 3c and 3d (ADR-0016 §3, §4): Rates registers its tables and its door, and `add
-   each` takes lists.
+1. Generic commands, delivery step 3d (ADR-0016 §3): `add each` takes lists. Then steps 4 to 6.
 2. MVA with SIMM (`docs/12-implementation-plan.md` P2): spot IM from the XVA request's MVA option.
 3. ADR-0010 Delivery step 3 (Advanced: Before-only and After-only edits, the split fill), when the owner asks for it.
 4. The owner's review of ADR-0003 §7 (scopes, carry and conflict), then a synthetic source change that can produce a conflict, and the browser cases still open above (reload, failed case unavailable).

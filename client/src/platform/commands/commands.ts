@@ -306,15 +306,19 @@ export type LineReading =
 
 /**
  * Reads the line. A command is chosen once its words are typed in full and followed by a space; what follows is its
- * arguments: required ones in order, optional ones as `name=value`.
+ * arguments: required ones in order, optional ones as `name=value`. A line that is exactly a command's words, with no
+ * space yet, is that command still being chosen, though a shorter command's words begin it (ADR-0016 note 36): `new
+ * rates` is the command of those words, which the list then puts first, and not `new` with `rates` after it.
  */
 export function readLine(text: string, commands: readonly Command[]): LineReading {
   const lead = text.replace(/^\s+/, '');
   const tokens = lead.split(/\s+/).filter((t) => t !== '');
   const lower = tokens.map((t) => t.toLowerCase());
   const closed = /\s$/.test(lead);
+  const whole = lower.join(' ');
   let chosen: { command: Command; length: number } | undefined;
   for (const command of commands) {
+    if (!closed && command.words === whole) return { kind: 'choosing', query: lead };
     const words = command.words.split(' ');
     if (words.length > lower.length || (words.length === lower.length && !closed)) continue;
     if (words.every((w, i) => lower[i] === w) && (chosen === undefined || words.length > chosen.length)) chosen = { command, length: words.length };

@@ -1,6 +1,4 @@
-import { ApiError, call, send } from '../../platform/api';
-import type { RunRecord } from '../../platform/contracts';
-import type { ProductDescriptor } from '../../platform/products';
+import { call } from '../../platform/api';
 import type { CarrySummary, CashflowsView, LiveFrame, MarketView, RatesWorkspaceView, Resolution } from './contracts';
 
 const base = (workspaceId: string) => `/api/rates/workspaces/${encodeURIComponent(workspaceId)}`;
@@ -9,57 +7,35 @@ const post = <T>(path: string, body: unknown) => call<T>(path, { method: 'POST',
 /** A running live subscription's frames. `close` stops hearing; it does not stop the subscription. */
 export interface FrameStream { close(): void }
 
-/** The Rates line pricer's endpoints. Every command names the revision it was taken against. */
+/**
+ * The Rates line pricer's own endpoints: what its page reads, and what its grids send as they are typed in, each
+ * naming the revision it was taken against. Its commands (`new`, `add line`, `price`, `live start`, `live stop`,
+ * `capture`, and `set`, `reset`, `remove` over its lines and defaults) are the server's, run through the page's door
+ * to the command gateway (ADR-0016 notes 34 to 36), and have no endpoint here.
+ */
 export interface RatesApi {
   market(): Promise<MarketView>;
   create(valuationDate: string): Promise<RatesWorkspaceView>;
   view(workspaceId: string): Promise<RatesWorkspaceView>;
-  addLine(workspaceId: string, revision: number, product: 'irs' | 'ccs'): Promise<{ readonly line: string; readonly workspace: RatesWorkspaceView }>;
-  /** `new <product> <terms>` (ADR-0008): the server reads the words against the product's description and creates one line. */
-  newLine(workspaceId: string, revision: number, product: string, terms: string): Promise<{ readonly line: string; readonly workspace: RatesWorkspaceView }>;
-  /** The products this app can create, as the server describes them. */
-  products(): Promise<readonly ProductDescriptor[]>;
-  /** Sets the workspace's defaults for new lines; a null clears one. */
-  changeDefaults(workspaceId: string, revision: number, defaults: RatesWorkspaceView['defaults']): Promise<RatesWorkspaceView>;
-  removeLine(workspaceId: string, revision: number, line: string): Promise<RatesWorkspaceView>;
   editLine(workspaceId: string, revision: number, line: string, field: string, value: unknown): Promise<RatesWorkspaceView>;
   cashflows(workspaceId: string, line: string): Promise<CashflowsView>;
   editCashflow(workspaceId: string, revision: number, line: string, period: string, field: string, value: unknown): Promise<RatesWorkspaceView>;
   resolve(workspaceId: string, revision: number, scope: string, entity: string, field: string, resolution: Resolution): Promise<RatesWorkspaceView>;
   changeValuationDate(workspaceId: string, revision: number, valuationDate: string): Promise<{ readonly workspace: RatesWorkspaceView; readonly carried: CarrySummary }>;
-  price(workspaceId: string, revision: number, idempotencyKey: string, marketSnapshotId: string): Promise<RunRecord>;
-  startLive(workspaceId: string): Promise<{ readonly subscriptionId: string }>;
-  stopLive(subscriptionId: string): Promise<void>;
   /** Attaches to a running subscription's frames. `onEnded` hears that the server ended the stream for good. */
   frames(subscriptionId: string, onFrame: (frame: LiveFrame) => void, onEnded: () => void): FrameStream;
-  capture(subscriptionId: string, frame: LiveFrame, idempotencyKey: string): Promise<RunRecord>;
 }
 
 export const httpRatesApi: RatesApi = {
   market: () => call('/api/rates/market'),
   create: (valuationDate) => post('/api/rates/workspaces', { valuationDate }),
   view: (workspaceId) => call(base(workspaceId)),
-  addLine: (workspaceId, revision, product) => post(`${base(workspaceId)}/lines`, { revision, product }),
-  newLine: (workspaceId, revision, product, terms) => post(`${base(workspaceId)}/lines/new`, { revision, product, terms }),
-  products: () => call('/api/products?app=rates'),
-  changeDefaults: (workspaceId, revision, defaults) => post(`${base(workspaceId)}/defaults`, { revision, ...defaults }),
-  removeLine: (workspaceId, revision, line) => post(`${base(workspaceId)}/lines/${encodeURIComponent(line)}/remove`, { revision }),
   editLine: (workspaceId, revision, line, field, value) => post(`${base(workspaceId)}/lines/${encodeURIComponent(line)}/edits`, { revision, field, value }),
   cashflows: (workspaceId, line) => call(`${base(workspaceId)}/lines/${encodeURIComponent(line)}/cashflows`),
   editCashflow: (workspaceId, revision, line, period, field, value) =>
     post(`${base(workspaceId)}/lines/${encodeURIComponent(line)}/cashflows/edits`, { revision, period, field, value }),
   resolve: (workspaceId, revision, scope, entity, field, resolution) => post(`${base(workspaceId)}/resolutions`, { revision, scope, entity, field, resolution }),
   changeValuationDate: (workspaceId, revision, valuationDate) => post(`${base(workspaceId)}/valuation-date`, { revision, valuationDate }),
-  price: (workspaceId, revision, idempotencyKey, marketSnapshotId) => post(`${base(workspaceId)}/price`, { revision, idempotencyKey, marketSnapshotId }),
-  startLive: (workspaceId) => post(`${base(workspaceId)}/live`, {}),
-  stopLive: async (subscriptionId) => {
-    try {
-      await send(`/api/rates/live/${encodeURIComponent(subscriptionId)}`, { method: 'DELETE' });
-    } catch (error) {
-      // A subscription that already ended is stopped.
-      if (!(error instanceof ApiError && error.status === 404)) throw error;
-    }
-  },
   frames: (subscriptionId, onFrame, onEnded) => {
     const source = new EventSource(`/api/rates/live/${encodeURIComponent(subscriptionId)}/frames`);
     source.addEventListener('frame', (event) => onFrame(JSON.parse((event as MessageEvent<string>).data) as LiveFrame));
@@ -69,7 +45,4 @@ export const httpRatesApi: RatesApi = {
     source.onerror = () => { if (source.readyState === EventSource.CLOSED) onEnded(); };
     return { close: () => source.close() };
   },
-  capture: (subscriptionId, frame, idempotencyKey) => post(`/api/rates/live/${encodeURIComponent(subscriptionId)}/capture`, {
-    subscriptionRevision: frame.subscriptionRevision, inputRevision: frame.inputRevision, marketSnapshotId: frame.market.snapshotId, idempotencyKey,
-  }),
 };

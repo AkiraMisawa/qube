@@ -7,9 +7,13 @@ directory's statuses.
 
 **Blocked by:** 12 to 14.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] The notes say what was built and what was found.
-- [ ] `IMPLEMENTATION_STATUS.md` says what runs and what was verified.
+- [x] The notes say what was built and what was found.
+- [x] `IMPLEMENTATION_STATUS.md` says what runs and what was verified.
 
 ## Comments
+
+- *As built:* ADR-0016 notes 34 to 36 carry their "as built" and "found" entries; `docs/10-api-contracts.md` lists
+  the Rates commands the gateway takes and the endpoints that went; `IMPLEMENTATION_STATUS.md` has the step's
+  section.

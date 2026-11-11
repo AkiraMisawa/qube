@@ -428,6 +428,8 @@ public class RatesLineCommandTests
         Assert.Equal(first.Market.SnapshotId, run.Input["marketSnapshotId"]!.GetValue<string>());
         Assert.NotEqual(first.Market.SnapshotId, second.Market.SnapshotId);
         Assert.Equal(second.Market.SnapshotId, rig.RunsOf().Single(r => r.RunId == asked["runId"]!.GetValue<string>()).Input["marketSnapshotId"]!.GetValue<string>());
+        // The answer names the market of the frame it saved, which a page titles the Run by.
+        Assert.Equal(second.Market.SnapshotId, asked["marketSnapshotId"]!.GetValue<string>());
     }
 
     [Fact] // ADR-0016 note 36: a frame is named whole or not at all, and by the workspace's own subscription

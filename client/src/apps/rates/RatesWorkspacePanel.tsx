@@ -1,17 +1,19 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { Alert, Badge, Button, Group, Stack, Table, Text, TextInput } from '@mantine/core';
 import { GridSource, type CellPosition, type GridActionEvent, type GridColumn, type GridContextMenuContext, type GridEditIntent, type GridSelection, type HeaderGroupToggle } from '@ex-grid/core';
 import type { ExGridApi } from '@ex-grid/react';
 import { QubeGrid } from '../../platform/grid/QubeGrid';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ApiError } from '../../platform/api';
+import type { Screen } from '../../platform/commands/commands';
+import { commandDoor, registerCommandDoor, tableMenu, type Told } from '../../platform/commands/served';
 import { useColumnWidths } from '../../platform/grid/columnWidths';
+import { GridUndoContext } from '../../platform/grid/gridUndo';
+import { heldView, menuView, placeFocus } from '../../platform/grid/lineView';
 import { EditQueue } from '../../platform/workspace/editQueue';
 import { useWorkspaceContext } from '../../platform/workspace/WorkspaceProvider';
 import { keyOf } from '../../platform/workspace/workspaceStore';
-import { registerGridFocus } from '../../shell/places';
+import { registerPlaces, type Place } from '../../shell/places';
 import type { FrameStream, RatesApi } from './api';
-import { registerRatesCommands } from './commands';
 import type { CashflowsView, HeldEdit, LiveFrame, PeriodView, RatesWorkspaceView, Resolution } from './contracts';
 import {
   FOLDED, PINNED_COLUMNS, headerTiers, lineCellMessage, lineResult, lineCellState, lineColumns, hiddenEdits, lineHeaderGroups, lineRows, openedAt, parserOf, periodCellState,
@@ -20,18 +22,23 @@ import {
 
 // The fixed Rates line pricer (docs/07, C37 to C43): one line per trade in ExGrid, its terms sparse, its
 // standard cashflows generated and customised on the server. Live frames tick the figures; Price and Capture
-// make Runs. The server holds every rule; this page sends what the user changed and shows what came back.
+// make Runs. The server holds every rule; this page sends what the user changed and shows what came back. Its
+// commands are the server's (ADR-0016 notes 34 to 36): a button runs the line a user types, through the page's door.
 
 export const RATES_RESULT_VIEW = 'view.rates.result';
 
+/** The application as the server names it, and the table its line grid is bound to (ADR-0016 note 34). */
+const RATES_APP = 'rates';
+const LINES_TABLE = 'rates.lines';
+/** The two commands that make a Run, which the page opens from their answer (note 36). */
+const PRICE = 'rates.workspace.price';
+const CAPTURE = 'rates.frame.capture';
+
+/** What the grids send as they are typed in. Everything else the page does is a command through its door. */
 type Edit =
   | { readonly kind: 'line'; readonly line: string; readonly field: string; readonly value: unknown }
   | { readonly kind: 'cashflow'; readonly line: string; readonly period: string; readonly field: string; readonly value: unknown }
-  | { readonly kind: 'resolve'; readonly held: HeldEdit; readonly resolution: Resolution }
-  | { readonly kind: 'add'; readonly product: 'irs' | 'ccs' }
-  | { readonly kind: 'new'; readonly product: string; readonly terms: string }
-  | { readonly kind: 'defaults'; readonly defaults: RatesWorkspaceView['defaults'] }
-  | { readonly kind: 'remove'; readonly line: string };
+  | { readonly kind: 'resolve'; readonly held: HeldEdit; readonly resolution: Resolution };
 
 const describe = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
@@ -45,10 +52,6 @@ function notDone(edit: Edit): string {
     case 'cashflow': return `${edit.line} cashflow ${edit.period} ${periodFieldTitle(edit.field)} was not changed`;
     // The list of held edits names one by its entity and its field, so its refusal does.
     case 'resolve': return `${edit.held.entity} ${edit.held.field} was not resolved`;
-    case 'add': return 'The line was not added';
-    case 'new': return 'The line was not created';
-    case 'defaults': return 'The defaults were not set';
-    case 'remove': return `${edit.line} was not removed`;
   }
 }
 
@@ -70,16 +73,24 @@ function groupsOf(layout: LineLayout, hides: HiddenEdits) {
 
 /** What each page opened, kept while the application runs, so a page left and come back to is as it was (ADR-0015 §7). */
 const openedByPanel = new Map<string, LineLayout>();
-const commandLabel = (id: string) => (id === REMOVE_LINE ? 'Remove line' : undefined);
-const REMOVE_LINE = 'remove-line';
+
+/** A market snapshot as a Run's panel is titled by it: what follows its last colon. */
+const snapshotTail = (snapshotId: string) => snapshotId.slice(snapshotId.lastIndexOf(':') + 1);
+
+/** Puts the keyboard in a grid the page drew, or says that it is not drawn. */
+function focused(grid: { readonly current: { focus(): void } | null }, title: string): string | undefined {
+  if (grid.current === null) return `${title} are not drawn yet.`;
+  grid.current.focus();
+  return undefined;
+}
 
 export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly panelId: string; readonly workspaceId: string; readonly api: RatesApi }) {
   const workspace = useWorkspaceContext();
   const queryClient = useQueryClient();
   const view = useQuery({ queryKey: ['rates', workspaceId], queryFn: () => api.view(workspaceId) });
   const market = useQuery({ queryKey: ['rates', 'market'], queryFn: () => api.market(), refetchInterval: 2000 });
-  const products = useQuery({ queryKey: ['products', 'rates'], queryFn: () => api.products(), staleTime: Infinity });
   const grid = useRef<ExGridApi<LineRow>>(null);
+  const flowsGrid = useRef<ExGridApi<PeriodView>>(null);
   const [opened, setOpened] = useState<LineLayout>(() => openedByPanel.get(panelId) ?? FOLDED);
   useEffect(() => { openedByPanel.set(panelId, opened); }, [panelId, opened]);
   const [frame, setFrame] = useState<LiveFrame | undefined>(undefined);
@@ -95,10 +106,6 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
         case 'line': return api.editLine(workspaceId, revision, edit.line, edit.field, edit.value);
         case 'cashflow': return api.editCashflow(workspaceId, revision, edit.line, edit.period, edit.field, edit.value);
         case 'resolve': return api.resolve(workspaceId, revision, edit.held.scope, edit.held.entity, edit.held.field, edit.resolution);
-        case 'add': return (await api.addLine(workspaceId, revision, edit.product)).workspace;
-        case 'new': return (await api.newLine(workspaceId, revision, edit.product, edit.terms)).workspace;
-        case 'defaults': return api.changeDefaults(workspaceId, revision, edit.defaults);
-        case 'remove': return api.removeLine(workspaceId, revision, edit.line);
       }
     },
     (next) => { show(next); void queryClient.invalidateQueries({ queryKey: ['rates', workspaceId, 'cashflows'] }); },
@@ -134,38 +141,37 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
   // Live (owner, 2026-10-27): the workspace's one subscription runs on the server; this page attaches to it
   // while it is open and only detaches when it goes. The server stops it once nobody has watched it for the
   // idle limit; Stop stops it for everyone. A stopped subscription is never resumed: Start makes a new one,
-  // pricing the current revision from the next tick.
-  const stream = useRef<FrameStream | undefined>(undefined);
+  // pricing the current revision from the next tick. `live start` and `live stop` are the server's commands
+  // (ADR-0016 note 36), from this page, another or the AI: the page follows what the workspace then says of its
+  // subscription, whoever ran them.
+  const stream = useRef<{ readonly subscriptionId: string; readonly frames: FrameStream } | undefined>(undefined);
   const detach = useCallback(() => {
-    stream.current?.close();
+    stream.current?.frames.close();
     stream.current = undefined;
     setSubscription(undefined);
   }, []);
   const attach = useCallback((subscriptionId: string) => {
-    if (stream.current !== undefined) return;
+    if (stream.current?.subscriptionId === subscriptionId) return;
+    // The workspace says another subscription runs than the one this page hears: that one has ended.
+    stream.current?.frames.close();
     setSubscription(subscriptionId);
-    stream.current = api.frames(subscriptionId, setFrame, () => {
+    const frames = api.frames(subscriptionId, setFrame, () => {
+      // The stream this page still hears ended; one it already left says nothing of the one it hears now.
+      if (stream.current?.subscriptionId !== subscriptionId) return;
       detach();
       void queryClient.invalidateQueries({ queryKey: ['rates', workspaceId] });
     });
+    stream.current = { subscriptionId, frames };
   }, [api, detach, queryClient, workspaceId]);
-  const stopLive = useCallback(async (id: string | undefined) => {
-    detach();
-    if (id !== undefined) await api.stopLive(id);
-    void queryClient.invalidateQueries({ queryKey: ['rates', workspaceId] });
-  }, [api, detach, queryClient, workspaceId]);
-  const startLive = useCallback(async () => {
-    const { subscriptionId } = await api.startLive(workspaceId);
-    attach(subscriptionId);
-  }, [api, workspaceId, attach]);
-  // On opening: attach to a running subscription, or show the last frame of a stopped one, marked as stopped.
+  // Attach to a running subscription; leave one that stopped, and show its last frame, marked as stopped.
   const liveStatus = view.data?.live;
   useEffect(() => {
     if (liveStatus === undefined) return;
-    if (liveStatus.running) attach(liveStatus.subscriptionId);
-    else if (liveStatus.lastFrame !== undefined) setFrame((shown) => shown ?? liveStatus.lastFrame);
-  }, [liveStatus, attach]);
-  useEffect(() => () => { stream.current?.close(); stream.current = undefined; }, []);
+    if (liveStatus.running) { attach(liveStatus.subscriptionId); return; }
+    detach();
+    if (liveStatus.lastFrame !== undefined) setFrame((shown) => shown ?? liveStatus.lastFrame);
+  }, [liveStatus, attach, detach]);
+  useEffect(() => () => { stream.current?.frames.close(); stream.current = undefined; }, []);
 
   const onEdit = useCallback((intent: GridEditIntent<LineRow>) => {
     const parse = parserOf(intent.column);
@@ -196,49 +202,130 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
     else throw new Error(`The grid reported an action it was not given: ${event.action}.`);
   }, []);
 
-  // Removing a line is in its context menu, not a button beside Flows (ADR-0015 §5).
-  const contextCommands = useCallback((context: GridContextMenuContext<LineRow>) => [{
-    id: REMOVE_LINE, enabled: true, invoke: () => {
-      setDetail((shown) => (shown === context.row.line ? undefined : shown));
-      void queue.push({ kind: 'remove', line: context.row.line });
-    },
-  }], [queue]);
-
-  const price = async () => {
-    const snapshot = market.data?.snapshotId;
-    if (snapshot === undefined) { workspace.notify('refused', 'No market snapshot has been published yet; Price waits for one.'); return; }
-    setBusy('Pricing');
-    try {
-      // Price prices the edits already sent, once they have landed (spine 6).
-      const key = crypto.randomUUID();
-      const run = await queue.after((revision) => api.price(workspaceId, revision, key, snapshot));
-      openRun(run.runId, `Rates ${snapshot.split(':').at(-1) ?? ''}`);
-    } catch (error) {
-      workspace.notify('refused', `Price was refused: ${describe(error)}${targetsOf(error)}`);
-    } finally {
-      setBusy(undefined);
-    }
-  };
-
-  const capture = async () => {
-    if (subscription === undefined || frame === undefined) { workspace.notify('refused', 'Capture needs a live frame on screen.'); return; }
-    setBusy('Capturing');
-    try {
-      const run = await api.capture(subscription, frame, crypto.randomUUID());
-      openRun(run.runId, `Capture ${frame.market.snapshotId.split(':').at(-1) ?? ''}`);
-    } catch (error) {
-      workspace.notify('refused', `Capture was refused: ${describe(error)}`);
-    } finally {
-      setBusy(undefined);
-    }
-  };
-
-  const openRun = (runId: string, title: string) => {
+  // A Run a command of this page made (`price`, `capture`) opens in a panel of its own.
+  const openRun = useCallback((runId: string, title: string) => {
     const resultView = workspace.catalog.views.find((v) => v.definitionId === RATES_RESULT_VIEW);
     workspace.store.getState().openPanel({ kind: 'run', title, runId, viewKey: resultView === undefined ? undefined : keyOf(resultView) });
-    void queryClient.invalidateQueries({ queryKey: ['rates', workspaceId] });
     void queryClient.invalidateQueries({ queryKey: ['history'] });
+  }, [workspace, queryClient]);
+
+  // What the command line is told is on screen (ADR-0016 §9, note 16): the line grid while the keyboard was last in
+  // it. The cashflows are a grid of no table, and leave the line none.
+  const screen = useRef<(() => Screen | undefined) | undefined>(undefined);
+  /**
+   * The page's door (ADR-0016 §5): the commands the server reads take their turn in the queue, after the edits already
+   * sent (spine 6), and the workspace is read again in that same turn. What a command says of the workspace's live
+   * subscription the page follows from that reading; a Run one made is opened from its answer.
+   */
+  const door = useMemo(() => commandDoor({
+    workspaceId,
+    app: RATES_APP,
+    catalog: workspace.catalog,
+    api: workspace.api,
+    turns: queue,
+    screen: () => screen.current?.(),
+    reread: async () => {
+      const fresh = await api.view(workspaceId);
+      show(fresh);
+      void queryClient.invalidateQueries({ queryKey: ['rates', workspaceId, 'cashflows'] });
+      return fresh.revision;
+    },
+    notify: workspace.notify,
+    answered: (capabilityId: string, answer: Told) => {
+      if (capabilityId !== PRICE && capabilityId !== CAPTURE) return;
+      const { runId, marketSnapshotId } = answer;
+      if (typeof runId !== 'string' || typeof marketSnapshotId !== 'string') throw new Error(`${capabilityId} answered without its Run and the market it is of.`);
+      openRun(runId, `${capabilityId === PRICE ? 'Rates' : 'Capture'} ${snapshotTail(marketSnapshotId)}`);
+    },
+  }), [api, workspaceId, workspace, queue, show, queryClient, openRun]);
+
+  /** A button's line through the door, as a user types it (ADR-0016 §5): a refusal is a notice that begins with the line. */
+  const enter = async (line: string) => {
+    const ended = await door.enter(line);
+    if (ended !== undefined && 'sentence' in ended) workspace.notify('refused', `${line}: ${ended.sentence}`);
   };
+  const price = async () => {
+    setBusy('Pricing');
+    try { await enter('price'); } finally { setBusy(undefined); }
+  };
+  /** Capture saves the frame this page drew, named whole, whatever the subscription shows by the time it runs (docs/07 §3). */
+  const capture = async (drawn: LiveFrame) => {
+    setBusy('Capturing');
+    try {
+      const reason = await door.invoke(CAPTURE, {
+        subscriptionId: drawn.subscriptionId, subscriptionRevision: drawn.subscriptionRevision, inputRevision: drawn.inputRevision, marketSnapshotId: drawn.market.snapshotId,
+      });
+      if (reason !== undefined) workspace.notify('refused', `capture: ${reason.sentence}`);
+    } finally {
+      setBusy(undefined);
+    }
+  };
+  /** The grids' undo and redo keys (ADR-0016 §11): the notice says what was taken back or put back, or why nothing was. */
+  const takeBack = async (verb: 'undo' | 'redo') => {
+    const reason = await door.invoke(`workspace.${verb}`, {});
+    if (reason !== undefined) workspace.notify('refused', reason.sentence);
+  };
+  const takeBackNow = useRef(takeBack);
+  takeBackNow.current = takeBack;
+  // The same two functions for the page's life, so no grid is made again for them.
+  const gridUndo = useMemo(() => ({ undo: () => void takeBackNow.current('undo'), redo: () => void takeBackNow.current('redo') }), []);
+
+  // The lines' actions (ADR-0016 §4, note 25): read once for the workspace, and run through the door. Removing a line
+  // is one of them, in the Context Menu and not a button beside Flows (ADR-0015 §5).
+  const tables = useQuery({ queryKey: ['workspace-tables', workspaceId], queryFn: () => workspace.api.tables(workspaceId), staleTime: Infinity });
+  const menu = useMemo(() => {
+    // Not read yet, the table has no actions to offer; read, the server lists the table this page's grid is bound to.
+    const lines = tables.data?.find((t) => t.tableId === LINES_TABLE);
+    if (tables.data !== undefined && lines === undefined) throw new Error(`The server lists no table ${LINES_TABLE}, which the Rates page's line grid is bound to.`);
+    return tableMenu(lines, door, workspace.notify);
+  }, [tables.data, door, workspace]);
+  const menuNow = useRef(menu);
+  menuNow.current = menu;
+  const tablesUnread = tables.isError ? describe(tables.error) : undefined;
+  useEffect(() => {
+    if (tablesUnread !== undefined) workspace.notify('refused', `The grid's menu holds no command of its table: ${tablesUnread}`);
+  }, [tablesUnread, workspace]);
+  // The line grid as the line is told of it (note 16): the page holds every line, so its rows are named by their keys,
+  // and its columns by their names, which are the fields' where a column is one.
+  const columnsNow = useRef(columns);
+  columnsNow.current = columns;
+  const declared = useCallback(() => ({ table: LINES_TABLE, columns: columnsNow.current.map((c) => c.name) }), []);
+  const contextCommands = useCallback((context: GridContextMenuContext<LineRow>) =>
+    [...menuNow.current.commands(menuView((read) => heldView(declared(), read, source.snapshot(), (row) => row.line), context, context.row.line))], [declared, source]);
+  const commandLabel = useCallback((id: string) => menuNow.current.label(id), []);
+  // A place read for that view (note 21) is the row of its key among the rows the grid then held.
+  const lineScreen = useCallback((): Screen | undefined => {
+    const shown = grid.current;
+    if (shown === null) return undefined;
+    const named = declared();
+    const read = shown.readView();
+    const held = source.snapshot();
+    return {
+      view: heldView(named, read, held, (row) => row.line),
+      put: (place) => placeFocus(named, shown, read, place, (key) => {
+        const at = held.window.findIndex((row) => row.line === key);
+        return at < 0 ? undefined : held.windowStart + at;
+      }) ?? focused(grid, 'The lines'),
+    };
+  }, [declared, source]);
+
+  // The page's places (ADR-0016 §9, note 20): its lines, and the cashflows of a line while they are open.
+  const flowsOf = detail !== undefined && view.data?.lines.some((l) => l.line === detail) === true ? detail : undefined;
+  const places = (): readonly Place[] => {
+    // While the workspace is being read, or could not be, the page draws no part to go to.
+    if (view.isPending || view.isError) return [];
+    return [
+      { word: 'lines', title: 'the lines', grid: true, go: () => focused(grid, 'The lines') },
+      ...(flowsOf === undefined ? [] : [{ word: 'flows', title: `the cashflows of ${flowsOf}`, grid: true, go: () => focused(flowsGrid, 'The cashflows') }]),
+    ];
+  };
+  const placesNow = useRef(places);
+  placesNow.current = places;
+  useEffect(() => {
+    registerPlaces(panelId, () => placesNow.current());
+    registerCommandDoor(panelId, door);
+    return () => { registerPlaces(panelId, undefined); registerCommandDoor(panelId, undefined); };
+  }, [panelId, door]);
 
   const changeValuationDate = async (date: string) => {
     setBusy('Moving the valuation date');
@@ -259,35 +346,6 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
     }
   };
 
-  // The page's commands run the same functions as its buttons.
-  const current = { price, startLive, stopLive: () => stopLive(subscription), live: subscription !== undefined, capture, queue, products: products.data ?? [] };
-  const commands = useRef(current);
-  commands.current = current;
-  useEffect(() => {
-    registerRatesCommands(panelId, {
-      price: () => void commands.current.price(),
-      startLive: () => {
-        if (commands.current.live) workspace.notify('done', 'Live is running already.');
-        else void commands.current.startLive();
-      },
-      stopLive: () => {
-        if (!commands.current.live) workspace.notify('done', 'Live is not running.');
-        else void commands.current.stopLive();
-      },
-      capture: () => void commands.current.capture(),
-      addLine: (product) => void commands.current.queue.push({ kind: 'add', product }),
-      newLine: (product, terms) => void commands.current.queue.push({ kind: 'new', product, terms }),
-      setDefaults: (defaults) => {
-        const shown = queryClient.getQueryData<RatesWorkspaceView>(['rates', workspaceId])?.defaults;
-        if (shown === undefined) { workspace.notify('refused', 'The workspace has not loaded; its defaults were not set.'); return; }
-        void commands.current.queue.push({ kind: 'defaults', defaults: { ...shown, ...defaults } });
-      },
-      products: () => commands.current.products,
-    });
-    registerGridFocus(panelId, () => grid.current?.focus());
-    return () => { registerRatesCommands(panelId, undefined); registerGridFocus(panelId, undefined); };
-  }, [panelId, workspace, queryClient, workspaceId]);
-
   if (view.isPending) return <Text c="dimmed">Loading workspace…</Text>;
   if (view.isError) return <Alert color="red" title="Workspace">{view.error.message}</Alert>;
   const ws = view.data;
@@ -297,19 +355,21 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
   const header = (headerTiers(opened) + 1) * 28;
   const height = 8 + header + Math.min(Math.max(ws.lines.length, 3) * 28, 356);
 
-  return (
-    <Stack gap="sm">
+  const page = (
+    // A grid entered is the screen only where it says so below, after this: a grid of no table leaves the line none.
+    <Stack gap="sm" onFocusCapture={(event) => { if (event.target instanceof Element && event.target.closest('.ex-grid') !== null) screen.current = undefined; }}>
       <Group gap="sm" wrap="wrap" align="flex-end">
         <ValuationDate value={ws.valuationDate} disabled={busy !== undefined} onCommit={(d) => void changeValuationDate(d)} />
-        <Button size="xs" variant="default" onClick={() => void queue.push({ kind: 'add', product: 'irs' })}>Add IRS</Button>
-        <Button size="xs" variant="default" onClick={() => void queue.push({ kind: 'add', product: 'ccs' })}>Add CCS</Button>
+        {/* Each button runs the line a user types (ADR-0016 note 36), so the two cannot differ. */}
+        <Button size="xs" variant="default" onClick={() => void enter('add line irs')}>Add IRS</Button>
+        <Button size="xs" variant="default" onClick={() => void enter('add line ccs')}>Add CCS</Button>
         <Button size="xs" onClick={() => void price()} loading={busy === 'Pricing'} disabled={busy !== undefined && busy !== 'Pricing'}>Price</Button>
         <Button size="xs" color={subscription === undefined ? 'teal' : 'red'} variant="light" data-testid="live-toggle"
-          onClick={() => void (subscription === undefined ? startLive() : stopLive(subscription))}>
+          onClick={() => void enter(subscription === undefined ? 'live start' : 'live stop')}>
           {subscription !== undefined ? 'Stop live' : ws.live !== undefined && !ws.live.running ? 'Resume live' : 'Start live'}
         </Button>
         <Button size="xs" variant="default" disabled={subscription === undefined || frame === undefined} loading={busy === 'Capturing'}
-          onClick={() => void capture()}>Capture</Button>
+          onClick={() => { if (frame !== undefined) void capture(frame); }}>Capture</Button>
       </Group>
       <Group gap="xs" wrap="wrap">
         <Badge variant="light" color="gray" data-testid="market">
@@ -331,7 +391,7 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
       </Group>
       <HeldEdits conflicts={ws.conflicts} lost={ws.lost} resolve={(held, resolution) => void queue.push({ kind: 'resolve', held, resolution })} />
       <ResultStrip row={(focusLine === undefined ? undefined : shownRows.get(focusLine)) ?? (shownRows.size === 1 ? [...shownRows.values()][0] : undefined)} />
-      <div aria-label="Lines">
+      <div aria-label="Lines" onFocusCapture={() => { screen.current = lineScreen; }}>
         <QubeGrid<LineRow> ref={grid} columns={columns} onColumnWidthChanged={onColumnWidthChanged} headerGroups={groups} source={source}
           onEdit={onEdit} onAction={onAction}
           cellState={lineCellState} cellMessage={lineCellMessage} density="compact" viewportWidth="stretch" viewportHeight={height}
@@ -339,12 +399,13 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
           hideColumnMenu onCellDoubleClick={onCellDoubleClick} contextCommands={contextCommands} commandLabel={commandLabel} />
       </div>
       {detail !== undefined && ws.lines.some((l) => l.line === detail) && (
-        <Cashflows panelId={panelId} workspaceId={workspaceId} line={detail} revision={ws.revision} api={api} onClose={() => setDetail(undefined)}
+        <Cashflows panelId={panelId} workspaceId={workspaceId} line={detail} revision={ws.revision} api={api} gridRef={flowsGrid} onClose={() => setDetail(undefined)}
           edit={(period, field, value) => void queue.push({ kind: 'cashflow', line: detail, period, field, value })} />
       )}
       {ws.runs.length > 0 && <Text size="xs" c="dimmed">Runs: {ws.runs.map((r) => `${r.runId.slice(-8)} (r${r.revision})`).join(', ')}</Text>}
     </Stack>
   );
+  return <GridUndoContext.Provider value={gridUndo}>{page}</GridUndoContext.Provider>;
 }
 
 /**
@@ -376,16 +437,15 @@ function idleText(span: string): string {
   return seconds % 60 === 0 ? `${seconds / 60} min` : `${seconds} s`;
 }
 
-const targetsOf = (error: unknown) =>
-  error instanceof ApiError && error.envelope.issues.length > 0 ? ` (${error.envelope.issues.map((i) => i.path).join(', ')})` : '';
-
 /** A line's cashflows: its generated periods with the user's edits on them, and its notional exchanges. */
-function Cashflows({ panelId, workspaceId, line, revision, api, edit, onClose }: {
+function Cashflows({ panelId, workspaceId, line, revision, api, gridRef, edit, onClose }: {
   readonly panelId: string;
   readonly workspaceId: string;
   readonly line: string;
   readonly revision: number;
   readonly api: RatesApi;
+  /** The grid's handle, by which the page puts the keyboard in it (`go flows`). */
+  readonly gridRef: RefObject<ExGridApi<PeriodView> | null>;
   readonly edit: (period: string, field: string, value: unknown) => void;
   readonly onClose: () => void;
 }) {
@@ -416,7 +476,7 @@ function Cashflows({ panelId, workspaceId, line, revision, api, edit, onClose }:
         <Text size="xs" c="dimmed">This line generates no schedule until its terms resolve; see its issues.</Text>
       )}
       <div aria-label={`Cashflows of ${line}`}>
-        <QubeGrid<PeriodView> columns={widths.columns} onColumnWidthChanged={widths.onColumnWidthChanged} source={source} onEdit={onEdit}
+        <QubeGrid<PeriodView> ref={gridRef} columns={widths.columns} onColumnWidthChanged={widths.onColumnWidthChanged} source={source} onEdit={onEdit}
           cellState={periodCellState} cellMessage={cellMessage}
           density="compact" viewportWidth="stretch" viewportHeight={Math.min(64 + (flows.data?.periods.length ?? 3) * 28, 320)} locale="en-US" />
       </div>

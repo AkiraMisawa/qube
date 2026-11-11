@@ -201,6 +201,7 @@ public sealed class RatesFrameCapture(Func<RatesWorkspaces> workspaces) : ICapab
                 // The revision the workspace holds, which a capture leaves as it is; the frame's own is in the sentence.
                 ["workspaceId"] = id, ["revision"] = service.Revision(id, caller.UserId), ["runId"] = run.RunId,
                 ["said"] = $"Captured the frame of market {seen.MarketSnapshotId} at revision {seen.InputRevision} as Run {run.RunId}.",
+                ["marketSnapshotId"] = seen.MarketSnapshotId,
             };
         });
 
@@ -459,7 +460,8 @@ public sealed class RatesCommandsModule(Func<RatesWorkspaces> workspaces) : IQub
             ["revision"] = Integer("Revision", "The revision the workspace holds; a capture leaves it as it is."),
             ["said"] = Text("What was captured, as the command line says it"),
             ["runId"] = Text("Run", "The Run that holds the frame."),
-        }, "workspaceId", "revision", "said", "runId");
+            ["marketSnapshotId"] = Text("Market snapshot of the frame captured"),
+        }, "workspaceId", "revision", "said", "runId", "marketSnapshotId");
         Contract(RatesCommandContracts.LineAddRequest, "Add an empty line", new JsonObject
         {
             ["workspaceId"] = Named("Workspace"),
