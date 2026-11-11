@@ -245,6 +245,12 @@ public static class TableWords
     /// <summary>Items as a sentence offers them: <c>a, b or c</c>.</summary>
     public static string Or(IEnumerable<string> items) => Joined(items, "or");
 
+    /// <summary>A count with what it counts, as a sentence says it: <c>1 case</c>, <c>3 cases</c>.</summary>
+    public static string Counted(int count, string noun) => $"{count} {noun}{(count == 1 ? "" : "s")}";
+
+    /// <summary>Names as a reading lists them: the first three, then how many more, since a list may hold dozens.</summary>
+    public static string Some(IReadOnlyList<string> names) => names.Count <= 3 ? And(names) : $"{string.Join(", ", names.Take(3))} and {names.Count - 3} more";
+
     static string Joined(IEnumerable<string> items, string last)
     {
         var list = items.ToList();

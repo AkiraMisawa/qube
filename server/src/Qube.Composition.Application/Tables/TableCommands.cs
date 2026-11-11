@@ -495,8 +495,8 @@ public sealed class EntitySet(Func<TableService> tables) : ICapabilityHandler, I
     public LineCompletions Complete(LineContext line) => tables().Complete(line, CommandArgumentKind.Assignments);
 
     public Task<IReadOnlyDictionary<string, JsonNode?>> InvokeAsync(CapabilityInvocation invocation, CancellationToken cancellationToken) =>
-        TableContracts.Answer(invocation, (request, caller) => tables().Set(TableContracts.Text(request, "workspaceId"), request["revision"]?.GetValue<long>(), caller,
-            request["table"]?.GetValue<string>(), request["rows"]?.GetValue<string>(), TableContracts.Text(request, "set")));
+        TableContracts.Answer(invocation, (request, caller) => tables().Set(CommandRequests.Text(request, "workspaceId"), request["revision"]?.GetValue<long>(), caller,
+            request["table"]?.GetValue<string>(), request["rows"]?.GetValue<string>(), CommandRequests.Text(request, "set")));
 }
 
 /// <summary><c>entity.reset</c> (ADR-0016 §3): removes the edits on rows of a registered table, of one field or of every field.</summary>
@@ -515,7 +515,7 @@ public sealed class EntityReset(Func<TableService> tables) : ICapabilityHandler,
     public LineCompletions Complete(LineContext line) => tables().Complete(line, CommandArgumentKind.Field);
 
     public Task<IReadOnlyDictionary<string, JsonNode?>> InvokeAsync(CapabilityInvocation invocation, CancellationToken cancellationToken) =>
-        TableContracts.Answer(invocation, (request, caller) => tables().Reset(TableContracts.Text(request, "workspaceId"), request["revision"]?.GetValue<long>(), caller,
+        TableContracts.Answer(invocation, (request, caller) => tables().Reset(CommandRequests.Text(request, "workspaceId"), request["revision"]?.GetValue<long>(), caller,
             request["table"]?.GetValue<string>(), request["rows"]?.GetValue<string>(), request["field"]?.GetValue<string>()));
 }
 
@@ -535,7 +535,7 @@ public sealed class EntityRemove(Func<TableService> tables) : ICapabilityHandler
     public LineCompletions Complete(LineContext line) => tables().Complete(line, null);
 
     public Task<IReadOnlyDictionary<string, JsonNode?>> InvokeAsync(CapabilityInvocation invocation, CancellationToken cancellationToken) =>
-        TableContracts.Answer(invocation, (request, caller) => tables().Remove(TableContracts.Text(request, "workspaceId"), request["revision"]?.GetValue<long>(), caller,
+        TableContracts.Answer(invocation, (request, caller) => tables().Remove(CommandRequests.Text(request, "workspaceId"), request["revision"]?.GetValue<long>(), caller,
             request["table"]?.GetValue<string>(), request["rows"]?.GetValue<string>()));
 }
 
@@ -547,9 +547,6 @@ public static class TableContracts
     public const string ResetRequest = "entity.reset-request";
     public const string RemoveRequest = "entity.remove-request";
     public const string Edited = "entity.rows-edited";
-
-    internal static string Text(JsonNode request, string name) =>
-        request[name]?.GetValue<string>() ?? throw new CapabilityFailure("InvalidInput", $"The request has no {name}.");
 
     internal static Task<IReadOnlyDictionary<string, JsonNode?>> Answer(CapabilityInvocation invocation, Func<JsonNode, Caller, TableResult> act)
     {

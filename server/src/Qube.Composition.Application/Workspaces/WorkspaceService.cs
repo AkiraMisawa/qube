@@ -66,6 +66,13 @@ public sealed class WorkspaceRefused(string code, string message, IReadOnlyList<
 {
     public string Code { get; } = code;
     public IReadOnlyList<EditTarget> Targets { get; } = targets ?? [];
+
+    /// <summary>
+    /// The refusal with the edits it waits on said in its sentence, where it names any: a line and a notice show a
+    /// sentence alone, so the targets would otherwise reach nobody (ADR-0016 note 33).
+    /// </summary>
+    public WorkspaceRefused Named() =>
+        Targets.Count == 0 ? this : new(Code, $"{Message.TrimEnd('.')}: {string.Join(", ", Targets.Select(t => $"{t.Entity} {t.Field}"))}.", Targets);
 }
 
 /// <summary>
@@ -73,9 +80,11 @@ public sealed class WorkspaceRefused(string code, string message, IReadOnlyList<
 /// workspace has moved since, so an outcome never depends on timing. Each accepted command is written to the
 /// store before it is answered (ADR-0003 §6); states are cached in memory once loaded.
 /// </summary>
-public sealed class WorkspaceService(IReadOnlyDictionary<string, IEditRules> rules, TimeProvider clock, IWorkspaceStore? store = null)
+public sealed class WorkspaceService(IReadOnlyDictionary<string, IEditRules> rules, TimeProvider clock, IWorkspaceStore? store = null,
+    IEnumerable<IWorkspaceObserver>? observers = null)
 {
     readonly IWorkspaceStore store = store ?? new InMemoryWorkspaceStore();
+    readonly ILookup<string, IWorkspaceObserver> observers = (observers ?? []).ToLookup(o => o.App);
     readonly Dictionary<string, WorkspaceState> workspaces = [];
     readonly Lock gate = new();
 
@@ -161,6 +170,7 @@ public sealed class WorkspaceService(IReadOnlyDictionary<string, IEditRules> rul
             WorkspaceChange.Reset reset => ResetOn(current, user, reset.Target, origin),
             WorkspaceChange.Create create => CreateOn(current, user, create.Scope, create.Entity, create.Fields, origin, null),
             WorkspaceChange.Remove remove => RemoveOn(current, user, remove.Entity, origin, remove.Layer),
+            WorkspaceChange.Context context => ReacquireOn(current, user, context.Value, current.Source, origin).Item1,
             _ => throw new InvalidOperationException($"No batch change {change.GetType().Name}."),
         });
 
@@ -466,17 +476,20 @@ public sealed class WorkspaceService(IReadOnlyDictionary<string, IEditRules> rul
 
     WorkspaceState Apply(string workspaceId, long expectedRevision, Func<WorkspaceState, (WorkspaceState State, CommandStamp Stamp)> change)
     {
+        WorkspaceState next;
         lock (gate)
         {
             var state = Get(workspaceId);
             if (state.Revision != expectedRevision)
                 throw new WorkspaceRefused("RevisionMoved", $"The workspace is at revision {state.Revision}, not {expectedRevision}.");
             var (changed, stamp) = change(state);
-            var next = Stamped(state, Rederive(changed), stamp);
+            next = Stamped(state, Rederive(changed), stamp);
             store.Commit(state, next, clock.GetUtcNow());
             workspaces[workspaceId] = next;
-            return next;
         }
+        // Outside the lock (ADR-0016 note 35): an observer's work holds up no other workspace's command.
+        foreach (var observer in observers[next.App]) observer.Accepted(next);
+        return next;
     }
 
     /// <summary>

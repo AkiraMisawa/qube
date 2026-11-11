@@ -57,7 +57,7 @@ public class RatesLiveServiceTests
         await service.PublishAsync(Snapshot(1).Update);
         var first = await provider.NextCall();
 
-        service.InputChanged("akira", id, Input(2));
+        service.WorkspaceChanged("ws-1", Input(2));
         first.Result.SetResult(HeldProvider.Rows(first.Input));
         var second = await provider.NextCall();
         second.Result.SetResult(HeldProvider.Rows(second.Input));

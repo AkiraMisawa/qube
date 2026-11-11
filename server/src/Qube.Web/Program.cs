@@ -66,6 +66,8 @@ builder.Services.AddSingleton<IQubeModule>(sp => new WorkspaceCommandsModule(sp.
 // Tables are descriptions from catalogs too (ADR-0016 §1); the kernel's entity.set, entity.reset and entity.remove read
 // them. The pricer registers its trades, CSAs, netting set, credit, CDS, workspace and each module's settings.
 builder.Services.AddSingleton<ITableCatalog>(sp => new PortfolioTables(sp.GetRequiredService<MeasureRegister>()));
+// Rates registers its lines and its workspace's own settings, which hold the defaults of new lines (ADR-0016 note 34).
+builder.Services.AddSingleton<ITableCatalog>(new RatesTables(conventions));
 builder.Services.AddSingleton<TableRegister>();
 // Short forms are a module's words for a line of a kernel verb (ADR-0016 note 29): the pricer's before, after and currency.
 builder.Services.AddSingleton<IShortFormCatalog, PortfolioShortForms>();
@@ -97,7 +99,10 @@ builder.Services.AddSingleton(sp => new WorkspaceService(
     {
         [PortfolioEditRules.App] = new PortfolioEditRules(sp.GetRequiredService<MeasureRegister>()), [RatesEditRules.App] = new RatesEditRules(conventions),
     },
-    sp.GetRequiredService<TimeProvider>(), sp.GetRequiredService<IWorkspaceStore>()));
+    sp.GetRequiredService<TimeProvider>(), sp.GetRequiredService<IWorkspaceStore>(), sp.GetServices<IWorkspaceObserver>()));
+// A workspace's observers are told of each accepted command (ADR-0016 note 35): Rates keeps its live subscriptions on
+// the revision the last one left, whoever wrote it.
+builder.Services.AddSingleton<IWorkspaceObserver>(sp => new RatesLiveObserver(sp.GetRequiredService<RatesLiveService>(), conventions, sp.GetRequiredService<IRatesPricingProvider>()));
 // New trades' PV01 (ADR-0010 §6) comes from the simulated engine, which answers after a configured delay as an engine
 // would; there is no real one to fall back from.
 builder.Services.AddSingleton(sp => Pv01Provider.Simulated(TimeSpan.FromMilliseconds(builder.Configuration.GetValue("Xva:Pv01DelayMilliseconds", 400)),
@@ -156,7 +161,6 @@ app.Services.GetRequiredService<CommandLines>();
 app.MapQubeApi();
 app.MapXvaApi();
 app.MapRatesApi();
-app.MapProductsApi();
 app.MapAgentApi();
 app.MapClientTelemetry();
 app.UseDefaultFiles();

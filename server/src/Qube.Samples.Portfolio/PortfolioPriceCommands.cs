@@ -25,20 +25,13 @@ public static class PortfolioPriceContracts
     /// </summary>
     public static string WouldPrice(PricePlan plan)
     {
-        var cases = PortfolioCommand.Counted(plan.Cases, "case");
-        var on = plan.Markets == 1 ? cases : $"{cases} on {plan.Markets} markets (the base market and {PortfolioCommand.Counted(plan.Markets - 1, "scenario")})";
+        var cases = TableWords.Counted(plan.Cases, "case");
+        var on = plan.Markets == 1 ? cases : $"{cases} on {plan.Markets} markets (the base market and {TableWords.Counted(plan.Markets - 1, "scenario")})";
         var side = plan.Before && !plan.After ? ", Before only" : !plan.Before && plan.After ? ", After only" : "";
         var refused = plan.Refused.Count == 0 ? ""
-            : $" {PortfolioCommand.Counted(plan.Refused.Count, "figure")} of it would be refused, first {plan.Refused[0].Measure} of {plan.Refused[0].Case}: {plan.Refused[0].Message}";
+            : $" {TableWords.Counted(plan.Refused.Count, "figure")} of it would be refused, first {plan.Refused[0].Measure} of {plan.Refused[0].Case}: {plan.Refused[0].Message}";
         return $"Prices {TableWords.And(plan.Measures)} for {on}{side}, as one Run.{refused}";
     }
-
-    /// <summary>
-    /// A refusal that names the edits it waits on, with them said in its sentence: a line and a notice show a sentence
-    /// alone, so the targets would otherwise reach nobody.
-    /// </summary>
-    public static WorkspaceRefused Naming(WorkspaceRefused refused) =>
-        new(refused.Code, $"{refused.Message.TrimEnd('.')}: {string.Join(", ", refused.Targets.Select(t => $"{t.Entity} {t.Field}"))}.", refused.Targets);
 
     /// <summary>What <c>refresh</c> says back: the edits to the portfolio's data that carried, and those held for the user.</summary>
     public static string Carried(CarrySummary carried) => $"Refreshed: {carried.Carried} edit(s) carried, {carried.Conflicted} in conflict, {carried.Lost} lost.";
@@ -57,7 +50,7 @@ public static class PortfolioPriceContracts
                 ["required"] = new JsonArray([.. required.Select(r => JsonValue.Create(r))]),
                 ["additionalProperties"] = false,
             }));
-        Contract(PriceRequest, "Price the workspace", new JsonObject { ["workspaceId"] = PortfolioCommand.WorkspaceField(), ["revision"] = PortfolioCommand.RevisionField() }, "workspaceId");
+        Contract(PriceRequest, "Price the workspace", new JsonObject { ["workspaceId"] = PortfolioCommand.WorkspaceField(), ["revision"] = CommandRequests.RevisionField() }, "workspaceId");
         Contract(PriceAccepted, "Price accepted", new JsonObject
         {
             ["workspaceId"] = new JsonObject { ["type"] = "string", ["title"] = "Workspace" },
@@ -65,7 +58,7 @@ public static class PortfolioPriceContracts
             ["said"] = new JsonObject { ["type"] = "string", ["title"] = "What was accepted, as the command line says it" },
             ["runId"] = new JsonObject { ["type"] = "string", ["title"] = "Run", ["description"] = "The Run that prices it; its results are read from the Run once it completes." },
         }, "workspaceId", "revision", "said", "runId");
-        Contract(RefreshRequest, "Read the source again", new JsonObject { ["workspaceId"] = PortfolioCommand.WorkspaceField(), ["revision"] = PortfolioCommand.RevisionField() }, "workspaceId");
+        Contract(RefreshRequest, "Read the source again", new JsonObject { ["workspaceId"] = PortfolioCommand.WorkspaceField(), ["revision"] = CommandRequests.RevisionField() }, "workspaceId");
         Contract(Refreshed, "Workspace refreshed", new JsonObject
         {
             ["workspaceId"] = new JsonObject { ["type"] = "string", ["title"] = "Workspace" },
@@ -83,7 +76,7 @@ public static class PortfolioPriceContracts
         Contract(RetryRequest, "Ask again for failed results", new JsonObject
         {
             ["workspaceId"] = PortfolioCommand.WorkspaceField(),
-            ["revision"] = PortfolioCommand.RevisionField(),
+            ["revision"] = CommandRequests.RevisionField(),
             ["trade"] = new JsonObject { ["type"] = "string", ["minLength"] = 1, ["title"] = "Trade", ["description"] = "One trade's id, such as DRAFT-2. Left out, every trade." },
         }, "workspaceId");
     }
@@ -106,41 +99,17 @@ public sealed class PortfolioPriceCommand(Func<PortfolioWorkspaces> workspaces) 
 
     public LineRead Read(LineContext line) =>
         PortfolioCommand.Read(line, [], PortfolioPriceContracts.WouldPrice(
-            Naming(() => workspaces().PlanPrice(line.State.WorkspaceId, line.State.Revision, line.Caller.UserId))));
+            CommandRequests.Naming(() => workspaces().PlanPrice(line.State.WorkspaceId, line.State.Revision, line.Caller.UserId))));
 
     public LineCompletions Complete(LineContext line) => LineCompletions.None;
 
     public Task<IReadOnlyDictionary<string, JsonNode?>> InvokeAsync(CapabilityInvocation invocation, CancellationToken cancellationToken) =>
         PortfolioCommand.Asked(invocation, workspaces, (service, request, caller, revision) =>
         {
-            var key = invocation.IdempotencyKey
-                ?? throw new CapabilityFailure("NoIdempotencyKey", "Price is one business submission: it is invoked with a key, through the command gateway.");
-            var id = PortfolioCommand.Text(request, "workspaceId");
-            return Naming(() => service.Price(id, revision, caller.UserId, key, caller.Origin)) switch
-            {
-                SubmissionResult.Accepted accepted => new JsonObject
-                {
-                    ["workspaceId"] = id, ["revision"] = revision, ["said"] = $"Price was accepted as Run {accepted.Run.RunId}.", ["runId"] = accepted.Run.RunId,
-                },
-                // A line and a notice show a sentence alone, so the sentence says each issue the Run service found.
-                SubmissionResult.Rejected rejected => throw new CapabilityFailure(rejected.Code,
-                    rejected.Issues.Count == 0 ? "The Run was not accepted."
-                        : $"The Run was not accepted: {string.Join("; ", rejected.Issues.Select(i => $"{i.Path}: {i.Message}"))}", rejected.Issues),
-                _ => throw new InvalidOperationException("Unhandled submission result."),
-            };
+            var id = CommandRequests.Text(request, "workspaceId");
+            var run = CommandRequests.Accepted(CommandRequests.Naming(() => service.Price(id, revision, caller.UserId, CommandRequests.Key(invocation, "Price"), caller.Origin)));
+            return new JsonObject { ["workspaceId"] = id, ["revision"] = revision, ["said"] = $"Price was accepted as Run {run.RunId}.", ["runId"] = run.RunId };
         });
-
-    static T Naming<T>(Func<T> act)
-    {
-        try
-        {
-            return act();
-        }
-        catch (WorkspaceRefused refused) when (refused.Targets.Count > 0)
-        {
-            throw PortfolioPriceContracts.Naming(refused);
-        }
-    }
 }
 
 /// <summary>
@@ -167,7 +136,7 @@ public sealed class PortfolioRefresh(Func<PortfolioWorkspaces> workspaces) : ICa
     public Task<IReadOnlyDictionary<string, JsonNode?>> InvokeAsync(CapabilityInvocation invocation, CancellationToken cancellationToken) =>
         PortfolioCommand.Asked(invocation, workspaces, (service, request, caller, revision) =>
         {
-            var (state, carried) = service.Refresh(PortfolioCommand.Text(request, "workspaceId"), revision, caller.UserId, caller.Origin);
+            var (state, carried) = service.Refresh(CommandRequests.Text(request, "workspaceId"), revision, caller.UserId, caller.Origin);
             return new JsonObject
             {
                 ["workspaceId"] = state.WorkspaceId, ["revision"] = state.Revision, ["said"] = PortfolioPriceContracts.Carried(carried),
@@ -201,7 +170,7 @@ public sealed class PortfolioPv01Retry(Func<PortfolioWorkspaces> workspaces) : I
         var typed = words.Count == 0 ? [] : new JsonObject { ["trade"] = Named(line.State, words[0].Word) };
         return PortfolioCommand.Read(line, typed, failed.Count == 0
             ? $"Nothing would be asked again: no result has failed{(words.Count == 0 ? "" : $" on {typed["trade"]!.GetValue<string>()}")}."
-            : $"Asks again for the results that failed on {PortfolioCommand.Counted(failed.Count, "trade")}: {PortfolioScenarioCommands.Some(failed)}.");
+            : $"Asks again for the results that failed on {TableWords.Counted(failed.Count, "trade")}: {TableWords.Some(failed)}.");
     }
 
     static string Named(WorkspaceState state, string typed) =>
@@ -212,7 +181,7 @@ public sealed class PortfolioPv01Retry(Func<PortfolioWorkspaces> workspaces) : I
     public Task<IReadOnlyDictionary<string, JsonNode?>> InvokeAsync(CapabilityInvocation invocation, CancellationToken cancellationToken) =>
         PortfolioCommand.Answer(invocation, workspaces, (service, request, caller, revision) =>
         {
-            var id = PortfolioCommand.Text(request, "workspaceId");
-            return (id, revision, null, PortfolioPriceContracts.Retried(service.Retry(id, revision, caller.UserId, PortfolioCommand.Optional(request, "trade"))));
+            var id = CommandRequests.Text(request, "workspaceId");
+            return (id, revision, null, PortfolioPriceContracts.Retried(service.Retry(id, revision, caller.UserId, CommandRequests.Optional(request, "trade"))));
         });
 }

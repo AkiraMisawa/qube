@@ -1,7 +1,7 @@
 import { ApiError, type Api, type CommandAnswer } from '../api';
 import type { CapabilityDescriptor, LinePlace, LinePreview, LineView, ShortFormDescriptor, ViewVerbDescriptor } from '../contracts';
 import { readLine, signature, type Command, type CommandDoor } from './commands';
-import { argumentShown, commandDoor, lineAsked, previewShown, screenShown, servedCommands, tableMenu, taken } from './served';
+import { argumentShown, argumentsDrawn, commandDoor, lineAsked, previewShown, screenShown, servedCommands, tableMenu, taken, type DoorPage } from './served';
 
 // ADR-0016 ยง4, ยง5 and its note 15 of 2026-11-11: the line builds a command the catalog says how to type from the
 // catalog, and reads nothing of its line itself. What it does with the server's answer is held here; the names are made up.
@@ -220,6 +220,21 @@ describe('what the line shows of the server\'s reading (ADR-0016 ยง5)', () => {
     expect(argumentShown({ name: 'rows', text: 'R1, R2, R3 and 2 more', from: 'context' })).toBe('rows from the screen: R1, R2, R3 and 2 more');
   });
 
+  it('ADR-0016 note 36: a command\'s arguments are its form\'s, each with what was read for it, then what the server read under names the form does not list', () => {
+    const form = [{ name: 'product', required: true }, { name: 'terms', required: false }];
+    const typed = (name: string, text: string) => ({ name, text, from: 'typed' as const });
+
+    // Not read yet, or refused: the form alone, as it is typed.
+    expect(argumentsDrawn(form, [])).toEqual([{ name: 'product', required: true }, { name: 'terms', required: false }]);
+    // A product's terms are read by their fields: they stand for the form's `terms`, which is not drawn as left out.
+    expect(argumentsDrawn(form, [typed('product', 'irs'), typed('end', '5y'), typed('notional', '10mm')])).toEqual([
+      { name: 'product', required: true, read: typed('product', 'irs') },
+      { name: 'end', required: false, read: typed('end', '5y') }, { name: 'notional', required: false, read: typed('notional', '10mm') },
+    ]);
+    // With nothing read beyond the form, an argument left out is still shown as one that may be typed.
+    expect(argumentsDrawn(form, [typed('product', 'irs')])).toEqual([{ name: 'product', required: true, read: typed('product', 'irs') }, { name: 'terms', required: false }]);
+  });
+
   it('the screen in the sentence of the latest reading that has one, else the opening\'s, with that reading\'s word on whether its order has moved (ADR-0016 note 19)', () => {
     const opening = read({ view: 'readings (manual), 2 selected, R1 ยท note' });
     const stale = read({ view: 'readings (manual), no longer in the order it was shown in', viewMoved: true });
@@ -247,7 +262,7 @@ describe('Enter on a line the server reads, through its page\'s door (ADR-0016 ย
   const moved = (at: number, read: number) => new ApiError(409, { code: 'RevisionMoved', message: `The workspace is at revision ${at}, not ${read}.`, issues: [] });
 
   /** A page that holds its workspace at `held`, with nothing of its own waiting, and reads it again at `stands`. */
-  const page = (held: number, stands: number = held, view?: () => LineView | undefined, place?: (place: LinePlace, view: LineView) => string | undefined) => {
+  const page = (held: number, stands: number = held, view?: () => LineView | undefined, place?: (place: LinePlace, view: LineView) => string | undefined, answered?: DoorPage['answered']) => {
     const turns = {
       revision: held,
       after: <T,>(run: (revision: number) => Promise<T>) => run(turns.revision),
@@ -263,7 +278,8 @@ describe('Enter on a line the server reads, through its page\'s door (ADR-0016 ย
       const seen = view();
       return seen === undefined ? undefined : { view: seen, put: (at: LinePlace) => (place === undefined ? 'This grid takes no place.' : place(at, seen)) };
     };
-    return { turns, notify, preview, command, reread, door: commandDoor({ workspaceId: 'ws-1', app: 'weather', catalog, api: { preview, command }, turns, reread, notify, ...(screen === undefined ? {} : { screen }) }) };
+    return { turns, notify, preview, command, reread, door: commandDoor({ workspaceId: 'ws-1', app: 'weather', catalog, api: { preview, command }, turns, reread, notify,
+      ...(screen === undefined ? {} : { screen }), ...(answered === undefined ? {} : { answered }) }) };
   };
 
   it('runs the reading the line showed, by its own inputs with the revision it was read at, and reads the line no second time', async () => {
@@ -451,5 +467,44 @@ describe('Enter on a line the server reads, through its page\'s door (ADR-0016 ย
     expect(await unread.door.invoke('workspace.undo', {}, told)).toBeUndefined();
     expect(told.mock.calls).toEqual([['Took back: set R1 checked on.']]);
     expect(unread.notify.mock.calls).toEqual([['refused', 'Took back: set R1 checked on. The page could not read the workspace again: The server did not answer.']]);
+  });
+
+  it('ADR-0016 note 36: a command that has one output answers there, as one that names its answer does, and the page is told what its own command answered', async () => {
+    const answered = vi.fn();
+    const p = page(7, 8, undefined, undefined, answered);
+    const made = { workspaceId: 'ws-1', revision: 8, said: 'Made R9: a reading.', reading: 'R9' };
+    p.command.mockResolvedValue({ capabilityId: 'entity.set', version: '1.0.0', outputs: { made } });
+
+    expect(await p.door.enter('set R1 checked on', reading(7))).toBeUndefined();
+
+    expect(p.notify.mock.calls).toEqual([['done', 'Made R9: a reading.']]);
+    expect(p.turns.revision).toBe(8);
+    expect(answered.mock.calls).toEqual([['entity.set', made]]);
+
+    // Told of an answer it named too, and of one the page could not read the workspace after: the command is done.
+    const unread = page(7, 7, undefined, undefined, answered);
+    unread.command.mockResolvedValue(done(8, 'Set R1 checked to on.'));
+    unread.reread.mockRejectedValue(new Error('The server did not answer.'));
+    expect(await unread.door.enter('set R1 checked on', reading(7))).toBeUndefined();
+    expect(answered.mock.calls[1]).toEqual(['entity.set', { workspaceId: 'ws-1', revision: 8, said: 'Set R1 checked to on.' }]);
+  });
+
+  it('ADR-0016 note 36: an answer the door cannot read as one is said, never read as another: several outputs with none named answer, or no revision in it', async () => {
+    const answered = vi.fn();
+    const several = page(7, 8, undefined, undefined, answered);
+    several.command.mockResolvedValue({ capabilityId: 'entity.set', version: '1.0.0', outputs: { made: { workspaceId: 'ws-1', revision: 8, said: 'Made R9.' }, log: { lines: 1 } } });
+    expect(await several.door.enter('set R1 checked on', reading(7))).toEqual({ sentence: 'entity.set answered made and log, and none is its answer.' });
+
+    const bare = page(7, 8, undefined, undefined, answered);
+    bare.command.mockResolvedValue({ capabilityId: 'entity.set', version: '1.0.0', outputs: { made: { reading: 'R9' } } });
+    expect(await bare.door.enter('set R1 checked on', reading(7))).toEqual({ sentence: 'entity.set answered without the revision it left the workspace at and what it did.' });
+
+    expect(answered).not.toHaveBeenCalled();
+    expect(several.notify).not.toHaveBeenCalled();
+    // A refusal answers nothing for the page to be told of.
+    const refused = page(9, 10, undefined, undefined, answered);
+    refused.command.mockRejectedValue(moved(10, 9));
+    await refused.door.enter('set R1 checked on', reading(9));
+    expect(answered).not.toHaveBeenCalled();
   });
 });

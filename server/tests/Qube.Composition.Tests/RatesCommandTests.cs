@@ -135,7 +135,10 @@ public class RatesCommandTests : IClassFixture<QubeFactory>
     {
         var id = await NewWorkspace();
         await Ok(await Create(id, TenYearSwap));
-        var page = (await Ok(await client.PostAsync($"/api/rates/workspaces/{id}/live", null)))["subscriptionId"]!.GetValue<string>();
+        // The page starts it through its own door of the gateway.
+        var page = (await Ok(await client.PostAsJsonAsync("/api/commands/rates.live.start/1.0.0",
+            new { inputs = new JsonObject { ["workspace"] = new JsonObject { ["workspaceId"] = id } }, idempotencyKey = Guid.NewGuid().ToString() })))
+            ["outputs"]!["subscription"]!["subscriptionId"]!.GetValue<string>();
 
         var started = await Ok(await Command("rates.live.start", "workspace", new JsonObject { ["workspaceId"] = id }));
         Assert.Equal(page, started["outputs"]!["subscription"]!["subscriptionId"]!.GetValue<string>());

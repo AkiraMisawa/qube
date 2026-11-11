@@ -1,4 +1,4 @@
-import { CommandRefused, assertDistinct, completionsOf, drawn, drawnSections, execute, finish, listed, placeholder, rankCommands, readLine, take, type Command, type ListSection } from './commands';
+import { CommandRefused, assertDistinct, completionsOf, drawn, drawnSections, execute, finish, listed, placeholder, rankCommands, readLine, take, type Command, type CommandDoor, type ListSection } from './commands';
 
 const command = (words: string, extra: Partial<Command> = {}): Command => ({ id: words, words, title: words, group: 'G', run: vi.fn(), ...extra });
 
@@ -119,6 +119,19 @@ describe('completing arguments one slot at a time (ADR-0006 §4)', () => {
     const reading = readLine('new irs ', [irs]);
     expect(reading.kind === 'arguments' && reading.slot?.name).toBe('currency');
     expect(completionsOf(reading).map((v) => v.value)).toEqual(['JPY', 'USD']);
+  });
+
+  it('ADR-0016 note 36: a line that is exactly a command\'s words is that command being chosen, though a shorter command\'s words begin it', () => {
+    // `new` is the server's to read, and `new rates` opens a dialog: the words typed whole are the dialog's command.
+    const made = command('new', { served: { arguments: [{ name: 'product', required: true }], door: {} as CommandDoor } });
+    const rates = command('new rates');
+
+    expect(readLine('new rates', [made, rates])).toEqual({ kind: 'choosing', query: 'new rates' });
+    expect(rankCommands('new rates', [made, rates])).toEqual([rates]);
+    // Before its words are whole the line is the shorter command's, and with a space after them it is the longer's.
+    expect(readLine('new rat', [made, rates])).toMatchObject({ kind: 'arguments', command: { id: 'new' } });
+    expect(readLine('new rates ', [made, rates])).toMatchObject({ kind: 'arguments', command: { id: 'new rates' } });
+    expect(readLine('new irs 5y', [made, rates])).toMatchObject({ kind: 'arguments', command: { id: 'new' } });
   });
 
   it('offers values that follow from the arguments before them', () => {

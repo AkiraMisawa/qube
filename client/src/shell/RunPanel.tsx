@@ -6,6 +6,7 @@ import { ViewRenderer } from '../platform/views/ViewRenderer';
 import { useRun, useWorkspace, useWorkspaceContext } from '../platform/workspace/WorkspaceProvider';
 import { keyOf, type Panel } from '../platform/workspace/workspaceStore';
 import { registerGridFocus } from './places';
+import { factsSaid } from './runFacts';
 
 const statusColour: Record<RunRecord['status'], string> = {
   running: 'blue',
@@ -34,9 +35,7 @@ export function RunPanel({ panel }: { readonly panel: Extract<Panel, { kind: 'ru
         <Badge color={statusColour[record.status]} variant="light" data-testid="run-status">{record.status}</Badge>
         <Text size="xs" c="dimmed" ff="monospace">{record.runId}</Text>
         <Text size="xs" c="dimmed">
-          {Object.entries(record.context).map(([k, v]) => `${k} ${String(v)}`).join(' · ')}
-          {' · '}
-          {Object.entries(record.input).map(([k, v]) => `${k} ${String(v)}`).join(' · ')}
+          {[...factsSaid(record.context), ...factsSaid(record.input)].join(' · ')}
         </Text>
       </Group>
       {failed.length > 0 && (

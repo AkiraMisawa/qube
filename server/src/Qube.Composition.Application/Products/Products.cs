@@ -16,6 +16,10 @@ namespace Qube.Composition.Application.Products;
 /// currencies). Unnamed fields that share a form and no sequence are ambiguous, and such a word is refused.
 /// </param>
 /// <param name="Choices">For <see cref="FieldForm.Choice"/>: each word the user may type, lower case, and the value it reads as.</param>
+/// <param name="Examples">
+/// Values a line offers for an unnamed field whose form names none, such as a product's usual periods (ADR-0016 note
+/// 36). They are offered, never filled in: a field left out is filled by a default with a source, or is missing.
+/// </param>
 public sealed record ProductField(
     string Name,
     string Title,
@@ -24,7 +28,12 @@ public sealed record ProductField(
     bool Unnamed = false,
     string? Sequence = null,
     IReadOnlyDictionary<string, string>? Choices = null,
-    IReadOnlyList<string>? Aliases = null);
+    IReadOnlyList<string>? Aliases = null,
+    IReadOnlyList<string>? Examples = null)
+{
+    /// <summary>How the field's values are read and written, as every reader of the field takes it.</summary>
+    public FieldSpec Spec => new(Form, Choices: Choices);
+}
 
 /// <summary>
 /// A product the workbench can create (ADR-0008 §7): data, from a catalog. <see cref="App"/> and <see cref="Scope"/>
@@ -72,6 +81,13 @@ public interface IProductRules
     /// </summary>
     (WorkspaceState State, string Entity) Create(string workspaceId, long? revision, string user, IReadOnlyDictionary<string, JsonNode?> terms,
         IReadOnlyDictionary<string, string> sources, RunOrigin origin);
+
+    /// <summary>
+    /// The entity <see cref="Create"/> would make of complete terms in a workspace as it stands, or its refusal with
+    /// every reason (<see cref="ProductTermsRefused"/>). It writes nothing: what a line says before Enter (ADR-0016
+    /// note 36).
+    /// </summary>
+    string WouldCreate(WorkspaceState workspace, IReadOnlyDictionary<string, JsonNode?> terms);
 }
 
 /// <summary>Terms that do not make the product: every reason, by field where there is one. Nothing was written.</summary>
@@ -169,6 +185,29 @@ public static class ProductReader
         return new(values, sources, missing, issues);
     }
 
+    /// <summary>
+    /// What the next word could be after the words done (ADR-0016 note 36), in the description's order: each value of
+    /// an unnamed choice not yet filled, as its form writes it, where a sequence offers its next field alone; an
+    /// unnamed field's examples; and <c>name=</c> for each field typed by its name. Each with the field's title.
+    /// </summary>
+    public static IReadOnlyList<(string Value, string Detail)> Offers(ProductDescriptor product, string done)
+    {
+        var filled = Read(product, done).Values;
+        var offers = new List<(string Value, string Detail)>();
+        void Offer(string value, ProductField field)
+        {
+            if (offers.All(o => o.Value != value)) offers.Add((value, field.Title));
+        }
+        foreach (var field in product.Fields.Where(f => !filled.ContainsKey(f.Name)))
+        {
+            if (!field.Unnamed) Offer($"{field.Name}=", field);
+            else if (field.Sequence is null || product.Fields.First(f => f.Sequence == field.Sequence && !filled.ContainsKey(f.Name)) == field)
+                foreach (var value in field.Choices is { } choices ? choices.Values.Distinct().Select(v => FieldForms.Write(field.Spec, v)) : field.Examples ?? [])
+                    Offer(value, field);
+        }
+        return offers;
+    }
+
     static string NameOf(ProductField f) => f.Name;
 
     public readonly record struct Parsed(bool Ok, JsonNode? Value, string? Message);
@@ -183,7 +222,7 @@ public static class ProductReader
     public static Parsed Parse(ProductField field, string text)
     {
         var t = text.Trim();
-        var read = FieldForms.Read(new FieldSpec(field.Form, Choices: field.Choices), t);
+        var read = FieldForms.Read(field.Spec, t);
         var amount = $"{field.Name} is an amount in millions (1000 is a billion), or with its scale: 3bn, 500mm.";
         if (read.Problem == FieldForms.Problem.None)
         {
@@ -235,11 +274,20 @@ public sealed class ProductService
     public IEnumerable<ProductDescriptor> Creatable(string? app = null) =>
         products.Values.Where(p => rules.ContainsKey(p.Id) && (app is null || p.App == app)).OrderBy(p => p.Id, StringComparer.Ordinal);
 
-    /// <summary>What the words would make in this workspace, without creating it: for the command line to show.</summary>
-    public ProductReading Preview(string workspaceId, string user, string productId, string text)
+    /// <summary>A described product by its id; one no catalog describes is refused.</summary>
+    public ProductDescriptor Of(string productId) =>
+        products.TryGetValue(productId, out var product) ? product : throw new WorkspaceRefused("UnknownProduct", $"No product {productId} is described.");
+
+    /// <summary>
+    /// What the words would make in a workspace as it stands (ADR-0016 note 36): the reading with the product's defaults
+    /// filled, and, where it is complete, the entity the product's rules would make of it. Nothing is written. Terms the
+    /// rules refuse are refused here as <see cref="Create"/> would refuse them (<see cref="ProductTermsRefused"/>).
+    /// </summary>
+    public (ProductReading Reading, string? Entity) Would(WorkspaceState state, string productId, string text)
     {
-        var (product, rule, state) = Resolve(workspaceId, user, productId);
-        return ProductReader.Complete(product, text, given => rule.Defaults(state, given));
+        var (product, rule) = Described(productId, state);
+        var reading = ProductReader.Complete(product, text, given => rule.Defaults(state, given));
+        return (reading, reading.Complete ? rule.WouldCreate(state, reading.Values) : null);
     }
 
     /// <summary>Creates one entity of the product from what was typed, at the revision the caller saw (the current one when null).</summary>
@@ -256,11 +304,19 @@ public sealed class ProductService
 
     (ProductDescriptor, IProductRules, WorkspaceState) Resolve(string workspaceId, string user, string productId)
     {
-        if (!products.TryGetValue(productId, out var product)) throw new WorkspaceRefused("UnknownProduct", $"No product {productId} is described.");
-        if (!rules.TryGetValue(productId, out var rule)) throw new WorkspaceRefused("NotCreatable", $"{product.Title} is described, but nothing here can create it yet.");
         var state = workspaces.Find(workspaceId);
-        if (state is null || state.App != product.App) throw new WorkspaceRefused("UnknownWorkspace", $"No {product.App} workspace {workspaceId}.");
+        var (product, rule) = Described(productId, state);
+        if (state is null) throw new WorkspaceRefused("UnknownWorkspace", $"No {product.App} workspace {workspaceId}.");
         if (state.Owner != user) throw new WorkspaceRefused("NotOwner", "This workspace belongs to another user.");
         return (product, rule, state);
+    }
+
+    // The product and its rules, for a workspace of its application where one is named.
+    (ProductDescriptor, IProductRules) Described(string productId, WorkspaceState? state)
+    {
+        var product = Of(productId);
+        if (!rules.TryGetValue(productId, out var rule)) throw new WorkspaceRefused("NotCreatable", $"{product.Title} is described, but nothing here can create it yet.");
+        if (state is not null && state.App != product.App) throw new WorkspaceRefused("UnknownWorkspace", $"No {product.App} workspace {state.WorkspaceId}.");
+        return (product, rule);
     }
 }

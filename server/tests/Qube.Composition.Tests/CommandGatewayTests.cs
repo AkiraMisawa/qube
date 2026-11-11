@@ -132,7 +132,8 @@ public class CommandGatewayTests(QubeFactory factory) : IClassFixture<QubeFactor
         var capabilities = catalog["capabilities"]!.AsArray();
         var typed = capabilities.Where(c => c!["command"] is not null).ToDictionary(c => c!["capabilityId"]!.GetValue<string>(), c => c!["command"]!.ToJsonString());
 
-        Assert.Equal(["entity.remove", "entity.reset", "entity.set", "workspace.redo", "workspace.undo", "xva.case.remove", "xva.cases.clear", "xva.cds", "xva.measures",
+        Assert.Equal(["entity.create", "entity.remove", "entity.reset", "entity.set", "rates.frame.capture", "rates.line.add", "rates.live.start", "rates.live.stop",
+            "rates.workspace.price", "workspace.redo", "workspace.undo", "xva.case.remove", "xva.cases.clear", "xva.cds", "xva.measures",
             "xva.pv01.retry", "xva.refresh", "xva.scenario", "xva.scenario.cross", "xva.scenario.duplicate", "xva.scenario.exclude", "xva.scenario.include",
             "xva.scenario.ladder", "xva.scenario.load", "xva.scenario.remove", "xva.scenario.save", "xva.scenarios.clear", "xva.trades.add", "xva.vary", "xva.workspace.price"],
             typed.Keys.Order(StringComparer.Ordinal));
@@ -152,6 +153,12 @@ public class CommandGatewayTests(QubeFactory factory) : IClassFixture<QubeFactor
         Assert.Equal("""{"words":["reset"],"arguments":[{"name":"rows","kind":"rows","required":false},{"name":"field","kind":"field","required":false}]}""", typed["entity.reset"]);
         Assert.Equal("""{"words":["remove"],"arguments":[{"name":"rows","kind":"rows","required":true}]}""", typed["entity.remove"]);
         Assert.Equal("""{"words":["undo"],"arguments":[]}""", typed["workspace.undo"]);
+        // Rates' verbs are typed on a Rates workspace (note 36): two applications each have a `price`; `new` is the kernel's, for every one.
+        Assert.Equal("""{"words":["price"],"arguments":[],"app":"rates"}""", typed["rates.workspace.price"]);
+        Assert.Equal("""{"words":["add line"],"arguments":[{"name":"product","kind":"text","required":true}],"app":"rates"}""", typed["rates.line.add"]);
+        Assert.Equal("""{"words":["new"],"arguments":[{"name":"product","kind":"text","required":true},{"name":"terms","kind":"text","required":false}]}""", typed["entity.create"]);
+        Assert.Equal(["rates.workspace.price", "rates.live.start", "rates.live.stop", "rates.frame.capture", "rates.line.add"],
+            capabilities.Select(c => c!["capabilityId"]!.GetValue<string>()).Where(id => id.StartsWith("rates.", StringComparison.Ordinal) && typed.ContainsKey(id)));
         Assert.True(capabilities.Count > typed.Count, "The catalog serves capabilities no line names, as before.");
     }
 
@@ -162,6 +169,17 @@ public class CommandGatewayTests(QubeFactory factory) : IClassFixture<QubeFactor
         if (view is not null) request["view"] = view;
         var response = await (by ?? client).PostAsJsonAsync("/api/commands/preview", request);
         return (response.StatusCode, (await response.Content.ReadFromJsonAsync<JsonObject>())!);
+    }
+
+    [Fact] // ADR-0016 note 36: `new` is the kernel's and is read on every workspace; where the application describes no product, it says so
+    public async Task New_on_a_workspace_whose_application_describes_no_product_is_refused_by_name()
+    {
+        var ws = await Create();
+
+        var (status, read) = await Preview("new irs 5y", ws["workspaceId"]!.GetValue<string>());
+
+        Assert.Equal((HttpStatusCode.OK, "NoProduct", "new makes nothing in this workspace: no product is described for it."),
+            (status, read["refused"]!["code"]!.GetValue<string>(), read["refused"]!["sentence"]!.GetValue<string>()));
     }
 
     [Fact] // ADR-0016 §5, note 11: the preview reads a line for a workspace and writes nothing; what it answers is what Enter invokes

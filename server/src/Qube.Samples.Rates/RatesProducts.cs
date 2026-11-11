@@ -15,29 +15,38 @@ public static class RatesProducts
     public const string Version = "1.0.0";
 
     /// <summary>The described product a line is, by its <c>product</c> field (ADR-0008 §8).</summary>
-    public static string Of(EffectiveLine line) => line.Fields.GetValueOrDefault(LineFields.Product)?.GetValue<string>() switch
+    public static string Of(EffectiveLine line) => Named(line.Line, line.Fields.GetValueOrDefault(LineFields.Product)?.GetValue<string>());
+
+    /// <summary>The described product of the word a line's <c>product</c> field holds; a word Rates does not describe is the line's defect.</summary>
+    internal static string Named(string line, string? product) => product switch
     {
         "irs" => Irs,
         "ccs" => Ccs,
-        var other => throw new InvalidOperationException($"Line {line.Line} names product {other ?? "(none)"}, which Rates does not describe."),
+        var other => throw new InvalidOperationException($"Line {line} names product {other ?? "(none)"}, which Rates does not describe."),
     };
 
-    static readonly IReadOnlyDictionary<string, string> Directions = new Dictionary<string, string>
+    /// <summary>The words a direction is typed by, for a product's term and for a line's field alike.</summary>
+    internal static readonly IReadOnlyDictionary<string, string> Directions = new Dictionary<string, string>
     {
         ["pay"] = "pay", ["p"] = "pay", ["payer"] = "pay", ["receive"] = "receive", ["rec"] = "receive", ["r"] = "receive", ["receiver"] = "receive",
     };
 
-    static IReadOnlyDictionary<string, string> Currencies(ConventionRegistry conventions) =>
+    /// <summary>The currencies the confirmed conventions name, each typed in any case.</summary>
+    internal static IReadOnlyDictionary<string, string> Currencies(ConventionRegistry conventions) =>
         conventions.Profiles.Select(p => p.Currency).Distinct(StringComparer.Ordinal).ToDictionary(c => c.ToLowerInvariant(), c => c);
 
-    static IReadOnlyDictionary<string, string> Indices(ConventionRegistry conventions) =>
+    /// <summary>The indices the confirmed conventions name, each typed in any case.</summary>
+    internal static IReadOnlyDictionary<string, string> Indices(ConventionRegistry conventions) =>
         conventions.Profiles.Select(p => p.Index).Distinct(StringComparer.Ordinal).ToDictionary(i => i.ToLowerInvariant(), i => i);
+
+    /// <summary>The ends a line offers for a swap typed without one: offered, never filled in.</summary>
+    static readonly IReadOnlyList<string> Ends = ["1y", "2y", "3y", "5y", "7y", "10y", "15y", "20y", "30y"];
 
     /// <summary>An interest rate swap: a fixed leg 1 against a floating leg 2 on one currency, index and notional (C40).</summary>
     public static ProductDescriptor IrsDescriptor(ConventionRegistry conventions) => new(Irs, Version, RatesEditRules.App, RatesEditRules.LinesScope,
         "irs", "Interest rate swap",
         [
-            new("end", "End: a tenor from the start, or a date", FieldForm.PeriodOrDate, Required: true, Unnamed: true),
+            new("end", "End: a tenor from the start, or a date", FieldForm.PeriodOrDate, Required: true, Unnamed: true, Examples: Ends),
             new("currency", "Currency", FieldForm.Choice, Required: true, Unnamed: true, Choices: Currencies(conventions)),
             new("index", "Floating index", FieldForm.Choice, Required: true, Unnamed: true, Choices: Indices(conventions)),
             new("notional", "Notional", FieldForm.Amount, Required: true, Unnamed: true),
@@ -54,7 +63,7 @@ public static class RatesProducts
     public static ProductDescriptor CcsDescriptor(ConventionRegistry conventions) => new(Ccs, Version, RatesEditRules.App, RatesEditRules.LinesScope,
         "ccs", "Cross-currency swap",
         [
-            new("end", "End: a tenor from the start, or a date", FieldForm.PeriodOrDate, Required: true, Unnamed: true),
+            new("end", "End: a tenor from the start, or a date", FieldForm.PeriodOrDate, Required: true, Unnamed: true, Examples: Ends),
             new("currency1", "Leg 1 currency", FieldForm.Choice, Required: true, Unnamed: true, Sequence: "currency", Choices: Currencies(conventions), Aliases: ["ccy1"]),
             new("currency2", "Leg 2 currency", FieldForm.Choice, Required: true, Unnamed: true, Sequence: "currency", Choices: Currencies(conventions), Aliases: ["ccy2"]),
             new("notional1", "Leg 1 notional", FieldForm.Amount, Required: true, Unnamed: true, Sequence: "notional"),
@@ -97,10 +106,24 @@ public abstract class RatesProductRules(ConventionRegistry conventions, Func<Rat
         }
         catch (LineTermsRefused refused)
         {
-            // The economic check is the line resolver's, as for a line typed in the grid (ADR-0008 §7).
-            throw new ProductTermsRefused([.. refused.Issues.Select(i => new ProductIssue("InvalidTerms", null, i))]);
+            throw Refused(refused);
         }
     }
+
+    public string WouldCreate(WorkspaceState workspace, IReadOnlyDictionary<string, JsonNode?> terms)
+    {
+        try
+        {
+            return workspaces().WouldCreateLine(workspace, Line(terms, new Dictionary<string, string>()).Terms);
+        }
+        catch (LineTermsRefused refused)
+        {
+            throw Refused(refused);
+        }
+    }
+
+    // The economic check is the line resolver's, as for a line typed in the grid (ADR-0008 §7).
+    static ProductTermsRefused Refused(LineTermsRefused refused) => new([.. refused.Issues.Select(i => new ProductIssue("InvalidTerms", null, i))]);
 
     protected const string Workspace = "workspace";
     protected static string ProfileSource(ConventionProfile p) => $"profile:{p.Id}@{p.Version}";

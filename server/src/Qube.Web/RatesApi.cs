@@ -1,4 +1,3 @@
-using Qube.Composition.Application.Products;
 using System.Runtime.CompilerServices;
 using System.Text.Json.Nodes;
 using System.Threading.Channels;
@@ -8,24 +7,20 @@ using Qube.Samples.Rates;
 
 namespace Qube.Web;
 
-/// <summary>Thin HTTP endpoints over the Rates workspace service and its live subscriptions. No rule lives here.</summary>
+/// <summary>
+/// Thin HTTP endpoints over the Rates workspace service and its live subscriptions: what the page reads, and the edits
+/// of a typed cell. A line added, made, removed, priced or captured, the defaults and the live subscription's start and
+/// stop are commands, through the gateway (ADR-0016 note 36). No rule lives here.
+/// </summary>
 public static class RatesApi
 {
     public sealed record CreateRequest(DateOnly ValuationDate);
-    public sealed record AddLineRequest(long Revision, RatesProduct Product);
-    public sealed record NewLineRequest(long Revision, string Product, string Terms);
-    public sealed record DefaultsRequest(long Revision, string? Currency, double? Notional, string? Direction);
     public sealed record ConventionView(string Currency, string Index, string Profile);
-    public sealed record AddedLine(string Line, RatesWorkspaceView Workspace);
-    public sealed record RevisionRequest(long Revision);
     public sealed record LineEditRequest(long Revision, string Field, JsonNode? Value);
     public sealed record CashflowEditRequest(long Revision, string Period, string Field, JsonNode? Value);
     public sealed record ResolveRequest(long Revision, string Scope, string Entity, string Field, string Resolution);
     public sealed record ValuationDateRequest(long Revision, DateOnly ValuationDate);
     public sealed record Rederived(RatesWorkspaceView Workspace, CarrySummary Carried);
-    public sealed record PriceRequest(long Revision, string IdempotencyKey, string MarketSnapshotId);
-    public sealed record CaptureRequest(int SubscriptionRevision, long InputRevision, string MarketSnapshotId, string IdempotencyKey);
-    public sealed record LiveStarted(string SubscriptionId);
     public sealed record WorkspaceSummary(string WorkspaceId, long Revision, JsonObject Context, int Lines);
     public sealed record CurveView(string Key, string Currency, string Index, IReadOnlyList<PillarView> Pillars);
     public sealed record PillarView(string Tenor, double LevelPercent);
@@ -59,32 +54,6 @@ public static class RatesApi
 
         ws.MapGet("/{id}", (string id, CurrentUser user, RatesWorkspaces service) => Guard(() => Results.Ok(service.View(id, user.Id))));
 
-        // `new irs …`, `new ccs …` (ADR-0008): the kernel reads the terms against the product's description at the
-        // revision the page saw, and the page gets its view back, as for every other edit.
-        ws.MapPost("/{id}/lines/new", (string id, NewLineRequest request, CurrentUser user, ProductService products, RatesWorkspaces service) => Guard(() =>
-        {
-            var (_, line, _) = products.Create(id, request.Revision, user.Id, request.Product, request.Terms, RunOrigin.Pricer);
-            return Results.Ok(new AddedLine(line, service.View(id, user.Id)));
-        }));
-
-        ws.MapPost("/{id}/defaults", (string id, DefaultsRequest request, CurrentUser user, RatesWorkspaces service) => Guard(() =>
-        {
-            service.ChangeDefaults(id, request.Revision, user.Id, new LineDefaults(request.Currency, request.Notional, request.Direction));
-            return Results.Ok(service.View(id, user.Id));
-        }));
-
-        ws.MapPost("/{id}/lines", (string id, AddLineRequest request, CurrentUser user, RatesWorkspaces service) => Guard(() =>
-        {
-            var (_, line) = service.AddLine(id, request.Revision, user.Id, request.Product);
-            return Results.Ok(new AddedLine(line, service.View(id, user.Id)));
-        }));
-
-        ws.MapPost("/{id}/lines/{line}/remove", (string id, string line, RevisionRequest request, CurrentUser user, RatesWorkspaces service) => Guard(() =>
-        {
-            service.RemoveLine(id, request.Revision, user.Id, line);
-            return Results.Ok(service.View(id, user.Id));
-        }));
-
         ws.MapPost("/{id}/lines/{line}/edits", (string id, string line, LineEditRequest request, CurrentUser user, RatesWorkspaces service) => Guard(() =>
         {
             service.EditLine(id, request.Revision, user.Id, line, request.Field, request.Value);
@@ -112,12 +81,6 @@ public static class RatesApi
             return Results.Ok(new Rederived(service.View(id, user.Id), carried));
         }));
 
-        ws.MapPost("/{id}/price", (string id, PriceRequest request, CurrentUser user, RatesWorkspaces service) => Guard(() =>
-            Submitted(service.Price(id, request.Revision, user.Id, request.IdempotencyKey, request.MarketSnapshotId))));
-
-        ws.MapPost("/{id}/live", (string id, CurrentUser user, RatesWorkspaces service) => Guard(() =>
-            Results.Ok(new LiveStarted(service.StartLive(id, user.Id)))));
-
         ws.MapDelete("/{id}", (string id, CurrentUser user, RatesWorkspaces service) => Guard(() =>
         {
             service.Delete(id, user.Id);
@@ -133,15 +96,6 @@ public static class RatesApi
             var (frames, detach) = service.Attach(user.Id, sid);
             return TypedResults.ServerSentEvents(Watched(frames, detach, cancellationToken), eventType: "frame");
         }));
-
-        live.MapPost("/{sid}/capture", (string sid, CaptureRequest request, CurrentUser user, RatesWorkspaces service) => Guard(() =>
-            Submitted(service.Capture(sid, user.Id, new FrameIdentity(request.SubscriptionRevision, request.InputRevision, request.MarketSnapshotId), request.IdempotencyKey))));
-
-        live.MapDelete("/{sid}", (string sid, CurrentUser user, RatesWorkspaces service) => Guard(() =>
-        {
-            service.StopLive(sid, user.Id);
-            return Results.NoContent();
-        }));
     }
 
     static async IAsyncEnumerable<LiveDelivery> Watched(ChannelReader<LiveDelivery> frames, IDisposable detach,
@@ -151,13 +105,6 @@ public static class RatesApi
             await foreach (var frame in frames.ReadAllAsync(cancellationToken))
                 yield return frame;
     }
-
-    static IResult Submitted(SubmissionResult result) => result switch
-    {
-        SubmissionResult.Accepted accepted => Results.Accepted($"/api/runs/{accepted.Run.RunId}", accepted.Run),
-        SubmissionResult.Rejected rejected => Results.Json(new Api.ErrorEnvelope(rejected.Code, "The Run was not accepted.", rejected.Issues), statusCode: 422),
-        _ => throw new InvalidOperationException("Unhandled submission result."),
-    };
 
     static IResult Guard(Func<IResult> handle)
     {
@@ -169,15 +116,6 @@ public static class RatesApi
         {
             return Results.Json(new Api.ErrorEnvelope("UnknownSubscription", missing.Message, []), statusCode: 404);
         }
-        catch (LineTermsRefused refused)
-        {
-            return Results.Json(new Api.ErrorEnvelope("InvalidTerms", refused.Message,
-                [.. refused.Issues.Select(i => new CompositionIssue("InvalidTerms", "/terms", i))]), statusCode: 422);
-        }
-        catch (ProductTermsRefused refused)
-        {
-            return Results.Json(ProductsApi.Envelope(refused), statusCode: 422);
-        }
         catch (WorkspaceRefused refused)
         {
             var issues = refused.Targets.Select(t => new CompositionIssue(refused.Code, $"/{t.Entity}/{t.Field}", refused.Message)).ToList();
@@ -185,7 +123,7 @@ public static class RatesApi
             {
                 "UnknownWorkspace" or "UnknownEntity" => 404,
                 "NotOwner" => 403,
-                "RevisionMoved" or "UnresolvedEdits" or "FrameNotKept" or "EntityExists" => 409,
+                "RevisionMoved" => 409,
                 _ => 422,
             };
             return Results.Json(new Api.ErrorEnvelope(refused.Code, refused.Message, issues), statusCode: status);

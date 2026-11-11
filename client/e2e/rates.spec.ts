@@ -1,9 +1,10 @@
 import type { Page } from '@playwright/test';
-import { command, expect, open, settled, test } from './fixtures';
+import { command, expect, open, settled, taken, test } from './fixtures';
 
 // Slice 03 (docs/plans/slice-03-rates-line-pricer.md): a line typed by keyboard, priced live, captured and
 // priced once. The host runs with the development settings: the unconfirmed convention proposal and a synthetic
-// market, every figure simulated.
+// market, every figure simulated. The page's commands are the server's (ADR-0016 notes 34 to 36): a button runs the
+// line a user types, through the page's door.
 
 async function newWorkspace(page: Page): Promise<void> {
   await command(page, 'new rates');
@@ -16,6 +17,10 @@ async function newWorkspace(page: Page): Promise<void> {
 
 const lines = (page: Page) => page.getByLabel('Lines', { exact: true });
 const firstLine = (page: Page) => lines(page).getByRole('row', { name: /^L\d+ / }).first();
+const notice = (page: Page) => page.getByTestId('notice');
+const summary = (page: Page) => page.getByTestId('workspace-summary');
+// A line is named by the revision that makes it (`L3` in a workspace just made), so a test reads a line's id from the
+// grid where it needs one, and matches it by its form elsewhere.
 
 /** A cell of a row by its column's position, 0 from the left: off-screen columns are not in the DOM, so never by count. */
 const cell = (page: Page, column: number) => firstLine(page).locator(`[role=gridcell][aria-colindex="${column + 1}"]`);
@@ -37,7 +42,9 @@ async function goTo(page: Page, column: number): Promise<void> {
 test('C40, docs/07: a line typed by keyboard ticks live, is captured and priced once', async ({ page }) => {
   await open(page);
   await newWorkspace(page);
+  // The button runs `add line irs`, the line a user types (ADR-0016 note 36): the notice is the server's sentence.
   await page.getByRole('button', { name: 'Add IRS' }).click();
+  await expect(notice(page)).toHaveText(/^Added L\d+, an empty irs line\.$/);
   await expect(page.getByTestId('workspace-summary')).toContainText('1 line(s)');
   await settled(page, 'Lines');
 
@@ -63,7 +70,10 @@ test('C40, docs/07: a line typed by keyboard ticks live, is captured and priced 
   // A notional is typed and shown in millions (owner, 2026-11-04): 1000 is a billion, and the server priced it so.
   await expect(cell(page, OPEN.LEG1_NOTIONAL)).toHaveText('1,000');
 
+  // The toggle runs `live start`; the page attaches to the subscription the workspace then says is running.
   await page.getByTestId('live-toggle').click();
+  await expect(notice(page)).toHaveText('Live is running.');
+  await expect(page.getByTestId('live-toggle')).toHaveText('Stop live');
   // The line in hand shows its result above the grid, though the result columns are off screen (owner, 2026-11-04).
   await expect(page.getByTestId('line-result-status')).toHaveText('priced');
   await expect(page.getByTestId('line-result-pv')).toHaveText(/^PV -?[\d,]+ JPY$/);
@@ -73,7 +83,9 @@ test('C40, docs/07: a line typed by keyboard ticks live, is captured and priced 
   await expect(cell(page, OPEN.PV)).toHaveText(/^-?[\d,]+$/);
   await expect(page.getByTestId('live-frame')).toContainText('simulated');
 
+  // Capture runs `capture` for the frame the page drew, and the Run its answer names opens in a panel of its own.
   await page.getByRole('button', { name: 'Capture' }).click();
+  await expect(notice(page)).toHaveText(/^Captured the frame of market \S+ at revision \d+ as Run \S+\.$/);
   await expect(page.getByTestId('run-status')).toHaveText('succeeded');
   await expect(page.getByRole('tab', { name: /^Capture / })).toHaveAttribute('aria-selected', 'true');
 
@@ -82,10 +94,64 @@ test('C40, docs/07: a line typed by keyboard ticks live, is captured and priced 
   await settled(page, 'Lines');
   await expect(page.getByTestId('live-toggle')).toHaveText('Stop live');
   await expect(page.getByTestId('live-frame')).toContainText('live');
-  await command(page, 'price');
+  // `price` says before Enter what it would price and on which market, and Enter prices on that one.
+  await page.keyboard.press('ControlOrMeta+K');
+  await expect(page.getByRole('combobox', { name: 'Command' })).toBeFocused();
+  await page.keyboard.type('price');
+  await expect(page.getByTestId('command-preview')).toHaveText(/^Prices 1 line on market \S+, as one Run\.$/);
+  await page.keyboard.press('Enter');
+  await expect(notice(page)).toHaveText(/^Price was accepted as Run \S+\.$/);
+  // Its Run opens in a panel titled by the market it priced on, beside the workspace's own, which is titled by its date.
+  await expect(page.getByRole('tab', { name: /^Rates \d+(?![\d-])/ })).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByTestId('run-status')).toHaveText('succeeded');
   // The Run's view is a grid titled Lines too; only the Run's tab panel is mounted now.
   await expect(page.getByRole('tabpanel').getByLabel('Lines', { exact: true }).getByRole('row', { name: /^L\d+ priced / })).toBeVisible();
+
+  // `live stop` from the line stops it for every page watching: the toggle offers to start again, and the frame stays.
+  await page.getByRole('tab', { name: 'Rates 2026-10-27' }).click();
+  await settled(page, 'Lines');
+  await taken(page, 'live stop');
+  await expect(notice(page)).toHaveText('Live stopped, for every page watching it.');
+  await expect(page.getByTestId('live-toggle')).toHaveText('Resume live');
+  await expect(page.getByTestId('live-stopped')).toContainText('live stopped');
+  await expect(page.getByTestId('live-frame')).toContainText('last frame');
+  // The toggle is the same two lines: it starts live again, and stops it.
+  await page.getByTestId('live-toggle').click();
+  await expect(notice(page)).toHaveText('Live is running.');
+  await expect(page.getByTestId('live-toggle')).toHaveText('Stop live');
+  await page.getByTestId('live-toggle').click();
+  await expect(notice(page)).toHaveText('Live stopped, for every page watching it.');
+  await expect(page.getByTestId('live-toggle')).toHaveText('Resume live');
+});
+
+test('docs/07 §3, ADR-0016 note 36: the Price button prices on the market the page shows, though a later one is published; Add CCS runs `add line ccs`', async ({ page }) => {
+  await open(page);
+  // The page's reading of the market is held at the first it shows, while the server's market moves on.
+  let held: { readonly snapshotId: string } | undefined;
+  await page.route('**/api/rates/market', async (route) => {
+    held ??= await (await route.fetch()).json() as { readonly snapshotId: string };
+    await route.fulfill({ json: held });
+  });
+  await newWorkspace(page);
+  await taken(page, 'new', 'irs jpy 10mm 5y pay');
+  await expect(summary(page)).toContainText('1 line(s)');
+  await expect(page.getByTestId('market')).toHaveText(/^market \S+ #\d+$/);
+  if (held === undefined) throw new Error('The page shows a market it never read.');
+  const shown = held.snapshotId;
+  // A later snapshot is published: the latest is no longer the one the page shows.
+  await expect.poll(async () => (await (await page.request.get(new URL('/api/rates/market', page.url()).href)).json() as { snapshotId: string }).snapshotId).not.toBe(shown);
+
+  await page.getByRole('button', { name: 'Price' }).click();
+  await expect(notice(page)).toHaveText(/^Price was accepted as Run \S+\.$/);
+  // The Run's panel is titled by the market it priced on: the one the page showed.
+  await expect(page.getByRole('tab', { name: new RegExp(`^Rates ${shown.slice(shown.lastIndexOf(':') + 1)} `) })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByTestId('run-status')).toHaveText('succeeded');
+
+  await page.getByRole('tab', { name: 'Rates 2026-10-27' }).click();
+  await settled(page, 'Lines');
+  await page.getByRole('button', { name: 'Add CCS' }).click();
+  await expect(notice(page)).toHaveText(/^Added L\d+, an empty ccs line\.$/);
+  await expect(summary(page)).toContainText('2 line(s)');
 });
 
 test('ADR-0015 §2, C43, C39: a leg opens to its terms, then to its conventions, and folds again; a line without terms shows no schedule', async ({ page }) => {
@@ -121,6 +187,16 @@ test('ADR-0015 §2, C43, C39: a leg opens to its terms, then to its conventions,
 
   await firstLine(page).getByRole('button', { name: 'Flows' }).click();
   await expect(page.getByTestId('cashflows')).toContainText('generates no schedule');
+
+  // While they are open, the cashflows are a place of the page beside its lines (ADR-0016 note 20): `go` puts the
+  // keyboard in either, and says where it went.
+  const id = await firstLine(page).locator('[role=gridcell][aria-colindex="1"]').innerText();
+  await taken(page, 'go', 'flows');
+  await expect(notice(page)).toHaveText(`The keyboard is in the cashflows of ${id}.`);
+  await expect(page.getByLabel(`Cashflows of ${id}`, { exact: true }).locator(':focus')).toHaveCount(1);
+  await taken(page, 'go', 'lines');
+  await expect(notice(page)).toHaveText('The keyboard is in the lines.');
+  await expect(lines(page).locator(':focus')).toHaveCount(1);
 });
 
 test('ADR-0015: at 1280px every column up to the par figure is in view without scrolling, the legs folded', async ({ page }) => {
@@ -128,9 +204,9 @@ test('ADR-0015: at 1280px every column up to the par figure is in view without s
   await open(page);
   await newWorkspace(page);
   // The widest summaries a line makes: an off-market IRS, and a CCS whose legs differ in currency and notional.
-  const made: readonly (readonly [string, string])[] = [['new irs', 'usd 500mm 5y pay 4.1%'], ['new ccs', 'usd jpy 100mm 15bn 7y pay freq1=3m freq2=3m index1=sofr index2=tona spread2=0bp']];
-  for (const [i, [words, args]] of made.entries()) {
-    await command(page, words, args);
+  const made = ['irs usd 500mm 5y pay 4.1%', 'ccs usd jpy 100mm 15bn 7y pay freq1=3m freq2=3m index1=sofr index2=tona spread2=0bp'];
+  for (const [i, terms] of made.entries()) {
+    await taken(page, 'new', terms);
     await expect(page.getByTestId('workspace-summary')).toContainText(`${i + 1} line(s)`);
   }
   await settled(page, 'Lines');
@@ -151,36 +227,40 @@ test('ADR-0015: at 1280px every column up to the par figure is in view without s
   expect(fit.pageOverflow).toBeLessThanOrEqual(0);
 });
 
-test('ADR-0008: a line is made from short words in any order, read against the product the server describes', async ({ page, problems }) => {
+test('ADR-0008, ADR-0016 note 36: a line is made from short words in any order, read by the server, which says what it would make before Enter and why it cannot', async ({ page }) => {
   await open(page);
   await newWorkspace(page);
   const line = page.getByRole('combobox', { name: 'Command' });
   const options = page.getByRole('listbox');
+  const read = page.getByTestId('command-preview');
 
-  // `/` opens the line from outside a text field or grid; the command is found by the start of its words.
+  // `/` opens the line from outside a text field or grid; `new` offers the products this workspace makes.
   await page.getByRole('tab', { name: 'Rates 2026-10-27' }).focus();
   await page.keyboard.press('/');
   await expect(line).toBeFocused();
-  await page.keyboard.type('ne ir');
-  await expect(options.getByRole('option').first()).toContainText('new irs');
+  await page.keyboard.type('new i');
+  await expect(options.getByRole('option')).toHaveText([/^irs/]);
   await page.keyboard.press('Tab');
   await expect(line).toHaveValue('new irs ');
 
   // Each word is completed from the description: a currency the server's profiles name, taken with Tab.
   await page.keyboard.type('jp');
-  await expect(options.getByRole('option').first()).toContainText('jpy');
+  await expect(options.getByRole('option').first()).toContainText('JPY');
   await page.keyboard.press('Tab');
-  await expect(line).toHaveValue('new irs jpy ');
+  await expect(line).toHaveValue('new irs JPY ');
 
-  // The rest in any order; the line shows how each word was read. The index and the frequencies come from the
-  // JPY profile's template and the quotes from C47 (at the money), so nothing more is typed.
+  // The rest in any order; the line shows how each word was read, and the line Enter would make. The index and the
+  // frequencies come from the JPY profile's template and the quotes from C47 (at the money), so nothing more is typed.
   await page.keyboard.type('3bn 10y rec');
   const pending = page.getByTestId('command-pending');
+  await expect(pending).toContainText('product irs');
   await expect(pending).toContainText('notional 3bn');
   await expect(pending).toContainText('end 10y');
-  await expect(pending).toContainText('direction rec');
+  await expect(pending).toContainText('direction receive');
+  await expect(read).toContainText(/^Makes L\d+: Interest rate swap\. Not typed: index TONA from /);
   await page.keyboard.press('Enter');
   await expect(line).toBeHidden();
+  await expect(notice(page)).toHaveText(/^Made L\d+: Interest rate swap\.$/);
   await expect(page.getByTestId('workspace-summary')).toContainText('1 line(s)');
   await expect(cell(page, END)).toHaveText('10y');
   // Folded, leg 1 reads its notional in the scale it was typed in (ADR-0015 §1).
@@ -190,16 +270,130 @@ test('ADR-0008: a line is made from short words in any order, read against the p
   await goTo(page, FOLDED_ISSUES);
   await expect(cell(page, FOLDED_ISSUES)).toHaveText('');
 
-  // What no default supplies is refused by name, and no line is made.
+  // What no default supplies is said by name while it is typed, and Enter keeps the line with the same sentence: no
+  // line is made, and nothing was sent to be refused (the fixture fails the test on a console error).
   await page.getByRole('tab', { name: 'Rates 2026-10-27' }).focus();
   await page.keyboard.press('/');
   await expect(line).toBeFocused();
   await page.keyboard.type('new irs 5y');
+  const missing = 'irs still needs currency, index, notional, direction, fixedFrequency and floatFrequency: type them, or set a default for each.';
+  await expect(read).toHaveText(missing);
   await page.keyboard.press('Enter');
-  await expect(page.getByText(/The line was not created: currency is missing/)).toBeVisible();
+  await expect(page.getByTestId('command-problems')).toHaveText(missing);
+  await expect(line).toHaveValue('new irs 5y');
+  await page.keyboard.press('Escape');
+  await expect(line).toBeHidden();
   await expect(page.getByTestId('workspace-summary')).toContainText('1 line(s)');
-  // The refusal is the server's 422, which the browser reports; it is the one console message this test expects.
-  expect(problems.splice(0)).toEqual(['error: Failed to load resource: the server responded with a status of 422 (Unprocessable Entity)']);
+
+  // `new rates` is still the command that opens a workspace, though `new` begins it (note 36).
+  await command(page, 'new rates');
+  await expect(page.getByRole('dialog', { name: 'New Rates workspace' })).toBeVisible();
+});
+
+test('ADR-0016 notes 16, 21, 25 and 34: with two lines selected the line says its screen, `set notional 5mm` writes both and the grid\'s undo key takes it back; `find` goes to a line, and the menu removes it', async ({ page }) => {
+  await open(page);
+  await newWorkspace(page);
+  const line = page.getByRole('combobox', { name: 'Command' });
+  const read = page.getByTestId('command-preview');
+  for (const [i, terms] of ['irs jpy 10mm 5y pay', 'irs usd 10mm 7y rec'].entries()) {
+    await taken(page, 'new', terms);
+    await expect(summary(page)).toContainText(`${i + 1} line(s)`);
+  }
+  await settled(page, 'Lines');
+  const rows = lines(page).getByRole('row', { name: /^L\d+ / });
+  await expect(rows).toHaveCount(2);
+  const [FIRST, SECOND] = await rows.locator('[role=gridcell][aria-colindex="1"]').allInnerTexts() as [string, string];
+  const leg1 = (id: string) => lines(page).getByRole('row', { name: new RegExp(`^${id} `) }).locator(`[role=gridcell][aria-colindex="${LEG1_SUMMARY + 1}"]`);
+  await expect(leg1(FIRST)).toHaveText('JPY 10mm Fixed par 12m');
+
+  // Both lines selected by keyboard, from the first line's id: the line says so before anything is typed.
+  await page.keyboard.press('ControlOrMeta+Shift+G');
+  await page.keyboard.press('ControlOrMeta+Home');
+  await page.keyboard.press('Shift+ArrowDown');
+  await page.keyboard.press('ControlOrMeta+K');
+  await expect(line).toBeFocused();
+  await expect(page.getByTestId('command-context')).toHaveText(`On screen: lines, 2 selected, ${FIRST} · line`);
+  // `set` with no rows named writes the rows selected; an IRS's notional is both its legs'.
+  await page.keyboard.type('set notional 5mm');
+  await expect(page.getByTestId('command-pending')).toContainText(`rows from the screen: ${FIRST}, ${SECOND}`);
+  await expect(read).toHaveText(`lines, 2 rows: ${FIRST}, ${SECOND}notional: 2 10mm to 5mm`);
+  await page.keyboard.press('Enter');
+  await expect(line).toBeHidden();
+  await expect(notice(page)).toHaveText(`Set notional to 5mm on ${FIRST} and ${SECOND}.`);
+  await expect(leg1(FIRST)).toHaveText('JPY 5mm Fixed par 12m');
+  await expect(leg1(SECOND)).toContainText('USD 5mm ');
+
+  // The keyboard is back in the grid, whose undo key runs `undo` (§11): both lines are as they were.
+  await page.keyboard.press('ControlOrMeta+Z');
+  await expect(notice(page)).toHaveText(`Took back: set lines ${FIRST}, ${SECOND} notional 5mm. redo puts it back.`);
+  await expect(leg1(FIRST)).toHaveText('JPY 10mm Fixed par 12m');
+  await expect(leg1(SECOND)).toContainText('USD 10mm ');
+
+  // `find` puts the Focus on a line by its id, with the keyboard in the grid: the result strip follows the Focus.
+  await taken(page, 'find', SECOND);
+  await expect(notice(page)).toHaveText(`The keyboard is on ${SECOND} in lines.`);
+  await expect(page.getByTestId('line-result')).toContainText(SECOND);
+
+  // The grid's menu holds its table's actions (note 25), each with the line that does the same: Remove line removes
+  // the line the menu was opened on, and `undo` puts it back.
+  await page.keyboard.press('Shift+F10');
+  await expect(page.getByRole('menuitem').first()).toBeFocused();
+  await expect(page.getByRole('menuitem')).toHaveText(['Copy', 'Copy with headers', 'Reset this cell · reset', 'Remove line · remove selected']);
+  await page.getByRole('menuitem', { name: 'Remove line · remove selected' }).click();
+  await expect(notice(page)).toHaveText(`Removed ${SECOND}.`);
+  await expect(summary(page)).toContainText('1 line(s)');
+  await taken(page, 'undo');
+  await expect(notice(page)).toHaveText(`Took back: remove lines ${SECOND}. redo puts it back.`);
+  await expect(summary(page)).toContainText('2 line(s)');
+
+  // Reset this cell puts the cell under the Focus back to what the line was made with.
+  await taken(page, 'set', `${FIRST} end 7y`);
+  await expect(cell(page, END)).toHaveText('7y');
+  await goTo(page, END);
+  await page.keyboard.press('Shift+F10');
+  await expect(page.getByRole('menuitem').first()).toBeFocused();
+  await page.getByRole('menuitem', { name: 'Reset this cell · reset' }).click();
+  await expect(notice(page)).toHaveText(`Reset ${FIRST} end.`);
+  await expect(cell(page, END)).toHaveText('5y');
+});
+
+test('ADR-0016 note 34: a default is set alone and a new line takes it; a value a default cannot hold is said on the line as the server says it', async ({ page }) => {
+  await open(page);
+  await newWorkspace(page);
+  const line = page.getByRole('combobox', { name: 'Command' });
+  const read = page.getByTestId('command-preview');
+
+  // One default named: the others are left as they are, where the old command needed all three.
+  await page.keyboard.press('ControlOrMeta+K');
+  await expect(line).toBeFocused();
+  await page.keyboard.type('set default currency jpy');
+  await expect(read).toContainText('default currency: empty to JPY');
+  await page.keyboard.press('Enter');
+  await expect(line).toBeHidden();
+  await expect(notice(page)).toHaveText('Set workspace default currency to JPY.');
+  await taken(page, 'set', 'default notional=500 default direction=rec');
+
+  // A value the default cannot hold is refused by the server's own sentence, before Enter and at it: no stack trace.
+  await page.keyboard.press('ControlOrMeta+K');
+  await expect(line).toBeFocused();
+  await page.keyboard.type('set default notional 0');
+  await expect(read).toHaveText('A default notional is more than 0.');
+  await page.keyboard.press('Enter');
+  await expect(page.getByTestId('command-problems')).toHaveText('A default notional is more than 0.');
+  await page.keyboard.press('Escape');
+  await expect(line).toBeHidden();
+
+  // A line made from its end alone takes the three defaults, and says so before Enter.
+  await page.keyboard.press('ControlOrMeta+K');
+  await expect(line).toBeFocused();
+  await page.keyboard.type('new irs 5y');
+  await expect(read).toContainText('currency JPY from workspace');
+  await expect(read).toContainText('notional 500mm from workspace');
+  await expect(read).toContainText('direction receive from workspace');
+  await page.keyboard.press('Enter');
+  await expect(line).toBeHidden();
+  await expect(summary(page)).toContainText('1 line(s)');
+  await expect(cell(page, LEG1_SUMMARY)).toHaveText('JPY 500mm Fixed par 12m');
 });
 
 test('ExGrid ADR-0016: a column dragged wider by its header grip keeps its width when its page comes back', async ({ page }) => {

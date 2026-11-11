@@ -106,10 +106,13 @@ public sealed class LineTermsRefused(IReadOnlyList<string> issues) : Exception(s
 /// <summary>The frame a capture names: what the user saw, so a newer frame is never saved under it (spine 6).</summary>
 public sealed record FrameIdentity(int SubscriptionRevision, long InputRevision, string MarketSnapshotId);
 
+/// <summary>What Price would price (ADR-0016 note 36): the market snapshot, the lines priced on it and the lines left out.</summary>
+public sealed record RatesPricePlan(string MarketSnapshotId, IReadOnlyList<string> Priced, IReadOnlyList<string> LeftOut);
+
 /// <summary>
-/// The Rates workspace application service: what the endpoints call (docs/07 §4's coordinator). It names lines,
-/// checks types, and reports every accepted edit to the workspace's live subscriptions. The generic kernel stores
-/// and carries the edits; the module derives the schedules.
+/// The Rates workspace application service: what the endpoints call (docs/07 §4's coordinator). It names lines and
+/// checks types. The generic kernel stores and carries the edits; the module derives the schedules, and a running
+/// live subscription is told of each accepted revision by the workspace's observer (<see cref="RatesLiveObserver"/>).
 /// </summary>
 public sealed class RatesWorkspaces(WorkspaceService workspaces, IDataStore store, RunService runs, RatesLiveService live, MarketFeed market,
     ConventionRegistry conventions, IRatesPricingProvider provider)
@@ -152,11 +155,24 @@ public sealed class RatesWorkspaces(WorkspaceService workspaces, IDataStore stor
     }
 
     /// <summary>Adds a line of a product with every field empty but its kind, named by the revision that creates it.</summary>
-    public (WorkspaceState State, string Line) AddLine(string workspaceId, long revision, string user, RatesProduct product)
+    public (WorkspaceState State, string Line) AddLine(string workspaceId, long revision, string user, RatesProduct product, RunOrigin origin = RunOrigin.Pricer)
     {
         Owned(workspaceId, user);
-        var line = $"L{revision + 1}";
-        return (Reported(workspaceId, workspaces.Create(workspaceId, revision, user, RatesEditRules.LinesScope, line, LineFields.Template(product), RunOrigin.Pricer)), line);
+        var line = LineAt(revision);
+        return (workspaces.Create(workspaceId, revision, user, RatesEditRules.LinesScope, line, LineFields.Template(product), origin), line);
+    }
+
+    /// <summary>The line a command at a revision makes: named by the revision that makes it, so no two are named alike.</summary>
+    public static string LineAt(long revision) => $"L{revision + 1}";
+
+    /// <summary>
+    /// The line <see cref="CreateLine"/> would make of the terms on a workspace as it stands, once they are checked as
+    /// it checks them (ADR-0016 note 36). Writes nothing.
+    /// </summary>
+    public string WouldCreateLine(WorkspaceState state, JsonObject terms)
+    {
+        LineFrom(terms, RatesEditRules.ValuationDate(state));
+        return LineAt(state.Revision);
     }
 
     /// <summary>
@@ -171,26 +187,9 @@ public sealed class RatesWorkspaces(WorkspaceService workspaces, IDataStore stor
         var state = Owned(workspaceId, user);
         // The page names the revision it saw, as every page edit does; a command acts on the current one.
         var revision = expectedRevision ?? state.Revision;
-        var line = $"L{revision + 1}";
+        var line = LineAt(revision);
         var fields = LineFrom(terms, RatesEditRules.ValuationDate(state));
-        return (Reported(workspaceId, workspaces.Create(workspaceId, revision, user, RatesEditRules.LinesScope, line, fields, origin, sources)), line);
-    }
-
-    /// <summary>
-    /// Sets the workspace's defaults for new lines (ADR-0008 §4b): the user's own data, kept in the workspace's context so
-    /// the change is in its log. An empty value removes that default.
-    /// </summary>
-    public WorkspaceState ChangeDefaults(string workspaceId, long revision, string user, LineDefaults defaults)
-    {
-        var state = Owned(workspaceId, user);
-        var issues = new List<string>();
-        if (defaults.Currency is { Length: > 0 } c && conventions.Profiles.All(p => p.Currency != c))
-            issues.Add($"No confirmed conventions name the currency {c}.");
-        if (defaults.Notional is <= 0) issues.Add("A default notional is positive.");
-        if (defaults.Direction is { Length: > 0 } d && d is not ("pay" or "receive")) issues.Add("A default direction is pay or receive.");
-        if (issues.Count > 0) throw new LineTermsRefused(issues);
-        var (next, _) = workspaces.Reacquire(workspaceId, revision, user, Context(RatesEditRules.ValuationDate(state), defaults.ToJson()), NoAcquiredSource);
-        return Reported(workspaceId, next);
+        return (workspaces.Create(workspaceId, revision, user, RatesEditRules.LinesScope, line, fields, origin, sources), line);
     }
 
     /// <summary>A line's fields from its terms, refused with every reason it could not be priced at the valuation date.</summary>
@@ -213,12 +212,6 @@ public sealed class RatesWorkspaces(WorkspaceService workspaces, IDataStore stor
         return fields;
     }
 
-    public WorkspaceState RemoveLine(string workspaceId, long revision, string user, string line)
-    {
-        Owned(workspaceId, user);
-        return Reported(workspaceId, workspaces.Remove(workspaceId, revision, user, line, RunOrigin.Pricer));
-    }
-
     public WorkspaceState EditLine(string workspaceId, long revision, string user, string line, string field, JsonNode? value)
     {
         var state = Owned(workspaceId, user);
@@ -229,7 +222,7 @@ public sealed class RatesWorkspaces(WorkspaceService workspaces, IDataStore stor
         // Types only: whether the terms make a line is the resolver's, and shows on the row.
         if (value is not null and not JsonValue)
             throw new WorkspaceRefused("InvalidValue", $"{field} takes a single value.", [target]);
-        return Reported(workspaceId, workspaces.Set(workspaceId, revision, user, target, value, RunOrigin.Pricer));
+        return workspaces.Set(workspaceId, revision, user, target, value, RunOrigin.Pricer);
     }
 
     public WorkspaceState EditCashflow(string workspaceId, long revision, string user, string line, string period, string field, JsonNode? value)
@@ -249,7 +242,7 @@ public sealed class RatesWorkspaces(WorkspaceService workspaces, IDataStore stor
             _ => $"{field} is not an editable cashflow field.",
         };
         if (problem is not null) throw new WorkspaceRefused("InvalidValue", problem, [target]);
-        return Reported(workspaceId, workspaces.Set(workspaceId, revision, user, target, value, RunOrigin.Pricer));
+        return workspaces.Set(workspaceId, revision, user, target, value, RunOrigin.Pricer);
     }
 
     public WorkspaceState Resolve(string workspaceId, long revision, string user, string scope, string entity, string field, string resolution)
@@ -258,34 +251,59 @@ public sealed class RatesWorkspaces(WorkspaceService workspaces, IDataStore stor
         var target = new EditTarget(scope, entity, field);
         if (!state.Overrides.ContainsKey(target) && !state.Conflicts.ContainsKey(target) && !state.Lost.ContainsKey(target))
             throw new WorkspaceRefused("NotOverridden", $"{entity}.{field} has no edit.");
-        return Reported(workspaceId, resolution switch
+        return resolution switch
         {
             "reset" => workspaces.Reset(workspaceId, revision, user, target),
             "keep" => workspaces.KeepOverride(workspaceId, revision, user, target),
             "takeSource" => workspaces.TakeSource(workspaceId, revision, user, target),
             "acknowledge" => workspaces.AcknowledgeLost(workspaceId, revision, user, target),
             _ => throw new WorkspaceRefused("UnknownResolution", $"{resolution} is not reset, keep, takeSource or acknowledge."),
-        });
+        };
     }
 
     /// <summary>Moves the grid's valuation date. Every schedule is derived again, and its cashflow edits carry or are held.</summary>
     public (WorkspaceState State, CarrySummary Summary) ChangeValuationDate(string workspaceId, long revision, string user, DateOnly valuationDate)
     {
-        Owned(workspaceId, user);
         var current = Owned(workspaceId, user);
         var (state, _) = workspaces.Reacquire(workspaceId, revision, user, Context(valuationDate, current.Context["defaults"]?.AsObject()), NoAcquiredSource);
-        return (Reported(workspaceId, state), state.Rederived ?? new CarrySummary(0, 0, 0));
+        // No summary is the kernel's word for no schedule having moved: no edit was carried, held or lost, which the zeros say.
+        return (state, state.Rederived ?? new CarrySummary(0, 0, 0));
+    }
+
+    /// <summary>
+    /// What Price would price at a revision (ADR-0016 note 36): the market snapshot, the latest where none is named, the
+    /// lines priced and the lines left out. It reads what <see cref="Price"/> freezes and keeps and submits nothing, and
+    /// refuses what Price would refuse.
+    /// </summary>
+    public RatesPricePlan PlanPrice(string workspaceId, long revision, string user, string? marketSnapshotId)
+    {
+        var (snapshot, _, input) = Frozen(workspaceId, revision, user, marketSnapshotId);
+        return new(snapshot.Id, [.. input.Lines.Select(l => l.RowKey)], [.. input.NotPriced.Select(n => n.Line)]);
     }
 
     /// <summary>
     /// Price once (docs/07 §3): freezes the revision the user saw and prices its priceable lines against the market
-    /// snapshot the user names; the lines left out are listed in the result with why. Refused when nothing is priceable.
+    /// snapshot named; the lines left out are listed in the result with why. Refused when nothing is priceable. With no
+    /// snapshot named, as a caller that read none may, it is the latest then, which the Run's input names; a snapshot
+    /// named and not resolved is refused, never replaced.
     /// </summary>
-    public SubmissionResult Price(string workspaceId, long revision, string user, string idempotencyKey, string marketSnapshotId)
+    public SubmissionResult Price(string workspaceId, long revision, string user, string idempotencyKey, string? marketSnapshotId, RunOrigin origin = RunOrigin.Pricer)
+    {
+        var (snapshot, freeze, input) = Frozen(workspaceId, revision, user, marketSnapshotId);
+        var accepted = RatesAcceptedInput.Build(freeze.WorkspaceId, freeze.Revision, freeze.Context, snapshot.Update, input, freeze.Overrides);
+        var reference = store.Put($"rates-input-{freeze.WorkspaceId}-r{freeze.Revision}-{Sanitise(snapshot.Id)}", RatesContracts.AcceptedInput, RatesContracts.Version, accepted);
+        return runs.Submit(new RunSubmission(RatesModule.Price(reference), freeze.Context,
+            new JsonObject { ["workspaceId"] = freeze.WorkspaceId, ["revision"] = freeze.Revision, ["marketSnapshotId"] = snapshot.Id },
+            idempotencyKey, user, origin, new RunRelations(freeze.WorkspaceId, freeze.Revision)));
+    }
+
+    // The revision frozen for Price with its market and what of it is priced, or the refusal Price gives.
+    (MarketSnapshot Snapshot, WorkspaceFreeze Freeze, LiveInput Input) Frozen(string workspaceId, long revision, string user, string? marketSnapshotId)
     {
         Owned(workspaceId, user);
-        var snapshot = market.Resolve(marketSnapshotId)
-            ?? throw new WorkspaceRefused("UnknownMarket", $"Market snapshot {marketSnapshotId} cannot be resolved.");
+        var snapshot = marketSnapshotId is null
+            ? market.Latest ?? throw new WorkspaceRefused("NoMarket", "No market snapshot has been published yet; price waits for one.")
+            : market.Resolve(marketSnapshotId) ?? throw new WorkspaceRefused("UnknownMarket", $"Market snapshot {marketSnapshotId} cannot be resolved.");
         LiveInput? input = null;
         var freeze = workspaces.Freeze(workspaceId, revision, state =>
         {
@@ -295,11 +313,20 @@ public sealed class RatesWorkspaces(WorkspaceService workspaces, IDataStore stor
         });
         if (input!.Lines.Count == 0)
             throw new WorkspaceRefused("NothingToPrice", "No line in this workspace can be priced.");
-        var accepted = RatesAcceptedInput.Build(freeze.WorkspaceId, freeze.Revision, freeze.Context, snapshot.Update, input, freeze.Overrides);
-        var reference = store.Put($"rates-input-{freeze.WorkspaceId}-r{freeze.Revision}-{Sanitise(snapshot.Id)}", RatesContracts.AcceptedInput, RatesContracts.Version, accepted);
-        return runs.Submit(new RunSubmission(RatesModule.Price(reference), freeze.Context,
-            new JsonObject { ["workspaceId"] = freeze.WorkspaceId, ["revision"] = freeze.Revision, ["marketSnapshotId"] = snapshot.Id },
-            idempotencyKey, user, RunOrigin.Pricer, new RunRelations(freeze.WorkspaceId, freeze.Revision)));
+        return (snapshot, freeze, input);
+    }
+
+    /// <summary>The revision the caller's workspace holds: what a command that names none acts on.</summary>
+    public long Revision(string workspaceId, string user) => Owned(workspaceId, user).Revision;
+
+    /// <summary>How many lines of a workspace as it stands a calculation prices: the rest are left out, each with why.</summary>
+    public int Priced(WorkspaceState state) => RatesAcceptedInput.Of(state, conventions, provider).Lines.Count;
+
+    /// <summary>The caller's workspace's live state: its running subscription, or the last one stopped; null when it never ran.</summary>
+    public LiveStatus? LiveOn(string workspaceId, string user)
+    {
+        Owned(workspaceId, user);
+        return live.StatusOf(user, workspaceId);
     }
 
     /// <summary>Starts ticking the workspace's current revision. Later edits move it to their revision.</summary>
@@ -309,28 +336,50 @@ public sealed class RatesWorkspaces(WorkspaceService workspaces, IDataStore stor
         return live.Start(user, workspaceId, RatesAcceptedInput.Of(state, conventions, provider), origin);
     }
 
-    public void StopLive(string subscriptionId, string user, RunOrigin origin = RunOrigin.Pricer) =>
-        live.Stop(user, subscriptionId, LiveStopReason.User, origin);
-
-    /// <summary>Stops the workspace's running subscription, for a caller who names the workspace rather than the subscription.</summary>
+    /// <summary>Stops the workspace's running subscription, for every page watching it, and answers which it was.</summary>
     public string StopLiveOn(string workspaceId, string user, RunOrigin origin)
     {
-        Owned(workspaceId, user);
-        var status = live.StatusOf(user, workspaceId);
-        if (status is not { Running: true }) throw new WorkspaceRefused("NotRunning", $"Workspace {workspaceId} is not ticking.");
+        var status = RunningOn(workspaceId, user);
         live.Stop(user, status.SubscriptionId, LiveStopReason.User, origin);
         return status.SubscriptionId;
     }
 
+    /// <summary>The workspace's running subscription, which <c>live stop</c> stops; refused where none runs.</summary>
+    public LiveStatus RunningOn(string workspaceId, string user) => Running(workspaceId, user, "Live is not running on this workspace.");
+
+    /// <summary>
+    /// The frame the workspace's running subscription shows now (ADR-0016 note 36): what a capture that names no frame
+    /// saves, and what a reading of <c>capture</c> names. Refused where no subscription runs, and before its first frame.
+    /// </summary>
+    public ShownFrame ShownOn(string workspaceId, string user)
+    {
+        const string notRunning = "Live is not running: capture saves a frame a running subscription shows.";
+        var status = Running(workspaceId, user, notRunning);
+        try
+        {
+            return live.Shown(user, status.SubscriptionId) ?? throw new WorkspaceRefused("NoFrame", "The subscription has shown no frame yet.");
+        }
+        catch (KeyNotFoundException)
+        {
+            // It stopped between the two reads: the refusal is the one a read a moment later gives.
+            throw new WorkspaceRefused("NotRunning", notRunning);
+        }
+    }
+
+    LiveStatus Running(string workspaceId, string user, string otherwise) =>
+        LiveOn(workspaceId, user) is { Running: true } status ? status : throw new WorkspaceRefused("NotRunning", otherwise);
+
     /// <summary>
     /// Captures the frame the user saw as a Run (docs/07 §3): the frame the capture names, with its own input and
     /// market, never a newer frame or a newer edit relabelled as it. A newer frame shown meanwhile changes nothing
-    /// (spine 6); a frame the subscription no longer keeps (<see cref="RatesLiveService.KeptFrames"/>) is refused.
+    /// (spine 6); a frame the subscription no longer keeps (<see cref="RatesLiveService.KeptFrames"/>) is refused, and
+    /// so is a subscription that is not the workspace's.
     /// </summary>
-    public SubmissionResult Capture(string subscriptionId, string user, FrameIdentity seen, string idempotencyKey)
+    public SubmissionResult Capture(string workspaceId, string subscriptionId, string user, FrameIdentity seen, string idempotencyKey, RunOrigin origin = RunOrigin.Pricer)
     {
-        var workspaceId = live.WorkspaceOf(user, subscriptionId);
         Owned(workspaceId, user);
+        if (live.WorkspaceOf(user, subscriptionId) != workspaceId)
+            throw new WorkspaceRefused("UnknownSubscription", $"{subscriptionId} is not a live subscription of workspace {workspaceId}.");
         if (live.Shown(user, subscriptionId) is null) throw new WorkspaceRefused("NoFrame", "The subscription has shown no frame yet.");
         var shown = live.Kept(user, subscriptionId, seen.SubscriptionRevision, seen.InputRevision, seen.MarketSnapshotId)
             ?? throw new WorkspaceRefused("FrameNotKept",
@@ -350,7 +399,7 @@ public sealed class RatesWorkspaces(WorkspaceService workspaces, IDataStore stor
                 ["workspaceId"] = workspaceId, ["revision"] = d.InputRevision, ["marketSnapshotId"] = d.Market.SnapshotId,
                 ["subscriptionId"] = subscriptionId, ["subscriptionRevision"] = d.SubscriptionRevision,
             },
-            idempotencyKey, user, RunOrigin.Pricer, new RunRelations(workspaceId, d.InputRevision)));
+            idempotencyKey, user, origin, new RunRelations(workspaceId, d.InputRevision)));
     }
 
     public void Delete(string workspaceId, string user)
@@ -358,16 +407,6 @@ public sealed class RatesWorkspaces(WorkspaceService workspaces, IDataStore stor
         Owned(workspaceId, user);
         foreach (var (owner, id) in live.OnWorkspace(workspaceId)) live.Stop(owner, id, LiveStopReason.Deleted);
         workspaces.Delete(workspaceId, user);
-    }
-
-    /// <summary>Reports an accepted revision to the workspace's running subscriptions, which then price only it.</summary>
-    WorkspaceState Reported(string workspaceId, WorkspaceState state)
-    {
-        var subscriptions = live.OnWorkspace(workspaceId);
-        if (subscriptions.Count == 0) return state;
-        var input = RatesAcceptedInput.Of(state, conventions, provider);
-        foreach (var (owner, id) in subscriptions) live.InputChanged(owner, id, input);
-        return state;
     }
 
     WorkspaceState Owned(string workspaceId, string user)

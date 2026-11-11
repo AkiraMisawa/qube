@@ -671,10 +671,12 @@ test('ADR-0006 note 3 (2026-11-11): the empty line and `?` list the page\'s comm
   await expect(ofThePage.first()).toContainText('price');
   await expect(ofThePage.filter(worded('set'))).toHaveCount(1);
   await expect(ofThePage.filter(worded(/^new /))).toHaveCount(0);
-  // What cannot run here is last, with why: Rates' commands on an XVA page.
+  // What cannot run here is last, with why: with one panel open there is no other to show. Rates' commands are the
+  // server's (ADR-0016 notes 27 and 36): on the pricer's page their words are no commands, and are not listed.
   await expect(headings.last()).toHaveText('Not available now');
-  await expect(page.getByRole('group', { name: 'Not available now' }).getByRole('option').filter(worded('capture')))
-    .toContainText('Open a Rates workspace first.');
+  await expect(page.getByRole('group', { name: 'Not available now' }).getByRole('option').filter(worded('next panel')))
+    .toContainText('There is no other panel.');
+  await expect(list.getByRole('option').filter(worded('capture'))).toHaveCount(0);
 
   // `?` lists what can run, all of it: it stopped at fifty in silence, before `new rates` and `open pricing db`.
   await page.keyboard.type('?');

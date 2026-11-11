@@ -2,13 +2,10 @@ import { lazy, Suspense, useCallback, useState, type ReactNode } from 'react';
 import { Button, Group, Modal, NumberInput, Select, Stack, Text, TextInput } from '@mantine/core';
 import { useQuery } from '@tanstack/react-query';
 import { CommandRefused, type Command } from '../platform/commands/commands';
-import { termCompletions, termParts, type ProductDescriptor } from '../platform/products';
-import { parserOf } from './rates/lines';
 import { useWorkspace, useWorkspaceContext } from '../platform/workspace/WorkspaceProvider';
 import type { Panel, WorkspaceState } from '../platform/workspace/workspaceStore';
 import { PricingDbPanel } from './history/PricingDbPanel';
 import { httpRatesApi, type RatesApi } from './rates/api';
-import { ratesCommandsOf } from './rates/commands';
 import { RatesWorkspacePanel } from './rates/RatesWorkspacePanel';
 import { httpXvaApi, type XvaApi } from './xva/api';
 import { measureNamed, xvaPageOf } from './xva/commands';
@@ -103,6 +100,15 @@ for (const capability of ['rates.live.start', 'rates.live.stop'])
     void queryClient.invalidateQueries({ queryKey: ['rates', subscription.workspaceId] });
     return undefined;
   });
+// Rates' other commands (ADR-0016 note 36) answer where they left the workspace: an empty line added, and the Runs
+// `price` and `capture` make, which the page lists and the Pricing DB keeps.
+for (const capability of ['rates.line.add', 'rates.workspace.price', 'rates.frame.capture'])
+  registerAiEffect(capability, (outputs, { queryClient }) => {
+    const answer = outputs.answer as { readonly workspaceId: string };
+    void queryClient.invalidateQueries({ queryKey: ['rates', answer.workspaceId] });
+    if (capability !== 'rates.line.add') void queryClient.invalidateQueries({ queryKey: ['history'] });
+    return undefined;
+  });
 
 export function AppPanel({ panel }: { readonly panel: Extract<Panel, { kind: 'app' }> }): ReactNode {
   switch (panel.app) {
@@ -151,20 +157,12 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
   const xvaPanel = active?.kind === 'app' && active.app === XVA_WORKSPACE ? active : undefined;
   const ratesPanel = active?.kind === 'app' && active.app === RATES_WORKSPACE ? active : undefined;
   const xva = xvaPanel?.id;
-  const rates = ratesPanel?.id;
   // What an XVA command acts on, or why it cannot: every XVA command but `new xva` needs the page.
   // A command of the page in the active panel says so: the empty line lists those first (ADR-0006's note 3 of 2026-11-11).
   const onXva = xvaPanel === undefined ? { unavailable: 'Open an XVA workspace first.' } : onPage(xvaPanel);
   const trace = active?.kind === 'app' && active.app === TRACE_VIEW ? active : undefined;
   // `explain` acts on the XVA page's Run or on the trace in view.
   const explainOn = xvaPanel ?? trace;
-  const page = () => {
-    const commands = ratesCommandsOf(rates);
-    if (commands === undefined) throw new Error(`The Rates workspace in panel ${rates ?? '(none)'} registered no commands.`);
-    return commands;
-  };
-  const onRates = ratesPanel === undefined ? { unavailable: 'Open a Rates workspace first.' } : onPage(ratesPanel);
-  const priceTarget = ratesPanel === undefined ? { unavailable: 'Open an XVA or Rates workspace to price it.' } : onPage(ratesPanel);
   const xvaPage = () => {
     const registered = xvaPageOf(xva);
     if (registered === undefined) throw new Error(`The XVA workspace in panel ${xva ?? '(none)'} registered no commands.`);
@@ -219,15 +217,16 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
       group: 'XVA',
       run: () => state.openAppDialog(NEW_XVA),
     },
-    // `price` on the pricer's page is the server's command (`xva.workspace.price`, ADR-0016 note 33), listed there by
-    // the catalog; this one is the Rates page's, and says where to price while neither page is open.
-    ...(xvaPanel !== undefined ? [] : [{
+    // `price` on the pricer's page and on a Rates page is the server's command (`xva.workspace.price`,
+    // `rates.workspace.price`; ADR-0016 notes 33 and 36), listed there by the catalog. With neither page open this one
+    // says where to price: it never runs.
+    ...(xvaPanel !== undefined || ratesPanel !== undefined ? [] : [{
       id: 'workspace.price',
       words: 'price',
       title: 'Price the workspace as it stands',
       group: 'Pricing',
-      ...priceTarget,
-      run: () => page().price(),
+      unavailable: 'Open an XVA or Rates workspace to price it.',
+      run: () => { throw new Error('price ran with no workspace open to price.'); },
     }]),
     {
       id: 'xva.run.download',
@@ -298,37 +297,8 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
       group: 'Rates',
       run: () => state.openAppDialog(NEW_RATES),
     },
-    ...productCommands(rates === undefined ? [] : ratesCommandsOf(rates)?.products() ?? [], onRates, (product, terms) => page().newLine(product, terms)),
-    {
-      id: 'rates.defaults',
-      words: 'set defaults',
-      title: 'Set the workspace defaults for new lines (currency, notional, direction)',
-      group: 'Rates',
-      ...onRates,
-      args: [
-        { name: 'currency', required: false, hint: 'a currency such as JPY; none clears it' },
-        { name: 'notional', required: false, hint: 'in millions (1000 is a billion), or 3bn, 500mm; none clears it', check: (v) => (v === 'none' ? undefined : parsed('leg1.notional')(v)) },
-        { name: 'direction', required: false, complete: () => [{ value: 'pay' }, { value: 'receive' }, { value: 'none' }], check: (v) => (v === 'none' ? undefined : parsed('direction')(v)) },
-      ],
-      run: (a) => page().setDefaults({
-        ...(a.currency === undefined ? {} : { currency: a.currency === 'none' ? null : a.currency.toUpperCase() }),
-        ...(a.notional === undefined ? {} : { notional: a.notional === 'none' ? null : parsedValue('leg1.notional', a.notional) as number }),
-        ...(a.direction === undefined ? {} : { direction: a.direction === 'none' ? null : parsedValue('direction', a.direction) as string }),
-      }),
-    },
-    {
-      id: 'rates.line.add',
-      words: 'add line',
-      title: 'Add an empty line to fill in the grid',
-      group: 'Rates',
-      ...onRates,
-      args: [{ name: 'product', required: true, complete: () => [{ value: 'irs', detail: 'interest rate swap' }, { value: 'ccs', detail: 'cross-currency swap' }],
-        check: (v) => (v === 'irs' || v === 'ccs' ? undefined : 'irs or ccs') }],
-      run: (a) => page().addLine(a.product as 'irs' | 'ccs'),
-    },
-    { id: 'rates.live.start', words: 'live start', title: 'Start ticking the workspace', group: 'Rates', ...onRates, run: () => page().startLive() },
-    { id: 'rates.live.stop', words: 'live stop', title: 'Stop ticking the workspace, for everyone watching', group: 'Rates', ...onRates, run: () => page().stopLive() },
-    { id: 'rates.capture', words: 'capture', title: 'Save the live frame on screen as a Run', group: 'Rates', ...onRates, run: () => page().capture() },
+    // Every other Rates command is the server's (ADR-0016 notes 34 to 36): `new irs`, `add line`, `price`, `live
+    // start`, `live stop`, `capture`, and the kernel's `set`, `reset` and `remove` over its lines and defaults.
     {
       id: 'history.open',
       words: 'open pricing db',
@@ -338,42 +308,6 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
     },
   ];
 }
-
-const parsed = (field: string) => (value: string): string | undefined => {
-  const result = parserOf(field)!(value);
-  return result.ok ? undefined : result.message;
-};
-
-function parsedValue(field: string, text: string): unknown {
-  const result = parserOf(field)!(text);
-  if (!result.ok) throw new Error(`${field} was checked on the line and is refused now: ${result.message}`);
-  return result.value;
-}
-
-/**
- * `new <product> <terms…>` for each product the server describes (ADR-0008 §1, §5): one generic command with its
- * product named. The words are read in any order; the line completes and shows them from the description, and the
- * server reads them again, fills what its defaults supply and refuses what is missing by name.
- */
-function productCommands(products: readonly ProductDescriptor[], on: Partial<Pick<Command, 'unavailable' | 'target' | 'page'>>, create: (product: string, terms: string) => void): Command[] {
-  return products.map((product) => ({
-    id: `entity.create/${product.id}`,
-    words: `new ${product.words}`,
-    title: `Add ${article(product.title)} from short terms, in any order`,
-    group: 'Rates',
-    ...on,
-    args: [{
-      name: 'terms', required: true, rest: true, words: true,
-      hint: `${product.fields.filter((f) => f.required).map((f) => f.name).join(', ')}; any order, name=value for the rest`,
-      complete: (given) => termCompletions(product, wordsOf(given.terms)),
-      parts: (text) => termParts(product, wordsOf(text)),
-    }],
-    run: (a) => create(product.id, a.terms ?? ''),
-  }));
-}
-
-const wordsOf = (text: string | undefined) => (text ?? '').split(/\s+/).filter((w) => w !== '');
-const article = (title: string) => `${/^[aeiou]/i.test(title) ? 'an' : 'a'} ${title.toLowerCase()}`;
 
 /** The dialogs apps open. Enter submits; Escape closes. */
 export function AppDialogs() {

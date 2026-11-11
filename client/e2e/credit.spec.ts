@@ -8,11 +8,12 @@ const result = (page: Page) => page.getByTestId('xva-result');
 
 /** Prices the workspace and waits for the Run to finish. */
 async function price(page: Page): Promise<void> {
-  const [shown] = await result(page).getByTestId('xva-result-revision').allInnerTexts();
-  await command(page, 'price');
+  // The line closes once the page shows the Run the command made (ADR-0016 note 33). That Run is of the workspace as it
+  // stands, which the revision says alone, so the status and the figures read after it are that Run's and never those
+  // of the Run shown before. (The revision was compared as painted, in capitals, with its text, and so never waited.)
+  await taken(page, 'price');
+  await expect(result(page).getByTestId('xva-result-revision')).toHaveText(/^revision \d+$/);
   await expect(result(page).getByTestId('xva-result-status')).toHaveText('succeeded');
-  // A second Price shows a Run of a later revision: the figures read are that Run's.
-  if (shown !== undefined) await expect(result(page).getByTestId('xva-result-revision')).not.toHaveText(shown);
 }
 
 /** The Base's figure in the Metrics column of this label (`CVA After`), once the Run has written it. */

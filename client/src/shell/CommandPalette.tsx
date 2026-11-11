@@ -6,7 +6,7 @@ import {
   assertDistinct, CommandRefused, completionsOf, drawn, drawnSections, execute, finish, listed, placeholder, readLine, signature, take,
   type Command, type CommandDoor, type Completion,
 } from '../platform/commands/commands';
-import { argumentShown, commandDoorOf, lineAsked, previewShown, screenShown, servedCommands, taken } from '../platform/commands/served';
+import { argumentShown, argumentsDrawn, commandDoorOf, lineAsked, previewShown, screenShown, servedCommands, taken } from '../platform/commands/served';
 import { recordUse, usageScore } from '../platform/commands/usage';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { Catalog, LineCompletion, LinePreview, LineView, RunRecord } from '../platform/contracts';
@@ -800,14 +800,13 @@ function SaidRow({ entry }: { readonly entry: Said }): ReactNode {
 function Head({ command, reading, latest, waiting }: { readonly command: Command; readonly reading: ReturnType<typeof readLine>; readonly latest: LinePreview | undefined; readonly waiting: boolean }): ReactNode {
   const args = command.args ?? [];
   // A served command's arguments are the catalog's, each with the words the server read for it, once it has read the
-  // line; while the reading is of an earlier text they are dimmed with it (shell.css).
-  const given = new Map((latest?.arguments ?? []).map((a) => [a.name, a]));
+  // line, and what it read under other names after them (`argumentsDrawn`); while the reading is of an earlier text
+  // they are dimmed with it (shell.css).
   return (
     <Group gap={6} wrap="wrap" data-testid="command-pending" className="qube-line-head" aria-busy={waiting || undefined}>
       <Text size="sm" fw={600} ff="monospace">{command.words}</Text>
       {/* A short form's own arguments are how it is typed; once it is read, the line it stands for says what was read. */}
-      {(latest?.expands === undefined ? command.served?.arguments ?? [] : []).map((a) => {
-        const read = given.get(a.name);
+      {(latest?.expands !== undefined || command.served === undefined ? [] : argumentsDrawn(command.served.arguments, latest?.arguments ?? [])).map(({ read, ...a }) => {
         // One the user did not type (ADR-0016 note 18) is drawn as an outline, and says in words where it came from.
         return (
           <Badge key={a.name} size="sm" radius="sm" className="qube-line-read" variant={read === undefined || read.from === 'context' ? 'outline' : 'light'} color={read === undefined ? 'gray' : 'blue'}
