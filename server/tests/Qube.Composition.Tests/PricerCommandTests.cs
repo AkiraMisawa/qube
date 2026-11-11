@@ -152,6 +152,19 @@ public class PricerCommandTests(QubeFactory factory) : IClassFixture<QubeFactory
         Assert.Equal(["csa id", "type", "threshold"], issue["candidates"]!.AsArray().Take(3).Select(c => c!.GetValue<string>()));
     }
 
+    [Fact] // ADR-0016 notes 38 and 45: the AI's preview of a line one of the pricer's verbs refuses answers the word at fault and what it could have been, as the line's reading does
+    public async Task The_ais_preview_of_a_pricers_verb_answers_the_word_at_fault_and_what_it_could_have_been()
+    {
+        var id = (await Create())["workspaceId"]!.GetValue<string>();
+
+        var refused = await Command("commands.preview", new JsonObject { ["workspaceId"] = id, ["line"] = "vary CSA-Z threshold 5mm" });
+        var error = (await refused.Content.ReadFromJsonAsync<JsonObject>())!;
+        var issue = Assert.Single(error["issues"]!.AsArray())!;
+
+        Assert.Equal((HttpStatusCode.UnprocessableEntity, "UnknownCell", "CSA-Z"), (refused.StatusCode, error["code"]!.GetValue<string>(), issue["word"]!.GetValue<string>()));
+        Assert.Equal(["CSA-A", "CSA-B", "NS-001", "credit", "cds", "xva"], issue["candidates"]!.AsArray().Select(c => c!.GetValue<string>()));
+    }
+
     [Fact] // ADR-0010 §8's note of 2026-11-09, ADR-0016 note 28: the AI's cds chooses the CDS the Credit tab does, and the page's door, through the same command, says the same
     public async Task The_ais_cds_chooses_the_counterpartys_curve_as_the_command_line_does()
     {

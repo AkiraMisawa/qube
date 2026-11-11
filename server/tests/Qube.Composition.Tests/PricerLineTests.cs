@@ -206,6 +206,120 @@ public class PricerLineTests
         Assert.Equal(("xva.vary", 1), (preview.Command!.Id, rig.View.Cases.Count));
     }
 
+    // The word a refusal names, where it stands in the line, and what it could have been.
+    static string Marked(LinePreview preview) => preview.Refused is not { } refused ? "read"
+        : $"{refused.Code}: {refused.Word}@{refused.Start}-{refused.End} | {string.Join(", ", refused.Candidates)}";
+
+    [Theory] // ADR-0016 note 45: where one of the pricer's verbs refuses a word of its line, the refusal names it, where it stands, and what it could have been
+    [InlineData("vary CSA-Z threshold 5mm", "UnknownCell: CSA-Z@5-10 | CSA-A, CSA-B, NS-001, credit, cds, xva")]
+    [InlineData("vary CSA-A colour 5mm", "UnknownCell: colour@11-17 | threshold, mta, counterparty currency, self threshold, self mta, self currency, currency, curve, fva curve, frequency, exchange, one-way")]
+    // A column of several words is named whole.
+    [InlineData("vary DRAFT-1 fixed colour 1%", "UnknownCell: fixed colour@13-25 | notional, rate, schedule, csa, curve, im-r, im-p, B, A, margin, pvadj")]
+    [InlineData("measures cva dva2", "UnknownMeasure: dva2@13-17 | cva, fva, kva, ccr.spotCapital")]
+    [InlineData("cds zzz", "UnknownCds: zzz@4-7 | ABCH USD SNRFOR XR14, ABCH USD SUBLT2 XR14, ABCH JPY SNRFOR CR14, ABCS USD SNRFOR XR14, DEFG EUR SNRFOR MM14, HIJK USD SNRFOR XR14, LMNO JPY SNRFOR CR14")]
+    // What a proxy's word could have been is of a kind the line has not given: the sector is given here.
+    [InlineData("cds proxy financials zz", "InvalidCds: zz@21-23 | asia, europe, americas, AAA, AA, A, BBB, BB, B")]
+    // Words that name several single names are named with those they could be; words are named as typed, whatever the spaces between them.
+    [InlineData("cds ABCH USD", "AmbiguousCds: ABCH USD@4-12 | ABCH USD SNRFOR XR14, ABCH USD SUBLT2 XR14")]
+    [InlineData("cds abch  usd", "AmbiguousCds: abch  usd@4-13 | ABCH USD SNRFOR XR14, ABCH USD SUBLT2 XR14")]
+    [InlineData("cds proxy financials asia utilities AA", "InvalidCds: utilities@26-35 | ")]
+    // A value that cannot be read is named, with what the cell's form has to choose from.
+    [InlineData("vary CSA-A currency XXX, USD", "InvalidValue: XXX@20-23 | GBP, JPY, USD, EUR")]
+    [InlineData("vary DRAFT-1 A maybe", "InvalidValue: maybe@15-20 | on, off")]
+    [InlineData("vary CSA-A threshold lots", "InvalidValue: lots@21-25 | ")]
+    [InlineData("vary CSA-A threshold 10,000k", "NothingToVary: 10,000k@21-28 | ")]
+    // A workspace with no scenario, or no case, has none to offer for the name.
+    [InlineData("scenario remove nope", "UnknownScenario: nope@16-20 | ")]
+    [InlineData("case remove nope", "UnknownCase: nope@12-16 | ")]
+    // A refusal of the whole line names no word.
+    [InlineData("vary CSA-A threshold", "NothingToVary: @- | ")]
+    public void A_word_the_pricer_refuses_is_named_where_it_stands_with_what_it_could_have_been(string line, string marked) =>
+        Assert.Equal(marked, Marked(new Rig().Preview(line)));
+
+    [Fact] // ADR-0016 note 45: a case and a scenario that are not there are named, with the cases and the scenarios there are
+    public async Task A_case_and_a_scenario_that_are_not_there_are_named_with_those_there_are()
+    {
+        var rig = new Rig();
+        await rig.Run(rig.Preview("vary CSA-A threshold 10mm, 5mm"));
+        await rig.Run(rig.Preview("scenario up jpy_ois +10bp"));
+
+        Assert.Equal("UnknownCase: CSA-A threshold 7mm@12-31 | CSA-A threshold 10mm, CSA-A threshold 5mm", Marked(rig.Preview("case remove CSA-A threshold 7mm")));
+        Assert.Equal("UnknownScenario: nope@16-20 | up", Marked(rig.Preview("scenario remove nope")));
+        // No case named is a refusal of the whole line.
+        Assert.Equal("UnknownCase: @- | ", Marked(rig.Preview("case remove")));
+    }
+
+    [Fact] // ADR-0016 note 45: with no curve chosen cds is no row: it is refused by why there is none, and is neither listed, a candidate nor offered
+    public async Task With_no_curve_chosen_cds_is_no_row_a_cell_is_named_on()
+    {
+        var rig = new Rig();
+        await rig.Run(rig.Preview("cds none"));
+
+        var cds = rig.Preview("vary cds 5y 100bp");
+        var other = rig.Preview("vary CSA-Z threshold 5mm");
+
+        Assert.Equal(("UnknownCell", "cds", 5, 8), (cds.Refused!.Code, cds.Refused.Word, cds.Refused.Start, cds.Refused.End));
+        Assert.Empty(cds.Refused.Candidates);
+        Assert.Equal("UnknownCell: No row CSA-Z: a row is a CSA (CSA-A, CSA-B), the netting set (NS-001), credit, a trade's id, or xva for XVA's settings.", Read(other));
+        Assert.Equal("UnknownCell: CSA-Z@5-10 | CSA-A, CSA-B, NS-001, credit, xva", Marked(other));
+        Assert.Equal("CSA-A (a CSA)@5 | CSA-B (a CSA)@5 | credit (the counterparty's CDS choice)@5", OfferedAt("vary c", rig.Preview("vary c")));
+    }
+
+    // What a line offers, each with what it is and, where it is not written at the line's end, where it is written from.
+    static string OfferedAt(string line, LinePreview preview) => string.Join(" | ", preview.Complete.Select(c =>
+        $"{c.Value}{(c.Detail is null ? "" : $" ({c.Detail})")}{(c.Start == line.Length ? "" : $"@{c.Start}")}"));
+
+    [Theory] // ADR-0016 note 45: vary offers the rows a cell is named on, then the row's columns, then what a flag or a choice has to choose from, again after each comma
+    [InlineData("vary", "")]
+    [InlineData("vary c", "CSA-A (a CSA)@5 | CSA-B (a CSA)@5 | credit (the counterparty's CDS choice)@5 | cds (the chosen curve's spreads)@5")]
+    [InlineData("vary dr", "DRAFT-1 (a trade)@5 | DRAFT-2 (a trade)@5 | DRAFT-3 (a trade)@5")]
+    // A row is found by how its id starts or ends, as set finds one.
+    [InlineData("vary e00003", "ABC-LE-01-E00003 (a trade)@5")]
+    // A row's columns, by the word that names each.
+    [InlineData("vary CSA-A ", "threshold | mta | counterparty currency | self threshold | self mta | self currency | currency | curve | fva curve | frequency | exchange | one-way")]
+    [InlineData("vary NS-001 ", "recovery")]
+    // A column of several words is written from its first word, and one typed by another of its names is offered by the word that names it.
+    [InlineData("vary CSA-A self ", "self threshold@11 | self mta@11 | self currency@11")]
+    [InlineData("vary CSA-A self c", "self currency@11")]
+    [InlineData("vary DRAFT-1 fixed", "rate@13")]
+    // A flag's two words and a choice's values, as a line writes them.
+    [InlineData("vary CSA-A exchange ", "on | off")]
+    [InlineData("vary DRAFT-1 A o", "on@15 | off@15")]
+    [InlineData("vary CSA-A frequency w", "weekly@21")]
+    // After a comma, the values not listed yet.
+    [InlineData("vary CSA-A currency USD, ", "GBP | JPY | EUR")]
+    [InlineData("vary CSA-A currency usd,j", "JPY@24")]
+    // A value listed is left out however it was written.
+    [InlineData("vary DRAFT-1 A yes, ", "off")]
+    // A column that may be empty offers empty; an amount, a rate and an id are typed freely.
+    [InlineData("vary NS-001 recovery ", "empty")]
+    [InlineData("vary CSA-A threshold ", "")]
+    [InlineData("vary CSA-A curve ", "")]
+    // A row or a column the workspace has not offers nothing: the reading says which.
+    [InlineData("vary CSA-Z ", "")]
+    [InlineData("vary CSA-A colour ", "")]
+    public void Vary_offers_rows_then_columns_then_what_a_column_has_to_choose_from(string line, string offered) =>
+        Assert.Equal(offered, OfferedAt(line, new Rig().Preview(line)));
+
+    [Fact] // ADR-0016 note 45: vary offers the rows that are no trade first, then trades, a few at a time with how many more there are, as set does (note 15)
+    public void Vary_offers_rows_a_few_at_a_time_and_says_how_many_more()
+    {
+        var rig = new Rig();
+        // Of forty existing trades generated, twenty-nine are still alive on the value date: with the three new ones,
+        // thirty-two trades are rows, beside the six rows that are none.
+        Assert.Equal(32, rig.View.Trades);
+
+        var all = rig.Preview("vary ");
+        var existing = rig.Preview("vary abc-le-01-e000");
+
+        Assert.Equal("CSA-A (a CSA) | CSA-B (a CSA) | NS-001 (the netting set) | credit (the counterparty's CDS choice) | cds (the chosen curve's spreads) | xva (XVA's settings)",
+            OfferedAt("vary ", all with { Complete = [.. all.Complete.Take(6)] }));
+        Assert.All(all.Complete.Skip(6), c => Assert.Equal("a trade", c.Detail));
+        Assert.Equal((20, 18), (all.Complete.Count, all.More));
+        Assert.All(existing.Complete, c => Assert.StartsWith("ABC-LE-01-E000", c.Value));
+        Assert.Equal((20, 9, 5), (existing.Complete.Count, existing.More, existing.Complete[0].Start));
+    }
+
     [Fact] // ADR-0016 note 28: the AI's request with the same words gets the same answer and the same refusal; a cell is also named as a page names it, by entity and field
     public async Task The_same_words_from_the_ai_or_a_dialog_get_the_same_answer_and_refusal()
     {

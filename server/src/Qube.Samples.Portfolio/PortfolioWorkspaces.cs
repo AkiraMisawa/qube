@@ -473,11 +473,15 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
         var cases = PortfolioCases.All(raw).Skip(1).ToList();
         var named = cases.Where(c => string.Equals(c.Id, name.Trim(), StringComparison.OrdinalIgnoreCase)).ToList() is { Count: 1 } byId ? byId
             : cases.Where(c => string.Equals(c.Title, name.Trim(), StringComparison.OrdinalIgnoreCase)).ToList();
+        // A name that finds no case, or several, is the word the refusal names (ADR-0016 note 45); with no name the
+        // refusal is of the whole line.
         if (named.Count == 0)
-            throw new WorkspaceRefused("UnknownCase", cases.Count == 0 ? "The workspace has no case; the Base is the workspace itself and is never removed."
-                : $"{(name.Trim().Length == 0 ? "case remove takes the case to remove, by its title" : $"No case {name.Trim()}")}; the cases are {string.Join(", ", cases.Select(c => c.Title))}.");
+            throw cases.Count == 0 ? new WorkspaceRefused("UnknownCase", "The workspace has no case; the Base is the workspace itself and is never removed.", word: name.Trim().Length == 0 ? null : name.Trim())
+                : name.Trim().Length == 0 ? new WorkspaceRefused("UnknownCase", $"case remove takes the case to remove, by its title; the cases are {string.Join(", ", cases.Select(c => c.Title))}.")
+                : new WorkspaceRefused("UnknownCase", $"No case {name.Trim()}; the cases are {string.Join(", ", cases.Select(c => c.Title))}.", word: name.Trim(), candidates: [.. cases.Select(c => c.Title)]);
         if (named.Count > 1)
-            throw new WorkspaceRefused("AmbiguousCase", $"{name.Trim()} names {named.Count} cases, {string.Join(" and ", named.Select(c => c.Id))}; remove one by its id.");
+            throw new WorkspaceRefused("AmbiguousCase", $"{name.Trim()} names {named.Count} cases, {string.Join(" and ", named.Select(c => c.Id))}; remove one by its id.",
+                word: name.Trim(), candidates: [.. named.Select(c => c.Id)]);
         var entity = PortfolioCases.Of(named[0].Id);
         return new(new([new WorkspaceChange.Remove(entity, entity)], $"case remove {named[0].Title}"), [(named[0].Title, PortfolioCases.ChangesOf(raw, named[0].Id).Count)]);
     }

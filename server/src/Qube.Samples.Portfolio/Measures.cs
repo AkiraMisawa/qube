@@ -341,7 +341,9 @@ public sealed class MeasureRegister
         var expanded = selection.SelectMany(s => Modules.SingleOrDefault(m => m.Id == s) is { } module ? module.Measures.Select(d => d.Id) : [s]).ToList();
         var unknown = expanded.Where(s => !Ids.Contains(s)).Distinct().ToList();
         if (unknown.Count > 0)
-            throw new WorkspaceRefused("UnknownMeasure", $"No measure {string.Join(", ", unknown)} is registered; the measures are {string.Join(", ", Ids)}.");
+            throw new WorkspaceRefused("UnknownMeasure", $"No measure {string.Join(", ", unknown)} is registered; the measures are {string.Join(", ", Ids)}.",
+                // A refusal names one word: the first that is no measure (ADR-0016 note 45).
+                word: unknown[0], candidates: [.. Ids]);
         if (expanded.Count == 0)
             throw new WorkspaceRefused("NoMeasure", "Select at least one measure to price.");
         return [.. Ids.Where(expanded.Contains)];

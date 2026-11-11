@@ -126,6 +126,22 @@ public static partial class FieldForms
     }
 
     /// <summary>
+    /// What a field of the form has to choose from, each as a line writes it: a flag's two words, a choice's values, and
+    /// <c>empty</c> where the field may be empty. A field of any other form is typed freely. What a line offers for a
+    /// value, and what a value that cannot be read could have been (ADR-0016 notes 15 and 45).
+    /// </summary>
+    public static IReadOnlyList<string> ChoicesWritten(FieldSpec spec)
+    {
+        IEnumerable<string> values = spec.Form switch
+        {
+            FieldForm.Flag => [Write(spec, true), Write(spec, false)],
+            FieldForm.Choice => (spec.Choices ?? throw new InvalidOperationException("A choice with nothing to choose from cannot be offered.")).Values.Distinct().Select(v => Write(spec, v)),
+            _ => [],
+        };
+        return [.. spec.Optional ? values.Append(Write(spec, null)) : values];
+    }
+
+    /// <summary>
     /// A value as it is typed, in the form <see cref="Read"/> reads back to the same value: an amount with its scale (5mm,
     /// 250k, 1.5bn), never bare, since a bare number is read as millions, and with every decimal it has; a rate in %; a
     /// spread in bp; a flag on or off; <c>empty</c> for none.

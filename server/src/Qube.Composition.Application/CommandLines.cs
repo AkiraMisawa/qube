@@ -45,6 +45,9 @@ public sealed record LineCompletion(string Value, int Start, string? Detail = nu
 /// <summary>What could follow, the first of them, and how many more there are than are listed.</summary>
 public sealed record LineCompletions(IReadOnlyList<LineCompletion> Items, int More = 0)
 {
+    /// <summary>How many rows a line lists at a time, with how many more there are (ADR-0016 note 15): a table may have ten thousand.</summary>
+    public const int RowsListed = 20;
+
     public static LineCompletions None { get; } = new([]);
 }
 
@@ -360,7 +363,8 @@ public sealed class CommandLines
         }
         catch (WorkspaceRefused refused)
         {
-            return Refused(refused.Code, refused.Message, null, []);
+            // A domain verb's refusal names its word where it is about one (note 45 of step 4), as a table's does.
+            return Refused(refused.Code, refused.Message, refused.Word, refused.Candidates);
         }
 
         LinePreview Refused(string code, string sentence, string? word, IReadOnlyList<string> candidates)
@@ -472,7 +476,8 @@ public sealed class CommandLines
         }
         catch (WorkspaceRefused refused)
         {
-            return Refused(refused.Code, refused.Message, null, []);
+            // A domain verb's refusal names its word where it is about one (note 45 of step 4), as a table's does.
+            return Refused(refused.Code, refused.Message, refused.Word, refused.Candidates);
         }
     }
 

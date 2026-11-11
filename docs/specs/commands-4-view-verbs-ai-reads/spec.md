@@ -1,6 +1,6 @@
 # Generic commands, delivery step 4: the AI's reads, and the verbs of the screen
 
-Status: in progress (4a, 4b and 4c built; what note 28 left, a fourth pull request, to come)
+Status: built 2026-11-11 (4a, 4b, 4c and 4d)
 
 The decisions are ADR-0016 §3 (view verbs), §5 and §7, with its notes of 2026-11-11 for step 4 (38 onward). This spec
 orders ADR-0016's Delivery order, step 4, and names the seams it is tested at. The owner asked on 2026-11-11 for every
@@ -32,6 +32,10 @@ conditions; where the page holds every row the page narrows them. `shown` is the
 **4c. `select`, `copy` and `export`.** Three more verbs of the screen: the grid's Selection put on the rows a selector
 names, rows and fields written to the clipboard, and a table saved as a file.
 
+**4d. What note 28 left.** A domain verb's refusal names the word it refuses and what it could have been, as the
+kernel's verbs do, and `vary` offers its rows, its columns and a choice's values. Split from 4c so that the three
+verbs could be read on their own.
+
 ## User Stories
 
 1. As the AI, I call `tables_describe` and learn that the workspace has trades with a field `csa` that a command
@@ -51,6 +55,10 @@ names, rows and fields written to the clipboard, and a table saved as a file.
    why it cannot be (4c).
 10. As a desk user, I type `copy selected notional, csa` and paste the rows into a spreadsheet (4c).
 11. As a desk user, I type `export trades` and a file of the table is saved (4c).
+12. As a desk user, I type `vary CSA-Z threshold 5mm`, the line stays with `CSA-Z` selected, and what I type next
+    replaces it (4d).
+13. As a desk user, I type `vary ` and choose the row, then its column, from the list (4d).
+14. As the AI, I preview `measures cva dva2` and am told the word at fault and the measures there are (4d).
 
 ## Implementation Decisions
 
@@ -116,6 +124,17 @@ names, rows and fields written to the clipboard, and a table saved as a file.
 - **The door.** A page's `Screen` says how its grid takes a selection. What takes content out of the page (the
   clipboard, a file saved) is given to the door, so a test gives its own.
 
+### 4d. What note 28 left (tickets 15 to 18; ADR-0016 note 45)
+
+- **A workspace's refusal names its word.** `WorkspaceRefused` holds `Word` and `Candidates`, as `TableRefused`
+  does, and a reading carries them: the word is marked where it stands in the line, by the function that marks a
+  table's (`Place`). A capability's failure is its code and sentence, unchanged.
+- **The pricer says the word where it refuses**, in the one place the line and the capability share: `vary`'s row
+  and column, and a value it cannot read (added in review), a measure, `cds`'s words, `case remove`'s case and a
+  scenario's name.
+- **`vary` completes** from the rows a cell is named on and their columns (`PortfolioCells`), which its reader
+  already resolves a cell with: one list for the reading, the refusal's candidates and what is offered.
+
 ## Testing Decisions
 
 Seams, as the earlier steps have them:
@@ -143,6 +162,11 @@ Seams, as the earlier steps have them:
   the door (a selection handed to the grid, content written to the clipboard and saved, each refused) and for the
   grid's helper; Playwright for a trade grid's Selection placed from the line and `set` then acting on it, the
   clipboard read back after `copy`, and the file `export` saves.
+
+- For 4d: the preview over `Stations` with a command whose reader refuses with a word (marked, candidates
+  answered, a word that stands twice not marked), and the pricer's lines (`PricerLineTests`): each refusal's word,
+  where it stands and its candidates, and what `vary` offers for a row, a column and a value. No browser test is
+  added: that the line selects the word a refusal marks is the kernel's, and has its test (note 15).
 
 A test names the ADR section or note it holds. Expected values are literals of the synthetic registration.
 

@@ -62,17 +62,25 @@ public sealed record WorkspaceFreeze(
     WorkspaceState State);
 
 /// <summary>A command refused. Nothing changed.</summary>
-public sealed class WorkspaceRefused(string code, string message, IReadOnlyList<EditTarget>? targets = null) : Exception(message)
+/// <param name="word">
+/// The word of a typed line the refusal is about, where it is about one (ADR-0016 note 45 of step 4): a reading marks
+/// it where it stands, as it marks a table's (<c>TableRefused</c>).
+/// </param>
+/// <param name="candidates">What that word could have been, where the refusal can say.</param>
+public sealed class WorkspaceRefused(string code, string message, IReadOnlyList<EditTarget>? targets = null, string? word = null, IReadOnlyList<string>? candidates = null)
+    : Exception(message)
 {
     public string Code { get; } = code;
     public IReadOnlyList<EditTarget> Targets { get; } = targets ?? [];
+    public string? Word { get; } = word;
+    public IReadOnlyList<string> Candidates { get; } = candidates ?? [];
 
     /// <summary>
     /// The refusal with the edits it waits on said in its sentence, where it names any: a line and a notice show a
     /// sentence alone, so the targets would otherwise reach nobody (ADR-0016 note 33).
     /// </summary>
     public WorkspaceRefused Named() =>
-        Targets.Count == 0 ? this : new(Code, $"{Message.TrimEnd('.')}: {string.Join(", ", Targets.Select(t => $"{t.Entity} {t.Field}"))}.", Targets);
+        Targets.Count == 0 ? this : new(Code, $"{Message.TrimEnd('.')}: {string.Join(", ", Targets.Select(t => $"{t.Entity} {t.Field}"))}.", Targets, Word, Candidates);
 }
 
 /// <summary>

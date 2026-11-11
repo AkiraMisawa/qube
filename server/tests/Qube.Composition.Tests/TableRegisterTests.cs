@@ -72,14 +72,26 @@ public class TableRegisterTests
         Assert.Equal("Table weather.gauges has two subsets that answer to old.", failed.Message);
     }
 
-    sealed class Gauges : ITableCatalog, IWorkspaceTable
+    [Fact] // ADR-0016 note 45: a choice is read, written and offered by what it has to choose from, so one registered with nothing fails when the table is read
+    public void A_choice_with_nothing_to_choose_from_fails_when_the_table_is_read()
+    {
+        var register = new TableRegister([new Gauges(new("scale", "Scale", ["scale"], FieldForm.Choice))]);
+
+        var failed = Assert.Throws<InvalidOperationException>(() => register.Of(Stations.Board(Stations.Service())));
+
+        Assert.Equal("Table weather.gauges's field scale is a choice with nothing to choose from.", failed.Message);
+    }
+
+    // A registration at fault: two subsets that share a word, or, with a field given, that field and no subset.
+    sealed class Gauges(TableField? field = null) : ITableCatalog, IWorkspaceTable
     {
         public IEnumerable<IWorkspaceTable> Tables => [this];
         public string TableId => "weather.gauges";
         public string App => Stations.App;
 
-        public TableDescriptor Describe(WorkspaceState state) => new(TableId, "1.0", App, "Gauges", ["gauges"], "id", [new("id", "Gauge", ["id"], FieldForm.Id)],
-            [new("worn", "Worn", ["worn", "old"]), new("retired", "Retired", ["old"])]);
+        public TableDescriptor Describe(WorkspaceState state) => new(TableId, "1.0", App, "Gauges", ["gauges"], "id",
+            [new("id", "Gauge", ["id"], FieldForm.Id), .. field is null ? Array.Empty<TableField>() : [field]],
+            field is null ? [new("worn", "Worn", ["worn", "old"]), new("retired", "Retired", ["old"])] : []);
 
         public IReadOnlyList<ITableRow> Rows(WorkspaceState state) => [];
         public IReadOnlyList<WorkspaceChange> Set(WorkspaceState state, ITableRow row, TableField field, JsonNode? value) => [];
