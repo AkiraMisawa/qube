@@ -217,6 +217,23 @@ taken out stays in Before and the difference is the whole change; its case names
 what it takes out and a comma starts the next. Whatever is chosen, no bare sign means "take out", because an id may
 hold a hyphen (`DRAFT-1`).
 
+**Without the line, the lists are the grids' selections** (DEFAULT, proposed 2026-11-11 when the owner asked how
+this is supported with no command; not confirmed). On the pricer's page, each of these calls the same capability
+with the same value (§4):
+
+- a button `Add each` in the New grid's caption, beside `A all` and `A none`: the command with no argument, which
+  only the line reaches today;
+- a button, and the same item on the Context Menu, that makes one iteration from the selection: the rows selected in
+  the New grid are the candidates it adds, and those selected in the Existing grid the trades it takes out. Pressed
+  again with another selection it makes the next. It needs the selection given to commands (§2, Delivery order 2):
+  the page reads no selection today;
+- the Changes tab, which already lists each case and removes it, shows an iteration's two lists and removes one
+  trade from either.
+
+It is not a mode that follows the ticks: a set made by hand would be remade and lost, so a set that no longer matches
+the ticks is refused at Price as now (ADR-0010 §3). A column of ticks per case beside B and A, trades down and cases
+across, would show every iteration at once and be edited in place; it costs a column a case and is left for later.
+
 In the workspace an iteration stays what it is today, a case whose layer switches A off on rows (ADR-0010 §3), so the
 log and Price's requests gain nothing. What changes when it is built: the reading of the line, a case that names its
 trades as a list, and Price's check of the set, which reads the iterations' candidates together.
