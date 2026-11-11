@@ -58,6 +58,27 @@ Show concise actions, selected assumptions and execution progress. Do not expose
 
 Initial scope is read-only analytics, and editing the caller's own workspaces and live subscriptions through command capabilities ([ADR-0005](adr/0005-commands-capabilities-that-edit-a-workspace-or-run-a-subscription.md)): invoked for the server's caller outside Runs, never as workflow steps, refusing missing terms by name instead of filling defaults. Server-side policy governs capability availability, data access, provider selection and resource limits. Agent-supplied identity/permissions are ignored. Booking, position mutation and external quoting are separate future capabilities with their own rules. Do not insert generic approval dialogs for already resolved ordinary analytics; prompt for material ambiguity or a policy-required action only.
 
+## Reading a workspace
+
+Built (ADR-0016 §7, its note 38): the agent has three tools that read the caller's own workspace and write nothing.
+`tables_describe` answers the tables an application registered, their fields, how each value is written and the
+choices of a choice. `tables_read` answers rows a selector names, a page at a time, each cell as text that `set`
+reads back, with the count the selector matched and how many rows follow. `commands_preview` answers what a
+command line would change, and the inputs that run it, without running it.
+
+A page is at most 200 rows and 2,000 cells, so a table of ten thousand rows never enters a prompt whole: a caller
+narrows with `where` and asks the fields it needs, and the answer says the count. A unit is a field of the row that
+the description names, never a column's title. The agent drives no grid: the rows and the verbs of a screen
+(`selected`, `shown`, `find`) are refused to it by name.
+
+Not verified: a model using the three. None is configured, so they were exercised through the gateway and through
+the scripted stand-in, which takes `describe the tables`, `read <rows> [fields …]` and `preview <line>`; the
+instructions tell a model to read rather than guess and to say a count as the tool gave it, and what a model does
+with them is not known yet.
+
+Not built: retaining a reading as a dataset a view binds, so the pane shows a reading's answer as it shows any
+tool's, and a reading does not sort.
+
 ## Acceptance
 
 The real-AI milestone requires a real runtime producing a typed proposal, resolving a CSA choice, executing registered capabilities and rendering actual returned results. A scripted transcript can test UI deterministically but must remain labeled as such. See AI01-AI06 in `11-acceptance.md`.

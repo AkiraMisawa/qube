@@ -20,7 +20,7 @@ public sealed record TableResult(WorkspaceState State, string? Command, string S
 /// the line spells them and the values as <c>name=value</c> (note 12), by the one reader of each; a refusal names the
 /// word at fault (<see cref="TableRefused"/>) or is the domain's own (<see cref="WorkspaceRefused"/>), and writes nothing.
 /// </summary>
-public sealed class TableService(TableRegister register, WorkspaceService workspaces)
+public sealed partial class TableService(TableRegister register, WorkspaceService workspaces)
 {
     const int Named = 3;
     const int Listed = 10;
@@ -548,28 +548,37 @@ public static class TableContracts
     public const string RemoveRequest = "entity.remove-request";
     public const string Edited = "entity.rows-edited";
 
-    internal static Task<IReadOnlyDictionary<string, JsonNode?>> Answer(CapabilityInvocation invocation, Func<JsonNode, Caller, TableResult> act)
+    internal static Task<IReadOnlyDictionary<string, JsonNode?>> Answer(CapabilityInvocation invocation, Func<JsonNode, Caller, TableResult> act) => Answered(invocation, (request, caller) =>
+    {
+        var result = act(request, caller);
+        var answer = new JsonObject
+        {
+            ["workspaceId"] = result.State.WorkspaceId,
+            ["revision"] = result.State.Revision,
+            ["said"] = result.Said,
+            ["table"] = result.Table,
+            ["matched"] = result.Matched,
+            ["changed"] = result.Changed,
+            ["held"] = result.Held,
+            // Flat, as every contract is: the first rows to look at, by their keys.
+            ["rows"] = string.Join(", ", result.Rows),
+        };
+        // The command to name to take this back; none where nothing was written.
+        if (result.Command is { } command) answer["command"] = command;
+        return answer;
+    });
+
+    /// <summary>
+    /// A command of the tables answers its request for its caller, or is refused as the tables refuse: by name, with the
+    /// word at fault and what it could have been (ADR-0016 §6), or as the workspace does.
+    /// </summary>
+    internal static Task<IReadOnlyDictionary<string, JsonNode?>> Answered(CapabilityInvocation invocation, Func<JsonNode, Caller, JsonObject> act)
     {
         var caller = invocation.Caller ?? throw new CapabilityFailure("NoCaller", "A command is invoked for a caller, through the command gateway.");
         var request = invocation.Inputs["request"] ?? throw new CapabilityFailure("InvalidInput", "The command takes a request.");
         try
         {
-            var result = act(request, caller);
-            var answer = new JsonObject
-            {
-                ["workspaceId"] = result.State.WorkspaceId,
-                ["revision"] = result.State.Revision,
-                ["said"] = result.Said,
-                ["table"] = result.Table,
-                ["matched"] = result.Matched,
-                ["changed"] = result.Changed,
-                ["held"] = result.Held,
-                // Flat, as every contract is: the first rows to look at, by their keys.
-                ["rows"] = string.Join(", ", result.Rows),
-            };
-            // The command to name to take this back; none where nothing was written.
-            if (result.Command is { } command) answer["command"] = command;
-            return Task.FromResult<IReadOnlyDictionary<string, JsonNode?>>(new Dictionary<string, JsonNode?> { ["answer"] = answer });
+            return Task.FromResult<IReadOnlyDictionary<string, JsonNode?>>(new Dictionary<string, JsonNode?> { ["answer"] = act(request, caller) });
         }
         catch (TableRefused refused)
         {
@@ -605,7 +614,7 @@ public static class TableContracts
     internal const string RowsTitle = "Rows as the command line spells them: ids separated by commas, all, a subset, or where and conditions joined by and (where <field>=<value> and <field>><value>); left out for a table of one row";
 }
 
-/// <summary>The kernel's edit verbs over registered tables, and their contracts. Knows no table.</summary>
+/// <summary>The kernel's edit verbs over registered tables and its readings of them (ADR-0016 §3, §7), with their contracts. Knows no table.</summary>
 public sealed class TablesModule(Func<TableService> tables) : IQubeModule
 {
     public void Register(CompositionRegistryBuilder builder)
@@ -613,6 +622,9 @@ public sealed class TablesModule(Func<TableService> tables) : IQubeModule
         builder.AddCapability(new EntitySet(tables));
         builder.AddCapability(new EntityReset(tables));
         builder.AddCapability(new EntityRemove(tables));
+        builder.AddCapability(new TablesDescribe(tables));
+        builder.AddCapability(new TablesRead(tables));
+        TableReadContracts.Register(builder);
         builder.AddContract(new ContractDefinition(TableContracts.SetRequest, TableContracts.Version, "Set fields of rows", TableContracts.Request(TableContracts.RowsTitle,
             ("set", new JsonObject { ["type"] = "string", ["minLength"] = 1, ["title"] = "Values as name=value, one or several (<field>=<value> <field>=<value>), each written as its field is typed and checked in the order given; one value may follow its field with no sign (<field> <value>)" }, true))));
         builder.AddContract(new ContractDefinition(TableContracts.ResetRequest, TableContracts.Version, "Reset fields of rows", TableContracts.Request(TableContracts.RowsTitle,

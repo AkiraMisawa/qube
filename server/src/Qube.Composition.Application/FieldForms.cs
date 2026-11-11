@@ -77,49 +77,49 @@ public static partial class FieldForms
         {
             var choices = spec.Choices ?? throw new InvalidOperationException("A choice with nothing to choose from cannot be read.");
             if (choices.TryGetValue(t.ToLowerInvariant(), out var chosen)) return Take(chosen);
-            return IsEmpty(spec, t) ? Take(null) : Refuse(spec, $"one of {string.Join(", ", choices.Values.Distinct())}");
+            return IsEmpty(spec, t) ? Take(null) : Refuse(spec);
         }
         if (IsEmpty(spec, t)) return Take(null);
         switch (spec.Form)
         {
             case FieldForm.Period:
-                return PeriodPattern().IsMatch(t) ? Take(t.ToLowerInvariant()) : Refuse(spec, "a period such as 3m or 10y");
+                return PeriodPattern().IsMatch(t) ? Take(t.ToLowerInvariant()) : Refuse(spec);
             case FieldForm.Date:
-                return IsDate(t) ? Take(t) : Refuse(spec, "a date, yyyy-mm-dd");
+                return IsDate(t) ? Take(t) : Refuse(spec);
             case FieldForm.PeriodOrDate:
-                return PeriodPattern().IsMatch(t) ? Take(t.ToLowerInvariant()) : IsDate(t) ? Take(t) : Refuse(spec, "a period such as 10y, or a date");
+                return PeriodPattern().IsMatch(t) ? Take(t.ToLowerInvariant()) : IsDate(t) ? Take(t) : Refuse(spec);
             case FieldForm.Amount or FieldForm.SignedAmount:
             {
                 var m = AmountPattern().Match(t);
-                if (!m.Success || Number(m.Groups[1].Value) is not { } n) return Refuse(spec, "an amount: 5mm, 250k, 1bn, or a bare number of millions");
+                if (!m.Success || Number(m.Groups[1].Value) is not { } n) return Refuse(spec);
                 if (spec.Form == FieldForm.Amount && n < 0) return new(Problem.Negative, null, "an amount of 0 or more");
                 var scale = m.Groups[2].Value.ToLowerInvariant();
                 // As ADR-0008: a bare number is millions, and a bare one of a million or more was typed in full.
                 if (scale.Length == 0 && Math.Abs(n) >= 1_000_000m) return new(Problem.FullAmount, null, "in millions; write a full amount with its scale, such as 1bn");
-                return Scaled(n, scale.Length == 0 ? "mm" : scale) is { } amount ? Take(amount) : Refuse(spec, "an amount: 5mm, 250k, 1bn, or a bare number of millions");
+                return Scaled(n, scale.Length == 0 ? "mm" : scale) is { } amount ? Take(amount) : Refuse(spec);
             }
             case FieldForm.Percent:
-                return WithUnit(t) is (var percent, var unit) ? Take(unit == "bp" ? percent / 100m : percent) : Refuse(spec, "a rate with its unit: 1.25% or 5bp");
+                return WithUnit(t) is (var percent, var unit) ? Take(unit == "bp" ? percent / 100m : percent) : Refuse(spec);
             case FieldForm.Rate:
-                return Fraction(t) is { } rate ? Take(rate) : Refuse(spec, "a rate with its unit, 40% or 25bp");
+                return Fraction(t) is { } rate ? Take(rate) : Refuse(spec);
             case FieldForm.Spread:
-                return Fraction(t) is { } spread ? Take(spread) : Refuse(spec, "a spread with its unit, 120bp or 1.2%");
+                return Fraction(t) is { } spread ? Take(spread) : Refuse(spec);
             case FieldForm.Number:
             {
                 var m = NumberPattern().Match(t);
                 return m.Success && Number(m.Groups[1].Value) is { } n && Scaled(n, m.Groups[2].Value.ToLowerInvariant()) is { } number ? Take(number)
-                    : Refuse(spec, "a number, with k, mm or bn for its scale, or bp");
+                    : Refuse(spec);
             }
             case FieldForm.Days:
             {
                 var m = DaysPattern().Match(t);
                 return m.Success && decimal.TryParse(m.Groups[1].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var days) ? Take(days)
-                    : Refuse(spec, "a whole number of days, 10 or 10d");
+                    : Refuse(spec);
             }
             case FieldForm.Flag:
-                return FlagWords.Read(t) is { } flag ? Take(flag) : Refuse(spec, "on or off");
+                return FlagWords.Read(t) is { } flag ? Take(flag) : Refuse(spec);
             case FieldForm.Id:
-                return t.Length > 0 ? Take(t) : Refuse(spec, "an identifier");
+                return t.Length > 0 ? Take(t) : Refuse(spec);
             default:
                 throw new InvalidOperationException($"No reading of {spec.Form}.");
         }
@@ -179,7 +179,35 @@ public static partial class FieldForms
 
     static Reading Take(JsonNode? value) => new(Problem.None, value, null);
 
-    static Reading Refuse(FieldSpec spec, string what) => new(Problem.NotOfForm, null, spec.Optional ? $"{what}, or empty" : what);
+    static Reading Refuse(FieldSpec spec) => new(Problem.NotOfForm, null, Takes(spec));
+
+    /// <summary>
+    /// What a field takes, in words that follow "is" (<c>a rate with its unit, 40% or 25bp</c>): what a refusal of a
+    /// value says the field is, and what a description of the field says before any value is tried (ADR-0016 note 38).
+    /// A refusal names a choice's values; a description that lists them beside the sentence (<paramref name="choicesBeside"/>)
+    /// says "one of its choices", since a field may take thousands.
+    /// </summary>
+    public static string Takes(FieldSpec spec, bool choicesBeside = false)
+    {
+        var what = spec.Form switch
+        {
+            FieldForm.Period => "a period such as 3m or 10y",
+            FieldForm.Date => "a date, yyyy-mm-dd",
+            FieldForm.PeriodOrDate => "a period such as 10y, or a date",
+            FieldForm.Amount or FieldForm.SignedAmount => "an amount: 5mm, 250k, 1bn, or a bare number of millions",
+            FieldForm.Percent => "a rate with its unit: 1.25% or 5bp",
+            FieldForm.Rate => "a rate with its unit, 40% or 25bp",
+            FieldForm.Spread => "a spread with its unit, 120bp or 1.2%",
+            FieldForm.Number => "a number, with k, mm or bn for its scale, or bp",
+            FieldForm.Days => "a whole number of days, 10 or 10d",
+            FieldForm.Flag => "on or off",
+            FieldForm.Id => "an identifier",
+            FieldForm.Choice when choicesBeside => "one of its choices",
+            FieldForm.Choice => $"one of {string.Join(", ", (spec.Choices ?? throw new InvalidOperationException("A choice with nothing to choose from cannot be read.")).Values.Distinct())}",
+            _ => throw new InvalidOperationException($"No reading of {spec.Form}."),
+        };
+        return spec.Optional ? $"{what}, or empty" : what;
+    }
 
     // No value, where the field may have none: said as `empty` or `none`.
     static bool IsEmpty(FieldSpec spec, string t) =>

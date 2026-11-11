@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using Qube.Composition.Application;
 
@@ -29,6 +30,12 @@ public interface IScriptedRequest
     bool Wanted(ScriptedStep step) => true;
 
     /// <summary>
+    /// True for a request that takes every word after its own, as the stand-in holds them, which is in lower case (a
+    /// line to read, rows to find): no other request is looked for in the same words, which are its own to hand on.
+    /// </summary>
+    bool TakesTheRest => false;
+
+    /// <summary>
     /// The command's inputs, by port. Only terms the request or the context states; whatever else a term needs comes
     /// from the command's own confirmed defaults or is refused by name (ADR-0008 §4).
     /// </summary>
@@ -42,7 +49,34 @@ public interface IScriptedRequest
 /// What a scripted request is built from: the request in lower case, the context the pane sent, and the outputs of
 /// the calls already done for this request, in order (so "make a swap and start ticking" ticks the swap's workspace).
 /// </summary>
-public sealed record ScriptedStep(string Request, IReadOnlyList<AgentContext> Context, IReadOnlyList<(string CapabilityId, JsonObject Outputs)> Earlier);
+public sealed record ScriptedStep(string Request, IReadOnlyList<AgentContext> Context, IReadOnlyList<(string CapabilityId, JsonObject Outputs)> Earlier)
+{
+    /// <summary>
+    /// What the pane says it shows as records (ADR-0007 §8): each entry of the context whose value is a JSON object, in
+    /// the pane's order. An entry said in other words is none of these, and is read by no request.
+    /// </summary>
+    public IReadOnlyList<JsonObject> Shown
+    {
+        get
+        {
+            var shown = new List<JsonObject>();
+            foreach (var entry in Context)
+            {
+                JsonNode? value;
+                try
+                {
+                    value = JsonNode.Parse(entry.Value);
+                }
+                catch (JsonException)
+                {
+                    continue;
+                }
+                if (value is JsonObject record) shown.Add(record);
+            }
+            return shown;
+        }
+    }
+}
 
 /// <summary>
 /// The stand-in runtime (ADR-0007 §6): no model, and labelled so. It reads the user's latest request, or that request
@@ -84,7 +118,8 @@ public sealed class ScriptedAgent(IEnumerable<IScriptedRequest> requests) : IAge
         // The request: the latest words, joined to the turns before while the one before was refused and the words do
         // not ask for the refused request afresh. Calls done in those turns are not made again.
         var joined = new List<Turn> { current };
-        while (turns.IndexOf(joined[0]) is var at and > 0 && turns[at - 1].Refused && !Restates(joined[0].Request, turns[at - 1].Results[^1].CapabilityId))
+        while (turns.IndexOf(joined[0]) is var at and > 0 && turns[at - 1].Refused && turns[at - 1].Results[^1].CapabilityId is var refusedId
+            && !TookTheRest(refusedId) && !Restates(joined[0].Request, refusedId))
             joined.Insert(0, turns[at - 1]);
         var request = string.Join(" ", joined.Select(t => t.Request));
         var plan = Matches(request);
@@ -114,8 +149,14 @@ public sealed class ScriptedAgent(IEnumerable<IScriptedRequest> requests) : IAge
 
     bool Restates(string request, string capabilityId) => requests.Any(r => r.CapabilityId == capabilityId && r.FindIn(request) is not null);
 
+    // A refused request that took every word after its own is said again whole: words that follow it are no answer to
+    // it, and joined to it they would be read as more of what it was handed.
+    bool TookTheRest(string capabilityId) => requests.Any(r => r.CapabilityId == capabilityId && r.TakesTheRest);
+
+    // A request that takes the rest of the words is the whole plan: what follows its own words is not read for another's.
     List<IScriptedRequest> Matches(string request) =>
-        [.. requests.Select(r => (Request: r, At: r.FindIn(request))).Where(m => m.At is not null).OrderBy(m => m.At).Select(m => m.Request)];
+        requests.FirstOrDefault(r => r.TakesTheRest && r.FindIn(request) is not null) is { } whole ? [whole]
+            : [.. requests.Select(r => (Request: r, At: r.FindIn(request))).Where(m => m.At is not null).OrderBy(m => m.At).Select(m => m.Request)];
 
     static string Refusal(ToolResult refused, IReadOnlyList<IScriptedRequest> plan)
     {
@@ -126,7 +167,8 @@ public sealed class ScriptedAgent(IEnumerable<IScriptedRequest> requests) : IAge
         if (missing.Count > 0) parts.Add($"it needs {string.Join(", ", missing)}");
         parts.AddRange(other);
         var hint = plan.FirstOrDefault(p => p.CapabilityId == refused.CapabilityId)?.Hint;
-        return $"{refused.CapabilityId} was refused: {string.Join("; ", parts)}. Nothing was changed by it. Tell me what to use"
+        // A reason that is a sentence ends itself: no second full stop after it.
+        return $"{refused.CapabilityId} was refused: {string.Join("; ", parts).TrimEnd('.')}. Nothing was changed by it. Tell me what to use"
             + (string.IsNullOrEmpty(hint) ? "." : $" ({hint}).");
     }
 

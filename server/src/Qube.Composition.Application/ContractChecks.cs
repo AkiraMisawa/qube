@@ -163,8 +163,9 @@ public static class ContractChecks
                 if (value.GetValueKind() != JsonValueKind.Number) return "A number is required.";
                 var number = decimal.Parse(value.ToJsonString(), System.Globalization.CultureInfo.InvariantCulture);
                 if (type == "integer" && number != decimal.Truncate(number)) return "A whole number is required.";
-                if (field["minimum"] is { } lo && number < lo.GetValue<decimal>()) return $"Must be at least {lo}.";
-                if (field["maximum"] is { } hi && number > hi.GetValue<decimal>()) return $"Must be at most {hi}.";
+                // A bound is read as the number is, however the schema wrote it: a whole number is a bound too.
+                if (field["minimum"] is { } lo && number < decimal.Parse(lo.ToJsonString(), System.Globalization.CultureInfo.InvariantCulture)) return $"Must be at least {lo}.";
+                if (field["maximum"] is { } hi && number > decimal.Parse(hi.ToJsonString(), System.Globalization.CultureInfo.InvariantCulture)) return $"Must be at most {hi}.";
                 return null;
             case "boolean":
                 return value.GetValueKind() is JsonValueKind.True or JsonValueKind.False ? null : "true or false is required.";

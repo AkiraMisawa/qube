@@ -1885,9 +1885,86 @@ Unchanged: every figure of the pricer is simulated, and says so.
 - Still written in the client: `new xva`, `new rates`, `explain`, the trace options, `open result`, `dock
   full|restore`, `download run` and `copy quote` (note 31).
 
+## Generic commands, delivery step 4a: the AI describes, reads and previews (ADR-0016 §7, note 38, 2026-11-11)
+
+The first of step 4's three pull requests (`docs/specs/commands-4-view-verbs-ai-reads`, tickets 01 to 05). An
+agent, or any caller with no screen, can find out what a workspace holds, read its rows and ask what a command
+would change, through three capabilities of the kernel that write nothing.
+
+### What runs
+
+- **A reading of a workspace is a command** (`CapabilityEffect.ReadWorkspace`): invoked through the gateway for
+  the caller the server authenticated, offered to the agent as a tool, refused as a workflow step. The three
+  declare no command form, so the line and the palette do not list them.
+- **`tables.describe`**: the tables a workspace's application registered (id, title, words, key, how many rows,
+  subsets, whether it is of one row, whether it is the main one) and their fields (form, how a value is written,
+  whether a command sets it, whether it may be empty, its choices to fifty with the rest counted, the field that
+  carries its unit, the table an id points into). One table alone where it is named.
+- **`tables.read`**: the rows a selector names, as `entity.set` takes rows (`all`, a subset, ids, `where`), with
+  the fields asked by their words. Each cell is the text `set` reads back (`5mm`, `empty`). The answer says how
+  many rows matched, where the page starts and how many follow. With no field the rows are their keys.
+- **The page is bounded**: 50 rows where no limit is given, at most 200, at most 2,000 cells (a page of twenty
+  fields holds 100 rows). A limit over 200 is refused by the contract.
+- **`commands.preview`**: a line as typed, read as the command line reads it: the command, the inputs that run it
+  (JSON text, handed to the command's own tool as they are), each argument, the rows meant and what would change.
+  Nothing runs. A line that cannot be read refuses the call with the word at fault and what it could have been.
+- **Refused by name:** an unknown table, field, subset or row, a field asked twice, no rows, another user's
+  workspace (`NotOwner`), a revision the workspace has left, and `selected`, `shown` and the verbs of a screen
+  (`NoView`).
+- **The agent's instructions** name the three by what they answer, where they are among its tools: read rather
+  than guess, say a count as the tool gave it, preview when asked and before a command over many rows.
+- **The stand-in agent** (no model configured) takes `describe the tables`, `read <rows> [fields <a>, <b>]` and
+  `preview <line>` for the workspace the pane's context names, and says the count and the sentence the tool
+  answered. What is said after a reading that was refused is a request of its own.
+- **The pane** keeps a step's answer inside its card: a long one scrolls within 30% of the window's height and
+  takes the keyboard.
+- **How a value is written is said in one place** (`FieldForms.Takes`): the description's sentence and a refused
+  value's. A choice's description says "one of its choices", with the values listed beside it.
+
+### Verification performed
+
+| What | Result |
+|---|---|
+| `dotnet test server/Qube.slnx` | 1106 passed |
+| Client: `npm run typecheck`, `npm test`, `npm run build` | Clean; 297 passed in 34 files; built |
+| `npx playwright test` (Chromium, headless, Linux) | 87 passed |
+| The browser test this step adds, with `--repeat-each=3` | 3 passed |
+| `python3 tools/validate_handoff.py` | Passed |
+| The pane with a page of rows at 390, 768, 992 and 1440px, dark and light | Looked at; no sideways scroll, the block inside the pane |
+
+The server's tests read the kernel's three capabilities over a registration with no financial word, then the
+pricer's tables through the agent's endpoint, compared with what the grid's own page endpoint answers for the
+same rows. The browser test reads a workspace of more than fifty trades through the stand-in agent.
+
+Not verified: a real model using the three tools. No model is configured here, so what the agent does with a
+description or a page of rows was exercised through the stand-in alone, which is scripted.
+
+The figures above are of the branch after the code review (two reviewers, the repository's standards and the
+spec). What the review changed: what follows a refused reading is no longer joined to it by the stand-in; `would`
+is in every preview and a start no position holds is refused by the contract; a reading that names a command with
+no inputs is a defect, not `NoView`; ADR-0005 carries the sixth effect; the documents no longer say that a key in
+capitals is not found, or that `rows` is required; and tests hold the schema file's effects, an unknown workspace,
+a condition no row meets and `shown` in a preview.
+
+### Providers
+
+Unchanged: every figure of the pricer is simulated, and says so. The agent is the scripted stand-in.
+
+### Known limits
+
+- A reading does not sort, and is not retained as a dataset a view binds: the pane shows its answer as JSON, as
+  it shows any tool's (note 38, "left for later").
+- The stand-in lower-cases what it is told. Rows, fields and choices read the same in either case; a value whose
+  capitals matter (an identifier a `set` would write) reaches the tool in lower case, and its preview shows it
+  so. The real agent passes words as they are.
+- A choice's values beyond fifty are counted, not listed: the agent reads the rows to see them.
+- The gateway remembers an answer by its idempotency key in memory, a page of rows included, as it does every
+  command's answer.
+- `sort`, `filter`, `select`, `copy` and `export` are step 4b's and 4c's.
+
 ## Next
 
-1. Generic commands, delivery step 4 (ADR-0016): view verbs and the AI's row read. Then steps 5 and 6.
+1. Generic commands, delivery step 4b (`sort`, `filter`) and 4c (`select`, `copy`, `export`). Then steps 5 and 6.
 2. MVA with SIMM (`docs/12-implementation-plan.md` P2): spot IM from the XVA request's MVA option.
 3. ADR-0010 Delivery step 3 (Advanced: Before-only and After-only edits, the split fill), when the owner asks for it.
 4. The owner's review of ADR-0003 §7 (scopes, carry and conflict), then a synthetic source change that can produce a conflict, and the browser cases still open above (reload, failed case unavailable).

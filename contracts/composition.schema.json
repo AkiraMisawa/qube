@@ -359,7 +359,8 @@
               "subscribe",
               "readRun",
               "saveItem",
-              "execute"
+              "execute",
+              "readWorkspace"
             ]
           },
           "minItems": 0

@@ -222,4 +222,70 @@ public class AgentApiTests : IClassFixture<QubeFactory>
             await Task.Delay(Timeout.Infinite, cancellationToken);
         }
     }
+
+    // What the pane sends of an XVA workspace open in the active panel (ADR-0007 §8).
+    static JsonArray Showing(string workspaceId) =>
+        [new JsonObject { ["description"] = "The XVA workspace open in the active panel", ["value"] = new JsonObject { ["kind"] = "xva.workspace", ["workspaceId"] = workspaceId }.ToJsonString() }];
+
+    async Task<List<JsonObject>> Asked(string thread, string words, JsonArray context, int turn = 1)
+    {
+        var input = Input(thread, $"r-{turn}", ($"m-{turn}", words));
+        input["context"] = context;
+        return await Events(await Post(input));
+    }
+
+    static IEnumerable<string> Called(IEnumerable<JsonObject> events) =>
+        events.Where(e => e["type"]!.GetValue<string>() == "TOOL_CALL_START").Select(e => e["toolCallName"]!.GetValue<string>());
+
+    [Fact] // ADR-0016 §7, note 38, ADR-0007 §6: the stand-in describes, reads and previews the workspace the pane shows, through the three tools, and says each count as its tool gave it
+    public async Task The_scripted_agent_describes_reads_and_previews_the_workspace_the_pane_shows()
+    {
+        var made = await client.PostAsJsonAsync("/api/xva/workspaces", new { registration = "ABC/LE-01", valueDate = "2026-10-26", portfolioSize = 10 });
+        var ws = (await made.Content.ReadFromJsonAsync<JsonObject>())!;
+        var id = ws["workspaceId"]!.GetValue<string>();
+        var page = (await (await client.PostAsJsonAsync($"/api/xva/workspaces/{id}/rows", new { start = 0, count = 200, sorts = new JsonArray(), grid = "existing" })).Content.ReadFromJsonAsync<JsonObject>())!;
+        var usd = page["rows"]!.AsArray().Where(r => r!["currency"]!.GetValue<string>() == "USD").Select(r => r!["tradeId"]!.GetValue<string>()).ToList();
+        Assert.NotEmpty(usd);
+
+        var described = await Asked("t-describe", "describe the tables", Showing(id));
+        var read = await Asked("t-read", "read existing where ccy=USD fields notional, csa", Showing(id));
+        var previewed = await Asked("t-preview", "preview set existing after off", Showing(id));
+        var existing = page["rows"]!.AsArray().Count;
+
+        Assert.Equal(["tables_describe"], Called(described));
+        Assert.StartsWith("The workspace has ", Reply(described));
+        Assert.Contains("trades (", Reply(described));
+        Assert.Equal(["tables_read"], Called(read));
+        var rows = Results(read).Single()["outputs"]!["answer"]!;
+        Assert.Equal((usd.Count, "notional|csa"), (rows["count"]!.GetValue<int>(), string.Join("|", rows["fields"]!.AsArray().Select(f => f!.GetValue<string>()))));
+        Assert.Equal(usd, rows["rows"]!.AsArray().Select(r => r!["key"]!.GetValue<string>()));
+        Assert.Equal($"{usd.Count} row(s) of xva.trades match, and all are listed.", Reply(read));
+        Assert.Equal(["commands_preview"], Called(previewed));
+        Assert.Equal((6, $"`set existing after off` would act on trades, 6 rows: A: 6 on to off. Nothing was run."), (existing, Reply(previewed)));
+        // Nothing was written by any of the three.
+        Assert.Equal(ws["revision"]!.GetValue<long>(), (await client.GetFromJsonAsync<JsonObject>($"/api/xva/workspaces/{id}"))!["revision"]!.GetValue<long>());
+    }
+
+    [Fact] // ADR-0007 §6, ADR-0016 note 38: with no workspace in the context a reading is refused for what it lacks, and the stand-in asks for it
+    public async Task The_scripted_agent_asks_for_a_workspace_when_the_pane_shows_none()
+    {
+        var events = await Asked("t-none", "read all", []);
+
+        Assert.Equal("refused", Results(events).Single()["status"]!.GetValue<string>());
+        Assert.Contains("it needs workspaceId", Reply(events));
+    }
+
+    [Fact] // ADR-0016 note 38, ADR-0007 §6: a reading that was refused took every word after its own, so what is said next is a request of its own and never more rows of the refused one
+    public async Task What_follows_a_refused_reading_is_a_request_of_its_own()
+    {
+        var made = await client.PostAsJsonAsync("/api/xva/workspaces", new { registration = "ABC/LE-01", valueDate = "2026-10-26", portfolioSize = 10 });
+        var id = (await made.Content.ReadFromJsonAsync<JsonObject>())!["workspaceId"]!.GetValue<string>();
+
+        var refused = await Asked("t-refused", "read tides", Showing(id));
+        var next = await Asked("t-refused", "describe the tables", Showing(id), turn: 2);
+
+        Assert.Equal(("tables.read", "refused"), (Results(refused).Single()["capability"]!.GetValue<string>(), Results(refused).Single()["status"]!.GetValue<string>()));
+        Assert.Equal(["tables_describe"], Called(next));
+        Assert.StartsWith("The workspace has ", Reply(next));
+    }
 }
