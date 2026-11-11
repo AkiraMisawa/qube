@@ -1749,7 +1749,7 @@ client but `new rates` is gone, with eight page endpoints and the two product en
 | What | Result |
 |---|---|
 | `dotnet test server/Qube.slnx` | 1065 passed |
-| Client: `npm run typecheck`, `npm test`, `npm run build` | Clean; 290 passed in 32 files; built |
+| Client: `npm run typecheck`, `npm test`, `npm run build` | Clean; 292 passed in 33 files; built |
 | `npx playwright test` (Chromium, headless, Linux) | 85 passed |
 | The six Rates browser tests this step adds or rewrites, with `--repeat-each=3`, before the review | 18 passed |
 | The three Rates browser tests the review's changes add or extend, with `--repeat-each=3` | 9 passed |
@@ -1766,6 +1766,10 @@ snapshot, not the one the page shows; and a leg whose `Float` cell the grid had 
 server error, where it is now refused by name. It also found the two frequencies of `new irs` missing as fields, a
 disabled Capture that did not say why, and each module's own copy of what a command reads of its request, now the
 kernel's (`CommandRequests`).
+
+Found while the pull request's pictures were taken, and corrected with a unit test: the Run panel's header wrote a
+context value that is an object as `[object Object]` (a Rates Run's `defaults`). It now writes each value under
+its path (`defaults.currency JPY`), and a list or an empty object as its JSON (`runFacts.ts`).
 
 ### Providers
 
