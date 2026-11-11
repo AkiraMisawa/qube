@@ -1,7 +1,7 @@
 import { ApiError, type Api, type CommandAnswer } from '../api';
-import type { CapabilityDescriptor, LinePreview } from '../contracts';
+import type { CapabilityDescriptor, LinePreview, LineView } from '../contracts';
 import { readLine, signature, type Command, type CommandDoor } from './commands';
-import { commandDoor, lineAsked, previewShown, servedCommands, taken } from './served';
+import { argumentShown, commandDoor, lineAsked, previewShown, servedCommands, taken } from './served';
 
 // ADR-0016 ยง4, ยง5 and its note 15 of 2026-11-11: the line builds a command the catalog says how to type from the
 // catalog, and reads nothing of its line itself. What it does with the server's answer is held here; the names are made up.
@@ -19,8 +19,11 @@ const catalog = {
   ],
 };
 
-const door = (enter: CommandDoor['enter'] = () => Promise.resolve(undefined)): CommandDoor =>
-  ({ workspaceId: 'ws-1', settled: () => Promise.resolve(), enter, invoke: () => Promise.resolve(undefined) });
+/** What a page says is on screen: two rows selected, the keyboard on a cell of the first. */
+const onScreen: LineView = { table: 'w.readings', subset: 'manual', keys: ['R1', 'R3'], focus: { field: 'note', key: 'R1' } };
+
+const door = (enter: CommandDoor['enter'] = () => Promise.resolve(undefined), view: CommandDoor['view'] = () => undefined): CommandDoor =>
+  ({ workspaceId: 'ws-1', settled: () => Promise.resolve(), view, enter, invoke: () => Promise.resolve(undefined) });
 const panel = { id: 'p', title: 'Board 2026-11-11' };
 
 describe('a command the catalog says how to type (ADR-0016 ยง4)', () => {
@@ -52,8 +55,17 @@ describe('a command the catalog says how to type (ADR-0016 ยง4)', () => {
     undo.run({});
     await Promise.resolve();
 
-    expect(enter).toHaveBeenCalledWith('undo');
+    expect(enter).toHaveBeenCalledWith('undo', undefined, undefined);
     expect(notify).toHaveBeenCalledWith('refused', 'undo: There is nothing to take back: the workspace is as it was made.');
+  });
+
+  it('run from a key or a button, its words are read with what is on screen at the press (ADR-0016 note 16)', () => {
+    const enter = vi.fn(() => Promise.resolve(undefined));
+    const undo = servedCommands(catalog, panel, door(enter, () => onScreen), vi.fn()).find((c) => c.words === 'undo')!;
+
+    undo.run({});
+
+    expect(enter).toHaveBeenCalledWith('undo', undefined, onScreen);
   });
 
   it('the client reads nothing of its line: whatever follows its words is the server\'s to read', () => {
@@ -122,6 +134,11 @@ describe('what the line shows of the server\'s reading (ADR-0016 ยง5)', () => {
       .toEqual({ would: 'Takes back: set R1 checked on (you, 1 edit)', at: '2026-11-11T01:02:03+00:00' });
   });
 
+  it('an argument by its name and the words read for it, and one that was not typed says that it is from the screen (ADR-0016 note 18)', () => {
+    expect(argumentShown({ name: 'set', text: 'csa=CSA-B', from: 'typed' })).toBe('set csa=CSA-B');
+    expect(argumentShown({ name: 'rows', text: 'R1, R2, R3 and 2 more', from: 'context' })).toBe('rows R1, R2, R3 and 2 more (from the screen)');
+  });
+
   it('a line that cannot be read by the reason alone', () => {
     expect(previewShown(read({ refused: { code: 'UnknownField', sentence: 'readings has no field colour.', word: 'colour', start: 7, end: 13, candidates: [] } })))
       .toEqual({ reason: 'readings has no field colour.' });
@@ -138,7 +155,7 @@ describe('Enter on a line the server reads, through its page\'s door (ADR-0016 ย
   const moved = (at: number, read: number) => new ApiError(409, { code: 'RevisionMoved', message: `The workspace is at revision ${at}, not ${read}.`, issues: [] });
 
   /** A page that holds its workspace at `held`, with nothing of its own waiting, and reads it again at `stands`. */
-  const page = (held: number, stands: number = held) => {
+  const page = (held: number, stands: number = held, view?: () => LineView | undefined) => {
     const turns = {
       revision: held,
       after: <T,>(run: (revision: number) => Promise<T>) => run(turns.revision),
@@ -149,7 +166,7 @@ describe('Enter on a line the server reads, through its page\'s door (ADR-0016 ย
     const preview = vi.fn<Api['preview']>();
     const command = vi.fn<Api['command']>();
     const reread = vi.fn(() => Promise.resolve(stands));
-    return { turns, notify, preview, command, reread, door: commandDoor({ workspaceId: 'ws-1', catalog, api: { preview, command }, turns, reread, notify }) };
+    return { turns, notify, preview, command, reread, door: commandDoor({ workspaceId: 'ws-1', catalog, api: { preview, command }, turns, reread, notify, ...(view === undefined ? {} : { view }) }) };
   };
 
   it('runs the reading the line showed, by its own inputs with the revision it was read at, and reads the line no second time', async () => {
@@ -185,8 +202,29 @@ describe('Enter on a line the server reads, through its page\'s door (ADR-0016 ย
 
     expect(await p.door.enter('set R1 checked on')).toBeUndefined();
 
-    expect(p.preview).toHaveBeenCalledWith('set R1 checked on', 'ws-1', 7);
+    expect(p.preview).toHaveBeenCalledWith('set R1 checked on', 'ws-1', { revision: 7 });
     expect(p.command).toHaveBeenCalledWith('entity.set', '1.0.0', reading(7).inputs, expect.any(String));
+  });
+
+  it('the door answers what its page says is on screen, and a page that says nothing has no view (ADR-0016 note 16)', () => {
+    let shown: LineView | undefined = onScreen;
+    const p = page(7, 7, () => shown);
+
+    expect(p.door.view()).toBe(onScreen);
+    shown = undefined;
+    expect(p.door.view()).toBeUndefined();
+    expect(page(7).door.view()).toBeUndefined();
+  });
+
+  it('with no reading shown, the line is read with the view the line opened with, not with what the screen shows by then (ADR-0016 note 16)', async () => {
+    // The page would now say another row: the line was opened on the two, and its Enter is read with them.
+    const p = page(7, 8, () => ({ table: 'w.readings', keys: ['R9'] }));
+    p.preview.mockResolvedValue(reading(7));
+    p.command.mockResolvedValue(done(8, 'Set R1 and R3 checked to on.'));
+
+    expect(await p.door.enter('set checked on', undefined, onScreen)).toBeUndefined();
+
+    expect(p.preview).toHaveBeenCalledWith('set checked on', 'ws-1', { revision: 7, view: onScreen });
   });
 
   it('a line that cannot be read answers its reason and runs nothing, whether the line showed the reading or Enter asked for it', async () => {

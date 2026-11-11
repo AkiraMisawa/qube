@@ -44,22 +44,47 @@ export interface LineCompletion {
 }
 
 /**
+ * What a user was looking at when the line opened (ADR-0016 §9, note 16 of 2026-11-11), sent with each reading of that
+ * opening: the table of the grid the keyboard was last in and its subset; the selection as row keys where the page
+ * holds every row, or as ranges of positions with the sort and the order token the grid's reader answered where the
+ * server pages it; and the focused cell, its row named the same way. The server keeps none of it.
+ */
+export interface LineView {
+  readonly table: string;
+  readonly subset?: string;
+  readonly sorts?: readonly { readonly column: string; readonly descending: boolean }[];
+  readonly order?: string;
+  readonly keys?: readonly string[];
+  readonly ranges?: readonly { readonly start: number; readonly count: number }[];
+  readonly focus?: { readonly field: string; readonly key?: string; readonly position?: number };
+}
+
+/** An argument as the server read it: the words read for it, and whether they were typed or come from the view (note 18). */
+export interface LineArgument {
+  readonly name: string;
+  readonly text: string;
+  readonly from: 'typed' | 'context';
+}
+
+/**
  * A line as the server read it at a revision (ADR-0016 §5; `POST /api/commands/preview`), with nothing executed: the
  * command and either its reading or why it cannot be read, and what could follow the last word. `inputs` invoke the
  * command on the revision read. `at` is the moment the reading speaks of, where it speaks of one: the sentence holds
- * no time, and the line writes this in its user's zone.
+ * no time, and the line writes this in its user's zone. `view` is the view the reading was asked with, in one sentence
+ * (note 19); a reading asked with none has none.
  */
 export interface LinePreview {
   readonly revision: number;
   readonly command?: { readonly id: string; readonly version: string };
   readonly inputs?: Readonly<Record<string, unknown>>;
-  readonly arguments?: readonly { readonly name: string; readonly text: string }[];
+  readonly arguments?: readonly LineArgument[];
   readonly rows?: { readonly table: string; readonly title: string; readonly count: number; readonly first: readonly string[] };
   readonly would?: string;
   readonly at?: string;
   readonly refused?: { readonly code: string; readonly sentence: string; readonly word?: string; readonly start?: number; readonly end?: number; readonly candidates: readonly string[] };
   readonly complete: readonly LineCompletion[];
   readonly more: number;
+  readonly view?: string;
 }
 
 export interface FieldSchema {

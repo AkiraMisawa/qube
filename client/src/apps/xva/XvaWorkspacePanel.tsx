@@ -16,12 +16,13 @@ import type { VaryCell, XvaApi } from './api';
 import type { EffectiveTrade, HeldEdit, RegisteredColumn, RegisteredMeasure, Resolution, ScenariosMade, SetSaved, ScopeDrop, ShiftEdit, Varied, XvaWorkspaceView } from './contracts';
 import { measureNamed, registerXvaPage } from './commands';
 import { commandDoor, registerCommandDoor } from '../../platform/commands/served';
+import { pagedView, type Answered } from '../../platform/grid/lineView';
 import { XvaResult } from './XvaResult';
 import { BASE_CASE, BASE_SCENARIO, openTrace, requestTerm } from '../../platform/traces/open';
 import type { TraceApi } from '../../platform/traces/api';
-import type { RunRecord } from '../../platform/contracts';
+import type { LineView, RunRecord } from '../../platform/contracts';
 import { dockTabs, METRICS_TAB, type DockTab, type MeasureTab } from './dock';
-import { EditQueue, MEASURES_ENTITY, SETTINGS_ENTITY, refusedEdit, sideSaid, sideTitle, tradeFields, type PendingEdit, type SetText } from './editing';
+import { EditQueue, MEASURES_ENTITY, SETTINGS_ENTITY, TRADES_TABLE, refusedEdit, sideSaid, sideTitle, tradeFields, type PendingEdit, type SetText } from './editing';
 import { ToolbarField } from './fields';
 import { CHANGES_TAB, CREDIT_TAB, SCENARIOS_TAB, SETTINGS_TAB, shownTab, TAB_TITLES, tabShown, XvaInputs, type InputTab } from './XvaInputs';
 import { XvaRisks } from './XvaRisks';
@@ -196,8 +197,12 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   // The synthetic CDS catalogue the Credit tab searches and `cds` completes from (ADR-0010 §8's note of 2026-11-09).
   const catalogue = useQuery({ queryKey: ['xva', 'cds'], queryFn: () => api.cdsCatalogue(), staleTime: Infinity });
   const newGrid = useRef<ExGridApi<Row>>(null);
+  const existingGrid = useRef<ExGridApi<Row>>(null);
   // The grid the keyboard was last in: `before all` and `after all` act on it, Existing until one was.
   const lastGrid = useRef<TradeGrid>('existing');
+  // What the command line is told is on screen (ADR-0016 §9, note 16 of 2026-11-11): the grid of a table the keyboard
+  // was last in, read when the line opens. None until one is entered, and none once a grid that is no table is.
+  const screen = useRef<(() => LineView | undefined) | undefined>(undefined);
   const [busy, setBusy] = useState<string | undefined>(undefined);
   const [confirm, setConfirm] = useState<{ readonly registration: string; readonly drop: ScopeDrop } | undefined>(undefined);
   const [failure, setFailure] = useState<string | undefined>(undefined);
@@ -205,15 +210,20 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
 
   // One source per grid, each paged and sorted on the server (ADR-0010 §6); an edit may move a row in either.
   const sources = useMemo(() => {
+    const answered = new WeakMap<Row, Answered>();
     const of = (grid: TradeGrid) => GridSource.fetch<Row>(async (query, signal) => {
       // Filtering is not offered by the server yet; a filter set anyway is refused, never ignored.
       if (query.filter !== undefined) throw new Error('This grid cannot filter yet. Clear the filter to see the trades.');
       const page = await api.rows(workspaceId, { start: query.range.start, count: query.range.count, sorts: query.sorts, grid }, signal);
+      // Each row keeps the answer it came in: a position means a row only in that answer's order (ADR-0016 note 17).
+      const answer: Answered = { sorts: query.sorts, orderToken: page.orderToken };
+      for (const row of page.rows) answered.set(row, answer);
       return { rows: page.rows, start: page.start, totalCount: page.totalCount, orderToken: page.orderToken };
     }, { rowKey: (row) => row.tradeId, onFetchFailed: (event) => setFailure(describe(event.error)) });
     const grids = { new: of('new'), existing: of('existing') };
     return {
       ...grids,
+      answered: (row: Row) => answered.get(row),
       changed: () => { grids.new.notifyChanged([]); grids.existing.notifyChanged([]); },
       requery: () => { grids.new.requery(); grids.existing.requery(); },
       dispose: () => { grids.new.dispose(); grids.existing.dispose(); },
@@ -555,6 +565,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
     catalog: workspace.catalog,
     api: workspace.api,
     turns: queue,
+    view: () => screen.current?.(),
     reread: async () => {
       const fresh = await api.view(workspaceId);
       show(fresh);
@@ -780,6 +791,13 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
     registerCommandDoor(panelId, door);
     return () => { registerXvaPage(panelId, undefined); registerCommandDoor(panelId, undefined); };
   }, [panelId, door]);
+  // A trade grid as the line is told of it: the trades of its subset, its Selection as positions in the order its rows
+  // were answered in, and its Focus by its column's name, which is the field's where the column is one.
+  const tradeScreen = useMemo(() => {
+    const of = (grid: TradeGrid, handle: { readonly current: ExGridApi<Row> | null }) => () => (handle.current === null ? undefined
+      : pagedView({ table: TRADES_TABLE, subset: grid, columns: gridColumns.current[grid].map((c) => c.name) }, handle.current.readView(), sources[grid].snapshot(), sources.answered));
+    return { new: of('new', newGrid), existing: of('existing', existingGrid) };
+  }, [sources]);
   // The grids' undo and redo keys run the same two commands; the functions are the same for the page's life, so no
   // grid is made again for them.
   const gridUndo = useMemo(() => ({ undo: () => void pageRef.current.takeBack('undo'), redo: () => void pageRef.current.takeBack('redo') }), []);
@@ -803,7 +821,9 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   const taken = TAKEN + (inputsOpen ? inputsHeight + RESIZER : 0) + newHeight
     + (pricedRun === undefined ? 24 : dockOpen ? dockHeight + RESIZER + 32 : 48);
   const page = (
-    <Stack gap="sm" className="qube-xva" data-section={section} data-dock={full ? 'full' : 'part'} style={{ ['--qube-xva-taken' as string]: `${taken}px` }}>
+    <Stack gap="sm" className="qube-xva" data-section={section} data-dock={full ? 'full' : 'part'} style={{ ['--qube-xva-taken' as string]: `${taken}px` }}
+      // A grid entered is the screen only where it says so below, after this: a grid of no table leaves the line none.
+      onFocusCapture={(event) => { if (event.target instanceof Element && event.target.closest('.ex-grid') !== null) screen.current = undefined; }}>
       {/* The context bar (ADR-0010 §1; docs/design-guidelines.md §3, §4): one 30px Control Height, each label beside its input. */}
       <div className="qube-toolbar" role="toolbar" aria-label="Workspace">
         <ValueDate value={ws.context.valueDate} disabled={!notBusy}
@@ -855,7 +875,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
         data={[{ value: 'inputs', label: 'Inputs' }, { value: 'trades', label: 'Trades' }, { value: 'results', label: 'Results' }]} />
       <div data-part="inputs" className="qube-xva-part">
         <XvaInputs panelId={panelId} ws={ws} onIssue={setIssue} push={(entity, field, value, title) => void queue.push({ entity, field, value, title })} setText={setText}
-          catalogue={catalogue.isError ? { refused: describe(catalogue.error) } : catalogue.data}
+          catalogue={catalogue.isError ? { refused: describe(catalogue.error) } : catalogue.data} onScreen={(view) => { screen.current = view; }}
           tab={inputTab} onTab={(tab) => { setInputTab(tab); setInputsOpen(true); }} open={inputsOpen} onOpen={setInputsOpen} height={inputsHeight} focusRequest={focusRequest}
           changeList={changeList.data} changeActions={changeActions} scenarioActions={scenarioActions} onVary={setVarying} commandLabel={commandLabel} />
         <VaryDialog target={varying} vary={(target, values) => varyCell({ entity: target.entity, field: target.field }, values)} onClose={() => setVarying(undefined)} />
@@ -868,14 +888,14 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
         {/* New trades above Existing (ADR-0010 §6): New as high as its rows, about eight at most; Existing takes the rest. */}
         <div className="qube-xva-grids">
           <TradeCaption title="New trades" count={ws.newTrades} grid="new" setSide={setSide} disabled={!notBusy} />
-          <div aria-label="New trades" onFocusCapture={() => { lastGrid.current = 'new'; }}>
+          <div aria-label="New trades" onFocusCapture={() => { lastGrid.current = 'new'; screen.current = tradeScreen.new; }}>
             <QubeGrid<Row> ref={newGrid} columns={newWidths.columns} onColumnWidthChanged={newWidths.onColumnWidthChanged} source={sources.new} onEdit={onEdit} cellState={cellState} cellMessage={cellMessage}
               contextCommands={newCommands} commandLabel={commandLabel}
               density="compact" viewportWidth="stretch" viewportHeight={newHeight} pinnedColumnCount={1} locale="en-US" />
           </div>
           <TradeCaption title="Existing trades" count={ws.trades - ws.newTrades} grid="existing" setSide={setSide} disabled={!notBusy} />
-          <div aria-label="Existing trades" onFocusCapture={() => { lastGrid.current = 'existing'; }}>
-            <QubeGrid<Row> className="qube-xva-trades" columns={existingWidths.columns} onColumnWidthChanged={existingWidths.onColumnWidthChanged}
+          <div aria-label="Existing trades" onFocusCapture={() => { lastGrid.current = 'existing'; screen.current = tradeScreen.existing; }}>
+            <QubeGrid<Row> ref={existingGrid} className="qube-xva-trades" columns={existingWidths.columns} onColumnWidthChanged={existingWidths.onColumnWidthChanged}
               source={sources.existing} onEdit={onEdit} cellState={cellState} cellMessage={cellMessage}
               contextCommands={existingCommands} commandLabel={commandLabel}
               density="compact" viewportWidth="stretch" viewportHeight="stretch" pinnedColumnCount={1} locale="en-US" />

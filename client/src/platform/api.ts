@@ -1,4 +1,4 @@
-import type { Catalog, Dataset, ErrorEnvelope, LinePreview, RunRecord, TypedDataRef, ViewDefinition, WorkflowDefinition } from './contracts';
+import type { Catalog, Dataset, ErrorEnvelope, LinePreview, LineView, RunRecord, TypedDataRef, ViewDefinition, WorkflowDefinition } from './contracts';
 import { telemetry, traced } from './telemetry';
 
 /** A refusal from the server, carrying its code and the located issues. Never turned into an empty result. */
@@ -69,7 +69,11 @@ export interface Api {
    * Has the server read a line as typed for a workspace (ADR-0016 §5), as it stands or at the revision given, which a
    * workspace that moved refuses. Nothing is executed. A line that cannot be read is an answer, not an error.
    */
-  preview(line: string, workspaceId: string, revision?: number, signal?: AbortSignal): Promise<LinePreview>;
+  /**
+   * Reads a line and executes nothing (ADR-0016 §5): at `revision`, or as the workspace stands where none is given, and
+   * with the view the line was opened on, where its page gave one (note 16).
+   */
+  preview(line: string, workspaceId: string, read?: { readonly revision?: number; readonly view?: LineView }, signal?: AbortSignal): Promise<LinePreview>;
   submitRun(workflow: WorkflowDefinition, context: Record<string, unknown>, input: Record<string, unknown>, idempotencyKey: string): Promise<RunRecord>;
   run(runId: string): Promise<RunRecord>;
   dataset(reference: TypedDataRef): Promise<Dataset>;
@@ -80,8 +84,8 @@ export const httpApi: Api = {
   catalog: () => call('/api/catalog'),
   command: (capabilityId, version, inputs, idempotencyKey) =>
     call(`/api/commands/${encodeURIComponent(capabilityId)}/${encodeURIComponent(version)}`, { method: 'POST', body: JSON.stringify({ inputs, idempotencyKey }) }),
-  preview: (line, workspaceId, revision, signal) =>
-    call('/api/commands/preview', { method: 'POST', body: JSON.stringify({ line, workspaceId, ...(revision === undefined ? {} : { revision }) }), ...(signal === undefined ? {} : { signal }) }),
+  preview: (line, workspaceId, read, signal) =>
+    call('/api/commands/preview', { method: 'POST', body: JSON.stringify({ line, workspaceId, ...read }), ...(signal === undefined ? {} : { signal }) }),
   submitRun: (workflow, context, input, idempotencyKey) =>
     call('/api/runs', { method: 'POST', body: JSON.stringify({ workflow, context, input, idempotencyKey }) }),
   run: (runId) => call(`/api/runs/${encodeURIComponent(runId)}`),

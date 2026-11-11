@@ -3,12 +3,12 @@ import { Badge, Group, Kbd, Modal, Stack, Text, TextInput, UnstyledButton, useMa
 import { useHotkeys } from '@mantine/hooks';
 import {
   assertDistinct, completionsOf, drawn, drawnSections, execute, finish, listed, placeholder, readLine, signature, take,
-  type Command, type Completion,
+  type Command, type CommandDoor, type Completion,
 } from '../platform/commands/commands';
-import { commandDoorOf, lineAsked, previewShown, servedCommands, taken } from '../platform/commands/served';
+import { argumentShown, commandDoorOf, lineAsked, previewShown, servedCommands, taken } from '../platform/commands/served';
 import { recordUse, usageScore } from '../platform/commands/usage';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import type { Catalog, LineCompletion, LinePreview, RunRecord } from '../platform/contracts';
+import type { Catalog, LineCompletion, LinePreview, LineView, RunRecord } from '../platform/contracts';
 import type { Notify } from '../platform/notices';
 import { viewsFor } from '../platform/views/binding';
 import { CONTEXT_CONTRACT, useWorkspace, useWorkspaceContext } from '../platform/workspace/WorkspaceProvider';
@@ -257,6 +257,9 @@ export function CommandPalette() {
   const turn = useRef(0);
   // Counts the line's openings: a reading belongs to the opening that asked for it.
   const [opening, setOpening] = useState(0);
+  // What the user was looking at when the line opened (ADR-0016 §9, note 16 of 2026-11-11): read once at each opening,
+  // from the page in the active panel, and sent with every reading of that opening and with its Enter.
+  const [screen, setScreen] = useState<{ readonly door: CommandDoor; readonly view: LineView } | undefined>(undefined);
   const input = useRef<HTMLInputElement>(null);
 
   // Built when the line opens and as the panels change, so a page that registers its commands after mounting is seen.
@@ -271,9 +274,16 @@ export function CommandPalette() {
   }, [workspace, panels, activePanelId, context, activeRun, toggleColorScheme, opened, aiStore, aiOpen, active]);
 
   useEffect(() => {
-    openLine = () => { turn.current += 1; setOpening((n) => n + 1); setEntering(false); setText(''); setProblems([]); setHighlight(NONE); setOpened(true); };
+    openLine = () => {
+      const door = commandDoorOf(workspace.store.getState().activePanelId);
+      const view = door?.view();
+      setScreen(door === undefined || view === undefined ? undefined : { door, view });
+      turn.current += 1; setOpening((n) => n + 1); setEntering(false); setText(''); setProblems([]); setHighlight(NONE); setOpened(true);
+    };
     return () => { openLine = undefined; };
-  }, []);
+  }, [workspace]);
+  /** The view this opening was read with, for a command of the workspace it is of. */
+  const viewOn = (door: CommandDoor): LineView | undefined => (screen !== undefined && screen.door.workspaceId === door.workspaceId ? screen.view : undefined);
 
   /** Runs a command, and answers why when nothing ran: it cannot run now, or it could not read its arguments. */
   const run = (command: Command, args: Readonly<Record<string, string>> = {}): string | undefined => {
@@ -320,7 +330,11 @@ export function CommandPalette() {
   const answer = useQuery<LinePreview>({
     queryKey: ['command-line', opening, served?.door.workspaceId, asked],
     // After the edits the page has already sent, so that the reading is of the workspace they leave.
-    queryFn: async ({ signal }) => { await served!.door.settled(); return workspace.api.preview(asked!, served!.door.workspaceId, undefined, signal); },
+    queryFn: async ({ signal }) => {
+      await served!.door.settled();
+      const view = viewOn(served!.door);
+      return workspace.api.preview(asked!, served!.door.workspaceId, view === undefined ? undefined : { view }, signal);
+    },
     enabled: asked !== undefined,
     // A reading is of the workspace as it stood when it was asked for, so none is kept once the line has moved on. The
     // one before is drawn until this text's own arrives, said to be so, and only within one opening on one workspace:
@@ -330,6 +344,16 @@ export function CommandPalette() {
     placeholderData: (previous, before) => (before?.queryKey[1] === opening && before.queryKey[2] === served?.door.workspaceId ? previous : undefined),
   });
   const latest = asked === undefined ? undefined : answer.data;
+  // The view in the server's words (ADR-0016 note 19): asked once as the line opens, with no text, so that it is said
+  // before anything is typed; every reading asked with the view says it again, as the workspace then stood.
+  const seen = useQuery<LinePreview>({
+    queryKey: ['command-line-view', opening, screen?.door.workspaceId],
+    queryFn: async ({ signal }) => { await screen!.door.settled(); return workspace.api.preview('', screen!.door.workspaceId, { view: screen!.view }, signal); },
+    enabled: opened && screen !== undefined,
+    gcTime: 0,
+    retry: false,
+  });
+  const onScreen = latest?.view ?? (opened && screen !== undefined ? seen.data?.view : undefined);
   // What is drawn is of an earlier text, or of the workspace before it was asked about again, until this text's own
   // reading arrives: nothing is taken from it, and Enter does not run it.
   const waiting = asked !== undefined && (answer.isFetching || answer.isPending || answer.isPlaceholderData);
@@ -373,7 +397,7 @@ export function CommandPalette() {
     const mine = turn.current += 1;
     const typed = line === text;
     setEntering(true);
-    void command.served.door.enter(line, line === asked ? fresh : undefined).then((reason) => {
+    void command.served.door.enter(line, line === asked ? fresh : undefined, viewOn(command.served.door)).then((reason) => {
       // The line was closed, or opened again, meanwhile: its reason has no line left, and is a notice.
       if (turn.current !== mine) {
         if (reason === undefined) recordUse(command.id);
@@ -463,7 +487,8 @@ export function CommandPalette() {
   const optionId = (i: number) => `qube-line-option-${i}`;
   const head = reading.kind === 'arguments' ? reading.command : chosen !== undefined && 'words' in chosen ? chosen : undefined;
   // The server did not answer with a reading: that is said as a failure, never drawn as what the line means.
-  const unread = asked !== undefined && answer.isError && !answer.isFetching ? `The server did not read the line: ${answer.error.message}` : undefined;
+  const unread = asked !== undefined && answer.isError && !answer.isFetching ? `The server did not read the line: ${answer.error.message}`
+    : opened && screen !== undefined && seen.isError && !seen.isFetching ? `The server did not read what is on screen: ${seen.error.message}` : undefined;
   // What the server read of the line, under it. A reason the line already says in red, at Enter, is not said twice.
   const shown = asked === undefined || unread !== undefined ? undefined : latest === undefined ? {} : previewShown(latest);
   const preview = shown === undefined || (problems.length > 0 && shown.reason !== undefined) ? undefined : shown;
@@ -487,8 +512,10 @@ export function CommandPalette() {
           role="combobox" aria-expanded={items.length > 0} aria-controls="qube-line-options" aria-autocomplete="list"
           readOnly={entering} aria-busy={entering || undefined}
           {...(chosen === undefined ? {} : { 'aria-activedescendant': optionId(at) })}
-          {...(preview === undefined ? {} : { 'aria-describedby': 'qube-line-preview' })}
+          {...(preview === undefined && onScreen === undefined ? {} : { 'aria-describedby': [onScreen === undefined ? [] : ['qube-line-context'], preview === undefined ? [] : ['qube-line-preview']].flat().join(' ') })}
           styles={{ input: { fontFamily: 'var(--mantine-font-family-monospace)' } }} />
+        {/* What the line was opened on (ADR-0016 note 19): what `selected`, `shown` and rows left out mean here. */}
+        {onScreen !== undefined && <Text size="xs" c="dimmed" id="qube-line-context" data-testid="command-context">On screen: {onScreen}</Text>}
         {head !== undefined && <Head command={head} reading={reading} latest={latest} waiting={waiting} />}
         {preview !== undefined && (
           <Stack gap={0} id="qube-line-preview" className="qube-line-preview" data-testid="command-preview" aria-busy={waiting || undefined}>
@@ -541,15 +568,17 @@ function Head({ command, reading, latest, waiting }: { readonly command: Command
   const args = command.args ?? [];
   // A served command's arguments are the catalog's, each with the words the server read for it, once it has read the
   // line; while the reading is of an earlier text they are dimmed with it (shell.css).
-  const given = new Map((latest?.arguments ?? []).map((a) => [a.name, a.text]));
+  const given = new Map((latest?.arguments ?? []).map((a) => [a.name, a]));
   return (
     <Group gap={6} wrap="wrap" data-testid="command-pending" className="qube-line-head" aria-busy={waiting || undefined}>
       <Text size="sm" fw={600} ff="monospace">{command.words}</Text>
       {(command.served?.arguments ?? []).map((a) => {
-        const text = given.get(a.name);
+        const read = given.get(a.name);
+        // One the user did not type (ADR-0016 note 18) is drawn as an outline, and says in words where it came from.
         return (
-          <Badge key={a.name} size="sm" radius="sm" className="qube-line-read" variant={text === undefined ? 'outline' : 'light'} color={text === undefined ? 'gray' : 'blue'} style={{ textTransform: 'none' }}>
-            {text === undefined ? (a.required ? a.name : `[${a.name}]`) : `${a.name} ${text}`}
+          <Badge key={a.name} size="sm" radius="sm" className="qube-line-read" variant={read === undefined || read.from === 'context' ? 'outline' : 'light'} color={read === undefined ? 'gray' : 'blue'}
+            style={{ textTransform: 'none' }} {...(read === undefined ? {} : { 'data-from': read.from })}>
+            {read === undefined ? (a.required ? a.name : `[${a.name}]`) : argumentShown(read)}
           </Badge>
         );
       })}
