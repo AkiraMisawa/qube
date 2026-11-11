@@ -11,7 +11,7 @@ import type { DatasetColumnType } from '../../platform/contracts';
 import { viewsFor } from '../../platform/views/binding';
 import { useWorkspaceContext } from '../../platform/workspace/WorkspaceProvider';
 import { keyOf } from '../../platform/workspace/workspaceStore';
-import { registerGridFocus } from '../../shell/focus';
+import { registerGridFocus } from '../../shell/places';
 import { downloadRun } from '../../platform/runs';
 import type { Notify } from '../../platform/notices';
 

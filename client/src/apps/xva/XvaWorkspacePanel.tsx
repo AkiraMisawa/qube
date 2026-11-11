@@ -11,16 +11,17 @@ import { useColumnWidths } from '../../platform/grid/columnWidths';
 import { amountTone, formatAmount } from '../../platform/grid/amounts';
 import { useWorkspaceContext } from '../../platform/workspace/WorkspaceProvider';
 import { keyOf } from '../../platform/workspace/workspaceStore';
-import { registerGridFocus } from '../../shell/focus';
+import { registerPlaces, type Place } from '../../shell/places';
 import type { VaryCell, XvaApi } from './api';
 import type { EffectiveTrade, HeldEdit, RegisteredColumn, RegisteredMeasure, Resolution, ScenariosMade, SetSaved, ScopeDrop, ShiftEdit, Varied, XvaWorkspaceView } from './contracts';
 import { measureNamed, registerXvaPage } from './commands';
 import { commandDoor, registerCommandDoor } from '../../platform/commands/served';
-import { pagedView, type Answered } from '../../platform/grid/lineView';
+import { pagedView, placeFocus, type Answered } from '../../platform/grid/lineView';
+import type { Screen } from '../../platform/commands/commands';
 import { XvaResult } from './XvaResult';
 import { BASE_CASE, BASE_SCENARIO, openTrace, requestTerm } from '../../platform/traces/open';
 import type { TraceApi } from '../../platform/traces/api';
-import type { LineView, RunRecord } from '../../platform/contracts';
+import type { RunRecord } from '../../platform/contracts';
 import { dockTabs, METRICS_TAB, type DockTab, type MeasureTab } from './dock';
 import { EditQueue, MEASURES_ENTITY, SETTINGS_ENTITY, TRADES_TABLE, refusedEdit, sideSaid, sideTitle, tradeFields, type PendingEdit, type SetText } from './editing';
 import { ToolbarField } from './fields';
@@ -202,7 +203,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   const lastGrid = useRef<TradeGrid>('existing');
   // What the command line is told is on screen (ADR-0016 §9, note 16 of 2026-11-11): the grid of a table the keyboard
   // was last in, read when the line opens. None until one is entered, and none once a grid that is no table is.
-  const screen = useRef<(() => LineView | undefined) | undefined>(undefined);
+  const screen = useRef<(() => Screen | undefined) | undefined>(undefined);
   const [busy, setBusy] = useState<string | undefined>(undefined);
   const [confirm, setConfirm] = useState<{ readonly registration: string; readonly drop: ScopeDrop } | undefined>(undefined);
   const [failure, setFailure] = useState<string | undefined>(undefined);
@@ -305,17 +306,48 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   const [scenarioPick, setScenarioPick] = useState<{ readonly runId: string | undefined; readonly scenario: string }>({ runId: undefined, scenario: BASE_SCENARIO });
   const [dockFull, setDockFull] = useState(false);
   const [focusRequest, setFocusRequest] = useState(0);
-  /** `open netting`, `open csa`, `open im`: the tab open and in view, with the keyboard in it (ADR-0010 §9), so a dock
-   * widened over the tabs is put back. A measure's own tab opens while the measure is selected, and says so otherwise. */
-  const openTab = (tab: InputTab) => {
+  /** `go csa`, `open netting`: the tab open and in view, with the keyboard in it (ADR-0010 §9), so a dock widened over
+   * the tabs is put back. A measure's own tab opens while the measure is selected; otherwise nothing moves, and the
+   * reason is answered. */
+  const openTab = (tab: InputTab): string | undefined => {
     if (view.data !== undefined && !tabShown(view.data, tab)) {
-      workspace.notify('refused', tab === SETTINGS_TAB
+      return tab === SETTINGS_TAB
         ? 'The Settings tab shows only while a selected measure has a setting, and none does now.'
-        : `The ${TAB_TITLES[tab]} tab shows only while a selected measure needs it, and none does now.`);
-      return;
+        : `The ${TAB_TITLES[tab]} tab shows only while a selected measure needs it, and none does now.`;
     }
     setInputTab(tab); setInputsOpen(true); setDockFull(false); setSection('inputs'); setFocusRequest((n) => n + 1);
+    return undefined;
   };
+  // The keyboard asked into a trade grid, the dock or a trace by name (`go existing`, `find`; ADR-0016 §9, notes 20 and
+  // 21): the part it is in is shown first, where the page is three parts or the dock is widened over the grids, and the
+  // keyboard follows once that is drawn.
+  const dock = useRef<HTMLDivElement>(null);
+  const treeFocus = useRef<(() => void) | undefined>(undefined);
+  const [placeRequest, setPlaceRequest] = useState<{ readonly place: TradeGrid | 'results' | 'trace'; readonly request: number } | undefined>(undefined);
+  const goTo = (place: TradeGrid | 'results' | 'trace'): string | undefined => {
+    if (place === 'new' || place === 'existing') { setDockFull(false); setSection('trades'); }
+    else if (place === 'results' && dockRun() === undefined) return 'Nothing is priced yet: Price shows its results here.';
+    else { if (place === 'results') setDockOpen(true); setSection('results'); }
+    setPlaceRequest((last) => ({ place, request: (last?.request ?? 0) + 1 }));
+    return undefined;
+  };
+  useEffect(() => {
+    if (placeRequest === undefined) return;
+    const { place } = placeRequest;
+    if (place === 'results') {
+      // The dock's keyboard starts on its tab in view, or on its first control where its Run has one tab; a dock that
+      // draws neither, such as a Run that could not be read, takes it itself.
+      const part = dock.current;
+      if (part === null) throw new Error('The pricer page was asked to put the keyboard in its dock, and has drawn none.');
+      (part.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]') ?? part.querySelector<HTMLElement>('button, select') ?? part).focus();
+      return;
+    }
+    // A place is offered only while what takes its keyboard is drawn (`places` below): one that is gone by now is a defect.
+    const grid = place === 'trace' ? undefined : (place === 'new' ? newGrid : existingGrid).current;
+    const take = place === 'trace' ? treeFocus.current : grid === undefined || grid === null ? undefined : () => grid.focus();
+    if (take === undefined) throw new Error(`The pricer page was asked to put the keyboard in ${place}, and has drawn nothing there to take it.`);
+    take();
+  }, [placeRequest]);
 
   // A result that arrives changes the New grid's rows with no edit: they are read again when the count waiting moves.
   const pendingCells = view.data?.pendingCells;
@@ -348,17 +380,27 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
     void queue.push({ entity: `trade:${intent.row.tradeId}`, field: intent.column, value: parsed.value, title: `${intent.row.tradeId} ${header}` });
   }, [queue]);
 
-  // `focus grid` gives the keyboard to the New grid, or to a trace tab's tree while the dock is widened over the grids.
-  const treeFocus = useRef<(() => void) | undefined>(undefined);
+  // The page's places (ADR-0016 §9, note 20): its two trade grids, its input tabs by the words `open` takes, and the
+  // dock. `focus grid` goes to the first that is a grid: New trades, or a trace tab's tree while the dock is widened
+  // over the grids.
   const traceShown = useRef(false);
   const registerTreeFocus = useCallback((focus: (() => void) | undefined) => { treeFocus.current = focus; }, []);
+  const places = (): readonly Place[] => {
+    // While the workspace is being read, or could not be, the page draws no part to go to.
+    if (view.isPending || view.isError) return [];
+    return [
+      ...(traceShown.current && treeFocus.current !== undefined ? [{ word: 'trace', title: 'the trace', grid: true, go: () => goTo('trace') }] : []),
+      { word: 'new', title: 'New trades', grid: true, go: () => goTo('new') },
+      { word: 'existing', title: 'Existing trades', grid: true, go: () => goTo('existing') },
+      ...(Object.keys(TAB_TITLES) as InputTab[]).map((tab) => ({ word: tab, title: `the ${TAB_TITLES[tab]} tab`, go: () => openTab(tab) })),
+      { word: 'results', title: 'the results', go: () => goTo('results') },
+    ];
+  };
+  const placesNow = useRef(places);
+  placesNow.current = places;
   useEffect(() => {
-    registerGridFocus(panelId, () => {
-      const tree = treeFocus.current;
-      if (traceShown.current && tree !== undefined) tree();
-      else newGrid.current?.focus();
-    });
-    return () => registerGridFocus(panelId, undefined);
+    registerPlaces(panelId, () => placesNow.current());
+    return () => registerPlaces(panelId, undefined);
   }, [panelId]);
 
   /** A command that re-reads the source: the order may move, so the grid starts over (ExGrid ADR-0011). */
@@ -565,7 +607,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
     catalog: workspace.catalog,
     api: workspace.api,
     turns: queue,
-    view: () => screen.current?.(),
+    screen: () => screen.current?.(),
     reread: async () => {
       const fresh = await api.view(workspaceId);
       show(fresh);
@@ -748,7 +790,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   const setCurrency = (currency: string) => void queue.push({ entity: SETTINGS_ENTITY, field: 'displayCurrency', value: currency, title: 'The display currency' });
 
   // The commands run what the page's own controls run, as the page stands when they run (ADR-0010 §9).
-  const pageCommands = { takeBack, chooseCds, cdsCatalogue: () => catalogue.data, price, setMeasures, setSide, retry, copyQuote, download, refresh, setCurrency, openTab, explain, openResult, setDockFull, resultTabs, traceInView, vary, addTrades, removeCase, clearCases, defineScenario, includeScenario, removeScenario, duplicate, clearScenarios, generateScenarios, saveScenarios, loadScenarios, scenarioSets: () => scenarioSets.data ?? [], scenarios: () => view.data?.scenarios ?? [], pricing: () => (view.data === undefined ? undefined : { cases: view.data.cases.length, cap: view.data.caseCap }), measures: () => view.data?.measures ?? [], currencies: () => view.data?.currencies ?? [], examples: () => ({ csa: view.data?.csas[0]?.csaId }) };
+  const pageCommands = { takeBack, chooseCds, cdsCatalogue: () => catalogue.data, price, setMeasures, setSide, retry, copyQuote, download, refresh, setCurrency, explain, openResult, setDockFull, resultTabs, traceInView, vary, addTrades, removeCase, clearCases, defineScenario, includeScenario, removeScenario, duplicate, clearScenarios, generateScenarios, saveScenarios, loadScenarios, scenarioSets: () => scenarioSets.data ?? [], scenarios: () => view.data?.scenarios ?? [], pricing: () => (view.data === undefined ? undefined : { cases: view.data.cases.length, cap: view.data.caseCap }), measures: () => view.data?.measures ?? [], currencies: () => view.data?.currencies ?? [], examples: () => ({ csa: view.data?.csas[0]?.csaId }) };
   const pageRef = useRef(pageCommands);
   pageRef.current = pageCommands;
   useEffect(() => {
@@ -778,7 +820,6 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
       copyQuote: () => void pageRef.current.copyQuote(),
       refresh: () => void pageRef.current.refresh(),
       setCurrency: (currency) => pageRef.current.setCurrency(currency),
-      openTab: (tab) => pageRef.current.openTab(tab),
       explain: (measure, path) => pageRef.current.explain(measure, path),
       openResult: (tab) => pageRef.current.openResult(tab),
       setDockFull: (full) => pageRef.current.setDockFull(full),
@@ -792,10 +833,21 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
     return () => { registerXvaPage(panelId, undefined); registerCommandDoor(panelId, undefined); };
   }, [panelId, door]);
   // A trade grid as the line is told of it: the trades of its subset, its Selection as positions in the order its rows
-  // were answered in, and its Focus by its column's name, which is the field's where the column is one.
+  // were answered in, and its Focus by its column's name, which is the field's where the column is one. A place read for
+  // that view (ADR-0016 note 21) names its row by position, since the server pages these grids: none is looked for by key.
+  const goToNow = useRef(goTo);
+  goToNow.current = goTo;
   const tradeScreen = useMemo(() => {
-    const of = (grid: TradeGrid, handle: { readonly current: ExGridApi<Row> | null }) => () => (handle.current === null ? undefined
-      : pagedView({ table: TRADES_TABLE, subset: grid, columns: gridColumns.current[grid].map((c) => c.name) }, handle.current.readView(), sources[grid].snapshot(), sources.answered));
+    const of = (grid: TradeGrid, handle: { readonly current: ExGridApi<Row> | null }) => (): Screen | undefined => {
+      const shown = handle.current;
+      if (shown === null) return undefined;
+      const declared = { table: TRADES_TABLE, subset: grid, columns: gridColumns.current[grid].map((c) => c.name) };
+      const read = shown.readView();
+      return {
+        view: pagedView(declared, read, sources[grid].snapshot(), sources.answered),
+        put: (place) => placeFocus(declared, shown, read, place) ?? goToNow.current(grid),
+      };
+    };
     return { new: of('new', newGrid), existing: of('existing', existingGrid) };
   }, [sources]);
   // The grids' undo and redo keys run the same two commands; the functions are the same for the page's life, so no
@@ -875,7 +927,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
         data={[{ value: 'inputs', label: 'Inputs' }, { value: 'trades', label: 'Trades' }, { value: 'results', label: 'Results' }]} />
       <div data-part="inputs" className="qube-xva-part">
         <XvaInputs panelId={panelId} ws={ws} onIssue={setIssue} push={(entity, field, value, title) => void queue.push({ entity, field, value, title })} setText={setText}
-          catalogue={catalogue.isError ? { refused: describe(catalogue.error) } : catalogue.data} onGridEntered={(view) => { screen.current = view; }}
+          catalogue={catalogue.isError ? { refused: describe(catalogue.error) } : catalogue.data} onGridEntered={(seen) => { screen.current = seen; }} onPlaced={() => openTab('csa')}
           tab={inputTab} onTab={(tab) => { setInputTab(tab); setInputsOpen(true); }} open={inputsOpen} onOpen={setInputsOpen} height={inputsHeight} focusRequest={focusRequest}
           changeList={changeList.data} changeActions={changeActions} scenarioActions={scenarioActions} onVary={setVarying} commandLabel={commandLabel} />
         <VaryDialog target={varying} vary={(target, values) => varyCell({ entity: target.entity, field: target.field }, values)} onClose={() => setVarying(undefined)} />
@@ -903,7 +955,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
         </div>
       </div>
       {/* The result dock (ADR-0010 §7) at the bottom, in view while the trades scroll: one line a case collapsed. */}
-      <div data-part="results" className="qube-xva-part qube-xva-dock">
+      <div ref={dock} tabIndex={-1} data-part="results" className="qube-xva-part qube-xva-dock">
         {pricedRun === undefined
           ? <Text size="sm" data-testid="xva-result-none">Nothing is priced yet. Price shows its figures here.</Text>
           : (

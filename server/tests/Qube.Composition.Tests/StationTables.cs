@@ -37,6 +37,9 @@ static class Stations
     ], [Manual, Automatic], Main: true);
 
     public static readonly TableSubset High = new("high", "High", ["high", "upland"]);
+    // A subset of the stations with the name the readings' `manual` has, and not all of its words: `by hand` is the
+    // readings' alone, whichever table is on screen.
+    public static readonly TableSubset Staffed = new("manual", "Staffed", ["manual", "staffed"]);
 
     // The table answers to a word a reading's field has too (`site`), and the settings' alarm to one the volume has
     // (`limit`): a line that starts with either, with the readings on screen, cannot say which it means.
@@ -46,7 +49,7 @@ static class Stations
         new("altitude", "Altitude", ["altitude"], FieldForm.Number, Editable: true),
         // A field that points into a table, here its own: the station that stands in for this one.
         new("backup", "Backup", ["backup"], FieldForm.Id, Editable: true, Optional: true, Table: Sites),
-    ], [High]);
+    ], [High, Staffed]);
 
     public static readonly TableDescriptor SettingsTable = new(Settings, "1.0", App, "Board settings", ["settings", "board"], "id",
     [
@@ -76,7 +79,7 @@ static class Stations
     static readonly IReadOnlyDictionary<string, JsonObject> Entities = Sends.ToDictionary(s => $"reading:{s.Id}", FieldsOf)
         .Concat([
             KeyValuePair.Create("station:N1", new JsonObject { ["id"] = "N1", ["subset"] = "high", ["altitude"] = 120m, ["backup"] = null }),
-            KeyValuePair.Create("station:S1", new JsonObject { ["id"] = "S1", ["altitude"] = 15m, ["backup"] = "N1" }),
+            KeyValuePair.Create("station:S1", new JsonObject { ["id"] = "S1", ["subset"] = "manual", ["altitude"] = 15m, ["backup"] = "N1" }),
             // A station that shares its id with a reading, so an id alone cannot say which table it means.
             KeyValuePair.Create("station:X1", new JsonObject { ["id"] = "X1", ["altitude"] = 40m, ["backup"] = null }),
             KeyValuePair.Create("settings:board", new JsonObject { ["id"] = "board", ["alarm"] = 10_000_000m, ["daylight"] = true }),

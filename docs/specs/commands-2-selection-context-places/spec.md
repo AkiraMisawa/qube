@@ -66,14 +66,23 @@ the lines worth a menu item, and every grid bound to it shows them in its Contex
 - **The line.** Reads the door's view once as it opens, asks the preview with no text for the sentence, shows it
   under the input, sends the view with each preview and with Enter's own reading, and marks an argument from context.
 
-### 2b. Places, `go` and `find` (tickets 06 to 08 and 12; the notes are written when it is built)
+### 2b. Places, `go` and `find` (tickets 06 to 08 and 12; ADR-0016 notes 20 to 23)
 
-- A page registers its places with the shell: a word, a title and how the keyboard is put there.
-- The shell builds `go <place>` from them. `focus grid` is `go` to the page's first grid, and keeps its chord.
-- `find <row> [<field>]`: the server answers the row's position in the view; the grid places its Focus there with
-  `placeMatch`, refused when the order has moved.
+- **Places.** A page registers its places with the shell (`shell/places.ts`): a word, a title, whether it is a grid,
+  and how the keyboard is put there, which answers why where it cannot. The shell builds `go <place>` from the
+  active panel's places. `focus grid` is `go` to the first place that is a grid, and keeps its chord.
+- **`find <row> [<field>]`** is a view verb the server reads (note 21). `GET /api/catalog` lists the view verbs
+  (`viewVerbs`), and the line builds their entries as it builds a capability's. The preview answers a `place`
+  (`table`, `subset?`, `key`, `position?`, `column?`, `said`) and no command.
+- **The door.** `DoorPage.screen()` answers the view and how the grid it was read of takes a place (`put`), which
+  answers why where it cannot. `enter` on a reading with a place invokes nothing: it has that grid take the place,
+  says the server's sentence as the notice, and answers that the keyboard was moved, so the line gives none back.
+- **The grid.** The page keeps, for each view it gave the line, how that grid takes a place: `placeSelection` of the
+  one cell against the Row Sequence Version the view was read in.
 - Only `go`, `find` and `open` move the keyboard, and each says where it went.
-- A table left out is the screen's table for `all` and `where` (ADR-0016 §9; ticket 12, from the review of 2a).
+- **A table left out is the screen's** for `all` and `where` (note 23). The line's reader decides once which table
+  rows said with no table mean (`SelectorScan.Unsaid`); the preview, the completions and the request read that, and
+  the request names a table the screen gave.
 
 ### 2c. The chain key and menus (tickets 09 to 11; the notes are written when it is built)
 
@@ -93,10 +102,17 @@ A test names the ADR it holds. Tested at these seams, each through its public in
 - `CommandService` (`TableCommandTests`): a command invoked with `selected` is refused.
 - `PortfolioWorkspaces` and `xva.trades` (`PricerTableTests`): `InOrder` and `Page` give one order, sorted and not.
 - HTTP (`CommandGatewayTests`): the preview takes a view and answers its sentence.
+- `CommandLines.Preview` again, for 2b: `find` answers a place for a paged view and for a held one, and its
+  refusals (no view, no row, an end that names several, a row the grid does not show, an unknown field, a moved
+  order); `all`, `where` and a subset with a table left out, with a view and without, and the request's table.
+- HTTP again, for 2b: the catalog lists `find` among its view verbs and among no capabilities; the preview's place.
 - Client, Vitest: what the line makes of a view and of `from` (pure functions); the door passes the view.
+- Client, Vitest, for 2b: the places a page registers and what `go` and `focus grid` do with them
+  (`buildCommands`); the door on a reading with a place; the cell a place names in a grid (`lineView`).
 - Client, Playwright (`xva.spec.ts`): rows selected with the keyboard, then `set csa CSA-B`; `selected where`;
-  every row of a grid selected; `reset` on the focused cell; the context under the line; `go`, `find`; Ctrl+Enter;
-  a menu item from a declaration.
+  every row of a grid selected; `reset` on the focused cell; the context under the line; `go` to each place and
+  `focus grid`; `find` of a row the grid has not loaded; the keyboard back where it was after `set`, `reset`,
+  `undo` and Price; `where` with the table left out on the CSA grid; Ctrl+Enter; a menu item from a declaration.
 - Measured, not gated: the preview of `set selected a off` with 10,000 rows selected.
 
 Not tested: ExGrid's own selection and Focus, and anything a test of a public seam already holds.

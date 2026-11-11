@@ -49,6 +49,12 @@ public sealed record CapabilityDescriptor(
     IReadOnlyList<CapabilityEffect> Effects,
     CommandForm? Command = null);
 
+/// <summary>
+/// A verb of the screen as the catalog lists it (ADR-0016 §3, note 21 of step 2): its id, what it does, and how it is
+/// typed. It is listed apart from the capabilities: nothing invokes it, and the agent's tools hold none.
+/// </summary>
+public sealed record ViewVerbDescriptor(string VerbId, string Title, CommandForm Command);
+
 public sealed record CapabilityCatalog(string DocumentType, string SchemaVersion, IReadOnlyList<CapabilityDescriptor> Capabilities);
 
 /// <summary>Where a step input, a map source or a workflow output takes its value from. No expressions.</summary>

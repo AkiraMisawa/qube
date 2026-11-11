@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNod
 import { Badge, Group, Kbd, Modal, Stack, Text, TextInput, UnstyledButton, useMantineColorScheme } from '@mantine/core';
 import { useHotkeys } from '@mantine/hooks';
 import {
-  assertDistinct, completionsOf, drawn, drawnSections, execute, finish, listed, placeholder, readLine, signature, take,
+  assertDistinct, CommandRefused, completionsOf, drawn, drawnSections, execute, finish, listed, placeholder, readLine, signature, take,
   type Command, type CommandDoor, type Completion,
 } from '../platform/commands/commands';
 import { argumentShown, commandDoorOf, lineAsked, previewShown, screenShown, servedCommands, taken } from '../platform/commands/served';
@@ -13,7 +13,8 @@ import type { Notify } from '../platform/notices';
 import { viewsFor } from '../platform/views/binding';
 import { CONTEXT_CONTRACT, useWorkspace, useWorkspaceContext } from '../platform/workspace/WorkspaceProvider';
 import { keyOf, type Panel, type WorkspaceState } from '../platform/workspace/workspaceStore';
-import { focusGrid } from './focus';
+import { keepKeyboard, letGo, rememberKeyboard, returnKeyboard } from './keyboard';
+import { goTo, placesOf } from './places';
 import { useStore } from 'zustand';
 import { createStore } from 'zustand/vanilla';
 import { useOptionalAiStore } from '../ai/AiProvider';
@@ -53,7 +54,7 @@ export function buildCommands(args: {
   // The applications' commands first: the empty line lists the groups in the order registered (ADR-0006's note 3 of
   // 2026-11-11), and what an application offers comes before the catalog's workflows and the shell's own.
   const commands: Command[] = [
-    ...appCommands(state),
+    ...appCommands(state, args.notify),
     // The commands the catalog says how to type (ADR-0016 §4): the server reads their lines, for the workspace of the
     // page in the active panel.
     ...servedCommands(catalog, active, commandDoorOf(active?.id), args.notify),
@@ -115,13 +116,37 @@ export function buildCommands(args: {
       run: () => document.querySelector<HTMLElement>('#context-bar input')?.focus(),
     },
     {
+      // ADR-0016 §9, note 20: the places are the page's, read when the command runs or completes, and `go` says where
+      // the keyboard went.
+      id: 'panel.go',
+      words: 'go',
+      title: 'Put the keyboard in a place of the page, such as a grid or a tab',
+      group: 'Panels',
+      args: [{
+        name: 'place', required: true, hint: 'a place of this page',
+        complete: () => placesOf(active?.id).map((p) => ({ value: p.word, detail: p.title })),
+        check: (word) => (placesOf(active?.id).some((p) => p.word === word.toLowerCase()) ? undefined : `one of ${placesOf(active?.id).map((p) => p.word).join(', ')}`),
+      }],
+      ...(active === undefined ? { unavailable: 'No panel is open.' } : placesOf(active.id).length === 0 ? { unavailable: 'This page has no places to go to.' } : { target: active.title }),
+      run: (a) => {
+        const place = placesOf(active?.id).find((p) => p.word === a.place?.toLowerCase());
+        if (place === undefined) throw new CommandRefused(`go needs a place of this page: ${placesOf(active?.id).map((p) => p.word).join(', ')}.`);
+        goTo(place, args.notify);
+      },
+    },
+    {
+      // `go` to the page's first grid, with a key (ADR-0016 §9, note 20).
       id: 'panel.focusGrid',
       words: 'focus grid',
       title: 'Give the keyboard to the panel\'s grid',
       group: 'Panels',
       shortcut: 'mod+shift+G',
       ...(active === undefined ? { unavailable: 'No panel is open.' } : { target: active.title }),
-      run: () => { if (!focusGrid(active?.id)) args.notify('refused', 'This panel has no grid yet.'); },
+      run: () => {
+        const grid = placesOf(active?.id).find((p) => p.grid === true);
+        if (grid === undefined) throw new CommandRefused('This panel has no grid yet.');
+        goTo(grid, args.notify);
+      },
     },
     {
       id: 'panel.next',
@@ -222,8 +247,7 @@ const NO_AI = createStore<{ readonly open: boolean }>()(() => ({ open: false }))
 /** Opens the command line (Ctrl+K anywhere; `/` where it would not be typed into something). */
 export function openPalette(): void {
   if (document.activeElement?.closest('.qube-palette') != null) return;
-  if (keyboardBefore === null && document.activeElement instanceof HTMLElement && document.activeElement !== document.body)
-    keyboardBefore = document.activeElement;
+  rememberKeyboard();
   letGo();
   openLine?.();
 }
@@ -382,7 +406,7 @@ export function CommandPalette() {
     }
     // A command that opened a surface leaves the keyboard to it; any other gives it back.
     if (workspace.store.getState().runDialog === undefined && document.activeElement === document.body) returnKeyboard();
-    else keyboardBefore = null;
+    else keepKeyboard();
   };
 
   /**
@@ -397,7 +421,8 @@ export function CommandPalette() {
     const mine = turn.current += 1;
     const typed = line === text;
     setEntering(true);
-    void command.served.door.enter(line, line === asked ? fresh : undefined, viewOn(command.served.door)).then((reason) => {
+    void command.served.door.enter(line, line === asked ? fresh : undefined, viewOn(command.served.door)).then((ended) => {
+      const reason = ended !== undefined && 'sentence' in ended ? ended : undefined;
       // The line was closed, or opened again, meanwhile: its reason has no line left, and is a notice.
       if (turn.current !== mine) {
         if (reason === undefined) recordUse(command.id);
@@ -408,7 +433,9 @@ export function CommandPalette() {
       if (reason === undefined) {
         recordUse(command.id);
         setOpened(false);
-        returnKeyboard();
+        // A command that put the keyboard somewhere itself keeps it there (ADR-0016 §9, note 22); any other gives it back.
+        if (ended === undefined) returnKeyboard();
+        else keepKeyboard();
         return;
       }
       void queryClient.invalidateQueries({ queryKey: ['command-line'] });
@@ -636,19 +663,3 @@ function ValueOption({ completion }: { readonly completion: Completion }): React
   );
 }
 
-// Focus moves are owned here rather than left to Mantine's timers. Until a surface has mounted and
-// taken the keyboard, keys go to nothing: opening the line and running a command first let go of
-// the focused element, so a key typed at machine speed is dropped, never delivered to the grid behind
-// the line or to a line that is closing. The keyboard goes back where it was when the line
-// closes without opening a surface of its own.
-let keyboardBefore: HTMLElement | null = null;
-
-function letGo(): void {
-  if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
-}
-
-function returnKeyboard(): void {
-  const element = keyboardBefore;
-  keyboardBefore = null;
-  if (element !== null && element.isConnected) element.focus({ preventScroll: true });
-}

@@ -9,7 +9,7 @@ import { useColumnWidths } from '../../platform/grid/columnWidths';
 import { EditQueue } from '../../platform/workspace/editQueue';
 import { useWorkspaceContext } from '../../platform/workspace/WorkspaceProvider';
 import { keyOf } from '../../platform/workspace/workspaceStore';
-import { registerGridFocus } from '../../shell/focus';
+import { registerGridFocus } from '../../shell/places';
 import type { FrameStream, RatesApi } from './api';
 import { registerRatesCommands } from './commands';
 import type { CashflowsView, HeldEdit, LiveFrame, PeriodView, RatesWorkspaceView, Resolution } from './contracts';

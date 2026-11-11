@@ -60,6 +60,11 @@ test('ADR-0011 §6: a figure opens its trace, each side\'s values typeset in its
   await page.keyboard.press('Alt+ArrowLeft');
   await expect(tree).toHaveAttribute('data-rows', '2');
 
+  // The tree is the page's place `trace` while its tab is widened over the grids (ADR-0016 §9, note 20).
+  await command(page, 'go', 'trace');
+  await expect(page.getByTestId('notice')).toHaveText('The keyboard is in the trace.');
+  await expect(tree.locator(':focus')).toHaveCount(1);
+
   // `explain` on the trace opens a term by its path: the table row the lookup took is marked in the matrix.
   await command(page, 'explain', 'ccr.spotCapital rw/table');
   await expect(term(page)).toHaveText('Table weight');

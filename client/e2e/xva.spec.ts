@@ -1081,6 +1081,264 @@ test('ADR-0016 §2, §9, notes 16, 17, 19: the CSA grid is a screen of the CSAs,
   await expect(screen).toHaveCount(0);
 });
 
+/** What has the keyboard inside the part of the page with this label: one element while the keyboard is there. */
+const keyboardIn = (page: Page, label: string) => page.getByLabel(label, { exact: true }).locator(':focus');
+
+test('ADR-0016 §9, note 20: `go` puts the keyboard in a place of the page and says where, `focus grid` is `go` to its first grid, and a place that cannot take it says why on the line', async ({ page }) => {
+  await open(page);
+  await newWorkspace(page, 'ABC/LE-01', 5);
+  await command(page, 'measures', 'cva fva');
+  const line = page.getByRole('combobox', { name: 'Command' });
+  const said = page.getByTestId('command-problems');
+  const notice = page.getByTestId('notice');
+
+  for (const [place, title, label] of [['existing', 'Existing trades', 'Existing trades'], ['new', 'New trades', 'New trades'], ['csa', 'the CSA tab', 'CSA terms']] as const) {
+    await command(page, 'go', place);
+    await expect(line).toBeHidden();
+    await expect(notice).toHaveText(`The keyboard is in ${title}.`);
+    await expect(keyboardIn(page, label)).toHaveCount(1);
+  }
+  // The chord and its words are `go` to the page's first grid, from wherever the keyboard is.
+  await page.keyboard.press('ControlOrMeta+Shift+G');
+  await expect(notice).toHaveText('The keyboard is in New trades.');
+  await expect(keyboardIn(page, 'New trades')).toHaveCount(1);
+  await command(page, 'go', 'existing');
+  await expect(keyboardIn(page, 'Existing trades')).toHaveCount(1);
+  await command(page, 'focus grid');
+  await expect(notice).toHaveText('The keyboard is in New trades.');
+  await expect(keyboardIn(page, 'New trades')).toHaveCount(1);
+
+  // `go` offers the page's places, and a word that names none is refused with the places there are.
+  await page.keyboard.press('ControlOrMeta+K');
+  await expect(line).toBeFocused();
+  await page.keyboard.type('go ');
+  await expect(page.getByRole('option')).toHaveText([/^new/, /^existing/, /^netting/, /^csa/, /^credit/, /^im/, /^scenarios/, /^settings/, /^changes/, /^results/]);
+  await page.keyboard.type('nowhere');
+  await page.keyboard.press('Enter');
+  await expect(said).toHaveText('place: one of new, existing, netting, csa, credit, im, scenarios, settings, changes, results');
+  await page.keyboard.press('Escape');
+  await expect(line).toBeHidden();
+
+  // A place that cannot take the keyboard now says why, and the line stays: nothing is priced, so the dock has no results.
+  await command(page, 'go', 'results');
+  await expect(said).toHaveText('Nothing is priced yet: Price shows its results here.');
+  await expect(line).toHaveValue('go results');
+  await page.keyboard.press('Escape');
+  await expect(line).toBeHidden();
+  await command(page, 'price');
+  const result = page.getByTestId('xva-result');
+  await expect(result.getByTestId('xva-result-status')).toHaveText('succeeded');
+  await command(page, 'go', 'results');
+  await expect(notice).toHaveText('The keyboard is in the results.');
+  await expect(result.locator(':focus')).toHaveCount(1);
+
+  // Where the page is one part at a time, the part a place is in is shown first.
+  await page.setViewportSize({ width: 390, height: 844 });
+  await command(page, 'go', 'csa');
+  await expect(page.getByRole('radio', { name: 'Inputs' })).toBeChecked();
+  await expect(keyboardIn(page, 'CSA terms')).toHaveCount(1);
+  await command(page, 'go', 'existing');
+  await expect(page.getByRole('radio', { name: 'Trades' })).toBeChecked();
+  await expect(keyboardIn(page, 'Existing trades')).toHaveCount(1);
+  await command(page, 'go', 'results');
+  await expect(page.getByRole('radio', { name: 'Results' })).toBeChecked();
+  await expect(result.locator(':focus')).toHaveCount(1);
+});
+
+test('ADR-0016 §9, note 20: a tab with nothing to work in takes the keyboard on its own tab, `open <tab>` is `go` to that tab and says where, and a tab no selected measure needs refuses on the line', async ({ page }) => {
+  await open(page);
+  await newWorkspace(page, 'ABC/LE-01', 5);
+  // FVA alone reads no CVA recovery, so Netting draws no field; and no measure selected has a Credit or an IM tab.
+  await command(page, 'measures', 'fva');
+  const line = page.getByRole('combobox', { name: 'Command' });
+  const said = page.getByTestId('command-problems');
+  const notice = page.getByTestId('notice');
+  const inputs = page.getByRole('tablist', { name: 'Inputs' });
+
+  await command(page, 'go', 'netting');
+  await expect(line).toBeHidden();
+  await expect(notice).toHaveText('The keyboard is in the Netting tab.');
+  await expect(inputs.getByRole('tab', { name: /^Netting/ })).toBeFocused();
+
+  await command(page, 'open csa');
+  await expect(line).toBeHidden();
+  await expect(notice).toHaveText('The keyboard is in the CSA tab.');
+  await expect(keyboardIn(page, 'CSA terms')).toHaveCount(1);
+
+  for (const [words, reason] of [['go im', 'The IM tab shows only while a selected measure needs it, and none does now.'], ['open credit', 'The Credit tab shows only while a selected measure needs it, and none does now.']] as const) {
+    await page.keyboard.press('ControlOrMeta+K');
+    await expect(line).toBeFocused();
+    await page.keyboard.type(words);
+    await page.keyboard.press('Enter');
+    await expect(said).toHaveText(reason);
+    await expect(line).toHaveValue(words);
+    await page.keyboard.press('Escape');
+    await expect(line).toBeHidden();
+    // Nothing moved: the keyboard is back in the grid it was in, and the notice still says where it last went.
+    await expect(keyboardIn(page, 'CSA terms')).toHaveCount(1);
+    await expect(notice).toHaveText('The keyboard is in the CSA tab.');
+  }
+});
+
+test('ADR-0016 §9, note 22: after `set`, `reset`, `undo` and Price from the line the keyboard is back where it was before the line opened', async ({ page }) => {
+  await open(page);
+  await newWorkspace(page, 'ABC/LE-01', 5);
+  await command(page, 'measures', 'cva fva');
+  const line = page.getByRole('combobox', { name: 'Command' });
+  const screen = page.getByTestId('command-context');
+  const notice = page.getByTestId('notice');
+
+  // From a cell of a grid: DRAFT-2's CSA, which each command leaves the keyboard on.
+  await focusCell(page, CSA);
+  await page.keyboard.press('ArrowDown');
+  // `reset` takes its cell from the screen: its words and a space are a whole line.
+  for (const [typed, did] of [
+    ['set csa CSA-B', 'Set DRAFT-2 csa to CSA-B.'],
+    ['reset ', 'Reset DRAFT-2 csa.'],
+    ['undo', 'Took back: reset trades DRAFT-2 csa. redo puts it back.'],
+  ] as const) {
+    await page.keyboard.press('ControlOrMeta+K');
+    await expect(line).toBeFocused();
+    await page.keyboard.type(typed);
+    await expect(page.getByTestId('command-preview')).not.toHaveAttribute('aria-busy', 'true');
+    await expect(page.getByTestId('command-preview')).not.toBeEmpty();
+    await page.keyboard.press('Enter');
+    await expect(line).toBeHidden();
+    await expect(notice).toHaveText(did);
+    await expect(keyboardIn(page, 'New trades')).toHaveCount(1);
+  }
+  await command(page, 'price');
+  await expect(page.getByTestId('xva-result').getByTestId('xva-result-status')).toHaveText('succeeded');
+  await expect(keyboardIn(page, 'New trades')).toHaveCount(1);
+  // The same cell, as the line opened next reads it.
+  await page.keyboard.press('ControlOrMeta+K');
+  await expect(line).toBeFocused();
+  await expect(screen).toHaveText('On screen: trades (new), 1 selected, DRAFT-2 · csa');
+  await page.keyboard.press('Escape');
+  await expect(line).toBeHidden();
+
+  // From a field that is no grid: the CVA recovery of the Netting tab.
+  await command(page, 'go', 'netting');
+  const recovery = page.getByRole('textbox', { name: 'CVA recovery' });
+  await expect(recovery).toBeFocused();
+  await command(page, 'set', 'DRAFT-1 a off');
+  await expect(notice).toHaveText('Set DRAFT-1 A to off.');
+  await expect(recovery).toBeFocused();
+});
+
+test('ADR-0016 §9, note 21: `find` puts the Focus on a row the sorted grid has not loaded, or on its cell by a field, with the keyboard in the grid; a row it cannot place keeps the line with the reason', async ({ page }) => {
+  // Every trade the server has answered the Existing grid with: a row not among them was never loaded.
+  const loaded = new Set<string>();
+  page.on('response', (response) => {
+    if (!response.url().endsWith('/rows') || response.request().postDataJSON().grid !== 'existing') return;
+    // An answer the grid stopped waiting for has no body to read, and gave the grid no row.
+    void response.json().then((answer: { readonly rows: readonly { readonly tradeId: string }[] }) => { for (const row of answer.rows) loaded.add(row.tradeId); }, () => undefined);
+  });
+  await open(page);
+  await newWorkspace(page, 'ABC/LE-01', 600);
+  const line = page.getByRole('combobox', { name: 'Command' });
+  const read = page.getByTestId('command-preview');
+  const said = page.getByTestId('command-problems');
+  const screen = page.getByTestId('command-context');
+  const notice = page.getByTestId('notice');
+  const existing = page.getByLabel('Existing trades', { exact: true });
+  const far = 'ABC-LE-01-E00300';
+
+  // No grid has had the keyboard yet: there is none to look in, and the line says so.
+  await command(page, 'find', '0300');
+  await expect(said).toHaveText('find looks for a row in the grid on screen, and no grid of a table is behind this line: go to one first.');
+  await page.keyboard.press('Escape');
+  await expect(line).toBeHidden();
+
+  // The Existing grid sorted by notional, largest first: the row is far down that order, in a page never asked for.
+  await command(page, 'go', 'existing');
+  await page.keyboard.press('ControlOrMeta+Home');
+  await page.keyboard.press('ControlOrMeta+Home');
+  for (let i = 0; i < 3; i++) await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('Alt+ArrowDown');
+  await page.getByRole('menuitem', { name: 'Sort descending' }).click();
+  await expect(existing.getByRole('columnheader', { name: 'Notional' })).toHaveAttribute('aria-sort', 'descending');
+  await settled(page, 'Existing trades');
+  expect(loaded.has(far)).toBe(false);
+
+  // The end of an id that names one row is that row, and the field is one of the table's by its words.
+  await page.keyboard.press('ControlOrMeta+K');
+  await expect(line).toBeFocused();
+  await page.keyboard.type('find 0300 csa');
+  await expect(read).toContainText(`trades, 1 row: ${far}`);
+  await expect(read).toContainText(`The keyboard goes to ${far} · csa.`);
+  await page.keyboard.press('Enter');
+  await expect(line).toBeHidden();
+  await expect(notice).toHaveText(`The keyboard is on ${far} · csa in trades (existing).`);
+  await expect(trade(page, far)).toBeInViewport();
+  await expect(keyboardIn(page, 'Existing trades')).toHaveCount(1);
+  // The Focus is that cell, as the line opened next reads it, and a row found with no field keeps its column.
+  await page.keyboard.press('ControlOrMeta+K');
+  await expect(line).toBeFocused();
+  await expect(screen).toHaveText(`On screen: trades (existing), 1 selected, ${far} · csa`);
+  await page.keyboard.type('find E00003');
+  await expect(read).toContainText('The keyboard goes to ABC-LE-01-E00003.');
+  await page.keyboard.press('Enter');
+  await expect(line).toBeHidden();
+  await expect(notice).toHaveText('The keyboard is on ABC-LE-01-E00003 in trades (existing).');
+  await expect(trade(page, 'ABC-LE-01-E00003')).toBeInViewport();
+  await page.keyboard.press('ControlOrMeta+K');
+  await expect(line).toBeFocused();
+  await expect(screen).toHaveText('On screen: trades (existing), 1 selected, ABC-LE-01-E00003 · csa');
+
+  // A row of the other grid is said to be there, and an id that names none is no row: the line stays, and nothing moves.
+  await page.keyboard.type('find DRAFT-1');
+  await page.keyboard.press('Enter');
+  await expect(said).toHaveText('DRAFT-1 is no row of the grid on screen, trades (existing): it is one of trades (new).');
+  await page.keyboard.press('Escape');
+  await expect(line).toBeHidden();
+  await command(page, 'find', 'E99999');
+  await expect(said).toHaveText('No row E99999 in trades (existing).');
+  await page.keyboard.press('Escape');
+  await expect(line).toBeHidden();
+  await expect(keyboardIn(page, 'Existing trades')).toHaveCount(1);
+
+  // A grid whose page holds every row: the CSA grid, where the row is found by its key.
+  await command(page, 'go', 'csa');
+  await settled(page, 'CSA terms');
+  await command(page, 'find', 'CSA-B threshold');
+  await expect(line).toBeHidden();
+  await expect(notice).toHaveText('The keyboard is on CSA-B · threshold in csas.');
+  await expect(keyboardIn(page, 'CSA terms')).toHaveCount(1);
+  await page.keyboard.press('ControlOrMeta+K');
+  await expect(line).toBeFocused();
+  await expect(screen).toHaveText('On screen: csas, 1 selected, CSA-B · threshold');
+});
+
+test('ADR-0016 §9, note 23: on the CSA grid rows said by `where` alone are CSAs, a subset\'s word is still the trades, and `undo` names the table the line left out', async ({ page }) => {
+  await open(page);
+  await newWorkspace(page, 'ABC/LE-01', 5);
+  const line = page.getByRole('combobox', { name: 'Command' });
+  const read = page.getByTestId('command-preview');
+
+  await command(page, 'go', 'csa');
+  await settled(page, 'CSA terms');
+  await page.keyboard.press('ControlOrMeta+K');
+  await expect(line).toBeFocused();
+  await expect(page.getByTestId('command-context')).toContainText('On screen: csas');
+  // `existing` is a subset of the trades alone: with the CSA grid behind the line it is still theirs.
+  await page.keyboard.type('set existing a off');
+  await expect(read).toContainText('trades, 2 rows: ABC-LE-01-E00003, ABC-LE-01-E00004');
+  await line.fill('set where ccy=USD threshold 0');
+  await expect(read).toContainText('csas, 1 row: CSA-B');
+  await expect(read).toContainText('threshold: 1mm to 0');
+  await page.keyboard.press('Enter');
+  await expect(line).toBeHidden();
+  await expect(page.getByTestId('notice')).toHaveText('Set CSA-B threshold to 0.');
+  await expect(page.getByLabel('CSA terms').getByRole('row', { name: /^No CSA-B / }).locator('[aria-colindex="11"]')).toHaveText('0');
+
+  // The log reads as a line that would do the same from anywhere: it names the table the screen gave.
+  await page.keyboard.press('ControlOrMeta+K');
+  await expect(line).toBeFocused();
+  await page.keyboard.type('undo');
+  await expect(read).toContainText(/^Takes back: set csas where ccy=USD threshold 0 \(you, 1 edit\) · \d/);
+});
+
 test('docs/03 §5, ADR-0010 §3: `add trades` makes a case per new trade alone, refuses one in Before by name, and Price refuses a set the rows left', async ({ page, problems }) => {
   const refused = 'error: Failed to load resource: the server responded with a status of 422 (Unprocessable Entity)';
   await open(page);

@@ -59,5 +59,5 @@ export function view(definitionId: string, title: string, reads: readonly string
 }
 
 export function catalog(workflows: readonly WorkflowDefinition[], views: readonly ViewDefinition[]): Catalog {
-  return { capabilities: [], contracts: [contextContract, inputContract], workflows, views, actions: [] };
+  return { capabilities: [], viewVerbs: [], contracts: [contextContract, inputContract], workflows, views, actions: [] };
 }

@@ -2,7 +2,7 @@
 // here and runs them, so availability and behaviour cannot differ between surfaces. A command is found by typing the
 // English words for what it does; its arguments are completed one slot at a time.
 
-import type { LinePreview, LineView } from '../contracts';
+import type { LinePlace, LinePreview, LineView } from '../contracts';
 
 /** A value a slot offers, with what it means. */
 export interface Completion {
@@ -72,6 +72,24 @@ export interface LineReason {
 }
 
 /**
+ * What a page says is on screen at one moment (ADR-0016 notes 16 and 21 of 2026-11-11): the view the line is given, and
+ * how the grid it was read of takes a place a view verb's reading names for that view. `put` puts that grid's Focus on
+ * the place and the keyboard in the grid; where it cannot, it answers why, and has moved nothing.
+ */
+export interface Screen {
+  readonly view: LineView;
+  readonly put: (place: LinePlace) => string | undefined;
+}
+
+/** A line that ended with its command having put the keyboard somewhere itself (`find`; ADR-0016 note 21 of 2026-11-11): the line gives none back. */
+export interface KeyboardMoved {
+  readonly moved: true;
+}
+
+/** How a line ended at its page's door: why nothing ran; or nothing, the command done; or done with the keyboard moved by it. */
+export type Entered = LineReason | KeyboardMoved | undefined;
+
+/**
  * What a page gives the command line for the workspace it shows (ADR-0016 §5): where the commands the server reads
  * act, and how they are run so that they follow the edits the page has already sent.
  */
@@ -90,8 +108,10 @@ export interface CommandDoor {
    * since refuses it (ADR-0016 §2). With none shown the server reads the line at the revision the page then holds, with
    * `view`, the one the line opened on, and that reading is invoked. Resolves once the command is taken or refused: with
    * why nothing ran, and the line stays; or with nothing, the page showing what the command left and its notice said.
+   * A view verb's reading invokes nothing (note 21 of 2026-11-11): the page puts the keyboard on the place it names, and
+   * the door answers that the keyboard was moved.
    */
-  enter(line: string, shown?: LinePreview, view?: LineView): Promise<LineReason | undefined>;
+  enter(line: string, shown?: LinePreview, view?: LineView): Promise<Entered>;
   /**
    * A command by its id, from a key or a button, which have no line: in the same turn, at the catalog's version and
    * the revision the page then holds. Resolves as `enter` does.

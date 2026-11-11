@@ -12,12 +12,14 @@ public static class Api
 {
     public sealed record ErrorEnvelope(string Code, string Message, IReadOnlyList<CompositionIssue> Issues, bool Retryable = false);
 
+    /// <param name="ViewVerbs">The verbs of the screen a line may say (ADR-0016 §3, note 21 of step 2): listed apart from the capabilities, which they are not.</param>
     public sealed record Catalog(
         IEnumerable<CapabilityDescriptor> Capabilities,
         IEnumerable<ContractDefinition> Contracts,
         IEnumerable<WorkflowDefinition> Workflows,
         IEnumerable<ViewDefinition> Views,
-        IEnumerable<ActionDefinition> Actions);
+        IEnumerable<ActionDefinition> Actions,
+        IEnumerable<ViewVerbDescriptor> ViewVerbs);
 
     public sealed record RunRequest(WorkflowDefinition Workflow, JsonObject Context, JsonObject Input, string IdempotencyKey);
 
@@ -37,9 +39,9 @@ public static class Api
     {
         var api = app.MapGroup("/api");
 
-        api.MapGet("/catalog", (CompositionRegistry registry) => new Catalog(
+        api.MapGet("/catalog", (CompositionRegistry registry, CommandLines lines) => new Catalog(
             registry.CapabilityDescriptors, registry.ContractDefinitions, registry.WorkflowDefinitions,
-            registry.ViewDefinitions, registry.ActionDefinitions));
+            registry.ViewDefinitions, registry.ActionDefinitions, lines.ViewVerbs));
 
         api.MapPost("/runs", (RunRequest request, RunService runs, CurrentUser user) =>
             ToResult(runs.Submit(new(request.Workflow, request.Context, request.Input, request.IdempotencyKey, user.Id, RunOrigin.Workflow, RunRelations.None))));

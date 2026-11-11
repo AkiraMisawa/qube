@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { CommandRefused, type Command } from '../platform/commands/commands';
 import { termCompletions, termParts, type ProductDescriptor } from '../platform/products';
 import { parserOf } from './rates/lines';
+import type { Notify } from '../platform/notices';
 import { useWorkspace, useWorkspaceContext } from '../platform/workspace/WorkspaceProvider';
 import type { Panel, WorkspaceState } from '../platform/workspace/workspaceStore';
 import { PricingDbPanel } from './history/PricingDbPanel';
@@ -15,7 +16,7 @@ import { cdsCompletions, measureNamed, measuresTyped, varyHint, varyTyped, xvaPa
 import { generatorParts, scenarioParts, scenarioTyped } from './xva/scenarios';
 import { XvaWorkspacePanel } from './xva/XvaWorkspacePanel';
 import { registerAiContext, registerAiEffect } from '../ai/effects';
-import { registerGridFocus } from '../shell/focus';
+import { goTo, placesOf, registerGridFocus } from '../shell/places';
 import { httpTraceApi, type TraceApi } from '../platform/traces/api';
 import { TRACE_VIEW, explainTyped, openTrace, requestTerm, setTraceView, traceAddressOf } from '../platform/traces/open';
 
@@ -148,7 +149,7 @@ function oneOf<T extends string>(value: string | undefined, options: readonly T[
  * (ADR-0006's note 3 of 2026-11-11). */
 const onPage = (panel: Panel): Pick<Command, 'target' | 'page'> => ({ target: panel.title, page: true });
 
-export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDialog' | 'panels' | 'activePanelId'>): Command[] {
+export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDialog' | 'panels' | 'activePanelId'>, notify: Notify): Command[] {
   const active = state.panels.find((p) => p.id === state.activePanelId);
   // Looked up when the command runs: the page registers its commands once it has mounted, after this list is made.
   const xvaPanel = active?.kind === 'app' && active.app === XVA_WORKSPACE ? active : undefined;
@@ -513,14 +514,20 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
     },
     // One command per input tab (ADR-0010 §9), which shows the inputs if they were collapsed. Credit is CVA's (§8's note of
     // 2026-11-09), IM spot IM's (ADR-0012 §3) and Settings the selected measures' (§8), and the page says so when no
-    // selected measure needs one.
+    // selected measure needs one. Each is `go` to the page's place of that word (ADR-0016 §9, note 20): the keyboard is
+    // put in the tab, and the notice says so.
     ...([['netting', 'Netting'], ['csa', 'CSA'], ['credit', 'Credit'], ['im', 'IM'], ['scenarios', 'Scenarios'], ['settings', 'Settings'], ['changes', 'Changes']] as const).map(([tab, title]): Command => ({
       id: `xva.open.${tab}`,
       words: `open ${tab}`,
       title: `Open the ${title} input tab`,
       group: 'XVA',
       ...onXva,
-      run: () => xvaPage().openTab(tab),
+      // A tab that does not show now is not opened, and the line keeps the reason (ADR-0006's note 1 of 2026-11-11).
+      run: () => {
+        const place = placesOf(xva).find((p) => p.word === tab);
+        if (place === undefined) throw new CommandRefused('The XVA page is not drawn yet.');
+        goTo(place, notify);
+      },
     })),
     // The dock's tabs (ADR-0010 §7): Metrics, or a tab a priced measure registers, such as spot IM's SIMM (ADR-0012 §7).
     {

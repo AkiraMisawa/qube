@@ -211,21 +211,40 @@ static class Views
         return At(view, table, state, view.Ranges!);
     }
 
-    // The table's rows in the view's sort, with that order's token. A sort the table's reader refuses is one its grid
-    // never had: the page's fault. A table no reader pages has no order for a sort or a position to be read in.
-    static OrderedRows Sorted(LineView view, BoundTable table, WorkspaceState state)
+    /// <summary>
+    /// Where a row stands in the order the view's grid is drawn from, for a page to put its Focus there (note 21): its
+    /// position where the view names that order, refused where the order is no longer the table's. None where the view
+    /// names no order, as the view of a page that holds every row does: such a page finds the row by its key, and one
+    /// that cannot says so. How the view names its rows decides, never whether the table has a reader that pages it.
+    /// </summary>
+    public static int? PositionOf(LineView view, BoundTable table, WorkspaceState state, ITableRow row)
     {
-        OrderedRows? ordered;
+        Shaped(view);
+        if (view.Order is null) return null;
+        var sorted = Sorted(view, table, state);
+        if (sorted.Token != view.Order) throw new TableRefused(Moved, $"The {table.Word} are no longer in the order the grid shows them in: open the line again.");
+        for (var at = 0; at < sorted.Rows.Count; at++)
+            if (string.Equals(sorted.Rows[at].Key, row.Key, StringComparison.Ordinal)) return at;
+        throw new InvalidOperationException($"{row.Key} is a row of {Named(view, table)}, and the order its grid is drawn from has no such row.");
+    }
+
+    // The table's rows in the view's sort, with that order's token; none where no reader pages the table. A sort the
+    // table's reader refuses is one its grid never had: the page's fault.
+    static OrderedRows? InOrder(LineView view, BoundTable table, WorkspaceState state)
+    {
         try
         {
-            ordered = table.Table.InOrder(state, SubsetOf(view, table)?.Name, view.Sorts);
+            return table.Table.InOrder(state, SubsetOf(view, table)?.Name, view.Sorts);
         }
         catch (WorkspaceRefused refused) when (refused.Code != "InvalidView")
         {
             throw Invalid(refused.Message);
         }
-        return ordered ?? throw new TableRefused(Unordered, $"{table.Word} has no order a position can be read in: its rows are named by their ids.");
     }
+
+    // A table no reader pages has no order for a sort or a position to be read in.
+    static OrderedRows Sorted(LineView view, BoundTable table, WorkspaceState state) =>
+        InOrder(view, table, state) ?? throw new TableRefused(Unordered, $"{table.Word} has no order a position can be read in: its rows are named by their ids.");
 
     // The table's rows in the view's order, where that is still the order the grid was drawn from.
     static IReadOnlyList<ITableRow> Ordered(LineView view, BoundTable table, WorkspaceState state)
