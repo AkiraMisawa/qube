@@ -230,9 +230,21 @@ with the same value (§4):
 - the Changes tab, which already lists each case and removes it, shows an iteration's two lists and removes one
   trade from either.
 
-It is not a mode that follows the ticks: a set made by hand would be remade and lost, so a set that no longer matches
-the ticks is refused at Price as now (ADR-0010 §3). A column of ticks per case beside B and A, trades down and cases
-across, would show every iteration at once and be edited in place; it costs a column a case and is left for later.
+**A switch gives the mode the owner has used** (DEFAULT, proposed 2026-11-11 when he asked whether iterative pricing
+by a mode switch can be had again, with the line and without; not confirmed). `Iterative` is a flag of the workspace:
+a switch in the New grid's caption, and `iterative on` and `iterative off` on the line, a short form of a `set` on
+that flag. While it is on, the server keeps one iteration for each New row with A ticked that no iteration made by
+hand names, each that trade alone, in the write that ticks a row or brings a trade in: Price needs no `add each`
+first and refuses nothing for a set out of step. Off removes those iterations. An iteration made by hand is never
+remade or removed by the switch, and one that names a trade no longer ticked is refused at Price by name, as now.
+
+This replaces what this section proposed earlier the same day, that it is not a mode because a set made by hand
+would be remade and lost: the switch keeps only the iterations nobody made by hand, so that loss cannot happen.
+What the code does today is the set made once (ADR-0010 §3): `add trades`, then Price, and a set that no longer
+matches the ticks is refused. When the switch is built, that note of ADR-0010 is rewritten with it. The Base, every
+candidate together, is priced beside the iterations either way. A column of ticks per case beside B and A, trades
+down and cases across, would show every iteration at once and be edited in place; it costs a column a case and is
+left for later.
 
 In the workspace an iteration stays what it is today, a case whose layer switches A off on rows (ADR-0010 §3), so the
 log and Price's requests gain nothing. What changes when it is built: the reading of the line, a case that names its
