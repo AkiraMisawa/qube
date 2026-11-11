@@ -35,8 +35,8 @@ public sealed class EntityCreate(Func<ProductService> products) : ICapabilityHan
         if (words.Count == 0) throw new TableRefused("NoProduct", $"new takes a product: {TableWords.Or(names)}.", null, names);
         if (Named(creatable, [.. words.Select(w => w.Word)]) is not (var product, var own))
             throw new TableRefused("UnknownProduct", $"{words[0].Word} is no product new makes here: {TableWords.Or(names)}.", words[0].Word, names);
-        var terms = line.Text[(words[own - 1].Start + words[own - 1].Word.Length)..].Trim();
-        var (reading, entity) = Would(service, line.State, product, terms);
+        var typed = line.Text[(words[own - 1].Start + words[own - 1].Word.Length)..].Trim();
+        var (terms, reading, entity) = Would(service, line.State, product, typed);
         if (reading.Issues.Count > 0) throw new TableRefused(reading.Issues[0].Code, string.Join(" ", reading.Issues.Select(i => i.Message)));
         if (reading.Missing.Count > 0)
             throw new TableRefused("MissingTerm", reading.Missing.Count == 1
@@ -53,12 +53,15 @@ public sealed class EntityCreate(Func<ProductService> products) : ICapabilityHan
             null, $"Makes {entity}: {product.Title}.{(defaulted.Count == 0 ? "" : $" Not typed: {TableWords.List(defaulted)}.")}");
     }
 
-    // What the terms would make; what the product's rules refuse of complete terms is the line's refusal, in their words.
-    static (ProductReading Reading, string? Entity) Would(ProductService service, WorkspaceState state, ProductDescriptor product, string terms)
+    // What the terms would make, with the terms as the request holds them: the row the entity is made under named
+    // (note 48). What the product's rules refuse of complete terms is the line's refusal, in their words.
+    static (string Terms, ProductReading Reading, string? Entity) Would(ProductService service, WorkspaceState state, ProductDescriptor product, string typed)
     {
+        var terms = service.Terms(state, product, typed);
         try
         {
-            return service.Would(state, product.Id, terms);
+            var (reading, entity) = service.Would(state, product.Id, terms);
+            return (terms, reading, entity);
         }
         catch (ProductTermsRefused refused)
         {
@@ -125,6 +128,11 @@ public sealed class EntityCreate(Func<ProductService> products) : ICapabilityHan
         catch (WorkspaceRefused refused)
         {
             throw new CapabilityFailure(refused.Code, refused.Message);
+        }
+        // A row above that the terms' first word could not say (note 48).
+        catch (TableRefused refused)
+        {
+            throw new CapabilityFailure(refused.Code, refused.Message, [new CompositionIssue(refused.Code, "/inputs/request/terms", refused.Message)]);
         }
     }
 }

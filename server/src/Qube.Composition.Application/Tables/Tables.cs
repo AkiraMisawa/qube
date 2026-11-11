@@ -16,6 +16,8 @@ public sealed record TableSubset(string Name, string Title, IReadOnlyList<string
 /// <param name="Table">For an id, the table it points into (a reading's <c>station</c> names a row of the stations).</param>
 /// <param name="UnitField">The field of the row that carries its unit, for an amount: a unit is never inferred from a title.</param>
 /// <param name="Group">The group it is drawn under, where the table has groups.</param>
+/// <param name="Unit">Its unit where the table as the workspace has it fixes one, and no field of the row carries it (note 47).</param>
+/// <param name="Figure">Where it is a figure of the rows under its row (note 47): their table, and how a write of it is written.</param>
 public sealed record TableField(
     string Name,
     string Title,
@@ -26,11 +28,24 @@ public sealed record TableField(
     IReadOnlyDictionary<string, string>? Choices = null,
     string? Table = null,
     string? UnitField = null,
-    string? Group = null)
+    string? Group = null,
+    string? Unit = null,
+    TableFigure? Figure = null)
 {
     /// <summary>How its values are written and read.</summary>
     public FieldSpec Spec => new(Form, Optional, Choices);
+
+    /// <summary>How a value a command writes into it is written: a figure's own way where it has one (note 47), else as it is read.</summary>
+    public FieldSpec Written => Figure?.Written ?? Spec;
 }
+
+/// <summary>
+/// A field that is worked out from the rows under its row (ADR-0016 §1, note 47), as a trade's PV is from its legs.
+/// What a write of it means is its table's (<see cref="IWorkspaceTable.Set"/>), and never the kernel's guess.
+/// </summary>
+/// <param name="Of">The table under its own whose rows it is a figure of.</param>
+/// <param name="Written">How a write is written where that differs from how the figure is read, such as a number with what it is in.</param>
+public sealed record TableFigure(string Of, FieldSpec? Written = null);
 
 /// <summary>
 /// A table as a workspace has it (ADR-0016 §1): its id and version, which a saved definition and the AI name; the words
@@ -39,6 +54,7 @@ public sealed record TableField(
 /// <param name="SingleRow">A table of one row is addressed without a row: <c>set &lt;field&gt; &lt;value&gt;</c>.</param>
 /// <param name="Main">The application's main table, which <c>all</c>, a subset or <c>where</c> mean where no table is named (note 7).</param>
 /// <param name="Actions">What a grid bound to the table offers beside the kernel's own (note 25 of step 2); none where it is left out.</param>
+/// <param name="Under">The table its rows are under, where it belongs to a row (§1, note 46): a trade's legs are under the trades.</param>
 public sealed record TableDescriptor(
     string TableId,
     string Version,
@@ -50,7 +66,8 @@ public sealed record TableDescriptor(
     IReadOnlyList<TableSubset> Subsets,
     bool SingleRow = false,
     bool Main = false,
-    IReadOnlyList<TableAction>? Actions = null);
+    IReadOnlyList<TableAction>? Actions = null,
+    string? Under = null);
 
 /// <summary>
 /// An act on a table's rows that a screen offers by its title (ADR-0016 §4, note 25 of step 2): the line that does it,
@@ -71,6 +88,9 @@ public interface ITableRow
 
     /// <summary>The subset's name, where the table has subsets.</summary>
     string? Subset { get; }
+
+    /// <summary>The key of the row it is under, where its table is under another (ADR-0016 note 46).</summary>
+    string? Under => null;
 
     /// <summary>The value the row holds in a field of its table's description, as an edit would write it; null for none.</summary>
     JsonNode? Value(string field);
@@ -112,6 +132,13 @@ public interface IWorkspaceTable
 
     /// <summary>The changes that write a value into a row's field.</summary>
     IReadOnlyList<WorkspaceChange> Set(WorkspaceState state, ITableRow row, TableField field, JsonNode? value);
+
+    /// <summary>
+    /// What writing a value into a row's figure would do to the rows under it, in the table's words, for a line to say
+    /// before Enter (ADR-0016 note 47: "2 legs replaced by 1 leg, USD"); null where the table says nothing more than
+    /// that the row changes.
+    /// </summary>
+    string? SetSays(WorkspaceState state, ITableRow row, TableField field, JsonNode? value) => null;
 
     /// <summary>
     /// The changes that write a value for every row of a subset at once, where the field has a whole-set edit (one edit
@@ -186,6 +213,17 @@ public sealed class TableRegister
             // A choice is read, written and offered by what it has to choose from (FieldForms).
             if (table.Descriptor.Fields.FirstOrDefault(f => f.Form == FieldForm.Choice && f.Choices is null) is { } unchosen)
                 throw new InvalidOperationException($"Table {table.Descriptor.TableId}'s field {unchosen.Name} is a choice with nothing to choose from.");
+            // A figure is of a table under its own (note 47).
+            if (table.Descriptor.Fields.FirstOrDefault(f => f.Figure is { } figure && bound.All(t => t.Descriptor.TableId != figure.Of || t.Descriptor.Under != table.Descriptor.TableId)) is { } astray)
+                throw new InvalidOperationException($"Table {table.Descriptor.TableId}'s field {astray.Name} is a figure of {astray.Figure!.Of}, which is not under it.");
+            // A table under another (note 46): the table above is the workspace's, and its rows are said with no row or as the main table's never.
+            if (table.Descriptor.Under is { } above)
+            {
+                if (bound.All(t => t.Descriptor.TableId != above) || above == table.Descriptor.TableId)
+                    throw new InvalidOperationException($"Table {table.Descriptor.TableId} is under {above}, which this workspace has not.");
+                if (table.Descriptor.Main) throw new InvalidOperationException($"Table {table.Descriptor.TableId} is under another and cannot be the main table.");
+                if (table.Descriptor.SingleRow) throw new InvalidOperationException($"Table {table.Descriptor.TableId} is under another and cannot be a table of one row.");
+            }
         }
         return bound;
     }

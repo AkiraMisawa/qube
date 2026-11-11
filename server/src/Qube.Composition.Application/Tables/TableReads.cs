@@ -88,18 +88,23 @@ public sealed class TablesDescribe(Func<TableService> tables) : ICapabilityHandl
             };
         });
 
-    static JsonObject Table(TableDescriptor table, int rows) => new()
+    static JsonObject Table(TableDescriptor table, int rows)
     {
-        ["table"] = table.TableId,
-        ["version"] = table.Version,
-        ["title"] = table.Title,
-        ["words"] = List(table.Words),
-        ["key"] = table.Key,
-        ["rows"] = rows,
-        ["subsets"] = List(table.Subsets.Select(s => s.Name)),
-        ["singleRow"] = table.SingleRow,
-        ["main"] = table.Main,
-    };
+        var described = new JsonObject
+        {
+            ["table"] = table.TableId,
+            ["version"] = table.Version,
+            ["title"] = table.Title,
+            ["words"] = List(table.Words),
+            ["key"] = table.Key,
+            ["rows"] = rows,
+            ["subsets"] = List(table.Subsets.Select(s => s.Name)),
+            ["singleRow"] = table.SingleRow,
+            ["main"] = table.Main,
+        };
+        if (table.Under is { } under) described["under"] = under;
+        return described;
+    }
 
     static JsonObject Field(TableDescriptor table, TableField field)
     {
@@ -110,7 +115,7 @@ public sealed class TablesDescribe(Func<TableService> tables) : ICapabilityHandl
             ["title"] = field.Title,
             ["words"] = List(field.Words),
             ["form"] = JsonNamingPolicy.CamelCase.ConvertName(field.Form.ToString()),
-            ["written"] = FieldForms.Takes(field.Spec, choicesBeside: true),
+            ["written"] = FieldForms.Takes(field.Written, choicesBeside: true),
             ["editable"] = field.Editable,
             ["optional"] = field.Optional,
         };
@@ -121,7 +126,9 @@ public sealed class TablesDescribe(Func<TableService> tables) : ICapabilityHandl
             described["choices"] = List(written.Take(MostChoices));
             if (written.Count > MostChoices) described["moreChoices"] = written.Count - MostChoices;
         }
-        if (field.UnitField is { } unit) described["unitField"] = unit;
+        if (field.UnitField is { } unitField) described["unitField"] = unitField;
+        if (field.Unit is { } unit) described["unit"] = unit;
+        if (field.Figure is { } figure) described["figureOf"] = figure.Of;
         if (field.Table is { } pointsTo) described["pointsTo"] = pointsTo;
         if (field.Group is { } group) described["group"] = group;
         return described;
@@ -200,6 +207,7 @@ public static class TableReadContracts
                 ["subsets"] = Texts("Its subsets, each a word that says its rows"),
                 ["singleRow"] = Flag("True for a table of one row, which is said with no row"),
                 ["main"] = Flag("True for the table that all, a subset or where mean when no table is named"),
+                ["under"] = Text("The id of the table its rows are under: there, the id of a row above names every row under it"),
             }, "table", "version", "title", "words", "key", "rows", "subsets", "singleRow", "main"),
             ["fields"] = Records("The fields of those tables", new JsonObject
             {
@@ -214,6 +222,8 @@ public static class TableReadContracts
                 ["choices"] = Texts($"The values it takes, where it takes one of a few; the first {TablesDescribe.MostChoices}"),
                 ["moreChoices"] = Whole("How many more values it takes than are listed"),
                 ["unitField"] = Text("The field of the same row that holds its unit"),
+                ["unit"] = Text("Its unit, where the table fixes one for the workspace"),
+                ["figureOf"] = Text("The id of the table under its row whose rows it is worked out from; what a write of it does to them is the table's rule"),
                 ["pointsTo"] = Text("The id of the table whose row its value names"),
                 ["group"] = Text("The group it is drawn under"),
             }, "table", "name", "title", "words", "form", "written", "editable", "optional"),

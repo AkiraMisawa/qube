@@ -40,6 +40,12 @@ public enum FieldForm
     Flag,
     /// <summary>An identifier, as written.</summary>
     Id,
+    /// <summary>
+    /// A number followed by what it is in, one of the field's choices: <c>-350,000 USD</c>, <c>-350k usd</c>; or the
+    /// number alone, where the field says what it is then in (ADR-0016 note 47). Held as its amount and, where one was
+    /// written, its unit.
+    /// </summary>
+    Money,
 }
 
 /// <summary>
@@ -120,10 +126,23 @@ public static partial class FieldForms
                 return FlagWords.Read(t) is { } flag ? Take(flag) : Refuse(spec);
             case FieldForm.Id:
                 return t.Length > 0 ? Take(t) : Refuse(spec);
+            case FieldForm.Money:
+            {
+                // The number, and after it what it is in, where that is said: one of the field's choices.
+                var words = t.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+                // Its number is written as an amount's is, and is never millions: a bare one is itself.
+                if (words.Length is 0 or > 2 || AmountPattern().Match(words[0]) is not { Success: true } m || Number(m.Groups[1].Value) is not { } n
+                    || Scaled(n, m.Groups[2].Value.ToLowerInvariant()) is not { } amount) return Refuse(spec);
+                if (words.Length == 1) return Take(new JsonObject { ["amount"] = amount });
+                return Units(spec).TryGetValue(words[1].ToLowerInvariant(), out var said) ? Take(new JsonObject { ["amount"] = amount, ["unit"] = said }) : Refuse(spec);
+            }
             default:
                 throw new InvalidOperationException($"No reading of {spec.Form}.");
         }
     }
+
+    // What money of a field may be in: its choices, each word that may be typed with the unit it reads as.
+    static IReadOnlyDictionary<string, string> Units(FieldSpec spec) => spec.Choices ?? throw new InvalidOperationException("Money with nothing it may be in cannot be read.");
 
     /// <summary>
     /// What a field of the form has to choose from, each as a line writes it: a flag's two words, a choice's values, and
@@ -180,6 +199,11 @@ public static partial class FieldForms
             }
             case FieldForm.Period or FieldForm.Date or FieldForm.PeriodOrDate or FieldForm.Id:
                 return value.GetValue<string>();
+            case FieldForm.Money:
+            {
+                var amount = Exact(Held(value["amount"] ?? throw new InvalidOperationException("Money holds an amount.")));
+                return value["unit"] is { } unit ? $"{amount} {unit.GetValue<string>()}" : amount;
+            }
             default:
                 throw new InvalidOperationException($"No writing of {spec.Form}.");
         }
@@ -206,7 +230,10 @@ public static partial class FieldForms
 
     /// <summary>Two values say the same thing: numbers by value (1.0 is 1), the rest as JSON; no value is the same as no value.</summary>
     public static bool Same(JsonNode? a, JsonNode? b) =>
-        a is JsonValue x && b is JsonValue y && x.GetValueKind() == JsonValueKind.Number && y.GetValueKind() == JsonValueKind.Number ? Held(x) == Held(y) : JsonNode.DeepEquals(a, b);
+        a is JsonValue x && b is JsonValue y && x.GetValueKind() == JsonValueKind.Number && y.GetValueKind() == JsonValueKind.Number ? Held(x) == Held(y)
+        // Money: its amount as a number, and its unit, or none on both.
+        : a is JsonObject p && b is JsonObject q ? p.Count == q.Count && p.All(f => q.TryGetPropertyValue(f.Key, out var other) && Same(f.Value, other))
+        : JsonNode.DeepEquals(a, b);
 
     /// <summary>The number a value holds, however it was made: a decimal, a double, or a number read from JSON.</summary>
     public static decimal Held(JsonNode value) =>
@@ -237,6 +264,7 @@ public static partial class FieldForms
             FieldForm.Days => "a whole number of days, 10 or 10d",
             FieldForm.Flag => "on or off",
             FieldForm.Id => "an identifier",
+            FieldForm.Money => $"a number, alone or followed by what it is in: {string.Join(" or ", Units(spec).Values.Distinct())}",
             FieldForm.Choice when choicesBeside => "one of its choices",
             FieldForm.Choice => $"one of {string.Join(", ", (spec.Choices ?? throw new InvalidOperationException("A choice with nothing to choose from cannot be read.")).Values.Distinct())}",
             _ => throw new InvalidOperationException($"No reading of {spec.Form}."),

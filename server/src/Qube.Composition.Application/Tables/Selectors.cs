@@ -315,7 +315,7 @@ public static class Selectors
         {
             if (selector.All || selector.Subset is not null)
                 throw new TableRefused("RowsSaidTwice", "Rows are said by their ids, or as all or a subset, not both.");
-            rows = ById(selector.Ids, table, IndexOf(table), all);
+            rows = ById(selector.Ids, table, IndexOf(table), all, Above(table, tables, IndexOf));
         }
         else if (selector.Subset is { } said)
         {
@@ -405,22 +405,43 @@ public static class Selectors
         return first is { } found ? found.Table : throw new InvalidOperationException("Rows are located by at least one id.");
     }
 
-    static IReadOnlyList<ITableRow> ById(IReadOnlyList<string> ids, BoundTable table, RowIndex index, IReadOnlyList<ITableRow> all)
+    // The rows ids name in a table. In a table under another (note 46), an id that names no row of it and one row of
+    // the table above names every row under that row; `above` reads an id among the rows above, where there are any.
+    static IReadOnlyList<ITableRow> ById(IReadOnlyList<string> ids, BoundTable table, RowIndex index, IReadOnlyList<ITableRow> all, Func<string, ITableRow?>? above)
     {
         var named = new List<ITableRow>(ids.Count);
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var id in ids)
         {
-            var row = RowsNamed(id, index) switch
+            IReadOnlyList<ITableRow> rows = RowsNamed(id, index) switch
             {
-                [var one] => one,
+                [var one] => [one],
+                [] when above?.Invoke(id) is { } over => all.Where(r => r.Under == over.Key).ToList() is { Count: > 0 } under ? under
+                    : throw new TableRefused("NoRowMatches", $"{over.Key} has no {table.Word}.", id),
                 [] => throw UnknownRow(id, all, table.Word),
                 var several => throw AmbiguousRow(id, several, table.Word),
             };
-            if (!seen.Add(row.Key)) throw new TableRefused("RowTwice", $"{row.Key} is named twice; name each row once.", id);
-            named.Add(row);
+            foreach (var row in rows)
+            {
+                if (!seen.Add(row.Key)) throw new TableRefused("RowTwice", $"{row.Key} is named twice; name each row once.", id);
+                named.Add(row);
+            }
         }
         return named;
+    }
+
+    // How an id is read among the rows of the table above a table (note 46), as that table's ids are read: the row it
+    // names, none where it names none, and a refusal where its end names several. Null for a table under no other.
+    static Func<string, ITableRow?>? Above(BoundTable table, IReadOnlyList<BoundTable> tables, Func<BoundTable, RowIndex> indexOf)
+    {
+        if (table.Descriptor.Under is not { } under) return null;
+        var above = tables.Single(t => t.Descriptor.TableId == under);
+        return id => RowsNamed(id, indexOf(above)) switch
+        {
+            [var one] => one,
+            [] => null,
+            var several => throw AmbiguousRow(id, several, above.Word),
+        };
     }
 
     /// <summary>The rows an id names among those indexed (note 7): the one of that id as written, or else every row whose id ends with it.</summary>

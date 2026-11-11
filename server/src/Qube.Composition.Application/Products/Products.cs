@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json.Nodes;
+using Qube.Composition.Application.Tables;
 using Qube.Composition.Application.Workspaces;
 
 namespace Qube.Composition.Application.Products;
@@ -39,6 +40,11 @@ public sealed record ProductField(
 /// A product the workbench can create (ADR-0008 §7): data, from a catalog. <see cref="App"/> and <see cref="Scope"/>
 /// say where its entities live; <see cref="Words"/> is what follows <c>new</c> on the command line.
 /// </summary>
+/// <param name="Table">The registered table its entities are rows of, where it says one (ADR-0016 note 48).</param>
+/// <param name="Under">
+/// The field of its terms that names the row its entity is made under, where its table is under another (ADR-0016 note
+/// 48): a leg is made under a trade. The first word after the product's own is read as that row where it names one.
+/// </param>
 public sealed record ProductDescriptor(
     string Id,
     string Version,
@@ -46,7 +52,9 @@ public sealed record ProductDescriptor(
     string Scope,
     string Words,
     string Title,
-    IReadOnlyList<ProductField> Fields);
+    IReadOnlyList<ProductField> Fields,
+    string? Table = null,
+    string? Under = null);
 
 /// <summary>
 /// Where descriptors come from (ADR-0008 §7). A module's own catalog in this repository; an adapter over the analytics
@@ -250,9 +258,12 @@ public sealed class ProductService
     readonly Dictionary<string, ProductDescriptor> products;
     readonly Dictionary<string, IProductRules> rules;
     readonly WorkspaceService workspaces;
+    readonly TableRegister? tables;
 
-    public ProductService(IEnumerable<IProductCatalog> catalogs, IEnumerable<IProductRules> rules, WorkspaceService workspaces)
+    /// <param name="tables">The registered tables, which a product made under a row is read with (ADR-0016 note 48).</param>
+    public ProductService(IEnumerable<IProductCatalog> catalogs, IEnumerable<IProductRules> rules, WorkspaceService workspaces, TableRegister? tables = null)
     {
+        this.tables = tables;
         products = [];
         foreach (var p in catalogs.SelectMany(c => c.Products))
         {
@@ -261,6 +272,12 @@ public sealed class ProductService
                 throw new InvalidOperationException($"Product {p.Id} names a field twice.");
             if (p.Fields.Any(f => f.Form == FieldForm.Choice && f.Choices is not { Count: > 0 }))
                 throw new InvalidOperationException($"Product {p.Id} has a choice with nothing to choose.");
+            // A product made under a row (ADR-0016 note 48) names that row by a term of its own, and says its table.
+            if (p.Under is { } under)
+            {
+                if (p.Fields.All(f => f.Name != under)) throw new InvalidOperationException($"Product {p.Id} is made under the row its term {under} names, and has no such term.");
+                if (p.Table is null) throw new InvalidOperationException($"Product {p.Id} is made under a row and does not say the table its rows are of.");
+            }
         }
         if (products.Values.GroupBy(p => (p.App, p.Words)).FirstOrDefault(g => g.Count() > 1) is { } twice)
             throw new InvalidOperationException($"Products {string.Join(" and ", twice.Select(p => p.Id))} are both '{twice.Key.Words}'.");
@@ -286,7 +303,7 @@ public sealed class ProductService
     public (ProductReading Reading, string? Entity) Would(WorkspaceState state, string productId, string text)
     {
         var (product, rule) = Described(productId, state);
-        var reading = ProductReader.Complete(product, text, given => rule.Defaults(state, given));
+        var reading = ProductReader.Complete(product, Terms(state, product, text), given => rule.Defaults(state, given));
         return (reading, reading.Complete ? rule.WouldCreate(state, reading.Values) : null);
     }
 
@@ -294,12 +311,36 @@ public sealed class ProductService
     public (WorkspaceState State, string Entity, ProductReading Reading) Create(string workspaceId, long? revision, string user, string productId, string text, RunOrigin origin)
     {
         var (product, rule, state) = Resolve(workspaceId, user, productId);
-        var reading = ProductReader.Complete(product, text, given => rule.Defaults(state, given));
+        var reading = ProductReader.Complete(product, Terms(state, product, text), given => rule.Defaults(state, given));
         if (!reading.Complete)
             throw new ProductTermsRefused([.. reading.Issues, .. reading.Missing.Select(m => new ProductIssue("MissingTerm", m,
                 $"{m} is missing: type it, or set a default for it."))]);
         var (created, entity) = rule.Create(workspaceId, revision, user, reading.Values, reading.Sources, origin);
         return (created, entity, reading);
+    }
+
+    /// <summary>
+    /// The terms as typed with the row the entity is made under named (ADR-0016 note 48). Where the product says the
+    /// term that names that row and the terms do not give it by its name, their first word is the row where it names
+    /// one of the rows of the table above, as that table's ids are read (whole, or by how it ends): it is then written
+    /// by the term's name and the row's whole key, so what is invoked and logged names the row exactly. Any other
+    /// terms are answered as they are, and read as any terms; a word whose end names several rows is refused with them,
+    /// as a selector refuses it (<see cref="TableRefused"/>).
+    /// </summary>
+    public string Terms(WorkspaceState state, ProductDescriptor product, string text)
+    {
+        if (product.Under is not { } under) return text;
+        var words = text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+        if (words.Length == 0 || words.Any(w => w.StartsWith($"{under}=", StringComparison.OrdinalIgnoreCase))) return text;
+        var bound = (tables ?? throw new InvalidOperationException($"Product {product.Id} is made under a row, and the products were given no tables to read it in.")).Of(state);
+        var own = bound.FirstOrDefault(t => t.Descriptor.TableId == product.Table) ?? throw new InvalidOperationException($"Product {product.Id} makes rows of {product.Table}, which this workspace has not.");
+        var above = bound.Single(t => t.Descriptor.TableId == (own.Descriptor.Under ?? throw new InvalidOperationException($"Product {product.Id} is made under a row, and {product.Table} is under no table.")));
+        return Selectors.RowsNamed(words[0], new Selectors.RowIndex(above, above.Table.Rows(state))) switch
+        {
+            [var one] => string.Join(' ', [$"{under}={one.Key}", .. words.Skip(1)]),
+            [] => text,
+            var several => throw Selectors.AmbiguousRow(words[0], several, above.Word),
+        };
     }
 
     (ProductDescriptor, IProductRules, WorkspaceState) Resolve(string workspaceId, string user, string productId)

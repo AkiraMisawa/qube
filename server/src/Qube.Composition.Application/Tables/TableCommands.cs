@@ -108,7 +108,7 @@ public sealed partial class TableService(TableRegister register, WorkspaceServic
         var values = Assignments.Read(set, bound).Select(a =>
         {
             if (!a.Field.Editable) throw NotEditable(bound, a.Field);
-            var reading = FieldForms.Read(a.Field.Spec, a.Text);
+            var reading = FieldForms.Read(a.Field.Written, a.Text);
             return reading.Problem == FieldForms.Problem.None ? (a.Field, reading.Value)
                 : throw new TableRefused("InvalidValue", $"{subject} {TableWords.Word(a.Field)} is {reading.What}; {a.Text} is not.", a.Text);
         }).ToList();
@@ -130,11 +130,16 @@ public sealed partial class TableService(TableRegister register, WorkspaceServic
                 rowsNow = [.. resolved.Rows.Select(r => now.GetValueOrDefault(r.Key)).OfType<ITableRow>()];
                 read = changes.Count;
             }
-            var differing = rowsNow.Where(r => !FieldForms.Same(r.Value(field.Name), value)).ToList();
-            would.Add(WouldSet(field, value, rowsNow.Count, differing));
+            // What a write of a figure means is its table's (note 47): each row's changes are asked for, and a row
+            // with none holds the value, since the figure alone cannot say whether the rows under it would change.
+            var figure = field.Figure is null ? null : rowsNow.ToDictionary(r => r.Key, r => bound.Table.Set(standing, r, field, value), StringComparer.Ordinal);
+            var differing = rowsNow.Where(r => figure is null ? !FieldForms.Same(r.Value(field.Name), value) : figure[r.Key].Count > 0).ToList();
+            would.Add(figure is null ? WouldSet(field, value, rowsNow.Count, differing)
+                : WouldSetFigure(field, value, rowsNow.Count, differing, differing is [var one] && rowsNow.Count == 1 ? bound.Table.SetSays(standing, one, field, value) : null));
             if (differing.Count == 0) continue;
             written.Add((field, value));
-            foreach (var group in differing.GroupBy(r => r.Subset))
+            if (figure is not null) changes.AddRange(differing.SelectMany(r => figure[r.Key]));
+            else foreach (var group in differing.GroupBy(r => r.Subset))
             {
                 // One edit for the whole subset where the field has one (ADR-0016 §2); it wins over each row's earlier edit.
                 var all = group.Key is not null && whole is not null && whole.TryGetValue(group.Key, out var subset) ? bound.Table.SetAll(standing, subset, field, value) : null;
@@ -149,10 +154,10 @@ public sealed partial class TableService(TableRegister register, WorkspaceServic
         var held = resolved.Rows.Count - touched.Count;
         if (touched.Count == 0)
         {
-            var holds = TableWords.And(values.Select(v => $"{TableWords.Word(v.Field)} {FieldForms.Write(v.Field.Spec, v.Value)}"));
+            var holds = TableWords.And(values.Select(v => $"{TableWords.Word(v.Field)} {FieldForms.Write(v.Field.Written, v.Value)}"));
             return Unchanged(state, resolved, $"{Rows(bound, resolved.Rows, all: true)} already hold{(resolved.Rows.Count == 1 ? "s" : "")} {holds}", words, keyed) with { TableFromScreen = fromScreen };
         }
-        var assigned = TableWords.And(written.Select(v => $"{TableWords.Word(v.Field)} to {FieldForms.Write(v.Field.Spec, v.Value)}"));
+        var assigned = TableWords.And(written.Select(v => $"{TableWords.Word(v.Field)} to {FieldForms.Write(v.Field.Written, v.Value)}"));
         var already = held == 0 ? "" : $"; {held} already held {(written.Count == 1 ? "it" : "them")}";
         var said = touched.Count == 1 ? $"Set {touched[0].Key} {assigned}{already}." : $"Set {assigned} on {Rows(bound, touched)}{already}.";
         return new(state, resolved, changes, touched, said, string.Join("; ", would), words, keyed, TableFromScreen: fromScreen);
@@ -404,6 +409,18 @@ public sealed partial class TableService(TableRegister register, WorkspaceServic
         var already = rows - differing.Count;
         IEnumerable<string> parts = rows == 1 ? [differing.Count == 1 ? change : $"already {to}"]
             : new[] { differing.Count > 0 ? $"{Counted(differing.Count)} {change}" : null, already > 0 ? $"{Counted(already)} already {to}" : null }.OfType<string>();
+        return $"{TableWords.Word(field)}: {string.Join(", ", parts)}";
+    }
+
+    // A figure's part of what a set would change (note 47): for one row what its table says the write would do to the
+    // rows under it, where it says; else the count, as for any field, with no value it changes from, since what a
+    // figure reads is not what is written.
+    static string WouldSetFigure(TableField field, JsonNode? value, int rows, IReadOnlyList<ITableRow> differing, string? says)
+    {
+        var to = FieldForms.Write(field.Written, value);
+        var already = rows - differing.Count;
+        IEnumerable<string> parts = rows == 1 ? [differing.Count == 1 ? says ?? $"to {to}" : $"already {to}"]
+            : new[] { differing.Count > 0 ? $"{Counted(differing.Count)} to {to}" : null, already > 0 ? $"{Counted(already)} already {to}" : null }.OfType<string>();
         return $"{TableWords.Word(field)}: {string.Join(", ", parts)}";
     }
 
