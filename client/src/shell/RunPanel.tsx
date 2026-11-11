@@ -5,7 +5,7 @@ import { viewsFor } from '../platform/views/binding';
 import { ViewRenderer } from '../platform/views/ViewRenderer';
 import { useRun, useWorkspace, useWorkspaceContext } from '../platform/workspace/WorkspaceProvider';
 import { keyOf, type Panel } from '../platform/workspace/workspaceStore';
-import { registerGridFocus } from './focus';
+import { registerGridFocus } from './places';
 
 const statusColour: Record<RunRecord['status'], string> = {
   running: 'blue',

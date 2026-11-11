@@ -1,4 +1,5 @@
-import { heldView, pagedView, type Answered, type GridRead } from './lineView';
+import type { LinePlace } from '../contracts';
+import { heldView, pagedView, placeFocus, type Answered, type GridRead, type ScreenGrid } from './lineView';
 
 // ADR-0016 notes 16 and 17 of 2026-11-11: what a page reads of a grid for the command line. The names are made up.
 
@@ -90,5 +91,38 @@ describe('the view of a grid whose page holds every row (ADR-0016 note 16)', () 
 
   it('a position the page holds no row at is the page\'s defect', () => {
     expect(() => heldView(held, read([[3, 2]], [3, 0]), source, keyOf)).toThrow('A grid of w.stations has row 4 selected, and its page holds 4 rows from 0.');
+  });
+});
+
+describe('the cell a place names in a grid (ADR-0016 §9, note 21 of 2026-11-11)', () => {
+  const grid: ScreenGrid = { table: 'w.readings', subset: 'manual', columns: ['id', 'station', 'note'] };
+  const version: GridRead = { rowSequenceVersion: 4, selection: { ranges: [], focus: undefined } };
+  const place: LinePlace = { table: 'w.readings', subset: 'manual', key: 'R2', said: 'The keyboard is on R2 in readings (manual).' };
+  const placing = (takes = true) => ({ placeSelection: vi.fn(() => takes) });
+  const nowhere = () => undefined;
+
+  it('is placed as one cell with the Focus on it, by its position where the server pages the grid and its column by name, in the version the view was read in', () => {
+    const handle = placing();
+
+    expect(placeFocus(grid, handle, version, { ...place, position: 7, column: 'note' }, nowhere)).toBeUndefined();
+
+    expect(handle.placeSelection.mock.calls).toEqual([[{ topRow: 7, rowCount: 1, leftColumn: 2, columnCount: 1 }, { row: 7, column: 2 }, 4]]);
+  });
+
+  it('is found by its key where the page holds every row, and takes the first column where the grid had no Focus to keep', () => {
+    const handle = placing();
+
+    expect(placeFocus(grid, handle, version, place, (key) => (key === 'R2' ? 5 : undefined))).toBeUndefined();
+
+    expect(handle.placeSelection.mock.calls).toEqual([[{ topRow: 5, rowCount: 1, leftColumn: 0, columnCount: 1 }, { row: 5, column: 0 }, 4]]);
+  });
+
+  it('is not placed, and says why, where the grid shows no such column, holds no such row, or has left the version the view was read in', () => {
+    const handle = placing();
+    expect(placeFocus(grid, handle, version, { ...place, position: 7, column: 'wind' }, nowhere)).toBe('The grid on screen shows no column for that field: find R2 alone goes to its row.');
+    expect(placeFocus(grid, handle, version, place, nowhere)).toBe('R2 is no longer a row the grid on screen holds: open the line again.');
+    expect(handle.placeSelection).not.toHaveBeenCalled();
+
+    expect(placeFocus(grid, placing(false), version, { ...place, position: 7 }, nowhere)).toBe('The grid on screen has moved since the line opened: open the line again.');
   });
 });

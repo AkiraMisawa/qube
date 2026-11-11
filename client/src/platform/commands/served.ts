@@ -1,7 +1,7 @@
 import { ApiError, outputOf, type Api } from '../api';
-import type { Catalog, LineArgument, LineCompletion, LinePreview, LineView, RowsEdited, TakenBack } from '../contracts';
+import type { Catalog, CommandForm, LineArgument, LineCompletion, LinePreview, LineView, RowsEdited, TakenBack } from '../contracts';
 import type { Notify } from '../notices';
-import type { Command, CommandDoor, Completion, LineReading, LineReason } from './commands';
+import type { Command, CommandDoor, Completion, KeyboardMoved, LineReading, LineReason, Screen } from './commands';
 
 // The commands the catalog says how to type (ADR-0016 §4, §5): the line builds each from the catalog and reads nothing
 // of its line itself. The server reads the line, while it is typed and at Enter; what the line does with the answer is
@@ -26,8 +26,11 @@ export interface DoorPage {
   /** Reads the workspace again and shows it; answers the revision it read. */
   reread(): Promise<number>;
   readonly notify: Notify;
-  /** What the user is looking at, where the page has a grid of a table (ADR-0016 note 16); read as the line opens. */
-  readonly view?: () => LineView | undefined;
+  /**
+   * What the user is looking at, where the page has a grid of a table (ADR-0016 note 16), with how that grid takes a
+   * place read for it (note 21); read as the line opens.
+   */
+  readonly screen?: () => Screen | undefined;
 }
 
 /** What the door reads of a command's answer, which every command that writes a workspace gives: where it left it, and what it did. */
@@ -49,12 +52,16 @@ const describe = (error: unknown) => (error instanceof Error ? error.message : S
  * again, and the notice is the server's sentence of what was done.
  */
 export function commandDoor(page: DoorPage): CommandDoor {
-  const run = (named: (revision: number) => Promise<Invocation | LineReason>): Promise<LineReason | undefined> =>
-    page.turns.after(async (revision): Promise<LineReason | undefined> => {
+  // Each view the page gave the line, with how the grid it was read of takes a place: a place read for a view is put
+  // in that grid, whatever the screen shows by then.
+  const puts = new WeakMap<LineView, Screen['put']>();
+  const run = <Ended extends LineReason | KeyboardMoved>(named: (revision: number) => Promise<Invocation | Ended>): Promise<Ended | LineReason | undefined> =>
+    page.turns.after(async (revision): Promise<Ended | LineReason | undefined> => {
       let told: Told;
       try {
         const call = await named(revision);
-        if ('sentence' in call) return call;
+        // Nothing to invoke: the line cannot be read, or what it asked for is done already.
+        if (!('id' in call)) return call;
         told = outputOf<Told>(await page.api.command(call.id, call.version, call.inputs, crypto.randomUUID()), 'answer');
       } catch (error) {
         const sentence = describe(error);
@@ -79,14 +86,31 @@ export function commandDoor(page: DoorPage): CommandDoor {
   return {
     workspaceId: page.workspaceId,
     settled: () => page.turns.settled(),
-    view: () => page.view?.(),
-    enter: (line, shown, view) => run(async (revision) => {
-      const reading = shown ?? await page.api.preview(line, page.workspaceId, { revision, ...(view === undefined ? {} : { view }) });
+    view: () => {
+      const seen = page.screen?.();
+      if (seen === undefined) return undefined;
+      puts.set(seen.view, seen.put);
+      return seen.view;
+    },
+    enter: (line, shown, view) => run<LineReason | KeyboardMoved>(async (revision) => {
+      // A place is of the workspace as it stood when it was read, and no write will refuse one that has moved since:
+      // a reading of another revision than the page now holds is asked for again.
+      const kept = shown !== undefined && (shown.place === undefined || shown.revision === revision) ? shown : undefined;
+      const reading = kept ?? await page.api.preview(line, page.workspaceId, { revision, ...(view === undefined ? {} : { view }) });
       if (reading.refused !== undefined) return reading.refused;
+      if (reading.place !== undefined) {
+        // A view verb (ADR-0016 note 21): nothing is invoked, and the page puts the keyboard where the reading says.
+        const put = view === undefined ? undefined : puts.get(view);
+        if (put === undefined) throw new Error('The server named a place, and this page gave the line no grid to put the keyboard on.');
+        const why = put(reading.place);
+        if (why !== undefined) return { sentence: why };
+        page.notify('done', reading.place.said);
+        return { moved: true };
+      }
       if (reading.command === undefined || reading.inputs === undefined) throw new Error('The server read the line and named no command to run.');
       return { ...reading.command, inputs: reading.inputs };
     }),
-    invoke: (capabilityId, request) => run(async (revision) => {
+    invoke: (capabilityId, request) => run<LineReason>(async (revision) => {
       const capability = page.catalog.capabilities.find((c) => c.capabilityId === capabilityId);
       if (capability === undefined) throw new Error(`This server has no command ${capabilityId}.`);
       return { id: capabilityId, version: capability.version, inputs: { request: { ...request, workspaceId: page.workspaceId, revision } } };
@@ -107,26 +131,32 @@ export function commandDoorOf(panelId: string | undefined): CommandDoor | undefi
 }
 
 /**
- * A command per word of each capability that says how it is typed, acting on the workspace of the page in the active
- * panel. Where that panel has no such page the commands are listed and say why they cannot run.
+ * A command per word of each capability that says how it is typed, and of each verb of the screen the catalog lists
+ * (ADR-0016 note 21), acting on the workspace of the page in the active panel. Where that panel has no such page the
+ * commands are listed and say why they cannot run.
  */
-export function servedCommands(catalog: Pick<Catalog, 'capabilities'>, panel: { readonly title: string } | undefined, door: CommandDoor | undefined, notify: Notify): Command[] {
-  return catalog.capabilities.flatMap((capability) => (capability.command?.words ?? []).map((word, index): Command => {
+export function servedCommands(catalog: Pick<Catalog, 'capabilities' | 'viewVerbs'>, panel: { readonly title: string } | undefined, door: CommandDoor | undefined, notify: Notify): Command[] {
+  const typed: readonly { readonly id: string; readonly title: string; readonly form: CommandForm }[] = [
+    ...catalog.capabilities.flatMap((c) => (c.command === undefined ? [] : [{ id: c.capabilityId, title: c.title, form: c.command }])),
+    // A verb is no capability, and its id says so: its use is counted apart from any command's.
+    ...catalog.viewVerbs.map((v) => ({ id: `view.${v.verbId}`, title: v.title, form: v.command })),
+  ];
+  return typed.flatMap(({ id, title, form }) => form.words.map((word, index): Command => {
     const words = word.toLowerCase();
     return {
-      // A capability's first word carries its id, by which its use is counted; another spelling says which it is.
-      id: index === 0 ? capability.capabilityId : `${capability.capabilityId}:${words}`,
+      // Its first word carries its id, by which its use is counted; another spelling says which it is.
+      id: index === 0 ? id : `${id}:${words}`,
       words,
-      title: capability.title,
+      title,
       group: 'Workspace',
-      ...(door === undefined || panel === undefined || capability.command === undefined
+      ...(door === undefined || panel === undefined
         ? { unavailable: 'This panel has no workspace for it to act on.' }
-        : { target: panel.title, page: true, served: { arguments: capability.command.arguments, door } }),
+        : { target: panel.title, page: true, served: { arguments: form.arguments, door } }),
       // From a key or a button there is no line: the words alone are read, with what is on screen at the press, and a
       // refusal is a notice.
       run: () => {
         if (door === undefined) throw new Error(`${words} ran with no workspace to act on.`);
-        void door.enter(words, undefined, door.view()).then((reason) => { if (reason !== undefined) notify('refused', `${words}: ${reason.sentence}`); });
+        void door.enter(words, undefined, door.view()).then((ended) => { if (ended !== undefined && 'sentence' in ended) notify('refused', `${words}: ${ended.sentence}`); });
       },
     };
   }));

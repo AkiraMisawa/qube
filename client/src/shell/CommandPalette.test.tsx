@@ -4,6 +4,8 @@ import type { RunRecord } from '../platform/contracts';
 import type { WorkspaceState } from '../platform/workspace/workspaceStore';
 import { termRequests } from '../platform/traces/open';
 import { registerCommandDoor } from '../platform/commands/served';
+import { execute } from '../platform/commands/commands';
+import { registerGridFocus, registerPlaces } from './places';
 
 const state = (overrides: Partial<WorkspaceState> = {}) => ({
   panels: [],
@@ -116,6 +118,88 @@ describe('the page\'s commands (ADR-0006 note 3 of 2026-11-11)', () => {
 });
 
 // ADR-0006: `show panel` finds an open panel by typing part of its title, and names the candidates rather than guess.
+describe('places (ADR-0016 §9, note 20 of 2026-11-11)', () => {
+  const s = state({ panels: [{ id: 'p', kind: 'app', title: 'Board 2026-11-11', app: 'xva.workspace', params: { workspaceId: 'w' } }], activePanelId: 'p', showApp: vi.fn(), openAppDialog: vi.fn() });
+  const built = () => {
+    const notify = vi.fn();
+    const commands = buildCommands({ catalog: catalog([], []), state: s, activeRun: undefined, toggleTheme: vi.fn(), notify });
+    return { notify, go: commands.find((c) => c.id === 'panel.go')!, focusGrid: commands.find((c) => c.id === 'panel.focusGrid')! };
+  };
+  afterEach(() => registerPlaces('p', undefined));
+
+  it('`go` offers the places of the page in the active panel, puts the keyboard in the one named and says where it went', () => {
+    const went: string[] = [];
+    registerPlaces('p', () => [
+      { word: 'notes', title: 'the Notes tab', go: () => { went.push('notes'); return undefined; } },
+      { word: 'readings', title: 'Readings', grid: true, go: () => { went.push('readings'); return undefined; } },
+    ]);
+    const { go, notify } = built();
+    const place = go.args![0]!;
+
+    expect([go.words, go.group, go.target, go.unavailable]).toEqual(['go', 'Panels', 'Board 2026-11-11', undefined]);
+    expect(place.complete!({})).toEqual([{ value: 'notes', detail: 'the Notes tab' }, { value: 'readings', detail: 'Readings' }]);
+    // A word that names no place is refused with the places there are.
+    expect(place.check!('charts', {})).toBe('one of notes, readings');
+    expect(place.check!('Readings', {})).toBeUndefined();
+
+    expect(execute(go, { place: 'Readings' })).toBeUndefined();
+    expect(went).toEqual(['readings']);
+    expect(notify.mock.calls).toEqual([['done', 'The keyboard is in Readings.']]);
+  });
+
+  it('a place that cannot take the keyboard now says why: nothing is said to have moved, and the line keeps the reason', () => {
+    registerPlaces('p', () => [{ word: 'results', title: 'the results', go: () => 'Nothing is priced yet: Price shows its results here.' }]);
+    const { go, notify } = built();
+
+    expect(execute(go, { place: 'results' })).toBe('Nothing is priced yet: Price shows its results here.');
+    expect(notify).not.toHaveBeenCalled();
+  });
+
+  it('`focus grid` is `go` to the first place that is a grid, with the same notice', () => {
+    const went: string[] = [];
+    registerPlaces('p', () => [
+      { word: 'notes', title: 'the Notes tab', go: () => { went.push('notes'); return undefined; } },
+      { word: 'readings', title: 'Readings', grid: true, go: () => { went.push('readings'); return undefined; } },
+      { word: 'stations', title: 'Stations', grid: true, go: () => { went.push('stations'); return undefined; } },
+    ]);
+    const { focusGrid, notify } = built();
+
+    expect([focusGrid.words, focusGrid.shortcut]).toEqual(['focus grid', 'mod+shift+G']);
+    expect(execute(focusGrid)).toBeUndefined();
+    expect(went).toEqual(['readings']);
+    expect(notify.mock.calls).toEqual([['done', 'The keyboard is in Readings.']]);
+  });
+
+  it('a page of one grid has the one place `grid`, and a page with no places says so', () => {
+    const none = built();
+    expect(none.go.unavailable).toBe('This page has no places to go to.');
+    expect(execute(none.focusGrid)).toBe('This panel has no grid yet.');
+
+    const focus = vi.fn();
+    registerGridFocus('p', focus);
+    const one = built();
+    expect(one.go.args![0]!.complete!({})).toEqual([{ value: 'grid', detail: 'the grid' }]);
+    expect(execute(one.go, { place: 'grid' })).toBeUndefined();
+    expect(execute(one.focusGrid)).toBeUndefined();
+    expect(focus).toHaveBeenCalledTimes(2);
+    expect(one.notify.mock.calls).toEqual([['done', 'The keyboard is in the grid.'], ['done', 'The keyboard is in the grid.']]);
+  });
+
+  it('the places are read when a command runs: a place that came after the line was built is gone to', () => {
+    let widened = false;
+    const went: string[] = [];
+    registerPlaces('p', () => [
+      ...(widened ? [{ word: 'trace', title: 'the trace', grid: true, go: () => { went.push('trace'); return undefined; } }] : []),
+      { word: 'readings', title: 'Readings', grid: true, go: () => { went.push('readings'); return undefined; } },
+    ]);
+    const { focusGrid } = built();
+    widened = true;
+
+    expect(execute(focusGrid)).toBeUndefined();
+    expect(went).toEqual(['trace']);
+  });
+});
+
 describe('show panel', () => {
   const panels = [
     { id: 'a', kind: 'run', title: 'XVA XYZ/LE-03', runId: 'r1', viewKey: undefined },

@@ -15,7 +15,7 @@ import { cdsCompletions, measureNamed, measuresTyped, varyHint, varyTyped, xvaPa
 import { generatorParts, scenarioParts, scenarioTyped } from './xva/scenarios';
 import { XvaWorkspacePanel } from './xva/XvaWorkspacePanel';
 import { registerAiContext, registerAiEffect } from '../ai/effects';
-import { registerGridFocus } from '../shell/focus';
+import { registerGridFocus } from '../shell/places';
 import { httpTraceApi, type TraceApi } from '../platform/traces/api';
 import { TRACE_VIEW, explainTyped, openTrace, requestTerm, setTraceView, traceAddressOf } from '../platform/traces/open';
 
@@ -520,7 +520,11 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
       title: `Open the ${title} input tab`,
       group: 'XVA',
       ...onXva,
-      run: () => xvaPage().openTab(tab),
+      // A tab that does not show now is not opened, and the line keeps the reason (ADR-0006's note 1 of 2026-11-11).
+      run: () => {
+        const why = xvaPage().openTab(tab);
+        if (why !== undefined) throw new CommandRefused(why);
+      },
     })),
     // The dock's tabs (ADR-0010 §7): Metrics, or a tab a priced measure registers, such as spot IM's SIMM (ADR-0012 §7).
     {

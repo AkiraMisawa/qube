@@ -404,6 +404,129 @@ public class CommandLineTests
         Assert.Equal(offered, string.Join(" | ", all.Skip(from).Take(offered.Split(" | ").Length)));
     }
 
+    [Fact] // ADR-0016 §9, note 21: find is read by the server, which answers the place the page puts the Focus on, and no command; nothing is written
+    public void Find_answers_the_place_of_a_row_in_the_grid_on_screen_and_no_command()
+    {
+        var rig = new Rig();
+        var before = rig.Board.Revision;
+        ViewSort[] largest = [new("volume", Descending: true)];
+        // The manual readings, largest first: R3, R1, R2.
+        var paged = new LineView(Stations.Readings, "manual", largest, rig.Order("manual", largest), Focus: new("note", Position: 0));
+
+        var cell = rig.Preview("find R2 wind speed", paged);
+        var row = rig.Preview("find r1", paged);
+        var held = rig.Preview("find n1 altitude", new LineView(Stations.Sites));
+
+        Assert.Equal((null, null), (cell.Command, cell.Inputs));
+        Assert.Equal(new LinePlace(Stations.Readings, "manual", "R2", 2, "windSpeed", "The keyboard is on R2 · wind speed in readings (manual)."), cell.Place);
+        Assert.Equal(("readings, 1 row | The keyboard goes to R2 · wind speed.", "row: R2 (Typed); field: wind speed (Typed)"), (Read(cell), Given(cell)));
+        Assert.Equal(["R2"], cell.Rows!.First);
+        // With no field the Focus keeps the column it was on, and the sentence names the row alone.
+        Assert.Equal(new LinePlace(Stations.Readings, "manual", "R1", 1, "note", "The keyboard is on R1 in readings (manual)."), row.Place);
+        // Where the page holds every row the place is the key alone, and the column none where the grid had no Focus.
+        Assert.Equal(new LinePlace(Stations.Sites, null, "N1", null, "altitude", "The keyboard is on N1 · altitude in stations."), held.Place);
+        Assert.Equal(new LinePlace(Stations.Sites, null, "S1", null, null, "The keyboard is on S1 in stations."), rig.Preview("find S1", new LineView(Stations.Sites)).Place);
+        Assert.Equal(before, rig.Board.Revision);
+    }
+
+    [Theory] // ADR-0016 §9, note 21: find looks among the rows the grid on screen shows, and refuses by name what it cannot place
+    // The end of an id names its row; one that several rows have is refused with them.
+    [InlineData("find 2", "manual", "readings, 1 row | The keyboard goes to R2.")]
+    [InlineData("find 1", null, "AmbiguousRow: 1 could be R1 or X1 of readings; write more of the id.")]
+    [InlineData("find R9", "manual", "UnknownRow: No row R9 in readings (manual): its rows are R1, R2, R3.")]
+    // A row of the table that the grid does not show is said as that, with where it is.
+    [InlineData("find R4", "manual", "NotOnScreen: R4 is no row of the grid on screen, readings (manual): it is one of readings (automatic).")]
+    [InlineData("find 4 note", "manual", "NotOnScreen: R4 is no row of the grid on screen, readings (manual): it is one of readings (automatic).")]
+    [InlineData("find R1 colour", "manual", "UnknownField: readings has no field colour; its fields are id, station, volume, unit, taken, checked, note, wind speed, wind direction, window, drift.")]
+    [InlineData("find R1 wind", "manual", "AmbiguousField: wind could be wind speed or wind direction of readings.")]
+    [InlineData("find", "manual", "NoRows: Say which row of readings (manual) to find: its id, or the end of it.")]
+    [InlineData("find R1, R2", "manual", "OneRow: find puts the keyboard on one row: name one.")]
+    public void Find_refuses_by_name_what_it_cannot_place(string line, string? subset, string read)
+    {
+        var rig = new Rig();
+
+        Assert.Equal(read, Read(rig.Preview(line, new LineView(Stations.Readings, subset, Order: rig.Order(subset, [])))));
+    }
+
+    [Fact] // ADR-0016 §9, note 21: find needs a grid behind the line, the order that grid was drawn from, and a row its filter has not hidden
+    public void Find_is_refused_with_no_screen_a_moved_order_or_a_row_the_filter_hides()
+    {
+        var rig = new Rig();
+        ViewSort[] largest = [new("volume", Descending: true)];
+        var paged = new LineView(Stations.Readings, "manual", largest, rig.Order("manual", largest));
+
+        var none = rig.Preview("find R1");
+        var moved = rig.Preview("find R1", paged with { Order = "an earlier order" });
+        var unsaid = rig.Preview("find R1", paged with { Order = null });
+        var hidden = rig.Preview("find N1", new LineView(Stations.Sites, Shown: ["S1", "X1"]));
+        var shown = rig.Preview("find 1", new LineView(Stations.Sites, Shown: ["S1"]));
+
+        Assert.Equal("NoView: find looks for a row in the grid on screen, and no grid of a table is behind this line: go to one first.", Read(none));
+        Assert.Equal("ViewMoved: The readings are no longer in the order the grid shows them in: open the line again.", Read(moved));
+        Assert.Equal("ViewMoved", unsaid.Refused!.Code);
+        Assert.Equal("NotOnScreen: N1 is a row of stations that the filter of the grid on screen leaves out.", Read(hidden));
+        // Under a filter an id's end is read among the rows it leaves: 1 is S1 alone, though three stations end with it.
+        Assert.Equal("S1", shown.Place!.Key);
+        Assert.All([none, moved, unsaid, hidden], refused => Assert.Null(refused.Place));
+    }
+
+    [Theory] // ADR-0016 §5, note 21: after find, the rows the grid shows are offered, a few at a time, and after a row the table's fields
+    [InlineData("find ", "manual", "R1 | R2 | R3")]
+    [InlineData("find 2", "manual", "R2@5")]
+    [InlineData("find r", null, "R1@5 | R2@5 | R3@5 | R4@5 | R5@5")]
+    [InlineData("find R2 ", "manual", "id | station | volume | unit | taken | checked | note | wind speed | wind direction | window | drift")]
+    [InlineData("find R2 wi", "manual", "wind speed@8 | wind direction@8 | window@8")]
+    [InlineData("find R2 wind ", "manual", "wind speed@8 | wind direction@8")]
+    [InlineData("find R2 wind s", "manual", "wind speed@8")]
+    [InlineData("find R2 note ", "manual", "")]
+    [InlineData("find", "manual", "")]
+    public void After_find_the_rows_the_grid_shows_and_then_the_fields_are_offered(string line, string? subset, string offered)
+    {
+        var preview = new Rig().Preview(line, new LineView(Stations.Readings, subset));
+
+        Assert.Equal(offered, string.Join(" | ", preview.Complete.Select(c => $"{c.Value}{(c.Start == line.Length ? "" : $"@{c.Start}")}")));
+    }
+
+    [Fact] // ADR-0016 §9, note 23: with a screen behind the line, rows said as all or by where alone are rows of the screen's table, and the request names that table
+    public async Task Rows_said_with_no_table_are_the_screens_and_the_request_names_the_table()
+    {
+        var rig = new Rig();
+        var stations = new LineView(Stations.Sites);
+
+        var where = rig.Preview("set where altitude>30 altitude 50", stations);
+        var all = rig.Preview("reset all altitude", stations);
+        // A subset's word names the screen's table where that table has it, and the main table where it has not.
+        var high = rig.Preview("set high altitude 130", stations);
+        var manual = rig.Preview("set manual checked on", stations);
+        // With no screen (the AI, a saved sequence) the main table, as in step 1; and a screen of the main table names none.
+        var none = rig.Preview("set where unit=m3 checked on");
+        var main = rig.Preview("reset where unit=m3 note", new LineView(Stations.Readings, "manual"));
+
+        Assert.Equal((("stations", "where altitude>30"), "stations, 2 rows", "altitude: 2 to 50"), (Asked(where), where.Rows!.Title, where.Would));
+        Assert.Equal((("stations", "all"), "stations, 3 rows"), (Asked(all), all.Rows!.Title));
+        Assert.Equal((("stations", "high"), "stations, 1 row"), (Asked(high), high.Rows!.Title));
+        Assert.Equal(((null, "manual"), "readings, 3 rows"), (Asked(manual), manual.Rows!.Title));
+        Assert.Equal(((null, "where unit=m3"), "readings, 4 rows"), (Asked(none), none.Rows!.Title));
+        // The table, not the grid's subset: `shown` says the rows of the grid.
+        Assert.Equal(((null, "where unit=m3"), "readings, 4 rows"), (Asked(main), main.Rows!.Title));
+        // What is run is rows of that table, whoever reads the request, and the log names it as a line that could be typed anywhere.
+        Assert.Equal("Set altitude to 50 on N1 and X1.", (await rig.Run(where))["said"]!.GetValue<string>());
+        Assert.Equal("Takes back: set stations where altitude>30 altitude 50 (you, 2 edits)", rig.Preview("undo").Would);
+    }
+
+    [Theory] // ADR-0016 §9, note 23: what could follow is said for the table the rows would be read in: the screen's subsets, and after where its fields
+    [InlineData("set ", "all | shown (3 rows) | high | manual | automatic | where | readings")]
+    [InlineData("set where ", "id | altitude | backup")]
+    [InlineData("set all ", "altitude | backup | where")]
+    [InlineData("set where altitude>30 ", "and | altitude | backup")]
+    [InlineData("set manual ", "volume | unit | checked | note | wind speed | wind direction | drift | where")]
+    public void With_a_table_left_out_what_could_follow_is_the_screens_tables(string line, string offered)
+    {
+        var preview = new Rig().Preview(line, new LineView(Stations.Sites));
+
+        Assert.Equal(offered, string.Join(" | ", preview.Complete.Select(c => $"{c.Value}{(c.Detail is null ? "" : $" ({c.Detail})")}").Take(offered.Split(" | ").Length)));
+    }
+
     [Fact] // ADR-0016 §11, note 17: a command of many rows by id is named by its first three and how many more there are
     public async Task A_command_of_many_rows_is_named_by_its_first_three_and_how_many_more()
     {
@@ -427,7 +550,7 @@ public class CommandLineTests
     [InlineData("set R1 volume lots", "InvalidValue", "lots", 14, 18, "")]
     [InlineData("set R1 wind 4", "AmbiguousField", "wind", 7, 11, "wind speed, wind direction")]
     [InlineData("set where unit==m3 checked on", "UnknownOperator", "==", 14, 16, "")]
-    [InlineData("sett R1", "UnknownCommand", "sett", 0, 4, "set, reset, remove, undo, redo")]
+    [InlineData("sett R1", "UnknownCommand", "sett", 0, 4, "set, reset, remove, undo, redo, find")]
     [InlineData("undo that", "UnreadWords", "that", 5, 9, "")]
     public void A_line_that_cannot_be_read_says_the_word_its_place_and_what_it_could_be(string line, string code, string word, int start, int end, string candidates)
     {

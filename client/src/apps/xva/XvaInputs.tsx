@@ -3,8 +3,8 @@ import { Button, Group, Table, Tabs, Text, useMantineTheme } from '@mantine/core
 import { GridSource, type CellState, type GridColumn, type GridContextMenuContext, type GridEditIntent } from '@ex-grid/core';
 import type { ExGridApi } from '@ex-grid/react';
 import { QubeGrid } from '../../platform/grid/QubeGrid';
-import { heldView } from '../../platform/grid/lineView';
-import type { LineView } from '../../platform/contracts';
+import { heldView, placeFocus } from '../../platform/grid/lineView';
+import type { Screen } from '../../platform/commands/commands';
 import type { Agreement, ChangesList, EffectiveCsa, RegisteredMeasure, XvaWorkspaceView } from './contracts';
 import { creditChanges, emptyRecovery, nettingChanges, type CatalogueRead } from './credit';
 import { XvaCredit } from './XvaCredit';
@@ -107,7 +107,7 @@ export const shownTab = (ws: Pick<XvaWorkspaceView, 'inputs' | 'settings'>, tab:
  * The tabs, one open at a time and collapsible to their tab row (ADR-0010 §1). The page keeps which tab is open,
  * whether it is open and its height, so that a command opens a tab as a press does.
  */
-export function XvaInputs({ panelId, ws, push, setText, catalogue, onIssue, onGridEntered, tab, onTab, open, onOpen, height, focusRequest, changeList, changeActions, scenarioActions, onVary, commandLabel }: {
+export function XvaInputs({ panelId, ws, push, setText, catalogue, onIssue, onGridEntered, onPlaced, tab, onTab, open, onOpen, height, focusRequest, changeList, changeActions, scenarioActions, onVary, commandLabel }: {
   readonly ws: XvaWorkspaceView;
   /** The panel the page is in, which keeps the widths the user dragged in its grids. */
   readonly panelId: string;
@@ -127,7 +127,9 @@ export function XvaInputs({ panelId, ws, push, setText, catalogue, onIssue, onGr
   readonly push: PushEdit;
   readonly onIssue: (message: string | undefined) => void;
   /** The keyboard entered a grid of a table here: what the command line is told is on screen, read when it opens (ADR-0016 note 16). */
-  readonly onGridEntered: (view: () => LineView | undefined) => void;
+  readonly onGridEntered: (screen: () => Screen | undefined) => void;
+  /** A place was put in the CSA grid (`find`, ADR-0016 note 21): its tab is shown and the keyboard given to it. */
+  readonly onPlaced: () => void;
   readonly tab: InputTab;
   /** A tab pressed, which opens the tabs too. */
   readonly onTab: (tab: InputTab) => void;
@@ -229,7 +231,7 @@ export function XvaInputs({ panelId, ws, push, setText, catalogue, onIssue, onGr
           <Tabs.Panel value="csa" pt="xs">
             {ws.csas.length === 0
               ? <Text size="sm">{ws.agreement.maId} has no CSA: its trades are uncollateralised ({ws.agreement.noCsa}).</Text>
-              : <CsaGrid panelId={panelId} csas={ws.csas} columns={csaColumns} push={push} height={height - gap - GRID_FRAME} gridRef={csaGrid} onVary={onVary} commandLabel={commandLabel} onGridEntered={onGridEntered} />}
+              : <CsaGrid panelId={panelId} csas={ws.csas} columns={csaColumns} push={push} height={height - gap - GRID_FRAME} gridRef={csaGrid} onVary={onVary} commandLabel={commandLabel} onGridEntered={onGridEntered} onPlaced={onPlaced} />}
           </Tabs.Panel>
           {creditShown && (
             <Tabs.Panel value={CREDIT_TAB} pt="xs">
@@ -299,7 +301,7 @@ function ImCsas({ ws, focusRef }: { readonly ws: XvaWorkspaceView; readonly focu
  * The CSA terms, as high as their rows within `height`, what the tab's height leaves under the panel's top gap and the
  * grid's frame. It shows no Selection Summary: a sum or an average of terms in different currencies is no figure.
  */
-function CsaGrid({ panelId, csas, columns: declared, push, height, gridRef, onVary, commandLabel, onGridEntered }: {
+function CsaGrid({ panelId, csas, columns: declared, push, height, gridRef, onVary, commandLabel, onGridEntered, onPlaced }: {
   /** The panel the page is in, which keeps the widths the user dragged in its grids. */
   readonly panelId: string;
   readonly onVary: (target: VaryTarget) => void;
@@ -310,7 +312,8 @@ function CsaGrid({ panelId, csas, columns: declared, push, height, gridRef, onVa
   readonly push: PushEdit;
   readonly height: number;
   readonly gridRef: RefObject<ExGridApi<CsaRow> | null>;
-  readonly onGridEntered: (view: () => LineView | undefined) => void;
+  readonly onGridEntered: (screen: () => Screen | undefined) => void;
+  readonly onPlaced: () => void;
 }) {
   const source = useMemo(() => GridSource.from<CsaRow>([], { rowKey: (row) => row.csaId }), []);
   const { columns, onColumnWidthChanged } = useColumnWidths(panelId, 'csas', declared);
@@ -338,12 +341,31 @@ function CsaGrid({ panelId, csas, columns: declared, push, height, gridRef, onVa
       : [];
   }, []);
 
-  // The grid as the line is told of it (ADR-0016 note 16): the page holds every CSA, so its rows are named by their ids.
-  const view = useCallback(() => (gridRef.current === null ? undefined
-    : heldView({ table: CSAS_TABLE, columns: columnsNow.current.map((c) => c.name) }, gridRef.current.readView(), source.snapshot(), (row) => row.csaId)), [gridRef, source]);
+  // The grid as the line is told of it (ADR-0016 note 16): the page holds every CSA, so its rows are named by their ids,
+  // and a place read for that view (note 21) is the row of its key among the rows the grid then held.
+  const placed = useRef(onPlaced);
+  placed.current = onPlaced;
+  const screen = useCallback((): Screen | undefined => {
+    const grid = gridRef.current;
+    if (grid === null) return undefined;
+    const declared = { table: CSAS_TABLE, columns: columnsNow.current.map((c) => c.name) };
+    const read = grid.readView();
+    const held = source.snapshot();
+    return {
+      view: heldView(declared, read, held, (row) => row.csaId),
+      put: (place) => {
+        const why = placeFocus(declared, grid, read, place, (key) => {
+          const at = held.window.findIndex((row) => row.csaId === key);
+          return at < 0 ? undefined : held.windowStart + at;
+        });
+        if (why === undefined) placed.current();
+        return why;
+      },
+    };
+  }, [gridRef, source]);
 
   return (
-    <div aria-label="CSA terms" onFocusCapture={() => onGridEntered(view)}>
+    <div aria-label="CSA terms" onFocusCapture={() => onGridEntered(screen)}>
       <QubeGrid<CsaRow> ref={gridRef} columns={columns} onColumnWidthChanged={onColumnWidthChanged} source={source} onEdit={onEdit} cellState={csaCellState} cellMessage={csaCellMessage}
         contextCommands={contextCommands} commandLabel={commandLabel}
         density="compact" viewportWidth="stretch" viewportHeight={Math.max(compactGridHeight(1), Math.min(compactGridHeight(csas.length), height))} pinnedColumnCount={2} showSelectionSummary={false} locale="en-US" />

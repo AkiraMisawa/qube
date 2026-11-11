@@ -209,6 +209,68 @@ public class CommandGatewayTests(QubeFactory factory) : IClassFixture<QubeFactor
         Assert.Equal("Set CSA-A threshold to 5mm.", (await Ok(ran))["said"]!.GetValue<string>());
     }
 
+    [Fact] // ADR-0016 §3, §9, note 21: the catalog lists find among the verbs of the screen and among no capabilities, and the preview answers the place of a row as the grid's reader orders it
+    public async Task The_catalog_lists_find_apart_from_the_capabilities_and_the_preview_answers_its_place()
+    {
+        var catalog = (await client.GetFromJsonAsync<JsonObject>("/api/catalog"))!;
+        var ws = await Create();
+        var id = ws["workspaceId"]!.GetValue<string>();
+        var sorts = new JsonArray(new JsonObject { ["column"] = "notional", ["direction"] = "descending" });
+        var page = (await (await client.PostAsJsonAsync($"/api/xva/workspaces/{id}/rows", new { start = 0, count = 200, sorts, grid = "existing" })).Content.ReadFromJsonAsync<JsonObject>())!;
+        var keys = page["rows"]!.AsArray().Select(r => r!["tradeId"]!.GetValue<string>()).ToList();
+        var view = new JsonObject
+        {
+            ["table"] = "xva.trades", ["subset"] = "existing", ["sorts"] = new JsonArray(new JsonObject { ["column"] = "notional", ["descending"] = true }),
+            ["order"] = page["orderToken"]!.GetValue<string>(), ["focus"] = new JsonObject { ["field"] = "pv", ["position"] = 0 },
+        };
+
+        // The end of an id that one row of the grid has, and a field by its word.
+        var (_, found) = await Preview($"find {keys[^1][^6..]} csa", id, view: view.DeepClone().AsObject());
+        var (_, row) = await Preview($"find {keys[1]}", id, view: view.DeepClone().AsObject());
+
+        Assert.Equal("""[{"verbId":"find","title":"Put the keyboard on a row of the grid on screen, or on one of its cells","command":{"words":["find"],"arguments":[{"name":"row","kind":"rows","required":true},{"name":"field","kind":"field","required":false}]}}]""",
+            catalog["viewVerbs"]!.ToJsonString());
+        Assert.DoesNotContain(catalog["capabilities"]!.AsArray(), c => c!["command"]?["words"]!.AsArray().Any(w => w!.GetValue<string>() == "find") == true);
+        Assert.Equal(new JsonObject
+        {
+            ["table"] = "xva.trades", ["subset"] = "existing", ["key"] = keys[^1], ["position"] = keys.Count - 1, ["column"] = "csa",
+            ["said"] = $"The keyboard is on {keys[^1]} · csa in trades (existing).",
+        }.ToJsonString(), found["place"]!.ToJsonString());
+        Assert.Null(found["command"]);
+        Assert.Null(found["inputs"]);
+        Assert.Equal($"The keyboard goes to {keys[^1]} · csa.", found["would"]!.GetValue<string>());
+        // With no field the Focus keeps its column, which the view names as the grid does, a field of the table or not.
+        Assert.Equal((keys[1], 1, "pv"), (row["place"]!["key"]!.GetValue<string>(), row["place"]!["position"]!.GetValue<int>(), row["place"]!["column"]!.GetValue<string>()));
+    }
+
+    [Fact] // ADR-0016 §9, note 23: on the CSA grid a table left out is the CSAs, a subset of the trades alone is still the trades, and with no screen the trades as before
+    public async Task On_the_csa_grid_rows_said_with_no_table_are_csas_and_the_request_names_them()
+    {
+        var ws = await Create();
+        var id = ws["workspaceId"]!.GetValue<string>();
+        JsonObject Csas() => new() { ["table"] = "xva.csas" };
+        static (string? Table, string? Rows, string Title) Asked(JsonObject preview) =>
+            (preview["inputs"]!["request"]!["table"]?.GetValue<string>(), preview["inputs"]!["request"]!["rows"]?.GetValue<string>(), preview["rows"]!["title"]!.GetValue<string>());
+
+        var (_, where) = await Preview("set where ccy=USD threshold 0", id, view: Csas());
+        var (_, existing) = await Preview("set existing a off", id, view: Csas());
+        var (_, none) = await Preview("set where ccy=USD a off", id);
+        var (_, fields) = await Preview("set where ", id, view: Csas());
+
+        Assert.Equal(("csas", "where ccy=USD", "csas, 1 row"), Asked(where));
+        Assert.Equal(["CSA-B"], where["rows"]!["first"]!.AsArray().Select(k => k!.GetValue<string>()));
+        Assert.Equal((null, "existing", "xva.trades"), (Asked(existing).Table, Asked(existing).Rows, existing["rows"]!["table"]!.GetValue<string>()));
+        Assert.Equal((null, "xva.trades"), (Asked(none).Table, none["rows"]!["table"]!.GetValue<string>()));
+        // After where, the fields offered are the CSAs': a trade's notional is none of them.
+        var offered = fields["complete"]!.AsArray().Select(c => c!["value"]!.GetValue<string>()).ToList();
+        Assert.Contains("threshold", offered);
+        Assert.DoesNotContain("notional", offered);
+
+        var ran = await client.PostAsJsonAsync($"/api/commands/{where["command"]!["id"]!.GetValue<string>()}/{where["command"]!["version"]!.GetValue<string>()}",
+            new { inputs = where["inputs"], idempotencyKey = Guid.NewGuid().ToString() });
+        Assert.Equal("Set CSA-B threshold to 0.", (await Ok(ran))["said"]!.GetValue<string>());
+    }
+
     [Fact] // ADR-0016 §5, §6: a line that cannot be read is an answer, with the word and its place; a workspace that cannot be read is a status
     public async Task The_preview_answers_a_line_it_cannot_read_and_what_could_follow_and_refuses_a_workspace_by_status()
     {

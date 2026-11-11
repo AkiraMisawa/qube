@@ -15,7 +15,7 @@ import { NoticeStrip } from './shell/Notice';
 import { RunDialog } from './shell/RunDialog';
 import { AppDialogs, AppPanel } from './apps';
 import { RunPanel } from './shell/RunPanel';
-import { registerGridFocus } from './shell/focus';
+import { registerGridFocus } from './shell/places';
 import { AiProvider, useAi, useAiContext } from './ai/AiProvider';
 import { AiPane } from './ai/AiPane';
 import type { AgentTransport } from './ai/agui';

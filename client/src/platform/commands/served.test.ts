@@ -1,5 +1,5 @@
 import { ApiError, type Api, type CommandAnswer } from '../api';
-import type { CapabilityDescriptor, LinePreview, LineView } from '../contracts';
+import type { CapabilityDescriptor, LinePlace, LinePreview, LineView, ViewVerbDescriptor } from '../contracts';
 import { readLine, signature, type Command, type CommandDoor } from './commands';
 import { argumentShown, commandDoor, lineAsked, previewShown, screenShown, servedCommands, taken } from './served';
 
@@ -11,12 +11,18 @@ const capability = (capabilityId: string, command?: CapabilityDescriptor['comman
   ...(command === undefined ? {} : { command }),
 });
 
+const find: ViewVerbDescriptor = {
+  verbId: 'find', title: 'Put the keyboard on a row of the grid on screen',
+  command: { words: ['find'], arguments: [{ name: 'row', kind: 'rows', required: true }, { name: 'field', kind: 'field', required: false }] },
+};
+
 const catalog = {
   capabilities: [
     capability('entity.set', { words: ['set'], arguments: [{ name: 'rows', kind: 'rows', required: false }, { name: 'set', kind: 'assignments', required: true }] }),
     capability('workspace.undo', { words: ['undo'], arguments: [] }),
     capability('gauge.read'),
   ],
+  viewVerbs: [] as readonly ViewVerbDescriptor[],
 };
 
 /** What a page says is on screen: two rows selected, the keyboard on a cell of the first. */
@@ -66,6 +72,16 @@ describe('a command the catalog says how to type (ADR-0016 Â§4)', () => {
     undo.run({});
 
     expect(enter).toHaveBeenCalledWith('undo', undefined, onScreen);
+  });
+
+  it('a verb of the screen the catalog lists is built as a command is, and its line is the server\'s to read too (ADR-0016 note 21)', () => {
+    const commands = servedCommands({ ...catalog, viewVerbs: [find] }, panel, door(), vi.fn());
+    const built = commands.find((c) => c.words === 'find')!;
+
+    expect([built.id, built.title, built.group, built.target, built.page, signature(built)]).toEqual(
+      ['view.find', 'Put the keyboard on a row of the grid on screen', 'Workspace', 'Board 2026-11-11', true, '<row> [field]']);
+    expect(built.served?.door.workspaceId).toBe('ws-1');
+    expect(servedCommands({ ...catalog, viewVerbs: [find] }, panel, undefined, vi.fn()).find((c) => c.words === 'find')!.unavailable).toBe('This panel has no workspace for it to act on.');
   });
 
   it('the client reads nothing of its line: whatever follows its words is the server\'s to read', () => {
@@ -166,7 +182,7 @@ describe('Enter on a line the server reads, through its page\'s door (ADR-0016 Â
   const moved = (at: number, read: number) => new ApiError(409, { code: 'RevisionMoved', message: `The workspace is at revision ${at}, not ${read}.`, issues: [] });
 
   /** A page that holds its workspace at `held`, with nothing of its own waiting, and reads it again at `stands`. */
-  const page = (held: number, stands: number = held, view?: () => LineView | undefined) => {
+  const page = (held: number, stands: number = held, view?: () => LineView | undefined, place?: (place: LinePlace, view: LineView) => string | undefined) => {
     const turns = {
       revision: held,
       after: <T,>(run: (revision: number) => Promise<T>) => run(turns.revision),
@@ -177,7 +193,12 @@ describe('Enter on a line the server reads, through its page\'s door (ADR-0016 Â
     const preview = vi.fn<Api['preview']>();
     const command = vi.fn<Api['command']>();
     const reread = vi.fn(() => Promise.resolve(stands));
-    return { turns, notify, preview, command, reread, door: commandDoor({ workspaceId: 'ws-1', catalog, api: { preview, command }, turns, reread, notify, ...(view === undefined ? {} : { view }) }) };
+    // What the page says is on screen: the view, and how the grid it was read of takes a place read for it.
+    const screen = view === undefined ? undefined : () => {
+      const seen = view();
+      return seen === undefined ? undefined : { view: seen, put: (at: LinePlace) => (place === undefined ? 'This grid takes no place.' : place(at, seen)) };
+    };
+    return { turns, notify, preview, command, reread, door: commandDoor({ workspaceId: 'ws-1', catalog, api: { preview, command }, turns, reread, notify, ...(screen === undefined ? {} : { screen }) }) };
   };
 
   it('runs the reading the line showed, by its own inputs with the revision it was read at, and reads the line no second time', async () => {
@@ -273,6 +294,59 @@ describe('Enter on a line the server reads, through its page\'s door (ADR-0016 Â
     expect(p.notify.mock.calls).toEqual([['refused', 'Set R1 checked to on. The page could not read the workspace again: The server did not answer.']]);
     // The page's next edit chains on what the command left, whatever the page could read.
     expect(p.turns.revision).toBe(8);
+  });
+
+  const cell: LinePlace = { table: 'w.readings', subset: 'manual', key: 'R2', position: 2, column: 'note', said: 'The keyboard is on R2 Â· note in readings (manual).' };
+  const placing = (revision: number): LinePreview => ({ revision, place: cell, would: 'The keyboard goes to R2 Â· note.', complete: [], more: 0 });
+
+  it('a reading that names a place invokes nothing: the page puts the keyboard there, the notice is the server\'s sentence, and the line is told the keyboard was moved (ADR-0016 note 21)', async () => {
+    const put = vi.fn(() => undefined);
+    const p = page(7, 7, () => onScreen, put);
+
+    const ended = await p.door.enter('find R2 note', placing(7), p.door.view());
+
+    expect(ended).toEqual({ moved: true });
+    expect(put).toHaveBeenCalledWith(cell, onScreen);
+    expect([p.preview, p.command, p.reread].map((f) => f.mock.calls.length)).toEqual([0, 0, 0]);
+    expect(p.notify.mock.calls).toEqual([['done', 'The keyboard is on R2 Â· note in readings (manual).']]);
+    expect(p.turns.revision).toBe(7);
+  });
+
+  it('a place the page cannot put the keyboard on keeps the line with the reason, and nothing is said to have moved', async () => {
+    const p = page(7, 7, () => onScreen, () => 'The grid has moved since the line opened: open the line again.');
+
+    expect(await p.door.enter('find R2 note', placing(7), p.door.view())).toEqual({ sentence: 'The grid has moved since the line opened: open the line again.' });
+    expect(p.notify).not.toHaveBeenCalled();
+  });
+
+  it('a place read at another revision than the page then holds is asked for again, with the view the line opened with, and so is one not yet shown', async () => {
+    const put = vi.fn(() => undefined);
+    const stale = page(8, 8, () => onScreen, put);
+    stale.preview.mockResolvedValue({ ...placing(8), place: { ...cell, position: 1 } });
+
+    expect(await stale.door.enter('find R2 note', placing(7), stale.door.view())).toEqual({ moved: true });
+    expect(stale.preview).toHaveBeenCalledWith('find R2 note', 'ws-1', { revision: 8, view: onScreen });
+    expect(put).toHaveBeenCalledWith({ ...cell, position: 1 }, onScreen);
+
+    const unread = page(7, 7, () => onScreen, put);
+    unread.preview.mockResolvedValue(placing(7));
+    expect(await unread.door.enter('find R2 note', undefined, unread.door.view())).toEqual({ moved: true });
+    expect(unread.preview).toHaveBeenCalledWith('find R2 note', 'ws-1', { revision: 7, view: onScreen });
+  });
+
+  it('the place is put in the grid the line\'s view was read of, whatever the screen shows by then; a view the page did not give has no grid, and is said', async () => {
+    // Each reading of the screen is a view of its own, with its own grid behind it.
+    const put = vi.fn<(place: LinePlace, view: LineView) => string | undefined>(() => undefined);
+    const p = page(7, 7, () => ({ ...onScreen }), put);
+    const opened = p.door.view()!;
+    p.door.view();
+
+    expect(await p.door.enter('find R2 note', placing(7), opened)).toEqual({ moved: true });
+    expect(put.mock.calls[0]![1]).toBe(opened);
+
+    const defect = { sentence: 'The server named a place, and this page gave the line no grid to put the keyboard on.' };
+    expect(await p.door.enter('find R2', placing(7), { ...onScreen })).toEqual(defect);
+    expect(await page(7).door.enter('find R2', placing(7))).toEqual(defect);
   });
 
   it('a command by its id, from a key or a button, runs in the same turn at the catalog\'s version and the page\'s revision', async () => {

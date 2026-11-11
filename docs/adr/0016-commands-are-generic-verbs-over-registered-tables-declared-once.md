@@ -723,9 +723,9 @@ Step 2 is three pull requests (`docs/specs/commands-2-selection-context-places`)
     - *Enter before the reading has arrived* runs the line with the view read as the line opened, as note 15 has it
       for rows that are typed: the rows are those the screen showed at the opening, whenever Enter falls, so the
       outcome does not depend on how fast the line was typed. The count is then said by the notice, not before.
-    - *A table left out is not yet the screen's.* `all`, a subset and `where` with no table still mean the main
-      table, as in step 1, though §9 gives them the focused grid's table. Built with the places (ticket 12, 2b),
-      where `go csa` first makes another grid the screen from the line.
+    - *A table left out was not yet the screen's in 2a.* `all`, a subset and `where` with no table still meant the
+      main table, as in step 1, though §9 gives them the focused grid's table. Built with the places (ticket 12,
+      2b), where `go csa` first makes another grid the screen from the line: note 23.
 19. **The line says its context (§9, ADR-0006 §5).** Every preview asked with a view answers the view in the
     server's words, one sentence (`trades (existing), 3 selected, E00003 · csa`). The line asks once as it opens,
     with no text, and shows the sentence under the input until it closes.
@@ -737,6 +737,77 @@ Step 2 is three pull requests (`docs/specs/commands-2-selection-context-places`)
     - *A filter and a moved order are said.* A grid its page filters says how many rows that leaves (`csas, filtered
       to 1, nothing selected`). The answer also says apart that the order has moved (`viewMoved`), and the line
       draws that sentence as a warning, since its rows can no longer be said (design guidelines §7).
+
+Notes 20 to 23 are 2b's (tickets 06 to 08 and 12).
+
+20. **Places, and `go` (§9).** A page registers its places with the shell while it is mounted: for each a word,
+    what the screen calls it, whether it is a grid, and how the keyboard is put there. The shell builds `go <place>`
+    from the places of the page in the active panel, with their words to complete from, and refuses a word that
+    names none with the places there are. `go` is the client's alone: it reads no workspace and writes none, it is
+    not logged, and the AI is not offered it.
+    - *It says where the keyboard went*, in a notice: `The keyboard is in Existing trades.`
+    - *A place that cannot take the keyboard now says why, and nothing moves*: `go results` with nothing priced, a
+      tab that shows only while a selected measure needs it. The line stays, with the reason.
+    - *A page of one grid* has one place, `grid`. A page with none lists `go` and says it has no places to go to.
+    - *The pricer's places:* `new` and `existing`, its trade grids; its input tabs by the words `open` takes
+      (`netting`, `csa`, `credit`, `im`, `scenarios`, `settings`, `changes`), where `go csa` does what `open csa`
+      does; and `results`, the dock. A trace widened over the grids is the place `trace`, and comes first while it
+      is. Below `sm`, where the page is three parts, `go` shows the part its place is in first.
+    - *`focus grid` is `go`* to the first place that is a grid, and keeps its chord and its words. On the pricer
+      that is New trades, or the trace while one is widened over the grids, as before.
+    - *`open <tab>` stays* as it is. It and `go <tab>` are two words for one act; which goes is step 3's, where the
+      pricer's commands move to the server.
+    - *As built.* The registry is the shell's (`shell/places.ts`), by panel, read when a command runs, so a place
+      that comes and goes with the page's state (the trace) is offered only while it is there. A word that names no
+      place is refused by the line's own check of an argument: `place: one of new, existing, …, results`. `open
+      <tab>` for a tab that does not show now keeps the line with the reason too, where it was a refused notice.
+      From the chord there is no line, and the reason is a notice: `focus grid: This panel has no grid yet.`
+21. **`find` is read by the server and done by the page (§3, §9; amends §3 and §4's "in the client only").**
+    `find <row> [<field>]` puts the Focus of the grid on screen on a row or on one of its cells. Its row may be one
+    the page has not loaded, and the reading of a line is the server's (§5): so `POST /api/commands/preview` reads
+    it, with the view, and answers a **place** and no command: the table, the row's key, its position in the
+    view's order where the server pages the grid, the column, and the sentence to say once the keyboard is there.
+    Enter invokes nothing: the page puts the Focus on the place. `go` and `open` name only what a page declares
+    and stay the client's.
+    - *A view verb is declared once, on the server, apart from the capabilities.* `GET /api/catalog` lists the view
+      verbs (`viewVerbs`: an id, a title and the command form), and the line builds their entries as it builds a
+      capability's. They are no capabilities: nothing invokes them, the log never holds one, and the agent's tools,
+      which are the capabilities (ADR-0007 §3), hold none.
+    - *The row* is looked for among the rows the grid shows: its subset's, or those its page's filter leaves. By
+      its id as written, then by the end of an id (note 7); an end that names several is refused with them. A row
+      of the table that this grid does not show is refused, and the reason says where it is (`NotOnScreen`).
+    - *The field* is a field of the table by its words, refused with the fields there are. Left out, the Focus
+      keeps the column it was on, or takes the first where the grid had none.
+    - *The place.* Where the server pages the grid, the row's position in the view's sort, refused where the
+      order token is no longer the grid's (`ViewMoved`). Where the page holds every row, the key alone.
+    - *With no screen* the line is refused (`NoView`): `find` looks in a grid, and says to go to one.
+    - *The page places with `placeSelection`*, one cell with the Focus on it, against the Row Sequence Version the
+      view was read in: ExGrid reveals the Focus and refuses a version it has left. Not `placeMatch`, which §9
+      named: that takes the cell as the current match of the grid's own Find panel. A grid that refuses, and a
+      field the grid shows no column of, leave the line open with the reason.
+    - *The keyboard is in the grid afterwards*, and the notice is the server's sentence: `The keyboard is on
+      ABC-LE-01-E00003 · csa in trades (existing).`
+    - *Enter before the reading has arrived* has the page ask for it, with the view read as the line opened. A
+      reading on screen that is of an older revision than the page then holds is asked for again.
+    - *As built.* A page gives its door a **screen**: the view, and how the grid it was read of takes a place. The
+      door keeps each view it handed the line with that grid, so a place is put in the grid the line opened on,
+      whatever the page shows by then. It answers that the keyboard has moved, and the line then gives none back.
+      The line's entry is `view.find`, among the workspace's commands. `find` completes the ids of the rows the
+      grid shows that start or end with what is typed, twenty at a time, and then the table's fields.
+22. **Where the keyboard is afterwards (§9).** A command that edits or executes gives the keyboard back to where
+    it was when the line opened: `set`, `reset`, `undo`, Price. So it has been since step 1; a browser test now
+    holds it. `go` and `find` leave it where they put it, and the line gives nothing back after them.
+23. **A table left out is the screen's (§9; ticket 12, from the review of 2a).** With a view behind the line,
+    rows said as `all` or by `where` alone, with no table, are rows of the view's table. A subset's word names
+    the view's table where that table has such a subset, and the main table otherwise: on the CSA grid `existing`
+    is still the existing trades. With no view (the AI, a saved sequence) the main table, as in step 1. Rows by
+    id are found as before, in the one table that has them (note 7).
+    - *The request names the table.* Where the screen gave a table that is not the main one, the inputs the
+      preview answers hold it (`table: csas`), so the command run is rows of that table whoever reads the request,
+      and the log names it as a line that could be typed anywhere: `set csas where ccy=USD threshold 0`.
+    - *What could follow* offers the subsets and, after `where`, the fields of the table the rows would be read in.
+    - *Rows left out, `selected` and `shown` need no table named here*: the request already holds their keys and
+      their table (note 18). An id is found in the one table that has it.
 
 ## Rejected
 

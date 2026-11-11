@@ -53,7 +53,9 @@ static class TableCompletions
             var main = tables.FirstOrDefault(t => t.Descriptor.Main);
             // The rows of a screen are of the screen's table, whatever else the line names: one that names another is refused, and nothing follows it.
             if (selector.Screen is not null && (onScreen is null || (said is not null && said != onScreen))) return LineCompletions.None;
-            var target = selector.Screen is not null ? onScreen : said ?? main;
+            // Rows said with no table are read in the screen's, where a screen is behind the line (note 23 of step 2).
+            var unsaid = Selectors.Unsaid(selector, tables, view);
+            var target = selector.Screen is not null ? onScreen : said ?? unsaid;
 
             if (scan.Open is { } open)
             {
@@ -63,7 +65,7 @@ static class TableCompletions
             {
                 // Words after the rows are the verb's own.
                 var pending = done.Skip(scan.Taken).ToList();
-                foreach (var table in TablesOf(selector, said, main, onScreen, string.Join(' ', pending.Select(w => w.Word)))) AfterRows(table, pending);
+                foreach (var table in TablesOf(selector, said, unsaid, onScreen, string.Join(' ', pending.Select(w => w.Word)))) AfterRows(table, pending);
             }
             else if (selector.Where.Count > 0)
             {
@@ -120,7 +122,9 @@ static class TableCompletions
                 if (view.Selected > 0) Keyword(SelectorReader.SelectedWord, detail: Counted(view.Selected));
                 if ((view.Filtered ?? Views.Unfiltered(view, onScreen, onScreen.Table.Rows(state)).Count) is > 0 and var shown) Keyword(SelectorReader.ShownWord, detail: Counted(shown));
             }
-            foreach (var subset in (said ?? main)?.Descriptor.Subsets ?? []) Keyword(subset.Name, TableWords.Names(subset));
+            // A subset's word names the screen's table where it has it, and the main table otherwise.
+            foreach (var subset in said is not null ? said.Descriptor.Subsets : new[] { onScreen, main }.OfType<BoundTable>().Distinct().SelectMany(t => t.Descriptor.Subsets))
+                Keyword(subset.Name, TableWords.Names(subset));
             Keyword(SelectorReader.WhereWord);
             if (said is null)
             {
@@ -270,12 +274,12 @@ static class TableCompletions
         IReadOnlyList<string> Keys(BoundTable table) => keys.TryGetValue(table, out var read) ? read : keys[table] = [.. table.Table.Rows(state).Select(r => r.Key)];
 
         // The table the verb's words are read against: the one the rows say, or, with no rows, each table of one row that has the field they start with.
-        IEnumerable<BoundTable> TablesOf(RowSelector selector, BoundTable? said, BoundTable? main, BoundTable? onScreen, string pending)
+        IEnumerable<BoundTable> TablesOf(RowSelector selector, BoundTable? said, BoundTable? unsaid, BoundTable? onScreen, string pending)
         {
             if (selector.Screen is not null) return onScreen is null ? [] : [onScreen];
             if (said is not null) return [said];
             if (selector.Ids.Count > 0) return [Selectors.Resolve(selector with { Where = [] }, tables, state).Table];
-            if (!selector.SaysNoRows) return main is null ? [] : [main];
+            if (!selector.SaysNoRows) return unsaid is null ? [] : [unsaid];
             // No rows: a table of one row that has the field the words start with, and the screen's table where it has it.
             return tables.Where(t => (t.Descriptor.SingleRow || t == onScreen) && Assignments.StartsWithAFieldOf(pending, t));
         }

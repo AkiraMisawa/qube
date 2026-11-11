@@ -57,8 +57,8 @@ export interface XvaPage {
   refresh(): void;
   /** Sets the currency the figures are shown in (`currency USD`, ADR-0010 §1). */
   setCurrency(currency: string): void;
-  /** Opens an input tab, showing the inputs if they were collapsed (`open netting`, ADR-0010 §9). */
-  openTab(tab: InputTab): void;
+  /** Opens an input tab, showing the inputs if they were collapsed (`open netting`, ADR-0010 §9); answers why where the tab does not show now. */
+  openTab(tab: InputTab): string | undefined;
   /** Opens the trace of a measure the dock's Run priced, for the case in view, at a term or its root (`explain`, ADR-0011 §7). */
   explain(measure: string, path?: string): void;
   /** The id of the trace the dock shows in a measure's own tab, which the trace commands act on; none on Metrics. */

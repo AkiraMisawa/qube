@@ -36,6 +36,16 @@ export interface CapabilityDescriptor {
   readonly command?: CommandForm;
 }
 
+/**
+ * A verb of the screen as the catalog lists it (ADR-0016 §3, note 21 of 2026-11-11): its id, what it does, and how it
+ * is typed. The server reads its line as it reads a command's, and answers what the page is to do; nothing invokes it.
+ */
+export interface ViewVerbDescriptor {
+  readonly verbId: string;
+  readonly title: string;
+  readonly command: CommandForm;
+}
+
 /** What could stand at the end of a line: the text, where in the line it is written from, and what it is where that helps. */
 export interface LineCompletion {
   readonly value: string;
@@ -69,12 +79,27 @@ export interface LineArgument {
 }
 
 /**
+ * Where a view verb asks the page to put the keyboard (ADR-0016 §9, note 21 of 2026-11-11): a cell of the grid behind
+ * the line. Its row by key, and by its position in the view's order where the server pages the grid; its column as the
+ * view names its columns, none where the grid's Focus had none to keep; and the sentence to say once the keyboard is there.
+ */
+export interface LinePlace {
+  readonly table: string;
+  readonly subset?: string;
+  readonly key: string;
+  readonly position?: number;
+  readonly column?: string;
+  readonly said: string;
+}
+
+/**
  * A line as the server read it at a revision (ADR-0016 §5; `POST /api/commands/preview`), with nothing executed: the
  * command and either its reading or why it cannot be read, and what could follow the last word. `inputs` invoke the
  * command on the revision read. `at` is the moment the reading speaks of, where it speaks of one: the sentence holds
  * no time, and the line writes this in its user's zone. `view` is the view the reading was asked with, in one sentence
  * (note 19), and `viewMoved` says that its positions are of an order that has moved since, so that its rows can no
- * longer be said; a reading asked with no view has neither.
+ * longer be said; a reading asked with no view has neither. A view verb's reading names no command: it answers the
+ * `place` the page is to put the keyboard on, and Enter invokes nothing (note 21).
  */
 export interface LinePreview {
   readonly revision: number;
@@ -89,6 +114,7 @@ export interface LinePreview {
   readonly more: number;
   readonly view?: string;
   readonly viewMoved?: boolean;
+  readonly place?: LinePlace;
 }
 
 export interface FieldSchema {
@@ -202,6 +228,8 @@ export interface ActionDefinition {
 
 export interface Catalog {
   readonly capabilities: readonly CapabilityDescriptor[];
+  /** The verbs of the screen a line may say (ADR-0016 note 21 of 2026-11-11), listed apart from the capabilities, which they are not. */
+  readonly viewVerbs: readonly ViewVerbDescriptor[];
   readonly contracts: readonly ContractDefinition[];
   readonly workflows: readonly WorkflowDefinition[];
   readonly views: readonly ViewDefinition[];
