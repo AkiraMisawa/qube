@@ -23,3 +23,5 @@ grid's own Sort.
   grid is not: it shows a term as typed (`10y`, `5mm`), which the grid would order as text, so its page names its
   columns as ones the grid does not sort by, and `sort by end` is refused on the line by the column's name. Sorting
   it by what a term means is left for later.
+- *In review:* the browser test of the trade grid read only the header's `aria-sort`; it now reads the notionals of
+  the first rows too, which only fall. `sort off` and `filter off` share one reading of `off` in the kernel.

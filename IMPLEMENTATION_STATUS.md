@@ -1987,6 +1987,9 @@ those rows.
   their count, the count with none and a token of that order. A column's own filter panel is still refused there.
 - **A grid whose page holds its rows** (the CSAs, the Rates lines): the page asks the server which rows the
   conditions leave at each revision it shows (`POST /api/workspaces/{id}/shown`); the client reads no condition.
+  Its view says the conditions and names no row for them, so a line's `shown` is what the server reads them to
+  leave at the revision the line is read at, whatever the grid has drawn. While it waits for an answer the grid
+  keeps what the server last said.
 - **Refused by name:** no grid behind the line (`NoView`), another table's or subset's grid (`OtherGrid`), a field
   the table has not, a field its reader does not sort by (`NotSortable`), conditions `where` would refuse, and
   conditions that can no longer be read (`FilterUnread`), which are never read as none.
@@ -2013,16 +2016,24 @@ The conditions are read again at each page and nothing is kept between pages.
 | What | Result |
 |---|---|
 | `dotnet test server/Qube.slnx` | 1158 passed |
-| Client: `npm run typecheck`, `npm test`, `npm run build` | Clean; 309 passed in 34 files; built |
-| `npx playwright test` (Chromium, headless, Linux) | PLAYWRIGHT_COUNT passed |
+| Client: `npm run typecheck`, `npm test`, `npm run build` | Clean; 317 passed in 35 files; built |
+| `npx playwright test` (Chromium, headless, Linux) | 90 passed |
 | The three browser tests this step adds, with `--repeat-each=3` | 9 passed |
 | `python3 tools/validate_handoff.py` | Passed |
-| A filtered trade grid and a filtered CSA grid at 390, 768, 992 and 1440px, dark and light | Looked at; no sideways scroll, the filter's line inside the page |
+| A filtered trade grid, CSA grid and Rates line grid at 390, 768, 992 and 1440px, dark and light | Looked at; no sideways scroll, the filter's line inside the page |
 
 The server's tests read the two verbs and a view's conditions over a registration with no financial word, then the
 pricer's page endpoint and `/shown` through the host. The browser tests sort and filter a trade grid from the line,
 write `shown` under the filter, edit a row out of it and take the filter off by the line and by the button; filter
-the CSA grid with a line chained on it; and filter the Rates line grid.
+the CSA grid with a line chained on it; and filter the Rates line grid. One step holds the page's own question
+back, so that the CSA grid still draws the rows it last heard of while the line reads the rows the conditions now
+leave: what a line reads is the server's, not the grid's progress.
+
+The code review (two readers, the standards and the spec) found that last case as built: a row an edit had just
+brought into a held grid's conditions was missed by a chained `set shown` until the page had heard of it. It was
+corrected before the pull request, with the token of a filtered order, which moved with rows the filter leaves out
+(ADR-0016 note 41, "Corrected in review"). A test of the line's list (`workbench.spec.ts`) failed once in a full
+run: it read the list before the Rates page had drawn its grid, and now waits for the grid.
 
 ### Providers
 
@@ -2035,8 +2046,10 @@ Unchanged: every figure of the pricer and of Rates is simulated, and says so.
   when any read fails. A grid whose page holds its rows shows no row then.
 - The caption says the conditions as typed, and the notice as the server read them (`ccy=USD`, `ccy = USD`).
 - A column's own filter panel is refused on the trade grids; on the CSA grid it works beside the line's filter.
+  The grid then names its rows to the line, and after each edit it is given every row until the server has
+  answered for the revision: it is drawn twice at each edit. What that does to its Selection was not looked at.
 - Conditions are joined by `and` alone (ADR-0016, Rejected, "A full query language").
-- A filter is the grid's while its page is open: it is not kept with the workspace, and a page opened again has none.
+- A sort and a filter last as long as the panel (ADR-0017 §1): neither is kept with the workspace or for the user.
 - `select`, `copy` and `export` are step 4c's.
 
 ## Next

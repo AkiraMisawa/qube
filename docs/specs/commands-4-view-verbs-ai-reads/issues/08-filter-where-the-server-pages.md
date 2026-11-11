@@ -28,3 +28,8 @@ the conditions are the selector's, a view carries them, and the page reader narr
 - *Measured at 10,009 rows* (Release build, SQLite, sorted by notional): the first page under `ccy=USD` (4,011 rows
   left) 84 ms, then 15 to 53 ms, against 7 to 8 ms with no conditions; a reading of `set shown a off` under them 46
   to 129 ms (71 KB); `filter where ccy=USD` itself 9 to 62 ms. Recorded, not gated.
+- *Corrected in review (note 41):* the order's token under conditions was the reader's with a digest of the keys left,
+  so it moved with a row the conditions leave out and a selection in the filtered grid was refused as moved. It is
+  the digest alone. The offer of `shown` swallowed every refusal of its count; it now leaves out the word only where
+  the filter is unread. The measurement was run by a script of this session against a host of the Release build;
+  the script is not in the repository.

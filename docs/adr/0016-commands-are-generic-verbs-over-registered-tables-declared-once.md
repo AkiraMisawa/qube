@@ -1580,11 +1580,34 @@ preview (§7), 4b `sort` and `filter`, 4c `select`, `copy` and `export`. Note 38
     - *Added as built: what is said.* The caption says the conditions as the grid holds them, which is as typed
       (`Filter: ccy=USD · 17 of 43`), and the notice as the server read them (`where ccy = USD`). The page's
       answer says how many rows the grid has with no conditions (`of`), and so does `/shown`. The order's token
-      under conditions is the reader's with a digest of the keys left, in their order.
+      under conditions is the reader's with a digest of the keys left, in their order (corrected below).
     - *Measured at 10,009 rows* (Release build, SQLite, the Existing grid sorted): a page under conditions takes
-      15 to 55 ms against 7 to 8 ms with none, a reading of `set shown a off` under them 46 to 129 ms. The
-      conditions are read again at each page, and nothing is kept between pages: a module's cell arrives with no
-      edit, so rows kept by the state alone could be stale.
+      15 to 57 ms (84 ms the first time) against 7 to 8 ms with none, a reading of `set shown a off` under them
+      46 to 129 ms. The conditions are read again at each page, and nothing is kept between pages: a module's
+      cell arrives with no edit, so rows kept by the state alone could be stale.
+    - *Corrected in review: which rows conditions leave is the server's alone to say.* "`shown` and the
+      conditions together" had a grid whose page holds its rows name the rows it shows beside its conditions.
+      That left one more outcome to timing: at a new revision the grid still holds the rows of the answer before,
+      so a row an edit had just brought into the conditions was missed by a line chained on it until `/shown`
+      answered. A view now says its conditions and names no row for them, where the page holds the rows as where
+      the server pages them: the server reads which rows they leave at the revision the line is read at, whatever
+      the grid has drawn. One grid still names rows beside its conditions: one that also filters by its own
+      columns (ExGrid's filter panel, where the page holds every row), since only the grid knows which rows
+      those leave. The server reads the conditions among the rows it names, and its page gives it every row
+      until the server has answered for the conditions and the revision it shows, so the rows named are never
+      short of one.
+    - *Corrected in review: what a grid whose page holds its rows draws while it waits.* It keeps what the server
+      last said until it says otherwise: the rows of the same conditions at the revision before, the rows it had
+      under the conditions before these (every row where it had none), and no row, with why, where the
+      conditions could not be read, at a later revision too. As built it showed every row for a moment in the
+      last two cases. The caption counts the rows drawn, and says new conditions with no count until they are
+      answered. An answer that did not come is said as conditions that could not be read are.
+    - *Corrected in review: the order's token under conditions* is a digest of the keys left, in their order, and
+      no part of the reader's. The reader's moves with a row the conditions leave out, which made "and only then"
+      untrue: a selection in a filtered grid was refused as moved after an edit elsewhere.
+    - *Added in review: they last as long as the panel.* Sort and filter are view state, not settings
+      (ADR-0017 §1 and §6, the owner's): neither is kept with the workspace or for the user, and a grid drawn again
+      starts with none.
 
 ## Rejected
 
