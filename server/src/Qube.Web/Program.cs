@@ -127,10 +127,13 @@ builder.Services.AddSingleton<ISavedItemStore>(_ => new SqliteSavedItemStore(dat
 builder.Services.AddSingleton(new Desks(builder.Configuration.GetSection("Qube:Desks").GetChildren()
     .ToDictionary(d => d.Key, d => d.Value ?? throw new InvalidOperationException($"Qube:Desks:{d.Key} names no desk."), StringComparer.OrdinalIgnoreCase)));
 builder.Services.AddSingleton<SavedItems>();
-// A user's settings (ADR-0017 §2) beside the saved items. Each module registers its own; the shell's are the theme,
-// the command ranking and column widths. The commands reach the service only when invoked, as the tables' do.
+// A user's settings (ADR-0017 §2) beside the saved items. Each module registers its own: the shell's are the theme,
+// the command ranking and column widths, the pricer's the display currency a new workspace starts in, and Rates' the
+// defaults of a new line. The commands reach the service only when invoked, as the tables' do.
 builder.Services.AddSingleton<IUserSettingStore>(_ => new SqliteUserSettingStore(database));
 builder.Services.AddSingleton<ISettingCatalog, ShellSettings>();
+builder.Services.AddSingleton<ISettingCatalog, PortfolioSettings>();
+builder.Services.AddSingleton<ISettingCatalog>(new RatesNewLineSettings(conventions));
 builder.Services.AddSingleton<UserSettings>();
 builder.Services.AddSingleton<IQubeModule>(sp => new SettingsModule(sp.GetRequiredService<UserSettings>));
 builder.Services.AddSingleton<PortfolioWorkspaces>();

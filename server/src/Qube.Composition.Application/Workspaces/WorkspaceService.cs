@@ -39,6 +39,17 @@ public sealed record WorkspaceState(
     /// <summary>True when the target is read from the acquired source, which a re-acquisition replaces.</summary>
     public bool IsAcquired(EditTarget target) => !Derived.ContainsKey(target.Scope) && !Created.ContainsKey(target.Entity);
 
+    /// <summary>
+    /// True where the edit was written by the workspace's making: a value it was made with, such as a user's default
+    /// (ADR-0017 §3), which is the workspace's from its start and which <c>undo</c> never takes back.
+    /// </summary>
+    public bool IsMade(Override edit)
+    {
+        var entry = edit.Seq >= 1 && edit.Seq <= Log.Count ? Log[(int)edit.Seq - 1] : null;
+        if (entry?.Seq != edit.Seq) throw new InvalidOperationException($"Workspace {WorkspaceId}'s log holds no entry {edit.Seq} where its edits say.");
+        return entry.Command?.Id == CommandStamp.IdAt(1);
+    }
+
     /// <summary>How many edits of each module kind a scope holds, for the confirmation before dropping it.</summary>
     public IReadOnlyDictionary<EditTarget, Override> InScope(string scope) =>
         Overrides.Values.Concat(Conflicts.Values.Select(c => c.Override)).Concat(Lost.Values.Select(l => l.Override))

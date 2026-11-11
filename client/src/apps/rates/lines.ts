@@ -511,9 +511,13 @@ export function lineCellMessage(row: LineRow, column: GridColumn<LineRow>): stri
   return undefined;
 }
 
-/** Where a default came from, in words (ADR-0008 §4): the workspace's own defaults, a convention profile's template, or a decision. */
+/**
+ * Where a default came from, in words (ADR-0008 §4): the workspace's own defaults, those the user's settings gave it as
+ * it was made (ADR-0017 §3), a convention profile's template, or a decision.
+ */
 function defaultSource(source: string): string {
   if (source === 'workspace') return 'the workspace defaults';
+  if (source === 'settings') return 'the workspace defaults, as your settings gave them';
   if (source.startsWith('profile:')) return `the convention profile ${source.slice('profile:'.length)}`;
   return `decision ${source}`;
 }

@@ -193,6 +193,18 @@ const describe = (error: unknown) => (error instanceof Error ? error.message : S
 /** What a workspace's trades were read of: the counterparty, the value date and the source's version of them. */
 const sourceOf = (view: XvaWorkspaceView) => `${view.registration.key} ${view.context.valueDate} ${view.sourceVersion}`;
 
+/**
+ * Where the display currency came from, in words (ADR-0017 §3): the user's setting, copied in as the workspace was made;
+ * a choice in this workspace; or the company profile's. A workspace keeps its own whatever the setting says later.
+ */
+export function currencyFrom(currency: string, from: XvaWorkspaceView['displayCurrencyFrom']): string {
+  switch (from) {
+    case 'setting': return `${currency}, from your settings, copied in as this workspace was made.`;
+    case 'workspace': return `${currency}, chosen in this workspace.`;
+    case 'profile': return `${currency}, the company profile's: your settings name no display currency.`;
+  }
+}
+
 export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   readonly panelId: string; readonly workspaceId: string; readonly api: XvaApi; readonly traceApi: TraceApi;
 }) {
@@ -914,6 +926,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
         <ToolbarField label="Currency">
           {(id) => (
             <Select id={id} size="xs" className="qube-toolbar-input qube-toolbar-input--currency" allowDeselect={false} value={ws.displayCurrency}
+              title={currencyFrom(ws.displayCurrency, ws.displayCurrencyFrom)} data-from={ws.displayCurrencyFrom}
               data={ws.currencies} onChange={(value) => { if (value !== null) setCurrency(value); }} disabled={!notBusy} comboboxProps={{ withinPortal: true }} />
           )}
         </ToolbarField>

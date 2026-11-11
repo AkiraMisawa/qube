@@ -13,13 +13,14 @@ public enum SettingKind { Preference, Default }
 /// <summary>
 /// A setting as the module it belongs to registers it (ADR-0017 §2), as a table's field is registered: its key, its
 /// title and the words a line names it by, its kind, and how its value is written. A typed setting has a
-/// <see cref="FieldSpec"/>: it is typed as a field is and read by the one reader of values. A structured one (a map of
-/// widths) is written by the page as JSON, and its module says why a value is refused (<see cref="Check"/>). A key that
+/// <see cref="FieldSpec"/>: it is typed as a field is and read by the one reader of values, and its module may refuse
+/// more than its form does (<see cref="Check"/>: a notional of more than 0). A structured one (a map of widths) is
+/// written by the page as JSON, and its module says why a value is refused (<see cref="Check"/>). A key that
 /// ends in <c>.*</c> is a family, whose members are kept by their own keys (<c>grid.widths.rates/lines</c>) and named
 /// by the family's words and the rest of the key (<c>widths rates/lines</c>).
 /// </summary>
 /// <param name="Registered">The value when the user has set none; none where there is none (a default that leaves the field empty).</param>
-/// <param name="Check">For a structured setting: why a value is refused, or null where it is taken.</param>
+/// <param name="Check">Why a value is refused, in words that follow "is", or null where it is taken: a structured setting's every rule, a typed one's beyond its form.</param>
 public sealed record SettingDefinition(
     string Key,
     string Title,
@@ -109,7 +110,7 @@ public sealed class UserSettings
     /// <summary>Every registration, in the order the catalogs give them.</summary>
     public IReadOnlyList<SettingDefinition> Definitions { get; }
 
-    /// <summary>Fails at start where two registrations share a key or a word, or one is neither typed nor checked.</summary>
+    /// <summary>Fails at start where two registrations share a key or a word, or one is neither typed nor checked, or a family is typed.</summary>
     public UserSettings(IEnumerable<ISettingCatalog> catalogs, IUserSettingStore store, TimeProvider time)
     {
         this.store = store;
@@ -117,8 +118,8 @@ public sealed class UserSettings
         Definitions = [.. catalogs.SelectMany(c => c.Settings)];
         foreach (var definition in Definitions)
         {
-            if ((definition.Spec is null) == (definition.Check is null))
-                throw new InvalidOperationException($"Setting {definition.Key} is typed (a field's form) or structured (a check), and one of the two.");
+            if (definition.Spec is null && definition.Check is null)
+                throw new InvalidOperationException($"Setting {definition.Key} is typed (a field's form) or structured (a check): it is neither.");
             if (definition.IsFamily && definition.Spec is not null)
                 throw new InvalidOperationException($"Setting {definition.Key} is a family, which the page writes: it is structured.");
         }
@@ -240,8 +241,8 @@ public sealed class UserSettings
     // Why a value is not one the setting takes, in words that follow "is": null where it is taken.
     static string? Refusal(SettingDefinition definition, JsonNode value)
     {
-        if (definition.Check is { } check) return check(value);
-        var spec = definition.Spec!;
+        if (definition.Spec is not { } spec)
+            return (definition.Check ?? throw new InvalidOperationException($"Setting {definition.Key} is neither typed nor checked."))(value);
         string written;
         try
         {
@@ -252,7 +253,8 @@ public sealed class UserSettings
             return FieldForms.Takes(spec);
         }
         var read = FieldForms.Read(spec, written);
-        return read.Problem == FieldForms.Problem.None && FieldForms.Same(read.Value, value) ? null : read.What ?? FieldForms.Takes(spec);
+        if (read.Problem != FieldForms.Problem.None || !FieldForms.Same(read.Value, value)) return read.What ?? FieldForms.Takes(spec);
+        return definition.Check?.Invoke(value);
     }
 
     static JsonNode Value(SettingDefinition definition, string text)
@@ -262,6 +264,8 @@ public sealed class UserSettings
             var read = FieldForms.Read(spec, text);
             if (read.Problem != FieldForms.Problem.None || read.Value is null)
                 throw new SettingRefused("InvalidValue", $"{definition.Title} is {read.What ?? FieldForms.Takes(spec)}; {Quoted(text)} is not.");
+            if (definition.Check?.Invoke(read.Value) is { } why)
+                throw new SettingRefused("InvalidValue", $"{definition.Title} is {why}; {Quoted(text)} is not.");
             return read.Value;
         }
         JsonNode? parsed;

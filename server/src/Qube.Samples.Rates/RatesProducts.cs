@@ -125,7 +125,6 @@ public abstract class RatesProductRules(ConventionRegistry conventions, Func<Rat
     // The economic check is the line resolver's, as for a line typed in the grid (ADR-0008 §7).
     static ProductTermsRefused Refused(LineTermsRefused refused) => new([.. refused.Issues.Select(i => new ProductIssue("InvalidTerms", null, i))]);
 
-    protected const string Workspace = "workspace";
     protected static string ProfileSource(ConventionProfile p) => $"profile:{p.Id}@{p.Version}";
 
     /// <summary>The one profile of a currency, when it has exactly one: what an index left out may come from.</summary>
@@ -154,9 +153,9 @@ public abstract class RatesProductRules(ConventionRegistry conventions, Func<Rat
     {
         var d = LineDefaults.Of(workspace);
         var defaults = new Dictionary<string, ProductDefault>();
-        if (d.Currency is { } c) defaults[currency] = new(c, Workspace);
-        if (d.Notional is { } n) defaults[notional] = new(n, Workspace);
-        if (d.Direction is { } dir) defaults[direction] = new(dir, Workspace);
+        if (d.Currency is { } c) defaults[currency] = new(c, d.SourceOf(LineDefaults.CurrencyField));
+        if (d.Notional is { } n) defaults[notional] = new(n, d.SourceOf(LineDefaults.NotionalField));
+        if (d.Direction is { } dir) defaults[direction] = new(dir, d.SourceOf(LineDefaults.DirectionField));
         return defaults;
     }
 }

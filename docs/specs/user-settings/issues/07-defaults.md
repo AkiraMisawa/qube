@@ -7,9 +7,9 @@ them in and records the source; the pages show it; an unreadable default refuses
 
 **Blocked by:** 02.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] A pricer workspace made after the display currency is set starts in it, and says it came from the setting.
-- [ ] A workspace made before keeps its currency; one edited in the workspace says so, and `undo` takes it back.
-- [ ] A Rates workspace starts with the user's defaults, each saying where it came from.
-- [ ] A default no longer offered refuses the making, naming the setting.
+- [x] A pricer workspace made after the display currency is set starts in it, and says it came from the setting.
+- [x] A workspace made before keeps its currency; one edited in the workspace says so, and `undo` takes it back.
+- [x] A Rates workspace starts with the user's defaults, each saying where it came from.
+- [x] A default no longer offered refuses the making, naming the setting.

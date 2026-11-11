@@ -19,7 +19,7 @@ public static partial class PortfolioFields
     /// <summary>The field that names the row of a table of one row.</summary>
     public const string Row = "id";
 
-    static readonly IReadOnlyDictionary<string, string> Currencies = Choice(PortfolioMarket.Currencies), Frequencies = Choice(PortfolioCatalog.Frequencies),
+    internal static readonly IReadOnlyDictionary<string, string> Currencies = Choice(PortfolioMarket.Currencies), Frequencies = Choice(PortfolioCatalog.Frequencies),
         Schedules = Choice(["3M", "6M"]);
 
     // A choice read by its own words, case ignored.

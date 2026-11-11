@@ -1,6 +1,7 @@
 using System.Text.Json.Nodes;
 using Qube.Composition.Application;
 using Qube.Composition.Application.Products;
+using Qube.Composition.Application.Settings;
 using Qube.Composition.Application.Tables;
 using Qube.Composition.Application.Workspaces;
 using Qube.Samples.Rates;
@@ -47,7 +48,8 @@ public class RatesLineCommandTests
         public RatesLiveService Live { get; }
         public string Id { get; }
 
-        public Rig()
+        /// <param name="settings">The users' settings a new workspace's defaults are copied from (ADR-0017 §3); none for a test of the workspace's own.</param>
+        public Rig(UserSettings? settings = null)
         {
             var market = new SyntheticMarket(MarketConfig);
             var provider = new FakeRatesPricing();
@@ -64,7 +66,7 @@ public class RatesLineCommandTests
             var registry = new CompositionRegistry([new RatesModule(provider, market.Resolve), new TablesModule(() => tables), new WorkspaceCommandsModule(() => Workspaces),
                 new RatesCommandsModule(Built), new ProductsModule(() => products ?? throw new InvalidOperationException("The products are not built yet."))]);
             Runs = new RunService(registry, store, TimeProvider.System);
-            Service = service = new RatesWorkspaces(Workspaces, store, Runs, Live, Market, Conventions, provider);
+            Service = service = new RatesWorkspaces(Workspaces, store, Runs, Live, Market, Conventions, provider, settings);
             Products = products = new ProductService([new RatesProductCatalog(Conventions)], [new IrsRules(Conventions, Built), new CcsRules(Conventions, Built)], Workspaces);
             Commands = new CommandService(registry, store);
             Store = store;
@@ -307,6 +309,44 @@ public class RatesLineCommandTests
         Assert.Equal(("TST", "workspace"), (Text(line, "leg1.currency"), line.Defaulted["leg1.currency"]));
         Assert.Equal("Reset workspace default currency.", removed);
         Assert.Equal(new LineDefaults(null, null, null), rig.View.Defaults);
+    }
+
+    [Fact] // ADR-0017 §3: a new workspace starts with the user's defaults for a new line, each from their settings; one set in it since is its own
+    public async Task A_new_workspace_starts_with_the_users_line_defaults()
+    {
+        var settings = new UserSettings([new RatesNewLineSettings(Conventions)], new InMemoryUserSettingStore(), TimeProvider.System);
+        settings.Set("akira", "new line currency", "tst");
+        settings.Set("akira", "new line notional", "250");
+        settings.Set("akira", "new line direction", "rec");
+        var rig = new Rig(settings);
+
+        var made = rig.View.Defaults;
+        var read = rig.Preview("new irs 5y");
+        var line = rig.Line(rig.Irs("5y"));
+        await rig.Enter("set default notional=100");
+        var edited = rig.View.Defaults;
+        var next = rig.Line(rig.Irs("7y"));
+        settings.Set("akira", "new line currency", "oth");
+
+        Assert.Equal(new LineDefaults("TST", 250e6, "receive") { FromSettings = ["currency", "notional", "direction"] }, made);
+        Assert.Contains("currency TST from settings", read.Would);
+        Assert.Equal(("TST", "settings", "settings"), (Text(line, "leg1.currency"), line.Defaulted["leg1.currency"], line.Defaulted["leg1.notional"]));
+        Assert.Equal(new LineDefaults("TST", 100e6, "receive") { FromSettings = ["currency", "direction"] }, edited);
+        Assert.Equal(("settings", "workspace"), (next.Defaulted["leg1.currency"], next.Defaulted["leg1.notional"]));
+        // The setting moved after the workspace was made: the workspace keeps what it was made with.
+        Assert.Equal("TST", rig.View.Defaults.Currency);
+    }
+
+    [Fact] // ADR-0017 §3: a default the user set that is no longer one Rates takes refuses the making, by the setting's name
+    public void An_unreadable_line_default_refuses_the_making()
+    {
+        var store = new InMemoryUserSettingStore();
+        store.Put("akira", new StoredSetting(RatesNewLineSettings.Currency, JsonValue.Create("XYZ"), DateTimeOffset.UnixEpoch));
+        var settings = new UserSettings([new RatesNewLineSettings(Conventions)], store, TimeProvider.System);
+
+        var refused = Assert.Throws<WorkspaceRefused>(() => new Rig(settings));
+
+        Assert.Equal(("UnreadableSetting", "Your new line currency setting, XYZ, is no longer one of OTH, TST: set it again, or type settings reset new line currency."), (refused.Code, refused.Message));
     }
 
     [Fact] // ADR-0016 note 34: a default is checked as the page's control checked it, and its words never mean a line's field

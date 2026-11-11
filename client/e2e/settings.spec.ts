@@ -149,3 +149,38 @@ test("ADR-0017 §5: a column dragged in the pricer's existing trades keeps its w
   await settled(page, 'Existing trades');
   await expect.poll(width).toBe(Math.round(before.width));
 });
+
+test('ADR-0017 §3: a pricer workspace made after the display currency is set starts in it and says so; one chosen in the workspace is its own', async ({ page }) => {
+  await open(page);
+  await taken(page, 'settings display currency', 'USD');
+  await expect(page.getByTestId('notice')).toHaveText('Display currency is USD; it was none, as registered. To set it back: settings reset display currency.');
+  await newWorkspace(page, 'ABC/LE-01', 0);
+  const currency = page.getByRole('tabpanel').getByRole('combobox', { name: 'Currency', exact: true });
+  await expect(currency).toHaveValue('USD');
+  await expect(currency).toHaveAttribute('title', 'USD, from your settings, copied in as this workspace was made.');
+
+  await currency.click();
+  await page.getByRole('option', { name: 'EUR', exact: true }).click();
+  await expect(currency).toHaveValue('EUR');
+  await expect(currency).toHaveAttribute('title', 'EUR, chosen in this workspace.');
+});
+
+test("ADR-0017 §3: a Rates workspace starts with the user's defaults for a new line, and a new line says each came from them", async ({ page }) => {
+  await open(page);
+  await taken(page, 'settings new line currency', 'JPY');
+  await taken(page, 'settings new line notional', '500');
+  await taken(page, 'settings new line direction', 'rec');
+  await command(page, 'new rates');
+  await expect(page.getByRole('dialog', { name: 'New Rates workspace' }).getByLabel('Valuation date')).toBeFocused();
+  await page.keyboard.press('Enter');
+  await settled(page, 'Lines');
+
+  await page.keyboard.press('ControlOrMeta+K');
+  await expect(page.getByRole('combobox', { name: 'Command' })).toBeFocused();
+  await page.keyboard.type('new irs 5y');
+  const read = page.getByTestId('command-preview');
+  await expect(read).toContainText('currency JPY from settings');
+  await expect(read).toContainText('notional 500mm from settings');
+  await expect(read).toContainText('direction receive from settings');
+  await page.keyboard.press('Escape');
+});
