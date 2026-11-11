@@ -230,21 +230,17 @@ with the same value (§4):
 - the Changes tab, which already lists each case and removes it, shows an iteration's two lists and removes one
   trade from either.
 
-**A switch gives the mode the owner has used** (DEFAULT, proposed 2026-11-11 when he asked whether iterative pricing
-by a mode switch can be had again, with the line and without; not confirmed). `Iterative` is a flag of the workspace:
-a switch in the New grid's caption, and `iterative on` and `iterative off` on the line, a short form of a `set` on
-that flag. While it is on, the server keeps one iteration for each New row with A ticked that no iteration made by
-hand names, each that trade alone, in the write that ticks a row or brings a trade in: Price needs no `add each`
-first and refuses nothing for a set out of step. Off removes those iterations. An iteration made by hand is never
-remade or removed by the switch, and one that names a trade no longer ticked is refused at Price by name, as now.
+**No switch is needed** (the owner, 2026-11-11: the mode switch he has used for iterative pricing need not come
+back, so long as what replaces it is as simple). It is as simple. `add each` with no argument, or its button, makes
+the iteration of every New row with A ticked at once, ten trades or one, and Price follows: two steps, as the switch
+and Price were. A trade is named only for an iteration that is not one trade alone. What the switch did beyond that
+was to follow the ticks. Here a set that no longer matches them is refused at Price by name, never priced as it was
+(ADR-0010 §3), and `add each` again, one command or one press, makes it anew.
 
-This replaces what this section proposed earlier the same day, that it is not a mode because a set made by hand
-would be remade and lost: the switch keeps only the iterations nobody made by hand, so that loss cannot happen.
-What the code does today is the set made once (ADR-0010 §3): `add trades`, then Price, and a set that no longer
-matches the ticks is refused. When the switch is built, that note of ADR-0010 is rewritten with it. The Base, every
-candidate together, is priced beside the iterations either way. A column of ticks per case beside B and A, trades
-down and cases across, would show every iteration at once and be edited in place; it costs a column a case and is
-left for later.
+A flag of the workspace that keeps the set in step was proposed and withdrawn the same day. It stays possible later
+without changing the above: it would keep one iteration alone for each ticked New row that no iteration made by hand
+names, and never remake one made by hand. A column of ticks per case beside B and A, trades down and cases across,
+would show every iteration at once and be edited in place; it costs a column a case and is left for later.
 
 In the workspace an iteration stays what it is today, a case whose layer switches A off on rows (ADR-0010 §3), so the
 log and Price's requests gain nothing. What changes when it is built: the reading of the line, a case that names its
