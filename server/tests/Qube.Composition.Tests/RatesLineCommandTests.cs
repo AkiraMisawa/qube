@@ -96,7 +96,22 @@ public class RatesLineCommandTests
         }
 
         public Task<string> Enter(string line, ScreenView? view = null) => Run(Preview(line, view));
+
+        /// <summary>Invokes a command with a request of the workspace alone, as the AI may: answers its one output.</summary>
+        public async Task<JsonNode> Ask(string capability, string version, string port = "request")
+        {
+            var result = await Commands.InvokeAsync(capability, version, new JsonObject { [port] = new JsonObject { ["workspaceId"] = Id } }, Akira, Guid.NewGuid().ToString(), default);
+            return result is CommandResult.Done done ? done.Outputs.Values.Single()!
+                : throw new Xunit.Sdk.XunitException($"{capability} was refused: {string.Join(" ", ((CommandResult.Refused)result).Issues.Select(i => i.Message))}");
+        }
+
+        /// <summary>The workspace's Runs, the newest first.</summary>
+        public IReadOnlyList<RunRecord> RunsOf() => Runs.List(new RunQuery("akira", 0, 20, Id)).Runs;
     }
+
+    static IEnumerable<string> Said(LinePreview preview) => preview.Arguments!.Select(a => $"{a.Name} {a.Text}");
+
+    static IEnumerable<string> Offered(LinePreview preview) => preview.Complete.Select(c => c.Value);
 
     static string Read(LinePreview preview) => preview.Refused is { } refused ? $"{refused.Code}: {refused.Sentence}" : preview.Would!;
 
@@ -276,5 +291,203 @@ public class RatesLineCommandTests
 
         Assert.True(first.InputRevision < set && set < undone.InputRevision);
         Assert.Equal([line], edited.Rows.Select(r => r.RowKey));
+    }
+
+    [Fact] // ADR-0016 note 36: `new <product> <terms>` says the line it would make and what it would fill that was not typed, and Enter makes that line
+    public async Task New_says_the_line_its_terms_would_make_and_makes_it()
+    {
+        var rig = new Rig();
+
+        var read = rig.Preview("new irs 5y tst 10 pay");
+        var unwritten = rig.View.Lines.Count;
+        var said = await rig.Run(read);
+        var line = rig.View.Lines.Single();
+        var back = await rig.Enter("undo");
+
+        Assert.Equal(EntityCreate.Id, read.Command!.Id);
+        Assert.Equal(["product irs", "end 5y", "currency TST", "notional 10mm", "direction pay"], Said(read));
+        Assert.Equal($"Makes {line.Line}: Interest rate swap. Not typed: index TEST-ON from profile:test.TST.TEST-ON@1, spread 0% from C47, "
+            + "fixedFrequency 12m from profile:test.TST.TEST-ON@1, floatFrequency 12m from profile:test.TST.TEST-ON@1.", read.Would);
+        Assert.Equal(0, unwritten);
+        Assert.Equal($"Made {line.Line}: Interest rate swap.", said);
+        Assert.Equal(("5y", "TST", 10e6, "pay", true), (Text(line, "end"), Text(line, "leg1.currency"), Number(line, "leg1.notional"), Text(line, "direction"), line.Priceable));
+        Assert.Equal($"Took back: made {line.Line}. redo puts it back.", back);
+        Assert.Empty(rig.View.Lines);
+    }
+
+    [Fact] // ADR-0016 note 36: what `new` cannot make is refused by name before Enter, and nothing is made
+    public void New_refuses_by_name_what_it_cannot_make()
+    {
+        var rig = new Rig();
+
+        var none = rig.Preview("new");
+        var unknown = rig.Preview("new fra 5y");
+        var unread = rig.Preview("new irs 5y tst 10 pay sideways");
+        var missing = rig.Preview("new irs 5y");
+        var one = rig.Preview("new irs 5y tst pay");
+        // A swap with no spread reads, and the line resolver's economic check refuses it: nothing defaults one (ADR-0008 §7).
+        var economic = rig.Preview("new ccs 5y tst oth 10 20 pay");
+
+        Assert.Equal("NoProduct: new takes a product: ccs or irs.", Read(none));
+        Assert.Equal("UnknownProduct: fra is no product new makes here: ccs or irs.", Read(unknown));
+        Assert.Equal(("fra", 4, 7), (unknown.Refused!.Word, unknown.Refused.Start, unknown.Refused.End));
+        Assert.Equal(["ccs", "irs"], unknown.Refused.Candidates);
+        Assert.Equal("UnreadWord: 'sideways' is no term of irs left to fill; name it as name=value.", Read(unread));
+        Assert.Equal("MissingTerm: irs still needs currency, index, notional, direction, fixedFrequency and floatFrequency: type them, or set a default for each.", Read(missing));
+        Assert.Equal("MissingTerm: irs still needs notional: type it, or set a default for it.", Read(one));
+        Assert.Equal("InvalidTerms: Both legs are at par; give one leg's quote so the other can be solved.", Read(economic));
+        Assert.Empty(rig.View.Lines);
+    }
+
+    [Fact] // ADR-0016 note 36: `new` completes its products, then the terms a product still takes, each by its form
+    public void New_completes_products_and_terms()
+    {
+        var rig = new Rig();
+
+        var products = rig.Preview("new ");
+        var half = rig.Preview("new i");
+        var terms = rig.Preview("new irs ");
+        var second = rig.Preview("new ccs 5y tst ");
+        var typed = rig.Preview("new irs 5y tst 10 r");
+
+        Assert.Equal(["ccs", "irs"], Offered(products));
+        Assert.Equal([new LineCompletion("irs", 4, "Interest rate swap")], half.Complete);
+        Assert.Equal(["1y", "2y", "3y", "5y", "7y", "10y", "15y", "20y", "30y", "OTH", "TST", "OTHER-ON", "TEST-ON", "pay", "receive",
+            "spread=", "fixedFrequency=", "floatFrequency=", "start=", "risk="], Offered(terms));
+        // A sequence offers its next field alone: leg 2's currency once leg 1's is typed.
+        Assert.Equal(["OTH", "TST", "pay", "receive", "index1=", "index2=", "spread1=", "spread2=", "frequency1=", "frequency2=", "start=", "risk="], Offered(second));
+        Assert.Equal([new LineCompletion("receive", 18, "Pay or receive the fixed leg"), new LineCompletion("risk=", 18, "Risk")], typed.Complete);
+    }
+
+    [Fact] // ADR-0016 note 36: `price` names the market snapshot its reading read, and Enter prices on that one, whatever was published since
+    public async Task Price_names_the_market_it_read_and_prices_on_it()
+    {
+        var rig = new Rig();
+        var line = rig.Irs();
+        var early = rig.Preview("price");
+        var first = await rig.Market.AdvanceAsync();
+
+        var read = rig.Preview("price");
+        var later = await rig.Market.AdvanceAsync();
+        var said = await rig.Run(read);
+        var run = Assert.Single(rig.RunsOf());
+        // Asked with no market named, as the AI may: the latest one, which the answer names.
+        var asked = await rig.Ask("rates.workspace.price", RatesContracts.Version);
+        var empty = rig.Service.AddLine(rig.Id, rig.State.Revision, "akira", RatesProduct.Ccs).Line;
+        var partial = rig.Preview("price");
+
+        Assert.Equal("NoMarket: No market snapshot has been published yet; price waits for one.", Read(early));
+        Assert.Equal($"Prices 1 line on market {first.Id}, as one Run.", read.Would);
+        Assert.Equal($"Price was accepted as Run {run.RunId}.", said);
+        Assert.Equal(first.Id, run.Input["marketSnapshotId"]!.GetValue<string>());
+        Assert.NotEqual(first.Id, later.Id);
+        Assert.Equal(later.Id, asked["marketSnapshotId"]!.GetValue<string>());
+        Assert.Equal($"Prices 1 of 2 lines on market {later.Id}, as one Run. Left out: {empty}.", partial.Would);
+        Assert.Equal([line], rig.View.Lines.Where(l => l.Priceable).Select(l => l.Line));
+    }
+
+    [Fact] // ADR-0016 note 36: `price` refuses before Enter what Price would refuse, and submits nothing
+    public async Task Price_with_nothing_to_price_is_refused_by_its_reading()
+    {
+        var rig = new Rig();
+        await rig.Market.AdvanceAsync();
+
+        var nothing = rig.Preview("price");
+        var words = rig.Preview("price now");
+
+        Assert.Equal("NothingToPrice: No line in this workspace can be priced.", Read(nothing));
+        Assert.Equal("UnreadWords: price takes no words after it.", Read(words));
+        Assert.Empty(rig.RunsOf());
+    }
+
+    [Fact] // ADR-0016 note 36, spine 6: `capture` saves the frame its reading named, with its time, whatever frame was shown since
+    public async Task Capture_saves_the_frame_its_reading_named()
+    {
+        var rig = new Rig();
+        rig.Irs();
+        var idle = rig.Preview("capture");
+        await rig.Enter("live start");
+        var unshown = rig.Preview("capture");
+        var frames = rig.Live.Attach("akira", rig.View.Live!.SubscriptionId).Frames;
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await rig.Market.AdvanceAsync();
+        var first = await frames.ReadAsync(timeout.Token);
+
+        var read = rig.Preview("capture");
+        await rig.Market.AdvanceAsync();
+        var second = await frames.ReadAsync(timeout.Token);
+        var said = await rig.Run(read);
+        var run = Assert.Single(rig.RunsOf());
+        // Asked with no frame named, as the AI may: the frame shown as it runs.
+        var asked = await rig.Ask("rates.frame.capture", RatesContracts.Version);
+
+        Assert.Equal("NotRunning: Live is not running: capture saves a frame a running subscription shows.", Read(idle));
+        Assert.Equal("NoFrame: The subscription has shown no frame yet.", Read(unshown));
+        Assert.Equal(($"Captures the frame of market {first.Market.SnapshotId} at revision {first.InputRevision}, as a Run.", first.CompletedAt), (read.Would, read.At));
+        Assert.Equal($"Captured the frame of market {first.Market.SnapshotId} at revision {first.InputRevision} as Run {run.RunId}.", said);
+        Assert.Equal(first.Market.SnapshotId, run.Input["marketSnapshotId"]!.GetValue<string>());
+        Assert.NotEqual(first.Market.SnapshotId, second.Market.SnapshotId);
+        Assert.Equal(second.Market.SnapshotId, rig.RunsOf().Single(r => r.RunId == asked["runId"]!.GetValue<string>()).Input["marketSnapshotId"]!.GetValue<string>());
+    }
+
+    [Fact] // ADR-0016 note 36: a frame is named whole or not at all, and by the workspace's own subscription
+    public async Task Capture_refuses_a_frame_named_in_part()
+    {
+        var rig = new Rig();
+        rig.Irs();
+        await rig.Enter("live start");
+
+        var part = await rig.Commands.InvokeAsync("rates.frame.capture", RatesContracts.Version,
+            new JsonObject { ["request"] = new JsonObject { ["workspaceId"] = rig.Id, ["subscriptionId"] = rig.View.Live!.SubscriptionId, ["inputRevision"] = rig.State.Revision } },
+            Akira, Guid.NewGuid().ToString(), default);
+
+        Assert.Equal("InvalidInput", Assert.Single(Assert.IsType<CommandResult.Refused>(part).Issues).Code);
+        Assert.Empty(rig.RunsOf());
+    }
+
+    [Fact] // ADR-0016 note 36: `live start` and `live stop` are typed, say what they would do, and answer what they did
+    public async Task Live_starts_and_stops_by_its_words()
+    {
+        var rig = new Rig();
+        rig.Irs();
+
+        var read = rig.Preview("live start");
+        var started = await rig.Run(read);
+        var running = rig.View.Live;
+        var joins = rig.Preview("live start");
+        var again = await rig.Run(joins);
+        var stops = rig.Preview("live stop");
+        var stopped = await rig.Run(stops);
+        var idle = rig.Preview("live stop");
+
+        Assert.Equal("Starts ticking this workspace: 1 line would be priced on each market update.", read.Would);
+        Assert.Equal("Live is running.", started);
+        Assert.True(running is { Running: true });
+        Assert.Equal("Live is running on this workspace already; nothing more would start.", joins.Would);
+        Assert.Equal("Live is running.", again);
+        Assert.Equal("Stops ticking this workspace, for every page watching it.", stops.Would);
+        Assert.Equal("Live stopped, for every page watching it.", stopped);
+        Assert.Equal("NotRunning: Live is not running on this workspace.", Read(idle));
+        Assert.True(rig.View.Live is { Running: false });
+    }
+
+    [Fact] // ADR-0016 note 36: `add line <product>` adds an empty line of the product, for the grid to fill
+    public async Task Add_line_adds_an_empty_line_of_a_product()
+    {
+        var rig = new Rig();
+
+        var read = rig.Preview("add line ccs");
+        var said = await rig.Run(read);
+        var line = rig.View.Lines.Single();
+        var none = rig.Preview("add line");
+        var unknown = rig.Preview("add line fra");
+
+        Assert.Equal(["product ccs"], Said(read));
+        Assert.Equal($"Adds {line.Line}, an empty ccs line to fill in the grid.", read.Would);
+        Assert.Equal($"Added {line.Line}, an empty ccs line.", said);
+        Assert.Equal(("ccs", false), (Text(line, "product"), line.Priceable));
+        Assert.Equal("NoProduct: add line takes a product: irs or ccs.", Read(none));
+        Assert.Equal("UnknownProduct: fra is no product a line is added for: irs or ccs.", Read(unknown));
+        Assert.Equal(["irs", "ccs"], Offered(rig.Preview("add line ")));
     }
 }

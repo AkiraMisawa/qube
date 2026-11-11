@@ -148,7 +148,7 @@ public class RatesApplicationTests
         await rig.Market.AdvanceAsync();
         var seen = await NextFrame(rig, subscription);
 
-        var (run, lines, _) = await Completed(rig, rig.Service.Capture(subscription, "akira",
+        var (run, lines, _) = await Completed(rig, rig.Service.Capture(id, subscription, "akira",
             new FrameIdentity(seen.SubscriptionRevision, seen.InputRevision, seen.Market.SnapshotId), "k1"));
 
         Assert.Equal(RatesModule.CaptureWorkflow, run.Workflow.DefinitionId);
@@ -168,7 +168,7 @@ public class RatesApplicationTests
         var newer = await NextFrame(rig, subscription);
         Assert.NotEqual(seen.Market.SnapshotId, newer.Market.SnapshotId);
 
-        var (run, lines, _) = await Completed(rig, rig.Service.Capture(subscription, "akira",
+        var (run, lines, _) = await Completed(rig, rig.Service.Capture(id, subscription, "akira",
             new FrameIdentity(seen.SubscriptionRevision, seen.InputRevision, seen.Market.SnapshotId), "k1"));
 
         // The frame named, never the newer one relabelled (docs/07 §3).
@@ -190,9 +190,9 @@ public class RatesApplicationTests
             await NextFrame(rig, subscription);
         }
 
-        var gone = Assert.Throws<WorkspaceRefused>(() => rig.Service.Capture(subscription, "akira",
+        var gone = Assert.Throws<WorkspaceRefused>(() => rig.Service.Capture(id, subscription, "akira",
             new FrameIdentity(oldest.SubscriptionRevision, oldest.InputRevision, oldest.Market.SnapshotId), "k1"));
-        var never = Assert.Throws<WorkspaceRefused>(() => rig.Service.Capture(subscription, "akira",
+        var never = Assert.Throws<WorkspaceRefused>(() => rig.Service.Capture(id, subscription, "akira",
             new FrameIdentity(oldest.SubscriptionRevision, oldest.InputRevision, "synthetic:test-1:never"), "k2"));
 
         Assert.Equal(["FrameNotKept", "FrameNotKept"], new[] { gone.Code, never.Code });
@@ -226,8 +226,9 @@ public class RatesApplicationTests
         Assert.Equal(0, rig.Live.Count);
     }
 
-    [Fact] // ADR-0016 §11's note 2: a change of valuation date or of defaults keeps the source version, so undo takes it back with the edits it moved
-    public void Undo_takes_back_a_change_of_valuation_date_and_of_defaults()
+    // The defaults are written by the kernel's `set` now, and their undo is held there (RatesLineCommandTests, note 34).
+    [Fact] // ADR-0016 §11's note 2: a change of valuation date keeps the source version, so undo takes it back with the edits it moved
+    public void Undo_takes_back_a_change_of_valuation_date()
     {
         var rig = Build();
         var (id, revision, line, _) = Workspace(rig);
@@ -237,14 +238,11 @@ public class RatesApplicationTests
 
         var (moved, _) = rig.Service.ChangeValuationDate(id, edited.Revision, "akira", new DateOnly(2027, 1, 27));
         var undone = rig.Workspaces.Undo(id, moved.Revision, "akira");
-        var defaulted = rig.Service.ChangeDefaults(id, undone.State.Revision, "akira", new LineDefaults("TST", 25_000_000, "pay"));
-        var again = rig.Workspaces.Undo(id, defaulted.Revision, "akira").State;
 
         // Every schedule moved with the date, so the period's edit was no longer an edit of that period.
         Assert.NotEqual(Edits(edited), Edits(moved));
         Assert.Equal((new DateOnly(2026, 10, 27), "changed the context"), (RatesEditRules.ValuationDate(undone.State), undone.TookBack.Said));
         Assert.Equal((Edits(edited), 0, 0), (Edits(undone.State), undone.State.Conflicts.Count, undone.State.Lost.Count));
         Assert.Equal(5_000_000d, rig.Service.Cashflows(id, "akira", line).Periods.Single(p => p.Entity == period.Entity).Notional);
-        Assert.Equal((new LineDefaults("TST", 25_000_000, "pay"), new LineDefaults(null, null, null)), (LineDefaults.Of(defaulted), LineDefaults.Of(again)));
     }
 }

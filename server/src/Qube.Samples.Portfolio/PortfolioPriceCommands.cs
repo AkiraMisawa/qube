@@ -25,20 +25,13 @@ public static class PortfolioPriceContracts
     /// </summary>
     public static string WouldPrice(PricePlan plan)
     {
-        var cases = PortfolioCommand.Counted(plan.Cases, "case");
-        var on = plan.Markets == 1 ? cases : $"{cases} on {plan.Markets} markets (the base market and {PortfolioCommand.Counted(plan.Markets - 1, "scenario")})";
+        var cases = TableWords.Counted(plan.Cases, "case");
+        var on = plan.Markets == 1 ? cases : $"{cases} on {plan.Markets} markets (the base market and {TableWords.Counted(plan.Markets - 1, "scenario")})";
         var side = plan.Before && !plan.After ? ", Before only" : !plan.Before && plan.After ? ", After only" : "";
         var refused = plan.Refused.Count == 0 ? ""
-            : $" {PortfolioCommand.Counted(plan.Refused.Count, "figure")} of it would be refused, first {plan.Refused[0].Measure} of {plan.Refused[0].Case}: {plan.Refused[0].Message}";
+            : $" {TableWords.Counted(plan.Refused.Count, "figure")} of it would be refused, first {plan.Refused[0].Measure} of {plan.Refused[0].Case}: {plan.Refused[0].Message}";
         return $"Prices {TableWords.And(plan.Measures)} for {on}{side}, as one Run.{refused}";
     }
-
-    /// <summary>
-    /// A refusal that names the edits it waits on, with them said in its sentence: a line and a notice show a sentence
-    /// alone, so the targets would otherwise reach nobody.
-    /// </summary>
-    public static WorkspaceRefused Naming(WorkspaceRefused refused) =>
-        new(refused.Code, $"{refused.Message.TrimEnd('.')}: {string.Join(", ", refused.Targets.Select(t => $"{t.Entity} {t.Field}"))}.", refused.Targets);
 
     /// <summary>What <c>refresh</c> says back: the edits to the portfolio's data that carried, and those held for the user.</summary>
     public static string Carried(CarrySummary carried) => $"Refreshed: {carried.Carried} edit(s) carried, {carried.Conflicted} in conflict, {carried.Lost} lost.";
@@ -138,7 +131,7 @@ public sealed class PortfolioPriceCommand(Func<PortfolioWorkspaces> workspaces) 
         }
         catch (WorkspaceRefused refused) when (refused.Targets.Count > 0)
         {
-            throw PortfolioPriceContracts.Naming(refused);
+            throw refused.Named();
         }
     }
 }
@@ -201,7 +194,7 @@ public sealed class PortfolioPv01Retry(Func<PortfolioWorkspaces> workspaces) : I
         var typed = words.Count == 0 ? [] : new JsonObject { ["trade"] = Named(line.State, words[0].Word) };
         return PortfolioCommand.Read(line, typed, failed.Count == 0
             ? $"Nothing would be asked again: no result has failed{(words.Count == 0 ? "" : $" on {typed["trade"]!.GetValue<string>()}")}."
-            : $"Asks again for the results that failed on {PortfolioCommand.Counted(failed.Count, "trade")}: {PortfolioScenarioCommands.Some(failed)}.");
+            : $"Asks again for the results that failed on {TableWords.Counted(failed.Count, "trade")}: {TableWords.Some(failed)}.");
     }
 
     static string Named(WorkspaceState state, string typed) =>

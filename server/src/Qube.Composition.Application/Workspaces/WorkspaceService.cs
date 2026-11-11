@@ -66,6 +66,13 @@ public sealed class WorkspaceRefused(string code, string message, IReadOnlyList<
 {
     public string Code { get; } = code;
     public IReadOnlyList<EditTarget> Targets { get; } = targets ?? [];
+
+    /// <summary>
+    /// The refusal with the edits it waits on said in its sentence, where it names any: a line and a notice show a
+    /// sentence alone, so the targets would otherwise reach nobody (ADR-0016 note 33).
+    /// </summary>
+    public WorkspaceRefused Named() =>
+        Targets.Count == 0 ? this : new(Code, $"{Message.TrimEnd('.')}: {string.Join(", ", Targets.Select(t => $"{t.Entity} {t.Field}"))}.", Targets);
 }
 
 /// <summary>

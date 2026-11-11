@@ -333,9 +333,6 @@ static class PortfolioCommand
         ["description"] = "The revision the request was made against; refused if the workspace has moved since. Left out, the one it holds.",
     };
 
-    /// <summary>A count with what it counts, as a sentence says it: <c>1 case</c>, <c>3 cases</c>.</summary>
-    public static string Counted(int count, string noun) => $"{count} {noun}{(count == 1 ? "" : "s")}";
-
     /// <summary>
     /// A line as one of the pricer's commands read it (ADR-0016 note 28): the request to invoke it with, which names the
     /// workspace and the revision read, each argument as typed, and what it would do.

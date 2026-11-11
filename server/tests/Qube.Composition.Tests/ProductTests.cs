@@ -112,6 +112,8 @@ public class ProductTests
             var fields = new JsonObject(terms.Select(t => KeyValuePair.Create(t.Key, t.Value?.DeepClone())));
             return (workspaces.Create(workspaceId, revision ?? state.Revision, user, Reading.Scope, entity, fields, origin, sources), entity);
         }
+
+        public string WouldCreate(WorkspaceState workspace, IReadOnlyDictionary<string, JsonNode?> terms) => $"R{workspace.Revision + 1}";
     }
 
     sealed class Catalog : IProductCatalog { public IEnumerable<ProductDescriptor> Products => [Reading]; }
@@ -168,7 +170,7 @@ public class ProductTests
     public void A_product_is_refused_outside_its_app_or_owner()
     {
         var (products, _, id) = Qube([]);
-        Assert.Equal("NotOwner", Assert.Throws<WorkspaceRefused>(() => products.Preview(id, "bo", Reading.Id, "north 1d")).Code);
-        Assert.Equal("UnknownProduct", Assert.Throws<WorkspaceRefused>(() => products.Preview(id, "ana", "weather.forecast", "")).Code);
+        Assert.Equal("NotOwner", Assert.Throws<WorkspaceRefused>(() => products.Create(id, null, "bo", Reading.Id, "north 1d", RunOrigin.Pricer)).Code);
+        Assert.Equal("UnknownProduct", Assert.Throws<WorkspaceRefused>(() => products.Create(id, null, "ana", "weather.forecast", "", RunOrigin.Pricer)).Code);
     }
 }

@@ -8,7 +8,9 @@ using Qube.Samples.Rates;
 
 namespace Qube.Composition.Tests;
 
-// The Rates line pricer over HTTP (docs/07, docs/10): commands carry their revision; Price names its snapshot.
+// The Rates line pricer over HTTP (docs/07, docs/10): commands carry their revision; Price names its snapshot. A line
+// added, made or priced, the defaults and the live subscription's start and stop go through the command gateway, as
+// the page sends them (ADR-0016 note 36); a typed cell is the page's own edit.
 public class RatesApiTests : IClassFixture<QubeFactory>
 {
     readonly Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory<Program> host;
@@ -26,13 +28,25 @@ public class RatesApiTests : IClassFixture<QubeFactory>
         return (await response.Content.ReadFromJsonAsync<JsonObject>())!;
     }
 
+    // A command through the page's door of the gateway, as the page's own door sends it.
+    Task<HttpResponseMessage> Command(string capability, JsonObject request, HttpClient? by = null, string port = "request") =>
+        (by ?? client).PostAsJsonAsync($"/api/commands/{capability}/1.0.0", new { inputs = new JsonObject { [port] = request }, idempotencyKey = Guid.NewGuid().ToString() });
+
+    // What a command answered: its one output.
+    async Task<JsonObject> Done(HttpResponseMessage response) => Assert.Single((await Ok(response))["outputs"]!.AsObject()).Value!.AsObject();
+
+    Task<HttpResponseMessage> New(string id, long revision, string product, string terms, HttpClient? by = null) =>
+        Command("entity.create", new JsonObject { ["workspaceId"] = id, ["revision"] = revision, ["product"] = product, ["terms"] = terms }, by);
+
+    async Task<JsonObject> View(string id, HttpClient? by = null) => await Ok(await (by ?? client).GetAsync($"/api/rates/workspaces/{id}"));
+
     async Task<(string Id, JsonObject View, string Line)> PricedLine()
     {
         var ws = await Ok(await client.PostAsJsonAsync("/api/rates/workspaces", new { valuationDate = "2026-10-27" }));
         var id = ws["workspaceId"]!.GetValue<string>();
-        var added = await Ok(await client.PostAsJsonAsync($"/api/rates/workspaces/{id}/lines", new { revision = ws["revision"]!.GetValue<long>(), product = "irs" }));
+        var added = await Done(await Command("rates.line.add", new JsonObject { ["workspaceId"] = id, ["revision"] = ws["revision"]!.GetValue<long>(), ["product"] = "irs" }));
         var line = added["line"]!.GetValue<string>();
-        var view = added["workspace"]!.AsObject();
+        var view = await View(id);
         foreach (var (field, value) in new (string, object?)[]
         {
             ("end", "5y"), ("leg1.currency", "JPY"), ("leg1.index", "TONA"), ("leg1.notional", 1_000_000_000), ("leg1.paymentFrequency", "12m"),
@@ -51,11 +65,12 @@ public class RatesApiTests : IClassFixture<QubeFactory>
         var snapshot = await host.Services.GetRequiredService<MarketFeed>().AdvanceAsync();
         Assert.True(view["lines"]!.AsArray().Single(l => l!["line"]!.GetValue<string>() == line)!["priceable"]!.GetValue<bool>());
 
-        var response = await client.PostAsJsonAsync($"/api/rates/workspaces/{id}/price",
-            new { revision = view["revision"]!.GetValue<long>(), idempotencyKey = "k1", marketSnapshotId = snapshot.Id });
+        var answer = await Done(await Command("rates.workspace.price",
+            new JsonObject { ["workspaceId"] = id, ["revision"] = view["revision"]!.GetValue<long>(), ["marketSnapshotId"] = snapshot.Id }));
 
-        Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
-        Assert.Equal(snapshot.Id, (await response.Content.ReadFromJsonAsync<JsonObject>())!["input"]!["marketSnapshotId"]!.GetValue<string>());
+        var run = await Ok(await client.GetAsync($"/api/runs/{answer["runId"]!.GetValue<string>()}"));
+        Assert.Equal(snapshot.Id, answer["marketSnapshotId"]!.GetValue<string>());
+        Assert.Equal(snapshot.Id, run["input"]!["marketSnapshotId"]!.GetValue<string>());
     }
 
     [Fact] // Spine 6: an edit against a moved revision is refused, whatever the timing
@@ -73,7 +88,7 @@ public class RatesApiTests : IClassFixture<QubeFactory>
     public async Task Live_frames_stream_as_server_sent_events()
     {
         var (id, view, _) = await PricedLine();
-        var started = await Ok(await client.PostAsync($"/api/rates/workspaces/{id}/live", null));
+        var started = await Done(await Command("rates.live.start", new JsonObject { ["workspaceId"] = id }, port: "workspace"));
         var subscription = started["subscriptionId"]!.GetValue<string>();
         // The frame waits in the subscription's channel until the stream reads it, so the order cannot race.
         var snapshot = await host.Services.GetRequiredService<MarketFeed>().AdvanceAsync();
@@ -88,7 +103,8 @@ public class RatesApiTests : IClassFixture<QubeFactory>
         Assert.Equal(view["revision"]!.GetValue<long>(), frame["inputRevision"]!.GetValue<long>());
         Assert.Equal(snapshot.Id, frame["market"]!["snapshotId"]!.GetValue<string>());
         Assert.Equal("simulated", frame["calculationMode"]!.GetValue<string>());
-        Assert.Equal(HttpStatusCode.NoContent, (await client.DeleteAsync($"/api/rates/live/{subscription}")).StatusCode);
+        var stopped = await Done(await Command("rates.live.stop", new JsonObject { ["workspaceId"] = id }, port: "workspace"));
+        Assert.Equal((subscription, false), (stopped["subscriptionId"]!.GetValue<string>(), (await View(id))["live"]!["running"]!.GetValue<bool>()));
     }
 
     async Task<(string Id, long Revision)> Workspace()
@@ -97,18 +113,18 @@ public class RatesApiTests : IClassFixture<QubeFactory>
         return (ws["workspaceId"]!.GetValue<string>(), ws["revision"]!.GetValue<long>());
     }
 
-    static JsonObject LineOf(JsonObject added) =>
-        added["workspace"]!["lines"]!.AsArray().Single(l => l!["line"]!.GetValue<string>() == added["line"]!.GetValue<string>())!.AsObject();
+    // The line a command made, as the workspace then shows it.
+    async Task<JsonObject> LineOf(JsonObject made, HttpClient? by = null) =>
+        (await View(made["workspaceId"]!.GetValue<string>(), by))["lines"]!.AsArray().Single(l => l!["line"]!.GetValue<string>() == made["entity"]!.GetValue<string>())!.AsObject();
 
     [Fact] // ADR-0008 §1, §3: `new irs` reads its words by form in any order; ATM by C47; the profile's template is recorded as such
     public async Task A_new_irs_is_read_from_short_words_and_records_its_defaults()
     {
         var (id, revision) = await Workspace();
 
-        var added = await Ok(await client.PostAsJsonAsync($"/api/rates/workspaces/{id}/lines/new",
-            new { revision, product = "rates.irs", terms = "jpy 10y 3bn rec" }));
+        var added = await Done(await New(id, revision, "rates.irs", "jpy 10y 3bn rec"));
 
-        var line = LineOf(added);
+        var line = await LineOf(added);
         Assert.True(line["priceable"]!.GetValue<bool>(), line.ToJsonString());
         Assert.Equal(3e9, line["fields"]!["leg2.notional"]!.GetValue<double>());
         Assert.Equal("TONA", line["fields"]!["leg2.index"]!.GetValue<string>());
@@ -124,13 +140,13 @@ public class RatesApiTests : IClassFixture<QubeFactory>
     {
         var (id, revision) = await Workspace();
 
-        var response = await client.PostAsJsonAsync($"/api/rates/workspaces/{id}/lines/new", new { revision, product = "rates.irs", terms = "10y" });
+        var response = await New(id, revision, "rates.irs", "10y");
 
         Assert.Equal((HttpStatusCode)422, response.StatusCode);
         var paths = (await response.Content.ReadFromJsonAsync<JsonObject>())!["issues"]!.AsArray().Select(i => i!["path"]!.GetValue<string>()).ToList();
         // The frequencies come from the currency's profile, so with no currency they are missing too.
-        Assert.Equal(["/terms/currency", "/terms/index", "/terms/notional", "/terms/direction", "/terms/fixedFrequency", "/terms/floatFrequency"], paths);
-        var view = (await client.GetFromJsonAsync<JsonObject>($"/api/rates/workspaces/{id}"))!;
+        Assert.Equal(new[] { "currency", "index", "notional", "direction", "fixedFrequency", "floatFrequency" }.Select(term => $"/inputs/request/terms/{term}"), paths);
+        var view = await View(id);
         Assert.Equal(revision, view["revision"]!.GetValue<long>());
         Assert.Empty(view["lines"]!.AsArray());
     }
@@ -139,14 +155,18 @@ public class RatesApiTests : IClassFixture<QubeFactory>
     public async Task The_workspace_defaults_fill_a_new_irs()
     {
         var (id, revision) = await Workspace();
-        var view = await Ok(await client.PostAsJsonAsync($"/api/rates/workspaces/{id}/defaults",
-            new { revision, currency = "USD", notional = 500_000_000, direction = "pay" }));
-        Assert.Equal("USD", view["defaults"]!["currency"]!.GetValue<string>());
+        // The defaults are fields of the workspace's own table, set by the kernel's `set` as the line reads it.
+        var read = await Ok(await client.PostAsJsonAsync("/api/commands/preview",
+            new { line = "set default currency=usd default notional=500 default direction=pay", workspaceId = id, revision }));
+        var set = await client.PostAsJsonAsync($"/api/commands/{read["command"]!["id"]!.GetValue<string>()}/{read["command"]!["version"]!.GetValue<string>()}",
+            new { inputs = read["inputs"], idempotencyKey = Guid.NewGuid().ToString() });
+        var view = await View(id);
+        Assert.True(set.IsSuccessStatusCode, await set.Content.ReadAsStringAsync());
+        Assert.Equal(("USD", 500e6), (view["defaults"]!["currency"]!.GetValue<string>(), view["defaults"]!["notional"]!.GetValue<double>()));
 
-        var added = await Ok(await client.PostAsJsonAsync($"/api/rates/workspaces/{id}/lines/new",
-            new { revision = view["revision"]!.GetValue<long>(), product = "rates.irs", terms = "5y" }));
+        var added = await Done(await New(id, view["revision"]!.GetValue<long>(), "rates.irs", "5y"));
 
-        var line = LineOf(added);
+        var line = await LineOf(added);
         Assert.True(line["priceable"]!.GetValue<bool>(), line.ToJsonString());
         Assert.Equal("SOFR", line["fields"]!["leg1.index"]!.GetValue<string>());
         Assert.Equal("workspace", line["defaulted"]!["leg1.notional"]!.GetValue<string>());
@@ -158,8 +178,7 @@ public class RatesApiTests : IClassFixture<QubeFactory>
     {
         var (id, revision) = await Workspace();
 
-        var response = await client.PostAsJsonAsync($"/api/rates/workspaces/{id}/lines/new",
-            new { revision, product = "rates.ccs", terms = "5y usd jpy 100 15bn pay" });
+        var response = await New(id, revision, "rates.ccs", "5y usd jpy 100 15bn pay");
 
         Assert.Equal((HttpStatusCode)422, response.StatusCode);
         Assert.Contains("par", (await response.Content.ReadFromJsonAsync<JsonObject>())!["message"]!.GetValue<string>());
@@ -170,10 +189,9 @@ public class RatesApiTests : IClassFixture<QubeFactory>
     {
         var (id, revision) = await Workspace();
 
-        var added = await Ok(await client.PostAsJsonAsync($"/api/rates/workspaces/{id}/lines/new",
-            new { revision, product = "rates.ccs", terms = "5y usd jpy 100 15bn pay spread2=-30bp" }));
+        var added = await Done(await New(id, revision, "rates.ccs", "5y usd jpy 100 15bn pay spread2=-30bp"));
 
-        var fields = LineOf(added)["fields"]!;
+        var fields = (await LineOf(added))["fields"]!;
         Assert.Equal(("USD", "JPY"), (fields["leg1.currency"]!.GetValue<string>(), fields["leg2.currency"]!.GetValue<string>()));
         Assert.Equal((100e6, 15e9), (fields["leg1.notional"]!.GetValue<double>(), fields["leg2.notional"]!.GetValue<double>()));
         Assert.Equal(("SOFR", "TONA"), (fields["leg1.index"]!.GetValue<string>(), fields["leg2.index"]!.GetValue<string>()));
@@ -184,12 +202,11 @@ public class RatesApiTests : IClassFixture<QubeFactory>
     {
         var (id, revision) = await Workspace();
 
-        var response = await client.PostAsJsonAsync($"/api/rates/workspaces/{id}/lines/new",
-            new { revision, product = "rates.irs", terms = "jpy 10y 3000000000 pay" });
+        var response = await New(id, revision, "rates.irs", "jpy 10y 3000000000 pay");
 
         Assert.Equal((HttpStatusCode)422, response.StatusCode);
         Assert.Contains((await response.Content.ReadFromJsonAsync<JsonObject>())!["issues"]!.AsArray(),
-            i => i!["path"]!.GetValue<string>() == "/terms/notional");
+            i => i!["path"]!.GetValue<string>() == "/inputs/request/terms/notional");
     }
 
     /// <summary>The fake's figures, but it declares that it prices IRS only (ADR-0008 §8).</summary>
@@ -211,22 +228,19 @@ public class RatesApiTests : IClassFixture<QubeFactory>
         var http = irsOnly.CreateClient();
         var ws = await Ok(await http.PostAsJsonAsync("/api/rates/workspaces", new { valuationDate = "2026-10-27" }));
         var id = ws["workspaceId"]!.GetValue<string>();
-        var irs = await Ok(await http.PostAsJsonAsync($"/api/rates/workspaces/{id}/lines/new",
-            new { revision = ws["revision"]!.GetValue<long>(), product = "rates.irs", terms = "jpy 10y 3bn rec" }));
-        var ccs = await Ok(await http.PostAsJsonAsync($"/api/rates/workspaces/{id}/lines/new",
-            new { revision = irs["workspace"]!["revision"]!.GetValue<long>(), product = "rates.ccs", terms = "5y usd jpy 100 15bn pay spread2=-30bp" }));
+        var irs = await Done(await New(id, ws["revision"]!.GetValue<long>(), "rates.irs", "jpy 10y 3bn rec", http));
+        var ccs = await Done(await New(id, irs["revision"]!.GetValue<long>(), "rates.ccs", "5y usd jpy 100 15bn pay spread2=-30bp", http));
         var snapshot = await irsOnly.Services.GetRequiredService<MarketFeed>().AdvanceAsync();
 
-        var response = await http.PostAsJsonAsync($"/api/rates/workspaces/{id}/price",
-            new { revision = ccs["workspace"]!["revision"]!.GetValue<long>(), idempotencyKey = "p8", marketSnapshotId = snapshot.Id });
+        var priced = await Done(await Command("rates.workspace.price",
+            new JsonObject { ["workspaceId"] = id, ["revision"] = ccs["revision"]!.GetValue<long>(), ["marketSnapshotId"] = snapshot.Id }, http));
 
-        Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
-        var run = (await response.Content.ReadFromJsonAsync<JsonObject>())!;
+        var run = await Ok(await http.GetAsync($"/api/runs/{priced["runId"]!.GetValue<string>()}"));
         var reference = run["workflow"]!["steps"]![0]!["bindings"]!["acceptedInput"]!["reference"].Deserialize<Qube.Composition.Contracts.TypedDataRef>(Qube.Composition.Contracts.WireJson.Options)!;
         var accepted = Assert.IsType<Qube.Composition.Application.DataLookup.Found>(irsOnly.Services.GetRequiredService<Qube.Composition.Application.IDataStore>().Read(reference));
         var notPriced = accepted.Content["notPriced"]!.AsArray();
         var left = Assert.Single(notPriced)!;
-        Assert.Equal(ccs["line"]!.GetValue<string>(), left["line"]!.GetValue<string>());
+        Assert.Equal(ccs["entity"]!.GetValue<string>(), left["line"]!.GetValue<string>());
         Assert.Contains("No pricing provider prices rates.ccs 1.0.0; irs-only prices rates.irs 1.0.0.", left["reasons"]!.AsArray().Select(r => r!.GetValue<string>()));
     }
 }

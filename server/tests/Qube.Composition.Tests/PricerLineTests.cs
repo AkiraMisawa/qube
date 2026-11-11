@@ -619,8 +619,8 @@ public class PricerLineTests
     [Fact] // ADR-0016 note 33: a refusal that names the edits it waits on says them in its sentence, since a line and a notice show a sentence alone
     public void A_refusal_says_the_edits_it_waits_on_in_its_sentence()
     {
-        var refused = PortfolioPriceContracts.Naming(new WorkspaceRefused("UnresolvedEdits", "Resolve the conflicts and lost edits on the trades being priced.",
-            [new EditTarget("cp:ABC/LE-01", "trade:T-1", "notional"), new EditTarget("cp:ABC/LE-01", "csa:CSA-A", "threshold")]));
+        var refused = new WorkspaceRefused("UnresolvedEdits", "Resolve the conflicts and lost edits on the trades being priced.",
+            [new EditTarget("cp:ABC/LE-01", "trade:T-1", "notional"), new EditTarget("cp:ABC/LE-01", "csa:CSA-A", "threshold")]).Named();
 
         Assert.Equal(("UnresolvedEdits", "Resolve the conflicts and lost edits on the trades being priced: trade:T-1 notional, csa:CSA-A threshold.", 2),
             (refused.Code, refused.Message, refused.Targets.Count));

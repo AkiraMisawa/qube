@@ -161,7 +161,6 @@ app.Services.GetRequiredService<CommandLines>();
 app.MapQubeApi();
 app.MapXvaApi();
 app.MapRatesApi();
-app.MapProductsApi();
 app.MapAgentApi();
 app.MapClientTelemetry();
 app.UseDefaultFiles();
