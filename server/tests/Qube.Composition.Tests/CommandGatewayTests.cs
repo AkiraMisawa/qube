@@ -201,7 +201,7 @@ public class CommandGatewayTests(QubeFactory factory) : IClassFixture<QubeFactor
         Assert.Null(refused["inputs"]);
         Assert.Equal("""[{"value":"threshold","start":10}]""", half["complete"]!.ToJsonString());
         // What undo would take back is the page's own edit, named as the screen names it, and when it was made.
-        Assert.Equal("Takes back: set CSA-A threshold (akira, 1 edit)", undo["would"]!.GetValue<string>());
+        Assert.Equal("Takes back: set CSA-A threshold (you, 1 edit)", undo["would"]!.GetValue<string>());
         Assert.True(DateTimeOffset.TryParse(undo["at"]!.GetValue<string>(), out _));
         Assert.Equal((HttpStatusCode.Conflict, "RevisionMoved"), (moved, movedBody["code"]!.GetValue<string>()));
         Assert.Equal((HttpStatusCode.NotFound, "UnknownWorkspace"), (missing, missingBody["code"]!.GetValue<string>()));

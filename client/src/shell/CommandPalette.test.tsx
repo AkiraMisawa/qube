@@ -91,10 +91,10 @@ describe('the page\'s commands (ADR-0006 note 3 of 2026-11-11)', () => {
 
     expect(served(typed).unavailable).toBe('This panel has no workspace for it to act on.');
 
-    registerCommandDoor('p', { workspaceId: 'w', enter: () => Promise.resolve(undefined) });
+    registerCommandDoor('p', { workspaceId: 'w', settled: () => Promise.resolve(), enter: () => Promise.resolve(undefined), invoke: () => Promise.resolve(undefined) });
     try {
       const set = served(typed);
-      expect([set.words, set.group, set.target, set.page, set.unavailable, set.served?.workspaceId]).toEqual(['set', 'Workspace', 'XVA ABC/LE-01', true, undefined, 'w']);
+      expect([set.words, set.group, set.target, set.page, set.unavailable, set.served?.door.workspaceId]).toEqual(['set', 'Workspace', 'XVA ABC/LE-01', true, undefined, 'w']);
     } finally {
       registerCommandDoor('p', undefined);
     }

@@ -2,6 +2,8 @@
 // here and runs them, so availability and behaviour cannot differ between surfaces. A command is found by typing the
 // English words for what it does; its arguments are completed one slot at a time.
 
+import type { LinePreview } from '../contracts';
+
 /** A value a slot offers, with what it means. */
 export interface Completion {
   readonly value: string;
@@ -69,17 +71,33 @@ export interface LineReason {
   readonly end?: number;
 }
 
+/**
+ * What a page gives the command line for the workspace it shows (ADR-0016 §5): where the commands the server reads
+ * act, and how they are run so that they follow the edits the page has already sent.
+ */
+export interface CommandDoor {
+  readonly workspaceId: string;
+  /** Resolves once the edits the page has sent so far are answered: a reading asked for after it has seen them. */
+  settled(): Promise<void>;
+  /**
+   * Enter on a line, in the page's own turn, after the edits it has sent. The reading the line showed for exactly this
+   * text is what is invoked, by its own inputs, which carry the revision it was read at: a workspace that has moved
+   * since refuses it (ADR-0016 §2). With none shown the server reads the line at the revision the page then holds, and
+   * that reading is invoked. Resolves once the command is taken or refused: with why nothing ran, and the line stays;
+   * or with nothing, the page showing what the command left and its notice said.
+   */
+  enter(line: string, shown?: LinePreview): Promise<LineReason | undefined>;
+  /**
+   * A command by its id, from a key or a button, which have no line: in the same turn, at the catalog's version and
+   * the revision the page then holds. Resolves as `enter` does.
+   */
+  invoke(capabilityId: string, request: Readonly<Record<string, unknown>>): Promise<LineReason | undefined>;
+}
+
 /** What a served command is typed with and run through: its arguments as the catalog names them, and its page's door. */
 export interface Served {
   readonly arguments: readonly { readonly name: string; readonly required: boolean }[];
-  /** The workspace it acts on, which its previews are asked for. */
-  readonly workspaceId: string;
-  /**
-   * Has the server read the line as the workspace then stands and invokes that reading. Resolves once the line is
-   * read: with why it cannot be, and then nothing ran; or with nothing, and the command runs on, its result the
-   * page's to say.
-   */
-  readonly enter: (line: string) => Promise<LineReason | undefined>;
+  readonly door: CommandDoor;
 }
 
 /**

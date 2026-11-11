@@ -78,7 +78,7 @@ public sealed class TableService(TableRegister register, WorkspaceService worksp
 
     Plan PlanSet(WorkspaceState state, Caller caller, string? table, string? rows, string set)
     {
-        var (tables, selector) = Said(state, table, rows);
+        var (tables, selector) = ReadRows(state, table, rows);
         // A table of one row is addressed without a row where the first field's words say which (note 7).
         var alone = selector.Table is null && selector.SaysNoRows ? tables.Where(t => t.Descriptor.SingleRow && Assignments.StartsWithAFieldOf(set, t)).ToList() : [];
         if (alone.Count > 1)
@@ -142,7 +142,7 @@ public sealed class TableService(TableRegister register, WorkspaceService worksp
 
     Plan PlanReset(WorkspaceState state, string? table, string? rows, string? field)
     {
-        var (tables, selector) = Said(state, table, rows);
+        var (tables, selector) = ReadRows(state, table, rows);
         var alone = field is not null && selector.Table is null && selector.SaysNoRows ? tables.Where(t => t.Descriptor.SingleRow && Assignments.Fields(t, field).Count > 0).ToList() : [];
         if (alone.Count > 1)
             throw new TableRefused("AmbiguousTable", $"{field!.Trim()} could be reset on {TableWords.Either(alone.Select(t => t.Word))}; say which, as in {alone[0].Word}.",
@@ -182,7 +182,7 @@ public sealed class TableService(TableRegister register, WorkspaceService worksp
 
     Plan PlanRemove(WorkspaceState state, string? table, string? rows)
     {
-        var (tables, selector) = Said(state, table, rows);
+        var (tables, selector) = ReadRows(state, table, rows);
         var resolved = Selectors.Resolve(selector, tables, state);
         var words = Words("remove", table, rows, null);
         if (resolved.Rows.Count == 0) return Unchanged(state, resolved, "", words);
@@ -192,7 +192,7 @@ public sealed class TableService(TableRegister register, WorkspaceService worksp
     }
 
     // The rows as the caller said them, read in the tables the workspace has.
-    (IReadOnlyList<BoundTable> Tables, RowSelector Selector) Said(WorkspaceState state, string? table, string? rows)
+    (IReadOnlyList<BoundTable> Tables, RowSelector Selector) ReadRows(WorkspaceState state, string? table, string? rows)
     {
         var tables = register.Of(state);
         // The table said beside the rows is the one they are read in: its subsets, and no row where it has one.

@@ -575,7 +575,9 @@ and the edit verbs with XVA registered; the preview and the line.
       application (amends note 11): the workspace says whose tables it holds. With no revision the line is read as
       the workspace stands; with one, a workspace that moved refuses (409). A line that cannot be read is an answer
       (200) that holds its refusal: the code, the sentence, the word at fault with its place in the line, and what it
-      could have been. An unknown workspace (404) and another user's (403) are refused by status.
+      could have been. A word at fault that stands twice in the line is named and given no place: the reader says the
+      word and not which of the two, and the wrong one marked would send the user to a word that is right. An unknown
+      workspace (404) and another user's (403) are refused by status.
     - *An argument as read* is its name and its words. Where it came from (typed, default, context) waits for step 2,
       when there is a context for it to come from.
     - *The rows* are their table, a title in its words (`trades, 12 rows`), their count and the first ten ids, of which
@@ -583,14 +585,18 @@ and the edit verbs with XVA registered; the preview and the line.
     - *What would change* is one sentence a verb: `A: 9 on to off, 3 already off`; for one row `threshold: 0 to 5mm`;
       `csa: 2 reset, 1 with no edit`; `3 removed, with their edits`. A command that would change nothing says
       `Nothing would change:` and the reason the command itself gives. The sentence is made from the plan the command
-      writes from, so reading a line and running it cannot disagree.
+      writes from, so what is read is what would be written. What only the write refuses (an edit of the field that
+      is held and not yet decided, `ConflictUnresolved`) is refused at Enter, by the command: nothing ran, and the
+      line stays with that reason as it does with a reading's.
     - *One value may follow its field with no sign* in `entity.set` (`threshold 5mm`, `self threshold 5mm`), as the
       line has always spelled one value: the longest leading words that name a field are the field, and the rest its
       value. Several values are `name=value` (note 12). This replaces the client's own reader of `set`.
-    - *`undo` and `redo`* read as `Takes back: set CSA-A threshold 5mm (ana, 1 edit)`, and the moment that command ran
-      is answered beside the sentence, for the client to write in its user's zone. Their inputs name the command
-      read, so Enter takes back what was shown or is refused (note 4). A command of no argument takes no word after
-      its own (`UnreadWords`).
+    - *`undo` and `redo`* read as `Takes back: set CSA-A threshold 5mm (you, 1 edit)`, and the moment that command ran
+      is answered beside the sentence, for the client to write in its user's zone. Whose it was is `you` for the
+      reader's own, the user's id for another's, and `the AI for you` where the AI ran it (§11): what undo would take
+      back is then not the user's own typing. Their inputs name the command read, so Enter takes back what was shown
+      or is refused (note 4). A command of no argument takes no word after its own (`UnreadWords`). The sentence
+      counts the command's edits, not its rows: an entry of the log holds no count of rows.
     - *What could follow* is a list of `{ value, start, detail }`, each written from its place in the line, and how
       many more there are than listed. After the command's words: `all`, the subsets, `where`, the tables, the fields
       of the tables of one row with their table, and rows by id, twenty at a time, by how an id starts or ends; a row
@@ -598,15 +604,30 @@ and the edit verbs with XVA registered; the preview and the line.
       its values where they are a closed set (a flag, a choice, the ids of the table it points into, `empty` where it
       may be empty). In a condition: the fields, the operators of the field's form, its values, and `and`.
     - *The line (§5).* It builds a command per word of each form, in the group Workspace, as a command of the page in
-      the active panel, and reads nothing after the words. A page gives the line a **door** to its workspace: at Enter
-      the server reads the line in the page's own turn, after the edits the page has sent and at the revision it then
-      holds, and that reading is invoked. Read, the line closes and the notice is the server's sentence. Unread, the
-      line stays with its text and the reason, and the word at fault is selected, so that typing replaces it; one
-      that ends the line may only lack what follows, and the caret stands after it. While it is typed the line shows
-      the answer for the text it holds: one for an earlier text is never taken from, and once the wait is long enough
-      to be seen it is dimmed and said to be read. Where the active panel has no such page the commands are listed
-      as not available, with why. A grid's Ctrl+Z and Ctrl+Y invoke `workspace.undo` and `workspace.redo` with no
-      preview: a key has shown nothing to hold it to.
+      the active panel, and reads nothing after the words. Where the active panel has no such page the commands are
+      listed as not available, with why. While it is typed the line shows the answer for the text it holds, asked for
+      after the edits the page has already sent. One for an earlier text is never taken from, and once the wait is
+      long enough to be seen it is dimmed and said to be read; a reading belongs to the opening of the line and the
+      workspace it was asked for, and none is carried into another. A request the server did not answer with a
+      reading is said as a failure, in the line's red, and never drawn as what the line means.
+    - *Enter (§2, §5).* A page gives the line a **door** to its workspace, and Enter goes through it in the page's own
+      turn, after the edits the page has sent. The reading the line shows for exactly its text is what is invoked, by
+      the inputs that reading answered, which name the revision it was read at: a workspace someone else has moved
+      since refuses it, so Enter never runs what the user did not see. Where the reading for the text has not arrived
+      yet, the server reads the line at the revision the page then holds, and that reading is invoked. The line
+      answers once the command is taken or refused. Taken, it closes, the page shows the workspace as read again and
+      the notice is the server's sentence. Refused, by the reading or by the write, nothing ran: the line stays with
+      its text and the reason, and is read again; the word at fault is selected, so that typing replaces it, and one
+      that ends the line may only lack what follows, so the caret stands after it. Where the reason is that the
+      workspace has moved, the page reads it again first, so the next Enter is tried against what the page then
+      shows. A line closed while Enter was being answered has no line left, and its reason is a notice.
+    - *The door is the kernel's* (`commandDoor`): a page gives it its workspace, the turns of its edits and how it
+      reads its view again, and the next page opens one in those few lines. A grid's Ctrl+Z and Ctrl+Y go through it
+      too: `workspace.undo` and `workspace.redo` by their ids, at the page's revision, with no preview, since a key
+      has shown nothing to hold it to.
+    - *Left as it is:* the shell's own `set region` is read before a table's field of that word, because the line
+      takes the command with the most words. No table has such a field today; step 2, which gives the line its
+      context, is where the two meet.
     - *Measured* at 10,009 trades (Release, SQLite, five requests each): the preview of `set where ccy=JPY after off`
       over 5,999 rows 0.04 to 0.17 s, of `set existing csa CSA-B` over all of them 0.04 to 0.12 s, of `reset existing`
       0.14 to 0.18 s, and what could follow `set` 0.01 s, with 9,994 rows counted and not listed.

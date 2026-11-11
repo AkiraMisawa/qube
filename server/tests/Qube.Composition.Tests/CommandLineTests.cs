@@ -32,9 +32,9 @@ public class CommandLineTests
         public LinePreview Preview(string line, string user = "ana") => Lines.Preview(line, Id, null, new Caller(user, RunOrigin.Pricer));
 
         /// <summary>Invokes the command a preview read, with the inputs it answered, as Enter does.</summary>
-        public async Task<JsonObject> Run(LinePreview preview)
+        public async Task<JsonObject> Run(LinePreview preview, RunOrigin origin = RunOrigin.Pricer)
         {
-            var result = await Commands.InvokeAsync(preview.Command!.Id, preview.Command.Version, preview.Inputs!, new Caller("ana", RunOrigin.Pricer), Guid.NewGuid().ToString(), default);
+            var result = await Commands.InvokeAsync(preview.Command!.Id, preview.Command.Version, preview.Inputs!, new Caller("ana", origin), Guid.NewGuid().ToString(), default);
             return result is CommandResult.Done done ? done.Outputs["answer"]!.AsObject()
                 : throw new Xunit.Sdk.XunitException($"{preview.Command.Id} was refused: {string.Join(" ", ((CommandResult.Refused)result).Issues.Select(i => i.Message))}");
         }
@@ -154,6 +154,14 @@ public class CommandLineTests
         Assert.Equal(before, rig.Board.Revision);
     }
 
+    [Fact] // ADR-0016 §5, note 15: a word at fault that stands twice in the line is named and given no place, never the place of the other
+    public void A_word_at_fault_that_stands_twice_in_the_line_is_given_no_place()
+    {
+        var refused = new Rig().Preview("set R1 note=lots volume=lots").Refused!;
+
+        Assert.Equal(("InvalidValue", "lots", null, null), (refused.Code, refused.Word, refused.Start, refused.End));
+    }
+
     [Fact] // ADR-0016 §5, §11: undo and redo say the command they would act on, whose it was and when, name it in their inputs, and take back that one
     public async Task Undo_and_redo_say_the_command_they_would_act_on_and_name_it()
     {
@@ -169,12 +177,15 @@ public class CommandLineTests
         var redo = rig.Preview("Redo ");
 
         Assert.Equal("NothingToUndo: There is nothing to take back: the workspace is as it was made.", Read(nothing));
-        Assert.Equal(("workspace.undo", "Takes back: set R1 checked on (ana, 1 edit)", at), (undo.Command!.Id, undo.Would, undo.At));
+        Assert.Equal(("workspace.undo", "Takes back: set R1 checked on (you, 1 edit)", at), (undo.Command!.Id, undo.Would, undo.At));
         Assert.Equal(command, undo.Inputs!["request"]!["command"]!.GetValue<string>());
         Assert.Null(undo.Rows);
         Assert.Equal("NothingToRedo: There is nothing to put back: no command was taken back since the last one ran.", Read(none));
         Assert.Equal("Took back: set R1 checked on. redo puts it back.", took["said"]!.GetValue<string>());
-        Assert.Equal(("workspace.redo", "Puts back: set R1 checked on (ana, 1 edit)"), (redo.Command!.Id, redo.Would));
+        Assert.Equal(("workspace.redo", "Puts back: set R1 checked on (you, 1 edit)"), (redo.Command!.Id, redo.Would));
+        // A command the AI ran for the user is said to be the AI's: what undo would take back is not the user's own typing.
+        await rig.Run(rig.Preview("set R2 note=wet"), RunOrigin.Ai);
+        Assert.Equal("Takes back: set R2 note wet (the AI for you, 1 edit)", rig.Preview("undo").Would);
         // Another user's workspace is not read at all.
         Assert.Equal("NotOwner", Assert.Throws<WorkspaceRefused>(() => rig.Preview("undo", user: "ben")).Code);
     }

@@ -71,11 +71,21 @@ public sealed record LinePreview(
     IReadOnlyList<LineCompletion> Complete,
     int More);
 
+/// <summary>The words of a line as typed: what stands between its spaces, each with where it starts.</summary>
+public static partial class LineWords
+{
+    public static IReadOnlyList<(string Word, int Start)> Of(string text) => [.. Pattern().Matches(text).Select(m => (m.Value, m.Index))];
+
+    [GeneratedRegex(@"\S+")]
+    private static partial Regex Pattern();
+}
+
 /// <summary>
 /// Reads a line as typed for a workspace (ADR-0016 §5) and executes nothing: finds the command its first words name
-/// among those that say how they are typed, and has it read the rest. Knows no command and no table.
+/// among those that say how they are typed, and has it read the rest. It names no command and no table of its own:
+/// the commands are the registry's, and what a line's words mean is each command's to say.
 /// </summary>
-public sealed partial class CommandLines
+public sealed class CommandLines
 {
     readonly WorkspaceService workspaces;
     readonly IReadOnlyList<(string[] Words, string Said, ICapabilityHandler Handler)> typed;
@@ -106,23 +116,23 @@ public sealed partial class CommandLines
     public LinePreview Preview(string line, string workspaceId, long? revision, Caller caller)
     {
         var state = WorkspaceCommands.Owned(workspaces, workspaceId, caller, revision);
-        var words = WordPattern().Matches(line).Select(m => (Word: m.Value, m.Index)).ToList();
+        var words = LineWords.Of(line);
         var said = typed.FirstOrDefault(t => t.Words.Length <= words.Count && t.Words.Zip(words).All(p => p.First.Equals(p.Second.Word, StringComparison.OrdinalIgnoreCase)));
         var all = typed.Select(t => t.Said).ToList();
         if (said.Handler is null)
         {
             // A first word half typed is completed; one that is no command is refused with the commands there are.
-            var first = words.Count > 0 ? words[0] : (Word: "", Index: line.Length);
+            var first = words.Count > 0 ? words[0] : (Word: "", Start: line.Length);
             var starting = words.Count <= 1 && !EndsInSpace(line) ? all.Where(w => w.StartsWith(first.Word, StringComparison.OrdinalIgnoreCase)).ToList() : [];
             var refusal = new LineRefusal("UnknownCommand", first.Word.Length == 0 ? $"Type a command: {TableWords.List(all)}." : $"No command {first.Word}: the commands are {TableWords.List(all)}.",
-                first.Word.Length == 0 ? null : first.Word, first.Word.Length == 0 ? null : first.Index, first.Word.Length == 0 ? null : first.Index + first.Word.Length, all);
-            return new(state.Revision, null, null, null, null, null, null, refusal, [.. starting.Select(w => new LineCompletion(w, first.Index))], 0);
+                first.Word.Length == 0 ? null : first.Word, first.Word.Length == 0 ? null : first.Start, first.Word.Length == 0 ? null : first.Start + first.Word.Length, all);
+            return new(state.Revision, null, null, null, null, null, null, refusal, [.. starting.Select(w => new LineCompletion(w, first.Start))], 0);
         }
 
         var descriptor = said.Handler.Descriptor;
         var command = new LineCommand(descriptor.CapabilityId, descriptor.Version);
         var last = words[said.Words.Length - 1];
-        var from = last.Index + last.Word.Length;
+        var from = last.Start + last.Word.Length;
         var reader = (ILineCommand)said.Handler;
         var context = new LineContext(state, caller, line[from..]);
         var completions = reader.Complete(context);
@@ -151,22 +161,23 @@ public sealed partial class CommandLines
         }
     }
 
-    // The first place the word stands in the line after the command's own words, as a word of its own: bounded by the
-    // line's ends, a space, a comma or an operator's sign.
+    // Where the word stands in the line after the command's own words, as a word of its own: bounded by the line's
+    // ends, a space, a comma or an operator's sign. A word that stands there twice has no place: the reader names the
+    // word and not which of the two, and the wrong one marked would send the user to a word that is right.
     static (int Start, int End)? Place(string line, int from, string word)
     {
+        (int Start, int End)? found = null;
         for (var at = line.IndexOf(word, from, StringComparison.OrdinalIgnoreCase); at >= 0; at = line.IndexOf(word, at + 1, StringComparison.OrdinalIgnoreCase))
         {
             var end = at + word.Length;
-            if ((at == 0 || Bounds(line[at - 1]) || Bounds(word[0])) && (end == line.Length || Bounds(line[end]) || Bounds(word[^1]))) return (at, end);
+            if (!((at == 0 || Bounds(line[at - 1]) || Bounds(word[0])) && (end == line.Length || Bounds(line[end]) || Bounds(word[^1])))) continue;
+            if (found is not null) return null;
+            found = (at, end);
         }
-        return null;
+        return found;
     }
 
     static bool Bounds(char c) => char.IsWhiteSpace(c) || c is ',' or '=' or '<' or '>' or '!' or '~';
 
     static bool EndsInSpace(string line) => line.Length > 0 && char.IsWhiteSpace(line[^1]);
-
-    [GeneratedRegex(@"\S+")]
-    private static partial Regex WordPattern();
 }

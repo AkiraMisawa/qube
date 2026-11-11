@@ -6,7 +6,7 @@ import type { ExGridApi } from '@ex-grid/react';
 import { QubeGrid } from '../../platform/grid/QubeGrid';
 import { GridUndoContext } from '../../platform/grid/gridUndo';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ApiError, outputOf } from '../../platform/api';
+import { ApiError } from '../../platform/api';
 import { useColumnWidths } from '../../platform/grid/columnWidths';
 import { amountTone, formatAmount } from '../../platform/grid/amounts';
 import { useWorkspaceContext } from '../../platform/workspace/WorkspaceProvider';
@@ -15,12 +15,11 @@ import { registerGridFocus } from '../../shell/focus';
 import type { VaryCell, XvaApi } from './api';
 import type { EffectiveTrade, HeldEdit, RegisteredColumn, RegisteredMeasure, Resolution, ScenariosMade, SetSaved, ScopeDrop, ShiftEdit, Varied, XvaWorkspaceView } from './contracts';
 import { measureNamed, registerXvaPage } from './commands';
-import type { LineReason } from '../../platform/commands/commands';
-import { registerCommandDoor } from '../../platform/commands/served';
+import { commandDoor, registerCommandDoor } from '../../platform/commands/served';
 import { XvaResult } from './XvaResult';
 import { BASE_CASE, BASE_SCENARIO, openTrace, requestTerm } from '../../platform/traces/open';
 import type { TraceApi } from '../../platform/traces/api';
-import type { RowsEdited, RunRecord, TakenBack } from '../../platform/contracts';
+import type { RunRecord } from '../../platform/contracts';
 import { dockTabs, METRICS_TAB, type DockTab, type MeasureTab } from './dock';
 import { EditQueue, MEASURES_ENTITY, SETTINGS_ENTITY, refusedEdit, sideSaid, sideTitle, tradeFields, type PendingEdit, type SetText } from './editing';
 import { ToolbarField } from './fields';
@@ -523,9 +522,9 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
     enabled: changesOpen,
   });
   /** A command of the Changes tab, after the edits already sent (spine 6); a Common change moves the grids' rows.
-   * Refused, the page says why, after `label` where the reason does not say what was not done, and the answer is the
-   * server's reason; taken, it is `undefined`. */
-  const attempt = async (label: string | undefined, run: (revision: number) => Promise<XvaWorkspaceView>): Promise<string | undefined> => {
+   * Refused, the page says why after `label`, which says what was not done, and the answer is the server's reason;
+   * taken, it is `undefined`. */
+  const attempt = async (label: string, run: (revision: number) => Promise<XvaWorkspaceView>): Promise<string | undefined> => {
     try {
       const next = await queue.after(async (revision) => {
         const answer = await run(revision);
@@ -537,7 +536,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
       return undefined;
     } catch (error) {
       const reason = describe(error);
-      workspace.notify('refused', label === undefined ? reason : `${label}: ${reason}`);
+      workspace.notify('refused', `${label}: ${reason}`);
       return reason;
     }
   };
@@ -547,59 +546,28 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
     if (await apply(`${title} was not removed`, (revision) => api.removeCase(workspaceId, revision, name))) workspace.notify('done', `Removed the case ${title}.`);
   };
   /**
-   * A kernel command on this workspace (ADR-0016 §5): at the version the catalog lists, through the page's door to the
-   * gateway and in the queue's turn, after the edits already sent (spine 6). The workspace is read again in that same
-   * turn, since any of its rows may have moved, so this view never arrives after a later edit's. The notice is the
-   * server's sentence of what was done; refused, it is the server's reason, after `label` where the reason does not
-   * say what was not done.
+   * The page's door for the commands the server reads (`set`, `reset`, `remove`, `undo`, `redo`; ADR-0016 §5): they
+   * take their turn in the queue, after the edits already sent (spine 6), and the workspace is read again in that same
+   * turn, since any of its rows may have moved, so this view never arrives after a later edit's.
    */
-  const invoke = async (id: string, request: Readonly<Record<string, unknown>>, label?: string) => {
-    let done: { readonly said: string } | undefined;
-    const refused = await attempt(label, async (revision) => {
-      const capability = workspace.catalog.capabilities.find((c) => c.capabilityId === id);
-      if (capability === undefined) throw new Error(`This server has no command ${id}.`);
-      const told = outputOf<TakenBack | RowsEdited>(
-        await workspace.api.command(id, capability.version, { request: { ...request, workspaceId, revision } }, crypto.randomUUID()), 'answer');
-      done = told;
-      queue.rebase(told.revision);
-      // The command is done whether or not the page can read what it left: the notice then says both.
-      return api.view(workspaceId).catch((error: unknown) => { throw new Error(`${told.said} The page could not read the workspace again: ${describe(error)}`); });
-    });
-    if (refused === undefined && done !== undefined) workspace.notify('done', done.said);
-  };
-  /** The grids' undo and redo keys (ADR-0016 §11): the notice says what was taken back or put back. */
-  const takeBack = (verb: 'undo' | 'redo') => invoke(`workspace.${verb}`, {});
-  /**
-   * A line of a command the catalog says how to type (`set`, `reset`, `remove`, `undo`, `redo`; ADR-0016 §5), in the
-   * queue's turn, after the edits already sent (spine 6): the server reads the line at the revision the page then
-   * holds, and that reading is what is invoked, so what runs is what was read. The answer comes once the line is read:
-   * why it cannot be, and then nothing ran; or nothing, and the command runs on in the same turn, the workspace read
-   * again after it. Its notice is the server's sentence of what was done; a failure after the line was read has no
-   * line to stay on, and is a notice too.
-   */
-  const enterLine = (line: string) => new Promise<LineReason | undefined>((resolve) => {
-    let read = false;
-    queue.after(async (revision) => {
-      const reading = await workspace.api.preview(line, workspaceId, revision);
-      read = true;
-      if (reading.refused !== undefined) { resolve(reading.refused); return undefined; }
-      if (reading.command === undefined || reading.inputs === undefined) throw new Error('The server read the line and named no command to run.');
-      resolve(undefined);
-      const told = outputOf<TakenBack | RowsEdited>(await workspace.api.command(reading.command.id, reading.command.version, reading.inputs, crypto.randomUUID()), 'answer');
-      queue.rebase(told.revision);
-      // The command is done whether or not the page can read what it left: the notice then says both.
-      const next = await api.view(workspaceId).catch((error: unknown) => { throw new Error(`${told.said} The page could not read the workspace again: ${describe(error)}`); });
-      return { told, next };
-    }).then((done) => {
-      if (done === undefined) return;
-      show(done.next);
+  const door = useMemo(() => commandDoor({
+    workspaceId,
+    catalog: workspace.catalog,
+    api: workspace.api,
+    turns: queue,
+    reread: async () => {
+      const fresh = await api.view(workspaceId);
+      show(fresh);
       sources.changed();
-      workspace.notify('done', done.told.said);
-    }, (error: unknown) => {
-      if (read) workspace.notify('refused', `${line.trim()}: ${describe(error)}`);
-      else resolve({ sentence: describe(error) });
-    });
-  });
+      return fresh.revision;
+    },
+    notify: workspace.notify,
+  }), [api, workspaceId, workspace, queue, show, sources]);
+  /** The grids' undo and redo keys (ADR-0016 §11): the notice says what was taken back or put back, or why nothing was. */
+  const takeBack = async (verb: 'undo' | 'redo') => {
+    const reason = await door.invoke(`workspace.${verb}`, {});
+    if (reason !== undefined) workspace.notify('refused', reason.sentence);
+  };
   const clearCases = async () => {
     if (await apply('No case was removed', (revision) => api.clearCases(workspaceId, revision))) workspace.notify('done', 'Removed every case.');
   };
@@ -769,7 +737,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   const setCurrency = (currency: string) => void queue.push({ entity: SETTINGS_ENTITY, field: 'displayCurrency', value: currency, title: 'The display currency' });
 
   // The commands run what the page's own controls run, as the page stands when they run (ADR-0010 §9).
-  const pageCommands = { takeBack, enterLine, chooseCds, cdsCatalogue: () => catalogue.data, price, setMeasures, setSide, retry, copyQuote, download, refresh, setCurrency, openTab, explain, openResult, setDockFull, resultTabs, traceInView, vary, addTrades, removeCase, clearCases, defineScenario, includeScenario, removeScenario, duplicate, clearScenarios, generateScenarios, saveScenarios, loadScenarios, scenarioSets: () => scenarioSets.data ?? [], scenarios: () => view.data?.scenarios ?? [], pricing: () => (view.data === undefined ? undefined : { cases: view.data.cases.length, cap: view.data.caseCap }), measures: () => view.data?.measures ?? [], currencies: () => view.data?.currencies ?? [], examples: () => ({ csa: view.data?.csas[0]?.csaId }) };
+  const pageCommands = { takeBack, chooseCds, cdsCatalogue: () => catalogue.data, price, setMeasures, setSide, retry, copyQuote, download, refresh, setCurrency, openTab, explain, openResult, setDockFull, resultTabs, traceInView, vary, addTrades, removeCase, clearCases, defineScenario, includeScenario, removeScenario, duplicate, clearScenarios, generateScenarios, saveScenarios, loadScenarios, scenarioSets: () => scenarioSets.data ?? [], scenarios: () => view.data?.scenarios ?? [], pricing: () => (view.data === undefined ? undefined : { cases: view.data.cases.length, cap: view.data.caseCap }), measures: () => view.data?.measures ?? [], currencies: () => view.data?.currencies ?? [], examples: () => ({ csa: view.data?.csas[0]?.csaId }) };
   const pageRef = useRef(pageCommands);
   pageRef.current = pageCommands;
   useEffect(() => {
@@ -809,10 +777,9 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
       measures: () => pageRef.current.measures(),
       currencies: () => pageRef.current.currencies(),
     });
-    // The door of the commands the server reads (ADR-0016 §5): where they act, and how they follow the page's edits.
-    registerCommandDoor(panelId, { workspaceId, enter: (line) => pageRef.current.enterLine(line) });
+    registerCommandDoor(panelId, door);
     return () => { registerXvaPage(panelId, undefined); registerCommandDoor(panelId, undefined); };
-  }, [panelId, workspaceId]);
+  }, [panelId, door]);
   // The grids' undo and redo keys run the same two commands; the functions are the same for the page's life, so no
   // grid is made again for them.
   const gridUndo = useMemo(() => ({ undo: () => void pageRef.current.takeBack('undo'), redo: () => void pageRef.current.takeBack('redo') }), []);

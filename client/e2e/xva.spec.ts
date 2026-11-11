@@ -759,6 +759,106 @@ test('ADR-0016 §5: `set where` says its rows and what would change before Enter
   await expect(page.getByTestId('workspace-summary')).toContainText('2 edit(s)');
 });
 
+test('ADR-0016 §2, §5: Enter runs the reading the line shows, and a workspace someone else moved since refuses it: the line stays, is read again, and then runs', async ({ page, problems }) => {
+  await open(page);
+  await newWorkspace(page, 'ABC/LE-01', 5);
+  await command(page, 'measures', 'cva fva');
+  await expect(page.getByTestId('price')).toHaveText('Price CVA FVA · 1 case');
+  await settled(page, 'New trades');
+  const line = page.getByRole('combobox', { name: 'Command' });
+  const read = page.getByTestId('command-preview');
+
+  await page.keyboard.press('ControlOrMeta+K');
+  await expect(line).toBeFocused();
+  const asked = page.waitForRequest((r) => r.url().endsWith('/api/commands/preview') && (r.postDataJSON() as { line: string }).line === 'set new a off');
+  await page.keyboard.type('set new a off');
+  const request = await asked;
+  const { workspaceId } = request.postDataJSON() as { workspaceId: string };
+  const { revision } = await (await request.response())!.json() as { revision: number };
+  await expect(read).toContainText('trades, 3 rows: DRAFT-1, DRAFT-2, DRAFT-3');
+  await expect(read).toContainText('A: 3 on to off');
+
+  // The AI, for the same user, takes one of the three rows out of After while the line is open.
+  const moved = await page.request.post('/api/agent/commands/entity.set/1.0.0',
+    { data: { inputs: { request: { workspaceId, revision, rows: 'DRAFT-1', set: 'a=off' } }, idempotencyKey: `e2e-${Date.now()}` } });
+  expect(moved.status()).toBe(200);
+
+  // Enter runs what the line shows, which was read of the workspace before it moved: it is refused, and nothing ran.
+  await page.keyboard.press('Enter');
+  await expect(page.getByTestId('command-problems')).toHaveText(`The workspace is at revision ${revision + 1}, not ${revision}.`);
+  await expect(line).toHaveValue('set new a off');
+  await expect(line).toBeFocused();
+  expect(problems.splice(0)).toEqual(['error: Failed to load resource: the server responded with a status of 409 (Conflict)']);
+  // The line is read again, of the workspace as it now stands, and Enter runs that.
+  await expect(read).toContainText('A: 2 on to off, 1 already off');
+  await expect(read).not.toHaveAttribute('aria-busy', 'true');
+  await page.keyboard.press('Enter');
+  await expect(line).toBeHidden();
+  await expect(page.getByTestId('notice')).toHaveText('Set A to off on DRAFT-2 and DRAFT-3; 1 already held it.');
+  await focusCell(page, 10);
+  for (const id of ['DRAFT-1', 'DRAFT-2', 'DRAFT-3']) await expect(cell(page, id, 11)).toHaveText('False');
+});
+
+test('ADR-0016 §5: while the server reads the line, nothing is taken from its reading of an earlier text; a line closed while Enter is read says its reason as a notice; and a reading the server did not give is said as a failure', async ({ page, problems }) => {
+  await open(page);
+  await newWorkspace(page, 'ABC/LE-01', 5);
+  await command(page, 'measures', 'cva fva');
+  await expect(page.getByTestId('price')).toHaveText('Price CVA FVA · 1 case');
+  await settled(page, 'New trades');
+  const line = page.getByRole('combobox', { name: 'Command' });
+  const list = page.getByRole('listbox', { name: 'What could follow' });
+  const offered = list.getByRole('option');
+
+  await page.keyboard.press('ControlOrMeta+K');
+  await expect(line).toBeFocused();
+  await page.keyboard.type('set DR');
+  await expect(offered).toHaveText(['DRAFT-1trades', 'DRAFT-2trades', 'DRAFT-3trades']);
+
+  // From here the server is slow: each reading waits until the test lets it go.
+  let letGo = (): void => undefined;
+  let waits = new Promise<void>((resolve) => { letGo = resolve; });
+  // A reading the line no longer waits for was given up by the page, and has nothing to continue.
+  await page.route('**/api/commands/preview', async (route) => { await waits; await route.continue().catch(() => undefined); });
+  await page.keyboard.type('AFT-2 cs');
+  // The list on screen is still the one for `set DR`, whose first would be written over the row now typed: it is
+  // said to be an earlier reading, and Tab takes nothing from it.
+  await expect(page.getByText('Reading the line…')).toBeVisible();
+  await expect(list).toHaveAttribute('aria-busy', 'true');
+  await expect(offered).toHaveText(['DRAFT-1trades', 'DRAFT-2trades', 'DRAFT-3trades']);
+  await page.keyboard.press('Tab');
+  await expect(line).toHaveValue('set DRAFT-2 cs');
+  letGo();
+  await expect(offered).toHaveText(['csa']);
+  await expect(list).not.toHaveAttribute('aria-busy', 'true');
+  await page.keyboard.press('Tab');
+  await expect(line).toHaveValue('set DRAFT-2 csa ');
+
+  // Enter while the server is slow, and the line closed before it answers: the reason has no line left to stay on.
+  waits = new Promise<void>((resolve) => { letGo = resolve; });
+  await page.keyboard.press('ControlOrMeta+A');
+  await page.keyboard.type('set DRAFT-2 colour red');
+  await page.keyboard.press('Enter');
+  await expect(line).toHaveAttribute('aria-busy', 'true');
+  await page.keyboard.press('Escape');
+  await expect(line).toBeHidden();
+  letGo();
+  await expect(page.getByTestId('notice')).toHaveText(/^set: trades has no field colour; its fields are trade id, /);
+  await expect(page.getByTestId('notice')).toHaveAttribute('data-kind', 'refused');
+  await expect(page.getByTestId('workspace-summary')).toContainText('0 edit(s)');
+
+  // The server answering with no reading is said as a failure, in the line's red: it is not what the line means.
+  await page.unroute('**/api/commands/preview');
+  await page.route('**/api/commands/preview', (route) => route.fulfill({ status: 404, json: { code: 'UnknownWorkspace', message: 'This workspace is gone.', issues: [] } }));
+  await page.keyboard.press('ControlOrMeta+K');
+  await expect(line).toBeFocused();
+  await page.keyboard.type('set ');
+  await expect(page.getByTestId('command-unread')).toHaveText('The server did not read the line: This workspace is gone.');
+  await expect(page.getByTestId('command-preview')).toHaveCount(0);
+  expect(problems.splice(0)).toEqual(['error: Failed to load resource: the server responded with a status of 404 (Not Found)']);
+  await page.keyboard.press('Escape');
+  await expect(line).toBeHidden();
+});
+
 test('ADR-0016 §11: `undo` says what it would take back before Enter and what it took back after, `redo` puts it back, and a grid\'s Ctrl+Z and Ctrl+Y do the same', async ({ page, problems }) => {
   await open(page);
   await newWorkspace(page, 'ABC/LE-01', 5);
@@ -784,7 +884,7 @@ test('ADR-0016 §11: `undo` says what it would take back before Enter and what i
   await page.keyboard.press('ControlOrMeta+K');
   await expect(line).toBeFocused();
   await page.keyboard.type('undo');
-  await expect(page.getByTestId('command-preview')).toContainText(/^Takes back: set CSA-A threshold 5mm \(\S+, 1 edit\) · \d/);
+  await expect(page.getByTestId('command-preview')).toContainText(/^Takes back: set CSA-A threshold 5mm \(you, 1 edit\) · \d/);
   await page.keyboard.press('Enter');
   await expect(page.getByTestId('notice')).toHaveText('Took back: set CSA-A threshold 5mm. redo puts it back.');
   await expect(page.getByTestId('notice')).toHaveAttribute('data-kind', 'done');

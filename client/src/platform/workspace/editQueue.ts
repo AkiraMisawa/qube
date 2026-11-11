@@ -77,4 +77,12 @@ export class EditQueue<Edit, View extends { readonly revision: number }> {
     this.#tail = run.then(() => undefined, () => undefined);
     return run;
   }
+
+  /**
+   * Resolves once every edit and command taken so far is answered, whatever each was told. What is read of the
+   * workspace after it has seen them; nothing waits for it, and what is taken later is not waited for.
+   */
+  settled(): Promise<void> {
+    return this.#tail;
+  }
 }

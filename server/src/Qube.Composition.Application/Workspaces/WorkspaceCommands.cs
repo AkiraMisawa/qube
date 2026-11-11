@@ -26,14 +26,17 @@ public sealed class WorkspaceTakeBack(Func<WorkspaceService> workspaces, bool un
 
     /// <summary>
     /// The line names the command it would act on (ADR-0016 §5), so that Enter takes back the one that was shown or is
-    /// refused. The sentence holds no time: a client writes when in its user's zone.
+    /// refused, and says whose it was (§11): the reader's own, or one the AI ran for them, which they did not type.
+    /// The sentence holds no time: a client writes when in its user's zone.
     /// </summary>
     public LineRead Read(LineContext line)
     {
         var told = workspaces().WouldTakeBack(line.State, line.Caller.UserId, undo);
         var request = new JsonObject { ["workspaceId"] = line.State.WorkspaceId, ["command"] = told.Command };
+        var whose = told.User == line.Caller.UserId ? "you" : told.User;
+        var who = told.Origin == RunOrigin.Ai ? $"the AI for {whose}" : whose;
         return new(new JsonObject { ["request"] = request }, [], null,
-            $"{(undo ? "Takes back" : "Puts back")}: {told.Said} ({told.User}, {told.Edits} edit{(told.Edits == 1 ? "" : "s")})", told.At);
+            $"{(undo ? "Takes back" : "Puts back")}: {told.Said} ({who}, {told.Edits} edit{(told.Edits == 1 ? "" : "s")})", told.At);
     }
 
     public LineCompletions Complete(LineContext line) => LineCompletions.None;

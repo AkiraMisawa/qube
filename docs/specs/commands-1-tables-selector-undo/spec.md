@@ -156,11 +156,13 @@ reader goes (the page's `/set` endpoint went with 1b).
   follow the last word: rows, `all`, subsets, `where`, fields, operators, a field's values.
 - **The line.** A command whose form the catalog serves is built from it: `set`, `reset`, `remove`, `undo`, `redo`.
   While its line is typed the client asks for the preview (the latest answer wins, an older one is dropped), shows
-  `would` or the reason under the line, and offers `complete`. Enter has the server read exactly the text on the
-  line once more, in the page's own turn and at the revision it then holds, and invokes that reading's inputs (as
-  built: the answer shown while typing was read before the page's last edits may have landed); while the line
-  cannot be read Enter runs nothing and the line stays open with its text. `setTyped`, `setHint` and the page's `set`
-  go (its endpoint went in 1b). `vary` keeps its reader until step 3.
+  `would` or the reason under the line, and offers `complete`. Enter invokes the inputs of the reading the line shows
+  for exactly its text, in the page's own turn; they name the revision read, so a workspace that moved since refuses
+  it (as built after the review: the preview is asked for after the page's own edits have been answered, and Enter
+  never runs a reading the user did not see). With no reading for the text yet, the server reads the line at the
+  revision the page then holds and that is invoked. While the line cannot be read, or the command is refused, Enter
+  runs nothing and the line stays open with its text. `setTyped`, `setHint` and the page's `set` go (its endpoint
+  went in 1b). `vary` keeps its reader until step 3.
 
 ## Testing Decisions
 

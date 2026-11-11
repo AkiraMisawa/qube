@@ -1,23 +1,94 @@
-import type { Catalog, LineCompletion, LinePreview } from '../contracts';
+import { ApiError, outputOf, type Api } from '../api';
+import type { Catalog, LineCompletion, LinePreview, RowsEdited, TakenBack } from '../contracts';
 import type { Notify } from '../notices';
-import type { Command, Completion, LineReading, LineReason } from './commands';
+import type { Command, CommandDoor, Completion, LineReading, LineReason } from './commands';
 
 // The commands the catalog says how to type (ADR-0016 §4, §5): the line builds each from the catalog and reads nothing
 // of its line itself. The server reads the line, while it is typed and at Enter; what the line does with the answer is
-// here. Nothing here knows a table, a field or an application.
+// here, and so is the door a page opens for them. Nothing here knows a table, a field or an application.
+
+/** A page's edits, sent one at a time: a command takes its turn among them, and they chain on what it leaves. */
+export interface Turns {
+  /** Runs `command` after the edits already sent, with the revision the page then holds; edits sent later wait for it. */
+  after<T>(command: (revision: number) => Promise<T>): Promise<T>;
+  /** The workspace stands at this revision: the page's next edit chains on it. */
+  rebase(revision: number): void;
+  /** Resolves once everything taken so far is answered. */
+  settled(): Promise<void>;
+}
+
+/** What a page has for its door: its workspace, its turns, and how it shows the workspace once a command has moved it. */
+export interface DoorPage {
+  readonly workspaceId: string;
+  readonly catalog: Pick<Catalog, 'capabilities'>;
+  readonly api: Pick<Api, 'preview' | 'command'>;
+  readonly turns: Turns;
+  /** Reads the workspace again and shows it; answers the revision it read. */
+  reread(): Promise<number>;
+  readonly notify: Notify;
+}
+
+/** What the door reads of a command's answer, which every command that writes a workspace gives: where it left it, and what it did. */
+type Told = Pick<TakenBack | RowsEdited, 'revision' | 'said'>;
+
+interface Invocation {
+  readonly id: string;
+  readonly version: string;
+  readonly inputs: Readonly<Record<string, unknown>>;
+}
+
+const describe = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 /**
- * What a page gives the command line for the workspace it shows: where the served commands act, and how they are run
- * so that they follow the edits the page has already sent.
+ * The door of a page that holds a workspace (ADR-0016 §5), the same for every such page. A command runs in the page's
+ * turn. Refused, by the reading or by the write, nothing ran and the reason is answered, for the line to keep; where
+ * the reason is that the workspace has moved, the page reads it again first, so that what is tried next is tried
+ * against what the page then shows. Taken, the page chains on the revision it left and shows the workspace as read
+ * again, and the notice is the server's sentence of what was done.
  */
-export interface CommandDoor {
-  readonly workspaceId: string;
-  /**
-   * In the page's own turn, after the edits it has sent: has the server read the line at the revision the page then
-   * holds, and invokes that reading. Resolves once the line is read: with why it cannot be, and then nothing ran; or
-   * with nothing, and the command runs on, its result the page's to say.
-   */
-  enter(line: string): Promise<LineReason | undefined>;
+export function commandDoor(page: DoorPage): CommandDoor {
+  const run = (named: (revision: number) => Promise<Invocation | LineReason>): Promise<LineReason | undefined> =>
+    page.turns.after(async (revision): Promise<LineReason | undefined> => {
+      let told: Told;
+      try {
+        const call = await named(revision);
+        if ('sentence' in call) return call;
+        told = outputOf<Told>(await page.api.command(call.id, call.version, call.inputs, crypto.randomUUID()), 'answer');
+      } catch (error) {
+        const sentence = describe(error);
+        if (!(error instanceof ApiError && error.envelope.code === 'RevisionMoved')) return { sentence };
+        return page.reread().then(
+          (stands) => { page.turns.rebase(stands); return { sentence }; },
+          (unread: unknown) => ({ sentence: `${sentence} The page could not read the workspace again: ${describe(unread)}` }));
+      }
+      page.turns.rebase(told.revision);
+      // The command is done whether or not the page can read what it left: the notice then says both.
+      try {
+        page.turns.rebase(await page.reread());
+      } catch (error) {
+        page.notify('refused', `${told.said} The page could not read the workspace again: ${describe(error)}`);
+        return undefined;
+      }
+      page.notify('done', told.said);
+      return undefined;
+    // The page's own earlier edit was refused, and this with it: nothing was sent.
+    }).catch((error: unknown) => ({ sentence: describe(error) }));
+
+  return {
+    workspaceId: page.workspaceId,
+    settled: () => page.turns.settled(),
+    enter: (line, shown) => run(async (revision) => {
+      const reading = shown ?? await page.api.preview(line, page.workspaceId, revision);
+      if (reading.refused !== undefined) return reading.refused;
+      if (reading.command === undefined || reading.inputs === undefined) throw new Error('The server read the line and named no command to run.');
+      return { ...reading.command, inputs: reading.inputs };
+    }),
+    invoke: (capabilityId, request) => run(async (revision) => {
+      const capability = page.catalog.capabilities.find((c) => c.capabilityId === capabilityId);
+      if (capability === undefined) throw new Error(`This server has no command ${capabilityId}.`);
+      return { id: capabilityId, version: capability.version, inputs: { request: { ...request, workspaceId: page.workspaceId, revision } } };
+    }),
+  };
 }
 
 const doors = new Map<string, CommandDoor>();
@@ -47,7 +118,7 @@ export function servedCommands(catalog: Pick<Catalog, 'capabilities'>, panel: { 
       group: 'Workspace',
       ...(door === undefined || panel === undefined || capability.command === undefined
         ? { unavailable: 'This panel has no workspace for it to act on.' }
-        : { target: panel.title, page: true, served: { arguments: capability.command.arguments, workspaceId: door.workspaceId, enter: door.enter } }),
+        : { target: panel.title, page: true, served: { arguments: capability.command.arguments, door } }),
       // From a key or a button there is no line: the words alone are read, and a refusal is a notice.
       run: () => {
         if (door === undefined) throw new Error(`${words} ran with no workspace to act on.`);

@@ -1,4 +1,3 @@
-using System.Text.RegularExpressions;
 using Qube.Composition.Application.Workspaces;
 using Qube.Composition.Contracts;
 
@@ -10,7 +9,7 @@ namespace Qube.Composition.Application.Tables;
 /// reading awaits: ways to say rows, the verb's fields, a condition's fields and operators, and the values a field has
 /// to choose from. Offering is not checking: a line made of what was offered is still read, and may be refused.
 /// </summary>
-static partial class TableCompletions
+static class TableCompletions
 {
     // Rows are offered a few at a time; a table may have ten thousand.
     const int RowsListed = 20;
@@ -18,15 +17,15 @@ static partial class TableCompletions
     /// <param name="afterRows">What the verb takes after its rows: values for fields, one field, or nothing.</param>
     public static LineCompletions Of(string text, IReadOnlyList<BoundTable> tables, WorkspaceState state, CommandArgumentKind? afterRows)
     {
-        var words = WordPattern().Matches(text).Select(m => (Text: m.Value, Start: m.Index)).ToList();
+        var words = LineWords.Of(text);
         // No space after the command's own words: they are still being typed, and nothing follows yet.
         if (text.Length == 0) return LineCompletions.None;
         var typing = !char.IsWhiteSpace(text[^1]);
-        var last = typing ? words[^1] : (Text: "", Start: text.Length);
-        var done = typing ? words[..^1] : words;
+        var last = typing ? words[^1] : (Word: "", Start: text.Length);
+        IReadOnlyList<(string Word, int Start)> done = typing ? [.. words.Take(words.Count - 1)] : words;
         try
         {
-            return new Offer(tables, state, afterRows, done, last.Text, last.Start).All();
+            return new Offer(tables, state, afterRows, done, last.Word, last.Start).All();
         }
         catch (TableRefused)
         {
@@ -35,7 +34,7 @@ static partial class TableCompletions
         }
     }
 
-    sealed class Offer(IReadOnlyList<BoundTable> tables, WorkspaceState state, CommandArgumentKind? afterRows, IReadOnlyList<(string Text, int Start)> done, string typed, int at)
+    sealed class Offer(IReadOnlyList<BoundTable> tables, WorkspaceState state, CommandArgumentKind? afterRows, IReadOnlyList<(string Word, int Start)> done, string typed, int at)
     {
         readonly List<LineCompletion> items = [];
         readonly Dictionary<BoundTable, IReadOnlyList<string>> keys = [];
@@ -43,7 +42,7 @@ static partial class TableCompletions
 
         public LineCompletions All()
         {
-            var words = done.Select(w => w.Text).ToArray();
+            var words = done.Select(w => w.Word).ToArray();
             var scan = SelectorReader.Scan(words, [.. tables.Select(t => t.Descriptor)]);
             var selector = scan.Selector;
             var said = selector.Table is { } id ? tables.First(t => t.Descriptor.TableId == id) : null;
@@ -57,7 +56,7 @@ static partial class TableCompletions
             {
                 // Words after the rows are the verb's own.
                 var pending = done.Skip(scan.Taken).ToList();
-                foreach (var table in TablesOf(selector, said, main, string.Join(' ', pending.Select(w => w.Text)))) AfterRows(table, pending);
+                foreach (var table in TablesOf(selector, said, main, string.Join(' ', pending.Select(w => w.Word)))) AfterRows(table, pending);
             }
             else if (selector.Where.Count > 0)
             {
@@ -146,10 +145,10 @@ static partial class TableCompletions
         }
 
         // After the rows, what the verb takes: for values, a field and then what it has to choose from; for a field, one.
-        void AfterRows(BoundTable table, IReadOnlyList<(string Text, int Start)> pending)
+        void AfterRows(BoundTable table, IReadOnlyList<(string Word, int Start)> pending)
         {
             if (afterRows is null) return;
-            var said = pending.Select(w => w.Text).ToList();
+            var said = pending.Select(w => w.Word).ToList();
             if (afterRows == CommandArgumentKind.Assignments && (typed.Contains('=') || said.Any(w => w.Contains('='))))
             {
                 Signed(table, said);
@@ -256,7 +255,4 @@ static partial class TableCompletions
             return tables.Where(t => t.Descriptor.SingleRow && Assignments.StartsWithAFieldOf(pending, t));
         }
     }
-
-    [GeneratedRegex(@"\S+")]
-    private static partial Regex WordPattern();
 }

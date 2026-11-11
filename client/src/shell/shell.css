@@ -148,6 +148,7 @@
 }
 
 .qube-line-preview[aria-busy='true'] .qube-line-read,
+.qube-line-head[aria-busy='true'] .qube-line-read,
 .qube-line-options[aria-busy='true'] {
   opacity: 0.55;
   transition: opacity 0s linear 0.2s;
