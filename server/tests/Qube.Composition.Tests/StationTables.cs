@@ -42,6 +42,8 @@ static class Stations
     [
         new("id", "Station", ["id"], FieldForm.Id),
         new("altitude", "Altitude", ["altitude"], FieldForm.Number, Editable: true),
+        // A field that points into a table, here its own: the station that stands in for this one.
+        new("backup", "Backup", ["backup"], FieldForm.Id, Editable: true, Optional: true, Table: Sites),
     ], [High]);
 
     public static readonly TableDescriptor SettingsTable = new(Settings, "1.0", App, "Board settings", ["settings", "board"], "id",
@@ -71,10 +73,10 @@ static class Stations
 
     static readonly IReadOnlyDictionary<string, JsonObject> Entities = Sends.ToDictionary(s => $"reading:{s.Id}", FieldsOf)
         .Concat([
-            KeyValuePair.Create("station:N1", new JsonObject { ["id"] = "N1", ["subset"] = "high", ["altitude"] = 120m }),
-            KeyValuePair.Create("station:S1", new JsonObject { ["id"] = "S1", ["altitude"] = 15m }),
+            KeyValuePair.Create("station:N1", new JsonObject { ["id"] = "N1", ["subset"] = "high", ["altitude"] = 120m, ["backup"] = null }),
+            KeyValuePair.Create("station:S1", new JsonObject { ["id"] = "S1", ["altitude"] = 15m, ["backup"] = "N1" }),
             // A station that shares its id with a reading, so an id alone cannot say which table it means.
-            KeyValuePair.Create("station:X1", new JsonObject { ["id"] = "X1", ["altitude"] = 40m }),
+            KeyValuePair.Create("station:X1", new JsonObject { ["id"] = "X1", ["altitude"] = 40m, ["backup"] = null }),
             KeyValuePair.Create("settings:board", new JsonObject { ["id"] = "board", ["alarm"] = 10_000_000m, ["daylight"] = true }),
             // A whole subset's field, set by one edit: it has no value of its own until one is made.
             KeyValuePair.Create("readings:manual", new JsonObject { ["checked"] = null }),

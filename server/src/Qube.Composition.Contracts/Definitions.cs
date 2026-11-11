@@ -23,6 +23,22 @@ public enum CapabilityEffect { ReadData, Compute, PersistAnalysis, EditWorkspace
 
 public sealed record Port(string Name, string ContractId, string ContractVersion, Cardinality Cardinality);
 
+/// <summary>
+/// What an argument of a typed command takes (ADR-0016 §4): rows of a registered table, as the one selector spells
+/// them; values for fields, as <c>name=value</c> or one field and its value; one field by its words; or text as it is.
+/// </summary>
+public enum CommandArgumentKind { Rows, Assignments, Field, Text }
+
+/// <summary>One argument of a command as a line types it, in the order it is typed, under the name the request holds it by.</summary>
+public sealed record CommandArgument(string Name, CommandArgumentKind Kind, bool Required);
+
+/// <summary>
+/// How a command is typed (ADR-0016 §4): the words that name it, each a spelling of its own, and its arguments. The
+/// command line builds its entry from this, and the server reads the line (§5); the client reads nothing itself.
+/// </summary>
+public sealed record CommandForm(IReadOnlyList<string> Words, IReadOnlyList<CommandArgument> Arguments);
+
+/// <param name="Command">How it is typed on the command line; none for a capability no line names.</param>
 public sealed record CapabilityDescriptor(
     string CapabilityId,
     string Version,
@@ -30,7 +46,8 @@ public sealed record CapabilityDescriptor(
     IReadOnlyList<Port> InputPorts,
     IReadOnlyList<Port> OutputPorts,
     ExecutionKind ExecutionKind,
-    IReadOnlyList<CapabilityEffect> Effects);
+    IReadOnlyList<CapabilityEffect> Effects,
+    CommandForm? Command = null);
 
 public sealed record CapabilityCatalog(string DocumentType, string SchemaVersion, IReadOnlyList<CapabilityDescriptor> Capabilities);
 

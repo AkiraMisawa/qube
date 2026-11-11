@@ -125,6 +125,89 @@ public class CommandGatewayTests(QubeFactory factory) : IClassFixture<QubeFactor
         Assert.Equal((HttpStatusCode.Forbidden, "NotOwner"), (notOwner.Status, notOwner.Code));
     }
 
+    [Fact] // ADR-0016 §4: the catalog serves how each typed command is typed, and nothing more for a capability no line names
+    public async Task The_catalog_says_how_the_typed_commands_are_typed()
+    {
+        var capabilities = (await client.GetFromJsonAsync<JsonObject>("/api/catalog"))!["capabilities"]!.AsArray();
+        var typed = capabilities.Where(c => c!["command"] is not null).ToDictionary(c => c!["capabilityId"]!.GetValue<string>(), c => c!["command"]!.ToJsonString());
+
+        Assert.Equal(["entity.remove", "entity.reset", "entity.set", "workspace.redo", "workspace.undo"], typed.Keys.Order());
+        Assert.Equal("""{"words":["set"],"arguments":[{"name":"rows","kind":"rows","required":false},{"name":"set","kind":"assignments","required":true}]}""", typed["entity.set"]);
+        Assert.Equal("""{"words":["reset"],"arguments":[{"name":"rows","kind":"rows","required":false},{"name":"field","kind":"field","required":false}]}""", typed["entity.reset"]);
+        Assert.Equal("""{"words":["remove"],"arguments":[{"name":"rows","kind":"rows","required":true}]}""", typed["entity.remove"]);
+        Assert.Equal("""{"words":["undo"],"arguments":[]}""", typed["workspace.undo"]);
+        Assert.True(capabilities.Count > typed.Count, "The catalog serves capabilities no line names, as before.");
+    }
+
+    async Task<(HttpStatusCode Status, JsonObject Body)> Preview(string line, string id, long? revision = null, HttpClient? by = null)
+    {
+        var request = new JsonObject { ["line"] = line, ["workspaceId"] = id };
+        if (revision is { } read) request["revision"] = read;
+        var response = await (by ?? client).PostAsJsonAsync("/api/commands/preview", request);
+        return (response.StatusCode, (await response.Content.ReadFromJsonAsync<JsonObject>())!);
+    }
+
+    [Fact] // ADR-0016 §5, note 11: the preview reads a line for a workspace and writes nothing; what it answers is what Enter invokes
+    public async Task The_preview_answers_the_command_its_inputs_its_rows_and_what_would_change_and_writes_nothing()
+    {
+        var ws = await Create();
+        var id = ws["workspaceId"]!.GetValue<string>();
+        var revision = ws["revision"]!.GetValue<long>();
+
+        var (status, preview) = await Preview("set CSA-A threshold 5mm", id);
+        var unchanged = (await client.GetFromJsonAsync<JsonObject>($"/api/xva/workspaces/{id}"))!;
+
+        Assert.Equal(HttpStatusCode.OK, status);
+        Assert.Equal(revision, preview["revision"]!.GetValue<long>());
+        Assert.Equal("""{"id":"entity.set","version":"1.0.0"}""", preview["command"]!.ToJsonString());
+        Assert.Equal(new JsonObject { ["request"] = new JsonObject { ["workspaceId"] = id, ["revision"] = revision, ["rows"] = "CSA-A", ["set"] = "threshold 5mm" } }.ToJsonString(),
+            preview["inputs"]!.ToJsonString());
+        Assert.Equal("""[{"name":"rows","text":"CSA-A"},{"name":"set","text":"threshold 5mm"}]""", preview["arguments"]!.ToJsonString());
+        Assert.Equal("""{"table":"xva.csas","title":"csas, 1 row","count":1,"first":["CSA-A"]}""", preview["rows"]!.ToJsonString());
+        Assert.Matches("^threshold: .+ to 5mm$", preview["would"]!.GetValue<string>());
+        Assert.Null(preview["refused"]);
+        Assert.Equal("[]", preview["complete"]!.ToJsonString());
+        Assert.Equal((revision, Threshold(ws)), (unchanged["revision"]!.GetValue<long>(), Threshold(unchanged)));
+
+        // Enter: the command the preview named, with the inputs it answered, through the page's door.
+        var ran = await client.PostAsJsonAsync($"/api/commands/{preview["command"]!["id"]!.GetValue<string>()}/{preview["command"]!["version"]!.GetValue<string>()}",
+            new { inputs = preview["inputs"], idempotencyKey = Guid.NewGuid().ToString() });
+        Assert.Equal("Set CSA-A threshold to 5mm.", (await Ok(ran))["said"]!.GetValue<string>());
+        Assert.Equal(5_000_000m, Threshold((await client.GetFromJsonAsync<JsonObject>($"/api/xva/workspaces/{id}"))!));
+    }
+
+    [Fact] // ADR-0016 §5, §6: a line that cannot be read is an answer, with the word and its place; a workspace that cannot be read is a status
+    public async Task The_preview_answers_a_line_it_cannot_read_and_what_could_follow_and_refuses_a_workspace_by_status()
+    {
+        var ws = await Create();
+        var id = ws["workspaceId"]!.GetValue<string>();
+        var revision = ws["revision"]!.GetValue<long>();
+        await Edit(id, revision, "csa:CSA-A", "counterpartyThreshold", 5_000_000m);
+
+        var (unread, refused) = await Preview("set CSA-A colour red", id, revision + 1);
+        var (_, half) = await Preview("set CSA-A thr", id);
+        var (_, undo) = await Preview("undo", id);
+        var (moved, movedBody) = await Preview("undo", id, revision);
+        var (missing, missingBody) = await Preview("undo", "ws-none");
+        using var other = factory.WithWebHostBuilder(b => b.UseSetting("Qube:DemoUser", "ben"));
+        var (notOwner, notOwnerBody) = await Preview("undo", id, by: other.CreateClient());
+
+        Assert.Equal(HttpStatusCode.OK, unread);
+        Assert.Equal(("UnknownField", "colour", 10, 16), (refused["refused"]!["code"]!.GetValue<string>(), refused["refused"]!["word"]!.GetValue<string>(),
+            refused["refused"]!["start"]!.GetValue<int>(), refused["refused"]!["end"]!.GetValue<int>()));
+        Assert.StartsWith("csas has no field colour; its fields are ", refused["refused"]!["sentence"]!.GetValue<string>());
+        Assert.Contains("threshold", refused["refused"]!["candidates"]!.AsArray().Select(c => c!.GetValue<string>()));
+        Assert.Equal("entity.set", refused["command"]!["id"]!.GetValue<string>());
+        Assert.Null(refused["inputs"]);
+        Assert.Equal("""[{"value":"threshold","start":10}]""", half["complete"]!.ToJsonString());
+        // What undo would take back is the page's own edit, named as the screen names it, and when it was made.
+        Assert.Equal("Takes back: set CSA-A threshold (akira, 1 edit)", undo["would"]!.GetValue<string>());
+        Assert.True(DateTimeOffset.TryParse(undo["at"]!.GetValue<string>(), out _));
+        Assert.Equal((HttpStatusCode.Conflict, "RevisionMoved"), (moved, movedBody["code"]!.GetValue<string>()));
+        Assert.Equal((HttpStatusCode.NotFound, "UnknownWorkspace"), (missing, missingBody["code"]!.GetValue<string>()));
+        Assert.Equal((HttpStatusCode.Forbidden, "NotOwner"), (notOwner, notOwnerBody["code"]!.GetValue<string>()));
+    }
+
     [Fact] // ADR-0016 §11, note 2; ADR-0010 §10: the selection a new workspace takes from its owner's last is its making's
     public async Task The_selection_a_new_workspace_takes_is_not_a_command_to_take_back_and_one_taken_back_is_not_taken()
     {

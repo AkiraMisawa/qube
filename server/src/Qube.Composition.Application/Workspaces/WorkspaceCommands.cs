@@ -9,7 +9,7 @@ namespace Qube.Composition.Application.Workspaces;
 /// answers what it took back. A request says what it means (§11): the revision its caller read, so a workspace that
 /// moved refuses it, or the id of the command, which is refused unless it is the latest. The AI's names the command.
 /// </summary>
-public sealed class WorkspaceTakeBack(Func<WorkspaceService> workspaces, bool undo) : ICapabilityHandler
+public sealed class WorkspaceTakeBack(Func<WorkspaceService> workspaces, bool undo) : ICapabilityHandler, ILineCommand
 {
     public const string Request = "workspace.take-back-request";
     public const string Answer = "workspace.taken-back";
@@ -21,7 +21,22 @@ public sealed class WorkspaceTakeBack(Func<WorkspaceService> workspaces, bool un
         undo ? "Take back the workspace's latest command" : "Put back what the latest undo took back",
         [new("request", Request, Version, Cardinality.One)],
         [new("answer", Answer, Version, Cardinality.One)],
-        ExecutionKind.RequestResponse, [CapabilityEffect.EditWorkspace]);
+        ExecutionKind.RequestResponse, [CapabilityEffect.EditWorkspace],
+        new([undo ? "undo" : "redo"], []));
+
+    /// <summary>
+    /// The line names the command it would act on (ADR-0016 §5), so that Enter takes back the one that was shown or is
+    /// refused. The sentence holds no time: a client writes when in its user's zone.
+    /// </summary>
+    public LineRead Read(LineContext line)
+    {
+        var told = workspaces().WouldTakeBack(line.State, line.Caller.UserId, undo);
+        var request = new JsonObject { ["workspaceId"] = line.State.WorkspaceId, ["command"] = told.Command };
+        return new(new JsonObject { ["request"] = request }, [], null,
+            $"{(undo ? "Takes back" : "Puts back")}: {told.Said} ({told.User}, {told.Edits} edit{(told.Edits == 1 ? "" : "s")})", told.At);
+    }
+
+    public LineCompletions Complete(LineContext line) => LineCompletions.None;
 
     public Task<IReadOnlyDictionary<string, JsonNode?>> InvokeAsync(CapabilityInvocation invocation, CancellationToken cancellationToken)
     {
@@ -109,10 +124,14 @@ public sealed class WorkspaceCommandsModule(Func<WorkspaceService> workspaces) :
 
 public static class WorkspaceCommands
 {
-    /// <summary>The workspace a kernel command acts on: one that exists and that its caller owns (ADR-0005 §2).</summary>
-    public static WorkspaceState Owned(WorkspaceService service, string workspaceId, Caller caller)
+    /// <summary>
+    /// The workspace a kernel command acts on: one that exists and that its caller owns (ADR-0005 §2), at the revision
+    /// the caller read where it says one, which a workspace that moved refuses.
+    /// </summary>
+    public static WorkspaceState Owned(WorkspaceService service, string workspaceId, Caller caller, long? revision = null)
     {
         var state = service.Find(workspaceId) ?? throw new WorkspaceRefused("UnknownWorkspace", $"No workspace {workspaceId}.");
-        return state.Owner == caller.UserId ? state : throw new WorkspaceRefused("NotOwner", $"Workspace {workspaceId} belongs to another user.");
+        if (state.Owner != caller.UserId) throw new WorkspaceRefused("NotOwner", $"Workspace {workspaceId} belongs to another user.");
+        return revision is { } read && read != state.Revision ? throw new WorkspaceRefused("RevisionMoved", $"The workspace is at revision {state.Revision}, not {read}.") : state;
     }
 }

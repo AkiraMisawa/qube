@@ -28,6 +28,15 @@ public sealed record RowSelector(string? Table = null, bool All = false, string?
 /// <summary>A selector read from the start of a line, and the words it left for the verb.</summary>
 public sealed record SelectorReading(RowSelector Selector, IReadOnlyList<string> Rest);
 
+/// <summary>A condition a line has started and not finished: its field's words so far, and its operator once it has one.</summary>
+sealed record OpenCondition(IReadOnlyList<string> Field, string? Operator);
+
+/// <summary>
+/// A line's rows as far as they could be read: the selector, how many words it took, and, where the last condition is
+/// not finished, that condition and the refusal a command would get. What could follow is said from this (note 15).
+/// </summary>
+sealed record SelectorScan(RowSelector Selector, int Taken, OpenCondition? Open, TableRefused? Short);
+
 /// <summary>
 /// The rows a selector means in a workspace. <paramref name="Whole"/> names the subsets the rows are the whole of, where
 /// they were said as <c>all</c> or a subset and nothing narrowed them, so a verb may write a whole-set edit; null
@@ -54,6 +63,13 @@ public static partial class SelectorReader
     public static SelectorReading Read(string text, IReadOnlyList<TableDescriptor> tables, TableDescriptor? within = null)
     {
         var words = text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+        var scan = Scan(words, tables, within);
+        return scan.Short is { } unread ? throw unread : new(scan.Selector, words[scan.Taken..]);
+    }
+
+    /// <summary>The one reading of a line's rows, which stops at a condition that is not finished and says so, where <see cref="Read"/> refuses.</summary>
+    internal static SelectorScan Scan(string[] words, IReadOnlyList<TableDescriptor> tables, TableDescriptor? within = null)
+    {
         var at = 0;
 
         TableDescriptor? table = null;
@@ -77,20 +93,22 @@ public static partial class SelectorReader
             at = List(words, at, ids);
 
         List<Condition> where = [];
+        OpenCondition? open = null;
+        TableRefused? unread = null;
         if (at < words.Length && Is(words[at], WhereWord))
         {
             do
             {
                 at++;
-                at = ReadCondition(words, at, where);
+                (at, open, unread) = ReadCondition(words, at, where);
             }
-            while (at < words.Length && Is(words[at], AndWord));
+            while (unread is null && at < words.Length && Is(words[at], AndWord));
         }
-        return new(new RowSelector(table?.TableId, all, subset, ids, where), words[at..]);
+        return new(new RowSelector(table?.TableId, all, subset, ids, where), at, open, unread);
     }
 
     // The longest run of words from `at` that names one of the items, and each item it names.
-    static (IReadOnlyList<T> Items, int Length)? Longest<T>(string[] words, int at, IReadOnlyList<T> items, Func<T, IReadOnlySet<string>> names)
+    internal static (IReadOnlyList<T> Items, int Length)? Longest<T>(string[] words, int at, IReadOnlyList<T> items, Func<T, IReadOnlySet<string>> names)
     {
         var named = items.Select(i => (Item: i, Names: names(i))).ToList();
         var longest = named.SelectMany(n => n.Names).Select(n => n.Count(c => c == ' ') + 1).DefaultIfEmpty(0).Max();
@@ -119,11 +137,13 @@ public static partial class SelectorReader
         return at;
     }
 
-    // One condition from `at`: the field's words up to an operator, the operator, and a value, or for `in` a list.
-    static int ReadCondition(string[] words, int at, List<Condition> into)
+    // One condition from `at`: the field's words up to an operator, the operator, and a value, or for `in` a list. One
+    // that the words end before finishing is answered as far as it goes, with the refusal a command would get.
+    static (int At, OpenCondition? Open, TableRefused? Unread) ReadCondition(string[] words, int at, List<Condition> into)
     {
         var start = at;
         List<string> field = [];
+        (int, OpenCondition?, TableRefused?) Short(string? op, string why) => (at, new(field, op), Unread(words, start, at, why));
         while (at < words.Length)
         {
             var word = words[at++];
@@ -131,10 +151,10 @@ public static partial class SelectorReader
             {
                 var from = at;
                 at = List(words, at, []);
-                if (at == from) throw Unread(words, start, at, "names no value after in");
+                if (at == from) return Short(InWord, "names no value after in");
                 // The list as it was written: whether a comma parts two values or groups one number is its field's to say.
                 into.Add(new(string.Join(' ', field), InWord, Said(words, from, at - from)));
-                return at;
+                return (at, null, null);
             }
             var op = OperatorPattern().Match(word);
             if (!op.Success)
@@ -148,12 +168,12 @@ public static partial class SelectorReader
             if (OperatorPattern().Match(value) is { Success: true, Index: 0 } second)
                 throw new TableRefused("UnknownOperator", $"{op.Value}{second.Value} {Conditions.NoOperator}", op.Value + second.Value);
             if (value.Length == 0 && at < words.Length && !Is(words[at], AndWord)) value = words[at++];
-            if (field.Count == 0) throw Unread(words, start, at, "names no field");
-            if (value.Length == 0) throw Unread(words, start, at, $"names no value after {op.Value}");
+            if (field.Count == 0) return Short(op.Value, "names no field");
+            if (value.Length == 0) return Short(op.Value, $"names no value after {op.Value}");
             into.Add(new(string.Join(' ', field), op.Value, value));
-            return at;
+            return (at, null, null);
         }
-        throw Unread(words, start, at, field.Count == 0 ? "names no condition" : "has no operator");
+        return Short(null, field.Count == 0 ? "names no condition" : "has no operator");
     }
 
     static TableRefused Unread(string[] words, int start, int end, string why)
@@ -167,10 +187,10 @@ public static partial class SelectorReader
     /// <summary>A line's words with one space between them, as a log names a command.</summary>
     public static string Words(string text) => string.Join(' ', text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
 
-    static bool Is(string word, string keyword) => word.Equals(keyword, StringComparison.OrdinalIgnoreCase);
+    internal static bool Is(string word, string keyword) => word.Equals(keyword, StringComparison.OrdinalIgnoreCase);
 
     [GeneratedRegex("!=|<=|>=|=|<|>|~")]
-    private static partial Regex OperatorPattern();
+    internal static partial Regex OperatorPattern();
 }
 
 /// <summary>Resolves a selector to rows (ADR-0016 §2): once for a command, in a time linear in the rows.</summary>
@@ -376,17 +396,27 @@ static partial class Conditions
         return compiled;
     }
 
+    static Kind KindOf(TableField field) => field.Form switch
+    {
+        FieldForm.Amount or FieldForm.SignedAmount or FieldForm.Percent or FieldForm.Rate or FieldForm.Spread or FieldForm.Number or FieldForm.Days => Kind.Number,
+        FieldForm.Date => Kind.Date,
+        FieldForm.Flag => Kind.Flag,
+        FieldForm.Period or FieldForm.PeriodOrDate or FieldForm.Choice or FieldForm.Id => Kind.Text,
+        _ => throw new InvalidOperationException($"No comparing of {field.Form}."),
+    };
+
+    /// <summary>The operators a condition on the field takes, as <see cref="One"/> accepts them: an order for numbers and dates, <c>~</c> for text.</summary>
+    public static IReadOnlyList<string> OperatorsOf(TableField field) => KindOf(field) switch
+    {
+        Kind.Number or Kind.Date => ["=", "!=", "<", "<=", ">", ">=", SelectorReader.InWord],
+        Kind.Flag => ["=", "!=", SelectorReader.InWord],
+        _ => ["=", "!=", "~", SelectorReader.InWord],
+    };
+
     static Compiled One(Condition condition, TableField field, BoundTable table, WorkspaceState state)
     {
         var word = TableWords.Word(field);
-        var kind = field.Form switch
-        {
-            FieldForm.Amount or FieldForm.SignedAmount or FieldForm.Percent or FieldForm.Rate or FieldForm.Spread or FieldForm.Number or FieldForm.Days => Kind.Number,
-            FieldForm.Date => Kind.Date,
-            FieldForm.Flag => Kind.Flag,
-            FieldForm.Period or FieldForm.PeriodOrDate or FieldForm.Choice or FieldForm.Id => Kind.Text,
-            _ => throw new InvalidOperationException($"No comparing of {field.Form}."),
-        };
+        var kind = KindOf(field);
         var what = kind switch { Kind.Number => "a number", Kind.Date => "a date", Kind.Flag => "a flag", _ => "text" };
         switch (condition.Operator)
         {

@@ -25,13 +25,60 @@ public sealed class TableService(TableRegister register, WorkspaceService worksp
     const int Named = 3;
     const int Listed = 10;
 
+    // What a verb would do with a workspace as it stands: read and checked as the command checks, and not written. No
+    // row touched is a command that changes nothing.
+    sealed record Plan(WorkspaceState State, ResolvedRows Resolved, IReadOnlyList<WorkspaceChange> Changes, IReadOnlyList<ITableRow> Touched, string Said, string Would, string Words);
+
     /// <summary>
     /// Writes one value or several into the rows (note 9): a row that holds a value gets no edit for it and is counted;
     /// rows said as a whole subset, or as all, take the field's whole-set edit where it has one; the rest is one batch.
     /// </summary>
-    public TableResult Set(string workspaceId, long? revision, Caller caller, string? table, string? rows, string set)
+    public TableResult Set(string workspaceId, long? revision, Caller caller, string? table, string? rows, string set) =>
+        Write(caller, PlanSet(WorkspaceCommands.Owned(workspaces, workspaceId, caller, revision), caller, table, rows, set));
+
+    /// <summary>
+    /// Removes the rows' own edits, of one field or of every field where none is named (note 10): the field follows its
+    /// source or its rule again. Rows said as a whole subset, or as all, lose the whole-set edit too. A row with no edit
+    /// is counted as such.
+    /// </summary>
+    public TableResult Reset(string workspaceId, long? revision, Caller caller, string? table, string? rows, string? field) =>
+        Write(caller, PlanReset(WorkspaceCommands.Owned(workspaces, workspaceId, caller, revision), table, rows, field));
+
+    /// <summary>Removes rows the workspace made, with their edits (note 10); a row it did not make is refused by the table, by name, and nothing is removed.</summary>
+    public TableResult Remove(string workspaceId, long? revision, Caller caller, string? table, string? rows) =>
+        Write(caller, PlanRemove(WorkspaceCommands.Owned(workspaces, workspaceId, caller, revision), table, rows));
+
+    /// <summary>
+    /// <c>set</c> as a line types it (ADR-0016 §5, note 15): the rows the line starts with, then the values. Read and
+    /// checked as the command checks, and nothing written; what it answers invokes <see cref="Set"/> on the revision read.
+    /// </summary>
+    public LineRead SetLine(LineContext line)
     {
-        var (state, tables, selector) = Open(workspaceId, revision, caller, table, rows);
+        var (rows, rest) = Split(line);
+        return Read(line, PlanSet(line.State, line.Caller, null, rows, rest), ("rows", rows), ("set", rest));
+    }
+
+    /// <summary><c>reset</c> as a line types it: the rows, then the field where one is named.</summary>
+    public LineRead ResetLine(LineContext line)
+    {
+        var (rows, rest) = Split(line);
+        return Read(line, PlanReset(line.State, null, rows, rest.Length == 0 ? null : rest), ("rows", rows), ("field", rest));
+    }
+
+    /// <summary><c>remove</c> as a line types it: the rows, and no other word.</summary>
+    public LineRead RemoveLine(LineContext line)
+    {
+        var rows = SelectorReader.Words(line.Text);
+        return Read(line, PlanRemove(line.State, null, rows), ("rows", rows));
+    }
+
+    /// <summary>What could follow the last word of a line of <c>set</c>, <c>reset</c> or <c>remove</c>: the verb says what comes after its rows.</summary>
+    public LineCompletions Complete(LineContext line, CommandArgumentKind? afterRows) =>
+        TableCompletions.Of(line.Text, register.Of(line.State), line.State, afterRows);
+
+    Plan PlanSet(WorkspaceState state, Caller caller, string? table, string? rows, string set)
+    {
+        var (tables, selector) = Said(state, table, rows);
         // A table of one row is addressed without a row where the first field's words say which (note 7).
         var alone = selector.Table is null && selector.SaysNoRows ? tables.Where(t => t.Descriptor.SingleRow && Assignments.StartsWithAFieldOf(set, t)).ToList() : [];
         if (alone.Count > 1)
@@ -51,6 +98,7 @@ public sealed class TableService(TableRegister register, WorkspaceService worksp
         var changes = new List<WorkspaceChange>();
         var changed = new HashSet<string>(StringComparer.Ordinal);
         var written = new List<(TableField Field, JsonNode? Value)>();
+        var would = new List<string>();
         var whole = resolved.Whole?.ToDictionary(s => s.Name);
         // Several values are written in the order given, each checked against the rows as the ones before it left them
         // (note 9): what two commands would take, one takes, and what the second would refuse refuses both.
@@ -65,6 +113,7 @@ public sealed class TableService(TableRegister register, WorkspaceService worksp
                 read = changes.Count;
             }
             var differing = rowsNow.Where(r => !FieldForms.Same(r.Value(field.Name), value)).ToList();
+            would.Add(WouldSet(field, value, rowsNow.Count, differing));
             if (differing.Count == 0) continue;
             written.Add((field, value));
             foreach (var group in differing.GroupBy(r => r.Subset))
@@ -76,28 +125,24 @@ public sealed class TableService(TableRegister register, WorkspaceService worksp
             changed.UnionWith(differing.Select(r => r.Key));
         }
 
+        // One value is named as the line first spells it, `<field> <value>`; several keep their signs.
+        var words = Words("set", table, rows, set.Count(c => c == '=') == 1 ? set.Replace('=', ' ') : set);
         var touched = resolved.Rows.Where(r => changed.Contains(r.Key)).ToList();
         var held = resolved.Rows.Count - touched.Count;
         if (touched.Count == 0)
         {
             var holds = TableWords.And(values.Select(v => $"{TableWords.Word(v.Field)} {FieldForms.Write(v.Field.Spec, v.Value)}"));
-            return Unchanged(state, resolved, $"{Rows(bound, resolved.Rows, all: true)} already hold{(resolved.Rows.Count == 1 ? "s" : "")} {holds}");
+            return Unchanged(state, resolved, $"{Rows(bound, resolved.Rows, all: true)} already hold{(resolved.Rows.Count == 1 ? "s" : "")} {holds}", words);
         }
         var assigned = TableWords.And(written.Select(v => $"{TableWords.Word(v.Field)} to {FieldForms.Write(v.Field.Spec, v.Value)}"));
         var already = held == 0 ? "" : $"; {held} already held {(written.Count == 1 ? "it" : "them")}";
         var said = touched.Count == 1 ? $"Set {touched[0].Key} {assigned}{already}." : $"Set {assigned} on {Rows(bound, touched)}{already}.";
-        // One value is named as the line first spells it, `<field> <value>`; several keep their signs.
-        return Write(state, caller, resolved, changes, touched, held, said, Words("set", table, rows, set.Count(c => c == '=') == 1 ? set.Replace('=', ' ') : set));
+        return new(state, resolved, changes, touched, said, string.Join("; ", would), words);
     }
 
-    /// <summary>
-    /// Removes the rows' own edits, of one field or of every field where none is named (note 10): the field follows its
-    /// source or its rule again. Rows said as a whole subset, or as all, lose the whole-set edit too. A row with no edit
-    /// is counted as such.
-    /// </summary>
-    public TableResult Reset(string workspaceId, long? revision, Caller caller, string? table, string? rows, string? field)
+    Plan PlanReset(WorkspaceState state, string? table, string? rows, string? field)
     {
-        var (state, tables, selector) = Open(workspaceId, revision, caller, table, rows);
+        var (tables, selector) = Said(state, table, rows);
         var alone = field is not null && selector.Table is null && selector.SaysNoRows ? tables.Where(t => t.Descriptor.SingleRow && Assignments.Fields(t, field).Count > 0).ToList() : [];
         if (alone.Count > 1)
             throw new TableRefused("AmbiguousTable", $"{field!.Trim()} could be reset on {TableWords.Either(alone.Select(t => t.Word))}; say which, as in {alone[0].Word}.",
@@ -124,31 +169,31 @@ public sealed class TableService(TableRegister register, WorkspaceService worksp
             changed.Add(row);
         }
 
+        var words = Words("reset", table, rows, field);
         var touched = resolved.Rows.Where(changed.Contains).ToList();
         var held = resolved.Rows.Count - touched.Count;
-        if (touched.Count == 0) return Unchanged(state, resolved, $"{Rows(bound, resolved.Rows, all: true)} {(resolved.Rows.Count == 1 ? "has" : "have")} no edit{of}");
+        if (touched.Count == 0) return Unchanged(state, resolved, $"{Rows(bound, resolved.Rows, all: true)} {(resolved.Rows.Count == 1 ? "has" : "have")} no edit{of}", words);
         var without = held == 0 ? "" : $"; {held} had no edit";
         var said = touched.Count == 1 ? $"Reset {touched[0].Key}{(named is null ? "" : $" {TableWords.Word(named)}")}{without}."
             : named is null ? $"Reset {Rows(bound, touched)}{without}." : $"Reset {TableWords.Word(named)} on {Rows(bound, touched)}{without}.";
-        return Write(state, caller, resolved, changes, touched, held, said, Words("reset", table, rows, field));
+        var would = resolved.Rows.Count == 1 ? "reset" : $"{Counted(touched.Count)} reset{(held == 0 ? "" : $", {Counted(held)} with no edit")}";
+        return new(state, resolved, changes, touched, said, $"{(named is null ? "every field" : TableWords.Word(named))}: {would}", words);
     }
 
-    /// <summary>Removes rows the workspace made, with their edits (note 10); a row it did not make is refused by the table, by name, and nothing is removed.</summary>
-    public TableResult Remove(string workspaceId, long? revision, Caller caller, string? table, string? rows)
+    Plan PlanRemove(WorkspaceState state, string? table, string? rows)
     {
-        var (state, tables, selector) = Open(workspaceId, revision, caller, table, rows);
+        var (tables, selector) = Said(state, table, rows);
         var resolved = Selectors.Resolve(selector, tables, state);
-        if (resolved.Rows.Count == 0) return Unchanged(state, resolved, "");
+        var words = Words("remove", table, rows, null);
+        if (resolved.Rows.Count == 0) return Unchanged(state, resolved, "", words);
         var changes = resolved.Rows.SelectMany(r => resolved.Table.Table.Remove(state, r)).ToList();
-        return Write(state, caller, resolved, changes, resolved.Rows, 0, $"Removed {Rows(resolved.Table, resolved.Rows)}.", Words("remove", table, rows, null));
+        var would = resolved.Rows.Count == 1 ? "removed, with its edits" : $"{Counted(resolved.Rows.Count)} removed, with their edits";
+        return new(state, resolved, changes, resolved.Rows, $"Removed {Rows(resolved.Table, resolved.Rows)}.", would, words);
     }
 
-    // The workspace a verb acts on, at the revision its caller read, with the rows as the caller said them.
-    (WorkspaceState State, IReadOnlyList<BoundTable> Tables, RowSelector Selector) Open(string workspaceId, long? revision, Caller caller, string? table, string? rows)
+    // The rows as the caller said them, read in the tables the workspace has.
+    (IReadOnlyList<BoundTable> Tables, RowSelector Selector) Said(WorkspaceState state, string? table, string? rows)
     {
-        var state = WorkspaceCommands.Owned(workspaces, workspaceId, caller);
-        if (revision is { } read && read != state.Revision)
-            throw new WorkspaceRefused("RevisionMoved", $"The workspace is at revision {state.Revision}, not {read}.");
         var tables = register.Of(state);
         // The table said beside the rows is the one they are read in: its subsets, and no row where it has one.
         var named = table is null ? null : TableRegister.Find(tables, table);
@@ -156,28 +201,62 @@ public sealed class TableService(TableRegister register, WorkspaceService worksp
         if (reading.Rest.Count > 0)
             throw new TableRefused("UnreadRows",
                 $"{string.Join(' ', reading.Rest)} is left over after the rows: rows are ids separated by commas, all, a subset, or where and its conditions.", reading.Rest[0]);
-        if (named is null || table is null) return (state, tables, reading.Selector);
+        if (named is null || table is null) return (tables, reading.Selector);
         if (reading.Selector.Table is { } said && said != named.Descriptor.TableId)
             throw new TableRefused("TwoTables", $"The rows are said to be of {TableRegister.Find(tables, said).Word} and the table to be {named.Word}.", table.Trim());
-        return (state, tables, reading.Selector with { Table = named.Descriptor.TableId });
+        return (tables, reading.Selector with { Table = named.Descriptor.TableId });
+    }
+
+    // The rows a line starts with, in its own words, and the words they leave for the verb.
+    (string? Rows, string Left) Split(LineContext line)
+    {
+        var words = line.Text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+        var rest = SelectorReader.Read(line.Text, [.. register.Of(line.State).Select(t => t.Descriptor)]).Rest;
+        return (rest.Count == words.Length ? null : string.Join(' ', words[..^rest.Count]), string.Join(' ', rest));
+    }
+
+    // A line's reading: the request that runs it on the revision read, each argument it gave, its rows and what would change.
+    static LineRead Read(LineContext line, Plan plan, params (string Name, string? Text)[] arguments)
+    {
+        var given = arguments.Where(a => !string.IsNullOrEmpty(a.Text)).Select(a => new LineArgument(a.Name, a.Text!)).ToList();
+        var request = new JsonObject { ["workspaceId"] = line.State.WorkspaceId, ["revision"] = line.State.Revision };
+        foreach (var argument in given) request[argument.Name] = argument.Text;
+        var (bound, rows) = (plan.Resolved.Table, plan.Resolved.Rows);
+        var title = bound.Descriptor.SingleRow ? bound.Word : $"{bound.Word}, {Counted(rows.Count)} row{(rows.Count == 1 ? "" : "s")}";
+        return new(new JsonObject { ["request"] = request }, given, new(bound.Descriptor.TableId, title, rows.Count, [.. rows.Take(Listed).Select(r => r.Key)]), plan.Would);
     }
 
     // One accepted call is one command (ADR-0016 §11), named by the words it was given; the batch is all or none, and a
-    // workspace that moved since the rows were read refuses it.
-    TableResult Write(WorkspaceState state, Caller caller, ResolvedRows resolved, IReadOnlyList<WorkspaceChange> changes, IReadOnlyList<ITableRow> touched, int held, string said,
-        string words)
+    // workspace that moved since the rows were read refuses it. A command that would change no row writes nothing,
+    // keeps the revision and is done (note 9).
+    TableResult Write(Caller caller, Plan plan)
     {
-        var next = workspaces.Batch(state.WorkspaceId, state.Revision, caller.UserId, changes, caller.Origin, words);
+        var (state, resolved) = (plan.State, plan.Resolved);
+        var held = resolved.Rows.Count - plan.Touched.Count;
+        if (plan.Touched.Count == 0)
+            return new(state, null, plan.Said, resolved.Table.Descriptor.TableId, resolved.Rows.Count, 0, held, [.. resolved.Rows.Take(Listed).Select(r => r.Key)]);
+        var next = workspaces.Batch(state.WorkspaceId, state.Revision, caller.UserId, plan.Changes, caller.Origin, plan.Words);
         var command = next.Log[^1].Command?.Id ?? throw new InvalidOperationException("An accepted command has an id.");
-        return new(next, command, said, resolved.Table.Descriptor.TableId, resolved.Rows.Count, touched.Count, held, [.. touched.Take(Listed).Select(r => r.Key)]);
+        return new(next, command, plan.Said, resolved.Table.Descriptor.TableId, resolved.Rows.Count, plan.Touched.Count, held, [.. plan.Touched.Take(Listed).Select(r => r.Key)]);
     }
 
-    // A command that would change no row writes nothing, keeps the revision and is done (note 9).
-    static TableResult Unchanged(WorkspaceState state, ResolvedRows resolved, string why)
+    static Plan Unchanged(WorkspaceState state, ResolvedRows resolved, string why, string words)
     {
-        var said = resolved.Rows.Count > 0 ? $"Nothing changed: {why}."
-            : $"Nothing changed: no row of {resolved.Table.Word} matches{(resolved.Where.Count == 0 ? "" : $" {string.Join(" and ", resolved.Where)}")}.";
-        return new(state, null, said, resolved.Table.Descriptor.TableId, resolved.Rows.Count, 0, resolved.Rows.Count, [.. resolved.Rows.Take(Listed).Select(r => r.Key)]);
+        var what = resolved.Rows.Count > 0 ? why : $"no row of {resolved.Table.Word} matches{(resolved.Where.Count == 0 ? "" : $" {string.Join(" and ", resolved.Where)}")}";
+        return new(state, resolved, [], [], $"Nothing changed: {what}.", $"Nothing would change: {what}.", words);
+    }
+
+    // One value's part of what a set would change (note 15): how many rows take it, from what where they all hold one
+    // value, and how many hold it already. One row needs no count.
+    static string WouldSet(TableField field, JsonNode? value, int rows, IReadOnlyList<ITableRow> differing)
+    {
+        var to = FieldForms.Write(field.Spec, value);
+        var from = differing.Select(r => FieldForms.Write(field.Spec, r.Value(field.Name))).Distinct().ToList();
+        var change = from.Count == 1 ? $"{from[0]} to {to}" : $"to {to}";
+        var already = rows - differing.Count;
+        IEnumerable<string> parts = rows == 1 ? [differing.Count == 1 ? change : $"already {to}"]
+            : new[] { differing.Count > 0 ? $"{Counted(differing.Count)} {change}" : null, already > 0 ? $"{Counted(already)} already {to}" : null }.OfType<string>();
+        return $"{TableWords.Word(field)}: {string.Join(", ", parts)}";
     }
 
     static TableRefused NotEditable(BoundTable table, TableField field) =>
@@ -186,7 +265,9 @@ public sealed class TableService(TableRegister register, WorkspaceService worksp
 
     // A few rows by their keys, more by their number and the table's word.
     static string Rows(BoundTable table, IReadOnlyList<ITableRow> rows, bool all = false) =>
-        rows.Count <= Named ? TableWords.And(rows.Select(r => r.Key)) : $"{(all ? "all " : "")}{rows.Count.ToString(CultureInfo.InvariantCulture)} {table.Word}";
+        rows.Count <= Named ? TableWords.And(rows.Select(r => r.Key)) : $"{(all ? "all " : "")}{Counted(rows.Count)} {table.Word}";
+
+    static string Counted(int count) => count.ToString(CultureInfo.InvariantCulture);
 
     // The command as its caller gave it, in the line's own spelling: what the log names it by (ADR-0016 note 3).
     static string Words(string verb, string? table, string? rows, string? rest)
@@ -197,16 +278,21 @@ public sealed class TableService(TableRegister register, WorkspaceService worksp
     }
 }
 
-/// <summary>Reads <c>name=value</c> pairs against a table's fields (ADR-0016 §3, note 12): a field by its words, which may be several, and a value that may be too.</summary>
+/// <summary>
+/// Reads values against a table's fields (ADR-0016 §3, notes 12 and 15): <c>name=value</c> pairs, or one field and its
+/// value with no sign, as the line first spells it. A field is said by its words, which may be several, and a value may be too.
+/// </summary>
 static class Assignments
 {
-    const string How = "values are written name=value, one or several.";
+    const string How = "one value is written after its field (<field> <value>), and several as name=value.";
 
     /// <summary>Whether the first name in the text is a field of the table, so the text is meant for it; the rest is then read against it, and refused in its words.</summary>
-    public static bool StartsWithAFieldOf(string text, BoundTable table) => text.IndexOf('=') is > 0 and var sign && Fields(table, text[..sign]).Count > 0;
+    public static bool StartsWithAFieldOf(string text, BoundTable table) =>
+        text.IndexOf('=') is >= 0 and var sign ? sign > 0 && Fields(table, text[..sign]).Count > 0 : Leading(SelectorReader.Words(text).Split(' '), table) is not null;
 
     public static IReadOnlyList<(TableField Field, string Text)> Read(string text, BoundTable table)
     {
+        if (!text.Contains('=')) return [One(text, table)];
         var pairs = new List<(TableField Field, List<string> Value)>();
         var pending = new List<string>();
         foreach (var word in SelectorReader.Words(text.Replace("=", " = ", StringComparison.Ordinal)).Split(' ', StringSplitOptions.RemoveEmptyEntries))
@@ -229,7 +315,6 @@ static class Assignments
             pairs.Add((field, []));
             pending.Clear();
         }
-        if (pairs.Count == 0) throw new TableRefused("UnreadValues", $"{text.Trim()} says no value: {How}");
         pairs[^1].Value.AddRange(pending);
         if (pairs.FirstOrDefault(p => p.Value.Count == 0) is { Field: { } empty })
             throw new TableRefused("UnreadValues", $"{TableWords.Word(empty)} has no value: {How}", TableWords.Word(empty));
@@ -241,17 +326,39 @@ static class Assignments
         var words = TableWords.Of(name);
         return [.. table.Descriptor.Fields.Where(f => TableWords.Names(f).Contains(words))];
     }
+
+    // One value as the line first spells it (ADR-0016 §3, note 15), with no sign: the field's words, the longest run from
+    // the start that names one, and then the value, which is every word after them.
+    static (TableField Field, string Text) One(string text, BoundTable table)
+    {
+        var words = SelectorReader.Words(text).Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (words.Length == 0) throw new TableRefused("UnreadValues", $"A field and its value are missing: {How}");
+        // Words that name no field are refused by the first of them, with the fields there are.
+        var named = Leading(words, table) ?? 1;
+        var name = string.Join(' ', words.Take(named));
+        var field = TableRegister.Field(table, name);
+        return named < words.Length ? (field, string.Join(' ', words.Skip(named))) : throw new TableRefused("UnreadValues", $"{TableWords.Word(field)} has no value: {How}", name);
+    }
+
+    // How many words from the start name a field, taking the most that do; none where no run does.
+    static int? Leading(string[] words, BoundTable table) =>
+        Enumerable.Range(1, words.Length).Reverse().Cast<int?>().FirstOrDefault(n => n is { } count && Fields(table, string.Join(' ', words.Take(count))).Count > 0);
 }
 
 /// <summary><c>entity.set</c> (ADR-0016 §3): one value or several, as written, into rows of a registered table of the caller's workspace.</summary>
-public sealed class EntitySet(Func<TableService> tables) : ICapabilityHandler
+public sealed class EntitySet(Func<TableService> tables) : ICapabilityHandler, ILineCommand
 {
     public const string Id = "entity.set";
 
     public CapabilityDescriptor Descriptor { get; } = new(Id, TableContracts.Version, "Set fields of rows of a table of a workspace",
         [new("request", TableContracts.SetRequest, TableContracts.Version, Cardinality.One)],
         [new("answer", TableContracts.Edited, TableContracts.Version, Cardinality.One)],
-        ExecutionKind.RequestResponse, [CapabilityEffect.EditWorkspace]);
+        ExecutionKind.RequestResponse, [CapabilityEffect.EditWorkspace],
+        new(["set"], [new("rows", CommandArgumentKind.Rows, Required: false), new("set", CommandArgumentKind.Assignments, Required: true)]));
+
+    public LineRead Read(LineContext line) => tables().SetLine(line);
+
+    public LineCompletions Complete(LineContext line) => tables().Complete(line, CommandArgumentKind.Assignments);
 
     public Task<IReadOnlyDictionary<string, JsonNode?>> InvokeAsync(CapabilityInvocation invocation, CancellationToken cancellationToken) =>
         TableContracts.Answer(invocation, (request, caller) => tables().Set(TableContracts.Text(request, "workspaceId"), request["revision"]?.GetValue<long>(), caller,
@@ -259,14 +366,19 @@ public sealed class EntitySet(Func<TableService> tables) : ICapabilityHandler
 }
 
 /// <summary><c>entity.reset</c> (ADR-0016 §3): removes the edits on rows of a registered table, of one field or of every field.</summary>
-public sealed class EntityReset(Func<TableService> tables) : ICapabilityHandler
+public sealed class EntityReset(Func<TableService> tables) : ICapabilityHandler, ILineCommand
 {
     public const string Id = "entity.reset";
 
     public CapabilityDescriptor Descriptor { get; } = new(Id, TableContracts.Version, "Reset fields of rows of a table of a workspace to what they follow",
         [new("request", TableContracts.ResetRequest, TableContracts.Version, Cardinality.One)],
         [new("answer", TableContracts.Edited, TableContracts.Version, Cardinality.One)],
-        ExecutionKind.RequestResponse, [CapabilityEffect.EditWorkspace]);
+        ExecutionKind.RequestResponse, [CapabilityEffect.EditWorkspace],
+        new(["reset"], [new("rows", CommandArgumentKind.Rows, Required: false), new("field", CommandArgumentKind.Field, Required: false)]));
+
+    public LineRead Read(LineContext line) => tables().ResetLine(line);
+
+    public LineCompletions Complete(LineContext line) => tables().Complete(line, CommandArgumentKind.Field);
 
     public Task<IReadOnlyDictionary<string, JsonNode?>> InvokeAsync(CapabilityInvocation invocation, CancellationToken cancellationToken) =>
         TableContracts.Answer(invocation, (request, caller) => tables().Reset(TableContracts.Text(request, "workspaceId"), request["revision"]?.GetValue<long>(), caller,
@@ -274,14 +386,19 @@ public sealed class EntityReset(Func<TableService> tables) : ICapabilityHandler
 }
 
 /// <summary><c>entity.remove</c> (ADR-0016 §3): removes rows the workspace made from a registered table.</summary>
-public sealed class EntityRemove(Func<TableService> tables) : ICapabilityHandler
+public sealed class EntityRemove(Func<TableService> tables) : ICapabilityHandler, ILineCommand
 {
     public const string Id = "entity.remove";
 
     public CapabilityDescriptor Descriptor { get; } = new(Id, TableContracts.Version, "Remove rows a workspace made from a table",
         [new("request", TableContracts.RemoveRequest, TableContracts.Version, Cardinality.One)],
         [new("answer", TableContracts.Edited, TableContracts.Version, Cardinality.One)],
-        ExecutionKind.RequestResponse, [CapabilityEffect.EditWorkspace]);
+        ExecutionKind.RequestResponse, [CapabilityEffect.EditWorkspace],
+        new(["remove"], [new("rows", CommandArgumentKind.Rows, Required: true)]));
+
+    public LineRead Read(LineContext line) => tables().RemoveLine(line);
+
+    public LineCompletions Complete(LineContext line) => tables().Complete(line, null);
 
     public Task<IReadOnlyDictionary<string, JsonNode?>> InvokeAsync(CapabilityInvocation invocation, CancellationToken cancellationToken) =>
         TableContracts.Answer(invocation, (request, caller) => tables().Remove(TableContracts.Text(request, "workspaceId"), request["revision"]?.GetValue<long>(), caller,
@@ -366,7 +483,7 @@ public sealed class TablesModule(Func<TableService> tables) : IQubeModule
         builder.AddCapability(new EntityReset(tables));
         builder.AddCapability(new EntityRemove(tables));
         builder.AddContract(new ContractDefinition(TableContracts.SetRequest, TableContracts.Version, "Set fields of rows", TableContracts.Request(TableContracts.RowsTitle,
-            ("set", new JsonObject { ["type"] = "string", ["minLength"] = 1, ["title"] = "Values as name=value, one or several (<field>=<value> <field>=<value>), each written as its field is typed and checked in the order given" }, true))));
+            ("set", new JsonObject { ["type"] = "string", ["minLength"] = 1, ["title"] = "Values as name=value, one or several (<field>=<value> <field>=<value>), each written as its field is typed and checked in the order given; one value may follow its field with no sign (<field> <value>)" }, true))));
         builder.AddContract(new ContractDefinition(TableContracts.ResetRequest, TableContracts.Version, "Reset fields of rows", TableContracts.Request(TableContracts.RowsTitle,
             ("field", new JsonObject { ["type"] = "string", ["minLength"] = 1, ["title"] = "The field to reset, by its words; every field of the rows where left out" }, false))));
         builder.AddContract(new ContractDefinition(TableContracts.RemoveRequest, TableContracts.Version, "Remove rows", TableContracts.Request(TableContracts.RowsTitle)));

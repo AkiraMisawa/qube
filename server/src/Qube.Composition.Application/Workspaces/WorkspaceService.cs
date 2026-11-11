@@ -497,13 +497,28 @@ public sealed class WorkspaceService(IReadOnlyDictionary<string, IEditRules> rul
         {
             var stacks = CommandHistory.Read(state.Log);
             var latest = Latest(state, undo ? stacks.Undo : stacks.Redo, user, named, undo);
-            var name = latest.Stamp!.Said ?? Named(state, latest);
-            tookBack = new TakenBack(latest.Stamp.Id, name, latest.First.User, latest.First.Origin, latest.First.At, latest.Edits.Count());
+            var told = tookBack = Told(state, latest);
             var reverted = latest.Entries.Reverse().Aggregate(state, (current, entry) => Revert(current, user, entry, origin));
             var id = CommandStamp.IdAt(state.Revision + 1);
-            return (reverted, undo ? new CommandStamp(id, name, Undoes: latest.Stamp.Id) : new CommandStamp(id, name, Redoes: latest.Stamp.Id));
+            return (reverted, undo ? new CommandStamp(id, told.Said, Undoes: told.Command) : new CommandStamp(id, told.Said, Redoes: told.Command));
         });
         return (next, tookBack ?? throw new InvalidOperationException("A command taken back says which."));
+    }
+
+    /// <summary>
+    /// The command an undo or a redo by this user would act on as the workspace stands (ADR-0016 §5), or the refusal it
+    /// would meet. Read from the log, and nothing written.
+    /// </summary>
+    public TakenBack WouldTakeBack(WorkspaceState state, string user, bool undo)
+    {
+        var stacks = CommandHistory.Read(state.Log);
+        return Told(state, Latest(state, undo ? stacks.Undo : stacks.Redo, user, null, undo));
+    }
+
+    TakenBack Told(WorkspaceState state, LoggedCommand latest)
+    {
+        var stamp = latest.Stamp ?? throw new InvalidOperationException("A command that is taken back has an id.");
+        return new(stamp.Id, stamp.Said ?? Named(state, latest), latest.First.User, latest.First.Origin, latest.First.At, latest.Edits.Count());
     }
 
     /// <summary>The command an undo or a redo acts on, or why there is none it may act on.</summary>
