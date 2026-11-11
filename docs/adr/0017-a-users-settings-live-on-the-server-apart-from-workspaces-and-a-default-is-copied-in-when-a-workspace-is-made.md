@@ -1,7 +1,8 @@
 # ADR-0017: A user's settings live on the server, apart from workspaces, and a default is copied in when a workspace is made
 
-Status: PROPOSED 2026-11-11. Raised by the owner: "what do we do about user-specific settings?" (2026-11-11). §6's
-first question was put to him that day; every other point is a DEFAULT until he confirms it. Answers ADR-0006's
+Status: ACCEPTED 2026-11-11. Raised by the owner: "what do we do about user-specific settings?" (2026-11-11).
+Proposed the same day; he answered the four questions of §6 the same day, and what they settle is marked there. A point
+not among them is a DEFAULT (CLAUDE.md, "Decision handling"). Answers ADR-0006's
 consequence "it moves to the server then" and the first item of ADR-0008's Open. Changes nothing a Run does.
 
 ## Context
@@ -32,7 +33,7 @@ setting is, it cannot be read at Price.
 
 | Kind | Examples | Where, and how it acts |
 |---|---|---|
-| **A preference** changes how things look or are found, never a figure | Theme (`dark`, `light`, `auto` following the OS); column widths by grid; command ranking; the AI's model | The user settings store (§2). Applied as soon as it changes, wherever the user is signed in |
+| **A preference** changes how things look or are found, never a figure | Theme (`dark`, `light`, `auto` following the OS); column widths by grid; command ranking; the AI's default model | The user settings store (§2). Applied as soon as it changes, wherever the user is signed in |
 | **A default** becomes an input value of something the user makes | The display currency of a new pricer workspace; Rates' currency, notional and direction for a new line | The user settings store, read only when a workspace is made, and copied into it (§3) |
 | **An account attribute** decides what a user may see or do | Desk, the developer and administrator roles (C31, C32) | ME-ID's groups or app roles once sign-in exists; server configuration until then. Never the user's to change: a desk the user could pick would show them what another desk shared |
 | **A saved definition** is something made to be used again, by name | Scenario sets; saved sequences of edits (ADR-0016 §8); saved views and workflows | Saved items (C32), as today. Not a setting |
@@ -41,7 +42,12 @@ What only makes sense on one screen stays in that browser and is no setting: whe
 panels are open, the text being typed. A phone and a desktop differ there by design.
 
 Sort and filter (ADR-0016 step 4b) are view state: they last as long as the panel. One a user wants again is a saved
-view, a saved definition, when views are saved.
+view, a saved definition, when views are saved (owner, 2026-11-11).
+
+The AI's model is two things (owner, 2026-11-11). The setting is the user's **default model**, which a new
+conversation starts on. A model changed from the AI pane belongs to that conversation alone: it changes neither the
+user's default nor any other conversation, and each agent run records the model it ran on. Both are chosen from the
+models configuration allows (C34).
 
 ### 2. The store is the kernel's, and modules register what it holds
 
@@ -97,16 +103,23 @@ the page, `settings <name> <value>` sets one, `settings reset <name>` returns it
 - The command ranking a browser already holds is carried over once, the first time that browser meets the server
   store, and its local copy is then removed.
 
-### 6. Open
+### 6. Decided with the owner (2026-11-11)
 
-1. **Explicit or last used (put to the owner 2026-11-11).** Is a default only what the user set explicitly
-   (recommended: a one-off change in one workspace does not leak into the next, and the source shown is simple), or
-   the value the user last chose in any workspace, as the measures are today, or an explicit setting first and the
-   last used otherwise? Under the first, the measures keep their "last selection" (ADR-0010 §10) as decided.
-2. Whether a preference is the user's across devices (DEFAULT: yes, with `auto` for a theme that follows each OS) or
-   each device's.
-3. Which models the AI may use (an allow-list in configuration, `Agent:Copilot:Models`, with the first as the default;
-   DEFAULT) and whether a Run the AI made records the model it used (it should: lineage).
+1. **A default is what the user set explicitly** (CONFIRMED). The value last chosen in a workspace is not a default:
+   a one-off change in one workspace does not leak into the next, and the source shown is simply `your setting` or
+   the profile. Rejected: the last value used in any workspace, and an explicit setting with the last used beneath
+   it. The measures keep their "last selection" (ADR-0010 §10), which was decided before this record.
+2. **A preference is the user's across devices** (CONFIRMED), with `auto` for a theme that follows each device's OS.
+3. **The model setting is the user's default model** (CONFIRMED). Changing the model from the chat is that
+   conversation's own change, not the user's default (his words: "the interface for changing it from the chat is a
+   model change specific to that session; I mean the user's default model"). Which models may be chosen is
+   configuration, `Agent:Copilot:Models`, with the first as the registered value (DEFAULT).
+4. **Sort and filter are not remembered** (CONFIRMED); a saved view keeps one later.
+
+## Open
+
+- Whether an administrator may reset another user's settings (DEFAULT: reads only).
+- The line's words for the three capabilities (§4), settled in the spec.
 
 ## The first registrations
 
@@ -115,7 +128,7 @@ the page, `settings <name> <value>` sets one, `settings reset <name>` returns it
 | `shell.theme` | preference | `dark` | Mantine's `localStorage` |
 | `commands.usage` | preference | none | `qube.commandUsage.v1` in `localStorage` |
 | `grid.widths.<grid id>` | preference | the declared widths | the workspace store's per-panel widths |
-| `agent.model` | preference | the first allowed model | `Agent:Copilot:Model` alone |
+| `agent.defaultModel` | preference | the first allowed model | `Agent:Copilot:Model` alone |
 | `pricer.displayCurrency` | default | the company profile's | the profile alone |
 | `rates.newLine.currency`, `.notional`, `.direction` | default | none (the workspace's own, ADR-0008) | the workspace's context alone |
 
@@ -128,7 +141,7 @@ After ADR-0016's step 4 is merged, since the same files (the host's registration
 
 1. The store, its three capabilities, the settings page and the line; theme, command ranking and column widths.
 2. The defaults, with their source shown on the pricer and Rates pages.
-3. The AI's model, once the allow-list is configured.
+3. The AI's default model, and the pane's model for one conversation, once the allowed models are configured.
 
 ME-ID sign-in (C30) is its own work. The store runs on `Qube:DemoUser` until then, and only the id changes when it
 arrives.
