@@ -90,7 +90,8 @@ export function buildCommands(args: {
 
   const contextContract = catalog.contracts.find((c) => c.contractId === CONTEXT_CONTRACT);
   for (const [field, schema] of Object.entries(contextContract?.schema.properties ?? {})) {
-    const options = schema.enum ?? [];
+    // `set <field> <choice>` is built for a field of choices; a list (ADR-0016 note 37) has none to offer here.
+    const options = schema.type === 'array' ? [] : schema.enum ?? [];
     if (options.length === 0) continue;
     const name = schema.title ?? field;
     commands.push({

@@ -89,6 +89,9 @@ export interface KeyboardMoved {
 /** How a line ended at its page's door: why nothing ran; or nothing, the command done; or done with the keyboard moved by it. */
 export type Entered = LineReason | KeyboardMoved | undefined;
 
+/** What a command is asked, beside the workspace and the revision its door adds. */
+export type CommandRequest = Readonly<Record<string, unknown>>;
+
 /**
  * What a page gives the command line for the workspace it shows (ADR-0016 §5): where the commands the server reads
  * act, and how they are run so that they follow the edits the page has already sent.
@@ -117,9 +120,12 @@ export interface CommandDoor {
   /**
    * A command by its id, from a key or a button, which have no line: in the same turn, at the catalog's version and
    * the revision the page then holds. Resolves as `enter` does. A caller that says the answer itself, as a dialog
-   * does, gives `heard`: it is told what the command said, and the page makes no notice of it.
+   * does, gives `heard`: it is told what the command said, and the page makes no notice of it. A request that says
+   * again something the page shows, as `add each`'s whole set of iterations does (note 37 of 2026-11-11), is given as
+   * a function: it is made in the turn, of the revision it is sent at, so an edit still on its way when the button was
+   * pressed is in it (spine 6); one that throws sends nothing, and its message is the reason.
    */
-  invoke(capabilityId: string, request: Readonly<Record<string, unknown>>, heard?: (said: string) => void): Promise<LineReason | undefined>;
+  invoke(capabilityId: string, request: CommandRequest | ((revision: number) => CommandRequest), heard?: (said: string) => void): Promise<LineReason | undefined>;
 }
 
 /** What a served command is typed with and run through: its arguments as the catalog names them, and its page's door. */

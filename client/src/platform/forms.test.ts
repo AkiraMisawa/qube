@@ -18,6 +18,13 @@ describe('contract forms', () => {
     expect(validate(contextContract, { region: 'North', asOf: '2028-02-29' })).toEqual([]);
   });
 
+  it('ADR-0016 note 37: a list a contract holds is given no default and is never passed as filled in', () => {
+    const listed = { ...inputContract, schema: { ...inputContract.schema, properties: { ...inputContract.schema.properties, names: { type: 'array' as const, items: { type: 'string' as const } } } } };
+
+    expect(defaultsOf(listed)).toEqual({ label: 'x' });
+    expect(validate(listed, { days: 3, names: ['a'] })).toEqual([{ field: 'names', message: 'A list is not filled in a form.' }]);
+  });
+
   it('reports a field the contract does not have instead of passing it on', () => {
     expect(validate(inputContract, { days: 3, extra: 1 })).toEqual([{ field: 'extra', message: 'test.input has no field extra.' }]);
   });

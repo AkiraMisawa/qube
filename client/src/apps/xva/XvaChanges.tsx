@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode, type Ref } from 'react';
-import { Button, Table, Text, TextInput } from '@mantine/core';
-import type { ChangeItem, ChangesList } from './contracts';
+import { Button, Group, Table, Text, TextInput } from '@mantine/core';
+import { IconX } from '@tabler/icons-react';
+import type { CaseView, ChangeItem, ChangesList, Iteration } from './contracts';
 
 // The Changes input tab (ADR-0010 §3's note of 2026-11-08): every Common change, then each case with its own, where a
 // change is found without scanning a wide grid, its value typed again or removed, and a case removed whole. The server
@@ -14,6 +15,8 @@ export interface ChangeActions {
   readonly remove: (change: ChangeItem) => void;
   readonly removeCase: (caseId: string, title: string) => void;
   readonly clearCases: () => void;
+  /** Leaves one trade out of what a case of `add each` adds, or of what it takes out of After (ADR-0016 note 37). */
+  readonly leaveOut: (caseId: string, title: string, list: keyof Iteration, trade: string) => void;
 }
 
 export function XvaChanges({ list, actions, focusRef }: {
@@ -40,6 +43,7 @@ export function XvaChanges({ list, actions, focusRef }: {
             <Section key={c.id} title={c.title} kind={c.kind} note={caseNote(c.note, changes.length)}
               action={<Button size="compact-xs" variant="default" onClick={() => actions.removeCase(c.id, c.title)}
                 aria-label={`Remove case ${c.title}`}>Remove case</Button>} />,
+            ...(c.iteration === undefined ? [] : [<Trades key={`${c.id}.trades`} of={c} iteration={c.iteration} actions={actions} />]),
             ...changes.map((change) => <Change key={`${c.id}.${change.entity}.${change.field}`} change={change} scope={c.title} actions={actions}
               whole={c.kind === 'add'} />),
           ])}
@@ -65,9 +69,34 @@ function Section({ title, kind, note, action }: { readonly title: string; readon
   );
 }
 
+/**
+ * What a case of `add each` adds together and takes out of After (ADR-0016 note 37), each trade a button that leaves it
+ * out. The one trade a case adds is said and has no button: a case that adds nothing is no case, so it is removed whole.
+ */
+function Trades({ of, iteration, actions }: { readonly of: CaseView; readonly iteration: Iteration; readonly actions: ChangeActions }) {
+  const lone = iteration.add.length === 1;
+  const trade = (list: keyof Iteration, id: string) => (
+    <Button key={`${list}.${id}`} size="compact-xs" variant="default" rightSection={<IconX size={14} stroke={1.75} aria-hidden />}
+      aria-label={`Leave ${id} out of ${of.title}`} title={list === 'add' ? `${of.title} adds ${id}. Press to leave it out.` : `${of.title} takes ${id} out of After. Press to leave it in.`}
+      onClick={() => actions.leaveOut(of.id, of.title, list, id)}>{id}</Button>
+  );
+  return (
+    <Table.Tr className="qube-xva-changes-trades">
+      <Table.Td colSpan={4}>
+        <Group gap="xs" wrap="wrap">
+          <Text size="sm" span>Adds</Text>
+          {lone ? <Text size="sm" span fw={600}>{iteration.add[0]}</Text> : iteration.add.map((id) => trade('add', id))}
+          {iteration.without.length > 0 && <Text size="sm" span>Takes out of After</Text>}
+          {iteration.without.map((id) => trade('without', id))}
+        </Group>
+      </Table.Td>
+    </Table.Tr>
+  );
+}
+
 /** What a case's row says beside its title: the common change a case of `add each` carries, and that it has no change. */
-function caseNote(common: string | null, changes: number): string | undefined {
-  const notes = [...(common === null ? [] : [common]), ...(changes === 0 ? ['No change of its own: it prices as the Base.'] : [])];
+function caseNote(common: string | undefined, changes: number): string | undefined {
+  const notes = [...(common === undefined ? [] : [common]), ...(changes === 0 ? ['No change of its own: it prices as the Base.'] : [])];
   return notes.length === 0 ? undefined : notes.join(' · ');
 }
 

@@ -149,7 +149,9 @@ export function commandDoor(page: DoorPage): CommandDoor {
     invoke: (capabilityId, request, heard) => run<LineReason>(async (revision) => {
       const capability = page.catalog.capabilities.find((c) => c.capabilityId === capabilityId);
       if (capability === undefined) throw new Error(`This server has no command ${capabilityId}.`);
-      return { id: capabilityId, version: capability.version, inputs: { request: { ...request, workspaceId: page.workspaceId, revision } } };
+      // A request made of what the page shows (note 37) is made here, in the turn, of the revision it is sent at.
+      const made = typeof request === 'function' ? request(revision) : request;
+      return { id: capabilityId, version: capability.version, inputs: { request: { ...made, workspaceId: page.workspaceId, revision } } };
     }, heard),
   };
 }

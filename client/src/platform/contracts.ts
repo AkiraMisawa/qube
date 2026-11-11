@@ -65,6 +65,12 @@ export interface TableAction {
 }
 
 /** A table as a screen is told of it (note 25): its id, its title, and the actions a grid bound to it offers. */
+/** The rows a view's selection names (ADR-0016 note 37): their table, and their keys in the order the view names them. */
+export interface ViewSelection {
+  readonly table: string;
+  readonly keys: readonly string[];
+}
+
 export interface TableOnScreen {
   readonly tableId: string;
   readonly title: string;
@@ -144,7 +150,8 @@ export interface LinePreview {
   readonly expands?: string;
 }
 
-export interface FieldSchema {
+/** A field of one value: text, a number or a flag. */
+export interface ValueSchema {
   readonly type: 'string' | 'integer' | 'number' | 'boolean';
   readonly title?: string;
   readonly description?: string;
@@ -155,6 +162,25 @@ export interface FieldSchema {
   readonly format?: 'date';
   readonly default?: unknown;
 }
+
+/**
+ * A field that is a list (ADR-0016 note 37 of 2026-11-11): of values, or of records whose fields are values or lists
+ * of values. A command's typed value may be one (`add each`'s iterations); a form draws none.
+ */
+export interface ListSchema {
+  readonly type: 'array';
+  readonly title?: string;
+  readonly description?: string;
+  readonly minItems?: number;
+  readonly items: ValueSchema | {
+    readonly type: 'object';
+    readonly properties: Readonly<Record<string, ValueSchema | (ListSchema & { readonly items: ValueSchema })>>;
+    readonly required?: readonly string[];
+    readonly additionalProperties: false;
+  };
+}
+
+export type FieldSchema = ValueSchema | ListSchema;
 
 export interface ContractDefinition {
   readonly contractId: string;

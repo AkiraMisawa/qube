@@ -11,12 +11,16 @@ export interface FieldIssue {
 export function defaultsOf(contract: ContractDefinition): Record<string, unknown> {
   const values: Record<string, unknown> = {};
   for (const [name, field] of Object.entries(contract.schema.properties))
-    if (field.default !== undefined) values[name] = field.default;
+    if (field.type !== 'array' && field.default !== undefined) values[name] = field.default;
   return values;
 }
 
 export function fieldProblem(field: FieldSchema, value: unknown): string | undefined {
   switch (field.type) {
+    // A form draws a control for one value (ADR-0016 note 37): the server registers no workflow whose input holds a
+    // list, so one met here is said, never passed as filled in.
+    case 'array':
+      return 'A list is not filled in a form.';
     case 'string': {
       if (typeof value !== 'string') return 'A text value is required.';
       if (field.minLength !== undefined && value.length < field.minLength) return `At least ${field.minLength} characters are required.`;

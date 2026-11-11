@@ -1,4 +1,4 @@
-import type { Catalog, Dataset, ErrorEnvelope, LinePreview, LineView, RunRecord, TableOnScreen, TypedDataRef, ViewDefinition, WorkflowDefinition } from './contracts';
+import type { Catalog, Dataset, ErrorEnvelope, LinePreview, LineView, RunRecord, TableOnScreen, TypedDataRef, ViewDefinition, ViewSelection, WorkflowDefinition } from './contracts';
 import { telemetry, traced } from './telemetry';
 
 /** A refusal from the server, carrying its code and the located issues. Never turned into an empty result. */
@@ -73,6 +73,12 @@ export interface Api {
   preview(line: string, workspaceId: string, read?: { readonly revision?: number; readonly view?: LineView }, signal?: AbortSignal): Promise<LinePreview>;
   /** A workspace's tables as a screen is told of them (ADR-0016 §4, note 25): the actions a grid bound to each offers. */
   tables(workspaceId: string): Promise<readonly TableOnScreen[]>;
+  /**
+   * The keys of the rows a grid's selection names (ADR-0016 note 37), read by the server as the preview reads
+   * `selected`: what a page asks before it makes a command's typed value from a grid the server pages. No key where
+   * nothing is selected; refused where the order the selection was written in has moved.
+   */
+  selection(workspaceId: string, view: LineView): Promise<ViewSelection>;
   submitRun(workflow: WorkflowDefinition, context: Record<string, unknown>, input: Record<string, unknown>, idempotencyKey: string): Promise<RunRecord>;
   run(runId: string): Promise<RunRecord>;
   dataset(reference: TypedDataRef): Promise<Dataset>;
@@ -86,6 +92,7 @@ export const httpApi: Api = {
   preview: (line, workspaceId, read, signal) =>
     call('/api/commands/preview', { method: 'POST', body: JSON.stringify({ line, workspaceId, ...read }), ...(signal === undefined ? {} : { signal }) }),
   tables: (workspaceId) => call(`/api/workspaces/${encodeURIComponent(workspaceId)}/tables`),
+  selection: (workspaceId, view) => call(`/api/workspaces/${encodeURIComponent(workspaceId)}/selection`, { method: 'POST', body: JSON.stringify({ view }) }),
   submitRun: (workflow, context, input, idempotencyKey) =>
     call('/api/runs', { method: 'POST', body: JSON.stringify({ workflow, context, input, idempotencyKey }) }),
   run: (runId) => call(`/api/runs/${encodeURIComponent(runId)}`),
