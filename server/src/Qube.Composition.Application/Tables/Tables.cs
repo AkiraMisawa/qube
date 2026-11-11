@@ -1,0 +1,212 @@
+using System.Text.Json.Nodes;
+using Qube.Composition.Application.Workspaces;
+
+namespace Qube.Composition.Application.Tables;
+
+// ADR-0016 §1 and its note 6 of 2026-11-11: a domain registers its tables as data, through a catalog port as products
+// are (ADR-0008 §7), and the kernel's verbs address `table row field`. Nothing here knows a trade, a CSA or a currency.
+
+/// <summary>A group of a table's rows the domain names (<c>existing</c>, <c>new</c>), and the words it answers to.</summary>
+public sealed record TableSubset(string Name, string Title, IReadOnlyList<string> Words);
+
+/// <param name="Name">The field's name in an edit's target.</param>
+/// <param name="Words">What a person types for it, the first the one a sentence uses (<c>A</c>, <c>after</c>).</param>
+/// <param name="Editable">Whether a command may set it. The domain may still refuse a row's (a cell read-only for now).</param>
+/// <param name="Optional">Whether it may be empty, written <c>empty</c> or <c>none</c> (the field's, not its form's).</param>
+/// <param name="Table">For an id, the table it points into (a trade's <c>csa</c> names a row of the CSAs).</param>
+/// <param name="UnitField">The field that carries its unit, such as an amount's currency: a unit is never inferred from a title.</param>
+/// <param name="Group">The group it is drawn under, where the table has groups.</param>
+public sealed record TableField(
+    string Name,
+    string Title,
+    IReadOnlyList<string> Words,
+    FieldForm Form,
+    bool Editable = false,
+    bool Optional = false,
+    IReadOnlyDictionary<string, string>? Choices = null,
+    string? Table = null,
+    string? UnitField = null,
+    string? Group = null)
+{
+    /// <summary>How its values are written and read.</summary>
+    public FieldSpec Spec => new(Form, Optional, Choices);
+}
+
+/// <summary>
+/// A table as a workspace has it (ADR-0016 §1): its id and version, which a saved definition and the AI name; the words
+/// a person types for it; the field that names a row; its fields, resolved for the workspace, and its subsets.
+/// </summary>
+/// <param name="SingleRow">A table of one row is addressed without a row: <c>set currency JPY</c>.</param>
+/// <param name="Main">The application's main table, which <c>all</c>, a subset or <c>where</c> mean where no table is named (note 7).</param>
+public sealed record TableDescriptor(
+    string TableId,
+    string Version,
+    string App,
+    string Title,
+    IReadOnlyList<string> Words,
+    string Key,
+    IReadOnlyList<TableField> Fields,
+    IReadOnlyList<TableSubset> Subsets,
+    bool SingleRow = false,
+    bool Main = false);
+
+/// <summary>One row at a revision: its key, the subset it is in, and its values by field as they stand.</summary>
+public interface ITableRow
+{
+    string Key { get; }
+
+    /// <summary>The subset's name, where the table has subsets.</summary>
+    string? Subset { get; }
+
+    /// <summary>The value the row holds in a field of its table's description, as an edit would write it; null for none.</summary>
+    JsonNode? Value(string field);
+}
+
+/// <summary>
+/// One registered table (ADR-0016 §1, note 6): its description for a workspace, its rows at a revision, and what a write
+/// is. A write answers the workspace changes that make it, after the domain checked it as it checks a typed cell, or
+/// refuses by name (<see cref="WorkspaceRefused"/>): the kernel turns rows, a field and a value into edits and knows no
+/// financial word.
+/// </summary>
+public interface IWorkspaceTable
+{
+    string TableId { get; }
+
+    /// <summary>The workspace application whose workspaces have it.</summary>
+    string App { get; }
+
+    /// <summary>The table as this workspace has it: what it has is asked of a workspace, since a selection may add fields.</summary>
+    TableDescriptor Describe(WorkspaceState state);
+
+    /// <summary>Every row as the workspace stands, in the table's own order. Read once by a command.</summary>
+    IReadOnlyList<ITableRow> Rows(WorkspaceState state);
+
+    /// <summary>The date a period counts from in a condition on a date (<c>maturity&gt;5y</c>); none where the table has none.</summary>
+    DateOnly? AsOf(WorkspaceState state) => null;
+
+    /// <summary>The changes that write a value into a row's field.</summary>
+    IReadOnlyList<WorkspaceChange> Set(WorkspaceState state, ITableRow row, TableField field, JsonNode? value);
+
+    /// <summary>
+    /// The changes that write a value for every row of a subset at once, where the field has a whole-set edit (one edit
+    /// on the set, a row's later edit wins); null where it has none, and the rows are then written one by one.
+    /// </summary>
+    IReadOnlyList<WorkspaceChange>? SetAll(WorkspaceState state, TableSubset subset, TableField field, JsonNode? value) => null;
+
+    /// <summary>The changes that remove the row's own edit of a field, or of every field where none is named; none where it follows already.</summary>
+    IReadOnlyList<WorkspaceChange> Reset(WorkspaceState state, ITableRow row, TableField? field);
+
+    /// <summary>The changes that remove a subset's whole-set edit of a field, or of every field; none where there is none.</summary>
+    IReadOnlyList<WorkspaceChange> ResetAll(WorkspaceState state, TableSubset subset, TableField? field) => [];
+
+    /// <summary>The changes that remove a row the workspace made; a row it did not make is refused by name, saying what to do instead.</summary>
+    IReadOnlyList<WorkspaceChange> Remove(WorkspaceState state, ITableRow row);
+}
+
+/// <summary>
+/// Where tables come from (ADR-0016 §1): a module's own registrations in this repository; an adapter over a company
+/// service's tables at the company, with no kernel or UI change.
+/// </summary>
+public interface ITableCatalog
+{
+    IEnumerable<IWorkspaceTable> Tables { get; }
+}
+
+/// <summary>
+/// What a command cannot read or do, said so that a line can point at it (ADR-0016 §6): a stable code, a sentence, the
+/// word at fault where there is one, and what it could have been.
+/// </summary>
+public sealed class TableRefused(string code, string message, string? word = null, IReadOnlyList<string>? candidates = null) : Exception(message)
+{
+    public string Code { get; } = code;
+    public string? Word { get; } = word;
+    public IReadOnlyList<string> Candidates { get; } = candidates ?? [];
+}
+
+/// <summary>A registered table with its description for one workspace.</summary>
+public sealed record BoundTable(IWorkspaceTable Table, TableDescriptor Descriptor)
+{
+    /// <summary>The word a sentence uses for the table.</summary>
+    public string Word => Descriptor.Words.Count > 0 ? Descriptor.Words[0] : Descriptor.TableId;
+}
+
+/// <summary>The registered tables (ADR-0016 §1): found for a workspace by id or by words, and their fields by words.</summary>
+public sealed class TableRegister
+{
+    readonly ILookup<string, IWorkspaceTable> byApp;
+
+    /// <summary>Fails at start where two tables have one id.</summary>
+    public TableRegister(IEnumerable<ITableCatalog> catalogs)
+    {
+        var tables = catalogs.SelectMany(c => c.Tables).ToList();
+        if (tables.GroupBy(t => t.TableId, StringComparer.OrdinalIgnoreCase).FirstOrDefault(g => g.Count() > 1) is { } twice)
+            throw new InvalidOperationException($"Table {twice.Key} is registered twice.");
+        byApp = tables.ToLookup(t => t.App);
+    }
+
+    /// <summary>The tables of the workspace's application, each as this workspace has it, in the order registered.</summary>
+    public IReadOnlyList<BoundTable> Of(WorkspaceState state)
+    {
+        var bound = byApp[state.App].Select(t => new BoundTable(t, t.Describe(state))).ToList();
+        foreach (var table in bound)
+        {
+            if (table.Descriptor.TableId != table.Table.TableId || table.Descriptor.App != state.App)
+                throw new InvalidOperationException($"Table {table.Table.TableId} describes itself as {table.Descriptor.TableId} of {table.Descriptor.App}.");
+            if (table.Descriptor.Fields.All(f => f.Name != table.Descriptor.Key))
+                throw new InvalidOperationException($"Table {table.Descriptor.TableId} has no field {table.Descriptor.Key}, its key.");
+        }
+        return bound;
+    }
+
+    /// <summary>The table an id or words name, case ignored; an unknown one is refused with the tables there are, and words two tables share with both.</summary>
+    public static BoundTable Find(IReadOnlyList<BoundTable> tables, string name)
+    {
+        var words = TableWords.Of(name);
+        var found = tables.Where(t => TableWords.Names(t.Descriptor).Contains(words)).ToList();
+        return found.Count switch
+        {
+            1 => found[0],
+            0 => throw new TableRefused("UnknownTable", tables.Count == 0 ? $"No table {name.Trim()}: this workspace has no tables."
+                : $"No table {name.Trim()}: the tables are {TableWords.List(tables.Select(t => t.Word))}.", name.Trim(), [.. tables.Select(t => t.Word)]),
+            _ => throw new TableRefused("AmbiguousTable", $"{name.Trim()} could be {TableWords.Either(found.Select(t => t.Descriptor.TableId))}; name one by its id.",
+                name.Trim(), [.. found.Select(t => t.Descriptor.TableId)]),
+        };
+    }
+
+    /// <summary>The field its words name, case ignored; an unknown one is refused with the fields there are, and words two fields share with both.</summary>
+    public static TableField Field(BoundTable table, string name)
+    {
+        var words = TableWords.Of(name);
+        var found = table.Descriptor.Fields.Where(f => TableWords.Names(f).Contains(words)).ToList();
+        return found.Count switch
+        {
+            1 => found[0],
+            0 => throw new TableRefused("UnknownField", $"{table.Word} has no field {name.Trim()}; its fields are {TableWords.List(table.Descriptor.Fields.Select(TableWords.Word))}.",
+                name.Trim(), [.. table.Descriptor.Fields.Select(TableWords.Word)]),
+            _ => throw new TableRefused("AmbiguousField", $"{name.Trim()} could be {TableWords.Either(found.Select(TableWords.Word))} of {table.Word}.",
+                name.Trim(), [.. found.Select(TableWords.Word)]),
+        };
+    }
+}
+
+/// <summary>How a table's and a field's words are compared and listed: lower case, one space between words.</summary>
+public static class TableWords
+{
+    public static string Of(string text) => string.Join(' ', text.Trim().ToLowerInvariant().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+
+    /// <summary>Every name a table answers to: its id and its words.</summary>
+    public static IReadOnlySet<string> Names(TableDescriptor table) => new HashSet<string>(table.Words.Select(Of).Append(Of(table.TableId)));
+
+    /// <summary>Every name a field answers to: its name and its words.</summary>
+    public static IReadOnlySet<string> Names(TableField field) => new HashSet<string>(field.Words.Select(Of).Append(Of(field.Name)));
+
+    /// <summary>Every name a subset answers to: its name and its words.</summary>
+    public static IReadOnlySet<string> Names(TableSubset subset) => new HashSet<string>(subset.Words.Select(Of).Append(Of(subset.Name)));
+
+    /// <summary>The word a sentence uses for a field: its first, as the screen names its column.</summary>
+    public static string Word(TableField field) => field.Words.Count > 0 ? field.Words[0] : field.Name;
+
+    public static string List(IEnumerable<string> items) => string.Join(", ", items);
+
+    public static string Either(IEnumerable<string> items) => string.Join(" or ", items);
+}
