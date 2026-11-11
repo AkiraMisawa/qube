@@ -8,6 +8,7 @@ import {
 import { recordUse, usageScore } from '../platform/commands/usage';
 import { useQuery } from '@tanstack/react-query';
 import type { Catalog, RunRecord } from '../platform/contracts';
+import type { Notify } from '../platform/notices';
 import { viewsFor } from '../platform/views/binding';
 import { CONTEXT_CONTRACT, useWorkspace, useWorkspaceContext } from '../platform/workspace/WorkspaceProvider';
 import { keyOf, type Panel, type WorkspaceState } from '../platform/workspace/workspaceStore';
@@ -42,7 +43,7 @@ export function buildCommands(args: {
   readonly state: Pick<WorkspaceState, 'panels' | 'activePanelId' | 'context' | 'openRunDialog' | 'setPanelView' | 'closePanel' | 'cycle' | 'activate' | 'requestContext' | 'showApp' | 'openAppDialog'>;
   readonly activeRun: RunRecord | undefined;
   readonly toggleTheme: () => void;
-  readonly notify: (message: string) => void;
+  readonly notify: Notify;
   /** The AI pane, where one is mounted: `ai <request>` hands the request to it (ADR-0006 §7, ADR-0007 §7). */
   readonly ai?: { readonly ask: (request: string) => string | undefined; readonly open: boolean; readonly setOpen: (open: boolean) => void };
 }): Command[] {
@@ -110,7 +111,7 @@ export function buildCommands(args: {
       group: 'Panels',
       shortcut: 'mod+shift+G',
       ...(active === undefined ? { unavailable: 'No panel is open.' } : { target: active.title }),
-      run: () => { if (!focusGrid(active?.id)) args.notify('This panel has no grid yet.'); },
+      run: () => { if (!focusGrid(active?.id)) args.notify('refused', 'This panel has no grid yet.'); },
     },
     {
       id: 'panel.next',
@@ -170,7 +171,7 @@ export function buildCommands(args: {
       ...(active === undefined ? {} : { target: active.title }),
       run: (a) => {
         const refused = args.ai?.ask(a.request ?? '');
-        if (refused !== undefined) args.notify(`ai: ${refused}`);
+        if (refused !== undefined) args.notify('refused', `ai: ${refused}`);
       },
     },
     {
@@ -256,7 +257,7 @@ export function CommandPalette() {
   // A chord has no line to say why in: its reason is a notice.
   const chord = (command: Command) => {
     const reason = run(command);
-    if (reason !== undefined) workspace.notify(`${command.words}: ${reason}`);
+    if (reason !== undefined) workspace.notify('refused', `${command.words}: ${reason}`);
   };
 
   useHotkeys([

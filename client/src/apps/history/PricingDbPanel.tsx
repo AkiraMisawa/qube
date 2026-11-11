@@ -13,6 +13,7 @@ import { useWorkspaceContext } from '../../platform/workspace/WorkspaceProvider'
 import { keyOf } from '../../platform/workspace/workspaceStore';
 import { registerGridFocus } from '../../shell/focus';
 import { downloadRun } from '../../platform/runs';
+import type { Notify } from '../../platform/notices';
 
 // The Pricing DB (docs/05 §7): every Run whatever started it, newest first, and one domain's figures when
 // that domain is active. The server pages it; the grid shows it and neither sorts nor filters it.
@@ -67,7 +68,7 @@ function HistoryGrid({ panelId, domain, columns, notify }: {
   readonly panelId: string;
   readonly domain: string | null;
   readonly columns: readonly Column[];
-  readonly notify: (message: string) => void;
+  readonly notify: Notify;
 }) {
   const workspace = useWorkspaceContext();
   const grid = useRef<ExGridApi<Row>>(null);
@@ -104,7 +105,7 @@ function HistoryGrid({ panelId, domain, columns, notify }: {
     void workspace.api.run(runId).then((run) => {
       const view = viewsFor(run.workflow, workspace.catalog.views)[0];
       workspace.store.getState().openPanel({ kind: 'run', title: run.workflow.title, runId, viewKey: view === undefined ? undefined : keyOf(view) });
-    }, (error: unknown) => notify(`Run ${runId} could not be opened: ${error instanceof Error ? error.message : String(error)}`));
+    }, (error: unknown) => notify('refused', `Run ${runId} could not be opened: ${error instanceof Error ? error.message : String(error)}`));
   }, [workspace, notify]);
 
   return (

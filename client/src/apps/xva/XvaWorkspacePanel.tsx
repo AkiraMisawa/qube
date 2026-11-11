@@ -19,7 +19,7 @@ import { BASE_CASE, BASE_SCENARIO, openTrace, requestTerm } from '../../platform
 import type { TraceApi } from '../../platform/traces/api';
 import type { RunRecord } from '../../platform/contracts';
 import { dockTabs, METRICS_TAB, type DockTab, type MeasureTab } from './dock';
-import { EditQueue, MEASURES_ENTITY, SETTINGS_ENTITY, tradeFields, type PendingEdit, type SetText } from './editing';
+import { EditQueue, MEASURES_ENTITY, SETTINGS_ENTITY, refusedEdit, sideSaid, tradeFields, type PendingEdit, type SetText } from './editing';
 import { ToolbarField } from './fields';
 import { CHANGES_TAB, CREDIT_TAB, SCENARIOS_TAB, SETTINGS_TAB, shownTab, TAB_TITLES, tabShown, XvaInputs, type InputTab } from './XvaInputs';
 import { XvaRisks } from './XvaRisks';
@@ -230,9 +230,18 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
       : edit.resolution === undefined
         ? api.edit(workspaceId, revision, edit.entity, edit.field, edit.value)
         : api.resolve(workspaceId, revision, edit.entity, edit.field, edit.resolution, edit.case),
-    (next) => { show(next); sources.changed(); },
+    (next, edit) => {
+      show(next);
+      sources.changed();
+      // B or A for a whole grid says what it did (ADR-0006's note 2 of 2026-11-11); a cell's own edit shows in its cell.
+      if (edit.resolution === undefined && edit.measures === undefined && typeof edit.value === 'boolean'
+        && (edit.field === 'before' || edit.field === 'after') && (edit.entity === 'grid:new' || edit.entity === 'grid:existing')) {
+        const grid = edit.entity === 'grid:new' ? 'new' : 'existing';
+        workspace.notify('done', sideSaid(edit.field, edit.value, grid, grid === 'new' ? next.newTrades : next.trades - next.newTrades));
+      }
+    },
     (edit, error) => {
-      workspace.notify(`${edit.entity} ${edit.field} was not changed: ${describe(error)}`);
+      workspace.notify('refused', refusedEdit(edit, describe(error)));
       void api.view(workspaceId).then((fresh) => { queue.rebase(fresh.revision); show(fresh); sources.changed(); });
     }), [api, workspaceId, show, sources, workspace]);
   // The queue follows the revision on screen: the one first read, and any read since that someone else moved
@@ -289,7 +298,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
    * widened over the tabs is put back. A measure's own tab opens while the measure is selected, and says so otherwise. */
   const openTab = (tab: InputTab) => {
     if (view.data !== undefined && !tabShown(view.data, tab)) {
-      workspace.notify(tab === SETTINGS_TAB
+      workspace.notify('refused', tab === SETTINGS_TAB
         ? 'The Settings tab shows only while a selected measure has a setting, and none does now.'
         : `The ${TAB_TITLES[tab]} tab shows only while a selected measure needs it, and none does now.`);
       return;
@@ -351,9 +360,9 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
       });
       show(next);
       sources.requery();
-      workspace.notify(`${label}: ${carried.carried} edit(s) carried, ${carried.conflicted} in conflict, ${carried.lost} lost.`);
+      workspace.notify('done', `${label}: ${carried.carried} edit(s) carried, ${carried.conflicted} in conflict, ${carried.lost} lost.`);
     } catch (error) {
-      workspace.notify(`${label} failed: ${describe(error)}`);
+      workspace.notify('refused', `${label} failed: ${describe(error)}`);
       const fresh = await api.view(workspaceId);
       queue.rebase(fresh.revision);
       show(fresh);
@@ -378,11 +387,12 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
       const key = crypto.randomUUID();
       const run = await queue.after((revision) => api.price(workspaceId, revision, key));
       setPriced(run.runId);
+      workspace.notify('done', `Price was accepted as Run ${run.runId}.`);
       void queryClient.invalidateQueries({ queryKey: ['xva', workspaceId] });
       void queryClient.invalidateQueries({ queryKey: ['history'] });
     } catch (error) {
       const targets = error instanceof ApiError && error.envelope.issues.length > 0 ? ` (${error.envelope.issues.map((i) => i.path).join(', ')})` : '';
-      workspace.notify(`Price was refused: ${describe(error)}${targets}`);
+      workspace.notify('refused', `Price was refused: ${describe(error)}${targets}`);
     } finally {
       setBusy(undefined);
     }
@@ -399,9 +409,9 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
       const { workspace: next, asked } = await api.retry(workspaceId, tradeId);
       show(next);
       sources.new.notifyChanged([]);
-      workspace.notify(asked === 0 ? 'No result had failed, so nothing was asked again.' : `Asked again for ${asked} result(s).`);
+      workspace.notify('done', asked === 0 ? 'No result had failed, so nothing was asked again.' : `Asked again for ${asked} result(s).`);
     } catch (error) {
-      workspace.notify(`Nothing was asked again: ${describe(error)}`);
+      workspace.notify('refused', `Nothing was asked again: ${describe(error)}`);
     }
   };
   // A trade grid's Context Menu: Ask again on a failed result, and Vary values… on a cell the user may type now
@@ -429,19 +439,19 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   /** Copy quote of the market in view (ADR-0010 §4): a scenario's quote names it, so a stressed figure is never the quote. */
   const copyQuote = async (scenario: string = scenarioInView) => {
     const runId = dockRun();
-    if (runId === undefined) { workspace.notify('Nothing is priced yet, so there is no quote to copy.'); return; }
+    if (runId === undefined) { workspace.notify('refused', 'Nothing is priced yet, so there is no quote to copy.'); return; }
     try {
       const quote = await api.quote(runId, scenario === BASE_SCENARIO ? undefined : scenario);
       await copyRich(quote.text, quote.html);
-      workspace.notify(quote.scenario === undefined || quote.scenario === null
+      workspace.notify('done', quote.scenario === undefined || quote.scenario === null
         ? `The quote of ${runId} is on the clipboard.` : `The quote of ${runId} under scenario ${quote.scenario} is on the clipboard.`);
     } catch (error) {
-      workspace.notify(`The quote was not copied: ${describe(error)}`);
+      workspace.notify('refused', `The quote was not copied: ${describe(error)}`);
     }
   };
   const download = () => {
     const runId = dockRun();
-    if (runId === undefined) { workspace.notify('Nothing is priced yet, so there is no Run to download.'); return; }
+    if (runId === undefined) { workspace.notify('refused', 'Nothing is priced yet, so there is no Run to download.'); return; }
     downloadRun(runId);
   };
 
@@ -455,7 +465,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   const openResult = (id: string) => {
     const tabs = resultTabs();
     const tab = tabs.find((t) => t.id === id.toLowerCase());
-    if (tab === undefined) { workspace.notify(`The dock's Run has no ${id} tab. Its tabs: ${tabs.map((t) => t.id).join(', ')}.`); return; }
+    if (tab === undefined) { workspace.notify('refused', `The dock's Run has no ${id} tab. Its tabs: ${tabs.map((t) => t.id).join(', ')}.`); return; }
     setResultTab(tab.id); setDockOpen(true); setSection('results');
     if (tab.view !== 'metrics') setDockFull(true);
   };
@@ -474,11 +484,11 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
    */
   const explain = (measure: string, path?: string, caseId: string = traceCase, scenario: string = scenarioInView) => {
     const runId = dockRun();
-    if (runId === undefined) { workspace.notify('Nothing is priced yet, so there is no trace to explain.'); return; }
+    if (runId === undefined) { workspace.notify('refused', 'Nothing is priced yet, so there is no trace to explain.'); return; }
     const registered = measureNamed(measure, view.data?.measures ?? []);
     const traced = (view.data?.measures ?? []).filter((m) => m.traced).map((m) => m.id);
-    if (registered === undefined) { workspace.notify(`${measure} is not a measure of this page. The measures that keep a trace: ${traced.join(', ') || 'none'}.`); return; }
-    if (!registered.traced) { workspace.notify(`${registered.title} keeps no trace to explain. The measures that do: ${traced.join(', ') || 'none'}.`); return; }
+    if (registered === undefined) { workspace.notify('refused', `${measure} is not a measure of this page. The measures that keep a trace: ${traced.join(', ') || 'none'}.`); return; }
+    if (!registered.traced) { workspace.notify('refused', `${registered.title} keeps no trace to explain. The measures that do: ${traced.join(', ') || 'none'}.`); return; }
     const own = resultTabs().find((t): t is MeasureTab => t.view === 'trace' && t.measure === registered.id);
     if (own !== undefined) {
       setResultTab(own.id); setTraceCase(caseId); setScenarioInView(scenario); setDockOpen(true); setDockFull(true); setSection('results');
@@ -517,22 +527,22 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
       return undefined;
     } catch (error) {
       const reason = describe(error);
-      workspace.notify(`${label}: ${reason}`);
+      workspace.notify('refused', `${label}: ${reason}`);
       return reason;
     }
   };
   const apply = async (label: string, run: (revision: number) => Promise<XvaWorkspaceView>) => (await attempt(label, run)) === undefined;
   /** Removes a case by its title or id; the tab names it by its id, which no other case has. */
   const removeCase = async (name: string, title: string = name) => {
-    if (await apply(`${title} was not removed`, (revision) => api.removeCase(workspaceId, revision, name))) workspace.notify(`Removed the case ${title}.`);
+    if (await apply(`${title} was not removed`, (revision) => api.removeCase(workspaceId, revision, name))) workspace.notify('done', `Removed the case ${title}.`);
   };
   /** `set` (ADR-0010 §9): a typed cell's edit on each row named, in the Base, so the grids are read again. */
   const set = async (rows: readonly string[], column: string, text: string) => {
     if (await apply('set changed nothing', (revision) => api.set(workspaceId, revision, rows, column, text)))
-      workspace.notify(rows.length === 1 ? `Set ${rows[0]} ${column} to ${text}.` : `Set ${column} to ${text} on ${rows.join(', ')}.`);
+      workspace.notify('done', rows.length === 1 ? `Set ${rows[0]} ${column} to ${text}.` : `Set ${column} to ${text} on ${rows.join(', ')}.`);
   };
   const clearCases = async () => {
-    if (await apply('No case was removed', (revision) => api.clearCases(workspaceId, revision))) workspace.notify('Removed every case.');
+    if (await apply('No case was removed', (revision) => api.clearCases(workspaceId, revision))) workspace.notify('done', 'Removed every case.');
   };
   /** A value as written (a spread with its unit, a setting), read and checked by the server as its cell reads it, in the
    * Base; refused, the page says why and the answer is the reason. */
@@ -547,7 +557,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
       said.push(answer.said);
       return answer.workspace;
     });
-    if (chosen) workspace.notify(said.join(' '));
+    if (chosen) workspace.notify('done', said.join(' '));
   };
   const changeActions: ChangeActions = {
     set: (change, text) => void apply(`${change.title} was not changed`, (revision) =>
@@ -573,9 +583,9 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   /** `vary` from the command line: the page says what was made and what was skipped, and why. */
   const vary = async (cell: VaryCell, values: readonly string[]) => {
     try {
-      workspace.notify(variedText(await varyCell(cell, values)));
+      workspace.notify('done', variedText(await varyCell(cell, values)));
     } catch (error) {
-      workspace.notify(`vary made no case: ${describe(error)}`);
+      workspace.notify('refused', `vary made no case: ${describe(error)}`);
     }
   };
   /**
@@ -590,9 +600,9 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
         return added;
       });
       show(answer.workspace);
-      workspace.notify(addedText(answer));
+      workspace.notify('done', addedText(answer));
     } catch (error) {
-      workspace.notify(`add trades made no case: ${describe(error)}`);
+      workspace.notify('refused', `add trades made no case: ${describe(error)}`);
     }
   };
   /**
@@ -601,9 +611,9 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
    */
   const defineScenario = async (name: string, shifts: string) => {
     try {
-      workspace.notify(scenariosText(await scenariosMade((revision) => api.defineScenario(workspaceId, revision, name, shifts))));
+      workspace.notify('done', scenariosText(await scenariosMade((revision) => api.defineScenario(workspaceId, revision, name, shifts))));
     } catch (error) {
-      workspace.notify(`scenario made nothing: ${describe(error)}`);
+      workspace.notify('refused', `scenario made nothing: ${describe(error)}`);
     }
   };
   /**
@@ -630,41 +640,41 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   const includeScenario = async (name: string, included: boolean) => {
     try {
       await scenarioCommand((revision) => api.includeScenario(workspaceId, revision, name, included));
-      workspace.notify(includedText(name, included));
+      workspace.notify('done', includedText(name, included));
     } catch (error) {
-      workspace.notify(`${name} was not ${included ? 'included' : 'excluded'}: ${describe(error)}`);
+      workspace.notify('refused', `${name} was not ${included ? 'included' : 'excluded'}: ${describe(error)}`);
     }
   };
   const removeScenario = async (name: string) => {
     try {
       await scenarioCommand((revision) => api.removeScenario(workspaceId, revision, name));
-      workspace.notify(`Removed the scenario ${name}.`);
+      workspace.notify('done', `Removed the scenario ${name}.`);
     } catch (error) {
-      workspace.notify(`${name} was not removed: ${describe(error)}`);
+      workspace.notify('refused', `${name} was not removed: ${describe(error)}`);
     }
   };
   /** Duplicate: the dialog stays open with the server's reason when it is refused, so this throws. */
   const duplicateScenario = async (name: string, copy: string) => {
     const made = await scenariosMade((revision) => api.duplicateScenario(workspaceId, revision, name, copy));
-    workspace.notify(`Duplicated ${name} as ${made.made.join(', ')}.`);
+    workspace.notify('done', `Duplicated ${name} as ${made.made.join(', ')}.`);
   };
   const duplicate = async (name: string, copy: string) => {
-    try { await duplicateScenario(name, copy); } catch (error) { workspace.notify(`${name} was not duplicated: ${describe(error)}`); }
+    try { await duplicateScenario(name, copy); } catch (error) { workspace.notify('refused', `${name} was not duplicated: ${describe(error)}`); }
   };
   /** `scenario ladder …`, `scenario cross …`: the page says how many it made and which of the same name it replaced. */
   const generateScenarios = async (generator: 'ladder' | 'cross', text: string) => {
     try {
-      workspace.notify(generatedText(await scenariosMade((revision) => api.generateScenarios(workspaceId, revision, generator, text))));
+      workspace.notify('done', generatedText(await scenariosMade((revision) => api.generateScenarios(workspaceId, revision, generator, text))));
     } catch (error) {
-      workspace.notify(`scenario ${generator} made nothing: ${describe(error)}`);
+      workspace.notify('refused', `scenario ${generator} made nothing: ${describe(error)}`);
     }
   };
   const clearScenarios = async () => {
     try {
       await scenarioCommand((revision) => api.clearScenarios(workspaceId, revision));
-      workspace.notify('Removed every scenario; Price prices the base market alone.');
+      workspace.notify('done', 'Removed every scenario; Price prices the base market alone.');
     } catch (error) {
-      workspace.notify(`No scenario was removed: ${describe(error)}`);
+      workspace.notify('refused', `No scenario was removed: ${describe(error)}`);
     }
   };
   // The saved sets the user can see (ADR-0010 §4, C32), for `scenario load` to offer; read again after a save.
@@ -673,18 +683,18 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   const saveScenarios = async (set: string, share?: 'desk' | 'all') => {
     try {
       const saved: SetSaved = await queue.after((revision) => api.saveScenarios(workspaceId, revision, set, share));
-      workspace.notify(savedText(saved));
+      workspace.notify('done', savedText(saved));
       await queryClient.invalidateQueries({ queryKey: ['xva', 'scenario-sets'] });
     } catch (error) {
-      workspace.notify(`scenario save saved nothing: ${describe(error)}`);
+      workspace.notify('refused', `scenario save saved nothing: ${describe(error)}`);
     }
   };
   /** `scenario load <set>`: the page says which scenarios it added and which of the same name it replaced. */
   const loadScenarios = async (set: string) => {
     try {
-      workspace.notify(loadedText(set, await scenariosMade((revision) => api.loadScenarios(workspaceId, revision, set))));
+      workspace.notify('done', loadedText(set, await scenariosMade((revision) => api.loadScenarios(workspaceId, revision, set))));
     } catch (error) {
-      workspace.notify(`scenario load loaded nothing: ${describe(error)}`);
+      workspace.notify('refused', `scenario load loaded nothing: ${describe(error)}`);
     }
   };
   const scenarioActions: ScenarioActions = {
@@ -693,7 +703,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
     duplicate: duplicateScenario,
     remove: (name) => void removeScenario(name),
     clear: () => void clearScenarios(),
-    notify: (message) => workspace.notify(message),
+    notify: workspace.notify,
   };
   // *Vary values…* (ADR-0010 §3): the cell whose Context Menu opened the dialog, while it is open.
   const [varying, setVarying] = useState<VaryTarget | undefined>(undefined);

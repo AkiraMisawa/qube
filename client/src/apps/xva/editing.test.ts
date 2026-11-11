@@ -1,6 +1,6 @@
 import { ApiError } from '../../platform/api';
 import type { XvaWorkspaceView } from './contracts';
-import { EditQueue, csaFields, parseNumber, parseRecovery, tradeFields, type PendingEdit } from './editing';
+import { EditQueue, csaFields, parseNumber, parseRecovery, refusedEdit, sideSaid, tradeFields, type PendingEdit } from './editing';
 
 const view = (revision: number) => ({ revision }) as unknown as XvaWorkspaceView;
 
@@ -40,6 +40,30 @@ describe('what a CSA term accepts (ADR-0010 §8)', () => {
 
   it('has no field for the type, which is the source\'s', () => {
     expect(csaFields.type).toBeUndefined();
+  });
+});
+
+describe('how a refused edit is said (ADR-0006 note 2 of 2026-11-11)', () => {
+  it('names the row and the column in words, never an entity\'s key', () => {
+    expect(refusedEdit({ entity: 'trade:ABC-LE-01-E00006', field: 'fixedRate' }, 'Type a rate.')).toBe('ABC-LE-01-E00006 fixed rate was not changed: Type a rate.');
+    expect(refusedEdit({ entity: 'csa:CSA-A', field: 'counterpartyThreshold' }, 'No.')).toBe('CSA-A counterparty threshold was not changed: No.');
+    // A module's column is named without its module (ADR-0010 §10).
+    expect(refusedEdit({ entity: 'trade:DRAFT-1', field: 'xva.margin' }, 'No.')).toBe('DRAFT-1 margin was not changed: No.');
+  });
+
+  it('names the measures, the display currency and a grid\'s side as the page does', () => {
+    expect(refusedEdit({ entity: 'selection:measures', field: 'measures' }, 'Choose one.')).toBe('The measures were not changed: Choose one.');
+    expect(refusedEdit({ entity: 'settings:workspace', field: 'displayCurrency' }, 'XYZ is not offered.')).toBe('The display currency was not changed: XYZ is not offered.');
+    expect(refusedEdit({ entity: 'grid:existing', field: 'before' }, 'No.')).toBe('Before was not changed on the existing trades: No.');
+    expect(refusedEdit({ entity: 'grid:new', field: 'after' }, 'No.')).toBe('After was not changed on the new trades: No.');
+  });
+});
+
+describe('what `before` and `after` say back (ADR-0006 note 2 of 2026-11-11)', () => {
+  it('says the side, what was done to it and on how many trades of which grid', () => {
+    expect(sideSaid('before', false, 'existing', 215)).toBe('Cleared Before on 215 existing trades.');
+    expect(sideSaid('after', true, 'new', 3)).toBe('Ticked After on 3 new trades.');
+    expect(sideSaid('after', false, 'new', 1)).toBe('Cleared After on 1 new trade.');
   });
 });
 

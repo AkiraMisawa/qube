@@ -86,7 +86,7 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
     },
     (next) => { show(next); void queryClient.invalidateQueries({ queryKey: ['rates', workspaceId, 'cashflows'] }); },
     (edit, error) => {
-      workspace.notify(edit.kind === 'new'
+      workspace.notify('refused', edit.kind === 'new'
         ? `The line was not created: ${describe(error)}`
         : edit.kind === 'defaults' ? `The defaults were not set: ${describe(error)}`
         : `${edit.kind === 'line' || edit.kind === 'cashflow' ? `${edit.line} ${edit.field}` : edit.kind} was not changed: ${describe(error)}`);
@@ -192,7 +192,7 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
 
   const price = async () => {
     const snapshot = market.data?.snapshotId;
-    if (snapshot === undefined) { workspace.notify('No market snapshot has been published yet; Price waits for one.'); return; }
+    if (snapshot === undefined) { workspace.notify('refused', 'No market snapshot has been published yet; Price waits for one.'); return; }
     setBusy('Pricing');
     try {
       // Price prices the edits already sent, once they have landed (spine 6).
@@ -200,20 +200,20 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
       const run = await queue.after((revision) => api.price(workspaceId, revision, key, snapshot));
       openRun(run.runId, `Rates ${snapshot.split(':').at(-1) ?? ''}`);
     } catch (error) {
-      workspace.notify(`Price was refused: ${describe(error)}${targetsOf(error)}`);
+      workspace.notify('refused', `Price was refused: ${describe(error)}${targetsOf(error)}`);
     } finally {
       setBusy(undefined);
     }
   };
 
   const capture = async () => {
-    if (subscription === undefined || frame === undefined) { workspace.notify('Capture needs a live frame on screen.'); return; }
+    if (subscription === undefined || frame === undefined) { workspace.notify('refused', 'Capture needs a live frame on screen.'); return; }
     setBusy('Capturing');
     try {
       const run = await api.capture(subscription, frame, crypto.randomUUID());
       openRun(run.runId, `Capture ${frame.market.snapshotId.split(':').at(-1) ?? ''}`);
     } catch (error) {
-      workspace.notify(`Capture was refused: ${describe(error)}`);
+      workspace.notify('refused', `Capture was refused: ${describe(error)}`);
     } finally {
       setBusy(undefined);
     }
@@ -235,9 +235,9 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
         return answer;
       });
       show(next);
-      workspace.notify(`Valuation date moved: ${carried.carried} cashflow edit(s) carried, ${carried.conflicted} in conflict, ${carried.lost} lost.`);
+      workspace.notify('done', `Valuation date moved: ${carried.carried} cashflow edit(s) carried, ${carried.conflicted} in conflict, ${carried.lost} lost.`);
     } catch (error) {
-      workspace.notify(`The valuation date was not moved: ${describe(error)}`);
+      workspace.notify('refused', `The valuation date was not moved: ${describe(error)}`);
     } finally {
       setBusy(undefined);
     }
@@ -251,11 +251,11 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
     registerRatesCommands(panelId, {
       price: () => void commands.current.price(),
       startLive: () => {
-        if (commands.current.live) workspace.notify('Live is running already.');
+        if (commands.current.live) workspace.notify('done', 'Live is running already.');
         else void commands.current.startLive();
       },
       stopLive: () => {
-        if (!commands.current.live) workspace.notify('Live is not running.');
+        if (!commands.current.live) workspace.notify('done', 'Live is not running.');
         else void commands.current.stopLive();
       },
       capture: () => void commands.current.capture(),
@@ -263,7 +263,7 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
       newLine: (product, terms) => void commands.current.queue.push({ kind: 'new', product, terms }),
       setDefaults: (defaults) => {
         const shown = queryClient.getQueryData<RatesWorkspaceView>(['rates', workspaceId])?.defaults;
-        if (shown === undefined) { workspace.notify('The workspace has not loaded; its defaults were not set.'); return; }
+        if (shown === undefined) { workspace.notify('refused', 'The workspace has not loaded; its defaults were not set.'); return; }
         void commands.current.queue.push({ kind: 'defaults', defaults: { ...shown, ...defaults } });
       },
       products: () => commands.current.products,

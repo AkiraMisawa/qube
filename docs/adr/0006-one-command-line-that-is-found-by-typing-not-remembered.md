@@ -66,11 +66,11 @@ the owner asked for the fixes of that review that need no decision, and this is 
    kind and nothing reads it from the text. Done is teal with a tick, a `status`, and leaves by itself after six
    seconds, unless the pointer is on it or the keyboard is in it. Refused is red with a cross, an `alert`, and stays
    until it is closed or another notice replaces it. A notice is drawn over the top of the main area and takes no
-   room, so a one-screen page does not move under it (docs/design-guidelines.md §6). Running a command from the line
-   removes the notice in view, so a command that says nothing never leaves another command's result standing. A
-   command that edits says what it did (`before none` says how many trades it cleared). A sentence names a row and a
-   column by their titles, never by an entity's key (`selection:measures`). Only a refused notice goes to the
-   server's log (ADR-0014 §4): what a done one says, the server did and logged.
+   room, so a one-screen page does not move under it (docs/design-guidelines.md §6). So a result does not outstay
+   its command by more than those seconds, and a reason is never lost to the next command. A command that edits says
+   what it did (`before none` says how many trades it cleared). A sentence names a row and a column by their titles,
+   never by an entity's key (`selection:measures`). Only a refused notice goes to the server's log (ADR-0014 §4):
+   what a done one says, the server did and logged.
 3. **The empty line and `?` list the page's commands first** (extends 5 and the last consequence). The commands that
    act on the page in the active panel come first, under the panel's title. Then come the other commands that can
    run, under a heading per group, the applications' groups before the shell's. On the empty line, those that cannot

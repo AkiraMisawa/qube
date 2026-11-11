@@ -114,6 +114,26 @@ export const SETTINGS_ENTITY = 'settings:workspace';
 export const MEASURES_ENTITY = 'selection:measures';
 
 /**
+ * What the page says when the server refuses an edit (ADR-0006's note 2 of 2026-11-11): the row and the column in
+ * words, as the screen names them, then the server's reason. An entity's key (`selection:measures`) is never shown.
+ */
+export function refusedEdit(edit: { readonly entity: string; readonly field: string }, reason: string): string {
+  if (edit.entity === MEASURES_ENTITY) return `The measures were not changed: ${reason}`;
+  if (edit.entity === SETTINGS_ENTITY && edit.field === 'displayCurrency') return `The display currency was not changed: ${reason}`;
+  const cut = edit.entity.indexOf(':');
+  const [kind, id] = [edit.entity.slice(0, cut), edit.entity.slice(cut + 1)];
+  // A module's column is `module.field` (ADR-0010 §10); a field is camel case, and read as its words.
+  const column = edit.field.slice(edit.field.indexOf('.') + 1).replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase();
+  if (kind === 'grid') return `${column.charAt(0).toUpperCase()}${column.slice(1)} was not changed on the ${id} trades: ${reason}`;
+  return `${id} ${column} was not changed: ${reason}`;
+}
+
+/** What `before` and `after` say once the edit is taken (ADR-0006's note 2 of 2026-11-11): what was done, and on how many trades. */
+export function sideSaid(side: 'before' | 'after', value: boolean, grid: 'new' | 'existing', trades: number): string {
+  return `${value ? 'Ticked' : 'Cleared'} ${side === 'before' ? 'Before' : 'After'} on ${trades} ${grid} trade${trades === 1 ? '' : 's'}.`;
+}
+
+/**
  * A change to send: a value set on a field, a held edit resolved, or the measures Price prices. They share one queue,
  * so each is sent against the revision the one before it made.
  */

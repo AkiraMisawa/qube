@@ -69,12 +69,13 @@ Four changes in the client, with no change to what a command does:
 - **Where a notice is drawn.** A zero-height strip at the top of the main area, sticky under the header, holding one
   Mantine `Notification`: teal with a tick and `role="status"` for done, red with a cross and `role="alert"` for
   refused, `data-testid="notice"` and `data-kind`. A done one is removed six seconds after it is shown, the wait
-  held while the pointer is over it or the focus is in it. A later notice replaces an earlier one. The line removes
-  the notice in view when it runs a command.
-- **Sentences.** `setSide` says `Ticked Before on 215 existing trades.` or `Cleared After on 3 new trades.`; Price
-  says the Run it was accepted as (`Price was accepted as Run <id>.`), on the XVA page and on Rates; `measures` says
-  the measures Price now prices; `currency` says the currency the figures are in. A refused edit is named by `editTitle` (`client/src/apps/xva/editing.ts`): a trade's id and its column's
-  header, `the measures`, `the display currency`, `Before on the existing trades`.
+  held while the pointer is over it or the focus is in it. A later notice replaces an earlier one.
+- **Sentences.** `before` and `after` say `Cleared Before on 2 existing trades.` or `Ticked After on 3 new trades.`
+  once the edit is taken, from the command or from the caption's buttons, which run the same function (`sideSaid`,
+  `client/src/apps/xva/editing.ts`). Price on the XVA page says the Run it was accepted as (`Price was accepted as
+  Run <id>.`); on Rates the Run's panel opens, which says it. `measures` and `currency` say nothing more: the
+  toolbar's controls show what they set. A refused edit is said by `refusedEdit` (same file): a trade's id and its
+  column in words, `The measures`, `The display currency`, `Before … on the existing trades`.
 - **Flags.** `parseBoolean` reads `on`, `off`, `yes`, `no`, `true`, `false`, `y`, `n` in any case, the list the
   server's `PortfolioCells.Read` has; a cell's refusal says `Type on or off.` Rates' flags read through it too.
 - **Hints.** The XVA page offers `examples()`: its first CSA's id and the first trade id each grid has read. The
@@ -99,8 +100,8 @@ Playwright. A test names the ADR it holds.
 - `commands.test.ts`: `execute` answers a thrown reason and runs nothing further; `listed` puts the page's commands
   first, groups the rest, keeps the unavailable last on the empty line and out of `?`, and orders by use under a
   heading; the placeholder's words.
-- `editing.test.ts`: every spelling of a flag, and a word that is none; `editTitle` for a trade's cell, the measures,
-  the display currency and a grid's side.
+- `editing.test.ts`: every spelling of a flag, and a word that is none; `refusedEdit` for a trade's cell, the
+  measures, the display currency and a grid's side; `sideSaid`.
 - `xva.spec.ts`: a line that cannot be read stays open with its text and its reason, and runs once corrected; a done
   notice is teal, does not move the page's toolbar, and leaves by itself; a refused one is red and stays; `before
   none` says its count; `off` typed in an A cell clears it; `?` on the XVA page lists `new rates` and `open pricing

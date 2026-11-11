@@ -347,11 +347,14 @@ test('ADR-0010 §3, §6: `before none` clears Before on every existing trade at 
   await expect(page.getByTestId('price')).toHaveText('Price CVA FVA · 1 case');
 
   await command(page, 'before', 'none grid=existing');
+  // ADR-0006 note 2 (2026-11-11): a command that edits says what it did. Two of the five synthetic trades are alive.
+  await expect(page.getByTestId('notice')).toHaveText('Cleared Before on 2 existing trades.');
   await expect(page.getByTestId('price')).toHaveText('Price After only · CVA FVA · 1 case');
   // One edit for the whole grid, whatever its size.
   await expect(page.getByTestId('workspace-summary')).toContainText('1 edit(s)');
 
   await command(page, 'price');
+  await expect(page.getByTestId('notice')).toHaveText(/^Price was accepted as Run \S+\.$/);
   const result = page.getByTestId('xva-result');
   await expect(result.getByTestId('xva-result-status')).toHaveText('succeeded');
   await expect(result.getByTestId('xva-result-note')).toHaveText('After only: Before was not priced');
@@ -441,6 +444,44 @@ test('ADR-0006 note 1 (2026-11-11): a line that cannot be read stays open with i
     await page.keyboard.press('Escape');
     await expect(line).toBeHidden();
   }
+});
+
+test('ADR-0006 note 2 (2026-11-11): a result is teal, takes no room and leaves by itself; a refusal is red and stays until closed', async ({ page, problems }) => {
+  // The page's clock is the test's: "after six seconds" and "still there a minute later" are read, not waited for.
+  await page.clock.install();
+  await open(page);
+  await newWorkspace(page, 'ABC/LE-01', 5);
+  const notice = page.getByTestId('notice');
+  const toolbar = page.getByRole('toolbar', { name: 'Workspace' });
+  const at = await toolbar.boundingBox();
+
+  await command(page, 'set', 'CSA-A threshold 5mm');
+  await expect(notice).toHaveText('Set CSA-A threshold to 5mm.');
+  await expect(notice).toHaveAttribute('data-kind', 'done');
+  await expect(notice).toHaveRole('status');
+  // Drawn over the page: nothing under it moved.
+  expect(await toolbar.boundingBox()).toEqual(at);
+  expect(await notice.evaluate(textBelowContrast, 4.5), 'done: text below 4.5:1').toEqual([]);
+  await page.clock.runFor(6000);
+  await expect(notice).toBeHidden();
+
+  await command(page, 'set', 'CSA-A threshold -1mm');
+  await expect(notice).toHaveText('set changed nothing: CSA-A threshold is an amount of 0 or more; -1mm is not.');
+  await expect(notice).toHaveAttribute('data-kind', 'refused');
+  await expect(notice).toHaveRole('alert');
+  expect(await toolbar.boundingBox()).toEqual(at);
+  expect(await notice.evaluate(textBelowContrast, 4.5), 'refused: text below 4.5:1').toEqual([]);
+  await page.clock.runFor(60_000);
+  await expect(notice).toBeVisible();
+  await notice.getByRole('button', { name: 'Close the notice' }).click();
+  await expect(notice).toBeHidden();
+  expect(problems.splice(0)).toEqual(['error: Failed to load resource: the server responded with a status of 422 (Unprocessable Entity)']);
+
+  // A refused edit is named in words, never by its entity's key (it read `selection:measures measures`).
+  await command(page, 'measures', 'nope');
+  await expect(notice).toHaveText(/^The measures were not changed: /);
+  await expect(notice).toHaveAttribute('data-kind', 'refused');
+  expect(problems.splice(0)).toHaveLength(1);
 });
 
 test('ADR-0010 §9: `set` makes a typed cell\'s edit on each row named, and is refused with the grid\'s reason', async ({ page, problems }) => {

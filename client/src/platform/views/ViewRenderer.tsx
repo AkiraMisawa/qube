@@ -76,11 +76,11 @@ function GridComponent({ panelId, grid, component, dataset, registerFocus }: {
   const onAction = useCallback((action: ViewAction, row: Readonly<Record<string, unknown>>) => {
     const bound = actionParameters(action, row);
     if (!bound.ok) {
-      workspace.notify(`${action.label} is not available for this row: it has no ${bound.missing.join(', ')}.`);
+      workspace.notify('refused', `${action.label} is not available for this row: it has no ${bound.missing.join(', ')}.`);
       return;
     }
     if (prepared === undefined) {
-      workspace.notify('The context is not valid; fix it before running an action.');
+      workspace.notify('refused', 'The context is not valid; fix it before running an action.');
       return;
     }
     void invokeAction(workspace, action, bound.parameters, prepared);

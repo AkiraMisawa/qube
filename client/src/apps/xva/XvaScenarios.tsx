@@ -6,6 +6,7 @@ import { QubeGrid } from '../../platform/grid/QubeGrid';
 import type { ScenarioView, ShiftEdit, ShiftRow } from './contracts';
 import { clearedEdits, pastedEdits, shiftGridRows, type ShiftColumn, type ShiftGridRow } from './scenarios';
 import { useColumnWidths } from '../../platform/grid/columnWidths';
+import type { Notify } from '../../platform/notices';
 
 // The Scenarios input tab (ADR-0010 §4 and its note of 2026-11-09): every shift in one grid, rows sharing a name being
 // one scenario, typed or pasted many rows at a time onto the blank rows it ends in; beside it the scenarios with their
@@ -21,7 +22,7 @@ export interface ScenarioActions {
   /** Removes every scenario, as `scenarios clear` does. */
   readonly clear: () => void;
   /** Says why a paste or a clear wrote nothing, where the grid's own refusal says only that it did not. */
-  readonly notify: (message: string) => void;
+  readonly notify: Notify;
 }
 
 // A field the server left out is a Blank cell, as the grid takes `undefined`.
@@ -96,21 +97,21 @@ export function XvaScenarios({ panelId, shifts, scenarios, actions, height, grid
   };
   const onPaste = useCallback(async (intent: GridPasteIntent) => {
     const drawn = positioned(intent.rowSequenceVersion);
-    if (drawn === undefined) { intent.refuse(); actionsNow.current.notify('The grid moved under the paste, so nothing was pasted. Paste again.'); return; }
+    if (drawn === undefined) { intent.refuse(); actionsNow.current.notify('refused', 'The grid moved under the paste, so nothing was pasted. Paste again.'); return; }
     const edits = pastedEdits(drawn, intent.plan.targets, (cell) => intent.valueFor(cell));
     if (edits.length === 0) return;
     try {
       await actionsNow.current.edit(edits);
     } catch (error) {
       intent.refuse();
-      actionsNow.current.notify(`Nothing was pasted: ${describe(error)}`);
+      actionsNow.current.notify('refused', `Nothing was pasted: ${describe(error)}`);
     }
   }, [source]);
   const onClear = useCallback((intent: GridClearIntent) => {
     const drawn = positioned(intent.rowSequenceVersion);
-    if (drawn === undefined) { actionsNow.current.notify('The grid moved under Delete, so nothing was cleared. Select the cells again.'); return; }
+    if (drawn === undefined) { actionsNow.current.notify('refused', 'The grid moved under Delete, so nothing was cleared. Select the cells again.'); return; }
     const edits = clearedEdits(drawn, intent.targets);
-    if (edits.length > 0) actionsNow.current.edit(edits).catch((error: unknown) => actionsNow.current.notify(`Nothing was cleared: ${describe(error)}`));
+    if (edits.length > 0) actionsNow.current.edit(edits).catch((error: unknown) => actionsNow.current.notify('refused', `Nothing was cleared: ${describe(error)}`));
   }, [source]);
 
   const [duplicating, setDuplicating] = useState<string | undefined>(undefined);
