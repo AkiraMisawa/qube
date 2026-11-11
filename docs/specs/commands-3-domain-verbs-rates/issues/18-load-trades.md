@@ -8,8 +8,12 @@ terms.
 
 **Blocked by:** 16.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Either `load trades` brings a trade into the New grid and `remove` takes it out, or the ADR says why it waits.
+- [x] Either `load trades` brings a trade into the New grid and `remove` takes it out, or the ADR says why it waits.
 
 ## Comments
+
+- *As built:* it waits, and ADR-0016 note 37 says why. The pricer makes no trade: its New rows are the source's
+  own, and a trade brought in by id needs a trade the workspace holds with its terms, which is step 5's. Nothing is
+  built here and the name stays reserved.

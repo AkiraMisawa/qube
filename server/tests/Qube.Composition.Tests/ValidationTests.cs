@@ -119,6 +119,51 @@ public class ValidationTests
         Assert.Contains("UnknownCapability", error.Message);
     }
 
+    static ContractDefinition Listed(string id, string items) => new(id, "1.0.0", "Listed", JsonNode.Parse($$"""
+        { "type": "object", "properties": { "names": { "type": "array", "title": "Names", "items": {{items}} } }, "additionalProperties": false }
+        """)!.AsObject());
+
+    sealed class Contracts(params ContractDefinition[] contracts) : IQubeModule
+    {
+        public void Register(CompositionRegistryBuilder builder)
+        {
+            foreach (var contract in contracts) builder.AddContract(contract);
+        }
+    }
+
+    [Fact] // ADR-0016 note 37: a contract may hold a list of values, or of records whose fields are values or lists of values, and nothing deeper
+    public void A_contract_holds_a_list_of_values_or_of_flat_records_and_nothing_deeper()
+    {
+        const string Text = """{ "type": "string", "minLength": 1 }""";
+        string Refused(string items) => Assert.Throws<InvalidOperationException>(() => new CompositionRegistry([new Contracts(Listed("test.listed", items))])).Message;
+
+        _ = new CompositionRegistry([new Contracts(Listed("test.values", Text),
+            Listed("test.records", $$"""{ "type": "object", "properties": { "ids": { "type": "array", "items": {{Text}} }, "note": {{Text}} }, "required": ["ids"], "additionalProperties": false }"""))]);
+
+        Assert.Contains("test.listed.names: a list holds values or records, not lists.", Refused($$"""{ "type": "array", "items": {{Text}} }"""));
+        Assert.Contains("test.listed.names[].inner: a list in a record holds values.",
+            Refused($$"""{ "type": "object", "properties": { "inner": { "type": "array", "items": { "type": "object", "properties": {}, "additionalProperties": false } } }, "additionalProperties": false }"""));
+        Assert.Contains("test.listed.names[]: a record refuses additional properties.", Refused("""{ "type": "object", "properties": {} }"""));
+        Assert.Contains("test.listed.names[]: keyword 'pattern' is not supported.", Refused("""{ "type": "string", "pattern": "x" }"""));
+    }
+
+    [Fact] // ADR-0016 note 37: a form draws one control for one value, so a workflow whose input contract holds a list is refused at registration
+    public void A_workflow_whose_input_contract_holds_a_list_is_refused()
+    {
+        var error = Assert.Throws<InvalidOperationException>(() => new CompositionRegistry([new Samples.Synthetic.SyntheticModule(),
+            new Contracts(Listed("sample.listed-input", """{ "type": "string" }""")), new ListedInput()]));
+
+        Assert.Contains("ListInForm", error.Message);
+        Assert.Contains("Input contract sample.listed-input@1.0.0 holds a list (names), and a workflow's input is filled in a form, which draws none.", error.Message);
+    }
+
+    sealed class ListedInput : IQubeModule
+    {
+        public void Register(CompositionRegistryBuilder builder) => builder.AddWorkflow(Harness.Parse<WorkflowDefinition>(
+            JsonSerializer.Serialize(new Harness().Workflow("workflow.sample.station-summary"), WireJson.Options)
+                .Replace("workflow.sample.station-summary", "workflow.test.listed").Replace("sample.station-summary-input", "sample.listed-input")));
+    }
+
     sealed class BrokenModule : IQubeModule
     {
         public void Register(CompositionRegistryBuilder builder) => builder.AddWorkflow(Harness.Parse<WorkflowDefinition>("""

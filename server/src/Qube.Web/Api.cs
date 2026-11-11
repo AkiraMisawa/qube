@@ -33,6 +33,9 @@ public static class Api
     /// <param name="View">What the screen behind the line showed as it opened (ADR-0016 §9, note 16 of step 2); none where no screen is.</param>
     public sealed record PreviewRequest(string Line, string WorkspaceId, long? Revision = null, LineView? View = null);
 
+    /// <summary>A grid's view, whose selection's rows are asked for (ADR-0016 note 37 of step 3).</summary>
+    public sealed record SelectionRequest(LineView View);
+
     public sealed record ViewValidationRequest(ViewDefinition View, IReadOnlyList<string> BoundNames);
 
     public sealed record HistoryRequest(string? Domain, int Start, int Count);
@@ -127,10 +130,22 @@ public static class Api
             }
             catch (WorkspaceRefused refused)
             {
-                // A view that names what the workspace has not is the page's own fault: a bad request, never a reading.
-                var status = refused.Code == "InvalidView" ? 400
-                    : DoorStatus(refused.Code) ?? throw new InvalidOperationException($"No status is set for the preview's refusal {refused.Code}.");
-                return Results.Json(new ErrorEnvelope(refused.Code, refused.Message, [], Retryable: status == 409), statusCode: status);
+                return ViewRefused(refused, "the preview");
+            }
+        });
+
+        // The rows a view's selection names (ADR-0016 note 37 of step 3): what a page reads to make a command's typed
+        // value from a grid the server pages. A view of an order that has moved is a conflict, to be read again; one that
+        // names what the workspace has not is the page's own fault.
+        api.MapPost("/workspaces/{workspaceId}/selection", (string workspaceId, SelectionRequest request, CommandLines lines, CurrentUser user) =>
+        {
+            try
+            {
+                return Results.Ok(lines.Selection(workspaceId, new Caller(user.Id, RunOrigin.Pricer), request.View));
+            }
+            catch (WorkspaceRefused refused)
+            {
+                return ViewRefused(refused, "the selection");
             }
         });
 
@@ -220,6 +235,20 @@ public static class Api
         "RevisionMoved" => 409,
         _ => null,
     };
+
+    // A reading asked with a view, refused (the preview, a view's selection). A view that names what the workspace has
+    // not is the page's own fault: a bad request, never a reading. One whose order has moved since its rows were read
+    // is a conflict, to be read again. Else the workspace is refused as the door refuses it.
+    static IResult ViewRefused(WorkspaceRefused refused, string reading)
+    {
+        var status = refused.Code switch
+        {
+            "InvalidView" => 400,
+            "ViewMoved" => 409,
+            _ => DoorStatus(refused.Code) ?? throw new InvalidOperationException($"No status is set for {reading}'s refusal {refused.Code}."),
+        };
+        return Results.Json(new ErrorEnvelope(refused.Code, refused.Message, [], Retryable: status == 409), statusCode: status);
+    }
 
     static IResult NotFound(string code, string message) => Results.Json(new ErrorEnvelope(code, message, []), statusCode: 404);
 }

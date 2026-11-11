@@ -61,6 +61,9 @@ public sealed record TableAction(string Title, string Line);
 /// <summary>A table as a screen is told of it (ADR-0016 §4, note 25 of step 2): its id, its title and the actions a grid bound to it offers.</summary>
 public sealed record TableOnScreen(string TableId, string Title, IReadOnlyList<TableAction> Actions);
 
+/// <summary>The rows a view's selection names (ADR-0016 note 37 of step 3): their table, and their keys in the order the view names them.</summary>
+public sealed record ViewSelection(string Table, IReadOnlyList<string> Keys);
+
 /// <summary>One row at a revision: its key, the subset it is in, and its values by field as they stand.</summary>
 public interface ITableRow
 {

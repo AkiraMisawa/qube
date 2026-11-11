@@ -1693,7 +1693,7 @@ test('ADR-0016 §4, note 25: a grid\'s Context Menu offers its table\'s actions 
   await page.keyboard.press('Shift+ArrowDown');
   await page.keyboard.press('Shift+F10');
   await expect(page.getByRole('menuitem').first()).toBeFocused();
-  await expect(page.getByRole('menuitem')).toHaveText(['Copy', 'Copy with headers', ...actions]);
+  await expect(page.getByRole('menuitem')).toHaveText(['Copy', 'Copy with headers', ...actions, 'Make case from the selection…']);
   for (let i = 0; i < 3; i++) await page.keyboard.press('ArrowDown');
   await expect(page.getByRole('menuitem', { name: 'Take out of After · set selected after off' })).toBeFocused();
   await page.keyboard.press('Enter');
@@ -1722,7 +1722,8 @@ test('ADR-0016 §4, note 25: a grid\'s Context Menu offers its table\'s actions 
   await expect(summary).toContainText('1 edit(s)');
 
   // `Reset this cell` is the cell the menu was opened on: a new trade's CSA, edited, goes back to its source. The
-  // page's own item, Vary values…, still ends the menu.
+  // page's own items still end the menu: Vary values… on a cell that is typed, and Make case from the selection…
+  // (ADR-0016 note 37) on every row of a trade grid.
   await focusCell(page, CSA);
   await page.keyboard.type('CSA-B');
   await page.keyboard.press('Enter');
@@ -1730,7 +1731,7 @@ test('ADR-0016 §4, note 25: a grid\'s Context Menu offers its table\'s actions 
   await page.keyboard.press('ArrowUp');
   await page.keyboard.press('Shift+F10');
   await expect(page.getByRole('menuitem').first()).toBeFocused();
-  await expect(page.getByRole('menuitem')).toHaveText(['Copy', 'Copy with headers', ...actions, 'Vary values…']);
+  await expect(page.getByRole('menuitem')).toHaveText(['Copy', 'Copy with headers', ...actions, 'Vary values…', 'Make case from the selection…']);
   for (let i = 0; i < 2; i++) await page.keyboard.press('ArrowDown');
   await expect(page.getByRole('menuitem', { name: 'Reset this cell · reset' })).toBeFocused();
   await page.keyboard.press('Enter');
@@ -1796,7 +1797,7 @@ test('docs/03 §5, ADR-0010 §3, ADR-0016 note 28: `add each` says the cases it 
   await expect(page.getByTestId('price')).toHaveText('Price CVA FVA · 4 cases');
   // B on every new trade after the set was made: Price says which trades left it, and prices nothing. The line reads
   // `price` before it submits anything (ADR-0016 note 33), so the reason is the line's and no request was refused.
-  const left = 'add each prices DRAFT-1, DRAFT-2, DRAFT-3 alone, and DRAFT-1, DRAFT-2, DRAFT-3 are in Before. '
+  const left = "add each's cases add DRAFT-1, DRAFT-2, DRAFT-3, and DRAFT-1, DRAFT-2, DRAFT-3 are in Before. "
     + 'Run add each again to make the set anew, with B clear on each.';
   await taken(page, 'before', 'all new');
   await command(page, 'price');
@@ -1825,6 +1826,91 @@ test('docs/03 §5, ADR-0010 §3, ADR-0016 note 28: `add each` says the cases it 
   const result = page.getByTestId('xva-result');
   await expect(result.getByTestId('xva-result-status')).toHaveText('succeeded');
   await expect(result.getByRole('table', { name: 'Metrics' }).getByRole('rowheader')).toHaveText(['Base', 'add DRAFT-1', 'add DRAFT-2', 'add DRAFT-3']);
+});
+
+test('ADR-0016 note 37, ADR-0010 §3: Add each makes a case per ticked new trade, Make case… makes one case of what the two grids\' selections name beside those made, with a pressed trade left out, a case made already is refused in the dialog, and the Changes tab lists a case\'s trades, keeps one in After and says why one is not left out', async ({ page, problems }) => {
+  const refused = 'error: Failed to load resource: the server responded with a status of 422 (Unprocessable Entity)';
+  await open(page);
+  await newWorkspace(page, 'ABC/LE-01', 5);
+  await taken(page, 'measures', 'cva fva');
+  await expect(page.getByTestId('price')).toHaveText('Price CVA FVA · 1 case');
+  await settled(page, 'New trades');
+  await settled(page, 'Existing trades');
+  const notice = page.getByTestId('notice');
+  const price = page.getByTestId('price');
+  const fresh = page.getByLabel('New trades', { exact: true });
+  const existing = page.getByLabel('Existing trades', { exact: true });
+  const dialog = page.getByRole('dialog', { name: 'Make case from the selection' });
+  const adds = dialog.getByRole('group', { name: 'Adds together' }).getByRole('button');
+  const takesOut = dialog.getByRole('group', { name: 'Takes out of After' }).getByRole('button');
+  const alone = 'add DRAFT-1, add DRAFT-2, add DRAFT-3';
+  const together = 'add DRAFT-1 + DRAFT-2 without ABC-LE-01-E00003';
+
+  // The button is `add each` as the line types it: a case per new trade with A ticked.
+  await page.getByRole('button', { name: 'Add each' }).click();
+  await expect(notice).toHaveText(`Made 3 case(s): ${alone}.`);
+  await expect(price).toHaveText('Price CVA FVA · 4 cases');
+
+  // Two new trades and one existing trade selected by keyboard, each in its own grid: the dialog lists what the two
+  // selections name, as the server read them, and makes nothing until Make case.
+  await fresh.getByRole('grid').focus();
+  await page.keyboard.press('ControlOrMeta+Home');
+  await page.keyboard.press('ControlOrMeta+Home');
+  await page.keyboard.press('Shift+ArrowDown');
+  await existing.getByRole('grid').focus();
+  await page.keyboard.press('ControlOrMeta+Home');
+  await page.keyboard.press('ControlOrMeta+Home');
+  await page.getByRole('button', { name: 'Make case…' }).click();
+  await expect(adds).toHaveText(['DRAFT-1', 'DRAFT-2']);
+  await expect(takesOut).toHaveText(['ABC-LE-01-E00003']);
+  await expect(price).toHaveText('Price CVA FVA · 4 cases');
+  await expect(dialog.getByRole('button', { name: 'Make case' })).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(dialog).toBeHidden();
+  // One case more beside those made, which stay the cases they were: the sentence names the one made.
+  await expect(notice).toHaveText(`Made 1 case(s): ${together}.`);
+  await expect(price).toHaveText('Price CVA FVA · 5 cases');
+
+  // From the Existing grid's Context Menu, with trades pressed to leave them out: what is left is a case already made,
+  // which the server refuses by name. The dialog says so and stays, and no case was made.
+  await existing.getByRole('grid').focus();
+  await page.keyboard.press('Shift+F10');
+  await page.getByRole('menuitem', { name: 'Make case from the selection…' }).click();
+  await expect(adds).toHaveText(['DRAFT-1', 'DRAFT-2']);
+  await adds.filter({ hasText: 'DRAFT-2' }).click();
+  await expect(adds.filter({ hasText: 'DRAFT-2' })).toHaveAttribute('aria-pressed', 'false');
+  await takesOut.click();
+  await dialog.getByRole('button', { name: 'Make case' }).click();
+  await expect(dialog.getByTestId('case-refused')).toHaveText('No case was made: The case add DRAFT-1 is made already.');
+  expect(problems.splice(0)).toEqual([refused]);
+  await expect(price).toHaveText('Price CVA FVA · 5 cases');
+  await dialog.getByRole('button', { name: 'Close' }).click();
+  await expect(dialog).toBeHidden();
+
+  // The Changes tab lists what a case adds and takes out, each trade a button that says what its press does. The one
+  // trade a case adds has no button: the case is removed whole. A trade kept in After there is `add each` given its
+  // set again with that one change.
+  await taken(page, 'open', 'changes');
+  const changes = page.getByRole('table', { name: 'Changes' });
+  const trades = () => changes.getByRole('button', { name: /^(Leave|Keep) /u }).evaluateAll((buttons) => buttons.map((b) => b.getAttribute('aria-label')));
+  await expect.poll(trades).toEqual([`Leave DRAFT-1 out of ${together}`, `Leave DRAFT-2 out of ${together}`, `Keep ABC-LE-01-E00003 in After in ${together}`]);
+  await changes.getByRole('button', { name: `Keep ABC-LE-01-E00003 in After in ${together}` }).click();
+  await expect(notice).toHaveText(`Made 4 case(s): ${alone}, add DRAFT-1 + DRAFT-2; replaced ${alone}, ${together}.`);
+  await expect.poll(trades).toEqual(['Leave DRAFT-1 out of add DRAFT-1 + DRAFT-2', 'Leave DRAFT-2 out of add DRAFT-1 + DRAFT-2']);
+  // A trade left out of what a case adds is the same command: what is left here is a case already in the set, which
+  // the server refuses by name. The page says so, and the cases are as they were.
+  await changes.getByRole('button', { name: 'Leave DRAFT-2 out of add DRAFT-1 + DRAFT-2' }).click();
+  await expect(notice).toHaveText('DRAFT-2 was not left out of add DRAFT-1 + DRAFT-2: The iteration DRAFT-1 is given twice.');
+  expect(problems.splice(0)).toEqual([refused]);
+  await expect.poll(trades).toEqual(['Leave DRAFT-1 out of add DRAFT-1 + DRAFT-2', 'Leave DRAFT-2 out of add DRAFT-1 + DRAFT-2']);
+  await expect(price).toHaveText('Price CVA FVA · 5 cases');
+
+  // The case of two trades is priced as one case, beside each trade alone.
+  await taken(page, 'price');
+  const result = page.getByTestId('xva-result');
+  await expect(result.getByTestId('xva-result-status')).toHaveText('succeeded');
+  await expect(result.getByRole('table', { name: 'Metrics' }).getByRole('rowheader')).toHaveText(['Base', 'add DRAFT-1', 'add DRAFT-2', 'add DRAFT-3', 'add DRAFT-1 + DRAFT-2']);
+  expect(problems).toEqual([]);
 });
 
 test('ADR-0016 note 33: `price` says what it would price before Enter, `refresh` and the Refresh button say what carried and `undo` names it, and `pv01 retry` says that nothing failed', async ({ page }) => {

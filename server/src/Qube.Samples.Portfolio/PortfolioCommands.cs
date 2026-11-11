@@ -117,11 +117,16 @@ public sealed class PortfolioVary(Func<PortfolioWorkspaces> workspaces) : ICapab
 
 /// <summary>
 /// <c>xva.trades.add</c>, typed <c>add each</c> (ADR-0016 §3, note 28): a case per New row with A ticked, each that
-/// trade alone (docs/03 §5). Its reading is a trial: the cases it would make, and those it would replace.
+/// trade alone (docs/03 §5). Its reading is a trial: the cases it would make, and those it would replace. Its request
+/// may give the iterations as a list (note 37), each the new trades a case adds together and the existing trades it
+/// takes out of After; the line has no spelling of that list yet, so the line is the command with none. With
+/// <c>keep</c> the iterations given are made beside the set made before (note 37, corrected in review): what a page
+/// that adds one case asks for.
 /// </summary>
 public sealed class PortfolioTradesAdd(Func<PortfolioWorkspaces> workspaces) : ICapabilityHandler, ILineCommand
 {
-    public CapabilityDescriptor Descriptor { get; } = new("xva.trades.add", PortfolioContracts.Version, "Price each new trade alone, a case per New row with A ticked",
+    public CapabilityDescriptor Descriptor { get; } = new("xva.trades.add", PortfolioContracts.Version,
+        "Price each new trade alone, a case per New row with A ticked; or the iterations given, each the new trades a case adds together and the existing trades it takes out of After",
         [new("request", PortfolioCommandContracts.TradesAddRequest, PortfolioContracts.Version, Cardinality.One)],
         [new("answer", PortfolioCommandContracts.CasesMade, PortfolioContracts.Version, Cardinality.One)],
         ExecutionKind.RequestResponse, [CapabilityEffect.EditWorkspace],
@@ -140,9 +145,22 @@ public sealed class PortfolioTradesAdd(Func<PortfolioWorkspaces> workspaces) : I
     public Task<IReadOnlyDictionary<string, JsonNode?>> InvokeAsync(CapabilityInvocation invocation, CancellationToken cancellationToken) =>
         PortfolioCommand.Run(invocation, workspaces, (service, request, caller, revision) =>
         {
-            var answer = service.AddTrades(CommandRequests.Text(request, "workspaceId"), revision, caller.UserId, caller.Origin);
+            // Left out, keep is not asked for: the contract's own reading of the field (note 37, corrected in review).
+            var keep = request["keep"] is { } asked && asked.GetValue<bool>();
+            var answer = service.AddTrades(CommandRequests.Text(request, "workspaceId"), revision, caller.UserId, Iterations(request), keep, caller.Origin);
             return (answer.State, answer.Made.Count, PortfolioCommandContracts.Added(answer));
         });
+
+    // The iterations a request gives, as its contract shapes them: `add` in each, and `without` where it takes a trade
+    // out. The contract was checked before the command ran, so a list that is none here is a defect, never an
+    // iteration of no trade.
+    static IReadOnlyList<Iteration> Iterations(JsonNode request)
+    {
+        static IReadOnlyList<string> Ids(JsonNode iteration, string list) => Iteration.Ids(iteration[list])
+            ?? throw new InvalidOperationException($"An iteration's {list} passed its contract and is no list.");
+        return request["iterations"] is JsonArray given
+            ? [.. given.Select(i => new Iteration(Ids(i!, "add"), i!["without"] is null ? [] : Ids(i, "without")))] : [];
+    }
 }
 
 /// <summary>
@@ -417,10 +435,39 @@ public sealed class PortfolioCommandsModule(Func<PortfolioWorkspaces> workspaces
             ["field"] = Text("Field", "The cell's field, as a page names it (counterpartyThreshold), with entity."),
             ["values"] = Text("Values", "The values, each as written, separated by commas: 10mm, 5mm, 0. Amounts as 5mm, 250k or 1bn; rates as 25% or 30bp."),
         }, "workspaceId", "values");
+        JsonObject Ids(string title, string description) => new()
+        {
+            ["type"] = "array", ["title"] = title, ["description"] = description, ["items"] = new JsonObject { ["type"] = "string", ["minLength"] = 1 },
+        };
+        var adds = Ids("Adds", "The ids of the New rows the case adds together, each with A ticked and B clear: DRAFT-1, DRAFT-2.");
+        adds["minItems"] = 1;
         Request(PortfolioCommandContracts.TradesAddRequest, "Price each new trade alone", new JsonObject
         {
             ["workspaceId"] = PortfolioCommand.WorkspaceField(),
             ["revision"] = CommandRequests.RevisionField(),
+            ["iterations"] = new JsonObject
+            {
+                ["type"] = "array", ["title"] = "Iterations",
+                ["description"] = "The whole set of cases, where it is not one new trade alone each: every case to make, each the new trades it adds together and the existing trades it takes out of After. "
+                    + "A New row with A ticked that none names is one more case alone. The set made before is replaced, unless keep is true. Left out: a case per New row with A ticked.",
+                ["items"] = new JsonObject
+                {
+                    ["type"] = "object",
+                    ["properties"] = new JsonObject
+                    {
+                        ["add"] = adds,
+                        ["without"] = Ids("Takes out", "The ids of the existing trades the case takes out of After, each in After in the Base: E00003. They stay in Before."),
+                    },
+                    ["required"] = new JsonArray("add"),
+                    ["additionalProperties"] = false,
+                },
+            },
+            ["keep"] = new JsonObject
+            {
+                ["type"] = "boolean", ["title"] = "Keep the cases made",
+                ["description"] = "true to make the iterations given beside the cases of add each made before, which stay as they are; one made already is refused. "
+                    + "It needs an iteration. Left out or false: the iterations given are the whole set, and the set made before is replaced.",
+            },
         }, "workspaceId");
         Request(PortfolioCommandContracts.CdsRequest, "Choose the CDS", new JsonObject
         {

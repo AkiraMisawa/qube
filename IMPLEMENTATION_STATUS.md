@@ -1796,11 +1796,98 @@ Unchanged: the Rates market, its conventions' development profiles and every fig
 - What reading `price` costs is not measured here either; a Rates workspace holds few lines.
 - Still written in the client: `new xva`, `new rates`, `explain`, the trace options, `open result`, `dock
   full|restore`, `download run` and `copy quote` (note 31).
-- `add each` takes no list yet (3d).
+- `add each` takes no list yet (3d). *Built since: the 3d section below.*
+
+## Generic commands, delivery step 3d: `add each` takes lists (ADR-0016 §3, note 37, 2026-11-11)
+
+The fourth and last pull request of step 3 (`docs/specs/commands-3-domain-verbs-rates`, tickets 16 to 19). A case
+of `add each` may add several new trades together and take existing trades out of After, given as lists; the
+pricer's page makes one from the two grids' selections. Step 3 of ADR-0016's Delivery order is built with it.
+
+### What runs
+
+- **A contract may hold a list** (`ContractChecks`): a field of `type: array` whose items are values, or records
+  whose fields are values or lists of values, and nothing deeper. A list's problem is said at its path
+  (`/inputs/request/iterations/0/add`). A workflow whose input contract holds a list is refused when it is
+  registered (`ListInForm`), since its input is filled in a form; the client's form says a list it is handed and
+  never fills or defaults one.
+- **`xva.trades.add` takes `iterations`**: a list of `{ add, without }`, the new trades a case adds together and
+  the existing trades it takes out of After. It is the whole set: the cases made before are replaced, the given
+  iterations are made in their order, and a New row with A ticked that none names is one more case alone. Left
+  out, the command is `add each` as typed, and the line still takes no argument.
+- **`keep: true` makes the iterations given beside the cases made** (note 37, corrected in review): the cases of
+  `add each` made before stay the cases they are and are not read again, so a stale one refuses no new case and
+  stays Price's to refuse. One made already is refused by its case's title, a ticked New row no case names is one
+  more case alone, and a candidate that joins the set is turned off in the cases kept.
+- **Refused by name, with nothing made:** an unknown id, an existing trade named to be added or a New row named to
+  be taken out, a candidate with A clear or B ticked, a trade taken out that the Base has not in After, an
+  iteration that adds none, a trade twice in one list and the same iteration twice.
+- **A case names its iteration** (`add` and `without`) in the workspace's view and in the input Price freezes. Its
+  title is `add DRAFT-1`, or `add DRAFT-1 + DRAFT-2 without E00003`. A case stored before this step names one
+  trade and is read as that trade alone.
+- **Price's check of the set** reads every iteration's candidates together, and refuses a set that takes out a
+  trade After no longer holds. Each case's After must hold its own candidates of the New rows and no other, and
+  none of the trades the case takes out.
+- **A view's selection read for a page** (`POST /api/workspaces/{id}/selection`): the keys a selection names, read
+  as the preview reads `selected`, for a page whose grids the server pages. The view is checked whole first, so
+  one that cannot be read is refused (400) whether or not it selects a row.
+- **The page.** `Add each` in the New grid's caption runs the command with no value. `Make case…` beside it, and
+  *Make case from the selection…* on both trade grids' Context Menus, open a dialog that lists what the New grid's
+  selection adds and what the Existing grid's takes out; a trade pressed is left out, and *Make case* makes the
+  case beside those made (`keep`). Refused, the dialog stays with the server's reason.
+- **The Changes tab** lists a case's trades under it, each a button: one the case adds is left out, one it takes
+  out is kept in After. The one trade a case adds has no button: the case is removed whole.
+- **A request made in the command's turn** (`CommandDoor.invoke`): the Changes tab says the made iterations again
+  with one change, read from the cases the page shows at the revision the command is sent at, so an edit still on
+  its way when the button was pressed is in it.
+
+### Verification performed
+
+| What | Result |
+|---|---|
+| `dotnet test server/Qube.slnx` | 1078 passed |
+| Client: `npm run typecheck`, `npm test`, `npm run build` | Clean; 297 passed in 34 files; built |
+| `npx playwright test` (Chromium, headless, Linux) | 86 passed |
+| The browser test this step adds, and the menu test it touches, with `--repeat-each=3` | 6 passed |
+
+The browser test's first run failed, and found a defect of the first build: the wire leaves an empty field out,
+and the page read a case's `iteration` as `null` where it has none, so a case that is no iteration was sent as an
+empty item and the contract refused the list. A case's `iteration` and `note` are typed as left out now.
+
+The figures above are of the branch after the code review (two reviewers, the repository's standards and the
+spec). What the review changed: `keep` and *Make case* beside the cases made, the log's name, a view's selection
+checked whole, Price's check of the trades a case takes out, the buttons' names, and the request's lists read
+without a default (ADR-0016 note 37's corrections).
+
+### Providers
+
+Unchanged: every figure of the pricer is simulated, and says so.
+
+### Known limits
+
+- The line takes `add each` with no argument: how it spells an iteration's lists is open (ADR-0016 §3). The lists
+  are given by the page's dialog, or by a caller of the command, such as the AI.
+- `load trades <ids>` is not built: the pricer makes no trade of its own until step 5 (note 37).
+- The dialog's case and the Changes tab's buttons have no line and no palette entry: how the line spells a list
+  is open, so they are the page's gestures over a command the AI invokes with the same value.
+- A trade left out, or kept in After, on the Changes tab says the whole set again: its notice names the whole set
+  (`Made 4 case(s): …; replaced …`), `undo` takes the whole set back, and a stale case of the set refuses it by
+  that case's trade, so the stale case is removed first. *Make case* has none of this: it names the case it made.
+- A trade left out of what a case adds is still ticked, so it becomes a case alone; where what is left of the case
+  is a case already made, the server refuses it and the case is removed whole instead. That refusal says
+  `The iteration DRAFT-1 is given twice.`: the command's word, where the page says "case".
+- No test reaches Price's refusal of a case whose After holds a trade it takes out: a case of the set is not
+  edited, so no command leaves such a state. The check is there so that one is refused if a later change does.
+- At a phone's width the dialog was opened from the caption's button and looked at; the Context Menu's item was
+  not exercised there, and no browser test holds the phone's path.
+- ExGrid bounds a Context Menu by its grid's box (its ADR-0040), and the New grid is as high as its rows: with few
+  new trades its menu scrolls to *Make case from the selection…*, its last item. The caption's button is in view.
+- Still written in the client: `new xva`, `new rates`, `explain`, the trace options, `open result`, `dock
+  full|restore`, `download run` and `copy quote` (note 31).
 
 ## Next
 
-1. Generic commands, delivery step 3d (ADR-0016 §3): `add each` takes lists. Then steps 4 to 6.
+1. Generic commands, delivery step 4 (ADR-0016): view verbs and the AI's row read. Then steps 5 and 6.
 2. MVA with SIMM (`docs/12-implementation-plan.md` P2): spot IM from the XVA request's MVA option.
 3. ADR-0010 Delivery step 3 (Advanced: Before-only and After-only edits, the split fill), when the owner asks for it.
 4. The owner's review of ADR-0003 §7 (scopes, carry and conflict), then a synthetic source change that can produce a conflict, and the browser cases still open above (reload, failed case unavailable).

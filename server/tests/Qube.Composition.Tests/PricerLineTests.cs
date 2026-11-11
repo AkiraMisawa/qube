@@ -70,6 +70,14 @@ public class PricerLineTests
             return result is CommandResult.Done done ? done.Outputs["answer"]!["said"]!.GetValue<string>()
                 : $"{string.Join(" ", ((CommandResult.Refused)result).Issues.Select(i => $"{i.Code}: {i.Message}"))}";
         }
+
+        /// <summary>Where each issue of a request the command refuses is, as its caller is told.</summary>
+        public async Task<IReadOnlyList<string>> Paths(string capability, JsonObject request)
+        {
+            request["workspaceId"] = Id;
+            var result = await Commands.InvokeAsync(capability, PortfolioContracts.Version, new JsonObject { ["request"] = request }, Akira, Guid.NewGuid().ToString(), default);
+            return [.. Assert.IsType<CommandResult.Refused>(result).Issues.Select(i => i.Path)];
+        }
     }
 
     static string Read(LinePreview preview) => preview.Refused is { } refused ? $"{refused.Code}: {refused.Sentence}" : preview.Would!;
@@ -235,6 +243,56 @@ public class PricerLineTests
         Assert.Equal("UnreadWords: add each takes no words after it.", Read(rig.Preview("add each DRAFT-1")));
         // The name it had is retired, and is no second spelling (note 28).
         Assert.Equal("UnknownCommand", rig.Preview("add trades").Refused!.Code);
+    }
+
+    [Fact] // ADR-0016 §3, note 37: the request holds the iterations as a list, checked against its contract at each item's path, and the command makes them
+    public async Task Add_each_takes_its_iterations_as_a_list_its_contract_checks()
+    {
+        var rig = new Rig();
+        var taken = rig.Service.Page(rig.Id, "akira", 0, 1, [], "existing").Rows[0].TradeId;
+        var start = rig.State.Revision;
+        static JsonObject Given(params JsonNode?[] iterations) => new() { ["iterations"] = new JsonArray(iterations) };
+
+        var text = await rig.Invoke("xva.trades.add", new JsonObject { ["iterations"] = "DRAFT-1" });
+        var none = await rig.Invoke("xva.trades.add", Given(new JsonObject { ["add"] = new JsonArray(), ["without"] = new JsonArray(taken) }));
+        var shape = await rig.Invoke("xva.trades.add", Given(new JsonObject { ["add"] = new JsonArray("DRAFT-1", 2) }, "DRAFT-2", new JsonObject { ["without"] = new JsonArray(taken), ["also"] = true }));
+        var refused = rig.State.Revision;
+        var made = await rig.Invoke("xva.trades.add", Given(new JsonObject { ["add"] = new JsonArray("DRAFT-1", "DRAFT-2"), ["without"] = new JsonArray(taken) }, new JsonObject { ["add"] = new JsonArray("draft-1") }));
+        var undoes = rig.Preview("undo").Would;
+        // With keep, the cases made stay and the answer names the one made beside them (note 37, corrected in review).
+        var beside = Given(new JsonObject { ["add"] = new JsonArray("DRAFT-2", "DRAFT-3") });
+        beside["keep"] = true;
+        var kept = await rig.Invoke("xva.trades.add", beside);
+        var flag = await rig.Invoke("xva.trades.add", new JsonObject { ["keep"] = "yes" });
+        // An empty list is the command as typed: a case per New row with A ticked.
+        var typed = await rig.Invoke("xva.trades.add", Given());
+
+        Assert.Equal("InvalidField: A list is required.", text);
+        Assert.Equal("InvalidField: At least 1 item is required.", none);
+        Assert.Equal("InvalidField: A text value is required. InvalidField: A record is required. Required: add is required. UnknownField: An item of iterations has no field also.", shape);
+        // Each issue is at its item's path in the request, where a caller that built the list finds it.
+        Assert.Equal(["/inputs/request/iterations/0/add/1", "/inputs/request/iterations/1", "/inputs/request/iterations/2/add", "/inputs/request/iterations/2/also"],
+            await rig.Paths("xva.trades.add", Given(new JsonObject { ["add"] = new JsonArray("DRAFT-1", 2) }, "DRAFT-2", new JsonObject { ["without"] = new JsonArray(taken), ["also"] = true })));
+        Assert.Equal(start, refused);
+        Assert.Equal($"Made 3 case(s): add DRAFT-1 + DRAFT-2 without {taken}, add DRAFT-1, add DRAFT-3.", made);
+        // undo names the command by the iterations it was given, as the log does.
+        Assert.StartsWith($"Takes back: add each: DRAFT-1 + DRAFT-2 without {taken}; DRAFT-1 (you,", undoes);
+        Assert.Equal("Made 1 case(s): add DRAFT-2 + DRAFT-3.", kept);
+        Assert.Equal("InvalidField: true or false is required.", flag);
+        Assert.Equal($"Made 3 case(s): add DRAFT-1, add DRAFT-2, add DRAFT-3; replaced add DRAFT-1 + DRAFT-2 without {taken}, add DRAFT-1, add DRAFT-3, add DRAFT-2 + DRAFT-3.", typed);
+        Assert.StartsWith("Takes back: add each (you,", rig.Preview("undo").Would);
+    }
+
+    [Fact] // ADR-0016 note 37: a case stored before an iteration was a list names one trade, and is read as the iteration of that trade alone
+    public void A_case_stored_with_one_trade_is_read_as_that_trade_alone()
+    {
+        var rig = new Rig();
+        rig.Workspaces.Batch(rig.Id, rig.State.Revision, "akira",
+            [new WorkspaceChange.Create("cp:ABC/LE-01", PortfolioCases.Of("c900"), new JsonObject { ["title"] = "add DRAFT-2", ["kind"] = PortfolioCases.Add, ["trade"] = "DRAFT-2" })]);
+
+        var stored = rig.View.Cases[1];
+
+        Assert.Equal(("add DRAFT-2", "add", "DRAFT-2", 0), (stored.Title, stored.Kind, string.Join(", ", stored.Iteration!.Add), stored.Iteration.Without.Count));
     }
 
     [Fact] // ADR-0016 note 28, docs/03 §5: what add each cannot do is refused in the preview by the command's own code and sentence
@@ -570,7 +628,7 @@ public class PricerLineTests
         var set = new Rig();
         await set.Run(set.Preview("add each"));
         await set.Run(set.Preview("set DRAFT-2 after off"));
-        Assert.Equal("AdditionSetChanged: add each prices DRAFT-1, DRAFT-2, DRAFT-3 alone, and DRAFT-2 is in a case and no longer ticked. Run add each again to make the set anew.",
+        Assert.Equal("AdditionSetChanged: add each's cases add DRAFT-1, DRAFT-2, DRAFT-3, and DRAFT-2 is in a case and no longer ticked. Run add each again to make the set anew.",
             Read(set.Preview("price")));
         Assert.Empty(rig.View.Runs.Concat(set.View.Runs));
     }

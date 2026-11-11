@@ -441,6 +441,21 @@ describe('Enter on a line the server reads, through its page\'s door (ADR-0016 Â
     expect(await p.door.invoke('workspace.nothing', {})).toEqual({ sentence: 'This server has no command workspace.nothing.' });
   });
 
+  it('ADR-0016 note 37, spine 6: a request made of what the page shows is made in the command\'s turn, of the revision it is sent at; one that cannot be made sends nothing', async () => {
+    const p = page(7, 8);
+    p.command.mockResolvedValue({ capabilityId: 'workspace.undo', version: '1.0.0', outputs: { answer: { workspaceId: 'ws-1', revision: 8, said: 'Done.' } } });
+    // An edit sent before the press moves the page's revision before the command's turn comes.
+    p.turns.revision = 9;
+
+    expect(await p.door.invoke('workspace.undo', (revision) => ({ made: `of ${revision}` }))).toBeUndefined();
+    expect(p.command).toHaveBeenCalledWith('workspace.undo', '1.0.0', { request: { made: 'of 9', workspaceId: 'ws-1', revision: 9 } }, expect.any(String));
+
+    p.command.mockClear();
+    expect(await p.door.invoke('workspace.undo', () => { throw new Error('The page shows revision 7, and the command would run at 8.'); }))
+      .toEqual({ sentence: 'The page shows revision 7, and the command would run at 8.' });
+    expect(p.command).not.toHaveBeenCalled();
+  });
+
   it('ADR-0016 note 33: an answer that says it waits for the user is a notice that stays', async () => {
     const p = page(7, 8);
     p.command.mockResolvedValue({ capabilityId: 'workspace.undo', version: '1.0.0', outputs: { answer: { workspaceId: 'ws-1', revision: 8, said: 'Read again: 1 edit is held for you.', stays: true } } });

@@ -472,10 +472,13 @@ log cannot yet say which entries were one command, or what an entry replaced.
    (`docs/specs/commands-2-selection-context-places`, three pull requests); what it settled is notes 16 to 26 below.
    Left for later steps: `shown` is the grid's subset until `filter` (step 4), and a declarative view's row action
    has no `command` target yet (note 25).
-3. The pricer's remaining commands as capabilities through the gateway; Rates registers. **In progress**
-   (`docs/specs/commands-3-domain-verbs-rates`, four pull requests); what it settles is notes 27 onward below.
-   3a is built (2026-11-11): a command's application, short forms, the pricer's verbs that edit, `open` from tabs.
-   3b is built (2026-11-11): the pricer's scenario verbs, `price`, `refresh` and `pv01 retry` (notes 32 and 33).
+3. The pricer's remaining commands as capabilities through the gateway; Rates registers. **Built 2026-11-11**
+   (`docs/specs/commands-3-domain-verbs-rates`, four pull requests); what it settled is notes 27 to 37 below.
+   3a: a command's application, short forms, the pricer's verbs that edit, `open` from tabs. 3b: the pricer's
+   scenario verbs, `price`, `refresh` and `pv01 retry` (notes 32 and 33). 3c: Rates registers its tables, its door
+   and its verbs (notes 34 to 36). 3d: `add each` takes its iterations as a list, and a contract may hold one
+   (note 37). Left for later steps: `load trades <ids>` (step 5, note 37), and how the line spells an iteration's
+   lists, which stays open (§3).
 4. View verbs and the AI's row read.
 5. Drafts (§10): a detail dialog drawn from a registration, with the tables under its row and its templates. The
    pricer's trade and CSA must carry those fields and tables first; its sample has neither them nor such a dialog.
@@ -1309,6 +1312,110 @@ each is built.
       terms are missing, the index and the frequencies among them, though typing a currency alone would give those
       from its profile: the reading does not know which missing terms a profile would supply once another is
       typed.
+37. **`add each` takes its iterations as a list (§3; 3d).** §3 decides the value and its rules. What is left to
+    settle is how a contract says a list, what is made of the value, how a case names its trades, and how a page
+    with two grids gives the lists without the line.
+    - *A contract may hold a list (amends note 12).* The kernel's check of a contract understands a field of
+      `type: array` with `items`, and `minItems`: its items are values (text, a number, a flag), or records
+      (`type: object`, `properties`, `required`, no additional properties) whose fields are values or lists of
+      values. No deeper: a typed value of a command is small. A list's problem is said at its path
+      (`/inputs/request/iterations/0/add`). A form draws one control for one value, so a workflow whose input
+      contract holds a list is refused when it is registered, and the client's form says a list it is handed
+      cannot be drawn. The edit verbs keep their rows as the line spells them (note 12): the typed selector as a
+      value is not this step's.
+    - *The value.* `xva.trades.add`'s request may hold `iterations`: a list of records, each `add` (the candidates'
+      ids, one at least) and `without` (the ids of the existing trades taken out of After, which may be left out).
+      Left out, or empty, the command is `add each` as typed. An id is read whatever the case of its letters, as a
+      key is.
+    - *What is made.* The iterations given, in their order, then one alone for each New row with A ticked that
+      none of them names, in the grid's order. The set made before is replaced whole, as §3 says: the value is the
+      whole set made by hand, and nothing of the old one is kept unless it is given again.
+    - *Refused by name, with nothing made:* an id that is no trade of the workspace; an existing trade named to be
+      added, or a New row named to be taken out; a candidate with A clear (`CandidateNotTicked`), or with B ticked
+      (`CandidateInBefore`, as before); a trade taken out that the Base has not in After (`NotInAfter`); an
+      iteration that adds none; a trade twice in one list, and the same iteration twice (`GivenTwice`). Nothing is
+      ticked, cleared or left out for the caller.
+    - *A case names its trades.* A case of kind `add` holds its `iteration` (`add` and `without`) where it held
+      one `trade`, in the workspace's view and in the input Price freezes. Its title is `add DRAFT-1` for one trade
+      alone, as before, and otherwise `add DRAFT-1 + DRAFT-2 without E00003 + E00004`. The `+` is the title's: how
+      the line spells a list stays open (§3). A case stored before this step names one `trade`, and is read as the
+      iteration of that trade alone: the value it stored, in the shape of today.
+    - *Price's check of the set* reads the candidates of every iteration together: a ticked New row in no case, a
+      candidate no longer ticked and a candidate in Before are refused as before, and so is a trade a case takes
+      out that the Base no longer has in After. Each case's After must hold, of the New rows, its own candidates
+      and no other.
+    - *The command's name in the log.* `add each` where nothing is given. With a value there is no line that types
+      it, so the name says the iterations given, the first three and how many more
+      (`add each: DRAFT-1 + DRAFT-2 without E00003; DRAFT-3`); `undo` names it so.
+    - *A view's selection, read for a page (§2, note 17).* A page that makes a typed value from a grid's selection
+      needs the rows' keys, and a grid the server pages holds positions. `POST /api/workspaces/{id}/selection`
+      answers the keys a view's selection names, read as the preview reads `selected` (the order's token checked,
+      `ViewMoved` where it has moved), and no key where nothing is selected. It writes nothing and runs nothing.
+    - *The page (§3's proposal, with one change).* `Add each` in the New grid's caption invokes the command with
+      no value. `One case…` beside it, and *One case from the selection…* on both trade grids' Context Menus,
+      open a dialog that lists what the selections name: the New grid's as the trades the case adds, the Existing
+      grid's as the trades it takes out, each of which may be left out there. *Make case* then invokes the command
+      with the iterations already made and this one (*corrected in review, below: with this one and `keep`; and
+      the button is named `Make case…`*). **The dialog is the change:** §3 had the press make the case.
+      A grid that has been clicked always has a row selected, so a press would nearly always take an existing
+      trade out that nobody chose; the dialog says the two lists before anything is made, as the line says a
+      reading before Enter.
+    - *The Changes tab* shows an iteration's two lists under its case, and removes one trade from either by
+      invoking the command with the made iterations, that one changed. The last candidate of a case is not
+      removed there: the case is.
+    - *`load trades <ids>` waits for step 5.* The pricer makes no trade: its New rows are the source's own. A trade
+      brought in by id needs a trade the workspace holds with its terms, which is step 5's (a trade made in the
+      pricer from typed terms). Nothing is built for it here, and the name stays reserved (§3).
+    - *Added as built: a request that says again what the page shows is made in the command's turn (spine 6).*
+      The page reads the iterations already made from the cases it shows. Made at the press, that list would miss
+      what an edit still on its way does to the cases (another `add each`, a case removed), and the set that
+      replaced the old one would depend on which answer came first. The door's `invoke` therefore takes a request
+      as a function of the revision too: it is made in the command's turn, from the cases the page shows at the
+      revision the command is sent at. A page that shows another revision by then sends nothing and says so, and
+      a workspace someone else moved refuses the command as any other (`RevisionMoved`).
+    - *Added as built: the dialog.* A trade it lists is a button that is pressed while the trade is in the case,
+      so one left out is put back by the same press. *Make case* is disabled, and says why, while no new trade is
+      kept. Refused, the dialog stays with the server's reason and no case was made; taken, it closes and the
+      notice is the server's sentence, which names the whole set (`Made 4 case(s): …; replaced …`), since the set
+      is what the command wrote (*corrected in review, below: it names the case made*). From a Context Menu, the
+      grid the menu opened on is read as the menu has it (its Selection, or the row under it), and the other grid
+      by its own Selection.
+    - *Added as built: the Changes tab.* The one trade a case adds is said without a button. A trade left out of
+      what a case adds is still ticked, so the rule above makes it one more case alone; where what is left of the
+      case is a case already made, the server refuses it (`GivenTwice`) and the case is removed whole instead.
+    - *Found as built:* the wire leaves an empty field out, and the client typed a case's `note` as `null` where
+      it has none. A case's `iteration` and `note` are typed as left out now, which is what the page reads.
+    - *Corrected in review: one more case is made beside the cases made (`keep`).* As built, *Make case* said the
+      whole set again with one more. A case of the set that had gone stale (its trade no longer ticked, say) then
+      refused the new case by a trade the dialog does not list, and the log named the set, never the case just
+      made. §3 has the button make "the next" case, so the request may hold `keep: true`. The cases of `add each`
+      made before then stay the cases they are and are not read again: a stale one refuses nothing here and stays
+      Price's to refuse (ADR-0010 §3's note). The iterations given are made beside them; one that a case kept
+      already is, is refused by that case's title (`AlreadyMade`). A ticked New row that no case names, kept or
+      given, is one more case alone, and a candidate that is in the set now is turned off in each case kept that
+      does not add it, so every case still adds its own trades alone. A candidate in Before is refused where the
+      command would make its case. `keep` needs an iteration (`NothingGiven`). The answer names what was made
+      (`Made 1 case(s): …`) and replaces none. Without `keep` the list is the whole set, as above: what the
+      Changes tab still sends, since a trade left out there changes a case, which is made anew where it stood.
+    - *Corrected in review: the command's name in the log says what is new.* With a whole set: the iterations
+      given that no case made before is, the first three and how many more, then how many are as before
+      (`add each: DRAFT-1 + DRAFT-2, with 3 as before`; `add each: 2 as before` where none is new). With `keep`:
+      the iterations given, then `beside the cases made`.
+    - *Corrected in review: a view's selection is checked whole.* As built, the reading answered no key for a view
+      that selects nothing, without checking it, and 409 for a table with no order. The view is now checked as
+      the preview checks one, before anything is read: a view that names what the table has not is `InvalidView`
+      (400), and only an order that has moved is `ViewMoved` (409, to be read again).
+    - *Added in review: Price's check of a case* also refuses a case whose After holds a trade the case takes
+      out. No state reaches it today, since a case of the set is not edited (ADR-0010 §3's note); it is there so
+      that such a case is refused, never priced as another set.
+    - *Changed in review: the page's names.* A button says what it does as a verb (design guidelines §10):
+      `Make case…` in the caption, *Make case from the selection…* on the menus and as the dialog's title. On the
+      Changes tab a trade a case takes out is `Keep <id> in After`, which is what its press does. The two caption
+      buttons say in their title why they are disabled while the page is busy.
+    - *Known limits, recorded in review.* The dialog's case and the Changes tab's buttons have no line and no
+      palette entry, since how the line spells a list is open (§3): they are the page's gestures over a command
+      the AI invokes with the same value. A trade left out on the Changes tab says the whole set again, so a
+      stale case of the set refuses it by that case's trade: the stale case is removed first.
 
 ## Rejected
 

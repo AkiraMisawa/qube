@@ -1,6 +1,6 @@
 import { useId } from 'react';
 import { NumberInput, Select, Switch, Text, TextInput } from '@mantine/core';
-import type { ContractDefinition, FieldSchema } from '../platform/contracts';
+import type { ContractDefinition, FieldSchema, ValueSchema } from '../platform/contracts';
 
 /**
  * How the fields are laid out (docs/design-guidelines.md, "Forms and toolbars"):
@@ -37,6 +37,9 @@ function Field({ name, field, value, error, onChange, autoFocus, layout }: {
 }) {
   const id = useId();
   const label = field.title ?? name;
+  // A form draws a control for one value. The server registers no workflow whose input holds a list (ADR-0016 note
+  // 37); one met here is said where its control would be, never left out.
+  if (field.type === 'array') return <Text size="sm" c="red" role="alert">{label} is a list, which a form does not draw.</Text>;
   if (field.type === 'boolean')
     return <Switch label={label} checked={value === true} onChange={(e) => onChange(e.currentTarget.checked)}
       size={layout === 'toolbar' ? 'xs' : 'sm'} />;
@@ -66,7 +69,7 @@ function Field({ name, field, value, error, onChange, autoFocus, layout }: {
 }
 
 /** The toolbar input's width class: a toolbar input is as wide as what it holds, not as wide as the row. */
-function kind(field: FieldSchema): 'choice' | 'date' | 'text' | 'number' {
+function kind(field: ValueSchema): 'choice' | 'date' | 'text' | 'number' {
   if (field.type === 'string' && field.enum !== undefined) return 'choice';
   if (field.type === 'string') return field.format === 'date' ? 'date' : 'text';
   return 'number';

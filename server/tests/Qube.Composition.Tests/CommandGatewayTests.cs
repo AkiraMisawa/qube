@@ -295,6 +295,37 @@ public class CommandGatewayTests(QubeFactory factory) : IClassFixture<QubeFactor
         Assert.Equal((keys[1], 1, "pv"), (row["place"]!["key"]!.GetValue<string>(), row["place"]!["position"]!.GetValue<int>(), row["place"]!["column"]!.GetValue<string>()));
     }
 
+    [Fact] // ADR-0016 note 37: a page asks which rows a paged grid's selection names; an order that has moved is a conflict, a table the workspace has not a bad request
+    public async Task A_page_reads_the_keys_a_paged_grids_selection_names()
+    {
+        var ws = await Create();
+        var id = ws["workspaceId"]!.GetValue<string>();
+        var sorts = new JsonArray(new JsonObject { ["column"] = "notional", ["direction"] = "descending" });
+        var page = (await (await client.PostAsJsonAsync($"/api/xva/workspaces/{id}/rows", new { start = 0, count = 200, sorts, grid = "existing" })).Content.ReadFromJsonAsync<JsonObject>())!;
+        var keys = page["rows"]!.AsArray().Select(r => r!["tradeId"]!.GetValue<string>()).ToList();
+        JsonObject View(string order) => new()
+        {
+            ["table"] = "xva.trades", ["subset"] = "existing", ["sorts"] = new JsonArray(new JsonObject { ["column"] = "notional", ["descending"] = true }),
+            ["order"] = order, ["ranges"] = new JsonArray(new JsonObject { ["start"] = 1, ["count"] = 2 }, new JsonObject { ["start"] = 5, ["count"] = 1 }),
+        };
+        async Task<(HttpStatusCode Status, JsonObject Body)> Selection(JsonObject view, HttpClient? by = null)
+        {
+            var response = await (by ?? client).PostAsJsonAsync($"/api/workspaces/{id}/selection", new JsonObject { ["view"] = view });
+            return (response.StatusCode, (await response.Content.ReadFromJsonAsync<JsonObject>())!);
+        }
+
+        var (status, named) = await Selection(View(page["orderToken"]!.GetValue<string>()));
+        var (moved, why) = await Selection(View("an earlier order"));
+        var (invalid, _) = await Selection(new JsonObject { ["table"] = "xva.tides", ["keys"] = new JsonArray("T1") });
+        // Positions in a table no reader pages are the page's fault, as the preview answers them: no retry reads them.
+        var (unordered, fault) = await Selection(new JsonObject { ["table"] = "xva.csas", ["ranges"] = new JsonArray(new JsonObject { ["start"] = 0, ["count"] = 1 }) });
+
+        Assert.Equal((HttpStatusCode.OK, new JsonObject { ["table"] = "xva.trades", ["keys"] = new JsonArray(keys[1], keys[2], keys[5]) }.ToJsonString()), (status, named.ToJsonString()));
+        Assert.Equal((HttpStatusCode.Conflict, "ViewMoved", true), (moved, why["code"]!.GetValue<string>(), why["retryable"]!.GetValue<bool>()));
+        Assert.Equal(HttpStatusCode.BadRequest, invalid);
+        Assert.Equal((HttpStatusCode.BadRequest, "InvalidView", false), (unordered, fault["code"]!.GetValue<string>(), fault["retryable"]?.GetValue<bool>() ?? false));
+    }
+
     [Fact] // ADR-0016 §9, note 23: on the CSA grid a table left out is the CSAs, a subset of the trades alone is still the trades, and with no screen the trades as before
     public async Task On_the_csa_grid_rows_said_with_no_table_are_csas_and_the_request_names_them()
     {

@@ -29,8 +29,12 @@ public sealed class CompositionValidator(CompositionRegistry registry)
             yield return new("DocumentType", "/documentType", "A workflow's documentType is 'workflow'.");
         if (workflow.SchemaVersion != SchemaVersion)
             yield return new("SchemaVersion", "/schemaVersion", $"Schema version {workflow.SchemaVersion} is not supported.");
-        if (registry.FindContract(workflow.InputContractId, workflow.InputContractVersion) is null)
+        if (registry.FindContract(workflow.InputContractId, workflow.InputContractVersion) is not { } input)
             yield return new("UnknownContract", "/inputContractId", $"Input contract {workflow.InputContractId}@{workflow.InputContractVersion} is not registered.");
+        // A workflow's input is filled in a form, a control for each value (ADR-0016 note 37 of 2026-11-11).
+        else if (ContractChecks.Lists(input) is { Count: > 0 } lists)
+            yield return new("ListInForm", "/inputContractId",
+                $"Input contract {workflow.InputContractId}@{workflow.InputContractVersion} holds a list ({string.Join(", ", lists)}), and a workflow's input is filled in a form, which draws none.");
         if (workflow.Steps.Count == 0)
             yield return new("NoSteps", "/steps", "A workflow has at least one step.");
 
