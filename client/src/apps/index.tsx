@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useState, type ReactNode } from 'react';
-import { Button, Group, Modal, NumberInput, Select, Stack, Text, TextInput } from '@mantine/core';
+import { Button, Group, Modal, NumberInput, Select, Stack, Text } from '@mantine/core';
 import { useQuery } from '@tanstack/react-query';
 import { CommandRefused, type Command } from '../platform/commands/commands';
 import { useWorkspace, useWorkspaceContext } from '../platform/workspace/WorkspaceProvider';
@@ -12,6 +12,7 @@ import { measureNamed, xvaPageOf } from './xva/commands';
 import { XvaWorkspacePanel } from './xva/XvaWorkspacePanel';
 import { registerAiContext, registerAiEffect } from '../ai/effects';
 import { registerGridFocus } from '../shell/places';
+import { IsoDateInput } from '../platform/IsoDateInput';
 import { httpTraceApi, type TraceApi } from '../platform/traces/api';
 import { TRACE_VIEW, explainTyped, openTrace, requestTerm, setTraceView, traceAddressOf } from '../platform/traces/open';
 
@@ -354,7 +355,7 @@ function NewXvaWorkspace({ onDone }: { readonly onDone: () => void }) {
       <Stack gap="sm">
         <Select label="Counterparty" data-autofocus searchable value={registration} onChange={setRegistration} error={error}
           data={(registrations.data ?? []).map((r) => ({ value: r.key, label: `${r.key} · ${r.name}` }))} />
-        <TextInput label="Value date" type="date" value={valueDate} onChange={(e) => setValueDate(e.currentTarget.value)} />
+        <IsoDateInput label="Value date" value={valueDate} onChange={setValueDate} />
         <NumberInput label="Existing trades (synthetic)" min={0} max={100000} allowDecimal={false} value={size} onChange={setSize} />
         <Group justify="flex-end"><Button type="submit" loading={busy}>Create</Button></Group>
       </Stack>
@@ -385,7 +386,7 @@ function NewRatesWorkspace({ onDone }: { readonly onDone: () => void }) {
   return (
     <form onSubmit={(e) => { e.preventDefault(); void submit(); }}>
       <Stack gap="sm">
-        <TextInput label="Valuation date" type="date" data-autofocus value={valuationDate} error={error} onChange={(e) => setValuationDate(e.currentTarget.value)} />
+        <IsoDateInput label="Valuation date" data-autofocus value={valuationDate} error={error} onChange={setValuationDate} />
         <Group justify="flex-end"><Button type="submit" loading={busy}>Create</Button></Group>
       </Stack>
     </form>

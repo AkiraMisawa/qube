@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import './xva.css';
-import { Alert, Badge, Button, Group, Modal, SegmentedControl, Select, Stack, Table, Text, TextInput, useMantineTheme } from '@mantine/core';
+import { Alert, Badge, Button, Group, Modal, SegmentedControl, Select, Stack, Table, Text, useMantineTheme } from '@mantine/core';
 import { GridSource, type CellState, type GridColumn, type GridContextMenuContext, type GridEditIntent } from '@ex-grid/core';
 import type { ExGridApi } from '@ex-grid/react';
 import { QubeGrid } from '../../platform/grid/QubeGrid';
@@ -27,6 +27,7 @@ import type { RunRecord } from '../../platform/contracts';
 import { dockTabs, METRICS_TAB, type DockTab, type MeasureTab } from './dock';
 import { CSAS_TABLE, EditQueue, SETTINGS_ENTITY, TRADES_TABLE, XVA_APP, refusedEdit, tradeFields, type PendingEdit, type SetText } from './editing';
 import { ToolbarField } from './fields';
+import { IsoDateInput } from '../../platform/IsoDateInput';
 import { CHANGES_TAB, CREDIT_TAB, SCENARIOS_TAB, SETTINGS_TAB, shownTab, TAB_TITLES, tabShown, XvaInputs, type InputTab } from './XvaInputs';
 import { XvaRisks } from './XvaRisks';
 import type { ScenarioActions } from './XvaScenarios';
@@ -1092,8 +1093,8 @@ function ValueDate({ value, disabled, onCommit }: { readonly value: string; read
   return (
     <ToolbarField label="Value date">
       {(id) => (
-        <TextInput id={id} type="date" size="xs" className="qube-toolbar-input qube-toolbar-input--date" value={draft} disabled={disabled}
-          onChange={(e) => setDraft(e.currentTarget.value)} onBlur={commit} onKeyDown={(e) => { if (e.key === 'Enter') commit(); }} />
+        <IsoDateInput id={id} size="xs" className="qube-toolbar-input qube-toolbar-input--date" value={draft} disabled={disabled}
+          onChange={setDraft} onBlur={commit} onKeyDown={(e) => { if (e.key === 'Enter') commit(); }} />
       )}
     </ToolbarField>
   );

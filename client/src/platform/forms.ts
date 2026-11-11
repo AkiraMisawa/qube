@@ -58,7 +58,8 @@ export function validate(contract: ContractDefinition, values: Readonly<Record<s
   return issues;
 }
 
-function isIsoDate(text: string): boolean {
+/** A date that exists, written `yyyy-MM-dd`: `2026-02-30` is not one, and is never rolled over into March. */
+export function isIsoDate(text: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return false;
   const date = new Date(`${text}T00:00:00Z`);
   return !Number.isNaN(date.getTime()) && date.toISOString().startsWith(text);
