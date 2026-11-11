@@ -28,7 +28,7 @@ public class PricerLineTests
         public IDataStore Store { get; }
         public string Id { get; }
 
-        public Rig(int existing = 40, int? caseCap = null, Pv01Provider? pv01 = null)
+        public Rig(int existing = 40, int? caseCap = null, Pv01Provider? pv01 = null, string registration = "ABC/LE-01")
         {
             var register = new MeasureRegister([new XvaMeasures(pv01 ?? Pv01Provider.Simulated(TimeSpan.Zero)), new CcrMeasures()]);
             Workspaces = new WorkspaceService(new Dictionary<string, IEditRules> { [PortfolioEditRules.App] = new PortfolioEditRules(register) }, TimeProvider.System);
@@ -45,7 +45,7 @@ public class PricerLineTests
             Commands = new CommandService(registry, store);
             Store = store;
             Lines = new CommandLines(registry, Workspaces, registered, [new PortfolioShortForms()]);
-            Id = Service.Create("akira", "ABC/LE-01", Day1, existing).WorkspaceId;
+            Id = Service.Create("akira", registration, Day1, existing).WorkspaceId;
         }
 
         public WorkspaceState State => Workspaces.Find(Id)!;
@@ -500,6 +500,13 @@ public class PricerLineTests
         Assert.StartsWith("UnknownSaved: ", Read(rig.Preview("scenario load no-such-set")));
         Assert.Equal("Loaded 2 scenario(s) from rates-up, replacing up: up, down.", await rig.Run(load));
         Assert.StartsWith("Takes back: scenario load rates-up (you,", rig.Preview("undo").Would);
+
+        // A reading names three scenarios at most, of those a set replaces as of those it adds; the answer names each.
+        await rig.Run(rig.Preview("scenario mid jpy_ois +1bp"));
+        await rig.Run(rig.Preview("scenario wide jpy_ois +50bp"));
+        await rig.Run(rig.Preview("scenario save four"));
+        Assert.Equal("Loads 4 scenario(s) from four, replacing up, down, mid and 1 more: up, down, mid and 1 more.", rig.Preview("scenario load four").Would);
+        Assert.Equal("Loaded 4 scenario(s) from four, replacing up, down, mid, wide: up, down, mid, wide.", await rig.Run(rig.Preview("scenario load four")));
     }
 
     [Fact] // ADR-0016 note 32: the AI and the Scenarios tab invoke the same commands with the words a line reads, and are refused as the line is
@@ -587,13 +594,99 @@ public class PricerLineTests
         Assert.StartsWith("Takes back: refresh (the AI for you,", rig.Preview("undo").Would);
     }
 
+    [Fact] // ADR-0016 note 33, ADR-0003 §6: a refresh that still holds an edit for the user says that it waits, and one that holds none does not
+    public async Task Refresh_says_that_it_stays_while_an_edit_is_held()
+    {
+        var rig = new Rig();
+        var later = Day1.AddYears(1);
+        var after = new PortfolioSourceVersion("ABC/LE-01", later, 40);
+        var matured = ((PortfolioSourceVersion)rig.State.Source).Existing.First(t => after.Trade(t.TradeId) is null);
+        rig.Service.Edit(rig.Id, rig.State.Revision, "akira", $"trade:{matured.TradeId}", "notional", 1_000_000m);
+        async Task<(string Said, bool Stays)> Refreshed()
+        {
+            var answer = Assert.IsType<CommandResult.Done>(await rig.Commands.InvokeAsync("xva.refresh", PortfolioContracts.Version,
+                new JsonObject { ["request"] = new JsonObject { ["workspaceId"] = rig.Id } }, Akira, Guid.NewGuid().ToString(), default)).Outputs["answer"]!;
+            return (answer["said"]!.GetValue<string>(), answer["stays"]!.GetValue<bool>());
+        }
+
+        Assert.Equal(("Refreshed: 1 edit(s) carried, 0 in conflict, 0 lost.", false), await Refreshed());
+
+        // The trade matured before the later value date: its edit is lost, and held until the user says so.
+        rig.Service.ChangeValueDate(rig.Id, rig.State.Revision, "akira", later);
+        Assert.Equal(("Refreshed: 0 edit(s) carried, 0 in conflict, 1 lost.", true), await Refreshed());
+    }
+
+    [Fact] // ADR-0016 note 33: a refusal that names the edits it waits on says them in its sentence, since a line and a notice show a sentence alone
+    public void A_refusal_says_the_edits_it_waits_on_in_its_sentence()
+    {
+        var refused = PortfolioPriceContracts.Naming(new WorkspaceRefused("UnresolvedEdits", "Resolve the conflicts and lost edits on the trades being priced.",
+            [new EditTarget("cp:ABC/LE-01", "trade:T-1", "notional"), new EditTarget("cp:ABC/LE-01", "csa:CSA-A", "threshold")]));
+
+        Assert.Equal(("UnresolvedEdits", "Resolve the conflicts and lost edits on the trades being priced: trade:T-1 notional, csa:CSA-A threshold.", 2),
+            (refused.Code, refused.Message, refused.Targets.Count));
+    }
+
+    [Fact] // ADR-0016 note 33, ADR-0010 §8, §10: a side that holds no trade is said, and a figure a case's input already refuses is counted with the first said, while Price is still read
+    public async Task Price_says_the_side_priced_alone_and_the_first_figure_its_input_refuses()
+    {
+        var alone = new Rig(existing: 3);
+        await alone.Run(alone.Preview("measures cva fva"));
+        await alone.Run(alone.Preview("set all after off"));
+        Assert.Equal("Prices CVA and FVA for 1 case, Before only, as one Run.", alone.Preview("price").Would);
+
+        var rig = new Rig(existing: 10, registration: "XYZ/LE-03");
+        await rig.Run(rig.Preview("measures cva fva"));
+        rig.Service.Edit(rig.Id, rig.State.Revision, "akira", "credit:XYZ/LE-03", "proxyRating", null);
+
+        Assert.Equal("Prices CVA and FVA for 1 case, as one Run. 1 figure of it would be refused, first CVA of Base: "
+            + "No CDS for XYZ/LE-03: its proxy has no rating. Choose it on the Credit tab, or with cds proxy.", rig.Preview("price").Would);
+    }
+
+    [Fact] // ADR-0016 note 33, XV13: price is one business submission, so a caller that invokes its handler with no key is refused and no Run is made
+    public async Task Price_invoked_with_no_key_is_refused()
+    {
+        var rig = new Rig();
+        var request = new Dictionary<string, JsonNode?> { ["request"] = new JsonObject { ["workspaceId"] = rig.Id } };
+
+        var refused = await Assert.ThrowsAsync<CapabilityFailure>(() => new PortfolioPriceCommand(() => rig.Service).InvokeAsync(new CapabilityInvocation("no-key", request, rig.Store, Akira), default));
+
+        Assert.Equal("NoIdempotencyKey", refused.Code);
+        Assert.Empty(rig.View.Runs);
+    }
+
+    [Fact] // ADR-0016 note 32, §11: a scenario command is one command of the log, and undo takes each back whole
+    public async Task Undo_takes_a_scenario_command_back_whole()
+    {
+        var rig = new Rig();
+        await rig.Run(rig.Preview("scenario up jpy_ois +10bp; usdjpy -5%"));
+        await rig.Run(rig.Preview("scenario ladder jpy_ois -10bp..+10bp step 10bp"));
+        Assert.Equal(["up", "jpy_ois -10bp", "jpy_ois +10bp"], rig.View.Scenarios.Select(s => s.Name));
+
+        await rig.Run(rig.Preview("undo"));
+        Assert.Equal(["up"], rig.View.Scenarios.Select(s => s.Name));
+
+        await rig.Run(rig.Preview("undo"));
+        Assert.Empty(rig.View.Scenarios);
+        Assert.Equal(["up"], (await RunAnd(rig, "redo")).Scenarios.Select(s => s.Name));
+    }
+
+    static async Task<PortfolioWorkspaceView> RunAnd(Rig rig, string line)
+    {
+        await rig.Run(rig.Preview(line));
+        return rig.View;
+    }
+
     [Fact] // ADR-0016 note 33, ADR-0010 §6: pv01 retry says the trades whose results failed before it asks, takes one trade, and says how many it asked again
     public async Task Pv01_retry_says_what_failed_and_enter_asks_again()
     {
         var down = true;
-        var rig = new Rig(pv01: new Pv01Provider((request, _) => down ? Task.FromException<decimal>(new InvalidOperationException("The PV01 engine is down.")) : Task.FromResult(1m)));
+        var pv01 = new Pv01Provider((request, _) => down ? Task.FromException<decimal>(new InvalidOperationException("The PV01 engine is down.")) : Task.FromResult(1m));
+        var rig = new Rig(pv01: pv01);
         await rig.Run(rig.Preview("measures cva fva"));
-        Assert.True(rig.View.PendingCells >= 0);
+        // A result is asked for the first time its trade is read, as the page's grid reads it; here each has failed
+        // by the time the line is read.
+        _ = rig.View;
+        await pv01.Settled();
         var before = rig.State.Revision;
 
         var all = rig.Preview("pv01 retry");
@@ -604,6 +697,9 @@ public class PricerLineTests
         Assert.Equal(new JsonObject { ["workspaceId"] = rig.Id, ["revision"] = before, ["trade"] = "DRAFT-2" }.ToJsonString(), Request(one));
         Assert.Equal("UnknownTarget: No trade T-0 in this workspace.", Read(rig.Preview("pv01 retry T-0")));
         Assert.Equal("UnreadWords: pv01 retry takes one trade, or none for every trade: DRAFT-2 is not read.", Read(rig.Preview("pv01 retry DRAFT-1 DRAFT-2")));
+
+        // Asked against a revision the workspace has left, nothing is asked again (ADR-0016 §2).
+        Assert.StartsWith("RevisionMoved: ", await rig.Invoke("xva.pv01.retry", new JsonObject { ["revision"] = before - 1 }));
 
         down = false;
         Assert.Equal("Asked again for 1 result(s).", await rig.Run(one));

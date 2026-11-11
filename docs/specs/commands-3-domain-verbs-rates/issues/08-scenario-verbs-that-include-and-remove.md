@@ -1,8 +1,12 @@
-# 08: The pricer's scenarios are a registered table
+# 08: The pricer's scenarios are included, excluded and removed by commands the server reads
 
-**What to build:** `xva.scenarios`, keyed by the scenario's name, with `included` as a flag and the count of its
-shifts. `set s1 included off` and `remove s1` are the kernel's. `scenario include`, `scenario exclude`, `scenario
-remove` and `scenarios clear` are short forms, and the Scenarios tab's controls go through the door.
+**What was built:** `scenario include`, `scenario exclude`, `scenario remove` and `scenarios clear` as verbs of the
+pricer, each read by the server with a trial as its preview, and the Scenarios tab's controls through the door
+(ADR-0016 note 32).
+
+**What was planned, and waits for step 5:** `xva.scenarios` as a registered table, keyed by the scenario's name, with
+`included` as a flag and the count of its shifts; `set s1 included off` and `remove s1` the kernel's, and the four
+verbs above short forms of them.
 
 **Pull request:** 3b
 

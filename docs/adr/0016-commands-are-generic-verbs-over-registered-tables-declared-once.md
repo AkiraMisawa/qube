@@ -475,9 +475,12 @@ log cannot yet say which entries were one command, or what an entry replaced.
 3. The pricer's remaining commands as capabilities through the gateway; Rates registers. **In progress**
    (`docs/specs/commands-3-domain-verbs-rates`, four pull requests); what it settles is notes 27 onward below.
    3a is built (2026-11-11): a command's application, short forms, the pricer's verbs that edit, `open` from tabs.
+   3b is built (2026-11-11): the pricer's scenario verbs, `price`, `refresh` and `pv01 retry` (notes 32 and 33).
 4. View verbs and the AI's row read.
 5. Drafts (§10): a detail dialog drawn from a registration, with the tables under its row and its templates. The
    pricer's trade and CSA must carry those fields and tables first; its sample has neither them nor such a dialog.
+   The pricer's scenarios as a registered table, a row computed from its shifts with their table under it, come
+   with this step too (note 32).
 6. Saved sequences of edits (§8). §1 and §2 serve them as they are.
 
 ### Notes of 2026-11-11: what step 1 settles (all DEFAULT)
@@ -1089,13 +1092,18 @@ each is built.
       it stands and builds the Run's input, keeping and submitting nothing. So it says what would be priced (`Prices
       CVA and FVA for 3 cases on 2 markets (the base market and 1 scenario), as one Run.`), names Before only or
       After only where one side is empty, and refuses everything Price refuses before a Run exists: held edits, too
-      many pairs, an `add each` set that no longer matches, no measure. A figure a case's input already refuses is
-      counted, and the first is said. *Not measured:* what this costs on a workspace of 10,000 trades, where it
-      runs for each reading of the line; it is to be measured before the line is used at that size.
+      many pairs, an `add each` set that no longer matches. (A workspace never holds no measure: `measures`
+      refuses to leave none.) A figure a case's input already refuses is counted, and the first is said. Building
+      the input reads the trades' cells, so a result not asked for yet, such as a new trade's PV01, is asked for
+      by the reading as it is by the grid's rows. *Not measured:* what this costs on a workspace of 10,000 trades,
+      where it runs for each reading of the line; it is to be measured before the line is used at that size.
     - *One submission, by the invocation's key.* A caller invokes a command with an idempotency key (note 4). The
       gateway now hands that key to the handler (`CapabilityInvocation.IdempotencyKey`), and `price` submits its
       Run under it. So the same invocation sent twice is one Run, also after the gateway's own memory of the key is
-      gone, and the request holds no key field for a caller to forget. Invoked with no key, `price` is refused.
+      gone, and the request holds no key field for a caller to forget. That holds where the request names its
+      revision, as a line's reading and the page's door always do. A request that names none takes the revision
+      the workspace then holds, so sent again after the workspace has moved it is refused (`IdempotencyConflict`)
+      and still makes no second Run. Invoked with no key, `price` is refused.
     - *A refusal is a sentence.* A line and a notice show a sentence alone, so a refusal that names the edits it
       waits on, or the issues the Run service found, says them in its sentence.
     - *`refresh`* reads the counterparty's trades and CSAs again on the value date the workspace holds. Its reading
@@ -1103,18 +1111,28 @@ each is built.
       caller's origin, and `undo` takes it back where the source's version is still the one it replaced. Its
       answer counts the edits carried, in conflict and lost, and says `stays` where any is held: the page's door
       then raises a notice that does not leave by itself, as the page's own Refresh did.
-    - *`pv01 retry`* takes one trade, or none for every trade. Its reading counts the trades with a failed result
-      and asks nothing; with none it says that nothing would be asked. A failed cell's *Ask again* invokes it with
-      its trade.
+    - *`pv01 retry`* takes one trade, or none for every trade. Its reading names the trades with a failed result
+      and asks again for nothing; with none it says that nothing would be asked. It reads the cells as the grid's
+      rows do, so a result never asked for is asked for by that read. Though it writes no workspace, it names the
+      revision it was read at and is refused where the workspace has moved since, as every command is (§2). A
+      failed cell's *Ask again* invokes it with its trade.
     - *The page's controls.* The Price and Refresh buttons invoke the two capabilities through the door; the dock
-      shows the workspace's latest Run, whoever priced it, so a Run the AI priced is shown too.
+      shows the workspace's latest Run, whoever priced it, so a Run the AI priced is shown too. The page reads its
+      workspace again after the AI invokes any of these commands or a scenario verb, as after any of its edits.
     - *Where the source moved, the grids start over.* The page keeps what it last showed its trades were read of
-      (the counterparty, the value date, the source's version). A reading of the workspace in which that differs,
-      after `refresh`, after an `undo` of one, or made by the AI, reads the grids from their first row again,
-      since the order may have moved; otherwise the rows in view are read again where they are.
+      (the counterparty, the value date, the source's version). A reading of the workspace in which that differs
+      reads the grids from their first row again, since the trades and their order may have moved; otherwise the
+      rows in view are read again where they are. So a `refresh` that read the same version of the source keeps
+      the rows in view and what is selected, where the page's own Refresh started the grids over every time. The
+      synthetic source is the same for a counterparty and a value date however often it is read, so in the sample
+      only a change of the value date or the counterparty moves it, and no browser test reaches this through
+      `refresh`; `undo` refuses to take back a `refresh` that read another version (note 2).
     - *A command that needs no argument is read by its words alone.* The line asked the server to read a command
       chosen in its list only where the command takes no argument (note 15). It now asks wherever every argument
       may be left out, so `pv01 retry` says what it would ask again before Enter, as `price` and `refresh` do.
+      Enter on such a command in the list runs it, as it runs one that takes no argument, where it wrote the words
+      on the line for a second Enter before. That reaches the kernel's `reset` too: typed alone and entered, it
+      resets what the screen names, or is refused where the screen names nothing.
     - *The list's order.* The line lists the commands of the page's application first, in the order its module
       registers them, with `price` first; then the commands still written in the client; then the kernel's. A
       served command says its application (`Served.app`) for this.

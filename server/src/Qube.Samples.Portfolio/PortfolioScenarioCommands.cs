@@ -26,15 +26,13 @@ public static class PortfolioScenarioCommands
     public const string LoadRequest = "xva.scenario-load-request";
     public const string ScenariosMade = "xva.scenarios-made";
 
-    static string Count(int count, string noun) => $"{count} {noun}{(count == 1 ? "" : "s")}";
-
     /// <summary>Names as a reading lists them: the first three, then how many more, since a set may hold dozens.</summary>
     public static string Some(IReadOnlyList<string> names) =>
         names.Count <= 3 ? TableWords.And(names) : $"{string.Join(", ", names.Take(3))} and {names.Count - 3} more";
 
     /// <summary>What a reading of <c>scenario &lt;name&gt; …</c> says it would do: the scenario made, or the one whose shifts are replaced, with the shifts as read.</summary>
     public static string WouldDefine(ScenarioPlan plan) =>
-        $"{(plan.Replaced.Count == 0 ? $"Makes the scenario {plan.Made[0]}" : $"Replaces the shifts of {plan.Made[0]}")} with {Count(plan.Shifts.Count, "shift")}: {string.Join("; ", plan.Shifts.Select(s => s.Text))}.";
+        $"{(plan.Replaced.Count == 0 ? $"Makes the scenario {plan.Made[0]}" : $"Replaces the shifts of {plan.Made[0]}")} with {PortfolioCommand.Counted(plan.Shifts.Count, "shift")}: {string.Join("; ", plan.Shifts.Select(s => s.Text))}.";
 
     /// <summary>What <c>scenario &lt;name&gt; …</c> says back, in the command line's words.</summary>
     public static string Defined(ScenarioPlan plan) =>
@@ -49,16 +47,17 @@ public static class PortfolioScenarioCommands
     /// </summary>
     public static string WouldGenerate(ScenarioPlan plan, int pairs, int cap) =>
         $"{Making("Makes", plan, Some(plan.Made))} " + (pairs <= cap
-            ? $"Price would then price {Count(pairs, "pair")} of a case and a market, of {cap} at most."
-            : $"Price would then refuse to price {Count(pairs, "pair")} of a case and a market: {pairs - cap} more than the {cap} it prices at most.");
+            ? $"Price would then price {PortfolioCommand.Counted(pairs, "pair")} of a case and a market, of {cap} at most."
+            : $"Price would then refuse to price {PortfolioCommand.Counted(pairs, "pair")} of a case and a market: {pairs - cap} more than the {cap} it prices at most.");
 
     /// <summary>What a generator says back: how many it made, and those of the same name it replaced.</summary>
     public static string Generated(ScenarioPlan plan) => Making("Made", plan, string.Join(", ", plan.Made));
 
-    static string Loading(string verb, string set, ScenarioPlan plan, string names) =>
-        $"{verb} {plan.Made.Count} scenario(s) from {set}{(plan.Replaced.Count == 0 ? "" : $", replacing {string.Join(", ", plan.Replaced)}")}: {names}.";
+    // A set loaded, in a reading's words or the answer's: the names it replaces and the names it adds are said alike.
+    static string Loading(string verb, string set, ScenarioPlan plan, Func<IReadOnlyList<string>, string> names) =>
+        $"{verb} {plan.Made.Count} scenario(s) from {set}{(plan.Replaced.Count == 0 ? "" : $", replacing {names(plan.Replaced)}")}: {names(plan.Made)}.";
 
-    public static string Loaded(string set, ScenarioPlan plan) => Loading("Loaded", set, plan, string.Join(", ", plan.Made));
+    public static string Loaded(string set, ScenarioPlan plan) => Loading("Loaded", set, plan, names => string.Join(", ", names));
 
     public static string Included(string name, bool included) =>
         included ? $"Price prices the scenario {name}." : $"Price leaves the scenario {name} out; its shifts stay.";
@@ -151,7 +150,7 @@ public static class PortfolioScenarioCommands
             Form("scenario remove", ("name", true)),
             line => Named(line, "scenario remove"),
             (service, raw, _, request) => service.PlanRemoveScenario(raw, Text(request, "name")),
-            trial => $"Removes the scenario {trial.Plan.Named[0]}, with its {Count(ShiftsOf(trial.Before, trial.Plan.Named[0]), "shift")}.",
+            trial => $"Removes the scenario {trial.Plan.Named[0]}, with its {PortfolioCommand.Counted(ShiftsOf(trial.Before, trial.Plan.Named[0]), "shift")}.",
             (plan, _) => $"Removed the scenario {plan.Named[0]}.",
             (line, _) => Names(line, _ => true)));
         Add(new("xva.scenario.duplicate", "Copy a scenario of an XVA workspace under a new name, to be edited", DuplicateRequest, ScenariosMade,
@@ -165,14 +164,14 @@ public static class PortfolioScenarioCommands
                     : new JsonObject { ["name"] = line.Text[..words[^1].Start].Trim(), ["copy"] = words[^1].Word };
             },
             (service, raw, _, request) => service.PlanDuplicate(raw, raw.Revision, Text(request, "name"), Text(request, "copy")),
-            trial => $"Copies the {Count(ShiftsOf(trial.Before, trial.Plan.Named[0]), "shift")} of {trial.Plan.Named[0]} as the scenario {trial.Plan.Made[0]}.",
+            trial => $"Copies the {PortfolioCommand.Counted(ShiftsOf(trial.Before, trial.Plan.Named[0]), "shift")} of {trial.Plan.Named[0]} as the scenario {trial.Plan.Made[0]}.",
             (plan, _) => $"Duplicated {plan.Named[0]} as {plan.Made[0]}.",
             (line, _) => Names(line, _ => true)));
         Add(new("xva.scenarios.clear", "Remove every scenario of an XVA workspace; Price then prices the base market alone", ClearRequest, PortfolioCommandContracts.Edited,
             Form("scenarios clear"),
             _ => [],
             (service, raw, _, _) => service.PlanClearScenarios(raw),
-            trial => $"Removes {Count(trial.Plan.Named.Count, "scenario")}: {Some(trial.Plan.Named)}.",
+            trial => $"Removes {PortfolioCommand.Counted(trial.Plan.Named.Count, "scenario")}: {Some(trial.Plan.Named)}.",
             (_, _) => "Removed every scenario; Price prices the base market alone."));
         foreach (var (generator, title) in new[]
         {
@@ -194,7 +193,7 @@ public static class PortfolioScenarioCommands
             Form("scenario load", ("set", true)),
             line => new JsonObject { ["set"] = line.Text.Trim() },
             (service, raw, user, request) => service.PlanLoad(raw, raw.Revision, user, Text(request, "set")),
-            trial => Loading("Loads", Text(trial.Request, "set"), trial.Plan, Some(trial.Plan.Made)),
+            trial => Loading("Loads", Text(trial.Request, "set"), trial.Plan, Some),
             (plan, request) => Loaded(Text(request, "set"), plan),
             // The sets the user can see whose names begin with what is typed, each by the name load takes for it.
             (line, service) =>
@@ -205,12 +204,6 @@ public static class PortfolioScenarioCommands
                     .Select(s => new LineCompletion(s.Label, from, $"{s.Scenarios} scenario(s), for {For(s.Visibility)}, saved by {s.Owner}"))]);
             }));
 
-        JsonObject Workspace() => new() { ["type"] = "string", ["minLength"] = 1, ["title"] = "Workspace", ["description"] = "The XVA workspace's id, as the context names it." };
-        JsonObject Revision() => new()
-        {
-            ["type"] = "integer", ["title"] = "Revision",
-            ["description"] = "The revision the request was made against; refused if the workspace has moved since. Left out, the one it holds.",
-        };
         JsonObject Field(string title, string description) => new() { ["type"] = "string", ["minLength"] = 1, ["title"] = title, ["description"] = description };
         void Contract(string id, string title, JsonObject properties, params string[] required) =>
             builder.AddContract(new ContractDefinition(id, PortfolioContracts.Version, title, new JsonObject
@@ -222,41 +215,41 @@ public static class PortfolioScenarioCommands
             }));
         Contract(DefineRequest, "Define a scenario", new JsonObject
         {
-            ["workspaceId"] = Workspace(),
-            ["revision"] = Revision(),
+            ["workspaceId"] = PortfolioCommand.WorkspaceField(),
+            ["revision"] = PortfolioCommand.RevisionField(),
             ["name"] = Field("Name", "The scenario's name, such as s1 or rates-up. One of that name is replaced whole."),
             ["shifts"] = Field("Shifts", "Every shift of the scenario as written, separated by semicolons: jpy_ois +10bp; usdjpy -5%; jpy_ois 5y +3bp. "
                 + $"An index alone shifts the whole curve, a tenor narrows it to that point; bp is absolute, % relative. The indices are {ScenarioCatalog.Listed}."),
         }, "workspaceId", "name", "shifts");
         Contract(NameRequest, "A scenario by name", new JsonObject
         {
-            ["workspaceId"] = Workspace(),
-            ["revision"] = Revision(),
+            ["workspaceId"] = PortfolioCommand.WorkspaceField(),
+            ["revision"] = PortfolioCommand.RevisionField(),
             ["name"] = Field("Scenario", "The scenario's name, as the workspace lists it."),
         }, "workspaceId", "name");
         Contract(DuplicateRequest, "Duplicate a scenario", new JsonObject
         {
-            ["workspaceId"] = Workspace(),
-            ["revision"] = Revision(),
+            ["workspaceId"] = PortfolioCommand.WorkspaceField(),
+            ["revision"] = PortfolioCommand.RevisionField(),
             ["name"] = Field("Scenario", "The scenario to copy, as the workspace lists it."),
             ["copy"] = Field("New name", "The copy's name, which no scenario of the workspace has."),
         }, "workspaceId", "name", "copy");
         Contract(ClearRequest, "Remove every scenario", new JsonObject
         {
-            ["workspaceId"] = Workspace(),
-            ["revision"] = Revision(),
+            ["workspaceId"] = PortfolioCommand.WorkspaceField(),
+            ["revision"] = PortfolioCommand.RevisionField(),
         }, "workspaceId");
         Contract(GeneratorRequest, "Generate scenarios", new JsonObject
         {
-            ["workspaceId"] = Workspace(),
-            ["revision"] = Revision(),
+            ["workspaceId"] = PortfolioCommand.WorkspaceField(),
+            ["revision"] = PortfolioCommand.RevisionField(),
             ["factors"] = Field("Factors", "As the command line takes it after scenario ladder or scenario cross. Ladder: a factor, a range and a step, "
                 + "jpy_ois -50bp..+50bp step 10bp. Cross: lists separated by x, each a factor and its sizes, jpy_ois -50bp, 0, +50bp x usdjpy -10%, 0, +10%."),
         }, "workspaceId", "factors");
         Contract(SaveRequest, "Save the scenarios as a set", new JsonObject
         {
-            ["workspaceId"] = Workspace(),
-            ["revision"] = Revision(),
+            ["workspaceId"] = PortfolioCommand.WorkspaceField(),
+            ["revision"] = PortfolioCommand.RevisionField(),
             ["set"] = Field("Set", "The set's name, one word without @, such as rates-up. The user's own set of that name is replaced."),
             ["share"] = new JsonObject
             {
@@ -266,8 +259,8 @@ public static class PortfolioScenarioCommands
         }, "workspaceId", "set");
         Contract(LoadRequest, "Load a saved set", new JsonObject
         {
-            ["workspaceId"] = Workspace(),
-            ["revision"] = Revision(),
+            ["workspaceId"] = PortfolioCommand.WorkspaceField(),
+            ["revision"] = PortfolioCommand.RevisionField(),
             ["set"] = Field("Set", "A set the user can see, by name, or set@owner where two share a name, such as rates@ben."),
         }, "workspaceId", "set");
         Contract(ScenariosMade, "Scenarios made", new JsonObject
@@ -334,7 +327,8 @@ public static class PortfolioScenarioCommands
         {
             var words = LineWords.Of(line.Text);
             if (words.Count > 2) throw new TableRefused("UnreadWords", "scenario save takes a set's name, then desk or all: more is not read.", words[2].Word);
-            var typed = new JsonObject { ["set"] = words.Count > 0 ? words[0].Word : "" };
+            if (words.Count == 0) throw new WorkspaceRefused("InvalidName", "scenario save takes the set's name, then desk or all where it is shared.");
+            var typed = new JsonObject { ["set"] = words[0].Word };
             if (words.Count > 1) typed["share"] = words[1].Word.ToLowerInvariant();
             var saved = workspaces().PlanSave(line.State, line.Caller.UserId, Text(typed, "set"), PortfolioCommand.Optional(typed, "share"));
             return PortfolioCommand.Read(line, typed, $"Saves {SavedAs(saved)}");

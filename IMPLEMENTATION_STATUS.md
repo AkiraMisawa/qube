@@ -1636,10 +1636,12 @@ same capabilities. Twelve hand-written client commands are gone with twelve page
   Run.`, or refuses as Price refuses: held edits by name, too many pairs, an `add each` set that no longer matches.
   Enter submits one Run under the key the command was invoked with, so the same invocation sent twice is one Run.
 - **`refresh`** says what it would read again, and its answer what carried; the notice stays while an edit is held.
-  The log names it `refresh`, and `undo` takes it back. The grids start over from their first row where the source
-  the trades were read of has moved, after a refresh, an undo of one, or one the AI made.
+  The log names it `refresh`, and `undo` takes it back. The grids start over from their first row only where what
+  the trades were read of has moved (the counterparty, the value date or the source's version); a `refresh` that
+  read the same version re-reads the rows in view where they are, where the Refresh button started the grids over
+  every time.
 - **`pv01 retry [trade]`** says the trades whose results failed before it asks, and that nothing would be asked
-  where none has.
+  where none has. It names the revision it was read at and is refused where the workspace has moved since.
 - **A new effect, `execute`**, for a command that starts something `undo` does not take back (`price`, `pv01
   retry`). The gateway hands a handler the idempotency key it was invoked with.
 - **The page's controls are the commands.** Price, Refresh, *Ask again*, and the Scenarios tab's include box,
@@ -1654,16 +1656,24 @@ same capabilities. Twelve hand-written client commands are gone with twelve page
   each.
 - **Gone:** the page's `/scenarios` (define), `/scenarios/generate`, `/include`, `/remove`, `/duplicate`, `/clear`,
   `/save` and `/load`, `GET /api/xva/scenario-sets`, `/price`, `/refresh` and `/retry`; the client's readers of a
-  `scenario` line and of the generators, and its copies of the sentences.
+  `scenario` line and of the generators, and its copies of the sentences; `caseCap` on the workspace's view, which
+  only those readers read (the cap is said in the sentences that count against it).
 
 ### Verification performed
 
 | What | Result |
 |---|---|
-| `dotnet test server/Qube.slnx` | SERVER_TESTS passed |
-| Client: `npm run typecheck`, `npm test`, `npm run build` | Clean; CLIENT_TESTS passed in 33 files; built |
-| `npx playwright test` (Chromium, headless, Linux) | BROWSER_TESTS passed |
-| The six browser tests this step adds or rewrites, with `--repeat-each=3` | REPEAT_TESTS passed |
+| `dotnet test server/Qube.slnx` | 1041 passed |
+| Client: `npm run typecheck`, `npm test`, `npm run build` | Clean; 290 passed in 33 files; built |
+| `npx playwright test` (Chromium, headless, Linux) | 82 passed |
+| The six browser tests this step adds or rewrites, with `--repeat-each=3` | 18 passed |
+
+Seen once and not explained: one earlier run of the whole browser suite failed one test this step does not change,
+"in the dark and the light theme every text on the XVA page reads at 4.5:1". `measures cva`, entered right after
+`price`, was not answered within the five seconds the test waits, and the line stayed busy. The same test then
+passed 37 times alone (25 of them with the processor and the disk kept busy) and in the whole run above, and the
+server's logs of the failed run were not kept. That run was the only one made while other work used the same
+machine. It is not known whether the server or the page was late; a recurrence should be run with a trace.
 
 ### Providers
 
@@ -1680,7 +1690,12 @@ Unchanged: every figure on these pages is simulated, and says so.
 - The client's `price` remains for the Rates page until Rates has its own (3c); on the pricer's page the word is
   the server's.
 - A failed result cannot be produced in the browser with the simulated provider, so *Ask again* on a failed cell
-  is held by the server's tests and by the unit of the page it calls, not by a browser test.
+  is held by the server's tests of `pv01 retry` and the door's unit tests, not by a browser test.
+- The synthetic source holds no value that both moves with the value date and can be edited, so no edit of a
+  priced trade can be held in the sample: that `price` names the held edits in its refusal is held by a test of
+  the sentence alone, and the `refresh` that says it stays by an edit lost on a matured trade.
+- In the sample, `refresh` never reads another version of the source, so the grids starting over after one is
+  not exercised; a change of the value date or the counterparty, which starts them over itself, is.
 - Still written in the client: `new xva`, `explain`, the trace options, `open result`, `dock full|restore`,
   `download run` and `copy quote` (note 31), and every command of Rates (3c).
 - `add each` takes no list yet (3d). Rates has no door and no registered table (3c).

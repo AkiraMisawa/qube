@@ -194,7 +194,6 @@ public class PricerCaseTests
         var refused = Assert.Throws<WorkspaceRefused>(() => service.Price(ws.WorkspaceId, ws.Revision, "akira", "k1"));
 
         Assert.Equal(("TooManyCases", "Price prices 3 cases at most, the Base among them; this workspace holds 4, 1 over. Remove 1 to price."), (refused.Code, refused.Message));
-        Assert.Equal(3, service.View(ws.WorkspaceId, "akira").CaseCap);
     }
 
     [Fact] // ADR-0010 §3's further note, ADR-0003 §6: a counterparty change drops the cases made on it, counted in the confirmation

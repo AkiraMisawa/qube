@@ -20,3 +20,7 @@ workspace. The client's hand-written commands go.
 is refused in the reading; a set that would leave more pairs than Price prices is still made, as before, and the
 reading says that Price would refuse it. The generator's request field is `factors` (it was `text`). `scenario
 save` writes no workspace, and its reading keeps nothing.
+
+2026-11-11, after the review. A reading of `scenario load` names three of the scenarios it would replace at most, as
+it does of those it adds; `scenario save` typed with no name is refused at the reading. The service's one-step
+scenario methods, which only tests still called, are steps of the tests now.

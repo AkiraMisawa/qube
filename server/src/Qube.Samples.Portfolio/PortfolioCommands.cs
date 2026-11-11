@@ -322,6 +322,20 @@ static class PortfolioCommand
     /// <summary>An optional field: absent is none, never a value made up for it.</summary>
     public static string? Optional(JsonNode request, string name) => request[name]?.GetValue<string>();
 
+    /// <summary>The workspace a request of one of the pricer's commands names, as its contract says it.</summary>
+    public static JsonObject WorkspaceField() =>
+        new() { ["type"] = "string", ["minLength"] = 1, ["title"] = "Workspace", ["description"] = "The XVA workspace's id, as the context names it." };
+
+    /// <summary>The revision such a request was made against, as its contract says it.</summary>
+    public static JsonObject RevisionField() => new()
+    {
+        ["type"] = "integer", ["title"] = "Revision",
+        ["description"] = "The revision the request was made against; refused if the workspace has moved since. Left out, the one it holds.",
+    };
+
+    /// <summary>A count with what it counts, as a sentence says it: <c>1 case</c>, <c>3 cases</c>.</summary>
+    public static string Counted(int count, string noun) => $"{count} {noun}{(count == 1 ? "" : "s")}";
+
     /// <summary>
     /// A line as one of the pricer's commands read it (ADR-0016 note 28): the request to invoke it with, which names the
     /// workspace and the revision read, each argument as typed, and what it would do.
@@ -401,12 +415,6 @@ public sealed class PortfolioCommandsModule(Func<PortfolioWorkspaces> workspaces
         builder.AddCapability(new PortfolioRefresh(workspaces));
         builder.AddCapability(new PortfolioPv01Retry(workspaces));
         PortfolioPriceContracts.Register(builder);
-        JsonObject Workspace() => new() { ["type"] = "string", ["minLength"] = 1, ["title"] = "Workspace", ["description"] = "The XVA workspace's id, as the context names it." };
-        JsonObject Revision() => new()
-        {
-            ["type"] = "integer", ["title"] = "Revision",
-            ["description"] = "The revision the request was made against; refused if the workspace has moved since. Left out, the one it holds.",
-        };
         JsonObject Text(string title, string description) => new() { ["type"] = "string", ["minLength"] = 1, ["title"] = title, ["description"] = description };
         void Request(string id, string title, JsonObject properties, params string[] required) =>
             builder.AddContract(new ContractDefinition(id, PortfolioContracts.Version, title, new JsonObject
@@ -418,8 +426,8 @@ public sealed class PortfolioCommandsModule(Func<PortfolioWorkspaces> workspaces
             }));
         Request(PortfolioCommandContracts.VaryRequest, "Vary a cell", new JsonObject
         {
-            ["workspaceId"] = Workspace(),
-            ["revision"] = Revision(),
+            ["workspaceId"] = PortfolioCommand.WorkspaceField(),
+            ["revision"] = PortfolioCommand.RevisionField(),
             ["cell"] = Text("Cell", "Its row and its column, as the command line names a cell: CSA-A threshold, NS-001 recovery, T-1001 notional."),
             ["entity"] = Text("Entity", "The cell's entity, as a page names it (csa:CSA-A), with field and in place of cell. A page's own dialog writes this; say cell otherwise."),
             ["field"] = Text("Field", "The cell's field, as a page names it (counterpartyThreshold), with entity."),
@@ -427,19 +435,19 @@ public sealed class PortfolioCommandsModule(Func<PortfolioWorkspaces> workspaces
         }, "workspaceId", "values");
         Request(PortfolioCommandContracts.TradesAddRequest, "Price each new trade alone", new JsonObject
         {
-            ["workspaceId"] = Workspace(),
-            ["revision"] = Revision(),
+            ["workspaceId"] = PortfolioCommand.WorkspaceField(),
+            ["revision"] = PortfolioCommand.RevisionField(),
         }, "workspaceId");
         Request(PortfolioCommandContracts.CdsRequest, "Choose the CDS", new JsonObject
         {
-            ["workspaceId"] = Workspace(),
-            ["revision"] = Revision(),
+            ["workspaceId"] = PortfolioCommand.WorkspaceField(),
+            ["revision"] = PortfolioCommand.RevisionField(),
             ["cds"] = Text("CDS", "A single name's words in any order (ABCH USD SNRFOR), proxy with a sector, a region and a rating (proxy industrials asia BBB), or none."),
         }, "workspaceId", "cds");
         Request(PortfolioCommandContracts.MeasuresRequest, "Choose the measures", new JsonObject
         {
-            ["workspaceId"] = Workspace(),
-            ["revision"] = Revision(),
+            ["workspaceId"] = PortfolioCommand.WorkspaceField(),
+            ["revision"] = PortfolioCommand.RevisionField(),
             // No least length: a selection of none is the command's to refuse, in its own words, as the page's buttons can ask for it.
             ["measures"] = new JsonObject
             {
@@ -449,14 +457,14 @@ public sealed class PortfolioCommandsModule(Func<PortfolioWorkspaces> workspaces
         }, "workspaceId", "measures");
         Request(PortfolioCommandContracts.CaseRemoveRequest, "Remove a case", new JsonObject
         {
-            ["workspaceId"] = Workspace(),
-            ["revision"] = Revision(),
+            ["workspaceId"] = PortfolioCommand.WorkspaceField(),
+            ["revision"] = PortfolioCommand.RevisionField(),
             ["case"] = Text("Case", "The case, by its title (CSA-A threshold 5mm) or its id."),
         }, "workspaceId", "case");
         Request(PortfolioCommandContracts.CasesClearRequest, "Remove every case", new JsonObject
         {
-            ["workspaceId"] = Workspace(),
-            ["revision"] = Revision(),
+            ["workspaceId"] = PortfolioCommand.WorkspaceField(),
+            ["revision"] = PortfolioCommand.RevisionField(),
         }, "workspaceId");
         Request(PortfolioCommandContracts.CasesMade, "Cases made", new JsonObject
         {

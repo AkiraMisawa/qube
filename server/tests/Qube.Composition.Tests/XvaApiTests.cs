@@ -22,19 +22,6 @@ public class XvaApiTests(QubeFactory factory) : IClassFixture<QubeFactory>
     async Task<HttpResponseMessage> Post(JsonObject ws, string path, object body) =>
         await client.PostAsJsonAsync($"/api/xva/workspaces/{Id(ws)}/{path}", body);
 
-    /// <summary><c>price</c> as the page's button and the line invoke it (ADR-0016 note 33), with the key of its submission.</summary>
-    Task<HttpResponseMessage> Price(JsonObject ws, string key) =>
-        client.PostAsJsonAsync("/api/commands/xva.workspace.price/1.0.0", new
-        {
-            inputs = new JsonObject { ["request"] = new JsonObject { ["workspaceId"] = Id(ws), ["revision"] = Revision(ws) } }, idempotencyKey = key,
-        });
-
-    static async Task<string> RunOf(HttpResponseMessage accepted)
-    {
-        Assert.True(accepted.IsSuccessStatusCode, await accepted.Content.ReadAsStringAsync());
-        return (await accepted.Content.ReadFromJsonAsync<JsonObject>())!["outputs"]!["answer"]!["runId"]!.GetValue<string>();
-    }
-
     async Task<JsonObject> Page(JsonObject ws, int start, int count, params object[] sorts)
     {
         var response = await Post(ws, "rows", new { start, count, sorts });
@@ -108,11 +95,11 @@ public class XvaApiTests(QubeFactory factory) : IClassFixture<QubeFactory>
         var ws = await Create(size: 50);
         var key = Guid.NewGuid().ToString();
 
-        var response = await Price(ws, key);
-        var again = await Price(ws, key);
+        var response = await client.PriceWorkspace(ws, key);
+        var again = await client.PriceWorkspace(ws, key);
 
-        var runId = await RunOf(response);
-        Assert.Equal(runId, await RunOf(again));
+        var runId = await GatewaySteps.RunOf(response);
+        Assert.Equal(runId, await GatewaySteps.RunOf(again));
         JsonObject run;
         do run = (await client.GetFromJsonAsync<JsonObject>($"/api/runs/{runId}"))!;
         while (run["status"]!.GetValue<string>() == "running");
@@ -136,7 +123,7 @@ public class XvaApiTests(QubeFactory factory) : IClassFixture<QubeFactory>
     public async Task The_pricing_db_lists_every_origin_and_the_xva_view_its_figures()
     {
         var ws = await Create(size: 30);
-        var xvaRun = await RunOf(await Price(ws, Guid.NewGuid().ToString()));
+        var xvaRun = await GatewaySteps.RunOf(await client.PriceWorkspace(ws, Guid.NewGuid().ToString()));
         var catalog = (await client.GetFromJsonAsync<JsonObject>("/api/catalog"))!;
         var workflow = catalog["workflows"]!.AsArray().Single(w => w!["definitionId"]!.GetValue<string>() == "workflow.sample.station-summary")!.DeepClone();
         var other = await client.PostAsJsonAsync("/api/runs", new JsonObject

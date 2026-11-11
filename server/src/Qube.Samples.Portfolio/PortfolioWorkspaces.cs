@@ -54,7 +54,6 @@ public sealed record PortfolioWorkspaceView(
     IReadOnlyList<string> Currencies,
     IReadOnlyList<string> Simulated,
     IReadOnlyList<CaseView> Cases,
-    int CaseCap,
     int Changes,
     IReadOnlyList<ScenarioView> Scenarios,
     IReadOnlyList<ShiftRow> Shifts,
@@ -210,17 +209,14 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
             [.. register.TradeColumns.Where(c => register.Selected(state).Any(m => m.Id == c.Module))], register.Inputs(state),
             register.WithCells(state, [.. Rows(state).Where(t => t.IsNew)]).Sum(t => t.Cells?.Values.Count(c => c.State == TradeCell.Pending) ?? 0),
             PortfolioMaterialiser.DisplayCurrency(state), PortfolioMarket.Currencies, [.. register.Selected(state).Where(m => m.Simulated).Select(m => m.Id)],
-            PortfolioCases.All(raw), caseCap, DataEdits(raw).Count(), PortfolioScenarios.All(raw), PortfolioScenarios.Rows(raw), register.Settings(state));
+            PortfolioCases.All(raw), DataEdits(raw).Count(), PortfolioScenarios.All(raw), PortfolioScenarios.Rows(raw), register.Settings(state));
     }
 
     /// <summary>
-    /// <c>scenario &lt;name&gt; &lt;shift&gt;; …</c> (ADR-0010 §4 and its note of 2026-11-09): the scenario whole, its shifts read as
-    /// written, in one log entry per row; one of that name is replaced, and stays included or excluded as it was.
+    /// <c>scenario &lt;name&gt; &lt;shift&gt;; …</c> as planned (ADR-0010 §4 and its note of 2026-11-09, ADR-0016 note 32): the
+    /// scenario whole, its shifts read as written, in one log entry per row; one of that name is replaced, and stays
+    /// included or excluded as it was.
     /// </summary>
-    public ScenarioAnswer DefineScenario(string workspaceId, long revision, string user, string name, string shifts, RunOrigin? origin = null) =>
-        Made(workspaceId, revision, user, raw => PlanScenario(raw, revision, name, shifts), origin);
-
-    /// <summary><c>scenario</c> as planned (ADR-0016 note 32): the scenario it would make, or the one of its name whose shifts it would replace.</summary>
     public ScenarioPlan PlanScenario(WorkspaceState raw, long revision, string name, string shifts)
     {
         var read = ShiftReader.ReadAll(shifts);
@@ -230,13 +226,10 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
     }
 
     /// <summary>
-    /// <c>scenario ladder …</c> and <c>scenario cross …</c> (ADR-0010 §4): a set of scenarios at once, each named from its
-    /// shifts and replacing one of its name, in one batch; the answer names those it made and those it replaced.
+    /// <c>scenario ladder …</c> and <c>scenario cross …</c> as planned (ADR-0010 §4, ADR-0016 note 32): a set of scenarios
+    /// at once, each named from its shifts and replacing one of its name, in one batch; the plan names those it would
+    /// make and those it would replace.
     /// </summary>
-    public ScenarioAnswer GenerateScenarios(string workspaceId, long revision, string user, string generator, string text, RunOrigin? origin = null) =>
-        Made(workspaceId, revision, user, raw => PlanGenerate(raw, revision, generator, text), origin);
-
-    /// <summary>A generator as planned (ADR-0016 note 32): the scenarios it would make, by name, and those it would replace.</summary>
     public ScenarioPlan PlanGenerate(WorkspaceState raw, long revision, string generator, string text)
     {
         var made = generator switch
@@ -266,11 +259,10 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
         return changes.Count == 0 ? raw : workspaces.Batch(workspaceId, revision, user, changes, origin);
     }
 
-    /// <summary><c>scenario include|exclude &lt;name&gt;</c>: whether Price prices it, as its box says; its rows stay.</summary>
-    public WorkspaceState IncludeScenario(string workspaceId, long revision, string user, string name, bool included, RunOrigin? origin = null) =>
-        Made(workspaceId, revision, user, raw => PlanInclude(raw, name, included), origin).State;
-
-    /// <summary><c>scenario include|exclude</c> as planned (ADR-0016 note 32): the scenario by the name it holds; no change where it already stands so.</summary>
+    /// <summary>
+    /// <c>scenario include|exclude &lt;name&gt;</c> as planned (ADR-0016 note 32): whether Price prices it, as its box says;
+    /// its rows stay. The scenario by the name it holds; no change where it already stands so.
+    /// </summary>
     public ScenarioPlan PlanInclude(WorkspaceState raw, string name, bool included)
     {
         var changes = PortfolioScenarios.Include(raw, name, included);
@@ -278,11 +270,10 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
         return new(new(changes, $"scenario {(included ? "include" : "exclude")} {held}"), [], [], [held], []);
     }
 
-    /// <summary><c>scenario remove &lt;name&gt;</c>: its rows, in one batch.</summary>
-    public WorkspaceState RemoveScenario(string workspaceId, long revision, string user, string name, RunOrigin? origin = null) =>
-        Made(workspaceId, revision, user, raw => PlanRemoveScenario(raw, name), origin).State;
-
-    /// <summary><c>scenario remove</c> as planned (ADR-0016 note 32): the scenario by the name it holds, with how many shifts go with it.</summary>
+    /// <summary>
+    /// <c>scenario remove &lt;name&gt;</c> as planned (ADR-0016 note 32): its rows, in one batch; the scenario by the name
+    /// it holds, with how many shifts go with it.
+    /// </summary>
     public ScenarioPlan PlanRemoveScenario(WorkspaceState raw, string name)
     {
         var changes = PortfolioScenarios.Remove(raw, name);
@@ -290,11 +281,7 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
         return new(new(changes, $"scenario remove {held}"), [], [], [held], []);
     }
 
-    /// <summary><c>scenarios clear</c>: every shift row.</summary>
-    public WorkspaceState ClearScenarios(string workspaceId, long revision, string user, RunOrigin? origin = null) =>
-        Made(workspaceId, revision, user, PlanClearScenarios, origin).State;
-
-    /// <summary><c>scenarios clear</c> as planned (ADR-0016 note 32): every scenario the workspace holds; with none, refused.</summary>
+    /// <summary><c>scenarios clear</c> as planned (ADR-0016 note 32): every shift row of every scenario the workspace holds; with none, refused.</summary>
     public ScenarioPlan PlanClearScenarios(WorkspaceState raw)
     {
         var changes = PortfolioScenarios.Clear(raw);
@@ -302,11 +289,10 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
         return new(new(changes, "scenarios clear"), [], [], [.. PortfolioScenarios.All(raw).Select(s => s.Name)], []);
     }
 
-    /// <summary><c>scenario duplicate &lt;name&gt; &lt;new name&gt;</c>: the scenario's rows under the new name, to be edited.</summary>
-    public ScenarioAnswer DuplicateScenario(string workspaceId, long revision, string user, string name, string copy, RunOrigin? origin = null) =>
-        Made(workspaceId, revision, user, raw => PlanDuplicate(raw, revision, name, copy), origin);
-
-    /// <summary><c>scenario duplicate</c> as planned (ADR-0016 note 32): the copy it would make, by its name.</summary>
+    /// <summary>
+    /// <c>scenario duplicate &lt;name&gt; &lt;new name&gt;</c> as planned (ADR-0016 note 32): the scenario's rows under the
+    /// new name, to be edited; the copy by its name.
+    /// </summary>
     public ScenarioPlan PlanDuplicate(WorkspaceState raw, long revision, string name, string copy)
     {
         var changes = PortfolioScenarios.Duplicate(raw, name, copy, revision);
@@ -350,14 +336,10 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
     }
 
     /// <summary>
-    /// <c>scenario load &lt;set&gt;</c> (ADR-0010 §4): the set's scenarios added in one batch, replacing those of the same name
-    /// and included as they were saved. A set named <c>&lt;set&gt;@&lt;owner&gt;</c> is that owner's; a name two sets the user
-    /// can see share is refused, naming their owners.
+    /// <c>scenario load &lt;set&gt;</c> as planned (ADR-0010 §4, ADR-0016 note 32): the set's scenarios added in one batch,
+    /// replacing those of the same name and included as they were saved. A set named <c>&lt;set&gt;@&lt;owner&gt;</c> is that
+    /// owner's; a name two sets the user can see share is refused, naming their owners.
     /// </summary>
-    public ScenarioAnswer LoadScenarios(string workspaceId, long revision, string user, string set, RunOrigin? origin = null) =>
-        Made(workspaceId, revision, user, raw => PlanLoad(raw, revision, user, set), origin);
-
-    /// <summary><c>scenario load</c> as planned (ADR-0016 note 32): the scenarios the set would add, and those of the same name it would replace.</summary>
     public ScenarioPlan PlanLoad(WorkspaceState raw, long revision, string user, string set)
     {
         var item = Saving(s => s.Find(PortfolioScenarios.SetKind, SetNoun, user, set));
@@ -398,12 +380,6 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
         var raw = At(workspaceId, revision, user);
         var plan = planned(raw);
         return (Written(raw, revision, user, plan.Command, origin), plan);
-    }
-
-    ScenarioAnswer Made(string workspaceId, long revision, string user, Func<WorkspaceState, ScenarioPlan> planned, RunOrigin? origin)
-    {
-        var (state, plan) = WriteScenarios(workspaceId, revision, user, planned, origin);
-        return new(state, plan.Made, plan.Replaced);
     }
 
     // A line's words with one space between them, as the log names a command.
@@ -545,8 +521,6 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
     public WorkspaceState SetDisplayCurrency(string workspaceId, long revision, string user, string currency) =>
         Edit(workspaceId, revision, user, Entity.WorkspaceSettings, Entity.DisplayCurrency, currency);
 
-    /// <summary>Refresh (ADR-0010 §1): acquires the same counterparty's trades for the same value date again; edits carry
-    /// or are held as for any new version.</summary>
     /// <summary>
     /// <c>refresh</c> (ADR-0003 §6): the same counterparty's trades and CSAs read again on the value date the workspace
     /// holds; edits carry or are held. The log names it by its word, with the caller's origin.
@@ -767,17 +741,19 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
 
     /// <summary>
     /// Asks again for every failed result among the selected modules' cells on the workspace's trades, or on one trade
-    /// (`pv01 retry`, and the failed cell's action, ADR-0010 §6). Answers how many were asked again.
+    /// (`pv01 retry`, and the failed cell's action, ADR-0010 §6), of the workspace at the revision named; one that has
+    /// moved since is refused. Answers how many were asked again.
     /// </summary>
-    public int Retry(string workspaceId, string user, string? tradeId = null)
+    public int Retry(string workspaceId, long revision, string user, string? tradeId = null)
     {
-        var state = PortfolioCases.Base(Owned(workspaceId, user));
+        var state = PortfolioCases.Base(At(workspaceId, revision, user));
         return register.Selected(state).Sum(m => m.Retry(state, Asked(state, tradeId)));
     }
 
     /// <summary>
     /// The trades a retry would ask again for (ADR-0016 note 33): those of the workspace, or the one named, that show a
-    /// failed result among the selected modules' cells, by their ids. Nothing is asked.
+    /// failed result among the selected modules' cells, by their ids. Nothing is asked again; a cell read for the first
+    /// time is asked for, as when the grid's rows are read.
     /// </summary>
     public IReadOnlyList<string> Failed(WorkspaceState raw, string? tradeId = null)
     {
@@ -848,7 +824,7 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
     }
 
     /// <summary>Price: freezes the revision the user saw and submits one Run for it.</summary>
-    public SubmissionResult Price(string workspaceId, long revision, string user, string idempotencyKey, RunOrigin origin = RunOrigin.Pricer)
+    public SubmissionResult Price(string workspaceId, long revision, string user, string idempotencyKey, RunOrigin origin)
     {
         Owned(workspaceId, user);
         // A retry is answered before anything is frozen again: a PV01 may have answered since, or the user moved on,

@@ -38,12 +38,7 @@ public class SimmPricerApiTests(QubeFactory factory) : IClassFixture<QubeFactory
     }
 
     /// <summary>Prices the workspace as the page's button and the line do (<c>price</c>, ADR-0016 note 33); answers its Run's id.</summary>
-    async Task<string> Price(JsonObject ws)
-    {
-        var request = new JsonObject { ["workspaceId"] = Text(ws["workspaceId"]), ["revision"] = Revision(ws) };
-        var accepted = await Ok(await client.PostAsJsonAsync("/api/commands/xva.workspace.price/1.0.0", new { inputs = new JsonObject { ["request"] = request }, idempotencyKey = Guid.NewGuid().ToString() }));
-        return Text(accepted["outputs"]!["answer"]!["runId"]);
-    }
+    async Task<string> Price(JsonObject ws) => await GatewaySteps.RunOf(await client.PriceWorkspace(ws, Guid.NewGuid().ToString()));
 
     async Task<JsonObject> Read(JsonNode reference) => await Ok(await client.PostAsJsonAsync("/api/data/read", reference));
 

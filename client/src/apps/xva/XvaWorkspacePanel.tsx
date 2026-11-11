@@ -453,6 +453,11 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
     else setConfirm({ registration, drop });
   };
 
+  /** A control's command through the door (ADR-0016 §5): a refusal is a notice that opens with what was not done. */
+  const invoked = async (capability: string, request: Readonly<Record<string, string>>, notDone: string) => {
+    const reason = await door.invoke(capability, request);
+    if (reason !== undefined) workspace.notify('refused', `${notDone}: ${reason.sentence}`);
+  };
   /**
    * The Price button invokes `price`, the command the line types (ADR-0016 note 33), so the two cannot differ: one Run
    * of the workspace as it stands once the edits already sent have landed (spine 6). The page reads the workspace again
@@ -462,8 +467,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   const price = async () => {
     setBusy('Pricing');
     try {
-      const reason = await door.invoke('xva.workspace.price', {});
-      if (reason !== undefined) workspace.notify('refused', `Price was refused: ${reason.sentence}`);
+      await invoked('xva.workspace.price', {}, 'Price was refused');
     } finally {
       setBusy(undefined);
     }
@@ -475,10 +479,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   };
 
   /** A failed cell's Ask again (ADR-0010 §6): `pv01 retry` for its trade, as the line types it (ADR-0016 note 33). */
-  const retry = async (tradeId: string) => {
-    const reason = await door.invoke('xva.pv01.retry', { trade: tradeId });
-    if (reason !== undefined) workspace.notify('refused', `Nothing was asked again: ${reason.sentence}`);
-  };
+  const retry = (tradeId: string) => invoked('xva.pv01.retry', { trade: tradeId }, 'Nothing was asked again');
   /** A trade grid as the line is told of it: the trades' table, the grid's subset, and its columns' names as shown. */
   const declaredOf = (grid: TradeGrid): ScreenGrid => ({ table: TRADES_TABLE, subset: grid, columns: gridColumns.current[grid].map((c) => c.name) });
   // A trade grid's Context Menu: what the trades' table offers on the rows selected and the cell under the menu
@@ -597,8 +598,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   const refresh = async () => {
     setBusy('Refreshed');
     try {
-      const reason = await door.invoke('xva.refresh', {});
-      if (reason !== undefined) workspace.notify('refused', `Refresh was refused: ${reason.sentence}`);
+      await invoked('xva.refresh', {}, 'Refresh was refused');
     } finally {
       setBusy(undefined);
     }
@@ -728,22 +728,18 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
    * The Scenarios tab's gestures on a scenario by name are the commands the line types (ADR-0016 note 32): `scenario
    * include`, `exclude`, `remove`, `duplicate` and `scenarios clear`, so a box and a line cannot differ and `undo` names
    * both the same. The notice is the server's sentence; refused, the page says what was not done and why.
+   * Duplicate's dialog stays open with the server's reason when it is refused, so that one throws.
    */
-  const scenarioGesture = async (capability: string, request: Readonly<Record<string, string>>, undone: string) => {
-    const reason = await door.invoke(capability, request);
-    if (reason !== undefined) workspace.notify('refused', `${undone}: ${reason.sentence}`);
-  };
-  /** Duplicate: the dialog stays open with the server's reason when it is refused, so this throws. */
   const duplicateScenario = async (name: string, copy: string) => {
     const reason = await door.invoke('xva.scenario.duplicate', { name, copy });
     if (reason !== undefined) throw new Error(reason.sentence);
   };
   const scenarioActions: ScenarioActions = {
     edit: editShifts,
-    include: (name, included) => void scenarioGesture(`xva.scenario.${included ? 'include' : 'exclude'}`, { name }, `${name} was not ${included ? 'included' : 'excluded'}`),
+    include: (name, included) => void invoked(`xva.scenario.${included ? 'include' : 'exclude'}`, { name }, `${name} was not ${included ? 'included' : 'excluded'}`),
     duplicate: duplicateScenario,
-    remove: (name) => void scenarioGesture('xva.scenario.remove', { name }, `${name} was not removed`),
-    clear: () => void scenarioGesture('xva.scenarios.clear', {}, 'No scenario was removed'),
+    remove: (name) => void invoked('xva.scenario.remove', { name }, `${name} was not removed`),
+    clear: () => void invoked('xva.scenarios.clear', {}, 'No scenario was removed'),
     notify: workspace.notify,
   };
   // *Vary values…* (ADR-0010 §3): the cell whose Context Menu opened the dialog, while it is open.

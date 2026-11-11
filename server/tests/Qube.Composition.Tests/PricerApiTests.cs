@@ -76,7 +76,6 @@ public class PricerApiTests(QubeFactory factory) : IClassFixture<QubeFactory>
         (_, ws) = await Taken(ws, "xva.vary", new JsonObject { ["entity"] = "netting:NS-001", ["field"] = "cvaRecovery", ["values"] = "25%" });
         var cases = ws["cases"]!.AsArray().Select(c => (Id: c!["id"]!.GetValue<string>(), Title: c["title"]!.GetValue<string>())).ToList();
         Assert.Equal(["Base", "CSA-A threshold 10mm", "NS-001 recovery 25%"], cases.Select(c => c.Title));
-        Assert.Equal(50, ws["caseCap"]!.GetValue<int>());
 
         var (_, rows) = await Price(ws);
 
@@ -279,7 +278,9 @@ public class PricerApiTests(QubeFactory factory) : IClassFixture<QubeFactory>
     [Fact] // ADR-0010 §6: XVA's columns reach the New grid over HTTP, a Margin is an edit, and `pv01 retry` asks again
     public async Task Xvas_trade_columns_are_read_and_edited_over_http()
     {
-        var ws = await Create();
+        // The columns are the selected measures' modules' (ADR-0010 §10), and a new workspace starts on its owner's last
+        // selection, which another test of this host may have left: the selection is this test's own.
+        var ws = await Measures(await Create(), "cva", "fva");
         Assert.Equal(["xva.pv01", "xva.margin", "xva.pvAdj"], ws["tradeColumns"]!.AsArray().Select(c => c!["field"]!.GetValue<string>()));
 
         var edited = await Post(ws, "edits", new { revision = Revision(ws), entity = "trade:DRAFT-1", field = "xva.margin", value = 2 });
@@ -289,7 +290,9 @@ public class PricerApiTests(QubeFactory factory) : IClassFixture<QubeFactory>
         Assert.Equal(2m, cells["xva.margin"]!["value"]!.GetValue<decimal>());
         Assert.False(cells["xva.pvAdj"]!["editable"]!.GetValue<bool>());
 
-        var (said, _) = await Taken(ws, "xva.pv01.retry", []);
+        // Asked of the workspace as the edit left it; of the revision before, it is refused, as any command is.
+        Assert.Equal(HttpStatusCode.Conflict, (await Command(ws, "xva.pv01.retry", [])).StatusCode);
+        var (said, _) = await Taken((await edited.Content.ReadFromJsonAsync<JsonObject>())!, "xva.pv01.retry", []);
         Assert.Equal("No result had failed, so nothing was asked again.", said);
     }
 

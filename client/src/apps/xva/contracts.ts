@@ -379,9 +379,8 @@ export interface XvaWorkspaceView {
   readonly currencies: readonly string[];
   /** The selected modules whose figures come from a simulated provider: the page says `SIMULATED` while any is. */
   readonly simulated: readonly string[];
-  /** Every case Price prices, the Base first (ADR-0010 §3), and how many one Price may price, the Base among them. */
+  /** Every case Price prices, the Base first (ADR-0010 §3). */
   readonly cases: readonly CaseView[];
-  readonly caseCap: number;
   /** How many changes the Changes tab lists, a case's among them. */
   readonly changes: number;
   /** The scenarios in order of their first row, and every shift row in the order made (ADR-0010 §4). Price prices the

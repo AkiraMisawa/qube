@@ -136,7 +136,7 @@ public static class XvaApi
             var issues = refused.Targets.Select(t => new CompositionIssue(refused.Code, $"/{t.Entity}/{t.Field}", refused.Message)).ToList();
             var status = refused.Code switch
             {
-                "UnknownWorkspace" or "UnknownRun" or "UnknownScenario" or "UnknownSaved" => 404,
+                "UnknownWorkspace" or "UnknownRun" or "UnknownScenario" => 404,
                 "NotOwner" => 403,
                 "RevisionMoved" or "ConfirmationStale" or "UnresolvedEdits" or "ConflictUnresolved" or "RunRunning" => 409,
                 _ => 422,

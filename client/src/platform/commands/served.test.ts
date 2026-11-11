@@ -425,6 +425,15 @@ describe('Enter on a line the server reads, through its page\'s door (ADR-0016 Â
     expect(await p.door.invoke('workspace.nothing', {})).toEqual({ sentence: 'This server has no command workspace.nothing.' });
   });
 
+  it('ADR-0016 note 33: an answer that says it waits for the user is a notice that stays', async () => {
+    const p = page(7, 8);
+    p.command.mockResolvedValue({ capabilityId: 'workspace.undo', version: '1.0.0', outputs: { answer: { workspaceId: 'ws-1', revision: 8, said: 'Read again: 1 edit is held for you.', stays: true } } });
+
+    expect(await p.door.invoke('workspace.undo', {})).toBeUndefined();
+
+    expect(p.notify.mock.calls).toEqual([['done', 'Read again: 1 edit is held for you.', { stays: true }]]);
+  });
+
   it('a caller that says the outcome itself is handed the sentence, and the page raises no notice of its own', async () => {
     const p = page(7, 8);
     p.command.mockResolvedValue({ capabilityId: 'workspace.undo', version: '1.0.0', outputs: { answer: { workspaceId: 'ws-1', revision: 8, said: 'Took back: set R1 checked on. redo puts it back.' } } });
