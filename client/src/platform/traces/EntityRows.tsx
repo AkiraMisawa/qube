@@ -20,9 +20,7 @@ const format = (v: unknown) => (typeof v === 'number' ? figure.format(v) : Strin
 /** A contribution that is an amount is red when negative (C48), to the cent as the trace writes it. */
 const lossTone = toneOf((v) => figure.format(v));
 
-export function EntityRows({ panelId, api, address, header, path, set }: {
-  /** The panel the trace is in, which keeps the widths the user dragged. */
-  readonly panelId: string;
+export function EntityRows({ api, address, header, path, set }: {
   readonly api: TraceApi;
   readonly address: TraceAddress;
   readonly header: TraceHeader;

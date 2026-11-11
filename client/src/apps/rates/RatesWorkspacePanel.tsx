@@ -194,7 +194,7 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
   // columns (ExGrid ADR-0400, ADR-0015 §2).
   const onGroupToggled = useCallback((toggle: HeaderGroupToggle) => setOpened((layout) => toggled(layout, toggle)), []);
 
-  // The columns at the widths the user dragged them to, kept per panel; the line grid hides its column menu, so a header
+  // The columns at the widths the user dragged them to, the user's for this grid (ADR-0017 §5); the line grid hides its column menu, so a header
   // needs no room for one (ADR-0015 §4).
   const { columns, onColumnWidthChanged } = useColumnWidths('rates/lines', columnsOf(opened), { hideColumnMenu: true });
 

@@ -8,7 +8,7 @@ only (ADR-0017 §5, §6.2).
 
 **Blocked by:** 02.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] A theme set in one browser is the theme in a fresh one.
-- [ ] `auto` follows the OS's scheme.
+- [x] A theme set in one browser is the theme in a fresh one.
+- [x] `auto` follows the OS's scheme.

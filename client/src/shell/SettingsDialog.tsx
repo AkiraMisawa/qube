@@ -1,18 +1,49 @@
 import { useState } from 'react';
+import { createStore } from 'zustand/vanilla';
+import { useStore } from 'zustand';
 import { Badge, Button, Group, Modal, Select, Stack, Table, Text, TextInput } from '@mantine/core';
 import type { Notify } from '../platform/notices';
-import { closeSettings, resetSetting, setSetting, useSettings, useSettingsOpen, type SettingChanged, type SettingDescribed } from '../platform/settings/settings';
+import { WIDTHS } from '../platform/grid/columnWidths';
+import { registerAiEffect } from '../ai/effects';
+import { NO_VALUE, heardChange, resetSetting, say, setSetting, useSettings, type SettingChanged, type SettingDescribed } from '../platform/settings/settings';
 
 // The settings dialog (ADR-0017 §4): each of the user's settings, its value, and whether they set it or the registered
 // value applies. A value a line types is changed here; any setting is reset. It writes through the same commands as the
 // line and the AI, so what the dialog says of a change is what the command answered.
 
-/** What a setting holds, in a few words, where its page writes it: a grid's widths, the command ranking. */
+// A setting the AI set or reset for the user applies at once, as one changed on the line or here (ADR-0017 §4, ADR-0007
+// §7): the theme turns, a grid's widths move. It opens nothing.
+for (const capability of ['settings.set', 'settings.reset'])
+  registerAiEffect(capability, (outputs) => {
+    heardChange(outputs.answer as SettingChanged).catch((error: unknown) => say(`Your settings could not be read again: ${error instanceof Error ? error.message : String(error)}`));
+    return undefined;
+  });
+
+const dialog = createStore<{ readonly open: boolean }>()(() => ({ open: false }));
+
+/** Shows the settings dialog (`settings` on the line). The settings are the user's, not a workspace's, and so is the dialog. */
+export function openSettings(): void {
+  dialog.setState({ open: true });
+}
+
+function closeSettings(): void {
+  dialog.setState({ open: false });
+}
+
+// The width of a value's input: room for the longest value a line types here (`light`, `USD`, `10mm`) and its menu's
+// chevron, the same in every row so that the column reads as one.
+const VALUE_WIDTH = 140;
+
+/**
+ * What a setting holds, in a few words, where its page writes it: a grid's widths, the command ranking. One with no
+ * value says so; one that holds what the server checks to be an object is counted by its entries.
+ */
 export function summary(setting: SettingDescribed): string {
-  if (setting.typed) return setting.value;
+  if (setting.typed || setting.value === NO_VALUE) return setting.value;
   const value = JSON.parse(setting.value) as unknown;
-  const count = value !== null && typeof value === 'object' ? Object.keys(value).length : 0;
-  if (setting.key.startsWith('grid.widths.')) return count === 1 ? '1 column dragged' : `${count} columns dragged`;
+  if (value === null || typeof value !== 'object') return setting.value;
+  const count = Object.keys(value).length;
+  if (setting.key.startsWith(WIDTHS)) return count === 1 ? '1 column dragged' : `${count} columns dragged`;
   return count === 1 ? '1 entry' : `${count} entries`;
 }
 
@@ -27,7 +58,7 @@ function Value({ setting, change }: { readonly setting: SettingDescribed; readon
   if (!setting.typed) return <Text size="sm">{summary(setting)}</Text>;
   if (setting.choices !== undefined)
     return (
-      <Select size="xs" w={140} data={[...setting.choices]} value={setting.value === 'none' ? null : setting.value} allowDeselect={false}
+      <Select size="sm" w={VALUE_WIDTH} data={[...setting.choices]} value={setting.value === NO_VALUE ? null : setting.value} allowDeselect={false}
         aria-label={setting.title} comboboxProps={{ withinPortal: true }}
         onChange={(value) => { if (value !== null && value !== setting.value) change(() => setSetting(setting.key, value)); }} />
     );
@@ -36,13 +67,13 @@ function Value({ setting, change }: { readonly setting: SettingDescribed; readon
     setTyped(undefined);
   };
   return (
-    <TextInput size="xs" w={140} aria-label={setting.title} placeholder={setting.takes} value={typed ?? (setting.value === 'none' ? '' : setting.value)}
+    <TextInput size="sm" w={VALUE_WIDTH} aria-label={setting.title} placeholder={setting.takes} value={typed ?? (setting.value === NO_VALUE ? '' : setting.value)}
       onChange={(e) => setTyped(e.currentTarget.value)} onBlur={commit} onKeyDown={(e) => { if (e.key === 'Enter') commit(); }} />
   );
 }
 
 export function SettingsDialog({ notify }: { readonly notify: Notify }) {
-  const opened = useSettingsOpen();
+  const opened = useStore(dialog, (s) => s.open);
   const { settings } = useSettings();
   const all = Object.values(settings);
   const change = (act: () => Promise<SettingChanged>) => {
@@ -54,7 +85,7 @@ export function SettingsDialog({ notify }: { readonly notify: Notify }) {
       <Table.Td><Value setting={setting} change={change} /></Table.Td>
       <Table.Td><Source setting={setting} /></Table.Td>
       <Table.Td>
-        <Button size="xs" variant="subtle" disabled={!setting.set} aria-label={`Reset ${setting.name}`}
+        <Button size="sm" variant="subtle" disabled={!setting.set} aria-label={`Reset ${setting.name}`}
           onClick={() => change(() => resetSetting(setting.key))}>Reset</Button>
       </Table.Td>
     </Table.Tr>
@@ -68,12 +99,12 @@ export function SettingsDialog({ notify }: { readonly notify: Notify }) {
           Yours alone, on every device you sign in on. A preference changes no figure. A default is copied into a workspace
           when you make one, and changing it later leaves the workspaces you made before as they are.
         </Text>
-        <Table verticalSpacing={4} aria-label="Preferences">
+        <Table verticalSpacing="xs" aria-label="Preferences">
           <Table.Thead><Table.Tr><Table.Th>Preference</Table.Th><Table.Th>Value</Table.Th><Table.Th>From</Table.Th><Table.Th /></Table.Tr></Table.Thead>
           <Table.Tbody>{rows('preference')}</Table.Tbody>
         </Table>
         {defaults.length === 0 ? null : (
-          <Table verticalSpacing={4} aria-label="Defaults">
+          <Table verticalSpacing="xs" aria-label="Defaults">
             <Table.Thead><Table.Tr><Table.Th>Default for what you make</Table.Th><Table.Th>Value</Table.Th><Table.Th>From</Table.Th><Table.Th /></Table.Tr></Table.Thead>
             <Table.Tbody>{defaults}</Table.Tbody>
           </Table>

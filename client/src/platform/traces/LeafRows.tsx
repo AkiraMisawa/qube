@@ -34,9 +34,7 @@ function lastSide(header: TraceHeader): Side {
   return side;
 }
 
-export function LeafRows({ panelId, api, address, header, path, set, rows }: {
-  /** The panel the trace is in, which keeps the widths the user dragged. */
-  readonly panelId: string;
+export function LeafRows({ api, address, header, path, set, rows }: {
   readonly api: TraceApi;
   readonly address: TraceAddress;
   readonly header: TraceHeader;

@@ -85,6 +85,10 @@ public static class SettingsContracts
         }, "key", "name", "title", "value", "set", "replaced", "wasSet", "said")));
     }
 
+    /// <summary>Settings as the read answers them: <c>settings.read</c>, and the page as it starts.</summary>
+    public static JsonObject Listed(UserSettings settings, IEnumerable<SettingRead> read) =>
+        new() { ["settings"] = new JsonArray([.. read.Select(r => (JsonNode)Described(settings, r))]) };
+
     /// <summary>A setting as the read answers it.</summary>
     public static JsonObject Described(UserSettings settings, SettingRead read)
     {
@@ -113,16 +117,32 @@ public static class SettingsContracts
         return described;
     }
 
-    /// <summary>A set or a reset as its answer says it: what applies now, what it replaced, and how to take it back.</summary>
+    /// <summary>
+    /// A set or a reset as its answer says it: what applies now, what it replaced, and, for a setting a line types, the
+    /// line that takes it back. One its page writes is typed on no line: its answer says so, and what it replaced is in
+    /// <c>replaced</c> for a caller that writes it back.
+    /// </summary>
     public static JsonObject Answer(UserSettings settings, SettingRead replaced, SettingRead now, bool reset)
     {
         var value = settings.Text(now);
         var before = replaced.Unreadable is null ? settings.Text(replaced) : UserSettings.Stored(replaced);
-        var back = replaced.Set ? $"settings {replaced.Name} {before}" : $"settings reset {now.Name}";
-        var said = reset
-            ? replaced.Set ? $"{now.Definition.Title} is {value} again, as registered; it was {before}. To set it back: {back}." : $"{now.Definition.Title} was already {value}, as registered."
-            : FieldForms.Same(replaced.Set ? replaced.Stored : null, now.Stored) ? $"{now.Definition.Title} was already {value}."
-            : $"{now.Definition.Title} is {value}; it was {before}{(replaced.Set ? "" : ", as registered")}. To set it back: {back}.";
+        var same = FieldForms.Same(replaced.Set ? replaced.Stored : null, now.Stored);
+        string said;
+        if (now.Definition.Spec is null)
+        {
+            var subject = now.Definition.IsFamily ? $"{now.Definition.Title} ({now.Name})" : now.Definition.Title;
+            said = reset
+                ? replaced.Set ? $"{subject} is as registered again; its page writes it again as you use it." : $"{subject} was already as registered."
+                : same ? $"{subject} was already that." : $"{subject} is set.";
+        }
+        else
+        {
+            var back = replaced.Set ? $"settings {replaced.Name} {before}" : $"settings reset {now.Name}";
+            said = reset
+                ? replaced.Set ? $"{now.Definition.Title} is {value} again, as registered; it was {before}. To set it back: {back}." : $"{now.Definition.Title} was already {value}, as registered."
+                : same ? $"{now.Definition.Title} was already {value}."
+                : $"{now.Definition.Title} is {value}; it was {before}{(replaced.Set ? "" : ", as registered")}. To set it back: {back}.";
+        }
         return new JsonObject
         {
             ["key"] = now.Key,
@@ -160,14 +180,14 @@ public sealed class SettingsRead(Func<UserSettings> settings) : ICapabilityHandl
     public CapabilityDescriptor Descriptor { get; } = new(Id, SettingsContracts.Version, "Read your settings: each one's value, what it takes, and whether you set it",
         [new("request", SettingsContracts.ReadRequest, SettingsContracts.Version, Cardinality.One)],
         [new("answer", SettingsContracts.ReadAnswer, SettingsContracts.Version, Cardinality.One)],
-        ExecutionKind.RequestResponse, [CapabilityEffect.UserSetting]);
+        ExecutionKind.RequestResponse, [CapabilityEffect.ReadSettings]);
 
     public Task<IReadOnlyDictionary<string, JsonNode?>> InvokeAsync(CapabilityInvocation invocation, CancellationToken cancellationToken) =>
         SettingsContracts.Answered(invocation, (request, user) =>
         {
             var service = settings();
             IReadOnlyList<SettingRead> read = CommandRequests.Optional(request, "setting") is { } one ? [service.One(user, one)] : service.Read(user);
-            return new JsonObject { ["settings"] = new JsonArray([.. read.Select(r => (JsonNode)SettingsContracts.Described(service, r))]) };
+            return SettingsContracts.Listed(service, read);
         });
 }
 
@@ -179,7 +199,7 @@ public sealed class SettingsSet(Func<UserSettings> settings) : ICapabilityHandle
     public CapabilityDescriptor Descriptor { get; } = new(Id, SettingsContracts.Version, "Set one of your settings, such as the theme; it changes no workspace and no Run",
         [new("request", SettingsContracts.SetRequest, SettingsContracts.Version, Cardinality.One)],
         [new("answer", SettingsContracts.Changed, SettingsContracts.Version, Cardinality.One)],
-        ExecutionKind.RequestResponse, [CapabilityEffect.UserSetting]);
+        ExecutionKind.RequestResponse, [CapabilityEffect.EditSettings]);
 
     public Task<IReadOnlyDictionary<string, JsonNode?>> InvokeAsync(CapabilityInvocation invocation, CancellationToken cancellationToken) =>
         SettingsContracts.Answered(invocation, (request, user) =>
@@ -198,7 +218,7 @@ public sealed class SettingsReset(Func<UserSettings> settings) : ICapabilityHand
     public CapabilityDescriptor Descriptor { get; } = new(Id, SettingsContracts.Version, "Reset one of your settings to its registered value",
         [new("request", SettingsContracts.ResetRequest, SettingsContracts.Version, Cardinality.One)],
         [new("answer", SettingsContracts.Changed, SettingsContracts.Version, Cardinality.One)],
-        ExecutionKind.RequestResponse, [CapabilityEffect.UserSetting]);
+        ExecutionKind.RequestResponse, [CapabilityEffect.EditSettings]);
 
     public Task<IReadOnlyDictionary<string, JsonNode?>> InvokeAsync(CapabilityInvocation invocation, CancellationToken cancellationToken) =>
         SettingsContracts.Answered(invocation, (request, user) =>

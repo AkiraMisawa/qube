@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import type { Api } from './platform/api';
 import type { Notice, Notify } from './platform/notices';
 import { telemetry } from './platform/telemetry';
-import { loadSettings, notKept, settingsStore } from './platform/settings/settings';
+import { loadSettings, say, settingsStore } from './platform/settings/settings';
 import { adoptUsage } from './platform/commands/usage';
 import { ViewRenderer } from './platform/views/ViewRenderer';
 import { WorkspaceProvider, useWorkspace, useWorkspaceContext } from './platform/workspace/WorkspaceProvider';
@@ -42,19 +42,25 @@ export function App({ api, initialContext, agent }: {
     if (kind === 'refused') telemetry.report({ level: 'warning', kind: 'notice', message });
   }, []);
   const clearNotice = useCallback(() => setNotice(undefined), []);
-  // A setting the page wrote by itself and the server did not keep is said, so the user knows it will not be there next time.
+  // What the user is told about their settings, each time it happens: a setting the page wrote by itself that the
+  // server did not keep, so they know it will not be there next time.
   useEffect(() => settingsStore.subscribe((state, before) => {
-    if (state.failed !== undefined && state.failed !== before.failed) notify('refused', state.failed);
+    if (state.notice !== undefined && state.notice !== before.notice) notify('refused', state.notice.text);
   }), [notify]);
   // Once read, a ranking this browser kept before is carried over (ADR-0017 §5).
   useEffect(() => {
-    if (settings.isSuccess) adoptUsage().catch((error: unknown) => notKept('The command ranking', error));
+    if (settings.isSuccess) adoptUsage().catch((error: unknown) => say(`The command ranking could not be taken in: ${error instanceof Error ? error.message : String(error)}`));
   }, [settings.isSuccess]);
+  // Settings that could not be read stop no work, since a preference changes no figure and a default is the server's to
+  // read when something is made: the workbench opens on the registered values, and says so.
+  const unread = settings.isError ? settings.error.message : undefined;
+  useEffect(() => {
+    if (unread !== undefined) say(`Your settings could not be read, so the registered ones apply and what you change is not kept until the page is reloaded: ${unread}`);
+  }, [unread]);
 
   if (catalog.isPending) return <Group p="xl"><Loader size="sm" /><Text>Loading the capability catalog…</Text></Group>;
   if (catalog.isError) return <Alert m="xl" color="red" title="The catalog could not be loaded">{catalog.error.message}</Alert>;
   if (settings.isPending) return <Group p="xl"><Loader size="sm" /><Text>Loading your settings…</Text></Group>;
-  if (settings.isError) return <Alert m="xl" color="red" title="Your settings could not be read">{settings.error.message}</Alert>;
 
   return (
     <WorkspaceProvider api={api} catalog={catalog.data} initialContext={initialContext} notify={notify}>
@@ -133,5 +139,5 @@ function PanelContent({ panel }: { readonly panel: Panel }) {
   const registerFocus = useCallback((focus: (() => void) | undefined) => registerGridFocus(panel.id, focus), [panel.id]);
   if (panel.kind === 'run') return <RunPanel panel={panel} />;
   if (panel.kind === 'app') return <AppPanel panel={panel} />;
-  return <ViewRenderer panelId={panel.id} view={panel.view} outputs={{}} registerFocus={registerFocus} />;
+  return <ViewRenderer view={panel.view} outputs={{}} registerFocus={registerFocus} />;
 }

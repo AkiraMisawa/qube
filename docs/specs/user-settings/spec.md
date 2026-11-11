@@ -79,7 +79,8 @@ records the model it ran on.
   `settings reset <name>` set and reset, a name being the setting's words (`theme`, `display currency`). They are the
   shell's commands, built from the settings catalog as `set <context field>` is built from the contract catalog, and
   work on every page, with or without a workspace; the server checks the value when it is set.
-- **Grid ids** carry their application's prefix (`xva/trades/existing`, `rates/lines`, `trace/tree`).
+- **Grid ids** carry their application's prefix (`xva/trades/existing`, `rates/lines`, `trace/tree`), and a declared
+  view's grid the kernel's views' (`view/<view>/<component>`).
 - **Defaults at making.** The pricer's making writes the display currency as the making's own `Set`, as it writes the
   last selection of measures, so `undo` finds nothing of it; the page derives the source from the log (an edit of the
   making is the user's setting, a later one this workspace's, none the profile's). Rates' making writes the defaults

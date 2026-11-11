@@ -54,8 +54,7 @@ public static class Api
 
         // The signed-in user's settings (ADR-0017 §2), as settings.read answers them, for the page as it starts. Written
         // through the gateway, as settings.set and settings.reset.
-        api.MapGet("/settings", (UserSettings settings, CurrentUser user) =>
-            new JsonObject { ["settings"] = new JsonArray([.. settings.Read(user.Id).Select(r => (JsonNode)SettingsContracts.Described(settings, r))]) });
+        api.MapGet("/settings", (UserSettings settings, CurrentUser user) => SettingsContracts.Listed(settings, settings.Read(user.Id)));
 
         api.MapPost("/runs", (RunRequest request, RunService runs, CurrentUser user) =>
             ToResult(runs.Submit(new(request.Workflow, request.Context, request.Input, request.IdempotencyKey, user.Id, RunOrigin.Workflow, RunRelations.None))));

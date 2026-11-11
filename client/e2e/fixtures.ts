@@ -14,13 +14,22 @@ export async function resetSettings(request: APIRequestContext): Promise<void> {
   }
 }
 
-// An unexpected console message or page error fails the test that caused it.
-export const test = base.extend<{ problems: string[] }>({
+/** The console messages and page errors a page meets, which an unexpected one fails the test that caused. */
+export function watchProblems(page: Page): string[] {
+  const problems: string[] = [];
+  page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') problems.push(`${m.type()}: ${m.text()}`); });
+  page.on('pageerror', (e) => problems.push(`pageerror: ${e.message}`));
+  return problems;
+}
+
+export const test = base.extend<{ settings: undefined; problems: string[] }>({
+  settings: [async ({ request }, use) => {
+    await resetSettings(request);
+    await use(undefined);
+  }, { auto: true }],
+  // An unexpected console message or page error fails the test that caused it.
   problems: [async ({ page }, use) => {
-    await resetSettings(page.request);
-    const problems: string[] = [];
-    page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') problems.push(`${m.type()}: ${m.text()}`); });
-    page.on('pageerror', (e) => problems.push(`pageerror: ${e.message}`));
+    const problems = watchProblems(page);
     await use(problems);
     expect(problems).toEqual([]);
   }, { auto: true }],

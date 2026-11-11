@@ -20,7 +20,8 @@ public sealed class ShellSettings : ISettingCatalog
         new(Theme, "Theme", ["theme"], SettingKind.Preference,
             new FieldSpec(FieldForm.Choice, Choices: new Dictionary<string, string> { ["dark"] = "dark", ["light"] = "light", ["auto"] = "auto" }),
             JsonValue.Create("dark")),
-        new(Usage, "Command ranking", ["command ranking", "ranking"], SettingKind.Preference, null, new JsonObject(), Ranking),
+        // None registered: a user who ran no command has no ranking.
+        new(Usage, "Command ranking", ["command ranking", "ranking"], SettingKind.Preference, null, null, Ranking),
         new(Widths, "Column widths", ["widths"], SettingKind.Preference, null, null, ColumnWidths),
     ];
 

@@ -1,5 +1,5 @@
 import type { MantineColorScheme, MantineColorSchemeManager } from '@mantine/core';
-import { notKept, setSetting, settingsStore } from './settings';
+import { settingsStore, valueOf, writeByPage } from './settings';
 
 // The theme is the user's `shell.theme` (ADR-0017's first registrations): dark, light, or auto, which follows each
 // device's OS. The server holds it; this browser keeps a copy of the last one it read for the first frame only, so a
@@ -32,9 +32,9 @@ function copy(value: MantineColorScheme): void {
   }
 }
 
-/** The theme the server holds for the user, once read; none before. */
-function held(): MantineColorScheme | undefined {
-  const value = settingsStore.getState().settings[THEME]?.value;
+/** The theme that applies for the user: the page's own while its write is on its way, else the server's; none before the settings are read. */
+function applying(state = settingsStore.getState()): MantineColorScheme | undefined {
+  const value = valueOf(state, THEME);
   return isScheme(value) ? value : undefined;
 }
 
@@ -49,14 +49,15 @@ export function themeManager(): MantineColorSchemeManager {
     get: (defaultValue) => copied() ?? defaultValue,
     set: (value) => {
       copy(value);
-      // What the server already holds is not written again: following the server calls this too.
-      if (!settingsStore.getState().loaded || held() === value) return;
-      setSetting(THEME, value).catch((error: unknown) => notKept('The theme', error));
+      // What already applies is not written again: following the server calls this too. Before the settings are read
+      // nothing is sent; the shell is drawn only once they are, or says that they could not be.
+      if (!settingsStore.getState().loaded || applying() === value) return;
+      void writeByPage(THEME, 'The theme', value);
     },
     subscribe: (onUpdate) => {
       unsubscribe = settingsStore.subscribe((state, before) => {
-        const now = state.settings[THEME]?.value;
-        if (isScheme(now) && now !== before.settings[THEME]?.value) onUpdate(now);
+        const now = applying(state);
+        if (now !== undefined && now !== applying(before)) onUpdate(now);
       });
     },
     unsubscribe: () => unsubscribe?.(),

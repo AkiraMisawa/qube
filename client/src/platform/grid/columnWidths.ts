@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from 'react';
 import { gridHeaderRequiredPx, type GridColumn, type GridColumnWidth, type GridColumnWidthChange, type GridDensity } from '@ex-grid/core';
-import { setWritten, settingsStore, useSetting, written } from '../settings/settings';
+import { setWritten, settingsStore, useValue, writtenOf } from '../settings/settings';
 
 // Column widths (ExGrid ADR-0016). A declared width is a default that never cuts its header; a value longer than the
 // header may be cut until the user widens the column. ExGrid moves no width by itself: it reports a drag, the page
@@ -56,12 +56,13 @@ export function columnsAt<Row>(declared: readonly GridColumn<Row>[], dragged: Co
  */
 export function useColumnWidths<Row>(grid: string, declared: readonly GridColumn<Row>[], options: { readonly hideColumnMenu?: boolean } = {}) {
   const key = `${WIDTHS}${grid}`;
-  const setting = useSetting(key);
-  const dragged = useMemo(() => written<ColumnWidths>(setting) ?? NONE, [setting]);
+  const kept = useValue(key);
+  // A grid never dragged has no widths of the user's: every column is at its default.
+  const dragged = useMemo(() => (kept === undefined ? NONE : (JSON.parse(kept) as ColumnWidths)), [kept]);
   const hideColumnMenu = options.hideColumnMenu === true;
   const columns = useMemo(() => columnsAt(declared, dragged, { hideColumnMenu }), [declared, dragged, hideColumnMenu]);
   const onColumnWidthChanged = useCallback((change: GridColumnWidthChange) => {
-    const held = written<ColumnWidths>(settingsStore.getState().settings[key]) ?? NONE;
+    const held = writtenOf<ColumnWidths>(settingsStore.getState(), key) ?? NONE;
     void setWritten(key, 'Column widths', { ...held, [change.column]: Math.round(change.widthPx) });
   }, [key]);
   return { columns, onColumnWidthChanged };

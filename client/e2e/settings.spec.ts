@@ -1,5 +1,5 @@
-import type { APIRequestContext } from '@playwright/test';
-import { command, expect, open, test } from './fixtures';
+import type { APIRequestContext, Browser, Page } from '@playwright/test';
+import { command, expect, newWorkspace, open, settled, taken, test, watchProblems } from './fixtures';
 
 // ADR-0017: a user's settings live on the server, apart from workspaces, and are changed by the line, the settings
 // dialog and the AI through the same three commands.
@@ -13,7 +13,22 @@ async function held(request: APIRequestContext, key: string): Promise<{ value: s
   return setting;
 }
 
-test('ADR-0017 §5: the theme the header sets follows the user to another browser', async ({ page, browser, baseURL }) => {
+/** Opens the workbench in another browser, with nothing of this one's, and hands it to `look`; its problems fail the test. */
+async function elsewhere(browser: Browser, baseURL: string | undefined, look: (page: Page) => Promise<void>): Promise<void> {
+  if (baseURL === undefined) throw new Error('The configuration names no baseURL.');
+  const other = await browser.newContext({ baseURL });
+  try {
+    const page = await other.newPage();
+    const problems = watchProblems(page);
+    await open(page);
+    await look(page);
+    expect(problems).toEqual([]);
+  } finally {
+    await other.close();
+  }
+}
+
+test('ADR-0017 §5: the theme toggled in one browser follows the user to another', async ({ page, browser, baseURL }) => {
   await open(page);
   const html = page.locator('html');
   await expect(html).toHaveAttribute('data-mantine-color-scheme', 'dark');
@@ -21,26 +36,31 @@ test('ADR-0017 §5: the theme the header sets follows the user to another browse
   await expect(html).toHaveAttribute('data-mantine-color-scheme', 'light');
   await expect.poll(async () => (await held(page.request, 'shell.theme')).value).toBe('light');
 
-  // Another browser, with nothing of this one's: the theme is the user's, read from the server as the page starts.
-  if (baseURL === undefined) throw new Error('The configuration names no baseURL.');
-  const other = await browser.newContext({ baseURL });
-  try {
-    const elsewhere = await other.newPage();
-    const problems: string[] = [];
-    elsewhere.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') problems.push(`${m.type()}: ${m.text()}`); });
-    elsewhere.on('pageerror', (e) => problems.push(`pageerror: ${e.message}`));
-    await open(elsewhere);
-    await expect(elsewhere.locator('html')).toHaveAttribute('data-mantine-color-scheme', 'light');
-    expect(problems).toEqual([]);
-  } finally {
-    await other.close();
-  }
+  await elsewhere(browser, baseURL, async (other) => {
+    await expect(other.locator('html')).toHaveAttribute('data-mantine-color-scheme', 'light');
+  });
+});
+
+test("ADR-0017 §6.2: the theme `auto` follows the device's own scheme", async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'light' });
+  await open(page);
+  await command(page, 'settings theme', 'auto');
+  await expect(page.locator('html')).toHaveAttribute('data-mantine-color-scheme', 'light');
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await expect(page.locator('html')).toHaveAttribute('data-mantine-color-scheme', 'dark');
 });
 
 test('ADR-0017 §4: the line sets a setting and resets it, saying each time what it replaced and how to take it back', async ({ page }) => {
   await open(page);
   const html = page.locator('html');
   const notice = page.getByTestId('notice');
+
+  // The values a setting takes are offered as its value is typed.
+  await page.keyboard.press('ControlOrMeta+K');
+  await expect(page.getByRole('combobox', { name: 'Command' })).toBeFocused();
+  await page.keyboard.type('settings theme ');
+  await expect(page.getByRole('option')).toHaveText([/^dark/, /^light/, /^auto/]);
+  await page.keyboard.press('Escape');
 
   await command(page, 'settings theme', 'light');
   await expect(notice).toHaveText('Theme is light; it was dark, as registered. To set it back: settings reset theme.');
@@ -62,22 +82,70 @@ test('ADR-0017 §2: a value a setting does not take is refused by name, and the 
   expect((await held(page.request, 'shell.theme')).set).toBe(false);
 });
 
-test('ADR-0017 §4: the settings dialog lists each setting with where its value comes from, and resets one', async ({ page }) => {
+test('ADR-0017 §4: the settings dialog lists each setting with where its value comes from, changes one and resets it', async ({ page }) => {
   await open(page);
-  await command(page, 'settings theme', 'light');
-  await expect(page.getByTestId('notice')).toContainText('Theme is light');
-
   await command(page, 'settings');
   const dialog = page.getByRole('dialog', { name: 'Settings' });
   const theme = dialog.getByRole('row').filter({ hasText: 'Theme' });
-  await expect(theme.getByRole('combobox', { name: 'Theme' })).toHaveValue('light');
+  await expect(theme.getByRole('combobox', { name: 'Theme' })).toHaveValue('dark');
+  await expect(theme).toContainText('registered');
+  await expect(theme.getByRole('button', { name: 'Reset theme' })).toBeDisabled();
+
+  await theme.getByRole('combobox', { name: 'Theme' }).click();
+  await page.getByRole('option', { name: 'light' }).click();
+  await expect(page.getByTestId('notice')).toHaveText('Theme is light; it was dark, as registered. To set it back: settings reset theme.');
   await expect(theme).toContainText('set by you');
-  const ranking = dialog.getByRole('row').filter({ hasText: 'Command ranking' });
-  await expect(ranking.getByRole('button', { name: 'Reset command ranking' })).toBeVisible();
+  await expect(page.locator('html')).toHaveAttribute('data-mantine-color-scheme', 'light');
 
   await theme.getByRole('button', { name: 'Reset theme' }).click();
   await expect(page.getByTestId('notice')).toHaveText('Theme is dark again, as registered; it was light. To set it back: settings theme light.');
   await expect(theme).toContainText('registered');
   await expect(theme.getByRole('button', { name: 'Reset theme' })).toBeDisabled();
   await expect(page.locator('html')).toHaveAttribute('data-mantine-color-scheme', 'dark');
+});
+
+test('ADR-0006 §6, ADR-0017 §5: a command run in one browser ranks first among its group in another', async ({ page, browser, baseURL }) => {
+  await open(page);
+  const first = (on: Page) => on.getByRole('group', { name: 'Settings' }).getByRole('option').first();
+  // Untouched, the group lists its commands as registered: `settings` first.
+  await page.keyboard.press('ControlOrMeta+K');
+  await expect(first(page)).toContainText('Show your settings');
+  await page.keyboard.press('Escape');
+
+  await taken(page, 'settings theme', 'light');
+  await taken(page, 'settings reset', 'theme');
+  await expect.poll(async () => JSON.parse((await held(page.request, 'commands.usage')).value) as Record<string, unknown>)
+    .toHaveProperty(['settings.reset']);
+
+  await elsewhere(browser, baseURL, async (other) => {
+    await other.keyboard.press('ControlOrMeta+K');
+    await expect(first(other)).toContainText('Reset one of your settings');
+  });
+});
+
+test("ADR-0017 §5: a column dragged in the pricer's existing trades keeps its width after a reload and in another workspace, and a reset puts the declared width back", async ({ page }) => {
+  await open(page);
+  await newWorkspace(page, 'ABC/LE-01', 3);
+  // The header's name holds its column menu's button too.
+  const product = page.getByLabel('Existing trades', { exact: true }).getByRole('columnheader', { name: 'Product Column menu', exact: true });
+  const width = async () => Math.round((await product.boundingBox())?.width ?? 0);
+  const before = (await product.boundingBox())!;
+
+  // The grip is the header's right edge; the width moves on release.
+  await page.mouse.move(before.x + before.width - 2, before.y + before.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(before.x + before.width + 58, before.y + before.height / 2, { steps: 10 });
+  await page.mouse.up();
+  await expect.poll(width).toBe(Math.round(before.width) + 60);
+  await expect.poll(async () => (await held(page.request, 'grid.widths.xva/trades/existing')).set).toBe(true);
+
+  // A reload, and another workspace: the width is the user's for that grid.
+  await open(page);
+  await newWorkspace(page, 'ABC/LE-01', 2);
+  await expect.poll(width).toBe(Math.round(before.width) + 60);
+
+  await taken(page, 'settings reset', 'widths xva/trades/existing');
+  await expect(page.getByTestId('notice')).toHaveText('Column widths (widths xva/trades/existing) is as registered again; its page writes it again as you use it.');
+  await settled(page, 'Existing trades');
+  await expect.poll(width).toBe(Math.round(before.width));
 });

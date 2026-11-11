@@ -99,8 +99,10 @@ WCAG's minimum target size (§8). Smaller controls would save little: the grids,
   left-aligned ([Spectrum](#references)).
 - **Content in a row is vertically centred**, text and controls alike ([Spectrum](#references)).
 - **Column widths.** Every data grid takes `onColumnWidthChanged` through `useColumnWidths`
-  (`client/src/platform/grid/columnWidths.ts`): a drag on a header's right edge moves the column, and the width is kept
-  for the panel until it closes (owner, 2026-11-10). A declared width is a default that never cuts its header.
+  (`client/src/platform/grid/columnWidths.ts`): a drag on a header's right edge moves the column (owner, 2026-11-10),
+  and the width is the user's setting for that grid, by its id with its application's prefix (`xva/trades/existing`):
+  the same in every workspace, after a reload and in another browser (ADR-0017 §5). A declared width is a default
+  that never cuts its header.
 
 ## 5. Icons
 

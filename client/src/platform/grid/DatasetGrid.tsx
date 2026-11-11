@@ -35,8 +35,7 @@ export function gridColumnOf(column: ViewColumn, dataset: Dataset): GridColumn<R
   };
 }
 
-export function DatasetGrid({ panelId, grid: gridKey, dataset, columns, actions, onAction, registerFocus, label }: {
-  readonly panelId: string;
+export function DatasetGrid({ grid: gridKey, dataset, columns, actions, onAction, registerFocus, label }: {
   /** Names this grid among its panel's, for the widths the user drags. */
   readonly grid: string;
   readonly dataset: Dataset;

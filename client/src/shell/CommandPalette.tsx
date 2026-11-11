@@ -8,7 +8,8 @@ import {
 } from '../platform/commands/commands';
 import { argumentShown, argumentsDrawn, commandDoorOf, lineAsked, previewShown, screenShown, servedCommands, taken } from '../platform/commands/served';
 import { recordUse, usageScore } from '../platform/commands/usage';
-import { openSettings, resetSetting, setSetting, useSettings, type SettingChanged, type SettingDescribed } from '../platform/settings/settings';
+import { resetSetting, setSetting, useSettings, type SettingChanged, type SettingDescribed } from '../platform/settings/settings';
+import { openSettings } from './SettingsDialog';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { Catalog, LineCompletion, LinePreview, LineView, RunRecord } from '../platform/contracts';
 import type { Notice, Notify } from '../platform/notices';
@@ -43,6 +44,13 @@ export function panelTitled(panels: readonly Panel[], text: string): { readonly 
  * dialog, `settings <name> <value>` sets one a line types, completing its choices, and `settings reset <name>` returns
  * one the user set to its registered value. The server reads and checks the value, and what it answered is the notice.
  */
+/** A required argument as the line ran the command with it: the line runs none without it, so one missing is a defect. */
+function given(args: Readonly<Record<string, string | undefined>>, name: string): string {
+  const value = args[name];
+  if (value === undefined) throw new Error(`The line ran a command without its ${name}.`);
+  return value;
+}
+
 export function settingCommands(settings: readonly SettingDescribed[], notify: Notify): Command[] {
   const said = (act: Promise<SettingChanged>) =>
     act.then((changed) => notify('done', changed.said), (error: unknown) => notify('refused', `settings: ${error instanceof Error ? error.message : String(error)}`));
@@ -58,7 +66,7 @@ export function settingCommands(settings: readonly SettingDescribed[], notify: N
         name: 'value', required: true, hint: setting.takes,
         ...(setting.choices === undefined ? {} : { complete: () => (setting.choices ?? []).map((value) => ({ value })) }),
       }],
-      run: (a) => { void said(setSetting(setting.key, a.value ?? '')); },
+      run: (a) => { void said(setSetting(setting.key, given(a, 'value'))); },
     })),
     {
       id: 'settings.reset',
@@ -69,7 +77,7 @@ export function settingCommands(settings: readonly SettingDescribed[], notify: N
         name: 'setting', required: true, rest: true, hint: 'a setting you set',
         complete: () => settings.filter((s) => s.set).map((s) => ({ value: s.name, detail: s.title })),
       }],
-      run: (a) => { void said(resetSetting(a.setting ?? '')); },
+      run: (a) => { void said(resetSetting(given(a, 'setting'))); },
     },
   ];
 }

@@ -7,7 +7,7 @@ that holds `qube.commandUsage.v1` carries it over once, then removes it (ADR-001
 
 **Blocked by:** 02.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] A command run in one browser ranks first in a fresh one.
-- [ ] A browser's own ranking is carried over once and its local copy removed.
+- [x] A command run in one browser ranks first in a fresh one.
+- [x] A browser's own ranking is carried over once and its local copy removed.

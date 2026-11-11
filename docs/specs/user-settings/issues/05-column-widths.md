@@ -7,7 +7,7 @@ reloads, in place of the per-panel memory; a drag writes when it ends; a grid's 
 
 **Blocked by:** 02.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] A width dragged in the pricer's existing trades is the same after a reload and in another workspace.
-- [ ] Reset puts the declared widths back.
+- [x] A width dragged in the pricer's existing trades is the same after a reload and in another workspace.
+- [x] Reset puts the declared widths back.

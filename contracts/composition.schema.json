@@ -361,7 +361,8 @@
               "saveItem",
               "execute",
               "readWorkspace",
-              "userSetting"
+              "readSettings",
+              "editSettings"
             ]
           },
           "minItems": 0

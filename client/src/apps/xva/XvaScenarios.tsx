@@ -61,10 +61,8 @@ const cellMessage = (row: ShiftGridRow, col: GridColumn<ShiftGridRow>): string |
 
 const describe = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
-export function XvaScenarios({ panelId, shifts, scenarios, actions, height, gridRef, commandLabel }: {
+export function XvaScenarios({ shifts, scenarios, actions, height, gridRef, commandLabel }: {
   readonly shifts: readonly ShiftRow[];
-  /** The panel the page is in, which keeps the widths the user dragged in its grids. */
-  readonly panelId: string;
   readonly scenarios: readonly ScenarioView[];
   readonly actions: ScenarioActions;
   /** The tab's height in pixels, which the grid fills. */

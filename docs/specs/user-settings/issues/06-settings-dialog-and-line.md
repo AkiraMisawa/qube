@@ -8,7 +8,7 @@ names and values from the catalog, on every page (ADR-0017 §4).
 
 **Blocked by:** 02.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] The dialog lists the settings and changes and resets one.
-- [ ] `settings theme light` and `settings reset theme` run from the line; a value not offered is refused by name.
+- [x] The dialog lists the settings and changes and resets one.
+- [x] `settings theme light` and `settings reset theme` run from the line; a value not offered is refused by name.

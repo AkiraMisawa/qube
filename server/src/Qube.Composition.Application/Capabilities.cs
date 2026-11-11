@@ -57,7 +57,7 @@ public static class CapabilityEffects
     /// </summary>
     public static bool IsCommand(this CapabilityDescriptor descriptor) =>
         descriptor.Effects.Any(e => e is CapabilityEffect.EditWorkspace or CapabilityEffect.Subscribe or CapabilityEffect.ReadRun or CapabilityEffect.SaveItem or CapabilityEffect.Execute
-            or CapabilityEffect.ReadWorkspace or CapabilityEffect.UserSetting);
+            or CapabilityEffect.ReadWorkspace or CapabilityEffect.ReadSettings or CapabilityEffect.EditSettings);
 }
 
 /// <summary>A JSON Schema for a contract version whose values are small enough to enter on a form.</summary>

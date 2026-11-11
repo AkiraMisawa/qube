@@ -37,6 +37,54 @@ public sealed class SettingsApiTests(QubeFactory factory) : IClassFixture<QubeFa
         Assert.Equal("dark", theme["registered"]!.GetValue<string>());
     }
 
+    [Fact] // ADR-0017 §2: what the page reads as it starts is what settings.read answers
+    public async Task The_page_reads_what_settings_read_answers()
+    {
+        await Answer(await Command("settings.set", new JsonObject { ["setting"] = "grid.widths.xva/trades/new", ["value"] = """{"pv":140}""" }));
+
+        var read = await Answer(await Command("settings.read", new JsonObject()));
+        var page = (await client.GetFromJsonAsync<JsonObject>("/api/settings"))!;
+
+        Assert.True(JsonNode.DeepEquals(read, page), $"{read.ToJsonString()} is not {page.ToJsonString()}");
+        Assert.Contains(page["settings"]!.AsArray(), s => s!["key"]!.GetValue<string>() == "grid.widths.xva/trades/new");
+    }
+
+    [Fact] // ADR-0017 §2: a setting is kept in the database, and a host started again on it reads it as it was set
+    public async Task A_setting_is_kept_across_a_restart()
+    {
+        var database = Path.Combine(Path.GetTempPath(), $"qube-settings-{Guid.NewGuid():N}.db");
+        try
+        {
+            using (var first = new QubeFactory(database, ownsDatabase: false))
+            {
+                var response = await first.CreateClient().PostAsJsonAsync("/api/commands/settings.set/1.0.0",
+                    new { inputs = new JsonObject { ["request"] = new JsonObject { ["setting"] = "theme", ["value"] = "auto" } }, idempotencyKey = Guid.NewGuid().ToString() });
+                Assert.True(response.IsSuccessStatusCode, await response.Content.ReadAsStringAsync());
+            }
+            using var second = new QubeFactory(database, ownsDatabase: false);
+            var theme = (await second.CreateClient().GetFromJsonAsync<JsonObject>("/api/settings"))!["settings"]!.AsArray().Single(s => s!["key"]!.GetValue<string>() == "shell.theme")!;
+
+            Assert.Equal("auto", theme["value"]!.GetValue<string>());
+            Assert.True(theme["set"]!.GetValue<bool>());
+        }
+        finally
+        {
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            QubeFactory.RemoveDatabase(database);
+        }
+    }
+
+    [Fact] // ADR-0017 §4: a setting its page writes is typed on no line, so its reset names none to set it back
+    public async Task A_page_written_setting_names_no_line_to_set_it_back()
+    {
+        await Answer(await Command("settings.set", new JsonObject { ["setting"] = "grid.widths.rates/lines", ["value"] = """{"end":90}""" }));
+
+        var reset = await Answer(await Command("settings.reset", new JsonObject { ["setting"] = "widths rates/lines" }));
+
+        Assert.Equal("Column widths (widths rates/lines) is as registered again; its page writes it again as you use it.", reset["said"]!.GetValue<string>());
+        Assert.Equal("""{"end":90}""", reset["replaced"]!.GetValue<string>());
+    }
+
     [Fact] // ADR-0017 §4: set and reset through the gateway say what they replaced and how to set it back
     public async Task Set_and_reset_say_what_they_replaced()
     {

@@ -125,9 +125,7 @@ function cellState(row: TreeRow, column: GridColumn<TreeRow>): CellState {
   return 'normal';
 }
 
-export function TraceTree({ panelId, header, rows, selected, onSelect, onGoTo, onToggle, onMore, place, registerFocus }: {
-  /** The panel the trace is in, which keeps the widths the user dragged. */
-  readonly panelId: string;
+export function TraceTree({ header, rows, selected, onSelect, onGoTo, onToggle, onMore, place, registerFocus }: {
   readonly header: TraceHeader;
   readonly rows: readonly TreeRow[];
   readonly selected: string | undefined;
