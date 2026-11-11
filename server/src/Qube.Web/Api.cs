@@ -1,5 +1,6 @@
 using System.Text.Json.Nodes;
 using Qube.Composition.Application;
+using Qube.Composition.Application.Saved;
 using Qube.Composition.Application.Settings;
 using Qube.Composition.Application.Tables;
 using Qube.Composition.Application.Traces;
@@ -44,6 +45,12 @@ public static class Api
 
     public sealed record HistoryRequest(string? Domain, int Start, int Count);
 
+    /// <summary>
+    /// Who the page is for, as its account menu names them: the user's id, and their desk where configuration names one.
+    /// Until ME-ID sign-in (C30) the user is the host's <c>Qube:DemoUser</c>.
+    /// </summary>
+    public sealed record Me(string Id, string? Desk);
+
     public static void MapQubeApi(this IEndpointRouteBuilder app)
     {
         var api = app.MapGroup("/api");
@@ -55,6 +62,9 @@ public static class Api
         // The signed-in user's settings (ADR-0017 §2), as settings.read answers them, for the page as it starts. Written
         // through the gateway, as settings.set and settings.reset.
         api.MapGet("/settings", (UserSettings settings, CurrentUser user) => SettingsContracts.Listed(settings, settings.Read(user.Id)));
+
+        // Who the page is for (the header's account menu, ADR-0017 §4).
+        api.MapGet("/me", (CurrentUser user, Desks desks) => new Me(user.Id, desks.Of(user.Id)));
 
         api.MapPost("/runs", (RunRequest request, RunService runs, CurrentUser user) =>
             ToResult(runs.Submit(new(request.Workflow, request.Context, request.Input, request.IdempotencyKey, user.Id, RunOrigin.Workflow, RunRelations.None))));

@@ -124,6 +124,32 @@ test("ADR-0017 §4, design guidelines §9: on a phone the settings dialog fits i
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
 
+test("ADR-0017 §4: the header's account menu names the user, chooses the theme, opens the settings, and says why no one signs out yet", async ({ page }) => {
+  await open(page);
+  const account = page.getByRole('button', { name: 'Your account: demo' });
+  await expect(account).toHaveText('DE');
+  // The pointer resting on it opens the menu.
+  await account.hover();
+  const menu = page.getByRole('menu');
+  await expect(menu.getByTestId('account-who')).toHaveText('demo');
+  await expect(menu.getByRole('menuitem', { name: 'Dark' })).toHaveAttribute('aria-current', 'true');
+  const signOut = menu.getByRole('menuitem', { name: 'Sign out' });
+  await expect(signOut).toBeDisabled();
+  await expect(signOut).toHaveAccessibleDescription('Sign-in is not set up yet: every browser of this host is demo.');
+
+  await menu.getByRole('menuitem', { name: 'Light' }).click();
+  await expect(page.locator('html')).toHaveAttribute('data-mantine-color-scheme', 'light');
+  await expect.poll(async () => (await held(page.request, 'shell.theme')).value).toBe('light');
+
+  // A click opens it too, as a tap does on a touch screen.
+  await account.click();
+  await page.getByRole('menu').getByRole('menuitem', { name: 'Settings' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Settings' });
+  await expect(dialog.getByRole('combobox', { name: 'Theme' })).toHaveValue('light');
+  await dialog.getByRole('button', { name: 'Reset theme' }).click();
+  await expect(page.locator('html')).toHaveAttribute('data-mantine-color-scheme', 'dark');
+});
+
 test('ADR-0006 §6, ADR-0017 §5: a command run in one browser ranks first among its group in another', async ({ page, browser, baseURL }) => {
   await open(page);
   const first = (on: Page) => on.getByRole('group', { name: 'Settings' }).getByRole('option').first();

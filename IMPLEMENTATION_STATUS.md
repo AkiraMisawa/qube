@@ -2239,8 +2239,11 @@ changed by the line, the settings dialog and the AI through the same three comma
   or a reset answers what applies now, what it replaced and the line that takes it back. The page reads them at start
   with `GET /api/settings`, which answers as `settings.read` does. The agent is offered them as it is every command,
   and a setting it changes applies at once on the page.
-- **The line**: `settings` opens the settings dialog; `settings <name> <value>` and `settings reset <name>` set and
-  reset, with names and values completed. The dialog lists each setting with its value, whether the user set it or
+- **The line and the account menu**: `settings` opens the settings dialog; `settings <name> <value>` and
+  `settings reset <name>` set and reset, with names and values completed. The header's account menu, which took the
+  place of its theme button at the owner's request, opens as the pointer rests on the user's initials (or on a click
+  or a tap): it names the user and their desk (`GET /api/me`), opens Settings, chooses the theme among the three, and
+  says that signing out waits for sign-in. The dialog lists each setting with its value, whether the user set it or
   the registered value applies, and a reset; on a phone it keeps two columns and says the source and the reset under
   the setting's name.
 - **Preferences** (step 1, step 3): the theme (`dark`, `light`, `auto`, which follows the device), a grid's column
@@ -2270,7 +2273,7 @@ changed by the line, the settings dialog and the AI through the same three comma
 | `npx playwright test` (Chromium, headless, Linux) | 103 passed |
 | `e2e/settings.spec.ts`, which this pull request adds, with `--repeat-each=3` | 30 passed |
 | `python3 tools/validate_handoff.py` | Passed |
-| The settings dialog at 390, 768, 992 and 1440px, dark and light; the AI pane at 390 and 1440px | Looked at; no sideways scroll, nothing cut off |
+| The settings dialog and the account menu at 390, 768, 992 and 1440px, dark and light; the AI pane at 390 and 1440px | Looked at; no sideways scroll, nothing cut off |
 | The AI pane against a stand-in Copilot host with two models | Looked at: a conversation on the default model, `/model gpt-5.1`, and the next run on it |
 
 The server's tests read the store over a registration with no domain (`UserSettingsTests`), the commands through the
@@ -2298,6 +2301,8 @@ not against Copilot.
 - Model ids are compared exactly; a value typed on the line is matched to one ignoring case.
 - `Agent:Copilot:Model`, the one model of before, stops startup and says to list it (README, "Coming from before the
   user's settings").
+- The account menu's avatar shows the initials of the user's id. A name and a photo come with sign-in, from MSAL's
+  ID token and Microsoft Graph in the browser; `GET /api/me` stays the server's word on the id and the desk.
 
 ### What the review changed
 

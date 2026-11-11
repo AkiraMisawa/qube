@@ -40,8 +40,8 @@ function applying(state = settingsStore.getState()): MantineColorScheme | undefi
 
 /**
  * Mantine's colour scheme manager over the user's setting: it starts from the browser's copy, follows the server's
- * value as it is read or changed (by the line, the dialog or the AI), and writes a change the page makes (the header's
- * toggle) to the server, which the copy then follows.
+ * value as it is read or changed (by the line, the dialog or the AI), and writes a change the page makes (the account
+ * menu's theme) to the server, which the copy then follows.
  */
 export function themeManager(): MantineColorSchemeManager {
   let unsubscribe: (() => void) | undefined;

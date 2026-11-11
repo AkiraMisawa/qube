@@ -56,8 +56,9 @@ each model the AI may use; the first is a new conversation's until the user sets
 A user's settings (ADR-0017) are kept by the host in the same database, for the user `Qube:DemoUser` names until
 sign-in: the theme, column widths by grid, the command ranking, the AI's default model where models are configured,
 and the defaults a new workspace starts with (the pricer's display currency, a Rates line's currency, notional and
-direction). `settings` on the command line lists them with where each value comes from, `settings <name> <value>`
-sets one, and `settings reset <name>` puts the registered value back; the AI has the same three commands.
+direction). `settings` on the command line, or Settings in the header's account menu, lists them with where each
+value comes from, `settings <name> <value>` sets one, and `settings reset <name>` puts the registered value back; the
+AI has the same three commands.
 
 Playwright uses its own Chromium (`npx playwright install chromium`). Where a Chromium is already
 installed for another Playwright version, name it with `PLAYWRIGHT_CHROMIUM=/path/to/chrome`.

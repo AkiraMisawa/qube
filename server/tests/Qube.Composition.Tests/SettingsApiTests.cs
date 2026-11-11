@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json.Nodes;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 using Qube.Agent;
 using Qube.Composition.Application;
@@ -35,6 +36,17 @@ public sealed class SettingsApiTests(QubeFactory factory) : IClassFixture<QubeFa
         Assert.Equal("preference", theme["kind"]!.GetValue<string>());
         Assert.Equal(["dark", "light", "auto"], theme["choices"]!.AsArray().Select(c => c!.GetValue<string>()));
         Assert.Equal("dark", theme["registered"]!.GetValue<string>());
+    }
+
+    [Fact] // ADR-0017 §4: the header's account menu names the user, and their desk where configuration names one
+    public async Task The_page_reads_who_it_is_for()
+    {
+        var mine = (await client.GetFromJsonAsync<JsonObject>("/api/me"))!;
+        using var other = factory.WithWebHostBuilder(b => b.UseSetting("Qube:DemoUser", "ben").UseSetting("Qube:Desks:ben", "rates"));
+        var bens = (await other.CreateClient().GetFromJsonAsync<JsonObject>("/api/me"))!;
+
+        Assert.Equal(("akira", null), (mine["id"]!.GetValue<string>(), mine["desk"]?.GetValue<string>()));
+        Assert.Equal(("ben", "rates"), (bens["id"]!.GetValue<string>(), bens["desk"]?.GetValue<string>()));
     }
 
     [Fact] // ADR-0017 §2: what the page reads as it starts is what settings.read answers

@@ -54,7 +54,9 @@ toward 44px, decided on the iPhone journey (UX02) on a real device.
 ## Consequences
 
 - The header is three zones on one row from `md` up: title and Commands; Region and As of; AI and theme, behind a
-  divider. Below `md` the context takes a second row; below `sm` its two fields share that row's width.
+  divider. Below `md` the context takes a second row; below `sm` its two fields share that row's width. (2026-11-11,
+  the owner: the theme button became the account menu, an avatar of Control Height that holds Settings, the theme and
+  signing out; `toggle theme` stays on the line. Design guidelines §6.)
 - The AI toggle shows its open state with the `light` variant and `aria-pressed`, instead of a filled amber button
   with a focus ring.
 - New dependencies, `@tabler/icons-react` and `@ex-grid/mantine`, pinned exactly like the rest of

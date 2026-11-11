@@ -46,6 +46,12 @@
   gap: 8px;
 }
 
+/* The account menu's target: the avatar alone, one Control Height (30px) round, with the focus ring on its edge. */
+.qube-account {
+  display: flex;
+  border-radius: 50%;
+}
+
 .qube-header-divider {
   align-self: center;
   height: 20px;

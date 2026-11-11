@@ -111,17 +111,19 @@ WCAG's minimum target size (§8). Smaller controls would save little: the grids,
   differ from the text beside it and between platforms.
 - Size 16 with `stroke={1.75}` inside a 30px control; 14 inside a `compact-xs` one.
 - An icon-only control **MUST** have an `aria-label`, and **SHOULD** have a `Tooltip` that names it and, where one
-  exists, the command that does the same (`Light theme (toggle theme)`). Decorative icons beside text take
+  exists, the command that does the same. Decorative icons beside text take
   `aria-hidden`.
-- An icon beside a word is preferred to an icon alone; only a control whose meaning is conventional (close, theme,
-  the command line) goes without its word.
+- An icon beside a word is preferred to an icon alone; only a control whose meaning is conventional (close, the
+  account's avatar, the command line) goes without its word.
 
 ## 6. The shell
 
 The shell is the header, the panels under their tabs, and the AI pane (ADR-0007 §7).
 
 - **The header has three zones**, left to right: what this is and how to command it (title, Commands); the context
-  every run is bound to (Region, As of); the switches that change only the shell (AI, theme).
+  every run is bound to (Region, As of); what is the user's own (the AI pane, and the account menu: who they are,
+  Settings, the theme, signing out). The account menu opens as the pointer rests on the avatar, or on a click or a
+  tap (owner, 2026-11-11: settings are looked for under the user's account, not behind a theme button).
 - **MUST** give the header a fixed height on each breakpoint, `HEADER_HEIGHT` in `client/src/shell/AppHeader.tsx`,
   never `auto`. AppShell offsets the main area by that number; a header that grows past it covers the top of the
   panel. That is what `height: 'auto'` did on a phone before ADR-0009: the Rates toolbar slid under the header.

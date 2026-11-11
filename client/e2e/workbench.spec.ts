@@ -136,7 +136,7 @@ for (const width of [1440, 992, 768, 390]) {
     await open(page);
     const header = page.locator('header');
     const controls = header.locator('button, input:visible');
-    // Commands, Region, As of, AI and the theme.
+    // Commands, Region, As of, AI and the account menu.
     await expect(controls).toHaveCount(5);
     const boxes = await controls.evaluateAll((elements) => elements.map((e) => {
       const r = e.getBoundingClientRect();
