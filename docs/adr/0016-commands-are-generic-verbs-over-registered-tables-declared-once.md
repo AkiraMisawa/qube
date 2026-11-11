@@ -1141,6 +1141,97 @@ each is built.
     - *Gone with this:* the page's `/price`, `/refresh` and `/retry` endpoints, and the client's hand-written
       `refresh` and `pv01 retry`.
 
+34. **Rates registers its lines and its defaults (§1, §3; 3c).** Two tables (`RatesTables`), and the kernel's
+    `set`, `reset` and `remove` then act on a Rates workspace.
+    - *`rates.lines`* (main; `lines`, `line`; a row is named by its line, `L3`). A line's flat fields are its
+      fields, each named as the grid names its column (`leg1.notional`), so the cell the keyboard is on is a field
+      and `Reset this cell` finds it. A leg's field is typed by one word that ends in the leg's number, as a
+      product's terms are: `currency1` (`ccy1`), `index1`, `notional1`, `kind1`, `quote1`, `frequency1` (`freq1`),
+      `reset1`, `float1`, and for its conventions `daycount1`, `bdc1`, `average1`, `shift1`, `lookback1`, `delay1`,
+      `arrears1`, `gearing1`, `fixing1`. The trade's own are `start`, `end`, `direction`, `collateral`, `break` and
+      `risk`. `product` is read by a condition and never set.
+    - *An IRS's terms are fields too*, by the names `new irs` gives them, so that `set L3 notional 5mm` and `set
+      L3 rate 1.25%` say what a person means: `currency`, `index` and `notional` write both legs; `rate` writes leg
+      1's quote as a fixed rate; `spread` leg 2's as a floating spread; `spread1` and `spread2` write a floating
+      leg's, as `new ccs` names them. A term that does not apply to a line is refused by the line's name, with the
+      fields that do (`notional` on a cross-currency swap: `notional1`, `notional2`); a row holds no value in a
+      term that does not apply to it, or whose two legs differ. `rate` and the spreads take a value: a leg goes
+      back to par by emptying its `kind` and its `quote`, as its two cells are emptied, or by `reset`.
+    - *A write is checked for its form only*, as a typed cell is. Whether the terms make a line is the resolver's,
+      and shows on the row; a command that refused it would refuse the second of two edits a line needs both of.
+      One check is the command's alone: a currency or an index is one the confirmed conventions name, where a cell
+      takes any code and the row then says no convention names it. A word the conventions do not have is a typing
+      slip, and the line says so with the ones there are.
+    - *`reset <line> [field]`* removes the line's own edits, so the field is again what the line was made with; a
+      term's are the edits of the legs' fields that hold it, and a term the line does not have is refused as `set`
+      refuses it. *`remove <line>`* removes a line, with its edits. The grid's *Remove line* is the table's action
+      (`remove selected`; note 25).
+    - *`Percent` stays beside `Rate`* (changes note 5, which had it leave when Rates registered, and the spec).
+      The two are typed and written alike (`1.25%`, `5bp`) and differ only in what is held: `Rate` a fraction,
+      `Percent` percent. Rates' line contract, its quote kinds (`FixedRatePercent`) and its provider hold percent.
+      Holding a fraction there changes a wire contract and a provider for no gain a person sees; converting at
+      the module's edge makes two numbers for one term, a factor of a hundred apart, where a test of the kernel
+      sees neither. So a rate is typed in one form in both applications, and a field says which of the two it holds.
+    - *`rates.workspace`* is a table of one row (`workspace`), the workspace's own settings, as the pricer has
+      `xva.workspace`. It holds the workspace's defaults for new lines (ADR-0008 §4b). Its fields answer to `default
+      currency` (`default ccy`), `default notional` and `default direction`, so `set default currency USD` writes
+      one value and leaves the others ("Set workspace default currency to USD."), `reset default currency` removes
+      one, and several are written as `name=value`. The words differ from a line's on purpose: a table of one row
+      is addressed by its field's words alone (note 7), and a `currency` of the workspace would make `set currency
+      USD` with lines selected a question of which was meant (note 18). `set workspace currency USD` is refused
+      with the fields there are. A new line takes a default so set: the product's rules read the same context.
+    - *A change of context is a change of a batch.* The defaults live in the workspace's context, so a table's
+      write needs to say one: `WorkspaceChange.Context` holds the whole context after it and is written as a
+      change of context that keeps the source's version, which `undo` takes back (note 2). The checks are the ones
+      the page's control made: a currency with confirmed conventions, a notional of more than 0, pay or receive.
+    - *Not a field yet:* the valuation date, which is context too and stays the page's control.
+
+35. **A workspace's observers (§3; 3c).** A live subscription prices the revision it was last told of, and was
+    told by Rates' own service after each of its writes. The kernel's verbs now write a Rates workspace too
+    (`set`, `reset`, `remove`, `undo`, `redo`), and nothing told the subscription. So the workspace service takes
+    **observers**, each for one application: after an accepted command is committed, and outside the service's
+    lock, each observer of the workspace's application is given the state the command left. Two commands may tell
+    an observer in the other order than they were accepted, so an observer takes a revision no newer than the one
+    it holds as already told, which the live service does. Rates' observer tells the workspace's running
+    subscriptions; its service tells them nothing itself any more.
+
+36. **Rates' verbs are read on the server (§3, §4, §5; 3c).** As the pricer's are (notes 28 and 33).
+    - *`price`* is `rates.workspace.price` (`rates.price` is the step inside the Run). Its reading names the
+      market snapshot that is the latest as it is read, and says how many lines would be priced and which are left
+      out; the inputs carry that snapshot and the revision, so Enter prices what was shown. Invoked with no
+      snapshot, as the AI may, it prices on the latest then. It submits its Run under the invocation's key and
+      names the held edits a refusal waits on (note 33). Before any market is published it is refused.
+    - *`capture`* is `rates.frame.capture` (`rates.capture` is the step). A request names the frame it means (its
+      subscription, the subscription's revision, the input revision and the market snapshot), all of them or none.
+      A reading names the frame the subscription shows as it is read, and its time; Enter captures that frame and
+      never a later one, and a frame the subscription no longer keeps is refused. The page's button names the
+      frame the page drew. With none named, as the AI may, it is the frame shown when the command runs.
+    - *`live start` and `live stop`* are `rates.live.start` and `rates.live.stop`, which now say how they are
+      typed. Their answer names the subscription as before, and says the revision and a sentence.
+    - *`add line <product>`* is `rates.line.add`: an empty line of the product to fill in the grid, named by the
+      revision that makes it.
+    - *`new <product> <terms>` is the kernel's.* `entity.create` says how it is typed (§3): the first word names a
+      product of the workspace's application, the rest are its terms. Its reading fills the defaults and says the
+      entity the terms would make, each term, and where each default came from; it refuses a missing or unreadable
+      term by name, and what the product's rules refuse, and writes nothing. For that a product's rules say what
+      their `Create` would make without making it (`WouldCreate`). The request takes the revision read, and the
+      answer says a sentence.
+    - *What the door reads.* The door read the output named `answer`. It now reads that, or the one output of a
+      command that has one (`entity`, `subscription`); such an output says the revision and a sentence.
+    - *A client command of the same first word.* `new xva` and `new rates` open a dialog and stay in the client
+      (note 31), beside the served `new`; the shell's `set <context field>` stands beside the served `set` the same
+      way. A line whose words are exactly a client command's words is that command's, typed to its end or not, so
+      Enter on `new rates` opens the dialog and is not read as a product named `rates`.
+    - *The page.* The Rates page has a door, the view of its line grid (the lines, the selection and the cell the
+      keyboard is on) and two places, `lines` and `flows`. Add IRS, Add CCS, Price, the live toggle and Capture
+      invoke their commands through the door; a typed cell stays the page's own edit.
+    - *Gone with this:* the client's hand-written `set defaults`, `add line`, `live start`, `live stop`, `capture`,
+      `price` and `new <product>`, the client's own reading of a product's terms, and the page's endpoints whose
+      writes moved (`lines`, `lines/new`, `lines/{line}/remove`, `defaults`, `price`, `live`, `live/{id}`,
+      `live/{id}/capture`).
+    - *The three defects of 2026-11-10 end here.* A default is set alone; a refusal is the server's sentence and
+      the line keeps what was typed (ADR-0006's note 1); and `set`, `reset` and `remove` edit and remove a line.
+
 ## Rejected
 
 - **A range syntax of the pricer's own** (`after off where ccy=USD`, the review's R6). A second grammar per domain,

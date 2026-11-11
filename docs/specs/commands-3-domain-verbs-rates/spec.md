@@ -95,9 +95,23 @@ Decided in ADR-0016 notes 32 and 33, which this section follows.
 
 ### 3c. Rates registers (tickets 12 to 15)
 
-- `rates.lines` and `rates.defaults` are registered tables; `Percent` joins `Rate` (note 5).
-- The Rates page has a door, a screen and places.
-- `new <product>`, `live start`, `live stop`, `capture` and `price` say how they are typed; `set defaults` is `set`.
+Decided in ADR-0016 notes 34 to 36, which this section follows.
+
+- `rates.lines` and `rates.workspace` are registered tables (`RatesTables`, note 34). A line's flat fields are its
+  fields, and an IRS's terms as `new irs` names them are fields too. *Changed as built (note 34):* this said that
+  `Percent` joins `Rate`. The two stay: they are typed and written alike, and Rates holds percent in its line
+  contract and its provider, so one form would mean a changed wire contract or a conversion at the module's edge.
+- The defaults are fields of `rates.workspace`, written as a change of context in a batch
+  (`WorkspaceChange.Context`). `set defaults` is `set default currency USD`: a value alone is written.
+- The workspace service tells observers of each accepted command (`IWorkspaceObserver`, note 35), so a live
+  subscription prices a revision whoever wrote it.
+- `price` (`rates.workspace.price`), `capture` (`rates.frame.capture`), `live start`, `live stop` and `add line`
+  (`rates.line.add`) say how they are typed, for Rates' application (note 36). `new <product> <terms>` is the
+  kernel's `entity.create` with a form: a product's rules say what they would make (`IProductRules.WouldCreate`).
+- The door reads a command's `answer`, or its one output. A line that is exactly a client command's words is that
+  command's (`readLine`).
+- The Rates page has a door, a screen and places; its buttons invoke through the door, and the page's endpoints
+  whose writes moved go, with the client's hand-written Rates commands.
 - Rates' three command defects of 2026-11-10 end here.
 
 ### 3d. `add each` with lists (tickets 16 to 19)
@@ -128,6 +142,15 @@ A test names the ADR it holds. Tested at these seams, each through its public in
   order and `execute`; Vitest the list's order, the client's `price` on a Rates page alone, and a command read by
   its words where every argument may be left out; Playwright `price`, `refresh` and `pv01 retry` previewed and
   run, the Refresh and Price buttons on the same commands, and the existing scenario tests on the new path.
+
+- 3c, the same seams: `RatesLineCommandTests` (`CommandLines.Preview` and `CommandService` over a Rates workspace)
+  holds `set`, `reset` and `remove` on a line, an IRS's terms as fields, a default set alone and taken back, a
+  subscription told of a revision the kernel wrote, each Rates verb's reading and write, and `new irs` read with
+  nothing made; `WorkspaceUndoTests` a batch's change of context; `RatesApiTests` and `RatesCommandTests` the
+  moved writes through the gateway; Vitest the door's reading of a command's one output and `readLine`'s exact
+  client command; Playwright (`rates.spec.ts`) two lines selected, `set notional 5mm` and `undo`, the line saying
+  its screen, `find <line>`, a default set alone, `new irs` previewed and run, and the buttons on the same
+  commands.
 
 Not tested: what a domain service already holds by its own tests, and the kernel's reading of the expanded line.
 

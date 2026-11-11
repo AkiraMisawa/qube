@@ -192,6 +192,47 @@ public class WorkspaceUndoTests
         Assert.Equal("USD", redone.Context["currency"]!.GetValue<string>());
     }
 
+    [Fact] // ADR-0016 note 34: a batch may change the context, beside its other changes, as one command that undo takes back whole
+    public void A_batch_changes_the_context_and_undo_takes_the_whole_batch_back()
+    {
+        var service = Service();
+        var ws = Made(service);
+        var context = new JsonObject { ["day"] = "2026-11-11", ["currency"] = "USD" };
+
+        var after = service.After(ws, "akira", [new WorkspaceChange.Context(context)]);
+        ws = service.Batch(ws.WorkspaceId, ws.Revision, "akira", [new WorkspaceChange.Context(context), new WorkspaceChange.Set(Level, 11)], said: "set default currency USD");
+        var (undone, took) = service.Undo(ws.WorkspaceId, ws.Revision, "akira");
+
+        Assert.Equal("USD", after.Context["currency"]!.GetValue<string>());
+        Assert.Equal(("USD", 11, "d1"), (ws.Context["currency"]!.GetValue<string>(), ws.Overrides[Level].Value!.GetValue<int>(), ws.Source.Version));
+        Assert.All(ws.Log.Skip(2), e => Assert.Equal("set default currency USD", e.Command?.Said));
+        Assert.Equal("set default currency USD", took.Said);
+        Assert.Null(undone.Context["currency"]);
+        Assert.False(undone.Overrides.ContainsKey(Level));
+    }
+
+    sealed class Told(string app) : IWorkspaceObserver
+    {
+        public string App => app;
+        public List<long> Revisions { get; } = [];
+        public void Accepted(WorkspaceState state) => Revisions.Add(state.Revision);
+    }
+
+    [Fact] // ADR-0016 note 35: an application's observers are told of every accepted command, whoever wrote it, and of no refused one
+    public void An_observer_of_the_application_is_told_of_each_accepted_command()
+    {
+        var (told, other) = (new Told("test"), new Told("another"));
+        var service = new WorkspaceService(new Dictionary<string, IEditRules> { ["test"] = new Rules() }, TimeProvider.System, observers: [told, other]);
+        var ws = Made(service);
+
+        var set = service.Set(ws.WorkspaceId, ws.Revision, "akira", Level, 11);
+        Assert.Throws<WorkspaceRefused>(() => service.Set(ws.WorkspaceId, ws.Revision, "akira", Level, 12));
+        var undone = service.Undo(set.WorkspaceId, set.Revision, "akira").State;
+
+        Assert.Equal([set.Revision, undone.Revision], told.Revisions);
+        Assert.Empty(other.Revisions);
+    }
+
     [Fact] // ADR-0016 §11: a command that took a new source is not taken back, and undo never reaches past it to an older one
     public void Undo_refuses_at_a_new_source_version_and_reaches_nothing_before_it()
     {

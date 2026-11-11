@@ -22,15 +22,18 @@ public static class RatesProducts
         var other => throw new InvalidOperationException($"Line {line.Line} names product {other ?? "(none)"}, which Rates does not describe."),
     };
 
-    static readonly IReadOnlyDictionary<string, string> Directions = new Dictionary<string, string>
+    /// <summary>The words a direction is typed by, for a product's term and for a line's field alike.</summary>
+    internal static readonly IReadOnlyDictionary<string, string> Directions = new Dictionary<string, string>
     {
         ["pay"] = "pay", ["p"] = "pay", ["payer"] = "pay", ["receive"] = "receive", ["rec"] = "receive", ["r"] = "receive", ["receiver"] = "receive",
     };
 
-    static IReadOnlyDictionary<string, string> Currencies(ConventionRegistry conventions) =>
+    /// <summary>The currencies the confirmed conventions name, each typed in any case.</summary>
+    internal static IReadOnlyDictionary<string, string> Currencies(ConventionRegistry conventions) =>
         conventions.Profiles.Select(p => p.Currency).Distinct(StringComparer.Ordinal).ToDictionary(c => c.ToLowerInvariant(), c => c);
 
-    static IReadOnlyDictionary<string, string> Indices(ConventionRegistry conventions) =>
+    /// <summary>The indices the confirmed conventions name, each typed in any case.</summary>
+    internal static IReadOnlyDictionary<string, string> Indices(ConventionRegistry conventions) =>
         conventions.Profiles.Select(p => p.Index).Distinct(StringComparer.Ordinal).ToDictionary(i => i.ToLowerInvariant(), i => i);
 
     /// <summary>An interest rate swap: a fixed leg 1 against a floating leg 2 on one currency, index and notional (C40).</summary>

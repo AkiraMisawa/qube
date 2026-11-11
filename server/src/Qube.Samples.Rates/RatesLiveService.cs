@@ -115,19 +115,18 @@ public sealed class RatesLiveService(IRatesPricingProvider provider, Func<string
     }
 
     /// <summary>
-    /// The accepted input moved through the edit path; the subscription now prices the new revision only. Two
-    /// edits may report out of order; a revision no newer than the current one is superseded and ignored.
+    /// The workspace's accepted input moved (ADR-0016 note 35); each subscription running on it now prices the new
+    /// revision only. Two commands may be told out of order: a revision no newer than the one a subscription prices is
+    /// superseded and ignored. A subscription that stopped meanwhile is not there to be told, which is no failure of
+    /// the command that was accepted.
     /// </summary>
-    public void InputChanged(string owner, string subscriptionId, LiveInput input)
+    public void WorkspaceChanged(string workspaceId, LiveInput input)
     {
-        LiveWork? work;
+        var started = new List<LiveWork>();
         lock (gate)
-        {
-            var entry = Owned(owner, subscriptionId);
-            if (input.Revision <= entry.Rules.InputRevision) return;
-            work = Changed(entry, input);
-        }
-        Launch(work);
+            foreach (var entry in subscriptions.Values.Where(s => s.WorkspaceId == workspaceId && input.Revision > s.Rules.InputRevision))
+                if (Changed(entry, input) is { } work) started.Add(work);
+        foreach (var work in started) Launch(work);
     }
 
     LiveWork? Changed(Entry entry, LiveInput input)
@@ -207,7 +206,7 @@ public sealed class RatesLiveService(IRatesPricingProvider provider, Func<string
         }
     }
 
-    /// <summary>The running subscriptions on a workspace, by owner, for the edit path to report a new input to.</summary>
+    /// <summary>The running subscriptions on a workspace, by owner.</summary>
     public IReadOnlyList<(string Owner, string SubscriptionId)> OnWorkspace(string workspaceId)
     {
         lock (gate) return [.. subscriptions.Where(s => s.Value.WorkspaceId == workspaceId).Select(s => (s.Value.Rules.Owner, s.Key))];

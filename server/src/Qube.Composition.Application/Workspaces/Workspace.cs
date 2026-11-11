@@ -15,7 +15,7 @@ public sealed record EditTarget(string Scope, string Entity, string Field, strin
 
 /// <summary>
 /// One change of a batch (<see cref="WorkspaceService.Batch"/>), made as the command of the same name makes it: an
-/// override, a reset, a created entity, or one removed with the layer it owns.
+/// override, a reset, a created entity, one removed with the layer it owns, or the workspace's context changed.
 /// </summary>
 public abstract record WorkspaceChange
 {
@@ -23,6 +23,27 @@ public abstract record WorkspaceChange
     public sealed record Reset(EditTarget Target) : WorkspaceChange;
     public sealed record Create(string Scope, string Entity, JsonObject Fields) : WorkspaceChange;
     public sealed record Remove(string Entity, string? Layer = null) : WorkspaceChange;
+
+    /// <summary>
+    /// The whole context after the change, on the source the workspace holds (ADR-0016 note 34): what a table writes
+    /// whose values live in the context, such as an application's defaults. <c>undo</c> takes it back (note 2).
+    /// </summary>
+    public sealed record Context(JsonObject Value) : WorkspaceChange;
+}
+
+/// <summary>
+/// What is told of a workspace's accepted commands (ADR-0016 note 35): a module that keeps something in step with its
+/// application's workspaces, such as a live subscription with the revision it prices. Told after the command is
+/// committed and outside the workspace service's lock, so two commands may be told in the other order than they were
+/// accepted: an observer takes a revision no newer than the one it holds as already told.
+/// </summary>
+public interface IWorkspaceObserver
+{
+    /// <summary>The workspace application whose workspaces it is told of.</summary>
+    string App { get; }
+
+    /// <summary>The state an accepted command left.</summary>
+    void Accepted(WorkspaceState state);
 }
 
 /// <summary>A source value as read: present (possibly empty), never confused with absent.</summary>

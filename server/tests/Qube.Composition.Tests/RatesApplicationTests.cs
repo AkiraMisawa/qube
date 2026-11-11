@@ -32,7 +32,8 @@ public class RatesApplicationTests
         var feed = new MarketFeed(market, live);
         var store = new InMemoryDataStore();
         var runs = new RunService(new CompositionRegistry([new RatesModule(provider, market.Resolve)]), store, TimeProvider.System);
-        var workspaces = new WorkspaceService(new Dictionary<string, IEditRules> { [RatesEditRules.App] = new RatesEditRules(Conventions) }, TimeProvider.System);
+        var workspaces = new WorkspaceService(new Dictionary<string, IEditRules> { [RatesEditRules.App] = new RatesEditRules(Conventions) }, TimeProvider.System,
+            observers: [new RatesLiveObserver(live, Conventions, provider)]);
         return new(new RatesWorkspaces(workspaces, store, runs, live, feed, Conventions, provider), runs, store, feed, live, workspaces);
     }
 

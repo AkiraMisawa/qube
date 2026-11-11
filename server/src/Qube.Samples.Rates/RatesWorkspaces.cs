@@ -107,9 +107,9 @@ public sealed class LineTermsRefused(IReadOnlyList<string> issues) : Exception(s
 public sealed record FrameIdentity(int SubscriptionRevision, long InputRevision, string MarketSnapshotId);
 
 /// <summary>
-/// The Rates workspace application service: what the endpoints call (docs/07 §4's coordinator). It names lines,
-/// checks types, and reports every accepted edit to the workspace's live subscriptions. The generic kernel stores
-/// and carries the edits; the module derives the schedules.
+/// The Rates workspace application service: what the endpoints call (docs/07 §4's coordinator). It names lines and
+/// checks types. The generic kernel stores and carries the edits; the module derives the schedules, and a running
+/// live subscription is told of each accepted revision by the workspace's observer (<see cref="RatesLiveObserver"/>).
 /// </summary>
 public sealed class RatesWorkspaces(WorkspaceService workspaces, IDataStore store, RunService runs, RatesLiveService live, MarketFeed market,
     ConventionRegistry conventions, IRatesPricingProvider provider)
@@ -156,7 +156,7 @@ public sealed class RatesWorkspaces(WorkspaceService workspaces, IDataStore stor
     {
         Owned(workspaceId, user);
         var line = $"L{revision + 1}";
-        return (Reported(workspaceId, workspaces.Create(workspaceId, revision, user, RatesEditRules.LinesScope, line, LineFields.Template(product), RunOrigin.Pricer)), line);
+        return (workspaces.Create(workspaceId, revision, user, RatesEditRules.LinesScope, line, LineFields.Template(product), RunOrigin.Pricer), line);
     }
 
     /// <summary>
@@ -173,7 +173,7 @@ public sealed class RatesWorkspaces(WorkspaceService workspaces, IDataStore stor
         var revision = expectedRevision ?? state.Revision;
         var line = $"L{revision + 1}";
         var fields = LineFrom(terms, RatesEditRules.ValuationDate(state));
-        return (Reported(workspaceId, workspaces.Create(workspaceId, revision, user, RatesEditRules.LinesScope, line, fields, origin, sources)), line);
+        return (workspaces.Create(workspaceId, revision, user, RatesEditRules.LinesScope, line, fields, origin, sources), line);
     }
 
     /// <summary>
@@ -190,7 +190,7 @@ public sealed class RatesWorkspaces(WorkspaceService workspaces, IDataStore stor
         if (defaults.Direction is { Length: > 0 } d && d is not ("pay" or "receive")) issues.Add("A default direction is pay or receive.");
         if (issues.Count > 0) throw new LineTermsRefused(issues);
         var (next, _) = workspaces.Reacquire(workspaceId, revision, user, Context(RatesEditRules.ValuationDate(state), defaults.ToJson()), NoAcquiredSource);
-        return Reported(workspaceId, next);
+        return next;
     }
 
     /// <summary>A line's fields from its terms, refused with every reason it could not be priced at the valuation date.</summary>
@@ -216,7 +216,7 @@ public sealed class RatesWorkspaces(WorkspaceService workspaces, IDataStore stor
     public WorkspaceState RemoveLine(string workspaceId, long revision, string user, string line)
     {
         Owned(workspaceId, user);
-        return Reported(workspaceId, workspaces.Remove(workspaceId, revision, user, line, RunOrigin.Pricer));
+        return workspaces.Remove(workspaceId, revision, user, line, RunOrigin.Pricer);
     }
 
     public WorkspaceState EditLine(string workspaceId, long revision, string user, string line, string field, JsonNode? value)
@@ -229,7 +229,7 @@ public sealed class RatesWorkspaces(WorkspaceService workspaces, IDataStore stor
         // Types only: whether the terms make a line is the resolver's, and shows on the row.
         if (value is not null and not JsonValue)
             throw new WorkspaceRefused("InvalidValue", $"{field} takes a single value.", [target]);
-        return Reported(workspaceId, workspaces.Set(workspaceId, revision, user, target, value, RunOrigin.Pricer));
+        return workspaces.Set(workspaceId, revision, user, target, value, RunOrigin.Pricer);
     }
 
     public WorkspaceState EditCashflow(string workspaceId, long revision, string user, string line, string period, string field, JsonNode? value)
@@ -249,7 +249,7 @@ public sealed class RatesWorkspaces(WorkspaceService workspaces, IDataStore stor
             _ => $"{field} is not an editable cashflow field.",
         };
         if (problem is not null) throw new WorkspaceRefused("InvalidValue", problem, [target]);
-        return Reported(workspaceId, workspaces.Set(workspaceId, revision, user, target, value, RunOrigin.Pricer));
+        return workspaces.Set(workspaceId, revision, user, target, value, RunOrigin.Pricer);
     }
 
     public WorkspaceState Resolve(string workspaceId, long revision, string user, string scope, string entity, string field, string resolution)
@@ -258,14 +258,14 @@ public sealed class RatesWorkspaces(WorkspaceService workspaces, IDataStore stor
         var target = new EditTarget(scope, entity, field);
         if (!state.Overrides.ContainsKey(target) && !state.Conflicts.ContainsKey(target) && !state.Lost.ContainsKey(target))
             throw new WorkspaceRefused("NotOverridden", $"{entity}.{field} has no edit.");
-        return Reported(workspaceId, resolution switch
+        return resolution switch
         {
             "reset" => workspaces.Reset(workspaceId, revision, user, target),
             "keep" => workspaces.KeepOverride(workspaceId, revision, user, target),
             "takeSource" => workspaces.TakeSource(workspaceId, revision, user, target),
             "acknowledge" => workspaces.AcknowledgeLost(workspaceId, revision, user, target),
             _ => throw new WorkspaceRefused("UnknownResolution", $"{resolution} is not reset, keep, takeSource or acknowledge."),
-        });
+        };
     }
 
     /// <summary>Moves the grid's valuation date. Every schedule is derived again, and its cashflow edits carry or are held.</summary>
@@ -274,7 +274,7 @@ public sealed class RatesWorkspaces(WorkspaceService workspaces, IDataStore stor
         Owned(workspaceId, user);
         var current = Owned(workspaceId, user);
         var (state, _) = workspaces.Reacquire(workspaceId, revision, user, Context(valuationDate, current.Context["defaults"]?.AsObject()), NoAcquiredSource);
-        return (Reported(workspaceId, state), state.Rederived ?? new CarrySummary(0, 0, 0));
+        return (state, state.Rederived ?? new CarrySummary(0, 0, 0));
     }
 
     /// <summary>
@@ -358,16 +358,6 @@ public sealed class RatesWorkspaces(WorkspaceService workspaces, IDataStore stor
         Owned(workspaceId, user);
         foreach (var (owner, id) in live.OnWorkspace(workspaceId)) live.Stop(owner, id, LiveStopReason.Deleted);
         workspaces.Delete(workspaceId, user);
-    }
-
-    /// <summary>Reports an accepted revision to the workspace's running subscriptions, which then price only it.</summary>
-    WorkspaceState Reported(string workspaceId, WorkspaceState state)
-    {
-        var subscriptions = live.OnWorkspace(workspaceId);
-        if (subscriptions.Count == 0) return state;
-        var input = RatesAcceptedInput.Of(state, conventions, provider);
-        foreach (var (owner, id) in subscriptions) live.InputChanged(owner, id, input);
-        return state;
     }
 
     WorkspaceState Owned(string workspaceId, string user)
