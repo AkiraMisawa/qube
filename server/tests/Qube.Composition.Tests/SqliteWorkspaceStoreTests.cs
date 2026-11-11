@@ -166,7 +166,10 @@ public sealed class SqliteWorkspaceStoreTests : IDisposable
             command.CommandText = "UPDATE EditLog SET command = NULL, said = NULL, replaced_json = NULL";
             command.ExecuteNonQuery();
         }
-        Assert.All(Service(Store()).Find(ws.WorkspaceId)!.Log, e => Assert.Equal((null, null), (e.Command, e.Replaced)));
+        var older = Service(Store());
+        Assert.All(older.Find(ws.WorkspaceId)!.Log, e => Assert.Equal((null, null), (e.Command, e.Replaced)));
+        // Such a change is not taken back, and nothing before it is reached (note 2).
+        Assert.Equal("CannotUndo", Assert.Throws<WorkspaceRefused>(() => older.Undo(ws.WorkspaceId, ws.Revision, "akira")).Code);
     }
 
     [Fact] // ADR-0016 §11: the log alone is enough to take a command back, so undo works after a restart, and its redo after another

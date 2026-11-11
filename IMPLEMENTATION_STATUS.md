@@ -987,34 +987,38 @@ selector and the edit verbs are 1b; the preview and the line built from the cata
 - **What is refused, by name**: nothing to take back (`NothingToUndo`, the workspace as it was made) or to put back
   (`NothingToRedo`); a command that took another source version, left a scope with its edits or decided a held edit, and
   one written before commands had ids (`CannotUndo`); another user's command (`NotYourCommand`); a named command that is
-  not the latest (`NotLatestCommand`). Nothing older than a refused command is reached.
+  not the latest (`NotLatestCommand`); a request that says neither the revision it read nor the command it means
+  (`CommandNotNamed`). Nothing older than a refused command is reached.
 - **A workspace's making is one command.** The pricer made a workspace and then set its owner's last selection of
   measures as a second command, which the first `undo` would have taken back. `WorkspaceService.Create` takes the values
   a workspace is made with and writes them in the making's own command; a selection taken back is no longer the owner's
   last (ADR-0016's note 2).
 - **Two kernel commands and the page's door.** `workspace.undo` and `workspace.redo` 1.0.0 (`EditWorkspace`; the catalog
-  now lists 33 capabilities) take the workspace, the revision the caller saw and, optionally, the command meant; they
-  answer the new revision, their own command id, the command taken back, whose it was, when, how many edits and one
-  sentence (`Took back: set CSA-A threshold. redo puts it back.`). The owner of the workspace runs them, the AI's tools
-  among the callers (`workspace_undo`). `POST /api/commands/{id}/{version}` is the page's door to the same gateway as
-  the agent's, with origin `pricer` and the same statuses (ADR-0016 §5).
+  now lists 33 capabilities) take the workspace and what the request means: the revision its caller read, as the page
+  gives, or the id of the command, which the AI's request always names (ADR-0016 §11). They answer the new revision,
+  their own command id, the command taken back, whose it was, from where, when, how many edits and one sentence (`Took
+  back: set CSA-A threshold. redo puts it back.`). The owner of the workspace runs them, and the AI has them as tools
+  (`workspace_undo`), which no agent runtime has called. `POST /api/commands/{id}/{version}` is the page's door to the
+  same gateway as the agent's, with origin `pricer` and the same statuses (ADR-0016 §5).
 - **A command is named as its screen names it** (`IEditRules.TitleOf`): by its words where it was given them, else by
   its edits' titles, the first three and a count. The pricer's rules answer `CSA-A threshold`, `DRAFT-1 A`, `Before on
   the existing trades`, `the measures`, `the display currency`, a case by its title; never an entity's key.
 - **On the pricer's page**: `undo` and `redo` on the line, after `set` in the page's list, and Ctrl+Z and Ctrl+Y (or
   Ctrl+Shift+Z) in every grid of the page, the input tabs' grids included, through ExGrid's `onUndo` and `onRedo`. While
-  a cell is being typed in the keys stay the editor's, by ExGrid's contract. The page runs them after the edits it has
-  already sent, reads the workspace again, and the notice says what was taken back or why not.
+  a cell is being typed in the keys stay the editor's, by ExGrid's contract. The page runs them in its edit queue's
+  turn, after the edits it has already sent, reads the workspace again in that same turn, and the notice says what was
+  taken back or why not.
 
 ### Verification performed
 
 | What | Result |
 |---|---|
-| `dotnet test server/Qube.slnx` | 624 passed |
+| `dotnet test server/Qube.slnx` | 630 passed |
 | Client: `npm run typecheck`, `npm test`, `npm run build` | 253 passed in 31 files |
 | `npx playwright test` (Chromium, headless, Linux) | 63 passed |
 | The browser test of `undo` and `redo` (line and keys), with `--repeat-each=3` | 3 passed; its first repeat found the making's second command, fixed above |
 | Looked at in Chromium: `undo` on the line, its notice and the list for `re`, in both schemes at 1440, 992, 768 and 390 px | The notice wraps to two lines on a phone; `undo` and `redo` list under the page's title |
+| Code review (`code-review`, two axes, since `492969f`) | Three defects fixed (a `redo` that left a removed case's changes behind, the page's read beside its queue, a refusal that misnamed a command), the request's rule of §11 enforced, six tests added; what was left is in the Known limits |
 
 ### Providers
 
@@ -1022,16 +1026,25 @@ Unchanged: every figure on these pages is simulated, and says so.
 
 ### Known limits
 
-- Only the pricer's page has the two commands and the keys. The kernel takes back a Rates workspace's commands, its
-  changes of defaults and valuation date among them (held by the unit tests of the generic workspace, not by a Rates
-  test); Rates' page gets the line's words and the keys with its registration, step 3.
+- Only the pricer's page has the two commands and the keys. The kernel takes back a Rates workspace's commands, a change
+  of valuation date and of defaults with the cashflow edits it moved among them (`RatesApplicationTests`, through the
+  kernel's service); Rates' page gets the line's words and the keys with its registration, step 3, and until then such a
+  change is named `changed the context`.
 - A command is not yet recorded with its words: `set CSA-A threshold 5mm` reaches the server as the page's edit and is
   named by its cell (`set CSA-A threshold`). The words come with `entity.set` and the line's preview (1b, 1c).
 - Not measured at 10,000 rows: an `undo` writes an entry for each entry it takes back, as the batch did. The by-row
   batch and its `undo` are measured when 1b builds them.
 - A refresh, a change of counterparty or of value date, and a held edit once kept or discarded are not taken back, nor
   anything before them: the notice says which and why.
-- The answer names the command by an id (`c12`) the page does not show yet; the Changes tab lists edits, not commands.
+- The derivation runs after an `undo` as after any command. A lost edit that was acknowledged asks to be seen again when
+  its scope moves, which was so before this step for every command and is not changed here.
+- The answer names the command by an id (`c12`) the page does not show yet; the Changes tab lists edits, not commands,
+  and words a whole grid's B or A its own way (`Existing B every row`, where the sentence says `Before on the existing
+  trades`): one title for both comes with the tables' registration, 1b.
+- What an entry replaced is one record with a field per case (an edit, an entity, a context), not a type per case; the
+  code review named it and it was left, the log's JSON being simpler for it.
+- No real model has called `workspace_undo`; the rule that the AI names the command is held over HTTP at the agent's
+  door.
 - The command's idempotency keys are held in memory, as every command's are (ADR-0005).
 
 ## Next

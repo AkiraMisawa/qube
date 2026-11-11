@@ -479,12 +479,14 @@ Written before step 1 is built (`docs/specs/commands-1-tables-selector-undo`), f
 the builder. Step 1 ships as three pull requests: the log with `undo` and `redo`; the tables, the forms, the selector
 and the edit verbs with XVA registered; the preview and the line.
 
-1. **What an entry records (§11).** A command's id is `c` and the sequence number of its first entry (`c12`), unique
-   in its workspace. An entry records what it replaced as it stood: the override or the lost edit on its target, for a
-   `Remove` the entity with the edits that ended with it, for a context change the context before. Taking a command
-   back puts those back as they were, their sequence numbers included, so that "a row's later edit wins" (ADR-0010 §6)
-   reads as it did before the command. The entries an `undo` writes record what they replaced too, so `redo` is the
-   same act applied to the `undo`, and a command put back can be taken back again.
+1. **What an entry records (§11).** A command's id is `c` and the sequence number of its first entry (`c12`), unique in
+   its workspace. An entry records what it replaced as it stood: the override or the lost edit on its target, for a
+   `Remove` the entity with the layer it owned and the edits that ended with it, for a context change the context
+   before. Taking a command back puts those back as they were, their sequence numbers included, so that "a row's later
+   edit wins" (ADR-0010 §6) reads as it did before the command. The entries an `undo` writes record what they replaced
+   too, an entity put back the layer that came back with it, so `redo` is the same act applied to the `undo`, and a
+   command put back can be taken back again. The derivation runs after an `undo` as after any command and decides on the
+   edits of the scopes it moved again.
 2. **What can be taken back (§11).** The stack is read from the log: a command joins it and ends what can be redone,
    an `undo` moves its top to what can be redone, a `redo` moves it back. `undo` refuses, by name, at a command that
    took another source version, left a scope or decided a held edit, at one recorded before commands had ids, and at the
@@ -496,8 +498,10 @@ and the edit verbs with XVA registered; the preview and the line.
    gave them, else by its edits' titles, which the domain's rules give (`E00003 A`, `CSA-A threshold`), never an
    entity's key. The sentence holds no time: the result carries when and who, and the client writes the time in the
    user's zone.
-4. **The page's door (§5).** `POST /api/commands/{id}/{version}` answers as the agent's door does (404, 403, 409,
-   else 422), with the origin of the page.
+4. **The page's door (§5), and what a request says (§11).** `POST /api/commands/{id}/{version}` answers as the agent's
+   door does (404, 403, 409, else 422), with the origin of the page. A request to `undo` or `redo` says what it means:
+   the revision its caller read, as the page's does, or the id of the command, which is refused unless it is the latest;
+   with neither it is refused, and the AI's names the command whatever else it gives.
 5. **Forms (§1).** `FieldForm` gains a signed amount, a rate as a fraction, a spread, a number of days and an id,
    which may name the table it points into; currency, frequency and schedule are choices. That a field may be empty
    (`empty`, `none`) is the field's, not a form. An amount is 0 or more and a product still refuses 0. `Percent`, a

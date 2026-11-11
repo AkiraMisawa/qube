@@ -11,6 +11,29 @@ public sealed record LoggedCommand(CommandStamp? Stamp, IReadOnlyList<EditEntry>
 
     /// <summary>Whose command it is: the derivation writes under a name of its own.</summary>
     public EditEntry First => Edits.FirstOrDefault() ?? Entries[0];
+
+    /// <summary>
+    /// What the command did that no undo reaches (ADR-0016 §11's note 2 of 2026-11-11), in words that follow "the latest
+    /// command": its inverse would be written against a base that has changed. None for a command that can be taken back.
+    /// </summary>
+    public string? Barrier
+    {
+        get
+        {
+            foreach (var entry in Entries)
+                switch (entry.Kind)
+                {
+                    case EditKind.DropScope: return "left a scope with its edits";
+                    case EditKind.KeepOverride or EditKind.TakeSource or EditKind.AcknowledgeLost: return "decided a held edit";
+                    case EditKind.Acquire:
+                        var before = Entries.FirstOrDefault(e => e.Kind == EditKind.Context)?.Replaced?.SourceVersion;
+                        var version = entry.Value?["version"]?.GetValue<string>();
+                        if (before is null || before != version) return $"took another source version ({version})";
+                        break;
+                }
+            return null;
+        }
+    }
 }
 
 /// <summary>

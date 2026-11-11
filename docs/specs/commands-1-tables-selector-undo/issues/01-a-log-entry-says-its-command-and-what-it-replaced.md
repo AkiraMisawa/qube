@@ -17,6 +17,12 @@ before them still opens (ADR-0016 §11 and note 1 of 2026-11-11, an addition to 
 - [x] A `Reset` records the override it removed; a `Remove` the entity and the edits that ended with it.
 - [x] The SQLite store answers the same stamps and replaced values after a load; an older log opens with none.
 
+## Comments
+
 Done 2026-11-11. `CommandStamp` and `Replaced` are on `EditEntry` (`Workspace.cs`); `WorkspaceService.Apply` stamps
 every entry a call writes, the derivation's included, and the making's two entries are `c1`. The SQLite log has five new
 columns, added to an older log when it opens (`WorkspaceUndoTests`, `SqliteWorkspaceStoreTests`).
+
+After the code review, 2026-11-11: a `Remove` records the layer it took with the entity, and the entity an undo puts
+back records it too. `CommandStamp.IdAt` is the one place an id is made. A derivation's entries carrying the command's
+id is now held by a test with a module that derives (`DerivedWorkspaceTests`).

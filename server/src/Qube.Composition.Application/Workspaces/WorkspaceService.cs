@@ -89,7 +89,7 @@ public sealed class WorkspaceService(IReadOnlyDictionary<string, IEditRules> rul
     {
         RulesOf(app);
         var id = $"ws-{Guid.CreateVersion7():N}";
-        var made = new CommandStamp("c1");
+        var made = new CommandStamp(CommandStamp.IdAt(1));
         var log = ImmutableList<EditEntry>.Empty
             .Add(new EditEntry(1, clock.GetUtcNow(), owner, EditKind.Context, null, null, context.DeepClone(), null, origin, made))
             .Add(new EditEntry(2, clock.GetUtcNow(), owner, EditKind.Acquire, null, null, Acquired(source), null, origin, made));
@@ -287,7 +287,8 @@ public sealed class WorkspaceService(IReadOnlyDictionary<string, IEditRules> rul
                 new Replaced(Created: created,
                     Overrides: [.. gone.Select(state.Overrides.GetValueOrDefault).OfType<Override>()],
                     Conflicts: [.. gone.Select(state.Conflicts.GetValueOrDefault).OfType<Conflict>()],
-                    LostEdits: [.. gone.Select(state.Lost.GetValueOrDefault).OfType<LostTarget>()]))),
+                    LostEdits: [.. gone.Select(state.Lost.GetValueOrDefault).OfType<LostTarget>()],
+                    Layer: layer))),
         };
     }
 
@@ -330,7 +331,7 @@ public sealed class WorkspaceService(IReadOnlyDictionary<string, IEditRules> rul
         return (state, summary);
     }
 
-    (WorkspaceState, CarrySummary) ReacquireOn(WorkspaceState state, string user, JsonObject context, ISourceVersion source)
+    (WorkspaceState, CarrySummary) ReacquireOn(WorkspaceState state, string user, JsonObject context, ISourceVersion source, RunOrigin? origin = null)
     {
         // Only what the acquired source holds is checked against the new one; created and derived entities are not
         // in it (ADR-0004), and a derivation that reads the new context runs after the command.
@@ -341,9 +342,9 @@ public sealed class WorkspaceService(IReadOnlyDictionary<string, IEditRules> rul
             Context = (JsonObject)context.DeepClone(),
             Source = source,
             Log = state.Log
-                .Add(Entry(state, seq, user, EditKind.Context, null, context,
+                .Add(Entry(state, seq, user, EditKind.Context, null, context, origin: origin,
                     replaced: new Replaced(Context: (JsonObject)state.Context.DeepClone(), SourceVersion: state.Source.Version)))
-                .Add(Entry(state, seq + 1, user, EditKind.Acquire, null, Acquired(source))),
+                .Add(Entry(state, seq + 1, user, EditKind.Acquire, null, Acquired(source), origin: origin)),
         };
         return (next, summary);
     }
@@ -451,7 +452,7 @@ public sealed class WorkspaceService(IReadOnlyDictionary<string, IEditRules> rul
     }
 
     WorkspaceState Apply(string workspaceId, long expectedRevision, Func<WorkspaceState, WorkspaceState> change, string? said = null) =>
-        Apply(workspaceId, expectedRevision, state => (change(state), new CommandStamp($"c{state.Revision + 1}", said)));
+        Apply(workspaceId, expectedRevision, state => (change(state), new CommandStamp(CommandStamp.IdAt(state.Revision + 1), said)));
 
     WorkspaceState Apply(string workspaceId, long expectedRevision, Func<WorkspaceState, (WorkspaceState State, CommandStamp Stamp)> change)
     {
@@ -483,18 +484,18 @@ public sealed class WorkspaceService(IReadOnlyDictionary<string, IEditRules> rul
 
     (WorkspaceState, TakenBack) TakeBack(string workspaceId, long expectedRevision, string user, string? named, RunOrigin? origin, bool undo)
     {
-        TakenBack? told = null;
+        TakenBack? tookBack = null;
         var next = Apply(workspaceId, expectedRevision, state =>
         {
             var stacks = CommandHistory.Read(state.Log);
             var latest = Latest(state, undo ? stacks.Undo : stacks.Redo, user, named, undo);
             var name = latest.Stamp!.Said ?? Named(state, latest);
-            told = new TakenBack(latest.Stamp.Id, name, latest.First.User, latest.First.Origin, latest.First.At, latest.Edits.Count());
+            tookBack = new TakenBack(latest.Stamp.Id, name, latest.First.User, latest.First.Origin, latest.First.At, latest.Edits.Count());
             var reverted = latest.Entries.Reverse().Aggregate(state, (current, entry) => Revert(current, user, entry, origin));
-            var id = $"c{state.Revision + 1}";
+            var id = CommandStamp.IdAt(state.Revision + 1);
             return (reverted, undo ? new CommandStamp(id, name, Undoes: latest.Stamp.Id) : new CommandStamp(id, name, Redoes: latest.Stamp.Id));
         });
-        return (next, told ?? throw new InvalidOperationException("A command taken back says which."));
+        return (next, tookBack ?? throw new InvalidOperationException("A command taken back says which."));
     }
 
     /// <summary>The command an undo or a redo acts on, or why there is none it may act on.</summary>
@@ -511,26 +512,9 @@ public sealed class WorkspaceService(IReadOnlyDictionary<string, IEditRules> rul
             throw new WorkspaceRefused("NotLatestCommand", $"{named} is not the latest command; {latest.Stamp.Id} is ({latest.Stamp.Said ?? Named(state, latest)}).");
         if (latest.First.User != user)
             throw new WorkspaceRefused("NotYourCommand", $"The latest command is {latest.First.User}'s ({latest.Stamp.Said ?? Named(state, latest)}); only they take it back.");
-        if (Standing(latest) is { } why)
+        if (latest.Barrier is { } why)
             throw new WorkspaceRefused("CannotUndo", $"The latest command {why}, so it cannot be taken back, and nothing before it is reached.");
         return latest;
-    }
-
-    /// <summary>What a command did that no undo reaches (ADR-0016 §11's note 2): an inverse would be written against a base that has changed.</summary>
-    static string? Standing(LoggedCommand command)
-    {
-        foreach (var entry in command.Entries)
-            switch (entry.Kind)
-            {
-                case EditKind.DropScope: return "left a scope with its edits";
-                case EditKind.KeepOverride or EditKind.TakeSource or EditKind.AcknowledgeLost: return "decided a held edit";
-                case EditKind.Acquire:
-                    var before = command.Entries.FirstOrDefault(e => e.Kind == EditKind.Context)?.Replaced?.SourceVersion;
-                    var version = entry.Value?["version"]?.GetValue<string>();
-                    if (before is null || before != version) return $"took another source version ({version})";
-                    break;
-            }
-        return null;
     }
 
     /// <summary>A command with no words is named by its edits' titles, as the module's rules give them (note 3).</summary>
@@ -543,7 +527,12 @@ public sealed class WorkspaceService(IReadOnlyDictionary<string, IEditRules> rul
             EditKind.Reset => $"reset {rules.TitleOf(state, e.Target!)}",
             EditKind.Create => $"made {rules.TitleOf(state, e.Target!)}",
             EditKind.Remove => $"removed {rules.TitleOf(state, e.Target!)}",
-            _ => "changed the context",
+            EditKind.KeepOverride => $"kept {rules.TitleOf(state, e.Target!)}",
+            EditKind.TakeSource => $"took the source's {rules.TitleOf(state, e.Target!)}",
+            EditKind.AcknowledgeLost => $"saw the lost edit of {rules.TitleOf(state, e.Target!)}",
+            EditKind.DropScope => "left a scope with its edits",
+            EditKind.Context => "changed the context",
+            _ => throw new InvalidOperationException($"No name for an entry of kind {e.Kind}."),
         }).ToList();
         const int shown = 3;
         return edits.Count <= shown ? string.Join(", ", edits) : $"{string.Join(", ", edits.Take(shown))} and {edits.Count - shown} more";
@@ -573,7 +562,8 @@ public sealed class WorkspaceService(IReadOnlyDictionary<string, IEditRules> rul
                 };
             }
             case EditKind.Create:
-                return RemoveOn(state, user, (entry.Target ?? throw new InvalidOperationException($"Entry {entry.Seq} has no target.")).Entity, origin, layer: null);
+                // An entity an undo put back goes again with the layer that came back with it.
+                return RemoveOn(state, user, (entry.Target ?? throw new InvalidOperationException($"Entry {entry.Seq} has no target.")).Entity, origin, entry.Replaced?.Layer);
             case EditKind.Remove:
             {
                 var back = entry.Replaced ?? throw new InvalidOperationException($"Entry {entry.Seq} removed an entity and does not say which.");
@@ -587,13 +577,13 @@ public sealed class WorkspaceService(IReadOnlyDictionary<string, IEditRules> rul
                     Conflicts = state.Conflicts.SetItems((back.Conflicts ?? []).Select(c => KeyValuePair.Create(c.Override.Target, c))),
                     Lost = state.Lost.SetItems((back.LostEdits ?? []).Select(l => KeyValuePair.Create(l.Override.Target, l))),
                     Log = state.Log.Add(Entry(state, seq, user, EditKind.Create, new EditTarget(created.Scope, created.Entity, "*"), created.Fields,
-                        $"put back with {edits} edits", origin)),
+                        $"put back with {edits} edits", origin, back.Layer is null ? null : new Replaced(Layer: back.Layer))),
                 };
             }
             case EditKind.Context:
             {
                 var before = entry.Replaced?.Context ?? throw new InvalidOperationException($"Entry {entry.Seq} changed the context and does not say from what.");
-                return ReacquireOn(state, user, before, state.Source).Item1;
+                return ReacquireOn(state, user, before, state.Source, origin).Item1;
             }
             // The source came with the context, and the derivation runs again after the command, as after any.
             case EditKind.Acquire or EditKind.Derive:

@@ -87,19 +87,20 @@ reader and the page's `/set` endpoint go.
   user), `NotLatestCommand` (a named id that is not the top), `RevisionMoved`.
 - **Titles.** `IEditRules.TitleOf(state, target)` names an edit's target as the screen does; its default is the
   entity and the field. The pricer's rules answer a row and its column (`CSA-A threshold`), `Before on the existing
-  trades`, `The measures`, `The display currency`.
+  trades`, `the measures`, `the display currency`.
 - **The store.** `EditLog` gains `command`, `said`, `undoes`, `redoes` and `replaced_json`, added to a log written
   before them, whose entries then carry none and are not taken back.
 - **Two capabilities in the kernel**, `workspace.undo` and `workspace.redo` 1.0.0, with the effect `EditWorkspace`:
-  inputs `{ workspaceId, revision, command? }`, output `{ workspaceId, revision, command, said, tookBack }`. They
-  check that the caller owns the workspace.
+  inputs `{ workspaceId, revision?, command? }`, of which the revision or the command is given and the AI's names the
+  command (§11); output `{ workspaceId, revision, command, said, took, by, at, edits, origin? }`, flat as every contract
+  is (the ADR's note 12). They check that the caller owns the workspace.
 - **The page's door.** `POST /api/commands/{id}/{version}` invokes a command for the signed-in user with the origin
   of the page, and answers as the agent's door does.
-- **The client.** `invokeCommand(id, version, inputs)` in `platform/api.ts`. `undo` and `redo` are commands of the
-  line, available on a page that offers a workspace (the pricer's in this step; Rates' with its registration, step
-  3). The page runs them after the edits already sent, reads its view again and tells its grids. The notice says what
-  was taken back and that `redo` puts it back. The pricer's grids give ExGrid `onUndo` and `onRedo`, which run the
-  same two commands.
+- **The client.** `Api.command(id, version, inputs, idempotencyKey)` in `platform/api.ts`. `undo` and `redo` are
+  commands of the line, available on a page that offers a workspace (the pricer's in this step; Rates' with its
+  registration, step 3). The page runs them after the edits already sent, reads its view again and tells its grids. The
+  notice says what was taken back and that `redo` puts it back. The pricer's grids give ExGrid `onUndo` and `onRedo`,
+  which run the same two commands.
 
 ### 1b. Forms, tables, the selector and the edit verbs
 
@@ -166,7 +167,8 @@ A test names the ADR it holds. Tested at these seams, each through its public in
 - `CommandService` with XVA registered (`PricerTableTests`): `set where ccy=USD after off` with its counts and its
   `undo`; `set existing before on` as one edit; `set CSA-A threshold 5mm`; a module's setting; the display currency.
 - HTTP (`CommandGatewayTests`): the page's door and the preview, their statuses and shapes.
-- Client, Vitest: what the line does with a preview's answer (pure functions); the notice's sentence for `undo`.
+- Client, Vitest: what the line does with a preview's answer (pure functions). The sentence for `undo` is the server's,
+  held by `CommandGatewayTests`.
 - Client, Playwright (`xva.spec.ts`): `undo` and `redo` typed; Ctrl+Z and Ctrl+Y in a grid; `set where …` shows its
   count before Enter and its result after; a line the server cannot read stays open; `set` completes.
 

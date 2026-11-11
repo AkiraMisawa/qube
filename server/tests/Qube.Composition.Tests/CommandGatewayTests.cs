@@ -2,9 +2,6 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.Hosting;
-using Microsoft.Extensions.DependencyInjection;
-using Qube.Composition.Application;
-using Qube.Composition.Application.Workspaces;
 
 namespace Qube.Composition.Tests;
 
@@ -22,8 +19,8 @@ public class CommandGatewayTests(QubeFactory factory) : IClassFixture<QubeFactor
         return (await response.Content.ReadFromJsonAsync<JsonObject>())!;
     }
 
-    Task<HttpResponseMessage> Command(string capability, JsonObject request, HttpClient? by = null, string version = "1.0.0") =>
-        (by ?? client).PostAsJsonAsync($"/api/commands/{capability}/{version}", new { inputs = new JsonObject { ["request"] = request }, idempotencyKey = Guid.NewGuid().ToString() });
+    Task<HttpResponseMessage> Command(string capability, JsonObject request, HttpClient? by = null, string door = "/api/commands") =>
+        (by ?? client).PostAsJsonAsync($"{door}/{capability}/1.0.0", new { inputs = new JsonObject { ["request"] = request }, idempotencyKey = Guid.NewGuid().ToString() });
 
     static async Task<JsonObject> Ok(HttpResponseMessage response)
     {
@@ -54,20 +51,38 @@ public class CommandGatewayTests(QubeFactory factory) : IClassFixture<QubeFactor
         var id = ws["workspaceId"]!.GetValue<string>();
         var original = Threshold(ws);
         var edited = await Edit(id, ws["revision"]!.GetValue<long>(), "csa:CSA-A", "counterpartyThreshold", 5_000_000m);
+        var notLatest = await Refused(await Command("workspace.undo", new JsonObject { ["workspaceId"] = id, ["command"] = "c999" }));
 
         var undone = await Ok(await Command("workspace.undo", new JsonObject { ["workspaceId"] = id, ["revision"] = edited["revision"]!.GetValue<long>() }));
         var afterUndo = (await client.GetFromJsonAsync<JsonObject>($"/api/xva/workspaces/{id}"))!;
-        var redone = await Ok(await Command("workspace.redo", new JsonObject { ["workspaceId"] = id, ["revision"] = undone["revision"]!.GetValue<long>() }));
+        // The result names itself, so its caller can take this very command back by name and no other.
+        var redone = await Ok(await Command("workspace.redo", new JsonObject { ["workspaceId"] = id, ["command"] = undone["command"]!.GetValue<string>() }));
         var afterRedo = (await client.GetFromJsonAsync<JsonObject>($"/api/xva/workspaces/{id}"))!;
 
         Assert.Equal((original, 5_000_000m), (Threshold(afterUndo), Threshold(afterRedo)));
         Assert.Equal("Took back: set CSA-A threshold. redo puts it back.", undone["said"]!.GetValue<string>());
         Assert.Equal("Put back: set CSA-A threshold.", redone["said"]!.GetValue<string>());
         Assert.Equal((afterUndo["revision"]!.GetValue<long>(), "akira", 1), (undone["revision"]!.GetValue<long>(), undone["by"]!.GetValue<string>(), undone["edits"]!.GetValue<int>()));
-        // The result names itself, so that its caller can take this very command back by name.
-        var log = factory.Services.GetRequiredService<WorkspaceService>().Find(id)!.Log;
-        Assert.Equal((log[^2].Command!.Id, log[^3].Command!.Id), (undone["command"]!.GetValue<string>(), undone["took"]!.GetValue<string>()));
-        Assert.Equal((RunOrigin.Pricer, RunOrigin.Pricer), (log[^2].Origin, log[^1].Origin));
+        Assert.Equal((HttpStatusCode.UnprocessableEntity, "NotLatestCommand", $"c999 is not the latest command; {undone["took"]!.GetValue<string>()} is (set CSA-A threshold)."), notLatest);
+        // The redo acted on the undo, which the page's door recorded as the page's.
+        Assert.Equal((undone["command"]!.GetValue<string>(), "pricer"), (redone["took"]!.GetValue<string>(), redone["origin"]!.GetValue<string>()));
+    }
+
+    [Fact] // ADR-0016 §11: a request says what it means, by the revision its caller read or by the command's id, and the AI's names the command
+    public async Task A_request_names_the_revision_or_the_command_and_the_agents_names_the_command()
+    {
+        var ws = await Create();
+        var id = ws["workspaceId"]!.GetValue<string>();
+        var edited = await Edit(id, ws["revision"]!.GetValue<long>(), "csa:CSA-A", "counterpartyThreshold", 5_000_000m);
+        var revision = edited["revision"]!.GetValue<long>();
+
+        var neither = await Refused(await Command("workspace.undo", new JsonObject { ["workspaceId"] = id }));
+        var agentUnnamed = await Refused(await Command("workspace.undo", new JsonObject { ["workspaceId"] = id, ["revision"] = revision }, door: "/api/agent/commands"));
+        var after = (await client.GetFromJsonAsync<JsonObject>($"/api/xva/workspaces/{id}"))!;
+
+        Assert.Equal((HttpStatusCode.UnprocessableEntity, "CommandNotNamed"), (neither.Status, neither.Code));
+        Assert.Equal((HttpStatusCode.UnprocessableEntity, "CommandNotNamed"), (agentUnnamed.Status, agentUnnamed.Code));
+        Assert.Equal((revision, 5_000_000m), (after["revision"]!.GetValue<long>(), Threshold(after)));
     }
 
     [Fact] // ADR-0016 §11, note 3: a command with no words is named by its edits' titles, as the screen names them, never an entity's key
@@ -99,9 +114,9 @@ public class CommandGatewayTests(QubeFactory factory) : IClassFixture<QubeFactor
         var nothing = await Refused(await Command("workspace.undo", new JsonObject { ["workspaceId"] = id, ["revision"] = revision }));
         var moved = await Refused(await Command("workspace.undo", new JsonObject { ["workspaceId"] = id, ["revision"] = revision - 1 }));
         var unknown = await Refused(await Command("workspace.nothing", new JsonObject { ["workspaceId"] = id }));
-        var missing = await Refused(await Command("workspace.undo", new JsonObject { ["workspaceId"] = "ws-none" }));
+        var missing = await Refused(await Command("workspace.undo", new JsonObject { ["workspaceId"] = "ws-none", ["revision"] = revision }));
         using var other = factory.WithWebHostBuilder(b => b.UseSetting("Qube:DemoUser", "ben"));
-        var notOwner = await Refused(await Command("workspace.undo", new JsonObject { ["workspaceId"] = id }, other.CreateClient()));
+        var notOwner = await Refused(await Command("workspace.undo", new JsonObject { ["workspaceId"] = id, ["revision"] = revision }, other.CreateClient()));
 
         Assert.Equal((HttpStatusCode.UnprocessableEntity, "NothingToUndo", "There is nothing to take back: the workspace is as it was made."), nothing);
         Assert.Equal((HttpStatusCode.Conflict, "RevisionMoved"), (moved.Status, moved.Code));
@@ -118,15 +133,17 @@ public class CommandGatewayTests(QubeFactory factory) : IClassFixture<QubeFactor
         var others = Selected(ws).SequenceEqual(["fva"]) ? new[] { "cva" } : ["fva"];
         var chosen = await client.PostAsJsonAsync($"/api/xva/workspaces/{id}/measures", new { revision = ws["revision"]!.GetValue<long>(), measures = others });
         Assert.True(chosen.IsSuccessStatusCode, await chosen.Content.ReadAsStringAsync());
+        var chosenAt = (await chosen.Content.ReadFromJsonAsync<JsonObject>())!["revision"]!.GetValue<long>();
 
         var taking = await Create();
         var nothing = await Refused(await Command("workspace.undo", new JsonObject { ["workspaceId"] = taking["workspaceId"]!.GetValue<string>(), ["revision"] = taking["revision"]!.GetValue<long>() }));
         // Taken back in the first workspace, the selection is no longer the owner's last: the next takes what stands there.
-        await Ok(await Command("workspace.undo", new JsonObject { ["workspaceId"] = id }));
+        var undone = await Ok(await Command("workspace.undo", new JsonObject { ["workspaceId"] = id, ["revision"] = chosenAt }));
         var after = await Create();
 
         Assert.Equal(others, Selected(taking));
         Assert.Equal((HttpStatusCode.UnprocessableEntity, "NothingToUndo"), (nothing.Status, nothing.Code));
+        Assert.Equal("Took back: set the measures. redo puts it back.", undone["said"]!.GetValue<string>());
         Assert.Equal(Selected(ws), Selected(after));
     }
 

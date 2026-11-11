@@ -181,10 +181,12 @@ public class WorkspaceUndoTests
         ws = service.Set(ws.WorkspaceId, ws.Revision, "akira", Level, 11);
         ws = service.Reacquire(ws.WorkspaceId, ws.Revision, "akira", new JsonObject { ["day"] = "2026-11-11", ["currency"] = "USD" }, ws.Source).State;
 
-        var (undone, took) = service.Undo(ws.WorkspaceId, ws.Revision, "akira");
+        var (undone, took) = service.Undo(ws.WorkspaceId, ws.Revision, "akira", origin: RunOrigin.Ai);
         var redone = service.Redo(undone.WorkspaceId, undone.Revision, "akira").State;
 
         Assert.Null(undone.Context["currency"]);
+        // What the undo wrote says where it came from, as any command's entries do (ADR-0005 §3).
+        Assert.All(undone.Log.Skip(ws.Log.Count), e => Assert.Equal(RunOrigin.Ai, e.Origin));
         Assert.Equal(11, undone.Overrides[Level].Value!.GetValue<int>());
         Assert.Equal(("changed the context", 1), (took.Said, took.Edits));
         Assert.Equal("USD", redone.Context["currency"]!.GetValue<string>());
@@ -256,6 +258,46 @@ public class WorkspaceUndoTests
         ws = service.Undo(ws.WorkspaceId, ws.Revision, "akira").State;
         Assert.Equal("NothingToUndo", Assert.Throws<WorkspaceRefused>(() => service.Undo(ws.WorkspaceId, ws.Revision, "akira")).Code);
         Assert.Equal("RevisionMoved", Assert.Throws<WorkspaceRefused>(() => service.Undo(ws.WorkspaceId, ws.Revision - 1, "akira")).Code);
+    }
+
+    [Fact] // ADR-0016 §11, note 1: redo is the same act on the undo, for an entity made and for one removed with the layer it owns
+    public void Redo_makes_an_entity_again_and_removes_one_again_with_its_layer()
+    {
+        var service = Service();
+        var ws = Made(service);
+        const string group = "group:1";
+        var inGroup = Level with { Layer = group };
+        ws = service.Create(ws.WorkspaceId, ws.Revision, "akira", Scope, group, new JsonObject { ["title"] = "North" });
+        var made = ws;
+        ws = service.Undo(ws.WorkspaceId, ws.Revision, "akira").State;
+        ws = service.Redo(ws.WorkspaceId, ws.Revision, "akira").State;
+        Assert.Equal((true, made.Created[group].Seq), (ws.Created.ContainsKey(group), ws.Created[group].Seq));
+
+        ws = service.Set(ws.WorkspaceId, ws.Revision, "akira", inGroup, 99);
+        ws = service.Remove(ws.WorkspaceId, ws.Revision, "akira", group, layer: group);
+        var back = service.Undo(ws.WorkspaceId, ws.Revision, "akira").State;
+        var gone = service.Redo(back.WorkspaceId, back.Revision, "akira").State;
+        var again = service.Undo(gone.WorkspaceId, gone.Revision, "akira").State;
+
+        Assert.Equal((true, 99), (back.Created.ContainsKey(group), back.Overrides[inGroup].Value!.GetValue<int>()));
+        // Taken away again, the group leaves no edit behind in a layer nothing owns.
+        Assert.Equal((false, 0), (gone.Created.ContainsKey(group), gone.Overrides.Count));
+        Assert.Equal((true, 99), (again.Created.ContainsKey(group), again.Overrides[inGroup].Value!.GetValue<int>()));
+    }
+
+    [Fact] // ADR-0016 §11: a refusal names the latest command by what it did, a held edit decided among them
+    public void A_command_that_is_not_an_edit_is_named_by_what_it_did()
+    {
+        var service = Service();
+        var ws = Made(service);
+        ws = service.Set(ws.WorkspaceId, ws.Revision, "akira", Level, 11);
+        ws = service.Reacquire(ws.WorkspaceId, ws.Revision, "akira", new JsonObject { ["day"] = "2026-11-12" },
+            new Source("d2", new() { [("R1", "level")] = 15, [("R1", "checked")] = false, [("R2", "level")] = 20 })).State;
+        ws = service.KeepOverride(ws.WorkspaceId, ws.Revision, "akira", Level);
+
+        var refused = Assert.Throws<WorkspaceRefused>(() => service.Undo(ws.WorkspaceId, ws.Revision, "akira", command: "c3"));
+
+        Assert.Equal(("NotLatestCommand", $"c3 is not the latest command; {ws.Log[^1].Command!.Id} is (kept R1 level)."), (refused.Code, refused.Message));
     }
 
     [Fact] // ADR-0016 §11, note 2: values a workspace is made with are its making's, so there is nothing of them to take back

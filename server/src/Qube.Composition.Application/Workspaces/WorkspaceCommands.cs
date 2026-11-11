@@ -5,8 +5,9 @@ namespace Qube.Composition.Application.Workspaces;
 
 /// <summary>
 /// <c>workspace.undo</c> and <c>workspace.redo</c> (ADR-0016 §3, §11): the kernel's two commands over any workspace,
-/// whichever application it belongs to. Each acts for the caller the server names, on a workspace that caller owns, at
-/// the revision the request names or the one the workspace holds when it names none, and answers what it took back.
+/// whichever application it belongs to. Each acts for the caller the server names, on a workspace that caller owns, and
+/// answers what it took back. A request says what it means (§11): the revision its caller read, so a workspace that
+/// moved refuses it, or the id of the command, which is refused unless it is the latest. The AI's names the command.
 /// </summary>
 public sealed class WorkspaceTakeBack(Func<WorkspaceService> workspaces, bool undo) : ICapabilityHandler
 {
@@ -31,8 +32,15 @@ public sealed class WorkspaceTakeBack(Func<WorkspaceService> workspaces, bool un
         try
         {
             var state = WorkspaceCommands.Owned(service, workspaceId, caller);
-            var revision = request["revision"]?.GetValue<long>() ?? state.Revision;
             var named = request["command"]?.GetValue<string>();
+            var read = request["revision"]?.GetValue<long>();
+            var verb = undo ? "undo" : "redo";
+            if (named is null && caller.Origin == RunOrigin.Ai)
+                throw new WorkspaceRefused("CommandNotNamed", $"{verb} names the command it means by its id, which that command's result carries (such as c12).");
+            if (named is null && read is null)
+                throw new WorkspaceRefused("CommandNotNamed", $"{verb} takes the revision the workspace was read at, or the id of the command it means.");
+            // A named command is the latest or the call is refused, so it needs no revision to say what it saw.
+            var revision = read ?? state.Revision;
             var (next, told) = undo
                 ? service.Undo(workspaceId, revision, caller.UserId, named, caller.Origin)
                 : service.Redo(workspaceId, revision, caller.UserId, named, caller.Origin);
@@ -48,7 +56,8 @@ public sealed class WorkspaceTakeBack(Func<WorkspaceService> workspaces, bool un
                 ["at"] = told.At.ToString("O", System.Globalization.CultureInfo.InvariantCulture),
                 ["edits"] = told.Edits,
             };
-            if (told.Origin is { } origin) answer["origin"] = origin.ToString();
+            // As the wire writes an origin everywhere else: `pricer`, `ai`.
+            if (told.Origin is { } origin) answer["origin"] = System.Text.Json.JsonNamingPolicy.CamelCase.ConvertName(origin.ToString());
             return Task.FromResult<IReadOnlyDictionary<string, JsonNode?>>(new Dictionary<string, JsonNode?> { ["answer"] = answer });
         }
         catch (WorkspaceRefused refused)
@@ -71,7 +80,7 @@ public sealed class WorkspaceCommandsModule(Func<WorkspaceService> workspaces) :
             ["properties"] = new JsonObject
             {
                 ["workspaceId"] = new JsonObject { ["type"] = "string", ["minLength"] = 1, ["title"] = "Workspace" },
-                ["revision"] = new JsonObject { ["type"] = "integer", ["title"] = "Revision the command was read at; the workspace's own when left out" },
+                ["revision"] = new JsonObject { ["type"] = "integer", ["title"] = "Revision the workspace was read at; needed unless the command is named" },
                 ["command"] = new JsonObject { ["type"] = "string", ["minLength"] = 1, ["title"] = "The command to take back, by its id; refused unless it is the latest" },
             },
             ["required"] = new JsonArray("workspaceId"),

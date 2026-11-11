@@ -87,7 +87,11 @@ public enum EditKind
 /// it takes back in <c>Undoes</c>, and a redo the undo it takes back in <c>Redoes</c>; their <c>Said</c> is the name
 /// of the command they act on, so a command put back and taken back again is still named.
 /// </summary>
-public sealed record CommandStamp(string Id, string? Said = null, string? Undoes = null, string? Redoes = null);
+public sealed record CommandStamp(string Id, string? Said = null, string? Undoes = null, string? Redoes = null)
+{
+    /// <summary>The id of the command whose first entry has this sequence number.</summary>
+    public static string IdAt(long firstSeq) => $"c{firstSeq}";
+}
 
 /// <summary>
 /// What an undo took back, or a redo put back (ADR-0016 §11): the command's id, its words or its edits' titles, whose
@@ -98,8 +102,9 @@ public sealed record TakenBack(string Command, string Said, string User, RunOrig
 
 /// <summary>
 /// What an entry found where it wrote, as it stood (ADR-0016 §11): enough, with the entry, to write its inverse from
-/// the log alone. A set or a reset records the override and the lost edit on its target; a remove the entity and the
-/// edits that ended with it; a change of context the context and the source version before it.
+/// the log alone. A set or a reset records the override and the lost edit on its target; a remove the entity, the
+/// layer it owned and the edits that ended with it; a change of context the context and the source version before it.
+/// An entity an undo puts back records the layer that came back with it, which ends with it again.
 /// </summary>
 public sealed record Replaced(
     Override? Override = null,
@@ -109,7 +114,8 @@ public sealed record Replaced(
     IReadOnlyList<Conflict>? Conflicts = null,
     IReadOnlyList<LostTarget>? LostEdits = null,
     JsonObject? Context = null,
-    string? SourceVersion = null);
+    string? SourceVersion = null,
+    string? Layer = null);
 
 /// <summary>
 /// One entry of the append-only edit log. An undo is a new entry, never a removal. <c>DomainKind</c> names

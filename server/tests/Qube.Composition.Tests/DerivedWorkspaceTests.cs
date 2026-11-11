@@ -158,4 +158,38 @@ public sealed class DerivedWorkspaceTests : IDisposable
         var next = Service(Store()).Set(ws.WorkspaceId, ws.Revision, "akira", Part(1), "XS");
         Assert.Equal("XS", next.Overrides[Part(1)].Value!.GetValue<string>());
     }
+
+    [Fact] // ADR-0016 §11, notes 1 and 2: the derivation's entries are the command's, and taking the command back lets the derivation decide again
+    public void Undo_of_a_command_that_moved_a_derived_scope_puts_its_edits_back_where_they_stood()
+    {
+        var service = Service();
+        var ws = WithItem(service);
+        ws = service.Set(ws.WorkspaceId, ws.Revision, "akira", Part(3), "XS");
+
+        var fewer = service.Set(ws.WorkspaceId, ws.Revision, "akira", Item("count"), 2);
+        var written = fewer.Log.Skip(ws.Log.Count).ToList();
+        var undone = service.Undo(fewer.WorkspaceId, fewer.Revision, "akira").State;
+        var redone = service.Redo(undone.WorkspaceId, undone.Revision, "akira").State;
+
+        Assert.Equal([EditKind.Set, EditKind.Derive], written.Select(e => e.Kind));
+        Assert.All(written, e => Assert.Equal($"c{ws.Revision + 1}", e.Command?.Id));
+        Assert.True(fewer.Lost.ContainsKey(Part(3)));
+        Assert.Equal(("XS", 0, ws.Overrides[Part(3)].Seq), (undone.Overrides[Part(3)].Value!.GetValue<string>(), undone.Lost.Count, undone.Overrides[Part(3)].Seq));
+        Assert.True(redone.Lost.ContainsKey(Part(3)));
+    }
+
+    [Fact] // ADR-0016 §11, note 1: an edit its own command's derivation held back is taken back with the command, and held again when it is put back
+    public void Undo_takes_back_an_edit_the_commands_own_derivation_held()
+    {
+        var service = Service();
+        var ws = WithItem(service);
+
+        var held = service.Batch(ws.WorkspaceId, ws.Revision, "akira", [new WorkspaceChange.Set(Part(3), "XS"), new WorkspaceChange.Set(Item("size"), "L")]);
+        var undone = service.Undo(held.WorkspaceId, held.Revision, "akira").State;
+        var redone = service.Redo(undone.WorkspaceId, undone.Revision, "akira").State;
+
+        Assert.True(held.Conflicts.ContainsKey(Part(3)));
+        Assert.Equal((0, 0, 0), (undone.Overrides.Count, undone.Conflicts.Count, undone.Lost.Count));
+        Assert.Equal((true, "L"), (redone.Conflicts.ContainsKey(Part(3)), redone.Overrides[Item("size")].Value!.GetValue<string>()));
+    }
 }

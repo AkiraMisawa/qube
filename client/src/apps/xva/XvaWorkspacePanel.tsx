@@ -6,7 +6,7 @@ import type { ExGridApi } from '@ex-grid/react';
 import { QubeGrid } from '../../platform/grid/QubeGrid';
 import { GridUndoContext } from '../../platform/grid/gridUndo';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ApiError } from '../../platform/api';
+import { ApiError, outputOf } from '../../platform/api';
 import { useColumnWidths } from '../../platform/grid/columnWidths';
 import { amountTone, formatAmount } from '../../platform/grid/amounts';
 import { useWorkspaceContext } from '../../platform/workspace/WorkspaceProvider';
@@ -526,8 +526,9 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
     enabled: changesOpen,
   });
   /** A command of the Changes tab, after the edits already sent (spine 6); a Common change moves the grids' rows.
-   * Refused, the page says why after `label`, and the answer is the server's reason; taken, it is `undefined`. */
-  const attempt = async (label: string, run: (revision: number) => Promise<XvaWorkspaceView>): Promise<string | undefined> => {
+   * Refused, the page says why, after `label` where the reason does not say what was not done, and the answer is the
+   * server's reason; taken, it is `undefined`. */
+  const attempt = async (label: string | undefined, run: (revision: number) => Promise<XvaWorkspaceView>): Promise<string | undefined> => {
     try {
       const next = await queue.after(async (revision) => {
         const answer = await run(revision);
@@ -539,7 +540,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
       return undefined;
     } catch (error) {
       const reason = describe(error);
-      workspace.notify('refused', `${label}: ${reason}`);
+      workspace.notify('refused', label === undefined ? reason : `${label}: ${reason}`);
       return reason;
     }
   };
@@ -554,24 +555,24 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
       workspace.notify('done', rows.length === 1 ? `Set ${rows[0]} ${column} to ${text}.` : `Set ${column} to ${text} on ${rows.join(', ')}.`);
   };
   /**
-   * `undo` and `redo` (ADR-0016 §11): the kernel's two commands through the page's door to the gateway, after the edits
-   * already sent (spine 6). The workspace is read again, since any of its rows may have moved, and the notice says what
-   * was taken back; refused, it says the server's reason.
+   * `undo` and `redo` (ADR-0016 §11): the kernel's two commands, at the version the catalog lists, through the page's door
+   * to the gateway and in the queue's turn, after the edits already sent (spine 6). The workspace is read again in that
+   * same turn, since any of its rows may have moved, so this view never arrives after a later edit's. The notice says
+   * what was taken back; refused, it is the server's reason alone.
    */
   const takeBack = async (verb: 'undo' | 'redo') => {
-    try {
-      const told = await queue.after(async (revision) => {
-        const answer = await workspace.api.command(`workspace.${verb}`, '1.0.0', { request: { workspaceId, revision } }, crypto.randomUUID());
-        const said = answer.outputs.answer as TakenBack;
-        queue.rebase(said.revision);
-        return said;
-      });
-      show(await api.view(workspaceId));
-      sources.changed();
-      workspace.notify('done', told.said);
-    } catch (error) {
-      workspace.notify('refused', describe(error));
-    }
+    let done: TakenBack | undefined;
+    const refused = await attempt(undefined, async (revision) => {
+      const id = `workspace.${verb}`;
+      const capability = workspace.catalog.capabilities.find((c) => c.capabilityId === id);
+      if (capability === undefined) throw new Error(`This server has no command ${id}.`);
+      const told = outputOf<TakenBack>(await workspace.api.command(id, capability.version, { request: { workspaceId, revision } }, crypto.randomUUID()), 'answer');
+      done = told;
+      queue.rebase(told.revision);
+      // The command is done whether or not the page can read what it left: the notice then says both.
+      return api.view(workspaceId).catch((error: unknown) => { throw new Error(`${told.said} The page could not read the workspace again: ${describe(error)}`); });
+    });
+    if (refused === undefined && done !== undefined) workspace.notify('done', done.said);
   };
   const clearCases = async () => {
     if (await apply('No case was removed', (revision) => api.clearCases(workspaceId, revision))) workspace.notify('done', 'Removed every case.');

@@ -51,6 +51,13 @@ export interface CommandAnswer {
   readonly outputs: Readonly<Record<string, unknown>>;
 }
 
+/** A command's output on one of its ports. A command that answers without it has broken its descriptor, and that is said. */
+export function outputOf<T>(answer: CommandAnswer, port: string): T {
+  const value = answer.outputs[port];
+  if (value === undefined || value === null) throw new Error(`${answer.capabilityId} answered without its ${port}.`);
+  return value as T;
+}
+
 export interface Api {
   catalog(): Promise<Catalog>;
   /**

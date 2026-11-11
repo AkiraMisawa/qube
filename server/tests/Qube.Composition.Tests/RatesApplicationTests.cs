@@ -22,7 +22,7 @@ public class RatesApplicationTests
         [new("TST", "TEST-ON", [(Tenor.Parse("1y"), 1.0), (Tenor.Parse("5y"), 1.5), (Tenor.Parse("10y"), 2.0)])],
         new Dictionary<string, double> { ["TST"] = 1 }, 0.5, 0.2, 0.0005);
 
-    sealed record Rig(RatesWorkspaces Service, RunService Runs, IDataStore Store, MarketFeed Market, RatesLiveService Live);
+    sealed record Rig(RatesWorkspaces Service, RunService Runs, IDataStore Store, MarketFeed Market, RatesLiveService Live, WorkspaceService Workspaces);
 
     static Rig Build()
     {
@@ -33,7 +33,7 @@ public class RatesApplicationTests
         var store = new InMemoryDataStore();
         var runs = new RunService(new CompositionRegistry([new RatesModule(provider, market.Resolve)]), store, TimeProvider.System);
         var workspaces = new WorkspaceService(new Dictionary<string, IEditRules> { [RatesEditRules.App] = new RatesEditRules(Conventions) }, TimeProvider.System);
-        return new(new RatesWorkspaces(workspaces, store, runs, live, feed, Conventions, provider), runs, store, feed, live);
+        return new(new RatesWorkspaces(workspaces, store, runs, live, feed, Conventions, provider), runs, store, feed, live, workspaces);
     }
 
     /// <summary>A workspace with one complete five-year IRS paying par fixed against the test overnight index, and one empty line.</summary>
@@ -223,5 +223,27 @@ public class RatesApplicationTests
         rig.Service.Delete(id, "akira");
 
         Assert.Equal(0, rig.Live.Count);
+    }
+
+    [Fact] // ADR-0016 §11's note 2: a change of valuation date or of defaults keeps the source version, so undo takes it back with the edits it moved
+    public void Undo_takes_back_a_change_of_valuation_date_and_of_defaults()
+    {
+        var rig = Build();
+        var (id, revision, line, _) = Workspace(rig);
+        var period = rig.Service.Cashflows(id, "akira", line).Periods.First(p => p.Leg == 1);
+        var edited = rig.Service.EditCashflow(id, revision, "akira", line, period.Entity, "notional", 5_000_000);
+        static string Edits(WorkspaceState s) => string.Join("; ", s.Overrides.Values.OrderBy(o => o.Seq).Select(o => $"{o.Seq} {o.Target.Entity} {o.Target.Field} {o.Value?.ToJsonString()} {o.BaseVersion}"));
+
+        var (moved, _) = rig.Service.ChangeValuationDate(id, edited.Revision, "akira", new DateOnly(2027, 1, 27));
+        var undone = rig.Workspaces.Undo(id, moved.Revision, "akira");
+        var defaulted = rig.Service.ChangeDefaults(id, undone.State.Revision, "akira", new LineDefaults("TST", 25_000_000, "pay"));
+        var again = rig.Workspaces.Undo(id, defaulted.Revision, "akira").State;
+
+        // Every schedule moved with the date, so the period's edit was no longer an edit of that period.
+        Assert.NotEqual(Edits(edited), Edits(moved));
+        Assert.Equal((new DateOnly(2026, 10, 27), "changed the context"), (RatesEditRules.ValuationDate(undone.State), undone.TookBack.Said));
+        Assert.Equal((Edits(edited), 0, 0), (Edits(undone.State), undone.State.Conflicts.Count, undone.State.Lost.Count));
+        Assert.Equal(5_000_000d, rig.Service.Cashflows(id, "akira", line).Periods.Single(p => p.Entity == period.Entity).Notional);
+        Assert.Equal((new LineDefaults("TST", 25_000_000, "pay"), new LineDefaults(null, null, null)), (LineDefaults.Of(defaulted), LineDefaults.Of(again)));
     }
 }
