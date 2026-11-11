@@ -415,6 +415,34 @@ test('ADR-0010 §3: the Changes tab counts every change, sets a case\'s value, a
   await expect(page.getByTestId('price')).toHaveText('Price CVA FVA · 1 case');
 });
 
+test('ADR-0006 note 1 (2026-11-11): a line that cannot be read stays open with its text and the reason, and runs once corrected', async ({ page }) => {
+  await open(page);
+  await newWorkspace(page, 'ABC/LE-01', 5);
+  const line = page.getByRole('combobox', { name: 'Command' });
+  const said = page.getByTestId('command-problems');
+
+  await command(page, 'set', 'DRAFT-1 a');
+  await expect(said).toHaveText('set needs a row, a column and a value, such as set CSA-A threshold 5mm; rows are separated by commas.');
+  await expect(line).toBeFocused();
+  await expect(line).toHaveValue('set DRAFT-1 a');
+  // Corrected where it stands, the same line runs.
+  await page.keyboard.type(' off');
+  await page.keyboard.press('Enter');
+  await expect(line).toBeHidden();
+  await expect(page.getByTestId('notice')).toHaveText('Set DRAFT-1 a to off.');
+
+  for (const [words, args, reason] of [
+    ['vary', 'CSA-A threshold', 'vary needs a cell, its row and its column, and the values, such as vary CSA-A threshold 10mm, 5mm, 0.'],
+    ['scenario duplicate', 's1', 'scenario duplicate needs the scenario to copy, then the copy\'s name.'],
+  ] as const) {
+    await command(page, words, args);
+    await expect(said).toHaveText(reason);
+    await expect(line).toHaveValue(`${words} ${args}`);
+    await page.keyboard.press('Escape');
+    await expect(line).toBeHidden();
+  }
+});
+
 test('ADR-0010 §9: `set` makes a typed cell\'s edit on each row named, and is refused with the grid\'s reason', async ({ page, problems }) => {
   await open(page);
   await newWorkspace(page, 'ABC/LE-01', 5);

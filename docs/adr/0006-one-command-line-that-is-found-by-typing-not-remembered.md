@@ -52,6 +52,35 @@ runs out, but every code has to be learned. The owner does not want that.
   browser and says so; it moves to the server then.
 - `?` lists what can be done in the current context.
 
+## Notes of 2026-11-11: what a command says back, and what the empty line lists
+
+Made for ADR-0016's Delivery order, step 0, after the line was driven in a browser on 2026-11-10. Each is a DEFAULT:
+the owner asked for the fixes of that review that need no decision, and this is how they were read.
+
+1. **A line that cannot be run runs nothing and stays open** (extends 4, "Missing required arguments are named and
+   nothing runs"). A command reads its arguments before it does anything, and throws with the reason when it cannot
+   read them. The line then keeps what was typed and shows the reason in red, as it shows a missing argument. Before,
+   the line closed and nothing was said. Run from a chord, where there is no line, the reason is a refused notice.
+   The reason shown while the line is typed, before Enter, is ADR-0016 §5's preview and comes with it.
+2. **A notice is a command's result, of one of two kinds** (ADR-0016 §6): `done` or `refused`. The caller states the
+   kind and nothing reads it from the text. Done is teal with a tick, a `status`, and leaves by itself after six
+   seconds, unless the pointer is on it or the keyboard is in it. Refused is red with a cross, an `alert`, and stays
+   until it is closed or another notice replaces it. A notice is drawn over the top of the main area and takes no
+   room, so a one-screen page does not move under it (docs/design-guidelines.md §6). Running a command from the line
+   removes the notice in view, so a command that says nothing never leaves another command's result standing. A
+   command that edits says what it did (`before none` says how many trades it cleared). A sentence names a row and a
+   column by their titles, never by an entity's key (`selection:measures`). Only a refused notice goes to the
+   server's log (ADR-0014 §4): what a done one says, the server did and logged.
+3. **The empty line and `?` list the page's commands first** (extends 5 and the last consequence). The commands that
+   act on the page in the active panel come first, under the panel's title. Then come the other commands that can
+   run, under a heading per group, the applications' groups before the shell's. On the empty line, those that cannot
+   run now come last, each with its reason. Under a heading, what the user runs most comes first (6). A typed query
+   ranks as before, with no headings. The list is never cut in silence: past its cap it says how many more there
+   are. The placeholder names the first commands of that list, so it differs by page.
+4. **A flag is written one way everywhere**: `on` or `off`, `yes` or `no`, `true` or `false`, `y` or `n`, in any
+   case, in a grid's cell as in `set`. ADR-0016's Context counts the cell editor as a fifth vocabulary; the one reader
+   of every form is its §1.
+
 ## Changed from the proposal
 
 The owner's corrections, 2026-10-27: the command line and the AI chat's slash commands are separate, and `/` opens

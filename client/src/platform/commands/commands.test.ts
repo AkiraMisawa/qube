@@ -36,6 +36,11 @@ describe('finding a command by typing (ADR-0006)', () => {
     expect(c.run).not.toHaveBeenCalled();
   });
 
+  it('ADR-0006 note 1 (2026-11-11): a command that cannot read its arguments says why, where it used to close in silence', () => {
+    const set = command('set', { run: () => { throw new Error('set needs a row, a column and a value.'); } });
+    expect(execute(set, { cell: 'E00006 a' })).toBe('set needs a row, a column and a value.');
+  });
+
   it('refuses two commands with the same words, or on one chord', () => {
     expect(() => assertDistinct([command('price', { id: 'a' }), command('price', { id: 'b' })])).toThrow(/name both a and b/);
     expect(() => assertDistinct([command('a', { shortcut: 'mod+shift+G' }), command('b', { shortcut: 'Mod+Shift+g' })])).toThrow(/bound to both a and b/);

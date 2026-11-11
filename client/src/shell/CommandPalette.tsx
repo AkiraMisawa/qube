@@ -246,15 +246,22 @@ export function CommandPalette() {
     return () => { openLine = undefined; };
   }, []);
 
-  const run = (command: Command, args: Readonly<Record<string, string>> = {}) => {
+  /** Runs a command, and answers why when nothing ran: it cannot run now, or it could not read its arguments. */
+  const run = (command: Command, args: Readonly<Record<string, string>> = {}): string | undefined => {
     const reason = execute(command, args);
+    if (reason === undefined) recordUse(command.id);
+    return reason;
+  };
+
+  // A chord has no line to say why in: its reason is a notice.
+  const chord = (command: Command) => {
+    const reason = run(command);
     if (reason !== undefined) workspace.notify(`${command.words}: ${reason}`);
-    else recordUse(command.id);
   };
 
   useHotkeys([
     ['mod+K', openPalette],
-    ...commands.filter((c) => c.shortcut !== undefined).map((c): [string, () => void] => [c.shortcut!, () => run(c)]),
+    ...commands.filter((c) => c.shortcut !== undefined).map((c): [string, () => void] => [c.shortcut!, () => chord(c)]),
   ], []);
 
   // `/` opens the line wherever it would not be typed into something: not in a text field, not in a grid, where it
@@ -282,7 +289,15 @@ export function CommandPalette() {
   const runNow = (command: Command, args: Readonly<Record<string, string>>) => {
     letGo();
     setOpened(false);
-    run(command, args);
+    const reason = run(command, args);
+    if (reason !== undefined) {
+      // Nothing ran (ADR-0006's note 1 of 2026-11-11): the line stays, with what was typed and why. It was closed and
+      // is opened again within this one event, so it is never drawn closed.
+      setOpened(true);
+      setProblems([reason]);
+      input.current?.focus();
+      return;
+    }
     // A command that opened a surface leaves the keyboard to it; any other gives it back.
     if (workspace.store.getState().runDialog === undefined && document.activeElement === document.body) returnKeyboard();
     else keyboardBefore = null;

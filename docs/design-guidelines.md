@@ -126,8 +126,12 @@ The shell is the header, the panels under their tabs, and the AI pane (ADR-0007 
 - **The header folds where its content stops fitting**, not at a round number. One row needs about 850px, so it is one
   row from `md` (992px) up and two rows below, the context on the second. At 768px a single row put the Region field
   under the title.
-- **Transient messages are in the main area**, above the panels: a notice, the context's issues. The header and the
-  toolbars do not grow to say something.
+- **Transient messages are in the main area**: the context's issues above the panels, and a notice drawn over the
+  top of the area. The header and the toolbars do not grow to say something.
+- **A notice takes no room** (ADR-0006's note 2 of 2026-11-11). It is one line of result over the top of the main
+  area, so a one-screen page does not move under it. It is `done` (teal, a tick, gone after six seconds unless the
+  pointer or the keyboard is on it) or `refused` (red, a cross, there until closed or replaced). The kind is said by
+  the caller, the icon and the colour, never read from the text.
 - **The AI pane** is an aside beside the panels from `sm` up, and a drawer over them on a phone; neither takes the
   keyboard when it opens (ADR-0007).
 
@@ -145,9 +149,9 @@ The shell is the header, the panels under their tabs, and the AI pane (ADR-0007 
   | Colour | Means | Examples |
   |---|---|---|
   | `signal` (amber, primary) | the primary action, focus, the selection | Price, the focus ring, the brand |
-  | `red` | an error, an action that stops something, or a negative amount (C48) | a refused edit, Stop live, a PV of `-1,250` |
+  | `red` | an error, an action that stops something, or a negative amount (C48) | a refused edit or command, Stop live, a PV of `-1,250` |
   | `yellow` | a warning, something stale, or something simulated | the context in force is the previous one, `SCRIPTED · NO MODEL`, a live frame behind the workspace |
-  | `teal` | live or succeeded | Start live, a frame in step |
+  | `teal` | live or succeeded | Start live, a frame in step, a command that was done |
   | `blue` | information or pending | an argument still to give |
   | `gray` | neutral metadata | the market source |
 

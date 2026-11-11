@@ -44,13 +44,24 @@ export interface Command {
   readonly shortcut?: string;
   /** Why the command cannot run now; absent when it can. */
   readonly unavailable?: string;
+  /**
+   * Does it. It reads its arguments before it does anything, and throws with the reason when it cannot read them, so
+   * that a throw has changed nothing and the line can stay open with what was typed (ADR-0006's note 1 of 2026-11-11).
+   */
   readonly run: (args: Readonly<Record<string, string>>) => void;
 }
 
-/** Runs a command if it is available. Returns the reason when it is not, so a caller can show it. */
+/**
+ * Runs a command if it is available. Returns the reason when it is not, or when it could not read its arguments, so
+ * a caller can show it: a command that does not run never does so in silence.
+ */
 export function execute(command: Command, args: Readonly<Record<string, string>> = {}): string | undefined {
   if (command.unavailable !== undefined) return command.unavailable;
-  command.run(args);
+  try {
+    command.run(args);
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
   return undefined;
 }
 
