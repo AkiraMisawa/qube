@@ -1,9 +1,11 @@
+using System.Security.Cryptography;
+using System.Text;
 using Qube.Composition.Application.Workspaces;
 
 namespace Qube.Composition.Application.Tables;
 
-// ADR-0016 §2, §9 and its notes 16 and 17 of 2026-11-11: what a screen gives a line is a value, read once as the line
-// opens and sent with each reading. The server keeps none of it, and no command, log or result holds one.
+// ADR-0016 §2, §9 and its notes 16, 17 and 41 of 2026-11-11: what a screen gives a line is a value, read once as the
+// line opens and sent with each reading. The server keeps none of it, and no command, log or result holds one.
 
 /// <summary>One column a grid is sorted by, and which way.</summary>
 public sealed record ViewSort(string Column, bool Descending = false);
@@ -18,7 +20,10 @@ public sealed record ViewCell(string Field, string? Key = null, int? Position = 
 /// What a user was looking at when the line opened (note 16): the table of the grid the keyboard was last in and its
 /// subset; then the selection as row keys where the page holds every row, or as ranges of positions with the sort and
 /// the order token the grid's reader last answered where the server pages it; and the focused cell. A page that holds
-/// every row and filters them names the rows it shows, by key: what <c>shown</c> then means (§2).
+/// every row and filters them names the rows it shows, by key: what <c>shown</c> then means (§2). A grid filtered from
+/// the line carries its conditions as typed (<paramref name="Where"/>, note 41 of step 4): the server reads them again
+/// at each reading, so <c>shown</c> is the rows they leave, a position is a position among those rows, and the order's
+/// token is of those rows.
 /// </summary>
 public sealed record LineView(
     string Table,
@@ -28,7 +33,8 @@ public sealed record LineView(
     IReadOnlyList<string>? Keys = null,
     IReadOnlyList<ViewRange>? Ranges = null,
     ViewCell? Focus = null,
-    IReadOnlyList<string>? Shown = null)
+    IReadOnlyList<string>? Shown = null,
+    string? Where = null)
 {
     public IReadOnlyList<ViewSort> Sorts { get; init; } = Sorts ?? [];
 
@@ -73,6 +79,34 @@ public enum ScreenRows
     Shown,
 }
 
+/// <summary>The rows a view's grid shows (note 41 of step 4): their table, the revision read, their keys, and how many rows the grid has with no filter.</summary>
+public sealed record ViewShown(string Table, long Revision, IReadOnlyList<string> Keys, int Of);
+
+/// <summary>
+/// A grid's rows as the reader that pages it gives them (ADR-0016 notes 17 and 41), for that reader's own page: the
+/// order a line's reading of the same view is read in, so the page and the line cannot disagree.
+/// </summary>
+public static class GridRows
+{
+    /// <summary>
+    /// The rows of the view's table, or of its subset, in the view's sort, narrowed by its conditions, with that
+    /// order's token. Refused (<see cref="WorkspaceRefused"/>) where no reader pages the table, the reader does not
+    /// take the sort, or the conditions cannot be read (<c>FilterUnread</c>): never answered as every row.
+    /// </summary>
+    public static OrderedRows Paged(LineView view, IReadOnlyList<BoundTable> tables, WorkspaceState state)
+    {
+        try
+        {
+            return Views.Sorted(view, Views.TableOf(view, tables), state);
+        }
+        catch (TableRefused refused)
+        {
+            // No line was read, so there is no word to mark: the refusal is the workspace's, by the same code and sentence.
+            throw new WorkspaceRefused(refused.Code, refused.Message);
+        }
+    }
+}
+
 /// <summary>
 /// Reads a view's rows (note 17). A view is a page's word about a moment: what no longer holds is refused by name
 /// (<see cref="TableRefused"/>), and a view that names what the workspace never had is a page's fault, refused whole
@@ -82,6 +116,7 @@ static class Views
 {
     const string Moved = "ViewMoved";
     const string Unordered = "NoOrder";
+    internal const string Unread = "FilterUnread";
 
     public static BoundTable TableOf(LineView view, IReadOnlyList<BoundTable> tables) =>
         tables.FirstOrDefault(t => t.Descriptor.TableId == view.Table) ?? throw Invalid($"The view names a table, {view.Table}, that this workspace has not.");
@@ -113,7 +148,8 @@ static class Views
     /// is no field of the table names none. A grid its page filters says how many rows that leaves (<c>stations,
     /// filtered to 2, 1 selected</c>). Positions read against an order that has moved are said as that. The view
     /// is checked whole here, where a line's reading starts: its sort is one the table's reader takes though no
-    /// position is read in it.
+    /// position is read in it. A grid filtered from the line says how many rows its conditions leave, and one whose
+    /// conditions can no longer be read says that: its rows cannot be said, and a line may still take the filter off.
     /// </summary>
     public static ViewSaid Say(LineView view, IReadOnlyList<BoundTable> tables, WorkspaceState state)
     {
@@ -121,8 +157,10 @@ static class Views
         var named = Named(view, table);
         Shaped(view);
         string? cell = null;
+        var left = view.Filtered;
         try
         {
+            if (view.Where is not null) left = ShownCount(view, table, state);
             ITableRow? at = null;
             if (view.Ranges is not null || view.Focus is { Position: not null })
             {
@@ -151,8 +189,12 @@ static class Views
             // A sort or positions in a table no reader pages are a page's fault, not a moment that passed.
             throw Invalid(unordered.Message);
         }
+        catch (TableRefused unread) when (unread.Code == Unread)
+        {
+            return new($"{named}, under a filter that can no longer be read", Moved: true);
+        }
         var selected = view.Selected == 0 ? "nothing selected" : $"{view.Selected} selected";
-        var shown = view.Filtered is { } left ? $"{named}, filtered to {left}" : named;
+        var shown = left is { } rows ? $"{named}, filtered to {rows}" : named;
         return new(cell is null ? $"{shown}, {selected}" : $"{shown}, {selected}, {cell}");
     }
 
@@ -181,17 +223,46 @@ static class Views
 
     /// <summary>
     /// The rows the grid shows: those its page names where it filters them, each read by its key, and otherwise the
-    /// table's, or its subset's. A row named that is gone is refused.
+    /// table's, or its subset's; and of those, the rows the grid's conditions leave where it has some (note 41 of step
+    /// 4). A row named that is gone is refused, and so are conditions that can no longer be read.
     /// </summary>
-    public static IReadOnlyList<ITableRow> Shown(LineView view, BoundTable table, IReadOnlyList<ITableRow> all, Func<string, ITableRow?> byKey)
+    public static IReadOnlyList<ITableRow> Shown(LineView view, BoundTable table, IReadOnlyList<ITableRow> all, Func<string, ITableRow?> byKey, WorkspaceState state)
     {
         Shaped(view);
-        if (view.Shown is { } keys)
+        IReadOnlyList<ITableRow> rows = view.Shown is { } keys
+            ? [.. keys.Distinct(StringComparer.OrdinalIgnoreCase).Select(key => byKey(key)
+                ?? throw new TableRefused(Moved, $"{key} was shown and is no longer a row of {table.Word}: open the line again.", SelectorReader.ShownWord))]
+            : Unfiltered(view, table, all);
+        return Left(view, table, rows, state);
+    }
+
+    /// <summary>
+    /// How many rows the grid shows, counted without refusing a row that is gone: what a sentence and an offer say,
+    /// where a command that acts on the rows reads each. Conditions that can no longer be read are refused.
+    /// </summary>
+    public static int ShownCount(LineView view, BoundTable table, WorkspaceState state)
+    {
+        if (view.Where is null && view.Filtered is { } named) return named;
+        var all = table.Table.Rows(state);
+        var shown = view.Shown?.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return Left(view, table, shown is null ? Unfiltered(view, table, all) : [.. all.Where(r => shown.Contains(r.Key))], state).Count;
+    }
+
+    // The rows the view's conditions leave of those given, in the order given; all of them where it has none. The
+    // conditions are read here each time, as typed: what they can no longer be read as is refused, never every row.
+    static IReadOnlyList<ITableRow> Left(LineView view, BoundTable table, IReadOnlyList<ITableRow> rows, WorkspaceState state)
+    {
+        if (view.Where is not { } typed) return rows;
+        IReadOnlyList<Conditions.Compiled> conditions;
+        try
         {
-            return [.. keys.Distinct(StringComparer.OrdinalIgnoreCase).Select(key => byKey(key)
-                ?? throw new TableRefused(Moved, $"{key} was shown and is no longer a row of {table.Word}: open the line again.", SelectorReader.ShownWord))];
+            conditions = GridFilters.Read(typed, table, rows, state);
         }
-        return Unfiltered(view, table, all);
+        catch (TableRefused unread)
+        {
+            throw new TableRefused(Unread, $"The filter of {Named(view, table)} can no longer be read ({unread.Message.TrimEnd('.')}): take it off with filter off.");
+        }
+        return [.. rows.Where(r => conditions.All(c => c.Holds(r)))];
     }
 
     /// <summary>The rows of a grid whose page filters none: the table's, or its subset's.</summary>
@@ -229,21 +300,29 @@ static class Views
     }
 
     // The table's rows in the view's sort, with that order's token; none where no reader pages the table. A sort the
-    // table's reader refuses is one its grid never had: the page's fault.
+    // table's reader refuses is one its grid never had: the page's fault. Under the view's conditions the rows are
+    // those they leave, and the token is of those rows alone (note 41 of step 4): it moves when a row enters, leaves
+    // or moves among them, and only then. The reader's own token is no part of it: that one moves with a row the
+    // conditions leave out.
     static OrderedRows? InOrder(LineView view, BoundTable table, WorkspaceState state)
     {
+        OrderedRows? ordered;
         try
         {
-            return table.Table.InOrder(state, SubsetOf(view, table)?.Name, view.Sorts);
+            ordered = table.Table.InOrder(state, SubsetOf(view, table)?.Name, view.Sorts);
         }
         catch (WorkspaceRefused refused) when (refused.Code != "InvalidView")
         {
             throw Invalid(refused.Message);
         }
+        if (ordered is null || view.Where is null) return ordered;
+        var left = Left(view, table, ordered.Rows, state);
+        var digest = SHA256.HashData(Encoding.UTF8.GetBytes(string.Join('\n', left.Select(r => r.Key))));
+        return new(left, $"where/{Convert.ToHexStringLower(digest.AsSpan(0, 8))}");
     }
 
     // A table no reader pages has no order for a sort or a position to be read in.
-    static OrderedRows Sorted(LineView view, BoundTable table, WorkspaceState state) =>
+    public static OrderedRows Sorted(LineView view, BoundTable table, WorkspaceState state) =>
         InOrder(view, table, state) ?? throw new TableRefused(Unordered, $"{table.Word} has no order a position can be read in: its rows are named by their ids.");
 
     // The table's rows in the view's order, where that is still the order the grid was drawn from.

@@ -8,7 +8,7 @@ namespace Qube.Composition.Tests;
 // ADR-0016 §4, §5 and its notes 11 and 15 of 2026-11-11: a command says how it is typed, and the server reads a line
 // into the command, its inputs, its rows and what would change, or the word it cannot read, and executes nothing. The
 // registration is station readings, with no financial word.
-public class CommandLineTests
+public partial class CommandLineTests
 {
     sealed class Rig
     {
@@ -16,15 +16,16 @@ public class CommandLineTests
         public CompositionRegistry Registry { get; }
         public CommandService Commands { get; }
         public CommandLines Lines { get; }
+        public TableRegister Register { get; }
         public string Id { get; }
 
         public Rig(TableDescriptor? stations = null, params ICapabilityHandler[] more)
         {
-            var register = new TableRegister([new Stations.Catalog(stations)]);
-            var tables = new TableService(register, Workspaces);
+            Register = new TableRegister([new Stations.Catalog(stations)]);
+            var tables = new TableService(Register, Workspaces);
             Registry = new CompositionRegistry([new TablesModule(() => tables), new WorkspaceCommandsModule(() => Workspaces), new Commands(more)]);
             Commands = new CommandService(Registry, new InMemoryDataStore());
-            Lines = new CommandLines(Registry, Workspaces, register, [new Stations.ShortForms()]);
+            Lines = new CommandLines(Registry, Workspaces, Register, [new Stations.ShortForms()]);
             Id = Stations.Board(Workspaces).WorkspaceId;
         }
 
@@ -35,6 +36,9 @@ public class CommandLineTests
         /// <summary>The token of the order the readings' reader gives, as a page holds it from the reader's last answer.</summary>
         public string Order(string? subset, IReadOnlyList<ViewSort> sorts) =>
             new Stations.Catalog().Tables.Single(t => t.TableId == Stations.Readings).InOrder(Board, subset, sorts)!.Token;
+
+        /// <summary>The token of the order a view's grid is paged in, its conditions read, as the page's reader answers it.</summary>
+        public string Order(LineView view) => GridRows.Paged(view, Register.Of(Board), Board).Token;
 
         /// <summary>Invokes the command a preview read, with the inputs it answered, as Enter does.</summary>
         public async Task<JsonObject> Run(LinePreview preview, RunOrigin origin = RunOrigin.Pricer)
@@ -604,7 +608,7 @@ public class CommandLineTests
     [InlineData("set R1 volume lots", "InvalidValue", "lots", 14, 18, "")]
     [InlineData("set R1 wind 4", "AmbiguousField", "wind", 7, 11, "wind speed, wind direction")]
     [InlineData("set where unit==m3 checked on", "UnknownOperator", "==", 14, 16, "")]
-    [InlineData("sett R1", "UnknownCommand", "sett", 0, 4, "set, reset, remove, undo, redo, find, tick, alarm")]
+    [InlineData("sett R1", "UnknownCommand", "sett", 0, 4, "set, reset, remove, undo, redo, find, sort, filter, tick, alarm")]
     [InlineData("undo that", "UnreadWords", "that", 5, 9, "")]
     public void A_line_that_cannot_be_read_says_the_word_its_place_and_what_it_could_be(string line, string code, string word, int start, int end, string candidates)
     {
@@ -780,7 +784,7 @@ public class CommandLineTests
         var other = rig.Preview("bell").Refused!;
 
         Assert.Equal(("weather.horn", "weather.horn would run"), (own.Command!.Id, own.Would));
-        Assert.Equal(("UnknownCommand", "set, reset, remove, undo, redo, horn, find, tick, alarm"), (other.Code, string.Join(", ", other.Candidates)));
+        Assert.Equal(("UnknownCommand", "set, reset, remove, undo, redo, horn, find, sort, filter, tick, alarm"), (other.Code, string.Join(", ", other.Candidates)));
         Assert.Equal(["horn"], rig.Preview("h").Complete.Select(c => c.Value));
         Assert.Empty(rig.Preview("b").Complete);
     }
@@ -856,7 +860,7 @@ public class CommandLineTests
         Assert.Equal("manual | automatic", Offered("tick "));
         Assert.Equal("automatic@5", Offered("tick au"));
         Assert.Equal("tick@0", Offered("ti"));
-        Assert.Equal("set, reset, remove, undo, redo, find, tick, alarm", string.Join(", ", rig.Preview("sett").Refused!.Candidates));
+        Assert.Equal("set, reset, remove, undo, redo, find, sort, filter, tick, alarm", string.Join(", ", rig.Preview("sett").Refused!.Candidates));
     }
 
     [Fact] // ADR-0016 note 29: a short form's words are its own, and it expands to a command's line, never to nothing or to another short form: a registration at fault fails

@@ -15,7 +15,9 @@ import type { XvaApi } from './api';
 import type { CaseView, EffectiveTrade, HeldEdit, Iteration, RegisteredColumn, RegisteredMeasure, Resolution, ScopeDrop, ShiftEdit, XvaWorkspaceView } from './contracts';
 import { measureNamed, registerXvaPage } from './commands';
 import { commandDoor, registerCommandDoor, tableMenu, type TableMenu } from '../../platform/commands/served';
-import { menuView, pagedView, placeFocus, type Answered, type ScreenGrid } from '../../platform/grid/lineView';
+import { filterGrid, menuView, pagedView, placeFocus, sortGrid, whereOf, type Answered, type ScreenGrid } from '../../platform/grid/lineView';
+import { GridFilterLine, type FilterSaid } from '../../platform/grid/GridFilterLine';
+import { useWhere, type Heard } from '../../platform/grid/heldFilter';
 import type { CommandRequest, Screen } from '../../platform/commands/commands';
 import type { LineView } from '../../platform/contracts';
 import { XvaResult } from './XvaResult';
@@ -224,21 +226,41 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   const menus = useRef<{ readonly trades: TableMenu; readonly csas: TableMenu }>({ trades: NO_MENU, csas: NO_MENU });
   const [busy, setBusy] = useState<string | undefined>(undefined);
   const [confirm, setConfirm] = useState<{ readonly registration: string; readonly drop: ScopeDrop } | undefined>(undefined);
-  const [failure, setFailure] = useState<string | undefined>(undefined);
+  // Why each trade grid's rows could not be read, until its reader answers again: a grid's own, so that the other's
+  // answer does not take it back.
+  const [failure, setFailure] = useState<Readonly<Record<TradeGrid, string | undefined>>>(NOT_FAILED);
   const [issue, setIssue] = useState<string | undefined>(undefined);
 
-  // One source per grid, each paged and sorted on the server (ADR-0010 §6); an edit may move a row in either.
+  // What each trade grid's reader last answered under the conditions the grid holds from the line (ADR-0016 note 41):
+  // how many rows they leave, of how many. None for a grid with no conditions, and none once a read under them failed.
+  const [counted, setCounted] = useState<Readonly<Record<TradeGrid, Counted | undefined>>>({ new: undefined, existing: undefined });
+
+  // One source per grid, each paged, sorted and narrowed on the server (ADR-0010 §6); an edit may move a row in either.
   const sources = useMemo(() => {
     const answered = new WeakMap<Row, Answered>();
+    const count = (grid: TradeGrid, next: Counted | undefined) => setCounted((before) => {
+      const held = before[grid];
+      const same = held === undefined || next === undefined ? held === next : held.where === next.where && held.left === next.left && held.of === next.of;
+      return same ? before : { ...before, [grid]: next };
+    });
+    const failed = (grid: TradeGrid, why: string | undefined) => setFailure((before) => (before[grid] === why ? before : { ...before, [grid]: why }));
     const of = (grid: TradeGrid) => GridSource.fetch<Row>(async (query, signal) => {
-      // Filtering is not offered by the server yet; a filter set anyway is refused, never ignored.
-      if (query.filter !== undefined) throw new Error('This grid cannot filter yet. Clear the filter to see the trades.');
-      const page = await api.rows(workspaceId, { start: query.range.start, count: query.range.count, sorts: query.sorts, grid }, signal);
+      // The server reads the line's conditions (the grid's Opaque Filter), not a column's own filter: one set is
+      // refused by name, never ignored.
+      if (query.filter !== undefined && Object.keys(query.filter.columns).length > 0) {
+        throw new Error('A column of this grid cannot be filtered by itself yet: clear its filter, and filter from the command line (filter where …).');
+      }
+      const where = whereOf(query.filter);
+      const page = await api.rows(workspaceId, { start: query.range.start, count: query.range.count, sorts: query.sorts, grid, ...(where === undefined ? {} : { where }) }, signal);
+      if (where !== undefined && page.of === undefined) throw new Error('The server answered a page under conditions and did not say of how many rows.');
       // Each row keeps the answer it came in: a position means a row only in that answer's order (ADR-0016 note 17).
-      const answer: Answered = { sorts: query.sorts, orderToken: page.orderToken };
+      const answer: Answered = { sorts: query.sorts, orderToken: page.orderToken, ...(where === undefined ? {} : { where }) };
       for (const row of page.rows) answered.set(row, answer);
+      count(grid, where === undefined || page.of === undefined ? undefined : { where, left: page.totalCount, of: page.of });
+      // The grid's trades are read: a failure said of it before is no longer how it stands.
+      failed(grid, undefined);
       return { rows: page.rows, start: page.start, totalCount: page.totalCount, orderToken: page.orderToken };
-    }, { rowKey: (row) => row.tradeId, onFetchFailed: (event) => setFailure(describe(event.error)) });
+    }, { rowKey: (row) => row.tradeId, onFetchFailed: (event) => { count(grid, undefined); failed(grid, describe(event.error)); } });
     const grids = { new: of('new'), existing: of('existing') };
     return {
       ...grids,
@@ -834,10 +856,15 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
       return {
         view: pagedView(declared, read, sources[grid].snapshot(), sources.answered),
         put: (place) => placeFocus(declared, shown, read, place) ?? goToNow.current(grid),
+        // The grid's own Sort and Filter (notes 39 to 41): its header shows the sort, and its reader is asked again.
+        sort: (asked) => sortGrid(declared, sources[grid], asked),
+        filter: (asked) => filterGrid(sources[grid], asked),
       };
     };
     return { new: of('new', newGrid), existing: of('existing', existingGrid) };
   }, [sources]);
+  // The button of a filtered grid's caption takes its conditions off, as `filter off` does for the grid behind the line.
+  const filterOff = useMemo(() => ({ new: () => { filterGrid(sources.new, {}); }, existing: () => { filterGrid(sources.existing, {}); } }), [sources]);
   // The grids' undo and redo keys run the same two commands; the functions are the same for the page's life, so no
   // grid is made again for them.
   const gridUndo = useMemo(() => ({ undo: () => void pageRef.current.takeBack('undo'), redo: () => void pageRef.current.takeBack('redo') }), []);
@@ -860,6 +887,8 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   // What the parts other than Existing take, from the heights the page set (never measured): Existing has the rest.
   const taken = TAKEN + (inputsOpen ? inputsHeight + RESIZER : 0) + newHeight
     + (pricedRun === undefined ? 24 : dockOpen ? dockHeight + RESIZER + 32 : 48);
+  // What the two grids' readers failed with, said once where it is the same.
+  const failures = [...new Set([failure.new, failure.existing].filter((why) => why !== undefined))];
   const page = (
     <Stack gap="sm" className="qube-xva" data-section={section} data-dock={full ? 'full' : 'part'} style={{ ['--qube-xva-taken' as string]: `${taken}px` }}
       // A grid entered is the screen only where it says so below, after this: a grid of no table leaves the line none.
@@ -925,10 +954,11 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
       {issue !== undefined && <Text size="xs" c="red" role="alert" data-testid="field-issue">{issue}</Text>}
       <div data-part="trades" className="qube-xva-part">
         <HeldEdits conflicts={ws.conflicts} lost={ws.lost} resolve={(edit, resolution) => void queue.push({ entity: edit.entity, field: edit.field, resolution, case: edit.case ?? undefined, title: `${edit.entity} ${edit.field}` })} />
-        {failure !== undefined && <Alert color="red" variant="light" withCloseButton onClose={() => setFailure(undefined)} title="The trades could not be read">{failure}</Alert>}
+        {failures.length > 0 && <Alert color="red" variant="light" withCloseButton onClose={() => setFailure(NOT_FAILED)} title="The trades could not be read">{failures.join(' ')}</Alert>}
         {/* New trades above Existing (ADR-0010 §6): New as high as its rows, about eight at most; Existing takes the rest. */}
         <div className="qube-xva-grids">
-          <TradeCaption title="New trades" count={ws.newTrades} grid="new" setSide={(side, value, grid) => void setSide(side, value, grid)} disabled={!notBusy}>
+          <TradeCaption title="New trades" count={ws.newTrades} grid="new" setSide={(side, value, grid) => void setSide(side, value, grid)} disabled={!notBusy}
+            source={sources.new} counted={counted.new} onFilterOff={filterOff.new}>
             {/* The cases of `add each` (ADR-0016 note 37): one per ticked new trade, or one of the two grids' selections. */}
             <Group gap="xs" role="group" aria-label="Cases that add new trades">
               <Button size="compact-xs" variant="default" disabled={!notBusy} onClick={() => void addEach()}
@@ -942,7 +972,8 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
               contextCommands={newCommands} commandLabel={commandLabel}
               density="compact" viewportWidth="stretch" viewportHeight={newHeight} pinnedColumnCount={1} locale="en-US" />
           </div>
-          <TradeCaption title="Existing trades" count={ws.trades - ws.newTrades} grid="existing" setSide={(side, value, grid) => void setSide(side, value, grid)} disabled={!notBusy} />
+          <TradeCaption title="Existing trades" count={ws.trades - ws.newTrades} grid="existing" setSide={(side, value, grid) => void setSide(side, value, grid)} disabled={!notBusy}
+            source={sources.existing} counted={counted.existing} onFilterOff={filterOff.existing} />
           <div aria-label="Existing trades" onFocusCapture={() => { screen.current = tradeScreen.existing; }}>
             <QubeGrid<Row> ref={existingGrid} className="qube-xva-trades" columns={existingWidths.columns} onColumnWidthChanged={existingWidths.onColumnWidthChanged}
               source={sources.existing} onEdit={onEdit} cellState={cellState} cellMessage={cellMessage}
@@ -1006,24 +1037,38 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   return <GridUndoContext.Provider value={gridUndo}>{page}</GridUndoContext.Provider>;
 }
 
+const NOT_FAILED: Readonly<Record<TradeGrid, string | undefined>> = { new: undefined, existing: undefined };
+
+/** What a trade grid's reader answered under the grid's conditions: how many rows they leave, of how many. */
+interface Counted { readonly where: string; readonly left: number; readonly of: number }
+
 /**
  * A trade grid's caption: its title and count, and B and A for every row of it (ADR-0010 §6). ExGrid gives a Consumer
  * no header action, so the all/none controls sit here, and are the commands `before all|none` and `after all|none`.
+ * A grid filtered from the line says so here (ADR-0016 note 41): its conditions, how many rows they leave once its
+ * reader has answered under them (`counted`), and the button that takes them off.
  */
-function TradeCaption({ title, count, grid, setSide, disabled, children }: {
+function TradeCaption({ title, count, grid, setSide, disabled, source, counted, onFilterOff, children }: {
   readonly title: string;
   readonly count: number;
   readonly grid: TradeGrid;
   readonly setSide: (side: 'before' | 'after', value: boolean, grid: TradeGrid) => void;
   readonly disabled: boolean;
+  readonly source: Heard;
+  readonly counted: Counted | undefined;
+  readonly onFilterOff: () => void;
   /** The grid's own buttons, before B and A. */
   readonly children?: ReactNode;
 }) {
   const one = grid === 'new' ? 'new trade' : 'existing trade';
+  const where = useWhere(source);
+  const filter: FilterSaid | undefined = where === undefined ? undefined
+    : counted?.where === where ? { where, counted: { left: counted.left, of: counted.of } } : { where };
   return (
     <Group gap="xs" wrap="wrap" className="qube-grid-caption">
       <Text size="sm" fw={600}>{title}</Text>
       <Text size="xs">{count}</Text>
+      <GridFilterLine said={filter} grid={`the ${one}s`} onOff={onFilterOff} />
       <Group gap="md" ml="auto" wrap="wrap">
         {children}
         <Group gap="xs" role="group" aria-label={`Before and After for every ${one}`}>

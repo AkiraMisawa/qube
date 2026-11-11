@@ -2,7 +2,7 @@
 // here and runs them, so availability and behaviour cannot differ between surfaces. A command is found by typing the
 // English words for what it does; its arguments are completed one slot at a time.
 
-import type { LinePlace, LinePreview, LineView } from '../contracts';
+import type { LineFilter, LinePlace, LinePreview, LineSort, LineView } from '../contracts';
 
 /** A value a slot offers, with what it means. */
 export interface Completion {
@@ -72,13 +72,16 @@ export interface LineReason {
 }
 
 /**
- * What a page says is on screen at one moment (ADR-0016 notes 16 and 21 of 2026-11-11): the view the line is given, and
- * how the grid it was read of takes a place a view verb's reading names for that view. `put` puts that grid's Focus on
- * the place and the keyboard in the grid; where it cannot, it answers why, and has moved nothing.
+ * What a page says is on screen at one moment (ADR-0016 notes 16, 21 and 39 of 2026-11-11): the view the line is given,
+ * and how the grid it was read of takes what a view verb's reading asks of the page for that view. `put` puts that
+ * grid's Focus on the place and the keyboard in the grid; `sort` and `filter` give the grid the sort and the conditions
+ * asked, or take them off. Where the grid cannot, each answers why, and has changed nothing.
  */
 export interface Screen {
   readonly view: LineView;
   readonly put: (place: LinePlace) => string | undefined;
+  readonly sort: (asked: LineSort) => string | undefined;
+  readonly filter: (asked: LineFilter) => string | undefined;
 }
 
 /** A line that ended with its command having put the keyboard somewhere itself (`find`; ADR-0016 note 21 of 2026-11-11): the line gives none back. */
@@ -113,8 +116,9 @@ export interface CommandDoor {
    * since refuses it (ADR-0016 §2). With none shown the server reads the line at the revision the page then holds, with
    * `view`, the one the line opened on, and that reading is invoked. Resolves once the command is taken or refused: with
    * why nothing ran, and the line stays; or with nothing, the page showing what the command left and its notice said.
-   * A view verb's reading invokes nothing (note 21 of 2026-11-11): the page puts the keyboard on the place it names, and
-   * the door answers that the keyboard was moved.
+   * A view verb's reading invokes nothing (notes 21 and 39 of 2026-11-11): the page does what it asks with the grid the
+   * view was read of. For a place the door answers that the keyboard was moved; a sort or a filter ends as a command
+   * done does.
    */
   enter(line: string, shown?: LinePreview, view?: LineView): Promise<Entered>;
   /**

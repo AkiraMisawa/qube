@@ -89,7 +89,9 @@ export interface LineCompletion {
  * opening: the table of the grid the keyboard was last in and its subset; the selection as row keys where the page
  * holds every row, or as ranges of positions with the sort and the order token the grid's reader answered where the
  * server pages it; and the focused cell, its row named the same way. A page that holds every row and filters them
- * names the rows it shows (`shown`), which the word `shown` then means. The server keeps none of it.
+ * names the rows it shows (`shown`), which the word `shown` then means. A grid filtered from the line carries its
+ * conditions as typed (`where`, note 41): the server reads them again at each reading, so `shown` is the rows they
+ * leave and a position is one among those rows. The server keeps none of it.
  */
 export interface LineView {
   readonly table: string;
@@ -100,6 +102,7 @@ export interface LineView {
   readonly ranges?: readonly { readonly start: number; readonly count: number }[];
   readonly focus?: { readonly field: string; readonly key?: string; readonly position?: number };
   readonly shown?: readonly string[];
+  readonly where?: string;
 }
 
 /** An argument as the server read it: the words read for it, and whether they were typed or come from the view (note 18). */
@@ -124,13 +127,49 @@ export interface LinePlace {
 }
 
 /**
+ * The sort a view verb asks the page to give the grid behind the line (ADR-0016 note 40 of 2026-11-11): its columns as
+ * the view names them, the major key first, and none to take the sort off; and the sentence to say once it is done.
+ */
+export interface LineSort {
+  readonly table: string;
+  readonly subset?: string;
+  readonly sorts: readonly { readonly column: string; readonly descending: boolean }[];
+  readonly said: string;
+}
+
+/**
+ * The filter a view verb asks the page to give the grid behind the line (ADR-0016 note 41 of 2026-11-11): the
+ * conditions as typed, which the grid's view then carries, and none to take the filter off; and the sentence to say.
+ */
+export interface LineFilter {
+  readonly table: string;
+  readonly subset?: string;
+  readonly where?: string;
+  readonly said: string;
+}
+
+/**
+ * The rows a view's grid shows (ADR-0016 note 41; `POST /api/workspaces/{id}/shown`): what a page that holds every row
+ * reads, at each revision it shows, to show the rows its grid's conditions leave. `of` is how many the grid has with
+ * no conditions.
+ */
+export interface ViewShown {
+  readonly table: string;
+  readonly revision: number;
+  readonly keys: readonly string[];
+  readonly of: number;
+}
+
+/**
  * A line as the server read it at a revision (ADR-0016 §5; `POST /api/commands/preview`), with nothing executed: the
  * command and either its reading or why it cannot be read, and what could follow the last word. `inputs` invoke the
  * command on the revision read. `at` is the moment the reading speaks of, where it speaks of one: the sentence holds
  * no time, and the line writes this in its user's zone. `view` is the view the reading was asked with, in one sentence
  * (note 19), and `viewMoved` says that its positions are of an order that has moved since, so that its rows can no
- * longer be said; a reading asked with no view has neither. A view verb's reading names no command: it answers the
- * `place` the page is to put the keyboard on, and Enter invokes nothing (note 21).
+ * longer be said, as it is where the view's conditions can no longer be read; a reading asked with no view has
+ * neither. A view verb's reading names no command: it answers what the page is to do with the grid behind the line,
+ * the `place` to put the keyboard on (note 21), the `sort` or the `filter` to give it (notes 39 to 41), and Enter
+ * invokes nothing.
  */
 export interface LinePreview {
   readonly revision: number;
@@ -146,6 +185,8 @@ export interface LinePreview {
   readonly view?: string;
   readonly viewMoved?: boolean;
   readonly place?: LinePlace;
+  readonly sort?: LineSort;
+  readonly filter?: LineFilter;
   /** The line a short form stands for (ADR-0016 note 29 of 2026-11-11): the reading, the command and the inputs are that line's. */
   readonly expands?: string;
 }

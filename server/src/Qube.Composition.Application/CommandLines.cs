@@ -63,15 +63,29 @@ public interface ILineCommand
 public sealed record LineCommand(string Id, string Version);
 
 /// <summary>
-/// What a view verb asks of the screen behind a line (ADR-0016 §9, note 21 of step 2): the cell the page puts the
-/// keyboard on. Its row by key, and by its position in the view's order where the server pages the grid; its column
-/// as the view names its columns, none where the grid's Focus had none to keep; and the sentence to say once the
-/// keyboard is there.
+/// What a verb of the screen asks of the page behind a line (ADR-0016 §9, notes 21 and 39): one thing, done with the
+/// grid the view was read of. Each names that grid, by its table and subset, and the sentence to say once it is done.
 /// </summary>
-public sealed record LinePlace(string Table, string? Subset, string Key, int? Position, string? Column, string Said);
+public abstract record ViewAsk(string Table, string? Subset, string Said);
 
-/// <summary>A line as a view verb read it: each argument as read, the rows it means, what Enter would do, and the place it asks the page for.</summary>
-public sealed record ViewRead(IReadOnlyList<LineArgument> Arguments, LineRows? Rows, string Would, LinePlace Place);
+/// <summary>
+/// The cell the page puts the keyboard on (note 21 of step 2). Its row by key, and by its position in the view's order
+/// where the server pages the grid; its column as the view names its columns, none where the grid's Focus had none to
+/// keep.
+/// </summary>
+public sealed record LinePlace(string Table, string? Subset, string Key, int? Position, string? Column, string Said) : ViewAsk(Table, Subset, Said);
+
+/// <summary>The sort the page gives its grid (note 40 of step 4): its columns as the view names them, the major key first; none takes the sort off.</summary>
+public sealed record LineSort(string Table, string? Subset, IReadOnlyList<ViewSort> Sorts, string Said) : ViewAsk(Table, Subset, Said);
+
+/// <summary>
+/// The filter the page gives its grid (note 41 of step 4): the conditions as typed, which the view then carries
+/// (<see cref="LineView.Where"/>) and the server reads again at each reading; none takes the filter off.
+/// </summary>
+public sealed record LineFilter(string Table, string? Subset, string? Where, string Said) : ViewAsk(Table, Subset, Said);
+
+/// <summary>A line as a view verb read it: each argument as read, the rows it means where it means rows, what Enter would do, and what it asks the page for.</summary>
+public sealed record ViewRead(IReadOnlyList<LineArgument> Arguments, LineRows? Rows, string Would, ViewAsk Asks);
 
 /// <summary>
 /// A verb of the screen (ADR-0016 §3, note 21 of step 2): it reads its line as a command does, with the view the line
@@ -122,6 +136,8 @@ public sealed record LineRefusal(string Code, string Sentence, string? Word, int
 /// <param name="View">What the screen behind the line showed, in one sentence, where the preview was asked with a view (note 19 of step 2).</param>
 /// <param name="ViewMoved">True where that view's positions are of an order that has moved since: its rows can no longer be said.</param>
 /// <param name="Place">Where a view verb asks the page to put the keyboard (note 21 of step 2): the reading then names no command, and Enter invokes none.</param>
+/// <param name="Sort">The sort a view verb asks the page to give its grid (note 40 of step 4), as a place is asked.</param>
+/// <param name="Filter">The filter a view verb asks the page to give its grid (note 41 of step 4), as a place is asked.</param>
 /// <param name="Expands">The line a short form stands for (note 29 of step 3): the reading is that line's, and the command and inputs are its own.</param>
 public sealed record LinePreview(
     long Revision,
@@ -137,7 +153,9 @@ public sealed record LinePreview(
     string? View = null,
     bool ViewMoved = false,
     LinePlace? Place = null,
-    string? Expands = null);
+    string? Expands = null,
+    LineSort? Sort = null,
+    LineFilter? Filter = null);
 
 /// <summary>The words of a line as typed: what stands between its spaces, each with where it starts.</summary>
 public static partial class LineWords
@@ -170,8 +188,8 @@ public static partial class LineWords
 public sealed class CommandLines
 {
     // A line as what its first words name read it: a command's reading has the inputs to invoke it with, and a verb
-    // of the screen's has the place it asks the page for, and nothing to invoke.
-    sealed record Reading(JsonObject? Inputs, IReadOnlyList<LineArgument> Arguments, LineRows? Rows, string Would, DateTimeOffset? At, LinePlace? Place);
+    // of the screen's has what it asks the page for, and nothing to invoke.
+    sealed record Reading(JsonObject? Inputs, IReadOnlyList<LineArgument> Arguments, LineRows? Rows, string Would, DateTimeOffset? At, ViewAsk? Asks);
 
     // What a line's first words name, a command capability that reads its line, a verb of the screen or a short form:
     // how it is typed, the command Enter invokes where there is one, and how it completes and reads the rest of the
@@ -195,7 +213,7 @@ public sealed class CommandLines
         this.tables = tables;
         IShortForm[] forms = [.. shortForms.SelectMany(c => c.ShortForms)];
         ShortForms = [.. forms.Select(f => f.Descriptor)];
-        IViewVerb[] verbs = [new FindVerb(tables)];
+        IViewVerb[] verbs = [new FindVerb(tables), new SortVerb(tables), new FilterVerb(tables)];
         ViewVerbs = [.. verbs.Select(v => v.Descriptor)];
         var named = new List<Typed>();
         foreach (var descriptor in registry.CapabilityDescriptors)
@@ -213,11 +231,12 @@ public sealed class CommandLines
         }
         foreach (var verb in verbs)
         {
-            // A verb of the screen names no command: its reading answers a place, and Enter invokes nothing (note 21 of step 2).
+            // A verb of the screen names no command: its reading answers what it asks the page for, and Enter invokes
+            // nothing (notes 21 and 39).
             Reading Read(LineContext line)
             {
                 var asked = verb.Read(line);
-                return new(null, asked.Arguments, asked.Rows, asked.Would, null, asked.Place);
+                return new(null, asked.Arguments, asked.Rows, asked.Would, null, asked.Asks);
             }
             named.AddRange(verb.Descriptor.Command.Words.Select(w => new Typed(TableWords.Of(w).Split(' '), TableWords.Of(w), verb.Descriptor.VerbId, verb.Descriptor.Command, null, verb.Complete, Read)));
         }
@@ -288,7 +307,8 @@ public sealed class CommandLines
                 return meant with { Expands = stands, Complete = complete, More = completions.More, Refused = meant.Refused is null ? null : meant.Refused with { Start = marked?.Start, End = marked?.End } };
             }
             var read = (said.Read ?? throw new InvalidOperationException($"{said.Id} neither reads its line nor stands for another."))(context);
-            return new(state.Revision, said.Command, read.Inputs, read.Arguments, read.Rows, read.Would, read.At, null, complete, completions.More, Place: read.Place);
+            return new(state.Revision, said.Command, read.Inputs, read.Arguments, read.Rows, read.Would, read.At, null, complete, completions.More,
+                Place: read.Asks as LinePlace, Sort: read.Asks as LineSort, Filter: read.Asks as LineFilter);
         }
         catch (TableRefused refused)
         {
@@ -348,6 +368,29 @@ public sealed class CommandLines
         try
         {
             return new(table.Descriptor.TableId, [.. Views.Selected(view, table, state, key => index.Value.Row(key)).Select(r => r.Key)]);
+        }
+        catch (TableRefused refused)
+        {
+            // No line was read, so there is no word to mark: the refusal is the workspace's, by the same code and sentence.
+            throw new WorkspaceRefused(refused.Code, refused.Message);
+        }
+    }
+
+    /// <summary>
+    /// The rows a view's grid shows in the caller's own workspace as it stands (ADR-0016 note 41 of step 4): what a
+    /// page that holds every row reads, at each revision it shows, to show the rows its grid's conditions leave. The
+    /// conditions are read as a line's reading of <c>shown</c> reads them, so the two cannot disagree; ones that
+    /// cannot be read are refused (<c>FilterUnread</c>), never answered as every row. Nothing is written.
+    /// </summary>
+    public ViewShown Shown(string workspaceId, Caller caller, LineView view)
+    {
+        var state = WorkspaceCommands.Owned(workspaces, workspaceId, caller, null);
+        var table = Views.TableOf(view, tables.Of(state));
+        var all = table.Table.Rows(state);
+        var index = new Lazy<Selectors.RowIndex>(() => new(table, all));
+        try
+        {
+            return new(table.Descriptor.TableId, state.Revision, [.. Views.Shown(view, table, all, key => index.Value.Row(key), state).Select(r => r.Key)], Views.Unfiltered(view, table, all).Count);
         }
         catch (TableRefused refused)
         {

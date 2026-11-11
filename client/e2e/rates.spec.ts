@@ -418,3 +418,35 @@ test('ExGrid ADR-0016: a column dragged wider by its header grip keeps its width
   await settled(page, 'Lines');
   await expect.poll(width).toBe(Math.round(before.width) + 100);
 });
+
+test('ADR-0016 notes 39 to 41: the line grid shows the lines the server says a filter leaves and says so, its button takes the filter off, and a sort its grid does not do is refused on the line', async ({ page }) => {
+  await open(page);
+  await newWorkspace(page);
+  for (const [i, terms] of ['irs jpy 10mm 5y pay', 'irs usd 10mm 7y rec'].entries()) {
+    await taken(page, 'new', terms);
+    await expect(summary(page)).toContainText(`${i + 1} line(s)`);
+  }
+  await settled(page, 'Lines');
+  const ids = () => lines(page).locator('[role=row] [role=gridcell][aria-colindex="1"]');
+  await expect(ids()).toHaveCount(2);
+  const [FIRST, SECOND] = await ids().allInnerTexts() as [string, string];
+  const filtered = page.getByTestId('grid-filter');
+
+  await page.keyboard.press('ControlOrMeta+Shift+G');
+  await page.keyboard.press('ControlOrMeta+Home');
+  await taken(page, 'filter', 'where ccy=USD');
+  await expect(notice(page)).toHaveText('Showing 1 of 2 rows of lines where currency = USD.');
+  await expect(filtered.getByRole('status')).toHaveText('Filter: ccy=USD · 1 of 2');
+  await expect(ids()).toHaveText([SECOND]);
+
+  await page.getByRole('button', { name: 'Take the filter off the lines' }).click();
+  await expect(filtered).toHaveCount(0);
+  await expect(ids()).toHaveText([FIRST, SECOND]);
+
+  // The line grid shows a term as typed and sorts by none: the server reads the sort, and the page says why it is not
+  // done, on the line.
+  await page.keyboard.press('ControlOrMeta+Shift+G');
+  await command(page, 'sort', 'by end desc');
+  await expect(page.getByTestId('command-problems')).toHaveText('The grid on screen does not sort by end.');
+  await expect(ids()).toHaveText([FIRST, SECOND]);
+});

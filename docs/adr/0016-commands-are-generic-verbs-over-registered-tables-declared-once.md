@@ -480,7 +480,8 @@ log cannot yet say which entries were one command, or what an entry replaced.
    (note 37). Left for later steps: `load trades <ids>` (step 5, note 37), and how the line spells an iteration's
    lists, which stays open (§3).
 4. View verbs and the AI's row read. **In progress** (`docs/specs/commands-4-view-verbs-ai-reads`, three pull
-   requests); what it settles is notes 38 onward below.
+   requests: the AI's reads and `sort` and `filter` built 2026-11-11, `select`, `copy` and `export` to come); what
+   it settles is notes 38 onward below.
 5. Drafts (§10): a detail dialog drawn from a registration, with the tables under its row and its templates. The
    pricer's trade and CSA must carry those fields and tables first; its sample has neither them nor such a dialog.
    The pricer's scenarios as a registered table, a row computed from its shifts with their table under it, come
@@ -1421,8 +1422,8 @@ each is built.
 ### Notes of 2026-11-11: what step 4 settles (all DEFAULT)
 
 Step 4 is three pull requests (`docs/specs/commands-4-view-verbs-ai-reads`): 4a the AI's describe, read and
-preview (§7), 4b `sort` and `filter`, 4c `select`, `copy` and `export`. Note 38 is 4a's; the later ones are added
-as each is built.
+preview (§7), 4b `sort` and `filter`, 4c `select`, `copy` and `export`. Note 38 is 4a's and notes 39 to 41 are
+4b's; 4c's are added as it is built.
 
 38. **The AI describes, reads and previews through three capabilities (§7; 4a).** §7 decides that there are three
     and what each answers. What is left to settle is what makes a reading a command, what each takes and answers
@@ -1499,6 +1500,114 @@ as each is built.
       after a refused `read` as more rows.
     - *Corrected as built: a bound of a contract written as a whole number threw.* `minimum` and `maximum` are
       now read as the number is, whichever way the schema wrote them. No contract before this one had a bound.
+
+39. **A verb of the screen asks its page (§3; 4b).** `find` answers a place (note 21). `sort` and `filter` answer
+    what the grid's page is to do with its grid: a reading of a view verb names no command and one thing asked of
+    the page, a `place`, a `sort` or a `filter`, each with the sentence to say once it is done. The page's door does
+    it with the grid the view was read of, as it puts a place, and answers why where the grid cannot.
+    - *They act on the grid behind the line.* §3 spells them with a table (`sort <table> by …`). The table is the
+      grid's, so it may be left out (note 23), and where it is said it must be the table of the grid behind the
+      line: another table's grid is gone to first (`go`). With no grid behind the line they are refused (`NoView`).
+    - *The grid's own Sort and Filter are what they set.* The header that sorts a grid and the line set one state,
+      so a grid sorted from the line shows it in its header, and a sort from the header is what `sort` then
+      replaces. Nothing is kept on the server: a view is a value (note 16).
+    - *Not the AI's, not logged, not undone* (§3): they change no workspace.
+    - *Added as built.* A sort or a filter ends as a command done does, the keyboard back where it was; only a
+      place answers that the keyboard was moved. What any of the three asks is of the workspace as it stood when
+      it was read, and no write refuses one that has moved since, so a reading of another revision than the page
+      then holds is asked for again (as note 21 has it for a place). The grid may be said by its table and subset
+      (`filter trades existing where …`); another table's or another subset's is refused (`OtherGrid`).
+
+40. **`sort` (4b).** `sort [<table>] by <field> [desc] [, <field> [desc]]` and `sort off`.
+    - A field is one of the table's, by its words; `desc` or `descending` after it turns it, `asc` or `ascending`
+      may be said. Several fields are separated by commas, the first the major key. `sort off` gives the grid the
+      order it has with no sort.
+    - Where the server pages the grid, its reader is asked whether it sorts by those fields before the page is:
+      a field it does not sort by is refused by name (`NotSortable`), never ignored. Where the page holds every
+      row the grid sorts them itself, as its header does, and a field the grid shows no column of is the page's to
+      refuse.
+    - It completes `by` and `off`, then the table's fields, then `desc`.
+    - *Added as built.* `by` is required (`sort notional` is refused, `NoSort`), so that a table's word is never
+      taken for a field's. The reader is asked once for each field, and the one it does not sort by is named.
+    - *Added as built: a grid that does not sort a column says so.* A page that holds its rows names the columns
+      its grid does not sort by (ExGrid's `queryable: false`), and a sort by one is refused on the line by the
+      column's name, the grid keeping the sort it had. The Rates line grid sorts by none: it shows a term as
+      typed (`10y`, `5mm`), which the grid would order as text, and an order that looks right and is not is the
+      one thing not to show. Sorting it by what a term means is left for later.
+
+41. **`filter` (4b).** `filter [<table>] where <conditions>` and `filter off`.
+    - *The conditions are the selector's* (§2, note 8): the same fields, operators and values, read by the same
+      reader and refused as `where` is, so the rows `filter where ccy=USD` leaves are the rows of the grid's subset
+      that `set where ccy=USD` would write. They are kept as typed and read again at each reading: a row edited
+      so that it no longer meets them leaves the grid, and a period (`maturity<1y`) keeps counting from the
+      table's date. A new `filter where` replaces the conditions; it does not add to them.
+    - *A view carries its conditions* (`where`, beside its sort): `shown` then means the rows they leave (§2,
+      which step 2 left as the grid's subset), a position is a position among those rows, and the view's sentence
+      says how many they leave. The order's token covers them: it moves when a row enters, leaves or moves, and
+      only then.
+    - *Where the server pages the grid*, the page keeps the conditions as the grid's filter and sends them with
+      each page it asks for; the table's own reader gives the order and the kernel narrows it, so the page and a
+      line's reading of `shown` cannot disagree. The trade grids refused a filter until now (§3).
+    - *Where the page holds every row*, it shows the rows the server says the conditions leave, asked for again at
+      each revision it shows (`POST /api/workspaces/{id}/shown`): the client reads no condition (see Rejected,
+      "Reading on the client"). Until the answer for a revision arrives the grid shows the rows of the one before
+      that are still rows, and with none yet, no row.
+    - *A filtered grid says so.* Beside the grid's title: the conditions, how many rows of how many, and a button
+      that takes the filter off, which is the pointer's `filter off`. A filter that can no longer be read (a field
+      gone) shows no row and says why, never every row.
+    - *It may leave no row.* `filter where ccy=CHF` on a grid with no such row shows none, and the reading says
+      "0 of 43" before Enter.
+    - *Left for later.* The grid's own filter panel (ExGrid's column filter) stays refused where the server pages:
+      its conditions are the grid's and would need a second reader on the server. `or` and parentheses (see
+      Rejected, "A full query language").
+    - *Added as built: where the conditions are kept.* They are the Opaque Filter of the grid's source (ExGrid's
+      name for the part of a Filter only its Consumer reads), beside the filters of the grid's own columns, which
+      the grid keeps as they are. The view reads them from there, so it says the conditions the grid holds
+      whether or not its rows have arrived under them.
+    - *Added as built: `shown` and the conditions together.* A view that names the rows it shows and carries
+      conditions means the rows named that meet them. A grid whose page holds its rows says both.
+    - *Changed as built: before the first answer.* The note said that a grid whose page holds its rows shows no
+      row until the server has answered for new conditions. It keeps the rows it has instead, its caption
+      saying the conditions with no count yet: with no row shown, a line chained on `filter` (`set shown …`)
+      would have been read as of no row or of the right rows by which arrived first, and an outcome is not to
+      depend on timing. Read with the rows named and the conditions together, it is the right rows either way.
+    - *Added as built: conditions that can no longer be read* are refused as that (`FilterUnread`), never read as
+      none: by a reading of `shown`, by `find`, by a position, by the page endpoint and by `/shown`. The view's
+      sentence says so and that its rows can no longer be said, and `shown` is not offered. A line that names its
+      own rows is still read, and so is `filter off`. A grid whose page holds its rows then shows no row and says
+      why beside the filter. A grid the server pages keeps the rows it last read, as it does when any read
+      fails, with why in the page's alert, said for that grid and taken back when its reader answers again.
+    - *Added as built: what is said.* The caption says the conditions as the grid holds them, which is as typed
+      (`Filter: ccy=USD · 17 of 43`), and the notice as the server read them (`where ccy = USD`). The page's
+      answer says how many rows the grid has with no conditions (`of`), and so does `/shown`. The order's token
+      under conditions is the reader's with a digest of the keys left, in their order (corrected below).
+    - *Measured at 10,009 rows* (Release build, SQLite, the Existing grid sorted): a page under conditions takes
+      15 to 57 ms (84 ms the first time) against 7 to 8 ms with none, a reading of `set shown a off` under them
+      46 to 129 ms. The conditions are read again at each page, and nothing is kept between pages: a module's
+      cell arrives with no edit, so rows kept by the state alone could be stale.
+    - *Corrected in review: which rows conditions leave is the server's alone to say.* "`shown` and the
+      conditions together" had a grid whose page holds its rows name the rows it shows beside its conditions.
+      That left one more outcome to timing: at a new revision the grid still holds the rows of the answer before,
+      so a row an edit had just brought into the conditions was missed by a line chained on it until `/shown`
+      answered. A view now says its conditions and names no row for them, where the page holds the rows as where
+      the server pages them: the server reads which rows they leave at the revision the line is read at, whatever
+      the grid has drawn. One grid still names rows beside its conditions: one that also filters by its own
+      columns (ExGrid's filter panel, where the page holds every row), since only the grid knows which rows
+      those leave. The server reads the conditions among the rows it names, and its page gives it every row
+      until the server has answered for the conditions and the revision it shows, so the rows named are never
+      short of one.
+    - *Corrected in review: what a grid whose page holds its rows draws while it waits.* It keeps what the server
+      last said until it says otherwise: the rows of the same conditions at the revision before, the rows it had
+      under the conditions before these (every row where it had none), and no row, with why, where the
+      conditions could not be read, at a later revision too. As built it showed every row for a moment in the
+      last two cases. The caption counts the rows drawn, and says new conditions with no count until they are
+      answered. An answer that did not come is said as conditions that could not be read are.
+    - *Corrected in review: the order's token under conditions* is a digest of the keys left, in their order, and
+      no part of the reader's. The reader's moves with a row the conditions leave out, which made "and only then"
+      untrue: a selection in a filtered grid was refused as moved after an edit elsewhere.
+    - *Added in review: they last as long as the panel.* Sort and filter are view state, not settings
+      (ADR-0017 §1 and §6, the owner's): neither is kept with the workspace or for the user, and a grid drawn again
+      starts with none.
 
 ## Rejected
 

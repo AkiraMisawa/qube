@@ -1,6 +1,6 @@
 # Generic commands, delivery step 4: the AI's reads, and the verbs of the screen
 
-Status: in progress (4a built; 4b and 4c to come)
+Status: in progress (4a and 4b built; 4c to come)
 
 The decisions are ADR-0016 §3 (view verbs), §5 and §7, with its notes of 2026-11-11 for step 4 (38 onward). This spec
 orders ADR-0016's Delivery order, step 4, and names the seams it is tested at. The owner asked on 2026-11-11 for every
@@ -76,9 +76,26 @@ names, rows and fields written to the clipboard, and a table saved as a file.
   takes `describe the tables`, `read <rows> [fields …]` and `preview <line>` for the workspace the pane's context
   names. It is how the three are seen working on screen here, and it stays labelled a stand-in.
 
-### 4b. `sort` and `filter` (tickets 06 to 10)
+### 4b. `sort` and `filter` (tickets 06 to 10; ADR-0016 notes 39 to 41)
 
-Decided when 4a is merged, as ADR-0016 notes from 39.
+- **What a view verb answers.** A reading of a view verb names no command and one thing asked of the page: a
+  `place` (`find`), a `sort` or a `filter`, each with its sentence. `LinePreview` carries them beside `place`.
+- **The view's conditions.** `LineView` gains `where`, the grid's filter as typed. `Views` reads `shown`, positions
+  and the order's token under it, with the selector's own reader of conditions, in one place that the pricer's
+  page reader calls too.
+- **The verbs.** `sort` and `filter` are kernel view verbs beside `find`, declared in the catalog's `viewVerbs`.
+  Each reads the grid behind the line, refuses another table by name, and completes its words.
+- **The door.** A page's `Screen` says how its grid takes a place, a sort and a filter. The door hands each to the
+  grid the view was read of and says the reading's sentence.
+- **A grid the server pages** (the pricer's trade grids): the conditions are the grid's Filter (ExGrid's Opaque
+  Filter), sent with each page request; the page endpoint takes `where`. The view's `where` is the filter the
+  grid holds, whether or not its rows have arrived, so a chained `set shown …` is read under it.
+- **A grid whose page holds every row** (the pricer's CSAs, the Rates lines): the page asks the server which keys
+  the conditions leave at each revision it shows (`POST /api/workspaces/{id}/shown`) and shows those rows.
+- **A filtered grid says so**: the conditions, the count and a button that takes the filter off, beside its title.
+- **As built** (ADR-0016 notes 39 to 41, "as built"): the conditions are the Opaque Filter of the grid's source for
+  both kinds of grid; a grid whose page holds its rows keeps them until the server has answered for new conditions;
+  the Rates line grid refuses a sort by the column's name, since it shows its terms as typed.
 
 ### 4c. `select`, `copy` and `export` (tickets 11 to 14)
 
@@ -100,6 +117,10 @@ Seams, as the earlier steps have them:
   built): the stand-in's three requests, and a page of rows scrolling inside its card.
 - 4b and 4c add the preview (`CommandLines.Preview`) with a view, Vitest for the door and the grids' helpers, and
   Playwright for what only a browser shows.
+- For 4b: the preview with a view over `Stations` (the verbs' readings, `shown` and positions under a view's
+  conditions); the host for the pricer's page endpoint with `where` and for `/shown`; Vitest for the door's
+  handing of a sort and a filter and for the views' `where`; Playwright for a trade grid sorted and filtered from
+  the line, `set shown` under a filter, and a grid whose page holds its rows.
 
 A test names the ADR section or note it holds. Expected values are literals of the synthetic registration.
 

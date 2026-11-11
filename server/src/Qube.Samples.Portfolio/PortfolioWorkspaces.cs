@@ -7,6 +7,7 @@ using System.Text;
 using System.Text.Json.Nodes;
 using Qube.Composition.Application;
 using Qube.Composition.Application.Saved;
+using Qube.Composition.Application.Tables;
 using Qube.Composition.Application.Workspaces;
 
 namespace Qube.Samples.Portfolio;
@@ -21,7 +22,8 @@ public sealed record ScenarioSetView(string Label, string Name, string Owner, Sa
 public sealed record RowSort(string Column, string Direction);
 
 /// <summary>One page of effective rows, in the shape ExGrid's fetching source takes (ADR-0003 §4).</summary>
-public sealed record RowPage(IReadOnlyList<EffectiveTrade> Rows, int Start, int TotalCount, string OrderToken, long Revision);
+/// <param name="Of">How many rows the grid has with no conditions, where the page was read under some (ADR-0016 note 41 of step 4); none where it was not.</param>
+public sealed record RowPage(IReadOnlyList<EffectiveTrade> Rows, int Start, int TotalCount, string OrderToken, long Revision, int? Of = null);
 
 /// <summary>What the workspace panel shows beside the grid. <c>Overrides</c> counts the edits to the portfolio's data;
 /// the selection of measures is the page's choice, shown on its own. <c>TradeColumns</c> are the selected modules'
@@ -134,6 +136,9 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
 {
     readonly int caseCap = (options ?? new PortfolioOptions()).CaseCap;
     readonly PortfolioChecks checks = new(register);
+
+    // The pricer's tables as the kernel reads them, for a page read under a grid's conditions (ADR-0016 note 41 of step 4).
+    readonly TableRegister tables = new([new PortfolioTables(register)]);
 
     /// <summary>A new workspace, on its owner's last selection of measures (ADR-0010 §10, DEFAULT).</summary>
     public WorkspaceState Create(string user, string registration, DateOnly valueDate, int existingCount)
@@ -536,14 +541,18 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
 
     /// <summary>
     /// A page of effective rows under a sort, of one trade grid (<c>new</c> or <c>existing</c>, ADR-0010 §6) or of all.
-    /// Refused for an unknown column or grid, never sorted or filtered by a guess.
+    /// Refused for an unknown column or grid, never sorted or filtered by a guess. Under a grid's conditions
+    /// (<paramref name="where"/>, ADR-0016 note 41 of step 4) the trades' own table gives the order and the kernel
+    /// narrows it, which is how a line reads <c>shown</c> and a position under the same conditions: the page and the
+    /// line cannot disagree. Conditions that cannot be read are refused, never answered as every row.
     /// </summary>
-    public RowPage Page(string workspaceId, string user, int start, int count, IReadOnlyList<RowSort> sorts, string? grid = null)
+    public RowPage Page(string workspaceId, string user, int start, int count, IReadOnlyList<RowSort> sorts, string? grid = null, string? where = null)
     {
         if (start < 0 || count < 1) throw new WorkspaceRefused("InvalidRange", "A range starts at 0 or later and holds at least one row.");
         if (grid is not (null or Entity.NewGrid or Entity.ExistingGrid))
             throw new WorkspaceRefused("UnknownGrid", $"No trade grid {grid}; the grids are {Entity.NewGrid} and {Entity.ExistingGrid}.");
-        var state = PortfolioCases.Base(Owned(workspaceId, user));
+        var owned = Owned(workspaceId, user);
+        var state = PortfolioCases.Base(owned);
         var keys = TradeOrder.Keys(sorts.Select(sort => (sort.Column, sort.Direction switch
         {
             "ascending" => false,
@@ -552,9 +561,17 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
         })));
         var all = TradeOrder.Ordered(state, register, grid, keys);
         var token = TradeOrder.Token(state, register, grid, keys);
+        int? of = null;
+        if (where is not null)
+        {
+            var view = new LineView(PortfolioTables.Trades, grid, [.. keys.Select(k => new ViewSort(k.Column, k.Descending))], Where: where);
+            var left = GridRows.Paged(view, tables.Of(owned), owned);
+            var trades = all.ToDictionary(t => t.TradeId, StringComparer.Ordinal);
+            (of, all, token) = (all.Count, [.. left.Rows.Select(r => trades[r.Key])], left.Token);
+        }
         // The modules' cells are read for the page alone, each time: a result such as PV01 arrives with no edit.
         var page = start >= all.Count ? [] : register.WithCells(state, [.. all.Skip(start).Take(count)]);
-        return new(page, start, all.Count, token, state.Revision);
+        return new(page, start, all.Count, token, state.Revision, of);
     }
 
     public WorkspaceState Edit(string workspaceId, long revision, string user, string entity, string field, JsonNode? value)

@@ -68,6 +68,27 @@ interface Invocation {
   readonly inputs: Readonly<Record<string, unknown>>;
 }
 
+/** What a view verb's reading asks of the page (ADR-0016 notes 21 and 39): how a grid does it, and what is said once it has. */
+interface Asks {
+  /** The ask as a defect names it (`a sort`), and what a grid was to do for it (`sort`). */
+  readonly named: string;
+  readonly toDo: string;
+  readonly said: string;
+  /** Whether doing it puts the keyboard somewhere: the line then gives none back. */
+  readonly moves: boolean;
+  /** Hands the ask to the grid the view was read of, and answers why where the grid refuses it. */
+  readonly handTo: (screen: Screen) => string | undefined;
+}
+
+/** The one thing a reading asks of the page, where it is a view verb's: a place, a sort or a filter. */
+function asksOf(reading: LinePreview): Asks | undefined {
+  const { place, sort, filter } = reading;
+  if (place !== undefined) return { named: 'a place', toDo: 'put the keyboard on', said: place.said, moves: true, handTo: (screen) => screen.put(place) };
+  if (sort !== undefined) return { named: 'a sort', toDo: 'sort', said: sort.said, moves: false, handTo: (screen) => screen.sort(sort) };
+  if (filter !== undefined) return { named: 'a filter', toDo: 'filter', said: filter.said, moves: false, handTo: (screen) => screen.filter(filter) };
+  return undefined;
+}
+
 const describe = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 /**
@@ -78,18 +99,18 @@ const describe = (error: unknown) => (error instanceof Error ? error.message : S
  * again, and the notice is the server's sentence of what was done.
  */
 export function commandDoor(page: DoorPage): CommandDoor {
-  // Each view the page gave the line, with how the grid it was read of takes a place: a place read for a view is put
-  // in that grid, whatever the screen shows by then.
-  const puts = new WeakMap<LineView, Screen['put']>();
+  // Each view the page gave the line, with the grid it was read of: what a view verb asks for a view is done with
+  // that grid, whatever the screen shows by then.
+  const screens = new WeakMap<LineView, Screen>();
   // `heard` is the caller that says the answer itself, such as a dialog: it is given the sentence, and no notice is made.
-  const run = <Ended extends LineReason | KeyboardMoved>(named: (revision: number) => Promise<Invocation | Ended>, heard?: (said: string) => void): Promise<Ended | LineReason | undefined> =>
+  const run = <Ended extends LineReason | KeyboardMoved>(named: (revision: number) => Promise<Invocation | Ended | undefined>, heard?: (said: string) => void): Promise<Ended | LineReason | undefined> =>
     page.turns.after(async (revision): Promise<Ended | LineReason | undefined> => {
       let told: Told;
       let ran: string;
       try {
         const call = await named(revision);
         // Nothing to invoke: the line cannot be read, or what it asked for is done already.
-        if (!('id' in call)) return call;
+        if (call === undefined || !('id' in call)) return call;
         told = toldOf(await page.api.command(call.id, call.version, call.inputs, crypto.randomUUID()));
         ran = call.id;
       } catch (error) {
@@ -125,23 +146,24 @@ export function commandDoor(page: DoorPage): CommandDoor {
     view: () => {
       const seen = page.screen?.();
       if (seen === undefined) return undefined;
-      puts.set(seen.view, seen.put);
+      screens.set(seen.view, seen);
       return seen.view;
     },
     enter: (line, shown, view) => run<LineReason | KeyboardMoved>(async (revision) => {
-      // A place is of the workspace as it stood when it was read, and no write will refuse one that has moved since:
-      // a reading of another revision than the page now holds is asked for again.
-      const kept = shown !== undefined && (shown.place === undefined || shown.revision === revision) ? shown : undefined;
+      // What a view verb asks is of the workspace as it stood when it was read, and no write will refuse one that has
+      // moved since: a reading of another revision than the page now holds is asked for again.
+      const kept = shown !== undefined && (asksOf(shown) === undefined || shown.revision === revision) ? shown : undefined;
       const reading = kept ?? await page.api.preview(line, page.workspaceId, { revision, ...(view === undefined ? {} : { view }) });
       if (reading.refused !== undefined) return reading.refused;
-      if (reading.place !== undefined) {
-        // A view verb (ADR-0016 note 21): nothing is invoked, and the page puts the keyboard where the reading says.
-        const put = view === undefined ? undefined : puts.get(view);
-        if (put === undefined) throw new Error('The server named a place, and this page gave the line no grid to put the keyboard on.');
-        const why = put(reading.place);
+      const asks = asksOf(reading);
+      if (asks !== undefined) {
+        // A view verb (ADR-0016 notes 21 and 39): nothing is invoked, and the page does what the reading asks.
+        const screen = view === undefined ? undefined : screens.get(view);
+        if (screen === undefined) throw new Error(`The server named ${asks.named}, and this page gave the line no grid to ${asks.toDo}.`);
+        const why = asks.handTo(screen);
         if (why !== undefined) return { sentence: why };
-        page.notify('done', reading.place.said);
-        return { moved: true };
+        page.notify('done', asks.said);
+        return asks.moves ? { moved: true } : undefined;
       }
       if (reading.command === undefined || reading.inputs === undefined) throw new Error('The server read the line and named no command to run.');
       return { ...reading.command, inputs: reading.inputs };

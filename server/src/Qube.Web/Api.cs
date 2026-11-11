@@ -36,6 +36,9 @@ public static class Api
     /// <summary>A grid's view, whose selection's rows are asked for (ADR-0016 note 37 of step 3).</summary>
     public sealed record SelectionRequest(LineView View);
 
+    /// <summary>The view of a grid whose page holds every row, to be told the rows its conditions leave (ADR-0016 note 41 of step 4).</summary>
+    public sealed record ShownRequest(LineView View);
+
     public sealed record ViewValidationRequest(ViewDefinition View, IReadOnlyList<string> BoundNames);
 
     public sealed record HistoryRequest(string? Domain, int Start, int Count);
@@ -149,6 +152,21 @@ public static class Api
             }
         });
 
+        // The rows a view's grid shows (ADR-0016 note 41 of step 4): what a page that holds every row reads, at each
+        // revision it shows, to show the rows its grid's conditions leave. Conditions that cannot be read are refused
+        // as that, and no retry reads them.
+        api.MapPost("/workspaces/{workspaceId}/shown", (string workspaceId, ShownRequest request, CommandLines lines, CurrentUser user) =>
+        {
+            try
+            {
+                return Results.Ok(lines.Shown(workspaceId, new Caller(user.Id, RunOrigin.Pricer), request.View));
+            }
+            catch (WorkspaceRefused refused)
+            {
+                return ViewRefused(refused, "the rows shown");
+            }
+        });
+
         // A workspace's tables as a screen is told of them (ADR-0016 §4, note 25 of step 2): the actions a grid bound to
         // each offers in its Context Menu. Refused as the door refuses a workspace: unknown, or another user's.
         api.MapGet("/workspaces/{workspaceId}/tables", (string workspaceId, CommandLines lines, CurrentUser user) =>
@@ -245,6 +263,7 @@ public static class Api
         {
             "InvalidView" => 400,
             "ViewMoved" => 409,
+            "FilterUnread" => 422,
             _ => DoorStatus(refused.Code) ?? throw new InvalidOperationException($"No status is set for {reading}'s refusal {refused.Code}."),
         };
         return Results.Json(new ErrorEnvelope(refused.Code, refused.Message, [], Retryable: status == 409), statusCode: status);

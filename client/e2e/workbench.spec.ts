@@ -106,6 +106,8 @@ test('ADR-0006: Ctrl+N and Ctrl+P move through the command line\'s list as the a
   await expect(page.getByRole('dialog', { name: 'New Rates workspace' }).getByLabel('Valuation date')).toBeFocused();
   await page.keyboard.press('Enter');
   await expect(page.getByRole('tab', { name: 'Rates 2026-10-27' })).toHaveAttribute('aria-selected', 'true');
+  // The page's grid adds `focus grid` to the list as it is drawn: the list is read once it is there, never across it.
+  await settled(page, 'Lines');
 
   await page.keyboard.press('ControlOrMeta+K');
   await page.keyboard.type('panel');
