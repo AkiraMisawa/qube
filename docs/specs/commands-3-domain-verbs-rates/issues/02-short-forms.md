@@ -22,5 +22,8 @@ entries, shows the expansion under the input and runs the expansion's inputs at 
 - Built as `IShortForm` (a descriptor, `Expand(LineContext)` and `Complete(LineContext)`) answered by an
   `IShortFormCatalog`. The reading of a short form is the reading of the line it expands to, and the preview says that
   line (`expands`), which the line shows as `Runs as …` before Enter.
-- A short form that shares its words with a command, or with another short form of its application, fails the read:
-  the registration's defect, as an action whose line no command begins is.
+- A short form that shares its words with a command, or with another short form of its application, fails where the
+  lines are built, which the host does at start: the registration's defect. What fails at the read is a short form
+  whose expansion begins with no command's words.
+- The agent's tools are the capabilities, and a short form is none: the catalog test's list of the commands that say
+  how they are typed holds no short form's id.

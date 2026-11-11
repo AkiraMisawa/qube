@@ -69,7 +69,7 @@ public class PricerCommandTests(QubeFactory factory) : IClassFixture<QubeFactory
     }
 
     [Fact] // ADR-0010 §9, docs/03 §5: the AI's add each and set do what the command line's do; a set names the revision it was made against
-    public async Task The_ais_add_trades_and_set_do_what_the_command_lines_do()
+    public async Task The_ais_add_each_and_set_do_what_the_command_lines_do()
     {
         var ws = await Create();
         var id = ws["workspaceId"]!.GetValue<string>();

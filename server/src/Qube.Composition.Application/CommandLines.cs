@@ -144,6 +144,18 @@ public static partial class LineWords
 {
     public static IReadOnlyList<(string Word, int Start)> Of(string text) => [.. Pattern().Matches(text).Select(m => (m.Value, m.Index))];
 
+    /// <summary>
+    /// The word being typed at the end of <paramref name="text"/>, with where it starts, and the words done before it:
+    /// the last word, or an empty one after a space. What a command that completes word by word asks first.
+    /// </summary>
+    public static (IReadOnlyList<string> Done, string Word, int Start) Typing(string text)
+    {
+        var words = Of(text);
+        return text.Length == 0 || char.IsWhiteSpace(text[^1])
+            ? ([.. words.Select(w => w.Word)], "", text.Length)
+            : ([.. words.SkipLast(1).Select(w => w.Word)], words[^1].Word, words[^1].Start);
+    }
+
     [GeneratedRegex(@"\S+")]
     private static partial Regex Pattern();
 }
@@ -272,8 +284,8 @@ public sealed class CommandLines
                 if (Named(commands, LineWords.Of(stands)) is null)
                     throw new InvalidOperationException($"The short form {said.Said} expands to `{stands}`, which begins with no command's words.");
                 var meant = Read(stands, state, caller, view, commands);
-                var typed = meant.Refused?.Word is { } word ? Place(line, from, word) : null;
-                return meant with { Expands = stands, Complete = complete, More = completions.More, Refused = meant.Refused is null ? null : meant.Refused with { Start = typed?.Start, End = typed?.End } };
+                var marked = meant.Refused?.Word is { } word ? Place(line, from, word) : null;
+                return meant with { Expands = stands, Complete = complete, More = completions.More, Refused = meant.Refused is null ? null : meant.Refused with { Start = marked?.Start, End = marked?.End } };
             }
             var read = (said.Read ?? throw new InvalidOperationException($"{said.Id} neither reads its line nor stands for another."))(context);
             return new(state.Revision, said.Command, read.Inputs, read.Arguments, read.Rows, read.Would, read.At, null, complete, completions.More, Place: read.Place);

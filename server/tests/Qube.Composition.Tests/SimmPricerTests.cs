@@ -117,7 +117,7 @@ public class SimmPricerTests
     }
 
     static WorkspaceState Select(PortfolioWorkspaces service, WorkspaceState ws, params string[] measures) =>
-        service.SetMeasures(ws.WorkspaceId, ws.Revision, "akira", measures);
+        service.SelectMeasures(ws.WorkspaceId, ws.Revision, "akira", string.Join(' ', measures)).State;
 
     static IReadOnlyDictionary<string, MembershipScope> Scopes(EffectiveTrade trade) =>
         trade.Membership![SimmMeasures.SpotIm].Scopes!.ToDictionary(s => s.Id);

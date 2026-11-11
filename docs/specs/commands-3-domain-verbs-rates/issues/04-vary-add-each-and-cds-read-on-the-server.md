@@ -29,5 +29,8 @@ note 28).
   menu opened on. Both, or neither, is refused. A request with no values is refused by the contract (`422
   ValidationFailed`), where the page's endpoint answered 400.
 - The dialog shows the command's own sentence: the door's `invoke` hands it to a caller that says the outcome itself,
-  and the page raises no notice of it.
+  and the page raises no notice of it. It sends its values as typed; the client's copy of the comma rule is gone.
+- The AI's `xva.cds` now has the page read the workspace again, as its other edits do: it was missing from the list.
+- Not built: `vary` completes nothing, and a domain verb's refusal marks no word and lists no candidates (ADR-0016
+  note 28, "What a domain verb does not do yet").
 - The page's `/vary`, `/cds` (the write) and `/add-trades` endpoints are gone.

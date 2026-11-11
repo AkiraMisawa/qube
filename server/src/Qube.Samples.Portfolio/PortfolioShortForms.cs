@@ -15,13 +15,6 @@ public sealed class PortfolioShortForms : IShortFormCatalog
 
     static readonly char[] Space = [' ', '\t'];
 
-    // The word being typed, with where it starts: the last one, or an empty one after a space.
-    static (IReadOnlyList<string> Before, string Typing, int Start) Typing(string text)
-    {
-        var words = LineWords.Of(text);
-        return text.Length == 0 || char.IsWhiteSpace(text[^1]) ? ([.. words.Select(w => w.Word)], "", text.Length) : ([.. words.SkipLast(1).Select(w => w.Word)], words[^1].Word, words[^1].Start);
-    }
-
     static LineCompletions Offer(IEnumerable<(string Value, string? Detail)> values, string typing, int start) =>
         new([.. values.Where(v => v.Value.StartsWith(typing, StringComparison.OrdinalIgnoreCase)).Select(v => new LineCompletion(v.Value, start, v.Detail))]);
 
@@ -31,7 +24,7 @@ public sealed class PortfolioShortForms : IShortFormCatalog
     /// </summary>
     sealed class Side(string side) : IShortForm
     {
-        static readonly string[] Choices = ["all", "none"], Grids = ["new", "existing"];
+        static readonly string[] Choices = ["all", "none"], Grids = [Entity.NewGrid, Entity.ExistingGrid];
 
         public ShortFormDescriptor Descriptor { get; } = new($"xva.{side}", $"Tick or clear {(side == "before" ? "Before" : "After")} on every trade of a grid",
             new([side], [new("which", CommandArgumentKind.Text, Required: true), new("grid", CommandArgumentKind.Text, Required: false)], PortfolioEditRules.App));
@@ -44,10 +37,11 @@ public sealed class PortfolioShortForms : IShortFormCatalog
             if (!Choices.Contains(which)) throw new TableRefused("UnknownChoice", $"{side} takes all or none, not {words[0]}.", words[0], Choices);
             var said = $"{side} {which}";
             if (words.Length > 2) throw new TableRefused("UnreadWords", $"{said} {words[1]} is the whole line: {words[2]} is not read.", words[2]);
-            var grid = words.Length == 2 ? words[1].ToLowerInvariant()
-                : line.View is { Table: PortfolioTables.Trades, Subset: { } shown } ? shown
-                : throw new TableRefused("NoGrid", $"{said} takes new or existing, or the trade grid the keyboard is in.", null, Grids);
-            if (!Grids.Contains(grid)) throw new TableRefused("UnknownGrid", $"{said} takes new or existing, not {words[1]}.", words[1], Grids);
+            // The grid typed, or the trade grid behind the line where it is one of the two; a word that is neither is refused where it stands.
+            var typed = words.Length == 2 ? words[1] : null;
+            var grid = typed?.ToLowerInvariant() ?? (line.View is { Table: PortfolioTables.Trades, Subset: { } shown } && Grids.Contains(shown) ? shown
+                : throw new TableRefused("NoGrid", $"{said} takes new or existing, or the trade grid the keyboard is in.", null, Grids));
+            if (!Grids.Contains(grid)) throw new TableRefused("UnknownGrid", $"{said} takes new or existing, not {typed}.", typed, Grids);
             return $"set {grid} {side} {(which == "all" ? "on" : "off")}";
         }
 
@@ -55,7 +49,7 @@ public sealed class PortfolioShortForms : IShortFormCatalog
         {
             // No space after the form's own word: it is still being typed, and nothing follows yet.
             if (line.Text.Length == 0) return LineCompletions.None;
-            var (before, typing, start) = Typing(line.Text);
+            var (before, typing, start) = LineWords.Typing(line.Text);
             return before.Count switch
             {
                 0 => Offer([("all", "tick every row"), ("none", "clear every row")], typing, start),
@@ -81,7 +75,7 @@ public sealed class PortfolioShortForms : IShortFormCatalog
         public LineCompletions Complete(LineContext line)
         {
             if (line.Text.Length == 0) return LineCompletions.None;
-            var (before, typing, start) = Typing(line.Text);
+            var (before, typing, start) = LineWords.Typing(line.Text);
             return before.Count == 0 ? Offer(PortfolioMarket.Currencies.Select(c => (c, (string?)null)), typing, start) : LineCompletions.None;
         }
     }

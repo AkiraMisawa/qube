@@ -58,15 +58,15 @@ public class PricerSettingsTests
         var (service, _, _) = Priced();
         var ws = service.Create("akira", "ABC/LE-01", Day1, 5);
 
-        ws = service.SetMeasures(ws.WorkspaceId, ws.Revision, "akira", ["cva"]);
+        ws = service.SelectMeasures(ws.WorkspaceId, ws.Revision, "akira", "cva").State;
         Assert.Equal(["xva.mpor", "xva.chargeRatio", "xva.pvAdjustment", "xva.risks"], Shown(service, ws));
-        ws = service.SetMeasures(ws.WorkspaceId, ws.Revision, "akira", ["kva"]);
+        ws = service.SelectMeasures(ws.WorkspaceId, ws.Revision, "akira", "kva").State;
         Assert.Equal(["xva.costOfCapital", "xva.pvAdjustment"], Shown(service, ws));
         // A module none of whose measures is selected has no section: SA-CCR registers no setting of its own.
-        ws = service.SetMeasures(ws.WorkspaceId, ws.Revision, "akira", ["ccr.spotCapital"]);
+        ws = service.SelectMeasures(ws.WorkspaceId, ws.Revision, "akira", "ccr.spotCapital").State;
         Assert.Empty(service.View(ws.WorkspaceId, "akira").Settings);
 
-        ws = service.SetMeasures(ws.WorkspaceId, ws.Revision, "akira", ["cva", "kva"]);
+        ws = service.SelectMeasures(ws.WorkspaceId, ws.Revision, "akira", "cva kva").State;
         ws = Set(ws, "cost of capital", "12%");
         var xva = Assert.Single(service.View(ws.WorkspaceId, "akira").Settings);
         Assert.Equal(("xva", "XVA"), (xva.Module, xva.Title));
@@ -118,7 +118,7 @@ public class PricerSettingsTests
     {
         var (service, runs, store) = Priced();
         var ws = service.Create("akira", "ABC/LE-01", Day1, 20);
-        ws = service.SetMeasures(ws.WorkspaceId, ws.Revision, "akira", ["cva", "kva"]);
+        ws = service.SelectMeasures(ws.WorkspaceId, ws.Revision, "akira", "cva kva").State;
 
         ws = service.Vary(ws.WorkspaceId, ws.Revision, "akira", "xva charge ratio", ["1", "1.5"]).State;
         ws = service.Vary(ws.WorkspaceId, ws.Revision, "akira", "xva cost of capital", ["20%"]).State;
@@ -150,7 +150,7 @@ public class PricerSettingsTests
         var pv01 = new Pv01Provider((_, _) => answer.Task);
         var (service, runs, store) = Priced(pv01);
         var ws = service.Create("akira", "ABC/LE-01", Day1, 5);
-        ws = service.SetMeasures(ws.WorkspaceId, ws.Revision, "akira", ["cva", "fva"]);
+        ws = service.SelectMeasures(ws.WorkspaceId, ws.Revision, "akira", "cva fva").State;
         ws = service.Edit(ws.WorkspaceId, ws.Revision, "akira", "trade:DRAFT-1", XvaMeasures.Field(XvaMeasures.Margin), 2m);
 
         var (_, pending) = await Price(runs, store, service, ws);

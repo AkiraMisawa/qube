@@ -111,7 +111,7 @@ public class PricerApiTests(QubeFactory factory) : IClassFixture<QubeFactory>
     }
 
     [Fact] // docs/03 §5, ADR-0010 §3's note of 2026-11-08: add each over HTTP makes the set, and Price refuses a set the ticked rows left
-    public async Task Add_trades_makes_the_set_and_price_refuses_one_the_ticked_rows_left()
+    public async Task Add_each_makes_the_set_and_price_refuses_one_the_ticked_rows_left()
     {
         var ws = await Measures(await Create(), "cva");
 

@@ -75,13 +75,3 @@ export function measureNamed(word: string, measures: readonly RegisteredMeasure[
   const of = measures.filter((m) => m.traced && m.module.toLowerCase() === typed);
   return of.length === 1 ? of[0] : undefined;
 }
-
-/**
- * Why a list of values separated by commas cannot be read, if it cannot: a comma between two digits could separate two
- * values or the thousands of one (`10,000k`), so the list is refused rather than split as a guess. The server's
- * `xva.vary` refuses it in the same words.
- */
-export function ambiguousComma(text: string): string | undefined {
-  const found = /[^\s,]*\d(?:,\d[^\s,]*)+/.exec(text);
-  return found === null ? undefined : `${found[0]} could be one value or two: a comma separates values here, so write an amount without separators, such as 10000k or 10mm.`;
-}

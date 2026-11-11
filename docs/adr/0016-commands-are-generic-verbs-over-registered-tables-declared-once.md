@@ -935,8 +935,8 @@ Notes 20 to 23 are 2b's (tickets 06 to 08 and 12).
 ### Notes of 2026-11-11: what step 3 settles (all DEFAULT)
 
 Step 3 is four pull requests (`docs/specs/commands-3-domain-verbs-rates`): 3a short forms and the pricer's verbs
-that edit, 3b its scenarios and the verbs that execute, 3c Rates, 3d `add each` with lists. Notes 27 to 31 are 3a's;
-the later ones are added as each is built.
+that edit, 3b its scenarios and the verbs that execute, 3c Rates, 3d `add each` with lists. Notes 27 to 30 are 3a's
+and are built; note 31 is the step's as a whole; the later ones are added as each is built.
 
 27. **A command says which workspaces it is for (§4).** A command form names the workspace application its command
     acts on (`app`); a kernel verb names none, and acts on every workspace's tables. The line lists a command on a
@@ -953,9 +953,9 @@ the later ones are added as each is built.
     after its own into the request its capability already takes, where the AI writes the same words (`cell` and
     `values`, `cds`, `measures`). One reader, on the server, serves the line, a button and the AI.
     - *The preview is a trial.* The command plans its changes for the workspace as it stands, and the kernel checks
-      them with nothing written (`WorkspaceService.After`). The reading says what would be made (`Makes 2 cases:
-      CSA-A threshold 10mm and CSA-A threshold 5mm.`) or refuses with the command's own code and sentence. Enter
-      invokes the capability with the inputs read, at the revision read.
+      them with nothing written (`WorkspaceService.After`). The reading says what would be made (`Makes 2 case(s):
+      CSA-A threshold 10mm, CSA-A threshold 5mm.`, in the words `vary` already said back) or refuses with the
+      command's own code and sentence. Enter invokes the capability with the inputs read, at the revision read.
     - *What could follow is the domain's to say*: the measures not yet typed, the CDS catalogue's words, the titles
       of the cases.
     - *3a's verbs:* `vary`, `add each`, `cds`, `measures`, `case remove` and `cases clear`.
@@ -974,7 +974,14 @@ the later ones are added as each is built.
       10mm, 5mm`, `add each`, `cds none`, `measures cva fva`, `case remove <title>`, `cases clear`), which is what
       `undo` then says.
     - *A request names its cell once.* `xva.vary` takes `cell`, as the line and the AI name it, or `entity` and
-      `field`, as *Vary values…* names the cell its menu opened on. Both, or neither, is refused.
+      `field`, as *Vary values…* names the cell its menu opened on. Both, or neither, is refused. The dialog sends
+      its values as typed, for the server to read as it reads the line's: the client holds no copy of the comma
+      rule.
+    - *What a domain verb does not do yet.* `vary` offers nothing to complete: its cell is named by a row and a
+      column's header (`PortfolioCells`), not by the selector, so the rows and fields `set` offers are not offered
+      here. A domain verb's refusal is a code and a sentence: it marks no word of the line and lists no
+      candidates, as the kernel's verbs and the short forms do (§5). Both are step 4's, with `select` and the
+      other verbs that name rows.
     - *A caller that says the answer itself is handed it.* The door's `invoke` takes a listener for what the
       command said: *Vary values…* shows the sentence in its dialog, and the page raises no notice of it.
     - *Gone with this:* the page's `/vary`, `/cds` (the write), `/add-trades`, `/cases/remove`, `/cases/clear` and

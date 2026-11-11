@@ -21,7 +21,8 @@ the Changes tab's remove) call them through the door (ADR-0016 note 28).
 - A measure's button invokes `xva.measures` with the selection it would leave. It says nothing when taken (the button
   shows it), a refusal is a notice, and `undo` names a press as it names the line (`measures cva fva`). The request's
   `measures` has no least length, so a selection of none is refused by the command (`NoMeasure`), not the contract.
-- The page's `/measures`, `/cases/remove` and `/cases/clear` endpoints are gone. The tests that chose measures
-  through the endpoint choose them through the command.
+- The page's `/measures`, `/cases/remove` and `/cases/clear` endpoints are gone, and the service's `SetMeasures` with
+  them: the tests choose measures as the command does (`SelectMeasures`).
+- `case remove` with no case named says so (`case remove takes the case to remove, by its title; the cases are …`).
 - A case is named by its title, of several words, so `case remove` and `cases clear` are domain verbs and not the
   kernel's `remove` (ADR-0016 note 28).

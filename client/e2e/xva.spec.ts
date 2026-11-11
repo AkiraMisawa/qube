@@ -376,6 +376,23 @@ test('ADR-0010 §3, §6, ADR-0016 note 29: `before none` stands for a line of `s
   await taken(page, 'undo');
   await expect(page.getByTestId('notice')).toHaveText(/^Took back: set existing before on\b/);
   await expect(page.getByTestId('price')).toHaveText('Price After only · CVA FVA · 1 case');
+
+  // With no grid typed the grid is the one the keyboard is in, and `currency` stands for a line of `set` too.
+  await taken(page, 'go', 'existing');
+  await page.keyboard.press('ControlOrMeta+K');
+  await expect(line).toBeFocused();
+  await page.keyboard.type('before all');
+  await expect(page.getByTestId('command-expands')).toHaveText('Runs as set existing before on');
+  await page.keyboard.press('Enter');
+  await expect(line).toBeHidden();
+  await expect(page.getByTestId('price')).toHaveText('Price CVA FVA · 1 case');
+  await page.keyboard.press('ControlOrMeta+K');
+  await expect(line).toBeFocused();
+  await page.keyboard.type('currency usd');
+  await expect(page.getByTestId('command-expands')).toHaveText('Runs as set workspace currency USD');
+  await page.keyboard.press('Enter');
+  await expect(line).toBeHidden();
+  await expect(page.getByRole('combobox', { name: 'Currency', exact: true })).toHaveValue('USD');
 });
 
 test('ADR-0016 note 28: `measures` offers the measures not yet typed and says what Price would price, and a word that names none keeps the line with the server\'s reason', async ({ page }) => {

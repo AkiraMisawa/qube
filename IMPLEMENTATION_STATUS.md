@@ -1564,9 +1564,9 @@ are gone with the six page endpoints that wrote for them. What it settled is ADR
   the expanded line. With no grid named the grid is the one the keyboard is in; with none, the line is refused and
   names `new` and `existing`.
 - **The page's controls call the same commands**, through the page's door. A measure's button invokes `measures` with
-  the selection it would leave; the captions' `B all`, `B none`, `A all` and `A none` run `set <grid> before|after
-  on|off`; *Vary values…* invokes `vary` and shows the command's sentence in its dialog; the Changes tab's removals
-  invoke `case remove` and `cases clear`. `undo` names a press as it names the line.
+  the selection it would leave; the captions' `B all`, `B none`, `A all` and `A none` run the short form (`before all
+  existing`); *Vary values…* invokes `vary` with its values as typed and shows the command's sentence in its dialog;
+  the Changes tab's removals invoke `case remove` and `cases clear`. `undo` names a press as it names the line.
 - **`open <tab>` is built from the page's tabs.** A place of a page says whether it is a tab; the shell builds one
   command for each (`open csa`, `open netting`, `open im`, …) and `go` takes the grids, the dock and a trace. `go
   csa` is no longer read. `open result` and `open pricing db` keep their words.
@@ -1580,10 +1580,11 @@ are gone with the six page endpoints that wrote for them. What it settled is ADR
 
 | What | Result |
 |---|---|
-| `dotnet test server/Qube.slnx` | 1022 passed |
-| Client: `npm run typecheck`, `npm test`, `npm run build` | Clean; 301 passed in 34 files; built |
-| `npx playwright test` (Chromium, headless, Linux) | PLAYWRIGHT_FULL |
-| The browser tests this step adds or rewrites, with `--repeat-each=3` | PLAYWRIGHT_REPEAT |
+| `dotnet test server/Qube.slnx` | 1021 passed |
+| Client: `npm run typecheck`, `npm test`, `npm run build` | Clean; 297 passed in 33 files; built |
+| `npx playwright test` (Chromium, headless, Linux) | 81 passed |
+| The four spec files this step changes (`xva`, `simm`, `trace`, `credit`), with `--repeat-each=3`, before the review's changes | 186 passed |
+| The three browser tests the review's changes bear on (the short forms, `vary`, *Vary values…*), with `--repeat-each=3` | 9 passed |
 | The line's `Runs as` row in Chromium at 390, 768, 992 and 1440 px, dark and light, by a script and by eye | One text line inside the line's box at each width; no text of the line under 4.5:1; nothing scrolls sideways; no console message |
 
 ### Providers
@@ -1604,6 +1605,9 @@ Unchanged: every figure on these pages is simulated, and says so.
   wait for the line to close before they send keys to the page (`taken`).
 - A request to `xva.vary` with no values is refused by the contract (`422 ValidationFailed`), not by the command's
   own sentence; a line with none is refused by the command, with an example.
+- `vary` offers nothing to complete, and a refusal of one of the six verbs is a sentence alone: it marks no word of
+  the line and lists nothing it could have been, as `set` and the short forms do (ADR-0016 note 28).
+- A caption button pressed where every row already holds the value writes nothing and says `Nothing changed`.
 - Rates has no door and no registered table (3c): none of the kernel's verbs work there.
 
 ## Next

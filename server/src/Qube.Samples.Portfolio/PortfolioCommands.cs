@@ -166,9 +166,9 @@ public sealed class PortfolioCds(Func<PortfolioWorkspaces> workspaces) : ICapabi
         var would = (plan.Changes.Count, credit.Cds) switch
         {
             (0, { } held) => $"Nothing would change: the CDS is {PortfolioWorkspaces.CdsNamed(held)}.",
-            (0, null) => $"Nothing would change: {credit.Missing}",
+            (0, null) => $"Nothing would change: {PortfolioWorkspaces.WhyNoCds(credit)}",
             (_, { } chosen) => $"Chooses {PortfolioWorkspaces.CdsNamed(chosen)}.",
-            (_, null) => $"Leaves no CDS: {credit.Missing}",
+            (_, null) => $"Leaves no CDS: {PortfolioWorkspaces.WhyNoCds(credit)}",
         };
         return PortfolioCommand.Read(line, new JsonObject { ["cds"] = typed }, would);
     }
@@ -182,14 +182,12 @@ public sealed class PortfolioCds(Func<PortfolioWorkspaces> workspaces) : ICapabi
     {
         // No space after the command's own word: it is still being typed, and nothing follows yet.
         if (line.Text.Length == 0) return LineCompletions.None;
-        var words = LineWords.Of(line.Text);
-        var typing = char.IsWhiteSpace(line.Text[^1]) ? (Word: "", Start: line.Text.Length) : words[^1];
-        var done = (typing.Word.Length == 0 ? words : words.SkipLast(1)).Select(w => w.Word).ToList();
+        var (done, typing, start) = LineWords.Typing(line.Text);
         static bool Is(string word, IEnumerable<string> values) => values.Any(v => v.Equals(word, StringComparison.OrdinalIgnoreCase));
         IEnumerable<(string Value, string Detail)> offered;
         if (done.Count > 0 && done[0].Equals(CdsCatalog.Proxy, StringComparison.OrdinalIgnoreCase))
-            offered = new[] { ("sector", CdsCatalog.Sectors), ("region", CdsCatalog.Regions), ("rating", CdsCatalog.Ratings) }
-                .Where(key => !done.Any(w => Is(w, key.Item2))).SelectMany(key => key.Item2.Select(v => (v, $"the proxy's {key.Item1}")));
+            offered = new (string Key, IReadOnlyList<string> Values)[] { ("sector", CdsCatalog.Sectors), ("region", CdsCatalog.Regions), ("rating", CdsCatalog.Ratings) }
+                .Where(key => !done.Any(w => Is(w, key.Values))).SelectMany(key => key.Values.Select(v => (v, $"the proxy's {key.Key}")));
         else
         {
             static (string Word, string Detail)[] Of(CdsCurve c) => [(c.Ticker, c.Reference), (c.Currency, "currency"), (c.Seniority, "seniority"), (c.DocClause, "doc clause")];
@@ -197,7 +195,7 @@ public sealed class PortfolioCds(Func<PortfolioWorkspaces> workspaces) : ICapabi
             IEnumerable<(string, string)> first = done.Count == 0 ? [("none", "no CDS: CVA is refused"), (CdsCatalog.Proxy, "a sector, a region and a rating")] : [];
             offered = first.Concat(matching.SelectMany(Of).Where(x => !Is(x.Word, done))).DistinctBy(x => x.Item1, StringComparer.OrdinalIgnoreCase);
         }
-        return new([.. offered.Where(o => o.Value.StartsWith(typing.Word, StringComparison.OrdinalIgnoreCase)).Select(o => new LineCompletion(o.Value, typing.Start, o.Detail))]);
+        return new([.. offered.Where(o => o.Value.StartsWith(typing, StringComparison.OrdinalIgnoreCase)).Select(o => new LineCompletion(o.Value, start, o.Detail))]);
     }
 
     public Task<IReadOnlyDictionary<string, JsonNode?>> InvokeAsync(CapabilityInvocation invocation, CancellationToken cancellationToken) =>
@@ -236,11 +234,9 @@ public sealed class PortfolioMeasures(Func<PortfolioWorkspaces> workspaces, Meas
     public LineCompletions Complete(LineContext line)
     {
         if (line.Text.Length == 0) return LineCompletions.None;
-        var words = LineWords.Of(line.Text);
-        var typing = char.IsWhiteSpace(line.Text[^1]) ? (Word: "", Start: line.Text.Length) : words[^1];
-        var done = (typing.Word.Length == 0 ? words : words.SkipLast(1)).Select(w => w.Word).ToList();
-        return new([.. register.Measures.Where(m => !done.Contains(m.Id, StringComparer.OrdinalIgnoreCase) && m.Id.StartsWith(typing.Word, StringComparison.OrdinalIgnoreCase))
-            .Select(m => new LineCompletion(m.Id, typing.Start, m.Title))]);
+        var (done, typing, start) = LineWords.Typing(line.Text);
+        return new([.. register.Measures.Where(m => !done.Contains(m.Id, StringComparer.OrdinalIgnoreCase) && m.Id.StartsWith(typing, StringComparison.OrdinalIgnoreCase))
+            .Select(m => new LineCompletion(m.Id, start, m.Title))]);
     }
 
     public Task<IReadOnlyDictionary<string, JsonNode?>> InvokeAsync(CapabilityInvocation invocation, CancellationToken cancellationToken) =>
@@ -286,9 +282,8 @@ public sealed class PortfolioCaseRemove(Func<PortfolioWorkspaces> workspaces) : 
     public Task<IReadOnlyDictionary<string, JsonNode?>> InvokeAsync(CapabilityInvocation invocation, CancellationToken cancellationToken) =>
         PortfolioCommand.Run(invocation, workspaces, (service, request, caller, revision) =>
         {
-            var (workspaceId, name) = (PortfolioCommand.Text(request, "workspaceId"), PortfolioCommand.Text(request, "case"));
-            var removed = service.PlanRemoveCase(service.Owned(workspaceId, caller.UserId), name).Removed[0].Title;
-            return (service.RemoveCase(workspaceId, revision, caller.UserId, name, caller.Origin), null, $"Removed the case {removed}.");
+            var (state, plan) = service.RemoveCase(PortfolioCommand.Text(request, "workspaceId"), revision, caller.UserId, PortfolioCommand.Text(request, "case"), caller.Origin);
+            return (state, null, $"Removed the case {plan.Removed[0].Title}.");
         });
 }
 
@@ -314,9 +309,8 @@ public sealed class PortfolioCasesClear(Func<PortfolioWorkspaces> workspaces) : 
     public Task<IReadOnlyDictionary<string, JsonNode?>> InvokeAsync(CapabilityInvocation invocation, CancellationToken cancellationToken) =>
         PortfolioCommand.Run(invocation, workspaces, (service, request, caller, revision) =>
         {
-            var workspaceId = PortfolioCommand.Text(request, "workspaceId");
-            var plan = service.PlanClearCases(service.Owned(workspaceId, caller.UserId));
-            return (service.ClearCases(workspaceId, revision, caller.UserId, caller.Origin), null, $"Removed {PortfolioCommandContracts.Cases(plan)}.");
+            var (state, plan) = service.ClearCases(PortfolioCommand.Text(request, "workspaceId"), revision, caller.UserId, caller.Origin);
+            return (state, null, $"Removed {PortfolioCommandContracts.Cases(plan)}.");
         });
 }
 

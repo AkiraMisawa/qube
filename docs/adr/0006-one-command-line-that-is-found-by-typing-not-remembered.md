@@ -77,6 +77,10 @@ the owner asked for the fixes of that review that need no decision, and this is 
    as the screen does, by the row's id and the column's header (`CSA-A Ccy was not changed: …`, on Rates `L1 Leg 1
    Rate/Strike was not changed: …`), never by an entity's key (`selection:measures`) or a field's name in the code.
    Only a refused notice goes to the server's log (ADR-0014 §4): what a done one says, the server did and logged.
+   *Amended 2026-11-11 (ADR-0016 step 3a, its notes 28 and 29):* what a command that edits says is now the server's
+   sentence. `before none` runs as the kernel's `set` and says the rows it set (`Set B to off on … and ….`), no
+   longer a count. `measures` and `currency` typed say what they did too, as every command the server reads does
+   (`Price prices CVA and FVA.`); their controls in the toolbar still say nothing, showing what they set.
 3. **The empty line and `?` list the page's commands first** (extends 5 and the last consequence). The commands that
    act on the page in the active panel come first, under the panel's title. Then come the other commands that can
    run, under a heading per group, the applications' groups before the shell's. On the empty line, those that cannot

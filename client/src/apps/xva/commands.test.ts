@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ambiguousComma, measureNamed } from './commands';
+import { measureNamed } from './commands';
 import type { RegisteredMeasure } from './contracts';
 
 describe('`explain` names its measure (ADR-0011 §7, ADR-0012 §6\'s note of 2026-11-08)', () => {
@@ -20,16 +20,5 @@ describe('`explain` names its measure (ADR-0011 §7, ADR-0012 §6\'s note of 202
     expect(measureNamed('farm', register)).toBeUndefined();
     expect(measureNamed('xva', register)).toBeUndefined();
     expect(measureNamed('nothing', register)).toBeUndefined();
-  });
-});
-
-describe('A list of values separated by commas (ADR-0010 §9, spine 1)', () => {
-  it('is refused where a comma stands between two digits, never split as a guess', () => {
-    expect(ambiguousComma('10,000k, 5mm')).toBe('10,000k could be one value or two: a comma separates values here, so write an amount without separators, such as 10000k or 10mm.');
-    expect(ambiguousComma('5,10')).toMatch(/^5,10 could be one value or two/);
-  });
-
-  it('reads a comma after a unit, or before a space, as a separator', () => {
-    expect(ambiguousComma('10mm,5mm, 0')).toBeUndefined();
   });
 });

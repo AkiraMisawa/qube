@@ -66,7 +66,8 @@ selections, and the Changes tab shows an iteration's lists.
   the changes, and the handler plans and writes.
 - **The page.** Its functions for `vary`, the measures' buttons, the cases and the caption buttons call the door
   (`invoke`, or `enter` with a line), and `XvaApi`'s endpoints that wrote for them go. The Credit tab's selects and
-  the currency select stay field edits (ADR-0016 note 28).
+  the currency select stay field edits (ADR-0016 note 28). `xva.vary`'s request names its cell by `cell`, or by
+  `entity` and `field` for the dialog, whose cell is the one its menu opened on.
 - **Tabs.** `Place.tab`; the shell builds one `open <tab>` command for each tab of the page, and `go` takes the
   rest.
 

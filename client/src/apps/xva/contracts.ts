@@ -246,7 +246,7 @@ export interface CaseView {
   readonly kind: 'base' | 'vary' | 'add';
   readonly changes: number;
   readonly trade: string | null;
-  /** The common change to the existing trades a case of `add trades` carries, said with it (docs/03 §5). */
+  /** The common change to the existing trades a case of `add each` carries, said with it (docs/03 §5). */
   readonly note: string | null;
 }
 

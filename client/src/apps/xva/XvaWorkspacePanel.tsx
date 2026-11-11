@@ -562,7 +562,8 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
 
   /**
    * A measure's button invokes `measures`, the command the line types (ADR-0016 note 28), so `undo` takes it back by the
-   * same name. The button shows what it holds itself, as a cell does: the command's sentence is heard and not said again.
+   * same name. The button says the outcome itself, by what it shows, as a cell does: so it takes the command's sentence
+   * from the door, which then raises no notice of it, and has nothing more to do with it.
    */
   const setMeasures = async (measures: readonly string[]) => {
     const reason = await door.invoke('xva.measures', { measures: measures.join(' ') }, () => undefined);
@@ -570,11 +571,11 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   };
   /**
    * B or A for every row of a grid, as one edit (ADR-0010 §6); a row's own edit made later wins over it. The caption's
-   * button runs the line `before all` stands for (ADR-0016 note 29), the kernel's `set` over the grid's rows, so the
-   * button and the line cannot differ, and `undo` names it the same.
+   * button runs the short form a user types (`before all existing`, ADR-0016 note 29): the server says the line it
+   * stands for, so the button and the line cannot differ, and `undo` names both the same.
    */
   const setSide = async (side: 'before' | 'after', value: boolean, grid: TradeGrid) => {
-    const line = `set ${grid} ${side} ${value ? 'on' : 'off'}`;
+    const line = `${side} ${value ? 'all' : 'none'} ${grid}`;
     const ended = await door.enter(line);
     if (ended !== undefined && 'sentence' in ended) workspace.notify('refused', `${line}: ${ended.sentence}`);
   };
@@ -679,9 +680,9 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
    * `xva.vary` as the line's `vary` goes (ADR-0016 note 28), in the page's turn (spine 6). Answers what the server said
    * it made and skipped, for the dialog to say; refused, it throws with the server's reason.
    */
-  const varyCell = async (target: VaryTarget, values: readonly string[]): Promise<string> => {
+  const varyCell = async (target: VaryTarget, values: string): Promise<string> => {
     let said: string | undefined;
-    const reason = await door.invoke('xva.vary', { entity: target.entity, field: target.field, values: values.join(', ') }, (sentence) => { said = sentence; });
+    const reason = await door.invoke('xva.vary', { entity: target.entity, field: target.field, values }, (sentence) => { said = sentence; });
     if (reason !== undefined) throw new Error(reason.sentence);
     if (said === undefined) throw new Error('vary was taken, and the page\'s door said nothing of what it made.');
     return said;

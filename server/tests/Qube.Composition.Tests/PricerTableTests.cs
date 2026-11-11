@@ -377,7 +377,7 @@ public class PricerTableTests
 
         var mixed = await rig.SetRefused("where pv adj>100", "after=off");
         var typed = Told(await rig.Set("DRAFT-1", "pv adj=-3k"));
-        rig.Service.SetMeasures(rig.Id, rig.State.Revision, "akira", [CcrMeasures.SpotCapital]);
+        rig.Service.SelectMeasures(rig.Id, rig.State.Revision, "akira", CcrMeasures.SpotCapital);
         var hidden = await rig.SetRefused("DRAFT-1", "margin=2");
         var reset = Told(await rig.Done("entity.reset", Rig.Request("DRAFT-1")));
 

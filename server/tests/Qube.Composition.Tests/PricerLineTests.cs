@@ -272,8 +272,10 @@ public class PricerLineTests
     [InlineData("cds proxy ", "financials (the proxy's sector)")]
     [InlineData("cds proxy industrials asia ", "BBB (the proxy's rating)")]
     [InlineData("cds ABCH ", "USD (currency)")]
-    [InlineData("cds", "")]
     public void Cds_offers_the_catalogues_words(string line, string offered) => Assert.Contains(offered, Offered(new Rig().Preview(line)));
+
+    [Fact] // ADR-0016 note 28: while the command's own word is still being typed, nothing follows it yet
+    public void Cds_offers_nothing_while_its_own_word_is_typed() => Assert.Equal("", Offered(new Rig().Preview("cds")));
 
     [Fact] // ADR-0016 note 28: words that name no curve are refused in the preview by the command's code
     public void Cds_words_that_name_no_curve_are_refused_in_the_preview()
@@ -336,6 +338,9 @@ public class PricerLineTests
         Assert.Equal(("xva.cases.clear", "Removes 3 cases: CSA-A threshold 10mm, CSA-A threshold 5mm and CSA-A threshold 20mm."), (clear.Command!.Id, clear.Would));
         Assert.Equal(["CSA-A threshold 10mm", "CSA-A threshold 5mm", "CSA-A threshold 20mm"], rig.Preview("case remove ").Complete.Select(c => c.Value));
         Assert.Equal(["CSA-A threshold 5mm"], rig.Preview("case remove csa-a threshold 5").Complete.Select(c => c.Value));
+        // No case named is said as that, with the cases there are, never as a case of an empty name.
+        Assert.Equal("UnknownCase: case remove takes the case to remove, by its title; the cases are CSA-A threshold 10mm, CSA-A threshold 5mm, CSA-A threshold 20mm.",
+            Read(rig.Preview("case remove")));
         Assert.Equal((before, 4), (rig.State.Revision, rig.View.Cases.Count));
 
         Assert.Equal("Removed the case CSA-A threshold 10mm.", await rig.Run(remove));
@@ -346,22 +351,5 @@ public class PricerLineTests
         Assert.Equal("NothingToChange: The workspace has no case to remove.", Read(rig.Preview("cases clear")));
         Assert.Equal("UnknownCase: The workspace has no case; the Base is the workspace itself and is never removed.", Read(rig.Preview("case remove CSA-A threshold 5mm")));
         Assert.Equal("UnknownCase", rig.Preview("case remove").Refused!.Code);
-    }
-
-    [Fact] // ADR-0016 note 27: each of the pricer's verbs says it is the pricer's, and the kernel's say no application
-    public void The_pricers_verbs_say_their_application()
-    {
-        var rig = new Rig();
-        static string Typed(string id, Qube.Composition.Contracts.CommandForm form) =>
-            $"{id}: {string.Join(" ", [.. form.Words, .. form.Arguments.Select(a => a.Required ? $"<{a.Name}>" : $"[{a.Name}]")])} ({form.App})";
-
-        var verbs = rig.Registry.CapabilityDescriptors.Where(c => c.Command is not null && c.CapabilityId.StartsWith("xva.")).Select(c => Typed(c.CapabilityId, c.Command!));
-        var kernel = rig.Registry.CapabilityDescriptors.Where(c => c.Command is not null && !c.CapabilityId.StartsWith("xva.")).Select(c => c.Command!.App);
-
-        Assert.Equal(["xva.vary: vary <cell> <values> (xva)", "xva.trades.add: add each (xva)", "xva.cds: cds <cds> (xva)", "xva.measures: measures <measures> (xva)",
-            "xva.case.remove: case remove <case> (xva)", "xva.cases.clear: cases clear (xva)"], verbs);
-        Assert.Equal(["xva.before: before <which> [grid] (xva)", "xva.after: after <which> [grid] (xva)", "xva.currency: currency <currency> (xva)"],
-            rig.Lines.ShortForms.Select(f => Typed(f.FormId, f.Command)));
-        Assert.All(kernel, Assert.Null);
     }
 }

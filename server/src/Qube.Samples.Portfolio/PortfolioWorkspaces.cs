@@ -130,13 +130,6 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
 
     JsonArray Chosen(IReadOnlyList<string> measures) => new([.. register.Checked(measures).Select(id => JsonValue.Create(id))]);
 
-    /// <summary>Sets the measures Price runs (`measures cva fva`). An unknown one, or none, is refused by name.</summary>
-    public WorkspaceState SetMeasures(string workspaceId, long revision, string user, IReadOnlyList<string> measures)
-    {
-        var state = Owned(workspaceId, user);
-        return workspaces.Set(workspaceId, revision, user, PortfolioEditRules.Target(Source(state), Entity.Measures, Entity.MeasuresField), Chosen(measures));
-    }
-
     /// <summary>
     /// <c>measures cva fva</c> as planned (ADR-0016 note 28): the words name measures by their ids, or a module for all
     /// of its measures, whatever their case and once each. An unknown one, or none, is refused by name. A selection
@@ -406,10 +399,11 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
 
     /// <summary>Removes a case with every change it holds, in one log entry (<c>case remove</c>, ADR-0010 §3). A case is
     /// named by its title or its id, case ignored; one that names none, or several, is refused with the cases there are.</summary>
-    public WorkspaceState RemoveCase(string workspaceId, long revision, string user, string name, RunOrigin? origin = null)
+    public (WorkspaceState State, CasesPlan Plan) RemoveCase(string workspaceId, long revision, string user, string name, RunOrigin? origin = null)
     {
         var raw = Owned(workspaceId, user);
-        return Written(raw, revision, user, PlanRemoveCase(raw, name).Command, origin);
+        var plan = PlanRemoveCase(raw, name);
+        return (Written(raw, revision, user, plan.Command, origin), plan);
     }
 
     /// <summary><c>case remove</c> as planned (ADR-0016 note 28): the case the name means, with how many changes it holds.</summary>
@@ -420,7 +414,7 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
             : cases.Where(c => string.Equals(c.Title, name.Trim(), StringComparison.OrdinalIgnoreCase)).ToList();
         if (named.Count == 0)
             throw new WorkspaceRefused("UnknownCase", cases.Count == 0 ? "The workspace has no case; the Base is the workspace itself and is never removed."
-                : $"No case {name.Trim()}; the cases are {string.Join(", ", cases.Select(c => c.Title))}.");
+                : $"{(name.Trim().Length == 0 ? "case remove takes the case to remove, by its title" : $"No case {name.Trim()}")}; the cases are {string.Join(", ", cases.Select(c => c.Title))}.");
         if (named.Count > 1)
             throw new WorkspaceRefused("AmbiguousCase", $"{name.Trim()} names {named.Count} cases, {string.Join(" and ", named.Select(c => c.Id))}; remove one by its id.");
         var entity = PortfolioCases.Of(named[0].Id);
@@ -428,10 +422,11 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
     }
 
     /// <summary>Removes every case with its changes, as one command (<c>cases clear</c>, ADR-0010 §3).</summary>
-    public WorkspaceState ClearCases(string workspaceId, long revision, string user, RunOrigin? origin = null)
+    public (WorkspaceState State, CasesPlan Plan) ClearCases(string workspaceId, long revision, string user, RunOrigin? origin = null)
     {
         var raw = Owned(workspaceId, user);
-        return Written(raw, revision, user, PlanClearCases(raw).Command, origin);
+        var plan = PlanClearCases(raw);
+        return (Written(raw, revision, user, plan.Command, origin), plan);
     }
 
     /// <summary><c>cases clear</c> as planned (ADR-0016 note 28): every case the workspace holds; with none, refused.</summary>
@@ -631,7 +626,10 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
     /// <summary>What <c>cds</c> says back: the CDS the counterparty now has, or why it has none.</summary>
     public static string CdsSaid(Registration registration, EffectiveCredit credit) => credit.Cds is { } cds
         ? $"The CDS of {registration.Key} is {CdsNamed(cds)}."
-        : credit.Missing ?? throw new InvalidOperationException("A credit with no curve says why.");
+        : WhyNoCds(credit);
+
+    /// <summary>Why a counterparty has no CDS curve, in the credit's own sentence. A credit with neither a curve nor a reason is a defect.</summary>
+    public static string WhyNoCds(EffectiveCredit credit) => credit.Missing ?? throw new InvalidOperationException("A credit with no curve says why.");
 
     /// <summary>A CDS curve in a sentence's words: whether it is a proxy or a single name, its reference and its recovery.</summary>
     public static string CdsNamed(EffectiveCds cds) =>

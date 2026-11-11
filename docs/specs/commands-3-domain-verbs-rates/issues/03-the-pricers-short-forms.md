@@ -23,5 +23,10 @@ client's three hand-written commands go, and the grids' caption buttons run the 
   row, which the selector names `workspace`, and `set currency USD` would have no row (ADR-0016 note 29, as built).
 - No grid is assumed. The client's old rule (the grid the keyboard was last in, Existing by default) is gone: with no
   grid named and none in the view the line is refused, naming `new` and `existing`.
-- A caption button runs `set <grid> <side> on|off` through the door, so what it says is the kernel's sentence (`Set B
-  to off on … and ….`) and `undo` names it as it names the line.
+- A caption button runs the short form (`before all existing`) through the door, so what it says is the kernel's
+  sentence (`Set B to off on … and ….`) and `undo` names it as it names the line. It is still one edit on the grid
+  (the trades table's `SetAll`). Where every row already holds the value the kernel writes nothing and says
+  `Nothing changed`, where the page's endpoint wrote the grid's edit again.
+- The browser test types `before none existing`, `before all` with the keyboard in the Existing grid and `currency
+  usd`, and presses one caption button; the four forms and the grid from the view are held on the server
+  (`PricerLineTests`).
