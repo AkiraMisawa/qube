@@ -104,6 +104,17 @@ export function pagedView<Row>(
 }
 
 /**
+ * Where a row stands in a grid whose page holds every row, by its key: the row a place (ADR-0016 note 21) or a
+ * Selection (note 43) is put on, among the rows the grid then held. None where the page holds no such row.
+ */
+export function heldRowOf<Row>(held: { readonly window: readonly Row[]; readonly windowStart: number }, keyOf: (row: Row) => string): (key: string) => number | undefined {
+  return (key) => {
+    const at = held.window.findIndex((row) => keyOf(row) === key);
+    return at < 0 ? undefined : held.windowStart + at;
+  };
+}
+
+/**
  * The view of a grid whose page holds every row: its rows are named by their keys, each once, in the order selected.
  * A selection written in a sequence the source has left is one the grid is about to drop, and names no row. Where the
  * source filters its rows by its own columns, the Window is what those filters leave, and the view names those rows:

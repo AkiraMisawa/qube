@@ -1,5 +1,5 @@
 import { ApiError, outputOf, type Api, type CommandAnswer } from '../api';
-import type { Catalog, CommandForm, LineArgument, LineCompletion, LineCopy, LineExport, LinePreview, LineView, RowsEdited, TableOnScreen, TakenBack, ViewAsk } from '../contracts';
+import type { Catalog, CommandForm, GridAsk, LineArgument, LineCompletion, LinePreview, LineView, RowsEdited, TableOnScreen, TakenBack } from '../contracts';
 import type { Notify } from '../notices';
 import type { Command, CommandDoor, Completion, KeyboardMoved, LineReading, LineReason, Screen } from './commands';
 import { browserOut, type TakenOut } from './takenOut';
@@ -69,8 +69,8 @@ interface Invocation {
   readonly inputs: Readonly<Record<string, unknown>>;
 }
 
-/** What a view verb's reading asks of a grid (ADR-0016 notes 21, 39 and 43): how the grid does it, and what the line is told. */
-interface GridAsk {
+/** How what a view verb's reading asks of a grid is done (ADR-0016 notes 21, 39 and 43), and what the line is told. */
+interface Handing {
   /** The ask as a defect names it (`a sort`), and what a grid was to do for it (`sort`). */
   readonly named: string;
   readonly toDo: string;
@@ -80,8 +80,8 @@ interface GridAsk {
   readonly handTo: (screen: Screen) => string | undefined;
 }
 
-/** What a reading asks of the grid its view was read of: a place, a sort, a filter or rows to select. */
-function ofGrid(asks: Exclude<ViewAsk, LineCopy | LineExport>): GridAsk {
+/** How each thing a reading asks of the grid its view was read of is handed to that grid. */
+function ofGrid(asks: GridAsk): Handing {
   switch (asks.kind) {
     case 'place': return { named: 'a place', toDo: 'put the keyboard on', moves: true, handTo: (screen) => screen.put(asks) };
     case 'sort': return { named: 'a sort', toDo: 'sort', moves: false, handTo: (screen) => screen.sort(asks) };

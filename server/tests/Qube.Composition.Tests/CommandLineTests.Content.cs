@@ -133,7 +133,8 @@ public partial class CommandLineTests
 
         Assert.Equal("TooManyCells: 6 rows of 4 fields are 24 cells, and copy takes 20 at most: name fewer rows or fewer fields.", Read(over));
         Assert.IsType<LineCopy>(under.Asks);
-        Assert.Equal(("NoContent: `set R1 note wet` takes nothing out of the workbench: copy and export do.", null), ($"{other.Refused!.Code}: {other.Refused.Sentence}", other.Text));
+        Assert.Equal("NoContent: `set R1 note wet` takes nothing out of the workbench: copy and export do.", $"{other.Refused!.Code}: {other.Refused.Sentence}");
+        Assert.Null(other.Text);
     }
 
     [Fact] // ADR-0016 note 44, §5: the content is read at the revision the reading named: a workspace that has moved is refused, and another user's is not read
@@ -157,14 +158,77 @@ public partial class CommandLineTests
     [InlineData("copy selected ta", "taken@14")]
     [InlineData("copy selected volume, wind s", "wind speed@22")]
     [InlineData("copy selected volume w", "with headers@21")]
-    [InlineData("export st", "stations@7")]
+    // Rows left out: a field says what the verb would take, the Selection for copy and the rows shown for export;
+    // and the list of fields goes on after a comma.
+    [InlineData("copy vol", "volume (2 selected)@5")]
+    [InlineData("copy volume, un", "unit@13")]
+    [InlineData("export vol", "volume (3 shown)@7")]
+    [InlineData("export volume, un", "unit@15")]
+    [InlineData("export st", "stations@7 | station (3 shown)@7")]
     [InlineData("export stations a", "all@16 | altitude@16")]
+    // A table's word alone says no rows for copy, so no field is offered after it: rows are.
+    [InlineData("copy stations a", "all@14")]
     public void After_copy_and_export_rows_then_fields_are_offered(string line, string offered)
     {
         var rig = new Rig();
 
-        var preview = rig.Preview(line, new LineView(Stations.Readings, "manual", Order: rig.Order("manual", [])));
+        var preview = rig.Preview(line, new LineView(Stations.Readings, "manual", Order: rig.Order("manual", []), Ranges: [new(0, 2)]));
 
         Assert.Equal(offered, string.Join(" | ", preview.Complete.Select(c => $"{c.Value}{(c.Detail is null ? "" : $" ({c.Detail})")}{(c.Start == line.Length ? "" : $"@{c.Start}")}")));
+    }
+
+    [Fact] // ADR-0016 note 44, corrected in review: a line of one empty cell is a quoted empty cell, never a blank line a reader skips or no text at all
+    public void A_line_of_one_empty_cell_is_written_as_a_quoted_empty_cell()
+    {
+        var rig = new Rig();
+
+        // Of R1, R2 and R3, R2 alone has a note.
+        Assert.Equal("\"\"⏎gusty⏎\"\"", Content(rig, "copy R1, R2, R3 note"));
+        Assert.Equal("\"\"", Content(rig, "copy R1 note"));
+        Assert.Equal("\uFEFFnote⏎\"\"⏎gusty⏎\"\"⏎", Content(rig, "export readings R1, R2, R3 note"));
+        // Beside another cell an empty one is empty: the separator says it is there.
+        Assert.Equal("R1→⏎R2→gusty", Content(rig, "copy R1, R2 id, note"));
+    }
+
+    [Fact] // ADR-0016 note 44: a tab or a line break in a cell is kept inside quotes; rows named by id come in the order their ids were listed in
+    public void A_tab_and_a_line_break_stay_in_their_cell_and_rows_come_as_their_ids_were_listed()
+    {
+        var rig = new Rig();
+        // A reading whose note holds a tab and a line break, as a source may send one: a line cannot type either.
+        Stations.Made(rig.Workspaces, rig.Board, "M1", note: "a\tb\nc");
+
+        var text = rig.Lines.Content("copy M1, R3, R1 id, note", rig.Id, null, Ana).Text;
+        var file = rig.Lines.Content("export readings M1, R1 note, id", rig.Id, null, Ana).Text;
+
+        Assert.Equal("M1\t\"a\tb\nc\"\r\nR3\t\r\nR1\t", text);
+        Assert.Equal("\uFEFFnote,id\r\n\"a\tb\nc\",M1\r\n,R1\r\n", file);
+    }
+
+    [Fact] // ADR-0016 note 44: where the page holds every row, the Selection comes in the order the page names its keys in, which is its grid's
+    public void Where_the_page_holds_the_rows_the_Selection_is_copied_in_the_order_the_page_names()
+    {
+        var rig = new Rig();
+        // The stations' grid sorted by its page, X1 first, with all three selected.
+        var held = new LineView(Stations.Sites, Keys: ["X1", "S1", "N1"]);
+
+        Assert.Equal("X1⏎S1⏎N1", Content(rig, "copy id", held));
+        Assert.Equal("X1⏎S1⏎N1", Content(rig, "copy selected id", held));
+        // Where the grid's own filters narrow it the page names the rows it shows, and `shown` comes in that order;
+        // where it names none, `shown` is the table's rows in the table's order: how the page sorts them is not sent.
+        Assert.Equal("X1⏎N1", Content(rig, "copy shown id", new LineView(Stations.Sites, Shown: ["X1", "N1"])));
+        Assert.Equal("N1⏎S1⏎X1", Content(rig, "copy shown id", new LineView(Stations.Sites)));
+    }
+
+    [Fact] // ADR-0016 notes 29 and 44, added in review: a short form that stands for a line of export answers that line's content, as its reading is that line's
+    public void A_short_form_that_stands_for_a_line_of_export_answers_that_lines_content()
+    {
+        var rig = new Rig();
+        var lines = new CommandLines(rig.Registry, rig.Workspaces, rig.Register, [new Stations.ShortForms(new Stands("weather.gallons", "gallons", "export readings where unit=gal id, volume"))]);
+
+        var read = lines.Preview("gallons", rig.Id, null, Ana);
+        var content = lines.Content("gallons", rig.Id, read.Revision, Ana);
+
+        Assert.Equal("export readings.csv | Exported 2 rows of readings to readings.csv, 2 fields: id, volume.", Taking(read));
+        Assert.Equal(("\uFEFFid,volume\r\nR3,12000000\r\nR4,1000000\r\n", null), (content.Text, content.Refused));
     }
 }

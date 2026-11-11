@@ -724,6 +724,9 @@ Step 2 is three pull requests (`docs/specs/commands-2-selection-context-places`)
       also set on the screen's rows (`AmbiguousField`: `set ccy USD` on the CSA grid is the display currency or the
       CSA's). Where the screen's field cannot be set, the table of one row keeps its word: on the trade grids
       `set ccy USD` is still the display currency.
+      *Amended in step 4 (note 44):* where the words go on to name a field of the screen's table with more words
+      than name the table (`trade id`, where `trade` is a table's word), they are that field, and nothing is
+      refused. Words that name both with the same count are refused as before.
     - *The CSA table answers to `csas` alone.* `csa` was its second word and is the trade's field, so
       `set csa CSA-B` with trades selected sets their CSA. `set csa CSA-A threshold 5mm` no longer reads;
       `set CSA-A threshold 5mm` and `set csas CSA-A threshold 5mm` do.
@@ -1626,10 +1629,15 @@ and notes 42 to 44 are 4c's.
       out are refused by name (`OtherGrid`, `NotOnScreen`), never left out quietly: `select all` behind a grid of
       one subset says which rows are not in it, and `select shown` is the way to say every row of the grid.
       Conditions that no row meets are refused (`NoRowMatches`).
-      *Added as built:* `where` with no rows before it means rows of the whole table, as it does for `set`
-      (note 18), so `select where ccy=USD` behind the Existing grid is refused where a new trade is in USD too.
-      The words mean the same rows for every verb, and the refusal says the way on: `shown` says the rows of that
-      grid alone (`select shown where ccy=USD`).
+      *Corrected in review (2026-11-11).* As first built, `where` with no rows before it meant rows of the whole
+      table, as it does for `set`, so `select where ccy=USD` behind the Existing grid was refused where a new
+      trade was in USD too, and the line had to say `select shown where ccy=USD`. That refused §9's own chain
+      (`go existing`, `select where ccy=USD`, `set csa CSA-B`), which is accepted. Conditions with no rows said
+      before them are now asked of the rows the grid shows, for `select` alone: the Selection is that grid's, so
+      there is no other row the line could mean. `all`, a subset and ids still say rows of the table, as they do
+      for every verb, and one the grid does not show is refused by name with `shown` as the way on. For `set`,
+      `copy` and `export` a `where` said alone is still the whole table (note 18): they act on rows, on screen
+      or not.
     - *One run of rows.* ExGrid places one range for a Consumer (`placeSelection`, 0.2.0); a Selection of several
       ranges is made with the pointer and the keys alone (asked for as ex-grid issue #561). Rows that are not
       next to one another in the grid's order are therefore refused (`SeveralRuns`), with how many runs they are
@@ -1657,6 +1665,9 @@ and notes 42 to 44 are 4c's.
       and `export` means the rows the grid behind the line shows; a table named with no rows is every row of it
       for `export` (§3's `export <table>`), and refused for `copy` as it is for `set`. With neither rows nor a
       grid both are refused. No row to write is refused (`NoRowMatches`), never an empty clipboard or file.
+      *Corrected in review:* a grid that shows no row refuses `export` as `shown` is refused there
+      (`NothingShown`), and a line with nothing selected and no Focus as `selected` is (`NothingSelected`);
+      `NoRowMatches` is for conditions, `all` and a subset that come to no row.
     - *The fields* are the table's, by their words, separated by commas, in the order named and each once
       (`UnknownField`, `AmbiguousField`, `FieldTwice` as elsewhere). With none named, every field of the table in
       the table's order, which begins with the row's key.
@@ -1664,6 +1675,12 @@ and notes 42 to 44 are 4c's.
       out) come in the order the grid shows them where the server pages it, since the server knows that order.
       Any other rows come in the table's own order; a grid whose page holds its rows and sorts them itself is
       not followed, which the notice cannot say and the status lists as a limit.
+      *Corrected in review:* where the page holds every row, the Selection does come in its grid's order: the
+      page names the selected rows by their keys in the order the grid has them, and the server writes them as
+      named. So does `shown`, and the rows `export` takes when none are said, where the grid's own column
+      filters narrow it, since the page then names the rows it shows. What is not followed is `shown` on such a
+      grid with no filter of its own: the page names no rows then, and how it sorts them is not sent, so they
+      come in the table's order.
     - *A cell is written for a spreadsheet to read as the value held.* An amount, a number and a count of days
       as a plain number with every decimal and no grouping (`50000000`), since a spreadsheet reads `5mm` as text.
       A rate and a spread with the percent sign (`1.25%`, `40%`, `1.2%` for 120bp): a spreadsheet reads each as
@@ -1709,6 +1726,28 @@ and notes 42 to 44 are 4c's.
       is said, as the longest words name a command (§1). This holds for every verb that reads rows, not only
       these two: `set trade id` on the trade grid was refused as words that could be either, and is now read as
       the field. Words that name both with the same count are still refused with both spellings.
+    - *Corrected in review (2026-11-11).*
+      - *A line of one empty cell is written as a quoted empty cell* (`""`), in both formats. Left blank, such a
+        line is one that readers of comma-separated values skip (a row lost without a word), and the last line
+        of a clipboard, or its only one, would be no text at all: `copy` of one empty cell said Copied and left
+        the clipboard empty. A spreadsheet reads `""` as an empty cell, as it reads every quoted cell. Beside
+        another cell an empty one stays empty: the separator says it is there.
+      - *The file is named by the table's word as it is* (`trades.csv`). As first built a space in the word was
+        written as a hyphen, which nothing asked for.
+      - *The door cannot hear whether a file was saved.* A browser saves a file a page hands it, or asks the
+        user where, and tells the page neither: the door says the server's sentence once it has handed the file
+        over, and cannot say that the browser kept it. The clipboard does answer, and a refusal is said with its
+        reason. The status lists this as a limit.
+      - *A short form that stands for a line of `copy` or `export`* (note 29) answers that line's content, as its
+        reading is that line's; the content followed no short form as first built, and Enter was refused.
+      - *After a comma a field must be named* (`NoField`), and the first words of a line with no rows said are
+        the first field where a comma ends them (`copy site, volume` is two fields, whatever table `site` also
+        names).
+      - *What the list offers.* A field offered with no rows before it says what the verb would take: the
+        Selection or the row the keyboard is on for `copy`, the rows the grid shows for `export`
+        (`volume (3 shown)`), which said the Selection as first built. Fields go on being offered after a comma
+        with the rows left out. After a table's own word `copy` offers rows and no field, since that word alone
+        says no rows for it.
     - *Added as built.* `export` accepts `with headers` and writes the header line it always writes. The most
       cells is the kernel's, given where the lines are built (`CommandLines`' `mostCells`); no host setting names
       it yet. `select`'s list offers the rows of the grid's table, and one the grid does not show is refused when

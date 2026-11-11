@@ -29,7 +29,8 @@ static class Stations
         new("unit", "Unit", ["unit"], FieldForm.Choice, Editable: true, Choices: Units),
         new("taken", "Taken", ["taken", "date"], FieldForm.Date),
         new("checked", "Checked", ["checked", "ok"], FieldForm.Flag, Editable: true),
-        new("note", "Note", ["note"], FieldForm.Id, Editable: true, Optional: true),
+        // A second name that begins with a word of the table's own (`obs`): more words that name a field are the field.
+        new("note", "Note", ["note", "obs note"], FieldForm.Id, Editable: true, Optional: true),
         new("windSpeed", "Wind speed", ["wind speed", "wind", "speed"], FieldForm.Number, Editable: true),
         new("windDirection", "Wind direction", ["wind direction", "wind"], FieldForm.Id, Editable: true),
         new("window", "Window", ["window"], FieldForm.Period),
@@ -227,6 +228,6 @@ static class Stations
         service.Create(owner, App, new JsonObject { ["day"] = "2026-11-11" }, new Source());
 
     /// <summary>A reading made on the board itself, which a command may remove.</summary>
-    public static WorkspaceState Made(WorkspaceService service, WorkspaceState board, string id, decimal volume = 100_000m) =>
-        service.Create(board.WorkspaceId, board.Revision, board.Owner, Scope, $"reading:{id}", FieldsOf(new(id, "manual", "NORTH", volume, "M3", "2026-11-11", false, null, 0m, "N", "1d")));
+    public static WorkspaceState Made(WorkspaceService service, WorkspaceState board, string id, decimal volume = 100_000m, string? note = null) =>
+        service.Create(board.WorkspaceId, board.Revision, board.Owner, Scope, $"reading:{id}", FieldsOf(new(id, "manual", "NORTH", volume, "M3", "2026-11-11", false, note, 0m, "N", "1d")));
 }

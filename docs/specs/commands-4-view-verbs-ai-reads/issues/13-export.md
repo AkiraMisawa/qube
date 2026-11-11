@@ -17,7 +17,9 @@ note 44).
 
 ## Comments
 
-- The file is named by the table's word (`trades.csv`, `lines.csv`), whatever subset or rows it holds.
+- The file is named by the table's word (`trades.csv`, `lines.csv`), whatever subset or rows it holds. The word is
+  written as it is: as first built a space in it became a hyphen, which nothing asked for (corrected in review).
+- The door hands the file to the browser and cannot hear whether it was saved (note 44, "Corrected in review").
 - `export` accepts `with headers` and writes the header line it always writes.
 - The browser tests read the file saved: the byte order mark, the header line, CRLF after every line, and the rows
   in the grid's order where the server pages the grid.

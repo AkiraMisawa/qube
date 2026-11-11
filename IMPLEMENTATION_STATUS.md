@@ -2063,8 +2063,9 @@ CSV file.
 - **One thing asked of the page, said by its kind.** A view verb's reading holds `asks` with `kind`: `place`,
   `sort`, `filter`, `select`, `copy` or `export` (note 42), in place of three members of which one was there.
 - **`select <rows>`** places the Selection of the grid behind the line: whole rows, with the Focus on the first of
-  them in the column it was on. The rows are the selector's (`select shown where ccy=USD`, `select CSA-A, CSA-B`).
-  A chained line that names no rows then acts on them (`set a off`, `copy`).
+  them in the column it was on. The rows are the selector's (`select where ccy=USD`, `select CSA-A, CSA-B`);
+  conditions said alone are asked of the rows the grid shows. A chained line that names no rows then acts on the
+  rows selected (`set a off`, `copy`).
 - **One run of rows.** ExGrid places one range (ex-grid issue #561 asks for several). Rows that are not next to
   one another are refused with how many runs they are in (`SeveralRuns`); rows of another table or subset, and rows
   the grid's filter leaves out, are refused by name (`OtherGrid`, `NotOnScreen`). Where the server pages the grid
@@ -2077,7 +2078,8 @@ CSV file.
   shows; a table named alone is every row of it, and needs no grid.
 - **A cell is written as a spreadsheet reads the value held**: an amount, a number and a count of days in full with
   no grouping (`50000000`), a rate and a spread with the percent sign (`1.25%`), a flag `true` or `false`, a date
-  `yyyy-mm-dd`, no value empty. A header is the word a command names the field by (`trade id`, `notional`).
+  `yyyy-mm-dd`, no value empty. A header is the word a command names the field by (`trade id`, `notional`). A line
+  of one empty cell is written `""`, so that no row is a blank line.
 - **The cells are asked for at Enter** (`POST /api/commands/content`): the server reads the line again at the
   revision of the reading, refused where the workspace has moved, and the page's door writes the clipboard or saves
   the file, then says the server's sentence. Nothing is logged or undone, and the agent's tools hold none of the
@@ -2091,7 +2093,7 @@ CSV file.
 
 | What | Result |
 |---|---|
-| `dotnet test server/Qube.slnx` | 1211 passed |
+| `dotnet test server/Qube.slnx` | 1223 passed |
 | Client: `npm run typecheck`, `npm test`, `npm run build` | Clean; 328 passed in 35 files; built |
 | `npx playwright test` (Chromium, headless, Linux) | 93 passed |
 | The three browser tests this step adds, with `--repeat-each=3` | 9 passed |
@@ -2113,10 +2115,14 @@ Unchanged: every figure of the pricer and of Rates is simulated, and says so.
 
 - A Selection of several ranges is not placed (ex-grid #561), and the line does not take the Selection off
   (`select off`): ExGrid has no call that leaves none.
-- `where` with no rows before it means rows of the whole table, as for `set`: behind a grid of one subset,
-  `select where …` is refused where a row of another subset matches, and `select shown where …` is the way.
-- Rows said as the screen's are written in the grid's order where the server pages the grid. A grid whose page
-  holds its rows and sorts them itself (the CSAs) is written in the table's order.
+- `select all` and `select <subset>` say rows of the table, as they do for every verb: behind a grid that shows
+  fewer they are refused, naming the rows it does not show, and `select shown` is the way.
+- Rows said as the screen's are written in the grid's order where the server pages the grid. Where the page holds
+  its rows and sorts them itself (the CSAs, the Rates lines), the Selection is written in the grid's order, and so
+  is `shown` where the grid's own column filters narrow it; with no such filter, `shown` and the rows `export` takes
+  when none are said come in the table's order, whatever the grid is sorted by.
+- The door cannot hear whether the browser saved a file: it says the server's sentence once the file is handed
+  over. The clipboard does answer.
 - A text is written as it is: a spreadsheet reads one that begins with `=`, `+`, `-` or `@` as a formula, and may
   drop the leading zeros of an id made of digits. What to do about it is put to the owner (note 44).
 - An amount copied does not read back as an amount typed here: a bare number is millions (ADR-0008).
@@ -2128,6 +2134,16 @@ Unchanged: every figure of the pricer and of Rates is simulated, and says so.
   drawn is seen from its first row at the foot of the grid.
 - A misspelt field after a table's word (`export stations colour`) is refused as a row that is not there.
 - Note 28's leftovers (`vary`'s completion, a domain verb's refusal marking its word) are the next pull request.
+
+### What the review changed
+
+The two reviews of this step (standards and spec) found, and this pull request corrects: `select where …` refused
+ADR-0016 §9's own chain, since conditions said alone meant the whole table (they are now asked of the grid's rows,
+for `select` alone); a line of one empty cell was a blank line, and `copy` of one empty cell an empty clipboard said
+as copied (now `""`); a short form that stood for a line of `export` was read and then refused at Enter; the list
+offered a field for `export` as if it took the Selection, offered none after a comma with the rows left out, and
+offered fields after `copy <table>`, which is always refused. Each is said in notes 43 and 44 as "Corrected in
+review", with a test.
 
 ## Next
 

@@ -455,18 +455,36 @@ public sealed class CommandLines
         var state = WorkspaceCommands.Owned(workspaces, workspaceId, caller, revision);
         // The view is checked whole, as where a line's reading starts (Preview).
         if (view is not null) Views.Say(view, tables.Of(state), state);
-        var words = LineWords.Of(line);
-        if (Named(Of(state), words) is not { Content: { } content } said)
-            return new(state.Revision, null, new("NoContent", $"`{line.Trim()}` takes nothing out of the workbench: copy and export do.", null, null, null, []));
-        var last = words[said.Words.Length - 1];
+        IReadOnlyList<Typed> named = [.. Of(state)];
+        LineContent Refused(string code, string sentence, string? word, IReadOnlyList<string> candidates) => new(state.Revision, null, new(code, sentence, word, null, null, candidates));
         try
         {
-            return new(state.Revision, content(new(state, caller, line[(last.Start + last.Word.Length)..], view)), null);
+            if (Meant(line, state, caller, view, named) is not ({ Content: { } content }, var context))
+            {
+                IReadOnlyList<string> takers = [.. named.Where(n => n.Content is not null).Select(n => n.Said)];
+                return Refused("NoContent", $"`{line.Trim()}` takes nothing out of the workbench: {TableWords.And(takers)} {(takers.Count == 1 ? "does" : "do")}.", null, []);
+            }
+            return new(state.Revision, content(context), null);
         }
         catch (TableRefused refused)
         {
-            return new(state.Revision, null, new(refused.Code, refused.Message, refused.Word, null, null, refused.Candidates));
+            return Refused(refused.Code, refused.Message, refused.Word, refused.Candidates);
         }
+        catch (WorkspaceRefused refused)
+        {
+            return Refused(refused.Code, refused.Message, null, []);
+        }
+    }
+
+    // What a line names, with the words after it: a short form (note 29 of step 3) is followed to the line it stands
+    // for, as a reading follows it. None where the line begins with no command's words.
+    static (Typed Said, LineContext Context)? Meant(string line, WorkspaceState state, Caller caller, LineView? view, IReadOnlyList<Typed> named)
+    {
+        var words = LineWords.Of(line);
+        if (Named(named, words) is not { } said) return null;
+        var last = words[said.Words.Length - 1];
+        var context = new LineContext(state, caller, line[(last.Start + last.Word.Length)..], view);
+        return said.Expand is { } expand ? Meant(expand(context), state, caller, view, [.. named.Where(n => n.Expand is null)]) : (said, context);
     }
 
     // What a line's first words name: the command or the verb of the screen whose words they are, the longest first.

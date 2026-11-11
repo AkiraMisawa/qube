@@ -93,7 +93,7 @@ public class TableReadTests
         var readings = fields.Where(f => Text(f!, "table") == Stations.Readings).ToDictionary(f => Text(f!, "name")!, f => Described(f!));
         Assert.Equal(("volume|vol|limit", "amount", "an amount: 5mm, 250k, 1bn, or a bare number of millions", true, false, null, "unit", null), readings["volume"]);
         Assert.Equal(("station|site", "choice", "one of its choices", false, false, "NORTH|SOUTH|EAST", null, Stations.Sites), readings["station"]);
-        Assert.Equal(("note", "id", "an identifier, or empty", true, true, null, null, null), readings["note"]);
+        Assert.Equal(("note|obs note", "id", "an identifier, or empty", true, true, null, null, null), readings["note"]);
         Assert.Equal(("drift", "rate", "a rate with its unit, 40% or 25bp, or empty", true, true, null, null, null), readings["drift"]);
         Assert.Equal(("checked|ok", "flag", "on or off", true, false, null, null, null), readings["checked"]);
     }

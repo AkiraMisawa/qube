@@ -296,12 +296,9 @@ sealed class FilterVerb(TableRegister register) : IViewVerb
         var conditions = GridFilters.Read(typed, table, all, line.State);
         IReadOnlyList<ITableRow> left = [.. all.Where(r => conditions.All(c => c.Holds(r)))];
         var of = $"{left.Count.ToString(CultureInfo.InvariantCulture)} of {TableWords.Counted(all.Count, "row")}";
-        return new([new("where", typed)], new(table.Descriptor.TableId, $"{grid.Named}, {of}", left.Count, [.. left.Take(Listed).Select(r => r.Key)]), $"Shows {of} of {grid.Named}.",
+        return new([new("where", typed)], TableService.Titled(table, $"{grid.Named}, {of}", left), $"Shows {of} of {grid.Named}.",
             new LineFilter(table.Descriptor.TableId, view.Subset, typed, $"Showing {of} of {grid.Named} where {string.Join(" and ", conditions.Select(c => c.Text))}."));
     }
-
-    // The first rows a reading names, as a command's reading names them.
-    const int Listed = 10;
 
     public LineCompletions Complete(LineContext line)
     {
@@ -333,42 +330,53 @@ sealed class SelectVerb(TableRegister register) : IViewVerb
     const string Word = "select";
     const string Does = $"{Word} selects rows of the grid on screen";
 
-    // The first rows a reading names, as a command's reading names them.
-    const int Listed = 10;
-
     public ViewVerbDescriptor Descriptor { get; } = new("select", "Select rows of the grid on screen", new([Word], [new("rows", CommandArgumentKind.Rows, Required: true)]));
 
     public ViewRead Read(LineContext line)
     {
         var grid = GridBehind.Of(line, register, Does);
-        var (view, table, state) = (grid.View, grid.Table, line.State);
+        var (view, table) = (grid.View, grid.Table);
         var said = SelectorReader.Words(line.Text);
+        var rows = Rows(grid, said, line.State);
+        var first = FirstOfOneRun(grid, rows, line.State);
+
+        var what = rows.Count == 1 ? $"{rows[0].Key} in {grid.Named}" : $"{TableWords.Counted(rows.Count, "row")} of {grid.Named}";
+        // A page that holds every row orders them itself: it is given the rows by their keys, and no position.
+        var asks = new LineSelect(table.Descriptor.TableId, view.Subset, first is null ? [.. rows.Select(r => r.Key)] : null, first, rows.Count, view.Focus?.Field, $"Selected {what}.");
+        return new([new("rows", said)], TableService.Titled(table, $"{grid.Named}, {TableWords.Counted(rows.Count, "row")}", rows), $"Selects {what}.", asks);
+    }
+
+    // The rows the line says, each of them one the grid shows. Conditions with no rows said before them are asked of
+    // the rows the grid shows, since the Selection is that grid's (note 43 of step 4, as corrected in review); all, a
+    // subset and ids say rows of the table, as they do for every verb, and one the grid does not show is refused by name.
+    static IReadOnlyList<ITableRow> Rows(GridBehind grid, string said, WorkspaceState state)
+    {
+        var (view, table) = (grid.View, grid.Table);
         var (selector, _, _) = TableService.RowsSaid(grid.Tables, null, said, view);
         if (selector.Table is { } id && TableRegister.Find(grid.Tables, id) is var other && other.Descriptor.TableId != table.Descriptor.TableId)
             throw new TableRefused("OtherGrid", $"The grid behind the line is of {grid.Named}, and the rows are said to be of {other.Word}: go to its grid first.");
+        if (selector is { All: false, Subset: null, Screen: null, Ids.Count: 0, Where.Count: > 0 }) selector = selector with { Screen = ScreenRows.Shown };
         // The rows are read in the grid's table: an id is looked for there, and a line that says no row is asked for its rows.
         var resolved = Selectors.Resolve(selector with { Table = table.Descriptor.TableId }, grid.Tables, state, view);
         var rows = resolved.Rows;
-        if (rows.Count == 0)
-            throw new TableRefused("NoRowMatches", resolved.Where.Count > 0 ? $"No row of {table.Word} matches {string.Join(" and ", resolved.Where)}: there is nothing to select."
-                : $"{said} names no row of {table.Word}: there is nothing to select.");
+        if (rows.Count == 0) throw TableService.NoRowMatches(resolved, Word, $"{said} names no row of {table.Word}: there is nothing to {Word}.");
 
         var all = table.Table.Rows(state);
         Selectors.RowIndex? index = null;
         var shown = Views.Shown(view, table, all, key => (index ??= new(table, all)).Row(key), state).Select(r => r.Key).ToHashSet(StringComparer.Ordinal);
         IReadOnlyList<string> outside = [.. rows.Where(r => !shown.Contains(r.Key)).Select(r => r.Key)];
-        if (outside.Count > 0)
-            throw new TableRefused("NotOnScreen",
-                $"{TableService.Few(outside)} {(outside.Count == 1 ? "is a row" : "are rows")} of {table.Word} that the grid on screen, {grid.Named}, does not show: {Word} places the Selection of that grid, and {SelectorReader.ShownWord} says its rows alone.");
+        return outside.Count == 0 ? rows : throw new TableRefused("NotOnScreen",
+            $"{TableService.Few(outside)} {(outside.Count == 1 ? "is a row" : "are rows")} of {table.Word} that the grid on screen, {grid.Named}, does not show: {Word} places the Selection of that grid, and {SelectorReader.ShownWord} says its rows alone.");
+    }
 
-        var positions = Views.PositionsOf(view, table, state, rows)?.Order().ToList();
-        if (positions is not null && 1 + positions.Zip(positions.Skip(1)).Count(next => next.Second != next.First + 1) is > 1 and var runs)
-            throw new TableRefused("SeveralRuns",
-                $"The {rows.Count} rows are in {runs} runs in {grid.Named}, and the line selects rows that are next to one another: filter or sort the grid so that they are, then {Word} {SelectorReader.ShownWord}.");
-
-        var what = rows.Count == 1 ? $"{rows[0].Key} in {grid.Named}" : $"{TableWords.Counted(rows.Count, "row")} of {grid.Named}";
-        var asks = new LineSelect(table.Descriptor.TableId, view.Subset, positions is null ? [.. rows.Select(r => r.Key)] : null, positions?[0], rows.Count, view.Focus?.Field, $"Selected {what}.");
-        return new([new("rows", said)], new(table.Descriptor.TableId, $"{grid.Named}, {TableWords.Counted(rows.Count, "row")}", rows.Count, [.. rows.Take(Listed).Select(r => r.Key)]), $"Selects {what}.", asks);
+    // Where the rows' one run begins in the order the grid is drawn from; none where the view names no order, as that
+    // of a page that holds every row. Rows in several runs are refused with how many, never the first run alone.
+    static int? FirstOfOneRun(GridBehind grid, IReadOnlyList<ITableRow> rows, WorkspaceState state)
+    {
+        if (Views.PositionsOf(grid.View, grid.Table, state, rows)?.Order().ToList() is not { } positions) return null;
+        var runs = 1 + positions.Zip(positions.Skip(1)).Count(next => next.Second != next.First + 1);
+        return runs == 1 ? positions[0] : throw new TableRefused("SeveralRuns",
+            $"The {rows.Count} rows are in {runs} runs in {grid.Named}, and the line selects rows that are next to one another: filter or sort the grid so that they are, then {Word} {SelectorReader.ShownWord}.");
     }
 
     // The ways to say rows (note 15) of the grid's table, with its view: nothing where no grid is behind the line.

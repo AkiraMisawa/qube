@@ -332,6 +332,17 @@ public sealed partial class TableService(TableRegister register, WorkspaceServic
 
     /// <summary>The rows a text starts with, in its own words, and the words they leave for the verb that reads it.</summary>
     /// <param name="fieldsFollow">The verb reads a list of fields after the rows (<see cref="SelectorReader.Read"/>).</param>
+    /// <summary>The rows of a reading: their table, the reading's title for them, how many they are, and the first of them by key.</summary>
+    internal static LineRows Titled(BoundTable table, string title, IReadOnlyList<ITableRow> rows) =>
+        new(table.Descriptor.TableId, title, rows.Count, [.. rows.Take(Listed).Select(r => r.Key)]);
+
+    /// <summary>
+    /// A line whose rows came to none, refused: by its conditions where it had some, and in the words of
+    /// <paramref name="otherwise"/> where it had none.
+    /// </summary>
+    internal static TableRefused NoRowMatches(ResolvedRows resolved, string verb, string otherwise) => new("NoRowMatches",
+        resolved.Where.Count > 0 ? $"No row of {resolved.Table.Word} matches {string.Join(" and ", resolved.Where)}: there is nothing to {verb}." : otherwise);
+
     internal static (string? Rows, string Left) Split(string text, IReadOnlyList<BoundTable> tables, LineView? view, bool fieldsFollow = false)
     {
         var words = text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);

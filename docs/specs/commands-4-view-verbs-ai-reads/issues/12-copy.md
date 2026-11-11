@@ -28,3 +28,7 @@ spreadsheet (ADR-0016 note 44).
   another. Only Chromium was exercised: a browser that wants the clipboard written inside the key press itself may
   refuse it after the round trip, which is then said with its reason (status, known limits).
 - A text is written as it is; what to do with one a spreadsheet reads as a formula is put to the owner (note 44).
+- Found in review and corrected (note 44, "Corrected in review"): a line of one empty cell is written `""`, where it
+  was a blank line or, for one cell alone, an empty clipboard said as copied; a short form that stands for a line of
+  `copy` or `export` answers its content; the list of fields goes on after a comma with the rows left out, and a field
+  offered with no rows before it says the rows the verb would take.

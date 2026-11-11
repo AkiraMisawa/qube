@@ -8,7 +8,7 @@ import type { Screen } from '../../platform/commands/commands';
 import { commandDoor, registerCommandDoor, tableMenu, type Told } from '../../platform/commands/served';
 import { useColumnWidths } from '../../platform/grid/columnWidths';
 import { GridUndoContext } from '../../platform/grid/gridUndo';
-import { filterGrid, heldView, menuView, placeFocus, selectRows, sortGrid } from '../../platform/grid/lineView';
+import { filterGrid, heldRowOf, heldView, menuView, placeFocus, selectRows, sortGrid } from '../../platform/grid/lineView';
 import { GridFilterLine } from '../../platform/grid/GridFilterLine';
 import { useHeldFilter } from '../../platform/grid/heldFilter';
 import { EditQueue } from '../../platform/workspace/editQueue';
@@ -320,10 +320,7 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
     const named = declared();
     const read = shown.readView();
     const held = source.snapshot();
-    const rowOf = (key: string) => {
-      const at = held.window.findIndex((row) => row.line === key);
-      return at < 0 ? undefined : held.windowStart + at;
-    };
+    const rowOf = heldRowOf(held, lineKey);
     return {
       view: heldView(named, read, held, lineKey),
       put: (place) => placeFocus(named, shown, read, place, rowOf) ?? focused(grid, 'The lines'),

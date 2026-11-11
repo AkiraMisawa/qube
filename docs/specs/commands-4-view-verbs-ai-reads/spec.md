@@ -1,6 +1,6 @@
 # Generic commands, delivery step 4: the AI's reads, and the verbs of the screen
 
-Status: in progress (4a and 4b built; 4c to come)
+Status: in progress (4a, 4b and 4c built; what note 28 left, a fourth pull request, to come)
 
 The decisions are ADR-0016 §3 (view verbs), §5 and §7, with its notes of 2026-11-11 for step 4 (38 onward). This spec
 orders ADR-0016's Delivery order, step 4, and names the seams it is tested at. The owner asked on 2026-11-11 for every
@@ -47,7 +47,8 @@ names, rows and fields written to the clipboard, and a table saved as a file.
 7. As a desk user, I type `sort by notional desc` with the keyboard in a grid, and the grid is in that order (4b).
 8. As a desk user, I type `filter where ccy=USD`, the grid shows the USD rows, and `set shown csa CSA-B` then acts
    on those rows alone; `filter off` shows them all again (4b).
-9. As a desk user, I type `select where ccy=USD`, and the grid's Selection is on those rows (4c).
+9. As a desk user, I type `select where ccy=USD`, and the grid's Selection is on those of its rows, or the line says
+   why it cannot be (4c).
 10. As a desk user, I type `copy selected notional, csa` and paste the rows into a spreadsheet (4c).
 11. As a desk user, I type `export trades` and a file of the table is saved (4c).
 
@@ -102,13 +103,14 @@ names, rows and fields written to the clipboard, and a table saved as a file.
 - **One member for what a view verb asks.** `LinePreview` holds `asks`, one thing asked of the page whose `kind`
   says which (`place`, `sort`, `filter`, `select`, `copy`, `export`), in place of a member for each (note 42).
 - **`select <rows>`** is a kernel view verb. The rows are the selector's, read with the view, and must be rows the
-  grid behind the line shows, next to one another in its order: ExGrid places one range for a Consumer. Where the
-  server pages the grid it answers a position and a count; where the page holds the rows, their keys, and the
-  page says whether its grid shows them as one run (note 43).
+  grid behind the line shows, next to one another in its order: ExGrid places one range for a Consumer. Conditions
+  said alone are asked of the rows the grid shows. Where the server pages the grid it answers a position and a
+  count; where the page holds the rows, their keys, and the page says whether its grid shows them as one run
+  (note 43).
 - **`copy [<rows>] [<fields>] [with headers]` and `export [<table>] [<rows>] [<fields>]`** are kernel view verbs
-  that need no grid where the line names its rows. Their reading says the rows, the fields and how many cells;
-  the content is asked for at Enter (`POST /api/commands/content`), read from the same line at the reading's
-  revision, and the door writes the clipboard or saves the file (note 44).
+  that need no grid where the line names its rows. Their reading says the rows and the fields; more cells than the
+  most a line takes out are refused there. The content is asked for at Enter (`POST /api/commands/content`), read
+  from the same line at the reading's revision, and the door writes the clipboard or saves the file (note 44).
 - **How a cell is written** is one function beside the reader of values (`FieldForms`): a number plain, a rate
   and a spread with the percent sign, a flag `true` or `false`, the rest as written, none empty.
 - **The door.** A page's `Screen` says how its grid takes a selection. What takes content out of the page (the

@@ -4,7 +4,7 @@ import { useElementSize } from '@mantine/hooks';
 import { GridSource, type CellState, type GridColumn, type GridContextMenuContext, type GridEditIntent } from '@ex-grid/core';
 import type { ExGridApi } from '@ex-grid/react';
 import { QubeGrid } from '../../platform/grid/QubeGrid';
-import { filterGrid, heldView, menuView, placeFocus, selectRows, sortGrid } from '../../platform/grid/lineView';
+import { filterGrid, heldRowOf, heldView, menuView, placeFocus, selectRows, sortGrid } from '../../platform/grid/lineView';
 import { GridFilterLine } from '../../platform/grid/GridFilterLine';
 import { useHeldFilter } from '../../platform/grid/heldFilter';
 import { useWorkspaceContext } from '../../platform/workspace/WorkspaceProvider';
@@ -379,10 +379,7 @@ function CsaGrid({ panelId, workspaceId, revision, csas, columns: declared, push
     const declared = { table: CSAS_TABLE, columns: columnsNow.current.map((c) => c.name), unsorted: columnsNow.current.filter((c) => c.queryable === false).map((c) => c.name) };
     const read = grid.readView();
     const held = source.snapshot();
-    const rowOf = (key: string) => {
-      const at = held.window.findIndex((row) => row.csaId === key);
-      return at < 0 ? undefined : held.windowStart + at;
-    };
+    const rowOf = heldRowOf(held, csaKey);
     return {
       view: heldView(declared, read, held, csaKey),
       put: (place) => placeFocus(declared, grid, read, place, rowOf) ?? placed.current(),

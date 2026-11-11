@@ -20,9 +20,11 @@
 ## Comments
 
 - `asks` is a polymorphic member with `kind`; the client's `ViewAsk` is the same union, and the door reads the kind.
-- `where` with no rows before it means rows of the whole table, as for `set`, so `select where ccy=USD` behind the
-  Existing grid is refused where a new trade matches too. The refusal names `shown` as the way to say the grid's own
-  rows (ADR-0016 note 43, "Added as built").
-- Where the page holds the rows, it says itself whether its grid shows them next to one another (`selectRows`), with
-  the same sentence the server uses for a grid it pages.
+- As first built `where` with no rows before it meant rows of the whole table, as for `set`, so `select where ccy=USD`
+  behind the Existing grid was refused where a new trade matched too. The review found that this refuses ADR-0016 §9's
+  own chain: conditions said alone are now asked of the rows the grid shows, for `select` alone; `all`, a subset and
+  ids stay rows of the table and are refused with `shown` as the way on (note 43, "Corrected in review").
+- Where the page holds the rows, it says itself whether its grid shows them next to one another (`selectRows`), in
+  the server's sentence but for the grid's name: the page says "the grid on screen" where the server names the grid
+  (`trades (existing)`).
 - Browser tests: the trade grid (paged), the CSA grid and the Rates line grid (held).

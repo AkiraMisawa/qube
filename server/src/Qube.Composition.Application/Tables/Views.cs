@@ -301,7 +301,8 @@ static class Views
         var sorted = Sorted(view, table, state);
         if (sorted.Token != view.Order) throw new TableRefused(Moved, $"The {table.Word} are no longer in the order the grid shows them in: open the line again.");
         var at = new Dictionary<string, int>(sorted.Rows.Count, StringComparer.Ordinal);
-        for (var position = 0; position < sorted.Rows.Count; position++) at[sorted.Rows[position].Key] = position;
+        // A table's keys are its rows' identity: one that came twice would have two positions, and Add refuses it.
+        for (var position = 0; position < sorted.Rows.Count; position++) at.Add(sorted.Rows[position].Key, position);
         return [.. rows.Select(row => at.TryGetValue(row.Key, out var position) ? position
             : throw new InvalidOperationException($"{row.Key} is a row of {Named(view, table)}, and the order its grid is drawn from has no such row."))];
     }

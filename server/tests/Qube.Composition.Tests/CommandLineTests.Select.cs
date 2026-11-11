@@ -63,6 +63,22 @@ public partial class CommandLineTests
         Assert.Equal("NotOnScreen: S1 is a row of stations that the grid on screen, stations, does not show: select places the Selection of that grid, and shown says its rows alone.", Read(hidden));
     }
 
+    [Fact] // ADR-0016 note 43 as corrected in review, §9: conditions said alone are asked of the rows the grid shows; all, a subset and ids stay rows of the table
+    public void Select_asks_conditions_said_alone_of_the_rows_the_grid_shows()
+    {
+        var rig = new Rig();
+        // The manual readings as sent: R1, R2, R3. Of the readings in gallons, R3 is manual and R4 automatic.
+        var manual = new LineView(Stations.Readings, "manual", Order: rig.Order("manual", []));
+
+        var alone = rig.Preview("select where unit=gal", manual);
+        var named = rig.Preview("select readings where unit=gal", manual);
+        var all = rig.Preview("select all where unit=gal", manual);
+
+        Assert.Equal(("weather.readings manual: from 2 x1 @ | Selected R3 in readings (manual).", "rows: where unit=gal (Typed)"), (Selecting(alone), Given(alone)));
+        Assert.Equal(Selecting(alone), Selecting(named));
+        Assert.Equal("NotOnScreen: R4 is a row of readings that the grid on screen, readings (manual), does not show: select places the Selection of that grid, and shown says its rows alone.", Read(all));
+    }
+
     [Theory] // ADR-0016 note 43: select refuses by name rows it was not told, rows of another grid, rows the grid does not show, rows in several runs and conditions no row meets
     [InlineData("select", "NoRows: Say which readings: their ids, all, manual, automatic, or where and a condition.")]
     [InlineData("select R9", "UnknownRow: No row R9 in readings.")]
@@ -72,7 +88,8 @@ public partial class CommandLineTests
     [InlineData("select automatic", "NotOnScreen: R4, R5, X1 are rows of readings that the grid on screen, readings (manual), does not show: select places the Selection of that grid, and shown says its rows alone.")]
     [InlineData("select R4", "NotOnScreen: R4 is a row of readings that the grid on screen, readings (manual), does not show: select places the Selection of that grid, and shown says its rows alone.")]
     [InlineData("select R1, R3", "SeveralRuns: The 2 rows are in 2 runs in readings (manual), and the line selects rows that are next to one another: filter or sort the grid so that they are, then select shown.")]
-    [InlineData("select where unit=m3 and volume>100bn", "NoRowMatches: No row of readings matches unit = M3 and volume > 100bn: there is nothing to select.")]
+    [InlineData("select where unit=m3 and volume>100bn", "NoRowMatches: No shown row of readings matches unit = M3 and volume > 100bn.")]
+    [InlineData("select all where unit=m3 and volume>100bn", "NoRowMatches: No row of readings matches unit = M3 and volume > 100bn: there is nothing to select.")]
     [InlineData("select where colour=red", "UnknownField: readings has no field colour; its fields are id, station, volume, unit, taken, checked, note, wind speed, wind direction, window, drift.")]
     [InlineData("select selected", "NothingSelected: No row of readings (manual) is selected.")]
     [InlineData("select R1 now", "UnreadRows: now is left over after the rows: rows are ids separated by commas, all, a subset, or where and its conditions.")]

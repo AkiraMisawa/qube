@@ -265,4 +265,26 @@ public partial class CommandLineTests
         Assert.Equal("InvalidView", Refused(new LineView("weather.tides", Where: "altitude>20")));
         Assert.Equal("NotOwner", Refused(new LineView(Stations.Sites), "ben"));
     }
+
+    [Fact] // ADR-0016 note 18 as annotated in step 4, note 44: words that begin with a table's word and go on to name a field of the screen's table are that field, for every verb that reads rows
+    public void More_words_that_name_a_field_are_that_field_and_no_table()
+    {
+        var rig = new Rig();
+        // The readings answer to `obs`, and their note to `obs note`: R1 and R2 are selected.
+        var readings = new LineView(Stations.Readings, Order: rig.Order(null, []), Ranges: [new(0, 2)]);
+
+        var set = rig.Preview("set obs note wet", readings);
+        var reset = rig.Preview("reset obs note", readings);
+        var copy = rig.Preview("copy obs note, unit", readings);
+        // The table's word with rows after it is the table still.
+        var table = rig.Preview("set obs R3 note wet", readings);
+        // With no grid behind the line there is no field for the words to be: `obs` is the table, and the next word a row's id.
+        var none = rig.Preview("set obs note wet");
+
+        Assert.Equal("rows: R1, R2 (Context); set: obs note wet (Typed)", Given(set));
+        Assert.Equal("rows: R1, R2 (Context); field: obs note (Typed)", Given(reset));
+        Assert.Equal("rows: R1, R2 (Context); fields: obs note, unit (Typed)", Given(copy));
+        Assert.Equal("rows: obs R3 (Typed); set: note wet (Typed)", Given(table));
+        Assert.Equal("UnknownRow: No row note in readings.", Read(none));
+    }
 }

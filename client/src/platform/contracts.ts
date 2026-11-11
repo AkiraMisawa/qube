@@ -181,11 +181,17 @@ export interface LineExport {
   readonly said: string;
 }
 
+/** What a reading asks of the grid its view was read of: a place, a sort, a filter or rows to select. */
+export type GridAsk = LinePlace | LineSort | LineFilter | LineSelect;
+
+/** What a reading asks the door to take out of the workbench: cells for the clipboard, or a file. */
+export type ContentAsk = LineCopy | LineExport;
+
 /**
- * The one thing a view verb's reading asks of the page, said by its kind (ADR-0016 note 42 of 2026-11-11). A place, a
- * sort, a filter and a selection are done with the grid the view was read of; a copy and an export by the door.
+ * The one thing a view verb's reading asks of the page, said by its kind (ADR-0016 note 42 of 2026-11-11): of the grid
+ * the view was read of, or of the door.
  */
-export type ViewAsk = LinePlace | LineSort | LineFilter | LineSelect | LineCopy | LineExport;
+export type ViewAsk = GridAsk | ContentAsk;
 
 /**
  * What `copy` or `export` takes out of the workbench (ADR-0016 note 44; `POST /api/commands/content`): the text of the

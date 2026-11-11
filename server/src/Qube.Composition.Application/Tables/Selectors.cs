@@ -101,11 +101,11 @@ public static partial class SelectorReader
                 throw new TableRefused("AmbiguousTable", $"{Said(words, at, taken)} could be {TableWords.Either(named.Select(t => t.TableId))}; name one by its id.",
                     Said(words, at, taken), [.. named.Select(t => t.TableId)]);
             // Words that name a table and a field of the screen's table: which was meant is not guessed (note 18 of step
-            // 2). More words that name a field are that field and no table (`trade id`, where `trade` is a table's
-            // word; note 44 of step 4), as the longest words are a command's; where a list of fields follows, the first
-            // ends at a comma.
-            var fieldWords = fieldsFollow ? string.Join(' ', words).Split(',')[0].Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries) : words;
-            if (within is null && onScreen is not null && Longest(fieldWords, at, onScreen.Fields, TableWords.Names) is (var fields, var length))
+            // 2). More words that name a field are that field and no table (a field `site code`, where `site` is a
+            // table's word; note 44 of step 4), as the longest words are a command's: the line goes on as one that
+            // names no table. Where a list of fields follows, the first ends at a comma.
+            var fieldWords = fieldsFollow ? BeforeComma(words, at) : words[at..];
+            if (within is null && onScreen is not null && Longest(fieldWords, 0, onScreen.Fields, TableWords.Names) is (var fields, var length))
             {
                 if (length <= taken)
                 {
@@ -140,7 +140,7 @@ public static partial class SelectorReader
         }
         var idsFrom = at;
         // Where a list of fields follows the rows, its first field ends at a comma, with or without a space.
-        var first = fieldsFollow ? string.Join(' ', words, at, words.Length - at).Split(',')[0].Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries) : null;
+        var first = fieldsFollow ? BeforeComma(words, at) : null;
         bool FieldFirst(IReadOnlyList<TableField> fields) => first is null ? StartsWithAField(words, at, fields) : StartsWithAField(first, 0, fields);
         if (!all && screen is null && subset is null && at < words.Length && !Is(words[at], WhereWord) && said is not { SingleRow: true }
             && !(said is null && FieldFirst([.. tables.Where(t => t.SingleRow).SelectMany(t => t.Fields), .. onScreen?.Fields ?? []]))
@@ -167,6 +167,10 @@ public static partial class SelectorReader
             : all || narrowed ? onScreen : null;
         return new(new RowSelector(table?.TableId, all, subset, ids, where, screen), at, open, unread, idsFrom, idsTo, unsaid);
     }
+
+    /// <summary>The words from <paramref name="from"/> up to the first comma: the first of a list of fields, written with or without a space.</summary>
+    internal static string[] BeforeComma(IReadOnlyList<string> words, int from) =>
+        string.Join(' ', words.Skip(from)).Split(',')[0].Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
 
     // The tables a subset's word is looked for in, in turn: the one said; or the screen's, then the main one.
     static IEnumerable<TableDescriptor> SubsetScopes(TableDescriptor? said, TableDescriptor? onScreen, IReadOnlyList<TableDescriptor> tables) =>
@@ -432,7 +436,7 @@ public static class Selectors
             $"{id} could be {TableWords.Or(ending.Take(Shown).Select(r => r.Key))}{(ending.Count > Shown ? $" or {ending.Count - Shown} more" : "")} of {within}; write more of the id.",
             id, [.. ending.Take(Shown).Select(r => r.Key)]);
 
-    static TableRefused NoRows(BoundTable? table, IReadOnlyList<BoundTable> tables)
+    internal static TableRefused NoRows(BoundTable? table, IReadOnlyList<BoundTable> tables)
     {
         var of = table ?? tables.FirstOrDefault(t => t.Descriptor.Main);
         var ways = TableWords.List(new[] { "their ids", SelectorReader.AllWord }.Concat(of?.Descriptor.Subsets.Select(s => s.Name) ?? [])) + ", or where and a condition";

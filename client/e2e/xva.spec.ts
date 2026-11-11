@@ -2455,17 +2455,14 @@ test('ADR-0016 notes 43 and 44: `select` places a trade grid\'s Selection on one
   const screen = page.getByTestId('command-context');
   const existing = page.getByLabel('Existing trades', { exact: true });
 
-  // `where` alone means rows of the whole table, as it does for `set`: a new trade in USD is no row of this grid, and
-  // the line says so with the way on. Said of the grid's rows, the USD trades are apart as sent: it says how many runs
-  // they are in, and selects none of them.
+  // Conditions said alone are asked of the rows this grid shows (ADR-0016 §9), so a new trade in USD is no part of
+  // them. The USD trades are apart as sent: the line says how many runs they are in, and selects none of them.
   await existing.getByRole('grid').focus();
   await page.keyboard.press('ControlOrMeta+Home');
   await page.keyboard.press('ControlOrMeta+Home');
   await page.keyboard.press('ControlOrMeta+K');
   await expect(line).toBeFocused();
   await page.keyboard.type('select where ccy=USD');
-  await expect(read).toHaveText(/^DRAFT-\d+(, DRAFT-\d+)* (is a row|are rows) of trades that the grid on screen, trades \(existing\), does not show: select places the Selection of that grid, and shown says its rows alone\.$/);
-  await line.fill('select shown where ccy=USD');
   await expect(read).toHaveText(/^The \d+ rows are in \d+ runs in trades \(existing\), and the line selects rows that are next to one another: filter or sort the grid so that they are, then select shown\.$/);
   const usd = Number(/^The (\d+) rows/.exec(await read.innerText())?.[1]);
   await page.keyboard.press('Enter');
@@ -2478,7 +2475,7 @@ test('ADR-0016 notes 43 and 44: `select` places a trade grid\'s Selection on one
   await settled(page, 'Existing trades');
   await page.keyboard.press('ControlOrMeta+K');
   await expect(line).toBeFocused();
-  await page.keyboard.type('select shown where ccy=USD');
+  await page.keyboard.type('select where ccy=USD');
   await expect(read).toContainText(`Selects ${usd} rows of trades (existing).`);
   await page.keyboard.press('Enter');
   await expect(line).toBeHidden();
