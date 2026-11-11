@@ -1309,6 +1309,59 @@ each is built.
       terms are missing, the index and the frequencies among them, though typing a currency alone would give those
       from its profile: the reading does not know which missing terms a profile would supply once another is
       typed.
+37. **`add each` takes its iterations as a list (§3; 3d).** §3 decides the value and its rules. What is left to
+    settle is how a contract says a list, what is made of the value, how a case names its trades, and how a page
+    with two grids gives the lists without the line.
+    - *A contract may hold a list (amends note 12).* The kernel's check of a contract understands a field of
+      `type: array` with `items`, and `minItems`: its items are values (text, a number, a flag), or records
+      (`type: object`, `properties`, `required`, no additional properties) whose fields are values or lists of
+      values. No deeper: a typed value of a command is small. A list's problem is said at its path
+      (`/inputs/request/iterations/0/add`). A form draws one control for one value, so a workflow whose input
+      contract holds a list is refused when it is registered, and the client's form says a list it is handed
+      cannot be drawn. The edit verbs keep their rows as the line spells them (note 12): the typed selector as a
+      value is not this step's.
+    - *The value.* `xva.trades.add`'s request may hold `iterations`: a list of records, each `add` (the candidates'
+      ids, one at least) and `without` (the ids of the existing trades taken out of After, which may be left out).
+      Left out, or empty, the command is `add each` as typed. An id is read whatever the case of its letters, as a
+      key is.
+    - *What is made.* The iterations given, in their order, then one alone for each New row with A ticked that
+      none of them names, in the grid's order. The set made before is replaced whole, as §3 says: the value is the
+      whole set made by hand, and nothing of the old one is kept unless it is given again.
+    - *Refused by name, with nothing made:* an id that is no trade of the workspace; an existing trade named to be
+      added, or a New row named to be taken out; a candidate with A clear (`CandidateNotTicked`), or with B ticked
+      (`CandidateInBefore`, as before); a trade taken out that the Base has not in After (`NotInAfter`); an
+      iteration that adds none; a trade twice in one list, and the same iteration twice (`GivenTwice`). Nothing is
+      ticked, cleared or left out for the caller.
+    - *A case names its trades.* A case of kind `add` holds its `iteration` (`add` and `without`) where it held
+      one `trade`, in the workspace's view and in the input Price freezes. Its title is `add DRAFT-1` for one trade
+      alone, as before, and otherwise `add DRAFT-1 + DRAFT-2 without E00003 + E00004`. The `+` is the title's: how
+      the line spells a list stays open (§3). A case stored before this step names one `trade`, and is read as the
+      iteration of that trade alone: the value it stored, in the shape of today.
+    - *Price's check of the set* reads the candidates of every iteration together: a ticked New row in no case, a
+      candidate no longer ticked and a candidate in Before are refused as before, and so is a trade a case takes
+      out that the Base no longer has in After. Each case's After must hold, of the New rows, its own candidates
+      and no other.
+    - *The command's name in the log.* `add each` where nothing is given. With a value there is no line that types
+      it, so the name says the iterations given, the first three and how many more
+      (`add each: DRAFT-1 + DRAFT-2 without E00003; DRAFT-3`); `undo` names it so.
+    - *A view's selection, read for a page (§2, note 17).* A page that makes a typed value from a grid's selection
+      needs the rows' keys, and a grid the server pages holds positions. `POST /api/workspaces/{id}/selection`
+      answers the keys a view's selection names, read as the preview reads `selected` (the order's token checked,
+      `ViewMoved` where it has moved), and no key where nothing is selected. It writes nothing and runs nothing.
+    - *The page (§3's proposal, with one change).* `Add each` in the New grid's caption invokes the command with
+      no value. `One case…` beside it, and *One case from the selection…* on both trade grids' Context Menus,
+      open a dialog that lists what the selections name: the New grid's as the trades the case adds, the Existing
+      grid's as the trades it takes out, each of which may be left out there. *Make case* then invokes the command
+      with the iterations already made and this one. **The dialog is the change:** §3 had the press make the case.
+      A grid that has been clicked always has a row selected, so a press would nearly always take an existing
+      trade out that nobody chose; the dialog says the two lists before anything is made, as the line says a
+      reading before Enter.
+    - *The Changes tab* shows an iteration's two lists under its case, and removes one trade from either by
+      invoking the command with the made iterations, that one changed. The last candidate of a case is not
+      removed there: the case is.
+    - *`load trades <ids>` waits for step 5.* The pricer makes no trade: its New rows are the source's own. A trade
+      brought in by id needs a trade the workspace holds with its terms, which is step 5's (a trade made in the
+      pricer from typed terms). Nothing is built for it here, and the name stays reserved (§3).
 
 ## Rejected
 

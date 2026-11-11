@@ -328,6 +328,30 @@ public sealed class CommandLines
         })];
     }
 
+    /// <summary>
+    /// The keys of the rows a view's selection names, in the caller's own workspace as it stands (ADR-0016 note 37 of
+    /// step 3): what a page reads to make a command's typed value from a grid's selection, where the server pages the
+    /// grid and the page holds positions. Read as the preview reads <c>selected</c> (note 17): keys as they are,
+    /// positions through the order they were written in, refused where that order has moved or a row is gone
+    /// (<c>ViewMoved</c>). A view with nothing selected names no row. Nothing is written and nothing runs.
+    /// </summary>
+    public ViewSelection Selection(string workspaceId, Caller caller, LineView view)
+    {
+        var state = WorkspaceCommands.Owned(workspaces, workspaceId, caller, null);
+        var table = Views.TableOf(view, tables.Of(state));
+        if (view.Selected == 0) return new(table.Descriptor.TableId, []);
+        var byKey = new Lazy<Dictionary<string, ITableRow>>(() => table.Table.Rows(state).ToDictionary(r => r.Key, StringComparer.OrdinalIgnoreCase));
+        try
+        {
+            return new(table.Descriptor.TableId, [.. Views.Selected(view, table, state, key => byKey.Value.GetValueOrDefault(key)).Select(r => r.Key)]);
+        }
+        catch (TableRefused refused)
+        {
+            // No line was read, so there is no word to mark: the refusal is the workspace's, by the same code and sentence.
+            throw new WorkspaceRefused(refused.Code, refused.Message);
+        }
+    }
+
     // What a line's first words name: the command or the verb of the screen whose words they are, the longest first.
     static Typed? Named(IEnumerable<Typed> named, IReadOnlyList<(string Word, int Start)> words) =>
         named.FirstOrDefault(t => t.Words.Length <= words.Count && t.Words.Zip(words).All(p => p.First.Equals(p.Second.Word, StringComparison.OrdinalIgnoreCase)));

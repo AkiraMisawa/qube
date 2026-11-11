@@ -1796,7 +1796,7 @@ test('docs/03 §5, ADR-0010 §3, ADR-0016 note 28: `add each` says the cases it 
   await expect(page.getByTestId('price')).toHaveText('Price CVA FVA · 4 cases');
   // B on every new trade after the set was made: Price says which trades left it, and prices nothing. The line reads
   // `price` before it submits anything (ADR-0016 note 33), so the reason is the line's and no request was refused.
-  const left = 'add each prices DRAFT-1, DRAFT-2, DRAFT-3 alone, and DRAFT-1, DRAFT-2, DRAFT-3 are in Before. '
+  const left = 'add each's cases add DRAFT-1, DRAFT-2, DRAFT-3, and DRAFT-1, DRAFT-2, DRAFT-3 are in Before. '
     + 'Run add each again to make the set anew, with B clear on each.';
   await taken(page, 'before', 'all new');
   await command(page, 'price');

@@ -187,6 +187,34 @@ public class CommandLineTests
         Assert.Equal(("stations", "N1"), Asked(other));
     }
 
+    [Fact] // ADR-0016 note 37, §2: a view's selection is read for a page as the preview reads `selected`: its keys, by position in the order drawn, and no key where nothing is selected
+    public void A_views_selection_is_read_for_a_page_as_the_preview_reads_selected()
+    {
+        var rig = new Rig();
+        ViewSort[] largest = [new("volume", Descending: true)];
+        var paged = new LineView(Stations.Readings, "manual", largest, rig.Order("manual", largest), Ranges: [new(0, 2)]);
+        var ana = new Caller("ana", RunOrigin.Pricer);
+        string Refused(LineView view, string user = "ana")
+        {
+            var refused = Assert.Throws<WorkspaceRefused>(() => rig.Lines.Selection(rig.Id, new Caller(user, RunOrigin.Pricer), view));
+            return refused.Code;
+        }
+        var before = rig.Board.Revision;
+
+        var positions = rig.Lines.Selection(rig.Id, ana, paged);
+        var keys = rig.Lines.Selection(rig.Id, ana, new LineView(Stations.Readings, Keys: ["r3", "R1", "R3"]));
+        var none = rig.Lines.Selection(rig.Id, ana, new LineView(Stations.Readings, "manual", Focus: new("note", Key: "R1")));
+
+        Assert.Equal((Stations.Readings, "R3, R1"), (positions.Table, string.Join(", ", positions.Keys)));
+        Assert.Equal("R3, R1", string.Join(", ", keys.Keys));
+        Assert.Empty(none.Keys);
+        Assert.Equal("ViewMoved", Refused(paged with { Order = "an earlier order" }));
+        Assert.Equal("ViewMoved", Refused(new LineView(Stations.Readings, Keys: ["R1", "R99"])));
+        Assert.Equal("InvalidView", Refused(new LineView("no.such-table", Keys: ["R1"])));
+        Assert.Equal("NotOwner", Refused(paged, "ben"));
+        Assert.Equal(before, rig.Board.Revision);
+    }
+
     [Fact] // ADR-0016 §9, note 19: every preview asked with a view says the view in one sentence, whatever the line; with no view it says none
     public void A_preview_asked_with_a_view_says_the_view_in_one_sentence()
     {

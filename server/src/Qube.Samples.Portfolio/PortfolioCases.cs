@@ -11,11 +11,24 @@ namespace Qube.Samples.Portfolio;
 
 /// <summary>
 /// A case (ADR-0010 §3): the workspace plus its own changes, priced as one Before/After pair. <paramref name="Kind"/> is
-/// <c>base</c> for the workspace itself, <c>vary</c> for a case a value made, <c>add</c> for one trade of iterative
-/// addition, which names it in <paramref name="Trade"/>. <paramref name="Changes"/> counts its own edits. A case of
+/// <c>base</c> for the workspace itself, <c>vary</c> for a case a value made, <c>add</c> for an iteration of iterative
+/// addition, which it names in <paramref name="Iteration"/>. <paramref name="Changes"/> counts its own edits. A case of
 /// iterative addition says in <paramref name="Note"/> the common change to the existing trades it carries (docs/03 §5).
 /// </summary>
-public sealed record CaseView(string Id, string Title, string Kind, int Changes, string? Trade = null, string? Note = null);
+public sealed record CaseView(string Id, string Title, string Kind, int Changes, Iteration? Iteration = null, string? Note = null);
+
+/// <summary>
+/// An iteration of <c>add each</c> (ADR-0016 §3 and its note 37 of 2026-11-11): the new trades its case adds together,
+/// and the existing trades its case takes out of After. One trade alone and none taken out is the iteration of old.
+/// </summary>
+public sealed record Iteration(IReadOnlyList<string> Add, IReadOnlyList<string> Without)
+{
+    /// <summary>The iteration in a title's words: <c>DRAFT-1 + DRAFT-2 without E00003</c>. The line has no spelling of it (§3, Open).</summary>
+    public string Said() => Without.Count == 0 ? string.Join(" + ", Add) : $"{string.Join(" + ", Add)} without {string.Join(" + ", Without)}";
+
+    /// <summary>Whether two iterations add the same trades and take the same out, in whatever order each names them.</summary>
+    public bool Same(Iteration other) => Add.ToHashSet().SetEquals(other.Add) && Without.ToHashSet().SetEquals(other.Without);
+}
 
 /// <summary>What <c>vary</c> did: the state it left, the cases it made by title, and each value it skipped with why.</summary>
 public sealed record VaryAnswer(WorkspaceState State, IReadOnlyList<string> Made, IReadOnlyList<string> Skipped);
@@ -53,7 +66,7 @@ public static class PortfolioCases
         // Every case of iterative addition says the common change it carries (docs/03 §5), read from the Base now.
         var common = made.Any(c => KindOf(c) == Add) ? CommonChange(Base(state)) : null;
         return [new(BaseId, BaseTitle, "base", 0), .. made.Select(c => new CaseView(Entity.Split(c.Entity).Id, Title(c), KindOf(c),
-            state.Overrides.Keys.Count(t => t.Layer == c.Entity), c.Fields["trade"]?.GetValue<string>(), KindOf(c) == Add ? common : null))];
+            state.Overrides.Keys.Count(t => t.Layer == c.Entity), KindOf(c) == Add ? IterationOf(c) : null, KindOf(c) == Add ? common : null))];
     }
 
     /// <summary>A case's title, as it was made.</summary>
@@ -62,9 +75,19 @@ public static class PortfolioCases
     /// <summary>A case's kind: <c>vary</c> or <c>add</c>.</summary>
     public static string KindOf(CreatedEntity c) => c.Fields["kind"]!.GetValue<string>();
 
-    /// <summary>The trades iterative addition prices alone, one per case, in the order their cases were made.</summary>
-    public static IReadOnlyList<string> AdditionSet(WorkspaceState state) =>
-        [.. Made(state).Where(c => KindOf(c) == Add).Select(c => c.Fields["trade"]!.GetValue<string>())];
+    /// <summary>
+    /// The iteration a case of iterative addition was made of. A case stored before an iteration was a list names one
+    /// <c>trade</c> (ADR-0016 note 37): the iteration of that trade alone, which is what it stored.
+    /// </summary>
+    public static Iteration IterationOf(CreatedEntity c)
+    {
+        IReadOnlyList<string> Ids(string list) => c.Fields[list] is JsonArray ids ? [.. ids.Select(id => id!.GetValue<string>())]
+            : throw new InvalidOperationException($"The case {Title(c)} of add each does not say its trades: it holds no list {list}.");
+        return c.Fields["trade"] is { } alone ? new([alone.GetValue<string>()], []) : new(Ids("add"), Ids("without"));
+    }
+
+    /// <summary>The iterations of iterative addition, one per case, in the order their cases were made.</summary>
+    public static IReadOnlyList<Iteration> Iterations(WorkspaceState state) => [.. Made(state).Where(c => KindOf(c) == Add).Select(IterationOf)];
 
     /// <summary>
     /// The common change every case of iterative addition carries (docs/03 §5): the existing trades whose After the Base
@@ -83,24 +106,31 @@ public static class PortfolioCases
     }
 
     /// <summary>
-    /// Refuses, naming the trades, a set of iterative addition that no longer matches the New rows with A ticked in the
-    /// Base, or that holds one in Before (docs/03 §5: never another set quietly). <c>add each</c> again makes it anew.
+    /// Refuses, naming the trades, a set of iterative addition whose candidates, read together over its iterations
+    /// (ADR-0016 note 37), are no longer the New rows with A ticked in the Base, or hold one in Before, or whose case
+    /// takes out a trade the Base no longer has in After (docs/03 §5: never another set quietly). <c>add each</c> again
+    /// makes it anew.
     /// </summary>
     public static void CheckAdditionSet(WorkspaceState raw)
     {
-        var set = AdditionSet(raw);
-        if (set.Count == 0) return;
-        var rows = PortfolioMaterialiser.Trades(Base(raw)).Where(t => t.IsNew).ToList();
+        var iterations = Iterations(raw);
+        if (iterations.Count == 0) return;
+        var trades = PortfolioMaterialiser.Trades(Base(raw));
+        var rows = trades.Where(t => t.IsNew).ToList();
         var ticked = rows.Where(t => t.After).Select(t => t.TradeId).ToList();
+        var set = iterations.SelectMany(i => i.Add).Distinct().ToList();
         static string Are(List<string> ids) => $"{string.Join(", ", ids)} {(ids.Count == 1 ? "is" : "are")}";
         var problems = new List<string>();
         if (ticked.Except(set).ToList() is { Count: > 0 } added) problems.Add($"{Are(added)} ticked and in no case");
         if (set.Except(ticked).ToList() is { Count: > 0 } gone) problems.Add($"{Are(gone)} in a case and no longer ticked");
         var before = rows.Where(t => t.Before && set.Contains(t.TradeId)).Select(t => t.TradeId).ToList();
         if (before.Count > 0) problems.Add($"{Are(before)} in Before");
+        var inAfter = trades.Where(t => !t.IsNew && t.After).Select(t => t.TradeId).ToHashSet();
+        if (iterations.SelectMany(i => i.Without).Distinct().Where(id => !inAfter.Contains(id)).ToList() is { Count: > 0 } kept)
+            problems.Add($"{Are(kept)} taken out by a case and no longer in After");
         if (problems.Count > 0)
             throw new WorkspaceRefused("AdditionSetChanged",
-                $"add each prices {string.Join(", ", set)} alone, and {string.Join("; ", problems)}. Run add each again to make the set anew{(before.Count > 0 ? ", with B clear on each" : "")}.");
+                $"add each's cases add {string.Join(", ", set)}, and {string.Join("; ", problems)}. Run add each again to make the set anew{(before.Count > 0 ? ", with B clear on each" : "")}.");
     }
 
     /// <summary>The Base: Original plus the Common edits. The state itself where no edit is in a layer.</summary>

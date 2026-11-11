@@ -117,8 +117,9 @@ public class PricerApiTests(QubeFactory factory) : IClassFixture<QubeFactory>
 
         (var said, ws) = await Taken(ws, "xva.trades.add", []);
         Assert.Equal("Made 3 case(s): add DRAFT-1, add DRAFT-2, add DRAFT-3.", said);
-        Assert.Equal([("add", "DRAFT-1"), ("add", "DRAFT-2"), ("add", "DRAFT-3")],
-            ws["cases"]!.AsArray().Skip(1).Select(c => (c!["kind"]!.GetValue<string>(), c["trade"]!.GetValue<string>())));
+        // A case names the trades of its iteration as lists (ADR-0016 note 37): what a page gives back to make the set by hand.
+        Assert.Equal([("add", """{"add":["DRAFT-1"],"without":[]}"""), ("add", """{"add":["DRAFT-2"],"without":[]}"""), ("add", """{"add":["DRAFT-3"],"without":[]}""")],
+            ws["cases"]!.AsArray().Skip(1).Select(c => (c!["kind"]!.GetValue<string>(), c["iteration"]!.ToJsonString())));
         var (_, rows) = await Price(ws);
         Assert.Equal(4, rows.Count(r => r["metric"]!.GetValue<string>() == "cva"));
         var unticked = await Post(ws, "edits", new { revision = Revision(ws), entity = "trade:DRAFT-2", field = "after", value = false });
@@ -128,7 +129,7 @@ public class PricerApiTests(QubeFactory factory) : IClassFixture<QubeFactory>
 
         Assert.Equal(HttpStatusCode.UnprocessableEntity, refused.StatusCode);
         var error = (await refused.Content.ReadFromJsonAsync<JsonObject>())!;
-        Assert.Equal(("AdditionSetChanged", "add each prices DRAFT-1, DRAFT-2, DRAFT-3 alone, and DRAFT-2 is in a case and no longer ticked. Run add each again to make the set anew."),
+        Assert.Equal(("AdditionSetChanged", "add each's cases add DRAFT-1, DRAFT-2, DRAFT-3, and DRAFT-2 is in a case and no longer ticked. Run add each again to make the set anew."),
             (error["code"]!.GetValue<string>(), error["message"]!.GetValue<string>()));
     }
 
