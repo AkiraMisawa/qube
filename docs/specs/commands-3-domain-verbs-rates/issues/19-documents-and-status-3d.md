@@ -7,9 +7,13 @@ document, `IMPLEMENTATION_STATUS.md`, and this directory's statuses.
 
 **Blocked by:** 16 to 18.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] ADR-0016's Delivery order says step 3 is built, with what it settled.
-- [ ] `IMPLEMENTATION_STATUS.md` says what runs, what was verified, and the next gap.
+- [x] ADR-0016's Delivery order says step 3 is built, with what it settled.
+- [x] `IMPLEMENTATION_STATUS.md` says what runs, what was verified, and the next gap.
 
 ## Comments
+
+- *As built:* ADR-0016 note 37 carries its "as built" entries and the Delivery order says step 3 is built; ADR-0010
+  §3 and docs/03 §5 say the iteration is built; `docs/10-api-contracts.md` lists `iterations`, a case's
+  `iteration`, a contract's list and the selection read; `IMPLEMENTATION_STATUS.md` has the step's section.

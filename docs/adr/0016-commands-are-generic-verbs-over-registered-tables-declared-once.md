@@ -472,10 +472,13 @@ log cannot yet say which entries were one command, or what an entry replaced.
    (`docs/specs/commands-2-selection-context-places`, three pull requests); what it settled is notes 16 to 26 below.
    Left for later steps: `shown` is the grid's subset until `filter` (step 4), and a declarative view's row action
    has no `command` target yet (note 25).
-3. The pricer's remaining commands as capabilities through the gateway; Rates registers. **In progress**
-   (`docs/specs/commands-3-domain-verbs-rates`, four pull requests); what it settles is notes 27 onward below.
-   3a is built (2026-11-11): a command's application, short forms, the pricer's verbs that edit, `open` from tabs.
-   3b is built (2026-11-11): the pricer's scenario verbs, `price`, `refresh` and `pv01 retry` (notes 32 and 33).
+3. The pricer's remaining commands as capabilities through the gateway; Rates registers. **Built 2026-11-11**
+   (`docs/specs/commands-3-domain-verbs-rates`, four pull requests); what it settled is notes 27 to 37 below.
+   3a: a command's application, short forms, the pricer's verbs that edit, `open` from tabs. 3b: the pricer's
+   scenario verbs, `price`, `refresh` and `pv01 retry` (notes 32 and 33). 3c: Rates registers its tables, its door
+   and its verbs (notes 34 to 36). 3d: `add each` takes its iterations as a list, and a contract may hold one
+   (note 37). Left for later steps: `load trades <ids>` (step 5, note 37), and how the line spells an iteration's
+   lists, which stays open (§3).
 4. View verbs and the AI's row read.
 5. Drafts (§10): a detail dialog drawn from a registration, with the tables under its row and its templates. The
    pricer's trade and CSA must carry those fields and tables first; its sample has neither them nor such a dialog.
@@ -1362,6 +1365,24 @@ each is built.
     - *`load trades <ids>` waits for step 5.* The pricer makes no trade: its New rows are the source's own. A trade
       brought in by id needs a trade the workspace holds with its terms, which is step 5's (a trade made in the
       pricer from typed terms). Nothing is built for it here, and the name stays reserved (§3).
+    - *Added as built: a request that says again what the page shows is made in the command's turn (spine 6).*
+      The page reads the iterations already made from the cases it shows. Made at the press, that list would miss
+      what an edit still on its way does to the cases (another `add each`, a case removed), and the set that
+      replaced the old one would depend on which answer came first. The door's `invoke` therefore takes a request
+      as a function of the revision too: it is made in the command's turn, from the cases the page shows at the
+      revision the command is sent at. A page that shows another revision by then sends nothing and says so, and
+      a workspace someone else moved refuses the command as any other (`RevisionMoved`).
+    - *Added as built: the dialog.* A trade it lists is a button that is pressed while the trade is in the case,
+      so one left out is put back by the same press. *Make case* is disabled, and says why, while no new trade is
+      kept. Refused, the dialog stays with the server's reason and no case was made; taken, it closes and the
+      notice is the server's sentence, which names the whole set (`Made 4 case(s): …; replaced …`), since the set
+      is what the command wrote. From a Context Menu, the grid the menu opened on is read as the menu has it (its
+      Selection, or the row under it), and the other grid by its own Selection.
+    - *Added as built: the Changes tab.* The one trade a case adds is said without a button. A trade left out of
+      what a case adds is still ticked, so the rule above makes it one more case alone; where what is left of the
+      case is a case already made, the server refuses it (`GivenTwice`) and the case is removed whole instead.
+    - *Found as built:* the wire leaves an empty field out, and the client typed a case's `note` as `null` where
+      it has none. A case's `iteration` and `note` are typed as left out now, which is what the page reads.
 
 ## Rejected
 

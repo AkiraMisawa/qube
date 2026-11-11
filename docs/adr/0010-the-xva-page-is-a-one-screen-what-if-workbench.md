@@ -148,6 +148,13 @@ and take existing trades out of After in the same case. It is given as lists; ho
 there. The set is still every New row with A ticked, and no iteration is cumulative. Designed there and not built:
 `add trades` still makes one case per candidate.
 
+*Note of 2026-11-11 (ADR-0016 step 3d, its note 37):* built. `add each` takes its iterations as a list, a case of
+the set names the trades it adds and those it takes out, and Price's check reads them together. The New grid's
+caption has `Add each` and `One case…`; the second, and *One case from the selection…* on both trade grids'
+Context Menus, open a dialog on what the two grids' selections name, and *Make case* adds that case beside those
+made. The Changes tab lists a case's trades under it and leaves one out; the one trade a case adds is not left out
+there, and the case is removed whole. How the line spells the lists is still open.
+
 ### 4. Scenarios (CONFIRMED, owner 2026-11-07)
 
 - A **scenario** is a named set of market-data shifts; one scenario may shift several data at once. The Scenarios tab

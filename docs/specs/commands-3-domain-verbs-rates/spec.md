@@ -48,6 +48,9 @@ selections, and the Changes tab shows an iteration's lists.
    (step 5; ADR-0016 note 32).
 9. As a desk user on Rates, I select two lines and type `set notional 5mm`, then `undo` (3c).
 10. As a desk user, I select two new trades and one existing trade and press `Add each of selection` (3d).
+    *Changed as built (ADR-0016 note 37):* the button is `One case…`, and it opens a dialog that lists the two
+    selections before *Make case* makes the case. A grid that has been clicked always has a row selected, so a
+    press that made the case at once would nearly always take out an existing trade nobody chose.
 11. As a developer of the next page, I declare a verb's form and its reader, and write no client command.
 
 ## Implementation Decisions
@@ -125,6 +128,11 @@ Decided in ADR-0016 notes 34 to 36, which this section follows.
 - The page makes one iteration from the two grids' selections, by a button and a menu item, and the Changes tab
   shows an iteration's two lists.
 - How the line spells the lists stays open (§3): the line takes `add each` with no argument.
+- *Added as built (note 37):* the kernel answers the keys a view's selection names
+  (`POST /api/workspaces/{id}/selection`), which a page of paged grids needs to make a typed value of a selection;
+  a workflow whose input contract holds a list is refused at registration, since a form draws none; the door takes
+  a request as a function of the revision, made in the command's turn, for a request that says again what the page
+  shows; and `load trades <ids>` waits for step 5, where the pricer first holds a trade of its own making.
 
 ## Testing Decisions
 
@@ -161,6 +169,18 @@ A test names the ADR it holds. Tested at these seams, each through its public in
   refused while its leg's flag is empty; `RatesApiTests` that the host tells the live subscription of a revision
   the kernel's `set` wrote; Playwright that the Price button prices on the market the page shows while a later one
   is published, Add CCS, the toggle both ways and the menu's `Reset this cell`.
+
+- 3d, the same seams: `ValidationTests` holds a contract's list (of values, of flat records, nothing deeper) and
+  the workflow refused for one in its input; `PricerLineTests` the command's contract taking `iterations` and
+  refusing a malformed one at its path, and a case stored with one `trade` read as that trade alone;
+  `PricerCaseTests` (the pricer's service) an iteration of several candidates and trades taken out as one case,
+  the given set with a ticked candidate none names, each refusal by its code, and Price's check of the set;
+  `CommandLineTests` and `CommandGatewayTests` a view's selection read for a page, over the kernel and over HTTP;
+  `PricerCommandTests` the agent's tool with `iterations`; Vitest the set said again with one more case or one
+  trade left out (`iterations.ts`), the door's request made in the command's turn (`served.test.ts`) and a form
+  that says a list (`forms.test.ts`); Playwright (`xva.spec.ts`) `Add each`, the dialog on two grids' selections
+  from the button and from a Context Menu, a case refused in the dialog, the Changes tab's lists with one trade
+  left out, and the case of two trades priced.
 
 Not tested: what a domain service already holds by its own tests, and the kernel's reading of the expanded line.
 

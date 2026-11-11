@@ -140,7 +140,7 @@ The two membership flags do not by themselves define whether an edit changes Bef
 
 **CONFIRMED:** The initial iterative mode prices each selected new trade individually. It is not a cumulative sequence. A future 'two trades form one package' feature is out of the initial scope.
 
-**Designed in [ADR-0016](adr/0016-commands-are-generic-verbs-over-registered-tables-declared-once.md) §3 (proposed 2026-11-10, raised by the owner), not built:** an iteration may add several new trades as one package, and take existing trades out of After in the same case. The rules of this section hold for it: no iteration is cumulative, and the candidates are exactly the eligible New rows with After checked.
+**Designed in [ADR-0016](adr/0016-commands-are-generic-verbs-over-registered-tables-declared-once.md) §3 (2026-11-10, raised by the owner), built 2026-11-11 (its note 37):** an iteration may add several new trades as one package, and take existing trades out of After in the same case. The rules of this section hold for it: no iteration is cumulative, and the candidates are exactly the eligible New rows with After checked. A case names its iteration (the trades it adds and the trades it takes out), and Price refuses a set whose candidates are no longer exactly those rows, or that takes out a trade After no longer holds.
 
 Define the visible selection explicitly:
 

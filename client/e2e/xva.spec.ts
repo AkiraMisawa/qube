@@ -1693,7 +1693,7 @@ test('ADR-0016 §4, note 25: a grid\'s Context Menu offers its table\'s actions 
   await page.keyboard.press('Shift+ArrowDown');
   await page.keyboard.press('Shift+F10');
   await expect(page.getByRole('menuitem').first()).toBeFocused();
-  await expect(page.getByRole('menuitem')).toHaveText(['Copy', 'Copy with headers', ...actions]);
+  await expect(page.getByRole('menuitem')).toHaveText(['Copy', 'Copy with headers', ...actions, 'One case from the selection…']);
   for (let i = 0; i < 3; i++) await page.keyboard.press('ArrowDown');
   await expect(page.getByRole('menuitem', { name: 'Take out of After · set selected after off' })).toBeFocused();
   await page.keyboard.press('Enter');
@@ -1722,7 +1722,8 @@ test('ADR-0016 §4, note 25: a grid\'s Context Menu offers its table\'s actions 
   await expect(summary).toContainText('1 edit(s)');
 
   // `Reset this cell` is the cell the menu was opened on: a new trade's CSA, edited, goes back to its source. The
-  // page's own item, Vary values…, still ends the menu.
+  // page's own items still end the menu: Vary values… on a cell that is typed, and One case from the selection…
+  // (ADR-0016 note 37) on every row of a trade grid.
   await focusCell(page, CSA);
   await page.keyboard.type('CSA-B');
   await page.keyboard.press('Enter');
@@ -1730,7 +1731,7 @@ test('ADR-0016 §4, note 25: a grid\'s Context Menu offers its table\'s actions 
   await page.keyboard.press('ArrowUp');
   await page.keyboard.press('Shift+F10');
   await expect(page.getByRole('menuitem').first()).toBeFocused();
-  await expect(page.getByRole('menuitem')).toHaveText(['Copy', 'Copy with headers', ...actions, 'Vary values…']);
+  await expect(page.getByRole('menuitem')).toHaveText(['Copy', 'Copy with headers', ...actions, 'Vary values…', 'One case from the selection…']);
   for (let i = 0; i < 2; i++) await page.keyboard.press('ArrowDown');
   await expect(page.getByRole('menuitem', { name: 'Reset this cell · reset' })).toBeFocused();
   await page.keyboard.press('Enter');
