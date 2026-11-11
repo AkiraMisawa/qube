@@ -57,8 +57,9 @@ Stop the stack with `docker compose -f tools/observability/compose.yaml down` (a
 ## What the browser reports
 
 Uncaught errors, unhandled promise rejections, render errors (with the component stack), calls the server failed
-(5xx) or never answered, and the notices the user was shown. Each call to the server carries a `traceparent`, so an
-event about a failed call is in that call's trace. A refusal (4xx) is in the server's own log as a warning.
+(5xx) or never answered, and the refused notices the user was shown: a result that was done is not reported (ADR-0006's
+note 2 of 2026-11-11). Each call to the server carries a `traceparent`, so an event about a failed call is in that
+call's trace. A refusal (4xx) is in the server's own log as a warning.
 
 ## Not set up
 
