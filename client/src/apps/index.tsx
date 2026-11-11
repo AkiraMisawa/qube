@@ -390,7 +390,8 @@ function NewRatesWorkspace({ onDone }: { readonly onDone: () => void }) {
   return (
     <form onSubmit={(e) => { e.preventDefault(); void submit(); }}>
       <Stack gap="sm">
-        <IsoDateInput label="Valuation date" data-autofocus value={valuationDate} error={error} onChange={setValuationDate} />
+        <IsoDateInput label="Valuation date" data-autofocus value={valuationDate} error={error}
+          onChange={(text) => { setValuationDate(text); setError(undefined); }} />
         <Group justify="flex-end"><Button type="submit" loading={busy}>Create</Button></Group>
       </Stack>
     </form>

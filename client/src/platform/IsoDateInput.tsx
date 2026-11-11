@@ -1,8 +1,17 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Popover, TextInput, type TextInputProps } from '@mantine/core';
 import { DatePicker } from '@mantine/dates';
 import { IconCalendar } from '@tabler/icons-react';
 import { isIsoDate } from './forms';
+
+export type IsoDateInputProps = Omit<TextInputProps, 'value' | 'onChange' | 'size' | 'type' | 'rightSection' | 'rightSectionPointerEvents'> & {
+  /** The field's text: a date as `yyyy-MM-dd`, `''` for none, or what has been typed so far. */
+  readonly value: string;
+  /** The text after each change, typed or picked. */
+  readonly onChange: (text: string) => void;
+  /** The Control Height (docs/design-guidelines.md §3): `xs` in a row of controls, `sm` in a dialog. The calendar follows. */
+  readonly size?: 'xs' | 'sm';
+};
 
 /**
  * A date as the workbench writes it everywhere, `yyyy-MM-dd` (ISO 8601), typed, or picked from a calendar that a click
@@ -14,15 +23,7 @@ import { isIsoDate } from './forms';
  * rolled over or put back to an older date; its holder judges it with `isIsoDate` and says why. The calendar shows the
  * date the text names, and picking a day writes that day's text.
  */
-export function IsoDateInput({ value, onChange, error, size = 'sm', onClick, onBlur, onKeyDown, ...rest }:
-  Omit<TextInputProps, 'value' | 'onChange' | 'size' | 'type' | 'rightSection' | 'rightSectionPointerEvents'> & {
-    /** The field's text: a date as `yyyy-MM-dd`, `''` for none, or what has been typed so far. */
-    readonly value: string;
-    /** The text after each change, typed or picked. */
-    readonly onChange: (text: string) => void;
-    /** The Control Height (docs/design-guidelines.md §3): `xs` in a row of controls, `sm` in a dialog. The calendar follows. */
-    readonly size?: 'xs' | 'sm';
-  }) {
+export function IsoDateInput({ value, onChange, error, size = 'sm', onClick, onBlur, onKeyDown, ...rest }: IsoDateInputProps) {
   const [calendar, setCalendar] = useState(false);
   const date = isIsoDate(value) ? value : null;
   // The holder's own message wins; without one, text that is not a date still marks the field.
@@ -45,6 +46,8 @@ export function IsoDateInput({ value, onChange, error, size = 'sm', onClick, onB
               setCalendar(false);
               return;
             }
+            // Enter takes the text as it reads; a calendar left open would offer a day over a date already sent.
+            if (e.key === 'Enter') setCalendar(false);
             onKeyDown?.(e);
           }} />
       </Popover.Target>
@@ -62,4 +65,28 @@ export function IsoDateInput({ value, onChange, error, size = 'sm', onClick, onB
       </Popover.Dropdown>
     </Popover>
   );
+}
+
+/**
+ * A date in force that moves only when its field is left or Enter is pressed, as a toolbar's Value date or Valuation
+ * date does. Text that is not a date moves nothing, and `onRefused` is given the sentence that says so and which date
+ * stays; the field keeps the text, marked, until it is a date or the date in force is written back.
+ */
+export function CommittedDateInput({ value, what, onCommit, onRefused, ...rest }:
+  Omit<IsoDateInputProps, 'value' | 'onChange' | 'onBlur' | 'onKeyDown'> & {
+    /** The date in force, `yyyy-MM-dd`. */
+    readonly value: string;
+    /** What the date is, in a sentence: `value date`. */
+    readonly what: string;
+    readonly onCommit: (date: string) => void;
+    readonly onRefused: (sentence: string) => void;
+  }) {
+  const [draft, setDraft] = useState(value);
+  useEffect(() => setDraft(value), [value]);
+  const commit = () => {
+    if (draft === value) return;
+    if (isIsoDate(draft)) onCommit(draft);
+    else onRefused(`The ${what} was not moved: ${draft === '' ? 'no date was given' : `${draft} is not a date as yyyy-MM-dd`}, so it stays ${value}.`);
+  };
+  return <IsoDateInput {...rest} value={draft} onChange={setDraft} onBlur={commit} onKeyDown={(e) => { if (e.key === 'Enter') commit(); }} />;
 }

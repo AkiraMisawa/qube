@@ -27,8 +27,7 @@ import type { RunRecord } from '../../platform/contracts';
 import { dockTabs, METRICS_TAB, type DockTab, type MeasureTab } from './dock';
 import { CSAS_TABLE, EditQueue, SETTINGS_ENTITY, TRADES_TABLE, XVA_APP, refusedEdit, tradeFields, type PendingEdit, type SetText } from './editing';
 import { ToolbarField } from './fields';
-import { isIsoDate } from '../../platform/forms';
-import { IsoDateInput } from '../../platform/IsoDateInput';
+import { CommittedDateInput } from '../../platform/IsoDateInput';
 import { CHANGES_TAB, CREDIT_TAB, SCENARIOS_TAB, SETTINGS_TAB, shownTab, TAB_TITLES, tabShown, XvaInputs, type InputTab } from './XvaInputs';
 import { XvaRisks } from './XvaRisks';
 import type { ScenarioActions } from './XvaScenarios';
@@ -900,7 +899,8 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
       {/* The context bar (ADR-0010 §1; docs/design-guidelines.md §3, §4): one 30px Control Height, each label beside its input. */}
       <div className="qube-toolbar" role="toolbar" aria-label="Workspace">
         <ValueDate value={ws.context.valueDate} disabled={!notBusy}
-          onCommit={(date) => void reacquire('Value date moved', (revision) => api.changeValueDate(workspaceId, revision, date))} />
+          onCommit={(date) => void reacquire('Value date moved', (revision) => api.changeValueDate(workspaceId, revision, date))}
+          onRefused={(sentence) => workspace.notify('refused', sentence)} />
         <ToolbarField label="Counterparty" wide>
           {(id) => (
             <Select id={id} size="xs" className="qube-toolbar-input qube-toolbar-input--wide" allowDeselect={false} searchable value={ws.registration.key}
@@ -1087,15 +1087,17 @@ function TradeCaption({ title, count, grid, setSide, disabled, source, counted, 
   );
 }
 
-function ValueDate({ value, disabled, onCommit }: { readonly value: string; readonly disabled: boolean; readonly onCommit: (date: string) => void }) {
-  const [draft, setDraft] = useState(value);
-  useEffect(() => setDraft(value), [value]);
-  const commit = () => { if (draft !== value && isIsoDate(draft)) onCommit(draft); };
+function ValueDate({ value, disabled, onCommit, onRefused }: {
+  readonly value: string;
+  readonly disabled: boolean;
+  readonly onCommit: (date: string) => void;
+  readonly onRefused: (sentence: string) => void;
+}) {
   return (
     <ToolbarField label="Value date">
       {(id) => (
-        <IsoDateInput id={id} size="xs" className="qube-toolbar-input qube-toolbar-input--date" value={draft} disabled={disabled}
-          onChange={setDraft} onBlur={commit} onKeyDown={(e) => { if (e.key === 'Enter') commit(); }} />
+        <CommittedDateInput id={id} size="xs" className="qube-toolbar-input qube-toolbar-input--date" what="value date" value={value}
+          disabled={disabled} onCommit={onCommit} onRefused={onRefused} />
       )}
     </ToolbarField>
   );

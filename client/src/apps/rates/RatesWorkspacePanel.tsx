@@ -15,8 +15,7 @@ import { EditQueue } from '../../platform/workspace/editQueue';
 import { useWorkspaceContext } from '../../platform/workspace/WorkspaceProvider';
 import { keyOf } from '../../platform/workspace/workspaceStore';
 import { registerPlaces, type Place } from '../../shell/places';
-import { isIsoDate } from '../../platform/forms';
-import { IsoDateInput } from '../../platform/IsoDateInput';
+import { CommittedDateInput } from '../../platform/IsoDateInput';
 import type { FrameStream, RatesApi } from './api';
 import type { CashflowsView, HeldEdit, LiveFrame, PeriodView, RatesWorkspaceView, Resolution } from './contracts';
 import {
@@ -383,7 +382,8 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
     // A grid entered is the screen only where it says so below, after this: a grid of no table leaves the line none.
     <Stack gap="sm" onFocusCapture={(event) => { if (event.target instanceof Element && event.target.closest('.ex-grid') !== null) screen.current = undefined; }}>
       <Group gap="sm" wrap="wrap" align="flex-end">
-        <ValuationDate value={ws.valuationDate} disabled={busy !== undefined} onCommit={(d) => void changeValuationDate(d)} />
+        <CommittedDateInput label="Valuation date" what="valuation date" size="xs" w={150} value={ws.valuationDate} disabled={busy !== undefined}
+          onCommit={(d) => void changeValuationDate(d)} onRefused={(sentence) => workspace.notify('refused', sentence)} />
         {/* Each button runs the line a user types (ADR-0016 note 36), so the two cannot differ. */}
         <Button size="xs" variant="default" onClick={() => void enter('add line irs')}>Add IRS</Button>
         <Button size="xs" variant="default" onClick={() => void enter('add line ccs')}>Add CCS</Button>
@@ -525,16 +525,6 @@ function Exchanges({ flows }: { readonly flows: CashflowsView }) {
         ))}
       </Table.Tbody>
     </Table>
-  );
-}
-
-function ValuationDate({ value, disabled, onCommit }: { readonly value: string; readonly disabled: boolean; readonly onCommit: (date: string) => void }) {
-  const [draft, setDraft] = useState(value);
-  useEffect(() => setDraft(value), [value]);
-  const commit = () => { if (draft !== value && isIsoDate(draft)) onCommit(draft); };
-  return (
-    <IsoDateInput label="Valuation date" size="xs" w={150} value={draft} disabled={disabled}
-      onChange={setDraft} onBlur={commit} onKeyDown={(e) => { if (e.key === 'Enter') commit(); }} />
   );
 }
 
