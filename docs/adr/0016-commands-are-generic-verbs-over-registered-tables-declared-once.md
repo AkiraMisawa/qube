@@ -632,6 +632,36 @@ and the edit verbs with XVA registered; the preview and the line.
       over 5,999 rows 0.04 to 0.17 s, of `set existing csa CSA-B` over all of them 0.04 to 0.12 s, of `reset existing`
       0.14 to 0.18 s, and what could follow `set` 0.01 s, with 9,994 rows counted and not listed.
 
+### Notes of 2026-11-11: what step 2 settles (all DEFAULT)
+
+Step 2 is three pull requests (`docs/specs/commands-2-selection-context-places`): 2a the selection and the context,
+2b places with `go` and `find`, 2c the chain key and menu items from declarations. Notes 16 to 19 are 2a's.
+
+16. **What the screen gives a line (§2, §9).** When the line opens, the page's door answers a **view**: the table of
+    the grid the keyboard was last in, its subset, the order its rows are shown in, the selection and the focused
+    cell. Where the page holds every row of the grid it names rows by key. Where the server pages the grid it gives
+    the sort as the grid's reader takes it, the order token that reader last answered, the selection as ranges of
+    positions, and the focused cell as a position with its field. The view is read once at each opening and sent
+    with every preview of that opening. The server keeps none of it.
+17. **`selected` and `shown` are the preview's to resolve, and no command takes them (§2).** The selector's reader
+    takes the two words where rows are said, alone or narrowed by `where`. The preview resolves them with the view:
+    keys as they are, positions through the table's own reader of that order (`IWorkspaceTable.InOrder`, the one
+    that pages the grid), refused where the order token is no longer the one the grid was drawn from (`ViewMoved`).
+    The inputs it answers hold the keys of the rows resolved and their table, at the revision read, so a command is
+    still rows by id and nothing in a contract, the log or a result knows a screen. A command invoked with either
+    word (the AI, a saved sequence) is refused by name (`NoView`). `shown` is the grid's subset until `filter`
+    gives a view conditions (step 4), and is counted like any rows. A command of many keys is named in the log by
+    its first three and how many more there are.
+18. **Rows left out (§9).** `set` and `reset` with no rows, whose first words name a field of the view's table, act
+    on the view's selection; with nothing selected, on the focused row. `reset` with no word at all acts on the
+    focused cell. A field of a table of one row is read first, as before (`set alarm 5mm`); words that name both
+    are refused with the two spellings that say which. With no view, and with a view that has nothing selected and
+    no focus, the line is refused as it is today and says that nothing is selected. Each argument as read says
+    where it came from, `typed` or `context` (§5), and the line marks the second.
+19. **The line says its context (§9, ADR-0006 §5).** Every preview asked with a view answers the view in the
+    server's words, one sentence (`trades (existing), 3 selected, E00003 · csa`). The line asks once as it opens,
+    with no text, and shows the sentence under the input until it closes.
+
 ## Rejected
 
 - **A range syntax of the pricer's own** (`after off where ccy=USD`, the review's R6). A second grammar per domain,
