@@ -24,12 +24,26 @@ public class PricerApiTests(QubeFactory factory) : IClassFixture<QubeFactory>
     async Task<HttpResponseMessage> Post(JsonObject ws, string path, object body) =>
         await client.PostAsJsonAsync($"/api/xva/workspaces/{Id(ws)}/{path}", body);
 
-    async Task<JsonObject> Measures(JsonObject ws, params string[] measures)
+    /// <summary>A command of the pricer as the page's door invokes it (ADR-0016 §5, note 28), at the revision the page holds.</summary>
+    Task<HttpResponseMessage> Command(JsonObject ws, string capability, JsonObject request)
     {
-        var response = await Post(ws, "measures", new { revision = Revision(ws), measures });
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        return (await response.Content.ReadFromJsonAsync<JsonObject>())!;
+        request["workspaceId"] = Id(ws);
+        request["revision"] = Revision(ws);
+        return client.PostAsJsonAsync($"/api/commands/{capability}/1.0.0", new { inputs = new JsonObject { ["request"] = request }, idempotencyKey = Guid.NewGuid().ToString() });
     }
+
+    /// <summary>What a command that was taken said, and the workspace as the page then reads it.</summary>
+    async Task<(string Said, JsonObject Workspace)> Taken(JsonObject ws, string capability, JsonObject request)
+    {
+        var response = await Command(ws, capability, request);
+        Assert.True(response.IsSuccessStatusCode, await response.Content.ReadAsStringAsync());
+        var answer = (await response.Content.ReadFromJsonAsync<JsonObject>())!["outputs"]!["answer"]!;
+        return (answer["said"]!.GetValue<string>(), (await client.GetFromJsonAsync<JsonObject>($"/api/xva/workspaces/{Id(ws)}"))!);
+    }
+
+    /// <summary>The measures Price prices, chosen as the page's buttons and the line choose them: the command <c>measures</c>.</summary>
+    async Task<JsonObject> Measures(JsonObject ws, params string[] measures) =>
+        (await Taken(ws, "xva.measures", new JsonObject { ["measures"] = string.Join(' ', measures) })).Workspace;
 
     /// <summary>Prices the revision, waits for the Run to finish, and reads every output it retained.</summary>
     async Task<(JsonObject Run, IReadOnlyList<JsonObject> Rows)> Price(JsonObject ws)
@@ -50,20 +64,15 @@ public class PricerApiTests(QubeFactory factory) : IClassFixture<QubeFactory>
         return (run, rows);
     }
 
-    [Fact] // ADR-0010 §3, §9: vary over HTTP makes its cases, by a cell's name or by its entity and field, and Price gives a row per case
+    [Fact] // ADR-0010 §3, §9, ADR-0016 note 28: vary over HTTP makes its cases, by a cell's name or by its entity and field, and Price gives a row per case
     public async Task Vary_makes_cases_and_price_gives_a_row_per_case()
     {
         var ws = await Measures(await Create(), "cva");
 
-        var named = await Post(ws, "vary", new { revision = Revision(ws), cell = "CSA-A threshold", values = new[] { "10mm", "0" } });
-        Assert.Equal(HttpStatusCode.OK, named.StatusCode);
-        var varied = (await named.Content.ReadFromJsonAsync<JsonObject>())!;
-        Assert.Equal(["CSA-A threshold 10mm"], Strings(varied["made"]));
-        Assert.Equal(["0 is the workspace's value"], Strings(varied["skipped"]));
-        ws = varied["workspace"]!.AsObject();
-        var byField = await Post(ws, "vary", new { revision = Revision(ws), entity = "netting:NS-001", field = "cvaRecovery", values = new[] { "25%" } });
-        Assert.Equal(HttpStatusCode.OK, byField.StatusCode);
-        ws = (await byField.Content.ReadFromJsonAsync<JsonObject>())!["workspace"]!.AsObject();
+        (var said, ws) = await Taken(ws, "xva.vary", new JsonObject { ["cell"] = "CSA-A threshold", ["values"] = "10mm, 0" });
+        Assert.Equal("Made 1 case(s): CSA-A threshold 10mm; skipped 0 is the workspace's value.", said);
+        // As the page's dialog names its cell.
+        (_, ws) = await Taken(ws, "xva.vary", new JsonObject { ["entity"] = "netting:NS-001", ["field"] = "cvaRecovery", ["values"] = "25%" });
         var cases = ws["cases"]!.AsArray().Select(c => (Id: c!["id"]!.GetValue<string>(), Title: c["title"]!.GetValue<string>())).ToList();
         Assert.Equal(["Base", "CSA-A threshold 10mm", "NS-001 recovery 25%"], cases.Select(c => c.Title));
         Assert.Equal(50, ws["caseCap"]!.GetValue<int>());
@@ -81,8 +90,7 @@ public class PricerApiTests(QubeFactory factory) : IClassFixture<QubeFactory>
     public async Task The_changes_list_edits_and_removes_cases_over_http()
     {
         var ws = await Create();
-        var varied = await Post(ws, "vary", new { revision = Revision(ws), cell = "CSA-A threshold", values = new[] { "5mm", "10mm" } });
-        ws = (await varied.Content.ReadFromJsonAsync<JsonObject>())!["workspace"]!.AsObject();
+        (_, ws) = await Taken(ws, "xva.vary", new JsonObject { ["cell"] = "CSA-A threshold", ["values"] = "5mm, 10mm" });
         var first = ws["cases"]![1]!["id"]!.GetValue<string>();
 
         var set = await Post(ws, "changes", new { revision = Revision(ws), entity = "csa:CSA-A", field = "counterpartyThreshold", text = "7.5mm", @case = first });
@@ -93,24 +101,22 @@ public class PricerApiTests(QubeFactory factory) : IClassFixture<QubeFactory>
         Assert.Equal(["7.5mm", "10mm"], changes["cases"]!.AsArray().Select(c => c!["changes"]![0]!["text"]!.GetValue<string>()));
         Assert.Equal(first, changes["cases"]![0]!["changes"]![0]!["case"]!.GetValue<string>());
 
-        var removed = await Post(ws, "cases/remove", new { revision = Revision(ws), name = "CSA-A threshold 10mm" });
-        Assert.Equal(HttpStatusCode.OK, removed.StatusCode);
-        ws = (await removed.Content.ReadFromJsonAsync<JsonObject>())!;
+        // The Changes tab removes a case through the command `case remove` is, and every case through `cases clear`.
+        (var removed, ws) = await Taken(ws, "xva.case.remove", new JsonObject { ["case"] = "CSA-A threshold 10mm" });
+        Assert.Equal("Removed the case CSA-A threshold 10mm.", removed);
         Assert.Equal(["Base", "CSA-A threshold 5mm"], ws["cases"]!.AsArray().Select(c => c!["title"]!.GetValue<string>()));
-        var cleared = await Post(ws, "cases/clear", new { revision = Revision(ws) });
-        Assert.Equal(["Base"], (await cleared.Content.ReadFromJsonAsync<JsonObject>())!["cases"]!.AsArray().Select(c => c!["title"]!.GetValue<string>()));
+        (var cleared, ws) = await Taken(ws, "xva.cases.clear", []);
+        Assert.Equal("Removed 1 case: CSA-A threshold 5mm.", cleared);
+        Assert.Equal(["Base"], ws["cases"]!.AsArray().Select(c => c!["title"]!.GetValue<string>()));
     }
 
-    [Fact] // docs/03 §5, ADR-0010 §3's note of 2026-11-08: add trades over HTTP makes the set, and Price refuses a set the ticked rows left
-    public async Task Add_trades_makes_the_set_and_price_refuses_one_the_ticked_rows_left()
+    [Fact] // docs/03 §5, ADR-0010 §3's note of 2026-11-08: add each over HTTP makes the set, and Price refuses a set the ticked rows left
+    public async Task Add_each_makes_the_set_and_price_refuses_one_the_ticked_rows_left()
     {
         var ws = await Measures(await Create(), "cva");
 
-        var added = await Post(ws, "add-trades", new { revision = Revision(ws) });
-        Assert.Equal(HttpStatusCode.OK, added.StatusCode);
-        var answer = (await added.Content.ReadFromJsonAsync<JsonObject>())!;
-        Assert.Equal(["add DRAFT-1", "add DRAFT-2", "add DRAFT-3"], Strings(answer["made"]));
-        ws = answer["workspace"]!.AsObject();
+        (var said, ws) = await Taken(ws, "xva.trades.add", []);
+        Assert.Equal("Made 3 case(s): add DRAFT-1, add DRAFT-2, add DRAFT-3.", said);
         Assert.Equal([("add", "DRAFT-1"), ("add", "DRAFT-2"), ("add", "DRAFT-3")],
             ws["cases"]!.AsArray().Skip(1).Select(c => (c!["kind"]!.GetValue<string>(), c["trade"]!.GetValue<string>())));
         var (_, rows) = await Price(ws);
@@ -122,7 +128,7 @@ public class PricerApiTests(QubeFactory factory) : IClassFixture<QubeFactory>
 
         Assert.Equal(HttpStatusCode.UnprocessableEntity, refused.StatusCode);
         var error = (await refused.Content.ReadFromJsonAsync<JsonObject>())!;
-        Assert.Equal(("AdditionSetChanged", "add trades prices DRAFT-1, DRAFT-2, DRAFT-3 alone, and DRAFT-2 is in a case and no longer ticked. Run add trades again to make the set anew."),
+        Assert.Equal(("AdditionSetChanged", "add each prices DRAFT-1, DRAFT-2, DRAFT-3 alone, and DRAFT-2 is in a case and no longer ticked. Run add each again to make the set anew."),
             (error["code"]!.GetValue<string>(), error["message"]!.GetValue<string>()));
     }
 
@@ -131,15 +137,15 @@ public class PricerApiTests(QubeFactory factory) : IClassFixture<QubeFactory>
     {
         var ws = await Create();
 
-        var response = await Post(ws, "vary", new { revision = Revision(ws), cell = "CSA-A", values = new[] { "1mm" } });
+        var response = await Command(ws, "xva.vary", new JsonObject { ["cell"] = "CSA-A", ["values"] = "1mm" });
 
         Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
         var error = (await response.Content.ReadFromJsonAsync<JsonObject>())!;
         Assert.Equal(("UnknownCell", "Name a cell as its row and its column, such as CSA-A threshold; CSA-A is one word."),
             (error["code"]!.GetValue<string>(), error["message"]!.GetValue<string>()));
-        // A body with no values is refused as it arrives, before anything reads it.
-        var none = await Post(ws, "vary", new { revision = Revision(ws), cell = "CSA-A threshold" });
-        Assert.Equal(HttpStatusCode.BadRequest, none.StatusCode);
+        // A request with no values is refused by its contract, before the pricer reads it.
+        var none = await Command(ws, "xva.vary", new JsonObject { ["cell"] = "CSA-A threshold" });
+        Assert.Equal((HttpStatusCode.UnprocessableEntity, "ValidationFailed"), (none.StatusCode, (await none.Content.ReadFromJsonAsync<JsonObject>())!["code"]!.GetValue<string>()));
     }
 
     [Fact] // ADR-0010 §8's note of 2026-11-09: the CDS catalogue the Credit tab searches, and `cds` over HTTP, which a missing CDS refuses CVA by
@@ -151,20 +157,15 @@ public class PricerApiTests(QubeFactory factory) : IClassFixture<QubeFactory>
         var ws = await Measures(await Create(), "cva", "fva");
         Assert.Equal("singleName", ws["credit"]!["choice"]!["type"]!.GetValue<string>());
 
-        var none = await Post(ws, "cds", new { revision = Revision(ws), cds = "none" });
+        (var said, ws) = await Taken(ws, "xva.cds", new JsonObject { ["cds"] = "none" });
 
-        Assert.Equal(HttpStatusCode.OK, none.StatusCode);
-        var chosen = (await none.Content.ReadFromJsonAsync<JsonObject>())!;
-        Assert.StartsWith("No CDS for ABC/LE-01", chosen["said"]!.GetValue<string>());
-        ws = chosen["workspace"]!.AsObject();
+        Assert.StartsWith("No CDS for ABC/LE-01", said);
         Assert.Null(ws["credit"]!["cds"]);
         var price = await Post(ws, "price", new { revision = Revision(ws), idempotencyKey = Guid.NewGuid().ToString() });
         Assert.Equal(HttpStatusCode.Accepted, price.StatusCode);
-        var proxy = await Post(ws, "cds", new { revision = Revision(ws), cds = "proxy industrials asia bbb" });
-        Assert.Equal(HttpStatusCode.OK, proxy.StatusCode);
-        ws = (await proxy.Content.ReadFromJsonAsync<JsonObject>())!["workspace"]!.AsObject();
+        (_, ws) = await Taken(ws, "xva.cds", new JsonObject { ["cds"] = "proxy industrials asia bbb" });
         Assert.Equal("PROXY.INDUSTRIALS.ASIA.BBB", ws["credit"]!["cds"]!["curveId"]!.GetValue<string>());
-        var unknown = await Post(ws, "cds", new { revision = Revision(ws), cds = "nobody" });
+        var unknown = await Command(ws, "xva.cds", new JsonObject { ["cds"] = "nobody" });
         Assert.Equal(HttpStatusCode.UnprocessableEntity, unknown.StatusCode);
     }
 
@@ -245,7 +246,7 @@ public class PricerApiTests(QubeFactory factory) : IClassFixture<QubeFactory>
     {
         var ws = await Create();
 
-        var response = await Post(ws, "measures", new { revision = Revision(ws), measures = new[] { "cva", "kva2" } });
+        var response = await Command(ws, "xva.measures", new JsonObject { ["measures"] = "cva kva2" });
 
         Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
         var error = (await response.Content.ReadFromJsonAsync<JsonObject>())!;
@@ -258,7 +259,7 @@ public class PricerApiTests(QubeFactory factory) : IClassFixture<QubeFactory>
     {
         var ws = await Create();
 
-        var response = await Post(ws, "measures", new { revision = Revision(ws), measures = Array.Empty<string>() });
+        var response = await Command(ws, "xva.measures", new JsonObject { ["measures"] = "" });
 
         Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
         Assert.Equal("NoMeasure", (await response.Content.ReadFromJsonAsync<JsonObject>())!["code"]!.GetValue<string>());

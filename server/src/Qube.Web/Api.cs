@@ -13,13 +13,15 @@ public static class Api
     public sealed record ErrorEnvelope(string Code, string Message, IReadOnlyList<CompositionIssue> Issues, bool Retryable = false);
 
     /// <param name="ViewVerbs">The verbs of the screen a line may say (ADR-0016 §3, note 21 of step 2): listed apart from the capabilities, which they are not.</param>
+    /// <param name="ShortForms">The words an application's users type for a line of a kernel verb (ADR-0016 §3, note 29 of step 3): listed apart too, since what runs is the kernel command.</param>
     public sealed record Catalog(
         IEnumerable<CapabilityDescriptor> Capabilities,
         IEnumerable<ContractDefinition> Contracts,
         IEnumerable<WorkflowDefinition> Workflows,
         IEnumerable<ViewDefinition> Views,
         IEnumerable<ActionDefinition> Actions,
-        IEnumerable<ViewVerbDescriptor> ViewVerbs);
+        IEnumerable<ViewVerbDescriptor> ViewVerbs,
+        IEnumerable<ShortFormDescriptor> ShortForms);
 
     public sealed record RunRequest(WorkflowDefinition Workflow, JsonObject Context, JsonObject Input, string IdempotencyKey);
 
@@ -41,7 +43,7 @@ public static class Api
 
         api.MapGet("/catalog", (CompositionRegistry registry, CommandLines lines) => new Catalog(
             registry.CapabilityDescriptors, registry.ContractDefinitions, registry.WorkflowDefinitions,
-            registry.ViewDefinitions, registry.ActionDefinitions, lines.ViewVerbs));
+            registry.ViewDefinitions, registry.ActionDefinitions, lines.ViewVerbs, lines.ShortForms));
 
         api.MapPost("/runs", (RunRequest request, RunService runs, CurrentUser user) =>
             ToResult(runs.Submit(new(request.Workflow, request.Context, request.Input, request.IdempotencyKey, user.Id, RunOrigin.Workflow, RunRelations.None))));

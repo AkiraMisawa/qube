@@ -29,13 +29,21 @@ public class SimmPricerApiTests(QubeFactory factory) : IClassFixture<QubeFactory
     Task<HttpResponseMessage> Post(JsonObject ws, string path, object body) =>
         client.PostAsJsonAsync($"/api/xva/workspaces/{Text(ws["workspaceId"])}/{path}", body);
 
+    /// <summary>Chooses the measures Price prices as the page does, by the command <c>measures</c>, and reads the workspace again.</summary>
+    async Task<JsonObject> Measures(JsonObject ws, params string[] measures)
+    {
+        var request = new JsonObject { ["workspaceId"] = Text(ws["workspaceId"]), ["revision"] = Revision(ws), ["measures"] = string.Join(' ', measures) };
+        await Ok(await client.PostAsJsonAsync("/api/commands/xva.measures/1.0.0", new { inputs = new JsonObject { ["request"] = request }, idempotencyKey = Guid.NewGuid().ToString() }));
+        return (await client.GetFromJsonAsync<JsonObject>($"/api/xva/workspaces/{Text(ws["workspaceId"])}"))!;
+    }
+
     async Task<JsonObject> Read(JsonNode reference) => await Ok(await client.PostAsJsonAsync("/api/data/read", reference));
 
     [Fact] // ADR-0012 §2, §3, §7's notes: spot IM is selected, edited, priced and traced to its direction over HTTP
     public async Task Spot_im_is_priced_over_http_and_its_trace_opens_at_collect()
     {
         var ws = await Ok(await client.PostAsJsonAsync("/api/xva/workspaces", new { registration = "ABC/LE-01", valueDate = "2026-10-26", portfolioSize = 30 }));
-        ws = await Ok(await Post(ws, "measures", new { revision = Revision(ws), measures = new[] { "simm.spotIm" } }));
+        ws = await Measures(ws, "simm.spotIm");
 
         // The measure with its metrics and the cell each opens, its inputs, and the IM CSAs the IM tab shows.
         var measure = ws["measures"]!.AsArray().Single(m => Text(m!["id"]) == "simm.spotIm")!;
@@ -97,7 +105,7 @@ public class SimmPricerApiTests(QubeFactory factory) : IClassFixture<QubeFactory
     public async Task The_trades_below_a_simm_term_add_up_to_its_contribution_over_http()
     {
         var ws = await Ok(await client.PostAsJsonAsync("/api/xva/workspaces", new { registration = "ABC/LE-01", valueDate = "2026-10-26", portfolioSize = 30 }));
-        ws = await Ok(await Post(ws, "measures", new { revision = Revision(ws), measures = new[] { "simm.spotIm" } }));
+        ws = await Measures(ws, "simm.spotIm");
         var accepted = await Ok(await Post(ws, "price", new { revision = Revision(ws), idempotencyKey = Guid.NewGuid().ToString() }));
         var runId = Text(accepted["runId"]);
         JsonObject run;

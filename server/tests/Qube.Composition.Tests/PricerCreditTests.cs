@@ -173,7 +173,7 @@ public class PricerCreditTests
     {
         var (service, runs, store) = Priced();
         var ws = service.Create("akira", "ABC/LE-01", Day1, 20);
-        ws = service.SetMeasures(ws.WorkspaceId, ws.Revision, "akira", ["cva", "fva"]);
+        ws = service.SelectMeasures(ws.WorkspaceId, ws.Revision, "akira", "cva fva").State;
 
         ws = service.DefineScenario(ws.WorkspaceId, ws.Revision, "akira", "wide", "cds +50bp").State;
         var (_, rows) = await Price(runs, store, service, ws);
@@ -193,7 +193,7 @@ public class PricerCreditTests
     {
         var (service, runs, store) = Priced();
         var ws = service.Create("akira", "ABC/LE-01", Day1, 20);
-        ws = service.SetMeasures(ws.WorkspaceId, ws.Revision, "akira", ["cva", "fva"]);
+        ws = service.SelectMeasures(ws.WorkspaceId, ws.Revision, "akira", "cva fva").State;
         ws = service.SetText(ws.WorkspaceId, ws.Revision, "akira", MeasureSettings.EntityOf(XvaMeasures.Module), XvaMeasures.Risks, "on");
         // ABC Holdings' 6m spread is 18bp: 50bp tighter has no default probability.
         ws = service.DefineScenario(ws.WorkspaceId, ws.Revision, "akira", "tight", "cds -50bp").State;

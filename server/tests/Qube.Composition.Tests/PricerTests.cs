@@ -81,7 +81,7 @@ public class PricerTests
     {
         var service = Service();
         var ws = service.Create("akira", "ABC/LE-01", Day1, 10);
-        ws = service.SetMeasures(ws.WorkspaceId, ws.Revision, "akira", ["fva"]);
+        ws = service.SelectMeasures(ws.WorkspaceId, ws.Revision, "akira", "fva").State;
 
         var drop = service.PreviewCounterpartyChange(ws.WorkspaceId, "akira");
         var (moved, carried) = service.ChangeCounterparty(ws.WorkspaceId, ws.Revision, "akira", "ABC/LE-02", drop.Count);
@@ -169,7 +169,7 @@ public class PricerTests
         Assert.Equal([new MeasureInput("netting", "cvaRecovery", XvaMeasures.Cva), new MeasureInput("credit", "cds", XvaMeasures.Cva)], service.View(ws.WorkspaceId, "akira").Inputs);
         ws = service.Edit(ws.WorkspaceId, ws.Revision, "akira", "netting:NS-002", "cvaRecovery", 0.3m);
 
-        ws = service.SetMeasures(ws.WorkspaceId, ws.Revision, "akira", ["fva"]);
+        ws = service.SelectMeasures(ws.WorkspaceId, ws.Revision, "akira", "fva").State;
         var hidden = service.View(ws.WorkspaceId, "akira");
 
         Assert.Empty(hidden.Inputs);
@@ -632,7 +632,7 @@ public class PricerTests
     {
         var (service, runs, store, _) = Priced();
         var ws = service.Create("akira", "ABC/LE-01", Day1, 5);
-        ws = service.SetMeasures(ws.WorkspaceId, ws.Revision, "akira", ["fva"]);
+        ws = service.SelectMeasures(ws.WorkspaceId, ws.Revision, "akira", "fva").State;
         var run = await Finished(runs, service, ws);
 
         Assert.Equal("NothingToQuote", Assert.Throws<WorkspaceRefused>(() => XvaQuote.Of(run, store)).Code);

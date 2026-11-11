@@ -47,7 +47,7 @@ public class CcrPricerTests
     }
 
     static WorkspaceState Select(PortfolioWorkspaces service, WorkspaceState ws, params string[] measures) =>
-        service.SetMeasures(ws.WorkspaceId, ws.Revision, "akira", measures);
+        service.SelectMeasures(ws.WorkspaceId, ws.Revision, "akira", string.Join(' ', measures)).State;
 
     static JsonNode Row(IReadOnlyList<JsonNode> rows, string measure, string metric) =>
         rows.Single(r => r["measure"]!.GetValue<string>() == measure && r["metric"]!.GetValue<string>() == metric);

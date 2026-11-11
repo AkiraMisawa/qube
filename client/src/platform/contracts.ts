@@ -22,6 +22,8 @@ export interface Port {
 export interface CommandForm {
   readonly words: readonly string[];
   readonly arguments: readonly { readonly name: string; readonly kind: 'rows' | 'assignments' | 'field' | 'text'; readonly required: boolean }[];
+  /** The application whose workspaces the command acts on (ADR-0016 note 27 of 2026-11-11); none for a command of every application's. */
+  readonly app?: string;
 }
 
 export interface CapabilityDescriptor {
@@ -42,6 +44,16 @@ export interface CapabilityDescriptor {
  */
 export interface ViewVerbDescriptor {
   readonly verbId: string;
+  readonly title: string;
+  readonly command: CommandForm;
+}
+
+/**
+ * A short form as the catalog lists it (ADR-0016 §3, note 29 of 2026-11-11): words an application's users type for a
+ * line of a kernel verb. The server reads it as the line it stands for; what runs is that line's command.
+ */
+export interface ShortFormDescriptor {
+  readonly formId: string;
   readonly title: string;
   readonly command: CommandForm;
 }
@@ -128,6 +140,8 @@ export interface LinePreview {
   readonly view?: string;
   readonly viewMoved?: boolean;
   readonly place?: LinePlace;
+  /** The line a short form stands for (ADR-0016 note 29 of 2026-11-11): the reading, the command and the inputs are that line's. */
+  readonly expands?: string;
 }
 
 export interface FieldSchema {
@@ -243,6 +257,8 @@ export interface Catalog {
   readonly capabilities: readonly CapabilityDescriptor[];
   /** The verbs of the screen a line may say (ADR-0016 note 21 of 2026-11-11), listed apart from the capabilities, which they are not. */
   readonly viewVerbs: readonly ViewVerbDescriptor[];
+  /** The short forms a line may say (ADR-0016 note 29 of 2026-11-11), listed apart too: what runs is the kernel command each stands for. */
+  readonly shortForms: readonly ShortFormDescriptor[];
   readonly contracts: readonly ContractDefinition[];
   readonly workflows: readonly WorkflowDefinition[];
   readonly views: readonly ViewDefinition[];

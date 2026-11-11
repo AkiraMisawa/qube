@@ -20,6 +20,12 @@ The primary deliverable is capability AND UI composition: independent Capability
 - Every retained RunId must resolve its inputs, results, execution lineage and diagnostic artifacts, subject to authorization.
 - Web/UI/core projects must not load native quant libraries. Use a separate persistent worker or an existing company service.
 - Engine adapters and data sources must be replaceable without changing the composition core or UI. Never silently fall back from a real provider to a mock.
+- No fallback that can make a value quietly wrong (owner, 2026-11-11). A value that is missing, unreadable or failed
+  is never replaced by a default, an older value, a guess or another source's value without saying so: refuse, or
+  show that it is missing. `?? 0`, `|| ''`, a `catch` that answers a default, a default standing in for data that
+  was not found, and one provider answering for another are all such fallbacks. A fallback that is needed is put to
+  the developer first, with what it replaces and how a user would tell, and is written only once approved; the
+  approval is recorded where the fallback stands (who, and when) or in an ADR.
 - Existing company bulk/HPC execution is reused; do not rebuild its dispatcher.
 - AI calls application capabilities, not page navigation, Fluxor actions or grid automation. A view is optional for every workflow step.
 - Dynamic views are validated declarative specifications rendered through approved components, never arbitrary generated HTML, C#, JavaScript or SQL.
@@ -55,6 +61,21 @@ This package supersedes older notes where they disagree about authoritative XVA 
 - Record exact package/engine versions when selected. Keep company-only packages out of the standalone build.
 - Do not claim a real model, mobile support, a working agent or performance targets are verified when only a mock or scripted demonstration was exercised.
 - Do not publish or deploy anything merely because this handoff exists.
+
+## Pull requests
+
+- **A pull request shows what it changes on screen** (owner, 2026-11-11: screenshots or GIFs of the new feature's
+  screens in every pull request, as needed, so the review that follows goes faster). When a change adds or alters
+  something a user sees (a page, a dialog, the command line, a grid's column or menu, a message), the description
+  carries a `Screens` section: a screenshot of each new or changed screen, or a GIF where the change is a flow, each
+  with one line on what to look at.
+- Capture them from the built client served by the host, in a real browser, with synthetic data only. Add the other
+  theme, or a phone width, where the change looks different there.
+- A pull request with nothing to see (a refactor, a test, a document) says so in one line instead.
+- The pictures are not part of the change (DEFAULT): they live on the branch `claude/pr-media`, a folder per pull
+  request, never merged, and the description links each by its commit
+  (`https://github.com/<owner>/<repo>/blob/<sha>/<path>?raw=true`), so a later push cannot change what a merged pull
+  request shows.
 
 ## Commands
 

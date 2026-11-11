@@ -36,7 +36,8 @@ public sealed record CommandArgument(string Name, CommandArgumentKind Kind, bool
 /// How a command is typed (ADR-0016 §4): the words that name it, each a spelling of its own, and its arguments. The
 /// command line builds its entry from this, and the server reads the line (§5); the client reads nothing itself.
 /// </summary>
-public sealed record CommandForm(IReadOnlyList<string> Words, IReadOnlyList<CommandArgument> Arguments);
+/// <param name="App">The application whose workspaces the command acts on (note 27 of step 3): a line of another's does not name it, and its page does not list it. None for a command of every application's workspaces.</param>
+public sealed record CommandForm(IReadOnlyList<string> Words, IReadOnlyList<CommandArgument> Arguments, string? App = null);
 
 /// <param name="Command">How it is typed on the command line; none for a capability no line names.</param>
 public sealed record CapabilityDescriptor(
@@ -54,6 +55,13 @@ public sealed record CapabilityDescriptor(
 /// typed. It is listed apart from the capabilities: nothing invokes it, and the agent's tools hold none.
 /// </summary>
 public sealed record ViewVerbDescriptor(string VerbId, string Title, CommandForm Command);
+
+/// <summary>
+/// A short form as the catalog lists it (ADR-0016 §3, note 29 of step 3): words an application's users type for a line
+/// of a kernel verb, with its id, what it does, and how it is typed. It is listed apart from the capabilities: what
+/// runs is the kernel command, and the agent's tools hold none.
+/// </summary>
+public sealed record ShortFormDescriptor(string FormId, string Title, CommandForm Command);
 
 public sealed record CapabilityCatalog(string DocumentType, string SchemaVersion, IReadOnlyList<CapabilityDescriptor> Capabilities);
 

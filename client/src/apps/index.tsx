@@ -4,7 +4,6 @@ import { useQuery } from '@tanstack/react-query';
 import { CommandRefused, type Command } from '../platform/commands/commands';
 import { termCompletions, termParts, type ProductDescriptor } from '../platform/products';
 import { parserOf } from './rates/lines';
-import type { Notify } from '../platform/notices';
 import { useWorkspace, useWorkspaceContext } from '../platform/workspace/WorkspaceProvider';
 import type { Panel, WorkspaceState } from '../platform/workspace/workspaceStore';
 import { PricingDbPanel } from './history/PricingDbPanel';
@@ -12,11 +11,11 @@ import { httpRatesApi, type RatesApi } from './rates/api';
 import { ratesCommandsOf } from './rates/commands';
 import { RatesWorkspacePanel } from './rates/RatesWorkspacePanel';
 import { httpXvaApi, type XvaApi } from './xva/api';
-import { cdsCompletions, measureNamed, measuresTyped, varyHint, varyTyped, xvaPageOf } from './xva/commands';
+import { measureNamed, xvaPageOf } from './xva/commands';
 import { generatorParts, scenarioParts, scenarioTyped } from './xva/scenarios';
 import { XvaWorkspacePanel } from './xva/XvaWorkspacePanel';
 import { registerAiContext, registerAiEffect } from '../ai/effects';
-import { goTo, placesOf, registerGridFocus } from '../shell/places';
+import { registerGridFocus } from '../shell/places';
 import { httpTraceApi, type TraceApi } from '../platform/traces/api';
 import { TRACE_VIEW, explainTyped, openTrace, requestTerm, setTraceView, traceAddressOf } from '../platform/traces/open';
 
@@ -73,7 +72,7 @@ registerAiEffect('entity.create', (outputs, { workspace, queryClient }) => {
   const title = valuationDate === undefined ? 'Rates' : `Rates ${valuationDate}`;
   return { panelId: workspace.openPanelBehind(RATES_WORKSPACE, title, { workspaceId: entity.workspaceId }), title };
 });
-// What the AI pane knows of XVA (ADR-0010 §9): the workspace open is the one `vary`, `add trades` and the kernel's `set`,
+// What the AI pane knows of XVA (ADR-0010 §9): the workspace open is the one `vary`, `add each` and the kernel's `set`,
 // `reset`, `undo` and `redo` act on (ADR-0016 §3, §11), and what they change is read again where the page shows it. The
 // page itself takes up a revision someone else made.
 registerAiContext(XVA_WORKSPACE, (panel) => panel.params.workspaceId === undefined ? undefined : {
@@ -81,7 +80,7 @@ registerAiContext(XVA_WORKSPACE, (panel) => panel.params.workspaceId === undefin
   value: JSON.stringify({ kind: 'xva.workspace', workspaceId: panel.params.workspaceId }),
 });
 // The scenario commands (ADR-0010 §4) likewise; a set the AI saved is offered by `scenario load` once read again.
-const XVA_EDITS = ['xva.vary', 'xva.trades.add', 'xva.scenario',
+const XVA_EDITS = ['xva.vary', 'xva.trades.add', 'xva.cds', 'xva.measures', 'xva.case.remove', 'xva.cases.clear', 'xva.scenario',
   'xva.scenario.include', 'xva.scenario.exclude', 'xva.scenario.remove', 'xva.scenario.ladder', 'xva.scenario.cross', 'xva.scenario.load'];
 for (const capability of XVA_EDITS)
   registerAiEffect(capability, (outputs, { queryClient }) => {
@@ -149,7 +148,7 @@ function oneOf<T extends string>(value: string | undefined, options: readonly T[
  * (ADR-0006's note 3 of 2026-11-11). */
 const onPage = (panel: Panel): Pick<Command, 'target' | 'page'> => ({ target: panel.title, page: true });
 
-export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDialog' | 'panels' | 'activePanelId'>, notify: Notify): Command[] {
+export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDialog' | 'panels' | 'activePanelId'>): Command[] {
   const active = state.panels.find((p) => p.id === state.activePanelId);
   // Looked up when the command runs: the page registers its commands once it has mounted, after this list is made.
   const xvaPanel = active?.kind === 'app' && active.app === XVA_WORKSPACE ? active : undefined;
@@ -242,68 +241,6 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
         if (rates !== undefined) { page().price(); return; }
         xvaPage().price();
       },
-    },
-    {
-      id: 'xva.measures',
-      words: 'measures',
-      title: 'Choose the measures Price prices, such as cva fva',
-      group: 'XVA',
-      ...onXva,
-      args: [{
-        name: 'measures', required: true, rest: true, words: true,
-        hint: 'the measures to price, in any order',
-        // The register is the page's, read when the line asks: the page registers once it has mounted.
-        complete: (given) => {
-          const registered = xvaPageOf(xva)?.measures() ?? [];
-          const typed = new Set(given.measures === undefined ? [] : measuresTyped(given.measures, registered.map((m) => m.id)));
-          return registered.filter((m) => !typed.has(m.id)).map((m) => ({ value: m.id, detail: m.title }));
-        },
-      }],
-      run: (a) => {
-        if (a.measures === undefined) throw new CommandRefused('measures needs the measures to price, such as cva fva.');
-        xvaPage().setMeasures(measuresTyped(a.measures, xvaPage().measures().map((m) => m.id)));
-      },
-    },
-    // Cases (ADR-0010 §3, §9): one per value of a cell, priced beside the Base by one Price.
-    {
-      id: 'xva.vary',
-      words: 'vary',
-      title: 'Make a case per value of a cell, such as vary CSA-A threshold 10mm, 5mm, 0',
-      group: 'XVA',
-      ...onXva,
-      args: [{ name: 'cell', required: true, rest: true, hint: varyHint(xvaPageOf(xva)?.examples()) }],
-      run: (a) => {
-        const typed = varyTyped(a.cell ?? '');
-        xvaPage().vary(typed.cell, typed.values);
-      },
-    },
-    {
-      id: 'xva.trades.add',
-      words: 'add trades',
-      title: 'Make a case per new trade with A ticked, each priced alone on top of the existing trades',
-      group: 'XVA',
-      ...onXva,
-      run: () => xvaPage().addTrades(),
-    },
-    {
-      id: 'xva.case.remove',
-      words: 'case remove',
-      title: 'Remove a case with its changes, by its title',
-      group: 'XVA',
-      ...onXva,
-      args: [{ name: 'case', required: true, rest: true, hint: 'the case\'s title, such as CSA-A threshold 5mm' }],
-      run: (a) => {
-        if (a.case === undefined || a.case.trim() === '') throw new CommandRefused('case remove needs the case to remove, by its title.');
-        xvaPage().removeCase(a.case.trim());
-      },
-    },
-    {
-      id: 'xva.cases.clear',
-      words: 'cases clear',
-      title: 'Remove every case; the Base stays',
-      group: 'XVA',
-      ...onXva,
-      run: () => xvaPage().clearCases(),
     },
     // Scenarios (ADR-0010 §4): a named set of market-data shifts, priced under every case by the same Price.
     {
@@ -471,23 +408,6 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
       ...onXva,
       run: () => xvaPage().retry(),
     },
-    // The counterparty's CDS (ADR-0010 §8's note of 2026-11-09): a single name by its words, a proxy by its keys, or none.
-    {
-      id: 'xva.cds',
-      words: 'cds',
-      title: 'Choose the counterparty\'s CDS: a single name, such as cds ABCH USD SNRFOR, a proxy, or none',
-      group: 'XVA',
-      ...onXva,
-      args: [{
-        name: 'cds', required: true, rest: true, words: true,
-        hint: 'a single name\'s ticker, currency, seniority or doc clause; proxy with a sector, a region and a rating; or none',
-        complete: (given) => cdsCompletions(given.cds ?? '', xvaPageOf(xva)?.cdsCatalogue()),
-      }],
-      run: (a) => {
-        if (a.cds === undefined || a.cds.trim() === '') throw new CommandRefused('cds needs a single name\'s words, proxy with a sector, a region and a rating, or none.');
-        xvaPage().chooseCds(a.cds.trim());
-      },
-    },
     {
       id: 'xva.refresh',
       words: 'refresh',
@@ -496,39 +416,6 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
       ...onXva,
       run: () => xvaPage().refresh(),
     },
-    {
-      id: 'xva.currency',
-      words: 'currency',
-      title: 'Show the figures in a currency, such as USD',
-      group: 'XVA',
-      ...onXva,
-      args: [{
-        name: 'currency', required: true, hint: 'a currency the page offers, such as USD',
-        complete: () => (xvaPageOf(xva)?.currencies() ?? []).map((c) => ({ value: c })),
-      }],
-      // The server refuses a currency it does not offer, by name; the line does not guess one.
-      run: (a) => {
-        if (a.currency === undefined) throw new CommandRefused('currency needs the currency to show the figures in.');
-        xvaPage().setCurrency(a.currency.toUpperCase());
-      },
-    },
-    // One command per input tab (ADR-0010 §9), which shows the inputs if they were collapsed. Credit is CVA's (§8's note of
-    // 2026-11-09), IM spot IM's (ADR-0012 §3) and Settings the selected measures' (§8), and the page says so when no
-    // selected measure needs one. Each is `go` to the page's place of that word (ADR-0016 §9, note 20): the keyboard is
-    // put in the tab, and the notice says so.
-    ...([['netting', 'Netting'], ['csa', 'CSA'], ['credit', 'Credit'], ['im', 'IM'], ['scenarios', 'Scenarios'], ['settings', 'Settings'], ['changes', 'Changes']] as const).map(([tab, title]): Command => ({
-      id: `xva.open.${tab}`,
-      words: `open ${tab}`,
-      title: `Open the ${title} input tab`,
-      group: 'XVA',
-      ...onXva,
-      // A tab that does not show now is not opened, and the line keeps the reason (ADR-0006's note 1 of 2026-11-11).
-      run: () => {
-        const place = placesOf(xva).find((p) => p.word === tab);
-        if (place === undefined) throw new CommandRefused('The XVA page is not drawn yet.');
-        goTo(place, notify);
-      },
-    })),
     // The dock's tabs (ADR-0010 §7): Metrics, or a tab a priced measure registers, such as spot IM's SIMM (ADR-0012 §7).
     {
       id: 'xva.result.open',
@@ -549,21 +436,6 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
     // Widening the dock over the input tabs and the grids, and putting it back (owner, 2026-11-08).
     ...([['full', true, 'Widen the result dock over the input tabs and the trade grids'], ['restore', false, 'Put the result dock back to the height its handle sets']] as const)
       .map(([word, full, title]): Command => ({ id: `xva.dock.${word}`, words: `dock ${word}`, title, group: 'XVA', ...onXva, run: () => xvaPage().setDockFull(full) })),
-    // B or A for every row of a trade grid, as one edit (ADR-0010 §6): the grid the keyboard was last in, or the one named.
-    ...(['before', 'after'] as const).map((side): Command => ({
-      id: `xva.${side}.all`,
-      words: side,
-      title: `Tick or clear ${side === 'before' ? 'Before' : 'After'} on every trade of a grid`,
-      group: 'XVA',
-      ...onXva,
-      args: [
-        { name: 'which', required: true, complete: () => [{ value: 'all', detail: 'tick every row' }, { value: 'none', detail: 'clear every row' }],
-          check: (v) => (v === 'all' || v === 'none' ? undefined : 'all or none') },
-        { name: 'grid', required: false, hint: 'new or existing; the grid you were last in when left out',
-          complete: () => [{ value: 'new' }, { value: 'existing' }], check: (v) => (v === 'new' || v === 'existing' ? undefined : 'new or existing') },
-      ],
-      run: (a) => xvaPage().setSide(side, a.which === 'all', a.grid === undefined ? undefined : a.grid as 'new' | 'existing'),
-    })),
     {
       id: 'rates.new',
       words: 'new rates',

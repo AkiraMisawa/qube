@@ -1,5 +1,5 @@
 import type { Page } from '@playwright/test';
-import { command, expect, newWorkspace, open, settled, test, textBelowContrast } from './fixtures';
+import { command, expect, newWorkspace, open, settled, test, textBelowContrast, taken } from './fixtures';
 
 // Ticket 07 (docs/specs/spot-ccr-capital/issues/07-trace-view.md): one view draws every trace (ADR-0011 §6), opened from a
 // figure of the dock or by `explain` (§7), on both sides, on one side, and on a phone.
@@ -14,10 +14,10 @@ const lines = (page: Page) => page.getByTestId('trace-formula').locator('[data-s
 async function priced(page: Page, before: 'ticked' | 'none'): Promise<void> {
   await newWorkspace(page, 'ABC/LE-01', 3);
   // A new workspace starts on its owner's last selection, which another test may have left.
-  await command(page, 'measures', 'kva ccr.spotcapital');
+  await taken(page, 'measures', 'kva ccr.spotcapital');
   await expect(page.getByRole('group', { name: 'Measures' }).getByRole('button', { name: 'Spot CCR capital' })).toHaveAttribute('aria-pressed', 'true');
   if (before === 'none') {
-    await command(page, 'before', 'none grid=existing');
+    await taken(page, 'before', 'none existing');
     await expect(page.getByTestId('price')).toHaveText(/^Price After only · /);
   }
   await command(page, 'price');
@@ -122,7 +122,7 @@ test('ADR-0011 §6, docs/design-guidelines.md §7, §9: at 390px the trace drill
   await page.setViewportSize({ width: 390, height: 844 });
   await open(page);
   await newWorkspace(page, 'ABC/LE-01', 3);
-  await command(page, 'measures', 'kva ccr.spotcapital');
+  await taken(page, 'measures', 'kva ccr.spotcapital');
   await expect(page.getByRole('group', { name: 'Measures' }).getByRole('button', { name: 'Spot CCR capital' })).toHaveAttribute('aria-pressed', 'true');
   await page.getByText('Results', { exact: true }).click();
   await command(page, 'price');

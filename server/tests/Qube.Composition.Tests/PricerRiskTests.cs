@@ -51,7 +51,7 @@ public class PricerRiskTests
     {
         var (service, runs, store) = Priced();
         var ws = service.Create("akira", "ABC/LE-01", Day1, 20);
-        ws = service.SetMeasures(ws.WorkspaceId, ws.Revision, "akira", ["cva", "fva"]);
+        ws = service.SelectMeasures(ws.WorkspaceId, ws.Revision, "akira", "cva fva").State;
         ws = service.SetText(ws.WorkspaceId, ws.Revision, "akira", MeasureSettings.EntityOf(XvaMeasures.Module), XvaMeasures.Risks, "on");
         // The bumps themselves, priced as scenarios beside the base market.
         ws = service.DefineScenario(ws.WorkspaceId, ws.Revision, "akira", "credit", "cds 3y +1bp").State;
@@ -85,7 +85,7 @@ public class PricerRiskTests
     {
         var (service, runs, store) = Priced();
         var ws = service.Create("akira", "ABC/LE-01", Day1, 20);
-        ws = service.SetMeasures(ws.WorkspaceId, ws.Revision, "akira", ["cva", "fva", "kva"]);
+        ws = service.SelectMeasures(ws.WorkspaceId, ws.Revision, "akira", "cva fva kva").State;
 
         var (_, off) = await Price(runs, store, service, ws);
 

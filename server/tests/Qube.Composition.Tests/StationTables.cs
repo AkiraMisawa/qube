@@ -183,6 +183,43 @@ static class Stations
         public IEnumerable<IWorkspaceTable> Tables => [new Table(ReadingsTable, "reading"), new Table(stations ?? SitesTable, "station"), new Table(SettingsTable, "settings")];
     }
 
+    // The board's short forms (ADR-0016 note 29): `tick` marks a grid's readings as checked, the grid typed or the one
+    // behind the line, and `alarm` is the settings' alarm volume. Each answers the kernel line it stands for.
+    sealed class Tick : IShortForm
+    {
+        static readonly string[] Grids = ["manual", "automatic"];
+
+        public Qube.Composition.Contracts.ShortFormDescriptor Descriptor { get; } =
+            new("weather.tick", "Mark a grid's readings as checked", new(["tick"], [new("grid", Qube.Composition.Contracts.CommandArgumentKind.Text, false)], App));
+
+        public string Expand(LineContext line)
+        {
+            var typed = line.Text.Trim();
+            var grid = typed.Length > 0 ? typed : line.View?.Subset ?? throw new TableRefused("NoGrid", "tick takes manual or automatic, or the grid the keyboard is in.", null, Grids);
+            return Grids.Contains(grid) ? $"set {grid} checked on" : throw new TableRefused("UnknownGrid", $"No readings {grid}: manual or automatic.", grid, Grids);
+        }
+
+        // No space after the form's own word: it is still being typed, and nothing follows yet.
+        public LineCompletions Complete(LineContext line) => line.Text.Length == 0 ? LineCompletions.None
+            : new([.. Grids.Where(g => g.StartsWith(line.Text.Trim(), StringComparison.OrdinalIgnoreCase)).Select(g => new LineCompletion(g, line.Text.Length - line.Text.TrimStart().Length))]);
+    }
+
+    sealed class Alarm : IShortForm
+    {
+        public Qube.Composition.Contracts.ShortFormDescriptor Descriptor { get; } =
+            new("weather.alarm", "Set the volume the alarm sounds at", new(["alarm"], [new("volume", Qube.Composition.Contracts.CommandArgumentKind.Text, true)], App));
+
+        public string Expand(LineContext line) => $"set alarm {line.Text.Trim()}";
+
+        public LineCompletions Complete(LineContext line) => LineCompletions.None;
+    }
+
+    /// <summary>The board's two short forms; with <paramref name="more"/>, others to register beside them.</summary>
+    public sealed class ShortForms(params IShortForm[] more) : IShortFormCatalog
+    {
+        IEnumerable<IShortForm> IShortFormCatalog.ShortForms => [new Tick(), new Alarm(), .. more];
+    }
+
     public static WorkspaceService Service() => new(new Dictionary<string, IEditRules> { [App] = new Rules() }, TimeProvider.System);
 
     /// <summary>A board on 2026-11-11 with the six readings the stations sent.</summary>

@@ -65,7 +65,7 @@ function Section({ title, kind, note, action }: { readonly title: string; readon
   );
 }
 
-/** What a case's row says beside its title: the common change a case of `add trades` carries, and that it has no change. */
+/** What a case's row says beside its title: the common change a case of `add each` carries, and that it has no change. */
 function caseNote(common: string | null, changes: number): string | undefined {
   const notes = [...(common === null ? [] : [common]), ...(changes === 0 ? ['No change of its own: it prices as the Base.'] : [])];
   return notes.length === 0 ? undefined : notes.join(' · ');
@@ -74,7 +74,7 @@ function caseNote(common: string | null, changes: number): string | undefined {
 const HELD = { conflict: 'held: its source moved, resolve it above the grids', lost: 'lost: its row is not in this version' } as const;
 
 /**
- * A change: its value typed again where it is a cell's and set, or said with why it is held. A case of `add trades` is
+ * A change: its value typed again where it is a cell's and set, or said with why it is held. A case of `add each` is
  * its membership and is removed whole (ADR-0010 §3's note of 2026-11-08), so its changes offer no removal of their own.
  */
 function Change({ change, scope, actions, whole = false }: { readonly change: ChangeItem; readonly scope: string; readonly actions: ChangeActions; readonly whole?: boolean }) {

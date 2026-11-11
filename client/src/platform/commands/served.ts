@@ -20,6 +20,8 @@ export interface Turns {
 /** What a page has for its door: its workspace, its turns, and how it shows the workspace once a command has moved it. */
 export interface DoorPage {
   readonly workspaceId: string;
+  /** The application the workspace is of, as the server names it. */
+  readonly app: string;
   readonly catalog: Pick<Catalog, 'capabilities'>;
   readonly api: Pick<Api, 'preview' | 'command'>;
   readonly turns: Turns;
@@ -55,7 +57,8 @@ export function commandDoor(page: DoorPage): CommandDoor {
   // Each view the page gave the line, with how the grid it was read of takes a place: a place read for a view is put
   // in that grid, whatever the screen shows by then.
   const puts = new WeakMap<LineView, Screen['put']>();
-  const run = <Ended extends LineReason | KeyboardMoved>(named: (revision: number) => Promise<Invocation | Ended>): Promise<Ended | LineReason | undefined> =>
+  // `heard` is the caller that says the answer itself, such as a dialog: it is given the sentence, and no notice is made.
+  const run = <Ended extends LineReason | KeyboardMoved>(named: (revision: number) => Promise<Invocation | Ended>, heard?: (said: string) => void): Promise<Ended | LineReason | undefined> =>
     page.turns.after(async (revision): Promise<Ended | LineReason | undefined> => {
       let told: Told;
       try {
@@ -71,20 +74,24 @@ export function commandDoor(page: DoorPage): CommandDoor {
           (unread: unknown) => ({ sentence: `${sentence} The page could not read the workspace again: ${describe(unread)}` }));
       }
       page.turns.rebase(told.revision);
-      // The command is done whether or not the page can read what it left: the notice then says both.
+      // The command is done whether or not the page can read what it left: the notice then says both, and a caller
+      // that says the answer itself is still told what was done.
       try {
         page.turns.rebase(await page.reread());
       } catch (error) {
         page.notify('refused', `${told.said} The page could not read the workspace again: ${describe(error)}`);
+        heard?.(told.said);
         return undefined;
       }
-      page.notify('done', told.said);
+      if (heard === undefined) page.notify('done', told.said);
+      else heard(told.said);
       return undefined;
     // The page's own earlier edit was refused, and this with it: nothing was sent.
     }).catch((error: unknown) => ({ sentence: describe(error) }));
 
   return {
     workspaceId: page.workspaceId,
+    app: page.app,
     settled: () => page.turns.settled(),
     view: () => {
       const seen = page.screen?.();
@@ -110,11 +117,11 @@ export function commandDoor(page: DoorPage): CommandDoor {
       if (reading.command === undefined || reading.inputs === undefined) throw new Error('The server read the line and named no command to run.');
       return { ...reading.command, inputs: reading.inputs };
     }),
-    invoke: (capabilityId, request) => run<LineReason>(async (revision) => {
+    invoke: (capabilityId, request, heard) => run<LineReason>(async (revision) => {
       const capability = page.catalog.capabilities.find((c) => c.capabilityId === capabilityId);
       if (capability === undefined) throw new Error(`This server has no command ${capabilityId}.`);
       return { id: capabilityId, version: capability.version, inputs: { request: { ...request, workspaceId: page.workspaceId, revision } } };
-    }),
+    }, heard),
   };
 }
 
@@ -131,17 +138,20 @@ export function commandDoorOf(panelId: string | undefined): CommandDoor | undefi
 }
 
 /**
- * A command per word of each capability that says how it is typed, and of each verb of the screen the catalog lists
- * (ADR-0016 note 21), acting on the workspace of the page in the active panel. Where that panel has no such page the
- * commands are listed and say why they cannot run.
+ * A command per word of each capability that says how it is typed, and of each verb of the screen and each short form
+ * the catalog lists (ADR-0016 notes 21 and 29), acting on the workspace of the page in the active panel. Where that panel has no such page the
+ * commands are listed and say why they cannot run. A command of one application (note 27) is listed on a page of that
+ * application alone: elsewhere its words are no command, as the server reads them.
  */
-export function servedCommands(catalog: Pick<Catalog, 'capabilities' | 'viewVerbs'>, panel: { readonly title: string } | undefined, door: CommandDoor | undefined, notify: Notify): Command[] {
+export function servedCommands(catalog: Pick<Catalog, 'capabilities' | 'viewVerbs' | 'shortForms'>, panel: { readonly title: string } | undefined, door: CommandDoor | undefined, notify: Notify): Command[] {
   const typed: readonly { readonly id: string; readonly title: string; readonly form: CommandForm }[] = [
     ...catalog.capabilities.flatMap((c) => (c.command === undefined ? [] : [{ id: c.capabilityId, title: c.title, form: c.command }])),
     // A verb is no capability, and its id says so: its use is counted apart from any command's.
     ...catalog.viewVerbs.map((v) => ({ id: `view.${v.verbId}`, title: v.title, form: v.command })),
+    // Nor is a short form (note 29): the server reads it as the line it stands for, and that line's command runs.
+    ...catalog.shortForms.map((f) => ({ id: `short.${f.formId}`, title: f.title, form: f.command })),
   ];
-  return typed.flatMap(({ id, title, form }) => form.words.map((word, index): Command => {
+  return typed.filter(({ form }) => form.app === undefined || form.app === door?.app).flatMap(({ id, title, form }) => form.words.map((word, index): Command => {
     const words = word.toLowerCase();
     return {
       // Its first word carries its id, by which its use is counted; another spelling says which it is.
@@ -239,6 +249,8 @@ const ROWS_NAMED = 5;
 
 /** What the line shows of a reading: its rows and what would change, or why the line cannot be read. */
 export interface PreviewShown {
+  /** The line a short form stands for (ADR-0016 note 29): what Enter runs, and what `undo` will name. */
+  readonly expands?: string;
   readonly rows?: string;
   readonly would?: string;
   /** When the command the reading speaks of ran, as the server wrote it. */
@@ -247,11 +259,13 @@ export interface PreviewShown {
 }
 
 export function previewShown(preview: LinePreview): PreviewShown {
-  if (preview.refused !== undefined) return { reason: preview.refused.sentence };
+  const expands = preview.expands === undefined ? {} : { expands: preview.expands };
+  if (preview.refused !== undefined) return { ...expands, reason: preview.refused.sentence };
   const { rows } = preview;
   const named = rows === undefined || rows.first.length === 0 ? undefined
     : `${rows.title}: ${rows.first.slice(0, ROWS_NAMED).join(', ')}${rows.count > Math.min(rows.first.length, ROWS_NAMED) ? ', …' : ''}`;
   return {
+    ...expands,
     ...(rows === undefined ? {} : { rows: named ?? rows.title }),
     ...(preview.would === undefined ? {} : { would: preview.would }),
     ...(preview.at === undefined ? {} : { at: preview.at }),

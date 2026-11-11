@@ -80,6 +80,25 @@ public sealed record ChangesList(long Revision, IReadOnlyList<ChangeItem> Common
 public sealed record HeldEdit(string Scope, string Entity, string Field, JsonNode? Value, IReadOnlyDictionary<string, JsonNode?>? Source, bool Acknowledged,
     string? Case = null);
 
+/// <summary>
+/// What a command would write and say (ADR-0016 note 28 of 2026-11-11): planned on the workspace as it stands, with
+/// nothing written. The line's reading tries the changes and says the plan; the command writes them as one batch,
+/// named in the log by <paramref name="Said"/>, the words that would type it.
+/// </summary>
+public sealed record CommandPlan(IReadOnlyList<WorkspaceChange> Changes, string Said);
+
+/// <summary><c>vary</c> as planned: the cases it would make, and the values it would skip, each with why.</summary>
+public sealed record VaryPlan(CommandPlan Command, IReadOnlyList<string> Made, IReadOnlyList<string> Skipped);
+
+/// <summary><c>add each</c> as planned: the cases it would make, and those of the set made before that it would replace.</summary>
+public sealed record AddPlan(CommandPlan Command, IReadOnlyList<string> Made, IReadOnlyList<string> Replaced);
+
+/// <summary>The cases a command would remove, each by its title with how many changes it holds.</summary>
+public sealed record CasesPlan(CommandPlan Command, IReadOnlyList<(string Title, int Changes)> Removed);
+
+/// <summary>A selection of measures as planned: the measures Price would price, in register order, by id and by title.</summary>
+public sealed record MeasuresPlan(CommandPlan Command, IReadOnlyList<string> Ids, IReadOnlyList<string> Titles);
+
 /// <summary>The portfolio's configuration: how many cases one Price prices, the Base among them (ADR-0010 §3's note).</summary>
 public sealed record PortfolioOptions(int CaseCap = PortfolioCases.DefaultCap);
 
@@ -111,12 +130,41 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
 
     JsonArray Chosen(IReadOnlyList<string> measures) => new([.. register.Checked(measures).Select(id => JsonValue.Create(id))]);
 
-    /// <summary>Sets the measures Price runs (`measures cva fva`). An unknown one, or none, is refused by name.</summary>
-    public WorkspaceState SetMeasures(string workspaceId, long revision, string user, IReadOnlyList<string> measures)
+    /// <summary>
+    /// <c>measures cva fva</c> as planned (ADR-0016 note 28): the words name measures by their ids, or a module for all
+    /// of its measures, whatever their case and once each. An unknown one, or none, is refused by name. A selection
+    /// the workspace already holds plans no change.
+    /// </summary>
+    public MeasuresPlan PlanMeasures(WorkspaceState raw, string words)
     {
-        var state = Owned(workspaceId, user);
-        return workspaces.Set(workspaceId, revision, user, PortfolioEditRules.Target(Source(state), Entity.Measures, Entity.MeasuresField), Chosen(measures));
+        var known = register.Ids.Concat(register.Modules.Select(m => m.Id)).ToList();
+        var typed = words.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)
+            .Select(w => known.FirstOrDefault(id => id.Equals(w, StringComparison.OrdinalIgnoreCase)) ?? w.ToLowerInvariant()).Distinct().ToList();
+        var ids = register.Checked(typed);
+        var titles = register.Measures.Where(m => ids.Contains(m.Id)).Select(m => m.Title).ToList();
+        IReadOnlyList<WorkspaceChange> changes = PortfolioMaterialiser.SelectedMeasures(PortfolioCases.Base(raw), register).SequenceEqual(ids) ? []
+            : [new WorkspaceChange.Set(PortfolioEditRules.Target(Source(raw), Entity.Measures, Entity.MeasuresField), Chosen(ids))];
+        return new(new(changes, $"measures {string.Join(' ', ids)}"), ids, titles);
     }
+
+    /// <summary>Selects the measures Price prices, as one command (<c>measures cva fva</c>); a selection already held writes nothing.</summary>
+    public (WorkspaceState State, MeasuresPlan Plan) SelectMeasures(string workspaceId, long revision, string user, string words, RunOrigin? origin = null)
+    {
+        var raw = Owned(workspaceId, user);
+        var plan = PlanMeasures(raw, words);
+        return (Written(raw, revision, user, plan.Command, origin), plan);
+    }
+
+    /// <summary>
+    /// The state a command's planned changes would leave, checked as the write checks them and written nowhere
+    /// (ADR-0016 note 28): what a line's reading tries. A plan of no change leaves the state as it is.
+    /// </summary>
+    public WorkspaceState Trial(WorkspaceState raw, string user, CommandPlan plan, RunOrigin? origin = null) =>
+        plan.Changes.Count == 0 ? raw : workspaces.After(raw, user, plan.Changes, origin);
+
+    // The plan written as one command, named in the log by its words; a plan of no change writes nothing.
+    WorkspaceState Written(WorkspaceState raw, long revision, string user, CommandPlan plan, RunOrigin? origin) =>
+        plan.Changes.Count == 0 ? raw : workspaces.Batch(raw.WorkspaceId, revision, user, plan.Changes, origin, plan.Said);
 
     // The selection the owner set last, in any of their workspaces; none while they have only taken the default, or have
     // taken their last choice back to it: a reset is what `undo` writes where the choice replaced none (ADR-0016 §11).
@@ -351,39 +399,54 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
 
     /// <summary>Removes a case with every change it holds, in one log entry (<c>case remove</c>, ADR-0010 §3). A case is
     /// named by its title or its id, case ignored; one that names none, or several, is refused with the cases there are.</summary>
-    public WorkspaceState RemoveCase(string workspaceId, long revision, string user, string name)
+    public (WorkspaceState State, CasesPlan Plan) RemoveCase(string workspaceId, long revision, string user, string name, RunOrigin? origin = null)
     {
         var raw = Owned(workspaceId, user);
+        var plan = PlanRemoveCase(raw, name);
+        return (Written(raw, revision, user, plan.Command, origin), plan);
+    }
+
+    /// <summary><c>case remove</c> as planned (ADR-0016 note 28): the case the name means, with how many changes it holds.</summary>
+    public CasesPlan PlanRemoveCase(WorkspaceState raw, string name)
+    {
         var cases = PortfolioCases.All(raw).Skip(1).ToList();
         var named = cases.Where(c => string.Equals(c.Id, name.Trim(), StringComparison.OrdinalIgnoreCase)).ToList() is { Count: 1 } byId ? byId
             : cases.Where(c => string.Equals(c.Title, name.Trim(), StringComparison.OrdinalIgnoreCase)).ToList();
         if (named.Count == 0)
             throw new WorkspaceRefused("UnknownCase", cases.Count == 0 ? "The workspace has no case; the Base is the workspace itself and is never removed."
-                : $"No case {name.Trim()}; the cases are {string.Join(", ", cases.Select(c => c.Title))}.");
+                : $"{(name.Trim().Length == 0 ? "case remove takes the case to remove, by its title" : $"No case {name.Trim()}")}; the cases are {string.Join(", ", cases.Select(c => c.Title))}.");
         if (named.Count > 1)
             throw new WorkspaceRefused("AmbiguousCase", $"{name.Trim()} names {named.Count} cases, {string.Join(" and ", named.Select(c => c.Id))}; remove one by its id.");
         var entity = PortfolioCases.Of(named[0].Id);
-        return workspaces.Remove(workspaceId, revision, user, entity, layer: entity);
+        return new(new([new WorkspaceChange.Remove(entity, entity)], $"case remove {named[0].Title}"), [(named[0].Title, PortfolioCases.ChangesOf(raw, named[0].Id).Count)]);
     }
 
     /// <summary>Removes every case with its changes, as one command (<c>cases clear</c>, ADR-0010 §3).</summary>
-    public WorkspaceState ClearCases(string workspaceId, long revision, string user)
+    public (WorkspaceState State, CasesPlan Plan) ClearCases(string workspaceId, long revision, string user, RunOrigin? origin = null)
     {
         var raw = Owned(workspaceId, user);
+        var plan = PlanClearCases(raw);
+        return (Written(raw, revision, user, plan.Command, origin), plan);
+    }
+
+    /// <summary><c>cases clear</c> as planned (ADR-0016 note 28): every case the workspace holds; with none, refused.</summary>
+    public CasesPlan PlanClearCases(WorkspaceState raw)
+    {
         var made = PortfolioCases.Made(raw);
         if (made.Count == 0) throw new WorkspaceRefused("NothingToChange", "The workspace has no case to remove.");
-        return workspaces.Batch(workspaceId, revision, user, [.. made.Select(c => new WorkspaceChange.Remove(c.Entity, c.Entity))]);
+        return new(new([.. made.Select(c => new WorkspaceChange.Remove(c.Entity, c.Entity))], "cases clear"),
+            [.. made.Select(c => (PortfolioCases.Title(c), PortfolioCases.ChangesOf(raw, Entity.Split(c.Entity).Id).Count))]);
     }
 
     // A case whose changes may be changed one by one: a case of iterative addition is its membership, made whole by
-    // add trades and removed whole (ADR-0010 §3's note of 2026-11-08), so none of its changes is set or removed alone.
+    // add each and removed whole (ADR-0010 §3's note of 2026-11-08), so none of its changes is set or removed alone.
     static string Changeable(WorkspaceState raw, string caseId)
     {
         var layer = CaseOf(raw, caseId);
         var made = raw.Created[layer];
         return PortfolioCases.KindOf(made) != PortfolioCases.Add ? layer
             : throw new WorkspaceRefused("NotEditable",
-                $"Case {PortfolioCases.Title(made)} is its trade alone: remove the case whole, or run add trades again to make the set anew.");
+                $"Case {PortfolioCases.Title(made)} is its trade alone: remove the case whole, or run add each again to make the set anew.");
     }
 
     // The case an edit is a change of, as the wire names it: none for a Common edit.
@@ -449,25 +512,41 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
     /// </summary>
     public VaryAnswer Vary(string workspaceId, long revision, string user, string cell, IReadOnlyList<string> values, RunOrigin? origin = null)
     {
+        var raw = Owned(workspaceId, user);
+        return Varied(raw, revision, user, PlanVary(raw, revision, cell, values), origin);
+    }
+
+    /// <summary>
+    /// <c>vary</c> as planned (ADR-0016 note 28): the cases it would make at <paramref name="revision"/>, which names
+    /// them, and the values it would skip. A cell or a value that cannot be read is refused, and plans nothing.
+    /// </summary>
+    public VaryPlan PlanVary(WorkspaceState raw, long revision, string cell, IReadOnlyList<string> values)
+    {
         var text = cell.Trim();
         var at = text.IndexOf(' ');
         if (at <= 0)
             throw new WorkspaceRefused("UnknownCell", $"Name a cell as its row and its column, such as CSA-A threshold; {(text.Length == 0 ? "none was named" : $"{text} is one word")}.");
-        var raw = Owned(workspaceId, user);
-        return Vary(raw, revision, user, PortfolioCells.Resolve(PortfolioCases.Base(raw), register, text[..at], text[(at + 1)..]), values, origin);
+        return Plan(raw, revision, PortfolioCells.Resolve(PortfolioCases.Base(raw), register, text[..at], text[(at + 1)..]), values);
     }
+
+    /// <summary>As <see cref="PlanVary"/>, on the cell of an entity's field, as a page names a cell.</summary>
+    public VaryPlan PlanVaryField(WorkspaceState raw, long revision, string entity, string field, IReadOnlyList<string> values) =>
+        Plan(raw, revision, PortfolioCells.Of(PortfolioCases.Base(raw), register, entity, field), values);
+
+    VaryAnswer Varied(WorkspaceState raw, long revision, string user, VaryPlan plan, RunOrigin? origin) =>
+        new(Written(raw, revision, user, plan.Command, origin), plan.Made, plan.Skipped);
 
     /// <summary>As <see cref="Vary(string, long, string, string, IReadOnlyList{string}, RunOrigin?)"/>, on the cell of an entity's
     /// field: <em>Vary values…</em> on a cell of the input tabs or the trade grids (ADR-0010 §3).</summary>
     public VaryAnswer VaryField(string workspaceId, long revision, string user, string entity, string field, IReadOnlyList<string> values, RunOrigin? origin = null)
     {
         var raw = Owned(workspaceId, user);
-        return Vary(raw, revision, user, PortfolioCells.Of(PortfolioCases.Base(raw), register, entity, field), values, origin);
+        return Varied(raw, revision, user, PlanVaryField(raw, revision, entity, field, values), origin);
     }
 
     // Every value is read and checked as the cell would check it typed, before any case is made: a list holding a value
     // that cannot be read makes none. A value the Base holds makes no case, nor one a case already holds; each is said.
-    VaryAnswer Vary(WorkspaceState raw, long revision, string user, CellName cell, IReadOnlyList<string> values, RunOrigin? origin)
+    VaryPlan Plan(WorkspaceState raw, long revision, CellName cell, IReadOnlyList<string> values)
     {
         var written = values.Select(v => v.Trim()).ToList();
         if (written.Count == 0 || written.Any(v => v.Length == 0))
@@ -492,7 +571,9 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
             if (same is not null) { skipped.Add($"{text} is case {same}, made already"); continue; }
             made.Add(($"{cell.Row} {cell.Column} {text}", value));
         }
-        if (made.Count == 0) return new VaryAnswer(raw, [], skipped);
+        // The command by the words that would type it, which the log and `undo` name it by.
+        var said = $"vary {cell.Row} {cell.Column} {string.Join(", ", written)}";
+        if (made.Count == 0) return new(new([], said), [], skipped);
         var source = Source(raw);
         // A case is named by the log entry that made it, so no id is ever given twice.
         var changes = made.SelectMany((m, i) =>
@@ -505,7 +586,7 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
                 new WorkspaceChange.Set(PortfolioEditRules.Target(source, cell.Entity, cell.Field, layer), m.Value),
             };
         }).ToList();
-        return new VaryAnswer(workspaces.Batch(raw.WorkspaceId, revision, user, changes, origin), [.. made.Select(m => m.Title)], skipped);
+        return new(new(changes, said), [.. made.Select(m => m.Title)], skipped);
     }
 
     /// <summary>
@@ -516,6 +597,13 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
     public (WorkspaceState State, EffectiveCredit Credit) ChooseCds(string workspaceId, long revision, string user, string text, RunOrigin? origin = null)
     {
         var raw = Owned(workspaceId, user);
+        var state = Written(raw, revision, user, PlanCds(raw, text), origin);
+        return (state, PortfolioMaterialiser.Credit(PortfolioCases.Base(state)));
+    }
+
+    /// <summary><c>cds</c> as planned (ADR-0016 note 28): the keys of the choice that would change; a choice already held plans none.</summary>
+    public CommandPlan PlanCds(WorkspaceState raw, string text)
+    {
         var baseline = PortfolioCases.Base(raw);
         var source = Source(raw);
         var current = PortfolioMaterialiser.Credit(baseline).Choice;
@@ -529,18 +617,26 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
             .Where(c => c.Before != c.After)
             .Select(c => (WorkspaceChange)new WorkspaceChange.Set(PortfolioEditRules.Target(source, entity, c.Field), c.After is null ? null : JsonValue.Create(c.After)))
             .ToList();
-        if (changes.Count == 0) return (raw, PortfolioMaterialiser.Credit(baseline));
-        var state = workspaces.Batch(workspaceId, revision, user, changes, origin);
-        return (state, PortfolioMaterialiser.Credit(PortfolioCases.Base(state)));
+        return new(changes, $"cds {string.Join(' ', text.Split(' ', StringSplitOptions.RemoveEmptyEntries))}");
     }
+
+    /// <summary>The credit a state holds, as the page shows it: what a reading of <c>cds</c> says of the state its plan would leave.</summary>
+    public static EffectiveCredit CreditOf(WorkspaceState state) => PortfolioMaterialiser.Credit(PortfolioCases.Base(state));
 
     /// <summary>What <c>cds</c> says back: the CDS the counterparty now has, or why it has none.</summary>
     public static string CdsSaid(Registration registration, EffectiveCredit credit) => credit.Cds is { } cds
-        ? $"The CDS of {registration.Key} is {(cds.Type == CdsCatalog.Proxy ? "the proxy" : "the single name")} {cds.Reference}, recovery {cds.Recovery * 100m:0.##}%."
-        : credit.Missing ?? throw new InvalidOperationException("A credit with no curve says why.");
+        ? $"The CDS of {registration.Key} is {CdsNamed(cds)}."
+        : WhyNoCds(credit);
+
+    /// <summary>Why a counterparty has no CDS curve, in the credit's own sentence. A credit with neither a curve nor a reason is a defect.</summary>
+    public static string WhyNoCds(EffectiveCredit credit) => credit.Missing ?? throw new InvalidOperationException("A credit with no curve says why.");
+
+    /// <summary>A CDS curve in a sentence's words: whether it is a proxy or a single name, its reference and its recovery.</summary>
+    public static string CdsNamed(EffectiveCds cds) =>
+        $"{(cds.Type == CdsCatalog.Proxy ? "the proxy" : "the single name")} {cds.Reference}, recovery {cds.Recovery * 100m:0.##}%";
 
     /// <summary>
-    /// <c>add trades</c> (docs/03 §5, ADR-0010 §3's note of 2026-11-08): one case per New row with A ticked, at this
+    /// <c>add each</c> (docs/03 §5, ADR-0010 §3's note of 2026-11-08): one case per New row with A ticked, at this
     /// moment, each holding that trade alone on top of the existing trades, never the others of the set: in its reading
     /// only, A is off on every other New row of the set. A candidate in Before is refused by name, never unticked, and
     /// nothing is made. A set made before is replaced in the same command; the <c>vary</c> cases stay.
@@ -548,21 +644,28 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
     public AddAnswer AddTrades(string workspaceId, long revision, string user, RunOrigin? origin = null)
     {
         var raw = Owned(workspaceId, user);
+        var plan = PlanAdd(raw, revision);
+        return new(Written(raw, revision, user, plan.Command, origin), plan.Made, plan.Replaced);
+    }
+
+    /// <summary><c>add each</c> as planned (ADR-0016 note 28): the cases it would make at <paramref name="revision"/>, which names them, and those it would replace.</summary>
+    public AddPlan PlanAdd(WorkspaceState raw, long revision)
+    {
         var candidates = PortfolioMaterialiser.Trades(PortfolioCases.Base(raw)).Where(t => t.IsNew && t.After).Select(t => (t.TradeId, t.Before)).ToList();
         if (candidates.Count == 0)
-            throw new WorkspaceRefused("NothingToAdd", "add trades makes a case per New row with A ticked, and no New row has A ticked.");
+            throw new WorkspaceRefused("NothingToAdd", "add each makes a case per New row with A ticked, and no New row has A ticked.");
         if (candidates.Where(c => c.Before).Select(c => c.TradeId).ToList() is { Count: > 0 } before)
         {
             var (are, them) = before.Count == 1 ? ("is", "it") : ("are", "them");
             throw new WorkspaceRefused("CandidateInBefore",
-                $"{string.Join(", ", before)} {are} in Before, and a new trade is priced alone only out of Before. Clear B on {them}, or A to leave {them} out, then add trades again.");
+                $"{string.Join(", ", before)} {are} in Before, and a new trade is priced alone only out of Before. Clear B on {them}, or A to leave {them} out, then add each again.");
         }
         var replaced = PortfolioCases.Made(raw).Where(c => PortfolioCases.KindOf(c) == PortfolioCases.Add).ToList();
         // The cap counts the Base (ADR-0010 §3's note): a set Price would refuse is not written n² edits deep first.
         var count = PortfolioCases.All(raw).Count - replaced.Count + candidates.Count;
         if (count > caseCap)
             throw new WorkspaceRefused("TooManyCases",
-                $"add trades would make {candidates.Count} cases, and Price prices {caseCap} at most, the Base among them: {count - caseCap} over. Clear A on {count - caseCap} new trade(s) first.");
+                $"add each would make {candidates.Count} cases, and Price prices {caseCap} at most, the Base among them: {count - caseCap} over. Clear A on {count - caseCap} new trade(s) first.");
         var source = Source(raw);
         var ids = candidates.Select(c => c.TradeId).ToList();
         var changes = new List<WorkspaceChange>(replaced.Select(c => new WorkspaceChange.Remove(c.Entity, c.Entity)));
@@ -575,8 +678,7 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
             changes.AddRange(ids.Where(other => other != trade)
                 .Select(other => new WorkspaceChange.Set(PortfolioEditRules.Target(source, Entity.Of(Entity.Trade, other), "after", layer), JsonValue.Create(false))));
         }
-        return new AddAnswer(workspaces.Batch(workspaceId, revision, user, changes, origin), [.. ids.Select(t => $"add {t}")],
-            [.. replaced.Select(PortfolioCases.Title)]);
+        return new(new(changes, "add each"), [.. ids.Select(t => $"add {t}")], [.. replaced.Select(PortfolioCases.Title)]);
     }
 
     /// <summary>
@@ -655,7 +757,8 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
 
     IReadOnlyList<EffectiveTrade> Rows(WorkspaceState state) => TradeOrder.Ordered(state, register, null, []);
 
-    WorkspaceState Owned(string workspaceId, string user)
+    /// <summary>The user's own workspace of the pricer, as it stands; another's, or none of that id, is refused.</summary>
+    public WorkspaceState Owned(string workspaceId, string user)
     {
         var state = workspaces.Find(workspaceId);
         if (state is null || state.App != PortfolioEditRules.App) throw new WorkspaceRefused("UnknownWorkspace", $"No XVA workspace {workspaceId}.");

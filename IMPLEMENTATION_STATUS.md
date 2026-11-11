@@ -1534,10 +1534,86 @@ Unchanged: every figure on these pages is simulated, and says so.
 - Step 2a's and 2b's other limits stand: `shown` is the grid's subset until `filter` (step 4), only the pricer's
   trade grids and CSA grid are screens, and Rates has no door (step 3).
 
+## Generic commands, delivery step 3a: the pricer's verbs that edit, and short forms (ADR-0016 §3, §4, 2026-11-11)
+
+The first pull request of step 3 (`docs/specs/commands-3-domain-verbs-rates`, tickets 01 to 07). Six of the pricer's
+commands are declared once on the server and read there, three more are short forms of the kernel's `set`, and the
+commands for a page's tabs are built by the shell. Nine hand-written client commands, and the seven `open <tab>`,
+are gone with the six page endpoints that wrote for them. What it settled is ADR-0016's notes 27 to 30.
+
+### What runs
+
+- **A command says its application.** A command's form names the workspace application it is for, or none (the
+  kernel's verbs). The server reads a line with the commands of the workspace's application, and the line lists a
+  served command on a page of that application: a Rates page is offered no `vary`.
+- **Six verbs read their own line**: `vary`, `add each`, `cds`, `measures`, `case remove` and `cases clear`. Each is a
+  capability that says how it is typed and reads the words after its own into the request the AI already writes. The
+  reading is a trial: the command plans its changes for the workspace as it stands and the kernel checks them with
+  nothing written. The line says what would happen before Enter (`Makes 2 case(s): CSA-A threshold 10mm, CSA-A
+  threshold 5mm.`, `Chooses …`, `Price would price KVA.`, `Removes the case …, with its 1 change.`, `Removes 2 cases:
+  … and ….`) or the command's own refusal, and Enter invokes the capability with the inputs read, at the revision
+  read.
+- **What could follow is the pricer's to say**: the measures not typed yet, the CDS catalogue's words and a proxy's
+  keys, the cases' titles.
+- **`add trades` is `add each`** (the owner's name for it), with no argument until step 3d. `add trades` is no second
+  spelling.
+- **Short forms.** `before all|none [new|existing]`, `after all|none [new|existing]` and `currency <ccy>` are
+  registered by the pricer as short forms. The server expands one to a kernel line and reads that line; the line
+  shows it before Enter (`Runs as set existing before off`), with the kernel's own preview under it (`trades, 2
+  rows: …`, `B: 2 on to off`). What runs, what the log names and what `undo` takes back is the kernel's command, by
+  the expanded line. With no grid named the grid is the one the keyboard is in; with none, the line is refused and
+  names `new` and `existing`.
+- **The page's controls call the same commands**, through the page's door. A measure's button invokes `measures` with
+  the selection it would leave; the captions' `B all`, `B none`, `A all` and `A none` run the short form (`before all
+  existing`); *Vary values…* invokes `vary` with its values as typed and shows the command's sentence in its dialog;
+  the Changes tab's removals invoke `case remove` and `cases clear`. `undo` names a press as it names the line.
+- **`open <tab>` is built from the page's tabs.** A place of a page says whether it is a tab; the shell builds one
+  command for each (`open csa`, `open netting`, `open im`, …) and `go` takes the grids, the dock and a trace. `go
+  csa` is no longer read. `open result` and `open pricing db` keep their words.
+- **Gone:** the client's readers of `measures`, `vary`, `add trades`, `cds`, `case remove`, `cases clear`, `currency`,
+  `before` and `after`, and the page's `/vary`, `/cds` (the write), `/add-trades`, `/cases/remove`, `/cases/clear` and
+  `/measures` endpoints. The catalogue's read (`GET /api/xva/cds`) stays.
+- **The AI** calls the same capabilities, three of them new to it (`xva.measures`, `xva.case.remove`,
+  `xva.cases.clear`), and the page reads the workspace again after each.
+
+### Verification performed
+
+| What | Result |
+|---|---|
+| `dotnet test server/Qube.slnx` | 1021 passed |
+| Client: `npm run typecheck`, `npm test`, `npm run build` | Clean; 297 passed in 33 files; built |
+| `npx playwright test` (Chromium, headless, Linux) | 81 passed |
+| The four spec files this step changes (`xva`, `simm`, `trace`, `credit`), with `--repeat-each=3`, before the review's changes | 186 passed |
+| The three browser tests the review's changes bear on (the short forms, `vary`, *Vary values…*), with `--repeat-each=3` | 9 passed |
+| The line's `Runs as` row in Chromium at 390, 768, 992 and 1440 px, dark and light, by a script and by eye | One text line inside the line's box at each width; no text of the line under 4.5:1; nothing scrolls sideways; no console message |
+
+### Providers
+
+Unchanged: every figure on these pages is simulated, and says so.
+
+### Known limits
+
+- The line still lists the commands written in the client before the served ones, so the pricer's placeholder reads
+  `price, scenario, scenario include…`. The order becomes the module's, `price` first, when `price` is served (3b).
+- Still written in the client: `new xva`, `price`, the scenario verbs, `refresh`, `pv01 retry`, `explain`, the trace
+  options, `open result`, `dock full|restore` (3b), `download run` and `copy quote` (they act in the browser, note
+  31), and every command of Rates (3c).
+- `add each` takes no list yet: it makes a case for each New row ticked in After, as `add trades` did (3d).
+- The currency select and the Credit tab's selects are field edits of the page's queue, as a typed cell is, and not
+  commands (ADR-0016 note 28): a proxy is chosen a key at a time, and `cds` says a whole choice in one line.
+- A served line stays open until the server has answered, and a key typed meanwhile is the line's. The browser tests
+  wait for the line to close before they send keys to the page (`taken`).
+- A request to `xva.vary` with no values is refused by the contract (`422 ValidationFailed`), not by the command's
+  own sentence; a line with none is refused by the command, with an example.
+- `vary` offers nothing to complete, and a refusal of one of the six verbs is a sentence alone: it marks no word of
+  the line and lists nothing it could have been, as `set` and the short forms do (ADR-0016 note 28).
+- A caption button pressed where every row already holds the value writes nothing and says `Nothing changed`.
+- Rates has no door and no registered table (3c): none of the kernel's verbs work there.
+
 ## Next
 
-1. Generic commands, delivery step 3 (ADR-0016 §3, §4): the pricer's remaining commands as capabilities through the
-   gateway, Rates registers its tables and its door, and one of `open <tab>` and `go <tab>` goes.
+1. Generic commands, delivery step 3b to 3d (ADR-0016 §3, §4): scenarios as a table and the verbs that execute
+   (`price`, `refresh`, `pv01 retry`), Rates registers its tables and its door, and `add each` takes lists.
 2. MVA with SIMM (`docs/12-implementation-plan.md` P2): spot IM from the XVA request's MVA option.
 3. ADR-0010 Delivery step 3 (Advanced: Before-only and After-only edits, the split fill), when the owner asks for it.
 4. The owner's review of ADR-0003 §7 (scopes, carry and conflict), then a synthetic source change that can produce a conflict, and the browser cases still open above (reload, failed case unavailable).

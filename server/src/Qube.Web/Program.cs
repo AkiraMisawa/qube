@@ -54,7 +54,7 @@ builder.Services.AddSingleton<IQubeModule>(sp => new SimmModule(new SyntheticImS
     simmTables));
 // The commands reach the workspace service only when invoked: it is built from the registry they are part of.
 builder.Services.AddSingleton<IQubeModule>(sp => new RatesCommandsModule(sp.GetRequiredService<RatesWorkspaces>));
-builder.Services.AddSingleton<IQubeModule>(sp => new PortfolioCommandsModule(sp.GetRequiredService<PortfolioWorkspaces>));
+builder.Services.AddSingleton<IQubeModule>(sp => new PortfolioCommandsModule(sp.GetRequiredService<PortfolioWorkspaces>, sp.GetRequiredService<MeasureRegister>()));
 // Products are descriptions from catalogs (ADR-0008 §7); the kernel's entity.create reads them. Rates describes its IRS and CCS.
 builder.Services.AddSingleton<IProductCatalog>(new RatesProductCatalog(conventions));
 builder.Services.AddSingleton<IProductRules>(sp => new IrsRules(conventions, sp.GetRequiredService<RatesWorkspaces>));
@@ -67,6 +67,8 @@ builder.Services.AddSingleton<IQubeModule>(sp => new WorkspaceCommandsModule(sp.
 // them. The pricer registers its trades, CSAs, netting set, credit, CDS, workspace and each module's settings.
 builder.Services.AddSingleton<ITableCatalog>(sp => new PortfolioTables(sp.GetRequiredService<MeasureRegister>()));
 builder.Services.AddSingleton<TableRegister>();
+// Short forms are a module's words for a line of a kernel verb (ADR-0016 note 29): the pricer's before, after and currency.
+builder.Services.AddSingleton<IShortFormCatalog, PortfolioShortForms>();
 builder.Services.AddSingleton<TableService>();
 builder.Services.AddSingleton<IQubeModule>(sp => new TablesModule(sp.GetRequiredService<TableService>));
 builder.Services.AddSingleton(sp => new CommandService(sp.GetRequiredService<CompositionRegistry>(), sp.GetRequiredService<IDataStore>()));

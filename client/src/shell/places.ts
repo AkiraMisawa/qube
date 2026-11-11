@@ -2,18 +2,20 @@ import { CommandRefused } from '../platform/commands/commands';
 import type { Notify } from '../platform/notices';
 import { keepKeyboard } from './keyboard';
 
-// The places of each open page (ADR-0016 §9, note 20 of 2026-11-11): where the keyboard can be put by name. A page
-// registers them while it is mounted, by its panel, and the shell builds `go <place>` and `focus grid` from the places
-// of the page in the active panel. Nothing here knows a grid, a tab or an application.
+// The places of each open page (ADR-0016 §9, notes 20 and 30 of 2026-11-11): where the keyboard can be put by name. A
+// page registers them while it is mounted, by its panel, and the shell builds `open <tab>`, `go <place>` and `focus
+// grid` from the places of the page in the active panel. Nothing here knows which grids or tabs an application has.
 
 /** A place of a page. */
 export interface Place {
-  /** The word `go` takes for it: one word, lower case. */
+  /** The word `go` takes for it, or `open` where it is a tab: one word, lower case. */
   readonly word: string;
   /** What the screen calls it, as a sentence names it (`Existing trades`, `the CSA tab`): the notice says the keyboard is in it. */
   readonly title: string;
   /** A grid: `focus grid` goes to the first of a page's. */
   readonly grid?: boolean;
+  /** A tab of the page (ADR-0016 note 30): `open <word>` shows it and puts the keyboard in it, and `go` offers the others. */
+  readonly tab?: boolean;
   /**
    * Puts the keyboard there: at once, or once the page has drawn the part the place is in. A place a page offers has
    * something to take the keyboard, whatever else it shows. Where it cannot be gone to now, answers why, and has moved

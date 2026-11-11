@@ -76,7 +76,7 @@ describe('the page\'s commands (ADR-0006 note 3 of 2026-11-11)', () => {
   const of = (id: string) => commands.find((c) => c.id === id)!;
 
   it('a command says that it acts on the page in the active panel, and only such a command does', () => {
-    expect(of('xva.vary').page).toBe(true);
+    expect(of('xva.run.download').page).toBe(true);
     expect(of('workspace.price').page).toBe(true);
     expect(of('trace.explain').page).toBe(true);
     // Not of the page: one that opens another, one of another application, and the shell's own on the active panel.
@@ -94,7 +94,7 @@ describe('the page\'s commands (ADR-0006 note 3 of 2026-11-11)', () => {
 
     expect(served(typed).unavailable).toBe('This panel has no workspace for it to act on.');
 
-    registerCommandDoor('p', { workspaceId: 'w', settled: () => Promise.resolve(), view: () => undefined, enter: () => Promise.resolve(undefined), invoke: () => Promise.resolve(undefined) });
+    registerCommandDoor('p', { workspaceId: 'w', app: 'weather', settled: () => Promise.resolve(), view: () => undefined, enter: () => Promise.resolve(undefined), invoke: () => Promise.resolve(undefined) });
     try {
       const set = served(typed);
       expect([set.words, set.group, set.target, set.page, set.unavailable, set.served?.door.workspaceId]).toEqual(['set', 'Workspace', 'XVA ABC/LE-01', true, undefined, 'w']);
@@ -123,21 +123,53 @@ describe('places (ADR-0016 §9, note 20 of 2026-11-11)', () => {
   const built = () => {
     const notify = vi.fn();
     const commands = buildCommands({ catalog: catalog([], []), state: s, activeRun: undefined, toggleTheme: vi.fn(), notify });
-    return { notify, go: commands.find((c) => c.id === 'panel.go')!, focusGrid: commands.find((c) => c.id === 'panel.focusGrid')! };
+    return { notify, commands, go: commands.find((c) => c.id === 'panel.go')!, focusGrid: commands.find((c) => c.id === 'panel.focusGrid')! };
   };
   afterEach(() => registerPlaces('p', undefined));
+
+  it('note 30: `open <tab>` is built from the tabs of the page in the active panel, a command each, and `go` offers its other places', () => {
+    const went: string[] = [];
+    registerPlaces('p', () => [
+      { word: 'notes', title: 'the Notes tab', tab: true, go: () => { went.push('notes'); return undefined; } },
+      { word: 'alarms', title: 'the Alarms tab', tab: true, go: () => 'The Alarms tab shows only while a station has one.' },
+      { word: 'readings', title: 'Readings', grid: true, go: () => { went.push('readings'); return undefined; } },
+    ]);
+    const { go, notify, commands } = built();
+    const opens = commands.filter((c) => c.id.startsWith('panel.open.'));
+    const place = go.args![0]!;
+
+    // A tab is the page's own command, listed first on the empty line as its other commands are.
+    expect(opens.map((c) => [c.id, c.words, c.title, c.group, c.target, c.page])).toEqual([
+      ['panel.open.notes', 'open notes', 'Open the Notes tab', 'Panels', 'Board 2026-11-11', true],
+      ['panel.open.alarms', 'open alarms', 'Open the Alarms tab', 'Panels', 'Board 2026-11-11', true],
+    ]);
+    expect(place.complete!({})).toEqual([{ value: 'readings', detail: 'Readings' }]);
+    expect(place.check!('notes', {})).toBe('one of readings');
+
+    expect(execute(opens[0]!)).toBeUndefined();
+    expect(went).toEqual(['notes']);
+    expect(notify.mock.calls).toEqual([['done', 'The keyboard is in the Notes tab.']]);
+    // A tab that does not show now is not opened: the line keeps the page's reason, and nothing more is said.
+    expect(execute(opens[1]!)).toBe('The Alarms tab shows only while a station has one.');
+    expect(notify.mock.calls).toHaveLength(1);
+  });
+
+  it('note 30: a page with no tab offers no `open` of the shell\'s', () => {
+    registerPlaces('p', () => [{ word: 'readings', title: 'Readings', grid: true, go: () => undefined }]);
+    expect(built().commands.filter((c) => c.id.startsWith('panel.open.'))).toEqual([]);
+  });
 
   it('`go` offers the places of the page in the active panel, puts the keyboard in the one named and says where it went', () => {
     const went: string[] = [];
     registerPlaces('p', () => [
-      { word: 'notes', title: 'the Notes tab', go: () => { went.push('notes'); return undefined; } },
+      { word: 'notes', title: 'the notes', go: () => { went.push('notes'); return undefined; } },
       { word: 'readings', title: 'Readings', grid: true, go: () => { went.push('readings'); return undefined; } },
     ]);
     const { go, notify } = built();
     const place = go.args![0]!;
 
     expect([go.words, go.group, go.target, go.unavailable]).toEqual(['go', 'Panels', 'Board 2026-11-11', undefined]);
-    expect(place.complete!({})).toEqual([{ value: 'notes', detail: 'the Notes tab' }, { value: 'readings', detail: 'Readings' }]);
+    expect(place.complete!({})).toEqual([{ value: 'notes', detail: 'the notes' }, { value: 'readings', detail: 'Readings' }]);
     // A word that names no place is refused with the places there are.
     expect(place.check!('charts', {})).toBe('one of notes, readings');
     expect(place.check!('Readings', {})).toBeUndefined();
@@ -186,7 +218,7 @@ describe('places (ADR-0016 §9, note 20 of 2026-11-11)', () => {
   it('`focus grid` is `go` to the first place that is a grid, with the same notice', () => {
     const went: string[] = [];
     registerPlaces('p', () => [
-      { word: 'notes', title: 'the Notes tab', go: () => { went.push('notes'); return undefined; } },
+      { word: 'notes', title: 'the Notes tab', tab: true, go: () => { went.push('notes'); return undefined; } },
       { word: 'readings', title: 'Readings', grid: true, go: () => { went.push('readings'); return undefined; } },
       { word: 'stations', title: 'Stations', grid: true, go: () => { went.push('stations'); return undefined; } },
     ]);

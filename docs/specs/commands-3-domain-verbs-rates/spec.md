@@ -1,0 +1,127 @@
+# Generic commands, delivery step 3: the pricer's verbs on the server, short forms, and Rates
+
+Status: in progress
+
+The decisions are ADR-0016 §3, §4 and §5, with its notes of 2026-11-11 for step 3 (27 onward). This spec orders
+ADR-0016's Delivery order, step 3, and names the seams it is tested at. The owner asked on 2026-11-11 for every step
+to be implemented without a question at each one, so the seams below are DEFAULTs and are reported, not asked.
+
+## Problem Statement
+
+After step 2 the kernel's verbs (`set`, `reset`, `remove`, `undo`, `redo`, `find`) are declared once on the server
+and read there. Everything else the pricer's line can do is still written by hand in the client: some forty commands
+in one file, each read by the client, each calling an endpoint of its own. The line cannot preview them, the chain key
+runs them without a reading, and the AI's capabilities are a second copy of the same words. `before all` acts on "the
+grid the keyboard was last in". Rates has no registered table and no door, so none of the kernel's verbs work there,
+a line of Rates cannot be edited or removed by command, and `set defaults` fails on half its values.
+
+## Solution
+
+**3a. Short forms and the pricer's verbs that edit.** A command says which application's workspaces it is for. The
+pricer's `vary`, `add each`, `cds`, `measures`, `case remove` and `cases clear` say how they are typed and read their
+own line on the server, with a preview that is a trial of the command. `before all`, `after none` and `currency USD`
+are short forms that expand to `set`. The shell builds `open <tab>` from a page's tabs.
+
+**3b. Scenarios and the verbs that execute.** The pricer's scenarios are a registered table. The scenario verbs,
+`price`, `refresh` and `pv01 retry` say how they are typed and go through the door.
+
+**3c. Rates registers.** Its lines and defaults are tables, its page has a door, a screen and places, and its verbs
+say how they are typed.
+
+**3d. `add each` with lists.** The capability takes iterations as lists, the page makes one from the two grids'
+selections, and the Changes tab shows an iteration's lists.
+
+## User Stories
+
+1. As a desk user, I type `vary CSA-A threshold 10mm, 5mm` and see the two cases it would make before Enter.
+2. As a desk user, I type `vary CSA-A colour red` and am told why it cannot be read, with nothing run.
+3. As a desk user, I type `before all` with the keyboard in the Existing grid, and the line shows `set existing
+   before on` before Enter; `undo` then names that line.
+4. As a desk user, I type `measures` and am offered the measures I have not typed yet.
+5. As a desk user on a Rates page, I am not offered `vary`.
+6. As a desk user, I chain `add each`, Ctrl+Enter, `price`.
+7. As the AI, I call `xva.vary` with the same `cell` and `values` a user types, and get the same refusal.
+8. As a desk user, I type `set s1 included off` and `remove s1` for a scenario (3b).
+9. As a desk user on Rates, I select two lines and type `set notional 5mm`, then `undo` (3c).
+10. As a desk user, I select two new trades and one existing trade and press `Add each of selection` (3d).
+11. As a developer of the next page, I declare a verb's form and its reader, and write no client command.
+
+## Implementation Decisions
+
+### 3a. Short forms and the pricer's verbs that edit (tickets 01 to 07; ADR-0016 notes 27 to 31)
+
+- **A command's application.** `CommandForm.App`, on the wire `app`. `CommandLines` reads a line with the commands
+  whose form names the workspace's application or none. `CommandDoor.app` is the page's, and `servedCommands` lists
+  a command whose form names it or none.
+- **Short forms.** `IShortFormCatalog` answers a module's `IShortForm`s: a descriptor (an id, a title and the form,
+  which names the application), `Expand(LineContext)`, which answers the kernel line or refuses by name
+  (`TableRefused`), and `Complete(LineContext)`. `CommandLines` holds them as it holds the screen's verbs; its
+  reading of one is the reading of the expansion, and `LinePreview` gains `Expands`. `GET /api/catalog` lists
+  `shortForms`. The line builds their entries and shows `expands` under the input. Enter on one runs the
+  expansion's inputs.
+- **The pricer's short forms** (`PortfolioShortForms`): `before`, `after`, `currency`.
+- **A domain verb's reader.** `PortfolioVary`, `PortfolioTradesAdd`, `PortfolioCds`, and the new `PortfolioMeasures`,
+  `PortfolioCaseRemove` and `PortfolioCasesClear` implement `ILineCommand`. Each service method is split into its
+  plan (the changes and what is said of them) and the write; the reader plans and has `WorkspaceService.After` check
+  the changes, and the handler plans and writes.
+- **The page.** Its functions for `vary`, the measures' buttons, the cases and the caption buttons call the door
+  (`invoke`, or `enter` with a line), and `XvaApi`'s endpoints that wrote for them go. The Credit tab's selects and
+  the currency select stay field edits (ADR-0016 note 28). `xva.vary`'s request names its cell by `cell`, or by
+  `entity` and `field` for the dialog, whose cell is the one its menu opened on.
+- **Tabs.** `Place.tab`; the shell builds one `open <tab>` command for each tab of the page, and `go` takes the
+  rest.
+
+### 3b. Scenarios and the verbs that execute (tickets 08 to 11)
+
+- `xva.scenarios` is a registered table keyed by the scenario's name: `included` is a flag, the shifts are counted,
+  and `remove` takes a scenario. `scenario include`, `scenario exclude`, `scenario remove` and `scenarios clear` are
+  short forms.
+- `scenario`, `scenario duplicate`, `scenario ladder`, `scenario cross`, `scenario save` and `scenario load` read
+  their own lines as 3a's verbs do.
+- `price`, `refresh` and `pv01 retry` are capabilities with forms. They are not tried: the preview says what would
+  start, and refuses what can be refused without starting.
+
+### 3c. Rates registers (tickets 12 to 15)
+
+- `rates.lines` and `rates.defaults` are registered tables; `Percent` joins `Rate` (note 5).
+- The Rates page has a door, a screen and places.
+- `new <product>`, `live start`, `live stop`, `capture` and `price` say how they are typed; `set defaults` is `set`.
+- Rates' three command defects of 2026-11-10 end here.
+
+### 3d. `add each` with lists (tickets 16 to 19)
+
+- A contract may hold a list, and `xva.trades.add` takes iterations: each the candidates it adds and the existing
+  trades it takes out of After (§3).
+- The page makes one iteration from the two grids' selections, by a button and a menu item, and the Changes tab
+  shows an iteration's two lists.
+- How the line spells the lists stays open (§3): the line takes `add each` with no argument.
+
+## Testing Decisions
+
+A test names the ADR it holds. Tested at these seams, each through its public interface:
+
+- `CommandLines.Preview` (`CommandLineTests`, station readings): a command of another application is no command; a
+  short form's reading is its expansion's, with `Expands`; a short form refused by its own rule.
+- `CommandLines.Preview` and `CommandService` over the pricer (`PricerLineTests`): each verb's reading (inputs,
+  arguments, what would be made), its refusals by code, that a reading writes nothing, and that invoking the inputs
+  read does what the reading said.
+- HTTP (`CommandGatewayTests`): the catalog lists `shortForms` and a form's `app`.
+- Client, Vitest: `servedCommands` (a command of another application is not listed; a short form's entry);
+  `buildCommands` (`open` from tabs, `go` from the rest).
+- Client, Playwright (`xva.spec.ts`): `vary` previewed, refused and run; `before all` showing its expansion and
+  taken back; `measures` completed; the existing tests of `add trades`, `cds`, `case remove`, `cases clear`,
+  `currency` and the caption buttons, on the new path.
+
+Not tested: what a domain service already holds by its own tests, and the kernel's reading of the expanded line.
+
+## Out of Scope
+
+- `select`, `filter`, `sort`, `copy`, `export` and the AI's row read (step 4).
+- Drafts, templates and tables under a row; a trade made in the pricer from typed terms (step 5).
+- Saved sequences of edits (step 6).
+- A result that carries a file or a text to copy: `download run` and `copy quote` stay in the client (note 31).
+- The line's spelling of `add each` lists (ADR-0016 §3, open).
+
+## Further Notes
+
+- Sizing: a counterparty has at most about 10,000 trades and about 100 at the median (the owner, 2026-11-10).

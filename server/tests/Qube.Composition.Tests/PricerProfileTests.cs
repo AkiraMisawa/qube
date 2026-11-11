@@ -54,7 +54,7 @@ public class PricerProfileTests
     {
         var (service, runs, store) = Priced();
         var ws = service.Create("akira", counterparty, Day1, 20);
-        ws = service.SetMeasures(ws.WorkspaceId, ws.Revision, "akira", ["cva"]);
+        ws = service.SelectMeasures(ws.WorkspaceId, ws.Revision, "akira", "cva").State;
         if (mpor is not null) ws = service.SetText(ws.WorkspaceId, ws.Revision, "akira", MeasureSettings.EntityOf(XvaMeasures.Module), XvaMeasures.Mpor, mpor);
 
         var (input, profiles) = await Price(runs, store, service, ws);
@@ -84,7 +84,7 @@ public class PricerProfileTests
     {
         var (service, runs, store) = Priced();
         var ws = service.Create("akira", "ABC/LE-01", Day1, 20);
-        ws = service.SetMeasures(ws.WorkspaceId, ws.Revision, "akira", ["kva"]);
+        ws = service.SelectMeasures(ws.WorkspaceId, ws.Revision, "akira", "kva").State;
         ws = service.Vary(ws.WorkspaceId, ws.Revision, "akira", "CSA-A threshold", ["50mm"]).State;
         ws = service.DefineScenario(ws.WorkspaceId, ws.Revision, "akira", "up", "usdjpy +10%").State;
 

@@ -157,7 +157,7 @@ public class PricerScenarioTests
     {
         var (service, runs, store) = Priced();
         var ws = service.Create("akira", "ABC/LE-01", Day1, 40);
-        ws = service.SetMeasures(ws.WorkspaceId, ws.Revision, "akira", ["cva", "fva"]);
+        ws = service.SelectMeasures(ws.WorkspaceId, ws.Revision, "akira", "cva fva").State;
         ws = service.Vary(ws.WorkspaceId, ws.Revision, "akira", "CSA-A threshold", ["10mm"]).State;
         ws = Define(service, ws, "s1", "jpy_ois +10bp; usdjpy -5%");
         ws = Define(service, ws, "s2", "usd_sofr 5y -25bp");
@@ -182,7 +182,7 @@ public class PricerScenarioTests
     {
         var (service, runs, store) = Priced();
         var ws = Existing(service, service.Create("akira", "ABC/LE-01", Day1, 40));
-        ws = service.SetMeasures(ws.WorkspaceId, ws.Revision, "akira", ["cva", "fva"]);
+        ws = service.SelectMeasures(ws.WorkspaceId, ws.Revision, "akira", "cva fva").State;
         // CSA-B's trades, on usd_sofr, are the ones in FVA.
         ws = Define(service, ws, "up", "usd_sofr +100bp");
         ws = Define(service, ws, "eur", "eur_estr +100bp");
@@ -201,7 +201,7 @@ public class PricerScenarioTests
     {
         var (service, runs, store) = Priced();
         var ws = Existing(service, service.Create("akira", "ABC/LE-01", Day1, 40));
-        ws = service.SetMeasures(ws.WorkspaceId, ws.Revision, "akira", ["cva", "fva"]);
+        ws = service.SelectMeasures(ws.WorkspaceId, ws.Revision, "akira", "cva fva").State;
         // CSA-B is imperfect (ADR-0010 §5), so its trades are FVA's, funded on usd_funding.
         ws = Define(service, ws, "funding", "usd_funding +50bp");
 
@@ -217,7 +217,7 @@ public class PricerScenarioTests
     {
         var (service, runs, store) = Priced();
         var ws = Existing(service, service.Create("akira", "ABC/LE-01", Day1, 40));
-        ws = service.SetMeasures(ws.WorkspaceId, ws.Revision, "akira", ["cva"]);
+        ws = service.SelectMeasures(ws.WorkspaceId, ws.Revision, "akira", "cva").State;
         ws = Define(service, ws, "usd", "usdjpy +10%");
         ws = Define(service, ws, "gbp", "gbpjpy +10%");
 
@@ -279,7 +279,7 @@ public class PricerScenarioTests
     {
         var (service, runs, store) = Priced();
         var ws = service.Create("akira", "ABC/LE-01", Day1, 40);
-        ws = service.SetMeasures(ws.WorkspaceId, ws.Revision, "akira", ["cva"]);
+        ws = service.SelectMeasures(ws.WorkspaceId, ws.Revision, "akira", "cva").State;
         ws = Define(service, ws, "up", "usdjpy +10%");
         var priced = await Price(runs, store, service, ws);
 
@@ -297,7 +297,7 @@ public class PricerScenarioTests
     {
         var (service, runs, store) = Priced();
         var ws = Existing(service, service.Create("akira", "ABC/LE-01", Day1, 40));
-        ws = service.SetMeasures(ws.WorkspaceId, ws.Revision, "akira", ["simm.spotIm"]);
+        ws = service.SelectMeasures(ws.WorkspaceId, ws.Revision, "akira", "simm.spotIm").State;
         ws = Define(service, ws, "rates", "jpy_ois +100bp; usd_sofr +100bp");
         ws = Define(service, ws, "fx", "usdjpy +10%");
         ws = Define(service, ws, "funding", "jpy_funding +100bp");
@@ -317,7 +317,7 @@ public class PricerScenarioTests
     {
         var (service, runs, store) = Priced();
         var ws = Existing(service, service.Create("akira", "ABC/LE-01", Day1, 40));
-        ws = service.SetMeasures(ws.WorkspaceId, ws.Revision, "akira", ["ccr.spotCapital"]);
+        ws = service.SelectMeasures(ws.WorkspaceId, ws.Revision, "akira", "ccr.spotCapital").State;
         ws = Define(service, ws, "rates", "jpy_ois +100bp");
         ws = Define(service, ws, "fx", "usdjpy +10%");
         ws = Define(service, ws, "eur", "eur_estr +100bp");
@@ -403,7 +403,7 @@ public class PricerScenarioTests
     {
         var (service, runs, store) = Priced();
         var ws = service.Create("akira", "ABC/LE-01", Day1, 40);
-        ws = service.SetMeasures(ws.WorkspaceId, ws.Revision, "akira", ["cva"]);
+        ws = service.SelectMeasures(ws.WorkspaceId, ws.Revision, "akira", "cva").State;
         ws = Define(service, ws, "up", "jpy_ois +10bp; usdjpy -5%");
         ws = Define(service, ws, "down", "jpy_ois -10bp");
 

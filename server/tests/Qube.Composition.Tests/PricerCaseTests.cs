@@ -287,7 +287,7 @@ public class PricerCaseTests
         var ws = service.Create("akira", "ABC/LE-01", Day1, 40);
         ws = service.Vary(ws.WorkspaceId, ws.Revision, "akira", "CSA-A threshold", ["5mm", "10mm", "20mm"]).State;
 
-        var removed = service.RemoveCase(ws.WorkspaceId, ws.Revision, "akira", "csa-a threshold 10MM");
+        var removed = service.RemoveCase(ws.WorkspaceId, ws.Revision, "akira", "csa-a threshold 10MM").State;
         var unknown = Assert.Throws<WorkspaceRefused>(() => service.RemoveCase(removed.WorkspaceId, removed.Revision, "akira", "CSA-A threshold 10mm"));
         var (_, rows, _) = await Price(runs, store, service, removed);
 
@@ -295,7 +295,7 @@ public class PricerCaseTests
         Assert.Equal("1 edits", removed.Log[^1].Note);
         Assert.Equal(("UnknownCase", "No case CSA-A threshold 10mm; the cases are CSA-A threshold 5mm, CSA-A threshold 20mm."), (unknown.Code, unknown.Message));
         Assert.Equal(["Base", "CSA-A threshold 5mm", "CSA-A threshold 20mm"], rows.Where(r => r["metric"]!.GetValue<string>() == "cva").Select(r => r["caseTitle"]!.GetValue<string>()));
-        var cleared = service.ClearCases(removed.WorkspaceId, removed.Revision, "akira");
+        var cleared = service.ClearCases(removed.WorkspaceId, removed.Revision, "akira").State;
         Assert.Equal(["Base"], service.View(cleared.WorkspaceId, "akira").Cases.Select(c => c.Title));
         Assert.Empty(service.Changes(cleared.WorkspaceId, "akira").Cases);
         Assert.Equal("NothingToChange", Assert.Throws<WorkspaceRefused>(() => service.ClearCases(cleared.WorkspaceId, cleared.Revision, "akira")).Code);
@@ -308,8 +308,8 @@ public class PricerCaseTests
     static IReadOnlyList<string> ExistingInAfter(PricedCase @case) =>
         [.. @case.Input["trades"]!.AsArray().Where(t => !t!["isNew"]!.GetValue<bool>() && t["after"]!.GetValue<bool>()).Select(t => t!["tradeId"]!.GetValue<string>())];
 
-    [Fact] // docs/03 §5, ADR-0010 §3's note of 2026-11-08: add trades makes a case per new trade with A ticked, each After the existing trades and that trade alone
-    public async Task Add_trades_makes_a_case_per_new_trade_each_holding_it_alone()
+    [Fact] // docs/03 §5, ADR-0010 §3's note of 2026-11-08: add each makes a case per new trade with A ticked, each After the existing trades and that trade alone
+    public async Task Add_each_makes_a_case_per_new_trade_each_holding_it_alone()
     {
         var (service, runs, store) = Priced();
         var ws = service.Create("akira", "ABC/LE-01", Day1, 40);
@@ -364,15 +364,15 @@ public class PricerCaseTests
         var none = service.Edit(ws.WorkspaceId, ws.Revision, "akira", "grid:new", "after", false);
         var nothing = Assert.Throws<WorkspaceRefused>(() => service.AddTrades(none.WorkspaceId, none.Revision, "akira"));
 
-        Assert.Equal(("CandidateInBefore", "DRAFT-2 is in Before, and a new trade is priced alone only out of Before. Clear B on it, or A to leave it out, then add trades again."),
+        Assert.Equal(("CandidateInBefore", "DRAFT-2 is in Before, and a new trade is priced alone only out of Before. Clear B on it, or A to leave it out, then add each again."),
             (refused.Code, refused.Message));
         Assert.Equal("NothingToAdd", nothing.Code);
         Assert.Equal(none.Revision, service.View(none.WorkspaceId, "akira").Revision);
         Assert.Equal(["Base"], service.View(none.WorkspaceId, "akira").Cases.Select(c => c.Title));
     }
 
-    [Fact] // docs/03 §5, ADR-0010 §3's note of 2026-11-08: Price refuses, naming the trades, a set that no longer matches the New rows with A ticked; add trades again makes it anew
-    public async Task Price_refuses_a_set_the_ticked_new_rows_no_longer_match_and_add_trades_makes_it_anew()
+    [Fact] // docs/03 §5, ADR-0010 §3's note of 2026-11-08: Price refuses, naming the trades, a set that no longer matches the New rows with A ticked; add each again makes it anew
+    public async Task Price_refuses_a_set_the_ticked_new_rows_no_longer_match_and_add_each_makes_it_anew()
     {
         var (service, runs, store) = Priced();
         var ws = service.Create("akira", "ABC/LE-01", Day1, 40);
@@ -387,9 +387,9 @@ public class PricerCaseTests
         var again = service.AddTrades(cleared.WorkspaceId, cleared.Revision, "akira");
         var (input, _, _) = await Price(runs, store, service, again.State);
 
-        Assert.Equal(("AdditionSetChanged", "add trades prices DRAFT-1, DRAFT-2 alone, and DRAFT-3 is ticked and in no case. Run add trades again to make the set anew."),
+        Assert.Equal(("AdditionSetChanged", "add each prices DRAFT-1, DRAFT-2 alone, and DRAFT-3 is ticked and in no case. Run add each again to make the set anew."),
             (ticked.Code, ticked.Message));
-        Assert.Equal("add trades prices DRAFT-1, DRAFT-2 alone, and DRAFT-3 is ticked and in no case; DRAFT-1 is in Before. Run add trades again to make the set anew, with B clear on each.",
+        Assert.Equal("add each prices DRAFT-1, DRAFT-2 alone, and DRAFT-3 is ticked and in no case; DRAFT-1 is in Before. Run add each again to make the set anew, with B clear on each.",
             before.Message);
         Assert.Equal(["add DRAFT-1", "add DRAFT-2"], again.Replaced);
         Assert.Equal(["Base", "add DRAFT-1", "add DRAFT-2", "add DRAFT-3"], PortfolioInput.Cases(input).Select(c => c.Title));
@@ -427,11 +427,11 @@ public class PricerCaseTests
         var changes = service.Changes(ws.WorkspaceId, "akira").Cases[0];
         var set = Assert.Throws<WorkspaceRefused>(() => service.SetText(ws.WorkspaceId, ws.Revision, "akira", "trade:DRAFT-2", "after", "on", id));
         var reset = Assert.Throws<WorkspaceRefused>(() => service.Resolve(ws.WorkspaceId, ws.Revision, "akira", "trade:DRAFT-2", "after", "reset", id));
-        var removed = service.RemoveCase(ws.WorkspaceId, ws.Revision, "akira", "add DRAFT-1");
+        var removed = service.RemoveCase(ws.WorkspaceId, ws.Revision, "akira", "add DRAFT-1").State;
 
         Assert.Equal(("add DRAFT-1", "add", "DRAFT-1"), (changes.Case.Title, changes.Case.Kind, changes.Case.Trade));
         Assert.Equal([("DRAFT-2 A", "off", "on", false), ("DRAFT-3 A", "off", "on", false)], changes.Changes.Select(c => (c.Title, c.Text, c.OriginalText, c.Editable)));
-        Assert.Equal(("NotEditable", "Case add DRAFT-1 is its trade alone: remove the case whole, or run add trades again to make the set anew."), (set.Code, set.Message));
+        Assert.Equal(("NotEditable", "Case add DRAFT-1 is its trade alone: remove the case whole, or run add each again to make the set anew."), (set.Code, set.Message));
         Assert.Equal("NotEditable", reset.Code);
         Assert.Equal(["Base", "add DRAFT-2", "add DRAFT-3"], service.View(removed.WorkspaceId, "akira").Cases.Select(c => c.Title));
         // A is still a cell vary can name, typed in any case and written as the grid heads it.

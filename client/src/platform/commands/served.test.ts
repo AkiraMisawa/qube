@@ -1,5 +1,5 @@
 import { ApiError, type Api, type CommandAnswer } from '../api';
-import type { CapabilityDescriptor, LinePlace, LinePreview, LineView, ViewVerbDescriptor } from '../contracts';
+import type { CapabilityDescriptor, LinePlace, LinePreview, LineView, ShortFormDescriptor, ViewVerbDescriptor } from '../contracts';
 import { readLine, signature, type Command, type CommandDoor } from './commands';
 import { argumentShown, commandDoor, lineAsked, previewShown, screenShown, servedCommands, tableMenu, taken } from './served';
 
@@ -23,13 +23,14 @@ const catalog = {
     capability('gauge.read'),
   ],
   viewVerbs: [] as readonly ViewVerbDescriptor[],
+  shortForms: [] as readonly ShortFormDescriptor[],
 };
 
 /** What a page says is on screen: two rows selected, the keyboard on a cell of the first. */
 const onScreen: LineView = { table: 'w.readings', subset: 'manual', keys: ['R1', 'R3'], focus: { field: 'note', key: 'R1' } };
 
 const door = (enter: CommandDoor['enter'] = () => Promise.resolve(undefined), view: CommandDoor['view'] = () => undefined): CommandDoor =>
-  ({ workspaceId: 'ws-1', settled: () => Promise.resolve(), view, enter, invoke: () => Promise.resolve(undefined) });
+  ({ workspaceId: 'ws-1', app: 'weather', settled: () => Promise.resolve(), view, enter, invoke: () => Promise.resolve(undefined) });
 const panel = { id: 'p', title: 'Board 2026-11-11' };
 
 describe('a command the catalog says how to type (ADR-0016 §4)', () => {
@@ -51,6 +52,15 @@ describe('a command the catalog says how to type (ADR-0016 §4)', () => {
       ['set', 'This panel has no workspace for it to act on.', undefined, undefined],
       ['undo', 'This panel has no workspace for it to act on.', undefined, undefined],
     ]);
+  });
+
+  it('of an application is listed on a page of that application alone; one of every application, on every page (ADR-0016 note 27)', () => {
+    const both = { ...catalog, capabilities: [...catalog.capabilities,
+      capability('weather.horn', { words: ['horn'], arguments: [], app: 'weather' }), capability('tides.bell', { words: ['bell'], arguments: [], app: 'tides' })] };
+
+    expect(servedCommands(both, panel, door(), vi.fn()).map((c) => c.words)).toEqual(['set', 'undo', 'horn']);
+    // With no workspace page, a command of an application is not listed to say it cannot run: its application's page lists it.
+    expect(servedCommands(both, panel, undefined, vi.fn()).map((c) => c.words)).toEqual(['set', 'undo']);
   });
 
   it('run from a key or a button, it has the server read its words alone, and a refusal is a notice', async () => {
@@ -82,6 +92,19 @@ describe('a command the catalog says how to type (ADR-0016 §4)', () => {
       ['view.find', 'Put the keyboard on a row of the grid on screen', 'Workspace', 'Board 2026-11-11', true, '<row> [field]']);
     expect(built.served?.door.workspaceId).toBe('ws-1');
     expect(servedCommands({ ...catalog, viewVerbs: [find] }, panel, undefined, vi.fn()).find((c) => c.words === 'find')!.unavailable).toBe('This panel has no workspace for it to act on.');
+  });
+
+  it('a short form the catalog lists is built as a command is, on a page of its application, and its line is the server\'s to read too (ADR-0016 note 29)', () => {
+    const tick: ShortFormDescriptor = { formId: 'weather.tick', title: 'Mark a grid\'s readings as checked', command: { words: ['tick'], arguments: [{ name: 'grid', kind: 'text', required: false }], app: 'weather' } };
+    const bell: ShortFormDescriptor = { formId: 'tides.ring', title: 'Ring', command: { words: ['ring'], arguments: [], app: 'tides' } };
+    const commands = servedCommands({ ...catalog, shortForms: [tick, bell] }, panel, door(), vi.fn());
+
+    expect(commands.map((c) => [c.id, c.words, c.title])).toEqual([
+      ['entity.set', 'set', 'Title of entity.set'], ['workspace.undo', 'undo', 'Title of workspace.undo'],
+      ['short.weather.tick', 'tick', 'Mark a grid\'s readings as checked'],
+    ]);
+    expect(signature(commands[2]!)).toBe('[grid]');
+    expect(readLine('tick manual', commands)).toMatchObject({ kind: 'arguments', command: { id: 'short.weather.tick' }, problems: [] });
   });
 
   it('the client reads nothing of its line: whatever follows its words is the server\'s to read', () => {
@@ -180,6 +203,13 @@ describe('what the line shows of the server\'s reading (ADR-0016 §5)', () => {
       .toEqual({ would: 'Takes back: set R1 checked on (you, 1 edit)', at: '2026-11-11T01:02:03+00:00' });
   });
 
+  it('the line a short form stands for, read or refused (ADR-0016 note 29)', () => {
+    expect(previewShown(read({ expands: 'set manual checked on', rows: { table: 'w.readings', title: 'readings, 3 rows', count: 3, first: ['R1', 'R2', 'R3'] }, would: 'checked: 3 off to on' })))
+      .toEqual({ expands: 'set manual checked on', rows: 'readings, 3 rows: R1, R2, R3', would: 'checked: 3 off to on' });
+    expect(previewShown(read({ expands: 'set alarm lots', refused: { code: 'InvalidValue', sentence: 'lots is not a volume.', candidates: [] } })))
+      .toEqual({ expands: 'set alarm lots', reason: 'lots is not a volume.' });
+  });
+
   it('an argument by its name and the words read for it, and one that was not typed says that it is from the screen (ADR-0016 note 18)', () => {
     expect(argumentShown({ name: 'set', text: 'csa=CSA-B', from: 'typed' })).toBe('set csa=CSA-B');
     expect(argumentShown({ name: 'rows', text: 'R1, R2, R3 and 2 more', from: 'context' })).toBe('rows from the screen: R1, R2, R3 and 2 more');
@@ -228,7 +258,7 @@ describe('Enter on a line the server reads, through its page\'s door (ADR-0016 �
       const seen = view();
       return seen === undefined ? undefined : { view: seen, put: (at: LinePlace) => (place === undefined ? 'This grid takes no place.' : place(at, seen)) };
     };
-    return { turns, notify, preview, command, reread, door: commandDoor({ workspaceId: 'ws-1', catalog, api: { preview, command }, turns, reread, notify, ...(screen === undefined ? {} : { screen }) }) };
+    return { turns, notify, preview, command, reread, door: commandDoor({ workspaceId: 'ws-1', app: 'weather', catalog, api: { preview, command }, turns, reread, notify, ...(screen === undefined ? {} : { screen }) }) };
   };
 
   it('runs the reading the line showed, by its own inputs with the revision it was read at, and reads the line no second time', async () => {
@@ -388,5 +418,24 @@ describe('Enter on a line the server reads, through its page\'s door (ADR-0016 �
     expect(p.notify.mock.calls).toEqual([['done', 'Took back: set R1 checked on. redo puts it back.']]);
 
     expect(await p.door.invoke('workspace.nothing', {})).toEqual({ sentence: 'This server has no command workspace.nothing.' });
+  });
+
+  it('a caller that says the outcome itself is handed the sentence, and the page raises no notice of its own', async () => {
+    const p = page(7, 8);
+    p.command.mockResolvedValue({ capabilityId: 'workspace.undo', version: '1.0.0', outputs: { answer: { workspaceId: 'ws-1', revision: 8, said: 'Took back: set R1 checked on. redo puts it back.' } } });
+    const heard = vi.fn();
+
+    expect(await p.door.invoke('workspace.undo', {}, heard)).toBeUndefined();
+    expect(heard.mock.calls).toEqual([['Took back: set R1 checked on. redo puts it back.']]);
+    expect(p.notify).not.toHaveBeenCalled();
+
+    // Done, and the page cannot read what it left: the caller is still told what was done, and the page says the rest.
+    const unread = page(7);
+    unread.command.mockResolvedValue({ capabilityId: 'workspace.undo', version: '1.0.0', outputs: { answer: { workspaceId: 'ws-1', revision: 8, said: 'Took back: set R1 checked on.' } } });
+    unread.reread.mockRejectedValue(new Error('The server did not answer.'));
+    const told = vi.fn();
+    expect(await unread.door.invoke('workspace.undo', {}, told)).toBeUndefined();
+    expect(told.mock.calls).toEqual([['Took back: set R1 checked on.']]);
+    expect(unread.notify.mock.calls).toEqual([['refused', 'Took back: set R1 checked on. The page could not read the workspace again: The server did not answer.']]);
   });
 });
