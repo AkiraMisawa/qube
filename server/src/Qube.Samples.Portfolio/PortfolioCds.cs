@@ -142,7 +142,9 @@ public static class CdsCatalog
                 else if (Regions.FirstOrDefault(r => r.Equals(word, StringComparison.OrdinalIgnoreCase)) is { } r) Take(ref region, r, "region");
                 else if (Ratings.FirstOrDefault(g => g.Equals(word, StringComparison.OrdinalIgnoreCase)) is { } g) Take(ref rating, g, "rating");
                 else throw new WorkspaceRefused("InvalidCds",
-                    $"{word} is no sector, region or rating: the sectors are {string.Join(", ", Sectors)}; the regions {string.Join(", ", Regions)}; the ratings {string.Join(", ", Ratings)}.");
+                    $"{word} is no sector, region or rating: the sectors are {string.Join(", ", Sectors)}; the regions {string.Join(", ", Regions)}; the ratings {string.Join(", ", Ratings)}.",
+                    // What it could have been is of a kind the line has not given yet (ADR-0016 note 45).
+                    word: word, candidates: [.. sector is null ? Sectors : [], .. region is null ? Regions : [], .. rating is null ? Ratings : []]);
             }
             var lacking = new[] { ("sector", sector), ("region", region), ("rating", rating) }.Where(k => k.Item2 is null).Select(k => k.Item1).ToList();
             if (lacking.Count > 0) throw new WorkspaceRefused("InvalidCds", $"cds proxy takes a sector, a region and a rating; it has no {string.Join(", ", lacking)}.");
@@ -153,9 +155,11 @@ public static class CdsCatalog
         {
             1 => current with { Type = SingleName, Reference = matching[0].Id },
             0 => throw new WorkspaceRefused("UnknownCds",
-                $"No single name is {string.Join(" ", words)}: the catalogue holds {string.Join("; ", SingleNames.Select(c => string.Join(" ", c.Words)))}, or write cds proxy <sector> <region> <rating>."),
+                $"No single name is {string.Join(" ", words)}: the catalogue holds {string.Join("; ", SingleNames.Select(c => string.Join(" ", c.Words)))}, or write cds proxy <sector> <region> <rating>.",
+                word: string.Join(" ", words), candidates: [.. SingleNames.Select(c => string.Join(" ", c.Words))]),
             _ => throw new WorkspaceRefused("AmbiguousCds",
-                $"{string.Join(" ", words)} names {matching.Count} single names, {string.Join("; ", matching.Select(c => string.Join(" ", c.Words)))}: add a word to name one."),
+                $"{string.Join(" ", words)} names {matching.Count} single names, {string.Join("; ", matching.Select(c => string.Join(" ", c.Words)))}: add a word to name one.",
+                word: string.Join(" ", words), candidates: [.. matching.Select(c => string.Join(" ", c.Words))]),
         };
     }
 

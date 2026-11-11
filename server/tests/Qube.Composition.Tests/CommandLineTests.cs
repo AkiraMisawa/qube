@@ -908,6 +908,40 @@ public partial class CommandLineTests
         public LineCompletions Complete(LineContext line) => LineCompletions.None;
     }
 
+    // A command that takes colours, and refuses a word that is none as a workspace refuses: with the word, and with
+    // what it could have been (note 45 of step 4).
+    sealed class Paint : ICapabilityHandler, ILineCommand
+    {
+        static readonly string[] Colours = ["red", "blue"];
+
+        public Qube.Composition.Contracts.CapabilityDescriptor Descriptor { get; } =
+            new("weather.paint", "1.0.0", "weather.paint", [], [], Qube.Composition.Contracts.ExecutionKind.RequestResponse, [Qube.Composition.Contracts.CapabilityEffect.EditWorkspace],
+                new(["paint"], [new("colours", Qube.Composition.Contracts.CommandArgumentKind.Text, Required: true)], null));
+
+        public LineRead Read(LineContext line) => LineWords.Of(line.Text).Select(w => w.Word).FirstOrDefault(w => !Colours.Contains(w)) is { } other
+            ? throw new WorkspaceRefused("UnknownColour", $"No colour {other}: the colours are red and blue.", word: other, candidates: Colours)
+            : new(new JsonObject(), [], null, "would paint");
+
+        public LineCompletions Complete(LineContext line) => LineCompletions.None;
+
+        public Task<IReadOnlyDictionary<string, JsonNode?>> InvokeAsync(CapabilityInvocation invocation, CancellationToken cancellationToken) => throw new NotSupportedException();
+    }
+
+    [Fact] // ADR-0016 note 45: a workspace's refusal that names its word has it marked where it stands after the command's words, with what it could have been; a word that stands twice is not marked
+    public void A_workspaces_refusal_that_names_its_word_marks_it_in_the_line()
+    {
+        var rig = new Rig(null, new Paint());
+
+        var marked = rig.Preview("paint red mauve").Refused!;
+        var twice = rig.Preview("paint mauve mauve").Refused!;
+        var read = rig.Preview("paint red blue");
+
+        Assert.Equal(("UnknownColour", "No colour mauve: the colours are red and blue.", "mauve", 10, 15, "red|blue"),
+            (marked.Code, marked.Sentence, marked.Word, marked.Start, marked.End, string.Join("|", marked.Candidates)));
+        Assert.Equal(("mauve", null, null, "red|blue"), (twice.Word, twice.Start, twice.End, string.Join("|", twice.Candidates)));
+        Assert.Equal((null, "would paint"), (read.Refused, read.Would));
+    }
+
     sealed class Commands(params ICapabilityHandler[] handlers) : IQubeModule
     {
         public void Register(CompositionRegistryBuilder builder)

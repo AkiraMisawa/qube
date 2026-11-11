@@ -239,37 +239,112 @@ public static class PortfolioCells
     /// <summary>The row that names the chosen CDS curve's spreads.</summary>
     public const string CdsRow = "cds";
 
+    // A row a cell is named on: its id as a line says it, its entity, its columns, and what it is in a word or two.
+    sealed record Row(string Id, string Entity, IReadOnlyList<Column> Columns, string What, bool Trade = false);
+
+    // The rows a cell is named on, as the state stands: each CSA, the netting set, the credit, the chosen curve where
+    // there is one, each trade by its id, and a module's settings by the module's id (ADR-0010 §8: `set xva cost of
+    // capital 12%`).
+    static IReadOnlyList<Row> Rows(WorkspaceState state, MeasureRegister register)
+    {
+        var source = (PortfolioSourceVersion)state.Source;
+        var trade = Trade(register);
+        return
+        [
+            .. source.Agreement.Csas.Select(c => new Row(c.CsaId, Entity.Of(Entity.Csa, c.CsaId), CsaColumns, "a CSA")),
+            new(source.Agreement.NettingSetId, Entity.Of(Entity.Netting, source.Agreement.NettingSetId), NettingColumns, "the netting set"),
+            new(CreditRow, Entity.Of(Entity.Credit, source.Registration.Key), CreditColumns, "the counterparty's CDS choice"),
+            .. PortfolioMaterialiser.Credit(state).Cds is { } cds ? new[] { new Row(CdsRow, Entity.Of(Entity.Cds, cds.CurveId), SpreadColumns, "the chosen curve's spreads") } : [],
+            .. source.Existing.Concat(source.New).Select(t => new Row(t.TradeId, Entity.Of(Entity.Trade, t.TradeId), trade, "a trade", Trade: true)),
+            .. register.Modules.Where(m => m.Settings.Count > 0).Select(m => new Row(m.Id, MeasureSettings.EntityOf(m.Id), Settings(m), $"{m.Title}'s settings")),
+        ];
+    }
+
+    static bool Same(string one, string other) => string.Equals(one, other.Trim(), StringComparison.OrdinalIgnoreCase);
+
     /// <summary>
     /// The cell a row and a column name, as the state stands. A row or a column that names nothing, or more than one,
-    /// is refused with what it could mean, never guessed.
+    /// is refused with what it could mean, never guessed: the refusal names the word and what it could have been
+    /// (ADR-0016 note 45), where a line can say it. A trade's id is a row too, and no candidate: there may be ten
+    /// thousand.
     /// </summary>
     public static CellName Resolve(WorkspaceState state, MeasureRegister register, string row, string column)
     {
         var source = (PortfolioSourceVersion)state.Source;
         var credit = PortfolioMaterialiser.Credit(state);
-        if (string.Equals(row.Trim(), CdsRow, StringComparison.OrdinalIgnoreCase) && credit.Cds is null)
-            throw new WorkspaceRefused("UnknownCell", credit.Missing ?? throw new InvalidOperationException("A credit with no curve says why."));
-        var rows = source.Agreement.Csas.Select(c => (Id: c.CsaId, Entity: Entity.Of(Entity.Csa, c.CsaId), Columns: CsaColumns))
-            .Append((Id: source.Agreement.NettingSetId, Entity: Entity.Of(Entity.Netting, source.Agreement.NettingSetId), Columns: NettingColumns))
-            .Append((Id: CreditRow, Entity: Entity.Of(Entity.Credit, source.Registration.Key), Columns: CreditColumns))
-            .Concat(credit.Cds is { } cds ? [(Id: CdsRow, Entity: Entity.Of(Entity.Cds, cds.CurveId), Columns: SpreadColumns)] : [])
-            .Concat(source.Existing.Concat(source.New).Select(t => (Id: t.TradeId, Entity: Entity.Of(Entity.Trade, t.TradeId), Columns: Trade(register))))
-            // A module's settings, row its id (ADR-0010 §8): `set xva cost of capital 12%`.
-            .Concat(register.Modules.Where(m => m.Settings.Count > 0).Select(m => (Id: m.Id, Entity: MeasureSettings.EntityOf(m.Id), Columns: Settings(m))))
-            .Where(r => string.Equals(r.Id, row.Trim(), StringComparison.OrdinalIgnoreCase))
-            .ToList();
+        if (Same(CdsRow, row) && credit.Cds is null)
+            throw new WorkspaceRefused("UnknownCell", credit.Missing ?? throw new InvalidOperationException("A credit with no curve says why."), word: row.Trim());
+        var all = Rows(state, register);
+        var rows = all.Where(r => Same(r.Id, row)).ToList();
         if (rows.Count == 0)
             throw new WorkspaceRefused("UnknownCell", $"No row {row.Trim()}: a row is a CSA ({string.Join(", ", source.Agreement.Csas.Select(c => c.CsaId))}), "
-                + $"the netting set ({source.Agreement.NettingSetId}), {CreditRow}, {CdsRow}, a trade's id{string.Concat(register.Modules.Where(m => m.Settings.Count > 0).Select(m => $", or {m.Id} for {m.Title}'s settings"))}.");
-        if (rows.Count > 1) throw new WorkspaceRefused("AmbiguousCell", $"{row.Trim()} names {string.Join(" and ", rows.Select(r => r.Entity))}.");
-        var (id, entity, columns) = rows[0];
+                + $"the netting set ({source.Agreement.NettingSetId}), {CreditRow}, {CdsRow}, a trade's id{string.Concat(register.Modules.Where(m => m.Settings.Count > 0).Select(m => $", or {m.Id} for {m.Title}'s settings"))}.",
+                word: row.Trim(), candidates: [.. all.Where(r => !r.Trade).Select(r => r.Id)]);
+        if (rows.Count > 1) throw new WorkspaceRefused("AmbiguousCell", $"{row.Trim()} names {string.Join(" and ", rows.Select(r => r.Entity))}.", word: row.Trim());
+        var (id, entity, columns) = (rows[0].Id, rows[0].Entity, rows[0].Columns);
         var name = Words(column);
         var found = columns.Where(c => c.Names.Any(n => string.Equals(n, name, StringComparison.OrdinalIgnoreCase))).ToList();
         if (found.Count == 0)
-            throw new WorkspaceRefused("UnknownCell", $"{id} has no column {column.Trim()}; its columns are {string.Join(", ", columns.Select(c => c.Names[0]))}.");
+            throw new WorkspaceRefused("UnknownCell", $"{id} has no column {column.Trim()}; its columns are {string.Join(", ", columns.Select(c => c.Names[0]))}.",
+                word: column.Trim(), candidates: [.. columns.Select(c => c.Names[0])]);
         if (found.Count > 1)
-            throw new WorkspaceRefused("AmbiguousCell", $"{column.Trim()} could be {string.Join(" or ", found.Select(c => c.Names[0]))} of {id}.");
+            throw new WorkspaceRefused("AmbiguousCell", $"{column.Trim()} could be {string.Join(" or ", found.Select(c => c.Names[0]))} of {id}.",
+                word: column.Trim(), candidates: [.. found.Select(c => c.Names[0])]);
         return new CellName(entity, found[0].Field, id, found[0].Names[0], found[0].Spec);
+    }
+
+    // How many rows a line offers at a time, as the kernel's verbs do (ADR-0016 note 15).
+    const int RowsOffered = 20;
+
+    /// <summary>
+    /// What could follow in a line that names a cell and then its values, as far as <paramref name="text"/> is typed
+    /// (<c>vary</c>, ADR-0016 note 45): the rows a cell is named on, those that are no trade first and a few at a time;
+    /// after a row, its columns, each by the word that names it and written from the column's first word; after a column,
+    /// what its form has to choose from, and again after each comma, without the values already listed. A row or a
+    /// column the state has not offers nothing: the reading says which.
+    /// </summary>
+    public static LineCompletions Offered(WorkspaceState state, MeasureRegister register, string text)
+    {
+        // No space after the command's own words: they are still being typed, and nothing follows yet.
+        if (text.Length == 0) return LineCompletions.None;
+        var rows = Rows(state, register);
+        Row? Named(string id) => rows.Where(r => Same(r.Id, id)).ToList() is [var one] ? one : null;
+        static Column? Of(Row row, IEnumerable<string> words) =>
+            row.Columns.Where(c => c.Names.Any(n => Same(n, string.Join(' ', words)))).ToList() is [var one] ? one : null;
+
+        var comma = text.IndexOf(',');
+        if (comma >= 0)
+        {
+            // As the line is read: the first value is the last word before the first comma, and the cell the words before it.
+            var cell = LineWords.Of(text[..comma]);
+            if (cell.Count < 3 || Named(cell[0].Word) is not { } on || Of(on, cell.Skip(1).SkipLast(1).Select(w => w.Word)) is not { } varied) return LineCompletions.None;
+            var after = text.LastIndexOf(',') + 1;
+            var from = text.Length - text[after..].TrimStart().Length;
+            return Values(varied.Spec, text[from..], from, text[cell[^1].Start..after].Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries));
+        }
+
+        var (done, typing, at) = LineWords.Typing(text);
+        if (done.Count == 0)
+        {
+            var found = rows.Where(r => r.Id.StartsWith(typing, StringComparison.OrdinalIgnoreCase)).OrderBy(r => r.Trade).ToList();
+            return new([.. found.Take(RowsOffered).Select(r => new LineCompletion(r.Id, at, r.What))], Math.Max(0, found.Count - RowsOffered));
+        }
+        if (Named(done[0]) is not { } row) return LineCompletions.None;
+        var said = done.Skip(1).ToList();
+        // The words name one column: its value is awaited.
+        if (said.Count > 0 && Of(row, said) is { } column) return Values(column.Spec, typing, at, []);
+        // No word yet, or words that start a column's name: the columns they could be, written from their first word.
+        var start = string.Join(' ', said.Append(typing));
+        return new([.. row.Columns.Where(c => c.Names.Any(n => n.StartsWith(start, StringComparison.OrdinalIgnoreCase)))
+            .Select(c => new LineCompletion(c.Names[0], said.Count > 0 ? LineWords.Of(text)[1].Start : at))]);
+    }
+
+    // What a column's form has to choose from, as far as a value is typed: a flag's two words, a choice's values, and
+    // `empty` where the column may be empty. An amount, a rate and an id are typed freely.
+    static LineCompletions Values(FieldSpec spec, string typing, int at, IReadOnlyList<string> listed)
+    {
+        var values = spec.Optional ? FieldForms.Choices(spec).Append("empty") : FieldForms.Choices(spec);
+        return new([.. values.Where(v => !listed.Contains(v, StringComparer.OrdinalIgnoreCase) && v.StartsWith(typing, StringComparison.OrdinalIgnoreCase)).Select(v => new LineCompletion(v, at))]);
     }
 
     /// <summary>The cell of an entity's field, named as <see cref="Resolve"/> names it; refused where it is no cell.</summary>

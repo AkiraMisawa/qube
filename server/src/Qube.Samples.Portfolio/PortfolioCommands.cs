@@ -97,7 +97,8 @@ public sealed class PortfolioVary(Func<PortfolioWorkspaces> workspaces) : ICapab
         return PortfolioCommand.Read(line, new JsonObject { ["cell"] = cell, ["values"] = values }, PortfolioCommandContracts.WouldVary(plan));
     }
 
-    public LineCompletions Complete(LineContext line) => LineCompletions.None;
+    /// <summary>The rows a cell is named on, then the row's columns, then what a flag or a choice has to choose from (ADR-0016 note 45).</summary>
+    public LineCompletions Complete(LineContext line) => workspaces().CellsOffered(line.State, line.Text);
 
     public Task<IReadOnlyDictionary<string, JsonNode?>> InvokeAsync(CapabilityInvocation invocation, CancellationToken cancellationToken) =>
         PortfolioCommand.Run(invocation, workspaces, (service, request, caller, revision) =>

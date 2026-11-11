@@ -287,13 +287,8 @@ static class TableCompletions
         {
             if (lead.Length == 0 && typed.LastIndexOf(',') is >= 0 and var comma) lead = typed[..(comma + 1)];
             var value = typed[lead.Length..];
-            IEnumerable<string> values = field.Form switch
-            {
-                FieldForm.Flag => ["on", "off"],
-                FieldForm.Choice when field.Choices is { } choices => choices.Values.Distinct().Select(v => FieldForms.Write(field.Spec, v)),
-                _ when field.Table is { } pointed => tables.Where(t => t.Descriptor.TableId == pointed).SelectMany(Keys),
-                _ => [],
-            };
+            IEnumerable<string> values = field.Form is not (FieldForm.Flag or FieldForm.Choice) && field.Table is { } pointed
+                ? tables.Where(t => t.Descriptor.TableId == pointed).SelectMany(Keys) : FieldForms.Choices(field.Spec);
             if (field.Optional) values = values.Append("empty");
             var taken = new HashSet<string>(listed, StringComparer.OrdinalIgnoreCase);
             var found = 0;

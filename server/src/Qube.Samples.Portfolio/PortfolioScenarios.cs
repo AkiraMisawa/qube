@@ -499,7 +499,7 @@ public static partial class PortfolioScenarios
         var all = All(state);
         return all.FirstOrDefault(s => Same(s.Name, name.Trim()))?.Name ?? throw new WorkspaceRefused("UnknownScenario", all.Count == 0
             ? $"There is no scenario {name.Trim()}: the workspace has none."
-            : $"There is no scenario {name.Trim()}: the scenarios are {string.Join(", ", all.Select(s => s.Name))}.");
+            : $"There is no scenario {name.Trim()}: the scenarios are {string.Join(", ", all.Select(s => s.Name))}.", word: name.Trim(), candidates: [.. all.Select(s => s.Name)]);
     }
 
     // The names left out of Price, as one created entity of the workspace, made with the first.

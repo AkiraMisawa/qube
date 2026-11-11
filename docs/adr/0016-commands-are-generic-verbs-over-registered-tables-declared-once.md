@@ -479,10 +479,9 @@ log cannot yet say which entries were one command, or what an entry replaced.
    and its verbs (notes 34 to 36). 3d: `add each` takes its iterations as a list, and a contract may hold one
    (note 37). Left for later steps: `load trades <ids>` (step 5, note 37), and how the line spells an iteration's
    lists, which stays open (§3).
-4. View verbs and the AI's row read. **In progress** (`docs/specs/commands-4-view-verbs-ai-reads`: the AI's reads,
-   `sort` and `filter`, and `select`, `copy` and `export` built 2026-11-11 in three pull requests; note 28's
-   leftovers, `vary`'s completion and a domain verb's refusal marking its word, to come in a fourth); what it
-   settles is notes 38 onward below.
+4. View verbs and the AI's row read. **Built 2026-11-11** (`docs/specs/commands-4-view-verbs-ai-reads`, in four
+   pull requests: the AI's reads; `sort` and `filter`; `select`, `copy` and `export`; and note 28's leftovers,
+   `vary`'s completion and a domain verb's refusal marking its word); what it settles is notes 38 to 45 below.
 5. Drafts (§10): a detail dialog drawn from a registration, with the tables under its row and its templates. The
    pricer's trade and CSA must carry those fields and tables first; its sample has neither them nor such a dialog.
    The pricer's scenarios as a registered table, a row computed from its shifts with their table under it, come
@@ -995,7 +994,8 @@ each is built.
       column's header (`PortfolioCells`), not by the selector, so the rows and fields `set` offers are not offered
       here. A domain verb's refusal is a code and a sentence: it marks no word of the line and lists no
       candidates, as the kernel's verbs and the short forms do (§5). Both are step 4's, with `select` and the
-      other verbs that name rows.
+      other verbs that name rows. *Both built 2026-11-11 (note 45): `vary` offers its rows, columns and values,
+      and the pricer's refusals name their word and what it could have been.*
     - *A caller that says the answer itself is handed it.* The door's `invoke` takes a listener for what the
       command said: *Vary values…* shows the sentence in its dialog, and the page raises no notice of it.
     - *Gone with this:* the page's `/vary`, `/cds` (the write), `/add-trades`, `/cases/remove`, `/cases/clear` and
@@ -1753,6 +1753,46 @@ and notes 42 to 44 are 4c's.
       it yet. `select`'s list offers the rows of the grid's table, and one the grid does not show is refused when
       the line is read (`NotOnScreen`): the list is not narrowed to the rows shown. The AI's
       `commands.preview` refuses both lines as it refuses a verb of the screen, and names `tables.read`.
+
+45. **What note 28 left: a domain verb's refusal names its word, and `vary` completes (4d).** DEFAULT, 2026-11-11.
+    - *A workspace's refusal may name the word it refuses and what it could have been* (`WorkspaceRefused.Word`
+      and `Candidates`), as a table's does (`TableRefused`). A reading marks the word where it stands in the line
+      after the command's own words, and answers the candidates; a word that stands there twice is not marked, as
+      for the kernel's verbs (note 15). The capability the same reader serves refuses by its code and sentence,
+      as before: one reader, so the AI's `commands.preview` answers the same word and candidates.
+    - *Why on the workspace's refusal, and not a second type thrown by the reader.* A domain verb plans its
+      changes in one place for the line and for the capability (note 28), and that place is where the word is
+      known. A reader that caught the plan's refusal to throw another would say each refusal twice.
+    - *Which of the pricer's refusals name their word:* `vary`'s row and its column (`UnknownCell`,
+      `AmbiguousCell`), a measure that is not registered (`UnknownMeasure`), `cds`'s single name that the
+      catalogue has not, or has several of, and a word that is no sector, region or rating, a case that
+      `case remove` cannot find or finds twice, and a scenario's name that the workspace has not. A refusal of
+      the whole line (nothing to vary, no measure left) names no word.
+    - *The candidates are what the sentence lists.* For a row: the CSAs, the netting set, `credit`, `cds` and
+      the modules that have settings. A trade's id is a row too and is not listed: one counterparty may have ten
+      thousand, and the sentence says so in words.
+    - *`vary` offers what could follow* (note 28's "the domain's to say"): the rows a cell is named on, a trade's
+      id as far as it is typed and a few at a time with how many more, as `set` offers rows (note 15); then the
+      row's columns, by the word that names each, written from the column's first word; then, for a flag and a
+      choice, the values it has, again after each comma. An amount, a rate and an id are typed freely, so nothing
+      is offered for them.
+    - Rates' verbs that read words (`add line`) and the scenario verbs' own words already refuse with the word
+      (they throw the table's refusal); nothing of theirs changes.
+    - *Changed as built.* `cds` is a candidate for a row only where the counterparty has a curve chosen: the
+      candidates are the rows the state has (`PortfolioCells.Rows`), and with no curve `cds` is refused by why
+      there is none, with its word and no candidate. A row or a case that names two things is named with its
+      word; a case's candidates are then the ids to say instead, and a row's are none, since both are the word.
+      `cds`'s word that is no sector, region or rating is offered the values of the kinds the line has not given
+      yet, and a single name the catalogue has not is offered each name's words.
+    - *Added as built.* `vary` offers the rows that are no trade first, then trades, twenty at a time, each with
+      what it is (`a CSA`, `the netting set`, `a trade`). A column is found by any of its names as far as typed
+      (`fixed` finds `rate`) and offered by the word that names it. A column that may be empty offers `empty`,
+      whatever its form, as `set` does; the values already listed before a comma are left out. What a flag and
+      a choice have to choose from is one function of the kernel's (`FieldForms.Choices`), which `set`'s
+      completion and `vary`'s both ask: a choice registered with nothing to choose from now throws there, as it
+      does where it is read and written, and is no longer offered as nothing.
+    - *The client draws none of this anew.* The line already selects the word a refusal marks and lists what a
+      reading offers; `candidates` is in the preview's contract for the AI, and the line does not draw it.
 
 ## Rejected
 

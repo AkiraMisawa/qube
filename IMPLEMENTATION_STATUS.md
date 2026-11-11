@@ -2133,7 +2133,6 @@ Unchanged: every figure of the pricer and of Rates is simulated, and says so.
 - The grid scrolls as far as shows the Focus, which is on the first row selected: a run that begins below the rows
   drawn is seen from its first row at the foot of the grid.
 - A misspelt field after a table's word (`export stations colour`) is refused as a row that is not there.
-- Note 28's leftovers (`vary`'s completion, a domain verb's refusal marking its word) are the next pull request.
 
 ### What the review changed
 
@@ -2145,9 +2144,69 @@ offered a field for `export` as if it took the Selection, offered none after a c
 offered fields after `copy <table>`, which is always refused. Each is said in notes 43 and 44 as "Corrected in
 review", with a test.
 
+## Generic commands, delivery step 4d: what note 28 left (ADR-0016 note 45, 2026-11-11)
+
+The fourth and last of step 4's pull requests (`docs/specs/commands-4-view-verbs-ai-reads`, tickets 15 to 18). A
+domain verb's refusal names the word it refuses and what it could have been, and `vary` offers what could follow.
+Step 4 is whole with this.
+
+### What runs
+
+- **A workspace's refusal may name its word** (`WorkspaceRefused.Word`, `Candidates`). A reading marks the word
+  where it stands once after the command's own words, with its place in the line, and answers the candidates, as
+  it does for a table's refusal. The line selects the word after Enter, as it already did for the kernel's verbs.
+- **The pricer's refusals name theirs**, in the one place the line and the capability plan from:
+  - `vary CSA-Z threshold 5mm` names `CSA-Z`, with the rows a cell is named on (the CSAs, the netting set,
+    `credit`, `cds` where a curve is chosen, the modules with settings; a trade's id is a row and is not listed).
+  - `vary CSA-A colour 5mm` names `colour`, with the CSA's columns; a column of several words is named whole.
+  - `measures cva dva2` names `dva2`, with the measures registered.
+  - `cds` names a single name the catalogue has not, with each name's words, and a word that is no sector, region
+    or rating, with the values of the kinds not given yet.
+  - `case remove` names a case that is not there, with the cases' titles; a scenario's name that is not there is
+    named with the scenarios the workspace has.
+- **The AI is told the same.** `commands.preview` refuses such a line with the word and the candidates on its
+  issue. A capability invoked with the same words fails by its code and sentence, as before.
+- **`vary` completes.** After `vary`: the rows that are no trade, then trades, twenty at a time with how many
+  more, each with what it is. After a row: its columns, found by any of their names as far as typed and offered by
+  the word that names each, a column of several words written from its first. After a flag or a choice: its values,
+  and again after each comma without those already listed; `empty` where the column may be empty. An amount, a
+  rate and an id are typed freely.
+- **One function says what a form has to choose from** (`FieldForms.Choices`): `set`'s completion and `vary`'s
+  both ask it.
+
+### Verification performed
+
+| What | Result |
+|---|---|
+| `dotnet test server/Qube.slnx` | 1253 passed |
+| Client: `npm run typecheck`, `npm test`, `npm run build` | Clean; 328 passed in 35 files; built (the client is unchanged) |
+| `npx playwright test` (Chromium, headless, Linux) | 93 passed |
+| `python3 tools/validate_handoff.py` | Passed |
+| A refused word selected after Enter and `vary`'s lists at 1440px, dark and light, and the list at 390px | Looked at; the list and the sentence stay inside the line's panel |
+
+The server's tests read a command over a registration with no financial word whose reader refuses with a word
+(marked, with candidates; not marked where it stands twice), then each of the pricer's refusals with its word, its
+place and its candidates, what `vary` offers word by word, and the AI's preview through the agent's door. No browser
+test is added: that the line selects a marked word and lists what a reading offers is held by the tests of steps 1
+and 3.
+
+### Providers
+
+Unchanged: every figure of the pricer and of Rates is simulated, and says so.
+
+### Known limits
+
+- The line does not draw a refusal's candidates: it selects the word, and its list is the completion's. The
+  candidates are in the preview for the AI.
+- A word that stands twice after the command's words is not marked, as for the kernel's verbs.
+- `vary` offers no value for a trade's CSA or a curve, which are ids typed freely; `set` offers a trade's CSAs,
+  since its field says the table it points into.
+- Rates' verbs and the scenario verbs' own words already refused with their word; nothing of theirs changed.
+
 ## Next
 
-1. Generic commands: note 28's leftovers (step 4d), then delivery steps 5 and 6.
+1. Generic commands: delivery step 5 (drafts and the detail dialog; the owner is asked the choices of look and
+   behaviour before it starts), then step 6 (saved sequences of edits).
 2. MVA with SIMM (`docs/12-implementation-plan.md` P2): spot IM from the XVA request's MVA option.
 3. ADR-0010 Delivery step 3 (Advanced: Before-only and After-only edits, the split fill), when the owner asks for it.
 4. The owner's review of ADR-0003 §7 (scopes, carry and conflict), then a synthetic source change that can produce a conflict, and the browser cases still open above (reload, failed case unavailable).
