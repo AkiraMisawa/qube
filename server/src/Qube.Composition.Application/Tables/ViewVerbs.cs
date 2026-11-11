@@ -323,6 +323,60 @@ sealed class FilterVerb(TableRegister register) : IViewVerb
 }
 
 /// <summary>
+/// <c>select &lt;rows&gt;</c> (note 43 of step 4): the rows the page places the Selection of the grid behind the line
+/// on. The rows are the selector's (§2), read with the view. They are rows that grid shows, and one run in its order:
+/// a page places one range. Where the view names its order the server says whether they are one run, and answers its
+/// first position; where it names none, the page holds every row and orders them itself, and is answered their keys.
+/// </summary>
+sealed class SelectVerb(TableRegister register) : IViewVerb
+{
+    const string Word = "select";
+    const string Does = $"{Word} selects rows of the grid on screen";
+
+    // The first rows a reading names, as a command's reading names them.
+    const int Listed = 10;
+
+    public ViewVerbDescriptor Descriptor { get; } = new("select", "Select rows of the grid on screen", new([Word], [new("rows", CommandArgumentKind.Rows, Required: true)]));
+
+    public ViewRead Read(LineContext line)
+    {
+        var grid = GridBehind.Of(line, register, Does);
+        var (view, table, state) = (grid.View, grid.Table, line.State);
+        var said = SelectorReader.Words(line.Text);
+        var (selector, _, _) = TableService.RowsSaid(grid.Tables, null, said, view);
+        if (selector.Table is { } id && TableRegister.Find(grid.Tables, id) is var other && other.Descriptor.TableId != table.Descriptor.TableId)
+            throw new TableRefused("OtherGrid", $"The grid behind the line is of {grid.Named}, and the rows are said to be of {other.Word}: go to its grid first.");
+        // The rows are read in the grid's table: an id is looked for there, and a line that says no row is asked for its rows.
+        var resolved = Selectors.Resolve(selector with { Table = table.Descriptor.TableId }, grid.Tables, state, view);
+        var rows = resolved.Rows;
+        if (rows.Count == 0)
+            throw new TableRefused("NoRowMatches", resolved.Where.Count > 0 ? $"No row of {table.Word} matches {string.Join(" and ", resolved.Where)}: there is nothing to select."
+                : $"{said} names no row of {table.Word}: there is nothing to select.");
+
+        var all = table.Table.Rows(state);
+        Selectors.RowIndex? index = null;
+        var shown = Views.Shown(view, table, all, key => (index ??= new(table, all)).Row(key), state).Select(r => r.Key).ToHashSet(StringComparer.Ordinal);
+        IReadOnlyList<string> outside = [.. rows.Where(r => !shown.Contains(r.Key)).Select(r => r.Key)];
+        if (outside.Count > 0)
+            throw new TableRefused("NotOnScreen",
+                $"{TableService.Few(outside)} {(outside.Count == 1 ? "is a row" : "are rows")} of {table.Word} that the grid on screen, {grid.Named}, does not show: {Word} places the Selection of that grid, and {SelectorReader.ShownWord} says its rows alone.");
+
+        var positions = Views.PositionsOf(view, table, state, rows)?.Order().ToList();
+        if (positions is not null && 1 + positions.Zip(positions.Skip(1)).Count(next => next.Second != next.First + 1) is > 1 and var runs)
+            throw new TableRefused("SeveralRuns",
+                $"The {rows.Count} rows are in {runs} runs in {grid.Named}, and the line selects rows that are next to one another: filter or sort the grid so that they are, then {Word} {SelectorReader.ShownWord}.");
+
+        var what = rows.Count == 1 ? $"{rows[0].Key} in {grid.Named}" : $"{TableWords.Counted(rows.Count, "row")} of {grid.Named}";
+        var asks = new LineSelect(table.Descriptor.TableId, view.Subset, positions is null ? [.. rows.Select(r => r.Key)] : null, positions?[0], rows.Count, view.Focus?.Field, $"Selected {what}.");
+        return new([new("rows", said)], new(table.Descriptor.TableId, $"{grid.Named}, {TableWords.Counted(rows.Count, "row")}", rows.Count, [.. rows.Take(Listed).Select(r => r.Key)]), $"Selects {what}.", asks);
+    }
+
+    // The ways to say rows (note 15) of the grid's table, with its view: nothing where no grid is behind the line.
+    public LineCompletions Complete(LineContext line) =>
+        GridBehind.Typing(line, register, Does) is not { } grid ? LineCompletions.None : TableCompletions.Of(line.Text, [grid.Table], line.State, afterRows: null, grid.View);
+}
+
+/// <summary>
 /// A grid's conditions as typed (note 41 of step 4), read by the selector's one reader against the grid's table: the
 /// same fields, operators and values as <c>where</c>, refused as it refuses them.
 /// </summary>

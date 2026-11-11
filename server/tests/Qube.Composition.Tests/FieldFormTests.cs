@@ -121,4 +121,35 @@ public class FieldFormTests
             (W(FieldForm.Amount, 5_000_000m), W(FieldForm.Amount, 250_000m), W(FieldForm.Amount, 1_500_000_000m), W(FieldForm.Amount, 0m), W(FieldForm.Rate, 0.4m),
                 W(FieldForm.Spread, 0.012m), W(FieldForm.Days, 10m), W(FieldForm.Flag, false), W(FieldForm.Rate, null)));
     }
+
+    [Fact] // ADR-0016 note 44: a cell is written for a spreadsheet to read as the value held: a number plain, a rate and a spread in percent, a flag true or false, none empty
+    public void A_value_is_written_as_a_cell_for_a_spreadsheet()
+    {
+        string C(FieldForm form, JsonNode? value) => FieldForms.Cell(Of(form, optional: true), value);
+
+        Assert.Equal(("50000000", "1234.5", "-350000", "-2000.25", "10"),
+            (C(FieldForm.Amount, 50_000_000m), C(FieldForm.Amount, 1234.5m), C(FieldForm.SignedAmount, -350_000m), C(FieldForm.Number, -2000.25m), C(FieldForm.Days, 10m)));
+        // A rate held in percent, a rate held as a fraction and a spread are each the percent they mean.
+        Assert.Equal(("1.25%", "40%", "0.125%", "1.2%"), (C(FieldForm.Percent, 1.25m), C(FieldForm.Rate, 0.4m), C(FieldForm.Rate, 0.00125m), C(FieldForm.Spread, 0.012m)));
+        Assert.Equal(("true", "false", "2031-11-11", "10y", "3m", "SOUTH", "CSA-B"),
+            (C(FieldForm.Flag, true), C(FieldForm.Flag, false), C(FieldForm.Date, "2031-11-11"), C(FieldForm.Period, "10y"), C(FieldForm.PeriodOrDate, "3m"), C(FieldForm.Choice, "SOUTH"), C(FieldForm.Id, "CSA-B")));
+        Assert.Equal(("", "", ""), (C(FieldForm.Rate, null), C(FieldForm.Amount, null), C(FieldForm.Id, null)));
+    }
+
+    [Theory] // ADR-0016 note 44: a rate and a spread written as a cell read back here as the value held
+    [InlineData(FieldForm.Percent, "1.25")]
+    [InlineData(FieldForm.Rate, "0.00125")]
+    [InlineData(FieldForm.Spread, "0.012")]
+    [InlineData(FieldForm.Flag, "true")]
+    [InlineData(FieldForm.Date, "\"2031-11-11\"")]
+    public void A_cell_of_a_rate_a_flag_or_a_date_reads_back_to_the_same_value(FieldForm form, string json)
+    {
+        var value = JsonNode.Parse(json);
+
+        var back = FieldForms.Read(Of(form), FieldForms.Cell(Of(form), value));
+
+        Assert.Equal(FieldForms.Problem.None, back.Problem);
+        if (value!.GetValueKind() == System.Text.Json.JsonValueKind.Number) Assert.Equal(value.GetValue<decimal>(), back.Value!.GetValue<decimal>());
+        else Assert.True(JsonNode.DeepEquals(value, back.Value), $"{json} came back as {back.Value?.ToJsonString()}");
+    }
 }

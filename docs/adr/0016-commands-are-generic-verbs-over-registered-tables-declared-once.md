@@ -479,9 +479,10 @@ log cannot yet say which entries were one command, or what an entry replaced.
    and its verbs (notes 34 to 36). 3d: `add each` takes its iterations as a list, and a contract may hold one
    (note 37). Left for later steps: `load trades <ids>` (step 5, note 37), and how the line spells an iteration's
    lists, which stays open (§3).
-4. View verbs and the AI's row read. **In progress** (`docs/specs/commands-4-view-verbs-ai-reads`, three pull
-   requests: the AI's reads and `sort` and `filter` built 2026-11-11, `select`, `copy` and `export` to come); what
-   it settles is notes 38 onward below.
+4. View verbs and the AI's row read. **In progress** (`docs/specs/commands-4-view-verbs-ai-reads`: the AI's reads,
+   `sort` and `filter`, and `select`, `copy` and `export` built 2026-11-11 in three pull requests; note 28's
+   leftovers, `vary`'s completion and a domain verb's refusal marking its word, to come in a fourth); what it
+   settles is notes 38 onward below.
 5. Drafts (§10): a detail dialog drawn from a registration, with the tables under its row and its templates. The
    pricer's trade and CSA must carry those fields and tables first; its sample has neither them nor such a dialog.
    The pricer's scenarios as a registered table, a row computed from its shifts with their table under it, come
@@ -1422,8 +1423,8 @@ each is built.
 ### Notes of 2026-11-11: what step 4 settles (all DEFAULT)
 
 Step 4 is three pull requests (`docs/specs/commands-4-view-verbs-ai-reads`): 4a the AI's describe, read and
-preview (§7), 4b `sort` and `filter`, 4c `select`, `copy` and `export`. Note 38 is 4a's and notes 39 to 41 are
-4b's; 4c's are added as it is built.
+preview (§7), 4b `sort` and `filter`, 4c `select`, `copy` and `export`. Note 38 is 4a's, notes 39 to 41 are 4b's
+and notes 42 to 44 are 4c's.
 
 38. **The AI describes, reads and previews through three capabilities (§7; 4a).** §7 decides that there are three
     and what each answers. What is left to settle is what makes a reading a command, what each takes and answers
@@ -1608,6 +1609,111 @@ preview (§7), 4b `sort` and `filter`, 4c `select`, `copy` and `export`. Note 38
     - *Added in review: they last as long as the panel.* Sort and filter are view state, not settings
       (ADR-0017 §1 and §6, the owner's): neither is kept with the workspace or for the user, and a grid drawn again
       starts with none.
+
+42. **One thing asked of the page, said by its kind (§3; 4c; changes how notes 21 and 39 are sent).** A view
+    verb's reading had three members, `place`, `sort` and `filter`, of which one was there. With three more verbs
+    it has one, `asks`, whose `kind` says which it is: `place`, `sort`, `filter`, `select`, `copy` or `export`.
+    The first four are done with the grid the view was read of, and name it by its table and subset. `copy` and
+    `export` are done by the page's door and need no grid. What each asks is unchanged; only where a reading
+    holds it has moved. The reading of a revision the page no longer holds is asked for again, for all six
+    (note 39).
+
+43. **`select` (4c).** `select <rows>` places the Selection of the grid behind the line on the rows named.
+    - *The rows are the selector's* (§2), read with the view: ids, `all`, a subset, `shown`, `selected`, each
+      narrowed by `where` (`select where ccy=USD`, `select selected where notional>50mm`). An id is looked for in
+      the grid's table. Rows must be said: `select` alone is refused (`NoRows`).
+    - *They are rows the grid shows.* Rows of another table, of another subset, or that the grid's filter leaves
+      out are refused by name (`OtherGrid`, `NotOnScreen`), never left out quietly: `select all` behind a grid of
+      one subset says which rows are not in it, and `select shown` is the way to say every row of the grid.
+      Conditions that no row meets are refused (`NoRowMatches`).
+      *Added as built:* `where` with no rows before it means rows of the whole table, as it does for `set`
+      (note 18), so `select where ccy=USD` behind the Existing grid is refused where a new trade is in USD too.
+      The words mean the same rows for every verb, and the refusal says the way on: `shown` says the rows of that
+      grid alone (`select shown where ccy=USD`).
+    - *One run of rows.* ExGrid places one range for a Consumer (`placeSelection`, 0.2.0); a Selection of several
+      ranges is made with the pointer and the keys alone (asked for as ex-grid issue #561). Rows that are not
+      next to one another in the grid's order are therefore refused (`SeveralRuns`), with how many runs they are
+      in and the way on: filter or sort the grid so that they are, then `select shown`. Selecting the first run
+      and saying nothing would be a Selection that looks like the answer and is not.
+    - *Who says whether they are one run.* Where the server pages the grid, the server does, in the view's order
+      (refused as moved where that is no longer the table's, as a position is), and answers the first position
+      and how many. Where the page holds every row, the grid orders them itself: the server answers the rows'
+      keys, and the page refuses at Enter the ones its grid does not show next to one another.
+    - *What is placed.* Whole rows: every column of the grid, the Focus on the first row in the column it was
+      on, or the first column. It is placed in the Row Sequence Version the view was read in, so a grid that has
+      moved since refuses it, and so does one that keeps an edit open (as `find`, note 21).
+    - *Afterwards* the keyboard is back where it was, as after a command done. With the chain key (note 24) the
+      next line reads the view again, so `select where ccy=USD` then `set notional 5mm`, or `copy`, acts on the
+      rows just selected (note 18).
+    - It completes as rows are said (note 15). Not the AI's, not logged, not undone: it changes no workspace.
+    - *Left for later.* Several ranges, when ExGrid places them. Taking the Selection off (`select off`): ExGrid
+      places a range and has no call that leaves none.
+
+44. **`copy` and `export` take rows out of the workbench (§3, amending its spelling; 4c).**
+    `copy [<rows>] [<fields>] [with headers]` puts cells on the clipboard, and
+    `export [<table>] [<rows>] [<fields>]` saves them as a file.
+    - *The rows are the selector's* (§2), with no grid needed where the line names them (`export trades`,
+      `copy csas where ccy=USD`). Left out, `copy` means the Selection, or the row the keyboard is on (note 18),
+      and `export` means the rows the grid behind the line shows; a table named with no rows is every row of it
+      for `export` (§3's `export <table>`), and refused for `copy` as it is for `set`. With neither rows nor a
+      grid both are refused. No row to write is refused (`NoRowMatches`), never an empty clipboard or file.
+    - *The fields* are the table's, by their words, separated by commas, in the order named and each once
+      (`UnknownField`, `AmbiguousField`, `FieldTwice` as elsewhere). With none named, every field of the table in
+      the table's order, which begins with the row's key.
+    - *The order of the rows.* As their ids were listed. Rows said as the screen's (`selected`, `shown`, or left
+      out) come in the order the grid shows them where the server pages it, since the server knows that order.
+      Any other rows come in the table's own order; a grid whose page holds its rows and sorts them itself is
+      not followed, which the notice cannot say and the status lists as a limit.
+    - *A cell is written for a spreadsheet to read as the value held.* An amount, a number and a count of days
+      as a plain number with every decimal and no grouping (`50000000`), since a spreadsheet reads `5mm` as text.
+      A rate and a spread with the percent sign (`1.25%`, `40%`, `1.2%` for 120bp): a spreadsheet reads each as
+      the number it means, where the bare number held would be a percent for one field and a fraction for
+      another with nothing to tell them apart. A flag `true` or `false`. A date `yyyy-mm-dd`. A period, an id
+      and a choice as written. No value is an empty cell. Nothing is rounded, and nothing is cut.
+    - *What it does not do.* A text is written as it is. A spreadsheet reads one that begins with `=`, `+`, `-`
+      or `@` as a formula, and may drop the leading zeros of an id made of digits: writing an apostrophe before
+      it would put a value in the file that the workspace does not hold, which needs the owner's word (the
+      fallback rule), so it is **put to the owner** and until then nothing is altered. An amount copied does not
+      read back as an amount typed here: a bare number is millions (ADR-0008), so one of a million or more is
+      refused and a smaller one would be read a million times too large. That is the reader's rule for every
+      bare number, and `copy` is for a spreadsheet.
+    - *`copy`*: tabs between cells and CRLF between lines, none after the last, as a spreadsheet's own copy; a
+      cell holding a tab, a line break or a quote is quoted. No header line, as the grid's own Copy has none, so
+      that what is copied is pasted as cells; `with headers` at the end of the line adds one, as the grid's Copy
+      with headers does.
+    - *`export`*: comma-separated values (RFC 4180), always with a header line, UTF-8 with a byte order mark so
+      that Excel reads it as UTF-8, named by the table's word (`trades.csv`).
+    - *A header* is the word a command names the field by (`notional`, `wind speed`), which no two fields of a
+      table share. A field's title may be shared by fields of two groups.
+    - *Not truncated, and capped.* More than 1,000,000 cells are refused before Enter (`TooManyCells`), with the
+      count: ten thousand trades of every field are well under it.
+    - *The content is asked for at Enter.* A reading is made at every keystroke and says only how many rows and
+      which fields. At Enter the page's door asks `POST /api/commands/content` with the line, the view and the
+      revision of the reading: the server reads the same line again at that revision, refused if the workspace
+      has moved, and answers the text. The door writes the clipboard or saves the file, and says the server's
+      sentence once the browser has taken it. A browser that refuses the clipboard is said as that, with its
+      reason, and nothing is half done.
+    - *Where the clipboard is not to be had.* A browser gives a page the clipboard only over https or on
+      localhost. Elsewhere `copy` is refused saying so, and `export` still works.
+    - Not the AI's (it has `tables.read`, note 38), not logged, not undone: they change no workspace. That rows
+      left the workbench is written nowhere, as the grid's own Copy writes nothing.
+    - *Added as built: where the fields begin.* A list of fields follows the rows, so the reader is told so: the
+      first field ends at its comma (`copy volume, unit` names two fields and no row), and words after a table's
+      own that name a field of it say no rows (`export stations altitude`). A word there that names no field is
+      still read as a row's id, so a misspelt field after a table is refused as a row that is not there
+      (`UnknownRow`), not as a field.
+    - *Changed as built: more words that name a field are that field (amends note 18 of step 2).* `trade` is a
+      word of the pricer's trades and `trade id` a field of them, so `copy trade id, notional` was read as the
+      table with the fields `id, notional`, and refused for naming no rows. Where the words at the start of the
+      rows name a field of the screen's table with more words than name a table, they are the field and no table
+      is said, as the longest words name a command (§1). This holds for every verb that reads rows, not only
+      these two: `set trade id` on the trade grid was refused as words that could be either, and is now read as
+      the field. Words that name both with the same count are still refused with both spellings.
+    - *Added as built.* `export` accepts `with headers` and writes the header line it always writes. The most
+      cells is the kernel's, given where the lines are built (`CommandLines`' `mostCells`); no host setting names
+      it yet. `select`'s list offers the rows of the grid's table, and one the grid does not show is refused when
+      the line is read (`NotOnScreen`): the list is not narrowed to the rows shown. The AI's
+      `commands.preview` refuses both lines as it refuses a verb of the screen, and names `tables.read`.
 
 ## Rejected
 

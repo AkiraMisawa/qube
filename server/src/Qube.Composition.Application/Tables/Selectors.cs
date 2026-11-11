@@ -77,15 +77,20 @@ public static partial class SelectorReader
     /// then the screen's to say. Where the table is said beside the rows (<paramref name="within"/>), the rows are
     /// read as that table's: its subsets, and no row where it has one.
     /// </summary>
-    public static SelectorReading Read(string text, IReadOnlyList<TableDescriptor> tables, TableDescriptor? within = null, TableDescriptor? onScreen = null)
+    /// <param name="fieldsFollow">
+    /// The verb reads a list of fields after the rows, separated by commas (<c>copy</c>, <c>export</c>; note 44 of step
+    /// 4). Words after a table's own that name a field of it then say no rows, as words that name a field of the
+    /// screen's table do, and the first field of the list ends at its comma.
+    /// </param>
+    public static SelectorReading Read(string text, IReadOnlyList<TableDescriptor> tables, TableDescriptor? within = null, TableDescriptor? onScreen = null, bool fieldsFollow = false)
     {
         var words = text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
-        var scan = Scan(words, tables, within, onScreen);
+        var scan = Scan(words, tables, within, onScreen, fieldsFollow);
         return scan.Short is { } unread ? throw unread : new(scan.Selector, words[scan.Taken..]);
     }
 
     /// <summary>The one reading of a line's rows, which stops at a condition that is not finished and says so, where <see cref="Read"/> refuses.</summary>
-    internal static SelectorScan Scan(string[] words, IReadOnlyList<TableDescriptor> tables, TableDescriptor? within = null, TableDescriptor? onScreen = null)
+    internal static SelectorScan Scan(string[] words, IReadOnlyList<TableDescriptor> tables, TableDescriptor? within = null, TableDescriptor? onScreen = null, bool fieldsFollow = false)
     {
         var at = 0;
 
@@ -95,16 +100,23 @@ public static partial class SelectorReader
             if (named.Count > 1)
                 throw new TableRefused("AmbiguousTable", $"{Said(words, at, taken)} could be {TableWords.Either(named.Select(t => t.TableId))}; name one by its id.",
                     Said(words, at, taken), [.. named.Select(t => t.TableId)]);
-            // Words that name a table and a field of the screen's table: which was meant is not guessed (note 18 of step 2).
-            if (within is null && onScreen is not null && Longest(words, at, onScreen.Fields, TableWords.Names) is (var fields, _))
+            // Words that name a table and a field of the screen's table: which was meant is not guessed (note 18 of step
+            // 2). More words that name a field are that field and no table (`trade id`, where `trade` is a table's
+            // word; note 44 of step 4), as the longest words are a command's; where a list of fields follows, the first
+            // ends at a comma.
+            var fieldWords = fieldsFollow ? string.Join(' ', words).Split(',')[0].Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries) : words;
+            if (within is null && onScreen is not null && Longest(fieldWords, at, onScreen.Fields, TableWords.Names) is (var fields, var length))
             {
-                var word = Said(words, at, taken);
-                var other = named[0].Words.FirstOrDefault(w => !TableWords.Names(fields[0]).Contains(TableWords.Of(w))) ?? named[0].TableId;
-                throw new TableRefused("AmbiguousWords",
-                    $"{word} could be the table {TableWords.Word(named[0])} or {TableWords.Word(fields[0])} of the {TableWords.Word(onScreen)} on screen; write {other} for the table, or {SelectedWord} {word} for the rows on screen.",
-                    word, [other, $"{SelectedWord} {word}"]);
+                if (length <= taken)
+                {
+                    var word = Said(words, at, taken);
+                    var other = named[0].Words.FirstOrDefault(w => !TableWords.Names(fields[0]).Contains(TableWords.Of(w))) ?? named[0].TableId;
+                    throw new TableRefused("AmbiguousWords",
+                        $"{word} could be the table {TableWords.Word(named[0])} or {TableWords.Word(fields[0])} of the {TableWords.Word(onScreen)} on screen; write {other} for the table, or {SelectedWord} {word} for the rows on screen.",
+                        word, [other, $"{SelectedWord} {word}"]);
+                }
             }
-            (table, at) = (named[0], at + taken);
+            else (table, at) = (named[0], at + taken);
         }
 
         var all = false;
@@ -127,8 +139,12 @@ public static partial class SelectorReader
             }
         }
         var idsFrom = at;
+        // Where a list of fields follows the rows, its first field ends at a comma, with or without a space.
+        var first = fieldsFollow ? string.Join(' ', words, at, words.Length - at).Split(',')[0].Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries) : null;
+        bool FieldFirst(IReadOnlyList<TableField> fields) => first is null ? StartsWithAField(words, at, fields) : StartsWithAField(first, 0, fields);
         if (!all && screen is null && subset is null && at < words.Length && !Is(words[at], WhereWord) && said is not { SingleRow: true }
-            && !(said is null && StartsWithAField(words, at, [.. tables.Where(t => t.SingleRow).SelectMany(t => t.Fields), .. onScreen?.Fields ?? []])))
+            && !(said is null && FieldFirst([.. tables.Where(t => t.SingleRow).SelectMany(t => t.Fields), .. onScreen?.Fields ?? []]))
+            && !(fieldsFollow && table is not null && FieldFirst(table.Fields)))
             at = List(words, at, ids);
         var idsTo = at;
 

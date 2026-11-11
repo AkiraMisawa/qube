@@ -97,9 +97,22 @@ names, rows and fields written to the clipboard, and a table saved as a file.
   both kinds of grid; a grid whose page holds its rows keeps them until the server has answered for new conditions;
   the Rates line grid refuses a sort by the column's name, since it shows its terms as typed.
 
-### 4c. `select`, `copy` and `export` (tickets 11 to 14)
+### 4c. `select`, `copy` and `export` (tickets 11 to 14; ADR-0016 notes 42 to 44)
 
-Decided when 4b is merged, as ADR-0016 notes after 4b's.
+- **One member for what a view verb asks.** `LinePreview` holds `asks`, one thing asked of the page whose `kind`
+  says which (`place`, `sort`, `filter`, `select`, `copy`, `export`), in place of a member for each (note 42).
+- **`select <rows>`** is a kernel view verb. The rows are the selector's, read with the view, and must be rows the
+  grid behind the line shows, next to one another in its order: ExGrid places one range for a Consumer. Where the
+  server pages the grid it answers a position and a count; where the page holds the rows, their keys, and the
+  page says whether its grid shows them as one run (note 43).
+- **`copy [<rows>] [<fields>] [with headers]` and `export [<table>] [<rows>] [<fields>]`** are kernel view verbs
+  that need no grid where the line names its rows. Their reading says the rows, the fields and how many cells;
+  the content is asked for at Enter (`POST /api/commands/content`), read from the same line at the reading's
+  revision, and the door writes the clipboard or saves the file (note 44).
+- **How a cell is written** is one function beside the reader of values (`FieldForms`): a number plain, a rate
+  and a spread with the percent sign, a flag `true` or `false`, the rest as written, none empty.
+- **The door.** A page's `Screen` says how its grid takes a selection. What takes content out of the page (the
+  clipboard, a file saved) is given to the door, so a test gives its own.
 
 ## Testing Decisions
 
@@ -121,6 +134,13 @@ Seams, as the earlier steps have them:
   conditions); the host for the pricer's page endpoint with `where` and for `/shown`; Vitest for the door's
   handing of a sort and a filter and for the views' `where`; Playwright for a trade grid sorted and filtered from
   the line, `set shown` under a filter, and a grid whose page holds its rows.
+
+- For 4c: the preview with a view over `Stations` (the reading of `select` where the server pages and where the
+  page holds the rows, and what each refuses; the readings of `copy` and `export`); `CommandLines.Content` over
+  `Stations` for the text of each, cell by cell; the host for `/api/commands/content` and the catalog; Vitest for
+  the door (a selection handed to the grid, content written to the clipboard and saved, each refused) and for the
+  grid's helper; Playwright for a trade grid's Selection placed from the line and `set` then acting on it, the
+  clipboard read back after `copy`, and the file `export` saves.
 
 A test names the ADR section or note it holds. Expected values are literals of the synthetic registration.
 

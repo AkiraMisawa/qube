@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises';
 import type { Page } from '@playwright/test';
 import { command, expect, open, settled, taken, test } from './fixtures';
 
@@ -449,4 +450,36 @@ test('ADR-0016 notes 39 to 41: the line grid shows the lines the server says a f
   await command(page, 'sort', 'by end desc');
   await expect(page.getByTestId('command-problems')).toHaveText('The grid on screen does not sort by end.');
   await expect(ids()).toHaveText([FIRST, SECOND]);
+});
+
+test('ADR-0016 notes 43 and 44: the line grid takes a Selection from the line, and `export` saves the lines it shows as a CSV file', async ({ page }) => {
+  await open(page);
+  await newWorkspace(page);
+  for (const [i, terms] of ['irs jpy 10mm 5y pay', 'irs usd 10mm 7y rec'].entries()) {
+    await taken(page, 'new', terms);
+    await expect(summary(page)).toContainText(`${i + 1} line(s)`);
+  }
+  await settled(page, 'Lines');
+  const ids = () => lines(page).locator('[role=row] [role=gridcell][aria-colindex="1"]');
+  // Both lines are drawn before their ids are read.
+  await expect(ids()).toHaveCount(2);
+  const [FIRST, SECOND] = await ids().allInnerTexts() as [string, string];
+
+  await page.keyboard.press('ControlOrMeta+Shift+G');
+  await page.keyboard.press('ControlOrMeta+Home');
+  await taken(page, 'select', 'shown');
+  await expect(notice(page)).toHaveText('Selected 2 rows of lines.');
+  await page.keyboard.press('ControlOrMeta+K');
+  await expect(page.getByRole('combobox', { name: 'Command' })).toBeFocused();
+  await expect(page.getByTestId('command-context')).toContainText(`On screen: lines, 2 selected, ${FIRST} · `);
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('combobox', { name: 'Command' })).toBeHidden();
+
+  const saving = page.waitForEvent('download');
+  await taken(page, 'export');
+  const saved = await saving;
+  await expect(notice(page)).toContainText('Exported 2 rows of lines to lines.csv, every field (');
+  expect(saved.suggestedFilename()).toBe('lines.csv');
+  const written = (await readFile(await saved.path())).subarray(3).toString('utf8').split('\r\n');
+  expect(written.slice(1).map((cells) => cells.split(',')[0])).toEqual([FIRST, SECOND, '']);
 });

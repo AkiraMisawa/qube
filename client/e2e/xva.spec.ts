@@ -2444,3 +2444,107 @@ test('ADR-0016 notes 39 to 41: the CSA grid, whose page holds every CSA, shows t
   await page.getByRole('button', { name: 'Take the filter off the CSA terms' }).click();
   await expect(ids()).toHaveText(['CSA-A', 'CSA-B']);
 });
+
+test('ADR-0016 notes 43 and 44: `select` places a trade grid\'s Selection on one run of rows and refuses rows that are apart, a field alone then acts on the rows selected, `copy` puts their cells on the clipboard, and `export` saves the grid\'s rows as a CSV file in the grid\'s order', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await open(page);
+  await newWorkspace(page, 'ABC/LE-01', 60);
+  const line = page.getByRole('combobox', { name: 'Command' });
+  const read = page.getByTestId('command-preview');
+  const notice = page.getByTestId('notice');
+  const screen = page.getByTestId('command-context');
+  const existing = page.getByLabel('Existing trades', { exact: true });
+
+  // `where` alone means rows of the whole table, as it does for `set`: a new trade in USD is no row of this grid, and
+  // the line says so with the way on. Said of the grid's rows, the USD trades are apart as sent: it says how many runs
+  // they are in, and selects none of them.
+  await existing.getByRole('grid').focus();
+  await page.keyboard.press('ControlOrMeta+Home');
+  await page.keyboard.press('ControlOrMeta+Home');
+  await page.keyboard.press('ControlOrMeta+K');
+  await expect(line).toBeFocused();
+  await page.keyboard.type('select where ccy=USD');
+  await expect(read).toHaveText(/^DRAFT-\d+(, DRAFT-\d+)* (is a row|are rows) of trades that the grid on screen, trades \(existing\), does not show: select places the Selection of that grid, and shown says its rows alone\.$/);
+  await line.fill('select shown where ccy=USD');
+  await expect(read).toHaveText(/^The \d+ rows are in \d+ runs in trades \(existing\), and the line selects rows that are next to one another: filter or sort the grid so that they are, then select shown\.$/);
+  const usd = Number(/^The (\d+) rows/.exec(await read.innerText())?.[1]);
+  await page.keyboard.press('Enter');
+  await expect(line).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(line).toBeHidden();
+
+  // Sorted by currency they are one run: the Selection is placed on it, and the keyboard is back in the grid.
+  await taken(page, 'sort', 'by ccy');
+  await settled(page, 'Existing trades');
+  await page.keyboard.press('ControlOrMeta+K');
+  await expect(line).toBeFocused();
+  await page.keyboard.type('select shown where ccy=USD');
+  await expect(read).toContainText(`Selects ${usd} rows of trades (existing).`);
+  await page.keyboard.press('Enter');
+  await expect(line).toBeHidden();
+  await expect(notice).toHaveText(`Selected ${usd} rows of trades (existing).`);
+  await expect(keyboardIn(page, 'Existing trades')).toHaveCount(1);
+
+  // The line then says the rows selected, with the Focus on the first of them, and a field alone acts on them (note 18).
+  await page.keyboard.press('ControlOrMeta+K');
+  await expect(line).toBeFocused();
+  await expect(screen).toHaveText(new RegExp(`^On screen: trades \\(existing\\), ${usd} selected, ABC-LE-01-E\\d+ · trade id$`));
+  const first = / selected, (\S+) · trade id$/.exec(await screen.innerText())?.[1];
+  await page.keyboard.type('set a off');
+  await expect(read).toContainText(`trades, ${usd} rows: ${first}`);
+  await page.keyboard.press('Enter');
+  await expect(line).toBeHidden();
+  await expect(notice).toHaveText(`Set A to off on ${usd} trades.`);
+
+  // `copy` with no rows is the Selection, in the grid's order: one line a trade, cells apart by tabs, no header.
+  await taken(page, 'copy', 'trade id, ccy');
+  await expect(notice).toHaveText(`Copied ${usd} rows of trades, 2 fields: trade id, ccy.`);
+  const copied = (await page.evaluate(() => navigator.clipboard.readText())).split('\r\n');
+  expect(copied).toHaveLength(usd);
+  expect(copied[0]).toBe(`${first}\tUSD`);
+  expect(copied.every((cells) => /^ABC-LE-01-E\d+\tUSD$/.test(cells))).toBe(true);
+
+  // `export` with no rows is every row the grid shows, in its order, under a header line, as a file named by the table.
+  const saving = page.waitForEvent('download');
+  await taken(page, 'export');
+  const saved = await saving;
+  await expect(notice).toContainText('Exported 43 rows of trades to trades.csv, every field (');
+  expect(saved.suggestedFilename()).toBe('trades.csv');
+  const bytes = await readFile(await saved.path());
+  // The byte order mark by which Excel reads the file as UTF-8, then the lines, each ended by CRLF.
+  expect([...bytes.subarray(0, 3)]).toEqual([0xef, 0xbb, 0xbf]);
+  const written = bytes.subarray(3).toString('utf8').split('\r\n');
+  expect(written).toHaveLength(45);
+  expect(written[0]).toMatch(/^trade id,/);
+  expect(written[44]).toBe('');
+  // In the grid's order, which is by currency: the USD trades are one run of the file, as the clipboard had them.
+  const order = written.slice(1, 44).map((cells) => cells.split(',')[0]);
+  const from = order.indexOf(first);
+  expect(from).toBeGreaterThanOrEqual(0);
+  expect(order.slice(from, from + usd)).toEqual(copied.map((cells) => cells.split('\t')[0]));
+});
+
+test('ADR-0016 notes 43 and 44: in the CSA grid, whose page holds every CSA, `select` places the rows the server names by their ids, and `copy … with headers` puts them on the clipboard under the words that name their fields', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await open(page);
+  await newWorkspace(page, 'ABC/LE-01', 5);
+  const line = page.getByRole('combobox', { name: 'Command' });
+  const notice = page.getByTestId('notice');
+
+  await command(page, 'open', 'csa');
+  await expect(page.getByRole('tab', { name: /^CSA/ })).toHaveAttribute('aria-selected', 'true');
+  await settled(page, 'CSA terms');
+
+  await taken(page, 'select', 'CSA-B, CSA-A');
+  await expect(notice).toHaveText('Selected 2 rows of csas.');
+  await page.keyboard.press('ControlOrMeta+K');
+  await expect(line).toBeFocused();
+  // The grid had no Focus to keep, so it is on the first row in the grid's first column, which is no field's.
+  await expect(page.getByTestId('command-context')).toHaveText('On screen: csas, 2 selected, CSA-A');
+  await page.keyboard.type('copy csa id, ccy with headers');
+  await expect(page.getByTestId('command-preview')).toContainText('Copies 2 rows of csas, 2 fields: csa id, currency, with headers.');
+  await page.keyboard.press('Enter');
+  await expect(line).toBeHidden();
+  await expect(notice).toHaveText('Copied 2 rows of csas, 2 fields: csa id, currency, with headers.');
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toMatch(/^csa id\tcurrency\r\nCSA-A\t[A-Z]{3}\r\nCSA-B\tUSD$/);
+});

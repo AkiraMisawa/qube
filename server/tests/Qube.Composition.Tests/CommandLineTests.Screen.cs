@@ -9,7 +9,7 @@ namespace Qube.Composition.Tests;
 // and `shown`, a position and the order's token are read under them.
 public partial class CommandLineTests
 {
-    static string Sorted(LinePreview preview) => preview.Sort is not { } sort ? "none"
+    static string Sorted(LinePreview preview) => preview.Asks is not LineSort sort ? "none"
         : $"{sort.Table} {sort.Subset}: {string.Join(", ", sort.Sorts.Select(s => $"{s.Column}{(s.Descending ? " desc" : "")}"))} | {sort.Said}";
 
     [Fact] // ADR-0016 notes 39 and 40: sort is read by the server, which answers the sort the page gives its grid, and no command; nothing is written
@@ -25,7 +25,7 @@ public partial class CommandLineTests
         // The stations have no reader that pages them: their page holds every row, and its grid sorts by any field.
         var held = rig.Preview("sort by altitude descending, backup", new LineView(Stations.Sites));
 
-        Assert.Equal((null, null, null, null), (one.Command, one.Inputs, one.Place, one.Filter));
+        Assert.Equal((null, null), (one.Command, one.Inputs));
         Assert.Equal("weather.readings manual: volume desc | Sorted readings (manual) by volume, descending.", Sorted(one));
         Assert.Equal(("Sorts readings (manual) by volume, descending.", "sort: by volume desc (Typed)", null), (one.Would, Given(one), one.Rows));
         Assert.Equal("weather.readings manual: volume | Sorted readings (manual) by volume.", Sorted(named));
@@ -54,7 +54,7 @@ public partial class CommandLineTests
 
         var preview = rig.Preview(line, new LineView(Stations.Readings, "manual", Order: rig.Order("manual", [])));
 
-        Assert.Equal((read, null), (Read(preview), preview.Sort));
+        Assert.Equal((read, null), (Read(preview), preview.Asks));
     }
 
     [Fact] // ADR-0016 note 39: with no grid behind the line a verb of the screen is refused, and the word at fault is marked where it stands
@@ -88,7 +88,7 @@ public partial class CommandLineTests
         Assert.Equal(offered, string.Join(" | ", preview.Complete.Select(c => $"{c.Value}{(c.Start == line.Length ? "" : $"@{c.Start}")}")));
     }
 
-    static string Filtered(LinePreview preview) => preview.Filter is not { } filter ? "none" : $"{filter.Table} {filter.Subset}: {filter.Where ?? "off"} | {filter.Said}";
+    static string Filtered(LinePreview preview) => preview.Asks is not LineFilter filter ? "none" : $"{filter.Table} {filter.Subset}: {filter.Where ?? "off"} | {filter.Said}";
 
     [Fact] // ADR-0016 notes 39 and 41: filter is read by the server, which answers the conditions the page gives its grid and how many rows they leave, and no command; nothing is written
     public void Filter_answers_the_conditions_the_page_gives_its_grid_and_the_rows_they_leave()
@@ -104,7 +104,7 @@ public partial class CommandLineTests
         var off = rig.Preview("filter off", manual with { Where = "station=north" });
         var held = rig.Preview("filter where altitude>20", new LineView(Stations.Sites));
 
-        Assert.Equal((null, null, null, null), (north.Command, north.Inputs, north.Place, north.Sort));
+        Assert.Equal((null, null), (north.Command, north.Inputs));
         Assert.Equal("weather.readings manual: station=north | Showing 2 of 3 rows of readings (manual) where station = NORTH.", Filtered(north));
         Assert.Equal(("readings (manual), 2 of 3 rows | Shows 2 of 3 rows of readings (manual).", "where: station=north (Typed)", 2, "R1|R2"),
             (Read(north), Given(north), north.Rows!.Count, string.Join("|", north.Rows.First)));
@@ -114,7 +114,7 @@ public partial class CommandLineTests
         Assert.Equal(("weather.readings manual: off | Took the filter off readings (manual).", "Takes the filter off readings (manual).", null), (Filtered(off), off.Would, off.Rows));
         Assert.Equal("weather.stations : altitude>20 | Showing 2 of 3 rows of stations where altitude > 20.", Filtered(held));
         Assert.Equal(before, rig.Board.Revision);
-        Assert.Equal(["find", "sort", "filter"], rig.Lines.ViewVerbs.Select(v => v.VerbId));
+        Assert.Equal(["find", "sort", "filter", "select", "copy", "export"], rig.Lines.ViewVerbs.Select(v => v.VerbId));
     }
 
     [Theory] // ADR-0016 notes 39 and 41: filter refuses conditions as `where` refuses them, and by name a line that asks for another grid's rows
@@ -134,7 +134,7 @@ public partial class CommandLineTests
 
         var preview = rig.Preview(line, new LineView(Stations.Readings, "manual", Order: rig.Order("manual", [])));
 
-        Assert.Equal((read, null), (Read(preview), preview.Filter));
+        Assert.Equal((read, null), (Read(preview), preview.Asks));
         Assert.Equal("NoView: filter narrows the grid on screen, and no grid of a table is behind this line: go to one first.", Read(rig.Preview("filter where unit=m3")));
     }
 
@@ -180,7 +180,7 @@ public partial class CommandLineTests
         Assert.Equal(("readings, filtered to 4, nothing selected", ("readings", "R1, R2, R5, X1")), (shown.View, Asked(shown)));
         Assert.Equal(("readings", "R1, R2"), Asked(narrowed));
         Assert.Equal(("readings, filtered to 4, 2 selected, R2 · note", ("readings", "X1, R5")), (selected.View, Asked(selected)));
-        Assert.Equal(("R5", 2), (found.Place!.Key, found.Place.Position));
+        Assert.Equal(("R5", 2), (Placed(found).Key, Placed(found).Position));
         Assert.Equal("NotOnScreen: R3 is a row of readings that the filter of the grid on screen leaves out.", Read(hidden));
         Assert.Contains("shown (4 rows)", offered.Complete.Select(c => $"{c.Value} ({c.Detail})"));
         Assert.Equal(("stations, filtered to 1, nothing selected", ("stations", "X1")), (both.View, Asked(both)));

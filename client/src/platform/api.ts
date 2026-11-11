@@ -1,4 +1,4 @@
-import type { Catalog, Dataset, ErrorEnvelope, LinePreview, LineView, RunRecord, TableOnScreen, TypedDataRef, ViewDefinition, ViewSelection, ViewShown, WorkflowDefinition } from './contracts';
+import type { Catalog, Dataset, ErrorEnvelope, LineContent, LinePreview, LineView, RunRecord, TableOnScreen, TypedDataRef, ViewDefinition, ViewSelection, ViewShown, WorkflowDefinition } from './contracts';
 import { telemetry, traced } from './telemetry';
 
 /** A refusal from the server, carrying its code and the located issues. Never turned into an empty result. */
@@ -71,6 +71,12 @@ export interface Api {
    * opened on, where its page gave one (note 16). A line that cannot be read is an answer, not an error.
    */
   preview(line: string, workspaceId: string, read?: { readonly revision?: number; readonly view?: LineView }, signal?: AbortSignal): Promise<LinePreview>;
+  /**
+   * The cells `copy` or `export` takes out of a workspace (ADR-0016 note 44): the server reads the line again at
+   * `revision`, which a workspace that moved refuses, with the view the line was opened on. A line that cannot be read
+   * is an answer, not an error.
+   */
+  content(line: string, workspaceId: string, read: { readonly revision: number; readonly view?: LineView }): Promise<LineContent>;
   /** A workspace's tables as a screen is told of them (ADR-0016 §4, note 25): the actions a grid bound to each offers. */
   tables(workspaceId: string): Promise<readonly TableOnScreen[]>;
   /**
@@ -97,6 +103,7 @@ export const httpApi: Api = {
     call(`/api/commands/${encodeURIComponent(capabilityId)}/${encodeURIComponent(version)}`, { method: 'POST', body: JSON.stringify({ inputs, idempotencyKey }) }),
   preview: (line, workspaceId, read, signal) =>
     call('/api/commands/preview', { method: 'POST', body: JSON.stringify({ line, workspaceId, ...read }), ...(signal === undefined ? {} : { signal }) }),
+  content: (line, workspaceId, read) => call('/api/commands/content', { method: 'POST', body: JSON.stringify({ line, workspaceId, ...read }) }),
   tables: (workspaceId) => call(`/api/workspaces/${encodeURIComponent(workspaceId)}/tables`),
   selection: (workspaceId, view) => call(`/api/workspaces/${encodeURIComponent(workspaceId)}/selection`, { method: 'POST', body: JSON.stringify({ view }) }),
   shown: (workspaceId, view, signal) => call(`/api/workspaces/${encodeURIComponent(workspaceId)}/shown`, { method: 'POST', body: JSON.stringify({ view }), ...(signal === undefined ? {} : { signal }) }),

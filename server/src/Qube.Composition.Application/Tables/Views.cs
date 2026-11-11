@@ -288,15 +288,22 @@ static class Views
     /// names no order, as the view of a page that holds every row does: such a page finds the row by its key, and one
     /// that cannot says so. How the view names its rows decides, never whether the table has a reader that pages it.
     /// </summary>
-    public static int? PositionOf(LineView view, BoundTable table, WorkspaceState state, ITableRow row)
+    public static int? PositionOf(LineView view, BoundTable table, WorkspaceState state, ITableRow row) => PositionsOf(view, table, state, [row])?[0];
+
+    /// <summary>
+    /// Where rows stand in the order the view's grid is drawn from, each as <see cref="PositionOf"/> answers one, in
+    /// the order given: for a page to place its Selection on them (note 43 of step 4).
+    /// </summary>
+    public static IReadOnlyList<int>? PositionsOf(LineView view, BoundTable table, WorkspaceState state, IReadOnlyList<ITableRow> rows)
     {
         Shaped(view);
         if (view.Order is null) return null;
         var sorted = Sorted(view, table, state);
         if (sorted.Token != view.Order) throw new TableRefused(Moved, $"The {table.Word} are no longer in the order the grid shows them in: open the line again.");
-        for (var at = 0; at < sorted.Rows.Count; at++)
-            if (string.Equals(sorted.Rows[at].Key, row.Key, StringComparison.Ordinal)) return at;
-        throw new InvalidOperationException($"{row.Key} is a row of {Named(view, table)}, and the order its grid is drawn from has no such row.");
+        var at = new Dictionary<string, int>(sorted.Rows.Count, StringComparer.Ordinal);
+        for (var position = 0; position < sorted.Rows.Count; position++) at[sorted.Rows[position].Key] = position;
+        return [.. rows.Select(row => at.TryGetValue(row.Key, out var position) ? position
+            : throw new InvalidOperationException($"{row.Key} is a row of {Named(view, table)}, and the order its grid is drawn from has no such row."))];
     }
 
     // The table's rows in the view's sort, with that order's token; none where no reader pages the table. A sort the
@@ -319,6 +326,20 @@ static class Views
         var left = Left(view, table, ordered.Rows, state);
         var digest = SHA256.HashData(Encoding.UTF8.GetBytes(string.Join('\n', left.Select(r => r.Key))));
         return new(left, $"where/{Convert.ToHexStringLower(digest.AsSpan(0, 8))}");
+    }
+
+    /// <summary>
+    /// Rows of the view's grid in the order the grid is drawn from, where a reader pages its table and so says that
+    /// order (note 44 of step 4); as given where none does: a grid whose page holds its rows orders them itself, and
+    /// the server does not know how.
+    /// </summary>
+    public static IReadOnlyList<ITableRow> InGridOrder(LineView view, BoundTable table, WorkspaceState state, IReadOnlyList<ITableRow> rows)
+    {
+        if (InOrder(view, table, state) is not { } drawn) return rows;
+        var asked = rows.Select(r => r.Key).ToHashSet(StringComparer.Ordinal);
+        IReadOnlyList<ITableRow> inOrder = [.. drawn.Rows.Where(r => asked.Contains(r.Key))];
+        return inOrder.Count == asked.Count ? inOrder
+            : throw new InvalidOperationException($"{asked.Count - inOrder.Count} rows of {Named(view, table)} are not in the order its grid is drawn from.");
     }
 
     // A table no reader pages has no order for a sort or a position to be read in.

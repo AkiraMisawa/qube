@@ -2052,9 +2052,86 @@ Unchanged: every figure of the pricer and of Rates is simulated, and says so.
 - A sort and a filter last as long as the panel (ADR-0017 §1): neither is kept with the workspace or for the user.
 - `select`, `copy` and `export` are step 4c's.
 
+## Generic commands, delivery step 4c: `select`, `copy` and `export` (ADR-0016 notes 42 to 44, 2026-11-11)
+
+The third of step 4's pull requests (`docs/specs/commands-4-view-verbs-ai-reads`, tickets 11 to 14). The line places
+a grid's Selection on rows it names, puts rows on the clipboard as cells a spreadsheet reads, and saves them as a
+CSV file.
+
+### What runs
+
+- **One thing asked of the page, said by its kind.** A view verb's reading holds `asks` with `kind`: `place`,
+  `sort`, `filter`, `select`, `copy` or `export` (note 42), in place of three members of which one was there.
+- **`select <rows>`** places the Selection of the grid behind the line: whole rows, with the Focus on the first of
+  them in the column it was on. The rows are the selector's (`select shown where ccy=USD`, `select CSA-A, CSA-B`).
+  A chained line that names no rows then acts on them (`set a off`, `copy`).
+- **One run of rows.** ExGrid places one range (ex-grid issue #561 asks for several). Rows that are not next to
+  one another are refused with how many runs they are in (`SeveralRuns`); rows of another table or subset, and rows
+  the grid's filter leaves out, are refused by name (`OtherGrid`, `NotOnScreen`). Where the server pages the grid
+  (the trade grids) it answers the run's first position in the view's order; where the page holds the rows (the
+  CSAs, the Rates lines) it answers their keys, and the page says whether its grid shows them next to one another.
+- **`copy [<rows>] [<fields>] [with headers]`** puts cells on the clipboard: tabs between cells, CRLF between
+  lines, no header line unless asked for. Rows left out are the Selection, or the row the keyboard is on.
+- **`export [<table>] [<rows>] [<fields>]`** saves a CSV file (RFC 4180) named by the table's word (`trades.csv`),
+  always with a header line, in UTF-8 with a byte order mark. Rows left out are the rows the grid behind the line
+  shows; a table named alone is every row of it, and needs no grid.
+- **A cell is written as a spreadsheet reads the value held**: an amount, a number and a count of days in full with
+  no grouping (`50000000`), a rate and a spread with the percent sign (`1.25%`), a flag `true` or `false`, a date
+  `yyyy-mm-dd`, no value empty. A header is the word a command names the field by (`trade id`, `notional`).
+- **The cells are asked for at Enter** (`POST /api/commands/content`): the server reads the line again at the
+  revision of the reading, refused where the workspace has moved, and the page's door writes the clipboard or saves
+  the file, then says the server's sentence. Nothing is logged or undone, and the agent's tools hold none of the
+  three (it has `tables.read`).
+- **Refused by name:** more than 1,000,000 cells (`TooManyCells`, never cut), no row to write (`NoRowMatches`), a
+  field named twice, a field the table has not, no rows and no grid, and a clipboard the browser does not give.
+- **More words that name a field are that field**: `trade id` is the trades' field although `trade` is their
+  table's word. This holds for every verb that reads rows (note 44, "Changed as built").
+
+### Verification performed
+
+| What | Result |
+|---|---|
+| `dotnet test server/Qube.slnx` | 1211 passed |
+| Client: `npm run typecheck`, `npm test`, `npm run build` | Clean; 328 passed in 35 files; built |
+| `npx playwright test` (Chromium, headless, Linux) | 93 passed |
+| The three browser tests this step adds, with `--repeat-each=3` | 9 passed |
+| `python3 tools/validate_handoff.py` | Passed |
+| The line's readings and a Selection placed by the line at 390, 768, 992 and 1440px, dark and light | Looked at; no sideways scroll, the line's reading wraps inside the page |
+
+The server's tests read the three verbs over a registration with no financial word (a paged view, a held view, the
+refusals, the cells and the file's text), then the preview and the content endpoint through the host with the
+pricer's trades. The client's tests give the door a clipboard and a file of their own. The browser tests select a
+run of trades from the line, write the rows selected with a line that names none, read the clipboard back after
+`copy`, and read the file `export` saves (its byte order mark, header line, line ends and the grid's order); select
+and copy CSAs, whose page holds every row; and select and export Rates lines.
+
+### Providers
+
+Unchanged: every figure of the pricer and of Rates is simulated, and says so.
+
+### Known limits
+
+- A Selection of several ranges is not placed (ex-grid #561), and the line does not take the Selection off
+  (`select off`): ExGrid has no call that leaves none.
+- `where` with no rows before it means rows of the whole table, as for `set`: behind a grid of one subset,
+  `select where …` is refused where a row of another subset matches, and `select shown where …` is the way.
+- Rows said as the screen's are written in the grid's order where the server pages the grid. A grid whose page
+  holds its rows and sorts them itself (the CSAs) is written in the table's order.
+- A text is written as it is: a spreadsheet reads one that begins with `=`, `+`, `-` or `@` as a formula, and may
+  drop the leading zeros of an id made of digits. What to do about it is put to the owner (note 44).
+- An amount copied does not read back as an amount typed here: a bare number is millions (ADR-0008).
+- The clipboard was exercised in Chromium alone. A browser gives it only over https or on localhost, and one that
+  wants it written inside the key press itself may refuse it after the server's answer: `copy` then says the
+  browser's reason, and `export` still works.
+- The most cells is the kernel's constant; no host setting names it.
+- The grid scrolls as far as shows the Focus, which is on the first row selected: a run that begins below the rows
+  drawn is seen from its first row at the foot of the grid.
+- A misspelt field after a table's word (`export stations colour`) is refused as a row that is not there.
+- Note 28's leftovers (`vary`'s completion, a domain verb's refusal marking its word) are the next pull request.
+
 ## Next
 
-1. Generic commands, delivery step 4c (`select`, `copy`, `export`). Then steps 5 and 6.
+1. Generic commands: note 28's leftovers (step 4d), then delivery steps 5 and 6.
 2. MVA with SIMM (`docs/12-implementation-plan.md` P2): spot IM from the XVA request's MVA option.
 3. ADR-0010 Delivery step 3 (Advanced: Before-only and After-only edits, the split fill), when the owner asks for it.
 4. The owner's review of ADR-0003 §7 (scopes, carry and conflict), then a synthetic source change that can produce a conflict, and the browser cases still open above (reload, failed case unavailable).
