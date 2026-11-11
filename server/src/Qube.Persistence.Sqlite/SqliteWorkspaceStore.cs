@@ -34,6 +34,9 @@ public sealed class SqliteWorkspaceStore : IWorkspaceStore
         // written before edits had a layer (ADR-0010 Consequences) gains that, and its edits are in none.
         AddColumn(connection, "origin");
         AddColumn(connection, "layer");
+        // One written before an entry said which command wrote it and what it replaced (ADR-0016 §11) gains those, and
+        // its entries carry neither: they are not taken back.
+        foreach (var column in new[] { "command", "said", "undoes", "redoes", "replaced_json" }) AddColumn(connection, column);
     }
 
     static void AddColumn(SqliteConnection connection, string column)
@@ -71,6 +74,11 @@ public sealed class SqliteWorkspaceStore : IWorkspaceStore
             note TEXT,
             origin TEXT,
             layer TEXT,
+            command TEXT,
+            said TEXT,
+            undoes TEXT,
+            redoes TEXT,
+            replaced_json TEXT CHECK (replaced_json IS NULL OR json_valid(replaced_json)),
             PRIMARY KEY (workspace_id, seq)
         );
         CREATE INDEX IF NOT EXISTS ix_editlog_domain ON EditLog(domain_kind, at);
@@ -201,10 +209,13 @@ public sealed class SqliteWorkspaceStore : IWorkspaceStore
     {
         using var command = connection.CreateCommand();
         command.CommandText = """
-            INSERT INTO EditLog (workspace_id, seq, at, user_id, kind, domain_kind, scope, entity, field, value_json, note, origin, layer)
-            VALUES ($id, $seq, $at, $user, $kind, $domain, $scope, $entity, $field, $value, $note, $origin, $layer)
+            INSERT INTO EditLog (workspace_id, seq, at, user_id, kind, domain_kind, scope, entity, field, value_json, note, origin, layer,
+                command, said, undoes, redoes, replaced_json)
+            VALUES ($id, $seq, $at, $user, $kind, $domain, $scope, $entity, $field, $value, $note, $origin, $layer,
+                $command, $said, $undoes, $redoes, $replaced)
             """;
-        var parameters = new[] { "$id", "$seq", "$at", "$user", "$kind", "$domain", "$scope", "$entity", "$field", "$value", "$note", "$origin", "$layer" }
+        var parameters = new[] { "$id", "$seq", "$at", "$user", "$kind", "$domain", "$scope", "$entity", "$field", "$value", "$note", "$origin", "$layer",
+                "$command", "$said", "$undoes", "$redoes", "$replaced" }
             .ToDictionary(n => n, n => command.Parameters.Add(n, SqliteType.Text));
         foreach (var e in entries)
         {
@@ -223,6 +234,11 @@ public sealed class SqliteWorkspaceStore : IWorkspaceStore
                 ? (e.Value?.ToJsonString() ?? "null") : DBNull.Value;
             parameters["$note"].Value = (object?)e.Note ?? DBNull.Value;
             parameters["$origin"].Value = (object?)e.Origin?.ToString() ?? DBNull.Value;
+            parameters["$command"].Value = (object?)e.Command?.Id ?? DBNull.Value;
+            parameters["$said"].Value = (object?)e.Command?.Said ?? DBNull.Value;
+            parameters["$undoes"].Value = (object?)e.Command?.Undoes ?? DBNull.Value;
+            parameters["$redoes"].Value = (object?)e.Command?.Redoes ?? DBNull.Value;
+            parameters["$replaced"].Value = e.Replaced is null ? DBNull.Value : JsonSerializer.Serialize(e.Replaced, Json);
             command.ExecuteNonQuery();
         }
     }
@@ -231,7 +247,8 @@ public sealed class SqliteWorkspaceStore : IWorkspaceStore
     {
         using var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT seq, at, user_id, kind, domain_kind, scope, entity, field, value_json, note, origin, layer
+            SELECT seq, at, user_id, kind, domain_kind, scope, entity, field, value_json, note, origin, layer,
+                command, said, undoes, redoes, replaced_json
             FROM EditLog WHERE workspace_id = $id ORDER BY seq
             """;
         command.Parameters.AddWithValue("$id", workspaceId);
@@ -250,7 +267,9 @@ public sealed class SqliteWorkspaceStore : IWorkspaceStore
                 target,
                 Text(8) is { } json ? JsonNode.Parse(json) : null,
                 Text(9),
-                Text(10) is { } origin ? Enum.Parse<RunOrigin>(origin) : null));
+                Text(10) is { } origin ? Enum.Parse<RunOrigin>(origin) : null,
+                Text(12) is { } id ? new CommandStamp(id, Text(13), Text(14), Text(15)) : null,
+                Text(16) is { } replaced ? JsonSerializer.Deserialize<Replaced>(replaced, Json) : null));
         }
         return entries;
     }

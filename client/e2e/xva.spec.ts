@@ -668,6 +668,45 @@ test('ADR-0010 §9: `set` makes a typed cell\'s edit on each row named, and is r
   await expect(page.getByTestId('workspace-summary')).toContainText('3 edit(s)');
 });
 
+test('ADR-0016 §11: `undo` takes back the last command and says what it was, `redo` puts it back, and a grid\'s Ctrl+Z and Ctrl+Y do the same', async ({ page, problems }) => {
+  await open(page);
+  await newWorkspace(page, 'ABC/LE-01', 5);
+
+  // A workspace as it was made has nothing to take back, and says so.
+  await command(page, 'undo');
+  await expect(page.getByTestId('notice')).toHaveText('There is nothing to take back: the workspace is as it was made.');
+  await expect(page.getByTestId('notice')).toHaveAttribute('data-kind', 'refused');
+  expect(problems.splice(0)).toEqual(['error: Failed to load resource: the server responded with a status of 422 (Unprocessable Entity)']);
+
+  // One command on the line: undo names it by its cell as the screen does, and redo puts it back.
+  await command(page, 'measures', 'cva fva');
+  await expect(page.getByTestId('price')).toHaveText('Price CVA FVA · 1 case');
+  await settled(page, 'New trades');
+  await command(page, 'set', 'CSA-A threshold 5mm');
+  await expect(page.getByTestId('workspace-summary')).toContainText('1 edit(s)');
+  await command(page, 'undo');
+  await expect(page.getByTestId('notice')).toHaveText('Took back: set CSA-A threshold. redo puts it back.');
+  await expect(page.getByTestId('notice')).toHaveAttribute('data-kind', 'done');
+  await expect(page.getByTestId('workspace-summary')).not.toContainText('1 edit(s)');
+  await command(page, 'redo');
+  await expect(page.getByTestId('notice')).toHaveText('Put back: set CSA-A threshold.');
+  await expect(page.getByTestId('workspace-summary')).toContainText('1 edit(s)');
+
+  // In a grid the keys run the same two commands: A is ten to the right of a new trade's id.
+  const after = cell(page, 'DRAFT-1', 11);
+  await focusCell(page, 10);
+  await expect(after).toHaveText('True');
+  await page.keyboard.type('off');
+  await page.keyboard.press('Enter');
+  await expect(after).toHaveText('False');
+  await page.keyboard.press('ControlOrMeta+Z');
+  await expect(page.getByTestId('notice')).toHaveText('Took back: set DRAFT-1 A. redo puts it back.');
+  await expect(after).toHaveText('True');
+  await page.keyboard.press('ControlOrMeta+Y');
+  await expect(page.getByTestId('notice')).toHaveText('Put back: set DRAFT-1 A.');
+  await expect(after).toHaveText('False');
+});
+
 test('docs/03 §5, ADR-0010 §3: `add trades` makes a case per new trade alone, refuses one in Before by name, and Price refuses a set the rows left', async ({ page, problems }) => {
   const refused = 'error: Failed to load resource: the server responded with a status of 422 (Unprocessable Entity)';
   await open(page);

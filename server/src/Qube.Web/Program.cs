@@ -60,6 +60,8 @@ builder.Services.AddSingleton<IProductRules>(sp => new IrsRules(conventions, sp.
 builder.Services.AddSingleton<IProductRules>(sp => new CcsRules(conventions, sp.GetRequiredService<RatesWorkspaces>));
 builder.Services.AddSingleton<ProductService>();
 builder.Services.AddSingleton<IQubeModule>(sp => new ProductsModule(sp.GetRequiredService<ProductService>));
+// The kernel's commands over any workspace (ADR-0016 §11): undo and redo.
+builder.Services.AddSingleton<IQubeModule>(sp => new WorkspaceCommandsModule(sp.GetRequiredService<WorkspaceService>));
 builder.Services.AddSingleton(sp => new CommandService(sp.GetRequiredService<CompositionRegistry>(), sp.GetRequiredService<IDataStore>()));
 // A Run's calculation traces (ADR-0011 §5, §7): the read endpoint and trace.read open them through one service.
 builder.Services.AddSingleton(sp => new TraceService(sp.GetRequiredService<RunService>(), sp.GetRequiredService<IDataStore>(), sp.GetRequiredService<CompositionRegistry>()));
@@ -81,7 +83,10 @@ builder.Services.AddSingleton<IDataStore>(sp => sp.GetRequiredService<SqliteRunS
 builder.Services.AddSingleton<IWorkspaceStore>(_ => new SqliteWorkspaceStore(database,
     new Dictionary<string, SourceResolver> { [PortfolioEditRules.App] = PortfolioSourceVersion.Resolve, [RatesEditRules.App] = RatesWorkspaces.Resolve }));
 builder.Services.AddSingleton(sp => new WorkspaceService(
-    new Dictionary<string, IEditRules> { [PortfolioEditRules.App] = new PortfolioEditRules(), [RatesEditRules.App] = new RatesEditRules(conventions) },
+    new Dictionary<string, IEditRules>
+    {
+        [PortfolioEditRules.App] = new PortfolioEditRules(sp.GetRequiredService<MeasureRegister>()), [RatesEditRules.App] = new RatesEditRules(conventions),
+    },
     sp.GetRequiredService<TimeProvider>(), sp.GetRequiredService<IWorkspaceStore>()));
 // New trades' PV01 (ADR-0010 §6) comes from the simulated engine, which answers after a configured delay as an engine
 // would; there is no real one to fall back from.

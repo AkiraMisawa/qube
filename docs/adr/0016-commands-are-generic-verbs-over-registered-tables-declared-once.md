@@ -473,6 +473,65 @@ log cannot yet say which entries were one command, or what an entry replaced.
    pricer's trade and CSA must carry those fields and tables first; its sample has neither them nor such a dialog.
 6. Saved sequences of edits (§8). §1 and §2 serve them as they are.
 
+### Notes of 2026-11-11: what step 1 settles (all DEFAULT)
+
+Written before step 1 is built (`docs/specs/commands-1-tables-selector-undo`), for what the sections above leave to
+the builder. Step 1 ships as three pull requests: the log with `undo` and `redo`; the tables, the forms, the selector
+and the edit verbs with XVA registered; the preview and the line.
+
+1. **What an entry records (§11).** A command's id is `c` and the sequence number of its first entry (`c12`), unique
+   in its workspace. An entry records what it replaced as it stood: the override or the lost edit on its target, for a
+   `Remove` the entity with the edits that ended with it, for a context change the context before. Taking a command
+   back puts those back as they were, their sequence numbers included, so that "a row's later edit wins" (ADR-0010 §6)
+   reads as it did before the command. The entries an `undo` writes record what they replaced too, so `redo` is the
+   same act applied to the `undo`, and a command put back can be taken back again.
+2. **What can be taken back (§11).** The stack is read from the log: a command joins it and ends what can be redone,
+   an `undo` moves its top to what can be redone, a `redo` moves it back. `undo` refuses, by name, at a command that
+   took another source version, left a scope or decided a held edit, at one recorded before commands had ids, and at the
+   workspace's making. A value a workspace is made with, as the pricer's takes its owner's last selection of measures
+   (ADR-0010 §10), is written by the making's own command, so `undo` finds nothing of it; and a selection taken back is
+   no longer the owner's last. A change of context that keeps the source version (Rates' defaults and valuation date) is
+   taken back; the pricer's display currency is an ordinary `Set`.
+3. **How a command is named (§11, §6).** By the words it was given (`set where ccy=USD after off`) where its caller
+   gave them, else by its edits' titles, which the domain's rules give (`E00003 A`, `CSA-A threshold`), never an
+   entity's key. The sentence holds no time: the result carries when and who, and the client writes the time in the
+   user's zone.
+4. **The page's door (§5).** `POST /api/commands/{id}/{version}` answers as the agent's door does (404, 403, 409,
+   else 422), with the origin of the page.
+5. **Forms (§1).** `FieldForm` gains a signed amount, a rate as a fraction, a spread, a number of days and an id,
+   which may name the table it points into; currency, frequency and schedule are choices. That a field may be empty
+   (`empty`, `none`) is the field's, not a form. An amount is 0 or more and a product still refuses 0. `Percent`, a
+   product's rate in percent, stays beside `Rate` until Rates registers (step 3). One reader and one writer serve a
+   product's term, a cell, a condition and the AI.
+6. **What a registration holds in step 1 (§1).** Its id and version, words, key, fields, subsets, whole-set targets
+   and row reader. The row contract and the `TypedDataRef` come with the AI's read and the workflows (steps 4 and 6);
+   templates, tables under a row and fields of several values with drafts (step 5).
+7. **A selector with no table (§2).** Rows named by id belong to the one table of the workspace that has such a row;
+   an id two tables have is refused with both. `all`, a subset or `where` with no table mean the application's main
+   table (the pricer's trades) until step 2 gives the focused one. A table of one row is named by its words, or by
+   none where the field's words say which (`set currency JPY`).
+8. **`where` as typed (§2).** An operator is written with or without spaces; `in` takes values separated by commas;
+   a field is named by its words, which may be several; `empty` and `none` stand for no value. Text is compared
+   without case, and `<`, `<=`, `>`, `>=` only on numbers and dates. On a date a period counts from the table's date
+   (the pricer's value date) in calendar months and days with no business-day rule, and the preview shows the date
+   it means (`maturity>5y` is `Maturity > 2031-11-11`).
+9. **What is written (§2, §6).** A row that already holds the value gets no edit and is counted as such; a command
+   that would change no row writes nothing, keeps the revision and is done. A whole-set edit is written when the rows
+   are a subset or `all` with no id and no `where` and the field registered one; otherwise the rows are a batch.
+10. **`reset` and `remove` (§3).** `reset <rows> <field>` over a subset whose field has a whole-set edit removes that
+    edit and each row's own; with no field it removes every edit on the rows. `remove` takes rows the workspace made
+    (a new trade) and refuses an acquired one by name, saying what switches it out instead.
+11. **The preview (§5).** The request holds the line as typed, the application, the workspace and its revision; the
+    answer holds the command and its inputs ready to invoke, the arguments as read, the rows (count and first few),
+    what would change in one sentence, and what could follow the last word. The line asks while it is typed and Enter
+    runs the server's reading of exactly that text, or nothing while it cannot be read.
+12. **The edit verbs' contracts are flat (§2, §3).** A contract holds fields of one value each (text, a number, a flag),
+    from which the forms and the AI's tools are generated, and no list. So `entity.set`, `entity.reset` and
+    `entity.remove` take the rows as the line spells them (`rows`: ids, `all`, a subset, `where …`) and the values as
+    `name=value` pairs, with the table where it is named; the server reads both with the selector's one reader, and the
+    preview shows the typed reading. The typed selector as a value of the contract waits for contracts that hold lists,
+    which `add each` needs (step 3).
+
 ## Rejected
 
 - **A range syntax of the pricer's own** (`after off where ccy=USD`, the review's R6). A second grammar per domain,

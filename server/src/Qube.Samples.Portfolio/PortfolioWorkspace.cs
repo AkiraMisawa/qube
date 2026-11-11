@@ -75,8 +75,12 @@ public sealed record EffectiveCredit(decimal? CvaRecovery, Ownership CvaRecovery
 }
 
 /// <summary>The portfolio's edit kinds, scopes and conflict groups (ADR-0003 §7), registered with the kernel.</summary>
-public sealed class PortfolioEditRules : IEditRules
+/// <param name="register">The measures' register, for the titles of the columns and settings its modules add; with
+/// none, only the portfolio's own are titled.</param>
+public sealed class PortfolioEditRules(MeasureRegister? register = null) : IEditRules
 {
+    readonly MeasureRegister register = register ?? new MeasureRegister([]);
+
     /// <summary>The stored app id. It was XVA's before the portfolio module was cut out of it (ADR-0010 §10), and
     /// is kept so that a workspace saved before still opens.</summary>
     public const string App = "xva";
@@ -98,6 +102,27 @@ public sealed class PortfolioEditRules : IEditRules
         (PortfolioScenarios.ShiftKind or PortfolioScenarios.ScenariosKind, _) => "portfolio.scenario",
         _ => throw new ArgumentException($"No portfolio edit kind for {target.Entity}.{target.Field}."),
     };
+
+    /// <summary>
+    /// An edit's target as the page names it (ADR-0016 §11's note 3 of 2026-11-11): a cell by its row and its column, as
+    /// the Changes tab does, a grid's B or A, the measures and the display currency in words, never an entity's key.
+    /// </summary>
+    public string TitleOf(WorkspaceState state, EditTarget target)
+    {
+        var (kind, id) = Entity.Split(target.Entity);
+        var title = (kind, target.Field) switch
+        {
+            (Entity.Grid, _) => $"{(target.Field == "before" ? "Before" : "After")} on the {(id == Entity.NewGrid ? "new" : "existing")} trades",
+            (Entity.Selection, _) => "the measures",
+            (Entity.Settings, Entity.DisplayCurrency) when id == Entity.WorkspaceId => "the display currency",
+            (Entity.Case, _) => state.Created.TryGetValue(target.Entity, out var made) ? $"the case {PortfolioCases.Title(made)}" : "a case",
+            (PortfolioScenarios.ShiftKind, _) => "a scenario's shift",
+            (PortfolioScenarios.ScenariosKind, _) => "the scenarios priced",
+            (_, "*") => id,
+            _ => PortfolioCells.Find(state, register, target.Entity, target.Field) is { } cell ? $"{cell.Row} {cell.Column}" : $"{id} {target.Field}",
+        };
+        return target.Layer is { } layer && state.Created.TryGetValue(layer, out var of) ? $"{title} in the case {PortfolioCases.Title(of)}" : title;
+    }
 
     // A fixed rate means something else once its schedule changes, so the two are compared together.
     public IReadOnlyList<string> ConflictGroup(EditTarget target) =>

@@ -21,6 +21,7 @@ All routes and type names here are proposed. Adapt them to an existing host with
 | `POST /api/quant/definitions` | Save a validated workflow/view version; execution is separate. |
 | `POST /api/quant/agent/...` | Adapter-owned AG-UI endpoint using a pinned verified protocol implementation. |
 | `POST /api/agent/commands/{capability}/{version}` | A command capability (ADR-0005) as the agent's tool call reaches it: inputs checked against its contracts, an idempotency key, the caller set by the server with origin `ai`; no Run. |
+| `POST /api/commands/{capability}/{version}` | The same command as the page reaches it (ADR-0016 §5): the same checks and the same answers (404, 403, 409, else 422), the caller set by the server with origin `pricer`. `workspace.undo` and `workspace.redo` (ADR-0016 §11) are the first the pricer's page runs through it. |
 
 Endpoints map transport inputs to application services. Tests call those services and pure domain functions without starting Blazor or MQ. Read-only capability discovery may be tailored to the caller's permissions.
 
