@@ -130,7 +130,8 @@ verbs could be read on their own.
   does, and a reading carries them: the word is marked where it stands in the line, by the function that marks a
   table's (`Place`). A capability's failure is its code and sentence, unchanged.
 - **The pricer says the word where it refuses**, in the one place the line and the capability share: `vary`'s row
-  and column, a measure, `cds`'s words, `case remove`'s case and a scenario's name.
+  and column, and a value it cannot read (added in review), a measure, `cds`'s words, `case remove`'s case and a
+  scenario's name.
 - **`vary` completes** from the rows a cell is named on and their columns (`PortfolioCells`), which its reader
   already resolves a cell with: one list for the reading, the refusal's candidates and what is offered.
 

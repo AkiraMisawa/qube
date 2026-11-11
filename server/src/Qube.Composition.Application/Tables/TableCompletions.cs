@@ -12,9 +12,6 @@ namespace Qube.Composition.Application.Tables;
 /// </summary>
 static class TableCompletions
 {
-    // Rows are offered a few at a time; a table may have ten thousand.
-    const int RowsListed = 20;
-
     /// <param name="afterRows">What the verb takes after its rows: values for fields, one field, or nothing.</param>
     /// <param name="view">What the screen behind the line showed, where there is one: its rows are then a way to say rows.</param>
     /// <param name="fieldsFollow">
@@ -199,10 +196,10 @@ static class TableCompletions
                     var shared = elsewhere?.Contains(key) == true;
                     // In a list the table is already said by its first row, and a row another table has cannot join it.
                     if (shared && (listed.Count > 0 || lead.Length > 0)) continue;
-                    if (++found > RowsListed) continue;
+                    if (++found > LineCompletions.RowsListed) continue;
                     items.Add(shared ? new($"{table.Word} {key}", at) : new(lead + key, at, within is null && listed.Count == 0 && lead.Length == 0 ? table.Word : null));
                 }
-            more += Math.Max(0, found - RowsListed);
+            more += Math.Max(0, found - LineCompletions.RowsListed);
         }
 
         // After the rows, what the verb takes: for values, a field and then what it has to choose from; for a field, one.
@@ -287,14 +284,13 @@ static class TableCompletions
         {
             if (lead.Length == 0 && typed.LastIndexOf(',') is >= 0 and var comma) lead = typed[..(comma + 1)];
             var value = typed[lead.Length..];
-            IEnumerable<string> values = field.Form is not (FieldForm.Flag or FieldForm.Choice) && field.Table is { } pointed
-                ? tables.Where(t => t.Descriptor.TableId == pointed).SelectMany(Keys) : FieldForms.Choices(field.Spec);
-            if (field.Optional) values = values.Append("empty");
+            var rows = field.Table is { } pointed ? tables.Where(t => t.Descriptor.TableId == pointed).SelectMany(Keys) : [];
+            var values = rows.Concat(FieldForms.ChoicesWritten(field.Spec));
             var taken = new HashSet<string>(listed, StringComparer.OrdinalIgnoreCase);
             var found = 0;
             foreach (var one in values.Where(v => !taken.Contains(v) && v.StartsWith(value, StringComparison.OrdinalIgnoreCase)))
-                if (++found <= RowsListed) items.Add(new(lead + one, at));
-            more += Math.Max(0, found - RowsListed);
+                if (++found <= LineCompletions.RowsListed) items.Add(new(lead + one, at));
+            more += Math.Max(0, found - LineCompletions.RowsListed);
         }
 
         // A word of the line's own, or one a registration gives, where any of the names it answers to starts with what is typed.

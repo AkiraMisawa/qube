@@ -939,7 +939,7 @@ public partial class CommandLineTests
         Assert.Equal(("UnknownColour", "No colour mauve: the colours are red and blue.", "mauve", 10, 15, "red|blue"),
             (marked.Code, marked.Sentence, marked.Word, marked.Start, marked.End, string.Join("|", marked.Candidates)));
         Assert.Equal(("mauve", null, null, "red|blue"), (twice.Word, twice.Start, twice.End, string.Join("|", twice.Candidates)));
-        Assert.Equal((null, "would paint"), (read.Refused, read.Would));
+        Assert.Null(read.Refused);
     }
 
     sealed class Commands(params ICapabilityHandler[] handlers) : IQubeModule

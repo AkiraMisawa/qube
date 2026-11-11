@@ -219,8 +219,18 @@ public class PricerLineTests
     [InlineData("cds zzz", "UnknownCds: zzz@4-7 | ABCH USD SNRFOR XR14, ABCH USD SUBLT2 XR14, ABCH JPY SNRFOR CR14, ABCS USD SNRFOR XR14, DEFG EUR SNRFOR MM14, HIJK USD SNRFOR XR14, LMNO JPY SNRFOR CR14")]
     // What a proxy's word could have been is of a kind the line has not given: the sector is given here.
     [InlineData("cds proxy financials zz", "InvalidCds: zz@21-23 | asia, europe, americas, AAA, AA, A, BBB, BB, B")]
-    // A workspace with no scenario has none to offer for the name.
+    // Words that name several single names are named with those they could be; words are named as typed, whatever the spaces between them.
+    [InlineData("cds ABCH USD", "AmbiguousCds: ABCH USD@4-12 | ABCH USD SNRFOR XR14, ABCH USD SUBLT2 XR14")]
+    [InlineData("cds abch  usd", "AmbiguousCds: abch  usd@4-13 | ABCH USD SNRFOR XR14, ABCH USD SUBLT2 XR14")]
+    [InlineData("cds proxy financials asia utilities AA", "InvalidCds: utilities@26-35 | ")]
+    // A value that cannot be read is named, with what the cell's form has to choose from.
+    [InlineData("vary CSA-A currency XXX, USD", "InvalidValue: XXX@20-23 | GBP, JPY, USD, EUR")]
+    [InlineData("vary DRAFT-1 A maybe", "InvalidValue: maybe@15-20 | on, off")]
+    [InlineData("vary CSA-A threshold lots", "InvalidValue: lots@21-25 | ")]
+    [InlineData("vary CSA-A threshold 10,000k", "NothingToVary: 10,000k@21-28 | ")]
+    // A workspace with no scenario, or no case, has none to offer for the name.
     [InlineData("scenario remove nope", "UnknownScenario: nope@16-20 | ")]
+    [InlineData("case remove nope", "UnknownCase: nope@12-16 | ")]
     // A refusal of the whole line names no word.
     [InlineData("vary CSA-A threshold", "NothingToVary: @- | ")]
     public void A_word_the_pricer_refuses_is_named_where_it_stands_with_what_it_could_have_been(string line, string marked) =>
@@ -239,6 +249,22 @@ public class PricerLineTests
         Assert.Equal("UnknownCase: @- | ", Marked(rig.Preview("case remove")));
     }
 
+    [Fact] // ADR-0016 note 45: with no curve chosen cds is no row: it is refused by why there is none, and is neither listed, a candidate nor offered
+    public async Task With_no_curve_chosen_cds_is_no_row_a_cell_is_named_on()
+    {
+        var rig = new Rig();
+        await rig.Run(rig.Preview("cds none"));
+
+        var cds = rig.Preview("vary cds 5y 100bp");
+        var other = rig.Preview("vary CSA-Z threshold 5mm");
+
+        Assert.Equal(("UnknownCell", "cds", 5, 8), (cds.Refused!.Code, cds.Refused.Word, cds.Refused.Start, cds.Refused.End));
+        Assert.Empty(cds.Refused.Candidates);
+        Assert.Equal("UnknownCell: No row CSA-Z: a row is a CSA (CSA-A, CSA-B), the netting set (NS-001), credit, a trade's id, or xva for XVA's settings.", Read(other));
+        Assert.Equal("UnknownCell: CSA-Z@5-10 | CSA-A, CSA-B, NS-001, credit, xva", Marked(other));
+        Assert.Equal("CSA-A (a CSA)@5 | CSA-B (a CSA)@5 | credit (the counterparty's CDS choice)@5", OfferedAt("vary c", rig.Preview("vary c")));
+    }
+
     // What a line offers, each with what it is and, where it is not written at the line's end, where it is written from.
     static string OfferedAt(string line, LinePreview preview) => string.Join(" | ", preview.Complete.Select(c =>
         $"{c.Value}{(c.Detail is null ? "" : $" ({c.Detail})")}{(c.Start == line.Length ? "" : $"@{c.Start}")}"));
@@ -247,6 +273,8 @@ public class PricerLineTests
     [InlineData("vary", "")]
     [InlineData("vary c", "CSA-A (a CSA)@5 | CSA-B (a CSA)@5 | credit (the counterparty's CDS choice)@5 | cds (the chosen curve's spreads)@5")]
     [InlineData("vary dr", "DRAFT-1 (a trade)@5 | DRAFT-2 (a trade)@5 | DRAFT-3 (a trade)@5")]
+    // A row is found by how its id starts or ends, as set finds one.
+    [InlineData("vary e00003", "ABC-LE-01-E00003 (a trade)@5")]
     // A row's columns, by the word that names each.
     [InlineData("vary CSA-A ", "threshold | mta | counterparty currency | self threshold | self mta | self currency | currency | curve | fva curve | frequency | exchange | one-way")]
     [InlineData("vary NS-001 ", "recovery")]
@@ -261,6 +289,8 @@ public class PricerLineTests
     // After a comma, the values not listed yet.
     [InlineData("vary CSA-A currency USD, ", "GBP | JPY | EUR")]
     [InlineData("vary CSA-A currency usd,j", "JPY@24")]
+    // A value listed is left out however it was written.
+    [InlineData("vary DRAFT-1 A yes, ", "off")]
     // A column that may be empty offers empty; an amount, a rate and an id are typed freely.
     [InlineData("vary NS-001 recovery ", "empty")]
     [InlineData("vary CSA-A threshold ", "")]
@@ -275,8 +305,9 @@ public class PricerLineTests
     public void Vary_offers_rows_a_few_at_a_time_and_says_how_many_more()
     {
         var rig = new Rig();
-        // Every trade, existing and new, is a row, beside the six rows that are none.
-        var trades = rig.View.Trades;
+        // Of forty existing trades generated, twenty-nine are still alive on the value date: with the three new ones,
+        // thirty-two trades are rows, beside the six rows that are none.
+        Assert.Equal(32, rig.View.Trades);
 
         var all = rig.Preview("vary ");
         var existing = rig.Preview("vary abc-le-01-e000");
@@ -284,9 +315,9 @@ public class PricerLineTests
         Assert.Equal("CSA-A (a CSA) | CSA-B (a CSA) | NS-001 (the netting set) | credit (the counterparty's CDS choice) | cds (the chosen curve's spreads) | xva (XVA's settings)",
             OfferedAt("vary ", all with { Complete = [.. all.Complete.Take(6)] }));
         Assert.All(all.Complete.Skip(6), c => Assert.Equal("a trade", c.Detail));
-        Assert.Equal((20, 6 + trades - 20), (all.Complete.Count, all.More));
+        Assert.Equal((20, 18), (all.Complete.Count, all.More));
         Assert.All(existing.Complete, c => Assert.StartsWith("ABC-LE-01-E000", c.Value));
-        Assert.Equal((20, trades - 3 - 20, 5), (existing.Complete.Count, existing.More, existing.Complete[0].Start));
+        Assert.Equal((20, 9, 5), (existing.Complete.Count, existing.More, existing.Complete[0].Start));
     }
 
     [Fact] // ADR-0016 note 28: the AI's request with the same words gets the same answer and the same refusal; a cell is also named as a page names it, by entity and field

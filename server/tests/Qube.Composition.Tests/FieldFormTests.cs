@@ -136,6 +136,18 @@ public class FieldFormTests
         Assert.Equal(("", "", ""), (C(FieldForm.Rate, null), C(FieldForm.Amount, null), C(FieldForm.Id, null)));
     }
 
+    [Fact] // ADR-0016 notes 15 and 45: what a field has to choose from is a flag's two words and a choice's values, as a line writes them, and empty where it may be empty; any other form is typed freely
+    public void What_a_field_has_to_choose_from_is_written_as_a_line_writes_it()
+    {
+        Assert.Equal(["on", "off"], FieldForms.ChoicesWritten(Of(FieldForm.Flag)));
+        Assert.Equal(["NORTH", "SOUTH", "EAST"], FieldForms.ChoicesWritten(Of(FieldForm.Choice)));
+        Assert.Equal(["NORTH", "SOUTH", "EAST", "empty"], FieldForms.ChoicesWritten(Of(FieldForm.Choice, optional: true)));
+        Assert.Equal(["empty"], FieldForms.ChoicesWritten(Of(FieldForm.Rate, optional: true)));
+        Assert.Empty(FieldForms.ChoicesWritten(Of(FieldForm.Amount)));
+        // A choice with nothing to choose from is a registration's defect, as it is where one is read or written.
+        Assert.Throws<InvalidOperationException>(() => FieldForms.ChoicesWritten(new FieldSpec(FieldForm.Choice)));
+    }
+
     [Theory] // ADR-0016 note 44: a rate and a spread written as a cell read back here as the value held
     [InlineData(FieldForm.Percent, "1.25")]
     [InlineData(FieldForm.Rate, "0.00125")]

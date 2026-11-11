@@ -20,6 +20,9 @@ scenario's name.
 
 - `cds` is a candidate for a row only where a curve is chosen; with none, `cds` is refused by why there is none,
   with its word and no candidate (note 45, "Changed as built").
-- A workspace with no scenario has none to offer for a scenario's name; a refusal of the whole line (`case remove`
-  with no name, `vary` with no value) names no word.
+- A workspace with no scenario, or no case, has none to offer for the name; a refusal of the whole line
+  (`case remove` with no name, `vary` with no value) names no word.
+- A value `vary` cannot read is named too, with what the cell's form has to choose from (added in review).
+- `cds`'s words are named as typed, whatever the spaces between them (corrected in review).
+- No test holds a row, a column or a case that names two things: nothing in the sample's own data makes one.
 - The AI's preview is checked through the agent's door with the pricer registered (`PricerCommandTests`).

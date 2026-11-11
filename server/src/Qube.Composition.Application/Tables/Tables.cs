@@ -183,6 +183,9 @@ public sealed class TableRegister
             // A subset is said by one of its words alone, so no two share one.
             if (table.Descriptor.Subsets.SelectMany(TableWords.Names).GroupBy(w => w).FirstOrDefault(g => g.Count() > 1) is { } shared)
                 throw new InvalidOperationException($"Table {table.Descriptor.TableId} has two subsets that answer to {shared.Key}.");
+            // A choice is read, written and offered by what it has to choose from (FieldForms).
+            if (table.Descriptor.Fields.FirstOrDefault(f => f.Form == FieldForm.Choice && f.Choices is null) is { } unchosen)
+                throw new InvalidOperationException($"Table {table.Descriptor.TableId}'s field {unchosen.Name} is a choice with nothing to choose from.");
         }
         return bound;
     }

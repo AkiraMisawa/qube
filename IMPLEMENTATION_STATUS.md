@@ -2154,31 +2154,35 @@ Step 4 is whole with this.
 
 - **A workspace's refusal may name its word** (`WorkspaceRefused.Word`, `Candidates`). A reading marks the word
   where it stands once after the command's own words, with its place in the line, and answers the candidates, as
-  it does for a table's refusal. The line selects the word after Enter, as it already did for the kernel's verbs.
+  it does for a table's refusal. The line selects the word after Enter, or leaves the caret after it where the word
+  ends the line, as it already did for the kernel's verbs.
 - **The pricer's refusals name theirs**, in the one place the line and the capability plan from:
   - `vary CSA-Z threshold 5mm` names `CSA-Z`, with the rows a cell is named on (the CSAs, the netting set,
     `credit`, `cds` where a curve is chosen, the modules with settings; a trade's id is a row and is not listed).
   - `vary CSA-A colour 5mm` names `colour`, with the CSA's columns; a column of several words is named whole.
+  - `vary CSA-A currency XXX, USD` names `XXX`, with the currencies; a value of an amount is named with nothing to
+    choose from, and `10,000k` is named as the text that could be one value or two.
   - `measures cva dva2` names `dva2`, with the measures registered.
-  - `cds` names a single name the catalogue has not, with each name's words, and a word that is no sector, region
-    or rating, with the values of the kinds not given yet.
+  - `cds` names a single name the catalogue has not, with each name's words, words that name several, with those,
+    and a word that is no sector, region or rating, with the values of the kinds not given yet.
   - `case remove` names a case that is not there, with the cases' titles; a scenario's name that is not there is
     named with the scenarios the workspace has.
 - **The AI is told the same.** `commands.preview` refuses such a line with the word and the candidates on its
   issue. A capability invoked with the same words fails by its code and sentence, as before.
-- **`vary` completes.** After `vary`: the rows that are no trade, then trades, twenty at a time with how many
-  more, each with what it is. After a row: its columns, found by any of their names as far as typed and offered by
+- **`vary` completes.** After `vary`: the rows that are no trade, then trades, found by how an id starts or ends,
+  twenty at a time with how many more, each with what it is. After a row: its columns, found by any of their names as far as typed and offered by
   the word that names each, a column of several words written from its first. After a flag or a choice: its values,
   and again after each comma without those already listed; `empty` where the column may be empty. An amount, a
   rate and an id are typed freely.
-- **One function says what a form has to choose from** (`FieldForms.Choices`): `set`'s completion and `vary`'s
-  both ask it.
+- **One function says what a field has to choose from** (`FieldForms.ChoicesWritten`): `set`'s completion and
+  `vary`'s both ask it, and a value `vary` refuses is told it. A choice registered with nothing to choose from fails
+  when its table is read, naming the field.
 
 ### Verification performed
 
 | What | Result |
 |---|---|
-| `dotnet test server/Qube.slnx` | 1253 passed |
+| `dotnet test server/Qube.slnx` | 1266 passed |
 | Client: `npm run typecheck`, `npm test`, `npm run build` | Clean; 328 passed in 35 files; built (the client is unchanged) |
 | `npx playwright test` (Chromium, headless, Linux) | 93 passed |
 | `python3 tools/validate_handoff.py` | Passed |
@@ -2202,6 +2206,19 @@ Unchanged: every figure of the pricer and of Rates is simulated, and says so.
 - `vary` offers no value for a trade's CSA or a curve, which are ids typed freely; `set` offers a trade's CSAs,
   since its field says the table it points into.
 - Rates' verbs and the scenario verbs' own words already refused with their word; nothing of theirs changed.
+- No test holds a row, a column or a case that names two things (`AmbiguousCell`, `AmbiguousCase`): nothing in the
+  sample's own data makes one.
+- A refusal names one word: of several measures that are not registered, the first.
+
+### What the review changed
+
+The two reviews of this step (standards and spec) found, and this pull request corrects: a value `vary` cannot read
+named no word, though it is one of the line's; `cds`'s single name was named with one space between its words, so
+words typed with two were not marked; `case remove` with a name and no case named none; rows were offered by how an
+id starts alone, where `set` offers them by how it starts or ends; a value listed was left out only as it was
+written (`yes` still offered `on`); the sentence for a row that is not there listed `cds` with no curve chosen; and
+a choice registered with nothing to choose from would have thrown at each key typed, where it now fails when its
+table is read. Each is said in note 45 as "Corrected in review", with a test.
 
 ## Next
 

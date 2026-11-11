@@ -126,15 +126,20 @@ public static partial class FieldForms
     }
 
     /// <summary>
-    /// What a field of the form has to choose from, each as a line writes it: a flag's two words and a choice's values.
-    /// None for any other form, which is typed freely. What a line offers for a value (ADR-0016 notes 15 and 45).
+    /// What a field of the form has to choose from, each as a line writes it: a flag's two words, a choice's values, and
+    /// <c>empty</c> where the field may be empty. A field of any other form is typed freely. What a line offers for a
+    /// value, and what a value that cannot be read could have been (ADR-0016 notes 15 and 45).
     /// </summary>
-    public static IReadOnlyList<string> Choices(FieldSpec spec) => spec.Form switch
+    public static IReadOnlyList<string> ChoicesWritten(FieldSpec spec)
     {
-        FieldForm.Flag => [Write(spec, true), Write(spec, false)],
-        FieldForm.Choice => [.. (spec.Choices ?? throw new InvalidOperationException("A choice with nothing to choose from cannot be offered.")).Values.Distinct().Select(v => Write(spec, v))],
-        _ => [],
-    };
+        IEnumerable<string> values = spec.Form switch
+        {
+            FieldForm.Flag => [Write(spec, true), Write(spec, false)],
+            FieldForm.Choice => (spec.Choices ?? throw new InvalidOperationException("A choice with nothing to choose from cannot be offered.")).Values.Distinct().Select(v => Write(spec, v)),
+            _ => [],
+        };
+        return [.. spec.Optional ? values.Append(Write(spec, null)) : values];
+    }
 
     /// <summary>
     /// A value as it is typed, in the form <see cref="Read"/> reads back to the same value: an amount with its scale (5mm,

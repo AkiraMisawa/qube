@@ -32,7 +32,7 @@ public static partial class PortfolioCommandContracts
     public static IReadOnlyList<string> ValuesOf(string text) =>
         CommaBetweenDigits().Match(text) is { Success: true } ambiguous
             ? throw new WorkspaceRefused("NothingToVary",
-                $"{ambiguous.Value} could be one value or two: a comma separates values here, so write an amount without separators, such as 10000k or 10mm.")
+                $"{ambiguous.Value} could be one value or two: a comma separates values here, so write an amount without separators, such as 10000k or 10mm.", word: ambiguous.Value)
             : [.. text.Split(',').Select(v => v.Trim())];
 
     [GeneratedRegex(@"[^\s,]*\d(?:,\d[^\s,]*)+")]
@@ -68,7 +68,7 @@ public static partial class PortfolioCommandContracts
 /// (<c>CSA-A threshold</c>); a page's dialog names it by its entity and field. Its line is read into the same request
 /// (ADR-0016 note 28 of step 3), and the reading is a trial: the cases it would make, with nothing written.
 /// </summary>
-public sealed class PortfolioVary(Func<PortfolioWorkspaces> workspaces) : ICapabilityHandler, ILineCommand
+public sealed class PortfolioVary(Func<PortfolioWorkspaces> workspaces, MeasureRegister register) : ICapabilityHandler, ILineCommand
 {
     public CapabilityDescriptor Descriptor { get; } = new("xva.vary", PortfolioContracts.Version, "Make a case per value of a cell, such as vary CSA-A threshold 10mm, 5mm",
         [new("request", PortfolioCommandContracts.VaryRequest, PortfolioContracts.Version, Cardinality.One)],
@@ -98,7 +98,7 @@ public sealed class PortfolioVary(Func<PortfolioWorkspaces> workspaces) : ICapab
     }
 
     /// <summary>The rows a cell is named on, then the row's columns, then what a flag or a choice has to choose from (ADR-0016 note 45).</summary>
-    public LineCompletions Complete(LineContext line) => workspaces().CellsOffered(line.State, line.Text);
+    public LineCompletions Complete(LineContext line) => PortfolioCells.Offered(PortfolioCases.Base(line.State), register, line.Text);
 
     public Task<IReadOnlyDictionary<string, JsonNode?>> InvokeAsync(CapabilityInvocation invocation, CancellationToken cancellationToken) =>
         PortfolioCommand.Run(invocation, workspaces, (service, request, caller, revision) =>
@@ -408,7 +408,7 @@ public sealed class PortfolioCommandsModule(Func<PortfolioWorkspaces> workspaces
     {
         // The order here is the order the line lists them in (ADR-0016 note 33): Price first, as the page puts it.
         builder.AddCapability(new PortfolioPriceCommand(workspaces));
-        builder.AddCapability(new PortfolioVary(workspaces));
+        builder.AddCapability(new PortfolioVary(workspaces, register));
         builder.AddCapability(new PortfolioTradesAdd(workspaces));
         builder.AddCapability(new PortfolioCds(workspaces));
         builder.AddCapability(new PortfolioMeasures(workspaces, register));

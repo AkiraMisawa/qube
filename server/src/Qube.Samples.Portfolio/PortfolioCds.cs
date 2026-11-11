@@ -135,7 +135,7 @@ public static class CdsCatalog
             {
                 void Take(ref string? slot, string value, string what)
                 {
-                    if (slot is not null) throw new WorkspaceRefused("InvalidCds", $"cds proxy names two {what}s, {slot} and {value}.");
+                    if (slot is not null) throw new WorkspaceRefused("InvalidCds", $"cds proxy names two {what}s, {slot} and {value}.", word: word);
                     slot = value;
                 }
                 if (Sectors.FirstOrDefault(s => s.Equals(word, StringComparison.OrdinalIgnoreCase)) is { } s) Take(ref sector, s, "sector");
@@ -150,16 +150,17 @@ public static class CdsCatalog
             if (lacking.Count > 0) throw new WorkspaceRefused("InvalidCds", $"cds proxy takes a sector, a region and a rating; it has no {string.Join(", ", lacking)}.");
             return new CdsChoice(Proxy, current.Reference, sector, region, rating);
         }
+        // A single name's words are named as typed, so that the line can mark them where they stand (ADR-0016 note 45).
         var matching = SingleNames.Where(c => words.All(w => c.Words.Any(x => x.Equals(w, StringComparison.OrdinalIgnoreCase)) || c.Id.Equals(w, StringComparison.OrdinalIgnoreCase))).ToList();
         return matching.Count switch
         {
             1 => current with { Type = SingleName, Reference = matching[0].Id },
             0 => throw new WorkspaceRefused("UnknownCds",
                 $"No single name is {string.Join(" ", words)}: the catalogue holds {string.Join("; ", SingleNames.Select(c => string.Join(" ", c.Words)))}, or write cds proxy <sector> <region> <rating>.",
-                word: string.Join(" ", words), candidates: [.. SingleNames.Select(c => string.Join(" ", c.Words))]),
+                word: text.Trim(), candidates: [.. SingleNames.Select(c => string.Join(" ", c.Words))]),
             _ => throw new WorkspaceRefused("AmbiguousCds",
                 $"{string.Join(" ", words)} names {matching.Count} single names, {string.Join("; ", matching.Select(c => string.Join(" ", c.Words)))}: add a word to name one.",
-                word: string.Join(" ", words), candidates: [.. matching.Select(c => string.Join(" ", c.Words))]),
+                word: text.Trim(), candidates: [.. matching.Select(c => string.Join(" ", c.Words))]),
         };
     }
 

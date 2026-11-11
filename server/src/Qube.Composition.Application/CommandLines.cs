@@ -45,6 +45,9 @@ public sealed record LineCompletion(string Value, int Start, string? Detail = nu
 /// <summary>What could follow, the first of them, and how many more there are than are listed.</summary>
 public sealed record LineCompletions(IReadOnlyList<LineCompletion> Items, int More = 0)
 {
+    /// <summary>How many rows a line lists at a time, with how many more there are (ADR-0016 note 15): a table may have ten thousand.</summary>
+    public const int RowsListed = 20;
+
     public static LineCompletions None { get; } = new([]);
 }
 

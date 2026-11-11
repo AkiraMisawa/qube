@@ -1767,7 +1767,8 @@ and notes 42 to 44 are 4c's.
       `AmbiguousCell`), a measure that is not registered (`UnknownMeasure`), `cds`'s single name that the
       catalogue has not, or has several of, and a word that is no sector, region or rating, a case that
       `case remove` cannot find or finds twice, and a scenario's name that the workspace has not. A refusal of
-      the whole line (nothing to vary, no measure left) names no word.
+      the whole line (nothing to vary, no measure left) names no word. *Added in review:* a value `vary` cannot
+      read (`InvalidValue`), below.
     - *The candidates are what the sentence lists.* For a row: the CSAs, the netting set, `credit`, `cds` and
       the modules that have settings. A trade's id is a row too and is not listed: one counterparty may have ten
       thousand, and the sentence says so in words.
@@ -1778,21 +1779,38 @@ and notes 42 to 44 are 4c's.
       is offered for them.
     - Rates' verbs that read words (`add line`) and the scenario verbs' own words already refuse with the word
       (they throw the table's refusal); nothing of theirs changes.
-    - *Changed as built.* `cds` is a candidate for a row only where the counterparty has a curve chosen: the
-      candidates are the rows the state has (`PortfolioCells.Rows`), and with no curve `cds` is refused by why
-      there is none, with its word and no candidate. A row or a case that names two things is named with its
-      word; a case's candidates are then the ids to say instead, and a row's are none, since both are the word.
-      `cds`'s word that is no sector, region or rating is offered the values of the kinds the line has not given
-      yet, and a single name the catalogue has not is offered each name's words.
+    - *Changed as built.* `cds` is a row only where the counterparty has a curve chosen: the sentence, the
+      candidates and what `vary` offers are the rows the state has (`PortfolioCells.Rows`), and with no curve
+      `cds` is refused by why there is none, with its word and no candidate. A row or a case that names two
+      things is named with its word; a case's candidates are then the ids to say instead, and a row's are none,
+      since both are the word. `cds`'s word that is no sector, region or rating is offered the values of the
+      kinds the line has not given yet, and a single name the catalogue has not is offered each name's words.
     - *Added as built.* `vary` offers the rows that are no trade first, then trades, twenty at a time, each with
       what it is (`a CSA`, `the netting set`, `a trade`). A column is found by any of its names as far as typed
       (`fixed` finds `rate`) and offered by the word that names it. A column that may be empty offers `empty`,
-      whatever its form, as `set` does; the values already listed before a comma are left out. What a flag and
-      a choice have to choose from is one function of the kernel's (`FieldForms.Choices`), which `set`'s
-      completion and `vary`'s both ask: a choice registered with nothing to choose from now throws there, as it
-      does where it is read and written, and is no longer offered as nothing.
-    - *The client draws none of this anew.* The line already selects the word a refusal marks and lists what a
-      reading offers; `candidates` is in the preview's contract for the AI, and the line does not draw it.
+      whatever its form, as `set` does. What a field has to choose from is one function of the kernel's
+      (`FieldForms.ChoicesWritten`: a flag's two words, a choice's values, `empty` where it may be empty), which
+      `set`'s completion and `vary`'s both ask.
+    - *The client draws none of this anew.* The line already selects the word a refusal marks, or leaves the
+      caret after it where the word ends the line, and lists what a reading offers; `candidates` is in the
+      preview's contract for the AI, and the line does not draw it.
+    - *Corrected in review.*
+      - A value `vary` cannot read is a word of the line too, and was not named: `InvalidValue` now names it,
+        with what the cell's form has to choose from, and a comma between digits (`10,000k`) names that text.
+      - `cds`'s single name was named with one space between its words, so words typed with two were not
+        marked: it is named as typed. Two sectors, regions or ratings name the second. `case remove` with a
+        name and no case names the name, as a scenario's does.
+      - Rows were offered by how an id starts alone; they are offered by how it starts or ends, as note 15 says
+        `set` offers them, so `e00003` finds a trade whose id ends with it.
+      - A value listed before a comma is left out however it was written (`yes` is `on`).
+      - The sentence for a row that is not there listed `cds` with no curve chosen, against "the candidates are
+        what the sentence lists" above; it lists `cds` where the state has it.
+      - A choice registered with nothing to choose from: `set`'s completion offered nothing for it, or the rows
+        of a table it pointed into, and the first build made the function above throw there, at each key typed.
+        It is the registration's defect, and now fails where the others do, when the table is read
+        (`TableRegister.Of`), naming the field.
+      - Not held by a test: a row, a column or a case that names two things (`AmbiguousCell`,
+        `AmbiguousCase`). Nothing in the sample's own data makes one.
 
 ## Rejected
 
