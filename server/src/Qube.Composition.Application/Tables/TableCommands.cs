@@ -32,8 +32,8 @@ public sealed class TableService(TableRegister register, WorkspaceService worksp
     public TableResult Set(string workspaceId, long? revision, Caller caller, string? table, string? rows, string set)
     {
         var (state, tables, selector) = Open(workspaceId, revision, caller, table, rows);
-        // A table of one row is addressed without a row where its fields' words say which (note 7).
-        var alone = selector.Table is null && selector.SaysNoRows ? tables.Where(t => t.Descriptor.SingleRow && Assignments.Names(set, t)).ToList() : [];
+        // A table of one row is addressed without a row where the first field's words say which (note 7).
+        var alone = selector.Table is null && selector.SaysNoRows ? tables.Where(t => t.Descriptor.SingleRow && Assignments.StartsWithAFieldOf(set, t)).ToList() : [];
         if (alone.Count > 1)
             throw new TableRefused("AmbiguousTable", $"{set.Trim()} could be set on {TableWords.Either(alone.Select(t => t.Word))}; say which, as in {alone[0].Word} {set.Trim()}.",
                 candidates: [.. alone.Select(t => t.Word)]);
@@ -49,31 +49,41 @@ public sealed class TableService(TableRegister register, WorkspaceService worksp
         }).ToList();
 
         var changes = new List<WorkspaceChange>();
-        var changed = new HashSet<ITableRow>(ReferenceEqualityComparer.Instance);
+        var changed = new HashSet<string>(StringComparer.Ordinal);
         var written = new List<(TableField Field, JsonNode? Value)>();
         var whole = resolved.Whole?.ToDictionary(s => s.Name);
+        // Several values are written in the order given, each checked against the rows as the ones before it left them
+        // (note 9): what two commands would take, one takes, and what the second would refuse refuses both.
+        var (standing, rowsNow, read) = (state, resolved.Rows, 0);
         foreach (var (field, value) in values)
         {
-            var differing = resolved.Rows.Where(r => !Same(r.Value(field.Name), value)).ToList();
+            if (read < changes.Count)
+            {
+                standing = workspaces.After(standing, caller.UserId, changes.GetRange(read, changes.Count - read), caller.Origin);
+                var now = bound.Table.Rows(standing).ToDictionary(r => r.Key, StringComparer.Ordinal);
+                rowsNow = [.. resolved.Rows.Select(r => now.GetValueOrDefault(r.Key)).OfType<ITableRow>()];
+                read = changes.Count;
+            }
+            var differing = rowsNow.Where(r => !FieldForms.Same(r.Value(field.Name), value)).ToList();
             if (differing.Count == 0) continue;
             written.Add((field, value));
             foreach (var group in differing.GroupBy(r => r.Subset))
             {
                 // One edit for the whole subset where the field has one (ADR-0016 §2); it wins over each row's earlier edit.
-                var all = group.Key is not null && whole is not null && whole.TryGetValue(group.Key, out var subset) ? bound.Table.SetAll(state, subset, field, value) : null;
-                changes.AddRange(all ?? group.SelectMany(r => bound.Table.Set(state, r, field, value)));
+                var all = group.Key is not null && whole is not null && whole.TryGetValue(group.Key, out var subset) ? bound.Table.SetAll(standing, subset, field, value) : null;
+                changes.AddRange(all ?? group.SelectMany(r => bound.Table.Set(standing, r, field, value)));
             }
-            changed.UnionWith(differing);
+            changed.UnionWith(differing.Select(r => r.Key));
         }
 
-        var touched = resolved.Rows.Where(changed.Contains).ToList();
+        var touched = resolved.Rows.Where(r => changed.Contains(r.Key)).ToList();
         var held = resolved.Rows.Count - touched.Count;
         if (touched.Count == 0)
         {
-            var holds = And(values.Select(v => $"{TableWords.Word(v.Field)} {FieldForms.Write(v.Field.Spec, v.Value)}"));
+            var holds = TableWords.And(values.Select(v => $"{TableWords.Word(v.Field)} {FieldForms.Write(v.Field.Spec, v.Value)}"));
             return Unchanged(state, resolved, $"{Rows(bound, resolved.Rows, all: true)} already hold{(resolved.Rows.Count == 1 ? "s" : "")} {holds}");
         }
-        var assigned = And(written.Select(v => $"{TableWords.Word(v.Field)} to {FieldForms.Write(v.Field.Spec, v.Value)}"));
+        var assigned = TableWords.And(written.Select(v => $"{TableWords.Word(v.Field)} to {FieldForms.Write(v.Field.Spec, v.Value)}"));
         var already = held == 0 ? "" : $"; {held} already held {(written.Count == 1 ? "it" : "them")}";
         var said = touched.Count == 1 ? $"Set {touched[0].Key} {assigned}{already}." : $"Set {assigned} on {Rows(bound, touched)}{already}.";
         // One value is named as the line first spells it, `<field> <value>`; several keep their signs.
@@ -140,12 +150,13 @@ public sealed class TableService(TableRegister register, WorkspaceService worksp
         if (revision is { } read && read != state.Revision)
             throw new WorkspaceRefused("RevisionMoved", $"The workspace is at revision {state.Revision}, not {read}.");
         var tables = register.Of(state);
-        var reading = SelectorReader.Read(rows ?? "", [.. tables.Select(t => t.Descriptor)]);
+        // The table said beside the rows is the one they are read in: its subsets, and no row where it has one.
+        var named = table is null ? null : TableRegister.Find(tables, table);
+        var reading = SelectorReader.Read(rows ?? "", [.. tables.Select(t => t.Descriptor)], named?.Descriptor);
         if (reading.Rest.Count > 0)
             throw new TableRefused("UnreadRows",
                 $"{string.Join(' ', reading.Rest)} is left over after the rows: rows are ids separated by commas, all, a subset, or where and its conditions.", reading.Rest[0]);
-        if (table is null) return (state, tables, reading.Selector);
-        var named = TableRegister.Find(tables, table);
+        if (named is null || table is null) return (state, tables, reading.Selector);
         if (reading.Selector.Table is { } said && said != named.Descriptor.TableId)
             throw new TableRefused("TwoTables", $"The rows are said to be of {TableRegister.Find(tables, said).Word} and the table to be {named.Word}.", table.Trim());
         return (state, tables, reading.Selector with { Table = named.Descriptor.TableId });
@@ -170,12 +181,12 @@ public sealed class TableService(TableRegister register, WorkspaceService worksp
     }
 
     static TableRefused NotEditable(BoundTable table, TableField field) =>
-        new("NotEditable", $"{TableWords.Word(field)} is not a field a command sets; {table.Word} takes {And(table.Descriptor.Fields.Where(f => f.Editable).Select(TableWords.Word))}.",
+        new("NotEditable", $"{TableWords.Word(field)} is not a field a command sets; {table.Word} takes {TableWords.And(table.Descriptor.Fields.Where(f => f.Editable).Select(TableWords.Word))}.",
             TableWords.Word(field), [.. table.Descriptor.Fields.Where(f => f.Editable).Select(TableWords.Word)]);
 
     // A few rows by their keys, more by their number and the table's word.
     static string Rows(BoundTable table, IReadOnlyList<ITableRow> rows, bool all = false) =>
-        rows.Count <= Named ? And(rows.Select(r => r.Key)) : $"{(all ? "all " : "")}{rows.Count.ToString(CultureInfo.InvariantCulture)} {table.Word}";
+        rows.Count <= Named ? TableWords.And(rows.Select(r => r.Key)) : $"{(all ? "all " : "")}{rows.Count.ToString(CultureInfo.InvariantCulture)} {table.Word}";
 
     // The command as its caller gave it, in the line's own spelling: what the log names it by (ADR-0016 note 3).
     static string Words(string verb, string? table, string? rows, string? rest)
@@ -184,19 +195,6 @@ public sealed class TableService(TableRegister register, WorkspaceService worksp
         var named = table is null || said.StartsWith(TableWords.Of(table), StringComparison.OrdinalIgnoreCase) ? null : table.Trim();
         return string.Join(' ', new[] { verb, named, said, rest is null ? null : SelectorReader.Words(rest) }.Where(w => !string.IsNullOrEmpty(w)));
     }
-
-    /// <summary>Two values say the same thing: numbers by value (1.0 is 1), the rest as JSON.</summary>
-    static bool Same(JsonNode? a, JsonNode? b) =>
-        a is JsonValue x && b is JsonValue y && x.GetValueKind() == System.Text.Json.JsonValueKind.Number && y.GetValueKind() == System.Text.Json.JsonValueKind.Number
-            ? Number(x) == Number(y) : JsonNode.DeepEquals(a, b);
-
-    static decimal Number(JsonValue value) => value.TryGetValue<decimal>(out var n) ? n : decimal.Parse(value.ToJsonString(), NumberStyles.Float, CultureInfo.InvariantCulture);
-
-    static string And(IEnumerable<string> items)
-    {
-        var list = items.ToList();
-        return list.Count <= 1 ? string.Concat(list) : $"{string.Join(", ", list.Take(list.Count - 1))} and {list[^1]}";
-    }
 }
 
 /// <summary>Reads <c>name=value</c> pairs against a table's fields (ADR-0016 §3, note 12): a field by its words, which may be several, and a value that may be too.</summary>
@@ -204,18 +202,8 @@ static class Assignments
 {
     const string How = "values are written name=value, one or several.";
 
-    /// <summary>Whether every name in the text is a field of the table, so the text can be meant for it.</summary>
-    public static bool Names(string text, BoundTable table)
-    {
-        try
-        {
-            return Read(text, table).Count > 0;
-        }
-        catch (TableRefused)
-        {
-            return false;
-        }
-    }
+    /// <summary>Whether the first name in the text is a field of the table, so the text is meant for it; the rest is then read against it, and refused in its words.</summary>
+    public static bool StartsWithAFieldOf(string text, BoundTable table) => text.IndexOf('=') is > 0 and var sign && Fields(table, text[..sign]).Count > 0;
 
     public static IReadOnlyList<(TableField Field, string Text)> Read(string text, BoundTable table)
     {
@@ -228,13 +216,13 @@ static class Assignments
                 pending.Add(word);
                 continue;
             }
-            // The longest run of words before the sign that names a field is the name, and what stands before it ends the
-            // value before, which holds at least a word: `type=proxy sector=…` is a type of proxy and a sector, never a
-            // `proxy sector` after a type with no value.
+            // The first name is every word before the first sign. A later one is the longest run of words before its sign
+            // that names a field, and what stands before it ends the value before, which holds at least a word:
+            // `note=wet wind speed=4` is a note of wet and a wind speed, never a `wet wind speed` after a note with no value.
             int? Named(int start) => Enumerable.Range(start, Math.Max(0, pending.Count - start)).Cast<int?>()
                 .FirstOrDefault(i => i is { } at && Fields(table, string.Join(' ', pending.Skip(at))).Count > 0);
-            var from = (pairs.Count > 0 ? Named(1) : null) ?? Named(0) ?? pending.Count - 1;
-            if (pending.Count == 0 || (from > 0 && pairs.Count == 0)) throw new TableRefused("UnreadValues", $"{text.Trim()} names no field before a value: {How}", "=");
+            if (pending.Count == 0) throw new TableRefused("UnreadValues", $"{text.Trim()} names no field before a value: {How}", "=");
+            var from = pairs.Count == 0 ? 0 : Named(1) ?? Named(0) ?? pending.Count - 1;
             var field = TableRegister.Field(table, string.Join(' ', pending.Skip(from)));
             if (pairs.Any(p => p.Field == field)) throw new TableRefused("FieldTwice", $"{TableWords.Word(field)} is given twice; give each field one value.", TableWords.Word(field));
             if (pairs.Count > 0) pairs[^1].Value.AddRange(pending.Take(from));
@@ -337,7 +325,9 @@ public static class TableContracts
         }
         catch (TableRefused refused)
         {
-            throw new CapabilityFailure(refused.Code, refused.Message);
+            // The word at fault and what it could have been go with the sentence (ADR-0016 §6), for a caller that points at it.
+            throw new CapabilityFailure(refused.Code, refused.Message,
+                [new(refused.Code, "", refused.Message) { Word = refused.Word, Candidates = refused.Candidates.Count > 0 ? refused.Candidates : null }]);
         }
         catch (WorkspaceRefused refused)
         {
@@ -364,7 +354,7 @@ public static class TableContracts
         };
     }
 
-    internal const string RowsTitle = "Rows as the command line spells them: ids separated by commas (E00003, E00004), all, a subset, or where and conditions (where ccy=USD and maturity>5y); left out for a table of one row";
+    internal const string RowsTitle = "Rows as the command line spells them: ids separated by commas, all, a subset, or where and conditions joined by and (where <field>=<value> and <field>><value>); left out for a table of one row";
 }
 
 /// <summary>The kernel's edit verbs over registered tables, and their contracts. Knows no table.</summary>
@@ -376,7 +366,7 @@ public sealed class TablesModule(Func<TableService> tables) : IQubeModule
         builder.AddCapability(new EntityReset(tables));
         builder.AddCapability(new EntityRemove(tables));
         builder.AddContract(new ContractDefinition(TableContracts.SetRequest, TableContracts.Version, "Set fields of rows", TableContracts.Request(TableContracts.RowsTitle,
-            ("set", new JsonObject { ["type"] = "string", ["minLength"] = 1, ["title"] = "Values as name=value, one or several (notional=5bn rate=1.25%), each written as its field is typed" }, true))));
+            ("set", new JsonObject { ["type"] = "string", ["minLength"] = 1, ["title"] = "Values as name=value, one or several (<field>=<value> <field>=<value>), each written as its field is typed and checked in the order given" }, true))));
         builder.AddContract(new ContractDefinition(TableContracts.ResetRequest, TableContracts.Version, "Reset fields of rows", TableContracts.Request(TableContracts.RowsTitle,
             ("field", new JsonObject { ["type"] = "string", ["minLength"] = 1, ["title"] = "The field to reset, by its words; every field of the rows where left out" }, false))));
         builder.AddContract(new ContractDefinition(TableContracts.RemoveRequest, TableContracts.Version, "Remove rows", TableContracts.Request(TableContracts.RowsTitle)));

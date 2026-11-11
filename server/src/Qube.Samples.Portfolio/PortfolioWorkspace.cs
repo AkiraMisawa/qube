@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Text.Json.Nodes;
+using Qube.Composition.Application;
 using Qube.Composition.Application.Workspaces;
 
 namespace Qube.Samples.Portfolio;
@@ -240,8 +241,7 @@ public static class PortfolioMaterialiser
     }
 
     /// <summary>Two values are the same when they say the same thing: numbers by value (1.0 is 1), the rest as JSON.</summary>
-    public static bool Same(JsonNode? a, JsonNode? b) =>
-        a is JsonValue x && b is JsonValue y && x.TryGetValue<decimal>(out var m) && y.TryGetValue<decimal>(out var n) ? m == n : JsonNode.DeepEquals(a, b);
+    public static bool Same(JsonNode? a, JsonNode? b) => FieldForms.Same(a, b);
 
     static readonly ConditionalWeakTable<PortfolioSourceVersion, ConcurrentDictionary<string, EffectiveTrade[]>> Untouched = new();
     static readonly ConditionalWeakTable<PortfolioSourceVersion, EffectiveTrade[]> Originals = new();
@@ -349,6 +349,9 @@ public static class PortfolioMaterialiser
             [.. CdsCatalog.Tenors.Where(set.ContainsKey)], curve.Sector, curve.Region, curve.Rating, differs.Count == 0 ? null : differs);
     }
 
+    // Of the edits a row reads its own fields (EditableFields), B and A of its grid and its CSA's curve, and ReadTrades
+    // keeps a row it worked out while exactly those stand: an edit read here that is none of them goes into what
+    // ReadTrades compares as well, or a row would be shown as it stood before that edit.
     static EffectiveTrade Trade(PortfolioSourceVersion source, SourceTrade t, IReadOnlyDictionary<(string, string), Override> overrides, ILookup<string, string> held)
     {
         var entity = Entity.Of(Entity.Trade, t.TradeId);

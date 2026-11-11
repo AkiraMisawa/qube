@@ -538,12 +538,31 @@ and the edit verbs with XVA registered; the preview and the line.
 13. **The pricer's registration (§1, §3; settled while it was built).** Its tables are `xva.trades` (main; `existing`,
     `new`), `xva.csas`, and of one row each `xva.netting`, `xva.credit`, `xva.cds`, `xva.workspace` and
     `xva.settings.<module>`, named by the module's id (`set xva charge ratio 1.5`). A figure a module computes for a
-    row (PV01) is no field, since it changes with no edit. A table of one row that has none for now, the CDS while no
-    curve is chosen, refuses in the domain's words and never writes an edit of nothing. `remove` refuses every row of
-    the pricer by name and says what to do instead. In `name=value` a value holds at least one word, so
+    row and no one types (PV01) is no field, since it changes with no edit. A table of one row that has none for now,
+    the CDS while no curve is chosen, refuses in the domain's words and never writes an edit of nothing. No row of the
+    pricer is of the workspace's making until a command creates a trade (step 3), so until then `remove` refuses each
+    by name and says what to do instead; note 10 holds from that step on. In `name=value` a value holds at least one
+    word, so
     `type=proxy sector=financials` is two values. A command of one value is named in the log as the line spells it
     (`set CSA-A threshold 5mm`), which is what `undo` then says. `xva.set` left with the page's `/set` endpoint in the
     second pull request: the page's `set` runs `entity.set` through the page's door and shows the server's sentence.
+14. **What the review of the second pull request settled (§1 to §3, §6).**
+    - *Several values are written in the order given.* Each is checked against the rows as the values before it left
+      them, so one command takes what two would (`note=wet drift=1%` where a drift needs a note) and refuses what the
+      second would; refused, it writes none of them. The domain's derivation still runs once, when the batch is
+      written.
+    - *After `in`, a comma before three digits is not guessed.* `1,500k` could be one number grouped or two values, so
+      it is refused (`AmbiguousValues`) with both spellings: `1, 500k` and `1500k`. `8,3` is two values.
+    - *Two signs are no operator* (`==`, `=>`: `UnknownOperator`), and an order against nothing is refused
+      (`<empty`: `UnorderedValue`). `=empty` and `!=empty` compare no amount, so they are asked across units.
+    - *A table said beside the rows is the one they are read in*: its subsets, and no row where it has one.
+    - *A refusal carries its word.* The word at fault and what it could have been go on the refusal's issue (`word`,
+      `candidates`), through the command gateway, the HTTP envelope and the AI's tool result (§6).
+    - *A table's subsets share no word*, and a registration that breaks this fails when the table is read.
+    - *The pricer.* A module's typed column is a field while one of its measures is selected, as the grids show it
+      then; an edit of a column that does not show stays where it is, `reset` of every field included. A module's
+      amount (PV Adj) is in the trade's currency, so a condition on it is refused across currencies as one on a
+      notional is, and it is typed as its grid cell is, a plain number (`-3000`, `-3k`), never in millions.
 
 ## Rejected
 

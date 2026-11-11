@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 
@@ -155,16 +156,26 @@ public static partial class FieldForms
                 return value.GetValue<bool>() ? "on" : "off";
             case FieldForm.Choice:
             {
-                // The value itself where it is one of its own words, as a currency's code is; else a word that reads as it.
+                // The value itself where it is one of its own words, as a code is; else a word that reads as it.
                 var held = value.GetValue<string>();
                 var choices = spec.Choices ?? throw new InvalidOperationException("A choice with nothing to choose from cannot be written.");
                 if (choices.TryGetValue(held.ToLowerInvariant(), out var own) && own == held) return held;
                 return choices.FirstOrDefault(c => c.Value == held).Key ?? held;
             }
-            default:
+            case FieldForm.Period or FieldForm.Date or FieldForm.PeriodOrDate or FieldForm.Id:
                 return value.GetValue<string>();
+            default:
+                throw new InvalidOperationException($"No writing of {spec.Form}.");
         }
     }
+
+    /// <summary>Two values say the same thing: numbers by value (1.0 is 1), the rest as JSON; no value is the same as no value.</summary>
+    public static bool Same(JsonNode? a, JsonNode? b) =>
+        a is JsonValue x && b is JsonValue y && x.GetValueKind() == JsonValueKind.Number && y.GetValueKind() == JsonValueKind.Number ? Held(x) == Held(y) : JsonNode.DeepEquals(a, b);
+
+    /// <summary>The number a value holds, however it was made: a decimal, a double, or a number read from JSON.</summary>
+    public static decimal Held(JsonNode value) =>
+        value is JsonValue v && v.TryGetValue<decimal>(out var n) ? n : decimal.Parse(value.ToJsonString(), NumberStyles.Float, CultureInfo.InvariantCulture);
 
     static Reading Take(JsonNode? value) => new(Problem.None, value, null);
 
@@ -193,9 +204,6 @@ public static partial class FieldForms
 
     // A rate or a spread with its unit, as a fraction (40% is 0.4, 25bp 0.0025), or none where it is not one.
     static decimal? Fraction(string t) => WithUnit(t) is (var n, var unit) ? unit == "bp" ? n / 10_000m : n / 100m : null;
-
-    // The number a value holds, however it was made: a decimal, a double, or a number read from JSON.
-    static decimal Held(JsonNode value) => decimal.Parse(value.ToJsonString(), NumberStyles.Float, CultureInfo.InvariantCulture);
 
     // Every decimal a value has, and no trailing zero: written back, it reads as the same value.
     static string Exact(decimal n) => n.ToString("0.############################", CultureInfo.InvariantCulture);

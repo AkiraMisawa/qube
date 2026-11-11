@@ -34,3 +34,8 @@ the command id and a sentence in titles.
   written, so `csa-b` is not `CSA-B`.
 - The revision is optional, as on every command but `undo` and `redo`: left out, the command acts on the workspace as
   it stands, and still refuses if it moved while the rows were read.
+- Review, 2026-11-11: several values are written in the order given, each checked against the rows as the ones before
+  it left them (`WorkspaceService.After`, the batch's own fold), so a rule across two fields of a row takes what two
+  commands would and refuses what the second would. The table said beside the rows is the one they are read in. The
+  first name is every word before the first sign, so a misspelt field is refused as one (`UnknownField`), and a field
+  given twice as that (`FieldTwice`) where no row was said. The refusal's word and candidates go on its issue.

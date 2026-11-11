@@ -5,6 +5,12 @@ namespace Qube.Composition.Application;
 /// <summary>A reason a definition is refused, located by a JSON Pointer into the definition.</summary>
 public sealed record CompositionIssue(string Code, string Path, string Message)
 {
+    /// <summary>The word at fault, where the refusal is of something written and one word of it is wrong (ADR-0016 §6).</summary>
+    public string? Word { get; init; }
+
+    /// <summary>What the word could have been, where there are such: the fields a table has, the rows an end of an id fits.</summary>
+    public IReadOnlyList<string>? Candidates { get; init; }
+
     public override string ToString() => $"{Code} at {Path}: {Message}";
 }
 

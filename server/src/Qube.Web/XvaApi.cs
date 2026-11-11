@@ -27,7 +27,6 @@ public static class XvaApi
     public sealed record VaryRequest(long Revision, IReadOnlyList<string> Values, string? Cell = null, string? Entity = null, string? Field = null);
     /// <summary>What <c>vary</c> made, by title, and each value it skipped with why.</summary>
     public sealed record Varied(PortfolioWorkspaceView Workspace, IReadOnlyList<string> Made, IReadOnlyList<string> Skipped);
-    /// <summary><c>set &lt;rows&gt; &lt;column&gt; &lt;value&gt;</c> (ADR-0010 §9): the rows named, a column and a value as written.</summary>
     /// <summary><c>cds &lt;words&gt;</c> (ADR-0010 §8's note of 2026-11-09): the CDS as written.</summary>
     public sealed record CdsRequest(long Revision, string Cds);
     /// <summary>What <c>cds</c> chose, as the command line says it.</summary>

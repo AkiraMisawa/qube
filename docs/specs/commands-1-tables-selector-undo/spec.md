@@ -121,17 +121,23 @@ reader goes (the page's `/set` endpoint went with 1b).
 - **The selector.** `RowSelector(Table?, All, Subset?, Ids, Where)` with `Condition(Field, Operator, Value)`, the
   value as written. `SelectorReader.Read(words, tables)` reads the line's spelling into it, and
   `Selectors.Resolve(selector, tables, state)` answers the table and its rows, or refuses with the word at fault and
-  what it could be. Resolving is linear in the rows.
+  what it could be. Resolving is linear in the rows, and in the ids where they are named by their ends. After `in` a
+  comma before three digits is refused, since it could group one number or part two (`AmbiguousValues`); two signs
+  are no operator; an order against `empty` is refused; and `=empty` compares no amount, so it is asked across units.
 - **`entity.set` 1.0.0** takes `{ workspaceId, revision?, table?, rows?, set }` and writes one all-or-none batch,
   at that revision where one is given. The request is flat (ADR-0016's note 12): `rows` is the selector as the line
-  spells it and `set` the values as `name=value`, one or several, each written as its field is typed. It carries no
-  sentence: the log names the command by its own words. Its output is the result of §6: `{ workspaceId, revision,
-  command?, said, table, matched, changed, held, rows }`, where `said` is the sentence (`Set A to off on 9 trades; 3
+  spells it and `set` the values as `name=value`, one or several, each written as its field is typed. Several are
+  written in the order given, each checked against the rows as the ones before it left them. It carries no
+  sentence: the log names the command by its own words. A refusal's issue carries the word at fault and what it
+  could have been (`word`, `candidates`) beside its code and sentence. Its output is the result of §6:
+  `{ workspaceId, revision, command?, said, table, matched, changed, held, rows }`, where `said` is the sentence (`Set A to off on 9 trades; 3
   already held it.`), `rows` the first few keys, and `command` absent where nothing changed. **`entity.reset`** takes
   `{ …, rows, field? }` and **`entity.remove`** `{ …, rows }`, with the same output.
 - **XVA registers** `xva.trades` (subsets `new` and `existing`, whole-set targets for `before` and `after`),
   `xva.csas`, `xva.netting`, `xva.credit`, `xva.cds`, `xva.workspace` (the display currency) and one table of one
-  row per module that has settings. `PortfolioCells`' column tables become these registrations, and its `Read` and
+  row per module that has settings. A module's typed column is a field of the trades while one of its measures is
+  selected, and its amount carries the trade's currency as its unit. `PortfolioCells`' column tables become these
+  registrations, and its `Read` and
   `Write` the kernel's. `xva.set`, `PortfolioWorkspaces.SetCells` and `POST /api/xva/workspaces/{id}/set` go; the
   AI's tool is `entity.set`, and the page's `set` runs it through the page's door with the rows and the value its
   own reader found, until 1c reads the line on the server.

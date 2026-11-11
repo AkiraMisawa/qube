@@ -89,6 +89,20 @@ public class PricerCommandTests(QubeFactory factory) : IClassFixture<QubeFactory
         Assert.Equal(HttpStatusCode.Conflict, moved.StatusCode);
     }
 
+    [Fact] // ADR-0016 §6: over HTTP a refusal says the word at fault and what it could have been, on its issue
+    public async Task A_refused_set_answers_the_word_at_fault_and_what_it_could_have_been()
+    {
+        var id = (await Create())["workspaceId"]!.GetValue<string>();
+
+        var refused = await Command("entity.set", new JsonObject { ["workspaceId"] = id, ["rows"] = "CSA-A", ["set"] = "treshold=5mm" });
+        var error = (await refused.Content.ReadFromJsonAsync<JsonObject>())!;
+        var issue = Assert.Single(error["issues"]!.AsArray())!;
+
+        Assert.Equal((HttpStatusCode.UnprocessableEntity, "UnknownField"), (refused.StatusCode, error["code"]!.GetValue<string>()));
+        Assert.Equal("treshold", issue["word"]!.GetValue<string>());
+        Assert.Equal(["csa id", "type", "threshold"], issue["candidates"]!.AsArray().Take(3).Select(c => c!.GetValue<string>()));
+    }
+
     [Fact] // ADR-0010 §8's note of 2026-11-09: the AI's cds chooses the CDS the Credit tab does, and the page's endpoint says the same
     public async Task The_ais_cds_chooses_the_counterpartys_curve_as_the_command_line_does()
     {

@@ -36,11 +36,13 @@ static class Stations
         new("drift", "Drift", ["drift"], FieldForm.Rate, Editable: true, Optional: true),
     ], [Manual, Automatic], Main: true);
 
+    public static readonly TableSubset High = new("high", "High", ["high", "upland"]);
+
     public static readonly TableDescriptor SitesTable = new(Sites, "1.0", App, "Stations", ["stations"], "id",
     [
         new("id", "Station", ["id"], FieldForm.Id),
         new("altitude", "Altitude", ["altitude"], FieldForm.Number, Editable: true),
-    ], []);
+    ], [High]);
 
     public static readonly TableDescriptor SettingsTable = new(Settings, "1.0", App, "Board settings", ["settings", "board"], "id",
     [
@@ -69,7 +71,7 @@ static class Stations
 
     static readonly IReadOnlyDictionary<string, JsonObject> Entities = Sends.ToDictionary(s => $"reading:{s.Id}", FieldsOf)
         .Concat([
-            KeyValuePair.Create("station:N1", new JsonObject { ["id"] = "N1", ["altitude"] = 120m }),
+            KeyValuePair.Create("station:N1", new JsonObject { ["id"] = "N1", ["subset"] = "high", ["altitude"] = 120m }),
             KeyValuePair.Create("station:S1", new JsonObject { ["id"] = "S1", ["altitude"] = 15m }),
             // A station that shares its id with a reading, so an id alone cannot say which table it means.
             KeyValuePair.Create("station:X1", new JsonObject { ["id"] = "X1", ["altitude"] = 40m }),
@@ -134,6 +136,9 @@ static class Stations
             // The domain's own rule, which no form says: a tank holds so much.
             if (field.Name == "volume" && value!.GetValue<decimal>() > 50_000_000m)
                 throw new WorkspaceRefused("InvalidValue", $"{row.Key} holds at most 50mm.", [Target(((Row)row).Entity, field.Name)]);
+            // A rule across two fields of a row, as a domain has them: a drift is explained by a note.
+            if (field.Name == "drift" && value is not null && row.Value("note") is null)
+                throw new WorkspaceRefused("InvalidValue", $"{row.Key} has no note, and a drift is explained by one.", [Target(((Row)row).Entity, field.Name)]);
             return [new WorkspaceChange.Set(Target(((Row)row).Entity, field.Name), value)];
         }
 

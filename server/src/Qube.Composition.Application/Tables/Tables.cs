@@ -4,17 +4,17 @@ using Qube.Composition.Application.Workspaces;
 namespace Qube.Composition.Application.Tables;
 
 // ADR-0016 §1 and its note 6 of 2026-11-11: a domain registers its tables as data, through a catalog port as products
-// are (ADR-0008 §7), and the kernel's verbs address `table row field`. Nothing here knows a trade, a CSA or a currency.
+// are (ADR-0008 §7), and the kernel's verbs address `table row field`. Nothing here knows a word of a domain.
 
 /// <summary>A group of a table's rows the domain names (<c>existing</c>, <c>new</c>), and the words it answers to.</summary>
 public sealed record TableSubset(string Name, string Title, IReadOnlyList<string> Words);
 
 /// <param name="Name">The field's name in an edit's target.</param>
-/// <param name="Words">What a person types for it, the first the one a sentence uses (<c>A</c>, <c>after</c>).</param>
+/// <param name="Words">What a person types for it, the first the one a sentence uses (<c>vol</c>, <c>volume</c>).</param>
 /// <param name="Editable">Whether a command may set it. The domain may still refuse a row's (a cell read-only for now).</param>
 /// <param name="Optional">Whether it may be empty, written <c>empty</c> or <c>none</c> (the field's, not its form's).</param>
-/// <param name="Table">For an id, the table it points into (a trade's <c>csa</c> names a row of the CSAs).</param>
-/// <param name="UnitField">The field that carries its unit, such as an amount's currency: a unit is never inferred from a title.</param>
+/// <param name="Table">For an id, the table it points into (a reading's <c>station</c> names a row of the stations).</param>
+/// <param name="UnitField">The field of the row that carries its unit, for an amount: a unit is never inferred from a title.</param>
 /// <param name="Group">The group it is drawn under, where the table has groups.</param>
 public sealed record TableField(
     string Name,
@@ -36,7 +36,7 @@ public sealed record TableField(
 /// A table as a workspace has it (ADR-0016 §1): its id and version, which a saved definition and the AI name; the words
 /// a person types for it; the field that names a row; its fields, resolved for the workspace, and its subsets.
 /// </summary>
-/// <param name="SingleRow">A table of one row is addressed without a row: <c>set currency JPY</c>.</param>
+/// <param name="SingleRow">A table of one row is addressed without a row: <c>set &lt;field&gt; &lt;value&gt;</c>.</param>
 /// <param name="Main">The application's main table, which <c>all</c>, a subset or <c>where</c> mean where no table is named (note 7).</param>
 public sealed record TableDescriptor(
     string TableId,
@@ -81,7 +81,7 @@ public interface IWorkspaceTable
     /// <summary>Every row as the workspace stands, in the table's own order. Read once by a command.</summary>
     IReadOnlyList<ITableRow> Rows(WorkspaceState state);
 
-    /// <summary>The date a period counts from in a condition on a date (<c>maturity&gt;5y</c>); none where the table has none.</summary>
+    /// <summary>The date a period counts from in a condition on a date (<c>&lt;field&gt;&gt;5y</c>); none where the table has none.</summary>
     DateOnly? AsOf(WorkspaceState state) => null;
 
     /// <summary>Why a table of one row has none as the workspace stands, in the domain's words; null where it does not say.</summary>
@@ -157,6 +157,9 @@ public sealed class TableRegister
                 throw new InvalidOperationException($"Table {table.Table.TableId} describes itself as {table.Descriptor.TableId} of {table.Descriptor.App}.");
             if (table.Descriptor.Fields.All(f => f.Name != table.Descriptor.Key))
                 throw new InvalidOperationException($"Table {table.Descriptor.TableId} has no field {table.Descriptor.Key}, its key.");
+            // A subset is said by one of its words alone, so no two share one.
+            if (table.Descriptor.Subsets.SelectMany(TableWords.Names).GroupBy(w => w).FirstOrDefault(g => g.Count() > 1) is { } shared)
+                throw new InvalidOperationException($"Table {table.Descriptor.TableId} has two subsets that answer to {shared.Key}.");
         }
         return bound;
     }
@@ -212,4 +215,16 @@ public static class TableWords
     public static string List(IEnumerable<string> items) => string.Join(", ", items);
 
     public static string Either(IEnumerable<string> items) => string.Join(" or ", items);
+
+    /// <summary>Items as a sentence joins them: <c>a, b and c</c>.</summary>
+    public static string And(IEnumerable<string> items) => Joined(items, "and");
+
+    /// <summary>Items as a sentence offers them: <c>a, b or c</c>.</summary>
+    public static string Or(IEnumerable<string> items) => Joined(items, "or");
+
+    static string Joined(IEnumerable<string> items, string last)
+    {
+        var list = items.ToList();
+        return list.Count <= 1 ? string.Concat(list) : $"{string.Join(", ", list.Take(list.Count - 1))} {last} {list[^1]}";
+    }
 }

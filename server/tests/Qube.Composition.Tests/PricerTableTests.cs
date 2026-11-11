@@ -229,6 +229,54 @@ public class PricerTableTests
         Assert.Equal(("NoRow", missing), refused);
     }
 
+    [Fact] // ADR-0016 §1, §2, ADR-0010 §10: a module's typed column is a field while one of its measures is selected, and its amount is compared in one currency
+    public async Task A_modules_column_is_a_field_while_it_is_selected_and_its_amount_keeps_to_one_currency()
+    {
+        var rig = new Rig();
+        var first = rig.Trades()[0].Currency;
+        var other = first == "JPY" ? "USD" : "JPY";
+
+        var mixed = await rig.SetRefused("where pv adj>100", "after=off");
+        var typed = Told(await rig.Set("DRAFT-1", "pv adj=-3k"));
+        rig.Service.SetMeasures(rig.Id, rig.State.Revision, "akira", [CcrMeasures.SpotCapital]);
+        var hidden = await rig.SetRefused("DRAFT-1", "margin=2");
+        var reset = Told(await rig.Done("entity.reset", Rig.Request("DRAFT-1")));
+
+        Assert.Equal(("MixedUnits", $"pvadj is in {first} and {other} here, and an amount is not compared across them; say which, as in where ccy={first} and pvadj>100."), mixed);
+        Assert.Equal("Set DRAFT-1 pvadj to -3000.", typed.Said);
+        // With no measure of XVA selected the grid shows none of its columns, and a command has none of them as a field.
+        Assert.Equal(("UnknownField", "trades has no field margin; its fields are trade id, product, ccy, notional, maturity, rate, schedule, last fixing, official pv, csa, curve, im-r, im-p, B, A."),
+            hidden);
+        // An edit of a column that does not show stays: reset of every field is of the fields the table has now.
+        Assert.Equal("Nothing changed: DRAFT-1 has no edit.", reset.Said);
+        Assert.Equal(-3000m, rig.State.Overrides.Values.Single(o => o.Target.Entity == "trade:DRAFT-1" && o.Target.Field == "xva.pvAdj").Value!.GetValue<decimal>());
+    }
+
+    [Fact] // ADR-0016 §2, ADR-0003: a row a command touched is read from what stands now, never from an earlier reading of it
+    public async Task A_row_a_command_touched_follows_its_csas_curve_its_own_later_edit_and_undo()
+    {
+        var rig = new Rig();
+        var one = rig.Trades("existing").First(t => t.Csa == "CSA-A").TradeId;
+        (string Curve, bool After) Read() => rig.Trades().Where(t => t.TradeId == one).Select(t => (t.Curve, t.After)).Single();
+        var read = new List<(string Curve, bool After)>();
+
+        // Each reading follows a command, so a row worked out for an earlier state would show here as a stale value.
+        await rig.Set("where csa=CSA-A", "after=off");
+        read.Add(Read());
+        await rig.Set("CSA-A", "curve=usd_sofr");
+        read.Add(Read());
+        await rig.Set(End(one), "curve=jpy_ois");
+        read.Add(Read());
+        await rig.Done("workspace.undo", new JsonObject { ["revision"] = rig.State.Revision });
+        read.Add(Read());
+        await rig.Set("existing", "after=on");
+        read.Add(Read());
+        await rig.Done("workspace.undo", new JsonObject { ["revision"] = rig.State.Revision });
+        read.Add(Read());
+
+        Assert.Equal([("jpy_ois", false), ("usd_sofr", false), ("jpy_ois", false), ("usd_sofr", false), ("usd_sofr", true), ("usd_sofr", false)], read);
+    }
+
     [Fact] // ADR-0016 §3 and note 10: reset removes a row's own edits and a whole grid's, and remove refuses a row the workspace did not make, saying what to do instead
     public async Task Reset_removes_edits_and_remove_refuses_an_acquired_row()
     {

@@ -44,4 +44,9 @@
   `set` of one row first took 0.27 to 0.36 s and the view 0.42 s, because each reader of a state worked the trades, the
   CSAs and the credit out again and walked every edit to do it. The pricer now reads a state once, finds an entity's
   edits by an index, and works a touched row out again only when what it reads changed: 0.05 to 0.13 s and 0.17 s.
-
+- Review, 2026-11-11: a module's typed column is a field while one of its measures is selected (it was always one, and
+  refused when written); PV Adj carries the trade's currency, so `where pv adj>100` is refused across currencies, and
+  it stays a plain number as its grid cell is (`-3000`, `-3k`), not millions. A trade's `csa` set to an id that is no
+  CSA is written and flagged on the row, as the grid does; `TableField.Table` is read by nothing until the preview
+  completes ids (1c). One test now holds that a row a command touched follows its CSA's curve, its own later edit and
+  `undo`; it fails when the curve leaves what a kept row is compared by.

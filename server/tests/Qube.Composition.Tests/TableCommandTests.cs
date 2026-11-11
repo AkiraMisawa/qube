@@ -107,6 +107,41 @@ public class TableCommandTests
             (rig.Edit("reading:R1", "note"), rig.Edit("reading:R1", "windSpeed"), rig.Edit("reading:R1", "unit"), rig.Edit("reading:R1", "volume"), rig.Edit("reading:R1", "drift")));
     }
 
+    [Fact] // ADR-0016 §3: several values are written in the order given, each checked against what the ones before it left
+    public async Task Each_value_is_checked_against_what_the_ones_before_it_left()
+    {
+        var rig = new Rig();
+
+        // R1 has no note: the note is written first, so the drift it explains is taken with it, as two commands would be.
+        var told = Told(await rig.Set("R1", "note=wet drift=1%"));
+
+        Assert.Equal("Set R1 note to wet and drift to 1%.", told.Said);
+        Assert.Equal(("\"wet\"", "0.01"), (rig.Edit("reading:R1", "note"), rig.Edit("reading:R1", "drift")));
+    }
+
+    [Fact] // ADR-0016 §2: a subset is read as the named table's, whether the table is said with the rows or beside them
+    public async Task A_subset_is_read_as_the_named_tables()
+    {
+        var beside = Told(await new Rig().Set("high", "altitude=130", table: "stations"));
+        var with = Told(await new Rig().Set("stations upland", "altitude=130"));
+
+        Assert.Equal(("Set N1 altitude to 130.", Stations.Sites, 1), (beside.Said, beside.Table, beside.Changed));
+        Assert.Equal(beside.Said, with.Said);
+    }
+
+    [Fact] // ADR-0016 §6: a refusal carries its code, a sentence, the word at fault and what it could have been
+    public async Task A_refusal_carries_the_word_at_fault_and_what_it_could_have_been()
+    {
+        var rig = new Rig();
+
+        var refused = Assert.IsType<CommandResult.Refused>(await rig.Invoke("entity.set", Rig.Request("R1", null, ("set", "wind=3"))));
+        var issue = Assert.Single(refused.Issues);
+
+        Assert.Equal(("AmbiguousField", "wind could be wind speed or wind direction of readings."), (refused.Code, issue.Message));
+        Assert.Equal("wind", issue.Word);
+        Assert.Equal(["wind speed", "wind direction"], issue.Candidates);
+    }
+
     [Fact] // ADR-0016 §3, note 12: a value is at least a word, so a field's name never takes the only word of the value before it
     public async Task A_field_name_never_takes_the_only_word_of_the_value_before_it()
     {
@@ -120,10 +155,15 @@ public class TableCommandTests
         Assert.Equal(("UnreadValues", "note has no value: values are written name=value, one or several."), refused);
     }
 
-    [Theory] // ADR-0016 §3, spine 1: one value that cannot be read, or that the domain refuses, leaves nothing written
+    [Theory] // ADR-0016 §3: one value that cannot be read, or that the domain refuses, leaves nothing written
     [InlineData("R1, R2", "note=wet volume=lots", "InvalidValue", "R1 volume is an amount: 5mm, 250k, 1bn, or a bare number of millions; lots is not.")]
     [InlineData("R2, R1", "note=wet volume=60mm", "InvalidValue", "R2 holds at most 50mm.")]
     [InlineData("R1", "drift=4", "InvalidValue", "R1 drift is a rate with its unit, 40% or 25bp, or empty; 4 is not.")]
+    [InlineData("R1", "wind sped=5", "UnknownField", "readings has no field wind sped; its fields are id, station, volume, unit, taken, checked, note, wind speed, wind direction, window, drift.")]
+    [InlineData("R1", "note=wet sped=5", "UnknownField", "readings has no field sped; its fields are id, station, volume, unit, taken, checked, note, wind speed, wind direction, window, drift.")]
+    [InlineData(null, "alarm=5 alarm=6", "FieldTwice", "alarm volume is given twice; give each field one value.")]
+    [InlineData("R2", "note=none drift=1%", "InvalidValue", "R2 has no note, and a drift is explained by one.")]
+    [InlineData("R1", "drift=1% note=wet", "InvalidValue", "R1 has no note, and a drift is explained by one.")]
     [InlineData("R1", "note=wet colour=red", "UnknownField", "readings has no field colour; its fields are id, station, volume, unit, taken, checked, note, wind speed, wind direction, window, drift.")]
     [InlineData("R1", "wind=3", "AmbiguousField", "wind could be wind speed or wind direction of readings.")]
     [InlineData("R1", "station=south", "NotEditable", "station is not a field a command sets; readings takes volume, unit, checked, note, wind speed, wind direction and drift.")]
@@ -250,6 +290,12 @@ public class TableCommandTests
         Assert.Equal((before + 3, null, "Nothing changed: R4 has no edit."), (nothing.Revision, nothing.Command, nothing.Said));
         Assert.Equal(("-", "1", "-", "-"), (rig.Edit("reading:R1", "note"), rig.Edit("reading:R1", "windSpeed"), rig.Edit("reading:R3", "note"), rig.Edit("reading:R3", "windSpeed")));
         Assert.Equal("reset where station=south", rig.Board.Log[^1].Command?.Said);
+
+        // ADR-0016 §11: a reset is one command, so undo puts back the edits it removed.
+        var undone = await rig.Done("workspace.undo", new JsonObject { ["command"] = every.Command });
+
+        Assert.Equal("Took back: reset where station=south. redo puts it back.", undone["said"]!.GetValue<string>());
+        Assert.Equal(("\"wet\"", "1"), (rig.Edit("reading:R3", "note"), rig.Edit("reading:R3", "windSpeed")));
     }
 
     [Fact] // note 10: over a subset whose field has a whole-set edit, reset removes that edit and each row's own
@@ -307,7 +353,7 @@ public class TableCommandTests
         Assert.Equal((true, "\"wet\""), (rig.Board.Created.ContainsKey("reading:R7"), rig.Edit("reading:R7", "note")));
     }
 
-    [Fact] // note 10, spine 1: a row the workspace did not make is refused by name, saying what to do instead, and nothing is removed
+    [Fact] // note 10: a row the workspace did not make is refused by name, saying what to do instead, and nothing is removed
     public async Task Remove_refuses_a_row_the_workspace_did_not_make()
     {
         var rig = new Rig();

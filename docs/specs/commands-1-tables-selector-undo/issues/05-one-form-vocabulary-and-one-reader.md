@@ -14,7 +14,8 @@ writer. `ProductReader.Parse` and `PortfolioCells.Read` and `Write` go through t
 
 - [x] Each form reads its spellings and refuses others, saying what the field is.
 - [x] What `Write` writes, `Read` reads back to the same value, for every form.
-- [x] A product's terms and a pricer's cells read as before: their existing tests pass unchanged.
+- [x] A product's terms and a pricer's cells are read by the one reader: their existing tests pass, with the one test
+      line and the sentences that changed listed under Comments.
 
 ## Comments
 

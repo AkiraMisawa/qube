@@ -245,6 +245,10 @@ export interface CompositionIssue {
   readonly code: string;
   readonly path: string;
   readonly message: string;
+  /** The word at fault, where a command refused something written (ADR-0016 §6). */
+  readonly word?: string;
+  /** What the word could have been: the fields a table has, the rows the end of an id fits. */
+  readonly candidates?: readonly string[];
 }
 
 export interface ErrorEnvelope {

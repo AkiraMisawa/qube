@@ -88,12 +88,15 @@ public class PricerSettingsTests
         var ws = service.Create("akira", "ABC/LE-01", Day1, 5);
 
         // The form's refusal is the kernel's and the bounds' the module's: each in the words the grid's cell has.
-        string Refused(string column, string text) => Assert.ThrowsAny<Exception>(() => Set(ws, column, text)).Message;
-        Assert.Equal("A cost of capital is from 0% and below 100%, never empty.", Refused("cost of capital", "100%"));
-        Assert.Equal("A charge ratio is a number above 0 and up to 10.", Refused("charge ratio", "0"));
-        Assert.Equal("An MPOR override is a whole number of days from 1 to 250, or empty for the model's 10.", Refused("mpor", "0d"));
-        Assert.Equal("xva mpor override is a whole number of days, 10 or 10d, or empty; ten is not.", Refused("mpor", "ten"));
-        Assert.Equal("xva risks included is on or off; maybe is not.", Refused("risks", "maybe"));
+        (string Code, string Message) OutOfBounds(string column, string text) =>
+            Assert.Throws<WorkspaceRefused>(() => Set(ws, column, text)) is var refused ? (refused.Code, refused.Message) : default;
+        (string Code, string Message) NotOfForm(string column, string text) =>
+            Assert.Throws<TableRefused>(() => Set(ws, column, text)) is var refused ? (refused.Code, refused.Message) : default;
+        Assert.Equal(("InvalidValue", "A cost of capital is from 0% and below 100%, never empty."), OutOfBounds("cost of capital", "100%"));
+        Assert.Equal(("InvalidValue", "A charge ratio is a number above 0 and up to 10."), OutOfBounds("charge ratio", "0"));
+        Assert.Equal(("InvalidValue", "An MPOR override is a whole number of days from 1 to 250, or empty for the model's 10."), OutOfBounds("mpor", "0d"));
+        Assert.Equal(("InvalidValue", "xva mpor override is a whole number of days, 10 or 10d, or empty; ten is not."), NotOfForm("mpor", "ten"));
+        Assert.Equal(("InvalidValue", "xva risks included is on or off; maybe is not."), NotOfForm("risks", "maybe"));
         Assert.Equal("XVA has no setting other; its settings are mpor, costOfCapital, chargeRatio, pvAdjustment, risks.",
             Assert.Throws<WorkspaceRefused>(() => service.Edit(ws.WorkspaceId, ws.Revision, "akira", "settings:xva", "other", 1)).Message);
         Assert.Equal("A charge ratio is a number above 0 and up to 10.",

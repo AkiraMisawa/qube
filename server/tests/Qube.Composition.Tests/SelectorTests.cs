@@ -34,13 +34,22 @@ public class SelectorTests
     [Fact] // ADR-0016 §2: the end of an id is accepted when it names exactly one row
     public void The_end_of_an_id_names_a_row_when_it_names_one() => Assert.Equal(["R5", "R3"], Keys("5, 3"));
 
-    [Fact] // ADR-0016 §2, spine 1: the end of an id that names several rows is refused with what it could mean, never the first
+    [Fact] // ADR-0016 §2: the end of an id that names several rows is refused with what it could mean, never the first
     public void The_end_of_an_id_that_names_several_rows_is_refused()
     {
         var refused = Refused("readings 1");
 
         Assert.Equal(("AmbiguousRow", "1 could be R1 or X1 of readings; write more of the id.", "1"), (refused.Code, refused.Message, refused.Word));
         Assert.Equal(["R1", "X1"], refused.Candidates);
+    }
+
+    [Fact] // ADR-0016 §2: ends and whole ids mix in one list, each found by itself, and an end no row has is refused by name
+    public void Ends_and_whole_ids_mix_and_an_end_no_row_has_is_refused()
+    {
+        var unknown = Refused("readings 4, 9");
+
+        Assert.Equal(["R4", "X1", "R2"], Keys("readings r4, x1, 2"));
+        Assert.Equal(("UnknownRow", "No row 9 in readings.", "9"), (unknown.Code, unknown.Message, unknown.Word));
     }
 
     [Fact] // ADR-0016 §2: a row named twice is refused, since one row takes one value
@@ -55,7 +64,7 @@ public class SelectorTests
         Assert.Equal((Stations.Sites, 2), (resolved.Table.Descriptor.TableId, resolved.Rows.Count));
     }
 
-    [Fact] // note 7, spine 1: an id two tables have is refused with both, and so are ids of two tables
+    [Fact] // note 7: an id two tables have is refused with both, and so are ids of two tables
     public void An_id_two_tables_have_is_refused_with_both()
     {
         var both = Refused("X1");
@@ -136,9 +145,13 @@ public class SelectorTests
         // R1 and R2 are both in M3, so nothing is compared across units.
         Assert.Equal(["R1"], Keys("R1, R2 where volume>1mm"));
         Assert.Equal(["volume > 1mm"], Resolve("R1, R2 where volume>1mm").Where);
+        // No value is in no unit: asking which rows have none compares nothing across units.
+        Assert.Empty(Keys("where volume=empty"));
+        Assert.Equal(["R1", "R2", "R3"], Keys("manual where volume!=none"));
+        Assert.Equal(["R2", "R5"], Keys("where unit=m3 and volume in 250k, 800k"));
     }
 
-    [Theory] // note 8, spine 1: an operator a field cannot take, a value its form cannot read and a field it has not are refused by name
+    [Theory] // note 8: an operator a field cannot take, a value its form cannot read and a field it has not are refused by name
     [InlineData("where station<north", "UnorderedField", "station is text, which takes =, !=, ~ and in; < is for numbers and dates.")]
     [InlineData("where checked>off", "UnorderedField", "checked is a flag, which takes =, != and in; > is for numbers and dates.")]
     [InlineData("where wind speed~2", "NotText", "wind speed is a number, and ~ is for text.")]
@@ -146,6 +159,10 @@ public class SelectorTests
     [InlineData("where taken>soon", "InvalidValue", "taken is a period such as 10y, or a date, or empty; soon is not.")]
     [InlineData("where colour=red", "UnknownField", "readings has no field colour; its fields are id, station, volume, unit, taken, checked, note, wind speed, wind direction, window, drift.")]
     [InlineData("where wind=3", "AmbiguousField", "wind could be wind speed or wind direction of readings.")]
+    [InlineData("where note==wet", "UnknownOperator", "== is no operator: a condition takes =, !=, <, <=, >, >=, ~ or in.")]
+    [InlineData("where wind speed=>5", "UnknownOperator", "=> is no operator: a condition takes =, !=, <, <=, >, >=, ~ or in.")]
+    [InlineData("where taken<empty", "UnorderedValue", "taken < empty asks for an order, and what is empty has none; write taken=empty or taken!=empty.")]
+    [InlineData("where unit=m3 and volume in 1,500k", "AmbiguousValues", "1,500k could be one value or two after in: write two as 1, 500k and one without its separator, 1500k.")]
     public void A_condition_that_cannot_be_read_is_refused_by_name(string text, string code, string message) =>
         Assert.Equal((code, message), (Refused(text).Code, Refused(text).Message));
 
@@ -184,7 +201,10 @@ public class SelectorTests
         var unknown = Assert.Throws<TableRefused>(() => Selectors.Resolve(new RowSelector(Table: "tides", All: true), tables, board));
         var subset = Assert.Throws<TableRefused>(() => Selectors.Resolve(new RowSelector(Subset: "nightly"), tables, board));
 
+        var twice = Assert.Throws<TableRefused>(() => Selectors.Resolve(new RowSelector(Table: Stations.Readings, All: true, Subset: "manual"), tables, board));
+
         Assert.Equal(["R3"], manual.Rows.Select(r => r.Key));
+        Assert.Equal(("RowsSaidTwice", "Rows are said as all or as a subset, not both."), (twice.Code, twice.Message));
         Assert.Equal("UnknownTable", unknown.Code);
         Assert.Equal(("UnknownSubset", "readings has no subset nightly; its subsets are manual, automatic."), (subset.Code, subset.Message));
     }

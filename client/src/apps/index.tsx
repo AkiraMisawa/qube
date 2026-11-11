@@ -80,12 +80,20 @@ registerAiContext(XVA_WORKSPACE, (panel) => panel.params.workspaceId === undefin
   value: JSON.stringify({ kind: 'xva.workspace', workspaceId: panel.params.workspaceId }),
 });
 // The scenario commands (ADR-0010 §4) likewise; a set the AI saved is offered by `scenario load` once read again.
-const XVA_EDITS = ['xva.vary', 'xva.trades.add', 'entity.set', 'entity.reset', 'entity.remove', 'workspace.undo', 'workspace.redo', 'xva.scenario',
+const XVA_EDITS = ['xva.vary', 'xva.trades.add', 'xva.scenario',
   'xva.scenario.include', 'xva.scenario.exclude', 'xva.scenario.remove', 'xva.scenario.ladder', 'xva.scenario.cross', 'xva.scenario.load'];
 for (const capability of XVA_EDITS)
   registerAiEffect(capability, (outputs, { queryClient }) => {
     const answer = outputs.answer as { readonly workspaceId: string };
     void queryClient.invalidateQueries({ queryKey: ['xva', answer.workspaceId] });
+    return undefined;
+  });
+// The kernel's verbs over a registered table, and undo and redo (ADR-0016 §3, §11), know no app: what they changed is
+// whatever reads the workspace they answer for, on whichever page it is open.
+for (const capability of ['entity.set', 'entity.reset', 'entity.remove', 'workspace.undo', 'workspace.redo'])
+  registerAiEffect(capability, (outputs, { queryClient }) => {
+    const answer = outputs.answer as { readonly workspaceId: string };
+    void queryClient.invalidateQueries({ predicate: (query) => query.queryKey.includes(answer.workspaceId) });
     return undefined;
   });
 registerAiEffect('xva.scenario.save', (_outputs, { queryClient }) => {

@@ -48,9 +48,10 @@ public static partial class SelectorReader
     /// <summary>
     /// Reads the rows a line starts with: a table's words where it names one, then <c>all</c>, a subset, or ids separated
     /// by commas, then <c>where</c> and its conditions. What follows is the verb's. A line that starts with a field of a
-    /// table of one row says no rows (<c>set currency JPY</c>).
+    /// table of one row says no rows. Where the table is said beside the rows (<paramref name="within"/>), the rows are
+    /// read as that table's: its subsets, and no row where it has one.
     /// </summary>
-    public static SelectorReading Read(string text, IReadOnlyList<TableDescriptor> tables)
+    public static SelectorReading Read(string text, IReadOnlyList<TableDescriptor> tables, TableDescriptor? within = null)
     {
         var words = text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
         var at = 0;
@@ -67,10 +68,12 @@ public static partial class SelectorReader
         var all = false;
         string? subset = null;
         List<string> ids = [];
-        var scope = table ?? tables.FirstOrDefault(t => t.Main);
+        var said = table ?? within;
+        var scope = said ?? tables.FirstOrDefault(t => t.Main);
         if (at < words.Length && Is(words[at], AllWord)) (all, at) = (true, at + 1);
+        // A registration's subsets share no word (TableRegister.Of), so the words name one.
         else if (scope is not null && Longest(words, at, scope.Subsets, TableWords.Names) is (var subsets, var length)) (subset, at) = (subsets[0].Name, at + length);
-        else if (at < words.Length && !Is(words[at], WhereWord) && table is not { SingleRow: true } && !(table is null && StartsWithAFieldOfOneRow(words, at, tables)))
+        else if (at < words.Length && !Is(words[at], WhereWord) && said is not { SingleRow: true } && !(said is null && StartsWithAFieldOfOneRow(words, at, tables)))
             at = List(words, at, ids);
 
         List<Condition> where = [];
@@ -126,10 +129,11 @@ public static partial class SelectorReader
             var word = words[at++];
             if (Is(word, InWord) && field.Count > 0)
             {
-                List<string> values = [];
-                at = List(words, at, values);
-                if (values.Count == 0) throw Unread(words, start, at, "names no value after in");
-                into.Add(new(string.Join(' ', field), InWord, string.Join(", ", values)));
+                var from = at;
+                at = List(words, at, []);
+                if (at == from) throw Unread(words, start, at, "names no value after in");
+                // The list as it was written: whether a comma parts two values or groups one number is its field's to say.
+                into.Add(new(string.Join(' ', field), InWord, Said(words, from, at - from)));
                 return at;
             }
             var op = OperatorPattern().Match(word);
@@ -140,6 +144,9 @@ public static partial class SelectorReader
             }
             if (op.Index > 0) field.Add(word[..op.Index]);
             var value = word[(op.Index + op.Length)..];
+            // Two signs are no operator (`==`, `=>`): refused, never read as a value that starts with a sign.
+            if (OperatorPattern().Match(value) is { Success: true, Index: 0 } second)
+                throw new TableRefused("UnknownOperator", $"{op.Value}{second.Value} {Conditions.NoOperator}", op.Value + second.Value);
             if (value.Length == 0 && at < words.Length && !Is(words[at], AndWord)) value = words[at++];
             if (field.Count == 0) throw Unread(words, start, at, "names no field");
             if (value.Length == 0) throw Unread(words, start, at, $"names no value after {op.Value}");
@@ -177,19 +184,23 @@ public static class Selectors
         var read = new Dictionary<string, IReadOnlyList<ITableRow>>();
         IReadOnlyList<ITableRow> RowsOf(BoundTable t) => read.TryGetValue(t.Descriptor.TableId, out var rows) ? rows : read[t.Descriptor.TableId] = t.Table.Rows(state);
 
+        var indexed = new Dictionary<string, RowIndex>();
+        RowIndex IndexOf(BoundTable t) => indexed.TryGetValue(t.Descriptor.TableId, out var index) ? index : indexed[t.Descriptor.TableId] = new(t, RowsOf(t));
+
         var table = selector.Table is { } name ? TableRegister.Find(tables, name)
-            : selector.Ids.Count > 0 ? TableOf(selector.Ids, tables, RowsOf)
+            : selector.Ids.Count > 0 ? TableOf(selector.Ids, tables, IndexOf)
             : selector.SaysNoRows ? throw NoRows(null, tables)
             : tables.FirstOrDefault(t => t.Descriptor.Main) ?? throw NoRows(null, tables);
         var all = RowsOf(table);
 
         IReadOnlyList<ITableRow> rows;
         IReadOnlyList<TableSubset>? whole = null;
+        if (selector.All && selector.Subset is not null) throw new TableRefused("RowsSaidTwice", "Rows are said as all or as a subset, not both.");
         if (selector.Ids.Count > 0)
         {
             if (selector.All || selector.Subset is not null)
                 throw new TableRefused("RowsSaidTwice", "Rows are said by their ids, or as all or a subset, not both.");
-            rows = ById(selector.Ids, table, all);
+            rows = ById(selector.Ids, table, IndexOf(table), all);
         }
         else if (selector.Subset is { } said)
         {
@@ -207,7 +218,7 @@ public static class Selectors
         }
         else if (table.Descriptor.SingleRow)
         {
-            // A table of one row may have none for now, as a curve not chosen yet: refused in its own words, never an empty edit.
+            // A table of one row may have none for now, as a choice not made yet: refused in its own words, never an empty edit.
             rows = all.Count switch
             {
                 1 => all,
@@ -226,16 +237,15 @@ public static class Selectors
     }
 
     // The one table that has the rows named (note 7): by an id as written first, then by the end of one.
-    static BoundTable TableOf(IReadOnlyList<string> ids, IReadOnlyList<BoundTable> tables, Func<BoundTable, IReadOnlyList<ITableRow>> rowsOf)
+    static BoundTable TableOf(IReadOnlyList<string> ids, IReadOnlyList<BoundTable> tables, Func<BoundTable, RowIndex> indexOf)
     {
-        var keys = tables.Select(t => (Table: t, Keys: rowsOf(t).Select(r => r.Key).ToHashSet(StringComparer.OrdinalIgnoreCase))).ToList();
         (string Id, BoundTable Table)? first = null;
         foreach (var id in ids)
         {
-            var having = keys.Where(k => k.Keys.Contains(id)).Select(k => k.Table).ToList();
-            if (having.Count == 0) having = [.. keys.Where(k => k.Keys.Any(key => key.EndsWith(id, StringComparison.OrdinalIgnoreCase))).Select(k => k.Table)];
+            var having = tables.Where(t => indexOf(t).Row(id) is not null).ToList();
+            if (having.Count == 0) having = [.. tables.Where(t => indexOf(t).HasEnd(id))];
             if (having.Count == 0)
-                throw new TableRefused("UnknownRow", $"No row {id} in {Or(tables.Select(t => t.Word))}.", id);
+                throw new TableRefused("UnknownRow", $"No row {id} in {TableWords.Or(tables.Select(t => t.Word))}.", id);
             if (having.Count > 1)
                 throw new TableRefused("AmbiguousRow", $"{id} is a row of {string.Join(" and of ", having.Select(t => t.Word))}; say which, as in {having[0].Word} {id}.",
                     id, [.. having.Select(t => t.Word)]);
@@ -246,25 +256,23 @@ public static class Selectors
         return first is { } found ? found.Table : throw new InvalidOperationException("Rows are located by at least one id.");
     }
 
-    static IReadOnlyList<ITableRow> ById(IReadOnlyList<string> ids, BoundTable table, IReadOnlyList<ITableRow> all)
+    static IReadOnlyList<ITableRow> ById(IReadOnlyList<string> ids, BoundTable table, RowIndex index, IReadOnlyList<ITableRow> all)
     {
-        var byKey = new Dictionary<string, ITableRow>(StringComparer.OrdinalIgnoreCase);
-        foreach (var row in all)
-            if (!byKey.TryAdd(row.Key, row)) throw new InvalidOperationException($"{table.Descriptor.TableId} has two rows {row.Key}.");
         var named = new List<ITableRow>(ids.Count);
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var id in ids)
         {
-            if (!byKey.TryGetValue(id, out var row))
+            var row = index.Row(id);
+            if (row is null)
             {
-                var ending = all.Where(r => r.Key.EndsWith(id, StringComparison.OrdinalIgnoreCase)).ToList();
+                var ending = index.Ending(id);
                 row = ending.Count switch
                 {
                     1 => ending[0],
                     0 => throw new TableRefused("UnknownRow", all.Count <= Shown ? $"No row {id} in {table.Word}: its rows are {TableWords.List(all.Select(r => r.Key))}."
                         : $"No row {id} in {table.Word}.", id),
                     _ => throw new TableRefused("AmbiguousRow",
-                        $"{id} could be {Or(ending.Take(Shown).Select(r => r.Key))}{(ending.Count > Shown ? $" or {ending.Count - Shown} more" : "")} of {table.Word}; write more of the id.",
+                        $"{id} could be {TableWords.Or(ending.Take(Shown).Select(r => r.Key))}{(ending.Count > Shown ? $" or {ending.Count - Shown} more" : "")} of {table.Word}; write more of the id.",
                         id, [.. ending.Take(Shown).Select(r => r.Key)]),
                 };
             }
@@ -282,36 +290,90 @@ public static class Selectors
             : new("NoRows", $"Say which rows: {ways}; or name a table ({TableWords.List(tables.Select(t => t.Word))}).");
     }
 
-    static string Or(IEnumerable<string> items)
+    /// <summary>
+    /// A table's rows by their ids as written, and by the end of an id (note 7). The ends are found in the ids reversed
+    /// and sorted, built only when an id is not one as written, so a command that names thousands of rows by the last
+    /// characters of their ids reads the table once and not once for each.
+    /// </summary>
+    sealed class RowIndex
     {
-        var list = items.ToList();
-        return list.Count <= 1 ? string.Concat(list) : $"{string.Join(", ", list.Take(list.Count - 1))} or {list[^1]}";
+        readonly IReadOnlyList<ITableRow> rows;
+        readonly Dictionary<string, ITableRow> byKey = new(StringComparer.OrdinalIgnoreCase);
+        (string Reversed, int At)[]? ends;
+
+        public RowIndex(BoundTable table, IReadOnlyList<ITableRow> rows)
+        {
+            this.rows = rows;
+            foreach (var row in rows)
+                if (!byKey.TryAdd(row.Key, row)) throw new InvalidOperationException($"{table.Descriptor.TableId} has two rows {row.Key}.");
+        }
+
+        public ITableRow? Row(string id) => byKey.GetValueOrDefault(id);
+
+        public bool HasEnd(string id) => Run(id).Count > 0;
+
+        /// <summary>The rows whose ids end with the text, case ignored, in the table's order.</summary>
+        public IReadOnlyList<ITableRow> Ending(string id) => [.. Run(id).Select(e => e.At).Order().Select(at => rows[at])];
+
+        // The ids that end with a text are those that, reversed, start with it reversed: one run of the sorted ends.
+        ArraySegment<(string Reversed, int At)> Run(string id)
+        {
+            var sorted = ends ??= [.. rows.Select((r, at) => (Reversed(r.Key), at)).OrderBy(e => e.Item1, StringComparer.Ordinal)];
+            var start = Reversed(id);
+            var from = Before(e => string.CompareOrdinal(e, start) >= 0, 0);
+            return new(sorted, from, Before(e => !e.StartsWith(start, StringComparison.Ordinal), from) - from);
+
+            // The place of the first end from `low` on that holds, where those that hold come last.
+            int Before(Func<string, bool> holds, int low)
+            {
+                var high = sorted.Length;
+                while (low < high)
+                {
+                    var middle = low + (high - low) / 2;
+                    if (holds(sorted[middle].Reversed)) high = middle;
+                    else low = middle + 1;
+                }
+                return low;
+            }
+        }
+
+        static string Reversed(string text)
+        {
+            var characters = text.ToUpperInvariant().ToCharArray();
+            Array.Reverse(characters);
+            return new(characters);
+        }
     }
 }
 
 /// <summary>The conditions of <c>where</c>, read once against a table and then asked of each row (ADR-0016 §2, note 8).</summary>
-static class Conditions
+static partial class Conditions
 {
-    public sealed record Compiled(string Text, Func<ITableRow, bool> Holds);
+    internal const string NoOperator = "is no operator: a condition takes =, !=, <, <=, >, >=, ~ or in.";
+
+    /// <param name="Compares">Whether it sets a value beside the rows'; false where it only asks whether a row has one.</param>
+    public sealed record Compiled(string Text, Func<ITableRow, bool> Holds, bool Compares = true);
 
     enum Kind { Number, Date, Flag, Text }
 
     public static IReadOnlyList<Compiled> Compile(IReadOnlyList<Condition> conditions, BoundTable table, IReadOnlyList<ITableRow> rows, WorkspaceState state)
     {
         var fields = conditions.Select(c => (Condition: c, Field: TableRegister.Field(table, c.Field))).ToList();
-        foreach (var (condition, field) in fields)
+        var compiled = fields.Select(f => One(f.Condition, f.Field, table, state)).ToList();
+        foreach (var ((condition, field), one) in fields.Zip(compiled))
         {
-            // An amount is not compared across units (ADR-0016 §2): its unit is pinned, or the rows asked hold one.
-            if (field.UnitField is not { } unit || fields.Any(f => f.Field.Name == unit && f.Condition.Operator == "=")) continue;
+            // An amount is not compared across units (ADR-0016 §2): its unit is pinned, or the rows asked hold one. Whether a
+            // row has a value at all compares none.
+            if (!one.Compares || field.UnitField is not { } unit || fields.Any(f => f.Field.Name == unit && f.Condition.Operator == "=")) continue;
             var units = rows.Select(r => r.Value(unit)).Where(v => v is not null).Select(v => v!.GetValue<string>()).Distinct().ToList();
             if (units.Count <= 1) continue;
             var unitWord = TableWords.Word(table.Descriptor.Fields.FirstOrDefault(f => f.Name == unit)
                 ?? throw new InvalidOperationException($"{table.Descriptor.TableId} has no field {unit}, the unit of {field.Name}."));
             throw new TableRefused("MixedUnits",
-                $"{TableWords.Word(field)} is in {And(units)} here, and an amount is not compared across them; say which, as in where {unitWord}={units[0]} and {TableWords.Word(field)}{condition.Operator}{condition.Value}.",
+                $"{TableWords.Word(field)} is in {TableWords.And(units)} here, and an amount is not compared across them; say which, as in where {unitWord}={units[0]} and {TableWords.Word(field)}{condition.Operator}{condition.Value}.",
                 condition.Field, units);
         }
-        return [.. fields.Select(f => One(f.Condition, f.Field, table, state))];
+        return compiled;
     }
 
     static Compiled One(Condition condition, TableField field, BoundTable table, WorkspaceState state)
@@ -322,7 +384,8 @@ static class Conditions
             FieldForm.Amount or FieldForm.SignedAmount or FieldForm.Percent or FieldForm.Rate or FieldForm.Spread or FieldForm.Number or FieldForm.Days => Kind.Number,
             FieldForm.Date => Kind.Date,
             FieldForm.Flag => Kind.Flag,
-            _ => Kind.Text,
+            FieldForm.Period or FieldForm.PeriodOrDate or FieldForm.Choice or FieldForm.Id => Kind.Text,
+            _ => throw new InvalidOperationException($"No comparing of {field.Form}."),
         };
         var what = kind switch { Kind.Number => "a number", Kind.Date => "a date", Kind.Flag => "a flag", _ => "text" };
         switch (condition.Operator)
@@ -338,7 +401,14 @@ static class Conditions
 
         // A value is read by the field's form; `empty` and `none` stand for no value; on a date a period counts from the table's date.
         var spec = new FieldSpec(kind == Kind.Date ? FieldForm.PeriodOrDate : field.Form, Optional: true, field.Choices);
-        var texts = condition.Operator == SelectorReader.InWord ? condition.Value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries) : [condition.Value.Trim()];
+        var several = condition.Operator == SelectorReader.InWord;
+        // A comma before three digits groups a number as it is typed and parts two values after `in`: which was meant is
+        // not guessed.
+        if (several && kind == Kind.Number && condition.Value.Split(' ').FirstOrDefault(w => GroupedDigits().IsMatch(w)) is { } grouped)
+            throw new TableRefused("AmbiguousValues",
+                $"{grouped} could be one value or two after in: write two as {grouped.Replace(",", ", ", StringComparison.Ordinal)} and one without its separator, {grouped.Replace(",", "", StringComparison.Ordinal)}.",
+                grouped);
+        var texts = several ? condition.Value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries) : [condition.Value.Trim()];
         var values = texts.Select(text =>
         {
             var reading = FieldForms.Read(spec, text);
@@ -347,6 +417,10 @@ static class Conditions
         }).ToList();
         var written = TableWords.List(values.Select(v => FieldForms.Write(field.Spec with { Optional = true }, v)));
         var text = $"{word} {condition.Operator} {written}";
+        var ordered = condition.Operator is "<" or "<=" or ">" or ">=";
+        // What is empty is in no order: asked for one, the rows that match would be none, and no one meant that.
+        if (ordered && values[0] is null)
+            throw new TableRefused("UnorderedValue", $"{text} asks for an order, and what is empty has none; write {word}=empty or {word}!=empty.", condition.Value.Trim());
 
         bool Same(JsonNode? held, JsonNode? asked) => (held, asked) switch
         {
@@ -354,7 +428,7 @@ static class Conditions
             (null, _) or (_, null) => false,
             _ => kind switch
             {
-                Kind.Number => Number(held) == Number(asked),
+                Kind.Number => FieldForms.Held(held) == FieldForms.Held(asked),
                 Kind.Flag => held.GetValue<bool>() == asked.GetValue<bool>(),
                 Kind.Date => string.Equals(Written(held), Written(asked), StringComparison.Ordinal),
                 _ => string.Equals(Written(held), Written(asked), StringComparison.OrdinalIgnoreCase),
@@ -362,18 +436,19 @@ static class Conditions
         };
         // Less than nothing and more than nothing are both false: a row with no value is in no order.
         int? Order(JsonNode? held) => held is null || values[0] is not { } asked ? null
-            : kind == Kind.Number ? Number(held).CompareTo(Number(asked)) : string.CompareOrdinal(Written(held), Written(asked));
+            : kind == Kind.Number ? FieldForms.Held(held).CompareTo(FieldForms.Held(asked)) : string.CompareOrdinal(Written(held), Written(asked));
 
+        var compares = values.Any(v => v is not null);
         return condition.Operator switch
         {
-            "=" => new(text, row => Same(row.Value(field.Name), values[0])),
-            "!=" => new(text, row => !Same(row.Value(field.Name), values[0])),
-            SelectorReader.InWord => new(text, row => row.Value(field.Name) is var held && values.Any(v => Same(held, v))),
+            "=" => new(text, row => Same(row.Value(field.Name), values[0]), compares),
+            "!=" => new(text, row => !Same(row.Value(field.Name), values[0]), compares),
+            SelectorReader.InWord => new(text, row => row.Value(field.Name) is var held && values.Any(v => Same(held, v)), compares),
             "<" => new(text, row => Order(row.Value(field.Name)) < 0),
             "<=" => new(text, row => Order(row.Value(field.Name)) <= 0),
             ">" => new(text, row => Order(row.Value(field.Name)) > 0),
             ">=" => new(text, row => Order(row.Value(field.Name)) >= 0),
-            _ => throw new TableRefused("UnknownOperator", $"{condition.Operator} is no operator: a condition takes =, !=, <, <=, >, >=, ~ or in.", condition.Operator),
+            _ => throw new TableRefused("UnknownOperator", $"{condition.Operator} {NoOperator}", condition.Operator),
         };
     }
 
@@ -396,11 +471,8 @@ static class Conditions
         return date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
     }
 
-    // The number a value holds, however it was made: a decimal, a double, or a number read from JSON.
-    static decimal Number(JsonNode value) => value is JsonValue v && v.TryGetValue<decimal>(out var n) ? n
-        : decimal.Parse(value.ToJsonString(), NumberStyles.Float, CultureInfo.InvariantCulture);
-
     static string Written(JsonNode value) => value.GetValueKind() == JsonValueKind.String ? value.GetValue<string>() : value.ToJsonString();
 
-    static string And(IReadOnlyList<string> items) => items.Count <= 1 ? string.Concat(items) : $"{string.Join(", ", items.Take(items.Count - 1))} and {items[^1]}";
+    [GeneratedRegex("[0-9],[0-9]{3}(?![0-9])")]
+    private static partial Regex GroupedDigits();
 }

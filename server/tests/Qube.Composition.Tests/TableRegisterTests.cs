@@ -1,4 +1,7 @@
+using System.Text.Json.Nodes;
+using Qube.Composition.Application;
 using Qube.Composition.Application.Tables;
+using Qube.Composition.Application.Workspaces;
 
 namespace Qube.Composition.Tests;
 
@@ -37,7 +40,7 @@ public class TableRegisterTests
     public void A_field_is_found_by_its_words(string words, string field) =>
         Assert.Equal(field, TableRegister.Field(TableRegister.Find(Tables(), "readings"), words).Name);
 
-    [Fact] // ADR-0016 §1, spine 1: words two fields share name neither, and an unknown word is refused with the fields there are
+    [Fact] // ADR-0016 §1: words two fields share name neither, and an unknown word is refused with the fields there are
     public void Words_that_name_two_fields_or_none_are_refused()
     {
         var readings = TableRegister.Find(Tables(), "readings");
@@ -57,6 +60,31 @@ public class TableRegisterTests
         var twice = Assert.Throws<InvalidOperationException>(() => new TableRegister([new Stations.Catalog(), new Stations.Catalog()]));
 
         Assert.Equal("Table weather.readings is registered twice.", twice.Message);
+    }
+
+    [Fact] // ADR-0016 §2: a subset is said by one of its words alone, so no two subsets of a table share one
+    public void Two_subsets_that_share_a_word_fail_when_the_table_is_read()
+    {
+        var register = new TableRegister([new Gauges()]);
+
+        var failed = Assert.Throws<InvalidOperationException>(() => register.Of(Stations.Board(Stations.Service())));
+
+        Assert.Equal("Table weather.gauges has two subsets that answer to old.", failed.Message);
+    }
+
+    sealed class Gauges : ITableCatalog, IWorkspaceTable
+    {
+        public IEnumerable<IWorkspaceTable> Tables => [this];
+        public string TableId => "weather.gauges";
+        public string App => Stations.App;
+
+        public TableDescriptor Describe(WorkspaceState state) => new(TableId, "1.0", App, "Gauges", ["gauges"], "id", [new("id", "Gauge", ["id"], FieldForm.Id)],
+            [new("worn", "Worn", ["worn", "old"]), new("retired", "Retired", ["old"])]);
+
+        public IReadOnlyList<ITableRow> Rows(WorkspaceState state) => [];
+        public IReadOnlyList<WorkspaceChange> Set(WorkspaceState state, ITableRow row, TableField field, JsonNode? value) => [];
+        public IReadOnlyList<WorkspaceChange> Reset(WorkspaceState state, ITableRow row, TableField? field) => [];
+        public IReadOnlyList<WorkspaceChange> Remove(WorkspaceState state, ITableRow row) => [];
     }
 
     [Fact] // ADR-0016 §1: a workspace has the tables of its own application and no other's

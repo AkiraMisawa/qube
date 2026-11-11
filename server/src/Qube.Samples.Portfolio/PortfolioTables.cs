@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using Qube.Composition.Application;
@@ -82,7 +83,8 @@ public static partial class PortfolioFields
     /// <summary>
     /// A trade's fields: the source's terms, which a condition reads; what the user sets; and each module's typed column
     /// (ADR-0010 §10), named by its id or its title, such as XVA's Margin. A module's result column, such as PV01, is not a
-    /// field: it changes with no edit, so a condition on it would depend on when it was asked.
+    /// field: it changes with no edit, so a condition on it would depend on when it was asked. A module's amount is in
+    /// the trade's currency and is typed as its grid cell is, a plain number (-3000, -3k), never in millions.
     /// </summary>
     public static IReadOnlyList<TableField> Trade(MeasureRegister register) =>
     [
@@ -102,7 +104,8 @@ public static partial class PortfolioFields
         new("before", "Before", ["B", "before"], FieldForm.Flag, Editable: true),
         new("after", "After", ["A", "after"], FieldForm.Flag, Editable: true),
         .. register.TradeColumns.Where(c => c.Editable).Select(c => new TableField(c.Field, c.Title,
-            [.. new[] { Words(c.Field[(c.Field.IndexOf('.') + 1)..]), Words(c.Title), Words(Unit().Replace(c.Title, "")) }.Distinct()], FieldForm.Number, Editable: true)),
+            [.. new[] { Words(c.Field[(c.Field.IndexOf('.') + 1)..]), Words(c.Title), Words(Unit().Replace(c.Title, "")) }.Distinct()], FieldForm.Number, Editable: true,
+            UnitField: c.Type == "amount" ? "currency" : null)),
     ];
 
     /// <summary>The value a trade holds in one of its own fields, as an edit would write it. A module's column is its cell's, not the trade's.</summary>
@@ -218,9 +221,12 @@ public sealed class PortfolioTables(MeasureRegister register) : ITableCatalog
         Func<WorkspaceState, string?>? whyEmpty = null) : IWorkspaceTable
     {
         protected PortfolioChecks Checks => checks;
+
+        /// <summary>The table with every field it can have; a workspace may have fewer (<see cref="Describe"/>).</summary>
+        protected TableDescriptor Whole => descriptor;
         public string TableId => descriptor.TableId;
         public string App => descriptor.App;
-        public TableDescriptor Describe(WorkspaceState state) => descriptor;
+        public virtual TableDescriptor Describe(WorkspaceState state) => descriptor;
         public IReadOnlyList<ITableRow> Rows(WorkspaceState state) => rows(PortfolioCases.Base(state));
         public string? WhyEmpty(WorkspaceState state) => whyEmpty?.Invoke(PortfolioCases.Base(state));
         public virtual DateOnly? AsOf(WorkspaceState state) => null;
@@ -237,7 +243,7 @@ public sealed class PortfolioTables(MeasureRegister register) : ITableCatalog
         public virtual IReadOnlyList<WorkspaceChange>? SetAll(WorkspaceState state, TableSubset subset, TableField field, JsonNode? value) => null;
 
         public IReadOnlyList<WorkspaceChange> Reset(WorkspaceState state, ITableRow row, TableField? field) =>
-            Resets(state, ((Row)row).EntityId, field is null ? descriptor.Fields.Where(f => f.Editable).Select(f => f.Name) : [field.Name]);
+            Resets(state, ((Row)row).EntityId, field is null ? Describe(state).Fields.Where(f => f.Editable).Select(f => f.Name) : [field.Name]);
 
         public virtual IReadOnlyList<WorkspaceChange> ResetAll(WorkspaceState state, TableSubset subset, TableField? field) => [];
 
@@ -260,6 +266,21 @@ public sealed class PortfolioTables(MeasureRegister register) : ITableCatalog
         row => $"{row.Key} is a trade the workspace was given, not one it made: take it out of After with set {row.Key} A off.")
     {
         static readonly IReadOnlyList<string> Sides = ["before", "after"];
+
+        // The table as a selection of modules has it, described once for each selection met.
+        readonly ConcurrentDictionary<string, TableDescriptor> described = new();
+
+        // A module's column is a field while one of its measures is selected, as the grids show it then (ADR-0010 §10):
+        // one that does not show is no field, and a command that names it is told the fields there are.
+        public override TableDescriptor Describe(WorkspaceState state)
+        {
+            var selected = register.Selected(PortfolioCases.Base(state)).Select(m => m.Id).ToHashSet();
+            return described.GetOrAdd(string.Join(',', selected.Order(StringComparer.Ordinal)), _ =>
+            {
+                var hidden = register.TradeColumns.Where(c => !selected.Contains(c.Module)).Select(c => c.Field).ToHashSet();
+                return Whole with { Fields = [.. Whole.Fields.Where(f => !hidden.Contains(f.Name))] };
+            });
+        }
 
         // What every row of one reading shares: the modules selected and the trades with their cells, read when first asked.
         sealed class Shared(MeasureRegister register, WorkspaceState reading, IReadOnlyList<EffectiveTrade> trades)

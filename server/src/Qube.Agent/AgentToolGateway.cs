@@ -110,5 +110,9 @@ public sealed record ToolResult(string CapabilityId, bool Succeeded, JsonObject 
     public JsonObject Outputs => Content["outputs"] as JsonObject ?? throw new InvalidOperationException("A refused tool call has no outputs.");
 
     public IEnumerable<CompositionIssue> Issues => (Content["issues"] as JsonArray ?? []).Select(i =>
-        new CompositionIssue(i!["code"]!.GetValue<string>(), i["path"]!.GetValue<string>(), i["message"]!.GetValue<string>()));
+        new CompositionIssue(i!["code"]!.GetValue<string>(), i["path"]!.GetValue<string>(), i["message"]!.GetValue<string>())
+        {
+            Word = i["word"]?.GetValue<string>(),
+            Candidates = (i["candidates"] as JsonArray)?.Select(c => c!.GetValue<string>()).ToList(),
+        });
 }

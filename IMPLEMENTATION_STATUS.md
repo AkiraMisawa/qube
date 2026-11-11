@@ -1063,21 +1063,28 @@ built from the catalog are 1c.
 - **A domain registers its tables** (`ITableCatalog`, `IWorkspaceTable`, `TableRegister`): an id, words, a key, fields
   with their forms and words, subsets, a row reader, and what a write is, answered as workspace changes, so the domain
   keeps its scopes and its checks and the kernel knows no financial word. A refusal carries the word at fault and what
-  it could have been (`TableRefused`).
+  it could have been (`TableRefused`), and the command gateway, the HTTP envelope and the AI's tool result answer both
+  on the refusal's issue (`word`, `candidates`). A table's subsets share no word, checked when the table is read.
 - **One selector** (`RowSelector`, `SelectorReader`, `Selectors.Resolve`): rows by id, where the end of an id is enough
   when it names one row; `all`; a subset; and `where` with `=`, `!=`, `<`, `<=`, `>`, `>=`, `~` and `in`, joined by
   `and`. With no table named, ids find the one table that has them and the rest mean the application's main table. A
-  period on a date counts from the table's date. An amount is compared only where its unit is one.
+  period on a date counts from the table's date. An amount is compared only where its unit is one. Ids named by their
+  ends are found in an index of the ids reversed, so thousands of them stay linear. After `in`, a comma before three
+  digits is refused as one value or two (`1,500k`); two signs are no operator; an order against `empty` is refused.
 - **`entity.set`, `entity.reset` and `entity.remove` 1.0.0** (`EditWorkspace`; the catalog lists 35 capabilities): one
   all-or-none batch, written by row or as one whole-set edit where the rows are a subset or `all` and the field has
   one. The answer counts (`matched`, `changed`, `held`), names the first rows, and says one sentence (`Set A to off on
-  9 trades; 3 already held it.`). A command that would change nothing writes nothing and is done. Each is one command
-  in the log under its own words, which `undo` then says (`Took back: set CSA-A threshold 5mm. redo puts it back.`).
+  9 trades; 3 already held it.`). A command that would change nothing writes nothing and is done. Several values are
+  written in the order given, each checked against the rows as the ones before it left them, and refused together. Each
+  is one command in the log under its own words, which `undo` then says (`Took back: set CSA-A threshold 5mm. redo puts
+  it back.`).
 - **The pricer is registered** (`PortfolioTables`): `xva.trades` (main; `existing` and `new`, with B and A as whole-set
   edits), `xva.csas`, and of one row each `xva.netting`, `xva.credit`, `xva.cds`, `xva.workspace` and
   `xva.settings.<module>`. `PortfolioCells` names a cell from the same fields, so `vary`, the Changes tab and the
-  commands read one list, and one check (`PortfolioChecks`) serves a typed cell and a command. `remove` refuses every
-  row of the pricer by name and says what to do instead.
+  commands read one list, and one check (`PortfolioChecks`) serves a typed cell and a command. A module's typed column
+  (Margin, PV Adj) is a field while one of its measures is selected, and PV Adj is compared within one currency. No row
+  of the pricer is of the workspace's making until step 3 creates trades by command, so `remove` refuses each by name
+  and says what to do instead.
 - **`xva.set` is gone**, with `PortfolioWorkspaces.SetCells` and `POST /api/xva/workspaces/{id}/set`. The AI's tool is
   `entity_set`. The page's `set` runs `entity.set` through the page's door, in its edit queue's turn, and its notice is
   the server's sentence. The line still reads `set` with the client's reader, so `where` is typed by the AI and at the
@@ -1099,21 +1106,36 @@ existing trades (14,286 requested). Recorded, not gated; the ranges are of four 
 | With 15,000 edits standing: `set` of one CSA's threshold, no table named | 0.09 to 0.16 s |
 | With 15,000 edits standing: the workspace's view | 0.15 to 0.26 s |
 | With 15,000 edits standing: `undo` of one edit | 0.03 to 0.06 s |
+| In a test, the in-memory store: `set` of 7,000 rows named by the ends of their ids | 0.2 to 0.4 s |
+| In a test, the in-memory store: two values over 5,999 rows (`after=off before=off`) | 0.5 to 0.65 s |
 
 The last four were 0.30 to 0.36 s, 0.27 to 0.36 s, 0.42 s and 0.03 s when first measured: every reader of a state
 worked its trades, CSAs and credit out again, and walked every edit of the workspace to find an entity's. The pricer
 now reads a state once (`PortfolioMaterialiser`), finds an entity's edits by an index, works a touched row out again
 only when what it reads has changed, and no longer works every row out again for a CSA term a row does not read. On
 the kernel's own fixture `where` on two fields resolves in 6 ms at 10,000 rows and 51 ms at 100,000 (ticket 07).
+Finding 7,000 rows by the ends of their ids took 1.1 s in the review's measurement, each end a scan of every id, before
+the ends were indexed. A second value costs a reading of the rows as the first left them, which the last row shows.
 
 ### Verification performed
 
 | What | Result |
 |---|---|
-| `dotnet test server/Qube.slnx` | 780 passed |
+| `dotnet test server/Qube.slnx` | 797 passed |
 | Client: `npm run typecheck`, `npm test`, `npm run build` | 253 passed in 31 files |
 | `npx playwright test` (Chromium, headless, Linux) | 63 passed |
 | The browser tests of `set`, of `undo` after it and of a setting by `set xva`, with `--repeat-each=3` | 33 passed |
+| Code review (`code-review`, two axes, since 4f3446f) | Fixed before the merge: see below |
+
+The review's findings that changed behaviour, each with a test: a table said beside the rows now reads its own subsets;
+several values are checked in order (a value was checked against the rows as they stood before the command, so a pair
+the grid would refuse was written); a misspelt first field and a field given twice were refused under another name;
+`==` was read as `=` and a value `=x`; ends of ids cost a scan each; `in` split a grouped number; `=empty` on an amount
+was refused across units and `<empty` matched nothing in silence; a module's amount was compared across currencies; a
+module's column was a field while its module was not selected; the refusal's word and candidates were dropped at the
+gateway. The kernel's contract titles and comments no longer use a pricer's words as examples. Left as they are, and
+said in the pull request: three handlers of one shape, the operator of a condition as text, and the arguments a verb
+passes on together.
 
 ### Providers
 
@@ -1132,6 +1154,12 @@ Unchanged: every figure on these pages is simulated, and says so.
 - `reset` and `remove` have no words on the pricer's line and no button: they are commands of the gateway and tools
   of the AI until 1c builds the line from the catalog.
 - No selector contract is registered: the edit verbs take the rows as the line spells them (ADR-0016's note 12).
+- Only a subset has a whole-set edit (B and A of a grid): no table registers one for `all` of its rows, so `set all`
+  on a table without subsets writes a row at a time.
+- A trade's `csa` set to an id that is no CSA is written and flagged on the row, as the grid does. A field says which
+  table its ids point into (`TableField.Table`), and nothing reads that until the preview completes ids in 1c.
+- A module's column that does not show is no field, so its edit cannot be reset by command until the module is
+  selected again.
 - No real model has called `entity_set`; that the AI's tools hold it and not `xva_set` is held over HTTP.
 
 ## Next

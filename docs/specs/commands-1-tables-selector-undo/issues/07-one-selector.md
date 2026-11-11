@@ -29,4 +29,10 @@ form. An amount is not compared across currencies. A period on a date counts fro
 - `~` is for text and compares without case; a period is text, so it takes `=`, `!=`, `~` and `in`.
 - An amount's unit is pinned by `=` on its unit field, or the rows asked hold one unit; `in` on the unit pins nothing.
 - Measured on a Release build with a table made for it, not gated: `where` on two fields took 6 ms at 10,000 rows, 51 ms
-  at 100,000 and 0.84 s at 1,000,000; every row named by its id took 40 ms, 129 ms and 1.24 s, reading the rows included.
+  at 100,000 and 0.84 s at 1,000,000; every row named by its id took 40 ms, 129 ms and 1.24 s, reading the rows
+  included.
+- Review, 2026-11-11: ids named by their ends are found in the ids reversed and sorted, built when an id is not one as
+  written (7,000 ends over 10,009 rows took 1.1 s in the scan and now 0.2 s for the whole command); `in` refuses a
+  comma before three digits (`1,500k`) as one value or two; `==` and `=>` are no operator; `<empty` is refused, and
+  `=empty` is asked across units; a typed selector that says `all` and a subset is refused; a table's subsets share no
+  word, checked when the table is read.
