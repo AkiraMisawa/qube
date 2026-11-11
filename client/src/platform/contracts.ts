@@ -15,6 +15,15 @@ export interface Port {
   readonly cardinality: 'one' | 'many';
 }
 
+/**
+ * How a command is typed (ADR-0016 §4): the words that name it, each a spelling of its own, and its arguments in the
+ * order typed. The line builds its entry from this and reads nothing of the line itself; the server does (§5).
+ */
+export interface CommandForm {
+  readonly words: readonly string[];
+  readonly arguments: readonly { readonly name: string; readonly kind: 'rows' | 'assignments' | 'field' | 'text'; readonly required: boolean }[];
+}
+
 export interface CapabilityDescriptor {
   readonly capabilityId: string;
   readonly version: string;
@@ -23,6 +32,34 @@ export interface CapabilityDescriptor {
   readonly outputPorts: readonly Port[];
   readonly executionKind: 'requestResponse' | 'job' | 'subscription';
   readonly effects: readonly string[];
+  /** Absent for a capability no line names. */
+  readonly command?: CommandForm;
+}
+
+/** What could stand at the end of a line: the text, where in the line it is written from, and what it is where that helps. */
+export interface LineCompletion {
+  readonly value: string;
+  readonly start: number;
+  readonly detail?: string;
+}
+
+/**
+ * A line as the server read it at a revision (ADR-0016 §5; `POST /api/commands/preview`), with nothing executed: the
+ * command and either its reading or why it cannot be read, and what could follow the last word. `inputs` invoke the
+ * command on the revision read. `at` is the moment the reading speaks of, where it speaks of one: the sentence holds
+ * no time, and the line writes this in its user's zone.
+ */
+export interface LinePreview {
+  readonly revision: number;
+  readonly command?: { readonly id: string; readonly version: string };
+  readonly inputs?: Readonly<Record<string, unknown>>;
+  readonly arguments?: readonly { readonly name: string; readonly text: string }[];
+  readonly rows?: { readonly table: string; readonly title: string; readonly count: number; readonly first: readonly string[] };
+  readonly would?: string;
+  readonly at?: string;
+  readonly refused?: { readonly code: string; readonly sentence: string; readonly word?: string; readonly start?: number; readonly end?: number; readonly candidates: readonly string[] };
+  readonly complete: readonly LineCompletion[];
+  readonly more: number;
 }
 
 export interface FieldSchema {

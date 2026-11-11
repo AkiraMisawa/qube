@@ -223,7 +223,9 @@ public sealed class TableService(TableRegister register, WorkspaceService worksp
         foreach (var argument in given) request[argument.Name] = argument.Text;
         var (bound, rows) = (plan.Resolved.Table, plan.Resolved.Rows);
         var title = bound.Descriptor.SingleRow ? bound.Word : $"{bound.Word}, {Counted(rows.Count)} row{(rows.Count == 1 ? "" : "s")}";
-        return new(new JsonObject { ["request"] = request }, given, new(bound.Descriptor.TableId, title, rows.Count, [.. rows.Take(Listed).Select(r => r.Key)]), plan.Would);
+        // The one row of a table of one row has no id a line could name: its word says it, and none is listed.
+        IReadOnlyList<string> first = bound.Descriptor.SingleRow ? [] : [.. rows.Take(Listed).Select(r => r.Key)];
+        return new(new JsonObject { ["request"] = request }, given, new(bound.Descriptor.TableId, title, rows.Count, first), plan.Would);
     }
 
     // One accepted call is one command (ADR-0016 §11), named by the words it was given; the batch is all or none, and a

@@ -5,9 +5,10 @@ import {
   assertDistinct, completionsOf, drawn, drawnSections, execute, finish, listed, placeholder, readLine, signature, take,
   type Command, type Completion,
 } from '../platform/commands/commands';
+import { commandDoorOf, lineAsked, previewShown, servedCommands, taken } from '../platform/commands/served';
 import { recordUse, usageScore } from '../platform/commands/usage';
-import { useQuery } from '@tanstack/react-query';
-import type { Catalog, RunRecord } from '../platform/contracts';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import type { Catalog, LineCompletion, LinePreview, RunRecord } from '../platform/contracts';
 import type { Notify } from '../platform/notices';
 import { viewsFor } from '../platform/views/binding';
 import { CONTEXT_CONTRACT, useWorkspace, useWorkspaceContext } from '../platform/workspace/WorkspaceProvider';
@@ -51,7 +52,12 @@ export function buildCommands(args: {
   const active: Panel | undefined = state.panels.find((p) => p.id === state.activePanelId);
   // The applications' commands first: the empty line lists the groups in the order registered (ADR-0006's note 3 of
   // 2026-11-11), and what an application offers comes before the catalog's workflows and the shell's own.
-  const commands: Command[] = [...appCommands(state)];
+  const commands: Command[] = [
+    ...appCommands(state),
+    // The commands the catalog says how to type (ADR-0016 §4): the server reads their lines, for the workspace of the
+    // page in the active panel.
+    ...servedCommands(catalog, active, commandDoorOf(active?.id), args.notify),
+  ];
 
   for (const workflow of catalog.workflows)
     commands.push({
@@ -244,6 +250,10 @@ export function CommandPalette() {
   const [text, setText] = useState('');
   const [highlight, setHighlight] = useState(NONE);
   const [problems, setProblems] = useState<readonly string[]>([]);
+  // While the server reads the line at Enter (ADR-0016 §5) the line is not typed into, and no second Enter is taken.
+  const [entering, setEntering] = useState(false);
+  // Counts the line's turns: an answer for a line that was closed or opened again since is not this line's to show.
+  const turn = useRef(0);
   const input = useRef<HTMLInputElement>(null);
 
   // Built when the line opens and as the panels change, so a page that registers its commands after mounting is seen.
@@ -258,7 +268,7 @@ export function CommandPalette() {
   }, [workspace, panels, activePanelId, context, activeRun, toggleColorScheme, opened, aiStore, aiOpen, active]);
 
   useEffect(() => {
-    openLine = () => { setText(''); setProblems([]); setHighlight(NONE); setOpened(true); };
+    openLine = () => { turn.current += 1; setEntering(false); setText(''); setProblems([]); setHighlight(NONE); setOpened(true); };
     return () => { openLine = undefined; };
   }, []);
 
@@ -298,14 +308,35 @@ export function CommandPalette() {
   // While a command is chosen the list has sections (ADR-0006's note 3 of 2026-11-11); a slot's values have none.
   // What is drawn is what the arrows reach; what is left out is counted and said, never cut in silence.
   const sections = drawnSections(reading.kind === 'choosing' ? listed(reading.query, commands, usageScore) : [], COMMANDS_DRAWN);
-  const values = drawn(completionsOf(reading), VALUES_DRAWN);
-  const items: readonly (Command | Completion)[] = reading.kind === 'choosing' ? sections.sections.flatMap((s) => s.commands) : values.shown;
+  const listedCommands = sections.sections.flatMap((s) => s.commands);
+  const chosenCommand = reading.kind !== 'choosing' || highlight === NONE || listedCommands.length === 0 ? undefined : listedCommands[Math.min(highlight, listedCommands.length - 1)];
+  // A command the catalog says how to type is read by the server (ADR-0016 §5): its line while it is typed, the latest
+  // text winning, and the words of one that takes no argument while it is the one chosen.
+  const served = reading.kind === 'arguments' ? reading.command.served : chosenCommand?.served;
+  const asked = opened && served !== undefined ? lineAsked(text, reading, chosenCommand) : undefined;
+  const answer = useQuery<LinePreview>({
+    queryKey: ['command-line', served?.workspaceId, asked],
+    queryFn: ({ signal }) => workspace.api.preview(asked!, served!.workspaceId, undefined, signal),
+    enabled: asked !== undefined,
+    // A reading is of the workspace as it stood when it was asked for: none is kept for a later line, and the one
+    // before is shown only until this text's own arrives, said to be so.
+    gcTime: 0,
+    retry: false,
+    placeholderData: keepPreviousData,
+  });
+  const read = asked === undefined ? undefined : answer.data;
+  // The reading on screen is of an earlier text until this text's own arrives: nothing is taken from it.
+  const reads = asked !== undefined && (answer.isPlaceholderData || answer.isPending) && !answer.isError;
+  const values = reading.kind === 'arguments' && reading.command.served !== undefined
+    ? { shown: read?.complete ?? [], more: read?.more ?? 0 }
+    : drawn(completionsOf(reading), VALUES_DRAWN);
+  const items: readonly (Command | Completion | LineCompletion)[] = reading.kind === 'choosing' ? listedCommands : values.shown;
   const more = reading.kind === 'choosing' ? sections.more : values.more;
   const at = highlight === NONE || items.length === 0 ? NONE : Math.min(highlight, items.length - 1);
   const chosen = at === NONE ? undefined : items[at];
 
   const change = (next: string) => { setText(next); setHighlight(lists(next) ? NONE : 0); setProblems([]); };
-  const close = () => { setOpened(false); returnKeyboard(); };
+  const close = () => { turn.current += 1; setEntering(false); setOpened(false); returnKeyboard(); };
   const runNow = (command: Command, args: Readonly<Record<string, string>>) => {
     letGo();
     setOpened(false);
@@ -323,12 +354,63 @@ export function CommandPalette() {
     else keyboardBefore = null;
   };
 
-  const takeItem = (item: Command | Completion) => {
-    change(take(text, reading, item));
+  /**
+   * Enter on a command the server reads (ADR-0016 §5): the page has the server read `line` as its workspace then
+   * stands. Read, the line closes and the command runs on, its result the page's to say. A line that cannot be read
+   * stays, with what was typed and why (ADR-0006's note 1 of 2026-11-11), and its word at fault marked.
+   */
+  const enterServed = (command: Command, line: string) => {
+    if (entering || command.served === undefined) return;
+    const mine = turn.current += 1;
+    const typed = line === text;
+    setEntering(true);
+    void command.served.enter(line).then((reason) => {
+      // The line was closed, or opened again, while the server read: its reason has no line left, and is a notice.
+      if (turn.current !== mine) {
+        if (reason === undefined) recordUse(command.id);
+        else workspace.notify('refused', `${command.words}: ${reason.sentence}`);
+        return;
+      }
+      setEntering(false);
+      if (reason === undefined) {
+        recordUse(command.id);
+        setOpened(false);
+        returnKeyboard();
+        return;
+      }
+      setProblems([reason.sentence]);
+      input.current?.focus();
+      if (!typed || reason.start === undefined || reason.end === undefined) return;
+      // The word at fault is selected, so that typing replaces it. One that ends the line may only lack what follows
+      // it (`set R1 checked`): there the caret stands after the line, and typing adds to it.
+      if (line.slice(reason.end).trim() === '') input.current?.setSelectionRange(line.length, line.length);
+      else input.current?.setSelectionRange(reason.start, reason.end);
+    });
+  };
+
+  const takeItem = (item: Command | Completion | LineCompletion) => {
+    if ('start' in item) {
+      // A completion of an earlier text has its place in that text, not in this one.
+      if (reads) return;
+      change(taken(text, item));
+    } else change(take(text, reading, item));
     input.current?.focus();
   };
 
+  /** A command chosen in the list: one that needs words after its own is written on the line, and any other runs. */
+  const choose = (command: Command) => {
+    if (command.unavailable !== undefined) { setProblems([command.unavailable]); return; }
+    if (command.served !== undefined) {
+      if (command.served.arguments.length > 0) takeItem(command);
+      else enterServed(command, command.words);
+      return;
+    }
+    if ((command.args ?? []).some((a) => a.required)) { takeItem(command); return; }
+    runNow(command, {});
+  };
+
   const enter = () => {
+    if (entering) return;
     if (reading.kind === 'choosing') {
       if (!(chosen !== undefined && 'words' in chosen)) {
         // A list with nothing chosen in it: Enter runs nothing, and says how to choose.
@@ -339,12 +421,11 @@ export function CommandPalette() {
         setProblems(['No command matches.']);
         return;
       }
-      if (chosen.unavailable !== undefined) { setProblems([chosen.unavailable]); return; }
-      if ((chosen.args ?? []).some((a) => a.required)) { takeItem(chosen); return; }
-      runNow(chosen, {});
+      choose(chosen);
       return;
     }
     if (reading.command.unavailable !== undefined) { setProblems([reading.command.unavailable]); return; }
+    if (reading.command.served !== undefined) { enterServed(reading.command, text); return; }
     const done = finish(reading);
     if ('problems' in done) { setProblems(done.problems); return; }
     runNow(reading.command, done.args);
@@ -362,7 +443,7 @@ export function CommandPalette() {
       if (items.length > 0) setHighlight(at === NONE ? (step > 0 ? 0 : items.length - 1) : (at + step + items.length) % items.length);
     } else if (event.key === 'Tab') {
       event.preventDefault();
-      if (chosen !== undefined) takeItem(chosen);
+      if (chosen !== undefined && !entering) takeItem(chosen);
     } else if (event.key === 'Enter') {
       event.preventDefault();
       enter();
@@ -371,11 +452,15 @@ export function CommandPalette() {
 
   const optionId = (i: number) => `qube-line-option-${i}`;
   const head = reading.kind === 'arguments' ? reading.command : chosen !== undefined && 'words' in chosen ? chosen : undefined;
+  // What the server read of the line, under it. A reason the line already says in red, at Enter, is not said twice.
+  const shown = asked === undefined ? undefined : answer.isError ? { reason: answer.error.message } : read === undefined ? {} : previewShown(read);
+  const preview = shown === undefined || (problems.length > 0 && shown.reason !== undefined) ? undefined : shown;
   // `under` is the heading an option is drawn under: a command does not repeat the panel its heading names.
-  const option = (item: Command | Completion, i: number, under?: string) => (
-    <UnstyledButton key={'words' in item ? item.id : item.value} id={optionId(i)} role="option" aria-selected={i === at} tabIndex={-1}
+  const option = (item: Command | Completion | LineCompletion, i: number, under?: string) => (
+    <UnstyledButton key={'words' in item ? item.id : 'start' in item ? `${item.start}:${item.value}` : item.value} id={optionId(i)} role="option" aria-selected={i === at} tabIndex={-1}
       className="qube-line-option" data-selected={i === at || undefined} onMouseDown={(e) => e.preventDefault()}
-      onClick={() => ('words' in item && !(item.args ?? []).some((a) => a.required) && item.unavailable === undefined ? runNow(item, {}) : takeItem(item))}
+      // A command that cannot run now is still written on the line, where Enter says why.
+      onClick={() => { if (entering) return; if ('words' in item && item.unavailable === undefined) choose(item); else takeItem(item); }}
       px="xs" py={4} style={{ borderRadius: 4, background: i === at ? 'var(--mantine-color-default-hover)' : undefined }}>
       {'words' in item ? <CommandOption command={item} under={under} /> : <ValueOption completion={item} />}
     </UnstyledButton>
@@ -388,15 +473,29 @@ export function CommandPalette() {
         <TextInput ref={input} data-autofocus value={text} onChange={(e) => change(e.currentTarget.value)} onKeyDown={onKeyDown}
           placeholder={placeholder(listed('', commands, usageScore))} aria-label="Command"
           role="combobox" aria-expanded={items.length > 0} aria-controls="qube-line-options" aria-autocomplete="list"
+          readOnly={entering} aria-busy={entering || undefined}
           {...(chosen === undefined ? {} : { 'aria-activedescendant': optionId(at) })}
+          {...(preview === undefined ? {} : { 'aria-describedby': 'qube-line-preview' })}
           styles={{ input: { fontFamily: 'var(--mantine-font-family-monospace)' } }} />
-        {head !== undefined && <Head command={head} reading={reading} />}
+        {head !== undefined && <Head command={head} reading={reading} read={read} />}
+        {preview !== undefined && (
+          <Stack gap={0} id="qube-line-preview" className="qube-line-preview" data-testid="command-preview" aria-busy={reads || undefined}>
+            <Stack gap={0} className="qube-line-read">
+              {preview.rows !== undefined && <Text size="xs" ff="monospace">{preview.rows}</Text>}
+              {preview.would !== undefined && <Text size="xs">{preview.would}{preview.at === undefined ? '' : ` · ${new Date(preview.at).toLocaleTimeString()}`}</Text>}
+              {preview.reason !== undefined && <Text size="xs" c="dimmed">{preview.reason}</Text>}
+            </Stack>
+            {/* Said in words once the server has taken long enough for it to be seen (shell.css). */}
+            {reads && <Text size="xs" c="dimmed" className="qube-line-reading">Reading the line…</Text>}
+          </Stack>
+        )}
         {problems.length > 0 && (
           <Stack gap={0} role="alert" data-testid="command-problems">
             {problems.map((p) => <Text key={p} size="xs" c="red">{p}</Text>)}
           </Stack>
         )}
-        <Stack gap={0} id="qube-line-options" role="listbox" aria-label={reading.kind === 'choosing' ? 'Commands' : `Values for ${reading.slot?.name ?? 'options'}`}
+        <Stack gap={0} id="qube-line-options" role="listbox" className="qube-line-options" aria-busy={(reads && reading.kind === 'arguments') || undefined}
+          aria-label={reading.kind === 'choosing' ? 'Commands' : reading.command.served !== undefined ? 'What could follow' : `Values for ${reading.slot?.name ?? 'options'}`}
           style={{ maxHeight: '50vh', overflowY: 'auto' }}>
           {reading.kind === 'arguments' ? values.shown.map((item, i) => option(item, i)) : sections.sections.map((section) => (section.heading === undefined
             ? section.commands.map((c, i) => option(c, section.start + i))
@@ -425,11 +524,21 @@ export function CommandPalette() {
 }
 
 /** The chosen command with its slots: given values, the slot being typed, and those still to come. */
-function Head({ command, reading }: { readonly command: Command; readonly reading: ReturnType<typeof readLine> }): ReactNode {
+function Head({ command, reading, read }: { readonly command: Command; readonly reading: ReturnType<typeof readLine>; readonly read: LinePreview | undefined }): ReactNode {
   const args = command.args ?? [];
+  // A served command's arguments are the catalog's, each with the words the server read for it, once it has read the line.
+  const given = new Map((read?.arguments ?? []).map((a) => [a.name, a.text]));
   return (
     <Group gap={6} wrap="wrap" data-testid="command-pending">
       <Text size="sm" fw={600} ff="monospace">{command.words}</Text>
+      {(command.served?.arguments ?? []).map((a) => {
+        const text = given.get(a.name);
+        return (
+          <Badge key={a.name} size="sm" radius="sm" variant={text === undefined ? 'outline' : 'light'} color={text === undefined ? 'gray' : 'blue'} style={{ textTransform: 'none' }}>
+            {text === undefined ? (a.required ? a.name : `[${a.name}]`) : `${a.name} ${text}`}
+          </Badge>
+        );
+      })}
       {args.flatMap((a) => {
         if (a.parts !== undefined) {
           const typed = reading.kind === 'arguments' ? reading.given[a.name] ?? '' : '';

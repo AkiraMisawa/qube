@@ -8,10 +8,6 @@ import type { InputTab } from './XvaInputs';
 
 export interface XvaPage {
   price(): void;
-  /** Takes back the workspace's last command, saying what it was (`undo`, ADR-0016 §11); refused, the page says why. */
-  undo(): void;
-  /** Puts back the command last taken back (`redo`). */
-  redo(): void;
   /** The counterparty's CDS as written (`cds ABCH USD SNRFOR`, `cds proxy financials asia A`, `cds none`, ADR-0010 §8's note of
    * 2026-11-09); the server reads it against its catalogue and says what it chose. */
   chooseCds(text: string): void;
@@ -23,9 +19,6 @@ export interface XvaPage {
   setSide(side: 'before' | 'after', value: boolean, grid?: 'new' | 'existing'): void;
   /** A case per value of a cell (`vary CSA-A threshold 10mm, 5mm, 0`, ADR-0010 §3, §9). */
   vary(cell: string, values: readonly string[]): void;
-  /** One value on each row named, written by the kernel's `entity.set` (`set CSA-A threshold 5mm`, ADR-0016 §3); the
-   * server says what it did, or why not. */
-  set(rows: readonly string[], column: string, text: string): void;
   /** A case per New row with A ticked, each holding that trade alone (`add trades`, docs/03 §5). */
   addTrades(): void;
   /** Removes a case with its changes, named by its title or id (`case remove`, ADR-0010 §3). */
@@ -84,27 +77,18 @@ export interface XvaPage {
   currencies(): readonly string[];
 }
 
-/** A CSA and a trade of the open workspace, where the page has read one. */
+/** A CSA of the open workspace, where the page has read one. */
 export interface XvaExamples {
   readonly csa: string | undefined;
-  readonly trade: string | undefined;
 }
 
-const SET_FORM = 'the rows separated by commas, a column and the value';
 const VARY_FORM = 'a row and a column, then the values separated by commas';
 
 /**
- * The hint of `set`: its form, and an example that can be typed as it is, made from the open workspace's own rows.
- * With none read yet it is the form alone, never an id no workspace has (ADR-0006's note 4 of 2026-11-11).
+ * The hint of `vary`: its form, and an example that can be typed as it is, made from the open workspace's own rows: a
+ * CSA's threshold, where the workspace has a CSA. With none read yet it is the form alone, never an id no workspace
+ * has (ADR-0006's note 4 of 2026-11-11).
  */
-export function setHint(examples: XvaExamples | undefined): string {
-  const { csa, trade } = examples ?? { csa: undefined, trade: undefined };
-  if (trade !== undefined && csa !== undefined) return `${SET_FORM}: ${trade} csa ${csa}`;
-  if (csa !== undefined) return `${SET_FORM}: ${csa} threshold 5mm`;
-  return trade === undefined ? SET_FORM : `${SET_FORM}: ${trade} a off`;
-}
-
-/** The hint of `vary`, as `setHint`: a CSA's threshold is the example, where the workspace has a CSA. */
 export function varyHint(examples: XvaExamples | undefined): string {
   return examples?.csa === undefined ? VARY_FORM : `${VARY_FORM}: ${examples.csa} threshold 10mm, 5mm, 0`;
 }
@@ -169,23 +153,6 @@ export function varyTyped(text: string): { readonly cell: string; readonly value
   const values = [value, ...rest.map((v) => v.trim())];
   if (values.some((v) => v === '')) throw new CommandRefused('vary takes values separated by commas, none of them empty.');
   return { cell: words.slice(0, -1).join(' '), values };
-}
-
-/**
- * `set CSA-A threshold 5mm` and `set T-1001, T-1002 csa CSA-B` as typed (ADR-0010 §9): the rows, separated by commas,
- * then the column and the value, its last word. A value may hold a comma (`10,000k`): only the rows are a list. The
- * server names the cell and reads the value; nothing here decides what a word means.
- */
-export function setTyped(text: string): { readonly rows: readonly string[]; readonly column: string; readonly text: string } {
-  const words = text.trim().split(/\s+/).filter((w) => w !== '');
-  let at = 0;
-  while (at < words.length && words[at]?.endsWith(',') === true) at += 1;
-  const rows = words.slice(0, at + 1).join('').split(',').map((r) => r.trim());
-  const rest = words.slice(at + 1);
-  const value = rest[rest.length - 1];
-  if (rest.length < 2 || value === undefined || rows.some((r) => r === ''))
-    throw new CommandRefused('set needs a row, a column and a value, such as set CSA-A threshold 5mm; rows are separated by commas.');
-  return { rows, column: rest.slice(0, -1).join(' '), text: value };
 }
 
 /**

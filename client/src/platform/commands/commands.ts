@@ -45,6 +45,11 @@ export interface Command {
    */
   readonly page?: boolean;
   readonly args?: readonly CommandArgument[];
+  /**
+   * Its line is the server's to read (ADR-0016 §5): a command the catalog says how to type. The line reads nothing of
+   * what follows its words; it shows the server's reading while that is typed, and Enter has the server run it.
+   */
+  readonly served?: Served;
   /** A shell chord in Mantine's notation (`mod+shift+G`). Only the shell's commands carry one (ADR-0006 §8). */
   readonly shortcut?: string;
   /** Why the command cannot run now; absent when it can. */
@@ -55,6 +60,26 @@ export interface Command {
    * of 2026-11-11).
    */
   readonly run: (args: Readonly<Record<string, string>>) => void;
+}
+
+/** Why the server cannot read a line: its sentence, and where the word at fault stands in the line, where it stands there. */
+export interface LineReason {
+  readonly sentence: string;
+  readonly start?: number;
+  readonly end?: number;
+}
+
+/** What a served command is typed with and run through: its arguments as the catalog names them, and its page's door. */
+export interface Served {
+  readonly arguments: readonly { readonly name: string; readonly required: boolean }[];
+  /** The workspace it acts on, which its previews are asked for. */
+  readonly workspaceId: string;
+  /**
+   * Has the server read the line as the workspace then stands and invokes that reading. Resolves once the line is
+   * read: with why it cannot be, and then nothing ran; or with nothing, and the command runs on, its result the
+   * page's to say.
+   */
+  readonly enter: (line: string) => Promise<LineReason | undefined>;
 }
 
 /**
@@ -249,6 +274,8 @@ export function readLine(text: string, commands: readonly Command[]): LineReadin
   if (chosen === undefined) return { kind: 'choosing', query: lead };
 
   const { command } = chosen;
+  // A served command's line is the server's to read: nothing after its words is placed here.
+  if (command.served !== undefined) return { kind: 'arguments', command, given: {}, slot: undefined, typed: '', problems: [] };
   const args = command.args ?? [];
   const rest = tokens.slice(chosen.length);
   const done = closed ? rest : rest.slice(0, -1);
@@ -338,5 +365,7 @@ export function take(text: string, reading: LineReading, completion: Command | C
 
 /** A command's arguments as the line shows them: `<currency> <index> [rate=]`. */
 export function signature(command: Command): string {
+  // A served command's arguments are typed in order, with no name: `[rows] <set>`.
+  if (command.served !== undefined) return command.served.arguments.map((a) => (a.required ? `<${a.name}>` : `[${a.name}]`)).join(' ');
   return (command.args ?? []).map((a) => (a.required ? `<${a.name}>` : `[${a.name}=]`)).join(' ');
 }

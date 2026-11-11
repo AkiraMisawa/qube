@@ -121,3 +121,34 @@
   pointer-events: auto;
   max-width: min(45rem, 100%);
 }
+
+/*
+ * The command line's reading of a served command (ADR-0016 §5). While the server reads the text now on the line, the
+ * reading on screen is of an earlier text: it stays where it is, so the list under it does not jump, and once the wait
+ * is long enough to be seen it is dimmed and said in words, over the end of its last line. An answer that arrives
+ * sooner changes nothing on the way.
+ */
+.qube-line-preview {
+  position: relative;
+  min-height: calc(var(--mantine-font-size-xs) * var(--mantine-line-height-xs));
+}
+
+.qube-line-reading {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  padding-left: var(--mantine-spacing-xs);
+  background: var(--mantine-color-body);
+  animation: qube-line-wait 0s linear 0.2s both;
+}
+
+@keyframes qube-line-wait {
+  from { visibility: hidden; }
+  to { visibility: visible; }
+}
+
+.qube-line-preview[aria-busy='true'] .qube-line-read,
+.qube-line-options[aria-busy='true'] {
+  opacity: 0.55;
+  transition: opacity 0s linear 0.2s;
+}

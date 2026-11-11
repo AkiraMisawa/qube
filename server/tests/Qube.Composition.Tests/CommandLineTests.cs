@@ -83,6 +83,15 @@ public class CommandLineTests
         Assert.Equal(before + 1, rig.Board.Revision);
     }
 
+    [Fact] // ADR-0016 §5, note 15: a table of one row is said by its word alone; its row has no id a line could name, so none is listed
+    public void The_rows_of_a_table_of_one_row_are_its_word_and_name_no_row()
+    {
+        var rows = new Rig().Preview("set daylight off").Rows!;
+
+        Assert.Equal(("weather.settings", "settings", 1), (rows.Table, rows.Title, rows.Count));
+        Assert.Empty(rows.First);
+    }
+
     [Theory] // ADR-0016 §5, note 15: each spelling of set is read as the command reads it, and says its rows and what would change
     [InlineData("set R1, R2 note=wet drift=1%", "readings, 2 rows | note: 2 to wet; drift: 2 empty to 1%")]
     [InlineData("set all checked on", "readings, 6 rows | checked: 4 off to on, 2 already on")]
