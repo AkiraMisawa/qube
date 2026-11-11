@@ -81,6 +81,13 @@ public interface IWorkspaceTable
     /// <summary>Every row as the workspace stands, in the table's own order. Read once by a command.</summary>
     IReadOnlyList<ITableRow> Rows(WorkspaceState state);
 
+    /// <summary>
+    /// The rows of the table, or of one subset, in the order a page's reader gives them for a sort, with that order's
+    /// token (ADR-0016 note 17 of step 2): the one reader that pages the grid, so a position on a screen names the row
+    /// the screen drew there. Null where no reader pages the table, and its rows are then named by their keys.
+    /// </summary>
+    OrderedRows? InOrder(WorkspaceState state, string? subset, IReadOnlyList<ViewSort> sorts) => null;
+
     /// <summary>The date a period counts from in a condition on a date (<c>&lt;field&gt;&gt;5y</c>); none where the table has none.</summary>
     DateOnly? AsOf(WorkspaceState state) => null;
 

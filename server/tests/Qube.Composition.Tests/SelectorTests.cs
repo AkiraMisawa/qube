@@ -209,6 +209,82 @@ public class SelectorTests
         Assert.Equal(("UnknownSubset", "readings has no subset nightly; its subsets are manual, automatic."), (subset.Code, subset.Message));
     }
 
+    static string[] Keys(string text, LineView? view)
+    {
+        var (tables, board) = Rig();
+        var read = SelectorReader.Read(text, [.. tables.Select(t => t.Descriptor)]);
+        Assert.Empty(read.Rest);
+        return [.. Selectors.Resolve(read.Selector, tables, board, view).Rows.Select(r => r.Key)];
+    }
+
+    static TableRefused Refused(string text, LineView? view) => Assert.Throws<TableRefused>(() => Keys(text, view));
+
+    // The order a page's reader gives the manual readings by volume, largest first: R3 (12mm), R1 (5mm), R2 (250k).
+    static readonly ViewSort[] LargestFirst = [new("volume", Descending: true)];
+
+    static string TokenOf(string? subset, IReadOnlyList<ViewSort> sorts)
+    {
+        var (tables, board) = Rig();
+        return TableRegister.Find(tables, Stations.Readings).Table.InOrder(board, subset, sorts)!.Token;
+    }
+
+    [Fact] // ADR-0016 §2, note 17: `selected` is the rows a view names by key, where the page holds every row
+    public void Selected_is_the_rows_the_view_names_by_key() =>
+        Assert.Equal(["R3", "R1"], Keys("selected", new LineView(Stations.Readings, Keys: ["R3", "R1"])));
+
+    [Fact] // ADR-0016 §2, note 17: where the server pages the grid, `selected` is the rows at the view's positions, in the order its reader gives
+    public void Selected_is_the_rows_at_the_views_positions_in_the_order_its_reader_gives()
+    {
+        var view = new LineView(Stations.Readings, "manual", LargestFirst, TokenOf("manual", LargestFirst), Ranges: [new(0, 1), new(2, 1)]);
+
+        Assert.Equal(["R3", "R2"], Keys("selected", view));
+        Assert.Equal(["R1", "R2"], Keys("selected", new LineView(Stations.Readings, "manual", [], TokenOf("manual", []), Ranges: [new(0, 2)])));
+    }
+
+    [Fact] // ADR-0016 §2: `selected` may be narrowed by `where`, and `shown` is the rows of the view, counted as any rows are
+    public void Selected_is_narrowed_by_where_and_shown_is_the_views_rows()
+    {
+        var manual = new LineView(Stations.Readings, "manual");
+
+        Assert.Equal(["R1"], Keys("selected where unit=m3", new LineView(Stations.Readings, Keys: ["R1", "R3", "R4"])));
+        Assert.Equal(["R1", "R2", "R3"], Keys("shown", manual));
+        Assert.Equal(["R2"], Keys("shown where checked=on", manual));
+        Assert.Equal(["R1", "R2", "R3", "R4", "R5", "X1"], Keys("shown", new LineView(Stations.Readings)));
+        Assert.Equal(["R3"], Keys("readings selected", new LineView(Stations.Readings, Keys: ["R3"])));
+        // Rows of a screen are rows, never a whole set: no one edit stands for them.
+        var (tables, board) = Rig();
+        Assert.Null(Selectors.Resolve(new RowSelector(Screen: ScreenRows.Shown), tables, board, manual).Whole);
+    }
+
+    [Fact] // ADR-0016 §2, §9, note 17: with no screen behind it, `selected` is refused by name; so is a view with nothing selected
+    public void Selected_with_no_view_and_a_view_with_nothing_selected_are_refused()
+    {
+        var none = Refused("selected", null);
+        var shown = Refused("shown where unit=m3", null);
+        var nothing = Refused("selected", new LineView(Stations.Readings, "manual"));
+        var other = Refused("stations selected", new LineView(Stations.Readings, Keys: ["R1"]));
+
+        Assert.Equal(("NoView", "selected means the rows selected on a screen, and no screen is behind this command: name the rows by their ids, all, a subset or where.", "selected"),
+            (none.Code, none.Message, none.Word));
+        Assert.Equal(("NoView", "shown"), (shown.Code, shown.Word));
+        Assert.Equal(("NothingSelected", "No row of readings (manual) is selected."), (nothing.Code, nothing.Message));
+        Assert.Equal(("TwoTables", "The rows on screen are of readings and the table is said to be stations."), (other.Code, other.Message));
+    }
+
+    [Fact] // ADR-0016 §2, note 17: positions are read in the order the grid was drawn from, or the command is refused
+    public void A_view_whose_order_has_moved_is_refused()
+    {
+        var stale = Refused("selected", new LineView(Stations.Readings, "manual", LargestFirst, "an earlier order", Ranges: [new(0, 1)]));
+        var beyond = Refused("selected", new LineView(Stations.Readings, "manual", LargestFirst, TokenOf("manual", LargestFirst), Ranges: [new(2, 2)]));
+        var gone = Refused("selected", new LineView(Stations.Readings, Keys: ["R1", "R9"]));
+        var unordered = Refused("selected", new LineView(Stations.Sites, Ranges: [new(0, 1)]));
+
+        Assert.Equal(("ViewMoved", "The readings are no longer in the order they were selected in: select them again."), (stale.Code, stale.Message));
+        Assert.Equal("ViewMoved", beyond.Code);
+        Assert.Equal(("ViewMoved", "R9 was selected and is no longer a row of readings: select the rows again."), (gone.Code, gone.Message));
+        Assert.Equal(("NoOrder", "stations has no order a position can be read in: its rows are named by their ids."), (unordered.Code, unordered.Message));
+    }
+
     [Fact] // ADR-0016 §2, §5: the line's reader takes the rows and leaves the rest of the line to the verb
     public void The_reader_takes_the_rows_and_leaves_the_rest()
     {
@@ -220,6 +296,11 @@ public class SelectorTests
         var one = Read("alarm 5");
         var named = Read("settings alarm 5");
 
+        var selected = Read("selected where unit=m3 checked on");
+        var shown = Read("readings shown note wet");
+
+        Assert.Equal((ScreenRows.Selected, "checked on"), (selected.Selector.Screen, string.Join(' ', selected.Rest)));
+        Assert.Equal((ScreenRows.Shown, Stations.Readings, "note wet"), (shown.Selector.Screen, shown.Selector.Table, string.Join(' ', shown.Rest)));
         Assert.Equal("R1 R2 | note gusty", $"{string.Join(' ', ids.Selector.Ids)} | {string.Join(' ', ids.Rest)}");
         Assert.Equal("manual | checked on", $"{subset.Selector.Subset} | {string.Join(' ', subset.Rest)}");
         Assert.Equal([new Condition("station", "=", "east"), new Condition("wind speed", ">", "5")], where.Selector.Where);

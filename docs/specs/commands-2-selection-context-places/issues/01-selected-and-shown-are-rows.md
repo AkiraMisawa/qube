@@ -9,9 +9,9 @@ the view: keys as ids, ranges through `IWorkspaceTable.InOrder`, and refuses `No
 
 **Blocked by:** nothing.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] `selected` by keys and by ranges resolves to the rows, in the view's order.
-- [ ] `selected where unit=m3` narrows them; `shown` is the view's subset.
-- [ ] No view, nothing selected, and an order token that moved are each refused by name.
-- [ ] A command invoked with `selected` (no view) is refused and writes nothing.
+- [x] `selected` by keys and by ranges resolves to the rows, in the view's order.
+- [x] `selected where unit=m3` narrows them; `shown` is the view's subset.
+- [x] No view, nothing selected, and an order token that moved are each refused by name.
+- [x] A command invoked with `selected` (no view) is refused and writes nothing.

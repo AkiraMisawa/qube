@@ -131,6 +131,20 @@ static class Stations
         public string App => Stations.App;
         public TableDescriptor Describe(WorkspaceState state) => descriptor;
         public IReadOnlyList<ITableRow> Rows(WorkspaceState state) => RowsOf(state, kind);
+
+        // The readings have a reader that pages them in an order, as a grid's does; the other tables have none. Unsorted,
+        // the order is the source's and no edit moves it; sorted, any edit may.
+        public OrderedRows? InOrder(WorkspaceState state, string? subset, IReadOnlyList<ViewSort> sorts)
+        {
+            if (kind != "reading") return null;
+            var rows = RowsOf(state, kind).Where(r => subset is null || r.Subset == subset);
+            foreach (var sort in sorts.Reverse())
+            {
+                decimal Volume(ITableRow r) => sort.Column == "volume" ? r.Value("volume")!.GetValue<decimal>() : throw new WorkspaceRefused("UnknownColumn", $"Readings cannot be sorted by {sort.Column}.");
+                rows = sort.Descending ? rows.OrderByDescending(Volume) : rows.OrderBy(Volume);
+            }
+            return new([.. rows], sorts.Count == 0 ? "sent" : $"sent/r{state.Revision}");
+        }
         public DateOnly? AsOf(WorkspaceState state) => DateOnly.ParseExact(state.Context["day"]!.GetValue<string>(), "yyyy-MM-dd");
 
         public IReadOnlyList<WorkspaceChange> Set(WorkspaceState state, ITableRow row, TableField field, JsonNode? value)
