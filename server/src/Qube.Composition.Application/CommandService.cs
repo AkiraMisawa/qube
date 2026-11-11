@@ -66,7 +66,7 @@ public sealed class CommandService(CompositionRegistry registry, IDataReader dat
 
         var request = $"{capabilityId}@{version}:{inputs.ToJsonString()}";
         var entry = done.GetOrAdd((caller.UserId, idempotencyKey),
-            _ => (request, new Lazy<Task<CommandResult>>(() => Invoke(handler, inputs, caller, cancellationToken))));
+            _ => (request, new Lazy<Task<CommandResult>>(() => Invoke(handler, inputs, caller, idempotencyKey, cancellationToken))));
         if (entry.Request != request)
             return Refuse("IdempotencyConflict", "IdempotencyConflict", "/idempotencyKey", "This key was used for another command or other inputs.");
         CommandResult result;
@@ -84,12 +84,12 @@ public sealed class CommandService(CompositionRegistry registry, IDataReader dat
         return result;
     }
 
-    async Task<CommandResult> Invoke(ICapabilityHandler handler, JsonObject inputs, Caller caller, CancellationToken cancellationToken)
+    async Task<CommandResult> Invoke(ICapabilityHandler handler, JsonObject inputs, Caller caller, string idempotencyKey, CancellationToken cancellationToken)
     {
         var bound = handler.Descriptor.InputPorts.ToDictionary(p => p.Name, p => inputs[p.Name]?.DeepClone());
         try
         {
-            var outputs = await handler.InvokeAsync(new($"cmd-{Guid.CreateVersion7():N}", bound, data, caller), cancellationToken);
+            var outputs = await handler.InvokeAsync(new($"cmd-{Guid.CreateVersion7():N}", bound, data, caller, idempotencyKey), cancellationToken);
             var missing = handler.Descriptor.OutputPorts.Where(p => !outputs.ContainsKey(p.Name)).Select(p => p.Name).ToList();
             if (missing.Count > 0)
                 throw new InvalidOperationException($"{handler.Descriptor.CapabilityId} did not answer {string.Join(", ", missing)}.");

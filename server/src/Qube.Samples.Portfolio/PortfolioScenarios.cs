@@ -494,7 +494,9 @@ public static partial class PortfolioScenarios
         return changes;
     }
 
-    // A scenario named, by its name as the workspace holds it; one it does not hold is refused with those it does.
+    /// <summary>A scenario named, by its name as the workspace holds it; one it does not hold is refused with those it does.</summary>
+    public static string Named(WorkspaceState state, string name) => Existing(state, name);
+
     static string Existing(WorkspaceState state, string name)
     {
         var all = All(state);

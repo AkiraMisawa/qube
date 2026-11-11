@@ -77,7 +77,6 @@ describe('the page\'s commands (ADR-0006 note 3 of 2026-11-11)', () => {
 
   it('a command says that it acts on the page in the active panel, and only such a command does', () => {
     expect(of('xva.run.download').page).toBe(true);
-    expect(of('workspace.price').page).toBe(true);
     expect(of('trace.explain').page).toBe(true);
     // Not of the page: one that opens another, one of another application, and the shell's own on the active panel.
     expect(of('xva.new').page).toBeUndefined();
@@ -101,6 +100,33 @@ describe('the page\'s commands (ADR-0006 note 3 of 2026-11-11)', () => {
     } finally {
       registerCommandDoor('p', undefined);
     }
+  });
+
+  it('ADR-0016 note 33: the page\'s application\'s served commands lead, in the catalog\'s order; the client\'s own follow, then the kernel\'s', () => {
+    const served = (capabilityId: string, words: string, app?: string) => ({
+      capabilityId, version: '1.0.0', title: words, inputPorts: [], outputPorts: [], executionKind: 'requestResponse' as const, effects: ['editWorkspace'],
+      command: { words: [words], arguments: [], ...(app === undefined ? {} : { app }) },
+    });
+    const typed = { ...catalog([], []), capabilities: [served('entity.set', 'set'), served('weather.price', 'price', 'weather'), served('weather.vary', 'vary', 'weather'), served('tide.ebb', 'ebb', 'tide')] };
+    registerCommandDoor('p', { workspaceId: 'w', app: 'weather', settled: () => Promise.resolve(), view: () => undefined, enter: () => Promise.resolve(undefined), invoke: () => Promise.resolve(undefined) });
+    try {
+      const page = build(typed, s).filter((c) => c.page === true).map((c) => c.id);
+      // Of the page's application first; another application's is no command here (note 27).
+      expect(page.slice(0, 2)).toEqual(['weather.price', 'weather.vary']);
+      expect(page.indexOf('xva.run.download')).toBeGreaterThan(1);
+      expect(page.indexOf('entity.set')).toBeGreaterThan(page.indexOf('xva.run.download'));
+      expect(page).not.toContain('tide.ebb');
+    } finally {
+      registerCommandDoor('p', undefined);
+    }
+  });
+
+  it('ADR-0016 note 33: `price` on the pricer\'s page is the server\'s command alone; the client\'s is the Rates page\'s, and says where to price with neither open', () => {
+    expect(commands.some((c) => c.id === 'workspace.price')).toBe(false);
+    const rates = state({ panels: [{ id: 'r', kind: 'app', title: 'Rates 2026-10-26', app: 'rates.workspace', params: { workspaceId: 'w' } }], activePanelId: 'r', showApp: vi.fn(), openAppDialog: vi.fn() });
+    const priced = (s: ReturnType<typeof state>) => build(catalog([], []), s).find((c) => c.words === 'price')!;
+    expect([priced(rates).id, priced(rates).page, priced(rates).target]).toEqual(['workspace.price', true, 'Rates 2026-10-26']);
+    expect(priced(state({ showApp: vi.fn(), openAppDialog: vi.fn() })).unavailable).toBe('Open an XVA or Rates workspace to price it.');
   });
 
   it('a finished Run\'s views are its page\'s commands', () => {

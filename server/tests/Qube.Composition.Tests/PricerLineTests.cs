@@ -1,5 +1,6 @@
 using System.Text.Json.Nodes;
 using Qube.Composition.Application;
+using Qube.Composition.Application.Saved;
 using Qube.Composition.Application.Tables;
 using Qube.Composition.Application.Workspaces;
 using Qube.Samples.Ccr;
@@ -23,11 +24,13 @@ public class PricerLineTests
         public CommandService Commands { get; }
         public CompositionRegistry Registry { get; }
         public CommandLines Lines { get; }
+        public RunService Runs { get; }
+        public IDataStore Store { get; }
         public string Id { get; }
 
-        public Rig(int existing = 40)
+        public Rig(int existing = 40, int? caseCap = null, Pv01Provider? pv01 = null)
         {
-            var register = new MeasureRegister([new XvaMeasures(Pv01Provider.Simulated(TimeSpan.Zero)), new CcrMeasures()]);
+            var register = new MeasureRegister([new XvaMeasures(pv01 ?? Pv01Provider.Simulated(TimeSpan.Zero)), new CcrMeasures()]);
             Workspaces = new WorkspaceService(new Dictionary<string, IEditRules> { [PortfolioEditRules.App] = new PortfolioEditRules(register) }, TimeProvider.System);
             var registered = new TableRegister([new PortfolioTables(register)]);
             var tables = new TableService(registered, Workspaces);
@@ -35,8 +38,12 @@ public class PricerLineTests
             var registry = Registry = new CompositionRegistry([new PortfolioModule(), new XvaModule(), new CcrModule(), new TablesModule(() => tables), new WorkspaceCommandsModule(() => Workspaces),
                 new PortfolioCommandsModule(() => service ?? throw new InvalidOperationException("The pricer's service is not built yet."), register)]);
             var store = new InMemoryDataStore();
-            Service = service = new PortfolioWorkspaces(Workspaces, store, new RunService(registry, store, TimeProvider.System), register);
+            Runs = new RunService(registry, store, TimeProvider.System);
+            Service = service = new PortfolioWorkspaces(Workspaces, store, Runs, register,
+                caseCap is { } cap ? new PortfolioOptions(cap) : null,
+                new SavedItems(new InMemorySavedItemStore(), new Desks(new Dictionary<string, string> { ["akira"] = "rates" }), TimeProvider.System));
             Commands = new CommandService(registry, store);
+            Store = store;
             Lines = new CommandLines(registry, Workspaces, registered, [new PortfolioShortForms()]);
             Id = Service.Create("akira", "ABC/LE-01", Day1, existing).WorkspaceId;
         }
@@ -351,5 +358,258 @@ public class PricerLineTests
         Assert.Equal("NothingToChange: The workspace has no case to remove.", Read(rig.Preview("cases clear")));
         Assert.Equal("UnknownCase: The workspace has no case; the Base is the workspace itself and is never removed.", Read(rig.Preview("case remove CSA-A threshold 5mm")));
         Assert.Equal("UnknownCase", rig.Preview("case remove").Refused!.Code);
+    }
+
+    [Fact] // ADR-0016 note 32, ADR-0010 §4: scenario reads a name and its shifts, says what it would make as a trial, and Enter makes what was read; one of its name is replaced
+    public async Task Scenario_is_read_as_a_trial_and_enter_makes_what_was_read()
+    {
+        var rig = new Rig();
+        var before = rig.State.Revision;
+
+        var preview = rig.Preview("scenario s1 jpy_ois +10bp;  usdjpy -5%");
+
+        Assert.Equal(("xva.scenario", "name: s1; shifts: jpy_ois +10bp;  usdjpy -5%"), (preview.Command!.Id, Given(preview)));
+        Assert.Equal(new JsonObject { ["workspaceId"] = rig.Id, ["revision"] = before, ["name"] = "s1", ["shifts"] = "jpy_ois +10bp;  usdjpy -5%" }.ToJsonString(), Request(preview));
+        Assert.Equal("Makes the scenario s1 with 2 shifts: jpy_ois +10bp; usdjpy -5%.", preview.Would);
+        Assert.Equal((before, 0), (rig.State.Revision, rig.View.Scenarios.Count));
+
+        Assert.Equal("Made the scenario s1.", await rig.Run(preview));
+        Assert.Equal([("s1", 2, true)], rig.View.Scenarios.Select(s => (s.Name, s.Shifts, s.Included)));
+        Assert.StartsWith("Takes back: scenario s1 jpy_ois +10bp; usdjpy -5% (you,", rig.Preview("undo").Would);
+        // One of its name is replaced whole, its name with it: the name is as typed now.
+        Assert.Equal("Replaces the shifts of S1 with 1 shift: jpy_ois 5y +3bp.", rig.Preview("scenario S1 jpy_ois 5y +3bp").Would);
+    }
+
+    [Theory] // ADR-0016 note 32: a scenario line that cannot be read is refused in the preview, as the command would refuse it
+    [InlineData("scenario", "InvalidScenario: scenario takes a name, then its shifts separated by semicolons, such as scenario s1 jpy_ois +10bp; usdjpy -5%.")]
+    [InlineData("scenario s1", "InvalidScenario: scenario takes a name, then its shifts separated by semicolons, such as scenario s1 jpy_ois +10bp; usdjpy -5%.")]
+    [InlineData("scenario up jpy_ois +10%", "InvalidShift")]
+    [InlineData("scenario save2 nothing 1", "InvalidShift")]
+    public void A_scenario_line_that_cannot_be_read_is_refused_in_the_preview(string line, string refused) => Assert.StartsWith(refused, Read(new Rig().Preview(line)));
+
+    [Fact] // ADR-0016 note 32, ADR-0010 §4: include, exclude and remove name a scenario by its name, of several words where a generator made it, as trials; clear removes them all
+    public async Task Scenario_include_exclude_remove_and_clear_are_read_as_trials_and_run_what_was_read()
+    {
+        var rig = new Rig();
+        await rig.Run(rig.Preview("scenario up jpy_ois +10bp; usdjpy -5%"));
+        await rig.Run(rig.Preview("scenario cross jpy_ois -50bp, 0 x usdjpy -10%, 0"));
+        var before = rig.State.Revision;
+
+        var exclude = rig.Preview("scenario exclude JPY_OIS -50bp · usdjpy -10%");
+
+        Assert.Equal(("xva.scenario.exclude", "name: JPY_OIS -50bp · usdjpy -10%", "Price would leave the scenario jpy_ois -50bp · usdjpy -10% out; its shifts stay."),
+            (exclude.Command!.Id, Given(exclude), exclude.Would));
+        Assert.Equal(new JsonObject { ["workspaceId"] = rig.Id, ["revision"] = before, ["name"] = "JPY_OIS -50bp · usdjpy -10%" }.ToJsonString(), Request(exclude));
+        Assert.Equal("up (2 shift(s)) | jpy_ois -50bp · usdjpy -10% (2 shift(s)) | jpy_ois -50bp (1 shift(s)) | usdjpy -10% (1 shift(s))", Offered(rig.Preview("scenario exclude ")));
+        Assert.Equal("jpy_ois -50bp · usdjpy -10% (2 shift(s)) | jpy_ois -50bp (1 shift(s))", Offered(rig.Preview("scenario remove jpy_ois -5")));
+        Assert.Equal("", Offered(rig.Preview("scenario include ")));
+        Assert.Equal(before, rig.State.Revision);
+
+        Assert.Equal("Price leaves the scenario jpy_ois -50bp · usdjpy -10% out; its shifts stay.", await rig.Run(exclude));
+        Assert.StartsWith("Takes back: scenario exclude jpy_ois -50bp · usdjpy -10% (you,", rig.Preview("undo").Would);
+        Assert.Equal("Nothing would change: Price already leaves the scenario jpy_ois -50bp · usdjpy -10% out.", rig.Preview("scenario exclude jpy_ois -50bp · usdjpy -10%").Would);
+        Assert.Equal("jpy_ois -50bp · usdjpy -10% (2 shift(s), excluded)", Offered(rig.Preview("scenario include ")));
+        Assert.Equal("Price would price the scenario jpy_ois -50bp · usdjpy -10%.", rig.Preview("scenario include jpy_ois -50bp · usdjpy -10%").Would);
+        Assert.Equal("Nothing would change: Price already prices the scenario up.", rig.Preview("scenario include UP").Would);
+
+        var remove = rig.Preview("scenario remove up");
+        Assert.Equal(("xva.scenario.remove", "Removes the scenario up, with its 2 shifts."), (remove.Command!.Id, remove.Would));
+        Assert.Equal("Removed the scenario up.", await rig.Run(remove));
+        Assert.StartsWith("Takes back: scenario remove up (you,", rig.Preview("undo").Would);
+        Assert.StartsWith("UnknownScenario: There is no scenario up: the scenarios are ", Read(rig.Preview("scenario exclude up")));
+        Assert.StartsWith("UnknownScenario: scenario remove takes the scenario's name: the scenarios are ", Read(rig.Preview("scenario remove")));
+
+        var clear = rig.Preview("scenarios clear");
+        Assert.Equal(("xva.scenarios.clear", "Removes 3 scenarios: jpy_ois -50bp · usdjpy -10%, jpy_ois -50bp and usdjpy -10%."), (clear.Command!.Id, clear.Would));
+        Assert.Equal("Removed every scenario; Price prices the base market alone.", await rig.Run(clear));
+        Assert.StartsWith("Takes back: scenarios clear (you,", rig.Preview("undo").Would);
+        Assert.Equal("NothingToChange: The workspace has no scenario to remove.", Read(rig.Preview("scenarios clear")));
+    }
+
+    [Fact] // ADR-0016 note 32, ADR-0010 §4: duplicate takes the scenario to copy, of several words, then the copy's name in one, as a trial
+    public async Task Scenario_duplicate_is_read_as_a_trial_and_enter_copies_what_was_read()
+    {
+        var rig = new Rig();
+        await rig.Run(rig.Preview("scenario ladder jpy_ois 5y -10bp..+10bp step 10bp"));
+        var before = rig.State.Revision;
+
+        var preview = rig.Preview("scenario duplicate jpy_ois 5y -10bp down");
+
+        Assert.Equal(("xva.scenario.duplicate", "name: jpy_ois 5y -10bp; copy: down", "Copies the 1 shift of jpy_ois 5y -10bp as the scenario down."), (preview.Command!.Id, Given(preview), preview.Would));
+        Assert.Equal(new JsonObject { ["workspaceId"] = rig.Id, ["revision"] = before, ["name"] = "jpy_ois 5y -10bp", ["copy"] = "down" }.ToJsonString(), Request(preview));
+        Assert.Equal("jpy_ois 5y -10bp (1 shift(s)) | jpy_ois 5y +10bp (1 shift(s))", Offered(rig.Preview("scenario duplicate ")));
+        Assert.Equal(before, rig.State.Revision);
+
+        Assert.Equal("Duplicated jpy_ois 5y -10bp as down.", await rig.Run(preview));
+        Assert.StartsWith("Takes back: scenario duplicate jpy_ois 5y -10bp down (you,", rig.Preview("undo").Would);
+        Assert.StartsWith("InvalidScenario: A scenario down exists", Read(rig.Preview("scenario duplicate jpy_ois 5y -10bp down")));
+        Assert.Equal("InvalidScenario: scenario duplicate takes the scenario to copy, then the copy's name in one word.", Read(rig.Preview("scenario duplicate down")));
+    }
+
+    [Fact] // ADR-0016 note 32, ADR-0010 §4: a generator says how many scenarios it would make and the pairs Price would then price, and the cap is refused in the preview
+    public async Task A_generator_is_read_as_a_trial_says_the_pairs_it_leaves_and_the_cap_is_refused_in_the_preview()
+    {
+        var rig = new Rig(caseCap: 6);
+        var before = rig.State.Revision;
+
+        var ladder = rig.Preview("scenario ladder jpy_ois -20bp..+20bp step 10bp");
+
+        Assert.Equal(("xva.scenario.ladder", "factors: jpy_ois -20bp..+20bp step 10bp"), (ladder.Command!.Id, Given(ladder)));
+        Assert.Equal(new JsonObject { ["workspaceId"] = rig.Id, ["revision"] = before, ["factors"] = "jpy_ois -20bp..+20bp step 10bp" }.ToJsonString(), Request(ladder));
+        Assert.Equal("Makes 4 scenario(s): jpy_ois -20bp, jpy_ois -10bp, jpy_ois +10bp and 1 more. Price would then price 5 pairs of a case and a market, of 6 at most.", ladder.Would);
+        Assert.Equal((before, 0), (rig.State.Revision, rig.View.Scenarios.Count));
+        Assert.StartsWith("InvalidGenerator: scenario ladder makes 6 scenarios, and a set is 5 at most", Read(rig.Preview("scenario ladder jpy_ois -30bp..+30bp step 10bp")));
+        Assert.StartsWith("InvalidGenerator: scenario cross needs two lists or more", Read(rig.Preview("scenario cross jpy_ois -50bp, 0")));
+        Assert.StartsWith("InvalidGenerator: scenario ladder needs a factor, a range and a step", Read(rig.Preview("scenario ladder")));
+
+        Assert.Equal("Made 4 scenario(s): jpy_ois -20bp, jpy_ois -10bp, jpy_ois +10bp, jpy_ois +20bp.", await rig.Run(ladder));
+        Assert.StartsWith("Takes back: scenario ladder jpy_ois -20bp..+20bp step 10bp (you,", rig.Preview("undo").Would);
+        // A second case doubles the pairs: the set that is made is said to leave more than Price prices, and is still made.
+        await rig.Run(rig.Preview("vary CSA-A threshold 10mm"));
+        Assert.Equal("Makes 2 scenario(s), replacing 2 of the same name: jpy_ois -10bp and jpy_ois +10bp. "
+            + "Price would then refuse to price 10 pairs of a case and a market: 4 more than the 6 it prices at most.", rig.Preview("scenario ladder jpy_ois -10bp..+10bp step 10bp").Would);
+    }
+
+    [Fact] // ADR-0016 note 32, ADR-0010 §4, C32: save says what it would keep and for whom and changes no workspace; load offers the sets the user sees and says what it would add
+    public async Task Scenario_save_and_load_are_read_before_they_run_and_load_offers_the_saved_sets()
+    {
+        var rig = new Rig();
+        Assert.StartsWith("NothingToSave: ", Read(rig.Preview("scenario save rates-up")));
+        await rig.Run(rig.Preview("scenario up jpy_ois +10bp"));
+        await rig.Run(rig.Preview("scenario down jpy_ois -10bp"));
+        var before = rig.State.Revision;
+
+        var save = rig.Preview("scenario save rates-up DESK");
+
+        Assert.Equal(("xva.scenario.save", "set: rates-up; share: desk", "Saves 2 scenario(s) as the set rates-up, for the desk rates."), (save.Command!.Id, Given(save), save.Would));
+        Assert.Equal(new JsonObject { ["workspaceId"] = rig.Id, ["revision"] = before, ["set"] = "rates-up", ["share"] = "desk" }.ToJsonString(), Request(save));
+        Assert.Equal("desk (your desk sees it) | all (every user sees it)", Offered(rig.Preview("scenario save rates-up ")));
+        Assert.Equal("", Offered(rig.Preview("scenario load ")));
+        Assert.StartsWith("InvalidShare: ", Read(rig.Preview("scenario save rates-up everyone")));
+        Assert.Equal("UnreadWords: scenario save takes a set's name, then desk or all: more is not read.", Read(rig.Preview("scenario save rates-up desk now")));
+        Assert.StartsWith("InvalidName: ", Read(rig.Preview("scenario save")));
+
+        Assert.Equal("Saved 2 scenario(s) as the set rates-up, for the desk rates.", await rig.Run(save));
+        Assert.Equal(before, rig.State.Revision);
+        Assert.Equal("Saves 2 scenario(s) as the set rates-up, for you alone, replacing your rates-up.", rig.Preview("scenario save rates-up").Would);
+
+        await rig.Run(rig.Preview("scenario remove down"));
+        var load = rig.Preview("scenario load rates-up");
+        Assert.Equal(("xva.scenario.load", "set: rates-up", "Loads 2 scenario(s) from rates-up, replacing up: up and down."), (load.Command!.Id, Given(load), load.Would));
+        Assert.Equal("rates-up (2 scenario(s), for the desk, saved by akira)", Offered(rig.Preview("scenario load ra")));
+        Assert.StartsWith("UnknownSaved: ", Read(rig.Preview("scenario load no-such-set")));
+        Assert.Equal("Loaded 2 scenario(s) from rates-up, replacing up: up, down.", await rig.Run(load));
+        Assert.StartsWith("Takes back: scenario load rates-up (you,", rig.Preview("undo").Would);
+    }
+
+    [Fact] // ADR-0016 note 32: the AI and the Scenarios tab invoke the same commands with the words a line reads, and are refused as the line is
+    public async Task The_scenario_commands_invoked_by_request_answer_and_refuse_as_the_line_does()
+    {
+        var rig = new Rig();
+
+        Assert.Equal("Made the scenario up.", await rig.Invoke("xva.scenario", new JsonObject { ["name"] = "up", ["shifts"] = "jpy_ois +10bp" }, RunOrigin.Ai));
+        Assert.Equal("Price leaves the scenario up out; its shifts stay.", await rig.Invoke("xva.scenario.exclude", new JsonObject { ["name"] = "up" }));
+        Assert.Equal("Made 2 scenario(s): jpy_ois -10bp, jpy_ois +10bp.", await rig.Invoke("xva.scenario.ladder", new JsonObject { ["factors"] = "jpy_ois -10bp..+10bp step 10bp" }, RunOrigin.Ai));
+        Assert.StartsWith("UnknownScenario: There is no scenario dn", await rig.Invoke("xva.scenario.remove", new JsonObject { ["name"] = "dn" }));
+        Assert.Equal(RunOrigin.Ai, rig.State.Log.First(e => e.Kind == EditKind.Create).Origin);
+    }
+
+    [Fact] // ADR-0016 note 33, ADR-0010 §1, §9: price is not tried: its reading says what Price would price and starts nothing, and Enter submits one Run with the caller's origin
+    public async Task Price_is_read_without_being_tried_and_enter_submits_one_run()
+    {
+        var rig = new Rig();
+        await rig.Run(rig.Preview("measures cva fva"));
+        var before = rig.State.Revision;
+
+        var preview = rig.Preview("price");
+
+        Assert.Equal(("xva.workspace.price", new JsonObject { ["workspaceId"] = rig.Id, ["revision"] = before }.ToJsonString()), (preview.Command!.Id, Request(preview)));
+        Assert.Equal("Prices CVA and FVA for 1 case, as one Run.", preview.Would);
+        Assert.Empty(rig.View.Runs);
+        Assert.Equal("UnreadWords: price takes no words after it.", Read(rig.Preview("price now")));
+
+        var said = await rig.Run(preview, RunOrigin.Ai);
+
+        var run = Assert.Single(rig.View.Runs);
+        Assert.Equal(($"Price was accepted as Run {run.RunId}.", before, RunOrigin.Ai), (said, rig.State.Revision, rig.Runs.Find(run.RunId)!.Origin));
+    }
+
+    [Fact] // ADR-0016 note 33, XV13: the command asked again with its key, by a gateway that has forgotten the first answer, is the same business submission and no second Run
+    public async Task Price_asked_again_with_its_key_is_the_same_run()
+    {
+        var rig = new Rig();
+        var inputs = rig.Preview("price").Inputs!;
+        async Task<string> Asked(CommandService gateway) =>
+            ((CommandResult.Done)await gateway.InvokeAsync("xva.workspace.price", PortfolioContracts.Version, (JsonObject)inputs.DeepClone(), Akira, "key-1", default)).Outputs["answer"]!["runId"]!.GetValue<string>();
+
+        var first = await Asked(rig.Commands);
+        var again = await Asked(new CommandService(rig.Registry, rig.Store));
+
+        Assert.Equal((first, 1), (again, rig.View.Runs.Count));
+    }
+
+    [Fact] // ADR-0016 note 33, ADR-0010 §3, §4: the markets are said beside the cases, and what Price refuses is refused in the preview by its code and sentence, with no Run made
+    public async Task Price_says_its_markets_and_is_refused_in_the_preview_as_price_refuses()
+    {
+        var rig = new Rig(caseCap: 3);
+        await rig.Run(rig.Preview("measures cva fva"));
+        await rig.Run(rig.Preview("scenario up jpy_ois +10bp"));
+        Assert.Equal("Prices CVA and FVA for 1 case on 2 markets (the base market and 1 scenario), as one Run.", rig.Preview("price").Would);
+        await rig.Run(rig.Preview("vary CSA-A threshold 10mm"));
+
+        Assert.StartsWith("TooManyCases: Price prices 3 pairs of a case and a market at most: 2 case(s) × 2 markets", Read(rig.Preview("price")));
+        Assert.StartsWith("TooManyCases: Price prices 3 pairs", await rig.Invoke("xva.workspace.price", []));
+
+        var set = new Rig();
+        await set.Run(set.Preview("add each"));
+        await set.Run(set.Preview("set DRAFT-2 after off"));
+        Assert.Equal("AdditionSetChanged: add each prices DRAFT-1, DRAFT-2, DRAFT-3 alone, and DRAFT-2 is in a case and no longer ticked. Run add each again to make the set anew.",
+            Read(set.Preview("price")));
+        Assert.Empty(rig.View.Runs.Concat(set.View.Runs));
+    }
+
+    [Fact] // ADR-0016 note 33, ADR-0003 §6: refresh is not tried: its reading says what it would read again, and Enter says what carried; the log names it by its word
+    public async Task Refresh_is_read_without_being_tried_and_enter_says_what_carried()
+    {
+        var rig = new Rig();
+        await rig.Run(rig.Preview("set CSA-A threshold 5mm"));
+        var before = rig.State.Revision;
+
+        var preview = rig.Preview("refresh");
+
+        Assert.Equal(("xva.refresh", new JsonObject { ["workspaceId"] = rig.Id, ["revision"] = before }.ToJsonString()), (preview.Command!.Id, Request(preview)));
+        Assert.Equal("Reads ABC/LE-01 again as of 2026-10-26, and carries your edits onto what it reads.", preview.Would);
+        Assert.Equal(before, rig.State.Revision);
+
+        Assert.Equal("Refreshed: 1 edit(s) carried, 0 in conflict, 0 lost.", await rig.Run(preview, RunOrigin.Ai));
+        Assert.True(rig.State.Revision > before);
+        Assert.Equal(RunOrigin.Ai, rig.State.Log[^1].Origin);
+        Assert.StartsWith("Takes back: refresh (the AI for you,", rig.Preview("undo").Would);
+    }
+
+    [Fact] // ADR-0016 note 33, ADR-0010 §6: pv01 retry says the trades whose results failed before it asks, takes one trade, and says how many it asked again
+    public async Task Pv01_retry_says_what_failed_and_enter_asks_again()
+    {
+        var down = true;
+        var rig = new Rig(pv01: new Pv01Provider((request, _) => down ? Task.FromException<decimal>(new InvalidOperationException("The PV01 engine is down.")) : Task.FromResult(1m)));
+        await rig.Run(rig.Preview("measures cva fva"));
+        Assert.True(rig.View.PendingCells >= 0);
+        var before = rig.State.Revision;
+
+        var all = rig.Preview("pv01 retry");
+        var one = rig.Preview("pv01 retry draft-2");
+
+        Assert.Equal(("xva.pv01.retry", "", "Asks again for the results that failed on 3 trades: DRAFT-1, DRAFT-2 and DRAFT-3."), (all.Command!.Id, Given(all), all.Would));
+        Assert.Equal(("trade: DRAFT-2", "Asks again for the results that failed on 1 trade: DRAFT-2."), (Given(one), one.Would));
+        Assert.Equal(new JsonObject { ["workspaceId"] = rig.Id, ["revision"] = before, ["trade"] = "DRAFT-2" }.ToJsonString(), Request(one));
+        Assert.Equal("UnknownTarget: No trade T-0 in this workspace.", Read(rig.Preview("pv01 retry T-0")));
+        Assert.Equal("UnreadWords: pv01 retry takes one trade, or none for every trade: DRAFT-2 is not read.", Read(rig.Preview("pv01 retry DRAFT-1 DRAFT-2")));
+
+        down = false;
+        Assert.Equal("Asked again for 1 result(s).", await rig.Run(one));
+        Assert.Equal("Asked again for 2 result(s).", await rig.Run(all));
+        Assert.Equal(before, rig.State.Revision);
+        Assert.Equal("Nothing would be asked again: no result has failed.", rig.Preview("pv01 retry").Would);
+        Assert.Equal("No result had failed, so nothing was asked again.", await rig.Invoke("xva.pv01.retry", []));
     }
 }

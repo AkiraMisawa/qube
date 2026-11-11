@@ -126,6 +126,8 @@ export interface CommandDoor {
 export interface Served {
   readonly arguments: readonly { readonly name: string; readonly required: boolean }[];
   readonly door: CommandDoor;
+  /** The application the command is of, where it is of one (ADR-0016 note 27): the line lists those before the page's other commands (note 33). */
+  readonly app?: string;
 }
 
 /**

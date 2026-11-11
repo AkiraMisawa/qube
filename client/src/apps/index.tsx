@@ -12,7 +12,6 @@ import { ratesCommandsOf } from './rates/commands';
 import { RatesWorkspacePanel } from './rates/RatesWorkspacePanel';
 import { httpXvaApi, type XvaApi } from './xva/api';
 import { measureNamed, xvaPageOf } from './xva/commands';
-import { generatorParts, scenarioParts, scenarioTyped } from './xva/scenarios';
 import { XvaWorkspacePanel } from './xva/XvaWorkspacePanel';
 import { registerAiContext, registerAiEffect } from '../ai/effects';
 import { registerGridFocus } from '../shell/places';
@@ -79,9 +78,11 @@ registerAiContext(XVA_WORKSPACE, (panel) => panel.params.workspaceId === undefin
   description: 'The XVA workspace open in the active panel',
   value: JSON.stringify({ kind: 'xva.workspace', workspaceId: panel.params.workspaceId }),
 });
-// The scenario commands (ADR-0010 §4) likewise; a set the AI saved is offered by `scenario load` once read again.
+// The scenario commands (ADR-0010 §4) likewise, and `price`, `refresh` and `pv01 retry` (ADR-0016 note 33): the page
+// shows the Run the AI priced, and reads its grids again from the first row where a refresh moved the source.
 const XVA_EDITS = ['xva.vary', 'xva.trades.add', 'xva.cds', 'xva.measures', 'xva.case.remove', 'xva.cases.clear', 'xva.scenario',
-  'xva.scenario.include', 'xva.scenario.exclude', 'xva.scenario.remove', 'xva.scenario.ladder', 'xva.scenario.cross', 'xva.scenario.load'];
+  'xva.scenario.include', 'xva.scenario.exclude', 'xva.scenario.remove', 'xva.scenario.duplicate', 'xva.scenarios.clear', 'xva.scenario.ladder',
+  'xva.scenario.cross', 'xva.scenario.load', 'xva.workspace.price', 'xva.refresh', 'xva.pv01.retry'];
 for (const capability of XVA_EDITS)
   registerAiEffect(capability, (outputs, { queryClient }) => {
     const answer = outputs.answer as { readonly workspaceId: string };
@@ -96,10 +97,6 @@ for (const capability of ['entity.set', 'entity.reset', 'entity.remove', 'worksp
     void queryClient.invalidateQueries({ predicate: (query) => query.queryKey.includes(answer.workspaceId) });
     return undefined;
   });
-registerAiEffect('xva.scenario.save', (_outputs, { queryClient }) => {
-  void queryClient.invalidateQueries({ queryKey: ['xva', 'scenario-sets'] });
-  return undefined;
-});
 for (const capability of ['rates.live.start', 'rates.live.stop'])
   registerAiEffect(capability, (outputs, { queryClient }) => {
     const subscription = outputs.subscription as { readonly workspaceId: string };
@@ -167,20 +164,11 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
     return commands;
   };
   const onRates = ratesPanel === undefined ? { unavailable: 'Open a Rates workspace first.' } : onPage(ratesPanel);
-  const pricedPanel = xvaPanel ?? ratesPanel;
-  const priceTarget = pricedPanel === undefined ? { unavailable: 'Open an XVA or Rates workspace to price it.' } : onPage(pricedPanel);
+  const priceTarget = ratesPanel === undefined ? { unavailable: 'Open an XVA or Rates workspace to price it.' } : onPage(ratesPanel);
   const xvaPage = () => {
     const registered = xvaPageOf(xva);
     if (registered === undefined) throw new Error(`The XVA workspace in panel ${xva ?? '(none)'} registered no commands.`);
     return registered;
-  };
-  /** The workspace's scenarios the command line offers, read when the line asks, with their shift counts. */
-  const scenarioNames = (keep: (s: { readonly included: boolean }) => boolean = () => true) =>
-    (xvaPageOf(xva)?.scenarios() ?? []).filter(keep).map((s) => ({ value: s.name, detail: `${s.shifts} shift(s)${s.included ? '' : ', excluded'}` }));
-  /** A scenario's name as typed; none is refused here by name, the server refuses one it does not hold. */
-  const scenarioNamed = (name: string | undefined, words: string, what = 'the scenario\'s name'): string => {
-    if (name === undefined || name.trim() === '') throw new CommandRefused(`${words} needs ${what}.`);
-    return name.trim();
   };
   const onTraceView = trace !== undefined ? onPage(trace) : xvaPanel !== undefined ? onPage(xvaPanel)
     : { unavailable: 'Open a trace, or an XVA workspace whose result dock shows one, first.' };
@@ -231,133 +219,16 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
       group: 'XVA',
       run: () => state.openAppDialog(NEW_XVA),
     },
-    {
+    // `price` on the pricer's page is the server's command (`xva.workspace.price`, ADR-0016 note 33), listed there by
+    // the catalog; this one is the Rates page's, and says where to price while neither page is open.
+    ...(xvaPanel !== undefined ? [] : [{
       id: 'workspace.price',
       words: 'price',
       title: 'Price the workspace as it stands',
       group: 'Pricing',
       ...priceTarget,
-      run: () => {
-        if (rates !== undefined) { page().price(); return; }
-        xvaPage().price();
-      },
-    },
-    // Scenarios (ADR-0010 §4): a named set of market-data shifts, priced under every case by the same Price.
-    {
-      id: 'xva.scenario',
-      words: 'scenario',
-      title: 'Define a scenario with all its shifts, such as scenario s1 jpy_ois +10bp; usdjpy -5%',
-      group: 'XVA',
-      ...onXva,
-      args: [{
-        name: 'scenario', required: true, rest: true, parts: scenarioParts,
-        hint: 'a name, then the shifts separated by semicolons: s1 jpy_ois +10bp; usdjpy -5%; jpy_ois 5y +3bp',
-      }],
-      run: (a) => {
-        const typed = scenarioTyped(a.scenario ?? '');
-        xvaPage().defineScenario(typed.name, typed.shifts);
-      },
-    },
-    // A scenario by name (ADR-0010 §4): what its include box, Duplicate and Remove do on the Scenarios tab.
-    ...([['include', 'Price the scenario named beside the base market', true], ['exclude', 'Leave the scenario named out of Price; its shifts stay', false]] as const)
-      .map(([verb, title, included]): Command => ({
-        id: `xva.scenario.${verb}`,
-        words: `scenario ${verb}`,
-        title,
-        group: 'XVA',
-        ...onXva,
-        // The name is the rest of the line: a generated one has spaces (`jpy_ois +50bp · usdjpy -10%`).
-        args: [{ name: 'scenario', required: true, rest: true, hint: 'the scenario\'s name', complete: () => scenarioNames((s) => s.included !== included) }],
-        run: (a) => xvaPage().includeScenario(scenarioNamed(a.scenario, `scenario ${verb}`), included),
-      })),
-    {
-      id: 'xva.scenario.remove',
-      words: 'scenario remove',
-      title: 'Remove a scenario with all its shifts',
-      group: 'XVA',
-      ...onXva,
-      args: [{ name: 'scenario', required: true, rest: true, hint: 'the scenario\'s name', complete: () => scenarioNames() }],
-      run: (a) => xvaPage().removeScenario(scenarioNamed(a.scenario, 'scenario remove')),
-    },
-    {
-      id: 'xva.scenario.duplicate',
-      words: 'scenario duplicate',
-      title: 'Copy a scenario\'s shifts under a new name, to be edited',
-      group: 'XVA',
-      ...onXva,
-      // The scenario is every word but the last, which is the copy's name: a generated name has spaces.
-      args: [{ name: 'scenario', required: true, rest: true, hint: 'the scenario to copy, then the copy\'s name in one word', complete: () => scenarioNames() }],
-      run: (a) => {
-        const text = scenarioNamed(a.scenario, 'scenario duplicate');
-        const cut = text.search(/\s\S+$/);
-        if (cut < 0) throw new CommandRefused('scenario duplicate needs the scenario to copy, then the copy\'s name.');
-        xvaPage().duplicateScenario(text.slice(0, cut).trim(), text.slice(cut).trim());
-      },
-    },
-    // The generators (ADR-0010 §4): a set at once, the line saying how many it makes and the pairs left against the cap.
-    ...([['ladder', 'Make a scenario per size of one factor, such as scenario ladder jpy_ois -50bp..+50bp step 10bp',
-      'a factor, a range and a step: jpy_ois -50bp..+50bp step 10bp, or jpy_ois 5y -10bp..+10bp step 5bp'],
-    ['cross', 'Make a scenario per combination of several factors\' sizes, such as scenario cross jpy_ois -50bp, 0, +50bp x usdjpy -10%, 0, +10%',
-      'lists separated by x, each a factor and its sizes: jpy_ois -50bp, 0, +50bp x usdjpy -10%, 0, +10%']] as const)
-      .map(([generator, title, hint]): Command => ({
-        id: `xva.scenario.${generator}`,
-        words: `scenario ${generator}`,
-        title,
-        group: 'XVA',
-        ...onXva,
-        args: [{
-          name: generator, required: true, rest: true, hint,
-          // The page's cases and scenarios, read as the line is typed: the preview counts against them.
-          parts: (text) => {
-            const page = xvaPageOf(xva);
-            const pricing = page?.pricing();
-            return generatorParts(generator, text, page === undefined || pricing === undefined ? undefined : { ...pricing, scenarios: page.scenarios() });
-          },
-        }],
-        run: (a) => {
-          if (a[generator] === undefined || a[generator].trim() === '') throw new CommandRefused(`scenario ${generator} needs ${hint}.`);
-          xvaPage().generateScenarios(generator, a[generator]);
-        },
-      })),
-    // Saved sets (ADR-0010 §4, C32): every scenario of the workspace, for oneself, the desk or all, loaded into another.
-    {
-      id: 'xva.scenario.save',
-      words: 'scenario save',
-      title: 'Save every scenario as a set, for yourself alone unless shared with your desk or all, such as scenario save rates desk',
-      group: 'XVA',
-      ...onXva,
-      args: [{ name: 'set', required: true, rest: true, hint: 'the set\'s name, one word such as rates-up, then desk or all to share it' }],
-      run: (a) => {
-        const [set, share, ...more] = scenarioNamed(a.set, 'scenario save', 'the set\'s name').split(/\s+/);
-        const shared = share?.toLowerCase();
-        if (more.length > 0) throw new CommandRefused(`scenario save takes a set's name and desk or all, not ${more.join(' ')} after them.`);
-        if (shared !== undefined && shared !== 'desk' && shared !== 'all') throw new CommandRefused(`scenario save shares a set with desk or all, not ${share}.`);
-        xvaPage().saveScenarios(scenarioNamed(set, 'scenario save', 'the set\'s name'), shared);
-      },
-    },
-    {
-      id: 'xva.scenario.load',
-      words: 'scenario load',
-      title: 'Add a saved set\'s scenarios, replacing those of the same name, such as scenario load rates',
-      group: 'XVA',
-      ...onXva,
-      args: [{
-        name: 'set', required: true, hint: 'a set you can see; set@owner where two share a name',
-        complete: () => (xvaPageOf(xva)?.scenarioSets() ?? []).map((s) => ({
-          value: s.label,
-          detail: `${s.scenarios} scenario(s), for ${s.visibility === 'all' ? 'all' : s.visibility === 'desk' ? 'the desk' : 'you alone'}, saved by ${s.owner}`,
-        })),
-      }],
-      run: (a) => xvaPage().loadScenarios(scenarioNamed(a.set, 'scenario load', 'the set\'s name')),
-    },
-    {
-      id: 'xva.scenarios.clear',
-      words: 'scenarios clear',
-      title: 'Remove every scenario; Price prices the base market alone',
-      group: 'XVA',
-      ...onXva,
-      run: () => xvaPage().clearScenarios(),
-    },
+      run: () => page().price(),
+    }]),
     {
       id: 'xva.run.download',
       words: 'download run',
@@ -400,22 +271,6 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
     // How the trace in view draws (ADR-0006, ADR-0011 §6), which its own controls set too: a trace panel, or the trace a
     // measure's own tab of the XVA result dock shows.
     ...traceViewCommands(),
-    {
-      id: 'xva.pv01.retry',
-      words: 'pv01 retry',
-      title: 'Ask again for every PV01 that failed',
-      group: 'XVA',
-      ...onXva,
-      run: () => xvaPage().retry(),
-    },
-    {
-      id: 'xva.refresh',
-      words: 'refresh',
-      title: 'Acquire the trades again for the value date; your edits carry or are held',
-      group: 'XVA',
-      ...onXva,
-      run: () => xvaPage().refresh(),
-    },
     // The dock's tabs (ADR-0010 §7): Metrics, or a tab a priced measure registers, such as spot IM's SIMM (ADR-0012 §7).
     {
       id: 'xva.result.open',

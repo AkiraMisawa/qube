@@ -37,6 +37,14 @@ public class SimmPricerApiTests(QubeFactory factory) : IClassFixture<QubeFactory
         return (await client.GetFromJsonAsync<JsonObject>($"/api/xva/workspaces/{Text(ws["workspaceId"])}"))!;
     }
 
+    /// <summary>Prices the workspace as the page's button and the line do (<c>price</c>, ADR-0016 note 33); answers its Run's id.</summary>
+    async Task<string> Price(JsonObject ws)
+    {
+        var request = new JsonObject { ["workspaceId"] = Text(ws["workspaceId"]), ["revision"] = Revision(ws) };
+        var accepted = await Ok(await client.PostAsJsonAsync("/api/commands/xva.workspace.price/1.0.0", new { inputs = new JsonObject { ["request"] = request }, idempotencyKey = Guid.NewGuid().ToString() }));
+        return Text(accepted["outputs"]!["answer"]!["runId"]);
+    }
+
     async Task<JsonObject> Read(JsonNode reference) => await Ok(await client.PostAsJsonAsync("/api/data/read", reference));
 
     [Fact] // ADR-0012 §2, §3, §7's notes: spot IM is selected, edited, priced and traced to its direction over HTTP
@@ -68,8 +76,7 @@ public class SimmPricerApiTests(QubeFactory factory) : IClassFixture<QubeFactory
             s => Assert.False(s!["in"]!.GetValue<bool>()));
 
         // Price: spot IM alone, IM-R and IM-P on both sides, each named with its governing regime and labelled DEMO.
-        var accepted = await Ok(await Post(ws, "price", new { revision = Revision(ws), idempotencyKey = Guid.NewGuid().ToString() }));
-        var runId = Text(accepted["runId"]);
+        var runId = await Price(ws);
         JsonObject run;
         do run = (await client.GetFromJsonAsync<JsonObject>($"/api/runs/{runId}"))!;
         while (Text(run["status"]) == "running");
@@ -106,8 +113,7 @@ public class SimmPricerApiTests(QubeFactory factory) : IClassFixture<QubeFactory
     {
         var ws = await Ok(await client.PostAsJsonAsync("/api/xva/workspaces", new { registration = "ABC/LE-01", valueDate = "2026-10-26", portfolioSize = 30 }));
         ws = await Measures(ws, "simm.spotIm");
-        var accepted = await Ok(await Post(ws, "price", new { revision = Revision(ws), idempotencyKey = Guid.NewGuid().ToString() }));
-        var runId = Text(accepted["runId"]);
+        var runId = await Price(ws);
         JsonObject run;
         do run = (await client.GetFromJsonAsync<JsonObject>($"/api/runs/{runId}"))!;
         while (Text(run["status"]) == "running");

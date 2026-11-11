@@ -56,6 +56,12 @@ existing workspace, and `rates.workspace.create`, which makes an empty workspace
 for a caller who may see them, as `trace.read` reads a term of a Run's calculation trace. It changes nothing, and is
 not a submission, but it acts for someone, which only a command's caller says.)*
 
+*(2026-11-11, ADR-0016 note 33: a fifth effect, `Execute`, makes a capability a command; the fourth is `SaveItem`,
+ADR-0010 §4. A capability with it starts something outside the workspace, which `undo` does not take back:
+`xva.workspace.price` submits a Run of the workspace as it stands, and `xva.pv01.retry` asks a provider again. The
+submission is still the Run service's, under the key the command was invoked with, so one invocation is one Run.
+The step that prices inside the Run (`xva.price`) is as it was, and a command is still no step of a workflow.)*
+
 ## Consequences
 
 - docs/09's "initial scope is read-only analytics" becomes "read-only analytics, and editing the caller's own

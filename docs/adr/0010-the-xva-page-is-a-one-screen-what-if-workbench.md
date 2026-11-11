@@ -239,6 +239,12 @@ there. The set is still every New row with A ticked, and no iteration is cumulat
   effect is `SaveItem`, DEFAULT 2026-11-09: it changes no workspace, so it is not `EditWorkspace`, yet it keeps
   something for its caller, which no Run may do; `SaveItem` joins `EditWorkspace`, `Subscribe` and `ReadRun` as an
   effect that makes a capability a command, as ADR-0011 added `ReadRun`.)*
+- *Note of 2026-11-11 (ADR-0016 step 3b, its note 32):* every scenario command is a command capability whose line
+  the server reads, and the line says what each would do before Enter: the scenario and its shifts, how many a
+  generator makes and the pairs Price would then price, what a set would add. The Scenarios tab's include box,
+  Remove, Duplicate… and Remove all invoke the same capabilities; the grid's own edits stay the page's. The page's
+  endpoints for a scenario by name, for the generators and for the saved sets are gone. `scenarios clear` with no
+  scenario is refused, where it did nothing and said it had removed them.
 
 ### 5. FVA prices only imperfectly collateralised CSAs (CONFIRMED, owner 2026-11-06; XVA's registration)
 
@@ -417,6 +423,13 @@ buttons and *Vary values…* invoke the same capabilities. `before`, `after` and
 kernel's `set`. The command for each input tab is built by the shell from the page's tabs (`open csa`), and `go`
 takes the grids and the dock. The page's own endpoints that wrote for `vary`, `cds`, `add trades`, the measures and
 the cases' removal are gone: a measure's button invokes `measures` as the line does.
+
+*Note of 2026-11-11 (ADR-0016 step 3b, its note 33):* `price`, `refresh` and `pv01 retry` are command capabilities
+too (`xva.workspace.price`, `xva.refresh`, `xva.pv01.retry`), so the AI prices a workspace as the line does. `price`
+and `pv01 retry` have an effect of their own, `execute`, a fifth beside those §4 lists. The Price and Refresh
+buttons and a failed cell's *Ask again* invoke them, and the page's `/price`, `/refresh` and `/retry` endpoints are
+gone. The line says what Price would price, and refuses what Price would refuse, before Enter. The dock shows the
+workspace's latest Run, whoever priced it.
 
 ### 10. Measures register into the page (CONFIRMED, owner 2026-11-07: one page, a Price that selects the measures, each measure with its own trade scope, input tabs and results; the rest DEFAULT)
 

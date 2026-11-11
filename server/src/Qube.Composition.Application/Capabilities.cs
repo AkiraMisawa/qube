@@ -22,11 +22,16 @@ public interface ICapabilityHandler
 /// What a handler is given: its bound inputs, its invocation identity, the data it may read and, for a command,
 /// who it acts for. A workflow step has no caller: it computes over its inputs alone (ADR-0005).
 /// </summary>
+/// <param name="IdempotencyKey">
+/// For a command, the key its caller invoked it with (ADR-0016 note 33): a command that submits a Run gives it to the Run
+/// service, so that the command asked again is the same business submission and never a second Run.
+/// </param>
 public sealed record CapabilityInvocation(
     string InvocationId,
     IReadOnlyDictionary<string, JsonNode?> Inputs,
     IDataReader Data,
-    Caller? Caller = null);
+    Caller? Caller = null,
+    string? IdempotencyKey = null);
 
 /// <summary>
 /// Who a command acts for, as the server authenticated them, and where the request came from (ADR-0005). Never
@@ -46,11 +51,11 @@ public sealed class CapabilityFailure(string code, string message, IReadOnlyList
 public static class CapabilityEffects
 {
     /// <summary>
-    /// A capability that edits a workspace, runs a subscription, reads a Run or keeps a saved item for its caller:
-    /// invoked for a caller, never in a Run (ADR-0005, ADR-0011, ADR-0010 §4).
+    /// A capability that edits a workspace, runs a subscription, reads a Run, keeps a saved item or starts work for its
+    /// caller: invoked for a caller, never in a Run (ADR-0005, ADR-0011, ADR-0010 §4, ADR-0016 note 33).
     /// </summary>
     public static bool IsCommand(this CapabilityDescriptor descriptor) =>
-        descriptor.Effects.Any(e => e is CapabilityEffect.EditWorkspace or CapabilityEffect.Subscribe or CapabilityEffect.ReadRun or CapabilityEffect.SaveItem);
+        descriptor.Effects.Any(e => e is CapabilityEffect.EditWorkspace or CapabilityEffect.Subscribe or CapabilityEffect.ReadRun or CapabilityEffect.SaveItem or CapabilityEffect.Execute);
 }
 
 /// <summary>A JSON Schema for a contract version whose values are small enough to enter on a form.</summary>

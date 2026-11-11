@@ -132,8 +132,15 @@ public class CommandGatewayTests(QubeFactory factory) : IClassFixture<QubeFactor
         var capabilities = catalog["capabilities"]!.AsArray();
         var typed = capabilities.Where(c => c!["command"] is not null).ToDictionary(c => c!["capabilityId"]!.GetValue<string>(), c => c!["command"]!.ToJsonString());
 
-        Assert.Equal(["entity.remove", "entity.reset", "entity.set", "workspace.redo", "workspace.undo", "xva.case.remove", "xva.cases.clear", "xva.cds", "xva.measures", "xva.trades.add", "xva.vary"],
-            typed.Keys.Order());
+        Assert.Equal(["entity.remove", "entity.reset", "entity.set", "workspace.redo", "workspace.undo", "xva.case.remove", "xva.cases.clear", "xva.cds", "xva.measures",
+            "xva.pv01.retry", "xva.refresh", "xva.scenario", "xva.scenario.cross", "xva.scenario.duplicate", "xva.scenario.exclude", "xva.scenario.include",
+            "xva.scenario.ladder", "xva.scenario.load", "xva.scenario.remove", "xva.scenario.save", "xva.scenarios.clear", "xva.trades.add", "xva.vary", "xva.workspace.price"],
+            typed.Keys.Order(StringComparer.Ordinal));
+        // The catalog lists a module's commands in the order it registers them, which the line keeps (note 33): Price first.
+        Assert.Equal("xva.workspace.price", capabilities.Select(c => c!["capabilityId"]!.GetValue<string>()).First(id => id.StartsWith("xva.", StringComparison.Ordinal) && typed.ContainsKey(id)));
+        // A command that starts work says so by its effect (note 33), and one argument that may be left out says so.
+        Assert.Equal("""["execute"]""", capabilities.Single(c => c!["capabilityId"]!.GetValue<string>() == "xva.workspace.price")!["effects"]!.ToJsonString());
+        Assert.Equal("""{"words":["scenario save"],"arguments":[{"name":"set","kind":"text","required":true},{"name":"share","kind":"text","required":false}],"app":"xva"}""", typed["xva.scenario.save"]);
         // A command of one application says so (ADR-0016 note 27 of step 3); the kernel's say none, and act on every workspace.
         Assert.Equal("""{"words":["vary"],"arguments":[{"name":"cell","kind":"text","required":true},{"name":"values","kind":"text","required":true}],"app":"xva"}""", typed["xva.vary"]);
         Assert.Equal("""{"words":["add each"],"arguments":[],"app":"xva"}""", typed["xva.trades.add"]);

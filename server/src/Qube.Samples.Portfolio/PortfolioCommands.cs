@@ -348,7 +348,22 @@ static class PortfolioCommand
 
     /// <summary>As <see cref="Run"/>, for a command that may leave the workspace where it stands, such as a save.</summary>
     public static Task<IReadOnlyDictionary<string, JsonNode?>> Answer(CapabilityInvocation invocation, Func<PortfolioWorkspaces> workspaces,
-        Func<PortfolioWorkspaces, JsonNode, Caller, long, (string WorkspaceId, long Revision, int? Made, string Said)> act)
+        Func<PortfolioWorkspaces, JsonNode, Caller, long, (string WorkspaceId, long Revision, int? Made, string Said)> act) =>
+        Asked(invocation, workspaces, (service, request, caller, revision) =>
+        {
+            var (id, at, made, said) = act(service, request, caller, revision);
+            var answer = new JsonObject { ["workspaceId"] = id, ["revision"] = at, ["said"] = said };
+            if (made is { } count) answer["made"] = count;
+            return answer;
+        });
+
+    /// <summary>
+    /// A command asked of the pricer for its caller, on the revision the request names or the one the workspace holds
+    /// when it names none; what <paramref name="act"/> answers is the command's answer, and the workspace service's
+    /// refusal is the command's, by code.
+    /// </summary>
+    public static Task<IReadOnlyDictionary<string, JsonNode?>> Asked(CapabilityInvocation invocation, Func<PortfolioWorkspaces> workspaces,
+        Func<PortfolioWorkspaces, JsonNode, Caller, long, JsonObject> act)
     {
         var caller = invocation.Caller ?? throw new CapabilityFailure("NoCaller", "A command is invoked for a caller, through the command gateway.");
         var request = invocation.Inputs["request"] ?? throw new CapabilityFailure("InvalidInput", "The command takes a request.");
@@ -357,10 +372,7 @@ static class PortfolioCommand
         {
             var workspaceId = Text(request, "workspaceId");
             var revision = request["revision"]?.GetValue<long>() ?? service.Revision(workspaceId, caller.UserId);
-            var (id, at, made, said) = act(service, request, caller, revision);
-            var answer = new JsonObject { ["workspaceId"] = id, ["revision"] = at, ["said"] = said };
-            if (made is { } count) answer["made"] = count;
-            return Task.FromResult<IReadOnlyDictionary<string, JsonNode?>>(new Dictionary<string, JsonNode?> { ["answer"] = answer });
+            return Task.FromResult<IReadOnlyDictionary<string, JsonNode?>>(new Dictionary<string, JsonNode?> { ["answer"] = act(service, request, caller, revision) });
         }
         catch (WorkspaceRefused refused)
         {
@@ -377,6 +389,8 @@ public sealed class PortfolioCommandsModule(Func<PortfolioWorkspaces> workspaces
 {
     public void Register(CompositionRegistryBuilder builder)
     {
+        // The order here is the order the line lists them in (ADR-0016 note 33): Price first, as the page puts it.
+        builder.AddCapability(new PortfolioPriceCommand(workspaces));
         builder.AddCapability(new PortfolioVary(workspaces));
         builder.AddCapability(new PortfolioTradesAdd(workspaces));
         builder.AddCapability(new PortfolioCds(workspaces));
@@ -384,6 +398,9 @@ public sealed class PortfolioCommandsModule(Func<PortfolioWorkspaces> workspaces
         builder.AddCapability(new PortfolioCaseRemove(workspaces));
         builder.AddCapability(new PortfolioCasesClear(workspaces));
         PortfolioScenarioCommands.Register(builder, workspaces);
+        builder.AddCapability(new PortfolioRefresh(workspaces));
+        builder.AddCapability(new PortfolioPv01Retry(workspaces));
+        PortfolioPriceContracts.Register(builder);
         JsonObject Workspace() => new() { ["type"] = "string", ["minLength"] = 1, ["title"] = "Workspace", ["description"] = "The XVA workspace's id, as the context names it." };
         JsonObject Revision() => new()
         {

@@ -160,7 +160,12 @@ describe('what the line asks the server to read (ADR-0016 §5)', () => {
     expect(lineAsked('und', readLine('und', commands), undo)).toBe('undo');
   });
 
-  it('nothing while a command is chosen that takes arguments, or is not served, or none is', () => {
+  it('ADR-0016 note 33: the words of a command whose arguments may all be left out, while it is the one chosen, since its words alone are a line', () => {
+    const optional = servedCommands({ ...catalog, capabilities: [capability('gauge.retry', { words: ['gauge retry'], arguments: [{ name: 'gauge', kind: 'text', required: false }] })] }, panel, door(), vi.fn());
+    expect(lineAsked('gauge r', readLine('gauge r', optional), optional[0])).toBe('gauge retry');
+  });
+
+  it('nothing while a command is chosen that needs an argument, or is not served, or none is', () => {
     expect(lineAsked('se', readLine('se', commands), set)).toBeUndefined();
     expect(lineAsked('tog', readLine('tog', commands), commands[2])).toBeUndefined();
     expect(lineAsked('toggle theme ', readLine('toggle theme ', commands), undefined)).toBeUndefined();

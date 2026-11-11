@@ -40,9 +40,10 @@ public class TraceApiTests(QubeFactory factory) : IClassFixture<QubeFactory>
     /// <summary>Prices the workspace and waits for its Run to finish.</summary>
     async Task<string> Price(JsonObject ws)
     {
-        var response = await client.PostAsJsonAsync($"/api/xva/workspaces/{Id(ws)}/price", new { revision = Revision(ws), idempotencyKey = Guid.NewGuid().ToString() });
-        Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
-        var runId = (await response.Content.ReadFromJsonAsync<JsonObject>())!["runId"]!.GetValue<string>();
+        var request = new JsonObject { ["workspaceId"] = Id(ws), ["revision"] = Revision(ws) };
+        var response = await client.PostAsJsonAsync("/api/commands/xva.workspace.price/1.0.0", new { inputs = new JsonObject { ["request"] = request }, idempotencyKey = Guid.NewGuid().ToString() });
+        Assert.True(response.IsSuccessStatusCode, await response.Content.ReadAsStringAsync());
+        var runId = (await response.Content.ReadFromJsonAsync<JsonObject>())!["outputs"]!["answer"]!["runId"]!.GetValue<string>();
         JsonObject run;
         do run = (await client.GetFromJsonAsync<JsonObject>($"/api/runs/{runId}"))!;
         while (run["status"]!.GetValue<string>() == "running");

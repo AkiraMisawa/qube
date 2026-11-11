@@ -358,7 +358,8 @@
               "editWorkspace",
               "subscribe",
               "readRun",
-              "saveItem"
+              "saveItem",
+              "execute"
             ]
           },
           "minItems": 0

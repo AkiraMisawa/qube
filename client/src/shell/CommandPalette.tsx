@@ -52,13 +52,17 @@ export function buildCommands(args: {
 }): Command[] {
   const { catalog, state, activeRun } = args;
   const active: Panel | undefined = state.panels.find((p) => p.id === state.activePanelId);
+  // The commands the catalog says how to type (ADR-0016 §4): the server reads their lines, for the workspace of the
+  // page in the active panel.
+  const served = servedCommands(catalog, active, commandDoorOf(active?.id), args.notify);
   // The applications' commands first: the empty line lists the groups in the order registered (ADR-0006's note 3 of
-  // 2026-11-11), and what an application offers comes before the catalog's workflows and the shell's own.
+  // 2026-11-11), and what an application offers comes before the catalog's workflows and the shell's own. Of those, the
+  // commands the page's application serves lead, in the order its module registers them (ADR-0016 note 33), so that the
+  // line opens on what the page is for; the commands still written here follow, then the kernel's.
   const commands: Command[] = [
+    ...served.filter((c) => c.served?.app !== undefined),
     ...appCommands(state),
-    // The commands the catalog says how to type (ADR-0016 §4): the server reads their lines, for the workspace of the
-    // page in the active panel.
-    ...servedCommands(catalog, active, commandDoorOf(active?.id), args.notify),
+    ...served.filter((c) => c.served?.app === undefined),
   ];
 
   for (const workflow of catalog.workflows)
@@ -621,12 +625,14 @@ export function CommandPalette() {
 
   /**
    * A command chosen in the list: one that needs words after its own is written on the line, and any other runs, with
-   * the chain key (`chaining`) leaving the line open.
+   * the chain key (`chaining`) leaving the line open. A served command needs words where an argument of its form is
+   * required, as a client's does: one whose arguments may all be left out (`pv01 retry`, `reset` on the focused cell)
+   * was read by its words alone while it was chosen (`lineAsked`), and Enter runs what that reading showed.
    */
   const choose = (command: Command, chaining = false) => {
     if (command.unavailable !== undefined) { setProblems([command.unavailable]); return; }
     if (command.served !== undefined) {
-      if (command.served.arguments.length > 0) takeItem(command);
+      if (command.served.arguments.some((a) => a.required)) takeItem(command);
       else if (mayRun()) enterServed(command, command.words, chaining);
       return;
     }

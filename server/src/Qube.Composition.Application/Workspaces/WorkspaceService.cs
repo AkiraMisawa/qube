@@ -302,16 +302,18 @@ public sealed class WorkspaceService(IReadOnlyDictionary<string, IEditRules> rul
 
     /// <summary>
     /// Adopts a new context and source version within the same scopes (a value date change, a refresh), and
-    /// checks every override against it: carried, conflicted, or lost.
+    /// checks every override against it: carried, conflicted, or lost. <paramref name="said"/> names it in the log where
+    /// a command asked for it (<c>refresh</c>), as a batch's does.
     /// </summary>
-    public (WorkspaceState State, CarrySummary Summary) Reacquire(string workspaceId, long expectedRevision, string user, JsonObject context, ISourceVersion source)
+    public (WorkspaceState State, CarrySummary Summary) Reacquire(string workspaceId, long expectedRevision, string user, JsonObject context, ISourceVersion source,
+        RunOrigin? origin = null, string? said = null)
     {
         CarrySummary summary = new(0, 0, 0);
         var state = Apply(workspaceId, expectedRevision, state =>
         {
-            (var next, summary) = ReacquireOn(state, user, context, source);
+            (var next, summary) = ReacquireOn(state, user, context, source, origin);
             return next;
-        });
+        }, said);
         return (state, summary);
     }
 

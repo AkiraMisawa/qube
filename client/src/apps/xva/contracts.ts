@@ -315,37 +315,6 @@ export interface ScenarioView {
   readonly issue?: string | null;
 }
 
-/** What a scenario command made, by name, and the scenarios of the same name it replaced (ADR-0010 §4). */
-export interface ScenariosMade {
-  readonly workspace: XvaWorkspaceView;
-  readonly made: readonly string[];
-  readonly replaced: readonly string[];
-}
-
-/** Who sees a saved set besides its owner (C32): no one, the owner's desk, or every user. */
-export type SetVisibility = 'private' | 'desk' | 'all';
-
-/** What `scenario save` says back (ADR-0010 §4): the set as saved, its scenarios, and whether it replaced the user's own. */
-export interface SetSaved {
-  readonly set: string;
-  readonly owner: string;
-  readonly visibility: SetVisibility;
-  readonly desk?: string | null;
-  readonly scenarios: number;
-  readonly replaced: boolean;
-}
-
-/** A saved set the user can see, and the name `scenario load` takes for it: its name, or `<set>@<owner>` where two share it. */
-export interface ScenarioSetView {
-  readonly label: string;
-  readonly name: string;
-  readonly owner: string;
-  readonly visibility: SetVisibility;
-  readonly desk?: string | null;
-  readonly savedAt: string;
-  readonly scenarios: number;
-}
-
 /** One figure a measure reports, such as CVA's CVA Charge, and the trace term its cell opens where it is not the root
  * (ADR-0010 §7's note of 2026-11-08: spot IM's IM-R opens at `collect`). */
 export interface MetricDefinition { readonly id: string; readonly title: string; readonly term?: string | null }

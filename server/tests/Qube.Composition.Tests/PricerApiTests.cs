@@ -45,12 +45,13 @@ public class PricerApiTests(QubeFactory factory) : IClassFixture<QubeFactory>
     async Task<JsonObject> Measures(JsonObject ws, params string[] measures) =>
         (await Taken(ws, "xva.measures", new JsonObject { ["measures"] = string.Join(' ', measures) })).Workspace;
 
-    /// <summary>Prices the revision, waits for the Run to finish, and reads every output it retained.</summary>
+    /// <summary>Prices the revision as the page's button and the line do (<c>price</c>, ADR-0016 note 33), waits for the
+    /// Run to finish, and reads every output it retained.</summary>
     async Task<(JsonObject Run, IReadOnlyList<JsonObject> Rows)> Price(JsonObject ws)
     {
-        var response = await Post(ws, "price", new { revision = Revision(ws), idempotencyKey = Guid.NewGuid().ToString() });
-        Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
-        var runId = (await response.Content.ReadFromJsonAsync<JsonObject>())!["runId"]!.GetValue<string>();
+        var response = await Command(ws, "xva.workspace.price", []);
+        Assert.True(response.IsSuccessStatusCode, await response.Content.ReadAsStringAsync());
+        var runId = (await response.Content.ReadFromJsonAsync<JsonObject>())!["outputs"]!["answer"]!["runId"]!.GetValue<string>();
         JsonObject run;
         do run = (await client.GetFromJsonAsync<JsonObject>($"/api/runs/{runId}"))!;
         while (run["status"]!.GetValue<string>() == "running");
@@ -124,7 +125,7 @@ public class PricerApiTests(QubeFactory factory) : IClassFixture<QubeFactory>
         var unticked = await Post(ws, "edits", new { revision = Revision(ws), entity = "trade:DRAFT-2", field = "after", value = false });
         ws = (await unticked.Content.ReadFromJsonAsync<JsonObject>())!;
 
-        var refused = await Post(ws, "price", new { revision = Revision(ws), idempotencyKey = Guid.NewGuid().ToString() });
+        var refused = await Command(ws, "xva.workspace.price", []);
 
         Assert.Equal(HttpStatusCode.UnprocessableEntity, refused.StatusCode);
         var error = (await refused.Content.ReadFromJsonAsync<JsonObject>())!;
@@ -161,8 +162,8 @@ public class PricerApiTests(QubeFactory factory) : IClassFixture<QubeFactory>
 
         Assert.StartsWith("No CDS for ABC/LE-01", said);
         Assert.Null(ws["credit"]!["cds"]);
-        var price = await Post(ws, "price", new { revision = Revision(ws), idempotencyKey = Guid.NewGuid().ToString() });
-        Assert.Equal(HttpStatusCode.Accepted, price.StatusCode);
+        var price = await Command(ws, "xva.workspace.price", []);
+        Assert.True(price.IsSuccessStatusCode, await price.Content.ReadAsStringAsync());
         (_, ws) = await Taken(ws, "xva.cds", new JsonObject { ["cds"] = "proxy industrials asia bbb" });
         Assert.Equal("PROXY.INDUSTRIALS.ASIA.BBB", ws["credit"]!["cds"]!["curveId"]!.GetValue<string>());
         var unknown = await Command(ws, "xva.cds", new JsonObject { ["cds"] = "nobody" });
@@ -288,9 +289,8 @@ public class PricerApiTests(QubeFactory factory) : IClassFixture<QubeFactory>
         Assert.Equal(2m, cells["xva.margin"]!["value"]!.GetValue<decimal>());
         Assert.False(cells["xva.pvAdj"]!["editable"]!.GetValue<bool>());
 
-        var retried = await Post(ws, "retry", new { });
-        Assert.Equal(HttpStatusCode.OK, retried.StatusCode);
-        Assert.Equal(0, (await retried.Content.ReadFromJsonAsync<JsonObject>())!["asked"]!.GetValue<int>());
+        var (said, _) = await Taken(ws, "xva.pv01.retry", []);
+        Assert.Equal("No result had failed, so nothing was asked again.", said);
     }
 
     [Fact] // ADR-0010 §7: Download and Copy quote are a Run's, over HTTP: a zip of the Run, and the quote as text and HTML
@@ -320,15 +320,11 @@ public class PricerApiTests(QubeFactory factory) : IClassFixture<QubeFactory>
     {
         var ws = await Measures(await Create(), "cva", "ccr.spotCapital");
 
-        var defined = await Post(ws, "scenarios", new { revision = Revision(ws), name = "up", shifts = "usd_sofr +100bp; usdjpy -5%" });
-        Assert.Equal(HttpStatusCode.OK, defined.StatusCode);
-        var made = (await defined.Content.ReadFromJsonAsync<JsonObject>())!;
-        Assert.Equal(["up"], Strings(made["made"]));
-        Assert.Empty(Strings(made["replaced"]));
-        ws = made["workspace"]!.AsObject();
+        (var said, ws) = await Taken(ws, "xva.scenario", new JsonObject { ["name"] = "up", ["shifts"] = "usd_sofr +100bp; usdjpy -5%" });
+        Assert.Equal("Made the scenario up.", said);
         Assert.Equal(("up", 2, true), (ws["scenarios"]![0]!["name"]!.GetValue<string>(), ws["scenarios"]![0]!["shifts"]!.GetValue<int>(), ws["scenarios"]![0]!["included"]!.GetValue<bool>()));
         Assert.Equal(["usd_sofr", "usdjpy"], ws["shifts"]!.AsArray().Select(r => r!["index"]!.GetValue<string>()));
-        var refused = await Post(ws, "scenarios", new { revision = Revision(ws), name = "s2", shifts = "jpy_ois +10%" });
+        var refused = await Command(ws, "xva.scenario", new JsonObject { ["name"] = "s2", ["shifts"] = "jpy_ois +10%" });
         Assert.Equal(HttpStatusCode.UnprocessableEntity, refused.StatusCode);
         Assert.Contains("an IR shift is absolute, in bp", (await refused.Content.ReadFromJsonAsync<JsonObject>())!["message"]!.GetValue<string>());
 
@@ -350,7 +346,7 @@ public class PricerApiTests(QubeFactory factory) : IClassFixture<QubeFactory>
         Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync($"/api/xva/runs/{runId}/quote?scenario=s9")).StatusCode);
     }
 
-    [Fact] // ADR-0010 §4: the Scenarios tab over HTTP: a block pasted, a cell refused by row and column, include, duplicate, remove and clear
+    [Fact] // ADR-0010 §4, ADR-0016 note 32: the Scenarios tab over HTTP: a block pasted and a cell refused by row and column, then its list's gestures as the commands they are
     public async Task The_scenarios_tab_edits_and_lists_over_http()
     {
         var ws = await Create();
@@ -369,38 +365,33 @@ public class PricerApiTests(QubeFactory factory) : IClassFixture<QubeFactory>
         Assert.Equal(HttpStatusCode.UnprocessableEntity, refused.StatusCode);
         Assert.StartsWith("Row 3, Index: jpy_ojs is no index", (await refused.Content.ReadFromJsonAsync<JsonObject>())!["message"]!.GetValue<string>());
 
-        ws = await Ok("scenarios/duplicate", new { revision = Revision(ws), name = "up", copy = "up2" });
-        ws = await Ok("scenarios/include", new { revision = Revision(ws), name = "up", included = false });
+        (_, ws) = await Taken(ws, "xva.scenario.duplicate", new JsonObject { ["name"] = "up", ["copy"] = "up2" });
+        (_, ws) = await Taken(ws, "xva.scenario.exclude", new JsonObject { ["name"] = "up" });
         Assert.Equal([("up", false), ("up2", true)], ws["scenarios"]!.AsArray().Select(s => (s!["name"]!.GetValue<string>(), s["included"]!.GetValue<bool>())));
-        ws = await Ok("scenarios/remove", new { revision = Revision(ws), name = "up2" });
+        (_, ws) = await Taken(ws, "xva.scenario.remove", new JsonObject { ["name"] = "up2" });
         Assert.Equal(["up"], ws["scenarios"]!.AsArray().Select(s => s!["name"]!.GetValue<string>()));
-        ws = await Ok("scenarios/clear", new { revision = Revision(ws) });
+        (_, ws) = await Taken(ws, "xva.scenarios.clear", []);
         Assert.Empty(ws["scenarios"]!.AsArray());
     }
 
-    [Fact] // ADR-0010 §4, C32: a set is saved, listed for the user and loaded into another workspace over HTTP
-    public async Task A_scenario_set_is_saved_listed_and_loaded_over_http()
+    [Fact] // ADR-0010 §4, C32, ADR-0016 note 32: a set is saved, offered to its user and loaded into another workspace, by the commands the line types
+    public async Task A_scenario_set_is_saved_offered_and_loaded_over_http()
     {
         var ws = await Create();
-        var defined = await Post(ws, "scenarios", new { revision = Revision(ws), name = "up", shifts = "jpy_ois +10bp" });
-        ws = (await defined.Content.ReadFromJsonAsync<JsonObject>())!["workspace"]!.AsObject();
+        (_, ws) = await Taken(ws, "xva.scenario", new JsonObject { ["name"] = "up", ["shifts"] = "jpy_ois +10bp" });
 
-        var saved = await Post(ws, "scenarios/save", new { revision = Revision(ws), set = "http-set", share = "all" });
-        Assert.Equal(HttpStatusCode.OK, saved.StatusCode);
-        var said = (await saved.Content.ReadFromJsonAsync<JsonObject>())!;
-        Assert.Equal(("http-set", "all", 1), (said["set"]!.GetValue<string>(), said["visibility"]!.GetValue<string>(), said["scenarios"]!.GetValue<int>()));
-        var desk = await Post(ws, "scenarios/save", new { revision = Revision(ws), set = "http-set", share = "desk" });
+        var (saved, _) = await Taken(ws, "xva.scenario.save", new JsonObject { ["set"] = "http-set", ["share"] = "all" });
+        Assert.Equal("Saved 1 scenario(s) as the set http-set, for every user.", saved);
+        var desk = await Command(ws, "xva.scenario.save", new JsonObject { ["set"] = "http-set", ["share"] = "desk" });
         Assert.Equal(HttpStatusCode.UnprocessableEntity, desk.StatusCode);
 
-        var sets = (await client.GetFromJsonAsync<JsonArray>("/api/xva/scenario-sets"))!;
-        Assert.Contains(sets, s => s!["label"]!.GetValue<string>() == "http-set" && s["owner"]!.GetValue<string>() == "akira");
         var other = await Create();
-        var loaded = await Post(other, "scenarios/load", new { revision = Revision(other), set = "http-set" });
-        Assert.Equal(HttpStatusCode.OK, loaded.StatusCode);
-        var answer = (await loaded.Content.ReadFromJsonAsync<JsonObject>())!;
-        Assert.Equal(["up"], answer["made"]!.AsArray().Select(m => m!.GetValue<string>()));
-        Assert.Equal(["up"], answer["workspace"]!["scenarios"]!.AsArray().Select(s => s!["name"]!.GetValue<string>()));
-        var unknown = await Post(other, "scenarios/load", new { revision = Revision(answer["workspace"]!.AsObject()), set = "no-such-set" });
-        Assert.Equal(HttpStatusCode.NotFound, unknown.StatusCode);
+        var offered = (await (await client.PostAsJsonAsync("/api/commands/preview", new { line = "scenario load ", workspaceId = Id(other) })).Content.ReadFromJsonAsync<JsonObject>())!;
+        Assert.Contains(offered["complete"]!.AsArray(), c => c!["value"]!.GetValue<string>() == "http-set" && c["detail"]!.GetValue<string>().EndsWith("saved by akira"));
+        (var loaded, other) = await Taken(other, "xva.scenario.load", new JsonObject { ["set"] = "http-set" });
+        Assert.Equal("Loaded 1 scenario(s) from http-set: up.", loaded);
+        Assert.Equal(["up"], other["scenarios"]!.AsArray().Select(s => s!["name"]!.GetValue<string>()));
+        var unknown = await Command(other, "xva.scenario.load", new JsonObject { ["set"] = "no-such-set" });
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, unknown.StatusCode);
     }
 }
