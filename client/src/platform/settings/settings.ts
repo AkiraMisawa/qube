@@ -73,14 +73,15 @@ export function useSettings(): SettingsState {
 
 /**
  * The value that applies to a setting, as a line types it (JSON for one its page writes): the page's own while its
- * writes are on their way, else the server's. None where the setting has no value, is not held (a family member never
- * set), or holds a value the user set that is no longer taken: the dialog says why, and nothing is applied in its place.
+ * writes are on their way, else the server's. None where the setting has no value or is not held (a family member never
+ * set). Where the user's value is no longer taken, the server answers the registered value, which applies (ADR-0017
+ * §2: a preference changes no figure), and the dialog says that theirs is unreadable.
  */
 export function valueOf(state: SettingsState, key: string): string | undefined {
   const own = state.writing[key];
   if (own !== undefined) return own;
   const held = state.settings[key];
-  if (held === undefined || held.unreadable !== undefined || held.value === NO_VALUE) return undefined;
+  if (held === undefined || held.value === NO_VALUE) return undefined;
   return held.value;
 }
 

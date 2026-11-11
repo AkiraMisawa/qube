@@ -157,14 +157,14 @@ switch (agentRuntime)
             new Uri(Required("Agent:Copilot:HostUrl")),
             Required("Agent:Copilot:HostKey"),
             AllowedModels());
-        // The user's default model is a setting only where there are models to choose among (ADR-0017 §6.3).
-        builder.Services.AddSingleton<ISettingCatalog>(new AgentSettings(copilot.Models));
         builder.Services.AddHttpClient(CopilotHttpClient).ConfigureHttpClient(c => c.Timeout = Timeout.InfiniteTimeSpan);
         builder.Services.AddSingleton<IAgentRuntime>(sp => new CopilotAgentRuntime(sp.GetRequiredService<IHttpClientFactory>().CreateClient(CopilotHttpClient), copilot));
         break;
     default:
         throw new InvalidOperationException($"Agent:Runtime is {(agentRuntime is null ? "not set" : $"'{agentRuntime}'")}; the runtimes are: scripted, copilot.");
 }
+// The user's default model, among the models the runtime runs on (ADR-0017 §6.3): a setting only where there are any.
+builder.Services.AddSingleton<ISettingCatalog>(sp => new AgentSettings(sp.GetRequiredService<IAgentRuntime>().Info));
 builder.Services.AddSingleton(new CurrentUser(builder.Configuration["Qube:DemoUser"] ?? "demo"));
 
 var app = builder.Build();

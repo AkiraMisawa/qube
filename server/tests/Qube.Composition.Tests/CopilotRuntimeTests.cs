@@ -226,7 +226,7 @@ public class CopilotRuntimeTests(QubeFactory factory) : IClassFixture<QubeFactor
     UserSettings Settings => Qube.Services.GetRequiredService<UserSettings>();
 
     /// <summary>The request with the model chosen in the pane for its conversation, as the pane sends it.</summary>
-    static JsonObject On(JsonObject input, string chosen)
+    static JsonObject WithChosenModel(JsonObject input, string chosen)
     {
         input["forwardedProps"] = new JsonObject { ["qube"] = new JsonObject { ["model"] = chosen } };
         return input;
@@ -235,7 +235,7 @@ public class CopilotRuntimeTests(QubeFactory factory) : IClassFixture<QubeFactor
     /// <summary>The model a run says it ran on.</summary>
     static string? RanOn(List<JsonObject> events) => events[0]["metadata"]!["qube"]!["model"]?.GetValue<string>();
 
-    void Answering() => model.Answer = (_, sink, _) =>
+    void ModelSaysOk() => model.Answer = (_, sink, _) =>
     {
         sink.Say("ok");
         return Task.CompletedTask;
@@ -244,7 +244,7 @@ public class CopilotRuntimeTests(QubeFactory factory) : IClassFixture<QubeFactor
     [Fact] // ADR-0017 §6.3: a new conversation starts on the user's default model and holds it after the default moves; each run says the model it ran on
     public async Task A_new_conversation_starts_on_the_users_default_model()
     {
-        Answering();
+        ModelSaysOk();
         Settings.Set(User, "default model", "other-model");
         try
         {
@@ -265,18 +265,17 @@ public class CopilotRuntimeTests(QubeFactory factory) : IClassFixture<QubeFactor
     [Fact] // ADR-0017 §6.3: a model chosen in the pane is its conversation's alone, and one the configuration does not allow is refused and runs nothing
     public async Task A_model_chosen_for_a_conversation_is_its_own_and_one_not_allowed_is_refused()
     {
-        Answering();
+        ModelSaysOk();
         var client = Qube.CreateClient();
 
-        var chosen = await Run(On(Input("c-m3", "r-1", "m-1", "hello"), "other-model"), client);
+        var chosen = await Run(WithChosenModel(Input("c-m3", "r-1", "m-1", "hello"), "other-model"), client);
         var kept = await Run(Input("c-m3", "r-2", "m-2", "again"), client);
         var other = await Run(Input("c-m4", "r-1", "m-1", "hello"), client);
-        var refused = await client.PostAsJsonAsync("/api/agent/runs", On(Input("c-m5", "r-1", "m-1", "hello"), "unlisted-model"));
-        var thread = await client.GetFromJsonAsync<JsonObject>("/api/agent/threads/c-m3");
+        var refused = await client.PostAsJsonAsync("/api/agent/runs", WithChosenModel(Input("c-m5", "r-1", "m-1", "hello"), "unlisted-model"));
 
         Assert.Equal(["other-model", "other-model", "fake-model"], model.Turns.Select(t => t.Model));
         Assert.Equal(["other-model", "other-model", "fake-model"], new[] { chosen, kept, other }.Select(RanOn));
-        Assert.Equal("other-model", thread!["model"]!.GetValue<string>());
+        Assert.Equal("other-model", Qube.Services.GetRequiredService<AgentThreads>().Find("c-m3")!.Model);
         var setting = Settings.One(User, "default model");
         Assert.Equal((false, "fake-model"), (setting.Set, setting.Value!.GetValue<string>()));
         Assert.Equal(HttpStatusCode.UnprocessableEntity, refused.StatusCode);
@@ -285,19 +284,19 @@ public class CopilotRuntimeTests(QubeFactory factory) : IClassFixture<QubeFactor
             (error["code"]!.GetValue<string>(), error["message"]!.GetValue<string>()));
     }
 
-    [Fact] // ADR-0017 §2, §6.3: a default model the configuration no longer allows refuses a new conversation by the setting's name, rather than starting it on another
-    public async Task A_default_model_no_longer_allowed_refuses_a_new_conversation()
+    [Fact] // ADR-0017 §2, §6.3: a default model the configuration no longer allows is a preference no longer taken: a new conversation runs on the registered one, and the settings say the user's is unreadable
+    public async Task A_default_model_no_longer_allowed_gives_way_to_the_registered_one_and_says_so()
     {
+        ModelSaysOk();
         Qube.Services.GetRequiredService<IUserSettingStore>().Put(User, new StoredSetting(AgentSettings.DefaultModel, JsonValue.Create("retired-model"), DateTimeOffset.UnixEpoch));
         try
         {
-            var refused = await Qube.CreateClient().PostAsJsonAsync("/api/agent/runs", Input("c-m6", "r-1", "m-1", "hello"));
+            var events = await Run(Input("c-m6", "r-1", "m-1", "hello"));
+            var setting = Settings.One(User, "default model");
 
-            Assert.Equal(HttpStatusCode.UnprocessableEntity, refused.StatusCode);
-            var error = (await refused.Content.ReadFromJsonAsync<JsonObject>())!;
-            Assert.Equal(("UnreadableSetting", "Your default model setting, retired-model, is no longer one of fake-model, other-model: set it again, or type settings reset default model."),
-                (error["code"]!.GetValue<string>(), error["message"]!.GetValue<string>()));
-            Assert.Empty(model.Turns);
+            Assert.Equal("fake-model", RanOn(events));
+            Assert.Equal("fake-model", Assert.Single(model.Turns).Model);
+            Assert.Equal(("retired-model", "one of fake-model, other-model"), (setting.Stored!.GetValue<string>(), setting.Unreadable));
         }
         finally
         {

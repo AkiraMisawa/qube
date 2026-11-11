@@ -195,8 +195,8 @@ public sealed class UserSettings
         return read.Set ? read.Value?.DeepClone() : null;
     }
 
-    /// <summary>What to tell a user whose value is no longer one the setting takes: which setting, what they set, and how to mend it.</summary>
-    public static string NoLongerTaken(SettingRead read) =>
+    // What to tell a user whose value is no longer one the setting takes: which setting, what they set, and how to mend it.
+    static string NoLongerTaken(SettingRead read) =>
         $"Your {read.Definition.Title.ToLowerInvariant()} setting, {Stored(read)}, is no longer {read.Unreadable}: set it again, or type settings reset {read.Name}.";
 
     /// <summary>A setting's value as a line types it: as its form writes it, JSON for a structured one, <c>none</c> for no value.</summary>

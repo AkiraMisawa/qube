@@ -14,6 +14,8 @@ import { aiContextOf } from './effects';
 interface SlashCommand {
   readonly words: string;
   readonly title: string;
+  /** The model `/model <id>` runs the conversation on (ADR-0017 §6.3). */
+  readonly model?: string;
 }
 
 export const SLASH_COMMANDS: readonly SlashCommand[] = [
@@ -23,10 +25,15 @@ export const SLASH_COMMANDS: readonly SlashCommand[] = [
   { words: 'close', title: 'Close the AI pane' },
 ];
 
-export function slashMatches(text: string): readonly SlashCommand[] {
+/**
+ * The chat commands the text starts, narrowed as it is typed: the conversation's own, and `/model <id>` for each model
+ * the conversation may run on, so that the pane's model is chosen from the keyboard too (ADR-0006 §2).
+ */
+export function slashMatches(text: string, models: readonly string[] = []): readonly SlashCommand[] {
   if (!text.startsWith('/')) return [];
   const typed = text.slice(1).trim().toLowerCase();
-  return SLASH_COMMANDS.filter((c) => c.words.startsWith(typed));
+  const choices = models.map((model) => ({ words: `model ${model}`, title: `Run this conversation on ${model}`, model }));
+  return [...SLASH_COMMANDS, ...choices].filter((c) => c.words.toLowerCase().startsWith(typed));
 }
 
 let chatInput: HTMLTextAreaElement | null = null;
@@ -59,13 +66,15 @@ export function AiPane() {
   }, []);
   useEffect(() => { end.current?.scrollIntoView?.({ block: 'end' }); }, [cards]);
 
-  const slash = slashMatches(text);
+  // `/model` is offered once the runtime has said which models it runs on.
+  const slash = slashMatches(text, runtime.data === undefined ? [] : runtime.data.models);
   const at = Math.min(highlight, Math.max(slash.length - 1, 0));
 
   const runSlash = (command: SlashCommand) => {
     setText('');
     setHighlight(0);
     const state = store.getState();
+    if (command.model !== undefined) state.chooseModel(command.model);
     const refused = command.words === 'new' ? state.restart() : command.words === 'stop' ? state.stop() : undefined;
     if (command.words === 'help') setHelp(true);
     if (command.words === 'close') state.setOpen(false);

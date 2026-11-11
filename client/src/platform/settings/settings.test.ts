@@ -158,6 +158,12 @@ describe('the theme (ADR-0017 §5, §6.2)', () => {
     expect(heard).toEqual(['auto']);
   });
 
+  it("applies the registered theme where the user's is no longer one the setting takes (ADR-0017 §2)", () => {
+    givenSettings([theme('dark', true, 'one of dark, light, auto')]);
+
+    expect(valueOf(settingsStore.getState(), THEME)).toBe('dark');
+  });
+
   it('writes a theme the page sets, and not one the user already holds', async () => {
     givenSettings([theme('dark', false)]);
     const { sent } = server();

@@ -101,6 +101,9 @@ and a generic leg-by-leg structure for products no description covers, are later
 ## Open
 
 - Whether the workspace's defaults are the right second source, or whether the owner wants per-user defaults
-  across workspaces (that needs the user settings store, C30).
+  across workspaces (that needs the user settings store, C30). *(Settled on 2026-11-11 by ADR-0017 §3: the
+  workspace's defaults stay the second source, and a new Rates workspace starts with the ones the user set,
+  `rates.newLine.currency`, `.notional` and `.direction`, copied in as it is made. Each says it came from the user's
+  settings until it is set in the workspace.)*
 - The confirmed templates per profile (with C41).
 - Whether `add line <product>` (an empty line) stays once `new <product>` needs only the end.

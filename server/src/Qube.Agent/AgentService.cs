@@ -67,8 +67,9 @@ public sealed class AgentService(IAgentRuntime runtime, AgentToolGateway tools, 
 
     /// <summary>
     /// The model a run is on (ADR-0017 §6.3): one chosen in the pane, where the runtime allows it; else the one the
-    /// conversation holds; else, on its first turn, the user's default model. A default no longer allowed refuses the
-    /// run by the setting's name rather than starting on another model. A runtime with no model runs on none.
+    /// conversation holds; else, on its first turn, the user's default model. A default the configuration no longer
+    /// allows is a preference no longer taken: the registered model, the first allowed, applies, and the settings say
+    /// the user's is unreadable (§2). A runtime with no model runs on none.
     /// </summary>
     bool TryModel(AgentThread thread, string? chosen, string userId, out string? model, [NotNullWhen(false)] out AgentStart.Refused? refusal)
     {
@@ -96,13 +97,8 @@ public sealed class AgentService(IAgentRuntime runtime, AgentToolGateway tools, 
             model = held;
             return true;
         }
-        var read = settings.One(userId, AgentSettings.DefaultModel);
-        if (read.Unreadable is not null)
-        {
-            refusal = new("UnreadableSetting", UserSettings.NoLongerTaken(read));
-            return false;
-        }
-        model = read.Value?.GetValue<string>() ?? throw new InvalidOperationException($"{AgentSettings.DefaultModel} reads as no model, though the first allowed is registered.");
+        model = settings.One(userId, AgentSettings.DefaultModel).Value?.GetValue<string>()
+            ?? throw new InvalidOperationException($"{AgentSettings.DefaultModel} reads as no model, though the first allowed is registered.");
         return true;
     }
 
@@ -117,7 +113,7 @@ public sealed class AgentService(IAgentRuntime runtime, AgentToolGateway tools, 
         var outcome = "finished";
         try
         {
-            run.Append(AgUiEvents.RunStarted(run.ThreadId, run.RunId, runtime.Info, run.Model));
+            run.Append(AgUiEvents.RunStarted(run, runtime.Info));
             await runtime.RunAsync(new(run.ThreadId, run.RunId, thread.Messages, tools.Tools, context, run.Model), new Sink(thread, run, tools, userId), run.Cancellation);
             if (run.Cancellation.IsCancellationRequested) outcome = "cancelled";
             run.Append(AgUiEvents.RunFinished(run.ThreadId, run.RunId, cancelled: run.Cancellation.IsCancellationRequested), last: true);
@@ -232,7 +228,7 @@ public sealed class AgentService(IAgentRuntime runtime, AgentToolGateway tools, 
         chosen = null;
         problem = "";
         if (node is not JsonObject props || props["qube"] is not { } qube) return true;
-        if (qube is not JsonObject own || own["model"] is not JsonValue model || !model.TryGetValue<string>(out var id) || string.IsNullOrWhiteSpace(id))
+        if (qube is not JsonObject workbench || workbench["model"] is not JsonValue model || !model.TryGetValue<string>(out var id) || string.IsNullOrWhiteSpace(id))
         {
             problem = "forwardedProps.qube names the model chosen for the conversation, as model: its id.";
             return false;

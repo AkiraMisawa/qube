@@ -104,6 +104,26 @@ test('ADR-0017 §4: the settings dialog lists each setting with where its value 
   await expect(page.locator('html')).toHaveAttribute('data-mantine-color-scheme', 'dark');
 });
 
+test("ADR-0017 §4, design guidelines §9: on a phone the settings dialog fits its width, with each setting's source and reset under its name", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await open(page);
+  await command(page, 'settings');
+  const dialog = page.getByRole('dialog', { name: 'Settings' });
+  const table = dialog.getByRole('table', { name: 'Your settings' });
+  const [room, used] = [await dialog.boundingBox(), await table.boundingBox()];
+  if (room === null || used === null) throw new Error('The settings dialog, or its table, is not on screen.');
+  expect(used.x + used.width).toBeLessThanOrEqual(room.x + room.width);
+
+  const theme = table.getByRole('row').filter({ hasText: 'Theme' });
+  await expect(theme.getByText('registered').filter({ visible: true })).toBeInViewport();
+  await theme.getByRole('combobox', { name: 'Theme' }).click();
+  await page.getByRole('option', { name: 'light' }).click();
+  await expect(theme.getByText('set by you').filter({ visible: true })).toBeInViewport();
+  await theme.getByRole('button', { name: 'Reset theme' }).click();
+  await expect(theme.getByText('registered').filter({ visible: true })).toBeInViewport();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+});
+
 test('ADR-0006 §6, ADR-0017 §5: a command run in one browser ranks first among its group in another', async ({ page, browser, baseURL }) => {
   await open(page);
   const first = (on: Page) => on.getByRole('group', { name: 'Settings' }).getByRole('option').first();

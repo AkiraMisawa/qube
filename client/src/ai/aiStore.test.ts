@@ -136,4 +136,11 @@ describe('the AI pane', () => {
     expect(slashMatches('/st').map((c) => c.words)).toEqual(['stop']);
     expect(slashMatches('make a swap')).toEqual([]);
   });
+
+  it('ADR-0006 §2, ADR-0017 §6.3: `/model` lists the models the conversation may run on, by the keyboard', () => {
+    expect(slashMatches('/mo', ['gpt-5.1', 'claude-sonnet-4.5']).map((c) => [c.words, c.model]))
+      .toEqual([['model gpt-5.1', 'gpt-5.1'], ['model claude-sonnet-4.5', 'claude-sonnet-4.5']]);
+    expect(slashMatches('/model CL', ['gpt-5.1', 'claude-sonnet-4.5']).map((c) => c.model)).toEqual(['claude-sonnet-4.5']);
+    expect(slashMatches('/', []).map((c) => c.words)).toEqual(['new', 'stop', 'help', 'close']);
+  });
 });

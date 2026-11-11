@@ -79,17 +79,30 @@ export function SettingsDialog({ notify }: { readonly notify: Notify }) {
   const change = (act: () => Promise<SettingChanged>) => {
     act().then((changed) => notify('done', changed.said), (error: unknown) => notify('refused', error instanceof Error ? error.message : String(error)));
   };
+  const reset = (setting: SettingDescribed, size: 'sm' | 'compact-sm') => (
+    <Button size={size} variant="subtle" disabled={!setting.set} aria-label={`Reset ${setting.name}`}
+      onClick={() => change(() => resetSetting(setting.key))}>Reset</Button>
+  );
+  // On a phone the table keeps two columns, the setting and its value, and says where the value comes from, with its
+  // reset, under the setting's name: four columns do not fit 390px beside a value's input (design guidelines §9).
   const rows = (kind: SettingDescribed['kind']) => all.filter((s) => s.kind === kind).map((setting) => (
     <Table.Tr key={setting.key}>
-      <Table.Td><Text size="sm">{setting.title}</Text>{setting.typed ? null : <Text size="xs" c="dimmed">{setting.name}</Text>}</Table.Td>
-      <Table.Td><Value setting={setting} change={change} /></Table.Td>
-      <Table.Td><Source setting={setting} /></Table.Td>
       <Table.Td>
-        <Button size="sm" variant="subtle" disabled={!setting.set} aria-label={`Reset ${setting.name}`}
-          onClick={() => change(() => resetSetting(setting.key))}>Reset</Button>
+        <Text size="sm">{setting.title}</Text>
+        {setting.typed ? null : <Text size="xs" c="dimmed">{setting.name}</Text>}
+        <Stack hiddenFrom="xs" gap={4} mt={4} align="flex-start"><Source setting={setting} />{reset(setting, 'compact-sm')}</Stack>
       </Table.Td>
+      <Table.Td><Value setting={setting} change={change} /></Table.Td>
+      <Table.Td visibleFrom="xs"><Source setting={setting} /></Table.Td>
+      <Table.Td visibleFrom="xs">{reset(setting, 'sm')}</Table.Td>
     </Table.Tr>
   ));
+  const heading = (first: string, top: { readonly pt?: 'md' } = {}) => (
+    <Table.Tr>
+      <Table.Th {...top}>{first}</Table.Th><Table.Th {...top}>Value</Table.Th>
+      <Table.Th {...top} visibleFrom="xs">From</Table.Th><Table.Th visibleFrom="xs" />
+    </Table.Tr>
+  );
   const defaults = rows('default');
   return (
     <Modal opened={opened} onClose={closeSettings} title="Settings" size="lg" trapFocus returnFocus
@@ -101,14 +114,9 @@ export function SettingsDialog({ notify }: { readonly notify: Notify }) {
         </Text>
         {/* One table, so the preferences' columns and the defaults' line up; each kind has its own heading row. */}
         <Table verticalSpacing="xs" aria-label="Your settings">
-          <Table.Thead><Table.Tr><Table.Th>Preference</Table.Th><Table.Th>Value</Table.Th><Table.Th>From</Table.Th><Table.Th /></Table.Tr></Table.Thead>
+          <Table.Thead>{heading('Preference')}</Table.Thead>
           <Table.Tbody>{rows('preference')}</Table.Tbody>
-          {defaults.length === 0 ? null : (
-            <Table.Tbody>
-              <Table.Tr><Table.Th pt="md">Default for what you make</Table.Th><Table.Th pt="md">Value</Table.Th><Table.Th pt="md">From</Table.Th><Table.Th /></Table.Tr>
-              {defaults}
-            </Table.Tbody>
-          )}
+          {defaults.length === 0 ? null : <Table.Tbody>{heading('Default for what you make', { pt: 'md' })}{defaults}</Table.Tbody>}
         </Table>
         <Group justify="flex-end"><Button size="sm" variant="default" onClick={closeSettings}>Close</Button></Group>
       </Stack>

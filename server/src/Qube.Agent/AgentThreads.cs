@@ -77,13 +77,11 @@ public sealed class AgentThread(string threadId, string owner)
     public string ThreadId { get; } = threadId;
     public string Owner { get; } = owner;
 
-    /// <summary>The model the conversation runs on; none before its first turn, and for a runtime with no model.</summary>
+    /// <summary>The model the conversation runs on, its latest run's; none before its first turn, and for a runtime with no model.</summary>
     public string? Model
     {
-        get { lock (Gate) return model; }
+        get { lock (Gate) return Active?.Model; }
     }
-
-    string? model;
     internal object Gate { get; } = new();
     internal AgentRun? Active { get; set; }
 
@@ -106,11 +104,7 @@ public sealed class AgentThread(string threadId, string owner)
 
     internal AgentRun? FindRun(string runId) => runs.GetValueOrDefault(runId);
 
-    internal void AddRun(AgentRun run)
-    {
-        runs.Add(run.RunId, run);
-        model = run.Model;
-    }
+    internal void AddRun(AgentRun run) => runs.Add(run.RunId, run);
 
     public AgentRun? Run(string runId)
     {
