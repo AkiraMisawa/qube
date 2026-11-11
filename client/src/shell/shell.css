@@ -153,3 +153,12 @@
   opacity: 0.55;
   transition: opacity 0s linear 0.2s;
 }
+
+/* The icon of a notice the line says of its chain: as tall as one line of the text beside it, so that it is centred on
+   the notice's first line however the message wraps. */
+.qube-line-said-icon {
+  display: flex;
+  flex: none;
+  align-items: center;
+  height: calc(var(--mantine-font-size-xs) * var(--mantine-line-height-xs));
+}

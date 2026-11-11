@@ -13,8 +13,8 @@ first with nothing selected again (ADR-0016 note 26, which amends note 17; step 
 
 - [x] Sorted by notional, `set selected a off` then `set selected a on` in a chain write the same rows.
 - [x] An edit that moves a row in the order moves the token, and the grid drops its selection as before.
-- [x] The digest is of the keys in order, so a row added or removed moves it. The sample has no command that adds
-      or removes a row of a grid, so no test holds this part.
+- [ ] The digest is of the keys in order, so a row added or removed moves it. Not verified: the sample has no
+      command that adds or removes a row of a grid, so no test holds this part. It follows from what is digested.
 
 ## Comments
 

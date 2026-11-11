@@ -87,20 +87,26 @@ the lines worth a menu item, and every grid bound to it shows them in its Contex
 ### 2c. The chain key and menus (tickets 09 to 11 and 13; ADR-0016 notes 24 to 26)
 
 - **The chain key.** Ctrl+Enter (⌘+Enter) in the line runs the line and keeps it open: the text is cleared, the line
-  says what ran and the notice it heard, the view and the commands are read again as at an opening. A refusal stays
-  as with Enter. While an IME composes every key of the line is the IME's.
+  says what ran, and the view and the commands are read again as at an opening. A refusal stays as with Enter. While
+  an IME composes every key of the line is the IME's. With no command matched it asks the AI, as Enter does.
+- **While a chained line runs** the next is typed and kept; Enter and the chain key run nothing until it has ended,
+  and say why. A chained line refused comes back as typed. One that put the keyboard in a place has ended when the
+  place has taken it (`shell/keyboard.ts`, `keyboardAwaited`).
 - **The keyboard in a chain** (`shell/keyboard.ts`): from the first chained key until the line closes, a focus that
   lands outside the line is where the keyboard goes when the line closes, and the line takes it back at once.
 - **The line hears notices** (`platform/notices.ts`, `hearing`): the workspace's `notify` can be listened to, and the
-  line says the latest it heard since the chained command began. One heard after that command ended is said by
-  itself. A dialog that takes the keyboard ends the chain (`holdKeyboard`'s `lost`).
+  line says, in their order, each line its chain ran and each notice heard since the chain began; none is said to be
+  any line's. A dialog that takes the keyboard ends the chain (`holdKeyboard`'s `lost`).
+- **One context value.** The workspace's context value is one for the application's life, so a notice makes no page
+  build its door again in the middle of a command.
 - **A table's actions.** `TableDescriptor.Actions`: a title and a line. `GET /api/workspaces/{id}/tables` answers each
   table's id, title and actions, the kernel's `Reset this cell` first. An action whose line begins with no command's
-  words fails when the tables are read.
+  words fails when the tables are read, and so does a host with no `entity.reset`.
 - **The Context Menu.** A page gives a grid bound to a table that table's actions (`platform/commands/served.ts`,
   `tableMenu`): each item is labelled with its title and its line, and runs the line through the door with the
-  menu's view, the Selection and the cell the menu was opened on (`platform/grid/lineView.ts`, `menuRead`). A refusal
-  is a notice. The pricer declares `Take out of After`, `Put into After`, `Take out of Before`, `Put into Before`.
+  menu's view, the Selection and the cell the menu was opened on (`platform/grid/lineView.ts`, `menuView`). A refusal
+  is a notice, and tables that could not be read are said once as one. The pricer declares `Take out of After`, `Put
+  into After`, `Take out of Before`, `Put into Before`.
 - **The order's token** (ticket 13). The pricer's token of a sorted order is the source's version and a digest of
   the keys in that order, so it moves only when the order does.
 
@@ -126,17 +132,22 @@ A test names the ADR it holds. Tested at these seams, each through its public in
   every row of a grid selected; `reset` on the focused cell; the context under the line; `go` to each place and
   `focus grid`; `find` of a row the grid has not loaded; the keyboard back where it was after `set`, `reset`,
   `undo` and Price; `where` with the table left out on the CSA grid; Ctrl+Enter; a menu item from a declaration.
-- For 2c, server: the token of a sorted order across an edit that moves no row, one that moves a row and one that
-  adds a row (`PricerTableTests`); a table's actions with the kernel's first, and a line of no command
-  (`CommandLineTests`); `GET /api/workspaces/{id}/tables` (`CommandGatewayTests`).
-- For 2c, client, Vitest: `menuRead` (the menu's Selection and cell as a grid's reading); `tableMenu` (labels, the
+- For 2c, server: the token of a sorted order across an edit that moves no row and one that moves a row
+  (`PricerTableTests`; the sample has no command that adds or removes a row, so that part has no test); a table's
+  actions with the kernel's first, and a line of no command (`CommandLineTests`); `GET /api/workspaces/{id}/tables`
+  (`CommandGatewayTests`).
+- For 2c, client, Vitest: `menuView` (the menu's Selection and cell as a grid's reading); `tableMenu` (labels, the
   line and the view an item runs, a refusal as a notice); `holdKeyboard` (a focus outside the line is remembered and
-  the line has the keyboard back); `hearing` (a listener hears what is notified).
-- For 2c, Playwright (`xva.spec.ts`): two commands chained and what the line said of each; `go existing` and `find`
-  chained and the next line's context; a refused line in a chain; a later notice said in the line; a key of the line
-  while an IME composes; a dialog ending the chain; `Take out of After` from the Context Menu on selected rows,
-  `Reset this cell`, an action that changes nothing and one refused; a sorted grid keeps its selection across two
-  chained commands.
+  the line has the keyboard back, a dialog's is lost, and `keyboardAwaited`); `hearing` (a listener hears what is
+  notified).
+- For 2c, Playwright (`xva.spec.ts`): two commands chained and what the line said of each; `go existing`, `find` and
+  `open csa` chained and the next line's context; a refused line in a chain; a line typed while a chained one runs
+  on a slowed server, Enter refused meanwhile, and a chained line refused with a line typed after it; a later notice
+  said in the line; Enter, the chain key, Tab and an arrow while an IME composes; a dialog the shell opens ending
+  the chain; `Take out of After` from the Context Menu on selected rows, `Reset this cell` on a trade and on a CSA,
+  an action that changes nothing and one refused; a sorted grid keeps its selection across two chained commands.
+- Not held by a browser test: a dialog a page opens ending the chain (no command of the line opens one), and `Ask
+  again` beside a table's actions (the sample's results do not fail on request).
 - Measured, not gated: the preview of `set selected a off` with 10,000 rows selected.
 
 Not tested: ExGrid's own selection and Focus, and anything a test of a public seam already holds.

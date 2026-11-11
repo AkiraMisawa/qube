@@ -628,10 +628,16 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   }), [api, workspaceId, workspace, queue, show, sources]);
   // The tables' actions (ADR-0016 §4, note 25 of 2026-11-11): read once for the workspace, and run through the door.
   const tables = useQuery({ queryKey: ['workspace-tables', workspaceId], queryFn: () => workspace.api.tables(workspaceId), staleTime: Infinity });
-  menus.current = useMemo(() => ({
-    trades: tableMenu(tables.data?.find((t) => t.tableId === TRADES_TABLE), door, workspace.notify),
-    csas: tableMenu(tables.data?.find((t) => t.tableId === CSAS_TABLE), door, workspace.notify),
-  }), [tables.data, door, workspace]);
+  menus.current = useMemo(() => {
+    // Not read yet, a table has no actions to offer; read, the server lists every table a grid of this page is bound to.
+    const listed = (tableId: string) => {
+      if (tables.data === undefined) return undefined;
+      const table = tables.data.find((t) => t.tableId === tableId);
+      if (table === undefined) throw new Error(`The server lists no table ${tableId}, which a grid of the pricer's page is bound to.`);
+      return table;
+    };
+    return { trades: tableMenu(listed(TRADES_TABLE), door, workspace.notify), csas: tableMenu(listed(CSAS_TABLE), door, workspace.notify) };
+  }, [tables.data, door, workspace]);
   const tablesUnread = tables.isError ? describe(tables.error) : undefined;
   useEffect(() => {
     if (tablesUnread !== undefined) workspace.notify('refused', `The grids' menus hold no command of their tables: ${tablesUnread}`);

@@ -106,13 +106,13 @@ describe('a table\'s actions in a grid\'s Context Menu (ADR-0016 §4, note 25 of
 
     expect(items.map((item) => [menu.label(item.id), item.enabled])).toEqual([['Reset this cell · reset', true], ['Mark checked · set selected checked on', true]]);
     // An id that is not one of its own is another's to name.
-    expect(menu.label('xva.retry')).toBeUndefined();
+    expect(menu.label('page.own')).toBeUndefined();
     await items[1]!.invoke();
     expect(enter.mock.calls).toEqual([['set selected checked on', undefined, under]]);
     expect(notify).not.toHaveBeenCalled();
   });
 
-  it('a line the server refuses is a notice with its reason, and a table not read yet, or with no door, offers nothing', async () => {
+  it('a line the server refuses is a notice with its reason, and a table not read yet offers nothing', async () => {
     const notify = vi.fn();
     const menu = tableMenu(readings, door(() => Promise.resolve({ sentence: 'No row of readings is selected.' })), notify);
 
@@ -120,7 +120,6 @@ describe('a table\'s actions in a grid\'s Context Menu (ADR-0016 §4, note 25 of
 
     expect(notify.mock.calls).toEqual([['refused', 'set selected checked on: No row of readings is selected.']]);
     expect(tableMenu(undefined, door(), notify).commands(under)).toEqual([]);
-    expect(tableMenu(readings, undefined, notify).commands(under)).toEqual([]);
   });
 });
 

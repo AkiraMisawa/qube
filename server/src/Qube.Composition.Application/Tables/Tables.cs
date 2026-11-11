@@ -54,7 +54,7 @@ public sealed record TableDescriptor(
 
 /// <summary>
 /// An act on a table's rows that a screen offers by its title (ADR-0016 §4, note 25 of step 2): the line that does it,
-/// read with the screen's view when it is run (<c>Take out of After</c>, <c>set selected after off</c>).
+/// read with the screen's view when it is run (<c>Mark as checked</c>, <c>set selected checked on</c>).
 /// </summary>
 public sealed record TableAction(string Title, string Line);
 

@@ -31,7 +31,16 @@ export function returnKeyboard(): void {
  * and the place has taken it already, that place is kept: it is where the keyboard goes when the line closes.
  */
 export function keepKeyboard(): void {
+  if (held !== undefined) held.kept = true;
   if (held === undefined || !held.arrived) before = null;
+}
+
+/**
+ * Whether the command the line holds the keyboard for said the keyboard is its place's, and the place has not taken it
+ * yet (ADR-0016 §9, note 24): that command has not ended, and the line's screen is not yet the place's.
+ */
+export function keyboardAwaited(): boolean {
+  return held !== undefined && held.kept && !held.arrived;
 }
 
 // While a chain of commands runs from the line (ADR-0016 §9, note 24 of 2026-11-11) the keyboard stays the line's. A
@@ -46,7 +55,7 @@ export interface KeyboardHeld {
   lost(): void;
 }
 
-let held: { readonly line: HTMLElement; readonly on: KeyboardHeld; arrived: boolean } | undefined;
+let held: { readonly line: HTMLElement; readonly on: KeyboardHeld; arrived: boolean; kept: boolean } | undefined;
 
 const onFocusIn = (event: FocusEvent): void => {
   const to = event.target;
@@ -66,11 +75,11 @@ const onFocusIn = (event: FocusEvent): void => {
 
 /**
  * The line keeps the keyboard from now on, as a chained command begins. Called again for the next chained command, it
- * counts that command's own arrival.
+ * counts that command's own: whether it said the keyboard is a place's, and whether the place has taken it.
  */
 export function holdKeyboard(line: HTMLElement, on: KeyboardHeld): void {
   if (held === undefined) document.addEventListener('focusin', onFocusIn);
-  held = { line, on, arrived: false };
+  held = { line, on, arrived: false, kept: false };
 }
 
 /**

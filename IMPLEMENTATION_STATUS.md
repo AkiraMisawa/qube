@@ -1439,23 +1439,30 @@ it settled is ADR-0016's notes 24 to 26.
 ### What runs
 
 - **The chain key.** Ctrl+Enter in the line, ⌘+Enter on a Mac, runs the line as Enter does and keeps the line open:
-  the text is cleared, the list is an opening's, and the line says under its input what ran and what it said (`set
-  selected a off: Set A to off on DRAFT-1, DRAFT-2 and DRAFT-3.`), with a tick or a cross and the notice's colour.
-  A refused line stays with its text and the reason, as with Enter.
+  the text is cleared, the list is an opening's, and the line says under its input what its chain did, in the order
+  it happened: `› set selected a off`, then `Set A to off on DRAFT-1, DRAFT-2 and DRAFT-3.` with a tick or a cross
+  and the notice's colour. A refused line stays with its text and the reason, as with Enter.
+- **The next line is typed while the chained one runs.** It is kept whole. Enter and the chain key run nothing until
+  the chained line has ended, and say why (`set selected a off has not ended yet. Press Enter again once it has.`);
+  the server is asked to read nothing meanwhile. A chained line that is refused comes back on the line as typed,
+  with why, and what was typed after it goes with it.
 - **Each chained command is a new opening.** The screen is read again and the commands are built again: after `go
   existing` the next line's context is the Existing grid, and after `find E00004 csa` a field alone is that cell's
   row.
-- **The line hears notices.** What the application says while the line is open is said in the line too: with the
-  command's line while that command runs, and by itself when it arrives later (`Price was accepted as Run …`). A
-  command that said nothing while it ran reads `price: ran.`.
+- **The line hears notices.** What the application says once a chain has begun is said in the line too, when it
+  arrives: an edit's sentence under its line, and Price's result (`Price was accepted as Run …`) whenever it comes.
+  No notice is said to be any line's. The line draws its last four rows and counts the rest.
 - **The keyboard in a chain.** It stays the line's. A place a chained `go`, `find` or `open <tab>` puts it in has it
   taken back at once, and is where the keyboard goes when the line closes; with none, it goes back where the line
-  was opened from. A command that opens a dialog ends the chain: the line closes and the dialog has the keyboard.
+  was opened from. Such a command has ended when its place has taken the keyboard, so the next line is read with
+  that place's screen. A command that opens a dialog ends the chain: the line closes and the dialog has the
+  keyboard.
 - **While an IME composes** every key of the line is the IME's: Enter, Ctrl+Enter, Tab and the arrows. This also
   ends a defect: the Enter that committed a composition used to run the line.
 - **A table's actions.** A table's description lists its actions, each a title and the line that does it. `GET
   /api/workspaces/{id}/tables` answers a workspace's tables with them, the kernel's `Reset this cell` (`reset`)
-  first. An action whose line begins with no command's words fails the read: it is the registration's defect.
+  first. An action whose line begins with no command's words fails the read, and so does a host that registers no
+  `entity.reset`: each is the registration's defect.
 - **The Context Menu.** The pricer's trade grids show `Reset this cell`, `Take out of After`, `Put into After`, `Take
   out of Before` and `Put into Before`, each with its line (`Take out of After · set selected after off`), after the
   grid's own commands and before the page's `Vary values…`. The CSA grid shows `Reset this cell`. An item runs its
@@ -1491,10 +1498,12 @@ The token was the same after both commands, so neither was refused and the view 
 |---|---|
 | `dotnet test server/Qube.slnx` | 972 passed |
 | Client: `npm run typecheck`, `npm test`, `npm run build` | Clean; 308 passed in 34 files; built |
-| `npx playwright test` (Chromium, headless, Linux) | 79 passed |
-| The four browser tests this step added and the Vary values… test beside them, with `--repeat-each=3` | 15 passed |
-| The chain, the said line and the Context Menu in Chromium, dark and light at 1440 px and dark at 390 px, by a script and by eye | Each command said in the line, the context after `go` and `find`, the dialog taking the keyboard; nothing scrolls sideways |
-| An IME's composition through the browser's own input protocol (`Input.imeSetComposition`) | Enter and Ctrl+Enter ran nothing while it composed; committed, Ctrl+Enter ran the line once |
+| `npx playwright test` (Chromium, headless, Linux) | 80 passed |
+| The five browser tests of this step, with `--repeat-each=3` | 15 passed |
+| The line's log in Chromium at 390, 768, 992 and 1440 px, dark and light, by a script and by eye: a line running, Enter refused meanwhile, notices of both colours' text measured | Rows of one text line each, the icon centred on its row, inside the line's box; text contrast 4.9:1 or more (dimmed rows in dark), nothing scrolls sideways, no console message |
+| The chain and the Context Menu in Chromium, dark and light at 1440 px and dark at 390 px, by a script and by eye (before the review's changes to what the line says) | The context after `go` and `find`, the dialog taking the keyboard, the menu's items |
+| An IME's composition through the browser's own input protocol (`Input.imeSetComposition`) | Enter, Ctrl+Enter, Tab and an arrow did nothing of the line's while it composed; committed, Ctrl+Enter ran the line once |
+| A server slowed by the test (`page.route`) | The next line typed whole while the chained one ran; Enter and the chain key refused with the reason; run once after it ended |
 
 ### Providers
 
@@ -1506,10 +1515,17 @@ Unchanged: every figure on these pages is simulated, and says so.
   the next line that says `selected`, or leaves its rows out, is refused by name, and the context is drawn stale.
   The line is closed and opened again. The grid has dropped its selection by then, as ExGrid does when its order
   moves.
-- A notice heard after its command ended is said without that command's line: which command a late notice belongs
-  to is not known. Price's result in a chain reads `price: ran.` and then `Price was accepted as Run …`.
-- A dialog a page opens some time after its command (the counterparty's confirmation) ends the chain when it takes the
-  keyboard. What was typed into the line before that is lost with the line.
+- The line says no notice is any line's: Price's result in a chain reads `› price` and, whenever it arrives, `Price
+  was accepted as Run …`, after whatever ran meanwhile.
+- Enter pressed while a chained line runs is refused, not queued: it is pressed again once that line has ended.
+- A dialog a page opens some time after its command ends the chain when it takes the keyboard, and what was typed
+  into the line before that is lost with the line. No command of the line opens such a dialog today, so this is
+  held by a unit test alone, and where the keyboard is after that dialog closes is the dialog's to say.
+- A chained `new xva` gives the keyboard back to where the line was opened from until its dialog has drawn, as Enter
+  does: a key typed in that moment goes there. The Run dialog does not have this gap.
+- `Ask again` beside a table's actions, on a failed result, is held by no browser test.
+- A row added to or removed from a sorted grid moves its token by what is digested; no test holds it, since the
+  sample has no command that adds or removes a row of a grid.
 - Every action is offered on every cell, enabled. One that changes nothing there says so when run; none is greyed
   out by the cell's state, which the client does not know generically.
 - A declarative view's row action has no `command` target yet (ADR-0016 §4): no view asks for one.

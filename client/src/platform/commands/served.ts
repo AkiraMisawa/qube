@@ -174,16 +174,15 @@ export interface TableMenu {
  * A table's actions as the Context Menu of a grid bound to it offers them (ADR-0016 §4, note 25 of 2026-11-11). Each
  * is run as a served command is from a key: the server reads its line with the menu's view, in the page's turn, and a
  * refusal is a notice. Every action is offered on every cell: what one would do there is the server's to say. Until
- * the page has read its tables, and where it has no door, the menu holds none of them.
+ * the page has read its tables (`table` is not there yet) the menu holds none of them.
  */
-export function tableMenu(table: TableOnScreen | undefined, door: Pick<CommandDoor, 'enter'> | undefined, notify: Notify): TableMenu {
-  const actions = table === undefined || door === undefined ? [] : table.actions.map((action) => ({ ...action, id: `${table.tableId}:${action.line}` }));
+export function tableMenu(table: TableOnScreen | undefined, door: Pick<CommandDoor, 'enter'>, notify: Notify): TableMenu {
+  const actions = table === undefined ? [] : table.actions.map((action) => ({ ...action, id: `${table.tableId}:${action.line}` }));
   return {
     commands: (view) => actions.map((action) => ({
       id: action.id,
       enabled: true,
       invoke: async () => {
-        if (door === undefined) throw new Error(`${action.line} ran from a menu with no workspace to act on.`);
         const ended = await door.enter(action.line, undefined, view);
         if (ended !== undefined && 'sentence' in ended) notify('refused', `${action.line}: ${ended.sentence}`);
       },

@@ -14,7 +14,9 @@ After`, `Put into After`, and the same for Before (ADR-0016 §4).
 - [x] The Existing grid's Context Menu shows `Take out of After` with `set selected after off`, and it writes the
       selected rows.
 - [x] `Reset this cell` is offered on a cell that has an edit, and takes it back.
-- [x] The page's hand-written items (`Ask again`, `Vary values…`) still stand beside them.
+- [x] The page's hand-written item `Vary values…` still stands beside them.
+- [ ] `Ask again` beside them, on a failed result: built, and held by no browser test (the sample's results do not
+      fail on request). Its place in the menu is the same list `Vary values…` is in.
 - [x] A refusal is a notice with the server's reason.
 
 ## Comments
@@ -31,4 +33,8 @@ After`, `Put into After`, and the same for Before (ADR-0016 §4).
   off.`), and one the server cannot read there is a refused notice that begins with the line.
 - `Reset this cell` is offered on every cell, edited or not, for the same reason: on one with no edit it says
   `Nothing changed: DRAFT-1 has no edit of csa.`
+- The CSA grid's menu is held by the browser test too: `Reset this cell` alone before `Vary values…`, and it takes
+  back an edit of a CSA's threshold.
+- A host that registers tables and no `entity.reset` fails when the tables are read, and a page whose grid is bound
+  to a table the server does not list fails: neither is drawn as a menu with an item missing.
 - Not built: the `command` target of a declarative view's row action (ADR-0016 §4); no view asks for one.

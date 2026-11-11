@@ -1,4 +1,4 @@
-import { holdKeyboard, keepKeyboard, releaseKeyboard, rememberKeyboard, returnKeyboard } from './keyboard';
+import { holdKeyboard, keepKeyboard, keyboardAwaited, releaseKeyboard, rememberKeyboard, returnKeyboard } from './keyboard';
 
 // ADR-0016 §9, notes 22 and 24 of 2026-11-11: where the keyboard goes around the command line, and who has it while a
 // chain of commands runs from the line.
@@ -52,17 +52,30 @@ describe('the keyboard while a chain of commands runs from the line (ADR-0016 §
     const input = button(line);
     const opened = () => { before.focus(); rememberKeyboard(); input.focus(); holdKeyboard(input, { taken: () => undefined, lost: () => undefined }); };
 
-    // A place its page draws later: `go` says the keyboard is the place's before the place has it. Closed meanwhile,
-    // the line gives nothing back, and the place takes the keyboard when it is drawn.
+    // A place its page draws later: `go` says the keyboard is the place's before the place has it, and the keyboard
+    // is awaited until it has. Closed meanwhile, the line gives nothing back, and the place takes the keyboard when
+    // it is drawn.
     opened();
+    expect(keyboardAwaited()).toBe(false);
     keepKeyboard();
+    expect(keyboardAwaited()).toBe(true);
     returnKeyboard();
     expect(document.activeElement).toBe(input);
+    expect(keyboardAwaited()).toBe(false);
 
-    // A place that takes it at once: the line has it back, and its closing gives it to the place.
+    // Drawn while the line is open, the place's arrival ends the wait.
+    opened();
+    keepKeyboard();
+    place.focus();
+    expect(keyboardAwaited()).toBe(false);
+    returnKeyboard();
+    expect(document.activeElement).toBe(place);
+
+    // A place that takes it at once: the line has it back, nothing is awaited, and its closing gives it to the place.
     opened();
     place.focus();
     keepKeyboard();
+    expect(keyboardAwaited()).toBe(false);
     returnKeyboard();
     expect(document.activeElement).toBe(place);
 

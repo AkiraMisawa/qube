@@ -101,10 +101,10 @@ the owner asked for the fixes of that review that need no decision, and this is 
    command that is refused, stay as note 1 says, with the server's reason (ADR-0016's note 15). Every other command
    is read by the line as before, until it moves to the catalog.
 6. **Ctrl+Enter runs the line and keeps it open** (added with ADR-0016's step 2, the same day; its note 24; extends
-   4). ⌘+Enter on a Mac. The line says what ran and what it said, clears its text and reads the screen again, so
-   the next command is typed at once; a refusal stays as note 1 says. It is a key of the line, not a chord of the
-   shell (8). While an IME composes, every key of the line is the IME's: before this note, the Enter that committed
-   a composition also ran the line.
+   4). ⌘+Enter on a Mac. The line says what ran and what the application said since, clears its text and reads the
+   screen again. The next command is typed at once, while the one before runs, and is run once that has ended; a
+   refusal stays as note 1 says. It is a key of the line, not a chord of the shell (8). While an IME composes,
+   every key of the line is the IME's: before this note, the Enter that committed a composition also ran the line.
 
 ## Changed from the proposal
 
