@@ -20,16 +20,21 @@ public class CommandLineTests
 
         public Rig()
         {
-            var tables = new TableService(new TableRegister([new Stations.Catalog()]), Workspaces);
+            var register = new TableRegister([new Stations.Catalog()]);
+            var tables = new TableService(register, Workspaces);
             Registry = new CompositionRegistry([new TablesModule(() => tables), new WorkspaceCommandsModule(() => Workspaces)]);
             Commands = new CommandService(Registry, new InMemoryDataStore());
-            Lines = new CommandLines(Registry, Workspaces);
+            Lines = new CommandLines(Registry, Workspaces, register);
             Id = Stations.Board(Workspaces).WorkspaceId;
         }
 
         public WorkspaceState Board => Workspaces.Find(Id)!;
 
-        public LinePreview Preview(string line, string user = "ana") => Lines.Preview(line, Id, null, new Caller(user, RunOrigin.Pricer));
+        public LinePreview Preview(string line, LineView? view = null, string user = "ana") => Lines.Preview(line, Id, null, new Caller(user, RunOrigin.Pricer), view);
+
+        /// <summary>The token of the order the readings' reader gives, as a page holds it from the reader's last answer.</summary>
+        public string Order(string? subset, IReadOnlyList<ViewSort> sorts) =>
+            new Stations.Catalog().Tables.Single(t => t.TableId == Stations.Readings).InOrder(Board, subset, sorts)!.Token;
 
         /// <summary>Invokes the command a preview read, with the inputs it answered, as Enter does.</summary>
         public async Task<JsonObject> Run(LinePreview preview, RunOrigin origin = RunOrigin.Pricer)
@@ -69,7 +74,7 @@ public class CommandLineTests
         var preview = rig.Preview("set where station=north checked on");
 
         Assert.Equal(("entity.set", "1.0.0"), (preview.Command!.Id, preview.Command.Version));
-        Assert.Equal(["rows: where station=north", "set: checked on"], preview.Arguments!.Select(a => $"{a.Name}: {a.Text}"));
+        Assert.Equal("rows: where station=north (Typed); set: checked on (Typed)", Given(preview));
         Assert.Equal(("weather.readings", "readings, 2 rows", 2), (preview.Rows!.Table, preview.Rows.Title, preview.Rows.Count));
         Assert.Equal(["R1", "R2"], preview.Rows.First);
         Assert.Equal("checked: 1 off to on, 1 already on", preview.Would);
@@ -132,6 +137,113 @@ public class CommandLineTests
         var moved = await rig.Commands.InvokeAsync(one.Command!.Id, one.Command.Version, one.Inputs!, new Caller("ana", RunOrigin.Pricer), Guid.NewGuid().ToString(), default);
         Assert.Equal("RevisionMoved", Assert.IsType<CommandResult.Refused>(moved).Code);
         Assert.Equal("Reset note on R1 and R2; 1 had no edit.", await rig.Said("reset R1, R2, R3 note"));
+    }
+
+    static string Given(LinePreview preview) => string.Join("; ", preview.Arguments!.Select(a => $"{a.Name}: {a.Text} ({a.From})"));
+
+    static (string? Table, string? Rows) Asked(LinePreview preview) =>
+        (preview.Inputs!["request"]!["table"]?.GetValue<string>(), preview.Inputs["request"]!["rows"]?.GetValue<string>());
+
+    [Fact] // ADR-0016 §2, note 17: the preview resolves `selected` with the view; what it answers runs as rows by key, at the revision read
+    public async Task A_line_that_says_selected_answers_rows_by_key_and_running_it_writes_those_rows_and_no_other()
+    {
+        var rig = new Rig();
+        var before = rig.Board.Revision;
+
+        var preview = rig.Preview("set selected checked on", new LineView(Stations.Readings, "manual", Keys: ["R1", "R3"]));
+
+        Assert.Equal("rows: selected (Typed); set: checked on (Typed)", Given(preview));
+        Assert.Equal(("readings", "R1, R3"), Asked(preview));
+        Assert.Equal(("weather.readings", "readings, 2 rows", "checked: 2 off to on"), (preview.Rows!.Table, preview.Rows.Title, preview.Would));
+        Assert.Equal(["R1", "R3"], preview.Rows.First);
+        Assert.Equal(before, rig.Board.Revision);
+
+        Assert.Equal("Set checked to on on R1 and R3.", (await rig.Run(preview))["said"]!.GetValue<string>());
+        Assert.Equal(["reading:R1", "reading:R3"], rig.Board.Overrides.Keys.Select(t => t.Entity).Order());
+        // The log names rows, and knows no screen.
+        Assert.Equal("Takes back: set readings R1, R3 checked on (you, 2 edits)", rig.Preview("undo").Would);
+    }
+
+    [Fact] // ADR-0016 §2, note 17: `where` narrows the rows of a screen before they are named; positions are read in the order the grid was drawn from
+    public void The_rows_of_a_screen_are_narrowed_and_read_by_position_before_they_are_named()
+    {
+        var rig = new Rig();
+        ViewSort[] largest = [new("volume", Descending: true)];
+        var paged = new LineView(Stations.Readings, "manual", largest, rig.Order("manual", largest), Ranges: [new(0, 2)]);
+
+        var narrowed = rig.Preview("set selected where unit=m3 checked on", new LineView(Stations.Readings, Keys: ["R1", "R3", "R4"]));
+        var positions = rig.Preview("reset selected note", paged);
+        var shown = rig.Preview("set shown where checked=off note wet", new LineView(Stations.Readings, "manual"));
+        var moved = rig.Preview("set selected checked on", paged with { Order = "an earlier order" });
+        var none = rig.Preview("set selected where unit=gal checked on", new LineView(Stations.Readings, Keys: ["R1"]));
+        var other = rig.Preview("set shown altitude 130", new LineView(Stations.Sites, "high"));
+
+        Assert.Equal((("readings", "R1"), "rows: selected where unit=m3 (Typed); set: checked on (Typed)"), (Asked(narrowed), Given(narrowed)));
+        Assert.Equal(("readings", "R3, R1"), Asked(positions));
+        Assert.Equal((("readings", "R1, R3"), "note: 2 empty to wet"), (Asked(shown), shown.Would));
+        Assert.Equal(("ViewMoved", "selected", 4), (moved.Refused!.Code, moved.Refused.Word, moved.Refused.Start));
+        Assert.Equal("NoRowMatches: No selected row of readings matches unit = GAL.", Read(none));
+        Assert.Equal(("stations", "N1"), Asked(other));
+    }
+
+    [Fact] // ADR-0016 §9, note 19: every preview asked with a view says the view in one sentence, whatever the line; with no view it says none
+    public void A_preview_asked_with_a_view_says_the_view_in_one_sentence()
+    {
+        var rig = new Rig();
+        ViewSort[] largest = [new("volume", Descending: true)];
+        var paged = new LineView(Stations.Readings, "manual", largest, rig.Order("manual", largest), Ranges: [new(0, 1), new(2, 1)], Focus: new("windSpeed", Position: 1));
+        string? Said(LineView? view, string line = "") => rig.Preview(line, view).View;
+
+        // The line asks once as it opens, with no text: the answer is the sentence, and the commands there are.
+        var opened = rig.Preview("", new LineView(Stations.Readings, "manual", Keys: ["R1", "R3"], Focus: new("note", Key: "R1")));
+
+        Assert.Equal(("readings (manual), 2 selected, R1 · note", "UnknownCommand"), (opened.View, opened.Refused!.Code));
+        Assert.Equal("readings (manual), 2 selected, R1 · wind speed", Said(paged));
+        Assert.Equal("readings (manual), 2 selected, R1 · wind speed", Said(paged, "set R9 colour red"));
+        Assert.Equal("readings, 1 selected", Said(new LineView(Stations.Readings, Keys: ["R5"])));
+        Assert.Equal("stations (high), nothing selected", Said(new LineView(Stations.Sites, "high")));
+        // A column of the grid that is no field of the table is a place the keyboard can be, and names no field.
+        Assert.Equal("readings, nothing selected, R2", Said(new LineView(Stations.Readings, Focus: new("age", Key: "R2"))));
+        Assert.Equal("readings (manual), no longer in the order it was shown in", Said(paged with { Order = "an earlier order" }));
+        Assert.Null(Said(null, "set R1 checked on"));
+    }
+
+    [Theory] // ADR-0016 §5, note 17: where rows are awaited, `selected` and `shown` are offered with their counts, only where the view has them
+    [InlineData("set ", "R1,R3", "all | selected (2 rows) | shown (3 rows) | manual | automatic | where | readings")]
+    [InlineData("set s", "R1,R3", "selected@4 (2 rows) | shown@4 (3 rows) | stations@4 | settings@4")]
+    [InlineData("set ", "", "all | shown (3 rows) | manual | automatic | where | readings")]
+    [InlineData("set readings ", "R1", "all | selected (1 row) | shown (3 rows) | manual | automatic | where | R1 | R2")]
+    [InlineData("set stations ", "R1", "all | high | where | N1 | S1 | X1")]
+    [InlineData("set selected ", "R1", "volume | unit | checked | note | wind speed | wind direction | drift | where")]
+    [InlineData("set shown where ", "R1", "id | station | volume | unit | taken | checked | note | wind speed | wind direction | window | drift")]
+    [InlineData("set selected where unit=", "R1", "unit=M3@19 | unit=GAL@19")]
+    [InlineData("remove sel", "R1", "selected@7 (1 row)")]
+    public void Where_rows_are_awaited_the_rows_of_the_screen_are_offered_with_their_counts(string line, string selected, string offered)
+    {
+        var keys = selected.Split(',', StringSplitOptions.RemoveEmptyEntries);
+        var preview = new Rig().Preview(line, new LineView(Stations.Readings, "manual", Keys: keys));
+
+        var all = preview.Complete.Select(c => $"{c.Value}{(c.Start == line.Length ? "" : $"@{c.Start}")}{(c.Detail is null ? "" : $" ({c.Detail})")}").ToList();
+
+        // The first of them: the tables' rows follow as they did.
+        Assert.Equal(offered, string.Join(" | ", all.Take(offered.Split(" | ").Length)));
+    }
+
+    [Fact] // ADR-0016 §11, note 17: a command of many rows by id is named by its first three and how many more there are
+    public async Task A_command_of_many_rows_is_named_by_its_first_three_and_how_many_more()
+    {
+        var rig = new Rig();
+
+        await rig.Said("set R1, R2, R3, R4, R5 checked on");
+        var typed = rig.Preview("undo").Would;
+        await rig.Run(rig.Preview("undo"));
+        await rig.Run(rig.Preview("set selected where wind speed>1 note wet", new LineView(Stations.Readings, Keys: ["R1", "R2", "R3", "R4", "R5"])));
+
+        Assert.Equal("Takes back: set R1, R2, R3 and 2 more checked on (you, 3 edits)", typed);
+        Assert.Equal("Takes back: set readings R1, R2, R3 and 2 more note wet (you, 5 edits)", rig.Preview("undo").Would);
+        // Three are named whole, and a condition after them stays as it was written.
+        Assert.Equal("Set note to dry on R1, R3 and R4.", await rig.Said("set R1, R2, R3, R4 where checked=off and unit in m3, gal note dry"));
+        Assert.Equal("Takes back: set R1, R2, R3 and 1 more where checked=off and unit in m3, gal note dry (you, 3 edits)", rig.Preview("undo").Would);
     }
 
     [Theory] // ADR-0016 §5, §6: a line that cannot be read answers the word at fault, where it stands in the line, and what it could have been
@@ -305,7 +417,7 @@ public class CommandLineTests
     public void Words_two_commands_share_and_a_typed_command_that_reads_no_line_fail_at_start()
     {
         var workspaces = Stations.Service();
-        CommandLines Lines(params ICapabilityHandler[] handlers) => new(new CompositionRegistry([new Commands(handlers)]), workspaces);
+        CommandLines Lines(params ICapabilityHandler[] handlers) => new(new CompositionRegistry([new Commands(handlers)]), workspaces, new TableRegister([]));
 
         var shared = Assert.Throws<InvalidOperationException>(() => Lines(new Reading("gauge.add", "Add"), new Reading("gauge.put", "add")));
         var unread = Assert.Throws<InvalidOperationException>(() => Lines(new Typed("gauge.add", "add")));

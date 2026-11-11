@@ -28,12 +28,13 @@ public class PricerTableTests
         {
             var register = new MeasureRegister([new XvaMeasures(Pv01Provider.Simulated(TimeSpan.Zero)), new CcrMeasures()]);
             Workspaces = new WorkspaceService(new Dictionary<string, IEditRules> { [PortfolioEditRules.App] = new PortfolioEditRules(register) }, TimeProvider.System);
-            var tables = new TableService(new TableRegister([new PortfolioTables(register)]), Workspaces);
+            var registered = new TableRegister([new PortfolioTables(register)]);
+            var tables = new TableService(registered, Workspaces);
             var registry = new CompositionRegistry([new PortfolioModule(), new XvaModule(), new CcrModule(), new TablesModule(() => tables), new WorkspaceCommandsModule(() => Workspaces)]);
             var store = new InMemoryDataStore();
             Service = new PortfolioWorkspaces(Workspaces, store, new RunService(registry, store, TimeProvider.System), register);
             Commands = new CommandService(registry, store);
-            Lines = new CommandLines(registry, Workspaces);
+            Lines = new CommandLines(registry, Workspaces, registered);
             Id = Service.Create("akira", "ABC/LE-01", Day1, existing).WorkspaceId;
         }
 

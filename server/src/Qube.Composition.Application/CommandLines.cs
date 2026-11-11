@@ -8,11 +8,21 @@ namespace Qube.Composition.Application;
 // ADR-0016 §5 and its notes 11 and 15 of 2026-11-11: the server owns the reading of a line. A command that says how it
 // is typed (§4) reads the words after its own, and the preview answers that reading with nothing executed.
 
-/// <summary>A line after its command's words, as typed, for a workspace as it stands and the caller who types it.</summary>
-public sealed record LineContext(WorkspaceState State, Caller Caller, string Text);
+/// <summary>
+/// A line after its command's words, as typed, for a workspace as it stands and the caller who types it, with what the
+/// screen behind the line showed as it opened, where a screen is behind it (ADR-0016 §9, note 16 of step 2).
+/// </summary>
+public sealed record LineContext(WorkspaceState State, Caller Caller, string Text, LineView? View = null);
 
-/// <summary>One argument of a command as a line was read: the name its request holds it by, and its words.</summary>
-public sealed record LineArgument(string Name, string Text);
+/// <summary>Where an argument came from (ADR-0016 §5): the line's own words, or the screen behind the line.</summary>
+public enum ArgumentSource
+{
+    Typed,
+    Context,
+}
+
+/// <summary>One argument of a command as a line was read: the name its request holds it by, its words, and where it came from.</summary>
+public sealed record LineArgument(string Name, string Text, ArgumentSource From = ArgumentSource.Typed);
 
 /// <summary>The rows a line means: their table, a title in its words (<c>readings, 2 rows</c>), how many, and the first to look at.</summary>
 public sealed record LineRows(string Table, string Title, int Count, IReadOnlyList<string> First);
@@ -59,6 +69,7 @@ public sealed record LineRefusal(string Code, string Sentence, string? Word, int
 /// read; and what could follow the last word. The inputs name the revision read, so that running them acts on what
 /// was shown or is refused.
 /// </summary>
+/// <param name="View">What the screen behind the line showed, in one sentence, where the preview was asked with a view (note 19 of step 2).</param>
 public sealed record LinePreview(
     long Revision,
     LineCommand? Command,
@@ -69,7 +80,8 @@ public sealed record LinePreview(
     DateTimeOffset? At,
     LineRefusal? Refused,
     IReadOnlyList<LineCompletion> Complete,
-    int More);
+    int More,
+    string? View = null);
 
 /// <summary>The words of a line as typed: what stands between its spaces, each with where it starts.</summary>
 public static partial class LineWords
@@ -88,12 +100,14 @@ public static partial class LineWords
 public sealed class CommandLines
 {
     readonly WorkspaceService workspaces;
+    readonly TableRegister tables;
     readonly IReadOnlyList<(string[] Words, string Said, ICapabilityHandler Handler)> typed;
 
     /// <summary>Fails at start where two commands answer to the same words, or one says how it is typed and does not read its line.</summary>
-    public CommandLines(CompositionRegistry registry, WorkspaceService workspaces)
+    public CommandLines(CompositionRegistry registry, WorkspaceService workspaces, TableRegister tables)
     {
         this.workspaces = workspaces;
+        this.tables = tables;
         var named = new List<(string[] Words, string Said, ICapabilityHandler Handler)>();
         foreach (var descriptor in registry.CapabilityDescriptors)
         {
@@ -112,10 +126,13 @@ public sealed class CommandLines
     /// <summary>
     /// The line as read for the caller's own workspace as it stands, or at the revision the caller read, which a
     /// workspace that moved refuses (<see cref="WorkspaceRefused"/>, as an unknown workspace and another user's are).
+    /// With the view of the screen behind the line, the line may say its rows by it, and the answer says the view
+    /// (notes 16 to 19 of step 2); a view that names what the workspace has not is refused whole (<c>InvalidView</c>).
     /// </summary>
-    public LinePreview Preview(string line, string workspaceId, long? revision, Caller caller)
+    public LinePreview Preview(string line, string workspaceId, long? revision, Caller caller, LineView? view = null)
     {
         var state = WorkspaceCommands.Owned(workspaces, workspaceId, caller, revision);
+        var shown = view is null ? null : Views.Say(view, tables.Of(state), state);
         var words = LineWords.Of(line);
         var said = typed.FirstOrDefault(t => t.Words.Length <= words.Count && t.Words.Zip(words).All(p => p.First.Equals(p.Second.Word, StringComparison.OrdinalIgnoreCase)));
         var all = typed.Select(t => t.Said).ToList();
@@ -126,7 +143,7 @@ public sealed class CommandLines
             var starting = words.Count <= 1 && !EndsInSpace(line) ? all.Where(w => w.StartsWith(first.Word, StringComparison.OrdinalIgnoreCase)).ToList() : [];
             var refusal = new LineRefusal("UnknownCommand", first.Word.Length == 0 ? $"Type a command: {TableWords.List(all)}." : $"No command {first.Word}: the commands are {TableWords.List(all)}.",
                 first.Word.Length == 0 ? null : first.Word, first.Word.Length == 0 ? null : first.Start, first.Word.Length == 0 ? null : first.Start + first.Word.Length, all);
-            return new(state.Revision, null, null, null, null, null, null, refusal, [.. starting.Select(w => new LineCompletion(w, first.Start))], 0);
+            return new(state.Revision, null, null, null, null, null, null, refusal, [.. starting.Select(w => new LineCompletion(w, first.Start))], 0, shown);
         }
 
         var descriptor = said.Handler.Descriptor;
@@ -134,7 +151,7 @@ public sealed class CommandLines
         var last = words[said.Words.Length - 1];
         var from = last.Start + last.Word.Length;
         var reader = (ILineCommand)said.Handler;
-        var context = new LineContext(state, caller, line[from..]);
+        var context = new LineContext(state, caller, line[from..], view);
         var completions = reader.Complete(context);
         IReadOnlyList<LineCompletion> complete = [.. completions.Items.Select(c => c with { Start = c.Start + from })];
         // A command that takes no argument takes no word after its own.
@@ -143,7 +160,7 @@ public sealed class CommandLines
         try
         {
             var read = reader.Read(context);
-            return new(state.Revision, command, read.Inputs, read.Arguments, read.Rows, read.Would, read.At, null, complete, completions.More);
+            return new(state.Revision, command, read.Inputs, read.Arguments, read.Rows, read.Would, read.At, null, complete, completions.More, shown);
         }
         catch (TableRefused refused)
         {
@@ -157,7 +174,7 @@ public sealed class CommandLines
         LinePreview Refused(string code, string sentence, string? word, IReadOnlyList<string> candidates)
         {
             var place = word is null ? null : Place(line, from, word);
-            return new(state.Revision, command, null, null, null, null, null, new(code, sentence, word, place?.Start, place?.End, candidates), complete, completions.More);
+            return new(state.Revision, command, null, null, null, null, null, new(code, sentence, word, place?.Start, place?.End, candidates), complete, completions.More, shown);
         }
     }
 
