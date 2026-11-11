@@ -154,11 +154,20 @@ static class Views
         return At(view, table, state, view.Ranges!);
     }
 
-    // The table's rows in the view's order, where that is still the order the grid was drawn from.
+    // The table's rows in the view's order, where that is still the order the grid was drawn from. A sort the table
+    // refuses is one its grid never had: the page's fault.
     static IReadOnlyList<ITableRow> Ordered(LineView view, BoundTable table, WorkspaceState state)
     {
-        var ordered = table.Table.InOrder(state, SubsetOf(view, table)?.Name, view.Sorts)
-            ?? throw new TableRefused(Unordered, $"{table.Word} has no order a position can be read in: its rows are named by their ids.");
+        OrderedRows? ordered;
+        try
+        {
+            ordered = table.Table.InOrder(state, SubsetOf(view, table)?.Name, view.Sorts);
+        }
+        catch (WorkspaceRefused refused) when (refused.Code != "InvalidView")
+        {
+            throw Invalid(refused.Message);
+        }
+        if (ordered is null) throw new TableRefused(Unordered, $"{table.Word} has no order a position can be read in: its rows are named by their ids.");
         return ordered.Token == view.Order ? ordered.Rows : throw NotInOrder(table);
     }
 

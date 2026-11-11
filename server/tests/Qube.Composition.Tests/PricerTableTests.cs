@@ -36,6 +36,20 @@ public class PricerTableTests
             Commands = new CommandService(registry, store);
             Lines = new CommandLines(registry, Workspaces, registered);
             Id = Service.Create("akira", "ABC/LE-01", Day1, existing).WorkspaceId;
+            TradesTable = registered.Of(State).Single(t => t.Descriptor.TableId == PortfolioTables.Trades).Table;
+        }
+
+        /// <summary>The trades as the kernel's commands read them.</summary>
+        public IWorkspaceTable TradesTable { get; }
+
+        /// <summary>The line as read with the screen behind it.</summary>
+        public LinePreview Preview(string line, LineView? view = null) => Lines.Preview(line, Id, null, Akira, view);
+
+        public async Task<string> Run(LinePreview preview)
+        {
+            var result = await Commands.InvokeAsync(preview.Command!.Id, preview.Command.Version, preview.Inputs!, Akira, Guid.NewGuid().ToString(), default);
+            return result is CommandResult.Done done ? done.Outputs["answer"]!["said"]!.GetValue<string>()
+                : throw new Xunit.Sdk.XunitException($"{preview.Command.Id} was refused: {string.Join(" ", ((CommandResult.Refused)result).Issues.Select(i => i.Message))}");
         }
 
         public WorkspaceState State => Workspaces.Find(Id)!;
@@ -106,6 +120,79 @@ public class PricerTableTests
 
         Assert.Equal("Took back: set where ccy=usd after off. redo puts it back.", undone["said"]!.GetValue<string>());
         Assert.Equal([usd[0]], rig.Trades().Where(t => !t.After).Select(t => t.TradeId));
+    }
+
+    [Theory] // ADR-0016 §2, note 17 of step 2: a position in a command is the trade the grid drew there: one sorter and one token for the page and for the table
+    [InlineData("existing", "")]
+    [InlineData("existing", "notional:d")]
+    [InlineData("existing", "currency:a,notional:d")]
+    [InlineData("existing", "after:a,csa:d")]
+    [InlineData("new", "maturity:d")]
+    [InlineData(null, "csa:a,tradeId:d")]
+    public void The_trades_are_read_in_the_order_their_grid_is_paged_in(string? grid, string sorted)
+    {
+        var rig = new Rig();
+        var usd = rig.Trades().Where(t => t.Currency == "USD").Select(t => t.TradeId).ToList();
+        rig.Service.Edit(rig.Id, rig.State.Revision, "akira", $"trade:{usd[0]}", "after", false);
+        rig.Service.Edit(rig.Id, rig.State.Revision, "akira", $"trade:{usd[1]}", "csa", "CSA-B");
+        var sorts = sorted.Split(',', StringSplitOptions.RemoveEmptyEntries).Select(s => (Column: s.Split(':')[0], Descending: s.EndsWith(":d", StringComparison.Ordinal))).ToList();
+
+        var page = rig.Service.Page(rig.Id, "akira", 0, 100_000, [.. sorts.Select(s => new RowSort(s.Column, s.Descending ? "descending" : "ascending"))], grid);
+        var ordered = rig.TradesTable.InOrder(rig.State, grid, [.. sorts.Select(s => new ViewSort(s.Column, s.Descending))])!;
+
+        Assert.True(page.Rows.Count > 1, "The grid holds rows to order.");
+        Assert.Equal(page.Rows.Select(t => t.TradeId), ordered.Rows.Select(r => r.Key));
+        Assert.Equal(page.OrderToken, ordered.Token);
+    }
+
+    [Fact] // ADR-0016 §2, note 17 of step 2: `set selected a off` over positions of the Existing grid, sorted, writes the trades at those positions; once the order moved it is refused
+    public async Task The_rows_selected_in_a_sorted_grid_are_the_trades_at_those_positions()
+    {
+        var rig = new Rig();
+        var page = rig.Service.Page(rig.Id, "akira", 0, 100_000, [new("notional", "descending")], "existing");
+        string[] at = [page.Rows[1].TradeId, page.Rows[2].TradeId, page.Rows[5].TradeId];
+        var view = new LineView(PortfolioTables.Trades, "existing", [new("notional", Descending: true)], page.OrderToken, Ranges: [new(1, 2), new(5, 1)], Focus: new("csa", Position: 5));
+
+        var preview = rig.Preview("set selected a off", view);
+
+        Assert.Equal($"trades (existing), 3 selected, {at[2]} · csa", preview.View);
+        Assert.Equal(("trades", string.Join(", ", at)), (preview.Inputs!["request"]!["table"]!.GetValue<string>(), preview.Inputs["request"]!["rows"]!.GetValue<string>()));
+        Assert.Equal("A: 3 on to off", preview.Would);
+        Assert.Equal($"Set A to off on {at[0]}, {at[1]} and {at[2]}.", await rig.Run(preview));
+        Assert.Equal(at.Order(), rig.Trades().Where(t => !t.After).Select(t => t.TradeId).Order());
+
+        // Sorted, any edit may move the order: the grid reads again, and positions it drew before are no longer said.
+        var stale = rig.Preview("set selected a on", view);
+        Assert.Equal(("ViewMoved", "trades (existing), no longer in the order it was shown in"), (stale.Refused!.Code, stale.View));
+        // A column the grid cannot sort by is the page's fault, and no reading.
+        Assert.Equal("UnknownColumn", Assert.Throws<WorkspaceRefused>(() => rig.TradesTable.InOrder(rig.State, "existing", [new("mood")])).Code);
+        Assert.Equal("InvalidView", Assert.Throws<WorkspaceRefused>(() => rig.Preview("", view with { Sorts = [new("mood")] })).Code);
+    }
+
+    [Fact] // ADR-0016 §9, note 18 of step 2: with trades selected, `set csa CSA-B` is their CSA; a word a table of one row has is that table's unless a command could set it on the screen's rows too
+    public async Task With_trades_selected_a_field_alone_acts_on_them_and_the_tables_of_one_row_keep_their_words()
+    {
+        var rig = new Rig();
+        var existing = rig.Service.Page(rig.Id, "akira", 0, 100_000, [], "existing");
+        var held = existing.Rows.Take(3).Where(t => t.Csa == "CSA-B").Count();
+        var trades = new LineView(PortfolioTables.Trades, "existing", [], existing.OrderToken, Ranges: [new(0, 3)], Focus: new("notional", Position: 0));
+        var csas = new LineView(PortfolioTables.Csas, Keys: ["CSA-A"], Focus: new("currency", Key: "CSA-A"));
+
+        var csa = rig.Preview("set csa CSA-B", trades);
+        var display = rig.Preview("set ccy USD", trades);
+        var either = rig.Preview("set ccy USD", csas);
+        var table = rig.Preview("set csas CSA-A threshold 5mm", trades);
+
+        Assert.Equal(("rows", ArgumentSource.Context, PortfolioTables.Trades, 3), (csa.Arguments![0].Name, csa.Arguments[0].From, csa.Rows!.Table, csa.Rows.Count));
+        Assert.Equal(string.Join(", ", existing.Rows.Take(3).Select(t => t.TradeId)), csa.Inputs!["request"]!["rows"]!.GetValue<string>());
+        // The trades' currency is no field a command sets, so `ccy` alone is still the workspace's display currency.
+        Assert.Equal((PortfolioTables.Workspace, "currency: JPY to USD"), (display.Rows!.Table, display.Would));
+        Assert.Equal(("AmbiguousField", "ccy could be currency of workspace or currency of the csas on screen; say which, as in workspace ccy USD or selected ccy USD."),
+            (either.Refused!.Code, either.Refused.Sentence));
+        Assert.Equal((PortfolioTables.Csas, 1), (table.Rows!.Table, table.Rows.Count));
+        Assert.Equal(3 - held, Told(await rig.Done(csa.Command!.Id, csa.Inputs["request"]!.DeepClone().AsObject())).Changed);
+        // After an edit the unsorted order is the source's still, and the same positions are the same trades.
+        Assert.Equal(csa.Inputs["request"]!["rows"]!.GetValue<string>(), rig.Preview("set a off", trades).Inputs!["request"]!["rows"]!.GetValue<string>());
     }
 
     [Fact] // ADR-0016 §5, note 15: the line `set where ccy=USD after off` says its trades and how many would change before it runs, and offers what the pricer registered

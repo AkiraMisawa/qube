@@ -103,9 +103,6 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
     readonly ConditionalWeakTable<WorkspaceState, ConcurrentDictionary<string, IReadOnlyList<EffectiveTrade>>> sorted = new();
     readonly ConditionalWeakTable<WorkspaceState, ConcurrentDictionary<string, IReadOnlyList<EffectiveTrade>>> grouped = new();
 
-    public static readonly IReadOnlyList<string> SortableColumns =
-        ["tradeId", "isNew", "product", "currency", "notional", "maturity", "fixedRate", "schedule", "lastFixing", "officialPv", "csa", "curve", "imR", "imP", "before", "after"];
-
     /// <summary>A new workspace, on its owner's last selection of measures (ADR-0010 §10, DEFAULT).</summary>
     public WorkspaceState Create(string user, string registration, DateOnly valueDate, int existingCount)
     {
@@ -429,29 +426,17 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
         if (grid is not (null or Entity.NewGrid or Entity.ExistingGrid))
             throw new WorkspaceRefused("UnknownGrid", $"No trade grid {grid}; the grids are {Entity.NewGrid} and {Entity.ExistingGrid}.");
         var state = PortfolioCases.Base(Owned(workspaceId, user));
-        var keys = sorts.Select(sort =>
+        var keys = TradeOrder.Keys(sorts.Select(sort => (sort.Column, sort.Direction switch
         {
-            if (!SortableColumns.Contains(sort.Column))
-                throw new WorkspaceRefused("UnknownColumn", $"Rows cannot be sorted by {sort.Column}.");
-            var descending = sort.Direction switch
-            {
-                "ascending" => false,
-                "descending" => true,
-                _ => throw new WorkspaceRefused("InvalidSort", $"Sort direction {sort.Direction} is not ascending or descending."),
-            };
-            return (sort.Column, Descending: descending);
-        }).ToList();
-        // A stable sort, kept per state and sort while the state is alive: scrolling asks for many pages of one order.
-        var rows = grid is null ? Rows(state) : grouped.GetOrCreateValue(state).GetOrAdd(grid, g => [.. Rows(state).Where(t => t.IsNew == (g == Entity.NewGrid))]);
-        var all = keys.Count == 0 ? rows : sorted.GetOrCreateValue(state).GetOrAdd($"{grid}|{string.Join(",", keys.Select(k => $"{k.Column}:{k.Descending}"))}", _ =>
-            [.. rows.Order(Comparer<EffectiveTrade>.Create((a, b) =>
-            {
-                foreach (var (column, descending) in keys)
-                    if (Compare(Key(a, column), Key(b, column), descending) is var c && c != 0) return c;
-                return 0;
-            }))]);
-        // Unsorted, the order is the source's and moves only with a new version; sorted, any edit may move it.
-        var token = sorts.Count == 0 ? state.Source.Version : $"{state.Source.Version}/r{state.Revision}";
+            "ascending" => false,
+            "descending" => true,
+            _ => throw new WorkspaceRefused("InvalidSort", $"Sort direction {sort.Direction} is not ascending or descending."),
+        })));
+        // The order is kept per state and sort while the state is alive: scrolling asks for many pages of one order.
+        var rows = grid is null ? Rows(state) : grouped.GetOrCreateValue(state).GetOrAdd(grid, g => TradeOrder.Of(Rows(state), g));
+        var all = keys.Count == 0 ? rows
+            : sorted.GetOrCreateValue(state).GetOrAdd($"{grid}|{string.Join(",", keys.Select(k => $"{k.Column}:{k.Descending}"))}", _ => TradeOrder.Sorted(rows, keys));
+        var token = TradeOrder.Token(state, keys);
         // The modules' cells are read for the page alone, each time: a result such as PV01 arrives with no edit.
         var page = start >= all.Count ? [] : register.WithCells(state, [.. all.Skip(start).Take(count)]);
         return new(page, start, all.Count, token, state.Revision);
@@ -697,6 +682,47 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
     static EditTarget Held(WorkspaceState state, string entity, string field, string? layer) =>
         state.Overrides.Keys.Concat(state.Conflicts.Keys).Concat(state.Lost.Keys).FirstOrDefault(t => t.Entity == entity && t.Field == field && t.Layer == layer)
         ?? throw new WorkspaceRefused("NotOverridden", $"{entity}.{field} has no edit{(layer is null ? "" : $" in {layer}")}.");
+
+}
+
+/// <summary>
+/// The order the trade grids show their rows in (ADR-0010 §6): one grid's rows, the sort, and the token that says
+/// whether two orders are the same. The page that draws a grid and the command that reads a position in it (ADR-0016
+/// §2, note 17 of step 2) both take it from here, so a position names the trade the grid drew there.
+/// </summary>
+public static class TradeOrder
+{
+    public static readonly IReadOnlyList<string> SortableColumns =
+        ["tradeId", "isNew", "product", "currency", "notional", "maturity", "fixedRate", "schedule", "lastFixing", "officialPv", "csa", "curve", "imR", "imP", "before", "after"];
+
+    /// <summary>The sort as asked, checked: a column the grids cannot sort by is refused by name, never guessed.</summary>
+    public static IReadOnlyList<(string Column, bool Descending)> Keys(IEnumerable<(string Column, bool Descending)> sorts)
+    {
+        var keys = sorts.ToList();
+        return keys.FirstOrDefault(k => !SortableColumns.Contains(k.Column)) is { Column: { } unknown }
+            ? throw new WorkspaceRefused("UnknownColumn", $"Rows cannot be sorted by {unknown}.") : keys;
+    }
+
+    /// <summary>The rows of one trade grid (<c>new</c> or <c>existing</c>), in the order given; every row where none is named.</summary>
+    public static IReadOnlyList<EffectiveTrade> Of(IReadOnlyList<EffectiveTrade> rows, string? grid) => grid switch
+    {
+        null => rows,
+        Entity.NewGrid or Entity.ExistingGrid => [.. rows.Where(t => t.IsNew == (grid == Entity.NewGrid))],
+        _ => throw new WorkspaceRefused("UnknownGrid", $"No trade grid {grid}; the grids are {Entity.NewGrid} and {Entity.ExistingGrid}."),
+    };
+
+    /// <summary>The rows under a sort, stable: rows the sort does not tell apart stay in the order given.</summary>
+    public static IReadOnlyList<EffectiveTrade> Sorted(IReadOnlyList<EffectiveTrade> rows, IReadOnlyList<(string Column, bool Descending)> keys) => keys.Count == 0 ? rows
+        : [.. rows.Order(Comparer<EffectiveTrade>.Create((a, b) =>
+        {
+            foreach (var (column, descending) in keys)
+                if (Compare(Key(a, column), Key(b, column), descending) is var c && c != 0) return c;
+            return 0;
+        }))];
+
+    /// <summary>Unsorted, the order is the source's and moves only with a new version; sorted, any edit may move it.</summary>
+    public static string Token(WorkspaceState state, IReadOnlyList<(string Column, bool Descending)> keys) =>
+        keys.Count == 0 ? state.Source.Version : $"{state.Source.Version}/r{state.Revision}";
 
     static IComparable? Key(EffectiveTrade row, string column) => column switch
     {
