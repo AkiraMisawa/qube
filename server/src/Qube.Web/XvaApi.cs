@@ -11,7 +11,8 @@ public static class XvaApi
 {
     public sealed record CreateRequest(string Registration, DateOnly ValueDate, int PortfolioSize);
     /// <summary>A page of trades; <c>Grid</c> names the New or Existing grid (ADR-0010 §6), or all when absent.</summary>
-    public sealed record PageRequest(int Start, int Count, IReadOnlyList<RowSort> Sorts, string? Grid = null);
+    /// <param name="Where">The grid's conditions as typed (ADR-0016 note 41 of step 4), where it is filtered from the line.</param>
+    public sealed record PageRequest(int Start, int Count, IReadOnlyList<RowSort> Sorts, string? Grid = null, string? Where = null);
     public sealed record EditRequest(long Revision, string Entity, string Field, JsonNode? Value);
     /// <summary>Resolves a held edit, or removes a change (<c>reset</c>); <c>Case</c> names the case it is a change of, none
     /// for a Common edit (ADR-0010 §3).</summary>
@@ -71,7 +72,7 @@ public static class XvaApi
         ws.MapPost("/{id}/rows", (string id, PageRequest request, CurrentUser user, PortfolioWorkspaces service) => Guard(() =>
         {
             if (request.Count > MaxPage) throw new WorkspaceRefused("InvalidRange", $"A page holds at most {MaxPage} rows.");
-            return Results.Ok(service.Page(id, user.Id, request.Start, request.Count, request.Sorts, request.Grid));
+            return Results.Ok(service.Page(id, user.Id, request.Start, request.Count, request.Sorts, request.Grid, request.Where));
         }));
 
         ws.MapPost("/{id}/edits", (string id, EditRequest request, CurrentUser user, PortfolioWorkspaces service) => Guard(() =>

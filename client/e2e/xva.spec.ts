@@ -2263,3 +2263,184 @@ test('ADR-0010 §4, C32: `scenario save` keeps every scenario as a set, and `sce
   // A scenario is included when it is made, as scenario makes it, whatever the box said where it was saved.
   await expect(page.getByTestId('price')).toHaveText('Price CVA · 1 case × 3 markets');
 });
+
+test('ADR-0016 notes 39 to 41: `sort` and `filter` give a trade grid its own sort and the rows its reader answers under the conditions; `shown` is then those rows, a trade edited out of them leaves, and `filter off` or the caption\'s button shows every row again', async ({ page }) => {
+  await open(page);
+  await newWorkspace(page, 'ABC/LE-01', 60);
+  const line = page.getByRole('combobox', { name: 'Command' });
+  const read = page.getByTestId('command-preview');
+  const notice = page.getByTestId('notice');
+  const existing = page.getByLabel('Existing trades', { exact: true });
+  const filtered = page.getByTestId('grid-filter');
+  /** The trade drawn at a position of the Existing grid, from 0; the header is the grid's first row. */
+  const at = (position: number) => existing.locator(`[aria-rowindex="${position + 2}"] [aria-colindex="1"]`);
+
+  // With the keyboard in the Existing grid, `sort` is that grid's own sort: its header shows it, and the keyboard is
+  // back in the grid once the line has closed.
+  await existing.getByRole('grid').focus();
+  await page.keyboard.press('ControlOrMeta+Home');
+  await page.keyboard.press('ControlOrMeta+Home');
+  await page.keyboard.press('ControlOrMeta+K');
+  await expect(line).toBeFocused();
+  await page.keyboard.type('sort by notional desc');
+  await expect(read).toHaveText('Sorts trades (existing) by notional, descending.');
+  await page.keyboard.press('Enter');
+  await expect(line).toBeHidden();
+  await expect(notice).toHaveText('Sorted trades (existing) by notional, descending.');
+  await expect(existing.getByRole('columnheader', { name: 'Notional' })).toHaveAttribute('aria-sort', 'descending');
+  await settled(page, 'Existing trades');
+  await expect(keyboardIn(page, 'Existing trades')).toHaveCount(1);
+  // Its rows are in that order too: the first of them hold notionals that only fall, and not one notional all through.
+  const notionalColumn = await existing.getByRole('columnheader', { name: 'Notional' }).getAttribute('aria-colindex');
+  const notionals = await Promise.all([0, 1, 2, 3, 4, 5].map(async (position) =>
+    Number((await existing.locator(`[aria-rowindex="${position + 2}"] [aria-colindex="${notionalColumn}"]`).innerText()).replaceAll(',', ''))));
+  expect(notionals.every((n) => Number.isFinite(n))).toBe(true);
+  expect(notionals).toEqual([...notionals].sort((a, b) => b - a));
+  expect(notionals[0]).toBeGreaterThan(notionals[5]!);
+
+  // `filter where` says how many rows it leaves before Enter; the grid then holds those rows alone, still sorted, and
+  // its caption says so. The New grid is another grid, and keeps its rows.
+  await page.keyboard.press('ControlOrMeta+K');
+  await expect(line).toBeFocused();
+  await page.keyboard.type('filter where ccy=USD');
+  await expect(read).toContainText(/trades \(existing\), \d+ of 43 rows: /);
+  const usd = Number(/, (\d+) of 43 rows/.exec(await read.innerText())?.[1]);
+  expect(usd).toBeGreaterThan(1);
+  expect(usd).toBeLessThan(43);
+  await expect(read).toContainText(`Shows ${usd} of 43 rows of trades (existing).`);
+  await page.keyboard.press('Enter');
+  await expect(line).toBeHidden();
+  // The sentence says the conditions as the server read them; the caption, as the grid holds them, which is as typed.
+  await expect(notice).toHaveText(`Showing ${usd} of 43 rows of trades (existing) where ccy = USD.`);
+  await expect(filtered).toHaveCount(1);
+  await expect(filtered.getByRole('status')).toHaveText(`Filter: ccy=USD · ${usd} of 43`);
+  await settled(page, 'Existing trades');
+  await expect(existing.getByRole('grid')).toHaveAttribute('aria-rowcount', String(usd + 1));
+  await expect(existing.getByRole('columnheader', { name: 'Notional' })).toHaveAttribute('aria-sort', 'descending');
+  expect(new Set(await existing.locator('[role=row] [role=gridcell][aria-colindex="3"]').allInnerTexts())).toEqual(new Set(['USD']));
+
+  // `shown` is the rows the filter leaves (ADR-0016 §2), and the line says that the grid is filtered.
+  await page.keyboard.press('ControlOrMeta+K');
+  await expect(line).toBeFocused();
+  await expect(page.getByTestId('command-context')).toContainText(`On screen: trades (existing), filtered to ${usd}, `);
+  await page.keyboard.type('set shown a off');
+  await expect(read).toContainText(`trades, ${usd} rows: `);
+  await page.keyboard.press('Enter');
+  await expect(line).toBeHidden();
+  await expect(notice).toHaveText(`Set A to off on ${usd} trades.`);
+
+  // New conditions replace the ones before, and are read again as the rows change: a trade edited out of them leaves.
+  await taken(page, 'filter', 'where a=on');
+  await expect(filtered.getByRole('status')).toHaveText(`Filter: a=on · ${43 - usd} of 43`);
+  await settled(page, 'Existing trades');
+  const leaving = await at(0).innerText();
+  await taken(page, 'set', `${leaving} a off`);
+  await expect(filtered.getByRole('status')).toHaveText(`Filter: a=on · ${42 - usd} of 43`);
+  await expect(trade(page, leaving)).toHaveCount(0);
+
+  // `filter off` shows every row again, and so does the caption's button, which is the pointer's `filter off`.
+  await taken(page, 'filter', 'off');
+  await expect(notice).toHaveText('Took the filter off trades (existing).');
+  await expect(filtered).toHaveCount(0);
+  await expect(existing.getByRole('grid')).toHaveAttribute('aria-rowcount', '44');
+  await taken(page, 'filter', 'where ccy=USD');
+  await expect(filtered.getByRole('status')).toHaveText(`Filter: ccy=USD · ${usd} of 43`);
+  await page.getByRole('button', { name: 'Take the filter off the existing trades' }).click();
+  await expect(filtered).toHaveCount(0);
+  await expect(existing.getByRole('grid')).toHaveAttribute('aria-rowcount', '44');
+
+  // Conditions the server cannot read keep the line with its reason, and the grid as it was.
+  await existing.getByRole('grid').focus();
+  await page.keyboard.press('ControlOrMeta+K');
+  await expect(line).toBeFocused();
+  await page.keyboard.type('filter where colour=red');
+  await expect(read).toContainText('trades has no field colour; its fields are trade id, ');
+  await page.keyboard.press('Enter');
+  await expect(line).toBeFocused();
+  await expect(filtered).toHaveCount(0);
+});
+
+test('ADR-0016 notes 39 to 41: the CSA grid, whose page holds every CSA, shows the CSAs the server says a filter leaves; a line chained on `filter` is read under it at once, a CSA edited out of it leaves, a filter that cannot be read shows no row, and `sort` is the grid\'s own', async ({ page, problems }) => {
+  await open(page);
+  await newWorkspace(page, 'ABC/LE-01', 5);
+  const line = page.getByRole('combobox', { name: 'Command' });
+  const read = page.getByTestId('command-preview');
+  const notice = page.getByTestId('notice');
+  const csas = page.getByLabel('CSA terms', { exact: true });
+  const filtered = page.getByTestId('grid-filter');
+  const ids = () => csas.locator('[role=row] [role=gridcell][aria-colindex="2"]');
+
+  await command(page, 'open', 'csa');
+  await expect(page.getByRole('tab', { name: /^CSA/ })).toHaveAttribute('aria-selected', 'true');
+  await settled(page, 'CSA terms');
+  await expect(ids()).toHaveText(['CSA-A', 'CSA-B']);
+
+  // The filter, then with the chain key a line of `shown`: it is read under the filter whether or not the page has
+  // heard yet which CSAs it leaves.
+  await page.keyboard.press('ControlOrMeta+K');
+  await expect(line).toBeFocused();
+  await page.keyboard.type('filter where ccy=USD');
+  await expect(read).toContainText('csas, 1 of 2 rows: CSA-B');
+  await page.keyboard.press('ControlOrMeta+Enter');
+  await page.keyboard.type('set shown threshold 5mm');
+  await expect(read).toContainText('csas, 1 row: CSA-B');
+  await page.keyboard.press('Enter');
+  await expect(line).toBeHidden();
+  await expect(notice).toHaveText('Set CSA-B threshold to 5mm.');
+  await expect(filtered.getByRole('status')).toHaveText('Filter: ccy=USD · 1 of 2');
+  await expect(ids()).toHaveText(['CSA-B']);
+
+  // A CSA edited so that it no longer meets the conditions leaves the grid, and `undo` brings it back.
+  await taken(page, 'set', 'CSA-B ccy JPY');
+  await expect(filtered.getByRole('status')).toHaveText('Filter: ccy=USD · 0 of 2');
+  await expect(ids()).toHaveCount(0);
+  await taken(page, 'undo');
+  await expect(filtered.getByRole('status')).toHaveText('Filter: ccy=USD · 1 of 2');
+  await expect(ids()).toHaveText(['CSA-B']);
+
+  // A CSA an edit brings into the conditions is one `shown` names at once: the server reads the conditions at the
+  // revision the line is read at, whatever the grid has drawn. The page's own question is held back here to show it:
+  // the grid still draws the one CSA it last heard of, and the line reads two.
+  let answer = (): void => { throw new Error('The page asked for the CSAs shown before its question was held back.'); };
+  const heldBack = new Promise<void>((resolve) => { answer = resolve; });
+  await page.route('**/api/workspaces/*/shown', async (route) => { await heldBack; await route.continue(); });
+  await taken(page, 'set', 'CSA-A ccy USD');
+  await page.keyboard.press('ControlOrMeta+K');
+  await expect(line).toBeFocused();
+  await page.keyboard.type('set shown threshold 6mm');
+  await expect(read).toContainText('csas, 2 rows: CSA-A, CSA-B');
+  await expect(ids()).toHaveText(['CSA-B']);
+  await page.keyboard.press('Escape');
+  await expect(line).toBeHidden();
+  answer();
+  await expect(filtered.getByRole('status')).toHaveText('Filter: ccy=USD · 2 of 2');
+  await expect(ids()).toHaveText(['CSA-A', 'CSA-B']);
+  await page.unroute('**/api/workspaces/*/shown');
+  await taken(page, 'undo');
+  await expect(filtered.getByRole('status')).toHaveText('Filter: ccy=USD · 1 of 2');
+  await expect(ids()).toHaveText(['CSA-B']);
+
+  // The button takes the filter off; `sort` is the grid's own sort, which its header shows, and `sort off` takes it off.
+  await page.getByRole('button', { name: 'Take the filter off the CSA terms' }).click();
+  await expect(filtered).toHaveCount(0);
+  await expect(ids()).toHaveText(['CSA-A', 'CSA-B']);
+  await csas.getByRole('grid').focus();
+  await taken(page, 'sort', 'by threshold desc');
+  await expect(notice).toHaveText('Sorted csas by threshold, descending.');
+  await expect(ids()).toHaveText(['CSA-B', 'CSA-A']);
+  await taken(page, 'sort', 'off');
+  await expect(notice).toHaveText('Took the sort off csas.');
+  await expect(ids()).toHaveText(['CSA-A', 'CSA-B']);
+
+  // Conditions the server can no longer read, as where a field of theirs has gone: the grid shows no row and says
+  // why beside the filter, never every row, and the button still takes the filter off.
+  const unread = 'The filter of csas can no longer be read (csas has no field ccy): take it off with filter off.';
+  await page.route('**/api/workspaces/*/shown', (route) => route.fulfill({ status: 422, contentType: 'application/json', body: JSON.stringify({ code: 'FilterUnread', message: unread, issues: [] }) }));
+  await taken(page, 'filter', 'where ccy=JPY');
+  await expect(filtered.getByRole('status')).toHaveText(`Filter: ccy=JPY · No row is shown: ${unread}`);
+  await expect(ids()).toHaveCount(0);
+  expect(problems.splice(0)).toEqual(['error: Failed to load resource: the server responded with a status of 422 (Unprocessable Entity)']);
+  await page.unroute('**/api/workspaces/*/shown');
+  await page.getByRole('button', { name: 'Take the filter off the CSA terms' }).click();
+  await expect(ids()).toHaveText(['CSA-A', 'CSA-B']);
+});

@@ -28,6 +28,9 @@ public class CommandGatewayTests(QubeFactory factory) : IClassFixture<QubeFactor
         return (await response.Content.ReadFromJsonAsync<JsonObject>())!["outputs"]!["answer"]!.AsObject();
     }
 
+    // What a screen is asked for, whatever order its members are written in.
+    static void Same(JsonObject expected, JsonNode? asked) => Assert.True(JsonNode.DeepEquals(expected, asked), $"Expected {expected.ToJsonString()} and was answered {asked?.ToJsonString()}.");
+
     static async Task<(HttpStatusCode Status, string Code, string Message)> Refused(HttpResponseMessage response)
     {
         var error = (await response.Content.ReadFromJsonAsync<JsonObject>())!;
@@ -280,14 +283,14 @@ public class CommandGatewayTests(QubeFactory factory) : IClassFixture<QubeFactor
         var (_, found) = await Preview($"find {keys[^1][^6..]} csa", id, view: view.DeepClone().AsObject());
         var (_, row) = await Preview($"find {keys[1]}", id, view: view.DeepClone().AsObject());
 
-        Assert.Equal("""[{"verbId":"find","title":"Put the keyboard on a row of the grid on screen, or on one of its cells","command":{"words":["find"],"arguments":[{"name":"row","kind":"rows","required":true},{"name":"field","kind":"field","required":false}]}}]""",
-            catalog["viewVerbs"]!.ToJsonString());
+        Assert.Equal("""{"verbId":"find","title":"Put the keyboard on a row of the grid on screen, or on one of its cells","command":{"words":["find"],"arguments":[{"name":"row","kind":"rows","required":true},{"name":"field","kind":"field","required":false}]}}""",
+            catalog["viewVerbs"]![0]!.ToJsonString());
         Assert.DoesNotContain(catalog["capabilities"]!.AsArray(), c => c!["command"]?["words"]!.AsArray().Any(w => w!.GetValue<string>() == "find") == true);
-        Assert.Equal(new JsonObject
+        Same(new JsonObject
         {
             ["table"] = "xva.trades", ["subset"] = "existing", ["key"] = keys[^1], ["position"] = keys.Count - 1, ["column"] = "csa",
             ["said"] = $"The keyboard is on {keys[^1]} · csa in trades (existing).",
-        }.ToJsonString(), found["place"]!.ToJsonString());
+        }, found["place"]);
         Assert.Null(found["command"]);
         Assert.Null(found["inputs"]);
         Assert.Equal($"The keyboard goes to {keys[^1]} · csa.", found["would"]!.GetValue<string>());
@@ -408,4 +411,90 @@ public class CommandGatewayTests(QubeFactory factory) : IClassFixture<QubeFactor
     }
 
     static string[] Selected(JsonObject view) => [.. view["selectedMeasures"]!.AsArray().Select(m => m!.GetValue<string>())];
+
+    [Fact] // ADR-0016 notes 39 to 41: sort and filter are verbs of the screen; the pricer's page reads a trade grid under conditions as a line reads `shown` under them
+    public async Task The_pricers_page_reads_a_trade_grid_under_conditions_as_a_line_reads_shown()
+    {
+        var catalog = (await client.GetFromJsonAsync<JsonObject>("/api/catalog"))!;
+        var ws = await Create();
+        var id = ws["workspaceId"]!.GetValue<string>();
+        async Task<(HttpStatusCode Status, JsonObject Body)> Page(string? where)
+        {
+            var sorts = new JsonArray(new JsonObject { ["column"] = "notional", ["direction"] = "descending" });
+            var response = await client.PostAsJsonAsync($"/api/xva/workspaces/{id}/rows", new { start = 0, count = 200, sorts, grid = "existing", where });
+            return (response.StatusCode, (await response.Content.ReadFromJsonAsync<JsonObject>())!);
+        }
+        static List<string> Keys(JsonObject page) => [.. page["rows"]!.AsArray().Select(r => r!["tradeId"]!.GetValue<string>())];
+
+        var (_, whole) = await Page(null);
+        // A currency some rows have and others have not, read from the page itself: the fixture's rows are not spelled here.
+        var currency = whole["rows"]!.AsArray().Select(r => r!["currency"]!.GetValue<string>()).GroupBy(c => c).OrderBy(g => g.Count()).First().Key;
+        List<string> expected = [.. whole["rows"]!.AsArray().Where(r => r!["currency"]!.GetValue<string>() == currency).Select(r => r!["tradeId"]!.GetValue<string>())];
+        var where = $"ccy={currency.ToLowerInvariant()}";
+        var (status, left) = await Page(where);
+        var (unread, why) = await Page("colour=red");
+        JsonObject View(bool filtered) => new()
+        {
+            ["table"] = "xva.trades", ["subset"] = "existing", ["sorts"] = new JsonArray(new JsonObject { ["column"] = "notional", ["descending"] = true }),
+            ["order"] = (filtered ? left : whole)["orderToken"]!.GetValue<string>(), ["where"] = filtered ? where : null,
+        };
+
+        var (_, filter) = await Preview($"filter where {where}", id, view: View(false));
+        var (_, sort) = await Preview("sort by maturity, notional desc", id, view: View(false));
+        var (_, shown) = await Preview("set shown a off", id, view: View(true));
+        var (_, found) = await Preview($"find {expected[^1]}", id, view: View(true));
+
+        Assert.InRange(expected.Count, 1, Keys(whole).Count - 1);
+        Assert.Equal((HttpStatusCode.OK, string.Join(", ", expected), expected.Count, Keys(whole).Count),
+            (status, string.Join(", ", Keys(left)), left["totalCount"]!.GetValue<int>(), left["of"]!.GetValue<int>()));
+        Assert.Null(whole["of"]);
+        Assert.NotEqual(whole["orderToken"]!.GetValue<string>(), left["orderToken"]!.GetValue<string>());
+        // Conditions the server cannot read are refused, never answered as every row.
+        Assert.Equal((HttpStatusCode.UnprocessableEntity, "FilterUnread"), (unread, why["code"]!.GetValue<string>()));
+        Same(new JsonObject
+        {
+            ["table"] = "xva.trades", ["subset"] = "existing", ["where"] = where,
+            ["said"] = $"Showing {expected.Count} of {Keys(whole).Count} rows of trades (existing) where ccy = {currency}.",
+        }, filter["filter"]);
+        Assert.Equal((null, null), (filter["command"], filter["inputs"]));
+        Same(new JsonObject
+        {
+            ["table"] = "xva.trades", ["subset"] = "existing",
+            ["sorts"] = new JsonArray(new JsonObject { ["column"] = "maturity", ["descending"] = false }, new JsonObject { ["column"] = "notional", ["descending"] = true }),
+            ["said"] = "Sorted trades (existing) by maturity, then notional, descending.",
+        }, sort["sort"]);
+        // The line reads `shown`, and a position, among the rows the page was answered.
+        Assert.Equal(string.Join(", ", expected), shown["inputs"]!["request"]!["rows"]!.GetValue<string>());
+        Assert.Equal($"trades (existing), filtered to {expected.Count}, nothing selected", shown["view"]!.GetValue<string>());
+        Assert.Equal(expected.Count - 1, found["place"]!["position"]!.GetValue<int>());
+        Assert.Equal(["find", "sort", "filter"], catalog["viewVerbs"]!.AsArray().Select(v => v!["verbId"]!.GetValue<string>()));
+        Assert.DoesNotContain(catalog["capabilities"]!.AsArray(), c => c!["command"]?["words"]!.AsArray().Any(w => w!.GetValue<string>() is "sort" or "filter") == true);
+    }
+
+    [Fact] // ADR-0016 note 41: a page that holds every row asks which rows its grid's conditions leave, at the revision it shows; conditions that cannot be read are refused
+    public async Task A_page_reads_the_rows_a_held_grids_conditions_leave()
+    {
+        var ws = await Create();
+        var id = ws["workspaceId"]!.GetValue<string>();
+        async Task<(HttpStatusCode Status, JsonObject Body)> Shown(JsonObject view, HttpClient? by = null, string? workspace = null)
+        {
+            var response = await (by ?? client).PostAsJsonAsync($"/api/workspaces/{workspace ?? id}/shown", new JsonObject { ["view"] = view });
+            return (response.StatusCode, (await response.Content.ReadFromJsonAsync<JsonObject>())!);
+        }
+        using var other = factory.WithWebHostBuilder(b => b.UseSetting("Qube:DemoUser", "ben"));
+
+        var (status, usd) = await Shown(new JsonObject { ["table"] = "xva.csas", ["where"] = "ccy=USD" });
+        var (_, every) = await Shown(new JsonObject { ["table"] = "xva.csas" });
+        var (unread, why) = await Shown(new JsonObject { ["table"] = "xva.csas", ["where"] = "colour=red" });
+        var (invalid, _) = await Shown(new JsonObject { ["table"] = "xva.tides", ["where"] = "ccy=USD" });
+        var (notOwner, _) = await Shown(new JsonObject { ["table"] = "xva.csas" }, other.CreateClient());
+        var (unknown, _) = await Shown(new JsonObject { ["table"] = "xva.csas" }, workspace: "ws-none");
+
+        var csas = ws["csas"]!.AsArray().Count;
+        Assert.Equal((HttpStatusCode.OK, new JsonObject { ["table"] = "xva.csas", ["revision"] = ws["revision"]!.GetValue<long>(), ["keys"] = new JsonArray("CSA-B"), ["of"] = csas }.ToJsonString()),
+            (status, usd.ToJsonString()));
+        Assert.Equal(csas, every["keys"]!.AsArray().Count);
+        Assert.Equal((HttpStatusCode.UnprocessableEntity, "FilterUnread", false), (unread, why["code"]!.GetValue<string>(), why["retryable"]!.GetValue<bool>()));
+        Assert.Equal((HttpStatusCode.BadRequest, HttpStatusCode.Forbidden, HttpStatusCode.NotFound), (invalid, notOwner, unknown));
+    }
 }

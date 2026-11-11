@@ -7,6 +7,8 @@ export interface RowQuery {
   readonly sorts: readonly { readonly column: string; readonly direction: 'ascending' | 'descending' }[];
   /** The New or the Existing grid (ADR-0010 §6). */
   readonly grid: 'new' | 'existing';
+  /** The conditions the grid holds from the line (ADR-0016 note 41), as typed: the page is of the rows they leave. */
+  readonly where?: string;
 }
 
 const base = (workspaceId: string) => `/api/xva/workspaces/${encodeURIComponent(workspaceId)}`;

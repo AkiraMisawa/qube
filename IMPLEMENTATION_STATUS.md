@@ -1962,9 +1962,86 @@ Unchanged: every figure of the pricer is simulated, and says so. The agent is th
   command's answer.
 - `sort`, `filter`, `select`, `copy` and `export` are step 4b's and 4c's.
 
+## Generic commands, delivery step 4b: `sort` and `filter` (ADR-0016 notes 39 to 41, 2026-11-11)
+
+The second of step 4's three pull requests (`docs/specs/commands-4-view-verbs-ai-reads`, tickets 06 to 10). With
+the keyboard in a grid of a table, the line sorts that grid and shows the rows conditions leave; `shown` is then
+those rows.
+
+### What runs
+
+- **A verb of the screen asks its page for one thing**: a place (`find`), a sort or a filter. The server reads the
+  line and answers the ask with its sentence; the page's door gives it to the grid the line's view was read of. No
+  command runs, nothing is logged, and the agent's tools hold none of the three.
+- **`sort by <field> [desc] [, <field> [desc]]`** and **`sort off`** set the grid's own sort, which its header
+  shows. The pricer's trade grids ask their reader, which refuses a field it does not sort by before the page is
+  asked; the CSA grid sorts the rows it holds. The Rates line grid shows a term as typed and sorts by none, so a
+  sort of it is refused on the line by the column's name.
+- **`filter where <conditions>`** and **`filter off`**. The conditions are the selector's (`ccy=USD and
+  notional>50mm`, `maturity<1y`), kept as typed in the grid and read again by the server at each reading: a row
+  edited out of them leaves the grid. The reading says how many rows they leave before Enter ("17 of 43").
+- **A filtered grid says so** beside its title: the conditions, how many rows of how many, and a Filter off button.
+- **`shown` is what the filter leaves**: `set shown a off` writes those rows alone, a position selected in the grid
+  is one among them, and the line's first sentence says "filtered to 17".
+- **A grid the server pages** (the trade grids): the page endpoint takes the conditions and answers the rows left,
+  their count, the count with none and a token of that order. A column's own filter panel is still refused there.
+- **A grid whose page holds its rows** (the CSAs, the Rates lines): the page asks the server which rows the
+  conditions leave at each revision it shows (`POST /api/workspaces/{id}/shown`); the client reads no condition.
+- **Refused by name:** no grid behind the line (`NoView`), another table's or subset's grid (`OtherGrid`), a field
+  the table has not, a field its reader does not sort by (`NotSortable`), conditions `where` would refuse, and
+  conditions that can no longer be read (`FilterUnread`), which are never read as none.
+
+### Measurements
+
+Release build on this Linux container, the SQLite store, one request at a time, a workspace of 10,009 existing
+trades (14,286 requested), the Existing grid sorted by notional. Recorded, not gated.
+
+| What | Time |
+|---|---|
+| A page with no conditions, sorted | 7 to 8 ms |
+| A page under `ccy=USD` (4,011 rows left): the first, then again | 84 ms, then 15 to 53 ms |
+| A page under `maturity<2y and product=IRS` (4,428 left) | 15 to 57 ms |
+| The reading of `filter where ccy=USD` | 9 to 62 ms |
+| The reading of `set shown a off` under `ccy=USD` (71 KB), then Enter | 46 to 129 ms, 190 ms |
+| The first page after that edit, then again | 273 ms, then 24 to 25 ms |
+| `POST /api/workspaces/{id}/shown` for the CSAs | 6 ms |
+
+The conditions are read again at each page and nothing is kept between pages.
+
+### Verification performed
+
+| What | Result |
+|---|---|
+| `dotnet test server/Qube.slnx` | 1158 passed |
+| Client: `npm run typecheck`, `npm test`, `npm run build` | Clean; 309 passed in 34 files; built |
+| `npx playwright test` (Chromium, headless, Linux) | PLAYWRIGHT_COUNT passed |
+| The three browser tests this step adds, with `--repeat-each=3` | 9 passed |
+| `python3 tools/validate_handoff.py` | Passed |
+| A filtered trade grid and a filtered CSA grid at 390, 768, 992 and 1440px, dark and light | Looked at; no sideways scroll, the filter's line inside the page |
+
+The server's tests read the two verbs and a view's conditions over a registration with no financial word, then the
+pricer's page endpoint and `/shown` through the host. The browser tests sort and filter a trade grid from the line,
+write `shown` under the filter, edit a row out of it and take the filter off by the line and by the button; filter
+the CSA grid with a line chained on it; and filter the Rates line grid.
+
+### Providers
+
+Unchanged: every figure of the pricer and of Rates is simulated, and says so.
+
+### Known limits
+
+- The Rates line grid is not sorted from the line (see above). Sorting it by what a term means is left for later.
+- A trade grid whose read fails under its conditions keeps the rows it last read, with why in the page's alert, as
+  when any read fails. A grid whose page holds its rows shows no row then.
+- The caption says the conditions as typed, and the notice as the server read them (`ccy=USD`, `ccy = USD`).
+- A column's own filter panel is refused on the trade grids; on the CSA grid it works beside the line's filter.
+- Conditions are joined by `and` alone (ADR-0016, Rejected, "A full query language").
+- A filter is the grid's while its page is open: it is not kept with the workspace, and a page opened again has none.
+- `select`, `copy` and `export` are step 4c's.
+
 ## Next
 
-1. Generic commands, delivery step 4b (`sort`, `filter`) and 4c (`select`, `copy`, `export`). Then steps 5 and 6.
+1. Generic commands, delivery step 4c (`select`, `copy`, `export`). Then steps 5 and 6.
 2. MVA with SIMM (`docs/12-implementation-plan.md` P2): spot IM from the XVA request's MVA option.
 3. ADR-0010 Delivery step 3 (Advanced: Before-only and After-only edits, the split fill), when the owner asks for it.
 4. The owner's review of ADR-0003 §7 (scopes, carry and conflict), then a synthetic source change that can produce a conflict, and the browser cases still open above (reload, failed case unavailable).

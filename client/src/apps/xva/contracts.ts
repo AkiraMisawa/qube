@@ -406,9 +406,12 @@ export interface XvaWorkspaceView {
 export interface RowPage {
   readonly rows: readonly EffectiveTrade[];
   readonly start: number;
+  /** How many rows the grid has: under conditions (ADR-0016 note 41), how many they leave. */
   readonly totalCount: number;
   readonly orderToken: string;
   readonly revision: number;
+  /** Under conditions, how many rows the grid has with none. */
+  readonly of?: number;
 }
 
 export interface CarrySummary { readonly carried: number; readonly conflicted: number; readonly lost: number }

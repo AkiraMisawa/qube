@@ -1,5 +1,5 @@
 import { ApiError, type Api, type CommandAnswer } from '../api';
-import type { CapabilityDescriptor, LinePlace, LinePreview, LineView, ShortFormDescriptor, ViewVerbDescriptor } from '../contracts';
+import type { CapabilityDescriptor, LineFilter, LinePlace, LinePreview, LineSort, LineView, ShortFormDescriptor, ViewVerbDescriptor } from '../contracts';
 import { readLine, signature, type Command, type CommandDoor } from './commands';
 import { argumentShown, argumentsDrawn, commandDoor, lineAsked, previewShown, screenShown, servedCommands, tableMenu, taken, type DoorPage } from './served';
 
@@ -261,8 +261,15 @@ describe('Enter on a line the server reads, through its page\'s door (ADR-0016 Â
   const done = (revision: number, said: string): CommandAnswer => ({ capabilityId: 'entity.set', version: '1.0.0', outputs: { answer: { workspaceId: 'ws-1', revision, said } } });
   const moved = (at: number, read: number) => new ApiError(409, { code: 'RevisionMoved', message: `The workspace is at revision ${at}, not ${read}.`, issues: [] });
 
+  /** How a page's grid takes what a verb of the screen asks of it, each told the view it was read of; one left out is refused. */
+  interface Takes {
+    readonly put?: (place: LinePlace, view: LineView) => string | undefined;
+    readonly sort?: (asked: LineSort, view: LineView) => string | undefined;
+    readonly filter?: (asked: LineFilter, view: LineView) => string | undefined;
+  }
+
   /** A page that holds its workspace at `held`, with nothing of its own waiting, and reads it again at `stands`. */
-  const page = (held: number, stands: number = held, view?: () => LineView | undefined, place?: (place: LinePlace, view: LineView) => string | undefined, answered?: DoorPage['answered']) => {
+  const page = (held: number, stands: number = held, view?: () => LineView | undefined, takes: Takes = {}, answered?: DoorPage['answered']) => {
     const turns = {
       revision: held,
       after: <T,>(run: (revision: number) => Promise<T>) => run(turns.revision),
@@ -273,10 +280,15 @@ describe('Enter on a line the server reads, through its page\'s door (ADR-0016 Â
     const preview = vi.fn<Api['preview']>();
     const command = vi.fn<Api['command']>();
     const reread = vi.fn(() => Promise.resolve(stands));
-    // What the page says is on screen: the view, and how the grid it was read of takes a place read for it.
+    // What the page says is on screen: the view, and how the grid it was read of takes what is asked of it.
     const screen = view === undefined ? undefined : () => {
       const seen = view();
-      return seen === undefined ? undefined : { view: seen, put: (at: LinePlace) => (place === undefined ? 'This grid takes no place.' : place(at, seen)) };
+      return seen === undefined ? undefined : {
+        view: seen,
+        put: (at: LinePlace) => (takes.put === undefined ? 'This grid takes no place.' : takes.put(at, seen)),
+        sort: (asked: LineSort) => (takes.sort === undefined ? 'This grid takes no sort.' : takes.sort(asked, seen)),
+        filter: (asked: LineFilter) => (takes.filter === undefined ? 'This grid takes no filter.' : takes.filter(asked, seen)),
+      };
     };
     return { turns, notify, preview, command, reread, door: commandDoor({ workspaceId: 'ws-1', app: 'weather', catalog, api: { preview, command }, turns, reread, notify,
       ...(screen === undefined ? {} : { screen }), ...(answered === undefined ? {} : { answered }) }) };
@@ -382,7 +394,7 @@ describe('Enter on a line the server reads, through its page\'s door (ADR-0016 Â
 
   it('a reading that names a place invokes nothing: the page puts the keyboard there, the notice is the server\'s sentence, and the line is told the keyboard was moved (ADR-0016 note 21)', async () => {
     const put = vi.fn(() => undefined);
-    const p = page(7, 7, () => onScreen, put);
+    const p = page(7, 7, () => onScreen, { put });
 
     const ended = await p.door.enter('find R2 note', placing(7), p.door.view());
 
@@ -394,7 +406,7 @@ describe('Enter on a line the server reads, through its page\'s door (ADR-0016 Â
   });
 
   it('a place the page cannot put the keyboard on keeps the line with the reason, and nothing is said to have moved', async () => {
-    const p = page(7, 7, () => onScreen, () => 'The grid has moved since the line opened: open the line again.');
+    const p = page(7, 7, () => onScreen, { put: () => 'The grid has moved since the line opened: open the line again.' });
 
     expect(await p.door.enter('find R2 note', placing(7), p.door.view())).toEqual({ sentence: 'The grid has moved since the line opened: open the line again.' });
     expect(p.notify).not.toHaveBeenCalled();
@@ -402,14 +414,14 @@ describe('Enter on a line the server reads, through its page\'s door (ADR-0016 Â
 
   it('a place read at another revision than the page then holds is asked for again, with the view the line opened with, and so is one not yet shown', async () => {
     const put = vi.fn(() => undefined);
-    const stale = page(8, 8, () => onScreen, put);
+    const stale = page(8, 8, () => onScreen, { put });
     stale.preview.mockResolvedValue({ ...placing(8), place: { ...cell, position: 1 } });
 
     expect(await stale.door.enter('find R2 note', placing(7), stale.door.view())).toEqual({ moved: true });
     expect(stale.preview).toHaveBeenCalledWith('find R2 note', 'ws-1', { revision: 8, view: onScreen });
     expect(put).toHaveBeenCalledWith({ ...cell, position: 1 }, onScreen);
 
-    const unread = page(7, 7, () => onScreen, put);
+    const unread = page(7, 7, () => onScreen, { put });
     unread.preview.mockResolvedValue(placing(7));
     expect(await unread.door.enter('find R2 note', undefined, unread.door.view())).toEqual({ moved: true });
     expect(unread.preview).toHaveBeenCalledWith('find R2 note', 'ws-1', { revision: 7, view: onScreen });
@@ -418,7 +430,7 @@ describe('Enter on a line the server reads, through its page\'s door (ADR-0016 Â
   it('the place is put in the grid the line\'s view was read of, whatever the screen shows by then; a view the page did not give has no grid, and is said', async () => {
     // Each reading of the screen is a view of its own, with its own grid behind it.
     const put = vi.fn<(place: LinePlace, view: LineView) => string | undefined>(() => undefined);
-    const p = page(7, 7, () => ({ ...onScreen }), put);
+    const p = page(7, 7, () => ({ ...onScreen }), { put });
     const opened = p.door.view()!;
     p.door.view();
 
@@ -428,6 +440,74 @@ describe('Enter on a line the server reads, through its page\'s door (ADR-0016 Â
     const defect = { sentence: 'The server named a place, and this page gave the line no grid to put the keyboard on.' };
     expect(await p.door.enter('find R2', placing(7), { ...onScreen })).toEqual(defect);
     expect(await page(7).door.enter('find R2', placing(7))).toEqual(defect);
+  });
+
+  const largest: LineSort = { table: 'w.readings', subset: 'manual', sorts: [{ column: 'volume', descending: true }], said: 'Sorted readings (manual) by volume, descending.' };
+  const north: LineFilter = { table: 'w.readings', subset: 'manual', where: 'station = NORTH', said: 'Showing 2 of 3 rows of readings (manual) where station = NORTH.' };
+  const sorting = (revision: number): LinePreview => ({ revision, sort: largest, would: 'Sorts readings (manual) by volume, descending.', complete: [], more: 0 });
+  const filtering = (revision: number): LinePreview => ({ revision, filter: north, would: 'Shows 2 of 3 rows of readings (manual).', complete: [], more: 0 });
+
+  it('ADR-0016 note 39: a reading that names a sort or a filter invokes nothing: the page gives it to its grid, the notice is the server\'s sentence, and the line ends as a command done does', async () => {
+    const sort = vi.fn(() => undefined);
+    const filter = vi.fn(() => undefined);
+    const p = page(7, 7, () => onScreen, { sort, filter });
+    const view = p.door.view();
+
+    expect(await p.door.enter('sort by volume desc', sorting(7), view)).toBeUndefined();
+    expect(await p.door.enter('filter where station = NORTH', filtering(7), view)).toBeUndefined();
+
+    expect(sort).toHaveBeenCalledWith(largest, onScreen);
+    expect(filter).toHaveBeenCalledWith(north, onScreen);
+    expect([p.preview, p.command, p.reread].map((f) => f.mock.calls.length)).toEqual([0, 0, 0]);
+    expect(p.notify.mock.calls).toEqual([
+      ['done', 'Sorted readings (manual) by volume, descending.'],
+      ['done', 'Showing 2 of 3 rows of readings (manual) where station = NORTH.'],
+    ]);
+    expect(p.turns.revision).toBe(7);
+  });
+
+  it('ADR-0016 note 39: a sort or a filter its grid cannot take keeps the line with why, and nothing is said done', async () => {
+    const p = page(7, 7, () => onScreen, { sort: () => 'The grid on screen shows no column volume to sort by.' });
+
+    expect(await p.door.enter('sort by volume desc', sorting(7), p.door.view())).toEqual({ sentence: 'The grid on screen shows no column volume to sort by.' });
+    expect(await p.door.enter('filter where station = NORTH', filtering(7), p.door.view())).toEqual({ sentence: 'This grid takes no filter.' });
+    expect(p.notify).not.toHaveBeenCalled();
+  });
+
+  it('ADR-0016 note 39: a sort or a filter read at another revision than the page then holds is asked for again, with the view the line opened with', async () => {
+    const filter = vi.fn(() => undefined);
+    const sort = vi.fn(() => undefined);
+    const stale = page(8, 8, () => onScreen, { sort, filter });
+    const fewer: LineFilter = { ...north, said: 'Showing 1 of 3 rows of readings (manual) where station = NORTH.' };
+    stale.preview.mockResolvedValueOnce({ ...filtering(8), filter: fewer }).mockResolvedValueOnce(sorting(8));
+
+    expect(await stale.door.enter('filter where station = NORTH', filtering(7), stale.door.view())).toBeUndefined();
+    expect(await stale.door.enter('sort by volume desc', sorting(7), stale.door.view())).toBeUndefined();
+
+    expect(stale.preview.mock.calls).toEqual([
+      ['filter where station = NORTH', 'ws-1', { revision: 8, view: onScreen }],
+      ['sort by volume desc', 'ws-1', { revision: 8, view: onScreen }],
+    ]);
+    expect(filter).toHaveBeenCalledWith(fewer, onScreen);
+    expect(sort).toHaveBeenCalledWith(largest, onScreen);
+    expect(stale.notify.mock.calls).toEqual([
+      ['done', 'Showing 1 of 3 rows of readings (manual) where station = NORTH.'],
+      ['done', 'Sorted readings (manual) by volume, descending.'],
+    ]);
+  });
+
+  it('ADR-0016 note 39: a sort or a filter is given to the grid the line\'s view was read of; a view the page did not give has no grid, and is said', async () => {
+    const sort = vi.fn<(asked: LineSort, view: LineView) => string | undefined>(() => undefined);
+    const p = page(7, 7, () => ({ ...onScreen }), { sort });
+    const opened = p.door.view()!;
+    p.door.view();
+
+    expect(await p.door.enter('sort by volume desc', sorting(7), opened)).toBeUndefined();
+    expect(sort.mock.calls[0]![1]).toBe(opened);
+
+    expect(await p.door.enter('sort by volume desc', sorting(7), { ...onScreen })).toEqual({ sentence: 'The server named a sort, and this page gave the line no grid to sort.' });
+    const off: LinePreview = { revision: 7, filter: { table: 'w.readings', said: 'Took the filter off readings.' }, would: 'Takes the filter off readings.', complete: [], more: 0 };
+    expect(await page(7).door.enter('filter off', off)).toEqual({ sentence: 'The server named a filter, and this page gave the line no grid to filter.' });
   });
 
   it('a command by its id, from a key or a button, runs in the same turn at the catalog\'s version and the page\'s revision', async () => {

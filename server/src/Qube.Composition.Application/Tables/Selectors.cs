@@ -289,7 +289,7 @@ public static class Selectors
             if (selector.All || selector.Subset is not null || selector.Ids.Count > 0)
                 throw new TableRefused("RowsSaidTwice", $"Rows are said as {screenWord}, or by their ids, as all or as a subset, not both.");
             // Rows of a screen are rows, never a whole set: no one edit stands for them.
-            rows = screen == ScreenRows.Shown ? Views.Shown(view!, table, all, IndexOf(table).Row) : Views.Selected(view!, table, state, IndexOf(table).Row);
+            rows = screen == ScreenRows.Shown ? Views.Shown(view!, table, all, IndexOf(table).Row, state) : Views.Selected(view!, table, state, IndexOf(table).Row);
         }
         else if (selector.Ids.Count > 0)
         {

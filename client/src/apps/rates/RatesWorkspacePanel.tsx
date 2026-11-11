@@ -8,7 +8,9 @@ import type { Screen } from '../../platform/commands/commands';
 import { commandDoor, registerCommandDoor, tableMenu, type Told } from '../../platform/commands/served';
 import { useColumnWidths } from '../../platform/grid/columnWidths';
 import { GridUndoContext } from '../../platform/grid/gridUndo';
-import { heldView, menuView, placeFocus } from '../../platform/grid/lineView';
+import { filterGrid, heldView, menuView, placeFocus, sortGrid } from '../../platform/grid/lineView';
+import { GridFilterLine } from '../../platform/grid/GridFilterLine';
+import { useHeldFilter } from '../../platform/grid/heldFilter';
 import { EditQueue } from '../../platform/workspace/editQueue';
 import { useWorkspaceContext } from '../../platform/workspace/WorkspaceProvider';
 import { keyOf } from '../../platform/workspace/workspaceStore';
@@ -30,6 +32,7 @@ export const RATES_RESULT_VIEW = 'view.rates.result';
 /** The application as the server names it, and the table its line grid is bound to (ADR-0016 note 34). */
 const RATES_APP = 'rates';
 const LINES_TABLE = 'rates.lines';
+const lineKey = (row: LineRow) => row.line;
 /** The two commands that make a Run, which the page opens from their answer (note 36). */
 const PRICE = 'rates.workspace.price';
 const CAPTURE = 'rates.frame.capture';
@@ -119,7 +122,7 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
   useEffect(() => { if (shownRevision !== undefined) queue.shown(shownRevision); }, [shownRevision, queue]);
 
   // The rows live in a source keyed by line, so a tick replaces only the rows whose figures moved.
-  const source = useMemo(() => GridSource.from<LineRow>([], { rowKey: (row) => row.line }), []);
+  const source = useMemo(() => GridSource.from<LineRow>([], { rowKey: lineKey }), []);
   const rowsByLine = useRef<ReadonlyMap<string, LineRow>>(new Map());
   const [shownRows, setShownRows] = useState<ReadonlyMap<string, LineRow>>(new Map());
   useEffect(() => {
@@ -127,8 +130,13 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
     const rows = lineRows(view.data.lines, view.data.revision, frame, rowsByLine.current);
     rowsByLine.current = new Map(rows.map((r) => [r.line, r]));
     setShownRows(rowsByLine.current);
-    source.replaceAll(rows);
-  }, [view.data, frame, source]);
+  }, [view.data, frame]);
+  // The grid shows every line, or, filtered from the line, those the server says its conditions leave (ADR-0016 note 41).
+  const everyRow = useMemo(() => [...shownRows.values()], [shownRows]);
+  const heldGrid = useMemo(() => ({ api: workspace.api, workspaceId, table: LINES_TABLE, revision: shownRevision }), [workspace, workspaceId, shownRevision]);
+  const { rows: gridRows, said: filter } = useHeldFilter(source, heldGrid, everyRow, lineKey);
+  useEffect(() => { source.replaceAll(gridRows); }, [gridRows, source]);
+  const filterOff = useCallback(() => { filterGrid(source, {}); }, [source]);
 
   // The line the grid's Focus is on, by its key, so its result shows above the grid wherever the grid has scrolled.
   const [focusLine, setFocusLine] = useState<string | undefined>(undefined);
@@ -297,9 +305,12 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
   // and its columns by their names, which are the fields' where a column is one.
   const columnsNow = useRef(columns);
   columnsNow.current = columns;
-  const declared = useCallback(() => ({ table: LINES_TABLE, columns: columnsNow.current.map((c) => c.name) }), []);
+  // The grid sorts by none of them: a term is shown as typed (`10y`, `5mm`), which the grid would order as text.
+  const declared = useCallback(() => ({
+    table: LINES_TABLE, columns: columnsNow.current.map((c) => c.name), unsorted: columnsNow.current.filter((c) => c.queryable === false).map((c) => c.name),
+  }), []);
   const contextCommands = useCallback((context: GridContextMenuContext<LineRow>) =>
-    [...menuNow.current.commands(menuView((read) => heldView(declared(), read, source.snapshot(), (row) => row.line), context, context.row.line))], [declared, source]);
+    [...menuNow.current.commands(menuView((read) => heldView(declared(), read, source.snapshot(), lineKey), context, context.row.line))], [declared, source]);
   const commandLabel = useCallback((id: string) => menuNow.current.label(id), []);
   // A place read for that view (note 21) is the row of its key among the rows the grid then held.
   const lineScreen = useCallback((): Screen | undefined => {
@@ -309,11 +320,14 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
     const read = shown.readView();
     const held = source.snapshot();
     return {
-      view: heldView(named, read, held, (row) => row.line),
+      view: heldView(named, read, held, lineKey),
       put: (place) => placeFocus(named, shown, read, place, (key) => {
         const at = held.window.findIndex((row) => row.line === key);
         return at < 0 ? undefined : held.windowStart + at;
       }) ?? focused(grid, 'The lines'),
+      // Which lines conditions leave is the server's to say (note 41); a sort is refused by the column's name (note 40).
+      sort: (asked) => sortGrid(named, source, asked),
+      filter: (asked) => filterGrid(source, asked),
     };
   }, [declared, source]);
 
@@ -400,6 +414,7 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
       </Group>
       <HeldEdits conflicts={ws.conflicts} lost={ws.lost} resolve={(held, resolution) => void queue.push({ kind: 'resolve', held, resolution })} />
       <ResultStrip row={(focusLine === undefined ? undefined : shownRows.get(focusLine)) ?? (shownRows.size === 1 ? [...shownRows.values()][0] : undefined)} />
+      <GridFilterLine said={filter} grid="the lines" onOff={filterOff} />
       <div aria-label="Lines" onFocusCapture={() => { screen.current = lineScreen; }}>
         <QubeGrid<LineRow> ref={grid} columns={columns} onColumnWidthChanged={onColumnWidthChanged} headerGroups={groups} source={source}
           onEdit={onEdit} onAction={onAction}

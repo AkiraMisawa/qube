@@ -121,7 +121,7 @@ static class TableCompletions
             {
                 string Counted(int rows) => $"{rows.ToString(CultureInfo.InvariantCulture)} row{(rows == 1 ? "" : "s")}";
                 if (view.Selected > 0) Keyword(SelectorReader.SelectedWord, detail: Counted(view.Selected));
-                if ((view.Filtered ?? Views.Unfiltered(view, onScreen, onScreen.Table.Rows(state)).Count) is > 0 and var shown) Keyword(SelectorReader.ShownWord, detail: Counted(shown));
+                if (Shown(view, onScreen) is > 0 and var shown) Keyword(SelectorReader.ShownWord, detail: Counted(shown));
             }
             // A subset's word names the screen's table where it has it, and the main table otherwise: a name both
             // have is offered once, and is the screen's.
@@ -140,6 +140,20 @@ static class TableCompletions
                     foreach (var field in Fields(onScreen, [], editable: true)) items.Add(new(TableWords.Word(field), at, rows));
             }
             Rows(said is null ? null : [said], []);
+        }
+
+        // How many rows the grid on screen shows; none where its filter can no longer be read: the view's sentence says
+        // so, a line that says `shown` is refused with why, and the word is not offered.
+        int? Shown(LineView seen, BoundTable onScreen)
+        {
+            try
+            {
+                return Views.ShownCount(seen, onScreen, state);
+            }
+            catch (TableRefused unread) when (unread.Code == Views.Unread)
+            {
+                return null;
+            }
         }
 
         // What a line that says no rows would act on, in a word or two: how many rows are selected, or the row the

@@ -1,9 +1,13 @@
 import { useCallback, useEffect, useId, useMemo, useRef, type Ref, type RefObject } from 'react';
-import { Button, Group, Table, Tabs, Text, useMantineTheme } from '@mantine/core';
+import { Button, Group, Stack, Table, Tabs, Text, useMantineTheme } from '@mantine/core';
+import { useElementSize } from '@mantine/hooks';
 import { GridSource, type CellState, type GridColumn, type GridContextMenuContext, type GridEditIntent } from '@ex-grid/core';
 import type { ExGridApi } from '@ex-grid/react';
 import { QubeGrid } from '../../platform/grid/QubeGrid';
-import { heldView, menuView, placeFocus } from '../../platform/grid/lineView';
+import { filterGrid, heldView, menuView, placeFocus, sortGrid } from '../../platform/grid/lineView';
+import { GridFilterLine } from '../../platform/grid/GridFilterLine';
+import { useHeldFilter } from '../../platform/grid/heldFilter';
+import { useWorkspaceContext } from '../../platform/workspace/WorkspaceProvider';
 import type { TableMenu } from '../../platform/commands/served';
 import type { Screen } from '../../platform/commands/commands';
 import type { Agreement, ChangesList, EffectiveCsa, RegisteredMeasure, XvaWorkspaceView } from './contracts';
@@ -30,6 +34,7 @@ const amount = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 });
 const money = (v: unknown) => amount.format(v as number);
 
 type CsaRow = EffectiveCsa;
+const csaKey = (row: CsaRow) => row.csaId;
 
 const term = (name: keyof CsaRow & string, header: string, type: GridColumn<CsaRow>['type'], width: number, extra: Partial<GridColumn<CsaRow>> = {}): GridColumn<CsaRow> => ({
   name, header, type, width, value: (row) => row[name] ?? undefined, ...extra,
@@ -240,7 +245,7 @@ export function XvaInputs({ panelId, ws, push, setText, catalogue, onIssue, onGr
           <Tabs.Panel value="csa" pt="xs">
             {ws.csas.length === 0
               ? <Text size="sm">{ws.agreement.maId} has no CSA: its trades are uncollateralised ({ws.agreement.noCsa}).</Text>
-              : <CsaGrid panelId={panelId} csas={ws.csas} columns={csaColumns} push={push} height={height - gap - GRID_FRAME} gridRef={csaGrid} onVary={onVary} commandLabel={commandLabel} menu={csaMenu} onGridEntered={onGridEntered} onPlaced={onPlaced} />}
+              : <CsaGrid panelId={panelId} workspaceId={ws.workspaceId} revision={ws.revision} csas={ws.csas} columns={csaColumns} push={push} height={height - gap - GRID_FRAME} gridRef={csaGrid} onVary={onVary} commandLabel={commandLabel} menu={csaMenu} onGridEntered={onGridEntered} onPlaced={onPlaced} />}
           </Tabs.Panel>
           {creditShown && (
             <Tabs.Panel value={CREDIT_TAB} pt="xs">
@@ -310,9 +315,12 @@ function ImCsas({ ws, focusRef }: { readonly ws: XvaWorkspaceView; readonly focu
  * The CSA terms, as high as their rows within `height`, what the tab's height leaves under the panel's top gap and the
  * grid's frame. It shows no Selection Summary: a sum or an average of terms in different currencies is no figure.
  */
-function CsaGrid({ panelId, csas, columns: declared, push, height, gridRef, onVary, commandLabel, menu, onGridEntered, onPlaced }: {
+function CsaGrid({ panelId, workspaceId, revision, csas, columns: declared, push, height, gridRef, onVary, commandLabel, menu, onGridEntered, onPlaced }: {
   /** The panel the page is in, which keeps the widths the user dragged in its grids. */
   readonly panelId: string;
+  /** The workspace the CSAs are of, and the revision the page shows of it. */
+  readonly workspaceId: string;
+  readonly revision: number;
   readonly onVary: (target: VaryTarget) => void;
   readonly commandLabel: (id: string) => string | undefined;
   readonly menu: { readonly current: { readonly csas: TableMenu } };
@@ -325,9 +333,13 @@ function CsaGrid({ panelId, csas, columns: declared, push, height, gridRef, onVa
   readonly onGridEntered: (screen: () => Screen | undefined) => void;
   readonly onPlaced: () => string | undefined;
 }) {
-  const source = useMemo(() => GridSource.from<CsaRow>([], { rowKey: (row) => row.csaId }), []);
+  const source = useMemo(() => GridSource.from<CsaRow>([], { rowKey: csaKey }), []);
   const { columns, onColumnWidthChanged } = useColumnWidths(panelId, 'csas', declared);
-  useEffect(() => { source.replaceAll(csas); }, [csas, source]);
+  const { api } = useWorkspaceContext();
+  const heldGrid = useMemo(() => ({ api, workspaceId, table: CSAS_TABLE, revision }), [api, workspaceId, revision]);
+  // Filtered from the line (ADR-0016 note 41), the grid shows the CSAs the server says its conditions leave.
+  const { rows: shown, said: filter } = useHeldFilter(source, heldGrid, csas, csaKey);
+  useEffect(() => { source.replaceAll(shown); }, [shown, source]);
 
   const onEdit = useCallback((intent: GridEditIntent<CsaRow>) => {
     const parse = csaFields[intent.column];
@@ -347,7 +359,7 @@ function CsaGrid({ panelId, csas, columns: declared, push, height, gridRef, onVa
   // What the CSAs' table offers on the rows selected and the cell under the menu (ADR-0016 note 25) comes first.
   const contextCommands = useCallback((context: GridContextMenuContext<CsaRow>) => {
     const column = columnsNow.current.find((c) => c.name === context.column);
-    const under = menuView((read) => heldView({ table: CSAS_TABLE, columns: columnsNow.current.map((c) => c.name) }, read, source.snapshot(), (row) => row.csaId), context, context.row.csaId);
+    const under = menuView((read) => heldView({ table: CSAS_TABLE, columns: columnsNow.current.map((c) => c.name) }, read, source.snapshot(), csaKey), context, context.row.csaId);
     return [
       ...menu.current.csas.commands(under),
       ...(column?.editable === true
@@ -363,23 +375,35 @@ function CsaGrid({ panelId, csas, columns: declared, push, height, gridRef, onVa
   const screen = useCallback((): Screen | undefined => {
     const grid = gridRef.current;
     if (grid === null) return undefined;
-    const declared = { table: CSAS_TABLE, columns: columnsNow.current.map((c) => c.name) };
+    const declared = { table: CSAS_TABLE, columns: columnsNow.current.map((c) => c.name), unsorted: columnsNow.current.filter((c) => c.queryable === false).map((c) => c.name) };
     const read = grid.readView();
     const held = source.snapshot();
     return {
-      view: heldView(declared, read, held, (row) => row.csaId),
+      view: heldView(declared, read, held, csaKey),
       put: (place) => placeFocus(declared, grid, read, place, (key) => {
         const at = held.window.findIndex((row) => row.csaId === key);
         return at < 0 ? undefined : held.windowStart + at;
       }) ?? placed.current(),
+      // The grid sorts the CSAs it holds itself, as its header does; which of them conditions leave is the server's.
+      sort: (asked) => sortGrid(declared, source, asked),
+      filter: (asked) => filterGrid(source, asked),
     };
   }, [gridRef, source]);
+  const filterOff = useCallback(() => { filterGrid(source, {}); }, [source]);
+  // The filter's line takes its height from the grid's, as high as it is drawn (it wraps where the tab is narrow) and
+  // the gap under it, so the tab stays as high as the page set it.
+  const gap = pixels(useMantineTheme().spacing.xs);
+  const { ref: filterLine, height: filterHeight } = useElementSize();
+  const gridHeight = Math.min(compactGridHeight(shown.length), height - (filter === undefined ? 0 : filterHeight + gap));
 
   return (
-    <div aria-label="CSA terms" onFocusCapture={() => onGridEntered(screen)}>
-      <QubeGrid<CsaRow> ref={gridRef} columns={columns} onColumnWidthChanged={onColumnWidthChanged} source={source} onEdit={onEdit} cellState={csaCellState} cellMessage={csaCellMessage}
-        contextCommands={contextCommands} commandLabel={commandLabel}
-        density="compact" viewportWidth="stretch" viewportHeight={Math.max(compactGridHeight(1), Math.min(compactGridHeight(csas.length), height))} pinnedColumnCount={2} showSelectionSummary={false} locale="en-US" />
-    </div>
+    <Stack gap="xs">
+      {filter === undefined ? null : <div ref={filterLine}><GridFilterLine said={filter} grid="the CSA terms" onOff={filterOff} /></div>}
+      <div aria-label="CSA terms" onFocusCapture={() => onGridEntered(screen)}>
+        <QubeGrid<CsaRow> ref={gridRef} columns={columns} onColumnWidthChanged={onColumnWidthChanged} source={source} onEdit={onEdit} cellState={csaCellState} cellMessage={csaCellMessage}
+          contextCommands={contextCommands} commandLabel={commandLabel}
+          density="compact" viewportWidth="stretch" viewportHeight={Math.max(compactGridHeight(1), gridHeight)} pinnedColumnCount={2} showSelectionSummary={false} locale="en-US" />
+      </div>
+    </Stack>
   );
 }
