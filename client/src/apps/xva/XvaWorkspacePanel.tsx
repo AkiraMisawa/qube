@@ -198,12 +198,17 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   const [failure, setFailure] = useState<string | undefined>(undefined);
   const [issue, setIssue] = useState<string | undefined>(undefined);
 
+  // A trade each grid has read, the first of the page read last: a real row for the command line's examples (ADR-0006's
+  // note 4 of 2026-11-11).
+  const readTrade = useRef<{ new?: string; existing?: string }>({});
   // One source per grid, each paged and sorted on the server (ADR-0010 §6); an edit may move a row in either.
   const sources = useMemo(() => {
     const of = (grid: TradeGrid) => GridSource.fetch<Row>(async (query, signal) => {
       // Filtering is not offered by the server yet; a filter set anyway is refused, never ignored.
       if (query.filter !== undefined) throw new Error('This grid cannot filter yet. Clear the filter to see the trades.');
       const page = await api.rows(workspaceId, { start: query.range.start, count: query.range.count, sorts: query.sorts, grid }, signal);
+      const first = page.rows[0]?.tradeId;
+      if (first !== undefined) readTrade.current[grid] = first;
       return { rows: page.rows, start: page.start, totalCount: page.totalCount, orderToken: page.orderToken };
     }, { rowKey: (row) => row.tradeId, onFetchFailed: (event) => setFailure(describe(event.error)) });
     const grids = { new: of('new'), existing: of('existing') };
@@ -710,7 +715,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   const setCurrency = (currency: string) => void queue.push({ entity: SETTINGS_ENTITY, field: 'displayCurrency', value: currency });
 
   // The commands run what the page's own controls run, as the page stands when they run (ADR-0010 §9).
-  const pageCommands = { chooseCds, cdsCatalogue: () => catalogue.data, price, setMeasures, setSide, retry, copyQuote, download, refresh, setCurrency, openTab, explain, openResult, setDockFull, resultTabs, traceInView, vary, set, addTrades, removeCase, clearCases, defineScenario, includeScenario, removeScenario, duplicate, clearScenarios, generateScenarios, saveScenarios, loadScenarios, scenarioSets: () => scenarioSets.data ?? [], scenarios: () => view.data?.scenarios ?? [], pricing: () => (view.data === undefined ? undefined : { cases: view.data.cases.length, cap: view.data.caseCap }), measures: () => view.data?.measures ?? [], currencies: () => view.data?.currencies ?? [] };
+  const pageCommands = { chooseCds, cdsCatalogue: () => catalogue.data, price, setMeasures, setSide, retry, copyQuote, download, refresh, setCurrency, openTab, explain, openResult, setDockFull, resultTabs, traceInView, vary, set, addTrades, removeCase, clearCases, defineScenario, includeScenario, removeScenario, duplicate, clearScenarios, generateScenarios, saveScenarios, loadScenarios, scenarioSets: () => scenarioSets.data ?? [], scenarios: () => view.data?.scenarios ?? [], pricing: () => (view.data === undefined ? undefined : { cases: view.data.cases.length, cap: view.data.caseCap }), measures: () => view.data?.measures ?? [], currencies: () => view.data?.currencies ?? [], examples: () => ({ csa: view.data?.csas[0]?.csaId, trade: readTrade.current.existing ?? readTrade.current.new }) };
   const pageRef = useRef(pageCommands);
   pageRef.current = pageCommands;
   useEffect(() => {
@@ -747,6 +752,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
       setDockFull: (full) => pageRef.current.setDockFull(full),
       resultTabs: () => pageRef.current.resultTabs(),
       traceInView: () => pageRef.current.traceInView(),
+      examples: () => pageRef.current.examples(),
       measures: () => pageRef.current.measures(),
       currencies: () => pageRef.current.currencies(),
     });

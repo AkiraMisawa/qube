@@ -484,6 +484,44 @@ test('ADR-0006 note 2 (2026-11-11): a result is teal, takes no room and leaves b
   expect(problems.splice(0)).toHaveLength(1);
 });
 
+test('ADR-0006 note 4 (2026-11-11): the hint of `set` shows this workspace\'s rows, and an A cell reads a flag as `set` reads it', async ({ page }) => {
+  await open(page);
+  await newWorkspace(page, 'ABC/LE-01', 5);
+  await command(page, 'measures', 'cva fva');
+  // The measures' columns are drawn before the first key: a key sent to a grid not yet settled is lost.
+  await expect(page.getByTestId('price')).toHaveText('Price CVA FVA · 1 case');
+  await settled(page, 'New trades');
+  // The hint of `set` shows a trade and a CSA of this workspace: it showed `T-1001`, an id no workspace has.
+  await page.keyboard.press('ControlOrMeta+K');
+  await expect(page.getByRole('combobox', { name: 'Command' })).toBeFocused();
+  await page.keyboard.type('set ');
+  await expect(page.getByTestId('command-pending')).toContainText('cell: the rows separated by commas, a column and the value: ABC-LE-01-E00003 csa CSA-A');
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('combobox', { name: 'Command' })).toBeHidden();
+
+  // A is the eleventh column of the New grid: ten to the right of the trade's id. The grid writes a flag True or False.
+  const after = cell(page, 'DRAFT-1', 11);
+  await focusCell(page, 10);
+  await expect(after).toHaveText('True');
+
+  await page.keyboard.type('off');
+  await page.keyboard.press('Enter');
+  await expect(after).toHaveText('False');
+  await expect(page.getByTestId('workspace-summary')).toContainText('1 edit(s)');
+
+  await page.keyboard.press('ArrowUp');
+  await page.keyboard.type('yes');
+  await page.keyboard.press('Enter');
+  await expect(after).toHaveText('True');
+
+  await page.keyboard.press('ArrowUp');
+  await page.keyboard.type('maybe');
+  await page.keyboard.press('Enter');
+  await expect(page.getByLabel('New trades', { exact: true }).getByRole('status')).toHaveText('Type on or off.');
+  await page.keyboard.press('Escape');
+  await expect(after).toHaveText('True');
+});
+
 test('ADR-0010 §9: `set` makes a typed cell\'s edit on each row named, and is refused with the grid\'s reason', async ({ page, problems }) => {
   await open(page);
   await newWorkspace(page, 'ABC/LE-01', 5);

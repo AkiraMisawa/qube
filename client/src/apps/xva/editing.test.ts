@@ -22,8 +22,14 @@ describe('what a cell accepts', () => {
   it('refuses a zero notional and a schedule it does not know', () => {
     expect(tradeFields.notional!('0').ok).toBe(false);
     expect(tradeFields.schedule!('1Y').ok).toBe(false);
-    expect(tradeFields.before!('yes').ok).toBe(false);
     expect(tradeFields.after!('false')).toEqual({ ok: true, value: false });
+  });
+
+  it('ADR-0006 note 4 (2026-11-11): reads a flag as `set` reads it, in a cell too, and refuses a word that is none', () => {
+    for (const on of ['on', 'yes', 'true', 'y', 'ON', 'Yes', 'TRUE']) expect(tradeFields.before!(on), on).toEqual({ ok: true, value: true });
+    for (const off of ['off', 'no', 'false', 'n', 'OFF', 'No', 'FALSE']) expect(tradeFields.after!(off), off).toEqual({ ok: true, value: false });
+    expect(csaFields.oneWay!(' off ')).toEqual({ ok: true, value: false });
+    for (const none of ['maybe', '1', '0', '', 'onn']) expect(tradeFields.before!(none), none).toEqual({ ok: false, message: 'Type on or off.' });
   });
 });
 

@@ -25,11 +25,23 @@ export function parseNumber(text: string): number | undefined {
   return Number.isFinite(value) ? value : undefined;
 }
 
-/** Excel's words for a Boolean cell, in any case. */
+/**
+ * A flag as typed, in any case: the words the server's reader of a flag takes (`PortfolioCells.Read`), so a cell and
+ * `set` read it alike (ADR-0006's note 4 of 2026-11-11). `TRUE` and `FALSE`, Excel's words, are among them.
+ */
 export function parseBoolean(text: string): boolean | undefined {
-  const t = text.trim().toUpperCase();
-  return t === 'TRUE' ? true : t === 'FALSE' ? false : undefined;
+  switch (text.trim().toLowerCase()) {
+    case 'on': case 'yes': case 'true': case 'y': return true;
+    case 'off': case 'no': case 'false': case 'n': return false;
+    default: return undefined;
+  }
 }
+
+/** A flag's cell: what was typed, read as a flag or refused. */
+export const parseFlag = (text: string): Parsed => {
+  const b = parseBoolean(text);
+  return b === undefined ? fail('Type on or off.') : { ok: true, value: b };
+};
 
 const imCsaOf = (text: string): Parsed => ({ ok: true, value: text.trim() === '' ? null : text.trim() });
 
@@ -54,14 +66,8 @@ export const tradeFields: Readonly<Record<string, (text: string) => Parsed>> = {
   imR: imCsaOf,
   imP: imCsaOf,
   curve: (text) => (text.trim() === '' ? fail('Type a curve identifier.') : { ok: true, value: text.trim() }),
-  before: (text) => {
-    const b = parseBoolean(text);
-    return b === undefined ? fail('Type TRUE or FALSE.') : { ok: true, value: b };
-  },
-  after: (text) => {
-    const b = parseBoolean(text);
-    return b === undefined ? fail('Type TRUE or FALSE.') : { ok: true, value: b };
-  },
+  before: parseFlag,
+  after: parseFlag,
 };
 
 const amountOf = (text: string): Parsed => {
@@ -71,10 +77,6 @@ const amountOf = (text: string): Parsed => {
 const currencyOf = (text: string): Parsed => {
   const t = text.trim().toUpperCase();
   return /^[A-Z]{3}$/.test(t) ? { ok: true, value: t } : fail('Type a currency code, such as JPY.');
-};
-const flagOf = (text: string): Parsed => {
-  const b = parseBoolean(text);
-  return b === undefined ? fail('Type TRUE or FALSE.') : { ok: true, value: b };
 };
 const identifierOf = (what: string) => (text: string): Parsed => (text.trim() === '' ? fail(`Type ${what}.`) : { ok: true, value: text.trim() });
 
@@ -90,8 +92,8 @@ export const csaFields: Readonly<Record<string, (text: string) => Parsed>> = {
     const t = text.trim().toLowerCase();
     return t === 'daily' || t === 'weekly' || t === 'monthly' ? { ok: true, value: t } : fail('Type daily, weekly or monthly.');
   },
-  exchange: flagOf,
-  oneWay: flagOf,
+  exchange: parseFlag,
+  oneWay: parseFlag,
   counterpartyThreshold: amountOf,
   counterpartyMta: amountOf,
   counterpartyCurrency: currencyOf,

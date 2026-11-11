@@ -71,10 +71,37 @@ export interface XvaPage {
   setDockFull(full: boolean): void;
   /** The dock's tabs for the Run it shows, for the command line to offer. */
   resultTabs(): readonly DockTab[];
+  /** Rows of the workspace as the page has read it, for the command line's examples (ADR-0006's note 4 of 2026-11-11). */
+  examples(): XvaExamples;
   /** The registered measures, for the command line to offer. */
   measures(): readonly RegisteredMeasure[];
   /** The currencies the figures can be shown in, for the command line to offer. */
   currencies(): readonly string[];
+}
+
+/** A CSA and a trade of the open workspace, where the page has read one. */
+export interface XvaExamples {
+  readonly csa: string | undefined;
+  readonly trade: string | undefined;
+}
+
+const SET_FORM = 'the rows separated by commas, a column and the value';
+const VARY_FORM = 'a row and a column, then the values separated by commas';
+
+/**
+ * The hint of `set`: its form, and an example that can be typed as it is, made from the open workspace's own rows.
+ * With none read yet it is the form alone, never an id no workspace has (ADR-0006's note 4 of 2026-11-11).
+ */
+export function setHint(examples: XvaExamples | undefined): string {
+  const { csa, trade } = examples ?? { csa: undefined, trade: undefined };
+  if (trade !== undefined && csa !== undefined) return `${SET_FORM}: ${trade} csa ${csa}`;
+  if (csa !== undefined) return `${SET_FORM}: ${csa} threshold 5mm`;
+  return trade === undefined ? SET_FORM : `${SET_FORM}: ${trade} a off`;
+}
+
+/** The hint of `vary`, as `setHint`: a CSA's threshold is the example, where the workspace has a CSA. */
+export function varyHint(examples: XvaExamples | undefined): string {
+  return examples?.csa === undefined ? VARY_FORM : `${VARY_FORM}: ${examples.csa} threshold 10mm, 5mm, 0`;
 }
 
 const pages = new Map<string, XvaPage>();

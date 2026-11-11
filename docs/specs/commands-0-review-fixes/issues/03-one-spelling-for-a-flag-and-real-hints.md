@@ -8,8 +8,12 @@ made from them, never from an id no workspace has.
 
 **Blocked by:** nothing.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Every spelling is read, in any case; a word that is none is refused with `Type on or off.`
-- [ ] `off` typed in an A cell of a new trade clears A.
-- [ ] The hint of `set` on an open workspace shows one of its trades and one of its CSAs.
+- [x] Every spelling is read, in any case; a word that is none is refused with `Type on or off.`
+- [x] `off` typed in an A cell of a new trade clears A.
+- [x] The hint of `set` on an open workspace shows one of its trades and one of its CSAs.
+
+Done 2026-11-11. `parseFlag` is the one reader of a flag's cell (`editing.ts`), Rates' flags included. The grid writes
+a flag `True` or `False`; what it reads is wider than what it writes, as `set` is. `setHint` and `varyHint`
+(`xva/commands.ts`) take the page's `examples()`: with a trade but no CSA the example is `<trade> a off`.

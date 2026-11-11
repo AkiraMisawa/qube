@@ -78,9 +78,9 @@ Four changes in the client, with no change to what a command does:
   column in words, `The measures`, `The display currency`, `Before … on the existing trades`.
 - **Flags.** `parseBoolean` reads `on`, `off`, `yes`, `no`, `true`, `false`, `y`, `n` in any case, the list the
   server's `PortfolioCells.Read` has; a cell's refusal says `Type on or off.` Rates' flags read through it too.
-- **Hints.** The XVA page offers `examples()`: its first CSA's id and the first trade id each grid has read. The
-  hints of `set` and `vary` are made from them when the line opens, and fall back to the form alone
-  (`<row> <column> <value>`) while the page has none.
+- **Hints.** The XVA page offers `examples()`: its first CSA's id, and a trade a grid has read (the first of the page
+  read last, the Existing grid's before the New one's). The hints of `set` and `vary` are made from them when the
+  line opens (`setHint`, `varyHint`), and are the form alone while the page has none.
 - **The list.** `listed(query, commands, usage)` answers sections `{ heading, commands }` for the empty line and `?`:
   the page's commands (a command says `page: true` when it acts on the page in the active panel) under the panel's
   title; then each group of the other commands that can run; on the empty line, `Not available now` last. The

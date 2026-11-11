@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ambiguousComma, cdsCompletions, measureNamed, measuresTyped, setTyped, varyTyped } from './commands';
+import { ambiguousComma, cdsCompletions, measureNamed, measuresTyped, setHint, setTyped, varyHint, varyTyped } from './commands';
 import type { CdsCatalogue, CdsCurve, RegisteredMeasure } from './contracts';
 
 describe('`measures` as typed (ADR-0010 §9)', () => {
@@ -96,5 +96,19 @@ describe('`cds` completes from the catalogue (ADR-0010 §8\'s note of 2026-11-09
     expect(values('proxy')).toEqual(['financials', 'utilities', 'asia', 'A', 'BBB']);
     expect(values('proxy utilities a')).toEqual(['asia']);
     expect(cdsCompletions('', undefined)).toEqual([]);
+  });
+});
+
+describe('the hints of `set` and `vary` (ADR-0006 note 4 of 2026-11-11)', () => {
+  it('show rows of the open workspace, never an id no workspace has', () => {
+    expect(setHint({ csa: 'CSA-A', trade: 'ABC-LE-01-E00003' })).toBe('the rows separated by commas, a column and the value: ABC-LE-01-E00003 csa CSA-A');
+    expect(setHint({ csa: 'CSA-A', trade: undefined })).toBe('the rows separated by commas, a column and the value: CSA-A threshold 5mm');
+    expect(setHint({ csa: undefined, trade: 'DRAFT-1' })).toBe('the rows separated by commas, a column and the value: DRAFT-1 a off');
+    expect(varyHint({ csa: 'CSA-A', trade: 'ABC-LE-01-E00003' })).toBe('a row and a column, then the values separated by commas: CSA-A threshold 10mm, 5mm, 0');
+  });
+
+  it('say the form alone while the page has no row to show', () => {
+    expect(setHint(undefined)).toBe('the rows separated by commas, a column and the value');
+    expect(varyHint({ csa: undefined, trade: undefined })).toBe('a row and a column, then the values separated by commas');
   });
 });

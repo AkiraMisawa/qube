@@ -1,6 +1,6 @@
 import type { CellState, GridColumn, GridHeaderGroup } from '@ex-grid/core';
 import { actionColumn, gridHeaderRequiredPx } from '@ex-grid/core';
-import { parseBoolean, parseNumber, type Parsed } from '../xva/editing';
+import { parseBoolean, parseFlag, parseNumber, type Parsed } from '../xva/editing';
 import { amountTone, formatAmount } from '../../platform/grid/amounts';
 import type { LineView, LiveFrame, PeriodView } from './contracts';
 
@@ -95,7 +95,7 @@ function whole(text: string): Parsed {
 function flag(text: string): Parsed {
   if (empty(text)) return { ok: true, value: null };
   const b = parseBoolean(text);
-  return b === undefined ? fail('Type TRUE or FALSE.') : { ok: true, value: b };
+  return b === undefined ? fail('Type on or off, or leave it empty.') : { ok: true, value: b };
 }
 
 function frequency(allowEmpty: boolean) {
@@ -158,7 +158,7 @@ export function parserOf(field: string): ((text: string) => Parsed) | undefined 
     case 'direction': return choice({ p: 'pay', pay: 'pay', r: 'receive', receive: 'receive', rec: 'receive' }, 'Type P (pay) or R (receive).');
     case 'collateral': return (t) => (empty(t) ? { ok: true, value: null } : { ok: true, value: t.trim() });
     case 'mandatoryBreak': return (t) => (empty(t) ? { ok: true, value: null } : DATE.test(t.trim()) ? { ok: true, value: t.trim() } : fail('Type a date (yyyy-mm-dd), or leave it empty.'));
-    case 'risk': return (t) => { const b = parseBoolean(t); return b === undefined ? fail('Type TRUE or FALSE.') : { ok: true, value: b }; };
+    case 'risk': return parseFlag;
     default: {
       const m = /^leg[12]\.(.+)$/.exec(field);
       return m === null ? undefined : legParsers[m[1] as string];

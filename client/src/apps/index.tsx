@@ -11,7 +11,7 @@ import { httpRatesApi, type RatesApi } from './rates/api';
 import { ratesCommandsOf } from './rates/commands';
 import { RatesWorkspacePanel } from './rates/RatesWorkspacePanel';
 import { httpXvaApi, type XvaApi } from './xva/api';
-import { cdsCompletions, measureNamed, measuresTyped, setTyped, varyTyped, xvaPageOf } from './xva/commands';
+import { cdsCompletions, measureNamed, measuresTyped, setHint, setTyped, varyHint, varyTyped, xvaPageOf } from './xva/commands';
 import { generatorParts, scenarioParts, scenarioTyped } from './xva/scenarios';
 import { XvaWorkspacePanel } from './xva/XvaWorkspacePanel';
 import { registerAiContext, registerAiEffect } from '../ai/effects';
@@ -256,7 +256,7 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
       title: 'Make a case per value of a cell, such as vary CSA-A threshold 10mm, 5mm, 0',
       group: 'XVA',
       ...onXva,
-      args: [{ name: 'cell', required: true, rest: true, hint: 'a row and a column, then the values separated by commas: CSA-A threshold 10mm, 5mm, 0' }],
+      args: [{ name: 'cell', required: true, rest: true, hint: varyHint(xvaPageOf(xva)?.examples()) }],
       run: (a) => {
         const typed = varyTyped(a.cell ?? '');
         xvaPage().vary(typed.cell, typed.values);
@@ -268,7 +268,7 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
       title: 'Set one value of a cell, on one row or several, such as set CSA-A threshold 5mm',
       group: 'XVA',
       ...onXva,
-      args: [{ name: 'cell', required: true, rest: true, hint: 'the rows separated by commas, a column and the value: T-1001, T-1002 csa CSA-B' }],
+      args: [{ name: 'cell', required: true, rest: true, hint: setHint(xvaPageOf(xva)?.examples()) }],
       run: (a) => {
         const typed = setTyped(a.cell ?? '');
         xvaPage().set(typed.rows, typed.column, typed.text);
