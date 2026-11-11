@@ -55,7 +55,7 @@ public class PricerProfileTests
         var (service, runs, store) = Priced();
         var ws = service.Create("akira", counterparty, Day1, 20);
         ws = service.SetMeasures(ws.WorkspaceId, ws.Revision, "akira", ["cva"]);
-        if (mpor is not null) ws = service.SetCells(ws.WorkspaceId, ws.Revision, "akira", ["xva"], "mpor", mpor);
+        if (mpor is not null) ws = service.SetText(ws.WorkspaceId, ws.Revision, "akira", MeasureSettings.EntityOf(XvaMeasures.Module), XvaMeasures.Mpor, mpor);
 
         var (input, profiles) = await Price(runs, store, service, ws);
 

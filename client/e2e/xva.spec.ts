@@ -437,7 +437,7 @@ test('ADR-0006 note 1 (2026-11-11): a line that cannot be read stays open with i
   await page.keyboard.type(' off');
   await page.keyboard.press('Enter');
   await expect(line).toBeHidden();
-  await expect(page.getByTestId('notice')).toHaveText('Set DRAFT-1 a to off.');
+  await expect(page.getByTestId('notice')).toHaveText('Set DRAFT-1 A to off.');
 
   for (const [words, args, reason] of [
     ['vary', 'CSA-A threshold', 'vary needs a cell, its row and its column, and the values, such as vary CSA-A threshold 10mm, 5mm, 0.'],
@@ -648,7 +648,7 @@ test('ADR-0006 note 4 (2026-11-11): the hint of `set` shows this workspace\'s ro
   await expect(after).toHaveText('True');
 });
 
-test('ADR-0010 §9: `set` makes a typed cell\'s edit on each row named, and is refused with the grid\'s reason', async ({ page, problems }) => {
+test('ADR-0016 §3: `set` writes one value on each row named through the kernel\'s command, and is refused with the grid\'s reason', async ({ page, problems }) => {
   await open(page);
   await newWorkspace(page, 'ABC/LE-01', 5);
   await command(page, 'measures', 'cva fva');
@@ -657,7 +657,7 @@ test('ADR-0010 §9: `set` makes a typed cell\'s edit on each row named, and is r
   await expect(page.getByTestId('notice')).toHaveText('Set CSA-A threshold to 5mm.');
   await expect(page.getByTestId('workspace-summary')).toContainText('1 edit(s)');
   await command(page, 'set', 'DRAFT-1, DRAFT-2 a off');
-  await expect(page.getByTestId('notice')).toHaveText('Set a to off on DRAFT-1, DRAFT-2.');
+  await expect(page.getByTestId('notice')).toHaveText('Set A to off on DRAFT-1 and DRAFT-2.');
   await expect(page.getByTestId('workspace-summary')).toContainText('3 edit(s)');
   // An edit of the workspace, not a case.
   await expect(page.getByTestId('price')).toHaveText('Price CVA FVA · 1 case');
@@ -685,11 +685,11 @@ test('ADR-0016 §11: `undo` takes back the last command and says what it was, `r
   await command(page, 'set', 'CSA-A threshold 5mm');
   await expect(page.getByTestId('workspace-summary')).toContainText('1 edit(s)');
   await command(page, 'undo');
-  await expect(page.getByTestId('notice')).toHaveText('Took back: set CSA-A threshold. redo puts it back.');
+  await expect(page.getByTestId('notice')).toHaveText('Took back: set CSA-A threshold 5mm. redo puts it back.');
   await expect(page.getByTestId('notice')).toHaveAttribute('data-kind', 'done');
   await expect(page.getByTestId('workspace-summary')).not.toContainText('1 edit(s)');
   await command(page, 'redo');
-  await expect(page.getByTestId('notice')).toHaveText('Put back: set CSA-A threshold.');
+  await expect(page.getByTestId('notice')).toHaveText('Put back: set CSA-A threshold 5mm.');
   await expect(page.getByTestId('workspace-summary')).toContainText('1 edit(s)');
 
   // In a grid the keys run the same two commands: A is ten to the right of a new trade's id.

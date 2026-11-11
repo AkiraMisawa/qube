@@ -18,7 +18,7 @@ import { measureNamed, registerXvaPage } from './commands';
 import { XvaResult } from './XvaResult';
 import { BASE_CASE, BASE_SCENARIO, openTrace, requestTerm } from '../../platform/traces/open';
 import type { TraceApi } from '../../platform/traces/api';
-import type { RunRecord, TakenBack } from '../../platform/contracts';
+import type { RowsEdited, RunRecord, TakenBack } from '../../platform/contracts';
 import { dockTabs, METRICS_TAB, type DockTab, type MeasureTab } from './dock';
 import { EditQueue, MEASURES_ENTITY, SETTINGS_ENTITY, refusedEdit, sideSaid, sideTitle, tradeFields, type PendingEdit, type SetText } from './editing';
 import { ToolbarField } from './fields';
@@ -549,24 +549,20 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   const removeCase = async (name: string, title: string = name) => {
     if (await apply(`${title} was not removed`, (revision) => api.removeCase(workspaceId, revision, name))) workspace.notify('done', `Removed the case ${title}.`);
   };
-  /** `set` (ADR-0010 §9): a typed cell's edit on each row named, in the Base, so the grids are read again. */
-  const set = async (rows: readonly string[], column: string, text: string) => {
-    if (await apply('set changed nothing', (revision) => api.set(workspaceId, revision, rows, column, text)))
-      workspace.notify('done', rows.length === 1 ? `Set ${rows[0]} ${column} to ${text}.` : `Set ${column} to ${text} on ${rows.join(', ')}.`);
-  };
   /**
-   * `undo` and `redo` (ADR-0016 §11): the kernel's two commands, at the version the catalog lists, through the page's door
-   * to the gateway and in the queue's turn, after the edits already sent (spine 6). The workspace is read again in that
-   * same turn, since any of its rows may have moved, so this view never arrives after a later edit's. The notice says
-   * what was taken back; refused, it is the server's reason alone.
+   * A kernel command on this workspace (ADR-0016 §5): at the version the catalog lists, through the page's door to the
+   * gateway and in the queue's turn, after the edits already sent (spine 6). The workspace is read again in that same
+   * turn, since any of its rows may have moved, so this view never arrives after a later edit's. The notice is the
+   * server's sentence of what was done; refused, it is the server's reason, after `label` where the reason does not
+   * say what was not done.
    */
-  const takeBack = async (verb: 'undo' | 'redo') => {
-    let done: TakenBack | undefined;
-    const refused = await attempt(undefined, async (revision) => {
-      const id = `workspace.${verb}`;
+  const invoke = async (id: string, request: Readonly<Record<string, unknown>>, label?: string) => {
+    let done: { readonly said: string } | undefined;
+    const refused = await attempt(label, async (revision) => {
       const capability = workspace.catalog.capabilities.find((c) => c.capabilityId === id);
       if (capability === undefined) throw new Error(`This server has no command ${id}.`);
-      const told = outputOf<TakenBack>(await workspace.api.command(id, capability.version, { request: { workspaceId, revision } }, crypto.randomUUID()), 'answer');
+      const told = outputOf<TakenBack | RowsEdited>(
+        await workspace.api.command(id, capability.version, { request: { ...request, workspaceId, revision } }, crypto.randomUUID()), 'answer');
       done = told;
       queue.rebase(told.revision);
       // The command is done whether or not the page can read what it left: the notice then says both.
@@ -574,6 +570,14 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
     });
     if (refused === undefined && done !== undefined) workspace.notify('done', done.said);
   };
+  /**
+   * `set` (ADR-0016 §3): the kernel's `entity.set` over the pricer's registered tables, in the Base. The rows go as the
+   * line names them and the value as written, for the server to read; what it says back counts the rows it changed.
+   */
+  const set = (rows: readonly string[], column: string, text: string) =>
+    invoke('entity.set', { rows: rows.join(', '), set: `${column}=${text}` }, 'set changed nothing');
+  /** `undo` and `redo` (ADR-0016 §11): the notice says what was taken back or put back. */
+  const takeBack = (verb: 'undo' | 'redo') => invoke(`workspace.${verb}`, {});
   const clearCases = async () => {
     if (await apply('No case was removed', (revision) => api.clearCases(workspaceId, revision))) workspace.notify('done', 'Removed every case.');
   };

@@ -33,7 +33,7 @@ a result that counts. XVA registers its tables, `xva.set` retires, and a batch o
 **1c. The server reads the line.** A command capability says how it is typed. `POST /api/commands/preview` reads a
 line and answers what it means, the rows and what would change, or the word it cannot read, and what could follow.
 The line shows that while it is typed, completes from it, and Enter runs the server's reading. The client's `set`
-reader and the page's `/set` endpoint go.
+reader goes (the page's `/set` endpoint went with 1b).
 
 ## User Stories
 
@@ -112,24 +112,35 @@ reader and the page's `/set` endpoint go.
 - **Tables.** `TableDescriptor(TableId, Version, App, Title, Words, Key, Fields, Subsets, SingleRow)`,
   `TableField(Name, Title, Words, Form, Editable, Optional, Choices, Table, UnitField, Group)` and
   `TableSubset(Name, Title, Words)`. A domain registers an `IWorkspaceTable` per table through `ITableCatalog`
-  (`TablesOf(app)`), as products come through `IProductCatalog`: `Describe(state)` (the fields resolved for the
-  workspace), `Rows(state)` (each row's key, subset and values by field), `AsOf(state)` (the date a period counts
-  from), and what a write is: `Set(state, row, field, value)`, `SetAll(state, subset, field, value)` where the field
-  has a whole-set target, `Reset(state, row, field?)`, `Remove(state, row)`. A write answers workspace changes or
-  refuses by name; the kernel knows no financial word.
+  (`Tables`; a description says its app and whether it is the app's main table), as products come through
+  `IProductCatalog`: `Describe(state)` (the fields resolved for the workspace), `Rows(state)` (each row's key, subset
+  and values by field), `AsOf(state)` (the date a period counts from), `WhyEmpty(state)` (why a table of one row has
+  none), and what a write is: `Set(state, row, field, value)`, `SetAll(state, subset, field, value)` where the field
+  has a whole-set target, `Reset(state, row, field?)`, `ResetAll(state, subset, field?)`, `Remove(state, row)`. A
+  write answers workspace changes or refuses by name; the kernel knows no financial word.
 - **The selector.** `RowSelector(Table?, All, Subset?, Ids, Where)` with `Condition(Field, Operator, Value)`, the
   value as written. `SelectorReader.Read(words, tables)` reads the line's spelling into it, and
   `Selectors.Resolve(selector, tables, state)` answers the table and its rows, or refuses with the word at fault and
-  what it could be. Resolving is linear in the rows.
-- **`entity.set` 1.0.0** takes `{ workspaceId, revision, rows, set: [{ field, value }], said? }` and writes one
-  all-or-none batch at that revision. Its output is the result of §6: `{ workspaceId, revision, command, said,
-  table, matched, changed, held, rows }`, where `said` is the sentence (`Set A to off on 9 trades; 3 already held
-  it.`) and `rows` the first few keys. **`entity.reset`** takes `{ …, rows, field? }` and **`entity.remove`**
-  `{ …, rows }`, with the same output.
+  what it could be. Resolving is linear in the rows, and in the ids where they are named by their ends. After `in` a
+  comma before three digits is refused, since it could group one number or part two (`AmbiguousValues`); two signs
+  are no operator; an order against `empty` is refused; and `=empty` compares no amount, so it is asked across units.
+- **`entity.set` 1.0.0** takes `{ workspaceId, revision?, table?, rows?, set }` and writes one all-or-none batch,
+  at that revision where one is given. The request is flat (ADR-0016's note 12): `rows` is the selector as the line
+  spells it and `set` the values as `name=value`, one or several, each written as its field is typed. Several are
+  written in the order given, each checked against the rows as the ones before it left them. It carries no
+  sentence: the log names the command by its own words. A refusal's issue carries the word at fault and what it
+  could have been (`word`, `candidates`) beside its code and sentence. Its output is the result of §6:
+  `{ workspaceId, revision, command?, said, table, matched, changed, held, rows }`, where `said` is the sentence (`Set A to off on 9 trades; 3
+  already held it.`), `rows` the first few keys, and `command` absent where nothing changed. **`entity.reset`** takes
+  `{ …, rows, field? }` and **`entity.remove`** `{ …, rows }`, with the same output.
 - **XVA registers** `xva.trades` (subsets `new` and `existing`, whole-set targets for `before` and `after`),
   `xva.csas`, `xva.netting`, `xva.credit`, `xva.cds`, `xva.workspace` (the display currency) and one table of one
-  row per module that has settings. `PortfolioCells`' column tables become these registrations, and its `Read` and
-  `Write` the kernel's. `xva.set` and `PortfolioWorkspaces.SetCells` go; the AI's tool is `entity.set`.
+  row per module that has settings. A module's typed column is a field of the trades while one of its measures is
+  selected, and its amount carries the trade's currency as its unit. `PortfolioCells`' column tables become these
+  registrations, and its `Read` and
+  `Write` the kernel's. `xva.set`, `PortfolioWorkspaces.SetCells` and `POST /api/xva/workspaces/{id}/set` go; the
+  AI's tool is `entity.set`, and the page's `set` runs it through the page's door with the rows and the value its
+  own reader found, until 1c reads the line on the server.
 - **Linear.** A batch resolves its rows once. Measured at 10,000 rows with its `undo`, on a Release host with the
   SQLite store, and written into the status; not gated.
 
@@ -146,8 +157,8 @@ reader and the page's `/set` endpoint go.
   While its line is typed the client asks for the preview (the latest answer wins, an older one is dropped), shows
   `would` or the reason under the line, and offers `complete`. Enter invokes the command with the preview's inputs
   for exactly the text on the line, asking first where no answer for that text has come; while the line cannot be
-  read Enter runs nothing and the line stays open with its text. `setTyped`, `setHint`, the page's `set` and
-  `POST /api/xva/workspaces/{id}/set` go. `vary` keeps its reader until step 3.
+  read Enter runs nothing and the line stays open with its text. `setTyped`, `setHint` and the page's `set` go
+  (its endpoint went in 1b). `vary` keeps its reader until step 3.
 
 ## Testing Decisions
 

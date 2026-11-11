@@ -81,11 +81,11 @@ public sealed class XvaMeasures(Pv01Provider pv01, decimal fvaLimitGbp = 1_000_0
     /// </summary>
     public IReadOnlyList<MeasureSetting> Settings { get; } =
     [
-        new(Mpor, "MPOR override", CellName.Form.Days, null, [Cva, Fva], Empty: $"the model's {ModelMpor} days", Names: ["mpor"]),
-        new(CostOfCapital, "Cost of capital", CellName.Form.Rate, 0.10m, [Kva], Names: ["coc"]),
-        new(ChargeRatio, "Charge ratio", CellName.Form.Number, 1.25m, [Cva]),
-        new(PvAdjustment, "PV adjustment", CellName.Form.Flag, true, [Cva, Fva, Kva], Names: ["pv adj"]),
-        new(Risks, "Risks included", CellName.Form.Flag, false, [Cva, Fva], Names: ["risks"]),
+        new(Mpor, "MPOR override", FieldForm.Days, null, [Cva, Fva], Empty: $"the model's {ModelMpor} days", Names: ["mpor"]),
+        new(CostOfCapital, "Cost of capital", FieldForm.Rate, 0.10m, [Kva], Names: ["coc"]),
+        new(ChargeRatio, "Charge ratio", FieldForm.Number, 1.25m, [Cva]),
+        new(PvAdjustment, "PV adjustment", FieldForm.Flag, true, [Cva, Fva, Kva], Names: ["pv adj"]),
+        new(Risks, "Risks included", FieldForm.Flag, false, [Cva, Fva], Names: ["risks"]),
     ];
 
     public string? CheckSetting(string setting, JsonNode? value) => setting switch

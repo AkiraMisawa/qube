@@ -27,8 +27,6 @@ public static class XvaApi
     public sealed record VaryRequest(long Revision, IReadOnlyList<string> Values, string? Cell = null, string? Entity = null, string? Field = null);
     /// <summary>What <c>vary</c> made, by title, and each value it skipped with why.</summary>
     public sealed record Varied(PortfolioWorkspaceView Workspace, IReadOnlyList<string> Made, IReadOnlyList<string> Skipped);
-    /// <summary><c>set &lt;rows&gt; &lt;column&gt; &lt;value&gt;</c> (ADR-0010 §9): the rows named, a column and a value as written.</summary>
-    public sealed record SetRequest(long Revision, IReadOnlyList<string> Rows, string Column, string Text);
     /// <summary><c>cds &lt;words&gt;</c> (ADR-0010 §8's note of 2026-11-09): the CDS as written.</summary>
     public sealed record CdsRequest(long Revision, string Cds);
     /// <summary>What <c>cds</c> chose, as the command line says it.</summary>
@@ -130,12 +128,6 @@ public static class XvaApi
                 _ => throw new WorkspaceRefused("UnknownCell", "vary names a cell, or an entity and its field, and not both."),
             };
             return Results.Ok(new Varied(service.View(id, user.Id), answer.Made, answer.Skipped));
-        }));
-
-        ws.MapPost("/{id}/set", (string id, SetRequest request, CurrentUser user, PortfolioWorkspaces service) => Guard(() =>
-        {
-            service.SetCells(id, request.Revision, user.Id, request.Rows, request.Column, request.Text);
-            return Results.Ok(service.View(id, user.Id));
         }));
 
         ws.MapPost("/{id}/cds", (string id, CdsRequest request, CurrentUser user, PortfolioWorkspaces service) => Guard(() =>

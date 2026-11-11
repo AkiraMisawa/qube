@@ -146,15 +146,23 @@ public sealed class WorkspaceService(IReadOnlyDictionary<string, IEditRules> rul
         string? said = null)
     {
         if (changes.Count == 0) throw new WorkspaceRefused("NothingToChange", "A batch holds at least one change.");
-        return Apply(workspaceId, expectedRevision, state => changes.Aggregate(state, (current, change) => change switch
+        return Apply(workspaceId, expectedRevision, state => After(state, user, changes, origin), said);
+    }
+
+    /// <summary>
+    /// The state the changes would leave on a state, as a batch folds them, and written nowhere: what a command reads
+    /// to check its later changes against its earlier ones before it writes them all (ADR-0016 §3). The module's
+    /// derivation is not run here; it runs once, when the batch is written.
+    /// </summary>
+    public WorkspaceState After(WorkspaceState state, string user, IReadOnlyList<WorkspaceChange> changes, RunOrigin? origin = null) =>
+        changes.Aggregate(state, (current, change) => change switch
         {
             WorkspaceChange.Set set => SetOn(current, user, set.Target, set.Value, origin),
             WorkspaceChange.Reset reset => ResetOn(current, user, reset.Target, origin),
             WorkspaceChange.Create create => CreateOn(current, user, create.Scope, create.Entity, create.Fields, origin, null),
             WorkspaceChange.Remove remove => RemoveOn(current, user, remove.Entity, origin, remove.Layer),
             _ => throw new InvalidOperationException($"No batch change {change.GetType().Name}."),
-        }), said);
-    }
+        });
 
     WorkspaceState SetOn(WorkspaceState state, string user, EditTarget target, JsonNode? value, RunOrigin? origin)
     {

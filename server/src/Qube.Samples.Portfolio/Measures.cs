@@ -1,4 +1,5 @@
 using System.Text.Json.Nodes;
+using Qube.Composition.Application;
 using Qube.Composition.Application.Workspaces;
 using Qube.Composition.Contracts;
 
@@ -118,11 +119,11 @@ public sealed record RegisteredMeasure(string Id, string Title, string Module, I
 /// (`set xva cost of capital 12%`), its title's words first. Its value is an edit on <c>settings:&lt;module&gt;</c>, the
 /// workspace's own, so it survives a counterparty change.
 /// </summary>
-public sealed record MeasureSetting(string Id, string Title, CellName.Form Form, JsonNode? Default, IReadOnlyList<string> Measures, string? Empty = null,
+public sealed record MeasureSetting(string Id, string Title, FieldForm Form, JsonNode? Default, IReadOnlyList<string> Measures, string? Empty = null,
     IReadOnlyList<string>? Names = null);
 
 /// <summary>One setting in the workspace view: its value as the reading holds it and as written, its default, and whether it differs.</summary>
-public sealed record SettingView(string Id, string Title, CellName.Form Form, JsonNode? Value, string Text, JsonNode? Default, string DefaultText, string? Empty,
+public sealed record SettingView(string Id, string Title, FieldForm Form, JsonNode? Value, string Text, JsonNode? Default, string DefaultText, string? Empty,
     IReadOnlyList<string> Measures, bool Changed);
 
 /// <summary>A module's settings in the workspace view (the Settings tab's section of it): those a selected measure needs.</summary>
@@ -367,7 +368,10 @@ public static class MeasureSettings
 
     /// <summary>The cell a setting is, on its module's row.</summary>
     public static CellName Cell(IMeasureModule module, MeasureSetting setting) =>
-        new(EntityOf(module.Id), setting.Id, module.Id, Names(setting)[0], setting.Form);
+        new(EntityOf(module.Id), setting.Id, module.Id, Names(setting)[0], Spec(setting));
+
+    /// <summary>How a setting is written: by its form, and a rate or a number of days may be empty, which is the model's own.</summary>
+    public static FieldSpec Spec(MeasureSetting setting) => new(setting.Form, Optional: setting.Form is FieldForm.Rate or FieldForm.Days);
 
     /// <summary>The names a setting's cell is named by: its title's words, then its own names.</summary>
     public static IReadOnlyList<string> Names(MeasureSetting setting) =>

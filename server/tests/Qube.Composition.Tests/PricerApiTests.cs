@@ -137,11 +137,9 @@ public class PricerApiTests(QubeFactory factory) : IClassFixture<QubeFactory>
         var error = (await response.Content.ReadFromJsonAsync<JsonObject>())!;
         Assert.Equal(("UnknownCell", "Name a cell as its row and its column, such as CSA-A threshold; CSA-A is one word."),
             (error["code"]!.GetValue<string>(), error["message"]!.GetValue<string>()));
-        // A body with no values, or a set with no rows, is refused as it arrives, before anything reads it.
+        // A body with no values is refused as it arrives, before anything reads it.
         var none = await Post(ws, "vary", new { revision = Revision(ws), cell = "CSA-A threshold" });
-        var rowless = await Post(ws, "set", new { revision = Revision(ws), column = "threshold", text = "5mm" });
         Assert.Equal(HttpStatusCode.BadRequest, none.StatusCode);
-        Assert.Equal(HttpStatusCode.BadRequest, rowless.StatusCode);
     }
 
     [Fact] // ADR-0010 §8's note of 2026-11-09: the CDS catalogue the Credit tab searches, and `cds` over HTTP, which a missing CDS refuses CVA by
@@ -170,7 +168,7 @@ public class PricerApiTests(QubeFactory factory) : IClassFixture<QubeFactory>
         Assert.Equal(HttpStatusCode.UnprocessableEntity, unknown.StatusCode);
     }
 
-    [Fact] // ADR-0010 §8, §10: a module's settings over HTTP: listed while a measure they serve is selected, set by `set`, and checked
+    [Fact] // ADR-0010 §8, §10, ADR-0016 §3: a module's settings over HTTP: listed while a measure they serve is selected, set by `entity.set` through the page's door, and checked
     public async Task A_modules_settings_are_listed_and_set_over_http()
     {
         var ws = await Measures(await Create(), "kva");
@@ -178,10 +176,15 @@ public class PricerApiTests(QubeFactory factory) : IClassFixture<QubeFactory>
         Assert.Equal(["costOfCapital", "pvAdjustment"], xva["settings"]!.AsArray().Select(s => s!["id"]!.GetValue<string>()));
         Assert.Equal("rate", xva["settings"]![0]!["form"]!.GetValue<string>());
 
-        var set = await Post(ws, "set", new { revision = Revision(ws), rows = new[] { "xva" }, column = "cost of capital", text = "12%" });
+        var set = await client.PostAsJsonAsync("/api/commands/entity.set/1.0.0", new
+        {
+            inputs = new { request = new { workspaceId = Id(ws), revision = Revision(ws), rows = "xva", set = "cost of capital=12%" } },
+            idempotencyKey = Guid.NewGuid().ToString(),
+        });
 
         Assert.Equal(HttpStatusCode.OK, set.StatusCode);
-        ws = (await set.Content.ReadFromJsonAsync<JsonObject>())!;
+        Assert.Equal("Set xva cost of capital to 12%.", (await set.Content.ReadFromJsonAsync<JsonObject>())!["outputs"]!["answer"]!["said"]!.GetValue<string>());
+        ws = (await client.GetFromJsonAsync<JsonObject>($"/api/xva/workspaces/{Id(ws)}"))!;
         var coc = ws["settings"]![0]!["settings"]![0]!;
         Assert.Equal(("12%", "10%", true), (coc["text"]!.GetValue<string>(), coc["defaultText"]!.GetValue<string>(), coc["changed"]!.GetValue<bool>()));
         var refused = await Post(ws, "edits", new { revision = Revision(ws), entity = "settings:xva", field = "costOfCapital", value = 1.5 });

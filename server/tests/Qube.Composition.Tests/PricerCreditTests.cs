@@ -118,7 +118,7 @@ public class PricerCreditTests
         Assert.Null(credit["cvaRecovery"]);
 
         foreach (var tenor in CdsCatalog.Tenors)
-            ws = service.SetCells(ws.WorkspaceId, ws.Revision, "akira", ["cds"], tenor, "150bp");
+            ws = service.SetText(ws.WorkspaceId, ws.Revision, "akira", Entity.Of(Entity.Cds, AbchUsd), tenor, "150bp");
         var (_, wider) = await Price(runs, store, service, ws);
         Assert.True(After(wider, "cva") < cva, $"CVA {After(wider, "cva")} on 150bp is not below {cva}.");
 
@@ -142,13 +142,13 @@ public class PricerCreditTests
         Assert.Equal("priced", Row(rows, "fva")["afterStatus"]!.GetValue<string>());
     }
 
-    [Fact] // ADR-0010 §9, §8's note of 2026-11-09: set and vary reach the chosen curve's spreads, and the Changes tab names them
-    public async Task Set_and_vary_reach_the_chosen_curve()
+    [Fact] // ADR-0010 §9, §8's note of 2026-11-09: an edit and vary reach the chosen curve's spreads, and the Changes tab names them
+    public async Task An_edit_and_vary_reach_the_chosen_curve()
     {
         var (service, runs, store) = Priced();
         var ws = service.Create("akira", "ABC/LE-01", Day1, 20);
 
-        ws = service.SetCells(ws.WorkspaceId, ws.Revision, "akira", ["cds"], "5y", "120bp");
+        ws = service.SetText(ws.WorkspaceId, ws.Revision, "akira", Entity.Of(Entity.Cds, AbchUsd), "5y", "120bp");
         Assert.Equal(0.012m, service.View(ws.WorkspaceId, "akira").Credit.Cds!.Spreads["5y"]);
         ws = service.Vary(ws.WorkspaceId, ws.Revision, "akira", "cds 3y", ["100bp", "300bp"]).State;
 
@@ -159,11 +159,11 @@ public class PricerCreditTests
         var cases = service.View(ws.WorkspaceId, "akira").Cases;
         Assert.True(After(rows, "cva", cases[2].Id) < After(rows, "cva", cases[1].Id));
 
+        // With no curve chosen, vary has no cds row to name, and says why. The choice itself is a cell too.
         ws = service.ChooseCds(ws.WorkspaceId, ws.Revision, "akira", "none").State;
         Assert.Equal("No CDS for ABC/LE-01: choose a single name or a proxy on the Credit tab, or with cds.",
-            Assert.Throws<WorkspaceRefused>(() => service.SetCells(ws.WorkspaceId, ws.Revision, "akira", ["cds"], "5y", "1%")).Message);
-        // The choice itself is a cell too.
-        ws = service.SetCells(ws.WorkspaceId, ws.Revision, "akira", ["credit"], "type", CdsCatalog.Proxy);
+            Assert.Throws<WorkspaceRefused>(() => service.Vary(ws.WorkspaceId, ws.Revision, "akira", "cds 5y", ["1%"])).Message);
+        ws = service.SetText(ws.WorkspaceId, ws.Revision, "akira", "credit:ABC/LE-01", "cdsType", CdsCatalog.Proxy);
         Assert.Equal("No CDS for ABC/LE-01: its proxy has no sector, region, rating. Choose them on the Credit tab, or with cds proxy.",
             service.View(ws.WorkspaceId, "akira").Credit.Missing);
     }
@@ -194,7 +194,7 @@ public class PricerCreditTests
         var (service, runs, store) = Priced();
         var ws = service.Create("akira", "ABC/LE-01", Day1, 20);
         ws = service.SetMeasures(ws.WorkspaceId, ws.Revision, "akira", ["cva", "fva"]);
-        ws = service.SetCells(ws.WorkspaceId, ws.Revision, "akira", ["xva"], "risks", "on");
+        ws = service.SetText(ws.WorkspaceId, ws.Revision, "akira", MeasureSettings.EntityOf(XvaMeasures.Module), XvaMeasures.Risks, "on");
         // ABC Holdings' 6m spread is 18bp: 50bp tighter has no default probability.
         ws = service.DefineScenario(ws.WorkspaceId, ws.Revision, "akira", "tight", "cds -50bp").State;
         var accepted = Assert.IsType<SubmissionResult.Accepted>(service.Price(ws.WorkspaceId, ws.Revision, "akira", Guid.NewGuid().ToString()));

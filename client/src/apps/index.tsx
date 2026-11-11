@@ -72,19 +72,28 @@ registerAiEffect('entity.create', (outputs, { workspace, queryClient }) => {
   const title = valuationDate === undefined ? 'Rates' : `Rates ${valuationDate}`;
   return { panelId: workspace.openPanelBehind(RATES_WORKSPACE, title, { workspaceId: entity.workspaceId }), title };
 });
-// What the AI pane knows of XVA (ADR-0010 §9): the workspace open is the one `vary`, `add trades` and `set` act on, and
-// what they change is read again where the page shows it. The page itself takes up a revision someone else made.
+// What the AI pane knows of XVA (ADR-0010 §9): the workspace open is the one `vary`, `add trades` and the kernel's `set`,
+// `reset`, `undo` and `redo` act on (ADR-0016 §3, §11), and what they change is read again where the page shows it. The
+// page itself takes up a revision someone else made.
 registerAiContext(XVA_WORKSPACE, (panel) => panel.params.workspaceId === undefined ? undefined : {
   description: 'The XVA workspace open in the active panel',
   value: JSON.stringify({ kind: 'xva.workspace', workspaceId: panel.params.workspaceId }),
 });
 // The scenario commands (ADR-0010 §4) likewise; a set the AI saved is offered by `scenario load` once read again.
-const XVA_EDITS = ['xva.vary', 'xva.trades.add', 'xva.set', 'xva.scenario', 'xva.scenario.include', 'xva.scenario.exclude', 'xva.scenario.remove',
-  'xva.scenario.ladder', 'xva.scenario.cross', 'xva.scenario.load'];
+const XVA_EDITS = ['xva.vary', 'xva.trades.add', 'xva.scenario',
+  'xva.scenario.include', 'xva.scenario.exclude', 'xva.scenario.remove', 'xva.scenario.ladder', 'xva.scenario.cross', 'xva.scenario.load'];
 for (const capability of XVA_EDITS)
   registerAiEffect(capability, (outputs, { queryClient }) => {
     const answer = outputs.answer as { readonly workspaceId: string };
     void queryClient.invalidateQueries({ queryKey: ['xva', answer.workspaceId] });
+    return undefined;
+  });
+// The kernel's verbs over a registered table, and undo and redo (ADR-0016 §3, §11), know no app: what they changed is
+// whatever reads the workspace they answer for, on whichever page it is open.
+for (const capability of ['entity.set', 'entity.reset', 'entity.remove', 'workspace.undo', 'workspace.redo'])
+  registerAiEffect(capability, (outputs, { queryClient }) => {
+    const answer = outputs.answer as { readonly workspaceId: string };
+    void queryClient.invalidateQueries({ predicate: (query) => query.queryKey.includes(answer.workspaceId) });
     return undefined;
   });
 registerAiEffect('xva.scenario.save', (_outputs, { queryClient }) => {

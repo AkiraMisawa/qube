@@ -9,7 +9,7 @@ using Qube.Composition.Contracts;
 
 namespace Qube.Composition.Tests;
 
-// ADR-0005, ADR-0010 §9: the XVA page's vary, add trades and set, as the agent's tool calls reach them. Each takes what
+// ADR-0005, ADR-0010 §9, ADR-0016 §3: the XVA page's vary, add trades and set, as the agent's tool calls reach them. Each takes what
 // the command line takes, goes through the same workspace service, answers in the command line's words, and the log
 // says the AI did it. Every name and figure is synthetic.
 public class PricerCommandTests(QubeFactory factory) : IClassFixture<QubeFactory>
@@ -44,7 +44,10 @@ public class PricerCommandTests(QubeFactory factory) : IClassFixture<QubeFactory
         Assert.Equal(["workspaceId", "revision", "cell", "values"], Fields("xva_vary"));
         Assert.Equal(["workspaceId", "cell", "values"], Required("xva_vary"));
         Assert.Equal(["workspaceId", "revision"], Fields("xva_trades_add"));
-        Assert.Equal(["workspaceId", "revision", "rows", "column", "value"], Fields("xva_set"));
+        // `set` is the kernel's, over the pricer's registered tables (ADR-0016 §3): no tool of the pricer's own.
+        Assert.Equal(["workspaceId", "revision", "table", "rows", "set"], Fields("entity_set"));
+        Assert.Equal(["workspaceId", "set"], Required("entity_set"));
+        Assert.DoesNotContain("xva_set", tools.Keys);
     }
 
     [Fact] // ADR-0010 §9: an AI vary makes the cases the command line makes, says them as it does, and the log says the AI made them
@@ -71,19 +74,33 @@ public class PricerCommandTests(QubeFactory factory) : IClassFixture<QubeFactory
         var id = ws["workspaceId"]!.GetValue<string>();
 
         var added = await Ok(await Command("xva.trades.add", new JsonObject { ["workspaceId"] = id }));
-        var set = await Ok(await Command("xva.set", new JsonObject
+        var set = await Ok(await Command("entity.set", new JsonObject
         {
-            ["workspaceId"] = id, ["revision"] = added["revision"]!.GetValue<long>(), ["rows"] = "CSA-A", ["column"] = "threshold", ["value"] = "5mm",
+            ["workspaceId"] = id, ["revision"] = added["revision"]!.GetValue<long>(), ["rows"] = "CSA-A", ["set"] = "threshold=5mm",
         }));
-        var moved = await Command("xva.set", new JsonObject
+        var moved = await Command("entity.set", new JsonObject
         {
-            ["workspaceId"] = id, ["revision"] = added["revision"]!.GetValue<long>(), ["rows"] = "CSA-A", ["column"] = "threshold", ["value"] = "6mm",
+            ["workspaceId"] = id, ["revision"] = added["revision"]!.GetValue<long>(), ["rows"] = "CSA-A", ["set"] = "threshold=6mm",
         });
 
         Assert.Equal("Made 3 case(s): add DRAFT-1, add DRAFT-2, add DRAFT-3.", added["said"]!.GetValue<string>());
         Assert.Equal("Set CSA-A threshold to 5mm.", set["said"]!.GetValue<string>());
         Assert.Equal(5_000_000m, (await View(id))["csas"]!.AsArray().Single(c => c!["csaId"]!.GetValue<string>() == "CSA-A")!["counterpartyThreshold"]!.GetValue<decimal>());
         Assert.Equal(HttpStatusCode.Conflict, moved.StatusCode);
+    }
+
+    [Fact] // ADR-0016 §6: over HTTP a refusal says the word at fault and what it could have been, on its issue
+    public async Task A_refused_set_answers_the_word_at_fault_and_what_it_could_have_been()
+    {
+        var id = (await Create())["workspaceId"]!.GetValue<string>();
+
+        var refused = await Command("entity.set", new JsonObject { ["workspaceId"] = id, ["rows"] = "CSA-A", ["set"] = "treshold=5mm" });
+        var error = (await refused.Content.ReadFromJsonAsync<JsonObject>())!;
+        var issue = Assert.Single(error["issues"]!.AsArray())!;
+
+        Assert.Equal((HttpStatusCode.UnprocessableEntity, "UnknownField"), (refused.StatusCode, error["code"]!.GetValue<string>()));
+        Assert.Equal("treshold", issue["word"]!.GetValue<string>());
+        Assert.Equal(["csa id", "type", "threshold"], issue["candidates"]!.AsArray().Take(3).Select(c => c!.GetValue<string>()));
     }
 
     [Fact] // ADR-0010 §8's note of 2026-11-09: the AI's cds chooses the CDS the Credit tab does, and the page's endpoint says the same

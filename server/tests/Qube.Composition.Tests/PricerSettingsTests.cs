@@ -1,5 +1,6 @@
 using System.Text.Json.Nodes;
 using Qube.Composition.Application;
+using Qube.Composition.Application.Tables;
 using Qube.Composition.Application.Workspaces;
 using Qube.Composition.Contracts;
 using Qube.Samples.Ccr;
@@ -15,12 +16,16 @@ public class PricerSettingsTests
 {
     static readonly DateOnly Day1 = new(2026, 10, 26);
 
-    static (PortfolioWorkspaces Service, RunService Runs, IDataStore Store) Priced(Pv01Provider? pv01 = null)
+    // The pricer's registered tables over the services of the test: `set xva cost of capital 12%` is entity.set (ADR-0016 §3).
+    TableService? tables;
+
+    (PortfolioWorkspaces Service, RunService Runs, IDataStore Store) Priced(Pv01Provider? pv01 = null)
     {
         var workspaces = new WorkspaceService(new Dictionary<string, IEditRules> { [PortfolioEditRules.App] = new PortfolioEditRules() }, TimeProvider.System);
         var store = new InMemoryDataStore();
         var runs = new RunService(new CompositionRegistry([new PortfolioModule(), new XvaModule(), new CcrModule()]), store, TimeProvider.System);
         var register = new MeasureRegister([new XvaMeasures(pv01 ?? Pv01Provider.Simulated(TimeSpan.Zero)), new CcrMeasures()]);
+        tables = new TableService(new TableRegister([new PortfolioTables(register)]), workspaces);
         return (new PortfolioWorkspaces(workspaces, store, runs, register), runs, store);
     }
 
@@ -39,8 +44,10 @@ public class PricerSettingsTests
 
     static decimal After(IReadOnlyList<JsonNode> rows, string metric, string @case = PortfolioCases.BaseId) => Row(rows, metric, @case)["after"]!.GetValue<decimal>();
 
-    static WorkspaceState Set(PortfolioWorkspaces service, WorkspaceState ws, string column, string text) =>
-        service.SetCells(ws.WorkspaceId, ws.Revision, "akira", [XvaMeasures.Module], column, text);
+    // A setting named by its words on its module's row, as the line names it.
+    WorkspaceState Set(WorkspaceState ws, string column, string text) =>
+        (tables ?? throw new InvalidOperationException("Priced() builds the tables."))
+            .Set(ws.WorkspaceId, ws.Revision, new Caller("akira", RunOrigin.Pricer), null, XvaMeasures.Module, $"{column}={text}").State;
 
     static IReadOnlyList<string> Shown(PortfolioWorkspaces service, WorkspaceState ws) =>
         [.. service.View(ws.WorkspaceId, "akira").Settings.SelectMany(m => m.Settings.Select(s => $"{m.Module}.{s.Id}"))];
@@ -60,7 +67,7 @@ public class PricerSettingsTests
         Assert.Empty(service.View(ws.WorkspaceId, "akira").Settings);
 
         ws = service.SetMeasures(ws.WorkspaceId, ws.Revision, "akira", ["cva", "kva"]);
-        ws = Set(service, ws, "cost of capital", "12%");
+        ws = Set(ws, "cost of capital", "12%");
         var xva = Assert.Single(service.View(ws.WorkspaceId, "akira").Settings);
         Assert.Equal(("xva", "XVA"), (xva.Module, xva.Title));
         var coc = xva.Settings.Single(s => s.Id == XvaMeasures.CostOfCapital);
@@ -70,7 +77,7 @@ public class PricerSettingsTests
         var mpor = xva.Settings.Single(s => s.Id == XvaMeasures.Mpor);
         Assert.Equal((null, "empty", "the model's 10 days", false), (mpor.Value, mpor.Text, mpor.Empty, mpor.Changed));
         // A setting set back to its default is not marked (ADR-0010 §2).
-        ws = Set(service, ws, "coc", "10%");
+        ws = Set(ws, "coc", "10%");
         Assert.False(service.View(ws.WorkspaceId, "akira").Settings[0].Settings.Single(s => s.Id == XvaMeasures.CostOfCapital).Changed);
     }
 
@@ -80,18 +87,22 @@ public class PricerSettingsTests
         var (service, _, _) = Priced();
         var ws = service.Create("akira", "ABC/LE-01", Day1, 5);
 
-        string Refused(string column, string text) => Assert.Throws<WorkspaceRefused>(() => Set(service, ws, column, text)).Message;
-        Assert.Equal("A cost of capital is from 0% and below 100%, never empty.", Refused("cost of capital", "100%"));
-        Assert.Equal("A charge ratio is a number above 0 and up to 10.", Refused("charge ratio", "0"));
-        Assert.Equal("An MPOR override is a whole number of days from 1 to 250, or empty for the model's 10.", Refused("mpor", "0d"));
-        Assert.Equal("xva mpor override is a whole number of days, 10 or 10d, or empty; ten is not.", Refused("mpor", "ten"));
-        Assert.Equal("xva risks included is on or off; maybe is not.", Refused("risks", "maybe"));
+        // The form's refusal is the kernel's and the bounds' the module's: each in the words the grid's cell has.
+        (string Code, string Message) OutOfBounds(string column, string text) =>
+            Assert.Throws<WorkspaceRefused>(() => Set(ws, column, text)) is var refused ? (refused.Code, refused.Message) : default;
+        (string Code, string Message) NotOfForm(string column, string text) =>
+            Assert.Throws<TableRefused>(() => Set(ws, column, text)) is var refused ? (refused.Code, refused.Message) : default;
+        Assert.Equal(("InvalidValue", "A cost of capital is from 0% and below 100%, never empty."), OutOfBounds("cost of capital", "100%"));
+        Assert.Equal(("InvalidValue", "A charge ratio is a number above 0 and up to 10."), OutOfBounds("charge ratio", "0"));
+        Assert.Equal(("InvalidValue", "An MPOR override is a whole number of days from 1 to 250, or empty for the model's 10."), OutOfBounds("mpor", "0d"));
+        Assert.Equal(("InvalidValue", "xva mpor override is a whole number of days, 10 or 10d, or empty; ten is not."), NotOfForm("mpor", "ten"));
+        Assert.Equal(("InvalidValue", "xva risks included is on or off; maybe is not."), NotOfForm("risks", "maybe"));
         Assert.Equal("XVA has no setting other; its settings are mpor, costOfCapital, chargeRatio, pvAdjustment, risks.",
             Assert.Throws<WorkspaceRefused>(() => service.Edit(ws.WorkspaceId, ws.Revision, "akira", "settings:xva", "other", 1)).Message);
         Assert.Equal("A charge ratio is a number above 0 and up to 10.",
             Assert.Throws<WorkspaceRefused>(() => service.Edit(ws.WorkspaceId, ws.Revision, "akira", "settings:xva", XvaMeasures.ChargeRatio, "1.5")).Message);
 
-        ws = Set(service, ws, "mpor", "20d");
+        ws = Set(ws, "mpor", "20d");
         // The Changes tab names a setting set in the Base as its cell, its value and its default.
         var common = Assert.Single(service.Changes(ws.WorkspaceId, "akira").Common, c => c.Title.StartsWith("xva ", StringComparison.Ordinal));
         Assert.Equal(("xva mpor override", "20d", "empty"), (common.Title, common.Text, common.OriginalText));
@@ -145,7 +156,7 @@ public class PricerSettingsTests
         var (_, pending) = await Price(runs, store, service, ws);
         Assert.Equal(MeasureResult.Refused, Row(pending, "cva")["afterStatus"]!.GetValue<string>());
         Assert.StartsWith("PV Adj of DRAFT-1 is unknown", Row(pending, "cva")["reason"]!.GetValue<string>());
-        ws = Set(service, ws, "pv adjustment", "off");
+        ws = Set(ws, "pv adjustment", "off");
         var (input, off) = await Price(runs, store, service, ws);
         Assert.Equal(MeasureResult.Priced, Row(off, "cva")["afterStatus"]!.GetValue<string>());
         Assert.False(input["modules"]!["xva"]!["settings"]!["pvAdjustment"]!.GetValue<bool>());
@@ -154,7 +165,7 @@ public class PricerSettingsTests
         answer.SetResult(-1_500m);
         await pv01.Settled();
         var (_, without) = await Price(runs, store, service, ws);
-        ws = Set(service, ws, "pv adj", "on");
+        ws = Set(ws, "pv adj", "on");
         var (_, with) = await Price(runs, store, service, ws);
         Assert.Equal(Row(without, "pv")["before"]!.GetValue<decimal>(), Row(with, "pv")["before"]!.GetValue<decimal>());
         Assert.NotEqual(After(without, "pv"), After(with, "pv"));

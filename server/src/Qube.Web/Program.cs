@@ -3,6 +3,7 @@ using System.Text.Json.Nodes;
 using Qube.Agent;
 using Qube.Composition.Application;
 using Qube.Composition.Application.Saved;
+using Qube.Composition.Application.Tables;
 using Qube.Composition.Application.Traces;
 using Qube.Composition.Application.Workspaces;
 using Qube.Composition.Contracts;
@@ -62,6 +63,12 @@ builder.Services.AddSingleton<ProductService>();
 builder.Services.AddSingleton<IQubeModule>(sp => new ProductsModule(sp.GetRequiredService<ProductService>));
 // The kernel's commands over any workspace (ADR-0016 §11): undo and redo.
 builder.Services.AddSingleton<IQubeModule>(sp => new WorkspaceCommandsModule(sp.GetRequiredService<WorkspaceService>));
+// Tables are descriptions from catalogs too (ADR-0016 §1); the kernel's entity.set, entity.reset and entity.remove read
+// them. The pricer registers its trades, CSAs, netting set, credit, CDS, workspace and each module's settings.
+builder.Services.AddSingleton<ITableCatalog>(sp => new PortfolioTables(sp.GetRequiredService<MeasureRegister>()));
+builder.Services.AddSingleton<TableRegister>();
+builder.Services.AddSingleton<TableService>();
+builder.Services.AddSingleton<IQubeModule>(sp => new TablesModule(sp.GetRequiredService<TableService>));
 builder.Services.AddSingleton(sp => new CommandService(sp.GetRequiredService<CompositionRegistry>(), sp.GetRequiredService<IDataStore>()));
 // A Run's calculation traces (ADR-0011 §5, §7): the read endpoint and trace.read open them through one service.
 builder.Services.AddSingleton(sp => new TraceService(sp.GetRequiredService<RunService>(), sp.GetRequiredService<IDataStore>(), sp.GetRequiredService<CompositionRegistry>()));
