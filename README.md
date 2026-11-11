@@ -5,3 +5,6 @@ never merged. One folder per pull request, named after its branch; a description
 so nothing here is rewritten or removed once a pull request shows it.
 
 Every picture is taken from the built client with synthetic data only.
+
+Keep a picture's file name short: a description's image link over 150 characters was seen to arrive as a plain
+link, not a picture (2026-11-11).
