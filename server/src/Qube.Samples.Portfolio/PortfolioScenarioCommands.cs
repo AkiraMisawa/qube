@@ -89,7 +89,7 @@ public static class PortfolioScenarioCommands
         Func<ScenarioPlan, JsonNode, string> Said,
         Func<LineContext, PortfolioWorkspaces, LineCompletions>? Complete = null);
 
-    static string Text(JsonNode request, string name) => PortfolioCommand.Text(request, name).Trim();
+    static string Text(JsonNode request, string name) => CommandRequests.Text(request, name).Trim();
 
     static CommandForm Form(string words, params (string Name, bool Required)[] arguments) =>
         new([words], [.. arguments.Select(a => new CommandArgument(a.Name, CommandArgumentKind.Text, a.Required))], PortfolioEditRules.App);
@@ -212,7 +212,7 @@ public static class PortfolioScenarioCommands
         Contract(DefineRequest, "Define a scenario", new JsonObject
         {
             ["workspaceId"] = PortfolioCommand.WorkspaceField(),
-            ["revision"] = PortfolioCommand.RevisionField(),
+            ["revision"] = CommandRequests.RevisionField(),
             ["name"] = Field("Name", "The scenario's name, such as s1 or rates-up. One of that name is replaced whole."),
             ["shifts"] = Field("Shifts", "Every shift of the scenario as written, separated by semicolons: jpy_ois +10bp; usdjpy -5%; jpy_ois 5y +3bp. "
                 + $"An index alone shifts the whole curve, a tenor narrows it to that point; bp is absolute, % relative. The indices are {ScenarioCatalog.Listed}."),
@@ -220,32 +220,32 @@ public static class PortfolioScenarioCommands
         Contract(NameRequest, "A scenario by name", new JsonObject
         {
             ["workspaceId"] = PortfolioCommand.WorkspaceField(),
-            ["revision"] = PortfolioCommand.RevisionField(),
+            ["revision"] = CommandRequests.RevisionField(),
             ["name"] = Field("Scenario", "The scenario's name, as the workspace lists it."),
         }, "workspaceId", "name");
         Contract(DuplicateRequest, "Duplicate a scenario", new JsonObject
         {
             ["workspaceId"] = PortfolioCommand.WorkspaceField(),
-            ["revision"] = PortfolioCommand.RevisionField(),
+            ["revision"] = CommandRequests.RevisionField(),
             ["name"] = Field("Scenario", "The scenario to copy, as the workspace lists it."),
             ["copy"] = Field("New name", "The copy's name, which no scenario of the workspace has."),
         }, "workspaceId", "name", "copy");
         Contract(ClearRequest, "Remove every scenario", new JsonObject
         {
             ["workspaceId"] = PortfolioCommand.WorkspaceField(),
-            ["revision"] = PortfolioCommand.RevisionField(),
+            ["revision"] = CommandRequests.RevisionField(),
         }, "workspaceId");
         Contract(GeneratorRequest, "Generate scenarios", new JsonObject
         {
             ["workspaceId"] = PortfolioCommand.WorkspaceField(),
-            ["revision"] = PortfolioCommand.RevisionField(),
+            ["revision"] = CommandRequests.RevisionField(),
             ["factors"] = Field("Factors", "As the command line takes it after scenario ladder or scenario cross. Ladder: a factor, a range and a step, "
                 + "jpy_ois -50bp..+50bp step 10bp. Cross: lists separated by x, each a factor and its sizes, jpy_ois -50bp, 0, +50bp x usdjpy -10%, 0, +10%."),
         }, "workspaceId", "factors");
         Contract(SaveRequest, "Save the scenarios as a set", new JsonObject
         {
             ["workspaceId"] = PortfolioCommand.WorkspaceField(),
-            ["revision"] = PortfolioCommand.RevisionField(),
+            ["revision"] = CommandRequests.RevisionField(),
             ["set"] = Field("Set", "The set's name, one word without @, such as rates-up. The user's own set of that name is replaced."),
             ["share"] = new JsonObject
             {
@@ -256,7 +256,7 @@ public static class PortfolioScenarioCommands
         Contract(LoadRequest, "Load a saved set", new JsonObject
         {
             ["workspaceId"] = PortfolioCommand.WorkspaceField(),
-            ["revision"] = PortfolioCommand.RevisionField(),
+            ["revision"] = CommandRequests.RevisionField(),
             ["set"] = Field("Set", "A set the user can see, by name, or set@owner where two share a name, such as rates@ben."),
         }, "workspaceId", "set");
         Contract(ScenariosMade, "Scenarios made", new JsonObject
@@ -326,7 +326,7 @@ public static class PortfolioScenarioCommands
             if (words.Count == 0) throw new WorkspaceRefused("InvalidName", "scenario save takes the set's name, then desk or all where it is shared.");
             var typed = new JsonObject { ["set"] = words[0].Word };
             if (words.Count > 1) typed["share"] = words[1].Word.ToLowerInvariant();
-            var saved = workspaces().PlanSave(line.State, line.Caller.UserId, Text(typed, "set"), PortfolioCommand.Optional(typed, "share"));
+            var saved = workspaces().PlanSave(line.State, line.Caller.UserId, Text(typed, "set"), CommandRequests.Optional(typed, "share"));
             return PortfolioCommand.Read(line, typed, $"Saves {SavedAs(saved)}");
         }
 
@@ -343,7 +343,7 @@ public static class PortfolioScenarioCommands
             PortfolioCommand.Answer(invocation, workspaces, (service, request, caller, revision) =>
             {
                 var id = Text(request, "workspaceId");
-                var saved = service.SaveScenarios(id, revision, caller.UserId, Text(request, "set"), PortfolioCommand.Optional(request, "share"));
+                var saved = service.SaveScenarios(id, revision, caller.UserId, Text(request, "set"), CommandRequests.Optional(request, "share"));
                 return (id, revision, null, Saved(saved));
             });
     }

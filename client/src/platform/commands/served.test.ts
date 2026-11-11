@@ -1,7 +1,7 @@
 import { ApiError, type Api, type CommandAnswer } from '../api';
 import type { CapabilityDescriptor, LinePlace, LinePreview, LineView, ShortFormDescriptor, ViewVerbDescriptor } from '../contracts';
 import { readLine, signature, type Command, type CommandDoor } from './commands';
-import { argumentShown, argumentsShown, commandDoor, lineAsked, previewShown, screenShown, servedCommands, tableMenu, taken, type DoorPage } from './served';
+import { argumentShown, argumentsDrawn, commandDoor, lineAsked, previewShown, screenShown, servedCommands, tableMenu, taken, type DoorPage } from './served';
 
 // ADR-0016 §4, §5 and its note 15 of 2026-11-11: the line builds a command the catalog says how to type from the
 // catalog, and reads nothing of its line itself. What it does with the server's answer is held here; the names are made up.
@@ -225,14 +225,14 @@ describe('what the line shows of the server\'s reading (ADR-0016 §5)', () => {
     const typed = (name: string, text: string) => ({ name, text, from: 'typed' as const });
 
     // Not read yet, or refused: the form alone, as it is typed.
-    expect(argumentsShown(form, [])).toEqual([{ name: 'product', required: true }, { name: 'terms', required: false }]);
+    expect(argumentsDrawn(form, [])).toEqual([{ name: 'product', required: true }, { name: 'terms', required: false }]);
     // A product's terms are read by their fields: they stand for the form's `terms`, which is not drawn as left out.
-    expect(argumentsShown(form, [typed('product', 'irs'), typed('end', '5y'), typed('notional', '10mm')])).toEqual([
+    expect(argumentsDrawn(form, [typed('product', 'irs'), typed('end', '5y'), typed('notional', '10mm')])).toEqual([
       { name: 'product', required: true, read: typed('product', 'irs') },
       { name: 'end', required: false, read: typed('end', '5y') }, { name: 'notional', required: false, read: typed('notional', '10mm') },
     ]);
     // With nothing read beyond the form, an argument left out is still shown as one that may be typed.
-    expect(argumentsShown(form, [typed('product', 'irs')])).toEqual([{ name: 'product', required: true, read: typed('product', 'irs') }, { name: 'terms', required: false }]);
+    expect(argumentsDrawn(form, [typed('product', 'irs')])).toEqual([{ name: 'product', required: true, read: typed('product', 'irs') }, { name: 'terms', required: false }]);
   });
 
   it('the screen in the sentence of the latest reading that has one, else the opening\'s, with that reading\'s word on whether its order has moved (ADR-0016 note 19)', () => {

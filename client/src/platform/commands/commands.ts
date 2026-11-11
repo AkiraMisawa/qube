@@ -307,8 +307,9 @@ export type LineReading =
 /**
  * Reads the line. A command is chosen once its words are typed in full and followed by a space; what follows is its
  * arguments: required ones in order, optional ones as `name=value`. A line that is exactly a command's words, with no
- * space yet, is that command still being chosen, though a shorter command's words begin it (ADR-0016 note 36): `new
- * rates` is the command of those words, which the list then puts first, and not `new` with `rates` after it.
+ * space yet, is that command still being chosen, though a shorter command's words begin it (ADR-0016 note 36): a
+ * command of two words is the command of those words, which the list then puts first, and not the command of its
+ * first word with the second after it.
  */
 export function readLine(text: string, commands: readonly Command[]): LineReading {
   const lead = text.replace(/^\s+/, '');

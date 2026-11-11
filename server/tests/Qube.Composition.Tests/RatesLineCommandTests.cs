@@ -187,6 +187,69 @@ public class RatesLineCommandTests
         Assert.Equal(($"Set {ccs} notional2 to 30mm.", 30e6), (leg, Number(rig.Line(ccs), "leg2.notional")));
     }
 
+    [Fact] // ADR-0016 note 34: the frequencies new irs names are fields by the same names, each its leg's own, and refused by name on a line with no such leg
+    public async Task An_irs_frequencies_are_fields_by_the_names_new_gives_them()
+    {
+        var rig = new Rig();
+        var (irs, ccs) = (rig.Irs(), rig.Ccs());
+        var made = (Text(rig.Line(irs), "leg1.paymentFrequency"), Text(rig.Line(irs), "leg2.paymentFrequency"));
+
+        var fixedLeg = await rig.Enter($"set {irs} fixed 6m");
+        var floatingLeg = await rig.Enter($"set {irs} floatFrequency=3m");
+        var held = (Text(rig.Line(irs), "leg1.paymentFrequency"), Text(rig.Line(irs), "leg2.paymentFrequency"));
+        var onCcs = rig.Preview($"set {ccs} fixed 6m");
+        rig.Service.EditLine(rig.Id, rig.State.Revision, "akira", irs, "leg2.floating", false);
+        var noFloatingLeg = rig.Preview($"set {irs} float 1m");
+
+        Assert.Equal(("12m", "12m"), made);
+        Assert.Equal(($"Set {irs} fixed frequency to 6m.", $"Set {irs} float frequency to 3m."), (fixedLeg, floatingLeg));
+        Assert.Equal(("6m", "3m"), held);
+        Assert.Equal($"NotApplicable: {ccs} is a cross-currency swap, which has a payment frequency on each leg: set frequency1 or frequency2.", Read(onCcs));
+        Assert.Equal($"NotApplicable: Leg 2 of {irs} is fixed, so the line has no floating leg: set frequency2.", Read(noFloatingLeg));
+    }
+
+    [Fact] // ADR-0016 note 34: a reset by a term is the reset of the legs' fields that hold it, and a term the line does not have is refused as set refuses it
+    public async Task Reset_by_a_term_puts_both_legs_back_and_is_refused_where_the_term_does_not_apply()
+    {
+        var rig = new Rig();
+        var (irs, ccs) = (rig.Irs(), rig.Ccs());
+        await rig.Enter($"set {irs} notional 30");
+        var written = (Number(rig.Line(irs), "leg1.notional"), Number(rig.Line(irs), "leg2.notional"));
+
+        var reset = await rig.Enter($"reset {irs} notional");
+        var back = (Number(rig.Line(irs), "leg1.notional"), Number(rig.Line(irs), "leg2.notional"));
+        var refused = rig.Preview($"reset {ccs} notional");
+
+        Assert.Equal((30e6, 30e6), written);
+        Assert.Equal($"Reset {irs} notional.", reset);
+        Assert.Equal((10e6, 10e6), back);
+        Assert.Equal($"NotApplicable: {ccs} is a cross-currency swap, which has a notional on each leg: set notional1 or notional2.", Read(refused));
+    }
+
+    [Fact] // ADR-0016 notes 34 and 36: no reading fails; a term that depends on a flag the grid left empty is refused by name, and written once the flag is said
+    public async Task A_term_is_refused_by_name_while_its_legs_floating_flag_is_empty()
+    {
+        var rig = new Rig();
+        var line = rig.Irs();
+        rig.Service.EditLine(rig.Id, rig.State.Revision, "akira", line, "leg1.floating", null);
+        var revision = rig.State.Revision;
+
+        var rate = rig.Preview($"set {line} rate 1.5%");
+        var invoked = await rig.Commands.InvokeAsync(EntitySet.Id, TableContracts.Version,
+            new JsonObject { ["request"] = new JsonObject { ["workspaceId"] = rig.Id, ["rows"] = line, ["set"] = "rate 1.5%" } }, Akira, Guid.NewGuid().ToString(), default);
+        var unwritten = rig.State.Revision;
+        // Reading the row's own values does not depend on the flag: another field of the line is set as ever.
+        var end = await rig.Enter($"set {line} end 7y");
+        await rig.Enter($"set {line} float1 off");
+        var said = await rig.Enter($"set {line} rate 1.5%");
+
+        Assert.Equal($"NotSaid: {line} does not say whether leg 1 floats: set float1 on or off first.", Read(rate));
+        Assert.Equal("NotSaid", Assert.Single(Assert.IsType<CommandResult.Refused>(invoked).Issues).Code);
+        Assert.Equal(revision, unwritten);
+        Assert.Equal($"Set {line} end to 7y.", end);
+        Assert.Equal(($"Set {line} rate to 1.5%.", "FixedRatePercent", 1.5), (said, Text(rig.Line(line), "leg1.quoteKind"), Number(rig.Line(line), "leg1.quote")));
+    }
+
     [Fact] // ADR-0016 note 34: reset puts a line's field back to what the line was made with, remove removes the line, and undo takes each back
     public async Task Reset_puts_a_field_back_and_remove_removes_a_line()
     {

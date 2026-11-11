@@ -264,9 +264,9 @@ public sealed class RatesWorkspaces(WorkspaceService workspaces, IDataStore stor
     /// <summary>Moves the grid's valuation date. Every schedule is derived again, and its cashflow edits carry or are held.</summary>
     public (WorkspaceState State, CarrySummary Summary) ChangeValuationDate(string workspaceId, long revision, string user, DateOnly valuationDate)
     {
-        Owned(workspaceId, user);
         var current = Owned(workspaceId, user);
         var (state, _) = workspaces.Reacquire(workspaceId, revision, user, Context(valuationDate, current.Context["defaults"]?.AsObject()), NoAcquiredSource);
+        // No summary is the kernel's word for no schedule having moved: no edit was carried, held or lost, which the zeros say.
         return (state, state.Rederived ?? new CarrySummary(0, 0, 0));
     }
 

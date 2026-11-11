@@ -143,11 +143,7 @@ public sealed class ProductsModule(Func<ProductService> products) : IQubeModule
                 ["product"] = new JsonObject { ["type"] = "string", ["minLength"] = 1, ["title"] = "Product, such as rates.irs" },
                 ["workspaceId"] = new JsonObject { ["type"] = "string", ["minLength"] = 1, ["title"] = "Workspace" },
                 ["terms"] = new JsonObject { ["type"] = "string", ["title"] = "Terms as typed after new <product>, such as 10y 1000 pay" },
-                ["revision"] = new JsonObject
-                {
-                    ["type"] = "integer", ["title"] = "Revision",
-                    ["description"] = "The revision the request was made against; refused if the workspace has moved since. Left out, the one it holds.",
-                },
+                ["revision"] = CommandRequests.RevisionField(),
             },
             ["required"] = new JsonArray("product", "workspaceId"),
             ["additionalProperties"] = false,

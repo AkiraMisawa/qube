@@ -75,7 +75,7 @@ public sealed class RatesWorkspacePrice(Func<RatesWorkspaces> workspaces) : ICap
 
     public LineRead Read(LineContext line)
     {
-        var plan = RatesCommand.Naming(() => workspaces().PlanPrice(line.State.WorkspaceId, line.State.Revision, line.Caller.UserId, null));
+        var plan = CommandRequests.Naming(() => workspaces().PlanPrice(line.State.WorkspaceId, line.State.Revision, line.Caller.UserId, null));
         var lines = plan.LeftOut.Count == 0 ? TableWords.Counted(plan.Priced.Count, "line")
             : $"{plan.Priced.Count} of {TableWords.Counted(plan.Priced.Count + plan.LeftOut.Count, "line")}";
         return RatesCommand.Read(line, new JsonObject { ["marketSnapshotId"] = plan.MarketSnapshotId }, [],
@@ -87,15 +87,15 @@ public sealed class RatesWorkspacePrice(Func<RatesWorkspaces> workspaces) : ICap
     public Task<IReadOnlyDictionary<string, JsonNode?>> InvokeAsync(CapabilityInvocation invocation, CancellationToken cancellationToken) =>
         RatesCommand.Asked(invocation, workspaces, (service, request, caller) =>
         {
-            var id = RatesCommand.Text(request, "workspaceId");
+            var id = CommandRequests.Text(request, "workspaceId");
             var revision = RatesCommand.Revision(service, request, caller);
-            var submitted = RatesCommand.Naming(() => service.Price(id, revision, caller.UserId, RatesCommand.Key(invocation, "Price"), RatesCommand.Optional(request, "marketSnapshotId"), caller.Origin));
-            var run = RatesCommand.Accepted(submitted);
+            var submitted = CommandRequests.Naming(() => service.Price(id, revision, caller.UserId, CommandRequests.Key(invocation, "Price"), CommandRequests.Optional(request, "marketSnapshotId"), caller.Origin));
+            var run = CommandRequests.Accepted(submitted);
             return new JsonObject
             {
                 ["workspaceId"] = id, ["revision"] = revision, ["said"] = $"Price was accepted as Run {run.RunId}.", ["runId"] = run.RunId,
                 // The snapshot the Run was priced on, as the Run's own input names it: the one asked for, or the latest then.
-                ["marketSnapshotId"] = RatesCommand.Text(run.Input, "marketSnapshotId"),
+                ["marketSnapshotId"] = CommandRequests.Text(run.Input, "marketSnapshotId"),
             };
         });
 }
@@ -188,14 +188,14 @@ public sealed class RatesFrameCapture(Func<RatesWorkspaces> workspaces) : ICapab
     public Task<IReadOnlyDictionary<string, JsonNode?>> InvokeAsync(CapabilityInvocation invocation, CancellationToken cancellationToken) =>
         RatesCommand.Asked(invocation, workspaces, (service, request, caller) =>
         {
-            var id = RatesCommand.Text(request, "workspaceId");
+            var id = CommandRequests.Text(request, "workspaceId");
             var named = Frame.Count(name => request[name] is not null);
             if (named != 0 && named != Frame.Length)
                 throw new CapabilityFailure("InvalidInput", $"A capture names its frame whole ({TableWords.And(Frame)}), or names none for the frame shown as it runs.");
             var (subscription, seen) = named == 0 ? Shown(service.ShownOn(id, caller.UserId).Delivery)
-                : (RatesCommand.Text(request, "subscriptionId"),
-                    new FrameIdentity(request["subscriptionRevision"]!.GetValue<int>(), request["inputRevision"]!.GetValue<long>(), RatesCommand.Text(request, "marketSnapshotId")));
-            var run = RatesCommand.Accepted(service.Capture(id, subscription, caller.UserId, seen, RatesCommand.Key(invocation, "Capture"), caller.Origin));
+                : (CommandRequests.Text(request, "subscriptionId"),
+                    new FrameIdentity(request["subscriptionRevision"]!.GetValue<int>(), request["inputRevision"]!.GetValue<long>(), CommandRequests.Text(request, "marketSnapshotId")));
+            var run = CommandRequests.Accepted(service.Capture(id, subscription, caller.UserId, seen, CommandRequests.Key(invocation, "Capture"), caller.Origin));
             return new JsonObject
             {
                 // The revision the workspace holds, which a capture leaves as it is; the frame's own is in the sentence.
@@ -248,10 +248,10 @@ public sealed class RatesLineAdd(Func<RatesWorkspaces> workspaces) : ICapability
     public Task<IReadOnlyDictionary<string, JsonNode?>> InvokeAsync(CapabilityInvocation invocation, CancellationToken cancellationToken) =>
         RatesCommand.Asked(invocation, workspaces, (service, request, caller) =>
         {
-            var named = RatesCommand.Text(request, "product");
+            var named = CommandRequests.Text(request, "product");
             if (!Products.TryGetValue(named, out var product))
                 throw new CapabilityFailure("UnknownProduct", $"{named} is no product a line is added for: {TableWords.Or(Products.Keys)}.");
-            var (state, line) = service.AddLine(RatesCommand.Text(request, "workspaceId"), RatesCommand.Revision(service, request, caller), caller.UserId, product, caller.Origin);
+            var (state, line) = service.AddLine(CommandRequests.Text(request, "workspaceId"), RatesCommand.Revision(service, request, caller), caller.UserId, product, caller.Origin);
             return new JsonObject { ["workspaceId"] = state.WorkspaceId, ["revision"] = state.Revision, ["said"] = $"Added {line}, an empty {named} line.", ["line"] = line };
         });
 }
@@ -261,43 +261,9 @@ static class RatesCommand
     public static Caller CallerOf(CapabilityInvocation invocation) =>
         invocation.Caller ?? throw new CapabilityFailure("NoCaller", "A command is invoked for a caller, through the command gateway.");
 
-    public static string Text(JsonNode request, string name) =>
-        request[name]?.GetValue<string>() ?? throw new CapabilityFailure("InvalidInput", $"The request has no {name}.");
-
-    /// <summary>An optional field: absent is none, never a value made up for it.</summary>
-    public static string? Optional(JsonNode request, string name) => request[name]?.GetValue<string>();
-
     /// <summary>The revision a request was made against, or the one the workspace holds where it names none, as its contract says.</summary>
     public static long Revision(RatesWorkspaces service, JsonNode request, Caller caller) =>
-        request["revision"]?.GetValue<long>() ?? service.Revision(Text(request, "workspaceId"), caller.UserId);
-
-    /// <summary>The key a command that submits a Run was invoked with: one business submission, asked again, is the same Run.</summary>
-    public static string Key(CapabilityInvocation invocation, string command) => invocation.IdempotencyKey
-        ?? throw new CapabilityFailure("NoIdempotencyKey", $"{command} is one business submission: it is invoked with a key, through the command gateway.");
-
-    /// <summary>The Run a submission was accepted as; a submission the Run service rejected is the command's failure, each issue said.</summary>
-    public static RunRecord Accepted(SubmissionResult submitted) => submitted switch
-    {
-        SubmissionResult.Accepted accepted => accepted.Run,
-        // A line and a notice show a sentence alone, so the sentence says each issue the Run service found.
-        SubmissionResult.Rejected rejected => throw new CapabilityFailure(rejected.Code,
-            rejected.Issues.Count == 0 ? "The Run was not accepted."
-                : $"The Run was not accepted: {string.Join("; ", rejected.Issues.Select(i => $"{i.Path}: {i.Message}"))}", rejected.Issues),
-        _ => throw new InvalidOperationException("Unhandled submission result."),
-    };
-
-    /// <summary>A refusal that names the edits it waits on says them in its sentence (ADR-0016 note 33).</summary>
-    public static T Naming<T>(Func<T> act)
-    {
-        try
-        {
-            return act();
-        }
-        catch (WorkspaceRefused refused) when (refused.Targets.Count > 0)
-        {
-            throw refused.Named();
-        }
-    }
+        request["revision"]?.GetValue<long>() ?? service.Revision(CommandRequests.Text(request, "workspaceId"), caller.UserId);
 
     /// <summary>
     /// A line as one of Rates' commands read it (ADR-0016 note 36): the request to invoke it with, which names the
@@ -334,7 +300,7 @@ static class RatesCommand
         Func<RatesWorkspaces, string, Caller, (string SubscriptionId, string Said)> act)
     {
         var caller = CallerOf(invocation);
-        var workspaceId = Text(invocation.Inputs["workspace"] ?? throw new CapabilityFailure("InvalidInput", "The command takes a workspace."), "workspaceId");
+        var workspaceId = CommandRequests.Text(invocation.Inputs["workspace"] ?? throw new CapabilityFailure("InvalidInput", "The command takes a workspace."), "workspaceId");
         return Refusing(() =>
         {
             var service = workspaces();
@@ -405,7 +371,6 @@ public sealed class RatesCommandsModule(Func<RatesWorkspaces> workspaces) : IQub
             if (description is not null) integer["description"] = description;
             return integer;
         }
-        JsonObject Revision() => Integer("Revision", "The revision the request was made against; refused if the workspace has moved since. Left out, the one it holds.");
         void Contract(string id, string title, JsonObject properties, params string[] required) =>
             builder.AddContract(new ContractDefinition(id, RatesContracts.Version, title, new JsonObject
             {
@@ -434,7 +399,7 @@ public sealed class RatesCommandsModule(Func<RatesWorkspaces> workspaces) : IQub
         Contract(RatesCommandContracts.PriceRequest, "Price the workspace", new JsonObject
         {
             ["workspaceId"] = Named("Workspace"),
-            ["revision"] = Revision(),
+            ["revision"] = CommandRequests.RevisionField(),
             ["marketSnapshotId"] = Named("Market snapshot", "The snapshot to price on, as a market update names it. Left out, the latest as the command runs, which the answer names."),
         }, "workspaceId");
         Contract(RatesCommandContracts.PriceAccepted, "Price accepted", new JsonObject
@@ -465,7 +430,7 @@ public sealed class RatesCommandsModule(Func<RatesWorkspaces> workspaces) : IQub
         Contract(RatesCommandContracts.LineAddRequest, "Add an empty line", new JsonObject
         {
             ["workspaceId"] = Named("Workspace"),
-            ["revision"] = Revision(),
+            ["revision"] = CommandRequests.RevisionField(),
             ["product"] = Named("Product", "irs or ccs."),
         }, "workspaceId", "product");
         Contract(RatesCommandContracts.LineAdded, "Line added", new JsonObject

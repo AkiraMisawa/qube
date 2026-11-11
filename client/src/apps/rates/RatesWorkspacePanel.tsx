@@ -244,9 +244,17 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
     const ended = await door.enter(line);
     if (ended !== undefined && 'sentence' in ended) workspace.notify('refused', `${line}: ${ended.sentence}`);
   };
+  /** Price prices on the market this page shows, named, as Capture names the frame it drew (docs/07 §3); typed, `price` says the market it read. */
   const price = async () => {
+    const snapshot = market.data?.snapshotId;
+    if (snapshot === undefined) { workspace.notify('refused', 'price: No market snapshot has been published yet; Price waits for one.'); return; }
     setBusy('Pricing');
-    try { await enter('price'); } finally { setBusy(undefined); }
+    try {
+      const reason = await door.invoke(PRICE, { marketSnapshotId: snapshot });
+      if (reason !== undefined) workspace.notify('refused', `price: ${reason.sentence}`);
+    } finally {
+      setBusy(undefined);
+    }
   };
   /** Capture saves the frame this page drew, named whole, whatever the subscription shows by the time it runs (docs/07 §3). */
   const capture = async (drawn: LiveFrame) => {
@@ -369,6 +377,7 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
           {subscription !== undefined ? 'Stop live' : ws.live !== undefined && !ws.live.running ? 'Resume live' : 'Start live'}
         </Button>
         <Button size="xs" variant="default" disabled={subscription === undefined || frame === undefined} loading={busy === 'Capturing'}
+          title={subscription === undefined ? 'Capture saves a live frame: start live first.' : frame === undefined ? 'No live frame has arrived yet.' : undefined}
           onClick={() => { if (frame !== undefined) void capture(frame); }}>Capture</Button>
       </Group>
       <Group gap="xs" wrap="wrap">

@@ -45,7 +45,7 @@ public sealed class WorkspaceTakeBack(Func<WorkspaceService> workspaces, bool un
     {
         var caller = invocation.Caller ?? throw new CapabilityFailure("NoCaller", "A command is invoked for a caller, through the command gateway.");
         var request = invocation.Inputs["request"] ?? throw new CapabilityFailure("InvalidInput", "The command takes a request.");
-        var workspaceId = request["workspaceId"]?.GetValue<string>() ?? throw new CapabilityFailure("InvalidInput", "The request has no workspaceId.");
+        var workspaceId = CommandRequests.Text(request, "workspaceId");
         var service = workspaces();
         try
         {

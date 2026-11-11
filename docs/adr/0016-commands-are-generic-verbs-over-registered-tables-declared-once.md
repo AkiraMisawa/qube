@@ -516,7 +516,8 @@ and the edit verbs with XVA registered; the preview and the line.
    which may name the table it points into; currency, frequency and schedule are choices. That a field may be empty
    (`empty`, `none`) is the field's, not a form. An amount is 0 or more and a product still refuses 0. `Percent`, a
    product's rate in percent, stays beside `Rate` until Rates registers (step 3). One reader and one writer serve a
-   product's term, a cell, a condition and the AI.
+   product's term, a cell, a condition and the AI. *Changed 2026-11-11 (note 34):* `Percent` stays after Rates
+   registered too; note 34 says why.
 6. **What a registration holds in step 1 (§1).** Its id and version, words, key, fields, subsets, whole-set targets
    and row reader. The row contract and the `TypedDataRef` come with the AI's read and the workflows (steps 4 and 6);
    templates, tables under a row and fields of several values with drafts (step 5).
@@ -1157,6 +1158,21 @@ each is built.
       fields that do (`notional` on a cross-currency swap: `notional1`, `notional2`); a row holds no value in a
       term that does not apply to it, or whose two legs differ. `rate` and the spreads take a value: a leg goes
       back to par by emptying its `kind` and its `quote`, as its two cells are emptied, or by `reset`.
+    - *Added in review (2026-11-11): the two frequencies.* `new irs` names a fixed and a floating frequency
+      (`fixedFrequency` or `fixed`, `floatFrequency` or `float`), and this list had left them out, so `set L3 fixed
+      6m` named no field though `new irs … fixed=6m` did. They are fields by the same names: the fixed is leg 1's
+      payment frequency and the floating leg 2's, as an IRS is made, each while its leg is that; on a
+      cross-currency swap, or an IRS whose leg was changed, they are refused by name with `frequency1` or
+      `frequency2`. `float1` stays the leg's flag: a frequency typed for it is refused by its form.
+    - *Added in review: a leg's flag left empty.* The grid lets the `Float` cell be emptied. A term that depends
+      on the flag (`rate`, a spread, a frequency) failed on an empty one, so `set L3 rate 1%` was a server error.
+      It is refused by name now (`L3 does not say whether leg 1 floats: set float1 on or off first.`), and a row's
+      values are read without the flag. The command does not read an empty flag as fixed. The resolver does, as it
+      did before this step, and the line's summary then says `Fixed`: that default is older than CLAUDE.md's rule
+      on fallbacks and is left for the owner to decide, not widened here.
+    - *Added in review: `quote1` and `quote2` stay numbers.* They are the leg's quote in the unit its `kind` names:
+      percent for a fixed rate or a spread, points for `fxpts`, basis points for `atm`. So they are typed bare, as
+      their cell is, and it is `rate` and the spreads that are typed as a rate is (`1.25%`, `5bp`).
     - *A write is checked for its form only*, as a typed cell is. Whether the terms make a line is the resolver's,
       and shows on the row; a command that refused it would refuse the second of two edits a line needs both of.
       One check is the command's alone: a currency or an index is one the confirmed conventions name, where a cell
@@ -1256,7 +1272,7 @@ each is built.
     - *As built: what the line draws of a reading.* The server reads a product's terms under their fields' names
       (`end 10y`, `notional 3bn`), which the form (`product`, `terms`) does not list. The line draws the form's
       arguments, each with what was read for it, then those read under other names; an argument of the form that
-      may be left out and was not read by its own name is then not drawn as left out (`argumentsShown`).
+      may be left out and was not read by its own name is then not drawn as left out (`argumentsDrawn`).
     - *As built: the page.* The page follows the workspace's live subscription from what the workspace says after
       each command, whoever ran it (this page, another, the AI): it attaches to the one running, and leaves one
       that stopped with its last frame shown. A stream is held by its subscription's id, so the end of one the
@@ -1265,6 +1281,11 @@ each is built.
       gone. The grids' undo and redo keys run `undo` and `redo`. The page's places are `lines` and, while a line's
       cashflows are open, `flows`; `focus grid` goes to the lines. The cashflows are a grid of no table: with the
       keyboard there the line is told of no screen.
+    - *As built, corrected in review: the Price button names the market the page shows*, as Capture names the
+      frame it drew, and says `No market snapshot has been published yet` where the page shows none. The first
+      build ran the typed `price`, which reads the latest: a later snapshot than the one in the page's badge could
+      be priced, which docs/07 §3 rules out and the button did not do before this step. Typed, `price` still reads
+      the latest and says which before Enter.
     - *As built: the client's `price`* is listed only where neither a pricer's nor a Rates page is open, where it
       says `Open an XVA or Rates workspace to price it.` and never runs. `new rates` is the one Rates command
       still written in the client. On another page Rates' commands are no commands (note 27), so the empty line
@@ -1278,7 +1299,10 @@ each is built.
       `StopLive` by a subscription's id went with their endpoints. The host's Rates endpoints answer 409 for a
       moved revision alone.
     - *As built: moved to the kernel.* `WorkspaceRefused.Named()` (a refusal that names its targets in its
-      sentence), `TableWords.Counted` and `TableWords.Some` were the pricer's and are now shared with Rates.
+      sentence), `TableWords.Counted` and `TableWords.Some` were the pricer's and are now shared with Rates. So is
+      what every module's command read of its request in a copy of its own (`CommandRequests`): a field the request
+      must name, an optional one, the revision as a contract says it, the key of a command that submits a Run, the
+      Run a submission was accepted as, and a refusal named by the edits it waits on.
     - *Found, and left.* A line is named by the revision that makes it, so the first line of a workspace just made
       is `L3`, and two made one after the other are `L3` and `L5`: a line from terms writes two entries. A context
       change (`set default currency`) writes two as well. `new irs 5y` on a workspace with no defaults says six

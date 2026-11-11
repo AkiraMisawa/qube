@@ -1710,9 +1710,10 @@ client but `new rates` is gone, with eight page endpoints and the two product en
 ### What runs
 
 - **`set`, `reset` and `remove` on a line** (`rates.lines`): `set L3 notional 5mm`, `set L3 rate 1.25%`, `set L3
-  freq1 3m`, `reset L3 end`, `remove L3`, and `set notional 5mm` on the lines selected in the grid. An IRS's terms
-  are fields as `new irs` names them (`notional` writes both legs); a term that does not apply to a line is refused
-  by the line's name, with the fields that do.
+  freq1 3m`, `set L3 fixed 6m`, `reset L3 end`, `remove L3`, and `set notional 5mm` on the lines selected in the
+  grid. An IRS's terms are fields as `new irs` names them (`notional` writes both legs, `fixed` and `float` the
+  fixed and the floating leg's frequency); a term that does not apply to a line is refused by the line's name, with
+  the fields that do.
 - **The defaults are set one at a time** (`rates.workspace`): `set default currency jpy`, `set default notional=500
   default direction=rec`, `reset default currency`. A new line takes them, and says so before Enter.
 - **`undo` and `redo`** take back and put back each of these, a change of defaults included, from the line and from
@@ -1728,8 +1729,9 @@ client but `new rates` is gone, with eight page endpoints and the two product en
   names the frame the subscription showed when the line was read, with its time, and saves that one. **`live
   start`** and **`live stop`** say what they would start or stop. **`add line <irs|ccs>`** adds an empty line.
 - **The page's controls are the commands.** Add IRS, Add CCS, Price, the live toggle and Capture run them through
-  the door; Capture names the frame the page drew. A Run that `price` or `capture` made opens in its own panel,
-  from the command's answer. The page follows the workspace's live subscription whoever started or stopped it.
+  the door; Price names the market the page shows and Capture the frame the page drew, where the typed `price`
+  reads the latest and says which. A Run that `price` or `capture` made opens in its own panel, from the command's
+  answer. The page follows the workspace's live subscription whoever started or stopped it.
 - **The line says the Rates screen** (`On screen: lines, 2 selected, L3 · line`), `find L5` puts the Focus on a
   line, `go lines` and `go flows` put the keyboard in the lines and in an open line's cashflows, and the grid's
   Context Menu holds `Reset this cell · reset` and `Remove line · remove selected`.
@@ -1746,15 +1748,24 @@ client but `new rates` is gone, with eight page endpoints and the two product en
 
 | What | Result |
 |---|---|
-| `dotnet test server/Qube.slnx` | 1061 passed |
+| `dotnet test server/Qube.slnx` | 1065 passed |
 | Client: `npm run typecheck`, `npm test`, `npm run build` | Clean; 290 passed in 32 files; built |
-| `npx playwright test` (Chromium, headless, Linux) | 84 passed |
-| The six Rates browser tests this step adds or rewrites, with `--repeat-each=3` | 18 passed |
+| `npx playwright test` (Chromium, headless, Linux) | 85 passed |
+| The six Rates browser tests this step adds or rewrites, with `--repeat-each=3`, before the review | 18 passed |
+| The three Rates browser tests the review's changes add or extend, with `--repeat-each=3` | 9 passed |
 | `credit.spec.ts`'s first test, whose `price` helper this step corrects, 14 times | 14 passed |
+| The Price button's test against the first build's button, and the host's live test with no observer wired | Each failed, as it should |
 
 A test of no part of this step failed in about one run of four: `credit.spec.ts`'s `price` helper read the result's
 revision as painted, in capitals, and compared it with its text, so it never waited for the new Run and read the
 figures of the Run before. It now waits for the line to close and for the revision of the workspace as it stands.
+
+The code review (two readers: the repository's standards, and the spec) found two defects of the first build,
+both corrected with a test that failed first: the Price button ran the typed `price` and so priced on the latest
+snapshot, not the one the page shows; and a leg whose `Float` cell the grid had left empty made `set L3 rate 1%` a
+server error, where it is now refused by name. It also found the two frequencies of `new irs` missing as fields, a
+disabled Capture that did not say why, and each module's own copy of what a command reads of its request, now the
+kernel's (`CommandRequests`).
 
 ### Providers
 
@@ -1762,6 +1773,13 @@ Unchanged: the Rates market, its conventions' development profiles and every fig
 
 ### Known limits
 
+- The line grid's Context Menu is bounded by the grid's own box, as ExGrid places it (its ADR-0040). The grid shows
+  three rows at least, so on a workspace of up to three lines the menu shows three of its four items at once and
+  scrolls to `Remove line`. A taller grid would show all four and move the cashflows down (ADR-0015's layout).
+- A leg whose `Float` cell is empty is priced as fixed, and its summary says `Fixed`: the resolver's reading from
+  before this step, and a default of the kind CLAUDE.md now asks the owner to approve. A command does not use it (a
+  term that depends on the flag is refused until the flag is said); whether the row should say the flag is missing
+  is the owner's to decide.
 - `new irs 5y` on a workspace with no defaults says six terms are missing, the index and the frequencies among
   them, though a currency alone would bring those from its profile: the reading does not know which missing terms
   a profile would supply once another is typed (ADR-0016 note 36).

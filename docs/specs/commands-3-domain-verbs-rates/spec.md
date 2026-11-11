@@ -155,8 +155,12 @@ A test names the ADR it holds. Tested at these seams, each through its public in
   client command; Playwright (`rates.spec.ts`) two lines selected, `set notional 5mm` and `undo`, the line saying
   its screen, `find <line>`, a default set alone, `new irs` previewed and run, and the buttons on the same
   commands. *Added as built:* Vitest also holds what the line draws of a reading whose arguments the form does
-  not list (`argumentsShown`), what the door tells its page of an answer, and that the client lists no Rates
+  not list (`argumentsDrawn`), what the door tells its page of an answer, and that the client lists no Rates
   command but `new rates` (`buildCommands`); Playwright also holds the menu's `Remove line` and the page's places.
+  *Added in review:* `RatesLineCommandTests` also holds a reset by a term, the two frequencies as fields and a term
+  refused while its leg's flag is empty; `RatesApiTests` that the host tells the live subscription of a revision
+  the kernel's `set` wrote; Playwright that the Price button prices on the market the page shows while a later one
+  is published, Add CCS, the toggle both ways and the menu's `Reset this cell`.
 
 Not tested: what a domain service already holds by its own tests, and the kernel's reading of the expanded line.
 

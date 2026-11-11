@@ -48,7 +48,8 @@ public sealed class RatesTables(ConventionRegistry conventions) : ITableCatalog
     /// </summary>
     sealed class LineTable(ConventionRegistry conventions) : IWorkspaceTable
     {
-        const string Key = "line", Currency = "currency", Index = "index", Notional = "notional", Rate = "rate", Spread = "spread";
+        const string Key = "line", Currency = "currency", Index = "index", Notional = "notional", Rate = "rate", Spread = "spread",
+            FixedFrequency = "fixedFrequency", FloatFrequency = "floatFrequency", PaymentFrequency = "paymentFrequency";
 
         static string LegSpread(int n) => $"{Spread}{n}";
 
@@ -70,7 +71,7 @@ public sealed class RatesTables(ConventionRegistry conventions) : ITableCatalog
                     new(Name("quoteKind"), "Quote kind", [$"kind{n}"], FieldForm.Choice, Editable: true, Optional: true, Choices: QuoteKinds, Group: group),
                     new(Name("quote"), "Quote", [$"quote{n}"], FieldForm.Number, Editable: true, Optional: true, Group: group),
                     new(LegSpread(n), "Spread", [LegSpread(n)], FieldForm.Percent, Editable: true, Group: group),
-                    new(Name("paymentFrequency"), "Payment frequency", [$"frequency{n}", $"freq{n}"], FieldForm.Period, Editable: true, Group: group),
+                    new(Name(PaymentFrequency), "Payment frequency", [$"frequency{n}", $"freq{n}"], FieldForm.Period, Editable: true, Group: group),
                     new(Name("resetFrequency"), "Reset frequency", [$"reset{n}"], FieldForm.Period, Editable: true, Optional: true, Group: group),
                     new(Name("floating"), "Floating", [$"float{n}"], FieldForm.Flag, Editable: true, Group: group),
                     new(Name("dayCount"), "Day count", [$"daycount{n}"], FieldForm.Choice, Editable: true, Optional: true, Choices: DayCounts, Group: group),
@@ -96,6 +97,8 @@ public sealed class RatesTables(ConventionRegistry conventions) : ITableCatalog
                 new(Notional, "Notional", [Notional], FieldForm.Amount, Editable: true, UnitField: Currency),
                 new(Rate, "Fixed rate", [Rate], FieldForm.Percent, Editable: true),
                 new(Spread, "Floating spread", [Spread], FieldForm.Percent, Editable: true),
+                new(FixedFrequency, "Fixed leg payment frequency", ["fixed frequency", FixedFrequency, "fixed"], FieldForm.Period, Editable: true),
+                new(FloatFrequency, "Floating leg payment frequency", ["float frequency", FloatFrequency, "float"], FieldForm.Period, Editable: true),
                 new(LineFields.Collateral, "Collateral", [LineFields.Collateral], FieldForm.Id, Editable: true, Optional: true),
                 new(LineFields.MandatoryBreak, "Mandatory break", ["break", "mandatory break"], FieldForm.Date, Editable: true, Optional: true),
                 new(LineFields.Risk, "Risk", [LineFields.Risk], FieldForm.Flag, Editable: true),
@@ -119,15 +122,14 @@ public sealed class RatesTables(ConventionRegistry conventions) : ITableCatalog
 
             public JsonNode? Held(string field) => fields.TryGetValue(field, out var value) ? value : throw new InvalidOperationException($"Line {line} has no field {field}.");
 
-            public bool IsIrs => Held(LineFields.Product)?.GetValue<string>() switch
-            {
-                "irs" => true,
-                "ccs" => false,
-                var other => throw new InvalidOperationException($"Line {line} names product {other ?? "(none)"}, which Rates does not describe."),
-            };
+            public bool IsIrs => RatesProducts.Named(line, Held(LineFields.Product)?.GetValue<string>()) == RatesProducts.Irs;
 
-            public bool Floating(int leg) => Held(LineFields.Leg(leg, "floating")) is JsonValue v && v.TryGetValue<bool>(out var floating) ? floating
-                : throw new InvalidOperationException($"Line {line} does not say whether leg {leg} floats.");
+            // Whether a leg floats, where the line says: a flag the grid left empty says neither.
+            bool? Floats(int leg) => Held(LineFields.Leg(leg, "floating")) is JsonValue v && v.TryGetValue<bool>(out var floats) ? floats : null;
+
+            /// <summary>Whether a leg floats, for a write that depends on it: a line that does not say is refused by name, and not read as either.</summary>
+            public bool Floating(int leg) => Floats(leg)
+                ?? throw new WorkspaceRefused("NotSaid", $"{line} does not say whether leg {leg} floats: set float{leg} on or off first.");
 
             public JsonNode? Value(string field) => Read(field)?.DeepClone();
 
@@ -138,6 +140,9 @@ public sealed class RatesTables(ConventionRegistry conventions) : ITableCatalog
                 Currency or Index or Notional => IsIrs && FieldForms.Same(Held(LineFields.Leg(1, field)), Held(LineFields.Leg(2, field))) ? Held(LineFields.Leg(1, field)) : null,
                 Rate => Quoted(1, QuoteKind.FixedRatePercent),
                 Spread => IsIrs ? Quoted(2, QuoteKind.FloatSpreadPercent) : null,
+                // An IRS is a fixed leg 1 against a floating leg 2 (C40): each frequency is its leg's, while the leg is that.
+                FixedFrequency => IsIrs && Floats(1) == false ? Held(LineFields.Leg(1, PaymentFrequency)) : null,
+                FloatFrequency => IsIrs && Floats(2) == true ? Held(LineFields.Leg(2, PaymentFrequency)) : null,
                 _ when field == LegSpread(1) => Quoted(1, QuoteKind.FloatSpreadPercent),
                 _ when field == LegSpread(2) => Quoted(2, QuoteKind.FloatSpreadPercent),
                 _ => Held(field),
@@ -154,17 +159,23 @@ public sealed class RatesTables(ConventionRegistry conventions) : ITableCatalog
         {
             IReadOnlyList<(string, JsonNode?)> Quote(int leg, QuoteKind kind) =>
                 [(LineFields.Leg(leg, "quoteKind"), kind.ToString()), (LineFields.Leg(leg, "quote"), value)];
-            WorkspaceRefused OnEachLeg(string what) => new("NotApplicable",
-                $"{row.Key} is a cross-currency swap, which has {what} on each leg: set {field}1 or {field}2.");
+            WorkspaceRefused OnEachLeg(string what, string by) => new("NotApplicable",
+                $"{row.Key} is a cross-currency swap, which has {what} on each leg: set {by}1 or {by}2.");
+            IReadOnlyList<(string, JsonNode?)> FrequencyOf(int leg, bool floating) => !row.IsIrs ? throw OnEachLeg("a payment frequency", "frequency")
+                : row.Floating(leg) == floating ? [(LineFields.Leg(leg, PaymentFrequency), value)]
+                : throw new WorkspaceRefused("NotApplicable",
+                    $"Leg {leg} of {row.Key} is {(floating ? "fixed" : "floating")}, so the line has no {(floating ? "floating" : "fixed")} leg: set frequency{leg}.");
             IReadOnlyList<(string, JsonNode?)> SpreadOf(int leg) => row.Floating(leg) ? Quote(leg, QuoteKind.FloatSpreadPercent)
                 : throw new WorkspaceRefused("NotApplicable", $"Leg {leg} of {row.Key} is fixed and takes no spread: set {(leg == 1 ? Rate : "kind2 and quote2")}.");
             return field switch
             {
-                Currency or Notional => row.IsIrs ? [(LineFields.Leg(1, field), value), (LineFields.Leg(2, field), value)] : throw OnEachLeg($"a {field}"),
-                Index => row.IsIrs ? [(LineFields.Leg(1, field), value), (LineFields.Leg(2, field), value)] : throw OnEachLeg($"an {field}"),
+                Currency or Notional => row.IsIrs ? [(LineFields.Leg(1, field), value), (LineFields.Leg(2, field), value)] : throw OnEachLeg($"a {field}", field),
+                Index => row.IsIrs ? [(LineFields.Leg(1, field), value), (LineFields.Leg(2, field), value)] : throw OnEachLeg($"an {field}", field),
                 Rate => !row.Floating(1) ? Quote(1, QuoteKind.FixedRatePercent)
                     : throw new WorkspaceRefused("NotApplicable", $"Leg 1 of {row.Key} is floating and takes no fixed rate: set {LegSpread(1)}."),
-                Spread => row.IsIrs ? SpreadOf(2) : throw OnEachLeg($"a {field}"),
+                Spread => row.IsIrs ? SpreadOf(2) : throw OnEachLeg($"a {field}", field),
+                FixedFrequency => FrequencyOf(1, floating: false),
+                FloatFrequency => FrequencyOf(2, floating: true),
                 _ when field == LegSpread(1) => SpreadOf(1),
                 _ when field == LegSpread(2) => SpreadOf(2),
                 _ => [(field, value)],
@@ -267,20 +278,5 @@ public sealed class RatesTables(ConventionRegistry conventions) : ITableCatalog
 
         public IReadOnlyList<WorkspaceChange> Remove(WorkspaceState state, ITableRow row) =>
             throw new WorkspaceRefused("NotRemovable", $"{Row} is always one row: a command changes its values and never removes it.");
-    }
-}
-
-/// <summary>
-/// Keeps a workspace's live subscription on the revision its last accepted command left (ADR-0016 note 35), whoever
-/// wrote it: a cell of the page, a kernel verb, <c>undo</c>, or the AI. Nothing is built where nothing ticks.
-/// </summary>
-public sealed class RatesLiveObserver(RatesLiveService live, ConventionRegistry conventions, IRatesPricingProvider provider) : IWorkspaceObserver
-{
-    public string App => RatesEditRules.App;
-
-    public void Accepted(WorkspaceState state)
-    {
-        if (live.OnWorkspace(state.WorkspaceId).Count == 0) return;
-        live.WorkspaceChanged(state.WorkspaceId, RatesAcceptedInput.Of(state, conventions, provider));
     }
 }

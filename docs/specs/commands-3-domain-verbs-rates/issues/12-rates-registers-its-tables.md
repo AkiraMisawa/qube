@@ -17,6 +17,12 @@ fields' forms (ADR-0016 note 34). `set`, `reset` and `remove` then act on a Rate
 
 - *As built (ADR-0016 note 34):* `Percent` did not join `Rate`. The two are typed and written alike (`1.25%`, `5bp`),
   which is what the third criterion asks; they differ in what is held, and Rates' contract and provider hold percent.
+  The criterion holds for the fields that are rates (`rate`, `spread`, `spread1`, `spread2`). `quote1` and `quote2`
+  are not typed so: they are a leg's quote as a number in the unit its `kind` names (points for `fxpts`, basis
+  points for `atm`), as their cell takes it.
+- *Added in review (2026-11-11):* the two frequencies `new irs` names (`fixed`, `float`) are fields by the same
+  names; a reset by a term, and a term refused while its leg's flag is empty, are held by tests of their own
+  (`RatesLineCommandTests`).
 - *As built:* the defaults are fields of `rates.workspace` (`default currency`, `default notional`, `default
   direction`), written as `WorkspaceChange.Context`; a running live subscription follows a kernel verb's write through
   the workspace's observer (note 35). Held by `RatesLineCommandTests` and `WorkspaceUndoTests`.

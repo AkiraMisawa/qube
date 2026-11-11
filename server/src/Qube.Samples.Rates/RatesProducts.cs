@@ -15,11 +15,14 @@ public static class RatesProducts
     public const string Version = "1.0.0";
 
     /// <summary>The described product a line is, by its <c>product</c> field (ADR-0008 §8).</summary>
-    public static string Of(EffectiveLine line) => line.Fields.GetValueOrDefault(LineFields.Product)?.GetValue<string>() switch
+    public static string Of(EffectiveLine line) => Named(line.Line, line.Fields.GetValueOrDefault(LineFields.Product)?.GetValue<string>());
+
+    /// <summary>The described product of the word a line's <c>product</c> field holds; a word Rates does not describe is the line's defect.</summary>
+    internal static string Named(string line, string? product) => product switch
     {
         "irs" => Irs,
         "ccs" => Ccs,
-        var other => throw new InvalidOperationException($"Line {line.Line} names product {other ?? "(none)"}, which Rates does not describe."),
+        var other => throw new InvalidOperationException($"Line {line} names product {other ?? "(none)"}, which Rates does not describe."),
     };
 
     /// <summary>The words a direction is typed by, for a product's term and for a line's field alike.</summary>

@@ -85,13 +85,13 @@ export function commandDoor(page: DoorPage): CommandDoor {
   const run = <Ended extends LineReason | KeyboardMoved>(named: (revision: number) => Promise<Invocation | Ended>, heard?: (said: string) => void): Promise<Ended | LineReason | undefined> =>
     page.turns.after(async (revision): Promise<Ended | LineReason | undefined> => {
       let told: Told;
-      let done: string;
+      let ran: string;
       try {
         const call = await named(revision);
         // Nothing to invoke: the line cannot be read, or what it asked for is done already.
         if (!('id' in call)) return call;
         told = toldOf(await page.api.command(call.id, call.version, call.inputs, crypto.randomUUID()));
-        done = call.id;
+        ran = call.id;
       } catch (error) {
         const sentence = describe(error);
         if (!(error instanceof ApiError && error.envelope.code === 'RevisionMoved')) return { sentence };
@@ -107,10 +107,10 @@ export function commandDoor(page: DoorPage): CommandDoor {
       } catch (error) {
         page.notify('refused', `${told.said} The page could not read the workspace again: ${describe(error)}`);
         heard?.(told.said);
-        page.answered?.(done, told);
+        page.answered?.(ran, told);
         return undefined;
       }
-      page.answered?.(done, told);
+      page.answered?.(ran, told);
       // What waits for the user's decision does not leave by itself.
       if (heard === undefined) page.notify('done', told.said, ...(told.stays === true ? [{ stays: true }] : []));
       else heard(told.said);
@@ -272,7 +272,7 @@ export interface ArgumentDrawn {
  * fields. Those stand for an argument of the form that may be left out and was not read by its own name, so that one
  * is not drawn beside them as left out.
  */
-export function argumentsShown(form: readonly { readonly name: string; readonly required: boolean }[], read: readonly LineArgument[]): readonly ArgumentDrawn[] {
+export function argumentsDrawn(form: readonly { readonly name: string; readonly required: boolean }[], read: readonly LineArgument[]): readonly ArgumentDrawn[] {
   const beyond = read.filter((r) => !form.some((a) => a.name === r.name));
   return [
     ...form.flatMap((a): ArgumentDrawn[] => {

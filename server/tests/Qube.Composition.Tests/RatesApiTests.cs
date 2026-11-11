@@ -107,6 +107,29 @@ public class RatesApiTests : IClassFixture<QubeFactory>
         Assert.Equal((subscription, false), (stopped["subscriptionId"]!.GetValue<string>(), (await View(id))["live"]!["running"]!.GetValue<bool>()));
     }
 
+    [Fact] // ADR-0016 note 35: the host tells Rates' live of a revision the kernel's own verb wrote, so the frames after it are of that revision
+    public async Task A_frame_after_the_kernels_set_is_of_the_revision_it_wrote()
+    {
+        var (id, view, line) = await PricedLine();
+        var started = await Done(await Command("rates.live.start", new JsonObject { ["workspaceId"] = id }, port: "workspace"));
+        var written = await Done(await Command("entity.set",
+            new JsonObject { ["workspaceId"] = id, ["revision"] = view["revision"]!.GetValue<long>(), ["rows"] = line, ["set"] = "end 7y" }));
+        var revision = written["revision"]!.GetValue<long>();
+        await host.Services.GetRequiredService<MarketFeed>().AdvanceAsync();
+
+        // The frames wait in the subscription's channel, the oldest first: one of the revision before may come first.
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        using var stream = await client.GetStreamAsync($"/api/rates/live/{started["subscriptionId"]!.GetValue<string>()}/frames", timeout.Token);
+        using var reader = new StreamReader(stream);
+        long? framed = null;
+        while (framed != revision && await reader.ReadLineAsync(timeout.Token) is { } text)
+            if (text.StartsWith("data: ", StringComparison.Ordinal)) framed = JsonNode.Parse(text["data: ".Length..])!["inputRevision"]!.GetValue<long>();
+
+        Assert.True(revision > view["revision"]!.GetValue<long>());
+        Assert.Equal(revision, framed);
+        await Done(await Command("rates.live.stop", new JsonObject { ["workspaceId"] = id }, port: "workspace"));
+    }
+
     async Task<(string Id, long Revision)> Workspace()
     {
         var ws = await Ok(await client.PostAsJsonAsync("/api/rates/workspaces", new { valuationDate = "2026-10-27" }));

@@ -115,6 +115,43 @@ test('C40, docs/07: a line typed by keyboard ticks live, is captured and priced 
   await expect(page.getByTestId('live-toggle')).toHaveText('Resume live');
   await expect(page.getByTestId('live-stopped')).toContainText('live stopped');
   await expect(page.getByTestId('live-frame')).toContainText('last frame');
+  // The toggle is the same two lines: it starts live again, and stops it.
+  await page.getByTestId('live-toggle').click();
+  await expect(notice(page)).toHaveText('Live is running.');
+  await expect(page.getByTestId('live-toggle')).toHaveText('Stop live');
+  await page.getByTestId('live-toggle').click();
+  await expect(notice(page)).toHaveText('Live stopped, for every page watching it.');
+  await expect(page.getByTestId('live-toggle')).toHaveText('Resume live');
+});
+
+test('docs/07 §3, ADR-0016 note 36: the Price button prices on the market the page shows, though a later one is published; Add CCS runs `add line ccs`', async ({ page }) => {
+  await open(page);
+  // The page's reading of the market is held at the first it shows, while the server's market moves on.
+  let held: { readonly snapshotId: string } | undefined;
+  await page.route('**/api/rates/market', async (route) => {
+    held ??= await (await route.fetch()).json() as { readonly snapshotId: string };
+    await route.fulfill({ json: held });
+  });
+  await newWorkspace(page);
+  await taken(page, 'new', 'irs jpy 10mm 5y pay');
+  await expect(summary(page)).toContainText('1 line(s)');
+  await expect(page.getByTestId('market')).toHaveText(/^market \S+ #\d+$/);
+  if (held === undefined) throw new Error('The page shows a market it never read.');
+  const shown = held.snapshotId;
+  // A later snapshot is published: the latest is no longer the one the page shows.
+  await expect.poll(async () => (await (await page.request.get(new URL('/api/rates/market', page.url()).href)).json() as { snapshotId: string }).snapshotId).not.toBe(shown);
+
+  await page.getByRole('button', { name: 'Price' }).click();
+  await expect(notice(page)).toHaveText(/^Price was accepted as Run \S+\.$/);
+  // The Run's panel is titled by the market it priced on: the one the page showed.
+  await expect(page.getByRole('tab', { name: new RegExp(`^Rates ${shown.slice(shown.lastIndexOf(':') + 1)} `) })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByTestId('run-status')).toHaveText('succeeded');
+
+  await page.getByRole('tab', { name: 'Rates 2026-10-27' }).click();
+  await settled(page, 'Lines');
+  await page.getByRole('button', { name: 'Add CCS' }).click();
+  await expect(notice(page)).toHaveText(/^Added L\d+, an empty ccs line\.$/);
+  await expect(summary(page)).toContainText('2 line(s)');
 });
 
 test('ADR-0015 §2, C43, C39: a leg opens to its terms, then to its conventions, and folds again; a line without terms shows no schedule', async ({ page }) => {
@@ -308,6 +345,16 @@ test('ADR-0016 notes 16, 21, 25 and 34: with two lines selected the line says it
   await taken(page, 'undo');
   await expect(notice(page)).toHaveText(`Took back: remove lines ${SECOND}. redo puts it back.`);
   await expect(summary(page)).toContainText('2 line(s)');
+
+  // Reset this cell puts the cell under the Focus back to what the line was made with.
+  await taken(page, 'set', `${FIRST} end 7y`);
+  await expect(cell(page, END)).toHaveText('7y');
+  await goTo(page, END);
+  await page.keyboard.press('Shift+F10');
+  await expect(page.getByRole('menuitem').first()).toBeFocused();
+  await page.getByRole('menuitem', { name: 'Reset this cell · reset' }).click();
+  await expect(notice(page)).toHaveText(`Reset ${FIRST} end.`);
+  await expect(cell(page, END)).toHaveText('5y');
 });
 
 test('ADR-0016 note 34: a default is set alone and a new line takes it; a value a default cannot hold is said on the line as the server says it', async ({ page }) => {
