@@ -228,11 +228,13 @@ Mantine's breakpoints, beside the window classes Android and Material use for th
 - A disabled control says why, in its `title` or in text beside it; a busy one shows `loading` on itself, not a
   spinner elsewhere.
 - What is simulated says so in the place the figure is shown (`SCRIPTED · NO MODEL`, `MARKET SYNTHETIC`).
-- **A date is written `yyyy-MM-dd`** (ISO 8601), in a field as in a grid or a sentence, whatever the browser's locale.
-  A date field is `IsoDateInput` (`client/src/platform/IsoDateInput.tsx`): Mantine's `DateInput` in that format, with
-  its calendar, taking only a date that exists, typed in full. **MUST NOT** use `<input type="date">`: it draws the
-  browser's locale (`11/11/2026` in en-US, `2026/11/11` in ja-JP) and a page cannot tell it otherwise. Nor Mantine's
-  own date parser: it makes `2026-03-02` of `2026-02-30`, and January of a half-typed `2026-0`.
+- **A date is written `yyyy-MM-dd`** (ISO 8601) in a field, whatever the browser's locale, as the grids and the
+  sentences already write it. A date field is `IsoDateInput` (`client/src/platform/IsoDateInput.tsx`): a text field
+  with a calendar a click or a tap opens. It shows what was typed and its holder has exactly that text; text that is
+  not a date that exists is marked and said, never rolled over or put back to an older date. **MUST NOT** use
+  `<input type="date">`: it draws the browser's locale (`11/11/2026` in en-US, `2026/11/11` in ja-JP) and a page
+  cannot tell it otherwise. Nor Mantine's `DateInput`: its parser makes `2026-03-02` of `2026-02-30`, and when it
+  cannot read the text it keeps the last date while the text says another.
 
 ## 11. Checking a change
 

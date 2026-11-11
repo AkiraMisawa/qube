@@ -2227,9 +2227,11 @@ table is read. Each is said in note 45 as "Corrected in review", with a test.
 - Every date field draws and takes its date as `yyyy-MM-dd`, whatever the browser's locale: the header's As of, a
   workflow's date in the run dialog, the XVA toolbar's Value date, the Rates toolbar's Valuation date, and the New XVA
   and New Rates workspace dialogs. Each was a native `<input type="date">`, which drew `11/11/2026` in en-US and
-  `2026/11/11` in ja-JP. They are `IsoDateInput`, Mantine's `DateInput` with a calendar to pick from and a parser
-  that takes only a date that exists, typed in full; text that is not one is put back to the date in force when the
-  field is left. A contract's date field that is not required can be cleared; a required one cannot.
+  `2026/11/11` in ja-JP.
+- They are `IsoDateInput`: a text field, with Mantine's `DatePicker` in a popover that a click or a tap opens on the
+  month the text names. The field is its text: text that is not a date that exists (`2026-02-30`) stays as typed,
+  is marked invalid, and is said where its holder says things (the header's context issues, the dialog's field); the
+  toolbars do not move their date until the text is one. Escape with the calendar open closes the calendar only.
 - New dependencies, pinned exactly: `@mantine/dates` 9.7.4 (Mantine's own version) and `dayjs` 1.11.23, its peer.
 
 ### Verification performed
@@ -2237,12 +2239,16 @@ table is read. Each is said in note 45 as "Corrected in review", with a test.
 | Suite | Result |
 |---|---|
 | `npm run typecheck`, `npm test` (Vitest) | Clean; 328 passed |
-| `npx playwright test e2e/workbench.spec.ts --grep "As of field" --repeat-each=3` (Chromium, headless, Linux) | 3 passed; with Mantine's own parser in place of the strict one, it fails (`2026-02-30` became `2026-03-02`) |
+| `npx playwright test e2e/workbench.spec.ts --grep "As of field" --repeat-each=3` (Chromium, headless, Linux) | 3 passed |
+| `npx playwright test` (Chromium, headless, Linux) | 94 passed (before the calendar stopped drawing weekends red, a change of paint only) |
+
+The header was looked at in screenshots at 390, 768, 992 and 1440px in both themes, with the calendar open, and the
+New Rates dialog and the Rates toolbar at 1440px.
 
 ### Known limits
 
-- The calendar opens when the field takes the keyboard, as Mantine's `DateInput` does, so tabbing through the header
-  opens and closes it on the way. Its days are reached by pointer or touch; the keyboard types the date.
+- The calendar's days are reached by pointer or touch; the keyboard types the date. The native input's ArrowUp and
+  ArrowDown, which stepped a part of the date, are gone.
 
 ## Next
 

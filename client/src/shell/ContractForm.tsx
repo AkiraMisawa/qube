@@ -23,17 +23,15 @@ export function ContractFields({ contract, values, errors, onChange, autoFocus, 
 }) {
   return Object.entries(contract.schema.properties).map(([name, field], index) => (
     <Field key={name} name={name} field={field} value={values[name]} error={errors[name]}
-      required={contract.schema.required?.includes(name) === true}
       onChange={(v) => onChange(name, v)} autoFocus={autoFocus === true && index === 0} layout={layout} />
   ));
 }
 
-function Field({ name, field, value, error, required, onChange, autoFocus, layout }: {
+function Field({ name, field, value, error, onChange, autoFocus, layout }: {
   readonly name: string;
   readonly field: FieldSchema;
   readonly value: unknown;
   readonly error: string | undefined;
-  readonly required: boolean;
   readonly onChange: (value: unknown) => void;
   readonly autoFocus: boolean;
   readonly layout: FieldLayout;
@@ -55,11 +53,9 @@ function Field({ name, field, value, error, required, onChange, autoFocus, layou
   const control = field.type === 'string' && field.enum !== undefined
     ? <Select {...common} data={[...field.enum]} value={typeof value === 'string' ? value : null}
         onChange={(v) => onChange(v ?? undefined)} allowDeselect={false} comboboxProps={{ withinPortal: true }} />
-    // A date reads yyyy-MM-dd whatever the browser's locale; only a date the contract does not require is cleared.
+    // A date reads yyyy-MM-dd whatever the browser's locale; text that is not one is the value, and `validate` says so.
     : field.type === 'string' && field.format === 'date'
-      ? (required
-        ? <IsoDateInput {...common} value={typeof value === 'string' ? value : undefined} onChange={onChange} />
-        : <IsoDateInput {...common} clearable value={typeof value === 'string' ? value : undefined} onChange={onChange} />)
+      ? <IsoDateInput {...common} value={typeof value === 'string' ? value : ''} onChange={(t) => onChange(t === '' ? undefined : t)} />
       : field.type === 'string'
         ? <TextInput {...common} value={typeof value === 'string' ? value : ''}
             onChange={(e) => onChange(e.currentTarget.value === '' ? undefined : e.currentTarget.value)} />

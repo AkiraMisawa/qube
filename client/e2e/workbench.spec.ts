@@ -59,31 +59,39 @@ test('UX01: a context rebound by keyboard reaches the next run, whose failed ite
 
 // ADR-0009, docs/design-guidelines.md §10: a date reads yyyy-MM-dd whatever the browser's locale. The native date input
 // it replaced drew 11/11/2026 here, and a year typed into it went into the month.
-test('ADR-0009: the As of field reads and takes a date as yyyy-MM-dd, and never rolls one that does not exist into another', async ({ page }) => {
+test('ADR-0009: the As of field reads and takes a date as yyyy-MM-dd, says when its text is not one, and picks one from its calendar', async ({ page }) => {
   await open(page);
   const asOf = page.locator('header').getByLabel('As of');
   await expect(asOf).toHaveValue(/^\d{4}-\d{2}-\d{2}$/);
-  const today = await asOf.inputValue();
 
-  // February has no 30th. Typed key by key, no prefix of it is taken as a date either (`2026-0` is not January).
+  // February has no 30th. The field keeps what was typed and is marked, and the context in force is said to stay.
   await asOf.click();
   await page.keyboard.press('ControlOrMeta+A');
   await page.keyboard.type('2026-02-30');
   await page.keyboard.press('Tab');
-  await expect(asOf).toHaveValue(today);
-  await expect(page.getByTestId('context-pending')).toBeHidden();
+  await expect(asOf).toHaveValue('2026-02-30');
+  await expect(asOf).toHaveAttribute('aria-invalid', 'true');
+  await expect(page.getByTestId('context-pending')).toContainText('As of: A date as yyyy-MM-dd is required.');
 
   await asOf.click();
   await page.keyboard.press('ControlOrMeta+A');
   await page.keyboard.type('2026-10-27');
   await page.keyboard.press('Tab');
   await expect(asOf).toHaveValue('2026-10-27');
+  await expect(page.getByTestId('context-pending')).toBeHidden();
+
+  // The calendar opens on October 2026, the month the field names; a day picked there is written as yyyy-MM-dd.
+  await asOf.click();
+  await page.getByRole('button', { name: '15 October 2026' }).click();
+  await expect(asOf).toHaveValue('2026-10-15');
+  await expect(page.getByRole('button', { name: '15 October 2026' })).toBeHidden();
+
   await command(page, 'run station summary');
   await expect(page.getByRole('dialog', { name: 'Station summary' }).getByLabel('Days')).toBeFocused();
   await page.keyboard.type('1');
   await page.keyboard.press('Enter');
   await expect(page.getByTestId('run-status')).toHaveText('succeeded');
-  await expect(page.getByText(/^region North · asOf 2026-10-27/)).toBeVisible();
+  await expect(page.getByText(/^region North · asOf 2026-10-15/)).toBeVisible();
 });
 
 test('the palette gives the keyboard back to the grid it was opened from', async ({ page }) => {

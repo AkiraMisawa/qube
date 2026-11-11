@@ -27,6 +27,7 @@ import type { RunRecord } from '../../platform/contracts';
 import { dockTabs, METRICS_TAB, type DockTab, type MeasureTab } from './dock';
 import { CSAS_TABLE, EditQueue, SETTINGS_ENTITY, TRADES_TABLE, XVA_APP, refusedEdit, tradeFields, type PendingEdit, type SetText } from './editing';
 import { ToolbarField } from './fields';
+import { isIsoDate } from '../../platform/forms';
 import { IsoDateInput } from '../../platform/IsoDateInput';
 import { CHANGES_TAB, CREDIT_TAB, SCENARIOS_TAB, SETTINGS_TAB, shownTab, TAB_TITLES, tabShown, XvaInputs, type InputTab } from './XvaInputs';
 import { XvaRisks } from './XvaRisks';
@@ -1089,7 +1090,7 @@ function TradeCaption({ title, count, grid, setSide, disabled, source, counted, 
 function ValueDate({ value, disabled, onCommit }: { readonly value: string; readonly disabled: boolean; readonly onCommit: (date: string) => void }) {
   const [draft, setDraft] = useState(value);
   useEffect(() => setDraft(value), [value]);
-  const commit = () => { if (draft !== value && /^\d{4}-\d{2}-\d{2}$/.test(draft)) onCommit(draft); };
+  const commit = () => { if (draft !== value && isIsoDate(draft)) onCommit(draft); };
   return (
     <ToolbarField label="Value date">
       {(id) => (
