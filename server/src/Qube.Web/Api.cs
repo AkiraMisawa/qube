@@ -137,6 +137,21 @@ public static class Api
             }
         });
 
+        // The content of a line of `copy` or `export` (ADR-0016 note 44 of step 4): what the page asks for at Enter, read
+        // from the same line at the revision its reading named. A line that cannot be read is an answer; a workspace
+        // that has moved is a conflict, to be read again.
+        api.MapPost("/commands/content", (PreviewRequest request, CommandLines lines, CurrentUser user) =>
+        {
+            try
+            {
+                return Results.Ok(lines.Content(request.Line, request.WorkspaceId, request.Revision, new Caller(user.Id, RunOrigin.Pricer), request.View));
+            }
+            catch (WorkspaceRefused refused)
+            {
+                return ViewRefused(refused, "the content");
+            }
+        });
+
         // The rows a view's selection names (ADR-0016 note 37 of step 3): what a page reads to make a command's typed
         // value from a grid the server pages. A view of an order that has moved is a conflict, to be read again; one that
         // names what the workspace has not is the page's own fault.

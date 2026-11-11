@@ -288,7 +288,7 @@ public sealed partial class TableService(TableRegister register, WorkspaceServic
         : new("rows", Few([.. plan.Resolved.Rows.Select(r => r.Key)]), ArgumentSource.Context);
 
     // A list of ids as a log and a line name it: all of a few, or the first few and how many more there are.
-    static string Few(IReadOnlyList<string> ids) => ids.Count <= Named ? string.Join(", ", ids) : $"{string.Join(", ", ids.Take(Named))} and {Counted(ids.Count - Named)} more";
+    internal static string Few(IReadOnlyList<string> ids) => ids.Count <= Named ? string.Join(", ", ids) : $"{string.Join(", ", ids.Take(Named))} and {Counted(ids.Count - Named)} more";
 
     // The rows as the caller said them, read in the tables the workspace has, and as a log names them: in the caller's
     // words, a list of many ids by its first few and how many more there are (note 17 of step 2). Rows said with no
@@ -298,6 +298,16 @@ public sealed partial class TableService(TableRegister register, WorkspaceServic
     (IReadOnlyList<BoundTable> Tables, RowSelector Selector, string Said, string? TableFromScreen) ReadRows(WorkspaceState state, string? table, string? rows, LineView? view)
     {
         var tables = register.Of(state);
+        var (selector, said, fromScreen) = RowsSaid(tables, table, rows, view);
+        return (tables, selector, said, fromScreen);
+    }
+
+    /// <summary>
+    /// The rows as said, read in the tables given: what every verb that takes rows reads them with, an edit verb and a
+    /// verb of the screen alike (notes 43 and 44 of step 4).
+    /// </summary>
+    internal static (RowSelector Selector, string Said, string? TableFromScreen) RowsSaid(IReadOnlyList<BoundTable> tables, string? table, string? rows, LineView? view)
+    {
         // The table said beside the rows is the one they are read in: its subsets, and no row where it has one.
         var named = table is null ? null : TableRegister.Find(tables, table);
         var words = (rows ?? "").Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
@@ -310,19 +320,33 @@ public sealed partial class TableService(TableRegister register, WorkspaceServic
         var ids = scan.Selector.Ids;
         var said = ids.Count <= Named ? string.Join(' ', words) : string.Join(' ', [.. words[..scan.IdsFrom], Few(ids), .. words[scan.IdsTo..]]);
         if (scan.Unsaid is { } given)
-            return (tables, scan.Selector with { Table = given.TableId }, said, given.Main ? null : Asked(TableRegister.Find(tables, given.TableId), tables));
-        if (named is null || table is null) return (tables, scan.Selector, said, null);
+            return (scan.Selector with { Table = given.TableId }, said, given.Main ? null : Asked(TableRegister.Find(tables, given.TableId), tables));
+        if (named is null || table is null) return (scan.Selector, said, null);
         if (scan.Selector.Table is { } other && other != named.Descriptor.TableId)
             throw new TableRefused("TwoTables", $"The rows are said to be of {TableRegister.Find(tables, other).Word} and the table to be {named.Word}.", table.Trim());
-        return (tables, scan.Selector with { Table = named.Descriptor.TableId }, said, null);
+        return (scan.Selector with { Table = named.Descriptor.TableId }, said, null);
     }
 
     // The rows a line starts with, in its own words, and the words they leave for the verb.
-    (string? Rows, string Left) Split(LineContext line)
+    (string? Rows, string Left) Split(LineContext line) => Split(line.Text, register.Of(line.State), line.View);
+
+    /// <summary>The rows a text starts with, in its own words, and the words they leave for the verb that reads it.</summary>
+    /// <param name="fieldsFollow">The verb reads a list of fields after the rows (<see cref="SelectorReader.Read"/>).</param>
+    /// <summary>The rows of a reading: their table, the reading's title for them, how many they are, and the first of them by key.</summary>
+    internal static LineRows Titled(BoundTable table, string title, IReadOnlyList<ITableRow> rows) =>
+        new(table.Descriptor.TableId, title, rows.Count, [.. rows.Take(Listed).Select(r => r.Key)]);
+
+    /// <summary>
+    /// A line whose rows came to none, refused: by its conditions where it had some, and in the words of
+    /// <paramref name="otherwise"/> where it had none.
+    /// </summary>
+    internal static TableRefused NoRowMatches(ResolvedRows resolved, string verb, string otherwise) => new("NoRowMatches",
+        resolved.Where.Count > 0 ? $"No row of {resolved.Table.Word} matches {string.Join(" and ", resolved.Where)}: there is nothing to {verb}." : otherwise);
+
+    internal static (string? Rows, string Left) Split(string text, IReadOnlyList<BoundTable> tables, LineView? view, bool fieldsFollow = false)
     {
-        var words = line.Text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
-        var tables = register.Of(line.State);
-        var rest = SelectorReader.Read(line.Text, [.. tables.Select(t => t.Descriptor)], onScreen: line.View is { } view ? Views.TableOf(view, tables).Descriptor : null).Rest;
+        var words = text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+        var rest = SelectorReader.Read(text, [.. tables.Select(t => t.Descriptor)], onScreen: view is null ? null : Views.TableOf(view, tables).Descriptor, fieldsFollow: fieldsFollow).Rest;
         return (rest.Count == words.Length ? null : string.Join(' ', words[..^rest.Count]), string.Join(' ', rest));
     }
 

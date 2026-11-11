@@ -1,5 +1,5 @@
 import { ApiError, type Api, type CommandAnswer } from '../api';
-import type { CapabilityDescriptor, LineFilter, LinePlace, LinePreview, LineSort, LineView, ShortFormDescriptor, ViewVerbDescriptor } from '../contracts';
+import type { CapabilityDescriptor, LineCopy, LineExport, LineFilter, LinePlace, LinePreview, LineSelect, LineSort, LineView, ShortFormDescriptor, ViewVerbDescriptor } from '../contracts';
 import { readLine, signature, type Command, type CommandDoor } from './commands';
 import { argumentShown, argumentsDrawn, commandDoor, lineAsked, previewShown, screenShown, servedCommands, tableMenu, taken, type DoorPage } from './served';
 
@@ -266,6 +266,7 @@ describe('Enter on a line the server reads, through its page\'s door (ADR-0016 Â
     readonly put?: (place: LinePlace, view: LineView) => string | undefined;
     readonly sort?: (asked: LineSort, view: LineView) => string | undefined;
     readonly filter?: (asked: LineFilter, view: LineView) => string | undefined;
+    readonly select?: (asked: LineSelect, view: LineView) => string | undefined;
   }
 
   /** A page that holds its workspace at `held`, with nothing of its own waiting, and reads it again at `stands`. */
@@ -279,6 +280,9 @@ describe('Enter on a line the server reads, through its page\'s door (ADR-0016 Â
     const notify = vi.fn();
     const preview = vi.fn<Api['preview']>();
     const command = vi.fn<Api['command']>();
+    const content = vi.fn<Api['content']>();
+    // Where the door puts what `copy` and `export` take out: the clipboard and a file, here written down.
+    const out = { copy: vi.fn<(text: string) => Promise<void>>(() => Promise.resolve()), save: vi.fn<(fileName: string, text: string) => void>() };
     const reread = vi.fn(() => Promise.resolve(stands));
     // What the page says is on screen: the view, and how the grid it was read of takes what is asked of it.
     const screen = view === undefined ? undefined : () => {
@@ -288,10 +292,11 @@ describe('Enter on a line the server reads, through its page\'s door (ADR-0016 Â
         put: (at: LinePlace) => (takes.put === undefined ? 'This grid takes no place.' : takes.put(at, seen)),
         sort: (asked: LineSort) => (takes.sort === undefined ? 'This grid takes no sort.' : takes.sort(asked, seen)),
         filter: (asked: LineFilter) => (takes.filter === undefined ? 'This grid takes no filter.' : takes.filter(asked, seen)),
+        select: (asked: LineSelect) => (takes.select === undefined ? 'This grid takes no selection.' : takes.select(asked, seen)),
       };
     };
-    return { turns, notify, preview, command, reread, door: commandDoor({ workspaceId: 'ws-1', app: 'weather', catalog, api: { preview, command }, turns, reread, notify,
-      ...(screen === undefined ? {} : { screen }), ...(answered === undefined ? {} : { answered }) }) };
+    return { turns, notify, preview, command, content, out, reread, door: commandDoor({ workspaceId: 'ws-1', app: 'weather', catalog, api: { preview, command, content }, turns, reread, notify,
+      ...(screen === undefined ? {} : { screen }), ...(answered === undefined ? {} : { answered }) }, out) };
   };
 
   it('runs the reading the line showed, by its own inputs with the revision it was read at, and reads the line no second time', async () => {
@@ -389,8 +394,8 @@ describe('Enter on a line the server reads, through its page\'s door (ADR-0016 Â
     expect(p.turns.revision).toBe(8);
   });
 
-  const cell: LinePlace = { table: 'w.readings', subset: 'manual', key: 'R2', position: 2, column: 'note', said: 'The keyboard is on R2 Â· note in readings (manual).' };
-  const placing = (revision: number): LinePreview => ({ revision, place: cell, would: 'The keyboard goes to R2 Â· note.', complete: [], more: 0 });
+  const cell: LinePlace = { kind: 'place', table: 'w.readings', subset: 'manual', key: 'R2', position: 2, column: 'note', said: 'The keyboard is on R2 Â· note in readings (manual).' };
+  const placing = (revision: number): LinePreview => ({ revision, asks: cell, would: 'The keyboard goes to R2 Â· note.', complete: [], more: 0 });
 
   it('a reading that names a place invokes nothing: the page puts the keyboard there, the notice is the server\'s sentence, and the line is told the keyboard was moved (ADR-0016 note 21)', async () => {
     const put = vi.fn(() => undefined);
@@ -415,7 +420,7 @@ describe('Enter on a line the server reads, through its page\'s door (ADR-0016 Â
   it('a place read at another revision than the page then holds is asked for again, with the view the line opened with, and so is one not yet shown', async () => {
     const put = vi.fn(() => undefined);
     const stale = page(8, 8, () => onScreen, { put });
-    stale.preview.mockResolvedValue({ ...placing(8), place: { ...cell, position: 1 } });
+    stale.preview.mockResolvedValue({ ...placing(8), asks: { ...cell, position: 1 } });
 
     expect(await stale.door.enter('find R2 note', placing(7), stale.door.view())).toEqual({ moved: true });
     expect(stale.preview).toHaveBeenCalledWith('find R2 note', 'ws-1', { revision: 8, view: onScreen });
@@ -442,10 +447,10 @@ describe('Enter on a line the server reads, through its page\'s door (ADR-0016 Â
     expect(await page(7).door.enter('find R2', placing(7))).toEqual(defect);
   });
 
-  const largest: LineSort = { table: 'w.readings', subset: 'manual', sorts: [{ column: 'volume', descending: true }], said: 'Sorted readings (manual) by volume, descending.' };
-  const north: LineFilter = { table: 'w.readings', subset: 'manual', where: 'station = NORTH', said: 'Showing 2 of 3 rows of readings (manual) where station = NORTH.' };
-  const sorting = (revision: number): LinePreview => ({ revision, sort: largest, would: 'Sorts readings (manual) by volume, descending.', complete: [], more: 0 });
-  const filtering = (revision: number): LinePreview => ({ revision, filter: north, would: 'Shows 2 of 3 rows of readings (manual).', complete: [], more: 0 });
+  const largest: LineSort = { kind: 'sort', table: 'w.readings', subset: 'manual', sorts: [{ column: 'volume', descending: true }], said: 'Sorted readings (manual) by volume, descending.' };
+  const north: LineFilter = { kind: 'filter', table: 'w.readings', subset: 'manual', where: 'station = NORTH', said: 'Showing 2 of 3 rows of readings (manual) where station = NORTH.' };
+  const sorting = (revision: number): LinePreview => ({ revision, asks: largest, would: 'Sorts readings (manual) by volume, descending.', complete: [], more: 0 });
+  const filtering = (revision: number): LinePreview => ({ revision, asks: north, would: 'Shows 2 of 3 rows of readings (manual).', complete: [], more: 0 });
 
   it('ADR-0016 note 39: a reading that names a sort or a filter invokes nothing: the page gives it to its grid, the notice is the server\'s sentence, and the line ends as a command done does', async () => {
     const sort = vi.fn(() => undefined);
@@ -479,7 +484,7 @@ describe('Enter on a line the server reads, through its page\'s door (ADR-0016 Â
     const sort = vi.fn(() => undefined);
     const stale = page(8, 8, () => onScreen, { sort, filter });
     const fewer: LineFilter = { ...north, said: 'Showing 1 of 3 rows of readings (manual) where station = NORTH.' };
-    stale.preview.mockResolvedValueOnce({ ...filtering(8), filter: fewer }).mockResolvedValueOnce(sorting(8));
+    stale.preview.mockResolvedValueOnce({ ...filtering(8), asks: fewer }).mockResolvedValueOnce(sorting(8));
 
     expect(await stale.door.enter('filter where station = NORTH', filtering(7), stale.door.view())).toBeUndefined();
     expect(await stale.door.enter('sort by volume desc', sorting(7), stale.door.view())).toBeUndefined();
@@ -506,8 +511,111 @@ describe('Enter on a line the server reads, through its page\'s door (ADR-0016 Â
     expect(sort.mock.calls[0]![1]).toBe(opened);
 
     expect(await p.door.enter('sort by volume desc', sorting(7), { ...onScreen })).toEqual({ sentence: 'The server named a sort, and this page gave the line no grid to sort.' });
-    const off: LinePreview = { revision: 7, filter: { table: 'w.readings', said: 'Took the filter off readings.' }, would: 'Takes the filter off readings.', complete: [], more: 0 };
+    const off: LinePreview = { revision: 7, asks: { kind: 'filter', table: 'w.readings', said: 'Took the filter off readings.' }, would: 'Takes the filter off readings.', complete: [], more: 0 };
     expect(await page(7).door.enter('filter off', off)).toEqual({ sentence: 'The server named a filter, and this page gave the line no grid to filter.' });
+  });
+
+  const run: LineSelect = { kind: 'select', table: 'w.readings', subset: 'manual', position: 1, count: 2, column: 'note', said: 'Selected 2 rows of readings (manual).' };
+  const selecting = (revision: number): LinePreview => ({ revision, asks: run, would: 'Selects 2 rows of readings (manual).', complete: [], more: 0 });
+
+  it('ADR-0016 note 43: a reading that names rows to select invokes nothing: the page places its grid\'s Selection, the notice is the server\'s sentence, and the keyboard is given back as after a command', async () => {
+    const select = vi.fn<(asked: LineSelect, view: LineView) => string | undefined>(() => undefined);
+    const p = page(7, 7, () => ({ ...onScreen }), { select });
+    const opened = p.door.view()!;
+    p.door.view();
+
+    expect(await p.door.enter('select R2, R3', selecting(7), opened)).toBeUndefined();
+
+    expect(select.mock.calls).toEqual([[run, opened]]);
+    expect(select.mock.calls[0]![1]).toBe(opened);
+    expect([p.preview, p.command, p.content, p.reread].map((f) => f.mock.calls.length)).toEqual([0, 0, 0, 0]);
+    expect(p.notify.mock.calls).toEqual([['done', 'Selected 2 rows of readings (manual).']]);
+  });
+
+  it('ADR-0016 note 43: rows the grid cannot select keep the line with why, a reading of another revision is asked for again, and a line with no grid behind it is said', async () => {
+    const apart = 'The 2 rows are in 2 runs in the grid on screen, and the line selects rows that are next to one another: filter or sort the grid so that they are, then select shown.';
+    const p = page(7, 7, () => onScreen, { select: () => apart });
+    expect(await p.door.enter('select R1, R3', selecting(7), p.door.view())).toEqual({ sentence: apart });
+    expect(p.notify).not.toHaveBeenCalled();
+
+    const select = vi.fn<(asked: LineSelect, view: LineView) => string | undefined>(() => undefined);
+    const stale = page(8, 8, () => onScreen, { select });
+    stale.preview.mockResolvedValue({ ...selecting(8), asks: { ...run, position: 0 } });
+    expect(await stale.door.enter('select R2, R3', selecting(7), stale.door.view())).toBeUndefined();
+    expect(stale.preview).toHaveBeenCalledWith('select R2, R3', 'ws-1', { revision: 8, view: onScreen });
+    expect(select).toHaveBeenCalledWith({ ...run, position: 0 }, onScreen);
+
+    expect(await page(7).door.enter('select R2, R3', selecting(7))).toEqual({ sentence: 'The server named rows to select, and this page gave the line no grid to select them in.' });
+  });
+
+  const cells: LineCopy = { kind: 'copy', said: 'Copied 2 rows of readings, 2 fields: volume, unit.' };
+  const file: LineExport = { kind: 'export', fileName: 'readings.csv', said: 'Exported 3 rows of readings to readings.csv, every field (11).' };
+  const copying = (revision: number): LinePreview => ({ revision, asks: cells, would: 'Copies 2 rows of readings, 2 fields: volume, unit.', complete: [], more: 0 });
+  const exporting = (revision: number): LinePreview => ({ revision, asks: file, would: 'Exports 3 rows of readings to readings.csv, every field (11).', complete: [], more: 0 });
+
+  it('ADR-0016 note 44: copy and export ask the server for the cells at Enter, at the revision and with the view of the reading, and the door puts them on the clipboard or saves the file, then says the server\'s sentence', async () => {
+    const p = page(7, 7, () => onScreen);
+    const view = p.door.view();
+    p.content.mockResolvedValueOnce({ revision: 7, text: '5000000\tGAL\r\n12000000\tM3' }).mockResolvedValueOnce({ revision: 7, text: '\uFEFFid,volume\r\nR1,5000000\r\n' });
+
+    expect(await p.door.enter('copy volume, unit', copying(7), view)).toBeUndefined();
+    expect(await p.door.enter('export readings', exporting(7), view)).toBeUndefined();
+
+    expect(p.content.mock.calls).toEqual([
+      ['copy volume, unit', 'ws-1', { revision: 7, view: onScreen }],
+      ['export readings', 'ws-1', { revision: 7, view: onScreen }],
+    ]);
+    expect(p.out.copy.mock.calls).toEqual([['5000000\tGAL\r\n12000000\tM3']]);
+    expect(p.out.save.mock.calls).toEqual([['readings.csv', '\uFEFFid,volume\r\nR1,5000000\r\n']]);
+    expect([p.preview, p.command, p.reread].map((f) => f.mock.calls.length)).toEqual([0, 0, 0]);
+    expect(p.notify.mock.calls).toEqual([
+      ['done', 'Copied 2 rows of readings, 2 fields: volume, unit.'],
+      ['done', 'Exported 3 rows of readings to readings.csv, every field (11).'],
+    ]);
+    expect(p.turns.revision).toBe(7);
+  });
+
+  it('ADR-0016 note 44: export needs no grid behind the line, and a reading not yet shown or of another revision is asked for first', async () => {
+    const p = page(8);
+    p.preview.mockResolvedValue(exporting(8));
+    p.content.mockResolvedValue({ revision: 8, text: '\uFEFFid\r\nR1\r\n' });
+
+    expect(await p.door.enter('export readings', exporting(7))).toBeUndefined();
+    expect(await p.door.enter('export readings')).toBeUndefined();
+
+    expect(p.preview.mock.calls).toEqual([['export readings', 'ws-1', { revision: 8 }], ['export readings', 'ws-1', { revision: 8 }]]);
+    expect(p.content.mock.calls).toEqual([['export readings', 'ws-1', { revision: 8 }], ['export readings', 'ws-1', { revision: 8 }]]);
+    expect(p.out.save).toHaveBeenCalledTimes(2);
+  });
+
+  it('ADR-0016 note 44: cells the server refuses, a clipboard the browser refuses and an answer with neither cells nor a reason keep the line with why; nothing is written and nothing is said done', async () => {
+    const tooMany = { code: 'TooManyCells', sentence: '120,000 rows of every field (11) are 1,320,000 cells, and copy takes 1,000,000 at most: name fewer rows or fewer fields.', candidates: [] };
+    const refused = page(7);
+    refused.content.mockResolvedValue({ revision: 7, refused: tooMany });
+    expect(await refused.door.enter('copy all', copying(7))).toEqual(tooMany);
+    expect(refused.out.copy).not.toHaveBeenCalled();
+
+    const denied = page(7);
+    denied.content.mockResolvedValue({ revision: 7, text: 'R1' });
+    denied.out.copy.mockRejectedValue(new Error('Write permission denied.'));
+    expect(await denied.door.enter('copy all', copying(7))).toEqual({ sentence: 'The browser did not take the cells on its clipboard: Write permission denied.' });
+
+    const empty = page(7);
+    empty.content.mockResolvedValue({ revision: 7 });
+    expect(await empty.door.enter('export readings', exporting(7))).toEqual({ sentence: 'The server answered neither the cells of the line nor why it has none.' });
+    expect(empty.out.save).not.toHaveBeenCalled();
+
+    expect([refused, denied, empty].flatMap((p) => p.notify.mock.calls)).toEqual([]);
+  });
+
+  it('ADR-0016 note 44, spine 6: cells asked of a workspace that has moved since the reading are refused, and the page reads the workspace again before the line is tried again', async () => {
+    const p = page(7, 9);
+    p.content.mockRejectedValue(moved(9, 7));
+
+    expect(await p.door.enter('copy all', copying(7))).toEqual({ sentence: 'The workspace is at revision 9, not 7.' });
+    expect(p.reread).toHaveBeenCalledTimes(1);
+    expect(p.turns.revision).toBe(9);
+    expect(p.out.copy).not.toHaveBeenCalled();
   });
 
   it('a command by its id, from a key or a button, runs in the same turn at the catalog\'s version and the page\'s revision', async () => {

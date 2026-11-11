@@ -121,6 +121,9 @@ public class CommandPreviewTests
         Assert.Equal("NoView", (await rig.Refused("set selected checked on")).Code);
         Assert.Equal("NoView", (await rig.Refused("set shown checked on")).Code);
         Assert.Equal("NoView", (await rig.Refused("find R1")).Code);
+        // Note 44: export needs no grid where it names its table, and is still a page's to do; the rows are tables.read's.
+        var (code, export) = await rig.Refused("export readings");
+        Assert.Equal(("NoView", "`export readings` is done by a page of the workbench, and no command runs it: tables.read answers the rows of a table."), (code, export.Message));
     }
 
     [Fact] // ADR-0016 note 38, ADR-0003: a reading is of its caller's own workspace, at the revision the caller read

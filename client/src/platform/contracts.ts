@@ -118,6 +118,7 @@ export interface LineArgument {
  * view names its columns, none where the grid's Focus had none to keep; and the sentence to say once the keyboard is there.
  */
 export interface LinePlace {
+  readonly kind: 'place';
   readonly table: string;
   readonly subset?: string;
   readonly key: string;
@@ -131,6 +132,7 @@ export interface LinePlace {
  * the view names them, the major key first, and none to take the sort off; and the sentence to say once it is done.
  */
 export interface LineSort {
+  readonly kind: 'sort';
   readonly table: string;
   readonly subset?: string;
   readonly sorts: readonly { readonly column: string; readonly descending: boolean }[];
@@ -142,10 +144,63 @@ export interface LineSort {
  * conditions as typed, which the grid's view then carries, and none to take the filter off; and the sentence to say.
  */
 export interface LineFilter {
+  readonly kind: 'filter';
   readonly table: string;
   readonly subset?: string;
   readonly where?: string;
   readonly said: string;
+}
+
+/**
+ * The rows a view verb asks the page to place the Selection of the grid behind the line on (ADR-0016 note 43 of
+ * 2026-11-11): one run of `count` rows. Where the server pages the grid it says the run by its first `position` in the
+ * view's order; where the page holds every row it names the rows by their `keys`, and the page says whether its grid
+ * shows them next to one another. `column` is the one the Focus was on, none where it had none to keep.
+ */
+export interface LineSelect {
+  readonly kind: 'select';
+  readonly table: string;
+  readonly subset?: string;
+  readonly keys?: readonly string[];
+  readonly position?: number;
+  readonly count: number;
+  readonly column?: string;
+  readonly said: string;
+}
+
+/** Cells a view verb asks the page's door to put on the clipboard (ADR-0016 note 44 of 2026-11-11): the door asks for them at Enter. */
+export interface LineCopy {
+  readonly kind: 'copy';
+  readonly said: string;
+}
+
+/** Cells a view verb asks the page's door to save as a file of this name (ADR-0016 note 44 of 2026-11-11): the door asks for them at Enter. */
+export interface LineExport {
+  readonly kind: 'export';
+  readonly fileName: string;
+  readonly said: string;
+}
+
+/** What a reading asks of the grid its view was read of: a place, a sort, a filter or rows to select. */
+export type GridAsk = LinePlace | LineSort | LineFilter | LineSelect;
+
+/** What a reading asks the door to take out of the workbench: cells for the clipboard, or a file. */
+export type ContentAsk = LineCopy | LineExport;
+
+/**
+ * The one thing a view verb's reading asks of the page, said by its kind (ADR-0016 note 42 of 2026-11-11): of the grid
+ * the view was read of, or of the door.
+ */
+export type ViewAsk = GridAsk | ContentAsk;
+
+/**
+ * What `copy` or `export` takes out of the workbench (ADR-0016 note 44; `POST /api/commands/content`): the text of the
+ * line read again at the revision asked, or why it cannot be read.
+ */
+export interface LineContent {
+  readonly revision: number;
+  readonly text?: string;
+  readonly refused?: NonNullable<LinePreview['refused']>;
 }
 
 /**
@@ -167,9 +222,9 @@ export interface ViewShown {
  * no time, and the line writes this in its user's zone. `view` is the view the reading was asked with, in one sentence
  * (note 19), and `viewMoved` says that its positions are of an order that has moved since, so that its rows can no
  * longer be said, as it is where the view's conditions can no longer be read; a reading asked with no view has
- * neither. A view verb's reading names no command: it answers what the page is to do with the grid behind the line,
- * the `place` to put the keyboard on (note 21), the `sort` or the `filter` to give it (notes 39 to 41), and Enter
- * invokes nothing.
+ * neither. A view verb's reading names no command: it answers the one thing it `asks` of the page (note 42), such as
+ * the place to put the keyboard on (note 21) or the sort to give the grid behind the line (note 40), and Enter invokes
+ * nothing.
  */
 export interface LinePreview {
   readonly revision: number;
@@ -184,9 +239,7 @@ export interface LinePreview {
   readonly more: number;
   readonly view?: string;
   readonly viewMoved?: boolean;
-  readonly place?: LinePlace;
-  readonly sort?: LineSort;
-  readonly filter?: LineFilter;
+  readonly asks?: ViewAsk;
   /** The line a short form stands for (ADR-0016 note 29 of 2026-11-11): the reading, the command and the inputs are that line's. */
   readonly expands?: string;
 }

@@ -288,14 +288,14 @@ public class CommandGatewayTests(QubeFactory factory) : IClassFixture<QubeFactor
         Assert.DoesNotContain(catalog["capabilities"]!.AsArray(), c => c!["command"]?["words"]!.AsArray().Any(w => w!.GetValue<string>() == "find") == true);
         Same(new JsonObject
         {
-            ["table"] = "xva.trades", ["subset"] = "existing", ["key"] = keys[^1], ["position"] = keys.Count - 1, ["column"] = "csa",
+            ["kind"] = "place", ["table"] = "xva.trades", ["subset"] = "existing", ["key"] = keys[^1], ["position"] = keys.Count - 1, ["column"] = "csa",
             ["said"] = $"The keyboard is on {keys[^1]} · csa in trades (existing).",
-        }, found["place"]);
+        }, found["asks"]);
         Assert.Null(found["command"]);
         Assert.Null(found["inputs"]);
         Assert.Equal($"The keyboard goes to {keys[^1]} · csa.", found["would"]!.GetValue<string>());
         // With no field the Focus keeps its column, which the view names as the grid does, a field of the table or not.
-        Assert.Equal((keys[1], 1, "pv"), (row["place"]!["key"]!.GetValue<string>(), row["place"]!["position"]!.GetValue<int>(), row["place"]!["column"]!.GetValue<string>()));
+        Assert.Equal((keys[1], 1, "pv"), (row["asks"]!["key"]!.GetValue<string>(), row["asks"]!["position"]!.GetValue<int>(), row["asks"]!["column"]!.GetValue<string>()));
     }
 
     [Fact] // ADR-0016 note 37: a page asks which rows a paged grid's selection names; an order that has moved is a conflict, a table the workspace has not a bad request
@@ -453,21 +453,21 @@ public class CommandGatewayTests(QubeFactory factory) : IClassFixture<QubeFactor
         Assert.Equal((HttpStatusCode.UnprocessableEntity, "FilterUnread"), (unread, why["code"]!.GetValue<string>()));
         Same(new JsonObject
         {
-            ["table"] = "xva.trades", ["subset"] = "existing", ["where"] = where,
+            ["kind"] = "filter", ["table"] = "xva.trades", ["subset"] = "existing", ["where"] = where,
             ["said"] = $"Showing {expected.Count} of {Keys(whole).Count} rows of trades (existing) where ccy = {currency}.",
-        }, filter["filter"]);
+        }, filter["asks"]);
         Assert.Equal((null, null), (filter["command"], filter["inputs"]));
         Same(new JsonObject
         {
-            ["table"] = "xva.trades", ["subset"] = "existing",
+            ["kind"] = "sort", ["table"] = "xva.trades", ["subset"] = "existing",
             ["sorts"] = new JsonArray(new JsonObject { ["column"] = "maturity", ["descending"] = false }, new JsonObject { ["column"] = "notional", ["descending"] = true }),
             ["said"] = "Sorted trades (existing) by maturity, then notional, descending.",
-        }, sort["sort"]);
+        }, sort["asks"]);
         // The line reads `shown`, and a position, among the rows the page was answered.
         Assert.Equal(string.Join(", ", expected), shown["inputs"]!["request"]!["rows"]!.GetValue<string>());
         Assert.Equal($"trades (existing), filtered to {expected.Count}, nothing selected", shown["view"]!.GetValue<string>());
-        Assert.Equal(expected.Count - 1, found["place"]!["position"]!.GetValue<int>());
-        Assert.Equal(["find", "sort", "filter"], catalog["viewVerbs"]!.AsArray().Select(v => v!["verbId"]!.GetValue<string>()));
+        Assert.Equal(expected.Count - 1, found["asks"]!["position"]!.GetValue<int>());
+        Assert.Equal(["find", "sort", "filter", "select", "copy", "export"], catalog["viewVerbs"]!.AsArray().Select(v => v!["verbId"]!.GetValue<string>()));
         Assert.DoesNotContain(catalog["capabilities"]!.AsArray(), c => c!["command"]?["words"]!.AsArray().Any(w => w!.GetValue<string>() is "sort" or "filter") == true);
     }
 
@@ -496,5 +496,62 @@ public class CommandGatewayTests(QubeFactory factory) : IClassFixture<QubeFactor
         Assert.Equal(csas, every["keys"]!.AsArray().Count);
         Assert.Equal((HttpStatusCode.UnprocessableEntity, "FilterUnread", false), (unread, why["code"]!.GetValue<string>(), why["retryable"]!.GetValue<bool>()));
         Assert.Equal((HttpStatusCode.BadRequest, HttpStatusCode.Forbidden, HttpStatusCode.NotFound), (invalid, notOwner, unknown));
+    }
+
+    [Fact] // ADR-0016 notes 42 to 44: over the pricer's trades the preview answers a run to select by its position, and the content endpoint the cells of a line of copy and of export, at the revision read
+    public async Task The_preview_answers_a_run_to_select_and_the_content_endpoint_the_cells_of_copy_and_export()
+    {
+        var ws = await Create();
+        var id = ws["workspaceId"]!.GetValue<string>();
+        var sorts = new JsonArray(new JsonObject { ["column"] = "notional", ["direction"] = "descending" });
+        var page = (await (await client.PostAsJsonAsync($"/api/xva/workspaces/{id}/rows", new { start = 0, count = 200, sorts, grid = "existing" })).Content.ReadFromJsonAsync<JsonObject>())!;
+        var rows = page["rows"]!.AsArray();
+        var keys = rows.Select(r => r!["tradeId"]!.GetValue<string>()).ToList();
+        JsonObject View() => new()
+        {
+            ["table"] = "xva.trades", ["subset"] = "existing", ["sorts"] = new JsonArray(new JsonObject { ["column"] = "notional", ["descending"] = true }),
+            ["order"] = page["orderToken"]!.GetValue<string>(), ["ranges"] = new JsonArray(new JsonObject { ["start"] = 1, ["count"] = 2 }),
+        };
+        async Task<(HttpStatusCode Status, JsonObject Body)> Content(string line, long? revision = null, JsonObject? view = null, HttpClient? by = null)
+        {
+            var request = new JsonObject { ["line"] = line, ["workspaceId"] = id };
+            if (revision is { } read) request["revision"] = read;
+            if (view is not null) request["view"] = view;
+            var response = await (by ?? client).PostAsJsonAsync("/api/commands/content", request);
+            return (response.StatusCode, (await response.Content.ReadFromJsonAsync<JsonObject>())!);
+        }
+        using var other = factory.WithWebHostBuilder(b => b.UseSetting("Qube:DemoUser", "ben"));
+
+        var (_, select) = await Preview($"select {keys[2]}, {keys[1]}", id, view: View());
+        var (_, apart) = await Preview($"select {keys[0]}, {keys[2]}", id, view: View());
+        var (_, copy) = await Preview("copy trade id, notional", id, view: View());
+        var (copied, cells) = await Content("copy trade id, notional", copy["revision"]!.GetValue<long>(), View());
+        var (_, export) = await Preview("export trades existing trade id, ccy, notional, rate", id);
+        var (exported, file) = await Content("export trades existing trade id, ccy, notional, rate");
+        var (unread, refused) = await Content("copy nothing");
+        var (notOwner, _) = await Content("export trades", by: other.CreateClient());
+        await Command("entity.set", new JsonObject { ["workspaceId"] = id, ["rows"] = keys[0], ["set"] = "csa=CSA-B" });
+        var (moved, _) = await Content("copy trade id, notional", copy["revision"]!.GetValue<long>(), View());
+
+        Same(new JsonObject
+        {
+            ["kind"] = "select", ["table"] = "xva.trades", ["subset"] = "existing", ["position"] = 1, ["count"] = 2,
+            ["said"] = "Selected 2 rows of trades (existing).",
+        }, select["asks"]);
+        Assert.Equal((null, null), (select["command"], select["inputs"]));
+        Assert.Equal("SeveralRuns", apart["refused"]!["code"]!.GetValue<string>());
+        // Rows left out are the Selection, in the grid's order; a notional is written in full.
+        string Notional(int at) => rows[at]!["notional"]!.GetValue<decimal>().ToString("0.############################", System.Globalization.CultureInfo.InvariantCulture);
+        Same(new JsonObject { ["kind"] = "copy", ["said"] = "Copied 2 rows of trades, 2 fields: trade id, notional." }, copy["asks"]);
+        Assert.Equal((HttpStatusCode.OK, $"{keys[1]}\t{Notional(1)}\r\n{keys[2]}\t{Notional(2)}"), (copied, cells["text"]!.GetValue<string>()));
+        Assert.Equal(copy["revision"]!.GetValue<long>(), cells["revision"]!.GetValue<long>());
+        Assert.Null(cells["refused"]);
+        Assert.Equal("trades.csv", export["asks"]!["fileName"]!.GetValue<string>());
+        var lines = file["text"]!.GetValue<string>().Split("\r\n");
+        Assert.Equal((HttpStatusCode.OK, "\uFEFFtrade id,ccy,notional,rate", keys.Count + 2, ""), (exported, lines[0], lines.Length, lines[^1]));
+        Assert.All(lines[1..^1], line => Assert.Matches(@"^[A-Z0-9-]+,[A-Z]{3},-?[0-9.]+,(-?[0-9.]+%)?$", line));
+        // A line that cannot be read is an answer, as a preview's is; another user's workspace and one that has moved are refused.
+        Assert.Equal((HttpStatusCode.OK, "UnknownRow", null), (unread, refused["refused"]!["code"]!.GetValue<string>(), refused["text"]));
+        Assert.Equal((HttpStatusCode.Forbidden, HttpStatusCode.Conflict), (notOwner, moved));
     }
 }

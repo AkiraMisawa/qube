@@ -1,5 +1,5 @@
-import type { LineFilter, LinePlace, LineSort } from '../contracts';
-import { filterGrid, heldView, menuView, pagedView, placeFocus, sortGrid, whereOf, type Answered, type GridRead, type ScreenGrid } from './lineView';
+import type { LineFilter, LinePlace, LineSelect, LineSort } from '../contracts';
+import { filterGrid, heldView, menuView, pagedView, placeFocus, selectRows, sortGrid, whereOf, type Answered, type GridRead, type ScreenGrid } from './lineView';
 
 // ADR-0016 notes 16 and 17 of 2026-11-11: what a page reads of a grid for the command line. The names are made up.
 
@@ -130,7 +130,7 @@ describe('the view of a grid whose page holds every row (ADR-0016 note 16)', () 
 describe('the cell a place names in a grid (ADR-0016 §9, note 21 of 2026-11-11)', () => {
   const grid: ScreenGrid = { table: 'w.readings', subset: 'manual', columns: ['id', 'station', 'note'] };
   const version: GridRead = { rowSequenceVersion: 4, selection: { ranges: [], focus: undefined } };
-  const place: LinePlace = { table: 'w.readings', subset: 'manual', key: 'R2', said: 'The keyboard is on R2 in readings (manual).' };
+  const place: LinePlace = { kind: 'place', table: 'w.readings', subset: 'manual', key: 'R2', said: 'The keyboard is on R2 in readings (manual).' };
   const placing = (takes = true, editing?: string) => ({ placeSelection: vi.fn(() => takes), readEditText: () => editing });
   const nowhere = () => undefined;
 
@@ -164,6 +164,52 @@ describe('the cell a place names in a grid (ADR-0016 §9, note 21 of 2026-11-11)
   });
 });
 
+describe('the rows a line selects in a grid (ADR-0016 note 43 of 2026-11-11)', () => {
+  const grid: ScreenGrid = { table: 'w.readings', subset: 'manual', columns: ['id', 'station', 'note'] };
+  const version: GridRead = { rowSequenceVersion: 4, selection: { ranges: [], focus: undefined } };
+  const said = 'Selected rows of readings (manual).';
+  const run = (more: Partial<LineSelect>): LineSelect => ({ kind: 'select', table: 'w.readings', subset: 'manual', count: 0, said, ...more });
+  const placing = (takes = true, editing?: string) => ({ placeSelection: vi.fn(() => takes), readEditText: () => editing });
+  // Where the page holds every row: R1 to R5 at 4 to 8, as its grid then orders them.
+  const rowOf = (key: string) => ({ R1: 4, R2: 5, R3: 6, R4: 7, R5: 8 } as Record<string, number | undefined>)[key];
+
+  it('are placed as whole rows from the position the server answered, with the Focus on the first of them in the column it was on, in the version the view was read in', () => {
+    const handle = placing();
+
+    expect(selectRows(grid, handle, version, run({ position: 3, count: 4, column: 'note' }))).toBeUndefined();
+
+    expect(handle.placeSelection.mock.calls).toEqual([[{ topRow: 3, rowCount: 4, leftColumn: 0, columnCount: 3 }, { row: 3, column: 2 }, 4]]);
+  });
+
+  it('are found by their keys where the page holds every row, in whatever order they were named, with the Focus in the first column where the grid had none to keep', () => {
+    const handle = placing();
+
+    expect(selectRows(grid, handle, version, run({ keys: ['R4', 'R2', 'R3'], count: 3 }), rowOf)).toBeUndefined();
+
+    expect(handle.placeSelection.mock.calls).toEqual([[{ topRow: 5, rowCount: 3, leftColumn: 0, columnCount: 3 }, { row: 5, column: 0 }, 4]]);
+  });
+
+  it('are not placed, and it says why, where the grid shows them apart, no longer holds one, or was read in no one order while its page holds part of its rows', () => {
+    const handle = placing();
+    expect(selectRows(grid, handle, version, run({ keys: ['R1', 'R2', 'R4', 'R5'], count: 4 }), rowOf))
+      .toBe('The 4 rows are in 2 runs in the grid on screen, and the line selects rows that are next to one another: filter or sort the grid so that they are, then select shown.');
+    expect(selectRows(grid, handle, version, run({ keys: ['R2', 'R9'], count: 2 }), rowOf)).toBe('R9 is no longer a row the grid on screen holds: open the line again.');
+    expect(selectRows(grid, handle, version, run({ keys: ['R2', 'R3'], count: 2 })))
+      .toBe('The grid on screen held its rows in no one order when the line opened, so the rows have no position in it: open the line again.');
+    expect(handle.placeSelection).not.toHaveBeenCalled();
+  });
+
+  it('says which it is where the grid refuses them: it has moved since the view was read, or it keeps an edit open that it could not commit', () => {
+    expect(selectRows(grid, placing(false), version, run({ position: 3, count: 2 }))).toBe('The grid on screen has moved since the line opened: open the line again.');
+    expect(selectRows(grid, placing(false, '12x'), version, run({ position: 3, count: 2 }))).toBe('The grid on screen keeps an edit open that it could not commit: correct or cancel it first.');
+  });
+
+  it('is a defect, said as one, where the server names neither a position nor keys, or a column the grid does not show: no other rows or column are taken', () => {
+    expect(() => selectRows(grid, placing(), version, run({ count: 2 }), rowOf)).toThrow('The server asked for 2 rows of w.readings to be selected and named neither their position nor their keys.');
+    expect(() => selectRows(grid, placing(), version, run({ position: 3, count: 2, column: 'wind' }))).toThrow('The Focus was read on a column wind of a grid of w.readings, and its page names no such column.');
+  });
+});
+
 describe('the view a Context Menu\'s item is run with (ADR-0016 §4, note 25 of 2026-11-11)', () => {
   const menu = { column: 'note', selection: [{ topRow: 2, rowCount: 3, leftColumn: 0, columnCount: 4 }], rowSequenceVersion: 4 };
 
@@ -184,8 +230,8 @@ describe('a sort and a filter the line gives a grid (ADR-0016 notes 39 to 41 of 
     const held = { filter, sorts: undefined as unknown };
     return { held, snapshot: () => ({ filter: held.filter }), setSorts: vi.fn((sorts: unknown) => { held.sorts = sorts; }), setFilter: vi.fn((next: typeof filter) => { held.filter = next; }) };
   };
-  const by = (...sorts: LineSort['sorts']): LineSort => ({ table: 'w.readings', subset: 'manual', sorts, said: 'Sorted readings (manual).' });
-  const where = (conditions?: string): LineFilter => ({ table: 'w.readings', subset: 'manual', ...(conditions === undefined ? {} : { where: conditions }), said: 'Said.' });
+  const by = (...sorts: LineSort['sorts']): LineSort => ({ kind: 'sort', table: 'w.readings', subset: 'manual', sorts, said: 'Sorted readings (manual).' });
+  const where = (conditions?: string): LineFilter => ({ kind: 'filter', table: 'w.readings', subset: 'manual', ...(conditions === undefined ? {} : { where: conditions }), said: 'Said.' });
 
   it('a sort is the grid\'s own Sort by its columns\' names, the major key first, and none takes it off', () => {
     const s = source();

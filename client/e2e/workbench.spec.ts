@@ -110,6 +110,8 @@ test('ADR-0006: Ctrl+N and Ctrl+P move through the command line\'s list as the a
   await settled(page, 'Lines');
 
   await page.keyboard.press('ControlOrMeta+K');
+  // The line takes the keyboard as it mounts: a key typed before that is the grid's, as the fixture's `command` knows.
+  await expect(page.getByRole('combobox', { name: 'Command' })).toBeFocused();
   await page.keyboard.type('panel');
   const options = page.getByRole('listbox', { name: 'Commands' }).getByRole('option');
   const highlighted = page.getByRole('listbox', { name: 'Commands' }).getByRole('option', { selected: true });

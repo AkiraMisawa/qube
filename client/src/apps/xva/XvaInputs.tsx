@@ -4,7 +4,7 @@ import { useElementSize } from '@mantine/hooks';
 import { GridSource, type CellState, type GridColumn, type GridContextMenuContext, type GridEditIntent } from '@ex-grid/core';
 import type { ExGridApi } from '@ex-grid/react';
 import { QubeGrid } from '../../platform/grid/QubeGrid';
-import { filterGrid, heldView, menuView, placeFocus, sortGrid } from '../../platform/grid/lineView';
+import { filterGrid, heldRowOf, heldView, menuView, placeFocus, selectRows, sortGrid } from '../../platform/grid/lineView';
 import { GridFilterLine } from '../../platform/grid/GridFilterLine';
 import { useHeldFilter } from '../../platform/grid/heldFilter';
 import { useWorkspaceContext } from '../../platform/workspace/WorkspaceProvider';
@@ -369,7 +369,8 @@ function CsaGrid({ panelId, workspaceId, revision, csas, columns: declared, push
   }, [menu, source]);
 
   // The grid as the line is told of it (ADR-0016 note 16): the page holds every CSA, so its rows are named by their ids,
-  // and a place read for that view (note 21) is the row of its key among the rows the grid then held.
+  // and a place read for that view (note 21) is the row of its key among the rows the grid then held, as are the rows
+  // a line selects (note 43).
   const placed = useRef(onPlaced);
   placed.current = onPlaced;
   const screen = useCallback((): Screen | undefined => {
@@ -378,15 +379,14 @@ function CsaGrid({ panelId, workspaceId, revision, csas, columns: declared, push
     const declared = { table: CSAS_TABLE, columns: columnsNow.current.map((c) => c.name), unsorted: columnsNow.current.filter((c) => c.queryable === false).map((c) => c.name) };
     const read = grid.readView();
     const held = source.snapshot();
+    const rowOf = heldRowOf(held, csaKey);
     return {
       view: heldView(declared, read, held, csaKey),
-      put: (place) => placeFocus(declared, grid, read, place, (key) => {
-        const at = held.window.findIndex((row) => row.csaId === key);
-        return at < 0 ? undefined : held.windowStart + at;
-      }) ?? placed.current(),
+      put: (place) => placeFocus(declared, grid, read, place, rowOf) ?? placed.current(),
       // The grid sorts the CSAs it holds itself, as its header does; which of them conditions leave is the server's.
       sort: (asked) => sortGrid(declared, source, asked),
       filter: (asked) => filterGrid(source, asked),
+      select: (asked) => selectRows(declared, grid, read, asked, rowOf),
     };
   }, [gridRef, source]);
   const filterOff = useCallback(() => { filterGrid(source, {}); }, [source]);

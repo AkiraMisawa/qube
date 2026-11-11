@@ -15,7 +15,7 @@ import type { XvaApi } from './api';
 import type { CaseView, EffectiveTrade, HeldEdit, Iteration, RegisteredColumn, RegisteredMeasure, Resolution, ScopeDrop, ShiftEdit, XvaWorkspaceView } from './contracts';
 import { measureNamed, registerXvaPage } from './commands';
 import { commandDoor, registerCommandDoor, tableMenu, type TableMenu } from '../../platform/commands/served';
-import { filterGrid, menuView, pagedView, placeFocus, sortGrid, whereOf, type Answered, type ScreenGrid } from '../../platform/grid/lineView';
+import { filterGrid, menuView, pagedView, placeFocus, selectRows, sortGrid, whereOf, type Answered, type ScreenGrid } from '../../platform/grid/lineView';
 import { GridFilterLine, type FilterSaid } from '../../platform/grid/GridFilterLine';
 import { useWhere, type Heard } from '../../platform/grid/heldFilter';
 import type { CommandRequest, Screen } from '../../platform/commands/commands';
@@ -859,6 +859,8 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
         // The grid's own Sort and Filter (notes 39 to 41): its header shows the sort, and its reader is asked again.
         sort: (asked) => sortGrid(declared, sources[grid], asked),
         filter: (asked) => filterGrid(sources[grid], asked),
+        // The server said the run by its first position in the order this view was read in (note 43).
+        select: (asked) => selectRows(declared, shown, read, asked),
       };
     };
     return { new: of('new', newGrid), existing: of('existing', existingGrid) };

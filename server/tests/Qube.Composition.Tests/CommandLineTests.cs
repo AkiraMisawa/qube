@@ -51,6 +51,9 @@ public partial class CommandLineTests
         public async Task<string> Said(string line) => (await Run(Preview(line)))["said"]!.GetValue<string>();
     }
 
+    /// <summary>The place a reading of <c>find</c> asks the page for.</summary>
+    static LinePlace Placed(LinePreview preview) => Assert.IsType<LinePlace>(preview.Asks);
+
     static string Read(LinePreview preview) =>
         preview.Refused is { } refused ? $"{refused.Code}: {refused.Sentence}" : $"{preview.Rows?.Title} | {preview.Would}";
 
@@ -456,14 +459,14 @@ public partial class CommandLineTests
         var held = rig.Preview("find n1 altitude", new LineView(Stations.Sites));
 
         Assert.Equal((null, null), (cell.Command, cell.Inputs));
-        Assert.Equal(new LinePlace(Stations.Readings, "manual", "R2", 2, "windSpeed", "The keyboard is on R2 · wind speed in readings (manual)."), cell.Place);
+        Assert.Equal(new LinePlace(Stations.Readings, "manual", "R2", 2, "windSpeed", "The keyboard is on R2 · wind speed in readings (manual)."), cell.Asks);
         Assert.Equal(("readings, 1 row | The keyboard goes to R2 · wind speed.", "row: R2 (Typed); field: wind speed (Typed)"), (Read(cell), Given(cell)));
         Assert.Equal(["R2"], cell.Rows!.First);
         // With no field the Focus keeps the column it was on, and the sentence names the row alone.
-        Assert.Equal(new LinePlace(Stations.Readings, "manual", "R1", 1, "note", "The keyboard is on R1 in readings (manual)."), row.Place);
+        Assert.Equal(new LinePlace(Stations.Readings, "manual", "R1", 1, "note", "The keyboard is on R1 in readings (manual)."), row.Asks);
         // Where the page holds every row the place is the key alone, and the column none where the grid had no Focus.
-        Assert.Equal(new LinePlace(Stations.Sites, null, "N1", null, "altitude", "The keyboard is on N1 · altitude in stations."), held.Place);
-        Assert.Equal(new LinePlace(Stations.Sites, null, "S1", null, null, "The keyboard is on S1 in stations."), rig.Preview("find S1", new LineView(Stations.Sites)).Place);
+        Assert.Equal(new LinePlace(Stations.Sites, null, "N1", null, "altitude", "The keyboard is on N1 · altitude in stations."), held.Asks);
+        Assert.Equal(new LinePlace(Stations.Sites, null, "S1", null, null, "The keyboard is on S1 in stations."), rig.Preview("find S1", new LineView(Stations.Sites)).Asks);
         Assert.Equal(before, rig.Board.Revision);
     }
 
@@ -502,8 +505,8 @@ public partial class CommandLineTests
         Assert.Equal("ViewMoved: The readings are no longer in the order the grid shows them in: open the line again.", Read(moved));
         Assert.Equal("NotOnScreen: N1 is a row of stations that the filter of the grid on screen leaves out.", Read(hidden));
         // Under a filter an id's end is read among the rows it leaves: 1 is S1 alone, though three stations end with it.
-        Assert.Equal("S1", shown.Place!.Key);
-        Assert.All([none, moved, hidden], refused => Assert.Null(refused.Place));
+        Assert.Equal("S1", Placed(shown).Key);
+        Assert.All([none, moved, hidden], refused => Assert.Null(refused.Asks));
     }
 
     [Fact] // ADR-0016 §9, note 21: a position is answered in the order the view names; a view that names none is answered the key alone
@@ -518,9 +521,9 @@ public partial class CommandLineTests
         // A grid the server pages whose rows in hand were of no one order names none either: its page says it cannot place.
         var unsaid = rig.Preview("find R2", new LineView(Stations.Readings, "manual", largest));
 
-        Assert.Equal(("R2", 2), (paged.Place!.Key, paged.Place.Position));
-        Assert.Equal(("R2", null), (held.Place!.Key, held.Place.Position));
-        Assert.Equal(("R2", null), (unsaid.Place!.Key, unsaid.Place.Position));
+        Assert.Equal(("R2", 2), (Placed(paged).Key, Placed(paged).Position));
+        Assert.Equal(("R2", null), (Placed(held).Key, Placed(held).Position));
+        Assert.Equal(("R2", null), (Placed(unsaid).Key, Placed(unsaid).Position));
     }
 
     [Theory] // ADR-0016 §5, note 21: after find, the rows the grid shows are offered, a few at a time, and after a row the table's fields
@@ -608,7 +611,7 @@ public partial class CommandLineTests
     [InlineData("set R1 volume lots", "InvalidValue", "lots", 14, 18, "")]
     [InlineData("set R1 wind 4", "AmbiguousField", "wind", 7, 11, "wind speed, wind direction")]
     [InlineData("set where unit==m3 checked on", "UnknownOperator", "==", 14, 16, "")]
-    [InlineData("sett R1", "UnknownCommand", "sett", 0, 4, "set, reset, remove, undo, redo, find, sort, filter, tick, alarm")]
+    [InlineData("sett R1", "UnknownCommand", "sett", 0, 4, "set, reset, remove, undo, redo, find, sort, filter, select, copy, export, tick, alarm")]
     [InlineData("undo that", "UnreadWords", "that", 5, 9, "")]
     public void A_line_that_cannot_be_read_says_the_word_its_place_and_what_it_could_be(string line, string code, string word, int start, int end, string candidates)
     {
@@ -784,7 +787,7 @@ public partial class CommandLineTests
         var other = rig.Preview("bell").Refused!;
 
         Assert.Equal(("weather.horn", "weather.horn would run"), (own.Command!.Id, own.Would));
-        Assert.Equal(("UnknownCommand", "set, reset, remove, undo, redo, horn, find, sort, filter, tick, alarm"), (other.Code, string.Join(", ", other.Candidates)));
+        Assert.Equal(("UnknownCommand", "set, reset, remove, undo, redo, horn, find, sort, filter, select, copy, export, tick, alarm"), (other.Code, string.Join(", ", other.Candidates)));
         Assert.Equal(["horn"], rig.Preview("h").Complete.Select(c => c.Value));
         Assert.Empty(rig.Preview("b").Complete);
     }
@@ -860,7 +863,7 @@ public partial class CommandLineTests
         Assert.Equal("manual | automatic", Offered("tick "));
         Assert.Equal("automatic@5", Offered("tick au"));
         Assert.Equal("tick@0", Offered("ti"));
-        Assert.Equal("set, reset, remove, undo, redo, find, sort, filter, tick, alarm", string.Join(", ", rig.Preview("sett").Refused!.Candidates));
+        Assert.Equal("set, reset, remove, undo, redo, find, sort, filter, select, copy, export, tick, alarm", string.Join(", ", rig.Preview("sett").Refused!.Candidates));
     }
 
     [Fact] // ADR-0016 note 29: a short form's words are its own, and it expands to a command's line, never to nothing or to another short form: a registration at fault fails

@@ -1,4 +1,4 @@
-import type { LineFilter, LinePlace, LineSort, LineView } from '../contracts';
+import type { LineFilter, LinePlace, LineSelect, LineSort, LineView } from '../contracts';
 
 // What a page reads of one of its grids for the command line (ADR-0016 §9, notes 16 and 17 of 2026-11-11): the view
 // the line sends with each reading. A position is said only with the order it is a position in, as the grid's reader
@@ -100,6 +100,17 @@ export function pagedView<Row>(
     ...(drawn === undefined ? {} : { order: drawn.orderToken }),
     ...(ranges.length === 0 ? {} : { ranges: ranges.map((r) => ({ start: r.topRow, count: r.rowCount })) }),
     ...(focus === undefined ? {} : { focus: { field: fieldAt(grid, focus.column), position: focus.row } }),
+  };
+}
+
+/**
+ * Where a row stands in a grid whose page holds every row, by its key: the row a place (ADR-0016 note 21) or a
+ * Selection (note 43) is put on, among the rows the grid then held. None where the page holds no such row.
+ */
+export function heldRowOf<Row>(held: { readonly window: readonly Row[]; readonly windowStart: number }, keyOf: (row: Row) => string): (key: string) => number | undefined {
+  return (key) => {
+    const at = held.window.findIndex((row) => keyOf(row) === key);
+    return at < 0 ? undefined : held.windowStart + at;
   };
 }
 
@@ -218,7 +229,44 @@ export function placeFocus(grid: ScreenGrid, handle: Placing, read: Pick<GridRea
   const row = place.position ?? rowOf?.(place.key);
   if (row === undefined) return `${place.key} is no longer a row the grid on screen holds: open the line again.`;
   if (handle.placeSelection({ topRow: row, rowCount: 1, leftColumn: column, columnCount: 1 }, { row, column }, read.rowSequenceVersion)) return undefined;
-  return handle.readEditText() === undefined
-    ? 'The grid on screen has moved since the line opened: open the line again.'
-    : 'The grid on screen keeps an edit open that it could not commit: correct or cancel it first.';
+  return unplaced(handle);
+}
+
+/** Why a grid refused a Selection placed in the version its view was read in: it has left that version, or it keeps an edit open. */
+const unplaced = (handle: Pick<Placing, 'readEditText'>): string => (handle.readEditText() === undefined
+  ? 'The grid on screen has moved since the line opened: open the line again.'
+  : 'The grid on screen keeps an edit open that it could not commit: correct or cancel it first.');
+
+/**
+ * Places a grid's Selection on the rows a view verb's reading names (ADR-0016 note 43 of 2026-11-11): one run of whole
+ * rows, with the Focus on the first of them in the column it was on, the first where it had none. Where the server
+ * pages the grid the run is its first position and its count, as the server answered them of the view's order. Where
+ * the page holds every row the reading names the rows by their keys, and whether the grid shows them next to one
+ * another is said here, by where the page says each is (`rowOf`): rows apart are refused with how many runs they are
+ * in, never the first run alone. Placed in the Row Sequence Version the view was read in (`read`), as a place is.
+ * Answers why where nothing was placed.
+ */
+export function selectRows(grid: ScreenGrid, handle: Placing, read: Pick<GridRead, 'rowSequenceVersion'>, asked: LineSelect, rowOf?: (key: string) => number | undefined): string | undefined {
+  const column = asked.column === undefined ? 0 : grid.columns.indexOf(asked.column);
+  if (column < 0) throw new Error(`The Focus was read on a column ${String(asked.column)} of a grid of ${grid.table}, and its page names no such column.`);
+  let top: number;
+  let count: number;
+  if (asked.position !== undefined) [top, count] = [asked.position, asked.count];
+  else {
+    const { keys } = asked;
+    if (keys === undefined || keys.length === 0) throw new Error(`The server asked for ${asked.count} rows of ${grid.table} to be selected and named neither their position nor their keys.`);
+    if (rowOf === undefined) return 'The grid on screen held its rows in no one order when the line opened, so the rows have no position in it: open the line again.';
+    const rows: number[] = [];
+    for (const key of keys) {
+      const row = rowOf(key);
+      if (row === undefined) return `${key} is no longer a row the grid on screen holds: open the line again.`;
+      rows.push(row);
+    }
+    rows.sort((a, b) => a - b);
+    const runs = rows.filter((row, at) => at === 0 || row !== rows[at - 1]! + 1).length;
+    if (runs > 1) return `The ${rows.length} rows are in ${runs} runs in the grid on screen, and the line selects rows that are next to one another: filter or sort the grid so that they are, then select shown.`;
+    [top, count] = [rows[0]!, rows.length];
+  }
+  if (handle.placeSelection({ topRow: top, rowCount: count, leftColumn: 0, columnCount: grid.columns.length }, { row: top, column }, read.rowSequenceVersion)) return undefined;
+  return unplaced(handle);
 }

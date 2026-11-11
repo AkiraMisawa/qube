@@ -33,10 +33,13 @@ public sealed class CommandPreview(Func<CommandLines> lines) : ICapabilityHandle
             var preview = lines().Preview(line, workspaceId, request["revision"]?.GetValue<long>(), caller);
             // A line that cannot be read refuses the call as the tables refuse one: the word at fault goes with the sentence.
             if (preview.Refused is { } refusal) throw new TableRefused(refusal.Code, refusal.Sentence, refusal.Word, refusal.Candidates);
-            // A verb of the screen names no command: its reading asks its page. Each refuses a caller with no screen
-            // itself, and one that did not is still nothing this caller can run.
+            // A verb of the screen names no command: its reading asks its page. Each that needs a grid refuses a caller
+            // with no screen itself; one that needs none (`export` and a table's word, ADR-0016 note 44) is still
+            // nothing this caller can run, and the rows it would take out are this caller's to read.
             if (preview.Command is not { } command)
-                throw new TableRefused("NoView", $"`{line}` is done by a page that shows a grid, and no command runs it.");
+                throw new TableRefused("NoView", preview.Asks is GridAsk
+                    ? $"`{line}` is done by a page that shows a grid, and no command runs it."
+                    : $"`{line}` is done by a page of the workbench, and no command runs it: tables.read answers the rows of a table.");
             // A command's reading says its inputs, its arguments and what would change: one that does not is a defect.
             T Said<T>(T? part, string what) where T : class => part ?? throw new InvalidOperationException($"`{line}` was read as {command.Id} with no {what} said.");
 

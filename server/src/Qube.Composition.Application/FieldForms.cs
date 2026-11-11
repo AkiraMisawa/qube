@@ -169,6 +169,25 @@ public static partial class FieldForms
         }
     }
 
+    /// <summary>
+    /// A value as a cell a spreadsheet reads (ADR-0016 note 44): an amount, a number and a count of days plain, in
+    /// full, with every decimal and no grouping; a rate and a spread in percent with the sign, which a spreadsheet
+    /// reads as the number meant whichever way the field holds it; a flag <c>true</c> or <c>false</c>; the rest as
+    /// <see cref="Write"/> writes it; and nothing for no value. Nothing is rounded.
+    /// </summary>
+    public static string Cell(FieldSpec spec, JsonNode? value)
+    {
+        if (value is null) return "";
+        return spec.Form switch
+        {
+            FieldForm.Amount or FieldForm.SignedAmount or FieldForm.Number or FieldForm.Days => Exact(Held(value)),
+            FieldForm.Percent => $"{Exact(Held(value))}%",
+            FieldForm.Rate or FieldForm.Spread => $"{Exact(Held(value) * 100m)}%",
+            FieldForm.Flag => value.GetValue<bool>() ? "true" : "false",
+            _ => Write(spec, value),
+        };
+    }
+
     /// <summary>Two values say the same thing: numbers by value (1.0 is 1), the rest as JSON; no value is the same as no value.</summary>
     public static bool Same(JsonNode? a, JsonNode? b) =>
         a is JsonValue x && b is JsonValue y && x.GetValueKind() == JsonValueKind.Number && y.GetValueKind() == JsonValueKind.Number ? Held(x) == Held(y) : JsonNode.DeepEquals(a, b);

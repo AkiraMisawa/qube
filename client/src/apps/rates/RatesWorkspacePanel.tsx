@@ -8,7 +8,7 @@ import type { Screen } from '../../platform/commands/commands';
 import { commandDoor, registerCommandDoor, tableMenu, type Told } from '../../platform/commands/served';
 import { useColumnWidths } from '../../platform/grid/columnWidths';
 import { GridUndoContext } from '../../platform/grid/gridUndo';
-import { filterGrid, heldView, menuView, placeFocus, sortGrid } from '../../platform/grid/lineView';
+import { filterGrid, heldRowOf, heldView, menuView, placeFocus, selectRows, sortGrid } from '../../platform/grid/lineView';
 import { GridFilterLine } from '../../platform/grid/GridFilterLine';
 import { useHeldFilter } from '../../platform/grid/heldFilter';
 import { EditQueue } from '../../platform/workspace/editQueue';
@@ -312,22 +312,22 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
   const contextCommands = useCallback((context: GridContextMenuContext<LineRow>) =>
     [...menuNow.current.commands(menuView((read) => heldView(declared(), read, source.snapshot(), lineKey), context, context.row.line))], [declared, source]);
   const commandLabel = useCallback((id: string) => menuNow.current.label(id), []);
-  // A place read for that view (note 21) is the row of its key among the rows the grid then held.
+  // A place read for that view (note 21) is the row of its key among the rows the grid then held, and so are the rows
+  // a line selects (note 43): whether they are next to one another is said of the order the grid held them in.
   const lineScreen = useCallback((): Screen | undefined => {
     const shown = grid.current;
     if (shown === null) return undefined;
     const named = declared();
     const read = shown.readView();
     const held = source.snapshot();
+    const rowOf = heldRowOf(held, lineKey);
     return {
       view: heldView(named, read, held, lineKey),
-      put: (place) => placeFocus(named, shown, read, place, (key) => {
-        const at = held.window.findIndex((row) => row.line === key);
-        return at < 0 ? undefined : held.windowStart + at;
-      }) ?? focused(grid, 'The lines'),
+      put: (place) => placeFocus(named, shown, read, place, rowOf) ?? focused(grid, 'The lines'),
       // Which lines conditions leave is the server's to say (note 41); a sort is refused by the column's name (note 40).
       sort: (asked) => sortGrid(named, source, asked),
       filter: (asked) => filterGrid(source, asked),
+      select: (asked) => selectRows(named, shown, read, asked, rowOf),
     };
   }, [declared, source]);
 

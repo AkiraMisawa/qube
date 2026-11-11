@@ -1,7 +1,8 @@
 import { ApiError, outputOf, type Api, type CommandAnswer } from '../api';
-import type { Catalog, CommandForm, LineArgument, LineCompletion, LinePreview, LineView, RowsEdited, TableOnScreen, TakenBack } from '../contracts';
+import type { Catalog, CommandForm, GridAsk, LineArgument, LineCompletion, LinePreview, LineView, RowsEdited, TableOnScreen, TakenBack } from '../contracts';
 import type { Notify } from '../notices';
 import type { Command, CommandDoor, Completion, KeyboardMoved, LineReading, LineReason, Screen } from './commands';
+import { browserOut, type TakenOut } from './takenOut';
 
 // The commands the catalog says how to type (ADR-0016 §4, §5): the line builds each from the catalog and reads nothing
 // of its line itself. The server reads the line, while it is typed and at Enter; what the line does with the answer is
@@ -23,7 +24,7 @@ export interface DoorPage {
   /** The application the workspace is of, as the server names it. */
   readonly app: string;
   readonly catalog: Pick<Catalog, 'capabilities'>;
-  readonly api: Pick<Api, 'preview' | 'command'>;
+  readonly api: Pick<Api, 'preview' | 'command' | 'content'>;
   readonly turns: Turns;
   /** Reads the workspace again and shows it; answers the revision it read. */
   reread(): Promise<number>;
@@ -68,25 +69,25 @@ interface Invocation {
   readonly inputs: Readonly<Record<string, unknown>>;
 }
 
-/** What a view verb's reading asks of the page (ADR-0016 notes 21 and 39): how a grid does it, and what is said once it has. */
-interface Asks {
+/** How what a view verb's reading asks of a grid is done (ADR-0016 notes 21, 39 and 43), and what the line is told. */
+interface Handing {
   /** The ask as a defect names it (`a sort`), and what a grid was to do for it (`sort`). */
   readonly named: string;
   readonly toDo: string;
-  readonly said: string;
   /** Whether doing it puts the keyboard somewhere: the line then gives none back. */
   readonly moves: boolean;
   /** Hands the ask to the grid the view was read of, and answers why where the grid refuses it. */
   readonly handTo: (screen: Screen) => string | undefined;
 }
 
-/** The one thing a reading asks of the page, where it is a view verb's: a place, a sort or a filter. */
-function asksOf(reading: LinePreview): Asks | undefined {
-  const { place, sort, filter } = reading;
-  if (place !== undefined) return { named: 'a place', toDo: 'put the keyboard on', said: place.said, moves: true, handTo: (screen) => screen.put(place) };
-  if (sort !== undefined) return { named: 'a sort', toDo: 'sort', said: sort.said, moves: false, handTo: (screen) => screen.sort(sort) };
-  if (filter !== undefined) return { named: 'a filter', toDo: 'filter', said: filter.said, moves: false, handTo: (screen) => screen.filter(filter) };
-  return undefined;
+/** How each thing a reading asks of the grid its view was read of is handed to that grid. */
+function ofGrid(asks: GridAsk): Handing {
+  switch (asks.kind) {
+    case 'place': return { named: 'a place', toDo: 'put the keyboard on', moves: true, handTo: (screen) => screen.put(asks) };
+    case 'sort': return { named: 'a sort', toDo: 'sort', moves: false, handTo: (screen) => screen.sort(asks) };
+    case 'filter': return { named: 'a filter', toDo: 'filter', moves: false, handTo: (screen) => screen.filter(asks) };
+    case 'select': return { named: 'rows to select', toDo: 'select them in', moves: false, handTo: (screen) => screen.select(asks) };
+  }
 }
 
 const describe = (error: unknown) => (error instanceof Error ? error.message : String(error));
@@ -96,9 +97,10 @@ const describe = (error: unknown) => (error instanceof Error ? error.message : S
  * turn. Refused, by the reading or by the write, nothing ran and the reason is answered, for the line to keep; where
  * the reason is that the workspace has moved, the page reads it again first, so that what is tried next is tried
  * against what the page then shows. Taken, the page chains on the revision it left and shows the workspace as read
- * again, and the notice is the server's sentence of what was done.
+ * again, and the notice is the server's sentence of what was done. What `copy` and `export` take out (note 44) goes
+ * where `out` puts it: the browser's clipboard and a file, unless another is given.
  */
-export function commandDoor(page: DoorPage): CommandDoor {
+export function commandDoor(page: DoorPage, out: TakenOut = browserOut): CommandDoor {
   // Each view the page gave the line, with the grid it was read of: what a view verb asks for a view is done with
   // that grid, whatever the screen shows by then.
   const screens = new WeakMap<LineView, Screen>();
@@ -152,18 +154,36 @@ export function commandDoor(page: DoorPage): CommandDoor {
     enter: (line, shown, view) => run<LineReason | KeyboardMoved>(async (revision) => {
       // What a view verb asks is of the workspace as it stood when it was read, and no write will refuse one that has
       // moved since: a reading of another revision than the page now holds is asked for again.
-      const kept = shown !== undefined && (asksOf(shown) === undefined || shown.revision === revision) ? shown : undefined;
+      const kept = shown !== undefined && (shown.asks === undefined || shown.revision === revision) ? shown : undefined;
       const reading = kept ?? await page.api.preview(line, page.workspaceId, { revision, ...(view === undefined ? {} : { view }) });
       if (reading.refused !== undefined) return reading.refused;
-      const asks = asksOf(reading);
+      const { asks } = reading;
+      if (asks?.kind === 'copy' || asks?.kind === 'export') {
+        // Cells to take out (note 44): the server reads the line again at the reading's revision and answers them,
+        // refused where the workspace has moved; nothing is invoked, and nothing is said done until they are out.
+        const content = await page.api.content(line, page.workspaceId, { revision: reading.revision, ...(view === undefined ? {} : { view }) });
+        if (content.refused !== undefined) return content.refused;
+        if (content.text === undefined) throw new Error('The server answered neither the cells of the line nor why it has none.');
+        if (asks.kind === 'export') out.save(asks.fileName, content.text);
+        else {
+          try {
+            await out.copy(content.text);
+          } catch (error) {
+            return { sentence: `The browser did not take the cells on its clipboard: ${describe(error)}` };
+          }
+        }
+        page.notify('done', asks.said);
+        return undefined;
+      }
       if (asks !== undefined) {
-        // A view verb (ADR-0016 notes 21 and 39): nothing is invoked, and the page does what the reading asks.
+        // A view verb of a grid (ADR-0016 notes 21, 39 and 43): nothing is invoked, and the grid does what is asked.
+        const grid = ofGrid(asks);
         const screen = view === undefined ? undefined : screens.get(view);
-        if (screen === undefined) throw new Error(`The server named ${asks.named}, and this page gave the line no grid to ${asks.toDo}.`);
-        const why = asks.handTo(screen);
+        if (screen === undefined) throw new Error(`The server named ${grid.named}, and this page gave the line no grid to ${grid.toDo}.`);
+        const why = grid.handTo(screen);
         if (why !== undefined) return { sentence: why };
         page.notify('done', asks.said);
-        return asks.moves ? { moved: true } : undefined;
+        return grid.moves ? { moved: true } : undefined;
       }
       if (reading.command === undefined || reading.inputs === undefined) throw new Error('The server read the line and named no command to run.');
       return { ...reading.command, inputs: reading.inputs };
