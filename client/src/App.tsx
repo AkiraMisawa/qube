@@ -30,9 +30,9 @@ export function App({ api, initialContext, agent }: {
   const [notice, setNotice] = useState<Notice | undefined>(undefined);
   // A notice is a command's result (ADR-0006's note 2 of 2026-11-11). A refused one is what the user was told went
   // wrong, and the server's log keeps it too (ADR-0014 §4).
-  const notify = useCallback<Notify>((kind, message) => {
+  const notify = useCallback<Notify>((kind, message, options) => {
     // A new object each time: the same words said again are a new notice, with its own time on screen.
-    setNotice({ kind, message });
+    setNotice({ kind, message, ...(options?.stays === true ? { stays: true } : {}) });
     if (kind === 'refused') telemetry.report({ level: 'warning', kind: 'notice', message });
   }, []);
   const clearNotice = useCallback(() => setNotice(undefined), []);

@@ -22,3 +22,11 @@ and `buildCommands` registers the applications' before the workflows' and the sh
 command's own panel the option does not repeat the panel's title. No list of the sample modules passes a cap today
 (an XVA page lists sixty commands), so the count past a cap is held by `drawn`'s test, and the browser test reads that
 `?` shows no such line.
+
+After the code review, 2026-11-11:
+
+- Nothing is highlighted while the line lists, empty or at `?`: with the page's first command highlighted, Ctrl+K and
+  Enter priced. Enter alone says to choose or to type; down chooses the first command, up the last.
+- The cap counts commands across the sections in one place (`drawnSections`); the line past it is under the list, a
+  `status`, and a heading names its group of options for a screen reader.
+- A finished Run's views (`show <view>`) are its page's commands, and `Not available now` is ordered by use too.

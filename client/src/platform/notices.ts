@@ -7,9 +7,19 @@ export type NoticeKind = 'done' | 'refused';
 export interface Notice {
   readonly kind: NoticeKind;
   readonly message: string;
+  /** A done notice that says something is left for the user to decide stays until it is closed, as a refusal does. */
+  readonly stays?: boolean;
 }
 
-export type Notify = (kind: NoticeKind, message: string) => void;
+export type Notify = (kind: NoticeKind, message: string, options?: { readonly stays?: boolean }) => void;
 
 /** How long a done notice stays while neither the pointer nor the keyboard is on it, in milliseconds. */
 export const DONE_NOTICE_MS = 6000;
+
+/**
+ * Whether a notice leaves by itself once `DONE_NOTICE_MS` has passed: a done one that leaves nothing to decide, while
+ * nothing holds it. A refusal never does: its reason is read until it is closed or replaced.
+ */
+export function leavesByItself(notice: Notice, held: { readonly pointer: boolean; readonly keyboard: boolean }): boolean {
+  return notice.kind === 'done' && notice.stays !== true && !held.pointer && !held.keyboard;
+}

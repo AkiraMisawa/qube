@@ -27,7 +27,7 @@ public enum FieldForm
     Percent,
     /// <summary>One of the field's choices, by any of its words, in any case.</summary>
     Choice,
-    /// <summary><c>true</c> or <c>false</c>, only by name.</summary>
+    /// <summary>A flag, as <see cref="FlagWords"/> reads one (<c>on</c>, <c>off</c>, <c>yes</c>, <c>no</c>, <c>true</c>, <c>false</c>), only by name.</summary>
     Flag,
     /// <summary>A plain number, only by name.</summary>
     Number,
@@ -234,7 +234,7 @@ public static partial class ProductReader
                 return choices.TryGetValue(t.ToLowerInvariant(), out var v) ? Take(v) : Fail($"{field.Name} is one of {string.Join(", ", choices.Keys)}.");
             }
             case FieldForm.Flag:
-                return bool.TryParse(t, out var b) ? Take(b) : Fail($"{field.Name} is true or false.");
+                return FlagWords.Read(t) is { } b ? Take(b) : Fail($"{field.Name} is on or off.");
             default:
                 return double.TryParse(t, NumberStyles.Float, CultureInfo.InvariantCulture, out var d) ? Take(d) : Fail($"{field.Name} is a number.");
         }

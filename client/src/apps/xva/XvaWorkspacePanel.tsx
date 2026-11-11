@@ -19,7 +19,7 @@ import { BASE_CASE, BASE_SCENARIO, openTrace, requestTerm } from '../../platform
 import type { TraceApi } from '../../platform/traces/api';
 import type { RunRecord } from '../../platform/contracts';
 import { dockTabs, METRICS_TAB, type DockTab, type MeasureTab } from './dock';
-import { EditQueue, MEASURES_ENTITY, SETTINGS_ENTITY, refusedEdit, sideSaid, tradeFields, type PendingEdit, type SetText } from './editing';
+import { EditQueue, MEASURES_ENTITY, SETTINGS_ENTITY, refusedEdit, sideSaid, sideTitle, tradeFields, type PendingEdit, type SetText } from './editing';
 import { ToolbarField } from './fields';
 import { CHANGES_TAB, CREDIT_TAB, SCENARIOS_TAB, SETTINGS_TAB, shownTab, TAB_TITLES, tabShown, XvaInputs, type InputTab } from './XvaInputs';
 import { XvaRisks } from './XvaRisks';
@@ -83,6 +83,9 @@ const sides: readonly GridColumn<Row>[] = [
   column('before', 'Before', 'boolean', 88, { editable: true }),
   column('after', 'After', 'boolean', 80, { editable: true }),
 ];
+/** What the screen calls each column of a trade grid the user may type in: an edit is titled with it (ADR-0006's note 2 of 2026-11-11). */
+const TRADE_HEADERS: ReadonlyMap<string, string> = new Map([...leading, ...assigned, ...Object.values(inputColumns), ...sides]
+  .flatMap((c): [string, string][] => (c.header === undefined ? [] : [[c.name, c.header]])));
 /** The assignments, with the trade fields the selected measures need, then B and A. */
 const assignmentOf = (fields: readonly string[]): readonly GridColumn<Row>[] =>
   [...assigned, ...fields.flatMap((f) => (inputColumns[f] === undefined ? [] : [inputColumns[f]])), ...sides];
@@ -239,11 +242,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
       show(next);
       sources.changed();
       // B or A for a whole grid says what it did (ADR-0006's note 2 of 2026-11-11); a cell's own edit shows in its cell.
-      if (edit.resolution === undefined && edit.measures === undefined && typeof edit.value === 'boolean'
-        && (edit.field === 'before' || edit.field === 'after') && (edit.entity === 'grid:new' || edit.entity === 'grid:existing')) {
-        const grid = edit.entity === 'grid:new' ? 'new' : 'existing';
-        workspace.notify('done', sideSaid(edit.field, edit.value, grid, grid === 'new' ? next.newTrades : next.trades - next.newTrades));
-      }
+      if (edit.resolution === undefined && edit.measures === undefined && edit.says !== undefined) workspace.notify('done', edit.says(next));
     },
     (edit, error) => {
       workspace.notify('refused', refusedEdit(edit, describe(error)));
@@ -329,7 +328,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
       if (intent.seenText !== intent.replacedText) { intent.refuse('The value changed while you were editing. Look at it again.'); return; }
       const typed = parseCellNumber(intent.value);
       if (!typed.ok) { intent.refuse(typed.message); return; }
-      void queue.push({ entity: `trade:${intent.row.tradeId}`, field: intent.column, value: typed.value });
+      void queue.push({ entity: `trade:${intent.row.tradeId}`, field: intent.column, value: typed.value, title: `${intent.row.tradeId} ${module.title}` });
       return;
     }
     const parse = tradeFields[intent.column];
@@ -337,7 +336,9 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
     if (intent.seenText !== intent.replacedText) { intent.refuse('The value changed while you were editing. Look at it again.'); return; }
     const parsed = parse(intent.value);
     if (!parsed.ok) { intent.refuse(parsed.message); return; }
-    void queue.push({ entity: `trade:${intent.row.tradeId}`, field: intent.column, value: parsed.value });
+    const header = TRADE_HEADERS.get(intent.column);
+    if (header === undefined) throw new Error(`The trade grids have an editable column ${intent.column} with no header.`);
+    void queue.push({ entity: `trade:${intent.row.tradeId}`, field: intent.column, value: parsed.value, title: `${intent.row.tradeId} ${header}` });
   }, [queue]);
 
   // `focus grid` gives the keyboard to the New grid, or to a trace tab's tree while the dock is widened over the grids.
@@ -365,7 +366,9 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
       });
       show(next);
       sources.requery();
-      workspace.notify('done', `${label}: ${carried.carried} edit(s) carried, ${carried.conflicted} in conflict, ${carried.lost} lost.`);
+      // Edits in conflict or lost wait for the user's decision: the notice that counts them does not leave by itself.
+      workspace.notify('done', `${label}: ${carried.carried} edit(s) carried, ${carried.conflicted} in conflict, ${carried.lost} lost.`,
+        { stays: carried.conflicted + carried.lost > 0 });
     } catch (error) {
       workspace.notify('refused', `${label} failed: ${describe(error)}`);
       const fresh = await api.view(workspaceId);
@@ -507,7 +510,10 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   const setMeasures = (measures: readonly string[]) => void queue.push({ entity: MEASURES_ENTITY, field: 'measures', measures });
   /** B or A for every row of a grid, as one edit (ADR-0010 §6); a row's own edit made later wins over it. */
   const setSide = (side: 'before' | 'after', value: boolean, grid: TradeGrid = lastGrid.current) =>
-    void queue.push({ entity: `grid:${grid}`, field: side, value });
+    void queue.push({
+      entity: `grid:${grid}`, field: side, value, title: sideTitle(side, grid),
+      says: (next) => sideSaid(side, value, grid, grid === 'new' ? next.newTrades : next.trades - next.newTrades),
+    });
 
   const refresh = () => reacquire('Refreshed', (revision) => api.refresh(workspaceId, revision));
 
@@ -567,7 +573,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   const changeActions: ChangeActions = {
     set: (change, text) => void apply(`${change.title} was not changed`, (revision) =>
       api.setChange(workspaceId, revision, change.entity, change.field, text, change.case ?? undefined)),
-    remove: (change) => void queue.push({ entity: change.entity, field: change.field, resolution: 'reset', case: change.case ?? undefined }),
+    remove: (change) => void queue.push({ entity: change.entity, field: change.field, resolution: 'reset', case: change.case ?? undefined, title: change.title }),
     removeCase: (caseId, title) => void removeCase(caseId, title),
     clearCases: () => void clearCases(),
   };
@@ -712,7 +718,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   };
   // *Vary values…* (ADR-0010 §3): the cell whose Context Menu opened the dialog, while it is open.
   const [varying, setVarying] = useState<VaryTarget | undefined>(undefined);
-  const setCurrency = (currency: string) => void queue.push({ entity: SETTINGS_ENTITY, field: 'displayCurrency', value: currency });
+  const setCurrency = (currency: string) => void queue.push({ entity: SETTINGS_ENTITY, field: 'displayCurrency', value: currency, title: 'The display currency' });
 
   // The commands run what the page's own controls run, as the page stands when they run (ADR-0010 §9).
   const pageCommands = { chooseCds, cdsCatalogue: () => catalogue.data, price, setMeasures, setSide, retry, copyQuote, download, refresh, setCurrency, openTab, explain, openResult, setDockFull, resultTabs, traceInView, vary, set, addTrades, removeCase, clearCases, defineScenario, includeScenario, removeScenario, duplicate, clearScenarios, generateScenarios, saveScenarios, loadScenarios, scenarioSets: () => scenarioSets.data ?? [], scenarios: () => view.data?.scenarios ?? [], pricing: () => (view.data === undefined ? undefined : { cases: view.data.cases.length, cap: view.data.caseCap }), measures: () => view.data?.measures ?? [], currencies: () => view.data?.currencies ?? [], examples: () => ({ csa: view.data?.csas[0]?.csaId, trade: readTrade.current.existing ?? readTrade.current.new }) };
@@ -829,7 +835,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
       <SegmentedControl hiddenFrom="sm" size="xs" fullWidth aria-label="Part of the page" value={section} onChange={(v) => setSection(v as Section)}
         data={[{ value: 'inputs', label: 'Inputs' }, { value: 'trades', label: 'Trades' }, { value: 'results', label: 'Results' }]} />
       <div data-part="inputs" className="qube-xva-part">
-        <XvaInputs panelId={panelId} ws={ws} onIssue={setIssue} push={(entity, field, value) => void queue.push({ entity, field, value })} setText={setText}
+        <XvaInputs panelId={panelId} ws={ws} onIssue={setIssue} push={(entity, field, value, title) => void queue.push({ entity, field, value, title })} setText={setText}
           catalogue={catalogue.isError ? { refused: describe(catalogue.error) } : catalogue.data}
           tab={inputTab} onTab={(tab) => { setInputTab(tab); setInputsOpen(true); }} open={inputsOpen} onOpen={setInputsOpen} height={inputsHeight} focusRequest={focusRequest}
           changeList={changeList.data} changeActions={changeActions} scenarioActions={scenarioActions} onVary={setVarying} commandLabel={commandLabel} />
@@ -838,7 +844,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
       </div>
       {issue !== undefined && <Text size="xs" c="red" role="alert" data-testid="field-issue">{issue}</Text>}
       <div data-part="trades" className="qube-xva-part">
-        <HeldEdits conflicts={ws.conflicts} lost={ws.lost} resolve={(edit, resolution) => void queue.push({ entity: edit.entity, field: edit.field, resolution, case: edit.case ?? undefined })} />
+        <HeldEdits conflicts={ws.conflicts} lost={ws.lost} resolve={(edit, resolution) => void queue.push({ entity: edit.entity, field: edit.field, resolution, case: edit.case ?? undefined, title: `${edit.entity} ${edit.field}` })} />
         {failure !== undefined && <Alert color="red" variant="light" withCloseButton onClose={() => setFailure(undefined)} title="The trades could not be read">{failure}</Alert>}
         {/* New trades above Existing (ADR-0010 §6): New as high as its rows, about eight at most; Existing takes the rest. */}
         <div className="qube-xva-grids">

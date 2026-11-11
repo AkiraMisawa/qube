@@ -1,6 +1,6 @@
 import { ApiError } from '../../platform/api';
 import type { XvaWorkspaceView } from './contracts';
-import { EditQueue, csaFields, parseNumber, parseRecovery, refusedEdit, sideSaid, tradeFields, type PendingEdit } from './editing';
+import { EditQueue, csaFields, parseNumber, parseRecovery, refusedEdit, sideSaid, sideTitle, tradeFields, type PendingEdit } from './editing';
 
 const view = (revision: number) => ({ revision }) as unknown as XvaWorkspaceView;
 
@@ -50,18 +50,18 @@ describe('what a CSA term accepts (ADR-0010 §8)', () => {
 });
 
 describe('how a refused edit is said (ADR-0006 note 2 of 2026-11-11)', () => {
-  it('names the row and the column in words, never an entity\'s key', () => {
-    expect(refusedEdit({ entity: 'trade:ABC-LE-01-E00006', field: 'fixedRate' }, 'Type a rate.')).toBe('ABC-LE-01-E00006 fixed rate was not changed: Type a rate.');
-    expect(refusedEdit({ entity: 'csa:CSA-A', field: 'counterpartyThreshold' }, 'No.')).toBe('CSA-A counterparty threshold was not changed: No.');
-    // A module's column is named without its module (ADR-0010 §10).
-    expect(refusedEdit({ entity: 'trade:DRAFT-1', field: 'xva.margin' }, 'No.')).toBe('DRAFT-1 margin was not changed: No.');
+  it('names what the edit would have changed by the title it was given, never by a key', () => {
+    expect(refusedEdit({ entity: 'csa:CSA-A', field: 'counterpartyThreshold', value: -1, title: 'CSA-A Cpty threshold' }, 'No.'))
+      .toBe('CSA-A Cpty threshold was not changed: No.');
+    expect(refusedEdit({ entity: 'trade:DRAFT-1', field: 'imR', value: 'X', title: 'DRAFT-1 IM-R' }, 'X is no IM CSA.'))
+      .toBe('DRAFT-1 IM-R was not changed: X is no IM CSA.');
+    expect(refusedEdit({ entity: 'csa:CSA-A', field: 'curve', resolution: 'reset', title: 'CSA-A curve' }, 'No.')).toBe('CSA-A curve was not changed: No.');
   });
 
-  it('names the measures, the display currency and a grid\'s side as the page does', () => {
-    expect(refusedEdit({ entity: 'selection:measures', field: 'measures' }, 'Choose one.')).toBe('The measures were not changed: Choose one.');
-    expect(refusedEdit({ entity: 'settings:workspace', field: 'displayCurrency' }, 'XYZ is not offered.')).toBe('The display currency was not changed: XYZ is not offered.');
-    expect(refusedEdit({ entity: 'grid:existing', field: 'before' }, 'No.')).toBe('Before was not changed on the existing trades: No.');
-    expect(refusedEdit({ entity: 'grid:new', field: 'after' }, 'No.')).toBe('After was not changed on the new trades: No.');
+  it('names the measures, and a grid\'s side as its edit is titled', () => {
+    expect(refusedEdit({ entity: 'selection:measures', field: 'measures', measures: [] }, 'Choose one.')).toBe('The measures were not changed: Choose one.');
+    expect(sideTitle('before', 'existing')).toBe('Before on the existing trades');
+    expect(sideTitle('after', 'new')).toBe('After on the new trades');
   });
 });
 
@@ -78,7 +78,7 @@ describe('EditQueue (ADR-0003, spine 6)', () => {
     const sent: number[] = [];
     const queue = new EditQueue<PendingEdit, XvaWorkspaceView>(2, async (revision) => { sent.push(revision); return view(revision + 1); }, () => {}, () => {});
 
-    await Promise.all([queue.push({ entity: 'trade:A', field: 'notional', value: 1 }), queue.push({ entity: 'trade:B', field: 'notional', value: 2 })]);
+    await Promise.all([queue.push({ entity: 'trade:A', field: 'notional', value: 1, title: 'A Notional' }), queue.push({ entity: 'trade:B', field: 'notional', value: 2, title: 'B Notional' })]);
 
     expect(sent).toEqual([2, 3]);
     expect(queue.revision).toBe(4);
@@ -91,10 +91,10 @@ describe('EditQueue (ADR-0003, spine 6)', () => {
       return view(revision + 1);
     }, () => {}, (edit) => refused.push(edit));
 
-    await queue.push({ entity: 'trade:A', field: 'csa', value: 'CSA-B' });
-    await queue.push({ entity: 'trade:B', field: 'csa', value: 'CSA-B' });
+    await queue.push({ entity: 'trade:A', field: 'csa', value: 'CSA-B', title: 'A CSA' });
+    await queue.push({ entity: 'trade:B', field: 'csa', value: 'CSA-B', title: 'B CSA' });
     queue.rebase(7);
-    await queue.push({ entity: 'trade:C', field: 'csa', value: 'CSA-B' });
+    await queue.push({ entity: 'trade:C', field: 'csa', value: 'CSA-B', title: 'C CSA' });
 
     expect(refused.map((e) => e.entity)).toEqual(['trade:A', 'trade:B']);
     expect(queue.revision).toBe(8);

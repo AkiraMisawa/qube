@@ -4,7 +4,7 @@ import { GridSource, type CellState, type GridColumn, type GridContextMenuContex
 import { QubeGrid } from '../../platform/grid/QubeGrid';
 import type { EffectiveCds, EffectiveCredit } from './contracts';
 import { bpFigure, bpText, catalogueOf, catalogueRefused, inBp, spreadTyped, type CatalogueRead } from './credit';
-import type { SetText } from './editing';
+import type { PushEdit, SetText } from './editing';
 import { ToolbarField } from './fields';
 import { compactGridHeight } from './layout';
 import { differs, originalMessage } from './original';
@@ -61,7 +61,7 @@ export function XvaCredit({ panelId, credit, registration, catalogue: read, push
   readonly registration: string;
   /** The catalogue the reference search offers; none until it has been read, and why where it could not be. */
   readonly catalogue: CatalogueRead;
-  readonly push: (entity: string, field: string, value: unknown) => void;
+  readonly push: PushEdit;
   /** A spread as written, with its unit, for the server to read as the cell reads it. */
   readonly setText: SetText;
   readonly onVary: (target: VaryTarget) => void;
@@ -80,7 +80,7 @@ export function XvaCredit({ panelId, credit, registration, catalogue: read, push
       {(id) => (
         <NativeSelect id={id} size="xs" className="qube-toolbar-input" value={chosen ?? ''} {...marked(field)}
           data={[...(chosen == null ? [{ value: '', label: 'Choose…' }] : []), ...(values ?? (chosen == null ? [] : [chosen])).map((v) => ({ value: v, label: v }))]}
-          onChange={(e) => push(entity, field, e.currentTarget.value === '' ? null : e.currentTarget.value)} />
+          onChange={(e) => push(entity, field, e.currentTarget.value === '' ? null : e.currentTarget.value, `The CDS proxy's ${label.toLowerCase()}`)} />
       )}
     </ToolbarField>
   );
@@ -91,7 +91,7 @@ export function XvaCredit({ panelId, credit, registration, catalogue: read, push
         <ToolbarField label="CDS">
           {(id) => (
             <NativeSelect id={id} size="xs" className="qube-toolbar-input" value={type} data={TYPES} ref={focusRef} {...marked('cdsType')}
-              onChange={(e) => push(entity, 'cdsType', e.currentTarget.value === 'none' ? null : e.currentTarget.value)} />
+              onChange={(e) => push(entity, 'cdsType', e.currentTarget.value === 'none' ? null : e.currentTarget.value, 'The CDS')} />
           )}
         </ToolbarField>
         {type === 'singleName' && (
@@ -101,7 +101,7 @@ export function XvaCredit({ panelId, credit, registration, catalogue: read, push
                 value={credit.choice.reference ?? null} placeholder="Search ticker, ccy, seniority, doc clause or name"
                 nothingFoundMessage={refused === undefined ? 'No single name of the catalogue matches.' : 'The CDS catalogue could not be read.'}
                 data={(catalogue?.singleNames ?? []).map((c) => ({ value: c.id, label: c.reference }))}
-                onChange={(value) => { if (value !== null) push(entity, 'cdsReference', value); }} comboboxProps={{ withinPortal: true }} />
+                onChange={(value) => { if (value !== null) push(entity, 'cdsReference', value, 'The CDS reference'); }} comboboxProps={{ withinPortal: true }} />
             )}
           </ToolbarField>
         )}

@@ -11,7 +11,7 @@ import { XvaChanges, type ChangeActions } from './XvaChanges';
 import { XvaScenarios, type ScenarioActions } from './XvaScenarios';
 import type { ShiftGridRow } from './scenarios';
 import { VARY_COMMAND, type VaryTarget } from './VaryDialog';
-import { csaFields, parseRecovery, type SetText } from './editing';
+import { csaFields, parseRecovery, type PushEdit, type SetText } from './editing';
 import { CommitField } from './fields';
 import { compactGridHeight, GRID_FRAME, partHeight, pixels } from './layout';
 import { declaring, membershipColumn } from './membership';
@@ -121,7 +121,8 @@ export function XvaInputs({ panelId, ws, push, setText, catalogue, onIssue, tab,
   /** *Vary values…* on an editable cell's Context Menu (ADR-0010 §3), and what the menu calls the page's commands. */
   readonly onVary: (target: VaryTarget) => void;
   readonly commandLabel: (id: string) => string | undefined;
-  readonly push: (entity: string, field: string, value: unknown) => void;
+  /** An edit of a field, titled as the screen names it: its row and its column's header, or its label. */
+  readonly push: PushEdit;
   readonly onIssue: (message: string | undefined) => void;
   readonly tab: InputTab;
   /** A tab pressed, which opens the tabs too. */
@@ -214,7 +215,7 @@ export function XvaInputs({ panelId, ws, push, setText, catalogue, onIssue, tab,
                       <CommitField label="CVA recovery" placeholder={emptyRecovery(ws.credit)}
                         value={ws.credit.cvaRecovery == null ? '' : String(ws.credit.cvaRecovery)} modified={differs(ws.credit, 'cvaRecovery')} description={originalMessage(ws.credit, 'cvaRecovery', ws.credit.cvaRecovery)}
                         parse={parseRecovery} onIssue={onIssue} inputRef={recovery}
-                        onCommit={(value) => push(`netting:${ws.agreement.nettingSetId}`, 'cvaRecovery', value)} />
+                        onCommit={(value) => push(`netting:${ws.agreement.nettingSetId}`, 'cvaRecovery', value, `${ws.agreement.nettingSetId} CVA recovery`)} />
                     </Table.Td>}
                   </Table.Tr>
                 </Table.Tbody>
@@ -301,7 +302,8 @@ function CsaGrid({ panelId, csas, columns: declared, push, height, gridRef, onVa
   readonly commandLabel: (id: string) => string | undefined;
   readonly csas: readonly EffectiveCsa[];
   readonly columns: readonly GridColumn<CsaRow>[];
-  readonly push: (entity: string, field: string, value: unknown) => void;
+  /** An edit of a field, titled as the screen names it: its row and its column's header, or its label. */
+  readonly push: PushEdit;
   readonly height: number;
   readonly gridRef: Ref<ExGridApi<CsaRow>>;
 }) {
@@ -315,8 +317,10 @@ function CsaGrid({ panelId, csas, columns: declared, push, height, gridRef, onVa
     if (intent.seenText !== intent.replacedText) { intent.refuse('The value changed while you were editing. Look at it again.'); return; }
     const parsed = parse(intent.value);
     if (!parsed.ok) { intent.refuse(parsed.message); return; }
-    push(`csa:${intent.row.csaId}`, intent.column, parsed.value);
-  }, [push]);
+    const header = declared.find((c) => c.name === intent.column)?.header;
+    if (header === undefined) throw new Error(`The CSA grid has an editable column ${intent.column} with no header.`);
+    push(`csa:${intent.row.csaId}`, intent.column, parsed.value, `${intent.row.csaId} ${header}`);
+  }, [push, declared]);
   // Vary values… on a term the user may type (ADR-0010 §3); Main, the ID, the type and the agreement are the source's.
   const columnsNow = useRef(columns);
   columnsNow.current = columns;

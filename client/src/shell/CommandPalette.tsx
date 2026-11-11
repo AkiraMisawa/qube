@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNod
 import { Badge, Group, Kbd, Modal, Stack, Text, TextInput, UnstyledButton, useMantineColorScheme } from '@mantine/core';
 import { useHotkeys } from '@mantine/hooks';
 import {
-  assertDistinct, completionsOf, drawn, execute, finish, listed, placeholder, readLine, signature, take,
+  assertDistinct, completionsOf, drawn, drawnSections, execute, finish, listed, placeholder, readLine, signature, take,
   type Command, type Completion,
 } from '../platform/commands/commands';
 import { recordUse, usageScore } from '../platform/commands/usage';
@@ -70,7 +70,9 @@ export function buildCommands(args: {
         words: `show ${wordsOf(view.title)}`,
         title: `Show as ${view.title}`,
         group: 'Views',
+        // A Run's views are its page's commands: the empty line lists them first (ADR-0006's note 3 of 2026-11-11).
         target: active.title,
+        page: true,
         run: () => state.setPanelView(active.id, keyOf(view)),
       });
 
@@ -201,6 +203,13 @@ let openLine: (() => void) | undefined;
 const COMMANDS_DRAWN = 200;
 const VALUES_DRAWN = 50;
 
+/**
+ * No command is highlighted while the line lists them, empty or at `?` (ADR-0006's note 3 of 2026-11-11): the first one
+ * listed is the page's, which on a pricer's page is Price, and Enter alone must run nothing the user did not choose.
+ */
+const NONE = -1;
+const lists = (text: string): boolean => text.trim() === '' || text.trim() === '?';
+
 /** Stands in for the AI store where no pane is mounted, so the hook order never changes. */
 const NO_AI = createStore<{ readonly open: boolean }>()(() => ({ open: false }));
 
@@ -233,7 +242,7 @@ export function CommandPalette() {
   const [opened, setOpened] = useState(false);
   // The text is held here and starts empty at every opening.
   const [text, setText] = useState('');
-  const [highlight, setHighlight] = useState(0);
+  const [highlight, setHighlight] = useState(NONE);
   const [problems, setProblems] = useState<readonly string[]>([]);
   const input = useRef<HTMLInputElement>(null);
 
@@ -249,7 +258,7 @@ export function CommandPalette() {
   }, [workspace, panels, activePanelId, context, activeRun, toggleColorScheme, opened, aiStore, aiOpen, active]);
 
   useEffect(() => {
-    openLine = () => { setText(''); setProblems([]); setHighlight(0); setOpened(true); };
+    openLine = () => { setText(''); setProblems([]); setHighlight(NONE); setOpened(true); };
     return () => { openLine = undefined; };
   }, []);
 
@@ -287,14 +296,15 @@ export function CommandPalette() {
 
   const reading = readLine(text, commands);
   // While a command is chosen the list has sections (ADR-0006's note 3 of 2026-11-11); a slot's values have none.
-  const sections = reading.kind === 'choosing' ? listed(reading.query, commands, usageScore) : [];
-  const every: readonly (Command | Completion)[] = reading.kind === 'choosing' ? sections.flatMap((s) => s.commands) : completionsOf(reading, commands, usageScore).values;
   // What is drawn is what the arrows reach; what is left out is counted and said, never cut in silence.
-  const { shown: items, more } = drawn(every, reading.kind === 'choosing' ? COMMANDS_DRAWN : VALUES_DRAWN);
-  const at = Math.min(highlight, Math.max(items.length - 1, 0));
-  const chosen = items[at];
+  const sections = drawnSections(reading.kind === 'choosing' ? listed(reading.query, commands, usageScore) : [], COMMANDS_DRAWN);
+  const values = drawn(completionsOf(reading), VALUES_DRAWN);
+  const items: readonly (Command | Completion)[] = reading.kind === 'choosing' ? sections.sections.flatMap((s) => s.commands) : values.shown;
+  const more = reading.kind === 'choosing' ? sections.more : values.more;
+  const at = highlight === NONE || items.length === 0 ? NONE : Math.min(highlight, items.length - 1);
+  const chosen = at === NONE ? undefined : items[at];
 
-  const change = (next: string) => { setText(next); setHighlight(0); setProblems([]); };
+  const change = (next: string) => { setText(next); setHighlight(lists(next) ? NONE : 0); setProblems([]); };
   const close = () => { setOpened(false); returnKeyboard(); };
   const runNow = (command: Command, args: Readonly<Record<string, string>>) => {
     letGo();
@@ -321,10 +331,12 @@ export function CommandPalette() {
   const enter = () => {
     if (reading.kind === 'choosing') {
       if (!(chosen !== undefined && 'words' in chosen)) {
+        // A list with nothing chosen in it: Enter runs nothing, and says how to choose.
+        if (lists(text)) { setProblems(['Choose a command with the arrows, or type what you want to do.']); return; }
         // ADR-0006 §7: what matches no command is offered to the AI last.
         const ask = commands.find((c) => c.id === 'ai.ask');
-        if (text.trim() !== '' && ask !== undefined && ask.unavailable === undefined) { runNow(ask, { request: text.trim() }); return; }
-        setProblems([text.trim() === '' ? 'Type what you want to do.' : 'No command matches.']);
+        if (ask !== undefined && ask.unavailable === undefined) { runNow(ask, { request: text.trim() }); return; }
+        setProblems(['No command matches.']);
         return;
       }
       if (chosen.unavailable !== undefined) { setProblems([chosen.unavailable]); return; }
@@ -346,7 +358,8 @@ export function CommandPalette() {
     const step = event.key === 'ArrowDown' || (emacs && key === 'n') ? 1 : event.key === 'ArrowUp' || (emacs && key === 'p') ? -1 : 0;
     if (step !== 0) {
       event.preventDefault();
-      if (items.length > 0) setHighlight((at + step + items.length) % items.length);
+      // From nothing chosen, down is the first and up the last.
+      if (items.length > 0) setHighlight(at === NONE ? (step > 0 ? 0 : items.length - 1) : (at + step + items.length) % items.length);
     } else if (event.key === 'Tab') {
       event.preventDefault();
       if (chosen !== undefined) takeItem(chosen);
@@ -367,12 +380,6 @@ export function CommandPalette() {
       {'words' in item ? <CommandOption command={item} under={under} /> : <ValueOption completion={item} />}
     </UnstyledButton>
   );
-  // Each section with where its first command is among those drawn, cut where the list is.
-  const drawnSections = sections.reduce<{ readonly heading: string | undefined; readonly start: number; readonly commands: readonly Command[] }[]>((list, section) => {
-    const start = list.reduce((n, s) => n + s.commands.length, 0);
-    const commands = section.commands.slice(0, Math.max(items.length - start, 0));
-    return commands.length === 0 ? list : [...list, { heading: section.heading, start, commands }];
-  }, []);
 
   return (
     <Modal opened={opened} onClose={close} withCloseButton={false} trapFocus returnFocus={false} size="lg" yOffset="10vh"
@@ -391,19 +398,21 @@ export function CommandPalette() {
         )}
         <Stack gap={0} id="qube-line-options" role="listbox" aria-label={reading.kind === 'choosing' ? 'Commands' : `Values for ${reading.slot?.name ?? 'options'}`}
           style={{ maxHeight: '50vh', overflowY: 'auto' }}>
-          {reading.kind === 'arguments' ? items.map((item, i) => option(item, i)) : drawnSections.map((section) => (section.heading === undefined
+          {reading.kind === 'arguments' ? values.shown.map((item, i) => option(item, i)) : sections.sections.map((section) => (section.heading === undefined
             ? section.commands.map((c, i) => option(c, section.start + i))
             : (
               <Stack key={section.heading} gap={0} role="group" aria-labelledby={`qube-line-heading-${section.start}`}>
-                <Text id={`qube-line-heading-${section.start}`} size="xs" fw={600} c="dimmed" px="xs" pt="xs" data-testid="command-heading">{section.heading}</Text>
+                {/* The heading names its group and is not one of the list's own children: a listbox holds options and groups of them. */}
+                <Text id={`qube-line-heading-${section.start}`} role="presentation" size="xs" fw={600} c="dimmed" px="xs" pt="xs" data-testid="command-heading">{section.heading}</Text>
                 {section.commands.map((c, i) => option(c, section.start + i, section.heading))}
               </Stack>
             )))}
-          {more > 0 && <Text size="xs" c="dimmed" px="xs" py="xs" data-testid="command-more">{more} more: type to narrow.</Text>}
           {items.length === 0 && reading.kind === 'choosing' && text.trim() !== '' && (
             <Text size="xs" c="dimmed" px="xs">No command matches. <Kbd size="xs">Enter</Kbd> asks the AI: <Kbd size="xs">ai {text.trim()}</Kbd></Text>
           )}
         </Stack>
+        {/* Said under the list, not in it: it is no option, and it is read out when the list is cut. */}
+        {more > 0 && <Text size="xs" c="dimmed" px="xs" role="status" data-testid="command-more">{more} more: type to narrow.</Text>}
         <Group gap="md">
           <Text size="xs" c="dimmed"><Kbd size="xs">Tab</Kbd> complete</Text>
           <Text size="xs" c="dimmed"><Kbd size="xs">Enter</Kbd> run</Text>

@@ -16,5 +16,8 @@ notice. Every command that reads its arguments in `run` (`set`, `vary`, `scenari
 - [x] A chord whose command throws shows the reason as a refused notice.
 
 Done 2026-11-11. `execute` catches (`commands.test.ts`), and the line reopens within the event that closed it
-(`xva.spec.ts`, "a line that cannot be read"). No shell chord's command throws today, so the chord's notice is held by
-`execute`'s test alone.
+(`xva.spec.ts`, "a line that cannot be read"). The same test presses `focus grid`'s chord with no panel open and reads
+the refused notice.
+
+After the code review, 2026-11-11: `execute` catches a `CommandRefused` only. A command refuses with that type, and
+anything else it throws is a defect, thrown on (it was shown to the user as a reason).

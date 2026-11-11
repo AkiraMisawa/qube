@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type Ref } from 'react';
 import { Stack, Switch, Table, TextInput } from '@mantine/core';
 import type { ModuleSettings, RegisteredMeasure, SettingView } from './contracts';
-import type { SetText } from './editing';
+import type { PushEdit, SetText } from './editing';
 import { registered } from './runRows';
 
 // The Settings tab (ADR-0010 §8's note of 2026-11-09): a section per selected module, each setting a selected measure
@@ -19,7 +19,7 @@ export function XvaSettings({ settings, measures, push, setText, focusRef }: {
   /** The registered measures, for the titles of those a setting serves. */
   readonly measures: readonly RegisteredMeasure[];
   /** A flag's value, as a switch sets it. */
-  readonly push: (entity: string, field: string, value: unknown) => void;
+  readonly push: PushEdit;
   /** A value as written (`12%`, `20d`, `empty`), for the server to read and check; the page says why it is refused. */
   readonly setText: SetText;
   /** The first setting, where `open settings` puts the keyboard. */
@@ -63,7 +63,7 @@ export function XvaSettings({ settings, measures, push, setText, focusRef }: {
 function SettingInput({ setting, module, push, setText, inputRef }: {
   readonly setting: SettingView;
   readonly module: string;
-  readonly push: (entity: string, field: string, value: unknown) => void;
+  readonly push: PushEdit;
   readonly setText: SetText;
   readonly inputRef?: Ref<HTMLInputElement>;
 }) {
@@ -82,7 +82,7 @@ function SettingInput({ setting, module, push, setText, inputRef }: {
     return (
       <Switch size="xs" aria-label={setting.title} checked={setting.value === true} {...(inputRef === undefined ? {} : { ref: inputRef })}
         {...(setting.changed ? { 'data-modified': true, title: `Default ${defaultWords(setting)}` } : {})}
-        onChange={(e) => push(entity, setting.id, e.currentTarget.checked)} label={setting.value === true ? 'On' : 'Off'} />
+        onChange={(e) => push(entity, setting.id, e.currentTarget.checked, setting.title)} label={setting.value === true ? 'On' : 'Off'} />
     );
   }
   const commit = async () => {

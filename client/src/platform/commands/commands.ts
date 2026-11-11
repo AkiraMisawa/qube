@@ -50,22 +50,34 @@ export interface Command {
   /** Why the command cannot run now; absent when it can. */
   readonly unavailable?: string;
   /**
-   * Does it. It reads its arguments before it does anything, and throws with the reason when it cannot read them, so
-   * that a throw has changed nothing and the line can stay open with what was typed (ADR-0006's note 1 of 2026-11-11).
+   * Does it. It reads its arguments before it does anything, and throws `CommandRefused` with the reason when it cannot
+   * read them, so that a refusal has changed nothing and the line can stay open with what was typed (ADR-0006's note 1
+   * of 2026-11-11).
    */
   readonly run: (args: Readonly<Record<string, string>>) => void;
 }
 
 /**
- * Runs a command if it is available. Returns the reason when it is not, or when it could not read its arguments, so
- * a caller can show it: a command that does not run never does so in silence.
+ * A command's reason for doing nothing, thrown by its `run` before any effect: what was typed cannot be read, or what
+ * it would act on is not there. Its message is said to the user as it is. Any other error a command throws is a defect,
+ * and is not caught as a reason.
+ */
+export class CommandRefused extends Error {
+  override readonly name = 'CommandRefused';
+}
+
+/**
+ * Runs a command if it is available. Returns the reason when it is not, or when it refused what it was given, so a
+ * caller can show it: a command that does not run never does so in silence. A defect is thrown on, to be reported as
+ * one (ADR-0014 §4), never shown as a reason.
  */
 export function execute(command: Command, args: Readonly<Record<string, string>> = {}): string | undefined {
   if (command.unavailable !== undefined) return command.unavailable;
   try {
     command.run(args);
   } catch (error) {
-    return error instanceof Error ? error.message : String(error);
+    if (error instanceof CommandRefused) return error.message;
+    throw error;
   }
   return undefined;
 }
@@ -153,7 +165,7 @@ export function listed(query: string, commands: readonly Command[], usage: Usage
   }
   for (const [heading, group] of groups) sections.push({ heading, commands: byUse(group) });
   const cannot = commands.filter((c) => c.unavailable !== undefined);
-  if (q === '' && cannot.length > 0) sections.push({ heading: NOT_AVAILABLE_NOW, commands: cannot });
+  if (q === '' && cannot.length > 0) sections.push({ heading: NOT_AVAILABLE_NOW, commands: byUse(cannot) });
   return sections;
 }
 
@@ -166,6 +178,23 @@ export function placeholder(sections: readonly ListSection[]): string {
 /** What the line draws of a list: at most `cap` of it, and how many it leaves out, which it says. Never cut in silence. */
 export function drawn<T>(items: readonly T[], cap: number): { readonly shown: readonly T[]; readonly more: number } {
   return { shown: items.slice(0, cap), more: Math.max(items.length - cap, 0) };
+}
+
+/** A section as the line draws it, with where its first command stands among all those drawn. */
+export interface DrawnSection extends ListSection { readonly start: number }
+
+/** As `drawn`, for a list in sections: the cap counts commands, and a section it leaves nothing of is not drawn. */
+export function drawnSections(sections: readonly ListSection[], cap: number): { readonly sections: readonly DrawnSection[]; readonly more: number } {
+  const out: DrawnSection[] = [];
+  let start = 0;
+  let more = 0;
+  for (const section of sections) {
+    const commands = section.commands.slice(0, Math.max(cap - start, 0));
+    more += section.commands.length - commands.length;
+    if (commands.length > 0) out.push({ heading: section.heading, commands, start });
+    start += commands.length;
+  }
+  return { sections: out, more };
 }
 
 function inOrder(typed: readonly string[], words: readonly string[]): boolean {
@@ -262,10 +291,9 @@ export function readLine(text: string, commands: readonly Command[]): LineReadin
   return { kind: 'arguments', command, given, slot, typed, problems };
 }
 
-/** The completions a reading offers: commands while choosing, the slot's values once a command is chosen. */
-export function completionsOf(reading: LineReading, commands: readonly Command[], usage: UsageScore = () => 0):
-  { readonly commands: readonly Command[]; readonly values: readonly Completion[] } {
-  if (reading.kind === 'choosing') return { commands: listed(reading.query, commands, usage).flatMap((s) => s.commands), values: [] };
+/** The values a reading's slot offers once a command is chosen; none while one is being chosen, which `listed` lists. */
+export function completionsOf(reading: LineReading): readonly Completion[] {
+  if (reading.kind === 'choosing') return [];
   const { command, given, slot, typed } = reading;
   const options = slot === undefined
     // Every required slot is filled: offer the options not given yet.
@@ -274,7 +302,7 @@ export function completionsOf(reading: LineReading, commands: readonly Command[]
   const t = typed.toLowerCase();
   const starts = options.filter((o) => o.value.toLowerCase().startsWith(t));
   const contains = options.filter((o) => !o.value.toLowerCase().startsWith(t) && (o.value.toLowerCase().includes(t) || (o.detail ?? '').toLowerCase().includes(t)));
-  return { commands: [], values: [...starts, ...contains] };
+  return [...starts, ...contains];
 }
 
 /** What Enter would run, or every reason it would not: missing arguments by name, refused values, unplaced ones. */

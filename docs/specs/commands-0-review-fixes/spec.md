@@ -25,14 +25,15 @@ it hard to trust:
 
 ## Solution
 
-Four changes in the client, with no change to what a command does:
+Four changes, in the client but for the server's one reader of a flag, with no change to what a command does:
 
-1. A command that throws while it reads its arguments keeps the line open, with what was typed and the reason.
+1. A command that refuses while it reads its arguments keeps the line open, with what was typed and the reason.
 2. A notice has a kind, `done` or `refused`, drawn over the page and never pushing it; a done one leaves by itself.
    Commands that edit say what they did, in titles.
-3. A flag is read one way in a cell and in `set`, and the hints of `set` and `vary` are made from the open workspace.
-4. The empty line and `?` list the page's commands first under headings, say how many more there are past the cap,
-   and the placeholder follows the page.
+3. A flag is read one way in a cell, in `set` and in a product's term, and the hints of `set` and `vary` are made
+   from the open workspace.
+4. The empty line and `?` list the page's commands first under headings, with nothing highlighted, say how many more
+   there are past the cap, and the placeholder follows the page.
 
 ## User Stories
 
@@ -58,26 +59,33 @@ Four changes in the client, with no change to what a command does:
 
 ## Implementation Decisions
 
-- **Reading before doing.** `execute` (`client/src/platform/commands/commands.ts`) catches what a command's `run`
-  throws and answers its reason, as it answers `unavailable`. A command's `run` reads its arguments first and throws
-  before any effect: every command of `client/src/apps/index.tsx` already does. The line (`CommandPalette`) runs the
-  command, and on a reason stays open with the text and shows it where it shows a missing argument. A chord shows
-  the reason as a refused notice.
-- **A notice is `{ kind, message }`.** `notify(kind, message)` replaces `notify(message)` on the workspace context,
-  and every call site states its kind. A reason a command gives for doing nothing is `refused`, a command that found
-  nothing to do and says so is `done` (ADR-0016 §6).
+- **Reading before doing.** A command's `run` reads its arguments first and throws a `CommandRefused` with the
+  reason before any effect: every command of `client/src/apps/index.tsx` does. `execute`
+  (`client/src/platform/commands/commands.ts`) catches that one type and answers its reason, as it answers
+  `unavailable`; anything else thrown is a defect and is thrown on. The line (`CommandPalette`) runs the command,
+  and on a reason stays open with the text and shows it where it shows a missing argument. A chord shows the reason
+  as a refused notice.
+- **A notice is `{ kind, message, stays? }`.** `notify(kind, message, options)` replaces `notify(message)` on the
+  workspace context, and every call site states its kind. A reason a command gives for doing nothing is `refused`,
+  a command that found nothing to do and says so is `done` (ADR-0016 §6). A done notice that counts edits in
+  conflict or lost says `stays`, and is then kept as a refusal is.
 - **Where a notice is drawn.** A zero-height strip at the top of the main area, sticky under the header, holding one
   Mantine `Notification`: teal with a tick and `role="status"` for done, red with a cross and `role="alert"` for
   refused, `data-testid="notice"` and `data-kind`. A done one is removed six seconds after it is shown, the wait
-  held while the pointer is over it or the focus is in it. A later notice replaces an earlier one.
+  held while the pointer is over it or the focus is in it, by a hold each (`leavesByItself`,
+  `client/src/platform/notices.ts`). A later notice replaces an earlier one; running a command does not clear one.
 - **Sentences.** `before` and `after` say `Cleared Before on 2 existing trades.` or `Ticked After on 3 new trades.`
   once the edit is taken, from the command or from the caption's buttons, which run the same function (`sideSaid`,
   `client/src/apps/xva/editing.ts`). Price on the XVA page says the Run it was accepted as (`Price was accepted as
   Run <id>.`); on Rates the Run's panel opens, which says it. `measures` and `currency` say nothing more: the
-  toolbar's controls show what they set. A refused edit is said by `refusedEdit` (same file): a trade's id and its
-  column in words, `The measures`, `The display currency`, `Before … on the existing trades`.
-- **Flags.** `parseBoolean` reads `on`, `off`, `yes`, `no`, `true`, `false`, `y`, `n` in any case, the list the
-  server's `PortfolioCells.Read` has; a cell's refusal says `Type on or off.` Rates' flags read through it too.
+  toolbar's controls show what they set. A refused edit is said by `refusedEdit` (same file) from the title the edit
+  was queued with, which is the screen's: a row's id and its column's header (`CSA-A Ccy`, `DRAFT-1 IM-R`), a
+  setting's title, `The measures`, `The display currency`, `Before on the existing trades`. Rates names a line's
+  field by its column's header too (`lineFieldTitle`, `client/src/apps/rates/lines.ts`).
+- **Flags.** `readFlag` (`client/src/platform/flags.ts`) reads `on`, `off`, `yes`, `no`, `true`, `false`, `y`, `n`
+  in any case; a cell's refusal says `Type on or off.` XVA's cells, Rates' flags and a product's `flag` term read
+  through it. On the server the same words are read by one function of the kernel, `FlagWords.Read`, which a
+  product's `flag` term (ADR-0008 §2) and `PortfolioCells.Read` use: a term took `true` and `false` only.
 - **Hints.** The XVA page offers `examples()`: its first CSA's id, and a trade a grid has read (the first of the page
   read last, the Existing grid's before the New one's). The hints of `set` and `vary` are made from them when the
   line opens (`setHint`, `varyHint`), and are the form alone while the page has none.
@@ -86,7 +94,10 @@ Four changes in the client, with no change to what a command does:
   title; then each group of the other commands that can run; on the empty line, `Not available now` last. The
   applications' commands are registered before the shell's. Under a heading the order is use, then registration. A
   typed query is one section with no heading, ranked as `rankCommands` ranks it. The line draws at most 200 commands
-  or 50 values and then a line `N more: type to narrow.`
+  or 50 values (`drawnSections`, `drawn`) and then a line `N more: type to narrow.` under the list.
+- **Nothing is highlighted while the line lists.** On the empty line and at `?` no command is chosen: Enter runs
+  nothing and says `Choose a command with the arrows, or type what you want to do.` Down chooses the first command
+  and up the last. A typed query highlights its best match as before.
 - **The placeholder** is made from the first three commands of the empty line's list.
 
 Not changed: what any command does on the server, the words of any command, `set`'s and `vary`'s readers
@@ -97,15 +108,20 @@ Not changed: what any command does on the server, the words of any command, `set
 Tested at the seams the client already has: pure functions under Vitest, and what only a browser shows under
 Playwright. A test names the ADR it holds.
 
-- `commands.test.ts`: `execute` answers a thrown reason and runs nothing further; `listed` puts the page's commands
-  first, groups the rest, keeps the unavailable last on the empty line and out of `?`, and orders by use under a
-  heading; the placeholder's words.
-- `editing.test.ts`: every spelling of a flag, and a word that is none; `refusedEdit` for a trade's cell, the
-  measures, the display currency and a grid's side; `sideSaid`.
-- `xva.spec.ts`: a line that cannot be read stays open with its text and its reason, and runs once corrected; a done
-  notice is teal, does not move the page's toolbar, and leaves by itself; a refused one is red and stays; `before
-  none` says its count; `off` typed in an A cell clears it; `?` on the XVA page lists `new rates` and `open pricing
-  db`, with the page's heading first; the placeholder names the page's commands.
+- `commands.test.ts`: `execute` answers a `CommandRefused`'s reason and throws a defect on; `listed` puts the
+  page's commands first, groups the rest, keeps the unavailable last on the empty line and out of `?`, and orders by
+  use under a heading; `drawnSections` cuts at the cap and counts the rest; the placeholder's words.
+- `notices.test.ts`: which notice leaves by itself, and that the pointer and the keyboard each hold it.
+- `editing.test.ts`, `lines.test.ts`, `products.test.ts`: every spelling of a flag, and a word that is none;
+  `refusedEdit` by an edit's title, the measures and a grid's side; `sideSaid`; Rates' titles of a line's fields.
+- `ProductTests` (server): a product's `flag` term takes every spelling and refuses any other word.
+- `xva.spec.ts`: a line that cannot be read stays open with its text and its reason, and runs once corrected; a
+  chord that cannot run says why in a refused notice; a done notice is teal with a tick, does not move the page's
+  toolbar, is held by the pointer and by the keyboard, and leaves by itself; a refused one is red with a cross and
+  stays; a refused cell is named by its row and its column's header; at the four widths a notice lies under the
+  header and inside the page; `before none` says its count; `off` typed in an A cell clears it; the empty line
+  highlights nothing and Enter alone runs nothing; `?` on the XVA page lists `new rates` and `open pricing db`, with
+  the page's heading first; the placeholder names the page's commands.
 - Existing browser tests that read a notice keep reading it by `data-testid="notice"`, straight after the command
   that makes it.
 

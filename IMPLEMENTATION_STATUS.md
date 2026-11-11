@@ -900,39 +900,46 @@ so a collateralised trade's exposure is what moves over its margin period, and e
 
 ADR-0016 was accepted on 2026-11-11, when the owner asked for every step of its Delivery order to be built. Step 0 is
 the four fixes of the command review of 2026-11-10 that need no decision of the design
-(`docs/specs/commands-0-review-fixes`). It is in the client only: what a command does on the server is unchanged.
+(`docs/specs/commands-0-review-fixes`). What a command does on the server is unchanged; the one server change is the
+reader of a flag's words, which a product's term now shares with a cell.
 
 ### What runs
 
 - **A line that cannot be read stays open** (note 1). A command reads its arguments before it does anything and
-  throws its reason; `execute` answers it, and the line keeps its text and shows the reason where it shows a missing
-  argument. `set <trade> a`, `vary CSA-A threshold` and `scenario duplicate s1` closed without a word. A chord that
-  cannot run says why in a notice.
+  throws its reason as a `CommandRefused`; `execute` answers it, and the line keeps its text and shows the reason
+  where it shows a missing argument. Anything else a command throws is a defect and is thrown on. `set <trade> a`,
+  `vary CSA-A threshold` and `scenario duplicate s1` closed without a word. A chord that cannot run says why in a
+  notice (`focus grid` with no panel open: `focus grid: No panel is open.`).
 - **A notice has a kind** (note 2, ADR-0016 §6), stated by what raises it and never read from its text: `done` is
-  teal with a tick and `role="status"`, and leaves after six seconds unless the pointer or the focus is on it;
-  `refused` is red with a cross and `role="alert"`, and stays until it is closed or replaced. It is drawn over the
-  top of the main area and takes no room, so no grid moves when a command answers. Only refused notices are reported
-  to the server's log (ADR-0014 §4).
+  teal with a tick and `role="status"`, and leaves after six seconds unless the pointer or the keyboard is on it, each
+  by a hold of its own; `refused` is red with a cross and `role="alert"`, and stays until it is closed or replaced. A
+  done notice that counts edits in conflict or lost stays too. It is drawn over the top of the main area and takes no
+  room, so no grid moves when a command answers. Only refused notices are reported to the server's log (ADR-0014 §4).
 - **Commands that edit say what they did**, in titles: `before none` says `Cleared Before on 2 existing trades.`, from
   the line or from the caption's buttons; Price on the XVA page says the Run it was accepted as. A refused edit names
-  its row and column in words (`The measures were not changed: …`), never an entity's key.
+  its row and its column as the screen does (`CSA-A Ccy was not changed: …`, `The measures were not changed: …`), on
+  XVA and on Rates, never an entity's key or a field's name in the code.
 - **A flag is read one way** (note 4): `on`, `off`, `yes`, `no`, `true`, `false`, `y`, `n`, in any case, in a trade
-  grid's B and A cells, a CSA's flags, Rates' flags and `set`. The hints of `set` and `vary` show a trade and a CSA of
-  the open workspace; they showed an id no workspace has.
+  grid's B and A cells, a CSA's flags, Rates' flags, `set`, and a product's `flag` term on the page and on the server
+  (`FlagWords.Read`). The hints of `set` and `vary` show a trade and a CSA of the open workspace; they showed an id no
+  workspace has.
 - **The empty line and `?` list the page's commands first** (note 3), under the active panel's title, then each group
   of the other commands that can run, the applications' before the workflows' and the shell's, and on the empty line
-  what cannot run now, last, each with its reason. A list is cut at 200 commands or 50 values and then says how many
-  more there are. The placeholder names the first three commands of that list, so it follows the page.
+  what cannot run now, last, each with its reason. Nothing is highlighted in these two lists, so Enter alone runs
+  nothing and says to choose or to type: Ctrl+K and Enter would have priced. A list is cut at 200 commands or 50
+  values and then says how many more there are. The placeholder names the first three commands of that list, so it
+  follows the page.
 
 ### Verification performed
 
 | What | Result |
 |---|---|
-| `dotnet test server/Qube.slnx` | 604 passed (no server change) |
-| Client: `npm run typecheck`, `npm test`, `npm run build` | 243 passed in 30 files |
-| `npx playwright test` (Chromium, headless, Linux) | 58 passed |
-| The four new browser tests (ADR-0006 notes 1 to 4), each with `--repeat-each=3` | 12 passed |
-| Looked at in Chromium: a done and a refused notice in both schemes at 1440 px and at 390 px; the list on an XVA page in both schemes and at 390 px | A notice covers no control of the toolbar at either width; a heading reads as one, and the highlighted command fills the row |
+| `dotnet test server/Qube.slnx` | 605 passed |
+| Client: `npm run typecheck`, `npm test`, `npm run build` | 253 passed in 31 files |
+| `npx playwright test` (Chromium, headless, Linux) | 62 passed |
+| The eight browser tests of ADR-0006's notes 1 to 4 (four of them one per width), each with `--repeat-each=3` | 24 passed |
+| Looked at in Chromium: a done and a refused notice, the empty line's list and the line after Enter alone, in both schemes at 1440, 992, 768 and 390 px | A notice lies under the header and inside the page at each width, and wraps to three lines on a phone; a refused one lies over the panel's tabs until it is closed; a heading reads as one, and no command is highlighted until an arrow chooses |
+| Code review (`code-review`, two axes, since `78415af`) | Its findings are fixed in this step, but those the Known limits name |
 
 ### Providers
 
@@ -948,6 +955,11 @@ Unchanged: every figure on these pages is simulated, and says so.
 - No list of the sample modules passes a cap, so the line `N more: type to narrow.` is held by a unit test of the
   count and was not seen in a browser.
 - `measures` and `currency` say nothing when they are done: the toolbar's controls show what they set.
+- `Cleared Before on N existing trades.` counts the grid's rows, not the rows whose value changed: rows changed is
+  step 1's result.
+- A carry that leaves edits in conflict or lost was not made in a browser: that its notice stays is held by the unit
+  test of `leavesByItself`.
+- A refused notice lies over the panel's tabs until it is closed or replaced, at every width.
 - Not done here: history in the line, a run button on a phone, search words a command declares (the review's F10,
   F12, F15), and Rates' three command defects of 2026-11-10 (with Rates' registration, step 3).
 

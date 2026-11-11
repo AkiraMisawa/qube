@@ -420,6 +420,11 @@ test('ADR-0010 §3: the Changes tab counts every change, sets a case\'s value, a
 
 test('ADR-0006 note 1 (2026-11-11): a line that cannot be read stays open with its text and the reason, and runs once corrected', async ({ page }) => {
   await open(page);
+  // A chord has no line to say why in: its reason is a refused notice, and the key never does nothing in silence.
+  await page.keyboard.press('ControlOrMeta+Shift+G');
+  await expect(page.getByTestId('notice')).toHaveText('focus grid: No panel is open.');
+  await expect(page.getByTestId('notice')).toHaveAttribute('data-kind', 'refused');
+
   await newWorkspace(page, 'ABC/LE-01', 5);
   const line = page.getByRole('combobox', { name: 'Command' });
   const said = page.getByTestId('command-problems');
@@ -446,43 +451,111 @@ test('ADR-0006 note 1 (2026-11-11): a line that cannot be read stays open with i
   }
 });
 
-test('ADR-0006 note 2 (2026-11-11): a result is teal, takes no room and leaves by itself; a refusal is red and stays until closed', async ({ page, problems }) => {
-  // The page's clock is the test's: "after six seconds" and "still there a minute later" are read, not waited for.
+test('ADR-0006 note 2 (2026-11-11): a result is teal, takes no room and leaves by itself unless it is held; a refusal is red and stays until closed', async ({ page, problems }) => {
+  // The page's clock is the test's. It runs while the page works, and is stopped once a notice is in view, so that
+  // "six seconds after" and "a minute later" are read off the clock and never waited for.
   await page.clock.install();
+  const stopClock = async () => page.clock.pauseAt(await page.evaluate(() => Date.now()) + 1000);
   await open(page);
   await newWorkspace(page, 'ABC/LE-01', 5);
   const notice = page.getByTestId('notice');
+  const close = notice.getByRole('button', { name: 'Close the notice' });
+  // The colour is the theme's token and the icon is Tabler's: read as set, since a painted teal differs by scheme.
+  const colour = () => notice.evaluate((e) => (e as HTMLElement).style.getPropertyValue('--notification-color'));
   const toolbar = page.getByRole('toolbar', { name: 'Workspace' });
   const at = await toolbar.boundingBox();
 
   await command(page, 'set', 'CSA-A threshold 5mm');
   await expect(notice).toHaveText('Set CSA-A threshold to 5mm.');
+  // Stopped a second on: the notice has at most five seconds left, and no time passes but what the test runs.
+  await stopClock();
   await expect(notice).toHaveAttribute('data-kind', 'done');
   await expect(notice).toHaveRole('status');
+  expect(await colour()).toBe('var(--mantine-color-teal-filled)');
+  await expect(notice.locator('.tabler-icon-check')).toBeVisible();
   // Drawn over the page: nothing under it moved.
   expect(await toolbar.boundingBox()).toEqual(at);
   expect(await notice.evaluate(textBelowContrast, 4.5), 'done: text below 4.5:1').toEqual([]);
-  await page.clock.runFor(6000);
+
+  // Held under the pointer, however long; the six seconds start again when the pointer leaves.
+  await notice.hover();
+  await page.clock.runFor(60_000);
+  await expect(notice).toBeVisible();
+  await toolbar.hover();
+  await page.clock.runFor(5000);
+  await expect(notice).toBeVisible();
+  // Held by the keyboard too, by a hold of its own.
+  await close.focus();
+  await page.clock.runFor(60_000);
+  await expect(notice).toBeVisible();
+  await close.blur();
+  await page.clock.runFor(5000);
+  await expect(notice).toBeVisible();
+  await page.clock.runFor(1000);
   await expect(notice).toBeHidden();
+  await page.clock.resume();
 
   await command(page, 'set', 'CSA-A threshold -1mm');
   await expect(notice).toHaveText('set changed nothing: CSA-A threshold is an amount of 0 or more; -1mm is not.');
+  await stopClock();
   await expect(notice).toHaveAttribute('data-kind', 'refused');
   await expect(notice).toHaveRole('alert');
+  expect(await colour()).toBe('var(--mantine-color-red-filled)');
+  await expect(notice.locator('.tabler-icon-x')).toBeVisible();
   expect(await toolbar.boundingBox()).toEqual(at);
   expect(await notice.evaluate(textBelowContrast, 4.5), 'refused: text below 4.5:1').toEqual([]);
   await page.clock.runFor(60_000);
   await expect(notice).toBeVisible();
-  await notice.getByRole('button', { name: 'Close the notice' }).click();
+  await close.click();
   await expect(notice).toBeHidden();
-  expect(problems.splice(0)).toEqual(['error: Failed to load resource: the server responded with a status of 422 (Unprocessable Entity)']);
+  await page.clock.resume();
+  const refused = 'error: Failed to load resource: the server responded with a status of 422 (Unprocessable Entity)';
+  expect(problems.splice(0)).toEqual([refused]);
 
   // A refused edit is named in words, never by its entity's key (it read `selection:measures measures`).
   await command(page, 'measures', 'nope');
   await expect(notice).toHaveText(/^The measures were not changed: /);
   await expect(notice).toHaveAttribute('data-kind', 'refused');
-  expect(problems.splice(0)).toHaveLength(1);
+  expect(problems.splice(0)).toEqual([refused]);
+  // And a cell by its row and its column's header, as its grid names them (it read `csa:CSA-A currency`). Ccy is the
+  // CSA grid's fifth column; the grid's first key only places its Focus (ex-grid ADR-0037).
+  await command(page, 'open csa');
+  await settled(page, 'CSA terms');
+  await page.keyboard.press('Home');
+  await page.keyboard.press('Home');
+  for (let i = 0; i < 4; i++) await page.keyboard.press('ArrowRight');
+  await page.keyboard.type('XXX');
+  await page.keyboard.press('Enter');
+  await expect(notice).toHaveText(/^CSA-A Ccy was not changed: A currency is /);
+  await page.keyboard.press('Escape');
+  expect(problems.splice(0)).toEqual([refused]);
 });
+
+// docs/design-guidelines.md §11: what only a browser shows, at the four widths of §9. A notice is drawn over the page,
+// so one wider than the main area, or one under the header, would pass every other test.
+for (const width of [1440, 992, 768, 390]) {
+  test(`ADR-0006 note 2 (2026-11-11), docs/design-guidelines.md §9: at ${width}px a notice lies under the header and inside the page, and moves nothing`, async ({ page, problems }) => {
+    await page.setViewportSize({ width, height: 800 });
+    await open(page);
+    await newWorkspace(page, 'ABC/LE-01', 5);
+    const toolbar = page.getByRole('toolbar', { name: 'Workspace' });
+    const at = await toolbar.boundingBox();
+    // The longest sentence a command of this page says today: it wraps on a phone.
+    await command(page, 'measures', 'nope');
+    const notice = page.getByTestId('notice');
+    await expect(notice).toHaveText(/^The measures were not changed: /);
+    const box = await notice.boundingBox();
+    const header = await page.locator('header').boundingBox();
+    if (box === null || header === null) throw new Error('The notice and the header are drawn.');
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(width);
+    expect(box.y).toBeGreaterThanOrEqual(header.y + header.height);
+    expect(await toolbar.boundingBox()).toEqual(at);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
+    await expect(notice.getByRole('button', { name: 'Close the notice' })).toBeInViewport();
+    expect(problems.splice(0)).toEqual(['error: Failed to load resource: the server responded with a status of 422 (Unprocessable Entity)']);
+  });
+}
 
 test('ADR-0006 note 3 (2026-11-11): the empty line and `?` list the page\'s commands first under its title, and the placeholder follows the page', async ({ page }) => {
   await open(page);
@@ -505,6 +578,12 @@ test('ADR-0006 note 3 (2026-11-11): the empty line and `?` list the page\'s comm
   await expect(line).toHaveAttribute('placeholder', 'Type what you want to do: price, measures, vary… (? lists them)');
   // The page's commands come first, under the panel's title; the sample workflows came first.
   await expect(headings.first()).toHaveText('XVA ABC/LE-01');
+  // Nothing is chosen while the line lists: the first command here is Price, and Enter alone runs nothing.
+  await expect(list.getByRole('option', { selected: true })).toHaveCount(0);
+  await page.keyboard.press('Enter');
+  await expect(page.getByTestId('command-problems')).toHaveText('Choose a command with the arrows, or type what you want to do.');
+  await expect(line).toBeFocused();
+  await expect(page.getByTestId('notice')).toHaveCount(0);
   const ofThePage = page.getByRole('group', { name: 'XVA ABC/LE-01' }).getByRole('option');
   await expect(ofThePage.first()).toContainText('price');
   await expect(ofThePage.filter(worded('set'))).toHaveCount(1);
@@ -523,9 +602,12 @@ test('ADR-0006 note 3 (2026-11-11): the empty line and `?` list the page\'s comm
   await expect(list.getByRole('option').filter(worded('capture'))).toHaveCount(0);
   await expect(page.getByTestId('command-more')).toHaveCount(0);
 
-  // The arrows reach across the headings: up from the first command is the last one listed.
+  // The arrows choose, across the headings: from nothing chosen, up is the last command listed and down the first.
+  await expect(list.getByRole('option', { selected: true })).toHaveCount(0);
   await page.keyboard.press('ArrowUp');
   await expect(list.getByRole('option', { selected: true })).toContainText('open ai pane');
+  await page.keyboard.press('ArrowDown');
+  await expect(list.getByRole('option', { selected: true })).toContainText('price');
 });
 
 test('ADR-0006 note 4 (2026-11-11): the hint of `set` shows this workspace\'s rows, and an A cell reads a flag as `set` reads it', async ({ page }) => {

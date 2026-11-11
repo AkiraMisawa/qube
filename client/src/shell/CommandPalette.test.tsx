@@ -81,6 +81,14 @@ describe('the page\'s commands (ADR-0006 note 3 of 2026-11-11)', () => {
     expect(of('panel.close').page).toBeUndefined();
   });
 
+  it('a finished Run\'s views are its page\'s commands', () => {
+    const w = workflow('w.a', 'A', ['summary']);
+    const run = state({ panels: [{ id: 'p', kind: 'run', title: 'A', runId: 'r', viewKey: undefined }], activePanelId: 'p', showApp: vi.fn(), openAppDialog: vi.fn() });
+    const shown = build(catalog([w], [view('v.1', 'Summary', ['summary'])]), run, { runId: 'r', workflow: w, status: 'succeeded' } as RunRecord)
+      .find((c) => c.group === 'Views')!;
+    expect([shown.words, shown.target, shown.page]).toEqual(['show summary', 'A', true]);
+  });
+
   it('the applications\' commands are registered before the catalog\'s and the shell\'s, so their groups are listed first', () => {
     const at = (id: string) => commands.findIndex((c) => c.id === id);
     expect(at('xva.new')).toBeLessThan(commands.findIndex((c) => c.group === 'Workflows'));

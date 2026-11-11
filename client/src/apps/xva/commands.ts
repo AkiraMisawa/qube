@@ -1,4 +1,4 @@
-import type { Completion } from '../../platform/commands/commands';
+import { CommandRefused, type Completion } from '../../platform/commands/commands';
 import type { CdsCatalogue, CdsCurve, RegisteredMeasure, ScenarioSetView } from './contracts';
 import type { DockTab } from './dock';
 import type { InputTab } from './XvaInputs';
@@ -156,13 +156,13 @@ export function ambiguousComma(text: string): string | undefined {
  */
 export function varyTyped(text: string): { readonly cell: string; readonly values: readonly string[] } {
   const ambiguous = ambiguousComma(text);
-  if (ambiguous !== undefined) throw new Error(ambiguous);
+  if (ambiguous !== undefined) throw new CommandRefused(ambiguous);
   const [first = '', ...rest] = text.split(',');
   const words = first.trim().split(/\s+/).filter((w) => w !== '');
   const value = words[words.length - 1];
-  if (words.length < 3 || value === undefined) throw new Error('vary needs a cell, its row and its column, and the values, such as vary CSA-A threshold 10mm, 5mm, 0.');
+  if (words.length < 3 || value === undefined) throw new CommandRefused('vary needs a cell, its row and its column, and the values, such as vary CSA-A threshold 10mm, 5mm, 0.');
   const values = [value, ...rest.map((v) => v.trim())];
-  if (values.some((v) => v === '')) throw new Error('vary takes values separated by commas, none of them empty.');
+  if (values.some((v) => v === '')) throw new CommandRefused('vary takes values separated by commas, none of them empty.');
   return { cell: words.slice(0, -1).join(' '), values };
 }
 
@@ -179,7 +179,7 @@ export function setTyped(text: string): { readonly rows: readonly string[]; read
   const rest = words.slice(at + 1);
   const value = rest[rest.length - 1];
   if (rest.length < 2 || value === undefined || rows.some((r) => r === ''))
-    throw new Error('set needs a row, a column and a value, such as set CSA-A threshold 5mm; rows are separated by commas.');
+    throw new CommandRefused('set needs a row, a column and a value, such as set CSA-A threshold 5mm; rows are separated by commas.');
   return { rows, column: rest.slice(0, -1).join(' '), text: value };
 }
 

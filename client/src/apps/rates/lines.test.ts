@@ -1,7 +1,8 @@
 import type { LineView, LiveFrame } from './contracts';
 import { gridHeaderRequiredPx } from '@ex-grid/core';
 import {
-  FOLDED, hiddenEdits, legOverrides, legSummary, lineCellState, lineColumns, lineHeaderGroups, lineResult, lineRows, openedAt, parserOf, toggled,
+  FOLDED, hiddenEdits, legOverrides, legSummary, lineCellState, lineColumns, lineFieldTitle, lineHeaderGroups, lineResult, lineRows, openedAt, parserOf, periodFieldTitle,
+  toggled,
   type LineLayout,
 } from './lines';
 
@@ -235,5 +236,19 @@ describe('a leg in one line (ADR-0015 §1)', () => {
   it("names the conventions that override the leg's profile, or says the profile holds", () => {
     expect(legOverrides(irs, 2)).toBe('Profile');
     expect(legOverrides({ ...irs, 'leg2.dayCount': 'Act360', 'leg2.gearing': 0.5 }, 2)).toBe('Day count Act360, Gearing 0.5');
+  });
+});
+
+describe('what a refused edit calls a field (ADR-0006 note 2 of 2026-11-11)', () => {
+  it('is its column\'s header, after its leg\'s where it is a leg\'s, never its key', () => {
+    expect(lineFieldTitle('risk')).toBe('Risk');
+    expect(lineFieldTitle('direction')).toBe('P/R');
+    expect(lineFieldTitle('leg1.quote')).toBe('Leg 1 Rate/Strike');
+    expect(lineFieldTitle('leg2.paymentFrequency')).toBe('Leg 2 Pay freq');
+    expect(periodFieldTitle('paymentDate')).toBe('Payment');
+  });
+
+  it('refuses to name a field no column shows', () => {
+    expect(() => lineFieldTitle('leg3.quote')).toThrow('The line grid has no column leg3.quote to name an edit by.');
   });
 });

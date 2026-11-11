@@ -2,6 +2,8 @@
 // words against a description. The page reads words only to complete them and to show what the line would make; the
 // server reads them again and decides (ADR-0008 §6), so nothing here creates, defaults or refuses a term.
 
+import { readFlag } from './flags';
+
 export type FieldForm = 'period' | 'date' | 'periodOrDate' | 'amount' | 'percent' | 'choice' | 'flag' | 'number';
 
 export interface ProductField {
@@ -50,7 +52,7 @@ export function readsAs(field: ProductField, word: string): boolean {
     }
     case 'percent': return PERCENT.test(word);
     case 'choice': return field.choices?.[word.toLowerCase()] !== undefined;
-    case 'flag': return word === 'true' || word === 'false';
+    case 'flag': return readFlag(word) !== undefined;
     case 'number': return word !== '' && Number.isFinite(Number(word));
   }
 }

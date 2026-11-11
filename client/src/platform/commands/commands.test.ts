@@ -1,4 +1,4 @@
-import { assertDistinct, completionsOf, drawn, execute, finish, listed, placeholder, rankCommands, readLine, take, type Command, type ListSection } from './commands';
+import { CommandRefused, assertDistinct, completionsOf, drawn, drawnSections, execute, finish, listed, placeholder, rankCommands, readLine, take, type Command, type ListSection } from './commands';
 
 const command = (words: string, extra: Partial<Command> = {}): Command => ({ id: words, words, title: words, group: 'G', run: vi.fn(), ...extra });
 
@@ -33,8 +33,13 @@ describe('finding a command by typing (ADR-0006)', () => {
   });
 
   it('ADR-0006 note 1 (2026-11-11): a command that cannot read its arguments says why, where it used to close in silence', () => {
-    const set = command('set', { run: () => { throw new Error('set needs a row, a column and a value.'); } });
+    const set = command('set', { run: () => { throw new CommandRefused('set needs a row, a column and a value.'); } });
     expect(execute(set, { cell: 'E00006 a' })).toBe('set needs a row, a column and a value.');
+  });
+
+  it('ADR-0006 note 1 (2026-11-11): a defect in a command is thrown on, never shown as a reason', () => {
+    const broken = command('price', { run: () => { throw new Error('The XVA workspace in panel p1 registered no commands.'); } });
+    expect(() => execute(broken)).toThrow('The XVA workspace in panel p1 registered no commands.');
   });
 
   it('refuses two commands with the same words, or on one chord', () => {
@@ -76,12 +81,12 @@ describe('what the empty line and ? list (ADR-0006 note 3 of 2026-11-11)', () =>
 
   it('ranks a typed query as one list with no heading', () => {
     expect(shape(listed('pr', commands))).toEqual([[undefined, ['price']]]);
-    expect(completionsOf(readLine('pr', commands), commands).commands.map((c) => c.words)).toEqual(['price']);
   });
 
-  it('offers for Enter and the arrows the commands in the order listed', () => {
-    expect(completionsOf(readLine('', commands), commands).commands.map((c) => c.words))
-      .toEqual(['price', 'set', 'new xva', 'new rates', 'run station summary', 'close panel', 'live start']);
+  it('orders what cannot run now by use too', () => {
+    const cannot = [command('live start', { group: 'Rates', unavailable: 'Open a Rates workspace first.' }),
+      command('capture', { group: 'Rates', unavailable: 'Open a Rates workspace first.' })];
+    expect(shape(listed('', cannot, (id) => (id === 'capture' ? 1 : 0)))).toEqual([['Not available now', ['capture', 'live start']]]);
   });
 
   it('names the first commands of the list in the placeholder, so it differs by page', () => {
@@ -95,6 +100,17 @@ describe('what the empty line and ? list (ADR-0006 note 3 of 2026-11-11)', () =>
     expect(drawn(['a', 'b', 'c'], 2)).toEqual({ shown: ['a', 'b'], more: 1 });
     expect(drawn(['a', 'b'], 2)).toEqual({ shown: ['a', 'b'], more: 0 });
   });
+
+  it('cuts a list in sections where the cap falls, and draws no heading with nothing under it', () => {
+    const [a, b, c, d] = ['a', 'b', 'c', 'd'].map((w) => command(w));
+    const sections = [{ heading: 'One', commands: [a!, b!] }, { heading: 'Two', commands: [c!, d!] }];
+    const words = (cut: ReturnType<typeof drawnSections>) => cut.sections.map((s) => [s.heading, s.start, s.commands.map((x) => x.words)]);
+    expect(words(drawnSections(sections, 3))).toEqual([['One', 0, ['a', 'b']], ['Two', 2, ['c']]]);
+    expect(drawnSections(sections, 3).more).toBe(1);
+    expect(words(drawnSections(sections, 2))).toEqual([['One', 0, ['a', 'b']]]);
+    expect(drawnSections(sections, 2).more).toBe(2);
+    expect(drawnSections(sections, 200).more).toBe(0);
+  });
 });
 
 describe('completing arguments one slot at a time (ADR-0006 §4)', () => {
@@ -102,11 +118,11 @@ describe('completing arguments one slot at a time (ADR-0006 §4)', () => {
     expect(readLine('new irs', [irs]).kind).toBe('choosing');
     const reading = readLine('new irs ', [irs]);
     expect(reading.kind === 'arguments' && reading.slot?.name).toBe('currency');
-    expect(completionsOf(reading, [irs]).values.map((v) => v.value)).toEqual(['JPY', 'USD']);
+    expect(completionsOf(reading).map((v) => v.value)).toEqual(['JPY', 'USD']);
   });
 
   it('offers values that follow from the arguments before them', () => {
-    expect(completionsOf(readLine('new irs USD ', [irs]), [irs]).values.map((v) => v.value)).toEqual(['SOFR']);
+    expect(completionsOf(readLine('new irs USD ', [irs])).map((v) => v.value)).toEqual(['SOFR']);
   });
 
   it('takes a completion into the line and moves to the next slot', () => {
@@ -136,7 +152,7 @@ describe('completing arguments one slot at a time (ADR-0006 §4)', () => {
     const include = command('scenario include', { args: [{ name: 'scenario', required: true, rest: true, complete: () => [{ value: 'jpy_ois +50bp · usdjpy -10%' }] }] });
     const text = 'scenario include jpy_ois +5';
     const reading = readLine(text, [include]);
-    expect(completionsOf(reading, [include]).values).toEqual([{ value: 'jpy_ois +50bp · usdjpy -10%' }]);
+    expect(completionsOf(reading)).toEqual([{ value: 'jpy_ois +50bp · usdjpy -10%' }]);
     const taken = take(text, reading, { value: 'jpy_ois +50bp · usdjpy -10%' });
     expect(taken).toBe('scenario include jpy_ois +50bp · usdjpy -10% ');
     const read = readLine(taken, [include]);
@@ -156,7 +172,7 @@ describe('completing arguments one slot at a time (ADR-0006 §4)', () => {
     const reading = readLine('new swap 10y p', [create]);
     if (reading.kind !== 'arguments') throw new Error('not chosen');
     expect(reading.typed).toBe('p');
-    expect(completionsOf(reading, [create]).values.map((v) => v.value)).toEqual(['pay']);
+    expect(completionsOf(reading).map((v) => v.value)).toEqual(['pay']);
     expect(take('new swap 10y p', reading, { value: 'pay' })).toBe('new swap 10y pay ');
     expect(finish(reading)).toEqual({ args: { terms: '10y p' } });
   });
