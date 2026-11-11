@@ -21,7 +21,7 @@ public class ApiTests(QubeFactory factory) : IClassFixture<QubeFactory>
     public async Task Catalog_lists_what_modules_registered()
     {
         var catalog = (await client.GetFromJsonAsync<JsonObject>("/api/catalog"))!;
-        Assert.Equal(35, catalog["capabilities"]!.AsArray().Count); // entity.create (ADR-0008), ccr.spotCapital (ADR-0013), trace.read (ADR-0011), im.source.freeze, risk.crif.generate, margin.simm.calculate and simm.spotIm (ADR-0012), xva.vary and xva.trades.add (ADR-0010 §9), the ten scenario commands (ADR-0010 §4), xva.cds (§8's note of 2026-11-09), workspace.undo and workspace.redo (ADR-0016 §11), and entity.set, entity.reset and entity.remove (ADR-0016 §3)
+        Assert.Equal(38, catalog["capabilities"]!.AsArray().Count); // entity.create (ADR-0008), ccr.spotCapital (ADR-0013), trace.read (ADR-0011), im.source.freeze, risk.crif.generate, margin.simm.calculate and simm.spotIm (ADR-0012), xva.vary and xva.trades.add (ADR-0010 §9), the ten scenario commands (ADR-0010 §4), xva.cds (§8's note of 2026-11-09), xva.measures, xva.case.remove and xva.cases.clear (ADR-0016 note 28), workspace.undo and workspace.redo (ADR-0016 §11), and entity.set, entity.reset and entity.remove (ADR-0016 §3)
         Assert.Contains(catalog["capabilities"]!.AsArray(), c => c!["capabilityId"]!.GetValue<string>() == "entity.create");
         Assert.Contains(catalog["actions"]!.AsArray(), a => a!["target"]!["kind"]!.GetValue<string>() == "openView");
     }

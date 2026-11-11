@@ -128,10 +128,19 @@ public class CommandGatewayTests(QubeFactory factory) : IClassFixture<QubeFactor
     [Fact] // ADR-0016 §4: the catalog serves how each typed command is typed, and nothing more for a capability no line names
     public async Task The_catalog_says_how_the_typed_commands_are_typed()
     {
-        var capabilities = (await client.GetFromJsonAsync<JsonObject>("/api/catalog"))!["capabilities"]!.AsArray();
+        var catalog = (await client.GetFromJsonAsync<JsonObject>("/api/catalog"))!;
+        var capabilities = catalog["capabilities"]!.AsArray();
         var typed = capabilities.Where(c => c!["command"] is not null).ToDictionary(c => c!["capabilityId"]!.GetValue<string>(), c => c!["command"]!.ToJsonString());
 
-        Assert.Equal(["entity.remove", "entity.reset", "entity.set", "workspace.redo", "workspace.undo"], typed.Keys.Order());
+        Assert.Equal(["entity.remove", "entity.reset", "entity.set", "workspace.redo", "workspace.undo", "xva.case.remove", "xva.cases.clear", "xva.cds", "xva.measures", "xva.trades.add", "xva.vary"],
+            typed.Keys.Order());
+        // A command of one application says so (ADR-0016 note 27 of step 3); the kernel's say none, and act on every workspace.
+        Assert.Equal("""{"words":["vary"],"arguments":[{"name":"cell","kind":"text","required":true},{"name":"values","kind":"text","required":true}],"app":"xva"}""", typed["xva.vary"]);
+        Assert.Equal("""{"words":["add each"],"arguments":[],"app":"xva"}""", typed["xva.trades.add"]);
+        // The short forms are listed apart (note 29): what runs is the kernel command each stands for.
+        Assert.Equal(["xva.before", "xva.after", "xva.currency"], catalog["shortForms"]!.AsArray().Select(f => f!["formId"]!.GetValue<string>()));
+        Assert.Equal("""{"formId":"xva.currency","title":"Show the figures in a currency, such as USD","command":{"words":["currency"],"arguments":[{"name":"currency","kind":"text","required":true}],"app":"xva"}}""",
+            catalog["shortForms"]![2]!.ToJsonString());
         Assert.Equal("""{"words":["set"],"arguments":[{"name":"rows","kind":"rows","required":false},{"name":"set","kind":"assignments","required":true}]}""", typed["entity.set"]);
         Assert.Equal("""{"words":["reset"],"arguments":[{"name":"rows","kind":"rows","required":false},{"name":"field","kind":"field","required":false}]}""", typed["entity.reset"]);
         Assert.Equal("""{"words":["remove"],"arguments":[{"name":"rows","kind":"rows","required":true}]}""", typed["entity.remove"]);
@@ -327,9 +336,8 @@ public class CommandGatewayTests(QubeFactory factory) : IClassFixture<QubeFactor
         var ws = await Create();
         var id = ws["workspaceId"]!.GetValue<string>();
         var others = Selected(ws).SequenceEqual(["fva"]) ? new[] { "cva" } : ["fva"];
-        var chosen = await client.PostAsJsonAsync($"/api/xva/workspaces/{id}/measures", new { revision = ws["revision"]!.GetValue<long>(), measures = others });
-        Assert.True(chosen.IsSuccessStatusCode, await chosen.Content.ReadAsStringAsync());
-        var chosenAt = (await chosen.Content.ReadFromJsonAsync<JsonObject>())!["revision"]!.GetValue<long>();
+        var chosen = await Ok(await Command("xva.measures", new JsonObject { ["workspaceId"] = id, ["revision"] = ws["revision"]!.GetValue<long>(), ["measures"] = string.Join(' ', others) }));
+        var chosenAt = chosen["revision"]!.GetValue<long>();
 
         var taking = await Create();
         var nothing = await Refused(await Command("workspace.undo", new JsonObject { ["workspaceId"] = taking["workspaceId"]!.GetValue<string>(), ["revision"] = taking["revision"]!.GetValue<long>() }));
@@ -339,7 +347,7 @@ public class CommandGatewayTests(QubeFactory factory) : IClassFixture<QubeFactor
 
         Assert.Equal(others, Selected(taking));
         Assert.Equal((HttpStatusCode.UnprocessableEntity, "NothingToUndo"), (nothing.Status, nothing.Code));
-        Assert.Equal("Took back: set the measures. redo puts it back.", undone["said"]!.GetValue<string>());
+        Assert.Equal($"Took back: measures {others[0]}. redo puts it back.", undone["said"]!.GetValue<string>());
         Assert.Equal(Selected(ws), Selected(after));
     }
 

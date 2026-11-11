@@ -9,7 +9,7 @@ using Qube.Composition.Contracts;
 
 namespace Qube.Composition.Tests;
 
-// ADR-0005, ADR-0010 §9, ADR-0016 §3: the XVA page's vary, add trades and set, as the agent's tool calls reach them. Each takes what
+// ADR-0005, ADR-0010 §9, ADR-0016 §3: the XVA page's vary, add each and set, as the agent's tool calls reach them. Each takes what
 // the command line takes, goes through the same workspace service, answers in the command line's words, and the log
 // says the AI did it. Every name and figure is synthetic.
 public class PricerCommandTests(QubeFactory factory) : IClassFixture<QubeFactory>
@@ -41,8 +41,9 @@ public class PricerCommandTests(QubeFactory factory) : IClassFixture<QubeFactory
 
         string[] Fields(string tool) => [.. tools[tool].Parameters["properties"]!["request"]!["properties"]!.AsObject().Select(p => p.Key)];
         string[] Required(string tool) => [.. tools[tool].Parameters["properties"]!["request"]!["required"]!.AsArray().Select(r => r!.GetValue<string>())];
-        Assert.Equal(["workspaceId", "revision", "cell", "values"], Fields("xva_vary"));
-        Assert.Equal(["workspaceId", "cell", "values"], Required("xva_vary"));
+        // A cell is named once: as the line names it, or by its entity and field as a page's dialog does (ADR-0016 note 28).
+        Assert.Equal(["workspaceId", "revision", "cell", "entity", "field", "values"], Fields("xva_vary"));
+        Assert.Equal(["workspaceId", "values"], Required("xva_vary"));
         Assert.Equal(["workspaceId", "revision"], Fields("xva_trades_add"));
         // `set` is the kernel's, over the pricer's registered tables (ADR-0016 §3): no tool of the pricer's own.
         Assert.Equal(["workspaceId", "revision", "table", "rows", "set"], Fields("entity_set"));
@@ -67,7 +68,7 @@ public class PricerCommandTests(QubeFactory factory) : IClassFixture<QubeFactory
         Assert.All(made, e => Assert.Equal(RunOrigin.Ai, e.Origin));
     }
 
-    [Fact] // ADR-0010 §9, docs/03 §5: the AI's add trades and set do what the command line's do; a set names the revision it was made against
+    [Fact] // ADR-0010 §9, docs/03 §5: the AI's add each and set do what the command line's do; a set names the revision it was made against
     public async Task The_ais_add_trades_and_set_do_what_the_command_lines_do()
     {
         var ws = await Create();
@@ -103,7 +104,7 @@ public class PricerCommandTests(QubeFactory factory) : IClassFixture<QubeFactory
         Assert.Equal(["csa id", "type", "threshold"], issue["candidates"]!.AsArray().Take(3).Select(c => c!.GetValue<string>()));
     }
 
-    [Fact] // ADR-0010 §8's note of 2026-11-09: the AI's cds chooses the CDS the Credit tab does, and the page's endpoint says the same
+    [Fact] // ADR-0010 §8's note of 2026-11-09, ADR-0016 note 28: the AI's cds chooses the CDS the Credit tab does, and the page's door, through the same command, says the same
     public async Task The_ais_cds_chooses_the_counterpartys_curve_as_the_command_line_does()
     {
         var id = (await Create())["workspaceId"]!.GetValue<string>();
@@ -114,13 +115,13 @@ public class PricerCommandTests(QubeFactory factory) : IClassFixture<QubeFactory
         Assert.Equal("PROXY.FINANCIALS.EUROPE.A", (await View(id))["credit"]!["cds"]!["curveId"]!.GetValue<string>());
 
         var revision = (await View(id))["revision"]!.GetValue<long>();
-        var page = await client.PostAsJsonAsync($"/api/xva/workspaces/{id}/cds", new { revision, cds = "none" });
-        Assert.True(page.IsSuccessStatusCode, await page.Content.ReadAsStringAsync());
-        var chosen = (await page.Content.ReadFromJsonAsync<JsonObject>())!;
+        Task<HttpResponseMessage> Door(long at, string cds) => client.PostAsJsonAsync("/api/commands/xva.cds/1.0.0",
+            new { inputs = new { request = new { workspaceId = id, revision = at, cds } }, idempotencyKey = Guid.NewGuid().ToString() });
+        var chosen = await Ok(await Door(revision, "none"));
         Assert.Equal("No CDS for ABC/LE-01: choose a single name or a proxy on the Credit tab, or with cds.", chosen["said"]!.GetValue<string>());
-        Assert.Null(chosen["workspace"]!["credit"]!["cds"]);
+        Assert.Null((await View(id))["credit"]!["cds"]);
 
-        var ambiguous = await client.PostAsJsonAsync($"/api/xva/workspaces/{id}/cds", new { revision = revision + 1, cds = "abch" });
+        var ambiguous = await Door(revision + 1, "abch");
         Assert.Equal(HttpStatusCode.UnprocessableEntity, ambiguous.StatusCode);
         var catalogue = (await client.GetFromJsonAsync<JsonObject>("/api/xva/cds"))!;
         Assert.Contains(catalogue["singleNames"]!.AsArray(), c => c!["reference"]!.GetValue<string>() == "ABCH | USD | SNRFOR | XR14 | ABC Holdings (synthetic)");

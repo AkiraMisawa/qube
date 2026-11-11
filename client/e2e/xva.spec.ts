@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import type { Page } from '@playwright/test';
-import { command, expect, newWorkspace, open, settled, test, textBelowContrast } from './fixtures';
+import { command, expect, newWorkspace, open, settled, test, textBelowContrast, taken } from './fixtures';
 
 // Slice 02 (docs/plans/slice-02-xva-workspace.md): the XVA workspace and the Pricing DB, driven by keyboard.
 
@@ -29,7 +29,7 @@ test('docs/03, ADR-0003: a new trade takes the main CSA, a CSA typed in moves it
   await open(page);
   await newWorkspace(page, 'ABC/LE-01', 0);
   // A new workspace starts on its owner's last selection, which another test may have left.
-  await command(page, 'measures', 'cva fva');
+  await taken(page, 'measures', 'cva fva');
   await expect(page.getByTestId('price')).toHaveText('Price After only · CVA FVA · 1 case');
   // XV15: an empty CVA recovery stays empty on screen (it once read "undefined"); the CDS recovery is its placeholder.
   await expect(page.getByLabel('CVA recovery', { exact: true })).toHaveValue('');
@@ -113,7 +113,7 @@ test('ADR-0010 §10: `measures fva` leaves CVA out of the Price, the Netting tab
   await newWorkspace(page, 'ABC/LE-01', 3);
   const measures = page.getByRole('group', { name: 'Measures' });
 
-  await command(page, 'measures', 'fva');
+  await taken(page, 'measures', 'fva');
   await expect(measures.getByRole('button', { name: 'CVA' })).toHaveAttribute('aria-pressed', 'false');
   await expect(measures.getByRole('button', { name: 'FVA' })).toHaveAttribute('aria-pressed', 'true');
   // Price says what it will run before it runs it (ADR-0010 §1).
@@ -149,7 +149,7 @@ test('ADR-0010 §1, §5, §8, §9: by keyboard, a CSA edit moves a trade into FV
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
   await open(page);
   await newWorkspace(page, 'ABC/LE-01', 0);
-  await command(page, 'measures', 'cva fva');
+  await taken(page, 'measures', 'cva fva');
   await expect(page.getByTestId('price')).toHaveText('Price After only · CVA FVA · 1 case');
 
   // `open csa` opens the tab and puts the keyboard in its grid.
@@ -205,7 +205,7 @@ test('ADR-0010 §1, §5, §8, §9: by keyboard, a CSA edit moves a trade into FV
 test('ADR-0010 §1, §7: the input tabs and the dock collapse to their row and take the height their handle sets, by keyboard', async ({ page }) => {
   await open(page);
   await newWorkspace(page, 'ABC/LE-01', 3);
-  await command(page, 'measures', 'cva fva');
+  await taken(page, 'measures', 'cva fva');
   const height = async (testId: string) => (await page.getByTestId(testId).boundingBox())?.height;
 
   // Collapsed, the inputs are their tab row; `open netting` opens them again with the keyboard on the CVA recovery.
@@ -265,7 +265,7 @@ test('ADR-0010 §1, UX03: at 390px the three tabs reach every part, and the page
   await page.setViewportSize({ width: 390, height: 844 });
   await open(page);
   await newWorkspace(page, 'ABC/LE-01', 3);
-  await command(page, 'measures', 'cva fva');
+  await taken(page, 'measures', 'cva fva');
   const sideways = () => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   const netting = page.getByRole('table', { name: 'Netting' });
   const newTrades = page.getByLabel('New trades', { exact: true });
@@ -300,11 +300,11 @@ test('ADR-0010 §1, UX03: at 390px the three tabs reach every part, and the page
 test('ADR-0010 §1, docs/design-guidelines.md §7: in the dark and the light theme every text on the XVA page reads at 4.5:1', async ({ page }) => {
   await open(page);
   await newWorkspace(page, 'ABC/LE-01', 3);
-  await command(page, 'measures', 'cva fva');
+  await taken(page, 'measures', 'cva fva');
   await command(page, 'price');
   await expect(page.getByTestId('xva-result').getByTestId('xva-result-status')).toHaveText('succeeded');
   // A result older than the workspace, in yellow (ADR-0010 §7).
-  await command(page, 'measures', 'cva');
+  await taken(page, 'measures', 'cva');
   await expect(page.getByTestId('xva-result-revision')).toHaveText(/ · workspace now /);
 
   for (const scheme of ['dark', 'light'] as const) {
@@ -324,7 +324,7 @@ test('ADR-0010 §1, docs/design-guidelines.md §7: in the dark and the light the
 test('C48, docs/design-guidelines.md §7: a negative amount in a view is painted as a loss and reads at 4.5:1 in both themes', async ({ page }) => {
   await open(page);
   await newWorkspace(page, 'ABC/LE-01', 3);
-  await command(page, 'measures', 'cva fva');
+  await taken(page, 'measures', 'cva fva');
   await command(page, 'price');
   const result = page.getByTestId('xva-result');
   await expect(result.getByTestId('xva-result-status')).toHaveText('succeeded');
@@ -341,16 +341,23 @@ test('C48, docs/design-guidelines.md §7: a negative amount in a view is painted
   }
 });
 
-test('ADR-0010 §3, §6: `before none` clears Before on every existing trade at once, and Price then prices After alone', async ({ page }) => {
+test('ADR-0010 §3, §6, ADR-0016 note 29: `before none` stands for a line of `set`, which the line shows, and clears Before on every existing trade at once; Price then prices After alone, and the caption\'s button runs the same line', async ({ page }) => {
   await open(page);
   await newWorkspace(page, 'ABC/LE-01', 5);
   // A new workspace starts on its owner's last selection, which another test may have left.
-  await command(page, 'measures', 'cva fva');
+  await taken(page, 'measures', 'cva fva');
   await expect(page.getByTestId('price')).toHaveText('Price CVA FVA · 1 case');
+  const line = page.getByRole('combobox', { name: 'Command' });
 
-  await command(page, 'before', 'none grid=existing');
+  // A short form says the line it stands for before Enter: that line is what runs, and what `undo` names.
+  await page.keyboard.press('ControlOrMeta+K');
+  await expect(line).toBeFocused();
+  await page.keyboard.type('before none existing');
+  await expect(page.getByTestId('command-expands')).toHaveText('Runs as set existing before off');
+  await page.keyboard.press('Enter');
+  await expect(line).toBeHidden();
   // ADR-0006 note 2 (2026-11-11): a command that edits says what it did. Two of the five synthetic trades are alive.
-  await expect(page.getByTestId('notice')).toHaveText('Cleared Before on 2 existing trades.');
+  await expect(page.getByTestId('notice')).toHaveText('Set B to off on ABC-LE-01-E00003 and ABC-LE-01-E00004.');
   await expect(page.getByTestId('price')).toHaveText('Price After only · CVA FVA · 1 case');
   // One edit for the whole grid, whatever its size.
   await expect(page.getByTestId('workspace-summary')).toContainText('1 edit(s)');
@@ -362,18 +369,71 @@ test('ADR-0010 §3, §6: `before none` clears Before on every existing trade at 
   await expect(result.getByTestId('xva-result-note')).toHaveText('After only: Before was not priced');
   await expect(result.getByRole('columnheader', { name: 'CVA Diff' })).toHaveCount(0);
 
-  // The caption's own control does the same, back again.
+  // The caption's own control runs the line `before all existing` stands for, back again, and `undo` names that line.
   await page.getByRole('button', { name: 'Tick Before on every existing trade' }).click();
+  await expect(page.getByTestId('notice')).toHaveText('Set B to on on ABC-LE-01-E00003 and ABC-LE-01-E00004.');
+  await expect(page.getByTestId('price')).toHaveText('Price CVA FVA · 1 case');
+  await taken(page, 'undo');
+  await expect(page.getByTestId('notice')).toHaveText(/^Took back: set existing before on\b/);
+  await expect(page.getByTestId('price')).toHaveText('Price After only · CVA FVA · 1 case');
+});
+
+test('ADR-0016 note 28: `measures` offers the measures not yet typed and says what Price would price, and a word that names none keeps the line with the server\'s reason', async ({ page }) => {
+  await open(page);
+  await newWorkspace(page, 'ABC/LE-01', 5);
+  await taken(page, 'measures', 'cva fva');
+  await expect(page.getByTestId('price')).toHaveText('Price CVA FVA · 1 case');
+  const line = page.getByRole('combobox', { name: 'Command' });
+  const offered = page.getByRole('listbox', { name: 'What could follow' }).getByRole('option');
+
+  await page.keyboard.press('ControlOrMeta+K');
+  await expect(line).toBeFocused();
+  await page.keyboard.type('measures kva ');
+  // What could follow is the pricer's to say: the measures the line does not hold yet.
+  await expect(offered.filter({ hasText: /^cva/ })).toHaveCount(1);
+  await expect(offered.filter({ hasText: /^kva/ })).toHaveCount(0);
+  await expect(page.getByTestId('command-preview')).toHaveText('Price would price KVA.');
+  // The server reads the line before anything runs: the reason is the line's, and the selection stands.
+  await page.keyboard.type('nope');
+  await page.keyboard.press('Enter');
+  await expect(page.getByTestId('command-problems')).toHaveText(/^No measure nope is registered; the measures are cva, fva, kva/);
+  await expect(line).toHaveValue('measures kva nope');
+  await page.keyboard.press('Escape');
+  await expect(line).toBeHidden();
+  await expect(page.getByTestId('price')).toHaveText('Price CVA FVA · 1 case');
+
+  // A measure's button invokes the same command: it says nothing of its own, and `undo` names it as the line's.
+  await page.getByRole('group', { name: 'Measures' }).getByRole('button', { name: 'KVA', exact: true }).click();
+  await expect(page.getByTestId('price')).toHaveText('Price CVA FVA KVA · 1 case');
+  await page.keyboard.press('ControlOrMeta+K');
+  await expect(line).toBeFocused();
+  await page.keyboard.type('undo');
+  await expect(page.getByTestId('command-preview')).toHaveText(/^Takes back: measures cva fva kva\b/);
+  await expect(page.getByTestId('notice').filter({ hasText: 'KVA' })).toHaveCount(0);
+  await page.keyboard.press('Enter');
+  await expect(line).toBeHidden();
   await expect(page.getByTestId('price')).toHaveText('Price CVA FVA · 1 case');
 });
 
-test('ADR-0010 §3, §9: `vary` makes a case per value beside the Base, and one Price gives Metrics a row per case', async ({ page }) => {
+test('ADR-0010 §3, §9, ADR-0016 note 28: `vary` says the cases it would make, makes a case per value beside the Base, and one Price gives Metrics a row per case', async ({ page }) => {
   await open(page);
   await newWorkspace(page, 'ABC/LE-01', 5);
-  await command(page, 'measures', 'cva fva');
+  await taken(page, 'measures', 'cva fva');
   await expect(page.getByTestId('price')).toHaveText('Price CVA FVA · 1 case');
 
-  await command(page, 'vary', 'CSA-A threshold 200mm, 50mm, 0');
+  // The reading is a trial (ADR-0016 note 28): a value the cell refuses is the line's reason, and what would be made
+  // is said before Enter, with nothing made.
+  const line = page.getByRole('combobox', { name: 'Command' });
+  await command(page, 'vary', 'CSA-A threshold 200mm, lots');
+  await expect(page.getByTestId('command-problems')).toHaveText('CSA-A threshold is an amount: 5mm, 250k, 1bn, or a bare number of millions; lots is not.');
+  await page.keyboard.press('Escape');
+  await expect(line).toBeHidden();
+  await page.keyboard.press('ControlOrMeta+K');
+  await expect(line).toBeFocused();
+  await page.keyboard.type('vary CSA-A threshold 200mm, 50mm, 0');
+  await expect(page.getByTestId('command-preview')).toHaveText('Makes 2 case(s): CSA-A threshold 200mm, CSA-A threshold 50mm; skips 0 is the workspace\'s value.');
+  await expect(page.getByTestId('price')).toHaveText('Price CVA FVA · 1 case');
+  await page.keyboard.press('Enter');
   await expect(page.getByTestId('notice')).toHaveText('Made 2 case(s): CSA-A threshold 200mm, CSA-A threshold 50mm; skipped 0 is the workspace\'s value.');
   await expect(page.getByTestId('price')).toHaveText('Price CVA FVA · 3 cases');
   // The workspace is the Base: a case's change is not an edit of it.
@@ -392,8 +452,8 @@ test('ADR-0010 §3, §9: `vary` makes a case per value beside the Base, and one 
 test('ADR-0010 §3: the Changes tab counts every change, sets a case\'s value, and removes a case, as `case remove` does', async ({ page }) => {
   await open(page);
   await newWorkspace(page, 'ABC/LE-01', 5);
-  await command(page, 'measures', 'cva fva');
-  await command(page, 'vary', 'CSA-A threshold 5mm, 10mm, 20mm');
+  await taken(page, 'measures', 'cva fva');
+  await taken(page, 'vary', 'CSA-A threshold 5mm, 10mm, 20mm');
   await expect(page.getByTestId('price')).toHaveText('Price CVA FVA · 4 cases');
 
   await command(page, 'open changes');
@@ -413,10 +473,10 @@ test('ADR-0010 §3: the Changes tab counts every change, sets a case\'s value, a
   await changes.getByRole('button', { name: 'Remove case CSA-A threshold 10mm' }).click();
   await expect(page.getByTestId('price')).toHaveText('Price CVA FVA · 3 cases');
   await expect(page.getByRole('tab', { name: 'Changes ●2' })).toBeVisible();
-  await command(page, 'case remove', 'CSA-A threshold 20mm');
+  await taken(page, 'case remove', 'CSA-A threshold 20mm');
   await expect(page.getByTestId('price')).toHaveText('Price CVA FVA · 2 cases');
   await expect(changes.getByRole('row', { name: /^CSA-A threshold 20mm/ })).toHaveCount(0);
-  await command(page, 'cases clear');
+  await taken(page, 'cases clear');
   await expect(page.getByTestId('price')).toHaveText('Price CVA FVA · 1 case');
 });
 
@@ -443,7 +503,8 @@ test('ADR-0006 note 1 (2026-11-11): a line that cannot be read stays open with i
   await expect(page.getByTestId('notice')).toHaveText('Set DRAFT-1 A to off.');
 
   for (const [words, args, reason] of [
-    ['vary', 'CSA-A threshold', 'vary needs a cell, its row and its column, and the values, such as vary CSA-A threshold 10mm, 5mm, 0.'],
+    // A domain verb's line is the server's to read too (ADR-0016 note 28), and the reason is the verb's own.
+    ['vary', 'CSA-A threshold', 'vary takes a cell, its row and its column, then the values separated by commas, such as vary CSA-A threshold 10mm, 5mm, 0.'],
     ['scenario duplicate', 's1', 'scenario duplicate needs the scenario to copy, then the copy\'s name.'],
   ] as const) {
     await command(page, words, args);
@@ -498,9 +559,12 @@ test('ADR-0006 note 2 (2026-11-11): a result is teal, takes no room and leaves b
   await expect(notice).toBeHidden();
   await page.clock.resume();
 
-  // A refused edit is named in words, never by its entity's key (it read `selection:measures measures`).
-  await command(page, 'measures', 'nope');
-  await expect(notice).toHaveText(/^The measures were not changed: /);
+  // A refused edit is named in words, never by its entity's key (it read `selection:measures measures`): the last
+  // measure's own button, pressed to leave it out, asks for none.
+  await taken(page, 'measures', 'cva');
+  await expect(page.getByTestId('price')).toHaveText('Price CVA · 1 case');
+  await page.getByRole('group', { name: 'Measures' }).getByRole('button', { name: 'CVA', exact: true }).click();
+  await expect(notice).toHaveText('The measures were not changed: Select at least one measure to price.');
   await stopClock();
   await expect(notice).toHaveAttribute('data-kind', 'refused');
   await expect(notice).toHaveRole('alert');
@@ -539,10 +603,12 @@ for (const width of [1440, 992, 768, 390]) {
     await newWorkspace(page, 'ABC/LE-01', 5);
     const toolbar = page.getByRole('toolbar', { name: 'Workspace' });
     const at = await toolbar.boundingBox();
-    // The longest sentence a command of this page says today: it wraps on a phone.
-    await command(page, 'measures', 'nope');
+    // A sentence the page says of a refused edit, which wraps on a phone: the last measure's button asks for none.
+    await taken(page, 'measures', 'cva');
+    await expect(page.getByTestId('price')).toHaveText('Price CVA · 1 case');
+    await page.getByRole('group', { name: 'Measures' }).getByRole('button', { name: 'CVA', exact: true }).click();
     const notice = page.getByTestId('notice');
-    await expect(notice).toHaveText(/^The measures were not changed: /);
+    await expect(notice).toHaveText('The measures were not changed: Select at least one measure to price.');
     const box = await notice.boundingBox();
     const header = await page.locator('header').boundingBox();
     if (box === null || header === null) throw new Error('The notice and the header are drawn.');
@@ -574,7 +640,7 @@ test('ADR-0006 note 3 (2026-11-11): the empty line and `?` list the page\'s comm
   await newWorkspace(page, 'ABC/LE-01', 5);
   await page.keyboard.press('ControlOrMeta+K');
   await expect(line).toBeFocused();
-  await expect(line).toHaveAttribute('placeholder', 'Type what you want to do: price, measures, vary… (? lists them)');
+  await expect(line).toHaveAttribute('placeholder', 'Type what you want to do: price, scenario, scenario include… (? lists them)');
   // The page's commands come first, under the panel's title; the sample workflows came first.
   await expect(headings.first()).toHaveText('XVA ABC/LE-01');
   // Nothing is chosen while the line lists: the first command here is Price, and Enter alone runs nothing.
@@ -609,18 +675,18 @@ test('ADR-0006 note 3 (2026-11-11): the empty line and `?` list the page\'s comm
   await expect(list.getByRole('option', { selected: true })).toContainText('price');
 });
 
-test('ADR-0006 note 4 (2026-11-11): the hint of `vary` shows this workspace\'s rows, and an A cell reads a flag as `set` reads it', async ({ page }) => {
+test('ADR-0006 note 4 (2026-11-11), ADR-0016 note 28: `vary` shows this workspace\'s rows in what it says it takes, and an A cell reads a flag as `set` reads it', async ({ page }) => {
   await open(page);
   await newWorkspace(page, 'ABC/LE-01', 5);
-  await command(page, 'measures', 'cva fva');
+  await taken(page, 'measures', 'cva fva');
   // The measures' columns are drawn before the first key: a key sent to a grid not yet settled is lost.
   await expect(page.getByTestId('price')).toHaveText('Price CVA FVA · 1 case');
   await settled(page, 'New trades');
-  // The hint of `vary` shows a CSA of this workspace, never an id no workspace has.
+  // What `vary` says while nothing follows it shows a CSA of this workspace, never an id no workspace has.
   await page.keyboard.press('ControlOrMeta+K');
   await expect(page.getByRole('combobox', { name: 'Command' })).toBeFocused();
   await page.keyboard.type('vary ');
-  await expect(page.getByTestId('command-pending')).toContainText('cell: a row and a column, then the values separated by commas: CSA-A threshold 10mm, 5mm, 0');
+  await expect(page.getByTestId('command-preview')).toHaveText('vary takes a cell, its row and its column, then the values separated by commas, such as vary CSA-A threshold 10mm, 5mm, 0.');
   await page.keyboard.press('Escape');
   await expect(page.getByRole('combobox', { name: 'Command' })).toBeHidden();
 
@@ -650,7 +716,7 @@ test('ADR-0006 note 4 (2026-11-11): the hint of `vary` shows this workspace\'s r
 test('ADR-0016 §3, §5: `set` writes one value on each row named through the kernel\'s command, and a value its field refuses keeps the line open with the grid\'s reason', async ({ page }) => {
   await open(page);
   await newWorkspace(page, 'ABC/LE-01', 5);
-  await command(page, 'measures', 'cva fva');
+  await taken(page, 'measures', 'cva fva');
   const line = page.getByRole('combobox', { name: 'Command' });
 
   await command(page, 'set', 'CSA-A threshold 5mm');
@@ -674,7 +740,7 @@ test('ADR-0016 §3, §5: `set` writes one value on each row named through the ke
 test('ADR-0016 §5: `set` offers rows, then fields, then a field\'s values, and Tab takes one; the line says what would change before Enter', async ({ page }) => {
   await open(page);
   await newWorkspace(page, 'ABC/LE-01', 5);
-  await command(page, 'measures', 'cva fva');
+  await taken(page, 'measures', 'cva fva');
   await expect(page.getByTestId('price')).toHaveText('Price CVA FVA · 1 case');
   await settled(page, 'New trades');
   const line = page.getByRole('combobox', { name: 'Command' });
@@ -718,7 +784,7 @@ test('ADR-0016 §5: `set` offers rows, then fields, then a field\'s values, and 
 test('ADR-0016 §5: `set where` says its rows and what would change before Enter and what it did after, and a line the server cannot read stays with its reason', async ({ page }) => {
   await open(page);
   await newWorkspace(page, 'ABC/LE-01', 5);
-  await command(page, 'measures', 'cva fva');
+  await taken(page, 'measures', 'cva fva');
   await expect(page.getByTestId('price')).toHaveText('Price CVA FVA · 1 case');
   await settled(page, 'New trades');
   const line = page.getByRole('combobox', { name: 'Command' });
@@ -764,7 +830,7 @@ test('ADR-0016 §5: `set where` says its rows and what would change before Enter
 test('ADR-0016 §2, §5: Enter runs the reading the line shows, and a workspace someone else moved since refuses it: the line stays, is read again, and then runs', async ({ page, problems }) => {
   await open(page);
   await newWorkspace(page, 'ABC/LE-01', 5);
-  await command(page, 'measures', 'cva fva');
+  await taken(page, 'measures', 'cva fva');
   await expect(page.getByTestId('price')).toHaveText('Price CVA FVA · 1 case');
   await settled(page, 'New trades');
   const line = page.getByRole('combobox', { name: 'Command' });
@@ -804,7 +870,7 @@ test('ADR-0016 §2, §5: Enter runs the reading the line shows, and a workspace 
 test('ADR-0016 §5: while the server reads the line, nothing is taken from its reading of an earlier text; a line closed while Enter is read says its reason as a notice; and a reading the server did not give is said as a failure', async ({ page, problems }) => {
   await open(page);
   await newWorkspace(page, 'ABC/LE-01', 5);
-  await command(page, 'measures', 'cva fva');
+  await taken(page, 'measures', 'cva fva');
   await expect(page.getByTestId('price')).toHaveText('Price CVA FVA · 1 case');
   await settled(page, 'New trades');
   const line = page.getByRole('combobox', { name: 'Command' });
@@ -878,7 +944,7 @@ test('ADR-0016 §11: `undo` says what it would take back before Enter and what i
   await expect(line).toBeHidden();
 
   // One command on the line: undo names it as it was typed, before Enter and after, and redo puts it back.
-  await command(page, 'measures', 'cva fva');
+  await taken(page, 'measures', 'cva fva');
   await expect(page.getByTestId('price')).toHaveText('Price CVA FVA · 1 case');
   await settled(page, 'New trades');
   await command(page, 'set', 'CSA-A threshold 5mm');
@@ -1086,16 +1152,16 @@ test('ADR-0016 §2, §9, notes 16, 17, 19: the CSA grid is a screen of the CSAs,
 /** What has the keyboard inside the part of the page with this label: one element while the keyboard is there. */
 const keyboardIn = (page: Page, label: string) => page.getByLabel(label, { exact: true }).locator(':focus');
 
-test('ADR-0016 §9, note 20: `go` puts the keyboard in a place of the page and says where, `focus grid` is `go` to its first grid, and a place that cannot take it says why on the line', async ({ page }) => {
+test('ADR-0016 §9, notes 20 and 30: `go` puts the keyboard in a place of the page and `open` in a tab, each says where, `focus grid` is `go` to its first grid, and a place that cannot take it says why on the line', async ({ page }) => {
   await open(page);
   await newWorkspace(page, 'ABC/LE-01', 5);
-  await command(page, 'measures', 'cva fva');
+  await taken(page, 'measures', 'cva fva');
   const line = page.getByRole('combobox', { name: 'Command' });
   const said = page.getByTestId('command-problems');
   const notice = page.getByTestId('notice');
 
-  for (const [place, title, label] of [['existing', 'Existing trades', 'Existing trades'], ['new', 'New trades', 'New trades'], ['csa', 'the CSA tab', 'CSA terms']] as const) {
-    await command(page, 'go', place);
+  for (const [words, place, title, label] of [['go', 'existing', 'Existing trades', 'Existing trades'], ['go', 'new', 'New trades', 'New trades'], ['open csa', undefined, 'the CSA tab', 'CSA terms']] as const) {
+    await command(page, words, place);
     await expect(line).toBeHidden();
     await expect(notice).toHaveText(`The keyboard is in ${title}.`);
     await expect(keyboardIn(page, label)).toHaveCount(1);
@@ -1110,14 +1176,14 @@ test('ADR-0016 §9, note 20: `go` puts the keyboard in a place of the page and s
   await expect(notice).toHaveText('The keyboard is in New trades.');
   await expect(keyboardIn(page, 'New trades')).toHaveCount(1);
 
-  // `go` offers the page's places, and a word that names none is refused with the places there are.
+  // `go` offers the page's places that are no tab, and a word that names none is refused with the places there are.
   await page.keyboard.press('ControlOrMeta+K');
   await expect(line).toBeFocused();
   await page.keyboard.type('go ');
-  await expect(page.getByRole('option')).toHaveText([/^new/, /^existing/, /^netting/, /^csa/, /^credit/, /^im/, /^scenarios/, /^settings/, /^changes/, /^results/]);
-  await page.keyboard.type('nowhere');
+  await expect(page.getByRole('option')).toHaveText([/^new/, /^existing/, /^results/]);
+  await page.keyboard.type('csa');
   await page.keyboard.press('Enter');
-  await expect(said).toHaveText('place: one of new, existing, netting, csa, credit, im, scenarios, settings, changes, results');
+  await expect(said).toHaveText('place: one of new, existing, results');
   await page.keyboard.press('Escape');
   await expect(line).toBeHidden();
 
@@ -1136,7 +1202,7 @@ test('ADR-0016 §9, note 20: `go` puts the keyboard in a place of the page and s
 
   // Where the page is one part at a time, the part a place is in is shown first.
   await page.setViewportSize({ width: 390, height: 844 });
-  await command(page, 'go', 'csa');
+  await command(page, 'open csa');
   await expect(page.getByRole('radio', { name: 'Inputs' })).toBeChecked();
   await expect(keyboardIn(page, 'CSA terms')).toHaveCount(1);
   await command(page, 'go', 'existing');
@@ -1147,17 +1213,17 @@ test('ADR-0016 §9, note 20: `go` puts the keyboard in a place of the page and s
   await expect(result.locator(':focus')).toHaveCount(1);
 });
 
-test('ADR-0016 §9, note 20: a tab with nothing to work in takes the keyboard on its own tab, `open <tab>` is `go` to that tab and says where, and a tab no selected measure needs refuses on the line', async ({ page }) => {
+test('ADR-0016 §9, notes 20 and 30: `open <tab>` puts the keyboard in the tab and says where, on the tab itself where it has nothing to work in, and a tab no selected measure needs refuses on the line', async ({ page }) => {
   await open(page);
   await newWorkspace(page, 'ABC/LE-01', 5);
   // FVA alone reads no CVA recovery, so Netting draws no field; and no measure selected has a Credit or an IM tab.
-  await command(page, 'measures', 'fva');
+  await taken(page, 'measures', 'fva');
   const line = page.getByRole('combobox', { name: 'Command' });
   const said = page.getByTestId('command-problems');
   const notice = page.getByTestId('notice');
   const inputs = page.getByRole('tablist', { name: 'Inputs' });
 
-  await command(page, 'go', 'netting');
+  await command(page, 'open netting');
   await expect(line).toBeHidden();
   await expect(notice).toHaveText('The keyboard is in the Netting tab.');
   await expect(inputs.getByRole('tab', { name: /^Netting/ })).toBeFocused();
@@ -1167,7 +1233,7 @@ test('ADR-0016 §9, note 20: a tab with nothing to work in takes the keyboard on
   await expect(notice).toHaveText('The keyboard is in the CSA tab.');
   await expect(keyboardIn(page, 'CSA terms')).toHaveCount(1);
 
-  for (const [words, reason] of [['go im', 'The IM tab shows only while a selected measure needs it, and none does now.'], ['open credit', 'The Credit tab shows only while a selected measure needs it, and none does now.']] as const) {
+  for (const [words, reason] of [['open im', 'The IM tab shows only while a selected measure needs it, and none does now.'], ['open credit', 'The Credit tab shows only while a selected measure needs it, and none does now.']] as const) {
     await page.keyboard.press('ControlOrMeta+K');
     await expect(line).toBeFocused();
     await page.keyboard.type(words);
@@ -1185,7 +1251,7 @@ test('ADR-0016 §9, note 20: a tab with nothing to work in takes the keyboard on
 test('ADR-0016 §9, note 22: after `set`, `reset`, `undo` and Price from the line the keyboard is back where it was before the line opened', async ({ page }) => {
   await open(page);
   await newWorkspace(page, 'ABC/LE-01', 5);
-  await command(page, 'measures', 'cva fva');
+  await taken(page, 'measures', 'cva fva');
   const line = page.getByRole('combobox', { name: 'Command' });
   const screen = page.getByTestId('command-context');
   const notice = page.getByTestId('notice');
@@ -1220,7 +1286,7 @@ test('ADR-0016 §9, note 22: after `set`, `reset`, `undo` and Price from the lin
   await expect(line).toBeHidden();
 
   // From a field that is no grid: the CVA recovery of the Netting tab.
-  await command(page, 'go', 'netting');
+  await command(page, 'open netting');
   const recovery = page.getByRole('textbox', { name: 'CVA recovery' });
   await expect(recovery).toBeFocused();
   await command(page, 'set', 'DRAFT-1 a off');
@@ -1301,7 +1367,7 @@ test('ADR-0016 §9, note 21: `find` puts the Focus on a row the sorted grid has 
   await expect(keyboardIn(page, 'Existing trades')).toHaveCount(1);
 
   // A grid whose page holds every row: the CSA grid, where the row is found by its key.
-  await command(page, 'go', 'csa');
+  await command(page, 'open csa');
   await settled(page, 'CSA terms');
   await command(page, 'find', 'CSA-B threshold');
   await expect(line).toBeHidden();
@@ -1318,7 +1384,7 @@ test('ADR-0016 §9, note 23: on the CSA grid rows said by `where` alone are CSAs
   const line = page.getByRole('combobox', { name: 'Command' });
   const read = page.getByTestId('command-preview');
 
-  await command(page, 'go', 'csa');
+  await command(page, 'open csa');
   await settled(page, 'CSA terms');
   await page.keyboard.press('ControlOrMeta+K');
   await expect(line).toBeFocused();
@@ -1487,7 +1553,7 @@ test('ADR-0016 §9, note 24: while a chained line runs the next is typed and kep
 test('ADR-0016 §9, note 24: a result that arrives later is said in the open line, while an IME composes Enter and the chain key are the IME\'s, and a command that opens a dialog ends the chain', async ({ page }) => {
   await open(page);
   await newWorkspace(page, 'ABC/LE-01', 5);
-  await command(page, 'measures', 'cva fva');
+  await taken(page, 'measures', 'cva fva');
   const line = page.getByRole('combobox', { name: 'Command' });
   const said = saidIn(page);
   const summary = page.getByTestId('workspace-summary');
@@ -1591,7 +1657,7 @@ test('ADR-0016 §4, note 25: a grid\'s Context Menu offers its table\'s actions 
   await newWorkspace(page, 'ABC/LE-01', 5);
   // A new workspace starts on its owner's last selection of measures, which decides the grids' columns: the grids are
   // drawn again for these, and take keys once they have settled.
-  await command(page, 'measures', 'cva fva');
+  await taken(page, 'measures', 'cva fva');
   await expect(page.getByTestId('price')).toHaveText('Price CVA FVA · 1 case');
   await settled(page, 'New trades');
   await settled(page, 'Existing trades');
@@ -1692,28 +1758,39 @@ test('ADR-0016 §4, note 25: a grid\'s Context Menu offers its table\'s actions 
   await expect(summary).toContainText('1 edit(s)');
 });
 
-test('docs/03 §5, ADR-0010 §3: `add trades` makes a case per new trade alone, refuses one in Before by name, and Price refuses a set the rows left', async ({ page, problems }) => {
+test('docs/03 §5, ADR-0010 §3, ADR-0016 note 28: `add each` says the cases it would make and makes a case per new trade alone, refuses one in Before by name on the line, and Price refuses a set the rows left', async ({ page, problems }) => {
   const refused = 'error: Failed to load resource: the server responded with a status of 422 (Unprocessable Entity)';
   await open(page);
   await newWorkspace(page, 'ABC/LE-01', 5);
-  await command(page, 'measures', 'cva fva');
+  await taken(page, 'measures', 'cva fva');
+  const line = page.getByRole('combobox', { name: 'Command' });
 
-  await command(page, 'add trades');
+  // The reading is a trial: the line says what Enter would make, and nothing is made until then.
+  await page.keyboard.press('ControlOrMeta+K');
+  await expect(line).toBeFocused();
+  await page.keyboard.type('add each');
+  await expect(page.getByTestId('command-preview')).toHaveText('Makes 3 case(s): add DRAFT-1, add DRAFT-2, add DRAFT-3.');
+  await expect(page.getByTestId('price')).toHaveText('Price CVA FVA · 1 case');
+  await page.keyboard.press('Enter');
   await expect(page.getByTestId('notice')).toHaveText('Made 3 case(s): add DRAFT-1, add DRAFT-2, add DRAFT-3.');
   await expect(page.getByTestId('price')).toHaveText('Price CVA FVA · 4 cases');
   // B on every new trade after the set was made: Price says which trades left it, and prices nothing.
-  await command(page, 'before', 'all grid=new');
+  await taken(page, 'before', 'all new');
   await command(page, 'price');
-  await expect(page.getByTestId('notice')).toHaveText('Price was refused: add trades prices DRAFT-1, DRAFT-2, DRAFT-3 alone, and DRAFT-1, DRAFT-2, DRAFT-3 are in Before. '
-    + 'Run add trades again to make the set anew, with B clear on each.');
-  // Made again, a candidate in Before is refused by name, never unticked.
-  await command(page, 'add trades');
-  await expect(page.getByTestId('notice')).toHaveText('add trades made no case: DRAFT-1, DRAFT-2, DRAFT-3 are in Before, and a new trade is priced alone only out of Before. '
-    + 'Clear B on them, or A to leave them out, then add trades again.');
-  expect(problems.splice(0)).toEqual([refused, refused]);
+  await expect(page.getByTestId('notice')).toHaveText('Price was refused: add each prices DRAFT-1, DRAFT-2, DRAFT-3 alone, and DRAFT-1, DRAFT-2, DRAFT-3 are in Before. '
+    + 'Run add each again to make the set anew, with B clear on each.');
+  expect(problems.splice(0)).toEqual([refused]);
+  // Made again, a candidate in Before is refused by name, never unticked: the server read the line before anything
+  // ran, so the reason is the line's, and no request was refused.
+  await command(page, 'add each');
+  await expect(page.getByTestId('command-problems')).toHaveText('DRAFT-1, DRAFT-2, DRAFT-3 are in Before, and a new trade is priced alone only out of Before. '
+    + 'Clear B on them, or A to leave them out, then add each again.');
+  await expect(line).toHaveValue('add each');
+  await page.keyboard.press('Escape');
+  await expect(line).toBeHidden();
 
-  await command(page, 'before', 'none grid=new');
-  await command(page, 'add trades');
+  await taken(page, 'before', 'none new');
+  await taken(page, 'add each');
   await expect(page.getByTestId('notice')).toHaveText('Made 3 case(s): add DRAFT-1, add DRAFT-2, add DRAFT-3; replaced add DRAFT-1, add DRAFT-2, add DRAFT-3.');
   await command(page, 'price');
   const result = page.getByTestId('xva-result');
@@ -1724,7 +1801,7 @@ test('docs/03 §5, ADR-0010 §3: `add trades` makes a case per new trade alone, 
 test('ADR-0010 §3: Vary values… on a CSA threshold\'s Context Menu makes three cases, by keyboard; a read-only cell offers none', async ({ page, problems }) => {
   await open(page);
   await newWorkspace(page, 'ABC/LE-01', 5);
-  await command(page, 'measures', 'cva fva');
+  await taken(page, 'measures', 'cva fva');
   await command(page, 'open csa');
   await settled(page, 'CSA terms');
   const csaA = page.getByLabel('CSA terms').getByRole('row', { name: /^Yes CSA-A / });
@@ -1803,7 +1880,7 @@ test('ADR-0010 §7: Download saves the Run as a zip, from the dock and the Prici
   await open(page);
   await newWorkspace(page, 'ABC/LE-01', 5);
   // An earlier test left FVA alone selected, and a new workspace starts on its owner's last selection.
-  await command(page, 'measures', 'cva fva');
+  await taken(page, 'measures', 'cva fva');
   await expect(page.getByTestId('price')).toHaveText('Price CVA FVA · 1 case');
   await command(page, 'price');
   const result = page.getByTestId('xva-result');
@@ -1838,7 +1915,7 @@ test('ADR-0010 §4: `scenario` defines a scenario whole, Price prices it beside 
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
   await open(page);
   await newWorkspace(page, 'ABC/LE-01', 5);
-  await command(page, 'measures', 'cva fva');
+  await taken(page, 'measures', 'cva fva');
   await expect(page.getByTestId('price')).toHaveText('Price CVA FVA · 1 case');
 
   // A shift that does not resolve is refused with what it could be, and nothing is made.
@@ -1884,7 +1961,7 @@ test('ADR-0010 §4: a block pasted onto the Scenarios grid makes its shifts, and
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
   await open(page);
   await newWorkspace(page, 'ABC/LE-01', 3);
-  await command(page, 'measures', 'cva');
+  await taken(page, 'measures', 'cva');
   await command(page, 'open scenarios');
   await expect(page.getByRole('tab', { name: 'Scenarios' })).toHaveAttribute('aria-selected', 'true');
   await settled(page, 'Shifts');
@@ -1948,7 +2025,7 @@ test('ADR-0010 §4, UX03: at 390px the Scenarios tab is among the Inputs, the sc
   // The grid is wider than a phone: it scrolls inside its frame, never the page.
   expect(await sideways()).toBe(0);
 
-  await command(page, 'measures', 'cva');
+  await taken(page, 'measures', 'cva');
   await command(page, 'price');
   await page.getByText('Results', { exact: true }).click();
   const result = page.getByTestId('xva-result');
@@ -1963,7 +2040,7 @@ test('ADR-0010 §4, UX03: at 390px the Scenarios tab is among the Inputs, the sc
 test('ADR-0010 §4: `scenario cross` says what it makes against the cap as it is typed, then makes the set in one command', async ({ page }) => {
   await open(page);
   await newWorkspace(page, 'ABC/LE-01', 3);
-  await command(page, 'measures', 'cva');
+  await taken(page, 'measures', 'cva');
   await command(page, 'scenarios clear');
 
   // The line drops a key typed before it has the keyboard, so the line is typed once it has it.
@@ -1987,7 +2064,7 @@ test('ADR-0010 §4: `scenario cross` says what it makes against the cap as it is
 test('ADR-0010 §4, C32: `scenario save` keeps every scenario as a set, and `scenario load` offers it and adds it to another workspace', async ({ page }) => {
   await open(page);
   await newWorkspace(page, 'ABC/LE-01', 3);
-  await command(page, 'measures', 'cva');
+  await taken(page, 'measures', 'cva');
   await command(page, 'scenario', 'up jpy_ois +10bp; usdjpy -5%');
   await command(page, 'scenario', 'down jpy_ois -10bp');
   await command(page, 'scenario exclude', 'down');
@@ -1998,7 +2075,7 @@ test('ADR-0010 §4, C32: `scenario save` keeps every scenario as a set, and `sce
   await expect(page.getByTestId('notice')).toHaveText(/^Saved 2 scenario\(s\) as the set e2e-rates, for every user(, replacing your e2e-rates)?\.$/);
 
   await newWorkspace(page, 'XYZ/LE-03', 3);
-  await command(page, 'measures', 'cva');
+  await taken(page, 'measures', 'cva');
   await page.keyboard.press('ControlOrMeta+K');
   await expect(page.getByRole('combobox', { name: 'Command' })).toBeFocused();
   await page.keyboard.type('scenario load e2e');

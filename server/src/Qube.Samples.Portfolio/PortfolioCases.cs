@@ -20,7 +20,7 @@ public sealed record CaseView(string Id, string Title, string Kind, int Changes,
 /// <summary>What <c>vary</c> did: the state it left, the cases it made by title, and each value it skipped with why.</summary>
 public sealed record VaryAnswer(WorkspaceState State, IReadOnlyList<string> Made, IReadOnlyList<string> Skipped);
 
-/// <summary>What <c>add trades</c> did: the state it left, the cases it made by title, and those of the set it replaced.</summary>
+/// <summary>What <c>add each</c> did: the state it left, the cases it made by title, and those of the set it replaced.</summary>
 public sealed record AddAnswer(WorkspaceState State, IReadOnlyList<string> Made, IReadOnlyList<string> Replaced);
 
 /// <summary>
@@ -84,7 +84,7 @@ public static class PortfolioCases
 
     /// <summary>
     /// Refuses, naming the trades, a set of iterative addition that no longer matches the New rows with A ticked in the
-    /// Base, or that holds one in Before (docs/03 §5: never another set quietly). <c>add trades</c> again makes it anew.
+    /// Base, or that holds one in Before (docs/03 §5: never another set quietly). <c>add each</c> again makes it anew.
     /// </summary>
     public static void CheckAdditionSet(WorkspaceState raw)
     {
@@ -100,7 +100,7 @@ public static class PortfolioCases
         if (before.Count > 0) problems.Add($"{Are(before)} in Before");
         if (problems.Count > 0)
             throw new WorkspaceRefused("AdditionSetChanged",
-                $"add trades prices {string.Join(", ", set)} alone, and {string.Join("; ", problems)}. Run add trades again to make the set anew{(before.Count > 0 ? ", with B clear on each" : "")}.");
+                $"add each prices {string.Join(", ", set)} alone, and {string.Join("; ", problems)}. Run add each again to make the set anew{(before.Count > 0 ? ", with B clear on each" : "")}.");
     }
 
     /// <summary>The Base: Original plus the Common edits. The state itself where no edit is in a layer.</summary>

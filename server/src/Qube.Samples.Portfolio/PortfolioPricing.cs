@@ -277,7 +277,7 @@ public static class PortfolioInput
         // A case of iterative addition prices its trade alone on top of the existing ones, never another set (docs/03 §5).
         if (@case.Kind == PortfolioCases.Add && trades.Where(t => t.IsNew && t.After).Select(t => t.TradeId).ToList() is var alone && !(alone.Count == 1 && alone[0] == @case.Trade))
             throw new WorkspaceRefused("AdditionSetChanged",
-                $"{named}its After holds {(alone.Count == 0 ? "no new trade" : string.Join(", ", alone))}, not {@case.Trade} alone. Run add trades again to make the set anew.");
+                $"{named}its After holds {(alone.Count == 0 ? "no new trade" : string.Join(", ", alone))}, not {@case.Trade} alone. Run add each again to make the set anew.");
         var refusals = register.Modules
             .SelectMany(m => m.Validate(state, [.. selected.Where(id => m.Measures.Any(d => d.Id == id))], trades))
             .ToDictionary(r => r.Measure);

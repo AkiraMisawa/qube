@@ -201,9 +201,6 @@ export interface CdsCatalogue {
   readonly tenors: readonly string[];
 }
 
-/** What `cds …` chose, as the command line says it. */
-export interface CdsChosen { readonly workspace: XvaWorkspaceView; readonly said: string }
-
 /** How a setting is written: a whole number of days, a rate (12%), a number, or on and off. */
 export type SettingForm = 'days' | 'rate' | 'number' | 'flag';
 
@@ -279,13 +276,6 @@ export interface ChangesList {
   readonly count: number;
 }
 
-/** What `add trades` made, by title, and the cases of the set it replaced (docs/03 §5, ADR-0010 §3's note of 2026-11-08). */
-export interface TradesAdded {
-  readonly workspace: XvaWorkspaceView;
-  readonly made: readonly string[];
-  readonly replaced: readonly string[];
-}
-
 /**
  * A row of the Scenarios grid (ADR-0010 §4): one shift, the scenario it belongs to by name, and what it lacks, said on
  * the row. The Category and the Shift type are derived from the index and the size; none is a guess.
@@ -354,13 +344,6 @@ export interface ScenarioSetView {
   readonly desk?: string | null;
   readonly savedAt: string;
   readonly scenarios: number;
-}
-
-/** What `vary` made, by title, and each value it skipped with why (ADR-0010 §3). */
-export interface Varied {
-  readonly workspace: XvaWorkspaceView;
-  readonly made: readonly string[];
-  readonly skipped: readonly string[];
 }
 
 /** One figure a measure reports, such as CVA's CVA Charge, and the trace term its cell opens where it is not the root

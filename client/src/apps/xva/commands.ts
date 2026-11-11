@@ -1,30 +1,13 @@
-import { CommandRefused, type Completion } from '../../platform/commands/commands';
-import type { CdsCatalogue, CdsCurve, RegisteredMeasure, ScenarioSetView } from './contracts';
+import type { RegisteredMeasure, ScenarioSetView } from './contracts';
 import type { DockTab } from './dock';
 import type { InputTab } from './XvaInputs';
 
-// What an open XVA workspace page offers to commands, by panel: its Price and its measures (ADR-0010 §9). The page
-// registers them while it is mounted, so a command and the page's own button run the same function.
+// What an open XVA workspace page offers to the commands the client still writes, by panel (ADR-0010 §9). The page
+// registers them while it is mounted, so a command and the page's own button run the same function. A command the
+// server reads (ADR-0016 §5, notes 27 to 29) is not here: it goes through the page's door.
 
 export interface XvaPage {
   price(): void;
-  /** The counterparty's CDS as written (`cds ABCH USD SNRFOR`, `cds proxy financials asia A`, `cds none`, ADR-0010 §8's note of
-   * 2026-11-09); the server reads it against its catalogue and says what it chose. */
-  chooseCds(text: string): void;
-  /** The CDS catalogue as last read, for the command line to offer; none until it has been read. */
-  cdsCatalogue(): CdsCatalogue | undefined;
-  /** Sets the measures Price prices; the server refuses an unknown one, or none, by name. */
-  setMeasures(measures: readonly string[]): void;
-  /** B or A for every row of a grid (ADR-0010 §6); the grid the keyboard was last in when none is named. */
-  setSide(side: 'before' | 'after', value: boolean, grid?: 'new' | 'existing'): void;
-  /** A case per value of a cell (`vary CSA-A threshold 10mm, 5mm, 0`, ADR-0010 §3, §9). */
-  vary(cell: string, values: readonly string[]): void;
-  /** A case per New row with A ticked, each holding that trade alone (`add trades`, docs/03 §5). */
-  addTrades(): void;
-  /** Removes a case with its changes, named by its title or id (`case remove`, ADR-0010 §3). */
-  removeCase(name: string): void;
-  /** Removes every case (`cases clear`). */
-  clearCases(): void;
   /** The scenario of that name with every shift written (`scenario s1 jpy_ois +10bp; usdjpy -5%`, ADR-0010 §4). */
   defineScenario(name: string, shifts: string): void;
   /** Whether Price prices a scenario, as its box says (`scenario include s1`, `scenario exclude s1`). */
@@ -55,8 +38,6 @@ export interface XvaPage {
   retry(): void;
   /** Acquires the trades again for the value date (`refresh`, ADR-0010 §1). */
   refresh(): void;
-  /** Sets the currency the figures are shown in (`currency USD`, ADR-0010 §1). */
-  setCurrency(currency: string): void;
   /** Opens the trace of a measure the dock's Run priced, for the case in view, at a term or its root (`explain`, ADR-0011 §7). */
   explain(measure: string, path?: string): void;
   /** The id of the trace the dock shows in a measure's own tab, which the trace commands act on; none on Metrics. */
@@ -67,28 +48,8 @@ export interface XvaPage {
   setDockFull(full: boolean): void;
   /** The dock's tabs for the Run it shows, for the command line to offer. */
   resultTabs(): readonly DockTab[];
-  /** Rows of the workspace as the page has read it, for the command line's examples (ADR-0006's note 4 of 2026-11-11). */
-  examples(): XvaExamples;
   /** The registered measures, for the command line to offer. */
   measures(): readonly RegisteredMeasure[];
-  /** The currencies the figures can be shown in, for the command line to offer. */
-  currencies(): readonly string[];
-}
-
-/** A CSA of the open workspace, where the page has read one. */
-export interface XvaExamples {
-  readonly csa: string | undefined;
-}
-
-const VARY_FORM = 'a row and a column, then the values separated by commas';
-
-/**
- * The hint of `vary`: its form, and an example that can be typed as it is, made from the open workspace's own rows: a
- * CSA's threshold, where the workspace has a CSA. With none read yet it is the form alone, never an id no workspace
- * has (ADR-0006's note 4 of 2026-11-11).
- */
-export function varyHint(examples: XvaExamples | undefined): string {
-  return examples?.csa === undefined ? VARY_FORM : `${VARY_FORM}: ${examples.csa} threshold 10mm, 5mm, 0`;
 }
 
 const pages = new Map<string, XvaPage>();
@@ -100,17 +61,6 @@ export function registerXvaPage(panelId: string, page: XvaPage | undefined): voi
 
 export function xvaPageOf(panelId: string | undefined): XvaPage | undefined {
   return panelId === undefined ? undefined : pages.get(panelId);
-}
-
-/**
- * `measures cva fva`: the words typed, as the ids the server takes, in the order typed and once each. A word names a
- * registered measure whatever its case (`ccr.spotcapital` is `ccr.spotCapital`); one that names none is sent as typed,
- * for the server to refuse by name.
- */
-export function measuresTyped(words: string, registered: readonly string[] = []): readonly string[] {
-  const ids = words.trim().split(/\s+/).filter((w) => w !== '')
-    .map((w) => registered.find((id) => id.toLowerCase() === w.toLowerCase()) ?? w.toLowerCase());
-  return [...new Set(ids)];
 }
 
 /**
@@ -134,46 +84,4 @@ export function measureNamed(word: string, measures: readonly RegisteredMeasure[
 export function ambiguousComma(text: string): string | undefined {
   const found = /[^\s,]*\d(?:,\d[^\s,]*)+/.exec(text);
   return found === null ? undefined : `${found[0]} could be one value or two: a comma separates values here, so write an amount without separators, such as 10000k or 10mm.`;
-}
-
-/**
- * `vary CSA-A threshold 10mm, 5mm, 0` as typed (ADR-0010 §9's note of 2026-11-08): the cell, its row and its column, then
- * the values separated by commas. The first value is the last word before the first comma. Each value goes as written,
- * for the server to read as the cell reads it; a line with no cell or no value is refused here by name.
- */
-export function varyTyped(text: string): { readonly cell: string; readonly values: readonly string[] } {
-  const ambiguous = ambiguousComma(text);
-  if (ambiguous !== undefined) throw new CommandRefused(ambiguous);
-  const [first = '', ...rest] = text.split(',');
-  const words = first.trim().split(/\s+/).filter((w) => w !== '');
-  const value = words[words.length - 1];
-  if (words.length < 3 || value === undefined) throw new CommandRefused('vary needs a cell, its row and its column, and the values, such as vary CSA-A threshold 10mm, 5mm, 0.');
-  const values = [value, ...rest.map((v) => v.trim())];
-  if (values.some((v) => v === '')) throw new CommandRefused('vary takes values separated by commas, none of them empty.');
-  return { cell: words.slice(0, -1).join(' '), values };
-}
-
-/**
- * What `cds` offers for the word being typed (ADR-0010 §8's note of 2026-11-09), given every word typed so far: `none`,
- * `proxy` and the single names' tickers first; after `proxy`, the sectors, regions and ratings it has none of yet; after a
- * single name's word, the other words of the names it still matches. What the words choose is the server's to read; a
- * line that names nothing, or several, is refused there by name.
- */
-export function cdsCompletions(typed: string, catalogue: CdsCatalogue | undefined): readonly Completion[] {
-  if (catalogue === undefined) return [];
-  const words = typed.trim().toLowerCase().split(/\s+/).filter((w) => w !== '');
-  const is = (w: string, values: readonly string[]) => values.some((v) => v.toLowerCase() === w);
-  if (words[0] === 'proxy') {
-    const keys = [['sector', catalogue.sectors], ['region', catalogue.regions], ['rating', catalogue.ratings]] as const;
-    return keys.filter(([, values]) => !words.some((w) => is(w, values)))
-      .flatMap(([what, values]) => values.map((v) => ({ value: v, detail: `the proxy's ${what}` })));
-  }
-  const of = (c: CdsCurve) => [[c.ticker, c.reference], [c.currency, 'currency'], [c.seniority, 'seniority'], [c.docClause, 'doc clause']] as const;
-  const last = words[words.length - 1];
-  // The words before the one being typed are whole; the one being typed is whole once it is a word of a name.
-  const done = last !== undefined && catalogue.singleNames.some((c) => is(last, of(c).map(([w]) => w))) ? words : words.slice(0, -1);
-  const matching = catalogue.singleNames.filter((c) => done.every((w) => is(w, of(c).map(([x]) => x))));
-  const offered = new Map<string, string>(done.length === 0 ? [['none', 'no CDS: CVA is refused'], ['proxy', 'a sector, a region and a rating']] : []);
-  for (const c of matching) for (const [w, detail] of of(c)) if (!is(w.toLowerCase(), done) && !offered.has(w)) offered.set(w, detail);
-  return [...offered].map(([value, detail]) => ({ value, detail }));
 }

@@ -18,13 +18,13 @@ public class CommandLineTests
         public CommandLines Lines { get; }
         public string Id { get; }
 
-        public Rig(TableDescriptor? stations = null)
+        public Rig(TableDescriptor? stations = null, params ICapabilityHandler[] more)
         {
             var register = new TableRegister([new Stations.Catalog(stations)]);
             var tables = new TableService(register, Workspaces);
-            Registry = new CompositionRegistry([new TablesModule(() => tables), new WorkspaceCommandsModule(() => Workspaces)]);
+            Registry = new CompositionRegistry([new TablesModule(() => tables), new WorkspaceCommandsModule(() => Workspaces), new Commands(more)]);
             Commands = new CommandService(Registry, new InMemoryDataStore());
-            Lines = new CommandLines(Registry, Workspaces, register);
+            Lines = new CommandLines(Registry, Workspaces, register, [new Stations.ShortForms()]);
             Id = Stations.Board(Workspaces).WorkspaceId;
         }
 
@@ -570,7 +570,7 @@ public class CommandLineTests
     [InlineData("set R1 volume lots", "InvalidValue", "lots", 14, 18, "")]
     [InlineData("set R1 wind 4", "AmbiguousField", "wind", 7, 11, "wind speed, wind direction")]
     [InlineData("set where unit==m3 checked on", "UnknownOperator", "==", 14, 16, "")]
-    [InlineData("sett R1", "UnknownCommand", "sett", 0, 4, "set, reset, remove, undo, redo, find")]
+    [InlineData("sett R1", "UnknownCommand", "sett", 0, 4, "set, reset, remove, undo, redo, find, tick, alarm")]
     [InlineData("undo that", "UnreadWords", "that", 5, 9, "")]
     public void A_line_that_cannot_be_read_says_the_word_its_place_and_what_it_could_be(string line, string code, string word, int start, int end, string candidates)
     {
@@ -737,16 +737,131 @@ public class CommandLineTests
         Assert.Equal(5, preview.More);
     }
 
-    // A command that says how it is typed and reads no line, and one that reads its own.
-    class Typed(string id, string words) : ICapabilityHandler
+    [Fact] // ADR-0016 note 27: a command's form names the application whose workspaces it acts on; on another's, its words are no command and are not offered
+    public void A_command_of_another_application_is_no_command_of_this_workspace()
+    {
+        var rig = new Rig(null, new Reading("weather.horn", "horn", Stations.App), new Reading("tides.bell", "bell", "tides"));
+
+        var own = rig.Preview("horn");
+        var other = rig.Preview("bell").Refused!;
+
+        Assert.Equal(("weather.horn", "weather.horn would run"), (own.Command!.Id, own.Would));
+        Assert.Equal(("UnknownCommand", "set, reset, remove, undo, redo, horn, find, tick, alarm"), (other.Code, string.Join(", ", other.Candidates)));
+        Assert.Equal(["horn"], rig.Preview("h").Complete.Select(c => c.Value));
+        Assert.Empty(rig.Preview("b").Complete);
+    }
+
+    [Fact] // ADR-0016 note 27: two applications may each have a command of the same words, and a workspace reads its own; within one application, and beside a command of every application, words stay one command's
+    public void Two_applications_may_share_words_and_one_may_not()
+    {
+        var workspaces = Stations.Service();
+        CommandLines Lines(params ICapabilityHandler[] handlers) => new(new CompositionRegistry([new Commands(handlers)]), workspaces, new TableRegister([]), []);
+
+        var each = Lines(new Reading("tides.sound", "sound", "tides"), new Reading("weather.sound", "sound", Stations.App)).Preview("sound", Stations.Board(workspaces).WorkspaceId, null, new Caller("ana", RunOrigin.Pricer));
+        var one = Assert.Throws<InvalidOperationException>(() => Lines(new Reading("weather.horn", "sound", Stations.App), new Reading("weather.siren", "sound", Stations.App)));
+        var every = Assert.Throws<InvalidOperationException>(() => Lines(new Reading("gauge.sound", "sound"), new Reading("tides.sound", "sound", "tides")));
+
+        Assert.Equal("weather.sound", each.Command!.Id);
+        Assert.Equal("weather.horn and weather.siren answer to the same words, sound.", one.Message);
+        Assert.Equal("gauge.sound and tides.sound answer to the same words, sound.", every.Message);
+    }
+
+    [Fact] // ADR-0016 note 29: a short form is read as the kernel line it expands to: that line's command, inputs, rows and sentence, and the line it stands for
+    public async Task A_short_form_is_read_as_the_line_it_expands_to()
+    {
+        var rig = new Rig();
+        var before = rig.Board.Revision;
+
+        var typed = rig.Preview("tick manual");
+        var meant = rig.Preview("set manual checked on");
+
+        Assert.Equal("set manual checked on", typed.Expands);
+        Assert.Null(meant.Expands);
+        Assert.Equal((meant.Command, meant.Inputs!.ToJsonString(), meant.Rows!.Title, meant.Would), (typed.Command, typed.Inputs!.ToJsonString(), typed.Rows!.Title, typed.Would));
+        Assert.Equal(("entity.set", "readings, 3 rows"), (typed.Command!.Id, typed.Rows.Title));
+        Assert.Equal(before, rig.Board.Revision);
+
+        // What runs, and what undo names, is the kernel command by the expanded line: the short form has no behaviour of its own.
+        await rig.Run(typed);
+        Assert.StartsWith("Takes back: set manual checked on (you,", rig.Preview("undo").Would);
+    }
+
+    [Fact] // ADR-0016 note 29: with no word of its own a short form reads the view behind the line, and is refused by its own rule where there is neither
+    public void A_short_form_reads_the_view_behind_the_line_and_is_refused_by_its_own_rule()
+    {
+        var rig = new Rig();
+
+        var seen = rig.Preview("tick", new LineView(Stations.Readings, "automatic"));
+        var blind = rig.Preview("tick");
+        var wrong = rig.Preview("tick weekly");
+
+        Assert.Equal(("set automatic checked on", "entity.set"), (seen.Expands, seen.Command!.Id));
+        Assert.Equal(("NoGrid", "tick takes manual or automatic, or the grid the keyboard is in.", null, "manual, automatic"),
+            (blind.Refused!.Code, blind.Refused.Sentence, blind.Refused.Word, string.Join(", ", blind.Refused.Candidates)));
+        Assert.Equal(("UnknownGrid", "weekly", 5, 11), (wrong.Refused!.Code, wrong.Refused.Word, wrong.Refused.Start, wrong.Refused.End));
+        Assert.Null(blind.Expands);
+        Assert.Null(blind.Command);
+    }
+
+    [Fact] // ADR-0016 note 29: what the kernel refuses of the expansion is the short form's refusal, with the word where it stands in the line as typed
+    public void What_the_kernel_refuses_of_the_expansion_is_said_of_the_line_as_typed()
+    {
+        var refused = new Rig().Preview("alarm lots");
+
+        Assert.Equal("set alarm lots", refused.Expands);
+        Assert.Equal(("InvalidValue", "lots", 6, 10), (refused.Refused!.Code, refused.Refused.Word, refused.Refused.Start, refused.Refused.End));
+    }
+
+    [Fact] // ADR-0016 note 29: a short form is listed apart from the commands, completes its own words, and is among the words a line may begin with
+    public void A_short_form_is_listed_completes_its_own_words_and_is_a_word_a_line_may_begin_with()
+    {
+        var rig = new Rig();
+
+        Assert.Equal(["weather.tick: tick [grid] (weather)", "weather.alarm: alarm <volume> (weather)"],
+            rig.Lines.ShortForms.Select(f => $"{f.FormId}: {string.Join("|", f.Command.Words)} {string.Join(" ", f.Command.Arguments.Select(a => a.Required ? $"<{a.Name}>" : $"[{a.Name}]"))} ({f.Command.App})"));
+        Assert.Equal("manual | automatic", Offered("tick "));
+        Assert.Equal("automatic@5", Offered("tick au"));
+        Assert.Equal("tick@0", Offered("ti"));
+        Assert.Equal("set, reset, remove, undo, redo, find, tick, alarm", string.Join(", ", rig.Preview("sett").Refused!.Candidates));
+    }
+
+    [Fact] // ADR-0016 note 29: a short form's words are its own, and it expands to a command's line, never to nothing or to another short form: a registration at fault fails
+    public void A_short_form_that_shares_words_or_expands_to_no_command_fails()
+    {
+        var workspaces = Stations.Service();
+        var register = new TableRegister([new Stations.Catalog()]);
+        var tables = new TableService(register, workspaces);
+        CommandLines Lines(IShortForm more) => new(new CompositionRegistry([new TablesModule(() => tables), new WorkspaceCommandsModule(() => workspaces)]), workspaces, register, [new Stations.ShortForms(more)]);
+        var board = Stations.Board(workspaces).WorkspaceId;
+        LinePreview Preview(IShortForm form, string line) => Lines(form).Preview(line, board, null, new Caller("ana", RunOrigin.Pricer));
+
+        var shared = Assert.Throws<InvalidOperationException>(() => Lines(new Stands("weather.reset", "reset", "undo")));
+        var nothing = Assert.Throws<InvalidOperationException>(() => Preview(new Stands("weather.calm", "calm", "quieten all"), "calm"));
+        var chained = Assert.Throws<InvalidOperationException>(() => Preview(new Stands("weather.calm", "calm", "alarm 5mm"), "calm"));
+
+        Assert.Equal("entity.reset and weather.reset answer to the same words, reset.", shared.Message);
+        Assert.Equal("The short form calm expands to `quieten all`, which begins with no command's words.", nothing.Message);
+        Assert.Equal("The short form calm expands to `alarm 5mm`, which begins with no command's words.", chained.Message);
+    }
+
+    // A short form that stands for one line, whatever follows its words.
+    sealed class Stands(string id, string words, string line) : IShortForm
+    {
+        public Qube.Composition.Contracts.ShortFormDescriptor Descriptor { get; } = new(id, id, new([words], [], Stations.App));
+        public string Expand(LineContext context) => line;
+        public LineCompletions Complete(LineContext context) => LineCompletions.None;
+    }
+
+    // A command that says how it is typed and reads no line, and one that reads its own; of an application, or of none.
+    class Typed(string id, string words, string? app = null) : ICapabilityHandler
     {
         public Qube.Composition.Contracts.CapabilityDescriptor Descriptor { get; } =
-            new(id, "1.0.0", id, [], [], Qube.Composition.Contracts.ExecutionKind.RequestResponse, [Qube.Composition.Contracts.CapabilityEffect.EditWorkspace], new([words], []));
+            new(id, "1.0.0", id, [], [], Qube.Composition.Contracts.ExecutionKind.RequestResponse, [Qube.Composition.Contracts.CapabilityEffect.EditWorkspace], new([words], [], app));
 
         public Task<IReadOnlyDictionary<string, JsonNode?>> InvokeAsync(CapabilityInvocation invocation, CancellationToken cancellationToken) => throw new NotSupportedException();
     }
 
-    sealed class Reading(string id, string words) : Typed(id, words), ILineCommand
+    sealed class Reading(string id, string words, string? app = null) : Typed(id, words, app), ILineCommand
     {
         public LineRead Read(LineContext line) => new(new JsonObject(), [], null, $"{Descriptor.CapabilityId} would run");
         public LineCompletions Complete(LineContext line) => LineCompletions.None;
@@ -764,7 +879,7 @@ public class CommandLineTests
     public void Words_two_commands_share_and_a_typed_command_that_reads_no_line_fail_at_start()
     {
         var workspaces = Stations.Service();
-        CommandLines Lines(params ICapabilityHandler[] handlers) => new(new CompositionRegistry([new Commands(handlers)]), workspaces, new TableRegister([]));
+        CommandLines Lines(params ICapabilityHandler[] handlers) => new(new CompositionRegistry([new Commands(handlers)]), workspaces, new TableRegister([]), []);
 
         var shared = Assert.Throws<InvalidOperationException>(() => Lines(new Reading("gauge.add", "Add"), new Reading("gauge.put", "add")));
         var unread = Assert.Throws<InvalidOperationException>(() => Lines(new Typed("gauge.add", "add")));

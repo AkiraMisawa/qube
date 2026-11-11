@@ -1,5 +1,5 @@
 import { readFlag } from '../../platform/flags';
-import type { Resolution, XvaWorkspaceView } from './contracts';
+import type { Resolution } from './contracts';
 
 // From what the user typed in a grid cell to the value the server is sent. Only the form is checked here;
 // what a value means (an eligible CSA, an available curve) is the server's, and shows on the row.
@@ -107,8 +107,8 @@ export function parseRecovery(text: string): Parsed {
 /** The workspace's settings, as an edit names them: its display currency (ADR-0010 §1). */
 export const SETTINGS_ENTITY = 'settings:workspace';
 
-/** The workspace's selection of measures, as an edit names it (ADR-0010 §10). */
-export const MEASURES_ENTITY = 'selection:measures';
+/** The application the server names the pricer's workspaces by (ADR-0016 note 27 of 2026-11-11): its commands are listed on this page. */
+export const XVA_APP = 'xva';
 
 /** The tables the trade grids and the CSA grid show, by the ids the server registers them with (ADR-0016 §1). */
 export const TRADES_TABLE = 'xva.trades';
@@ -117,36 +117,24 @@ export const CSAS_TABLE = 'xva.csas';
 /**
  * What the page says when the server refuses an edit (ADR-0006's note 2 of 2026-11-11): what the edit would have
  * changed, by the title the place that made it gave it, then the server's reason. An entity's key
- * (`selection:measures`) or a field's (`counterpartyThreshold`) is never shown.
+ * (`settings:workspace`) or a field's (`counterpartyThreshold`) is never shown.
  */
 export function refusedEdit(edit: PendingEdit, reason: string): string {
-  return edit.measures !== undefined ? `The measures were not changed: ${reason}` : `${edit.title} was not changed: ${reason}`;
-}
-
-/** B or A of every row of a trade grid, as its edit is titled: `Before on the existing trades`. */
-export function sideTitle(side: 'before' | 'after', grid: 'new' | 'existing'): string {
-  return `${side === 'before' ? 'Before' : 'After'} on the ${grid} trades`;
-}
-
-/** What `before` and `after` say once the edit is taken (ADR-0006's note 2 of 2026-11-11): what was done, and on how many trades. */
-export function sideSaid(side: 'before' | 'after', value: boolean, grid: 'new' | 'existing', trades: number): string {
-  return `${value ? 'Ticked' : 'Cleared'} ${side === 'before' ? 'Before' : 'After'} on ${trades} ${grid} trade${trades === 1 ? '' : 's'}.`;
+  return `${edit.title} was not changed: ${reason}`;
 }
 
 /**
- * A change to send: a value set on a field, a held edit resolved, or the measures Price prices. They share one queue,
- * so each is sent against the revision the one before it made.
+ * A change to send: a value set on a field, or a held edit resolved. They share one queue, so each is sent against the
+ * revision the one before it made. The measures Price prices are not one: their buttons invoke `measures` through the
+ * page's door (ADR-0016 note 28).
  */
 export type PendingEdit =
   | {
-    readonly entity: string; readonly field: string; readonly value: unknown; readonly resolution?: undefined; readonly measures?: undefined;
+    readonly entity: string; readonly field: string; readonly value: unknown; readonly resolution?: undefined;
     /** What the screen calls what the edit changes, its row and its column's header (`DRAFT-1 After`, `CSA-A Cpty threshold`). */
     readonly title: string;
-    /** What the page says once the edit is taken, where its own cell does not show it: B or A of a whole grid. */
-    readonly says?: (next: XvaWorkspaceView) => string;
   }
   // A held edit, or a change removed (`reset`), of the Base or of the case named (ADR-0010 §3).
-  | { readonly entity: string; readonly field: string; readonly resolution: Resolution; readonly case?: string | undefined; readonly measures?: undefined; readonly title: string }
-  | { readonly entity: typeof MEASURES_ENTITY; readonly field: 'measures'; readonly measures: readonly string[]; readonly resolution?: undefined };
+  | { readonly entity: string; readonly field: string; readonly resolution: Resolution; readonly case?: string | undefined; readonly title: string };
 
 export { EditQueue } from '../../platform/workspace/editQueue';

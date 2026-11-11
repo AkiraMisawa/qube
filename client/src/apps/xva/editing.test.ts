@@ -1,6 +1,6 @@
 import { ApiError } from '../../platform/api';
 import type { XvaWorkspaceView } from './contracts';
-import { EditQueue, csaFields, parseNumber, parseRecovery, refusedEdit, sideSaid, sideTitle, tradeFields, type PendingEdit } from './editing';
+import { EditQueue, csaFields, parseNumber, parseRecovery, refusedEdit, tradeFields, type PendingEdit } from './editing';
 
 const view = (revision: number) => ({ revision }) as unknown as XvaWorkspaceView;
 
@@ -56,20 +56,6 @@ describe('how a refused edit is said (ADR-0006 note 2 of 2026-11-11)', () => {
     expect(refusedEdit({ entity: 'trade:DRAFT-1', field: 'imR', value: 'X', title: 'DRAFT-1 IM-R' }, 'X is no IM CSA.'))
       .toBe('DRAFT-1 IM-R was not changed: X is no IM CSA.');
     expect(refusedEdit({ entity: 'csa:CSA-A', field: 'curve', resolution: 'reset', title: 'CSA-A curve' }, 'No.')).toBe('CSA-A curve was not changed: No.');
-  });
-
-  it('names the measures, and a grid\'s side as its edit is titled', () => {
-    expect(refusedEdit({ entity: 'selection:measures', field: 'measures', measures: [] }, 'Choose one.')).toBe('The measures were not changed: Choose one.');
-    expect(sideTitle('before', 'existing')).toBe('Before on the existing trades');
-    expect(sideTitle('after', 'new')).toBe('After on the new trades');
-  });
-});
-
-describe('what `before` and `after` say back (ADR-0006 note 2 of 2026-11-11)', () => {
-  it('says the side, what was done to it and on how many trades of which grid', () => {
-    expect(sideSaid('before', false, 'existing', 215)).toBe('Cleared Before on 215 existing trades.');
-    expect(sideSaid('after', true, 'new', 3)).toBe('Ticked After on 3 new trades.');
-    expect(sideSaid('after', false, 'new', 1)).toBe('Cleared After on 1 new trade.');
   });
 });
 

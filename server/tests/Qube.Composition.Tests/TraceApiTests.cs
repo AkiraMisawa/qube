@@ -19,7 +19,11 @@ public class TraceApiTests(QubeFactory factory) : IClassFixture<QubeFactory>
         var created = await client.PostAsJsonAsync("/api/xva/workspaces", new { registration = "ABC/LE-01", valueDate = "2026-10-26", portfolioSize = 12 });
         Assert.Equal(HttpStatusCode.Created, created.StatusCode);
         var ws = (await created.Content.ReadFromJsonAsync<JsonObject>())!;
-        ws = await Post(ws, "measures", new { revision = Revision(ws), measures = new[] { "kva", Measure } });
+        // The measures are chosen as the page chooses them, by the command `measures` (ADR-0016 note 28).
+        var request = new JsonObject { ["workspaceId"] = Id(ws), ["revision"] = Revision(ws), ["measures"] = $"kva {Measure}" };
+        var chosen = await client.PostAsJsonAsync("/api/commands/xva.measures/1.0.0", new { inputs = new JsonObject { ["request"] = request }, idempotencyKey = Guid.NewGuid().ToString() });
+        Assert.True(chosen.IsSuccessStatusCode, await chosen.Content.ReadAsStringAsync());
+        ws = (await client.GetFromJsonAsync<JsonObject>($"/api/xva/workspaces/{Id(ws)}"))!;
         return before ? ws : await Post(ws, "edits", new { revision = Revision(ws), entity = "grid:existing", field = "before", value = false });
     }
 

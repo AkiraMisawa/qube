@@ -55,7 +55,7 @@ export function buildCommands(args: {
   // The applications' commands first: the empty line lists the groups in the order registered (ADR-0006's note 3 of
   // 2026-11-11), and what an application offers comes before the catalog's workflows and the shell's own.
   const commands: Command[] = [
-    ...appCommands(state, args.notify),
+    ...appCommands(state),
     // The commands the catalog says how to type (ADR-0016 §4): the server reads their lines, for the workspace of the
     // page in the active panel.
     ...servedCommands(catalog, active, commandDoorOf(active?.id), args.notify),
@@ -107,6 +107,9 @@ export function buildCommands(args: {
     });
   }
 
+  /** The places `go` takes: those of the page in the active panel that are no tab (ADR-0016 note 30). */
+  const placesToGo = () => placesOf(active?.id).filter((p) => p.tab !== true);
+
   commands.push(
     {
       id: 'context.focus',
@@ -116,22 +119,39 @@ export function buildCommands(args: {
       shortcut: 'mod+shift+E',
       run: () => document.querySelector<HTMLElement>('#context-bar input')?.focus(),
     },
+    // ADR-0016 note 30: a command per tab of the page in the active panel, as the page has them when the line opens.
+    // Each is the page's own, so the empty line lists it with the page's commands; a tab that does not show now
+    // refuses with the page's reason.
+    ...(active === undefined ? [] : placesOf(active.id).filter((p) => p.tab === true).map((tab): Command => ({
+      id: `panel.open.${tab.word}`,
+      words: `open ${tab.word}`,
+      title: `Open ${tab.title}`,
+      group: 'Panels',
+      target: active.title,
+      page: true,
+      run: () => {
+        // Read again when it runs: the page may have drawn its tabs anew since the line opened.
+        const place = placesOf(active.id).find((p) => p.tab === true && p.word === tab.word);
+        if (place === undefined) throw new CommandRefused(`This page has no tab ${tab.word} now.`);
+        goTo(place, args.notify);
+      },
+    }))),
     {
-      // ADR-0016 §9, note 20: the places are the page's, read when the command runs or completes, and `go` says where
-      // the keyboard went.
+      // ADR-0016 §9, notes 20 and 30: the places are the page's, read when the command runs or completes, and `go` says
+      // where the keyboard went. A tab is opened by `open`, so `go` offers the places that are none.
       id: 'panel.go',
       words: 'go',
-      title: 'Put the keyboard in a place of the page, such as a grid or a tab',
+      title: 'Put the keyboard in a place of the page, such as a grid',
       group: 'Panels',
       args: [{
         name: 'place', required: true, hint: 'a place of this page',
-        complete: () => placesOf(active?.id).map((p) => ({ value: p.word, detail: p.title })),
-        check: (word) => (placesOf(active?.id).some((p) => p.word === word.toLowerCase()) ? undefined : `one of ${placesOf(active?.id).map((p) => p.word).join(', ')}`),
+        complete: () => placesToGo().map((p) => ({ value: p.word, detail: p.title })),
+        check: (word) => (placesToGo().some((p) => p.word === word.toLowerCase()) ? undefined : `one of ${placesToGo().map((p) => p.word).join(', ')}`),
       }],
-      ...(active === undefined ? { unavailable: 'No panel is open.' } : placesOf(active.id).length === 0 ? { unavailable: 'This page has no places to go to.' } : { target: active.title }),
+      ...(active === undefined ? { unavailable: 'No panel is open.' } : placesToGo().length === 0 ? { unavailable: 'This page has no places to go to.' } : { target: active.title }),
       run: (a) => {
-        const place = placesOf(active?.id).find((p) => p.word === a.place?.toLowerCase());
-        if (place === undefined) throw new CommandRefused(`go needs a place of this page: ${placesOf(active?.id).map((p) => p.word).join(', ')}.`);
+        const place = placesToGo().find((p) => p.word === a.place?.toLowerCase());
+        if (place === undefined) throw new CommandRefused(`go needs a place of this page: ${placesToGo().map((p) => p.word).join(', ')}.`);
         goTo(place, args.notify);
       },
     },
@@ -708,6 +728,8 @@ export function CommandPalette() {
         {preview !== undefined && (
           <Stack gap={0} id="qube-line-preview" className="qube-line-preview" data-testid="command-preview" aria-busy={waiting || undefined}>
             <Stack gap={0} className="qube-line-read">
+              {/* A short form (ADR-0016 note 29): the line it stands for, which is what Enter runs and `undo` will name. */}
+              {preview.expands !== undefined && <Text size="xs" data-testid="command-expands"><Text span c="dimmed">Runs as </Text><Text span ff="monospace">{preview.expands}</Text></Text>}
               {preview.rows !== undefined && <Text size="xs" ff="monospace">{preview.rows}</Text>}
               {preview.would !== undefined && <Text size="xs">{preview.would}{preview.at === undefined ? '' : ` · ${new Date(preview.at).toLocaleTimeString()}`}</Text>}
               {preview.reason !== undefined && <Text size="xs" c="dimmed">{preview.reason}</Text>}
@@ -777,7 +799,8 @@ function Head({ command, reading, latest, waiting }: { readonly command: Command
   return (
     <Group gap={6} wrap="wrap" data-testid="command-pending" className="qube-line-head" aria-busy={waiting || undefined}>
       <Text size="sm" fw={600} ff="monospace">{command.words}</Text>
-      {(command.served?.arguments ?? []).map((a) => {
+      {/* A short form's own arguments are how it is typed; once it is read, the line it stands for says what was read. */}
+      {(latest?.expands === undefined ? command.served?.arguments ?? [] : []).map((a) => {
         const read = given.get(a.name);
         // One the user did not type (ADR-0016 note 18) is drawn as an outline, and says in words where it came from.
         return (

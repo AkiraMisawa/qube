@@ -31,6 +31,16 @@ export async function command(page: Page, words: string, args?: string): Promise
   await page.keyboard.press('Enter');
 }
 
+/**
+ * Runs a command the server reads (ADR-0016 §5) and waits until it was taken: its line closes once the server has
+ * answered and the page shows what the command left. A test that goes on with keys of its own, to a grid or to a line
+ * it opens by hand, runs such a command with this: a key sent while the line is still open is the line's.
+ */
+export async function taken(page: Page, words: string, args?: string): Promise<void> {
+  await command(page, words, args);
+  await expect(page.getByRole('combobox', { name: 'Command' })).toBeHidden();
+}
+
 export const panel = (page: Page) => page.getByRole('tabpanel');
 
 /** Opens a new XVA workspace for a counterparty with this many synthetic existing trades, and waits for its grids. */

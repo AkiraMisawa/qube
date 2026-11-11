@@ -95,6 +95,8 @@ export type Entered = LineReason | KeyboardMoved | undefined;
  */
 export interface CommandDoor {
   readonly workspaceId: string;
+  /** The application the workspace is of, as the server names it (ADR-0016 note 27 of 2026-11-11): the line lists that application's commands here. */
+  readonly app: string;
   /** Resolves once the edits the page has sent so far are answered: a reading asked for after it has seen them. */
   settled(): Promise<void>;
   /**
@@ -114,9 +116,10 @@ export interface CommandDoor {
   enter(line: string, shown?: LinePreview, view?: LineView): Promise<Entered>;
   /**
    * A command by its id, from a key or a button, which have no line: in the same turn, at the catalog's version and
-   * the revision the page then holds. Resolves as `enter` does.
+   * the revision the page then holds. Resolves as `enter` does. A caller that says the answer itself, as a dialog
+   * does, gives `heard`: it is told what the command said, and the page makes no notice of it.
    */
-  invoke(capabilityId: string, request: Readonly<Record<string, unknown>>): Promise<LineReason | undefined>;
+  invoke(capabilityId: string, request: Readonly<Record<string, unknown>>, heard?: (said: string) => void): Promise<LineReason | undefined>;
 }
 
 /** What a served command is typed with and run through: its arguments as the catalog names them, and its page's door. */

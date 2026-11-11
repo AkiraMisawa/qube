@@ -34,7 +34,7 @@ public class PricerTableTests
             var store = new InMemoryDataStore();
             Service = new PortfolioWorkspaces(Workspaces, store, new RunService(registry, store, TimeProvider.System), register);
             Commands = new CommandService(registry, store);
-            Lines = new CommandLines(registry, Workspaces, registered);
+            Lines = new CommandLines(registry, Workspaces, registered, []);
             Id = Service.Create("akira", "ABC/LE-01", Day1, existing).WorkspaceId;
             TradesTable = registered.Of(State).Single(t => t.Descriptor.TableId == PortfolioTables.Trades).Table;
         }

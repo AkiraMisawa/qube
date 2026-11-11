@@ -1,5 +1,5 @@
 import type { Page } from '@playwright/test';
-import { command, expect, newWorkspace, open, settled, test, textBelowContrast } from './fixtures';
+import { command, expect, newWorkspace, open, settled, test, textBelowContrast, taken } from './fixtures';
 
 // Ticket 04 (docs/specs/spot-simm-page/issues/04-the-page.md): spot IM on the pricer page (ADR-0012 §3, §7 with their
 // notes of 2026-11-08). Its IM-R and IM-P on both trade grids and the IM tab while it is selected, an IM-R edit, the
@@ -71,7 +71,7 @@ async function drillToFactor(page: Page): Promise<string> {
 
 async function selectSpotIm(page: Page): Promise<void> {
   // A new workspace starts on its owner's last selection, which another test may have left.
-  await command(page, 'measures', 'simm.spotim');
+  await taken(page, 'measures', 'simm.spotim');
   await expect(page.getByRole('group', { name: 'Measures' }).getByRole('button', { name: 'Spot IM' })).toHaveAttribute('aria-pressed', 'true');
 }
 
@@ -80,7 +80,7 @@ test('ADR-0012 §3, §7: spot IM shows its columns and IM tab, refuses a wrong I
   await page.setViewportSize({ width: 1920, height: 1000 });
   await open(page);
   await newWorkspace(page, 'ABC/LE-01', 5);
-  await command(page, 'measures', 'cva');
+  await taken(page, 'measures', 'cva');
   // Unselected, spot IM shows nothing of its own.
   await expect(header(page, 'New trades', 'IM-R')).toHaveCount(0);
   await expect(page.getByRole('tab', { name: 'IM', exact: true })).toHaveCount(0);
@@ -170,7 +170,7 @@ test('ADR-0010 §7 with §3: the SIMM tab draws the case in view, a case\'s cell
   await open(page);
   await newWorkspace(page, 'ABC/LE-01', 3);
   await selectSpotIm(page);
-  await command(page, 'vary', 'DRAFT-1 notional 5bn');
+  await taken(page, 'vary', 'DRAFT-1 notional 5bn');
   await expect(page.getByTestId('price')).toHaveText(/ · 2 cases$/);
   await command(page, 'price');
   const result = page.getByTestId('xva-result');
@@ -201,7 +201,7 @@ test('ADR-0012 §7, ADR-0011 §4: with Before not priced, spot IM is After alone
   await open(page);
   await newWorkspace(page, 'ABC/LE-01', 3);
   await selectSpotIm(page);
-  await command(page, 'before', 'none grid=existing');
+  await taken(page, 'before', 'none existing');
   await expect(page.getByTestId('price')).toHaveText(/^Price After only · /);
   await command(page, 'price');
 
@@ -244,7 +244,7 @@ test('ADR-0012 §2, §4, ADR-0010 §10: a counterparty with no IM CSA says so, i
   await page.setViewportSize({ width: 1920, height: 1000 });
   await open(page);
   await newWorkspace(page, 'XYZ/LE-03', 3);
-  await command(page, 'measures', 'cva simm.spotim');
+  await taken(page, 'measures', 'cva simm.spotim');
   const toggle = page.getByRole('group', { name: 'Measures' }).getByRole('button', { name: 'Spot IM' });
   await expect(toggle).toHaveAttribute('aria-pressed', 'true');
 

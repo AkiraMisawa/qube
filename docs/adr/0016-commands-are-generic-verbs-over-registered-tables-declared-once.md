@@ -197,6 +197,7 @@ grid, by id or from a file, and computes nothing (DEFAULT name). `add each` make
 addition, one per candidate (ADR-0010 §3): it adds no trade, so it does not say "trades". `new <product>` makes a
 trade from typed terms (ADR-0008). `add trades`, which ADR-0010 wrote for the first two, is retired when these are
 built; until then the code says `add trades` for the second and has no command for the first.
+*Note of 2026-11-11 (step 3a, note 28):* the second is now typed `add each`, and `add trades` is no command.
 
 **An iteration of `add each` is a change of After's membership, given as lists** (the owner, 2026-11-10 and
 2026-11-11: an iteration that adds several trades is more flexible, better still one that takes trades out in the
@@ -471,7 +472,9 @@ log cannot yet say which entries were one command, or what an entry replaced.
    (`docs/specs/commands-2-selection-context-places`, three pull requests); what it settled is notes 16 to 26 below.
    Left for later steps: `shown` is the grid's subset until `filter` (step 4), and a declarative view's row action
    has no `command` target yet (note 25).
-3. The pricer's remaining commands as capabilities through the gateway; Rates registers.
+3. The pricer's remaining commands as capabilities through the gateway; Rates registers. **In progress**
+   (`docs/specs/commands-3-domain-verbs-rates`, four pull requests); what it settles is notes 27 onward below.
+   3a is built (2026-11-11): a command's application, short forms, the pricer's verbs that edit, `open` from tabs.
 4. View verbs and the AI's row read.
 5. Drafts (§10): a detail dialog drawn from a registration, with the tables under its row and its templates. The
    pricer's trade and CSA must carry those fields and tables first; its sample has neither them nor such a dialog.
@@ -928,6 +931,97 @@ Notes 20 to 23 are 2b's (tickets 06 to 08 and 12).
       the keys in order, joined by a line break, and is kept beside the sorted rows for the workspace state it was
       taken of, so a state is digested once per order. An unsorted grid's token is still the source's version
       alone. The reader of a page (`Page`) and `InOrder` answer the same token, which a test holds.
+
+### Notes of 2026-11-11: what step 3 settles (all DEFAULT)
+
+Step 3 is four pull requests (`docs/specs/commands-3-domain-verbs-rates`): 3a short forms and the pricer's verbs
+that edit, 3b its scenarios and the verbs that execute, 3c Rates, 3d `add each` with lists. Notes 27 to 31 are 3a's;
+the later ones are added as each is built.
+
+27. **A command says which workspaces it is for (§4).** A command form names the workspace application its command
+    acts on (`app`); a kernel verb names none, and acts on every workspace's tables. The line lists a command on a
+    page whose workspace is of its application, and a page's door says which that is. The server reads a line for a
+    workspace with the commands of that workspace's application and the kernel's: another application's words are
+    no command there.
+    - *As built (3a).* `CommandForm.App`, which the pricer's verbs and short forms set to `xva`; `state.App` says a
+      workspace's. A command of an application is listed on a page of that application only. Elsewhere, and where
+      no page holds a workspace, it is not listed as unavailable either: its words are no command there, which is
+      what the server would say. A kernel verb with no workspace to act on is still listed, with why.
+    - *Two applications may share words* (`price` is the pricer's and will be Rates'), since no workspace is of
+      both. Words shared within one application, or with a kernel verb, are refused when the server starts.
+28. **A domain verb reads its own line (§3, §4).** Each of the pricer's verbs declares its form and reads the words
+    after its own into the request its capability already takes, where the AI writes the same words (`cell` and
+    `values`, `cds`, `measures`). One reader, on the server, serves the line, a button and the AI.
+    - *The preview is a trial.* The command plans its changes for the workspace as it stands, and the kernel checks
+      them with nothing written (`WorkspaceService.After`). The reading says what would be made (`Makes 2 cases:
+      CSA-A threshold 10mm and CSA-A threshold 5mm.`) or refuses with the command's own code and sentence. Enter
+      invokes the capability with the inputs read, at the revision read.
+    - *What could follow is the domain's to say*: the measures not yet typed, the CDS catalogue's words, the titles
+      of the cases.
+    - *3a's verbs:* `vary`, `add each`, `cds`, `measures`, `case remove` and `cases clear`.
+    - *A case is no row the selector can name.* It is named by its title, of several words, and a row's id is one
+      word (note 7). So `case remove` and `cases clear` are domain verbs (`xva.case.remove`, `xva.cases.clear`) and
+      not the kernel's `remove`.
+    - *`measures` is a domain verb.* Its value is a list, and a field of several values comes with step 5 (note 6).
+    - *`add trades` is now `add each`* (§3, the owner's name), with no argument until 3d. `add trades` is retired
+      and is no second spelling. The capability keeps its id, `xva.trades.add`: no user reads an id.
+    - *The page's own controls call the same capabilities* through the page's door (`invoke`), and the page's
+      endpoints that wrote for them go (§5).
+    - *As built (3a).* A domain verb is an `ILineCommand` beside its capability, as the kernel's verbs are. Each
+      plans its changes first (`PlanVary`, `PlanAdd`, `PlanCds`, `PlanMeasures`, `PlanRemoveCase`,
+      `PlanClearCases`): the reading tries the plan with nothing written, and the capability writes the same plan,
+      so the two cannot differ. The log names the command by the words that would type it (`vary CSA-A threshold
+      10mm, 5mm`, `add each`, `cds none`, `measures cva fva`, `case remove <title>`, `cases clear`), which is what
+      `undo` then says.
+    - *A request names its cell once.* `xva.vary` takes `cell`, as the line and the AI name it, or `entity` and
+      `field`, as *Vary values…* names the cell its menu opened on. Both, or neither, is refused.
+    - *A caller that says the answer itself is handed it.* The door's `invoke` takes a listener for what the
+      command said: *Vary values…* shows the sentence in its dialog, and the page raises no notice of it.
+    - *Gone with this:* the page's `/vary`, `/cds` (the write), `/add-trades`, `/cases/remove`, `/cases/clear` and
+      `/measures` endpoints, and the client's readers of `measures`, `vary` and `cds`. The Changes tab's removals
+      invoke `xva.case.remove` and `xva.cases.clear`, and a measure's button invokes `xva.measures` with the
+      selection it would leave. The button shows what it holds, so the page says nothing more when it is taken;
+      a refusal is a notice (`The measures were not changed: Select at least one measure to price.`), and `undo`
+      names a press as it names the line (`measures cva fva`). The request's `measures` has no least length, so
+      a selection of none is the command's to refuse in its own words, not the contract's.
+    - *What stays an edit of the page's own queue:* the currency select and the Credit tab's selects (the CDS type,
+      its reference, a proxy's sector, region and rating). Each is a control bound to one field, as a cell is, and
+      shows what it holds itself; a typed cell writes the same way (note 15). A proxy is chosen a key at a time,
+      and `cds` says a whole choice in one line, so a select cannot stand for it. `currency` and `cds` typed go
+      through the commands.
+29. **A short form expands to a kernel line (§3).** A domain registers short forms for its application: words, a
+    title, how it is typed, and the line it expands to, given what was typed and the view behind the line. The
+    server reads a short form by expanding it and reading the expansion. The preview answers the kernel command and
+    its inputs, and says the line it expands to (`expands`), which the line shows before Enter. What runs, what
+    the log names and what `undo` takes back is the kernel command, by the expanded line. A short form has no
+    behaviour of its own. The catalog lists short forms apart (`shortForms`), as it lists the screen's verbs: the
+    agent's tools hold none, since the AI has the kernel command.
+    - *The pricer's:* `before all` and `before none`, `after all` and `after none`, each with `new` or `existing`
+      after it or neither: `set existing before on`. With no grid named it is the grid of the view behind the line;
+      with no view either it is refused, naming the two grids. `currency USD` is `set workspace currency USD`.
+      *Corrected as built:* this note first said `set currency USD`, which names no row; the settings are the row
+      `workspace` of their table, and naming it reads the same whatever grid is behind the line.
+    - *The grids' caption buttons* (`B all`, `A none`) run the expanded line through the door.
+    - *As built (3a).* `IShortForm` (`Descriptor`, `Expand`, `Complete`), listed by an `IShortFormCatalog` per
+      module. A short form expands to a command or to a verb of the screen, never to another short form; one that
+      expands to no command's words is a defect, and throws. Where the expansion is refused, the reason is placed
+      on the word in the line as typed. The line shows `Runs as <line>` over the reading, and no argument badges of
+      the short form's own once it is read.
+    - *No grid is assumed.* The page used to take the grid the keyboard was last in, and Existing before any was
+      entered. A short form with no grid typed and no trade grid behind the line is now refused, naming both.
+    - *What the notice says is the kernel's sentence* (`Set B to off on E00003 and E00004.`), which replaces the
+      page's own (`Cleared Before on 2 existing trades.`): one command, one sentence, from the line or the button.
+30. **`open` is for a page's tabs, `go` for the parts that hold the keyboard (settles note 20).** A page's place
+    says whether it is a tab. The shell builds `open <tab>` from the tabs and `go <place>` from the rest, as it
+    built `go` from all of them: the pricer's seven hand-written `open <tab>` commands go, and `go csa` with them.
+    Both still say where the keyboard went.
+    - *As built (3a).* `Place.tab`. The shell makes one command per tab (`open csa`), from the tabs the page has
+      when the line opens, and not one `open` that takes the tab as an argument: `open result` and `open pricing
+      db` keep their words, and the list names each tab. A page with no tab has no `open` of the shell's.
+31. **What stays in the client in step 3.** `download run` and `copy quote` act in the browser (a file saved, the
+    clipboard written), and a result that carries a file or a text to copy is not built. `explain`, the trace's
+    drawing options, `open result` and `dock` are verbs of the screen (§3). `new xva` and `new rates` open their
+    application's dialog.
 
 ## Rejected
 

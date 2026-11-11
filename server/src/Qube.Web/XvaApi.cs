@@ -18,24 +18,9 @@ public static class XvaApi
     public sealed record ResolveRequest(long Revision, string Entity, string Field, string Resolution, string? Case = null);
     /// <summary>A change's value as written, set from the Changes tab in the Base or a case (ADR-0010 §3's note).</summary>
     public sealed record ChangeRequest(long Revision, string Entity, string Field, string Text, string? Case = null);
-    /// <summary>A case to remove, by its title or id (<c>case remove</c>), or every case (<c>cases clear</c>).</summary>
-    public sealed record CaseRequest(long Revision, string? Name = null);
-    /// <summary>
-    /// <c>vary</c> (ADR-0010 §3, §9): the values, each as written, of a cell named as the command line names it
-    /// (<c>CSA-A threshold</c>), or of an entity's field, as <em>Vary values…</em> on a cell names it.
-    /// </summary>
-    public sealed record VaryRequest(long Revision, IReadOnlyList<string> Values, string? Cell = null, string? Entity = null, string? Field = null);
-    /// <summary>What <c>vary</c> made, by title, and each value it skipped with why.</summary>
-    public sealed record Varied(PortfolioWorkspaceView Workspace, IReadOnlyList<string> Made, IReadOnlyList<string> Skipped);
-    /// <summary><c>cds &lt;words&gt;</c> (ADR-0010 §8's note of 2026-11-09): the CDS as written.</summary>
-    public sealed record CdsRequest(long Revision, string Cds);
-    /// <summary>What <c>cds</c> chose, as the command line says it.</summary>
-    public sealed record CdsChosen(PortfolioWorkspaceView Workspace, string Said);
     /// <summary>The CDS catalogue the Credit tab searches: the single names, and the keys a proxy is chosen by.</summary>
     public sealed record CdsCatalogue(IReadOnlyList<CdsCurve> SingleNames, IReadOnlyList<string> Sectors, IReadOnlyList<string> Regions,
         IReadOnlyList<string> Ratings, IReadOnlyList<string> Tenors);
-    /// <summary>What <c>add trades</c> made, by title, and the cases of the set it replaced (docs/03 §5).</summary>
-    public sealed record TradesAdded(PortfolioWorkspaceView Workspace, IReadOnlyList<string> Made, IReadOnlyList<string> Replaced);
     /// <summary><c>scenario &lt;name&gt; &lt;shift&gt;; …</c> (ADR-0010 §4): the scenario's name and its shifts as written.</summary>
     public sealed record ScenarioRequest(long Revision, string Name, string Shifts);
     /// <summary>The Scenarios grid's rows as edited (ADR-0010 §4): each an existing shift's id, or none for a blank row,
@@ -55,7 +40,6 @@ public static class XvaApi
     public sealed record ValueDateRequest(long Revision, DateOnly ValueDate);
     public sealed record CounterpartyRequest(long Revision, string Registration, int ConfirmedCount);
     public sealed record PriceRequest(long Revision, string IdempotencyKey);
-    public sealed record MeasuresRequest(long Revision, IReadOnlyList<string> Measures);
     public sealed record RefreshRequest(long Revision);
     /// <summary>Asks again for the failed results on one trade, or on every trade when none is named (ADR-0010 §6).</summary>
     public sealed record RetryRequest(string? TradeId = null);
@@ -111,35 +95,6 @@ public static class XvaApi
         {
             service.Edit(id, request.Revision, user.Id, request.Entity, request.Field, request.Value);
             return Results.Ok(service.View(id, user.Id));
-        }));
-
-        ws.MapPost("/{id}/measures", (string id, MeasuresRequest request, CurrentUser user, PortfolioWorkspaces service) => Guard(() =>
-        {
-            service.SetMeasures(id, request.Revision, user.Id, request.Measures);
-            return Results.Ok(service.View(id, user.Id));
-        }));
-
-        ws.MapPost("/{id}/vary", (string id, VaryRequest request, CurrentUser user, PortfolioWorkspaces service) => Guard(() =>
-        {
-            var answer = (request.Cell, request.Entity, request.Field) switch
-            {
-                (null, { } entity, { } field) => service.VaryField(id, request.Revision, user.Id, entity, field, request.Values),
-                ({ } cell, null, null) => service.Vary(id, request.Revision, user.Id, cell, request.Values),
-                _ => throw new WorkspaceRefused("UnknownCell", "vary names a cell, or an entity and its field, and not both."),
-            };
-            return Results.Ok(new Varied(service.View(id, user.Id), answer.Made, answer.Skipped));
-        }));
-
-        ws.MapPost("/{id}/cds", (string id, CdsRequest request, CurrentUser user, PortfolioWorkspaces service) => Guard(() =>
-        {
-            var (state, credit) = service.ChooseCds(id, request.Revision, user.Id, request.Cds);
-            return Results.Ok(new CdsChosen(service.View(id, user.Id), PortfolioWorkspaces.CdsSaid(((PortfolioSourceVersion)state.Source).Registration, credit)));
-        }));
-
-        ws.MapPost("/{id}/add-trades", (string id, CaseRequest request, CurrentUser user, PortfolioWorkspaces service) => Guard(() =>
-        {
-            var answer = service.AddTrades(id, request.Revision, user.Id);
-            return Results.Ok(new TradesAdded(service.View(id, user.Id), answer.Made, answer.Replaced));
         }));
 
         // Scenarios (ADR-0010 §4 and its note of 2026-11-09): named sets of market-data shifts, crossed with every case.
@@ -204,18 +159,6 @@ public static class XvaApi
         ws.MapPost("/{id}/changes", (string id, ChangeRequest request, CurrentUser user, PortfolioWorkspaces service) => Guard(() =>
         {
             service.SetText(id, request.Revision, user.Id, request.Entity, request.Field, request.Text, request.Case);
-            return Results.Ok(service.View(id, user.Id));
-        }));
-
-        ws.MapPost("/{id}/cases/remove", (string id, CaseRequest request, CurrentUser user, PortfolioWorkspaces service) => Guard(() =>
-        {
-            service.RemoveCase(id, request.Revision, user.Id, request.Name ?? throw new WorkspaceRefused("UnknownCase", "case remove names the case to remove."));
-            return Results.Ok(service.View(id, user.Id));
-        }));
-
-        ws.MapPost("/{id}/cases/clear", (string id, CaseRequest request, CurrentUser user, PortfolioWorkspaces service) => Guard(() =>
-        {
-            service.ClearCases(id, request.Revision, user.Id);
             return Results.Ok(service.View(id, user.Id));
         }));
 

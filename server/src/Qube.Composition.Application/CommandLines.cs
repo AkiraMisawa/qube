@@ -89,6 +89,28 @@ public interface IViewVerb
     LineCompletions Complete(LineContext line);
 }
 
+/// <summary>
+/// Words an application's users type for a line of a kernel verb (ADR-0016 §3, note 29 of step 3): <c>tick manual</c>
+/// for <c>set manual checked on</c>. It has no behaviour of its own: it answers the line it stands for, and the server
+/// reads that line. What it cannot expand is refused by name, with the word at fault (<see cref="TableRefused"/>).
+/// </summary>
+public interface IShortForm
+{
+    ShortFormDescriptor Descriptor { get; }
+
+    /// <summary>The line of a command that the words after the form's own stand for, given the view behind the line.</summary>
+    string Expand(LineContext line);
+
+    /// <summary>What could follow the line's last word, or complete it where it is half typed; places count from the start of <see cref="LineContext.Text"/>.</summary>
+    LineCompletions Complete(LineContext line);
+}
+
+/// <summary>A module's short forms, for the applications it serves.</summary>
+public interface IShortFormCatalog
+{
+    IEnumerable<IShortForm> ShortForms { get; }
+}
+
 /// <summary>Why a line cannot be read (ADR-0016 §6): a stable code, a sentence, the word at fault with its place in the line where it stands there, and what it could have been.</summary>
 public sealed record LineRefusal(string Code, string Sentence, string? Word, int? Start, int? End, IReadOnlyList<string> Candidates);
 
@@ -100,6 +122,7 @@ public sealed record LineRefusal(string Code, string Sentence, string? Word, int
 /// <param name="View">What the screen behind the line showed, in one sentence, where the preview was asked with a view (note 19 of step 2).</param>
 /// <param name="ViewMoved">True where that view's positions are of an order that has moved since: its rows can no longer be said.</param>
 /// <param name="Place">Where a view verb asks the page to put the keyboard (note 21 of step 2): the reading then names no command, and Enter invokes none.</param>
+/// <param name="Expands">The line a short form stands for (note 29 of step 3): the reading is that line's, and the command and inputs are its own.</param>
 public sealed record LinePreview(
     long Revision,
     LineCommand? Command,
@@ -113,7 +136,8 @@ public sealed record LinePreview(
     int More,
     string? View = null,
     bool ViewMoved = false,
-    LinePlace? Place = null);
+    LinePlace? Place = null,
+    string? Expands = null);
 
 /// <summary>The words of a line as typed: what stands between its spaces, each with where it starts.</summary>
 public static partial class LineWords
@@ -126,9 +150,10 @@ public static partial class LineWords
 
 /// <summary>
 /// Reads a line as typed for a workspace (ADR-0016 §5) and executes nothing: finds what its first words name, among the
-/// commands that say how they are typed and the verbs of the screen, and has it read the rest. The commands are the
-/// registry's, and it names none; the verbs of the screen are the kernel's own, and it holds them (note 21 of step 2).
-/// What a line's words mean is each command's and each verb's to say.
+/// commands that say how they are typed, the verbs of the screen and the short forms, and has it read the rest. The
+/// commands are the registry's, and it names none; the verbs of the screen are the kernel's own, and it holds them
+/// (note 21 of step 2); the short forms are their modules' (note 29 of step 3), and one is read as the line it stands
+/// for. What a line's words mean is each command's, each verb's and each short form's to say.
 /// </summary>
 public sealed class CommandLines
 {
@@ -136,9 +161,10 @@ public sealed class CommandLines
     // of the screen's has the place it asks the page for, and nothing to invoke.
     sealed record Reading(JsonObject? Inputs, IReadOnlyList<LineArgument> Arguments, LineRows? Rows, string Would, DateTimeOffset? At, LinePlace? Place);
 
-    // What a line's first words name, a command capability that reads its line or a verb of the screen: how it is
-    // typed, the command Enter invokes where there is one, and how it completes and reads the rest of the line.
-    sealed record Typed(string[] Words, string Said, string Id, CommandForm Form, LineCommand? Command, Func<LineContext, LineCompletions> Complete, Func<LineContext, Reading> Read);
+    // What a line's first words name, a command capability that reads its line, a verb of the screen or a short form:
+    // how it is typed, the command Enter invokes where there is one, and how it completes and reads the rest of the
+    // line. A short form reads nothing: it answers the line it stands for.
+    sealed record Typed(string[] Words, string Said, string Id, CommandForm Form, LineCommand? Command, Func<LineContext, LineCompletions> Complete, Func<LineContext, Reading>? Read, Func<LineContext, string>? Expand = null);
 
     readonly WorkspaceService workspaces;
     readonly TableRegister tables;
@@ -147,11 +173,16 @@ public sealed class CommandLines
     /// <summary>The verbs of the screen (ADR-0016 §3, note 21 of step 2), for the catalog to list apart from the capabilities.</summary>
     public IReadOnlyList<ViewVerbDescriptor> ViewVerbs { get; }
 
+    /// <summary>The short forms (ADR-0016 §3, note 29 of step 3), for the catalog to list apart from the capabilities.</summary>
+    public IReadOnlyList<ShortFormDescriptor> ShortForms { get; }
+
     /// <summary>Fails at start where two commands answer to the same words, or one says how it is typed and does not read its line.</summary>
-    public CommandLines(CompositionRegistry registry, WorkspaceService workspaces, TableRegister tables)
+    public CommandLines(CompositionRegistry registry, WorkspaceService workspaces, TableRegister tables, IEnumerable<IShortFormCatalog> shortForms)
     {
         this.workspaces = workspaces;
         this.tables = tables;
+        IShortForm[] forms = [.. shortForms.SelectMany(c => c.ShortForms)];
+        ShortForms = [.. forms.Select(f => f.Descriptor)];
         IViewVerb[] verbs = [new FindVerb(tables)];
         ViewVerbs = [.. verbs.Select(v => v.Descriptor)];
         var named = new List<Typed>();
@@ -178,11 +209,18 @@ public sealed class CommandLines
             }
             named.AddRange(verb.Descriptor.Command.Words.Select(w => new Typed(TableWords.Of(w).Split(' '), TableWords.Of(w), verb.Descriptor.VerbId, verb.Descriptor.Command, null, verb.Complete, Read)));
         }
-        if (named.GroupBy(n => n.Said).FirstOrDefault(g => g.Count() > 1) is { } shared)
+        named.AddRange(forms.SelectMany(form => form.Descriptor.Command.Words.Select(w =>
+            new Typed(TableWords.Of(w).Split(' '), TableWords.Of(w), form.Descriptor.FormId, form.Descriptor.Command, null, form.Complete, null, form.Expand))));
+        // Two applications may each have a command of the same words (note 27 of step 3): a workspace is one
+        // application's. Within one, and beside a command of every application's, words are one command's.
+        if (named.GroupBy(n => n.Said).FirstOrDefault(g => g.Count() > 1 && (g.Any(n => n.Form.App is null) || g.GroupBy(n => n.Form.App).Any(a => a.Count() > 1))) is { } shared)
             throw new InvalidOperationException($"{TableWords.And(shared.Select(n => n.Id))} answer to the same words, {shared.Key}.");
         // The longest words first: `add each` is read before `add`.
         typed = [.. named.OrderByDescending(n => n.Words.Length)];
     }
+
+    // What a line of the workspace may name (note 27 of step 3): the commands of its application, and those of every one.
+    IEnumerable<Typed> Of(WorkspaceState state) => typed.Where(t => t.Form.App is null || t.Form.App == state.App);
 
     /// <summary>
     /// The line as read for the caller's own workspace as it stands, or at the revision the caller read, which a
@@ -194,10 +232,17 @@ public sealed class CommandLines
     {
         var state = WorkspaceCommands.Owned(workspaces, workspaceId, caller, revision);
         var viewSaid = view is null ? null : Views.Say(view, tables.Of(state), state);
-        LinePreview Seen(LinePreview preview) => viewSaid is null ? preview : preview with { View = viewSaid.Sentence, ViewMoved = viewSaid.Moved };
+        var preview = Read(line, state, caller, view, Of(state).ToList());
+        return viewSaid is null ? preview : preview with { View = viewSaid.Sentence, ViewMoved = viewSaid.Moved };
+    }
+
+    // The line as read among `named`: what a line of the workspace may name, or, for the line a short form stands for,
+    // the commands and the screen's verbs alone.
+    LinePreview Read(string line, WorkspaceState state, Caller caller, LineView? view, IReadOnlyList<Typed> named)
+    {
         var words = LineWords.Of(line);
-        var said = Named(words);
-        var all = typed.Select(t => t.Said).ToList();
+        var said = Named(named, words);
+        var all = named.Select(t => t.Said).ToList();
         if (said is null)
         {
             // A first word half typed is completed; one that is no command is refused with the commands there are.
@@ -205,7 +250,7 @@ public sealed class CommandLines
             var starting = words.Count <= 1 && !EndsInSpace(line) ? all.Where(w => w.StartsWith(first.Word, StringComparison.OrdinalIgnoreCase)).ToList() : [];
             var refusal = new LineRefusal("UnknownCommand", first.Word.Length == 0 ? $"Type a command: {TableWords.List(all)}." : $"No command {first.Word}: the commands are {TableWords.List(all)}.",
                 first.Word.Length == 0 ? null : first.Word, first.Word.Length == 0 ? null : first.Start, first.Word.Length == 0 ? null : first.Start + first.Word.Length, all);
-            return Seen(new(state.Revision, null, null, null, null, null, null, refusal, [.. starting.Select(w => new LineCompletion(w, first.Start))], 0));
+            return new(state.Revision, null, null, null, null, null, null, refusal, [.. starting.Select(w => new LineCompletion(w, first.Start))], 0);
         }
 
         var last = words[said.Words.Length - 1];
@@ -218,8 +263,20 @@ public sealed class CommandLines
             return Refused("UnreadWords", $"{said.Said} takes no words after it.", words[said.Words.Length].Word, []);
         try
         {
-            var read = said.Read(context);
-            return Seen(new(state.Revision, said.Command, read.Inputs, read.Arguments, read.Rows, read.Would, read.At, null, complete, completions.More, Place: read.Place));
+            if (said.Expand is { } expand)
+            {
+                // A short form (note 29 of step 3): the reading is the line's it stands for, with what the form itself
+                // completes; a word that line is refused for is marked where it stands in the line as typed.
+                var stands = expand(context);
+                IReadOnlyList<Typed> commands = [.. named.Where(n => n.Expand is null)];
+                if (Named(commands, LineWords.Of(stands)) is null)
+                    throw new InvalidOperationException($"The short form {said.Said} expands to `{stands}`, which begins with no command's words.");
+                var meant = Read(stands, state, caller, view, commands);
+                var typed = meant.Refused?.Word is { } word ? Place(line, from, word) : null;
+                return meant with { Expands = stands, Complete = complete, More = completions.More, Refused = meant.Refused is null ? null : meant.Refused with { Start = typed?.Start, End = typed?.End } };
+            }
+            var read = (said.Read ?? throw new InvalidOperationException($"{said.Id} neither reads its line nor stands for another."))(context);
+            return new(state.Revision, said.Command, read.Inputs, read.Arguments, read.Rows, read.Would, read.At, null, complete, completions.More, Place: read.Place);
         }
         catch (TableRefused refused)
         {
@@ -233,7 +290,7 @@ public sealed class CommandLines
         LinePreview Refused(string code, string sentence, string? word, IReadOnlyList<string> candidates)
         {
             var place = word is null ? null : Place(line, from, word);
-            return Seen(new(state.Revision, said.Command, null, null, null, null, null, new(code, sentence, word, place?.Start, place?.End, candidates), complete, completions.More));
+            return new(state.Revision, said.Command, null, null, null, null, null, new(code, sentence, word, place?.Start, place?.End, candidates), complete, completions.More);
         }
     }
 
@@ -253,15 +310,15 @@ public sealed class CommandLines
         return [.. tables.Of(state).Select(t => t.Descriptor).Select(table =>
         {
             foreach (var action in table.Actions ?? [])
-                if (Named(LineWords.Of(action.Line)) is null)
+                if (Named(Of(state), LineWords.Of(action.Line)) is null)
                     throw new InvalidOperationException($"{table.TableId} offers {action.Title} as the line `{action.Line}`, which begins with no command's words.");
             return new TableOnScreen(table.TableId, table.Title, [.. own, .. table.Actions ?? []]);
         })];
     }
 
     // What a line's first words name: the command or the verb of the screen whose words they are, the longest first.
-    Typed? Named(IReadOnlyList<(string Word, int Start)> words) =>
-        typed.FirstOrDefault(t => t.Words.Length <= words.Count && t.Words.Zip(words).All(p => p.First.Equals(p.Second.Word, StringComparison.OrdinalIgnoreCase)));
+    static Typed? Named(IEnumerable<Typed> named, IReadOnlyList<(string Word, int Start)> words) =>
+        named.FirstOrDefault(t => t.Words.Length <= words.Count && t.Words.Zip(words).All(p => p.First.Equals(p.Second.Word, StringComparison.OrdinalIgnoreCase)));
 
     // Where the word stands in the line after the command's own words, as a word of its own: bounded by the line's
     // ends, a space, a comma or an operator's sign. A word that stands there twice has no place: the reader names the

@@ -410,6 +410,14 @@ Those that change the workspace (an edit in any layer, `measures`, `vary`, `add 
 Price are registered as command capabilities (ADR-0005), so the AI calls them as it calls the Rates commands; XVA
 registers none today. Opening a tab, Download and Copy quote are the page's own and are not the AI's.
 
+*Note of 2026-11-11 (ADR-0016 step 3a, its notes 27 to 30):* `add trades` is typed `add each` (the owner's name,
+ADR-0016 §3), here and in §3 and §6. `measures`, `vary`, `add each`, `cds`, `case remove` and `cases clear` are
+command capabilities whose lines the server reads: the line says what each would do before Enter, and the page's
+buttons and *Vary values…* invoke the same capabilities. `before`, `after` and `currency` are short forms of the
+kernel's `set`. The command for each input tab is built by the shell from the page's tabs (`open csa`), and `go`
+takes the grids and the dock. The page's own endpoints that wrote for `vary`, `cds`, `add trades`, the measures and
+the cases' removal are gone: a measure's button invokes `measures` as the line does.
+
 ### 10. Measures register into the page (CONFIRMED, owner 2026-11-07: one page, a Price that selects the measures, each measure with its own trade scope, input tabs and results; the rest DEFAULT)
 
 A **measure** is a figure family a Price can be asked for: CVA, FVA, MVA and KVA (XVA's, §11), spot initial margin

@@ -1,5 +1,5 @@
 import type { Page } from '@playwright/test';
-import { command, expect, newWorkspace, open, settled, test } from './fixtures';
+import { command, expect, newWorkspace, open, settled, test, taken } from './fixtures';
 
 // ADR-0010 Delivery step 5 (docs/specs/pricer-credit-risks-profile): the Credit and Settings input tabs, and the Risks and
 // Profile result tabs, as only a browser shows them. Every name and figure is synthetic.
@@ -28,7 +28,7 @@ async function figure(page: Page, label: string): Promise<string> {
 test('ADR-0010 §8\'s note of 2026-11-09: the Credit tab chooses a CDS and edits its spreads, marked, and the Metrics move; none refuses CVA', async ({ page, problems }) => {
   await open(page);
   await newWorkspace(page, 'ABC/LE-01', 5);
-  await command(page, 'measures', 'cva');
+  await taken(page, 'measures', 'cva');
   await price(page);
   const priced = await figure(page, 'CVA After');
 
@@ -74,7 +74,7 @@ test('ADR-0010 §8\'s note of 2026-11-09: the Credit tab chooses a CDS and edits
   await expect.poll(() => figure(page, 'CVA After')).not.toBe(priced);
 
   // `cds none` leaves no curve: the tab says why CVA is refused, and so do the Metrics.
-  await command(page, 'cds', 'none');
+  await taken(page, 'cds', 'none');
   const missing = 'No CDS for ABC/LE-01: choose a single name or a proxy on the Credit tab, or with cds.';
   await expect(page.getByTestId('notice')).toHaveText(missing);
   await expect(page.getByTestId('cds-missing')).toHaveText(missing);
@@ -83,7 +83,7 @@ test('ADR-0010 §8\'s note of 2026-11-09: the Credit tab chooses a CDS and edits
   expect(await figure(page, 'CVA After')).toBe('refused');
 
   // A proxy by its keys, from the command line, and the tab shows it.
-  await command(page, 'cds', 'proxy financials asia A');
+  await taken(page, 'cds', 'proxy financials asia A');
   await expect(page.getByTestId('notice')).toContainText('The CDS of ABC/LE-01 is the proxy');
   await expect(page.getByRole('combobox', { name: 'CDS' })).toHaveValue('proxy');
   await expect(page.getByRole('combobox', { name: 'Sector' })).toHaveValue('financials');
@@ -108,7 +108,7 @@ test('ADR-0010 §8\'s note of 2026-11-09: the Credit tab chooses a CDS and edits
 test('ADR-0010 §8: a setting typed in the Settings tab is marked and moves KVA after Price; `set xva` sets one and a bad value is refused', async ({ page, problems }) => {
   await open(page);
   await newWorkspace(page, 'ABC/LE-01', 5);
-  await command(page, 'measures', 'cva kva');
+  await taken(page, 'measures', 'cva kva');
   await price(page);
   const kva = await figure(page, 'KVA After');
 
@@ -153,7 +153,7 @@ test('ADR-0010 §8: a setting typed in the Settings tab is marked and moves KVA 
 test('the owner\'s Risks of 2026-11-08: one Risks tab for CVA and FVA says why it has no deltas, then shows them once risks are included', async ({ page }) => {
   await open(page);
   await newWorkspace(page, 'ABC/LE-01', 5);
-  await command(page, 'measures', 'cva fva');
+  await taken(page, 'measures', 'cva fva');
   await price(page);
   await command(page, 'open result', 'risks');
   // CVA and FVA both register Risks; the dock draws it once.
@@ -183,7 +183,7 @@ test('the owner\'s Risks of 2026-11-08: one Risks tab for CVA and FVA says why i
 test('the owner\'s Profile of 2026-11-08: the Profile tab draws the exposure and the capital profile as a table and a chart', async ({ page }) => {
   await open(page);
   await newWorkspace(page, 'ABC/LE-01', 5);
-  await command(page, 'measures', 'cva kva');
+  await taken(page, 'measures', 'cva kva');
   await price(page);
   await command(page, 'open result', 'profile');
 
@@ -220,7 +220,7 @@ test('ADR-0010 §1, UX03: at 390px the Credit and Settings tabs, the Risks and t
   await page.setViewportSize({ width: 390, height: 844 });
   await open(page);
   await newWorkspace(page, 'ABC/LE-01', 3);
-  await command(page, 'measures', 'cva fva kva');
+  await taken(page, 'measures', 'cva fva kva');
   const sideways = () => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
 
   await command(page, 'open credit');
