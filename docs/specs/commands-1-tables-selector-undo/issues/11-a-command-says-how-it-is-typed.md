@@ -8,7 +8,15 @@ contracts read it.
 
 **Blocked by:** 10.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] `GET /api/catalog` answers the five commands with their words and arguments.
-- [ ] A capability with no form answers none, and nothing else of the catalog changes.
+- [x] `GET /api/catalog` answers the five commands with their words and arguments.
+- [x] A capability with no form answers none, and nothing else of the catalog changes.
+
+## Comments
+
+- 2026-11-11: done (`CommandForm`, `CommandArgument`, `CommandArgumentKind` in the contracts; `Capability.command` in
+  `contracts/composition.schema.json`; `CommandLineTests`, `CommandGatewayTests`). A form holds one spelling or several
+  and each argument's name, kind and whether it is required, in the order typed.
+- A capability that says how it is typed must read its line (`ILineCommand`), and two forms may not share a word:
+  either stops the host at start (`CommandLines`, resolved in `Program.cs` as the registry is).

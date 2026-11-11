@@ -1,6 +1,6 @@
 # Generic commands, delivery step 1: tables, the selector, the edit verbs, undo and the preview
 
-Status: ready-for-agent
+Status: done
 
 The decisions are ADR-0016 §1 to §6 and §11, with its notes of 2026-11-11 for what those sections leave to the
 builder, and ADR-0003 (the log), ADR-0005 (commands), ADR-0006 (the line) and ADR-0008 (forms). This spec orders
@@ -148,17 +148,21 @@ reader goes (the page's `/set` endpoint went with 1b).
 
 - **The command form.** `CapabilityDescriptor` gains `Command`, a `CommandForm(Words, Arguments)` with
   `CommandArgument(Name, Kind, Required)`, kind one of `rows`, `assignments`, `field`, `text`. The catalog serves it.
-- **`POST /api/commands/preview`** takes `{ line, app, workspaceId, revision }` and executes nothing. It answers
-  `{ command: { id, version }, inputs, arguments, rows: { table, title, count, first }, would, complete }` or
-  `{ refused: { code, sentence, word, start, end, candidates }, complete }`. `would` is the sentence of what would
-  change (`trades, 12 rows; A: 9 on to off, 3 already off`). `complete` is what could follow the last word: rows,
-  `all`, subsets, `where`, fields, operators, a field's values.
+- **`POST /api/commands/preview`** takes `{ line, workspaceId, revision }` and executes nothing (as built, the
+  workspace says whose tables it holds, so no `app`; ADR-0016's note 15). It answers
+  `{ revision, command: { id, version }, inputs, arguments, rows: { table, title, count, first }, would, at, complete,
+  more }` or `{ refused: { code, sentence, word, start, end, candidates }, complete, more }`. `rows.title` and `would`
+  say the rows and what would change (`trades, 12 rows` and `A: 9 on to off, 3 already off`). `complete` is what could
+  follow the last word: rows, `all`, subsets, `where`, fields, operators, a field's values.
 - **The line.** A command whose form the catalog serves is built from it: `set`, `reset`, `remove`, `undo`, `redo`.
   While its line is typed the client asks for the preview (the latest answer wins, an older one is dropped), shows
-  `would` or the reason under the line, and offers `complete`. Enter invokes the command with the preview's inputs
-  for exactly the text on the line, asking first where no answer for that text has come; while the line cannot be
-  read Enter runs nothing and the line stays open with its text. `setTyped`, `setHint` and the page's `set` go
-  (its endpoint went in 1b). `vary` keeps its reader until step 3.
+  `would` or the reason under the line, and offers `complete`. Enter invokes the inputs of the reading the line shows
+  for exactly its text, in the page's own turn; they name the revision read, so a workspace that moved since refuses
+  it (as built after the review: the preview is asked for after the page's own edits have been answered, and Enter
+  never runs a reading the user did not see). With no reading for the text yet, the server reads the line at the
+  revision the page then holds and that is invoked. While the line cannot be read, or the command is refused, Enter
+  runs nothing and the line stays open with its text. `setTyped`, `setHint` and the page's `set` go (its endpoint
+  went in 1b). `vary` keeps its reader until step 3.
 
 ## Testing Decisions
 

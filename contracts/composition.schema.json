@@ -362,6 +362,9 @@
             ]
           },
           "minItems": 0
+        },
+        "command": {
+          "$ref": "#/$defs/CommandForm"
         }
       },
       "required": [
@@ -372,6 +375,54 @@
         "outputPorts",
         "executionKind",
         "effects"
+      ],
+      "additionalProperties": false
+    },
+    "CommandForm": {
+      "type": "object",
+      "properties": {
+        "words": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1
+        },
+        "arguments": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "kind": {
+                "enum": [
+                  "rows",
+                  "assignments",
+                  "field",
+                  "text"
+                ]
+              },
+              "required": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "name",
+              "kind",
+              "required"
+            ],
+            "additionalProperties": false
+          },
+          "minItems": 0
+        }
+      },
+      "required": [
+        "words",
+        "arguments"
       ],
       "additionalProperties": false
     },

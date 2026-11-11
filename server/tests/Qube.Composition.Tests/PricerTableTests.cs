@@ -21,6 +21,7 @@ public class PricerTableTests
         public WorkspaceService Workspaces { get; }
         public PortfolioWorkspaces Service { get; }
         public CommandService Commands { get; }
+        public CommandLines Lines { get; }
         public string Id { get; }
 
         public Rig(int existing = 40)
@@ -32,6 +33,7 @@ public class PricerTableTests
             var store = new InMemoryDataStore();
             Service = new PortfolioWorkspaces(Workspaces, store, new RunService(registry, store, TimeProvider.System), register);
             Commands = new CommandService(registry, store);
+            Lines = new CommandLines(registry, Workspaces);
             Id = Service.Create("akira", "ABC/LE-01", Day1, existing).WorkspaceId;
         }
 
@@ -103,6 +105,32 @@ public class PricerTableTests
 
         Assert.Equal("Took back: set where ccy=usd after off. redo puts it back.", undone["said"]!.GetValue<string>());
         Assert.Equal([usd[0]], rig.Trades().Where(t => !t.After).Select(t => t.TradeId));
+    }
+
+    [Fact] // ADR-0016 §5, note 15: the line `set where ccy=USD after off` says its trades and how many would change before it runs, and offers what the pricer registered
+    public async Task The_line_says_its_trades_and_what_would_change_and_offers_the_pricers_words()
+    {
+        var rig = new Rig();
+        var usd = rig.Trades().Where(t => t.Currency == "USD").Select(t => t.TradeId).ToList();
+        rig.Service.Edit(rig.Id, rig.State.Revision, "akira", $"trade:{usd[0]}", "after", false);
+        var before = rig.State.Revision;
+        string Offered(string line) => string.Join(" | ", rig.Lines.Preview(line, rig.Id, null, Akira).Complete.Select(c => c.Value));
+
+        var preview = rig.Lines.Preview("set where ccy=USD after off", rig.Id, null, Akira);
+
+        Assert.Equal((PortfolioTables.Trades, $"trades, {usd.Count} rows", usd.Count), (preview.Rows!.Table, preview.Rows.Title, preview.Rows.Count));
+        Assert.Equal(usd.Take(10), preview.Rows.First);
+        Assert.Equal($"A: {usd.Count - 1} on to off, 1 already off", preview.Would);
+        Assert.Equal(new JsonObject { ["workspaceId"] = rig.Id, ["revision"] = before, ["rows"] = "where ccy=USD", ["set"] = "after off" }.ToJsonString(), preview.Inputs!["request"]!.ToJsonString());
+        Assert.Equal(before, rig.State.Revision);
+        // A trade's CSA is a row of the CSAs, and a currency one of the registered ones.
+        Assert.Equal("CSA-A | CSA-B", Offered($"set {End(usd[0])} csa "));
+        Assert.Equal("ccy=GBP | ccy=JPY | ccy=USD | ccy=EUR", Offered("set where ccy="));
+        Assert.Equal("existing", Offered("set ex"));
+        Assert.Equal("new | netting", Offered("set ne"));
+
+        var ran = await rig.Commands.InvokeAsync(preview.Command!.Id, preview.Command.Version, preview.Inputs!, Akira, Guid.NewGuid().ToString(), default);
+        Assert.Equal($"Set A to off on {usd.Count - 1} trades; 1 already held it.", Assert.IsType<CommandResult.Done>(ran).Outputs["answer"]!["said"]!.GetValue<string>());
     }
 
     [Fact] // ADR-0016 §2, note 8: a condition reads its value as the field's form does, a period from the value date, and an amount only in one currency

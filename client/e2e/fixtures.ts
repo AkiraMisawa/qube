@@ -19,9 +19,11 @@ export async function open(page: Page): Promise<void> {
 
 /**
  * Runs a command from the command line (ADR-0006): its words, then its arguments if it takes any. Enter runs what the
- * line shows it will run, so the test reads that first.
+ * line shows it will run, so the test reads that first. A line the server reads at Enter (ADR-0016 §5) stays until it
+ * is read, and the keys typed meanwhile go to nothing: the line before is gone before this one is opened.
  */
 export async function command(page: Page, words: string, args?: string): Promise<void> {
+  await expect(page.getByRole('combobox', { name: 'Command' })).toBeHidden();
   await page.keyboard.press('ControlOrMeta+K');
   await expect(page.getByRole('combobox', { name: 'Command' })).toBeFocused();
   await page.keyboard.type(args === undefined ? words : `${words} ${args}`);

@@ -11,7 +11,7 @@ import { httpRatesApi, type RatesApi } from './rates/api';
 import { ratesCommandsOf } from './rates/commands';
 import { RatesWorkspacePanel } from './rates/RatesWorkspacePanel';
 import { httpXvaApi, type XvaApi } from './xva/api';
-import { cdsCompletions, measureNamed, measuresTyped, setHint, setTyped, varyHint, varyTyped, xvaPageOf } from './xva/commands';
+import { cdsCompletions, measureNamed, measuresTyped, varyHint, varyTyped, xvaPageOf } from './xva/commands';
 import { generatorParts, scenarioParts, scenarioTyped } from './xva/scenarios';
 import { XvaWorkspacePanel } from './xva/XvaWorkspacePanel';
 import { registerAiContext, registerAiEffect } from '../ai/effects';
@@ -275,35 +275,6 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
         const typed = varyTyped(a.cell ?? '');
         xvaPage().vary(typed.cell, typed.values);
       },
-    },
-    {
-      id: 'xva.set',
-      words: 'set',
-      title: 'Set one value of a cell, on one row or several, such as set CSA-A threshold 5mm',
-      group: 'XVA',
-      ...onXva,
-      args: [{ name: 'cell', required: true, rest: true, hint: setHint(xvaPageOf(xva)?.examples()) }],
-      run: (a) => {
-        const typed = setTyped(a.cell ?? '');
-        xvaPage().set(typed.rows, typed.column, typed.text);
-      },
-    },
-    // Undo and redo (ADR-0016 §11): two kernel commands, run by the page so that they follow the edits it has already sent.
-    {
-      id: 'workspace.undo',
-      words: 'undo',
-      title: 'Take back the last command',
-      group: 'Workspace',
-      ...onXva,
-      run: () => xvaPage().undo(),
-    },
-    {
-      id: 'workspace.redo',
-      words: 'redo',
-      title: 'Put back the command last taken back',
-      group: 'Workspace',
-      ...onXva,
-      run: () => xvaPage().redo(),
     },
     {
       id: 'xva.trades.add',

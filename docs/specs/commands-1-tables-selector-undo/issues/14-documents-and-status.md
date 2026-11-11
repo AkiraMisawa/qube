@@ -9,7 +9,13 @@ and what is next.
 
 **Blocked by:** 13.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] The status names the three pull requests, the suites' counts and the measurement.
-- [ ] No document describes `set` as read on the client.
+- [x] The status names the three pull requests, the suites' counts and the measurement.
+- [x] No document describes `set` as read on the client.
+
+## Comments
+
+- 2026-11-11: done. ADR-0016's Delivery order marks step 1 built and its note 15 says what the third pull request
+  settled; ADR-0006 gains note 5 and ADR-0010 §9 a sentence, both pointing at the server's reader;
+  `docs/10-api-contracts.md` names the preview and the commands the page runs through the gateway.

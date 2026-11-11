@@ -70,6 +70,7 @@ builder.Services.AddSingleton<TableRegister>();
 builder.Services.AddSingleton<TableService>();
 builder.Services.AddSingleton<IQubeModule>(sp => new TablesModule(sp.GetRequiredService<TableService>));
 builder.Services.AddSingleton(sp => new CommandService(sp.GetRequiredService<CompositionRegistry>(), sp.GetRequiredService<IDataStore>()));
+builder.Services.AddSingleton<CommandLines>();
 // A Run's calculation traces (ADR-0011 §5, §7): the read endpoint and trace.read open them through one service.
 builder.Services.AddSingleton(sp => new TraceService(sp.GetRequiredService<RunService>(), sp.GetRequiredService<IDataStore>(), sp.GetRequiredService<CompositionRegistry>()));
 builder.Services.AddSingleton<IQubeModule>(sp => new TracesModule(sp.GetRequiredService<TraceService>));
@@ -146,6 +147,9 @@ var app = builder.Build();
 app.UseRequestLogging();
 // Resolve the registry now, so an invalid registered definition stops startup instead of a later request.
 app.Services.GetRequiredService<CompositionRegistry>();
+// And the reader of typed lines, for the same reason (ADR-0016 §4): a command that says how it is typed and cannot
+// read its line, or two that answer to the same words, stop startup.
+app.Services.GetRequiredService<CommandLines>();
 
 app.MapQubeApi();
 app.MapXvaApi();

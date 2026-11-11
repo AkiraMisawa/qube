@@ -3,6 +3,7 @@ import { catalog, view, workflow } from '../test/catalog';
 import type { RunRecord } from '../platform/contracts';
 import type { WorkspaceState } from '../platform/workspace/workspaceStore';
 import { termRequests } from '../platform/traces/open';
+import { registerCommandDoor } from '../platform/commands/served';
 
 const state = (overrides: Partial<WorkspaceState> = {}) => ({
   panels: [],
@@ -72,13 +73,31 @@ describe('the page\'s commands (ADR-0006 note 3 of 2026-11-11)', () => {
   const of = (id: string) => commands.find((c) => c.id === id)!;
 
   it('a command says that it acts on the page in the active panel, and only such a command does', () => {
-    expect(of('xva.set').page).toBe(true);
+    expect(of('xva.vary').page).toBe(true);
     expect(of('workspace.price').page).toBe(true);
     expect(of('trace.explain').page).toBe(true);
     // Not of the page: one that opens another, one of another application, and the shell's own on the active panel.
     expect(of('xva.new').page).toBeUndefined();
     expect(of('rates.capture').page).toBeUndefined();
     expect(of('panel.close').page).toBeUndefined();
+  });
+
+  it('ADR-0016 §4: a command the catalog says how to type is the page\'s where the page gives it a workspace, and says why not elsewhere', () => {
+    const typed = { ...catalog([], []), capabilities: [{
+      capabilityId: 'entity.set', version: '1.0.0', title: 'Set fields of rows', inputPorts: [], outputPorts: [], executionKind: 'requestResponse' as const, effects: ['editWorkspace'],
+      command: { words: ['set'], arguments: [{ name: 'rows', kind: 'rows' as const, required: false }, { name: 'set', kind: 'assignments' as const, required: true }] },
+    }] };
+    const served = (cat: typeof typed) => build(cat, s).find((c) => c.id === 'entity.set')!;
+
+    expect(served(typed).unavailable).toBe('This panel has no workspace for it to act on.');
+
+    registerCommandDoor('p', { workspaceId: 'w', settled: () => Promise.resolve(), enter: () => Promise.resolve(undefined), invoke: () => Promise.resolve(undefined) });
+    try {
+      const set = served(typed);
+      expect([set.words, set.group, set.target, set.page, set.unavailable, set.served?.door.workspaceId]).toEqual(['set', 'Workspace', 'XVA ABC/LE-01', true, undefined, 'w']);
+    } finally {
+      registerCommandDoor('p', undefined);
+    }
   });
 
   it('a finished Run\'s views are its page\'s commands', () => {

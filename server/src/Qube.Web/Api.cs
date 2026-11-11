@@ -1,6 +1,7 @@
 using System.Text.Json.Nodes;
 using Qube.Composition.Application;
 using Qube.Composition.Application.Traces;
+using Qube.Composition.Application.Workspaces;
 using Qube.Composition.Contracts;
 
 namespace Qube.Web;
@@ -22,6 +23,9 @@ public static class Api
     public sealed record ActionRequest(IReadOnlyDictionary<string, JsonNode?> Parameters, JsonObject Context, string IdempotencyKey);
 
     public sealed record CommandRequest(JsonObject Inputs, string IdempotencyKey);
+
+    /// <summary>A line as typed, for a workspace, at the revision its caller read where it says one (ADR-0016 §5).</summary>
+    public sealed record PreviewRequest(string Line, string WorkspaceId, long? Revision = null);
 
     public sealed record ViewValidationRequest(ViewDefinition View, IReadOnlyList<string> BoundNames);
 
@@ -101,15 +105,26 @@ public static class Api
                 await commands.InvokeAsync(capabilityId, version, request.Inputs, new Caller(user.Id, origin), request.IdempotencyKey, cancellationToken) switch
                 {
                     CommandResult.Done done => Results.Ok(new { capabilityId = done.CapabilityId, version = done.Version, outputs = done.Outputs }),
-                    CommandResult.Refused { Code: "UnknownCapability" or "UnknownWorkspace" } refused =>
-                        Results.Json(new ErrorEnvelope(refused.Code, refused.Issues[0].Message, refused.Issues), statusCode: 404),
-                    CommandResult.Refused { Code: "NotOwner" } refused =>
-                        Results.Json(new ErrorEnvelope(refused.Code, refused.Issues[0].Message, refused.Issues), statusCode: 403),
-                    CommandResult.Refused { Code: "RevisionMoved" } refused =>
-                        Results.Json(new ErrorEnvelope(refused.Code, refused.Issues[0].Message, refused.Issues, Retryable: true), statusCode: 409),
+                    CommandResult.Refused refused when DoorStatus(refused.Code) is { } status =>
+                        Results.Json(new ErrorEnvelope(refused.Code, refused.Issues[0].Message, refused.Issues, Retryable: status == 409), statusCode: status),
                     CommandResult.Refused refused => Rejected(refused.Code, refused.Issues),
                     _ => throw new InvalidOperationException("Unhandled command result."),
                 });
+
+        // The preview (ADR-0016 §5): the server reads a line as typed and executes nothing. A line it cannot read is an
+        // answer, with the word at fault; a workspace it may not read, or one that moved, is refused as the door refuses it.
+        api.MapPost("/commands/preview", (PreviewRequest request, CommandLines lines, CurrentUser user) =>
+        {
+            try
+            {
+                return Results.Ok(lines.Preview(request.Line, request.WorkspaceId, request.Revision, new Caller(user.Id, RunOrigin.Pricer)));
+            }
+            catch (WorkspaceRefused refused)
+            {
+                var status = DoorStatus(refused.Code) ?? throw new InvalidOperationException($"No status is set for the preview's refusal {refused.Code}.");
+                return Results.Json(new ErrorEnvelope(refused.Code, refused.Message, [], Retryable: status == 409), statusCode: status);
+            }
+        });
 
         // The Pricing DB. Until roles arrive with sign-in (C30, C31), a user sees their own Runs only.
         api.MapGet("/history/catalog", (HistoryService history) => history.Catalog());
@@ -169,6 +184,19 @@ public static class Api
     static IResult Rejected(string code, IReadOnlyList<CompositionIssue> issues) => Results.Json(
         new ErrorEnvelope(code, issues.Count == 1 ? issues[0].Message : $"{issues.Count} problems were found.", issues),
         statusCode: code == "IdempotencyConflict" ? 409 : code is "DataUnavailable" ? 410 : 422);
+
+    /// <summary>
+    /// The status of a refusal that is about what a command or a line was sent to, the same wherever the door answers
+    /// it: no such command or workspace, another user's workspace, a workspace that has moved (which may be tried again
+    /// once read). None for a refusal about the request itself, which is its endpoint's to place.
+    /// </summary>
+    static int? DoorStatus(string code) => code switch
+    {
+        "UnknownCapability" or "UnknownWorkspace" => 404,
+        "NotOwner" => 403,
+        "RevisionMoved" => 409,
+        _ => null,
+    };
 
     static IResult NotFound(string code, string message) => Results.Json(new ErrorEnvelope(code, message, []), statusCode: 404);
 }

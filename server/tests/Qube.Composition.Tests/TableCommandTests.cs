@@ -152,7 +152,21 @@ public class TableCommandTests
         var refused = await rig.SetRefused("R2", "note=wind direction=N");
 
         Assert.Equal("Set R1 note to wind and wind speed to 3.", told.Said);
-        Assert.Equal(("UnreadValues", "note has no value: values are written name=value, one or several."), refused);
+        Assert.Equal(("UnreadValues", "note has no value: one value is written after its field (<field> <value>), and several as name=value."), refused);
+    }
+
+    [Fact] // ADR-0016 §3, note 15: one value follows its field with no sign, as the line first spells it; the field's words are the longest that name one
+    public async Task One_value_follows_its_field_with_no_sign()
+    {
+        var rig = new Rig();
+
+        var note = Told(await rig.Set("R1", "note very wet"));
+        var wind = Told(await rig.Set("R1", "wind speed 4"));
+        var alarm = Told(await rig.Set(null, "alarm 5mm"));
+
+        Assert.Equal("Set R1 note to very wet.", note.Said);
+        Assert.Equal("Set R1 wind speed to 4.", wind.Said);
+        Assert.Equal(("Set board alarm volume to 5mm.", Stations.Settings), (alarm.Said, alarm.Table));
     }
 
     [Theory] // ADR-0016 §3: one value that cannot be read, or that the domain refuses, leaves nothing written
@@ -168,7 +182,9 @@ public class TableCommandTests
     [InlineData("R1", "wind=3", "AmbiguousField", "wind could be wind speed or wind direction of readings.")]
     [InlineData("R1", "station=south", "NotEditable", "station is not a field a command sets; readings takes volume, unit, checked, note, wind speed, wind direction and drift.")]
     [InlineData("R1", "note=wet note=dry", "FieldTwice", "note is given twice; give each field one value.")]
-    [InlineData("R1", "note wet", "UnreadValues", "note wet says no value: values are written name=value, one or several.")]
+    [InlineData("R1", "note", "UnreadValues", "note has no value: one value is written after its field (<field> <value>), and several as name=value.")]
+    [InlineData("R1", "wind 4", "AmbiguousField", "wind could be wind speed or wind direction of readings.")]
+    [InlineData("R1", "colour red", "UnknownField", "readings has no field colour; its fields are id, station, volume, unit, taken, checked, note, wind speed, wind direction, window, drift.")]
     [InlineData("R1 note", "note=wet", "UnreadRows", "note is left over after the rows: rows are ids separated by commas, all, a subset, or where and its conditions.")]
     [InlineData("Q9", "note=wet", "UnknownRow", "No row Q9 in readings, stations or settings.")]
     [InlineData(null, "note=wet", "NoRows", "Say which rows: their ids, all, manual, automatic, or where and a condition; or name a table (readings, stations, settings).")]

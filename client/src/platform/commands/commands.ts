@@ -2,6 +2,8 @@
 // here and runs them, so availability and behaviour cannot differ between surfaces. A command is found by typing the
 // English words for what it does; its arguments are completed one slot at a time.
 
+import type { LinePreview } from '../contracts';
+
 /** A value a slot offers, with what it means. */
 export interface Completion {
   readonly value: string;
@@ -45,6 +47,11 @@ export interface Command {
    */
   readonly page?: boolean;
   readonly args?: readonly CommandArgument[];
+  /**
+   * Its line is the server's to read (ADR-0016 §5): a command the catalog says how to type. The line reads nothing of
+   * what follows its words; it shows the server's reading while that is typed, and Enter has the server run it.
+   */
+  readonly served?: Served;
   /** A shell chord in Mantine's notation (`mod+shift+G`). Only the shell's commands carry one (ADR-0006 §8). */
   readonly shortcut?: string;
   /** Why the command cannot run now; absent when it can. */
@@ -55,6 +62,42 @@ export interface Command {
    * of 2026-11-11).
    */
   readonly run: (args: Readonly<Record<string, string>>) => void;
+}
+
+/** Why the server cannot read a line: its sentence, and where the word at fault stands in the line, where it stands there. */
+export interface LineReason {
+  readonly sentence: string;
+  readonly start?: number;
+  readonly end?: number;
+}
+
+/**
+ * What a page gives the command line for the workspace it shows (ADR-0016 §5): where the commands the server reads
+ * act, and how they are run so that they follow the edits the page has already sent.
+ */
+export interface CommandDoor {
+  readonly workspaceId: string;
+  /** Resolves once the edits the page has sent so far are answered: a reading asked for after it has seen them. */
+  settled(): Promise<void>;
+  /**
+   * Enter on a line, in the page's own turn, after the edits it has sent. The reading the line showed for exactly this
+   * text is what is invoked, by its own inputs, which carry the revision it was read at: a workspace that has moved
+   * since refuses it (ADR-0016 §2). With none shown the server reads the line at the revision the page then holds, and
+   * that reading is invoked. Resolves once the command is taken or refused: with why nothing ran, and the line stays;
+   * or with nothing, the page showing what the command left and its notice said.
+   */
+  enter(line: string, shown?: LinePreview): Promise<LineReason | undefined>;
+  /**
+   * A command by its id, from a key or a button, which have no line: in the same turn, at the catalog's version and
+   * the revision the page then holds. Resolves as `enter` does.
+   */
+  invoke(capabilityId: string, request: Readonly<Record<string, unknown>>): Promise<LineReason | undefined>;
+}
+
+/** What a served command is typed with and run through: its arguments as the catalog names them, and its page's door. */
+export interface Served {
+  readonly arguments: readonly { readonly name: string; readonly required: boolean }[];
+  readonly door: CommandDoor;
 }
 
 /**
@@ -249,6 +292,8 @@ export function readLine(text: string, commands: readonly Command[]): LineReadin
   if (chosen === undefined) return { kind: 'choosing', query: lead };
 
   const { command } = chosen;
+  // A served command's line is the server's to read: nothing after its words is placed here.
+  if (command.served !== undefined) return { kind: 'arguments', command, given: {}, slot: undefined, typed: '', problems: [] };
   const args = command.args ?? [];
   const rest = tokens.slice(chosen.length);
   const done = closed ? rest : rest.slice(0, -1);
@@ -338,5 +383,7 @@ export function take(text: string, reading: LineReading, completion: Command | C
 
 /** A command's arguments as the line shows them: `<currency> <index> [rate=]`. */
 export function signature(command: Command): string {
+  // A served command's arguments are typed in order, with no name: `[rows] <set>`.
+  if (command.served !== undefined) return command.served.arguments.map((a) => (a.required ? `<${a.name}>` : `[${a.name}]`)).join(' ');
   return (command.args ?? []).map((a) => (a.required ? `<${a.name}>` : `[${a.name}=]`)).join(' ');
 }

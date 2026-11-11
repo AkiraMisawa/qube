@@ -402,6 +402,9 @@ the same edit a typed cell makes, in the Common layer, or in the side Advanced p
 boxes as `set T-1001 A off`. A value the grid would refuse is refused the same way, by name (a PV Adj while Margin is
 entered, §6). `vary` with a list makes cases; `set` changes the workspace. Like `entity.create` (ADR-0008), it is
 one generic command in the kernel, and each domain registers the rows and fields it reaches and how a value is read.
+Since 2026-11-11 it is the kernel's `entity.set` (ADR-0016 §3), and the server reads its line (ADR-0016 §5, note 15):
+the rows are spelled as ADR-0016 §2 says (ids, `all`, `new`, `existing`, `where ccy=USD`), the line shows the rows and
+what would change before Enter, and the page reads nothing of it. `reset` and `remove` are read the same way.
 
 Those that change the workspace (an edit in any layer, `measures`, `vary`, `add trades`, the scenario commands) and
 Price are registered as command capabilities (ADR-0005), so the AI calls them as it calls the Rates commands; XVA

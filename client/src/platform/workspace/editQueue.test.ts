@@ -70,4 +70,22 @@ describe('EditQueue follows the revision on screen (ADR-0003, spine 6)', () => {
     void queue.push('notional');
     await expect(queue.after(async () => 'priced')).rejects.toThrow('An earlier edit was refused');
   });
+
+  it('is settled once the edits sent so far are answered, and waits for none sent later (ADR-0016 §5)', async () => {
+    const answers: ((v: { revision: number }) => void)[] = [];
+    const queue = new EditQueue<string, { revision: number }>(5, () => new Promise((resolve) => { answers.push(resolve); }), () => {}, () => {});
+    let settled = false;
+
+    const edit = queue.push('notional');
+    void queue.settled().then(() => { settled = true; });
+    void queue.push('margin');
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    answers[0]!(view(6));
+    await edit;
+    expect(settled).toBe(true);
+    // The edit sent after the reading was asked for is on its way, and was not waited for.
+    await vi.waitFor(() => expect(answers).toHaveLength(2));
+  });
 });

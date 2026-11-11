@@ -429,11 +429,12 @@ test('ADR-0006 note 1 (2026-11-11): a line that cannot be read stays open with i
   const line = page.getByRole('combobox', { name: 'Command' });
   const said = page.getByTestId('command-problems');
 
+  // `set` is read by the server (ADR-0016 §5): the reason is its own, and nothing ran.
   await command(page, 'set', 'DRAFT-1 a');
-  await expect(said).toHaveText('set needs a row, a column and a value, such as set CSA-A threshold 5mm; rows are separated by commas.');
+  await expect(said).toHaveText('A has no value: one value is written after its field (<field> <value>), and several as name=value.');
   await expect(line).toBeFocused();
   await expect(line).toHaveValue('set DRAFT-1 a');
-  // Corrected where it stands, the same line runs.
+  // Corrected where it stands, the same line runs: the word at fault ends the line, so typing adds to it.
   await page.keyboard.type(' off');
   await page.keyboard.press('Enter');
   await expect(line).toBeHidden();
@@ -495,8 +496,9 @@ test('ADR-0006 note 2 (2026-11-11): a result is teal, takes no room and leaves b
   await expect(notice).toBeHidden();
   await page.clock.resume();
 
-  await command(page, 'set', 'CSA-A threshold -1mm');
-  await expect(notice).toHaveText('set changed nothing: CSA-A threshold is an amount of 0 or more; -1mm is not.');
+  // A refused edit is named in words, never by its entity's key (it read `selection:measures measures`).
+  await command(page, 'measures', 'nope');
+  await expect(notice).toHaveText(/^The measures were not changed: /);
   await stopClock();
   await expect(notice).toHaveAttribute('data-kind', 'refused');
   await expect(notice).toHaveRole('alert');
@@ -512,11 +514,6 @@ test('ADR-0006 note 2 (2026-11-11): a result is teal, takes no room and leaves b
   const refused = 'error: Failed to load resource: the server responded with a status of 422 (Unprocessable Entity)';
   expect(problems.splice(0)).toEqual([refused]);
 
-  // A refused edit is named in words, never by its entity's key (it read `selection:measures measures`).
-  await command(page, 'measures', 'nope');
-  await expect(notice).toHaveText(/^The measures were not changed: /);
-  await expect(notice).toHaveAttribute('data-kind', 'refused');
-  expect(problems.splice(0)).toEqual([refused]);
   // And a cell by its row and its column's header, as its grid names them (it read `csa:CSA-A currency`). Ccy is the
   // CSA grid's fifth column; the grid's first key only places its Focus (ex-grid ADR-0037).
   await command(page, 'open csa');
@@ -610,18 +607,18 @@ test('ADR-0006 note 3 (2026-11-11): the empty line and `?` list the page\'s comm
   await expect(list.getByRole('option', { selected: true })).toContainText('price');
 });
 
-test('ADR-0006 note 4 (2026-11-11): the hint of `set` shows this workspace\'s rows, and an A cell reads a flag as `set` reads it', async ({ page }) => {
+test('ADR-0006 note 4 (2026-11-11): the hint of `vary` shows this workspace\'s rows, and an A cell reads a flag as `set` reads it', async ({ page }) => {
   await open(page);
   await newWorkspace(page, 'ABC/LE-01', 5);
   await command(page, 'measures', 'cva fva');
   // The measures' columns are drawn before the first key: a key sent to a grid not yet settled is lost.
   await expect(page.getByTestId('price')).toHaveText('Price CVA FVA · 1 case');
   await settled(page, 'New trades');
-  // The hint of `set` shows a trade and a CSA of this workspace: it showed `T-1001`, an id no workspace has.
+  // The hint of `vary` shows a CSA of this workspace, never an id no workspace has.
   await page.keyboard.press('ControlOrMeta+K');
   await expect(page.getByRole('combobox', { name: 'Command' })).toBeFocused();
-  await page.keyboard.type('set ');
-  await expect(page.getByTestId('command-pending')).toContainText('cell: the rows separated by commas, a column and the value: ABC-LE-01-E00003 csa CSA-A');
+  await page.keyboard.type('vary ');
+  await expect(page.getByTestId('command-pending')).toContainText('cell: a row and a column, then the values separated by commas: CSA-A threshold 10mm, 5mm, 0');
   await page.keyboard.press('Escape');
   await expect(page.getByRole('combobox', { name: 'Command' })).toBeHidden();
 
@@ -648,10 +645,11 @@ test('ADR-0006 note 4 (2026-11-11): the hint of `set` shows this workspace\'s ro
   await expect(after).toHaveText('True');
 });
 
-test('ADR-0016 §3: `set` writes one value on each row named through the kernel\'s command, and is refused with the grid\'s reason', async ({ page, problems }) => {
+test('ADR-0016 §3, §5: `set` writes one value on each row named through the kernel\'s command, and a value its field refuses keeps the line open with the grid\'s reason', async ({ page }) => {
   await open(page);
   await newWorkspace(page, 'ABC/LE-01', 5);
   await command(page, 'measures', 'cva fva');
+  const line = page.getByRole('combobox', { name: 'Command' });
 
   await command(page, 'set', 'CSA-A threshold 5mm');
   await expect(page.getByTestId('notice')).toHaveText('Set CSA-A threshold to 5mm.');
@@ -662,29 +660,232 @@ test('ADR-0016 §3: `set` writes one value on each row named through the kernel\
   // An edit of the workspace, not a case.
   await expect(page.getByTestId('price')).toHaveText('Price CVA FVA · 1 case');
 
+  // The server reads the value before anything runs: the reason is the line's, and no request was refused.
   await command(page, 'set', 'CSA-A threshold -1mm');
-  await expect(page.getByTestId('notice')).toHaveText('set changed nothing: CSA-A threshold is an amount of 0 or more; -1mm is not.');
-  expect(problems.splice(0)).toEqual(['error: Failed to load resource: the server responded with a status of 422 (Unprocessable Entity)']);
+  await expect(page.getByTestId('command-problems')).toHaveText('CSA-A threshold is an amount of 0 or more; -1mm is not.');
+  await expect(line).toHaveValue('set CSA-A threshold -1mm');
+  await page.keyboard.press('Escape');
+  await expect(line).toBeHidden();
   await expect(page.getByTestId('workspace-summary')).toContainText('3 edit(s)');
 });
 
-test('ADR-0016 §11: `undo` takes back the last command and says what it was, `redo` puts it back, and a grid\'s Ctrl+Z and Ctrl+Y do the same', async ({ page, problems }) => {
+test('ADR-0016 §5: `set` offers rows, then fields, then a field\'s values, and Tab takes one; the line says what would change before Enter', async ({ page }) => {
   await open(page);
   await newWorkspace(page, 'ABC/LE-01', 5);
+  await command(page, 'measures', 'cva fva');
+  await expect(page.getByTestId('price')).toHaveText('Price CVA FVA · 1 case');
+  await settled(page, 'New trades');
+  const line = page.getByRole('combobox', { name: 'Command' });
+  const read = page.getByTestId('command-preview');
+  const offered = page.getByRole('listbox', { name: 'What could follow' }).getByRole('option');
 
-  // A workspace as it was made has nothing to take back, and says so.
-  await command(page, 'undo');
-  await expect(page.getByTestId('notice')).toHaveText('There is nothing to take back: the workspace is as it was made.');
+  await page.keyboard.press('ControlOrMeta+K');
+  await expect(line).toBeFocused();
+  await page.keyboard.type('set ');
+  // What could follow `set`: the words that name rows, the tables, and rows by their ids.
+  for (const word of ['all', 'new', 'existing', 'where', 'trades', 'csas']) await expect(offered.filter({ hasText: new RegExp(`^${word}$`) })).toHaveCount(1);
+  // A list is the server's answer for the text now on the line: it is read before Tab takes its first.
+  await page.keyboard.type('DR');
+  await expect(offered).toHaveText(['DRAFT-1trades', 'DRAFT-2trades', 'DRAFT-3trades']);
+  await page.keyboard.press('Tab');
+  await expect(line).toHaveValue('set DRAFT-1 ');
+  await page.keyboard.type('cs');
+  await expect(offered).toHaveText(['csa']);
+  await page.keyboard.press('Tab');
+  await expect(line).toHaveValue('set DRAFT-1 csa ');
+  // A line not yet whole says why it cannot be read yet, and offers the field's values: the workspace's CSAs.
+  await expect(read).toHaveText('csa has no value: one value is written after its field (<field> <value>), and several as name=value.');
+  await expect(offered).toHaveText(['CSA-A', 'CSA-B']);
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Tab');
+  await expect(line).toHaveValue('set DRAFT-1 csa CSA-B ');
+
+  // Before Enter: the rows the line means and what would change, and each argument as the server read it.
+  await expect(read).toContainText('trades, 1 row: DRAFT-1');
+  await expect(read).toContainText('csa: CSA-A to CSA-B');
+  await expect(page.getByTestId('command-pending')).toContainText('rows DRAFT-1');
+  await expect(page.getByTestId('command-pending')).toContainText('set csa CSA-B');
+  await expect(page.getByTestId('workspace-summary')).toContainText('0 edit(s)');
+  // After Enter: the server's sentence of what it did.
+  await page.keyboard.press('Enter');
+  await expect(line).toBeHidden();
+  await expect(page.getByTestId('notice')).toHaveText('Set DRAFT-1 csa to CSA-B.');
+  await expect(page.getByTestId('workspace-summary')).toContainText('1 edit(s)');
+});
+
+test('ADR-0016 §5: `set where` says its rows and what would change before Enter and what it did after, and a line the server cannot read stays with its reason', async ({ page }) => {
+  await open(page);
+  await newWorkspace(page, 'ABC/LE-01', 5);
+  await command(page, 'measures', 'cva fva');
+  await expect(page.getByTestId('price')).toHaveText('Price CVA FVA · 1 case');
+  await settled(page, 'New trades');
+  const line = page.getByRole('combobox', { name: 'Command' });
+  const read = page.getByTestId('command-preview');
+  // Ccy is the third column of the New grid and A the eleventh, ten to the right of the trade's id: two of the three
+  // new trades are in USD, and each has A ticked. The grid draws the columns in view, so A is read once it is in view.
+  await expect(cell(page, 'DRAFT-1', 3)).toHaveText('JPY');
+  for (const id of ['DRAFT-2', 'DRAFT-3']) await expect(cell(page, id, 3)).toHaveText('USD');
+  await focusCell(page, 10);
+  for (const id of ['DRAFT-1', 'DRAFT-2', 'DRAFT-3']) await expect(cell(page, id, 11)).toHaveText('True');
+
+  await page.keyboard.press('ControlOrMeta+K');
+  await expect(line).toBeFocused();
+  await page.keyboard.type('set where ccy=USD a off');
+  await expect(read).toContainText('trades, 2 rows: DRAFT-2, DRAFT-3');
+  await expect(read).toContainText('A: 2 on to off');
+  // Nothing has run: the reading wrote nothing.
+  await expect(page.getByTestId('workspace-summary')).toContainText('0 edit(s)');
+  await page.keyboard.press('Enter');
+  await expect(line).toBeHidden();
+  await expect(page.getByTestId('notice')).toHaveText('Set A to off on DRAFT-2 and DRAFT-3.');
+  await expect(cell(page, 'DRAFT-1', 11)).toHaveText('True');
+  for (const id of ['DRAFT-2', 'DRAFT-3']) await expect(cell(page, id, 11)).toHaveText('False');
+  await expect(page.getByTestId('workspace-summary')).toContainText('2 edit(s)');
+
+  // A line the server cannot read stays at Enter, with its text and the reason, and the word at fault selected.
+  await command(page, 'set', 'DRAFT-1 colour red');
+  await expect(page.getByTestId('command-problems')).toHaveText(/^trades has no field colour; its fields are trade id, /);
+  await expect(line).toBeFocused();
+  await expect(line).toHaveValue('set DRAFT-1 colour red');
+  expect(await line.evaluate((e: HTMLInputElement) => e.value.slice(e.selectionStart ?? 0, e.selectionEnd ?? 0))).toBe('colour');
+  // Typing replaces the word, and the same line runs once it can be read.
+  await page.keyboard.type('a');
+  await expect(line).toHaveValue('set DRAFT-1 a red');
+  await page.keyboard.press('Enter');
+  await expect(page.getByTestId('command-problems')).toHaveText(/red is not/);
+  await expect(line).toHaveValue('set DRAFT-1 a red');
+  await page.keyboard.press('Escape');
+  await expect(line).toBeHidden();
+  await expect(page.getByTestId('workspace-summary')).toContainText('2 edit(s)');
+});
+
+test('ADR-0016 §2, §5: Enter runs the reading the line shows, and a workspace someone else moved since refuses it: the line stays, is read again, and then runs', async ({ page, problems }) => {
+  await open(page);
+  await newWorkspace(page, 'ABC/LE-01', 5);
+  await command(page, 'measures', 'cva fva');
+  await expect(page.getByTestId('price')).toHaveText('Price CVA FVA · 1 case');
+  await settled(page, 'New trades');
+  const line = page.getByRole('combobox', { name: 'Command' });
+  const read = page.getByTestId('command-preview');
+
+  await page.keyboard.press('ControlOrMeta+K');
+  await expect(line).toBeFocused();
+  const asked = page.waitForRequest((r) => r.url().endsWith('/api/commands/preview') && (r.postDataJSON() as { line: string }).line === 'set new a off');
+  await page.keyboard.type('set new a off');
+  const request = await asked;
+  const { workspaceId } = request.postDataJSON() as { workspaceId: string };
+  const { revision } = await (await request.response())!.json() as { revision: number };
+  await expect(read).toContainText('trades, 3 rows: DRAFT-1, DRAFT-2, DRAFT-3');
+  await expect(read).toContainText('A: 3 on to off');
+
+  // The AI, for the same user, takes one of the three rows out of After while the line is open.
+  const moved = await page.request.post('/api/agent/commands/entity.set/1.0.0',
+    { data: { inputs: { request: { workspaceId, revision, rows: 'DRAFT-1', set: 'a=off' } }, idempotencyKey: `e2e-${Date.now()}` } });
+  expect(moved.status()).toBe(200);
+
+  // Enter runs what the line shows, which was read of the workspace before it moved: it is refused, and nothing ran.
+  await page.keyboard.press('Enter');
+  await expect(page.getByTestId('command-problems')).toHaveText(`The workspace is at revision ${revision + 1}, not ${revision}.`);
+  await expect(line).toHaveValue('set new a off');
+  await expect(line).toBeFocused();
+  expect(problems.splice(0)).toEqual(['error: Failed to load resource: the server responded with a status of 409 (Conflict)']);
+  // The line is read again, of the workspace as it now stands, and Enter runs that.
+  await expect(read).toContainText('A: 2 on to off, 1 already off');
+  await expect(read).not.toHaveAttribute('aria-busy', 'true');
+  await page.keyboard.press('Enter');
+  await expect(line).toBeHidden();
+  await expect(page.getByTestId('notice')).toHaveText('Set A to off on DRAFT-2 and DRAFT-3; 1 already held it.');
+  await focusCell(page, 10);
+  for (const id of ['DRAFT-1', 'DRAFT-2', 'DRAFT-3']) await expect(cell(page, id, 11)).toHaveText('False');
+});
+
+test('ADR-0016 §5: while the server reads the line, nothing is taken from its reading of an earlier text; a line closed while Enter is read says its reason as a notice; and a reading the server did not give is said as a failure', async ({ page, problems }) => {
+  await open(page);
+  await newWorkspace(page, 'ABC/LE-01', 5);
+  await command(page, 'measures', 'cva fva');
+  await expect(page.getByTestId('price')).toHaveText('Price CVA FVA · 1 case');
+  await settled(page, 'New trades');
+  const line = page.getByRole('combobox', { name: 'Command' });
+  const list = page.getByRole('listbox', { name: 'What could follow' });
+  const offered = list.getByRole('option');
+
+  await page.keyboard.press('ControlOrMeta+K');
+  await expect(line).toBeFocused();
+  await page.keyboard.type('set DR');
+  await expect(offered).toHaveText(['DRAFT-1trades', 'DRAFT-2trades', 'DRAFT-3trades']);
+
+  // From here the server is slow: each reading waits until the test lets it go.
+  let letGo = (): void => undefined;
+  let waits = new Promise<void>((resolve) => { letGo = resolve; });
+  // A reading the line no longer waits for was given up by the page, and has nothing to continue.
+  await page.route('**/api/commands/preview', async (route) => { await waits; await route.continue().catch(() => undefined); });
+  await page.keyboard.type('AFT-2 cs');
+  // The list on screen is still the one for `set DR`, whose first would be written over the row now typed: it is
+  // said to be an earlier reading, and Tab takes nothing from it.
+  await expect(page.getByText('Reading the line…')).toBeVisible();
+  await expect(list).toHaveAttribute('aria-busy', 'true');
+  await expect(offered).toHaveText(['DRAFT-1trades', 'DRAFT-2trades', 'DRAFT-3trades']);
+  await page.keyboard.press('Tab');
+  await expect(line).toHaveValue('set DRAFT-2 cs');
+  letGo();
+  await expect(offered).toHaveText(['csa']);
+  await expect(list).not.toHaveAttribute('aria-busy', 'true');
+  await page.keyboard.press('Tab');
+  await expect(line).toHaveValue('set DRAFT-2 csa ');
+
+  // Enter while the server is slow, and the line closed before it answers: the reason has no line left to stay on.
+  waits = new Promise<void>((resolve) => { letGo = resolve; });
+  await page.keyboard.press('ControlOrMeta+A');
+  await page.keyboard.type('set DRAFT-2 colour red');
+  await page.keyboard.press('Enter');
+  await expect(line).toHaveAttribute('aria-busy', 'true');
+  await page.keyboard.press('Escape');
+  await expect(line).toBeHidden();
+  letGo();
+  await expect(page.getByTestId('notice')).toHaveText(/^set: trades has no field colour; its fields are trade id, /);
   await expect(page.getByTestId('notice')).toHaveAttribute('data-kind', 'refused');
-  expect(problems.splice(0)).toEqual(['error: Failed to load resource: the server responded with a status of 422 (Unprocessable Entity)']);
+  await expect(page.getByTestId('workspace-summary')).toContainText('0 edit(s)');
 
-  // One command on the line: undo names it by its cell as the screen does, and redo puts it back.
+  // The server answering with no reading is said as a failure, in the line's red: it is not what the line means.
+  await page.unroute('**/api/commands/preview');
+  await page.route('**/api/commands/preview', (route) => route.fulfill({ status: 404, json: { code: 'UnknownWorkspace', message: 'This workspace is gone.', issues: [] } }));
+  await page.keyboard.press('ControlOrMeta+K');
+  await expect(line).toBeFocused();
+  await page.keyboard.type('set ');
+  await expect(page.getByTestId('command-unread')).toHaveText('The server did not read the line: This workspace is gone.');
+  await expect(page.getByTestId('command-preview')).toHaveCount(0);
+  expect(problems.splice(0)).toEqual(['error: Failed to load resource: the server responded with a status of 404 (Not Found)']);
+  await page.keyboard.press('Escape');
+  await expect(line).toBeHidden();
+});
+
+test('ADR-0016 §11: `undo` says what it would take back before Enter and what it took back after, `redo` puts it back, and a grid\'s Ctrl+Z and Ctrl+Y do the same', async ({ page, problems }) => {
+  await open(page);
+  await newWorkspace(page, 'ABC/LE-01', 5);
+  const line = page.getByRole('combobox', { name: 'Command' });
+
+  // A workspace as it was made has nothing to take back: the line says so before Enter, and Enter keeps it.
+  await page.keyboard.press('ControlOrMeta+K');
+  await expect(line).toBeFocused();
+  await page.keyboard.type('undo');
+  await expect(page.getByTestId('command-preview')).toHaveText('There is nothing to take back: the workspace is as it was made.');
+  await page.keyboard.press('Enter');
+  await expect(page.getByTestId('command-problems')).toHaveText('There is nothing to take back: the workspace is as it was made.');
+  await expect(line).toHaveValue('undo');
+  await page.keyboard.press('Escape');
+  await expect(line).toBeHidden();
+
+  // One command on the line: undo names it as it was typed, before Enter and after, and redo puts it back.
   await command(page, 'measures', 'cva fva');
   await expect(page.getByTestId('price')).toHaveText('Price CVA FVA · 1 case');
   await settled(page, 'New trades');
   await command(page, 'set', 'CSA-A threshold 5mm');
   await expect(page.getByTestId('workspace-summary')).toContainText('1 edit(s)');
-  await command(page, 'undo');
+  await page.keyboard.press('ControlOrMeta+K');
+  await expect(line).toBeFocused();
+  await page.keyboard.type('undo');
+  await expect(page.getByTestId('command-preview')).toContainText(/^Takes back: set CSA-A threshold 5mm \(you, 1 edit\) · \d/);
+  await page.keyboard.press('Enter');
   await expect(page.getByTestId('notice')).toHaveText('Took back: set CSA-A threshold 5mm. redo puts it back.');
   await expect(page.getByTestId('notice')).toHaveAttribute('data-kind', 'done');
   await expect(page.getByTestId('workspace-summary')).not.toContainText('1 edit(s)');
@@ -705,6 +906,10 @@ test('ADR-0016 §11: `undo` takes back the last command and says what it was, `r
   await page.keyboard.press('ControlOrMeta+Y');
   await expect(page.getByTestId('notice')).toHaveText('Put back: set DRAFT-1 A.');
   await expect(after).toHaveText('False');
+  // A key has no line to say why in: with nothing left to put back, its reason is a notice.
+  await page.keyboard.press('ControlOrMeta+Y');
+  await expect(page.getByTestId('notice')).toHaveAttribute('data-kind', 'refused');
+  expect(problems.splice(0)).toEqual(['error: Failed to load resource: the server responded with a status of 422 (Unprocessable Entity)']);
 });
 
 test('docs/03 §5, ADR-0010 §3: `add trades` makes a case per new trade alone, refuses one in Before by name, and Price refuses a set the rows left', async ({ page, problems }) => {
