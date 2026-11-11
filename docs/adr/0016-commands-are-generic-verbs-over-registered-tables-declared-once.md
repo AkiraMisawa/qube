@@ -1811,6 +1811,8 @@ and notes 42 to 44 are 4c's.
         (`TableRegister.Of`), naming the field.
       - Not held by a test: a row, a column or a case that names two things (`AmbiguousCell`,
         `AmbiguousCase`). Nothing in the sample's own data makes one.
+      - Left as it is: a refusal names one word, so of several measures that are not registered it names the
+        first, while its sentence says them all.
 
 ## Rejected
 
