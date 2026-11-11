@@ -1162,10 +1162,97 @@ Unchanged: every figure on these pages is simulated, and says so.
   selected again.
 - No real model has called `entity_set`; that the AI's tools hold it and not `xva_set` is held over HTTP.
 
+## Generic commands, delivery step 1c: the preview and the line (ADR-0016 §4, §5, 2026-11-11)
+
+The third pull request of step 1 (`docs/specs/commands-1-tables-selector-undo`, tickets 11 to 14): a command says how
+it is typed, the server reads a line and answers what it would do with nothing executed, and the command line is built
+from the catalog for those commands. Step 1 is whole with it: 1a (the log, `undo`, `redo`), 1b (tables, the selector,
+the edit verbs, the pricer registered) and this one. What it settled is ADR-0016's note 15.
+
+### What runs
+
+- **A command says how it is typed** (`CommandForm` on `CapabilityDescriptor`, served by `GET /api/catalog`): its words
+  and its arguments in the order typed, each with a name, a kind (rows, assignments, a field, text) and whether it is
+  required. Five capabilities have one: `entity.set` (`set [rows] <set>`), `entity.reset` (`reset [rows] [field]`),
+  `entity.remove` (`remove <rows>`), `workspace.undo` and `workspace.redo`. A capability that has a form and cannot
+  read its line, and two that answer to the same words, stop the host at start.
+- **`POST /api/commands/preview`** (`CommandLines`) reads `{ line, workspaceId, revision? }` and writes nothing. It
+  answers the command, its inputs ready for the gateway, each argument as read, the rows (`trades, 2 rows` and their
+  first ids), and what would change in one sentence (`A: 2 on to off`, `csa: CSA-A to CSA-B`, `Nothing would change:
+  …`); or why the line cannot be read, with the word at fault and its place in the line. For `undo` and `redo` it says
+  what would be taken back, whose it was and when. The verbs plan before they write, and the sentence is made from
+  that plan.
+- **What could follow** comes with every answer: after the command's words `all`, the subsets, `where`, the tables,
+  the fields of the tables of one row and rows by id (twenty at a time, the rest counted); after rows, their table's
+  editable fields; after a field, its values where they are a closed set (a flag, a choice, the ids of the table it
+  points into); in a condition, the fields, the field's operators, its values and `and`.
+- **One value follows its field with no sign** in `entity.set` itself (`set CSA-A threshold 5mm`); several are
+  `name=value`. The client's own reader of `set` is gone.
+- **The line** builds `set`, `reset`, `remove`, `undo` and `redo` from the catalog, as commands of the page in the
+  active panel, and reads nothing after their words. While one is typed it shows the server's reading under the line
+  and lists what could follow; Tab takes the chosen one at its place. At Enter the pricer's page has the server read
+  the line again in the page's own turn, after its edits and at its revision, and invokes that reading: read, the line
+  closes and the notice is the server's sentence (`Set A to off on DRAFT-2 and DRAFT-3.`); unread, the line stays with
+  its text, the reason and the word at fault selected. `set where ccy=USD a off`, `reset existing csa` and `undo` are
+  typed on the pricer's page as they are sent by the AI.
+- **A grid's Ctrl+Z and Ctrl+Y** still invoke `workspace.undo` and `workspace.redo` directly; with nothing to take
+  back the reason is a notice, since a key has no line.
+
+### Measurements
+
+Release build on this Linux container, the SQLite store, one request at a time with `curl`, a workspace of 10,009
+existing trades (14,286 requested), five requests a line. Recorded, not gated.
+
+| Preview of | Time |
+|---|---|
+| `set ` (what could follow: 50 listed, 9,994 more counted) | 0.01 to 0.02 s (0.09 s the first on a host) |
+| `set where ccy=JPY after off` (5,999 rows, an edit a row) | 0.04 to 0.17 s |
+| `set existing csa CSA-B` (10,009 rows; 4,988 would change) | 0.04 to 0.05 s |
+| `set all after off` (10,012 rows, one edit a grid) | 0.01 to 0.04 s |
+| `set ABC-LE-01-E0` (names no row; 20 offered, 6,995 more) | 0.02 to 0.05 s |
+| `set CSA-A threshold 5mm` | 0.01 s |
+| `reset existing` (nothing to reset) | 0.14 to 0.18 s |
+| `undo` | under 0.01 s |
+| With 4,988 edits standing: `set existing csa CSA-A` (10,009 would change) | 0.07 to 0.12 s |
+| With 4,988 edits standing: `reset existing csa` | 0.02 to 0.03 s |
+
+A preview of a whole line costs the command's plan, which is the write without the store; a line half typed is refused
+before the rows are read and costs a few milliseconds. The client asks at each key and drops the answers it no longer
+waits for; the server still finishes each one it started.
+
+### Verification performed
+
+| What | Result |
+|---|---|
+| `dotnet test server/Qube.slnx` | 885 passed |
+| Client: `npm run typecheck`, `npm test`, `npm run build` | 264 passed in 32 files |
+| `npx playwright test` (Chromium, headless, Linux) | 65 passed |
+| The seven browser tests this step added or rewrote, with `--repeat-each=3` | 21 passed |
+| The line in Chromium at 1440, 992, 768 and 390 px, light and dark, by a script and by eye | `set`, a `where` with its rows, a refused line, `undo`; nothing scrolls sideways |
+
+### Providers
+
+Unchanged: every figure on these pages is simulated, and says so.
+
+### Known limits
+
+- Only the five commands are read by the server. Every other command of the line is still read by the client (`vary`,
+  `measures`, the scenario commands, Rates' line) until it moves to the catalog (steps 2 and 3).
+- Only the pricer's page gives the line a door, so on a Rates page and on a Run the five are listed as not available.
+- The server finishes a preview the client has stopped waiting for: the endpoint takes no cancellation. At 10,000 rows
+  the dearest costs 0.2 s.
+- An argument as read does not say where it came from (typed, default, context), and the line has no context yet:
+  `selected`, `shown` and the focused cell are step 2.
+- A completion that the line already holds whole is still listed (`off` after `a off`).
+- The moment in `undo`'s reading is written in the browser's zone and locale; no setting chooses another.
+- `remove` refuses every row of the pricer by name, as in 1b, until a command creates a trade (step 3).
+- No real model has called the preview or read a command form; the AI's tools are generated from the same descriptors
+  and were not changed by this step.
+
 ## Next
 
-1. Generic commands, delivery step 1c (ADR-0016 §4, §5; tickets 11 to 14): a command says how it is typed, the server
-   reads the line and previews it, and the line is built from the catalog. Then step 2, focus as context.
+1. Generic commands, delivery step 2 (ADR-0016 §9, §4): the grid's selection as rows (`selected`, `shown`), the
+   context on the line down to the focused cell, `go` and `find`, the chain key, and context menus from declarations.
 2. MVA with SIMM (`docs/12-implementation-plan.md` P2): spot IM from the XVA request's MVA option.
 3. ADR-0010 Delivery step 3 (Advanced: Before-only and After-only edits, the split fill), when the owner asks for it.
 4. The owner's review of ADR-0003 §7 (scopes, carry and conflict), then a synthetic source change that can produce a conflict, and the browser cases still open above (reload, failed case unavailable).

@@ -464,7 +464,8 @@ log cannot yet say which entries were one command, or what an entry replaced.
    is ADR-0006's notes of that day. A sentence that says how a value was read and how many rows it changed (§6) comes
    with step 1's result, not here.
 1. Tables, forms, the selector, `entity.set`/`reset`/`remove`, `undo` and `redo`, the preview; XVA registers. `set
-   where ccy=USD after off` works with its count and can be taken back, and `set` completes.
+   where ccy=USD after off` works with its count and can be taken back, and `set` completes. **Built 2026-11-11**
+   (`docs/specs/commands-1-tables-selector-undo`, three pull requests); what it settled is the notes below.
 2. The grid's selection (`selected`, `shown`), the context on the line down to the focused cell, `go` and `find`,
    the chain key, context menus from declarations.
 3. The pricer's remaining commands as capabilities through the gateway; Rates registers.
@@ -525,7 +526,8 @@ and the edit verbs with XVA registered; the preview and the line.
 10. **`reset` and `remove` (§3).** `reset <rows> <field>` over a subset whose field has a whole-set edit removes that
     edit and each row's own; with no field it removes every edit on the rows. `remove` takes rows the workspace made
     (a new trade) and refuses an acquired one by name, saying what switches it out instead.
-11. **The preview (§5).** The request holds the line as typed, the application, the workspace and its revision; the
+11. **The preview (§5).** The request holds the line as typed, the application (dropped when it was built: note 15),
+    the workspace and its revision; the
     answer holds the command and its inputs ready to invoke, the arguments as read, the rows (count and first few),
     what would change in one sentence, and what could follow the last word. The line asks while it is typed and Enter
     runs the server's reading of exactly that text, or nothing while it cannot be read.
@@ -563,6 +565,51 @@ and the edit verbs with XVA registered; the preview and the line.
       then; an edit of a column that does not show stays where it is, `reset` of every field included. A module's
       amount (PV Adj) is in the trade's currency, so a condition on it is refused across currencies as one on a
       notional is, and it is typed as its grid cell is, a plain number (`-3000`, `-3k`), never in millions.
+15. **What the third pull request settled (§4, §5; settled while it was built).**
+    - *A command form (§4)* holds the command's words, one spelling or several, and for each argument, in the order
+      typed, its name, whether it is required and its kind: rows, assignments, a field or text. An argument's own
+      form, and whether it may be typed without its name, wait for a command that needs them. A capability that says
+      how it is typed reads its own line (`ILineCommand`); one that does not, and two that answer to the same words,
+      stop the host at start.
+    - *The preview's request* is the line, the workspace and, where the caller read one, its revision. It names no
+      application (amends note 11): the workspace says whose tables it holds. With no revision the line is read as
+      the workspace stands; with one, a workspace that moved refuses (409). A line that cannot be read is an answer
+      (200) that holds its refusal: the code, the sentence, the word at fault with its place in the line, and what it
+      could have been. An unknown workspace (404) and another user's (403) are refused by status.
+    - *An argument as read* is its name and its words. Where it came from (typed, default, context) waits for step 2,
+      when there is a context for it to come from.
+    - *The rows* are their table, a title in its words (`trades, 12 rows`), their count and the first ten ids, of which
+      the line names five. A table of one row is said by its word alone and lists no row.
+    - *What would change* is one sentence a verb: `A: 9 on to off, 3 already off`; for one row `threshold: 0 to 5mm`;
+      `csa: 2 reset, 1 with no edit`; `3 removed, with their edits`. A command that would change nothing says
+      `Nothing would change:` and the reason the command itself gives. The sentence is made from the plan the command
+      writes from, so reading a line and running it cannot disagree.
+    - *One value may follow its field with no sign* in `entity.set` (`threshold 5mm`, `self threshold 5mm`), as the
+      line has always spelled one value: the longest leading words that name a field are the field, and the rest its
+      value. Several values are `name=value` (note 12). This replaces the client's own reader of `set`.
+    - *`undo` and `redo`* read as `Takes back: set CSA-A threshold 5mm (ana, 1 edit)`, and the moment that command ran
+      is answered beside the sentence, for the client to write in its user's zone. Their inputs name the command
+      read, so Enter takes back what was shown or is refused (note 4). A command of no argument takes no word after
+      its own (`UnreadWords`).
+    - *What could follow* is a list of `{ value, start, detail }`, each written from its place in the line, and how
+      many more there are than listed. After the command's words: `all`, the subsets, `where`, the tables, the fields
+      of the tables of one row with their table, and rows by id, twenty at a time, by how an id starts or ends; a row
+      two tables have is offered with its table. After the rows: the editable fields of their table. After a field:
+      its values where they are a closed set (a flag, a choice, the ids of the table it points into, `empty` where it
+      may be empty). In a condition: the fields, the operators of the field's form, its values, and `and`.
+    - *The line (§5).* It builds a command per word of each form, in the group Workspace, as a command of the page in
+      the active panel, and reads nothing after the words. A page gives the line a **door** to its workspace: at Enter
+      the server reads the line in the page's own turn, after the edits the page has sent and at the revision it then
+      holds, and that reading is invoked. Read, the line closes and the notice is the server's sentence. Unread, the
+      line stays with its text and the reason, and the word at fault is selected, so that typing replaces it; one
+      that ends the line may only lack what follows, and the caret stands after it. While it is typed the line shows
+      the answer for the text it holds: one for an earlier text is never taken from, and once the wait is long enough
+      to be seen it is dimmed and said to be read. Where the active panel has no such page the commands are listed
+      as not available, with why. A grid's Ctrl+Z and Ctrl+Y invoke `workspace.undo` and `workspace.redo` with no
+      preview: a key has shown nothing to hold it to.
+    - *Measured* at 10,009 trades (Release, SQLite, five requests each): the preview of `set where ccy=JPY after off`
+      over 5,999 rows 0.04 to 0.17 s, of `set existing csa CSA-B` over all of them 0.04 to 0.12 s, of `reset existing`
+      0.14 to 0.18 s, and what could follow `set` 0.01 s, with 9,994 rows counted and not listed.
 
 ## Rejected
 

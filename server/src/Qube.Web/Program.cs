@@ -147,6 +147,9 @@ var app = builder.Build();
 app.UseRequestLogging();
 // Resolve the registry now, so an invalid registered definition stops startup instead of a later request.
 app.Services.GetRequiredService<CompositionRegistry>();
+// And the reader of typed lines, for the same reason (ADR-0016 §4): a command that says how it is typed and cannot
+// read its line, or two that answer to the same words, stop startup.
+app.Services.GetRequiredService<CommandLines>();
 
 app.MapQubeApi();
 app.MapXvaApi();

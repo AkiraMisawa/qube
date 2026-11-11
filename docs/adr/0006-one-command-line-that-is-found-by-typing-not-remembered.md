@@ -93,6 +93,12 @@ the owner asked for the fixes of that review that need no decision, and this is 
    and `false` only. The server has one reader of the words (`FlagWords.Read`, in the kernel) and the page one
    (`readFlag`); a word that is none of them is refused, never guessed. ADR-0016's Context counts the cell editor as
    a fifth vocabulary; the one reader of every form is its §1.
+5. **A command the catalog says how to type is read by the server** (added with ADR-0016's step 1, the same day; its
+   §4, §5 and note 15). `set`, `reset`, `remove`, `undo` and `redo` are built from the catalog and the line reads
+   nothing after their words: while one is typed it shows the server's reading under the line, its rows and what
+   would change or why it cannot be read yet, and lists what could follow, which Tab takes (extends 4). At Enter the
+   server reads the line again as the workspace then stands; a line it cannot read stays as note 1 says, with the
+   server's reason. Every other command is read by the line as before, until it moves to the catalog.
 
 ## Changed from the proposal
 
