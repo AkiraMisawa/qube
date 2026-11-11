@@ -5,11 +5,11 @@ using System.Text.Json.Nodes;
 namespace Qube.Agent;
 
 /// <summary>
-/// One AG-UI run: one request of the user's, answered on the server and recorded as its events in order (ADR-0007 §4).
-/// Readers follow the record; a reader that goes away leaves the run going, and a later reader reads from where it
-/// stopped.
+/// One AG-UI run: one request of the user's, answered on the server and recorded as its events in order (ADR-0007 §4),
+/// on the model its conversation held when it started (ADR-0017 §6.3), none for a runtime with no model. Readers follow
+/// the record; a reader that goes away leaves the run going, and a later reader reads from where it stopped.
 /// </summary>
-public sealed class AgentRun(string threadId, string runId)
+public sealed class AgentRun(string threadId, string runId, string? model)
 {
     readonly List<JsonObject> events = [];
     readonly CancellationTokenSource cancel = new();
@@ -17,6 +17,7 @@ public sealed class AgentRun(string threadId, string runId)
 
     public string ThreadId { get; } = threadId;
     public string RunId { get; } = runId;
+    public string? Model { get; } = model;
     public bool Finished { get; private set; }
     internal CancellationToken Cancellation => cancel.Token;
 
@@ -64,7 +65,10 @@ public sealed class AgentRun(string threadId, string runId)
     }
 }
 
-/// <summary>A conversation (AG-UI's thread): its owner, its messages as the server holds them, and its runs.</summary>
+/// <summary>
+/// A conversation (AG-UI's thread): its owner, its messages as the server holds them, its runs, and the model it holds
+/// from its first turn (ADR-0017 §6.3): its user's default then, or one chosen in the pane since.
+/// </summary>
 public sealed class AgentThread(string threadId, string owner)
 {
     readonly List<AgentMessage> messages = [];
@@ -72,6 +76,14 @@ public sealed class AgentThread(string threadId, string owner)
 
     public string ThreadId { get; } = threadId;
     public string Owner { get; } = owner;
+
+    /// <summary>The model the conversation runs on; none before its first turn, and for a runtime with no model.</summary>
+    public string? Model
+    {
+        get { lock (Gate) return model; }
+    }
+
+    string? model;
     internal object Gate { get; } = new();
     internal AgentRun? Active { get; set; }
 
@@ -94,7 +106,11 @@ public sealed class AgentThread(string threadId, string owner)
 
     internal AgentRun? FindRun(string runId) => runs.GetValueOrDefault(runId);
 
-    internal void AddRun(AgentRun run) => runs.Add(run.RunId, run);
+    internal void AddRun(AgentRun run)
+    {
+        runs.Add(run.RunId, run);
+        model = run.Model;
+    }
 
     public AgentRun? Run(string runId)
     {

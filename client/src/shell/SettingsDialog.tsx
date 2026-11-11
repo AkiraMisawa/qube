@@ -30,9 +30,9 @@ function closeSettings(): void {
   dialog.setState({ open: false });
 }
 
-// The width of a value's input: room for the longest value a line types here (`light`, `USD`, `10mm`) and its menu's
-// chevron, the same in every row so that the column reads as one.
-const VALUE_WIDTH = 140;
+// The width of a value's input: room for the longest value a line types here (a model's id, `claude-sonnet-4.5`) and
+// its menu's chevron, the same in every row so that the column reads as one.
+const VALUE_WIDTH = 180;
 
 /**
  * What a setting holds, in a few words, where its page writes it: a grid's widths, the command ranking. One with no
@@ -99,16 +99,17 @@ export function SettingsDialog({ notify }: { readonly notify: Notify }) {
           Yours alone, on every device you sign in on. A preference changes no figure. A default is copied into a workspace
           when you make one, and changing it later leaves the workspaces you made before as they are.
         </Text>
-        <Table verticalSpacing="xs" aria-label="Preferences">
+        {/* One table, so the preferences' columns and the defaults' line up; each kind has its own heading row. */}
+        <Table verticalSpacing="xs" aria-label="Your settings">
           <Table.Thead><Table.Tr><Table.Th>Preference</Table.Th><Table.Th>Value</Table.Th><Table.Th>From</Table.Th><Table.Th /></Table.Tr></Table.Thead>
           <Table.Tbody>{rows('preference')}</Table.Tbody>
+          {defaults.length === 0 ? null : (
+            <Table.Tbody>
+              <Table.Tr><Table.Th pt="md">Default for what you make</Table.Th><Table.Th pt="md">Value</Table.Th><Table.Th pt="md">From</Table.Th><Table.Th /></Table.Tr>
+              {defaults}
+            </Table.Tbody>
+          )}
         </Table>
-        {defaults.length === 0 ? null : (
-          <Table verticalSpacing="xs" aria-label="Defaults">
-            <Table.Thead><Table.Tr><Table.Th>Default for what you make</Table.Th><Table.Th>Value</Table.Th><Table.Th>From</Table.Th><Table.Th /></Table.Tr></Table.Thead>
-            <Table.Tbody>{defaults}</Table.Tbody>
-          </Table>
-        )}
         <Group justify="flex-end"><Button size="sm" variant="default" onClick={closeSettings}>Close</Button></Group>
       </Stack>
     </Modal>

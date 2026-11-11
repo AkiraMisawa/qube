@@ -1,8 +1,10 @@
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Text.Json.Nodes;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Qube.Composition.Application;
+using Qube.Composition.Application.Settings;
 using Tags = Qube.Composition.Application.QubeTelemetry.Tags;
 
 namespace Qube.Agent;
@@ -19,9 +21,11 @@ sealed class AgentRunaway(string message) : Exception(message);
 /// <summary>
 /// The agent loop (ADR-0007): takes an AG-UI <c>RunAgentInput</c> for the signed-in user, keeps the conversation on
 /// the server, asks the configured runtime for each turn, invokes the tool calls it proposes through the tool
-/// gateway, and records every step as AG-UI events. The runtime proposes; only this loop acts.
+/// gateway, and records every step as AG-UI events. The runtime proposes; only this loop acts. A conversation runs on
+/// the model it holds from its first turn (ADR-0017 §6.3): its user's default model then, or one chosen in the pane,
+/// which <c>forwardedProps.qube.model</c> carries and which is refused unless the runtime allows it.
 /// </summary>
-public sealed class AgentService(IAgentRuntime runtime, AgentToolGateway tools, AgentThreads threads, ILogger<AgentService>? logger = null)
+public sealed class AgentService(IAgentRuntime runtime, AgentToolGateway tools, AgentThreads threads, UserSettings settings, ILogger<AgentService>? logger = null)
 {
     readonly ILogger log = logger ?? NullLogger<AgentService>.Instance;
 
@@ -38,6 +42,7 @@ public sealed class AgentService(IAgentRuntime runtime, AgentToolGateway tools, 
         if (input["tools"] is JsonArray { Count: > 0 })
             return new AgentStart.Refused("FrontendToolsRefused", "The agent calls the server's registered commands only; tools offered by the client are refused.");
         if (!TryContext(input["context"], out var context, out var contextProblem)) return new AgentStart.Refused("ValidationFailed", contextProblem);
+        if (!TryChosenModel(input["forwardedProps"], out var chosen, out var chosenProblem)) return new AgentStart.Refused("ValidationFailed", chosenProblem);
 
         var thread = threads.GetOrStart(threadId, userId);
         if (thread.Owner != userId) return new AgentStart.Refused("UnknownThread", $"Thread {threadId} does not exist.");
@@ -50,13 +55,55 @@ public sealed class AgentService(IAgentRuntime runtime, AgentToolGateway tools, 
             if (thread.Active is { Finished: false } active)
                 return new AgentStart.Refused("RunInProgress", $"Run {active.RunId} is still answering on this thread; stop it or wait for it.");
             if (!TryNewRequests(input["messages"], thread, out var requests, out var problem)) return new AgentStart.Refused("ValidationFailed", problem);
+            if (!TryModel(thread, chosen, userId, out var model, out var refusal)) return refusal;
             foreach (var request in requests) thread.Add(request);
-            run = new AgentRun(threadId, runId);
+            run = new AgentRun(threadId, runId, model);
             thread.AddRun(run);
             thread.Active = run;
         }
         _ = Task.Run(() => RunAsync(thread, run, context, userId));
         return new AgentStart.Running(run);
+    }
+
+    /// <summary>
+    /// The model a run is on (ADR-0017 §6.3): one chosen in the pane, where the runtime allows it; else the one the
+    /// conversation holds; else, on its first turn, the user's default model. A default no longer allowed refuses the
+    /// run by the setting's name rather than starting on another model. A runtime with no model runs on none.
+    /// </summary>
+    bool TryModel(AgentThread thread, string? chosen, string userId, out string? model, [NotNullWhen(false)] out AgentStart.Refused? refusal)
+    {
+        model = null;
+        refusal = null;
+        var allowed = runtime.Info.Models;
+        if (allowed.Count == 0)
+        {
+            if (chosen is null) return true;
+            refusal = new("ModelNotAllowed", $"{runtime.Info.Label} runs on no model, so no model is chosen for its conversations.");
+            return false;
+        }
+        if (chosen is not null)
+        {
+            if (!allowed.Contains(chosen, StringComparer.Ordinal))
+            {
+                refusal = new("ModelNotAllowed", $"{chosen} is not one of the models the AI may use: {string.Join(", ", allowed)}.");
+                return false;
+            }
+            model = chosen;
+            return true;
+        }
+        if (thread.Model is { } held)
+        {
+            model = held;
+            return true;
+        }
+        var read = settings.One(userId, AgentSettings.DefaultModel);
+        if (read.Unreadable is not null)
+        {
+            refusal = new("UnreadableSetting", UserSettings.NoLongerTaken(read));
+            return false;
+        }
+        model = read.Value?.GetValue<string>() ?? throw new InvalidOperationException($"{AgentSettings.DefaultModel} reads as no model, though the first allowed is registered.");
+        return true;
     }
 
     async Task RunAsync(AgentThread thread, AgentRun run, IReadOnlyList<AgentContext> context, string userId)
@@ -66,11 +113,12 @@ public sealed class AgentService(IAgentRuntime runtime, AgentToolGateway tools, 
         activity?.SetTag(AgentTelemetry.ThreadId, run.ThreadId);
         activity?.SetTag(AgentTelemetry.RunId, run.RunId);
         activity?.SetTag(AgentTelemetry.Runtime, runtime.Info.Name);
+        activity?.SetTag(AgentTelemetry.Model, run.Model);
         var outcome = "finished";
         try
         {
-            run.Append(AgUiEvents.RunStarted(run.ThreadId, run.RunId, runtime.Info));
-            await runtime.RunAsync(new(run.ThreadId, run.RunId, thread.Messages, tools.Tools, context), new Sink(thread, run, tools, userId), run.Cancellation);
+            run.Append(AgUiEvents.RunStarted(run.ThreadId, run.RunId, runtime.Info, run.Model));
+            await runtime.RunAsync(new(run.ThreadId, run.RunId, thread.Messages, tools.Tools, context, run.Model), new Sink(thread, run, tools, userId), run.Cancellation);
             if (run.Cancellation.IsCancellationRequested) outcome = "cancelled";
             run.Append(AgUiEvents.RunFinished(run.ThreadId, run.RunId, cancelled: run.Cancellation.IsCancellationRequested), last: true);
         }
@@ -89,8 +137,9 @@ public sealed class AgentService(IAgentRuntime runtime, AgentToolGateway tools, 
         {
             outcome = "failed";
             activity?.SetStatus(ActivityStatusCode.Error, failure.Message);
-            log.LogError(failure, "Agent run {AgentRunId} on thread {AgentThreadId} failed in {AgentRuntime}", run.RunId, run.ThreadId, runtime.Info.Name);
-            run.Append(AgUiEvents.RunError("AgentFailed", $"{runtime.Info.Label} failed: {failure.Message}"), last: true);
+            log.LogError(failure, "Agent run {AgentRunId} on thread {AgentThreadId} failed in {AgentRuntime} on {AgentModel}", run.RunId, run.ThreadId, runtime.Info.Name, run.Model);
+            var answerer = run.Model is null ? runtime.Info.Label : $"{runtime.Info.Label} on {run.Model}";
+            run.Append(AgUiEvents.RunError("AgentFailed", $"{answerer} failed: {failure.Message}"), last: true);
         }
         finally
         {
@@ -174,6 +223,21 @@ public sealed class AgentService(IAgentRuntime runtime, AgentToolGateway tools, 
             problem = "A run answers a new user message, and none was sent.";
             return false;
         }
+        return true;
+    }
+
+    /// <summary>The model chosen in the pane for this conversation, where the request names one (<c>forwardedProps.qube.model</c>).</summary>
+    static bool TryChosenModel(JsonNode? node, out string? chosen, out string problem)
+    {
+        chosen = null;
+        problem = "";
+        if (node is not JsonObject props || props["qube"] is not { } qube) return true;
+        if (qube is not JsonObject own || own["model"] is not JsonValue model || !model.TryGetValue<string>(out var id) || string.IsNullOrWhiteSpace(id))
+        {
+            problem = "forwardedProps.qube names the model chosen for the conversation, as model: its id.";
+            return false;
+        }
+        chosen = id;
         return true;
     }
 

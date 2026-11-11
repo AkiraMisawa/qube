@@ -156,7 +156,9 @@ switch (agentRuntime)
         var copilot = new CopilotRuntimeOptions(
             new Uri(Required("Agent:Copilot:HostUrl")),
             Required("Agent:Copilot:HostKey"),
-            Required("Agent:Copilot:Model"));
+            AllowedModels());
+        // The user's default model is a setting only where there are models to choose among (ADR-0017 §6.3).
+        builder.Services.AddSingleton<ISettingCatalog>(new AgentSettings(copilot.Models));
         builder.Services.AddHttpClient(CopilotHttpClient).ConfigureHttpClient(c => c.Timeout = Timeout.InfiniteTimeSpan);
         builder.Services.AddSingleton<IAgentRuntime>(sp => new CopilotAgentRuntime(sp.GetRequiredService<IHttpClientFactory>().CreateClient(CopilotHttpClient), copilot));
         break;
@@ -187,6 +189,18 @@ app.Run();
 string Required(string key) => builder.Configuration[key] is { Length: > 0 } value
     ? value
     : throw new InvalidOperationException($"{key} is not set; Agent:Runtime copilot needs it.");
+
+// The models a conversation may run on (ADR-0017 §6.3), the first being a new one's unless its user chose another. The
+// one model of before is not taken as a list of one: the configuration is moved, and says how.
+IReadOnlyList<string> AllowedModels()
+{
+    var listed = builder.Configuration.GetSection("Agent:Copilot:Models").GetChildren()
+        .Select(m => m.Value is { Length: > 0 } id ? id : throw new InvalidOperationException($"Agent:Copilot:Models:{m.Key} names no model.")).ToList();
+    if (listed.Count > 0) return listed;
+    throw new InvalidOperationException(builder.Configuration["Agent:Copilot:Model"] is { Length: > 0 }
+        ? "Agent:Copilot:Model is now Agent:Copilot:Models, the list of models the AI may use, the first being a new conversation's (ADR-0017 §6.3): set Agent:Copilot:Models:0, :1 and so on, and remove Agent:Copilot:Model."
+        : "Agent:Copilot:Models is not set; Agent:Runtime copilot needs the models the AI may use, the first being a new conversation's.");
+}
 
 /// <summary>Exposed for the in-process API tests.</summary>
 public partial class Program

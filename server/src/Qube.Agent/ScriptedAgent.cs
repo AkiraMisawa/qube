@@ -89,7 +89,7 @@ public sealed class ScriptedAgent(IEnumerable<IScriptedRequest> requests) : IAge
 {
     readonly IReadOnlyList<IScriptedRequest> requests = [.. requests];
 
-    public AgentRuntimeInfo Info { get; } = new("scripted", "scripted · no model", Simulated: true);
+    public AgentRuntimeInfo Info { get; } = new("scripted", "scripted · no model", Simulated: true, Models: []);
 
     public async Task RunAsync(AgentTurn turn, IAgentTurnSink sink, CancellationToken cancellationToken)
     {

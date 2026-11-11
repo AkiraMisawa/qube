@@ -5,8 +5,8 @@ using Qube.AgentHost.Contracts;
 
 namespace Qube.Agent;
 
-/// <summary>Where the agent host is, the key the two processes share, and the model it is asked to use.</summary>
-public sealed record CopilotRuntimeOptions(Uri HostUrl, string HostKey, string Model);
+/// <summary>Where the agent host is, the key the two processes share, and the models a conversation may run on, the first being a new one's unless its user chose another (ADR-0017 §6.3).</summary>
+public sealed record CopilotRuntimeOptions(Uri HostUrl, string HostKey, IReadOnlyList<string> Models);
 
 /// <summary>
 /// The Copilot runtime (ADR-0007 §5, C44): the workbench's side of the agent host. Each turn is posted to the host,
@@ -30,7 +30,7 @@ public sealed class CopilotAgentRuntime(HttpClient http, CopilotRuntimeOptions o
         Answer briefly.
         """;
 
-    public AgentRuntimeInfo Info { get; } = new("copilot", $"Copilot · {options.Model}", Simulated: false);
+    public AgentRuntimeInfo Info { get; } = new("copilot", "Copilot", Simulated: false, options.Models);
 
     public async Task RunAsync(AgentTurn turn, IAgentTurnSink sink, CancellationToken cancellationToken)
     {
@@ -159,7 +159,8 @@ public sealed class CopilotAgentRuntime(HttpClient http, CopilotRuntimeOptions o
                     break;
             }
         }
-        return new(turn.ThreadId, turn.RunId, options.Model, Instructions, prompt.ToString(), earlier.Length > 0 ? earlier.ToString() : null,
+        var model = turn.Model ?? throw new InvalidOperationException("A Copilot turn runs on a model, and this one names none.");
+        return new(turn.ThreadId, turn.RunId, model, Instructions, prompt.ToString(), earlier.Length > 0 ? earlier.ToString() : null,
             [.. turn.Tools.Select(t => new HostTool(t.Name, t.Description, t.Parameters))]);
     }
 }

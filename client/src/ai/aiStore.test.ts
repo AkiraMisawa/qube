@@ -1,6 +1,6 @@
 import { EventType, type BaseEvent, type RunAgentInput } from '@ag-ui/core';
 import type { AgentTransport } from './agui';
-import { createAiStore, type OnToolDone } from './aiStore';
+import { conversationModel, createAiStore, type OnToolDone } from './aiStore';
 import { applyEvent, newCard } from './cards';
 import { slashMatches } from './AiPane';
 
@@ -29,7 +29,7 @@ function transport(events: readonly BaseEvent[], hold?: Promise<void>): AgentTra
   const inputs: RunAgentInput[] = [];
   return {
     inputs,
-    runtime: () => Promise.resolve({ name: 'scripted', label: 'scripted · no model', simulated: true }),
+    runtime: () => Promise.resolve({ name: 'scripted', label: 'scripted · no model', simulated: true, models: [] }),
     async run(input, onEvent) {
       inputs.push(input);
       await hold;
@@ -43,7 +43,7 @@ describe('the AI pane', () => {
   it('ADR-0007 §7: a card shows each tool call with its outcome, the reply and the runtime', () => {
     const card = run.reduce(applyEvent, newCard('r', 'make a swap and tick it'));
     expect(card.status).toBe('done');
-    expect(card.runtime).toEqual({ label: 'scripted · no model', simulated: true });
+    expect(card.runtime).toEqual({ label: 'scripted · no model', simulated: true, model: undefined });
     expect(card.steps.map((s) => [s.tool, s.outcome?.status])).toEqual([['rates_workspace_create', 'done'], ['rates_live_start', 'refused']]);
     expect(card.steps[0]!.args).toBe('{"request":{}}');
     expect(card.reply).toBe('rates.live.start was refused.');
@@ -96,6 +96,39 @@ describe('the AI pane', () => {
     store.getState().ask('x', []);
     await vi.waitFor(() => expect(store.getState().cards[0]?.status).toBe('failed'));
     expect(store.getState().cards[0]!.error).toMatch(/may still be running/);
+  });
+
+  it('ADR-0017 §6.3: a model chosen in the pane goes with each later request of its conversation, and a new conversation starts on the default', async () => {
+    const started = (model: string): BaseEvent[] => [
+      { type: EventType.RUN_STARTED, threadId: 't', runId: 'r', metadata: { qube: { runtime: 'copilot', label: 'Copilot', simulated: false, model } } } as BaseEvent,
+      { type: EventType.RUN_FINISHED, threadId: 't', runId: 'r', outcome: { type: 'success' } } as BaseEvent,
+    ];
+    const agent = transport(started('model-b'));
+    const store = createAiStore(agent, () => undefined);
+    const shown = () => conversationModel(store.getState(), 'model-a');
+
+    expect(shown()).toBe('model-a');
+    store.getState().chooseModel('model-b');
+    expect(shown()).toBe('model-b');
+    store.getState().ask('one', []);
+    await vi.waitFor(() => expect(store.getState().cards[0]?.status).toBe('done'));
+    store.getState().ask('two', []);
+    await vi.waitFor(() => expect(store.getState().cards[1]?.status).toBe('done'));
+    store.getState().restart();
+    store.getState().ask('three', []);
+
+    expect(agent.inputs.map((i) => i.forwardedProps as unknown)).toEqual([{ qube: { model: 'model-b' } }, { qube: { model: 'model-b' } }, {}]);
+    expect(store.getState().cards[0]?.runtime?.model).toBeUndefined();
+    expect(shown()).toBe('model-a');
+  });
+
+  it('ADR-0017 §6.3: the pane shows the model the conversation last ran on, where none was chosen in it', () => {
+    const card = [{ type: EventType.RUN_STARTED, threadId: 't', runId: 'r', metadata: { qube: { runtime: 'copilot', label: 'Copilot', simulated: false, model: 'model-c' } } } as BaseEvent]
+      .reduce(applyEvent, newCard('r', 'x'));
+
+    expect(card.runtime).toEqual({ label: 'Copilot', simulated: false, model: 'model-c' });
+    expect(conversationModel({ cards: [card], chosenModel: undefined }, 'model-a')).toBe('model-c');
+    expect(conversationModel({ cards: [], chosenModel: undefined }, undefined)).toBeUndefined();
   });
 
   it('ADR-0006 §2: `/` lists the chat commands, narrowed as they are typed', () => {

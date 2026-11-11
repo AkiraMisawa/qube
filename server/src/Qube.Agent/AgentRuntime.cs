@@ -21,8 +21,12 @@ public sealed record AgentTool(string Name, string Description, JsonObject Param
 /// <summary>AG-UI's context entry: a description of something the user is looking at. Not authority (ADR-0007 §8).</summary>
 public sealed record AgentContext(string Description, string Value);
 
-/// <summary>What the agent is asked to continue: the thread and run, the whole conversation, the tools it may call, and the context.</summary>
-public sealed record AgentTurn(string ThreadId, string RunId, IReadOnlyList<AgentMessage> Messages, IReadOnlyList<AgentTool> Tools, IReadOnlyList<AgentContext> Context);
+/// <summary>
+/// What the agent is asked to continue: the thread and run, the whole conversation, the tools it may call, the context,
+/// and the model the conversation runs on (ADR-0017 §6.3), none for a runtime that has none.
+/// </summary>
+public sealed record AgentTurn(string ThreadId, string RunId, IReadOnlyList<AgentMessage> Messages, IReadOnlyList<AgentTool> Tools, IReadOnlyList<AgentContext> Context,
+    string? Model);
 
 /// <summary>
 /// The run a runtime answers into. Words go to the user as they are said; a tool call is invoked by the platform's
@@ -35,8 +39,11 @@ public interface IAgentTurnSink
     Task<ToolResult> CallAsync(AgentToolCall call, CancellationToken cancellationToken);
 }
 
-/// <summary>Which runtime answers, as the pane shows it. <c>Simulated</c> is true for anything that is not a model.</summary>
-public sealed record AgentRuntimeInfo(string Name, string Label, bool Simulated);
+/// <summary>
+/// Which runtime answers, as the pane shows it. <c>Simulated</c> is true for anything that is not a model. <c>Models</c>
+/// are those a conversation may run on (ADR-0017 §6.3), as configuration lists them; none for a runtime with no model.
+/// </summary>
+public sealed record AgentRuntimeInfo(string Name, string Label, bool Simulated, IReadOnlyList<string> Models);
 
 /// <summary>
 /// The agent runtime port (ADR-0007 §5): model interaction behind one interface, so the scripted agent, a Copilot

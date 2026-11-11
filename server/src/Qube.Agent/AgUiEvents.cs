@@ -10,16 +10,19 @@ public static class AgUiEvents
 {
     public const string ProtocolVersion = "1.0";
 
-    public static JsonObject RunStarted(string threadId, string runId, AgentRuntimeInfo runtime) => Event("RUN_STARTED", new()
+    /// <summary>A run's start, saying the runtime that answers it and the model it runs on, where it has one (ADR-0017 §6.3).</summary>
+    public static JsonObject RunStarted(string threadId, string runId, AgentRuntimeInfo runtime, string? model)
     {
-        ["threadId"] = threadId,
-        ["runId"] = runId,
-        ["protocolVersion"] = ProtocolVersion,
-        ["metadata"] = new JsonObject
+        var qube = new JsonObject { ["runtime"] = runtime.Name, ["label"] = runtime.Label, ["simulated"] = runtime.Simulated };
+        if (model is not null) qube["model"] = model;
+        return Event("RUN_STARTED", new()
         {
-            ["qube"] = new JsonObject { ["runtime"] = runtime.Name, ["label"] = runtime.Label, ["simulated"] = runtime.Simulated },
-        },
-    });
+            ["threadId"] = threadId,
+            ["runId"] = runId,
+            ["protocolVersion"] = ProtocolVersion,
+            ["metadata"] = new JsonObject { ["qube"] = qube },
+        });
+    }
 
     public static JsonObject RunFinished(string threadId, string runId, bool cancelled) => Event("RUN_FINISHED", new()
     {

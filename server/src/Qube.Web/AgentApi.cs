@@ -37,6 +37,7 @@ public static class AgentApi
                 ? Results.Ok(new
                 {
                     threadId = thread.ThreadId,
+                    model = thread.Model,
                     messages = thread.Messages.Select(AgUiEvents.Message),
                     activeRunId = thread.ActiveRun?.RunId,
                 })

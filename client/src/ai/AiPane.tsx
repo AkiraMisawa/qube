@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { Alert, Badge, Button, CloseButton, Code, Group, Kbd, Loader, Paper, ScrollArea, Stack, Text, Textarea, Title } from '@mantine/core';
+import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
+import { Alert, Badge, Button, CloseButton, Code, Group, Kbd, Loader, Paper, ScrollArea, Select, Stack, Text, Textarea, Title } from '@mantine/core';
 import { useQuery } from '@tanstack/react-query';
+import { useValue } from '../platform/settings/settings';
 import { useWorkspace } from '../platform/workspace/WorkspaceProvider';
 import { useAi, useAiContext } from './AiProvider';
-import { answering } from './aiStore';
+import { answering, conversationModel } from './aiStore';
 import type { AiCard, AiStep } from './cards';
 import { aiContextOf } from './effects';
 
@@ -144,7 +145,30 @@ export function AiPane() {
           placeholder={busy ? 'Answering… /stop to stop' : 'Ask the AI, or / for chat commands'} autosize minRows={1} maxRows={6}
           aria-label="Ask the AI" data-ai-chat="" />
       </div>
+      {runtime.data !== undefined && runtime.data.models.length > 0 && <ModelChoice models={runtime.data.models} />}
     </Stack>
+  );
+}
+
+/** The key of the user's default model (ADR-0017 §6.3), registered where models are configured. */
+const DEFAULT_MODEL = 'agent.defaultModel';
+
+/**
+ * The model this conversation runs on, chosen among those configured (ADR-0017 §6.3). A choice here is the
+ * conversation's alone: the user's default model, which a new conversation starts on, is in their settings.
+ */
+function ModelChoice({ models }: { readonly models: readonly string[] }) {
+  const { store } = useAiContext();
+  const id = useId();
+  const userDefault = useValue(DEFAULT_MODEL);
+  const shown = useAi((s) => conversationModel(s, userDefault));
+  return (
+    <Group gap="xs" wrap="nowrap" data-testid="ai-model-choice">
+      <Text component="label" htmlFor={id} size="xs" c="dimmed">Model</Text>
+      <Select id={id} size="xs" data={[...models]} value={shown ?? null} allowDeselect={false} placeholder="Choose a model"
+        title="The model this conversation runs on. A new conversation starts on your default model, in your settings."
+        onChange={(model) => { if (model !== null) store.getState().chooseModel(model); }} comboboxProps={{ withinPortal: true }} style={{ flex: 1 }} />
+    </Group>
   );
 }
 
@@ -157,6 +181,7 @@ function TaskCard({ card, onOpen }: { readonly card: AiCard; readonly onOpen: (p
           <StatusBadge status={card.status} />
         </Group>
         {card.runtime?.simulated === true && <Text size="xs" c="yellow">{card.runtime.label}</Text>}
+        {card.runtime?.model !== undefined && <Text size="xs" c="dimmed" data-testid="ai-run-model">{card.runtime.label} on {card.runtime.model}</Text>}
         {card.steps.map((s) => <Step key={s.toolCallId} step={s} />)}
         {card.reply !== '' && <Text size="sm" style={{ whiteSpace: 'pre-wrap' }} data-testid="ai-reply">{card.reply}</Text>}
         {card.error !== undefined && <Text size="sm" c="red" role="alert">{card.error}</Text>}

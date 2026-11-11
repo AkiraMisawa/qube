@@ -198,10 +198,27 @@ public class AgentApiTests : IClassFixture<QubeFactory>
         Assert.Contains("'llama'", failure.Message, StringComparison.Ordinal);
     }
 
+    [Fact] // ADR-0017 §6.3: the stand-in runs on no model: no default model is registered, a run names none, and one chosen for its conversation is refused
+    public async Task The_stand_in_runs_on_no_model_and_refuses_one_chosen()
+    {
+        var plain = await Events(await Post(Input("t-model-1", "r-1", ("m-1", "hello"))));
+        var input = Input("t-model-2", "r-1", ("m-1", "hello"));
+        input["forwardedProps"] = new JsonObject { ["qube"] = new JsonObject { ["model"] = "any-model" } };
+        var refused = await Post(input);
+        var listed = (await client.GetFromJsonAsync<JsonObject>("/api/settings"))!["settings"]!.AsArray().Select(s => s!["key"]!.GetValue<string>());
+
+        Assert.Null(plain[0]["metadata"]!["qube"]!["model"]);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, refused.StatusCode);
+        var error = (await refused.Content.ReadFromJsonAsync<JsonObject>())!;
+        Assert.Equal(("ModelNotAllowed", "scripted · no model runs on no model, so no model is chosen for its conversations."),
+            (error["code"]!.GetValue<string>(), error["message"]!.GetValue<string>()));
+        Assert.DoesNotContain(AgentSettings.DefaultModel, listed);
+    }
+
     /// <summary>Calls one tool, then says it is done.</summary>
     sealed class Proposing(AgentToolCall call) : IAgentRuntime
     {
-        public AgentRuntimeInfo Info { get; } = new("test", "test runtime", true);
+        public AgentRuntimeInfo Info { get; } = new("test", "test runtime", true, []);
 
         public async Task RunAsync(AgentTurn turn, IAgentTurnSink sink, CancellationToken cancellationToken)
         {
@@ -214,7 +231,7 @@ public class AgentApiTests : IClassFixture<QubeFactory>
     sealed class Waiting : IAgentRuntime
     {
         public TaskCompletionSource Asked { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        public AgentRuntimeInfo Info { get; } = new("test", "test runtime", true);
+        public AgentRuntimeInfo Info { get; } = new("test", "test runtime", true, []);
 
         public async Task RunAsync(AgentTurn turn, IAgentTurnSink sink, CancellationToken cancellationToken)
         {
