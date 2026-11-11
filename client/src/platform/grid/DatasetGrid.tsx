@@ -54,7 +54,7 @@ export function DatasetGrid({ panelId, grid: gridKey, dataset, columns, actions,
       ? mapped
       : [...mapped, actionColumn<Row>(ACTIONS_COLUMN, actions.map((a) => ({ name: a.actionId, label: a.label })), { width: 260 })];
   }, [columns, actions, dataset]);
-  const widths = useColumnWidths(panelId, gridKey, gridColumns);
+  const widths = useColumnWidths(`view/${gridKey}`, gridColumns);
 
   const handleAction = useCallback((event: GridActionEvent<Row>) => {
     const action = actions.find((a) => a.actionId === event.action);

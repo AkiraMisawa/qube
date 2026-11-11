@@ -196,7 +196,7 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
 
   // The columns at the widths the user dragged them to, kept per panel; the line grid hides its column menu, so a header
   // needs no room for one (ADR-0015 §4).
-  const { columns, onColumnWidthChanged } = useColumnWidths(panelId, 'lines', columnsOf(opened), { hideColumnMenu: true });
+  const { columns, onColumnWidthChanged } = useColumnWidths('rates/lines', columnsOf(opened), { hideColumnMenu: true });
 
   // A double click on a folded column opens what it folds (ADR-0015 §1).
   const onCellDoubleClick = useCallback((cell: CellPosition) => {
@@ -476,7 +476,7 @@ function Cashflows({ panelId, workspaceId, line, revision, api, gridRef, edit, o
   const flows = useQuery({ queryKey: ['rates', workspaceId, 'cashflows', line, revision], queryFn: () => api.cashflows(workspaceId, line) });
   const source = useMemo(() => GridSource.from<PeriodView>([], { rowKey: (p) => p.entity }), []);
   useEffect(() => { if (flows.data !== undefined) source.replaceAll(flows.data.periods); }, [flows.data, source]);
-  const widths = useColumnWidths(panelId, 'cashflows', periodColumns);
+  const widths = useColumnWidths('rates/cashflows', periodColumns);
 
   const onEdit = useCallback((intent: GridEditIntent<PeriodView>) => {
     const parse = periodParserOf(intent.column);

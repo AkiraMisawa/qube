@@ -152,7 +152,7 @@ export function TraceTree({ panelId, header, rows, selected, onSelect, onGoTo, o
   const source = useMemo(() => GridSource.from<TreeRow>([], { rowKey: (r) => r.key }), []);
   const allocated = rows.some((r) => header.sides.some((side) => r.term?.[side]?.allocation !== undefined && r.term?.[side]?.allocation !== null));
   const declared = useMemo(() => columnsOf(header, allocated), [header, allocated]);
-  const { columns, onColumnWidthChanged } = useColumnWidths(panelId, 'trace/tree', declared, { hideColumnMenu: true });
+  const { columns, onColumnWidthChanged } = useColumnWidths('trace/tree', declared, { hideColumnMenu: true });
   const handlers = useRef({ onSelect, onGoTo, onToggle, onMore });
   handlers.current = { onSelect, onGoTo, onToggle, onMore };
   const selectedRef = useRef(selected);

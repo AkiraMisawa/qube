@@ -1,8 +1,23 @@
-import { test as base, expect, type Page } from '@playwright/test';
+import { test as base, expect, type APIRequestContext, type Page } from '@playwright/test';
+
+/**
+ * The user's settings, as each test starts (ADR-0017 §2): every one the user set is reset, as a fresh browser began
+ * from nothing when the theme, the command ranking and the widths were the browser's. The tests share one server and one
+ * user, so what a test sets would otherwise reach every test after it.
+ */
+export async function resetSettings(request: APIRequestContext): Promise<void> {
+  const read = await request.get('/api/settings');
+  expect(read.ok()).toBe(true);
+  for (const setting of ((await read.json()) as { settings: { key: string; set: boolean }[] }).settings.filter((s) => s.set)) {
+    const reset = await request.post('/api/commands/settings.reset/1.0.0', { data: { inputs: { request: { setting: setting.key } }, idempotencyKey: crypto.randomUUID() } });
+    expect(reset.ok(), await reset.text()).toBe(true);
+  }
+}
 
 // An unexpected console message or page error fails the test that caused it.
 export const test = base.extend<{ problems: string[] }>({
   problems: [async ({ page }, use) => {
+    await resetSettings(page.request);
     const problems: string[] = [];
     page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') problems.push(`${m.type()}: ${m.text()}`); });
     page.on('pageerror', (e) => problems.push(`pageerror: ${e.message}`));

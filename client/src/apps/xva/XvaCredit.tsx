@@ -153,7 +153,7 @@ function CurveGrid({ panelId, curve, tenors, setText, onVary, commandLabel }: {
   useEffect(() => { source.replaceAll([curve]); }, [curve, source]);
   const tenorsKey = tenors.join('|');
   const declared = useMemo(() => curveColumnsOf(tenorsKey.split('|')), [tenorsKey]);
-  const { columns, onColumnWidthChanged } = useColumnWidths(panelId, 'credit/curve', declared);
+  const { columns, onColumnWidthChanged } = useColumnWidths('xva/credit/curve', declared);
 
   // The server reads the spread and checks it; one it refuses keeps the editor open with its reason (ExGrid ADR-0380),
   // unless the user has cancelled the commit meanwhile.

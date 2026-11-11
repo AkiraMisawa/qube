@@ -8,6 +8,7 @@ import {
 } from '../platform/commands/commands';
 import { argumentShown, argumentsDrawn, commandDoorOf, lineAsked, previewShown, screenShown, servedCommands, taken } from '../platform/commands/served';
 import { recordUse, usageScore } from '../platform/commands/usage';
+import { openSettings, resetSetting, setSetting, useSettings, type SettingChanged, type SettingDescribed } from '../platform/settings/settings';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { Catalog, LineCompletion, LinePreview, LineView, RunRecord } from '../platform/contracts';
 import type { Notice, Notify } from '../platform/notices';
@@ -38,6 +39,42 @@ export function panelTitled(panels: readonly Panel[], text: string): { readonly 
 }
 
 /**
+ * The commands of the user's settings (ADR-0017 §4), on every page, with or without a workspace: `settings` shows the
+ * dialog, `settings <name> <value>` sets one a line types, completing its choices, and `settings reset <name>` returns
+ * one the user set to its registered value. The server reads and checks the value, and what it answered is the notice.
+ */
+export function settingCommands(settings: readonly SettingDescribed[], notify: Notify): Command[] {
+  const said = (act: Promise<SettingChanged>) =>
+    act.then((changed) => notify('done', changed.said), (error: unknown) => notify('refused', `settings: ${error instanceof Error ? error.message : String(error)}`));
+  return [
+    { id: 'settings.open', words: 'settings', title: 'Show your settings', group: 'Settings', run: openSettings },
+    ...settings.filter((s) => s.typed).map((setting): Command => ({
+      id: `settings.set:${setting.key}`,
+      words: `settings ${setting.name}`,
+      title: `Set your ${setting.title.toLowerCase()}`,
+      group: 'Settings',
+      target: setting.value,
+      args: [{
+        name: 'value', required: true, hint: setting.takes,
+        ...(setting.choices === undefined ? {} : { complete: () => (setting.choices ?? []).map((value) => ({ value })) }),
+      }],
+      run: (a) => { void said(setSetting(setting.key, a.value ?? '')); },
+    })),
+    {
+      id: 'settings.reset',
+      words: 'settings reset',
+      title: 'Reset one of your settings to its registered value',
+      group: 'Settings',
+      args: [{
+        name: 'setting', required: true, rest: true, hint: 'a setting you set',
+        complete: () => settings.filter((s) => s.set).map((s) => ({ value: s.name, detail: s.title })),
+      }],
+      run: (a) => { void said(resetSetting(a.setting ?? '')); },
+    },
+  ];
+}
+
+/**
  * Builds every command the workbench offers right now. Workflows, views and context values come from
  * the catalog, so a module that registers a workflow gets its command without a client change.
  */
@@ -47,6 +84,8 @@ export function buildCommands(args: {
   readonly activeRun: RunRecord | undefined;
   readonly toggleTheme: () => void;
   readonly notify: Notify;
+  /** The user's settings as read (ADR-0017 §4): `settings <name> <value>` for each a line types, and `settings reset <name>`. */
+  readonly settings?: readonly SettingDescribed[];
   /** The AI pane, where one is mounted: `ai <request>` hands the request to it (ADR-0006 §7, ADR-0007 §7). */
   readonly ai?: { readonly ask: (request: string) => string | undefined; readonly open: boolean; readonly setOpen: (open: boolean) => void };
 }): Command[] {
@@ -221,6 +260,7 @@ export function buildCommands(args: {
       group: 'Appearance',
       run: args.toggleTheme,
     },
+    ...settingCommands(args.settings ?? [], args.notify),
     {
       // ADR-0006 §7: the request goes to the AI pane with the current context; the keyboard stays where it was.
       id: 'ai.ask',
@@ -295,6 +335,7 @@ export function CommandPalette() {
   const activePanelId = useWorkspace((s) => s.activePanelId);
   const context = useWorkspace((s) => s.context);
   const { toggleColorScheme } = useMantineColorScheme();
+  const { settings } = useSettings();
   const aiStore = useOptionalAiStore();
   const aiOpen = useStore(aiStore ?? NO_AI, (s) => s.open);
   const active = panels.find((p) => p.id === activePanelId);
@@ -346,8 +387,9 @@ export function CommandPalette() {
       setOpen: (open: boolean) => aiStore.getState().setOpen(open),
       ask: (request: string) => aiStore.getState().ask(request, aiContextOf(active)),
     };
-    return buildCommands({ catalog: workspace.catalog, state: { ...state, panels, activePanelId, context }, activeRun, toggleTheme: toggleColorScheme, notify: workspace.notify, ...(ai === undefined ? {} : { ai }) });
-  }, [workspace, panels, activePanelId, context, activeRun, toggleColorScheme, opened, opening, aiStore, aiOpen, active]);
+    return buildCommands({ catalog: workspace.catalog, state: { ...state, panels, activePanelId, context }, activeRun, toggleTheme: toggleColorScheme, notify: workspace.notify,
+      settings: Object.values(settings), ...(ai === undefined ? {} : { ai }) });
+  }, [workspace, panels, activePanelId, context, activeRun, toggleColorScheme, opened, opening, aiStore, aiOpen, active, settings]);
 
   /** Reads what the page in the active panel shows now, as an opening: at each opening, and at each chained command. */
   const readScreen = useCallback(() => {

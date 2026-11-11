@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from 'react';
 import { gridHeaderRequiredPx, type GridColumn, type GridColumnWidth, type GridColumnWidthChange, type GridDensity } from '@ex-grid/core';
-import { useWorkspace, useWorkspaceContext } from '../workspace/WorkspaceProvider';
+import { setWritten, settingsStore, useSetting, written } from '../settings/settings';
 
 // Column widths (ExGrid ADR-0016). A declared width is a default that never cuts its header; a value longer than the
 // header may be cut until the user widens the column. ExGrid moves no width by itself: it reports a drag, the page
@@ -10,6 +10,9 @@ import { useWorkspace, useWorkspaceContext } from '../workspace/WorkspaceProvide
 export type ColumnWidths = Readonly<Record<string, number>>;
 
 const NONE: ColumnWidths = {};
+
+/** Where a grid's widths are kept: the user's setting of this prefix and the grid's id. */
+export const WIDTHS = 'grid.widths.';
 
 /** How the grid draws its headers, which sets what a header needs: the Rates line grid hides its column menu (ADR-0015 §4). */
 export interface HeaderOptions {
@@ -47,15 +50,19 @@ export function columnsAt<Row>(declared: readonly GridColumn<Row>[], dragged: Co
 }
 
 /**
- * One grid's columns at the user's widths, and the handler that records a drag. The widths are kept in the workspace
- * store by panel, since a panel's page is unmounted whenever another tab is shown, and go when the panel closes.
+ * One grid's columns at the user's widths, and the handler that records a drag. The widths are the user's setting
+ * `grid.widths.<grid>` (ADR-0017 §5), by a grid id with its application's prefix (`xva/trades/existing`): the same in
+ * every workspace and panel, after a reload and in another browser. A drag is kept as it is released.
  */
-export function useColumnWidths<Row>(panelId: string, grid: string, declared: readonly GridColumn<Row>[], options: { readonly hideColumnMenu?: boolean } = {}) {
-  const { store } = useWorkspaceContext();
-  const dragged = useWorkspace((s) => s.columnWidths[panelId]?.[grid]) ?? NONE;
+export function useColumnWidths<Row>(grid: string, declared: readonly GridColumn<Row>[], options: { readonly hideColumnMenu?: boolean } = {}) {
+  const key = `${WIDTHS}${grid}`;
+  const setting = useSetting(key);
+  const dragged = useMemo(() => written<ColumnWidths>(setting) ?? NONE, [setting]);
   const hideColumnMenu = options.hideColumnMenu === true;
   const columns = useMemo(() => columnsAt(declared, dragged, { hideColumnMenu }), [declared, dragged, hideColumnMenu]);
-  const onColumnWidthChanged = useCallback((change: GridColumnWidthChange) =>
-    store.getState().setColumnWidth(panelId, grid, change.column, change.widthPx), [store, panelId, grid]);
+  const onColumnWidthChanged = useCallback((change: GridColumnWidthChange) => {
+    const held = written<ColumnWidths>(settingsStore.getState().settings[key]) ?? NONE;
+    void setWritten(key, 'Column widths', { ...held, [change.column]: Math.round(change.widthPx) });
+  }, [key]);
   return { columns, onColumnWidthChanged };
 }

@@ -331,8 +331,8 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   const existingColumns = useMemo<readonly GridColumn<Row>[]>(() => [...existingTerms, ...assignment, ...membership, ...derived], [assignment, membership]);
   gridColumns.current = { new: newColumns, existing: existingColumns };
   // Each grid's columns at the widths the user dragged them to, kept per panel while it is open.
-  const newWidths = useColumnWidths(panelId, 'trades/new', newColumns);
-  const existingWidths = useColumnWidths(panelId, 'trades/existing', existingColumns);
+  const newWidths = useColumnWidths('xva/trades/new', newColumns);
+  const existingWidths = useColumnWidths('xva/trades/existing', existingColumns);
 
   // The layout (ADR-0010 §1): the input tabs open, or collapsed to their row, at a height the user drags; the dock the
   // same at the bottom; and below `sm` the part in view.

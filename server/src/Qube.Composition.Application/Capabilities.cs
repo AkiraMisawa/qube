@@ -52,12 +52,12 @@ public static class CapabilityEffects
 {
     /// <summary>
     /// A capability that edits a workspace, runs a subscription, reads a Run, keeps a saved item, starts work for its
-    /// caller or reads its caller's workspace: invoked for a caller, never in a Run (ADR-0005, ADR-0011, ADR-0010 §4,
-    /// ADR-0016 notes 33 and 38).
+    /// caller, reads its caller's workspace or reads or writes its caller's settings: invoked for a caller, never in a
+    /// Run (ADR-0005, ADR-0011, ADR-0010 §4, ADR-0016 notes 33 and 38, ADR-0017 §2).
     /// </summary>
     public static bool IsCommand(this CapabilityDescriptor descriptor) =>
         descriptor.Effects.Any(e => e is CapabilityEffect.EditWorkspace or CapabilityEffect.Subscribe or CapabilityEffect.ReadRun or CapabilityEffect.SaveItem or CapabilityEffect.Execute
-            or CapabilityEffect.ReadWorkspace);
+            or CapabilityEffect.ReadWorkspace or CapabilityEffect.UserSetting);
 }
 
 /// <summary>A JSON Schema for a contract version whose values are small enough to enter on a form.</summary>

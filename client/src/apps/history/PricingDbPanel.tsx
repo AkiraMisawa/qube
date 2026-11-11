@@ -97,7 +97,7 @@ function HistoryGrid({ panelId, domain, columns, notify }: {
     actionColumn<Row>('Actions', [{ name: OPEN, label: 'Open' }, { name: DOWNLOAD, label: 'Download' }], { width: 176 }),
     ...columns.map(gridColumn),
   ], [columns]);
-  const widths = useColumnWidths(panelId, `history/${domain ?? ALL}`, gridColumns);
+  const widths = useColumnWidths(`history/${domain ?? ALL}`, gridColumns);
 
   const onAction = useCallback((event: GridActionEvent<Row>) => {
     const runId = event.row.runId as string;

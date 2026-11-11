@@ -1,5 +1,6 @@
 using System.Text.Json.Nodes;
 using Qube.Composition.Application;
+using Qube.Composition.Application.Settings;
 using Qube.Composition.Application.Tables;
 using Qube.Composition.Application.Traces;
 using Qube.Composition.Application.Workspaces;
@@ -50,6 +51,11 @@ public static class Api
         api.MapGet("/catalog", (CompositionRegistry registry, CommandLines lines) => new Catalog(
             registry.CapabilityDescriptors, registry.ContractDefinitions, registry.WorkflowDefinitions,
             registry.ViewDefinitions, registry.ActionDefinitions, lines.ViewVerbs, lines.ShortForms));
+
+        // The signed-in user's settings (ADR-0017 §2), as settings.read answers them, for the page as it starts. Written
+        // through the gateway, as settings.set and settings.reset.
+        api.MapGet("/settings", (UserSettings settings, CurrentUser user) =>
+            new JsonObject { ["settings"] = new JsonArray([.. settings.Read(user.Id).Select(r => (JsonNode)SettingsContracts.Described(settings, r))]) });
 
         api.MapPost("/runs", (RunRequest request, RunService runs, CurrentUser user) =>
             ToResult(runs.Submit(new(request.Workflow, request.Context, request.Input, request.IdempotencyKey, user.Id, RunOrigin.Workflow, RunRelations.None))));

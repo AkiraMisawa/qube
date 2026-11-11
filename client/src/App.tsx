@@ -1,18 +1,21 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Alert, AppShell, CloseButton, Drawer, Group, Kbd, Loader, ScrollArea, Stack, Tabs, Text, em } from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
 import { useQuery } from '@tanstack/react-query';
 import type { Api } from './platform/api';
 import type { Notice, Notify } from './platform/notices';
 import { telemetry } from './platform/telemetry';
+import { loadSettings, notKept, settingsStore } from './platform/settings/settings';
+import { adoptUsage } from './platform/commands/usage';
 import { ViewRenderer } from './platform/views/ViewRenderer';
-import { WorkspaceProvider, useWorkspace } from './platform/workspace/WorkspaceProvider';
+import { WorkspaceProvider, useWorkspace, useWorkspaceContext } from './platform/workspace/WorkspaceProvider';
 import type { Panel } from './platform/workspace/workspaceStore';
 import { AppHeader, HEADER_HEIGHT } from './shell/AppHeader';
 import { CommandPalette } from './shell/CommandPalette';
 import { ContextIssues } from './shell/ContextBar';
 import { NoticeStrip } from './shell/Notice';
 import { RunDialog } from './shell/RunDialog';
+import { SettingsDialog } from './shell/SettingsDialog';
 import { AppDialogs, AppPanel } from './apps';
 import { RunPanel } from './shell/RunPanel';
 import { registerGridFocus } from './shell/places';
@@ -27,6 +30,9 @@ export function App({ api, initialContext, agent }: {
   readonly agent?: AgentTransport;
 }) {
   const catalog = useQuery({ queryKey: ['catalog'], queryFn: () => api.catalog(), staleTime: Infinity });
+  // The user's settings (ADR-0017 §2) are read as the page starts, beside the catalog: the widths of the first grid
+  // drawn are the user's, not the declared ones for a moment.
+  const settings = useQuery({ queryKey: ['settings'], queryFn: async () => { await loadSettings(); return true; }, staleTime: Infinity });
   const [notice, setNotice] = useState<Notice | undefined>(undefined);
   // A notice is a command's result (ADR-0006's note 2 of 2026-11-11). A refused one is what the user was told went
   // wrong, and the server's log keeps it too (ADR-0014 §4).
@@ -36,9 +42,19 @@ export function App({ api, initialContext, agent }: {
     if (kind === 'refused') telemetry.report({ level: 'warning', kind: 'notice', message });
   }, []);
   const clearNotice = useCallback(() => setNotice(undefined), []);
+  // A setting the page wrote by itself and the server did not keep is said, so the user knows it will not be there next time.
+  useEffect(() => settingsStore.subscribe((state, before) => {
+    if (state.failed !== undefined && state.failed !== before.failed) notify('refused', state.failed);
+  }), [notify]);
+  // Once read, a ranking this browser kept before is carried over (ADR-0017 §5).
+  useEffect(() => {
+    if (settings.isSuccess) adoptUsage().catch((error: unknown) => notKept('The command ranking', error));
+  }, [settings.isSuccess]);
 
   if (catalog.isPending) return <Group p="xl"><Loader size="sm" /><Text>Loading the capability catalog…</Text></Group>;
   if (catalog.isError) return <Alert m="xl" color="red" title="The catalog could not be loaded">{catalog.error.message}</Alert>;
+  if (settings.isPending) return <Group p="xl"><Loader size="sm" /><Text>Loading your settings…</Text></Group>;
+  if (settings.isError) return <Alert m="xl" color="red" title="Your settings could not be read">{settings.error.message}</Alert>;
 
   return (
     <WorkspaceProvider api={api} catalog={catalog.data} initialContext={initialContext} notify={notify}>
@@ -50,6 +66,7 @@ export function App({ api, initialContext, agent }: {
 }
 
 function Shell({ notice, clearNotice }: { readonly notice: Notice | undefined; readonly clearNotice: () => void }) {
+  const workspace = useWorkspaceContext();
   const aiOpen = useAi((s) => s.open);
   const ai = useAiContext().store;
   // The AI pane is beside the panels (ADR-0007 §7). On a phone, where there is no room beside, it is a drawer over
@@ -75,6 +92,7 @@ function Shell({ notice, clearNotice }: { readonly notice: Notice | undefined; r
       <CommandPalette />
       <RunDialog />
       <AppDialogs />
+      <SettingsDialog notify={workspace.notify} />
     </AppShell>
   );
 }

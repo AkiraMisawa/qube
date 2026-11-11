@@ -73,7 +73,7 @@ export function EntityRows({ panelId, api, address, header, path, set }: {
     if (both) out.push({ name: 'sides', header: 'Sides', type: 'text', width: { auto: true, minPx: 96, maxPx: 200 }, queryable: false, value: (r) => sidesHolding(r, header.sides) });
     return out;
   }, [set, header, both, currency, unit]);
-  const { columns, onColumnWidthChanged } = useColumnWidths(panelId, `trace/entities/${set.leafSet}`, declared, { hideColumnMenu: true });
+  const { columns, onColumnWidthChanged } = useColumnWidths(`trace/entities/${set.leafSet}`, declared, { hideColumnMenu: true });
 
   const line = checks === undefined ? undefined : checkLine(checks, unit);
 

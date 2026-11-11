@@ -74,7 +74,7 @@ export function XvaScenarios({ panelId, shifts, scenarios, actions, height, grid
   readonly commandLabel: (id: string) => string | undefined;
 }) {
   const rows = useMemo(() => shiftGridRows(shifts), [shifts]);
-  const { columns, onColumnWidthChanged } = useColumnWidths(panelId, 'scenarios', COLUMNS, { hideColumnMenu: true });
+  const { columns, onColumnWidthChanged } = useColumnWidths('xva/scenarios', COLUMNS, { hideColumnMenu: true });
   const source = useMemo(() => GridSource.from<ShiftGridRow>([], { rowKey: (row) => row.key }), []);
   useEffect(() => { source.replaceAll(rows); }, [rows, source]);
   const actionsNow = useRef(actions);

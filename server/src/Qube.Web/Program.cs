@@ -3,6 +3,7 @@ using System.Text.Json.Nodes;
 using Qube.Agent;
 using Qube.Composition.Application;
 using Qube.Composition.Application.Saved;
+using Qube.Composition.Application.Settings;
 using Qube.Composition.Application.Tables;
 using Qube.Composition.Application.Traces;
 using Qube.Composition.Application.Workspaces;
@@ -126,6 +127,12 @@ builder.Services.AddSingleton<ISavedItemStore>(_ => new SqliteSavedItemStore(dat
 builder.Services.AddSingleton(new Desks(builder.Configuration.GetSection("Qube:Desks").GetChildren()
     .ToDictionary(d => d.Key, d => d.Value ?? throw new InvalidOperationException($"Qube:Desks:{d.Key} names no desk."), StringComparer.OrdinalIgnoreCase)));
 builder.Services.AddSingleton<SavedItems>();
+// A user's settings (ADR-0017 §2) beside the saved items. Each module registers its own; the shell's are the theme,
+// the command ranking and column widths. The commands reach the service only when invoked, as the tables' do.
+builder.Services.AddSingleton<IUserSettingStore>(_ => new SqliteUserSettingStore(database));
+builder.Services.AddSingleton<ISettingCatalog, ShellSettings>();
+builder.Services.AddSingleton<UserSettings>();
+builder.Services.AddSingleton<IQubeModule>(sp => new SettingsModule(sp.GetRequiredService<UserSettings>));
 builder.Services.AddSingleton<PortfolioWorkspaces>();
 // The AI pane (ADR-0007): the agent runtime is chosen here and nowhere else, by configuration, and an unknown one stops
 // startup rather than falling back to another. "copilot" talks to the agent host, a separate process under the agent's

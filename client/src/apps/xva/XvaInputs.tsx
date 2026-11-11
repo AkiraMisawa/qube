@@ -334,7 +334,7 @@ function CsaGrid({ panelId, workspaceId, revision, csas, columns: declared, push
   readonly onPlaced: () => string | undefined;
 }) {
   const source = useMemo(() => GridSource.from<CsaRow>([], { rowKey: csaKey }), []);
-  const { columns, onColumnWidthChanged } = useColumnWidths(panelId, 'csas', declared);
+  const { columns, onColumnWidthChanged } = useColumnWidths('xva/csas', declared);
   const { api } = useWorkspaceContext();
   const heldGrid = useMemo(() => ({ api, workspaceId, table: CSAS_TABLE, revision }), [api, workspaceId, revision]);
   // Filtered from the line (ADR-0016 note 41), the grid shows the CSAs the server says its conditions leave.

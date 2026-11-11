@@ -397,7 +397,7 @@ test('ADR-0016 note 34: a default is set alone and a new line takes it; a value 
   await expect(cell(page, LEG1_SUMMARY)).toHaveText('JPY 500mm Fixed par 12m');
 });
 
-test('ExGrid ADR-0016: a column dragged wider by its header grip keeps its width when its page comes back', async ({ page }) => {
+test('ExGrid ADR-0016, ADR-0017 §5: a column dragged wider by its header grip keeps its width when its page comes back, after a reload and in another workspace', async ({ page }) => {
   await open(page);
   await newWorkspace(page);
   // A column in view at the left: off-screen columns, the result among them, are not in the DOM.
@@ -416,6 +416,12 @@ test('ExGrid ADR-0016: a column dragged wider by its header grip keeps its width
   await command(page, 'open pricing db');
   await settled(page, 'Pricing DB');
   await page.getByRole('tab', { name: 'Rates 2026-10-27' }).click();
+  await settled(page, 'Lines');
+  await expect.poll(width).toBe(Math.round(before.width) + 100);
+
+  // The width is the user's (ADR-0017 §5): a reload and another workspace find it as it was released.
+  await open(page);
+  await newWorkspace(page);
   await settled(page, 'Lines');
   await expect.poll(width).toBe(Math.round(before.width) + 100);
 });
