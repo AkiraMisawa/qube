@@ -479,7 +479,8 @@ log cannot yet say which entries were one command, or what an entry replaced.
    and its verbs (notes 34 to 36). 3d: `add each` takes its iterations as a list, and a contract may hold one
    (note 37). Left for later steps: `load trades <ids>` (step 5, note 37), and how the line spells an iteration's
    lists, which stays open (§3).
-4. View verbs and the AI's row read.
+4. View verbs and the AI's row read. **In progress** (`docs/specs/commands-4-view-verbs-ai-reads`, three pull
+   requests); what it settles is notes 38 onward below.
 5. Drafts (§10): a detail dialog drawn from a registration, with the tables under its row and its templates. The
    pricer's trade and CSA must carry those fields and tables first; its sample has neither them nor such a dialog.
    The pricer's scenarios as a registered table, a row computed from its shifts with their table under it, come
@@ -1416,6 +1417,77 @@ each is built.
       palette entry, since how the line spells a list is open (§3): they are the page's gestures over a command
       the AI invokes with the same value. A trade left out on the Changes tab says the whole set again, so a
       stale case of the set refuses it by that case's trade: the stale case is removed first.
+
+### Notes of 2026-11-11: what step 4 settles (all DEFAULT)
+
+Step 4 is three pull requests (`docs/specs/commands-4-view-verbs-ai-reads`): 4a the AI's describe, read and
+preview (§7), 4b `sort` and `filter`, 4c `select`, `copy` and `export`. Note 38 is 4a's; the later ones are added
+as each is built.
+
+38. **The AI describes, reads and previews through three capabilities (§7; 4a).** §7 decides that there are three
+    and what each answers. What is left to settle is what makes a reading a command, what each takes and answers
+    within a contract's shapes (notes 12 and 37), and the bounds of a page.
+    - *A reading of a workspace is a command.* A workspace is its owner's (ADR-0003), so reading one acts for a
+      caller, as reading a Run does (`ReadRun`, ADR-0011 §7). One more effect, `ReadWorkspace`, makes a
+      capability a command: invoked through the gateway for the caller the server authenticated, offered to the
+      agent as a tool, refused as a workflow step. It writes nothing and starts nothing. A table read as a
+      workflow step (§8) is another capability, of a Run's accepted input, and is not this step's.
+    - *None of the three is typed.* They declare no command form, so the line does not list them: a person has
+      the screen, the line's own preview and the grids. They are the kernel's and name no application.
+    - *`tables.describe`* takes the workspace, the revision it was read at where the caller holds one, and a
+      table where one alone is wanted. It answers the registration read out, as two lists, since a contract
+      holds no list in a list: `tables` (id, version, title, words, the key's field, how many rows as the
+      workspace stands, its subsets by name, whether it is of one row, whether it is the application's main
+      table) and `fields` (its table, name, title, words, form, how a value of it is written in the reader's own
+      words, whether a command sets it, whether it may be empty, its choices as a cell writes them, the field
+      that carries its unit, the table an id points into, its group). Choices are listed to fifty, and how many
+      more there are is said beside them.
+    - *`tables.read`* takes the workspace and revision, a table and rows exactly as `entity.set` takes them
+      (note 12: the rows as the line spells them, read by the one selector), the fields wanted by their words,
+      and where the page starts and how many rows it holds. It answers the table, how many rows the selector
+      matched, where the page starts, the fields by name in the order asked, and for each row of the page its
+      key, its subset and its cells: each value as text, written as `set` reads it back (`5mm`, `1.25%`,
+      `empty`), so what the agent read it can write. A unit is in the field the description names, never in a
+      title. With no field asked the rows are their keys alone, which is how rows are counted.
+    - *The page is bounded and says so.* At most 200 rows, 50 where none is asked, and at most 2,000 cells: a
+      page of many fields holds fewer rows. The answer always says the count, where it started and how many
+      rows follow (`more`), and the next page is asked from there. A limit over 200 is refused by the
+      contract, never cut quietly. The rows come in the table's own order, or as their ids were listed; a
+      reading does not sort.
+    - *`commands.preview`* takes the workspace, the revision and a line as typed. It answers §5's reading: the
+      command and its version, the inputs that run it (as JSON text, since a contract holds no object in an
+      object: they are handed to the command's own tool as they are), each argument as read, the rows meant
+      (their table, their title, their count and the first of them), what would change, the line a short form
+      stands for, and the moment a reading speaks of. A line that cannot be read refuses the call with the
+      reading's own code, sentence, word and candidates. It has no view to give: `selected`, `shown` and the
+      verbs of the screen are refused by name (`NoView`), as note 17 has it for any caller without a screen.
+      What could follow the last word is typing help, and is not answered.
+    - *Refusals are the tables' own.* An unknown table, field, subset or row, a condition that cannot be read
+      and a workspace that has moved are refused with the code and sentence a line gets, with the word at
+      fault and what it could have been. *Corrected as built:* another user's workspace is refused as every
+      command refuses it (`NotOwner`), and the first draft of this note said "as an unknown one is". The
+      three go through the door every command of a workspace goes through, and a refusal of their own would be
+      a second rule for who may read.
+    - *Left for later.* Retaining a reading as a dataset a view binds (§7's "may"), so that the pane draws it
+      as a grid: the pane shows a reading's answer as it does any tool's. A sort of the reading.
+    - *Added as built: how a value is written has one wording.* The sentence a description gives for a field
+      ("an amount: 5mm, 250k, 1bn, or a bare number of millions") is the one a refused value is told, from one
+      place in the reader, so the description cannot say a spelling the reader then refuses.
+    - *Added as built: a field asked twice is refused* (`FieldTwice`), since a row's cells are held by field.
+    - *Added as built: the agent's instructions name the three by what they answer*, and only "where they are
+      among your tools": read rather than guess, say a count as the tool gave it, and preview when asked what a
+      command would do and before a command over many rows. The instructions still name no application.
+    - *Added as built: the pane keeps a long answer inside its card.* A page of rows is a long block; the
+      answer of a step scrolls within 30% of the window's height and takes the keyboard, so the conversation
+      under it stays in reach. This is the pane's drawing of any tool's answer, not of a reading alone.
+    - *Added as built: the stand-in agent reads too.* With no model configured the pane's agent is the scripted
+      stand-in (ADR-0007), and without words for the three nothing on screen would show them. It takes
+      `describe the tables`, `read <rows> [fields <a>, <b>]` and `preview <line>`, for the workspace the pane's
+      context names, and says the count and the sentence as the tool answered them. It lower-cases what it is
+      told, as it always has, so a key typed in capitals is not found by it; the real agent passes words as
+      they are.
+    - *Corrected as built: a bound of a contract written as a whole number threw.* `minimum` and `maximum` are
+      now read as the number is, whichever way the schema wrote them. No contract before this one had a bound.
 
 ## Rejected
 

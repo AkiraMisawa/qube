@@ -1,6 +1,6 @@
 import type { Page, Request } from '@playwright/test';
 import { EventSchemas } from '@ag-ui/core/schemas';
-import { command, expect, open, settled, test } from './fixtures';
+import { command, expect, newWorkspace, open, settled, test } from './fixtures';
 
 // ADR-0007: the AI pane over AG-UI, answered by the scripted agent (no model), which acts only through the registered
 // commands. The host runs with the development settings: the unconfirmed convention proposal, figures simulated.
@@ -132,4 +132,25 @@ test('ADR-0003, spine 6: a line the AI adds to the open workspace does not make 
 
   await expect(end).toHaveText('7y');
   await expect(page.getByText(/was not changed/)).toHaveCount(0);
+});
+
+test('ADR-0016 §7, note 38, ADR-0007 §8: the stand-in reads rows of the workspace the pane shows, and a page of rows scrolls inside its card', async ({ page }) => {
+  await open(page);
+  await newWorkspace(page, 'ABC/LE-01', 100);
+  await settled(page, 'Existing trades');
+
+  await command(page, 'ai', 'read all fields ccy, notional, csa');
+
+  const card = cards(page).first();
+  await expect(card).toHaveAttribute('data-status', 'done');
+  const step = card.getByTestId('ai-step');
+  await expect(step).toHaveAttribute('data-tool', 'tables_read');
+  await expect(step).toHaveAttribute('data-outcome', 'done');
+  // The count is the tool's, and a page of fifty says how many follow.
+  await expect(card.getByTestId('ai-reply')).toHaveText(/^\d+ row\(s\) of xva\.trades match; 50 are listed, and [1-9]\d* follow\.$/);
+  // The answer is taller than its block, which is no taller than three tenths of the window: the card stays a card.
+  const answer = card.getByLabel('Answer of tables.read');
+  const box = await answer.evaluate((e) => ({ block: e.clientHeight, text: e.scrollHeight, window: window.innerHeight }));
+  expect(box.text).toBeGreaterThan(box.block);
+  expect(box.block).toBeLessThanOrEqual(Math.ceil(box.window * 0.3));
 });

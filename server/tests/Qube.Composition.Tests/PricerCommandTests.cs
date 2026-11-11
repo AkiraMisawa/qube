@@ -53,6 +53,49 @@ public class PricerCommandTests(QubeFactory factory) : IClassFixture<QubeFactory
         Assert.DoesNotContain("xva_set", tools.Keys);
     }
 
+    [Fact] // ADR-0016 §7, note 38: the three readings are tools with their contracts, and the catalog lists each as a command that reads a workspace and that no line types
+    public async Task The_readings_are_offered_to_the_agent_and_no_line_types_them()
+    {
+        var tools = factory.Services.GetRequiredService<AgentToolGateway>().Tools.ToDictionary(t => t.Name);
+        string[] Fields(string tool) => [.. tools[tool].Parameters["properties"]!["request"]!["properties"]!.AsObject().Select(p => p.Key)];
+
+        var catalog = (await client.GetFromJsonAsync<JsonObject>("/api/catalog"))!["capabilities"]!.AsArray();
+
+        Assert.Equal(["workspaceId", "revision", "table"], Fields("tables_describe"));
+        Assert.Equal(["workspaceId", "revision", "table", "rows", "fields", "start", "limit"], Fields("tables_read"));
+        Assert.Equal(["workspaceId", "revision", "line"], Fields("commands_preview"));
+        foreach (var id in new[] { "tables.describe", "tables.read", "commands.preview" })
+        {
+            var listed = catalog.Single(c => c!["capabilityId"]!.GetValue<string>() == id)!;
+            Assert.Equal(["readWorkspace"], listed["effects"]!.AsArray().Select(e => e!.GetValue<string>()));
+            Assert.Null(listed["command"]);
+        }
+    }
+
+    [Fact] // ADR-0016 §7, note 38: through the agent's door the AI learns the trades' fields, reads rows by a condition and is told what a line would change, and the workspace is as it was
+    public async Task The_ai_describes_reads_and_previews_a_workspace_and_changes_nothing()
+    {
+        var ws = await Create();
+        var id = ws["workspaceId"]!.GetValue<string>();
+
+        var described = await Ok(await Command("tables.describe", new JsonObject { ["workspaceId"] = id, ["table"] = "trades" }));
+        var read = await Ok(await Command("tables.read", new JsonObject { ["workspaceId"] = id, ["rows"] = "existing", ["fields"] = new JsonArray("ccy", "csa"), ["limit"] = 2 }));
+        var preview = await Ok(await Command("commands.preview", new JsonObject { ["workspaceId"] = id, ["line"] = "set existing after off" }));
+        // What the Existing grid's own reader gives: the rows a reading of `existing` is compared with.
+        var page = (await (await client.PostAsJsonAsync($"/api/xva/workspaces/{id}/rows", new { start = 0, count = 200, sorts = new JsonArray(), grid = "existing" })).Content.ReadFromJsonAsync<JsonObject>())!;
+        var grid = page["rows"]!.AsArray().Select(r => (Id: r!["tradeId"]!.GetValue<string>(), Ccy: r["currency"]!.GetValue<string>(), Csa: r["csa"]!.GetValue<string>())).ToList();
+
+        var csa = described["fields"]!.AsArray().Single(f => f!["name"]!.GetValue<string>() == "csa")!;
+        // A trade's CSA is an id that names a row of the CSAs, and a command sets it.
+        Assert.Equal(("xva.trades", true, "id", true, "xva.csas"), (described["tables"]![0]!["table"]!.GetValue<string>(), described["tables"]![0]!["main"]!.GetValue<bool>(),
+            csa["form"]!.GetValue<string>(), csa["editable"]!.GetValue<bool>(), csa["pointsTo"]!.GetValue<string>()));
+        Assert.Equal((grid.Count, grid.Count - 2), (read["count"]!.GetValue<int>(), read["more"]!.GetValue<int>()));
+        Assert.Equal(grid.Take(2).Select(g => $"{g.Id}: {g.Ccy}|{g.Csa}"),
+            read["rows"]!.AsArray().Select(r => $"{r!["key"]!.GetValue<string>()}: {string.Join("|", r["cells"]!.AsArray().Select(c => c!.GetValue<string>()))}"));
+        Assert.Equal(("entity.set", grid.Count), (preview["command"]!.GetValue<string>(), preview["count"]!.GetValue<int>()));
+        Assert.Equal(ws["revision"]!.GetValue<long>(), (await View(id))["revision"]!.GetValue<long>());
+    }
+
     [Fact] // ADR-0010 §9: an AI vary makes the cases the command line makes, says them as it does, and the log says the AI made them
     public async Task An_ai_vary_makes_the_cases_the_command_line_makes_logged_as_the_ais()
     {

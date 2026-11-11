@@ -29,6 +29,12 @@ public interface IScriptedRequest
     bool Wanted(ScriptedStep step) => true;
 
     /// <summary>
+    /// True for a request that takes every word after its own as written (a line to read, rows to find): no other
+    /// request is looked for in the same words, which are its own to hand on.
+    /// </summary>
+    bool TakesTheRest => false;
+
+    /// <summary>
     /// The command's inputs, by port. Only terms the request or the context states; whatever else a term needs comes
     /// from the command's own confirmed defaults or is refused by name (ADR-0008 §4).
     /// </summary>
@@ -114,8 +120,10 @@ public sealed class ScriptedAgent(IEnumerable<IScriptedRequest> requests) : IAge
 
     bool Restates(string request, string capabilityId) => requests.Any(r => r.CapabilityId == capabilityId && r.FindIn(request) is not null);
 
+    // A request that takes the rest of the words is the whole plan: what follows its own words is not read for another's.
     List<IScriptedRequest> Matches(string request) =>
-        [.. requests.Select(r => (Request: r, At: r.FindIn(request))).Where(m => m.At is not null).OrderBy(m => m.At).Select(m => m.Request)];
+        requests.FirstOrDefault(r => r.TakesTheRest && r.FindIn(request) is not null) is { } whole ? [whole]
+            : [.. requests.Select(r => (Request: r, At: r.FindIn(request))).Where(m => m.At is not null).OrderBy(m => m.At).Select(m => m.Request)];
 
     static string Refusal(ToolResult refused, IReadOnlyList<IScriptedRequest> plan)
     {
@@ -126,7 +134,8 @@ public sealed class ScriptedAgent(IEnumerable<IScriptedRequest> requests) : IAge
         if (missing.Count > 0) parts.Add($"it needs {string.Join(", ", missing)}");
         parts.AddRange(other);
         var hint = plan.FirstOrDefault(p => p.CapabilityId == refused.CapabilityId)?.Hint;
-        return $"{refused.CapabilityId} was refused: {string.Join("; ", parts)}. Nothing was changed by it. Tell me what to use"
+        // A reason that is a sentence ends itself: no second full stop after it.
+        return $"{refused.CapabilityId} was refused: {string.Join("; ", parts).TrimEnd('.')}. Nothing was changed by it. Tell me what to use"
             + (string.IsNullOrEmpty(hint) ? "." : $" ({hint}).");
     }
 

@@ -192,7 +192,10 @@ function Step({ step }: { readonly step: AiStep }) {
         </Stack>
       )}
       {outcome?.status === 'done' && (
-        <Code block style={{ fontSize: 11, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{JSON.stringify(outcome.outputs)}</Code>
+        // An answer may be a page of rows (ADR-0016 note 38): it scrolls in its own block, and the card stays a card.
+        <Code block tabIndex={0} aria-label={`Answer of ${name}`} style={{ fontSize: 11, whiteSpace: 'pre-wrap', wordBreak: 'break-all', maxHeight: '30vh', overflowY: 'auto' }}>
+          {JSON.stringify(outcome.outputs)}
+        </Code>
       )}
     </Stack>
   );

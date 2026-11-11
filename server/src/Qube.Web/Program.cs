@@ -75,6 +75,9 @@ builder.Services.AddSingleton<TableService>();
 builder.Services.AddSingleton<IQubeModule>(sp => new TablesModule(sp.GetRequiredService<TableService>));
 builder.Services.AddSingleton(sp => new CommandService(sp.GetRequiredService<CompositionRegistry>(), sp.GetRequiredService<IDataStore>()));
 builder.Services.AddSingleton<CommandLines>();
+// The line's reading as a capability, for a caller with no screen (ADR-0016 §7, note 38): the lines are built from the
+// registry this registers into, so they are asked for when first read.
+builder.Services.AddSingleton<IQubeModule>(sp => new CommandLinesModule(sp.GetRequiredService<CommandLines>));
 // A Run's calculation traces (ADR-0011 §5, §7): the read endpoint and trace.read open them through one service.
 builder.Services.AddSingleton(sp => new TraceService(sp.GetRequiredService<RunService>(), sp.GetRequiredService<IDataStore>(), sp.GetRequiredService<CompositionRegistry>()));
 builder.Services.AddSingleton<IQubeModule>(sp => new TracesModule(sp.GetRequiredService<TraceService>));
@@ -131,6 +134,8 @@ builder.Services.AddSingleton<AgentThreads>();
 builder.Services.AddSingleton<AgentToolGateway>();
 builder.Services.AddSingleton<AgentService>();
 foreach (var request in RatesScriptedRequests.All(conventions)) builder.Services.AddSingleton(request);
+// The stand-in's words for the kernel's readings (ADR-0016 note 38): describe, read and preview, of the workspace shown.
+foreach (var request in ReadingScriptedRequests.All()) builder.Services.AddSingleton(request);
 var agentRuntime = builder.Configuration["Agent:Runtime"];
 switch (agentRuntime)
 {

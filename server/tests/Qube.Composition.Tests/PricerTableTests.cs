@@ -441,4 +441,23 @@ public class PricerTableTests
         Assert.Equal(("NotRemovable", "DRAFT-1 is a trade the workspace was given, not one it made: take it out of After with set DRAFT-1 A off."), removed);
         Assert.Equal(("NotRemovable", "CSA-A is a CSA of the agreement, which the source holds: a command changes its terms and never removes it."), term);
     }
+
+    [Fact] // ADR-0016 §7, note 38: the AI reads the pricer's trades by the one selector, and a row reads as its grid shows it, each value as the line types it
+    public async Task The_ais_reading_of_the_trades_is_the_rows_the_grid_shows()
+    {
+        var rig = new Rig();
+        var request = new JsonObject { ["workspaceId"] = rig.Id, ["rows"] = "where ccy=USD", ["fields"] = new JsonArray("product", "ccy", "notional", "maturity", "csa", "after"), ["limit"] = 200 };
+
+        var result = await rig.Commands.InvokeAsync("tables.read", "1.0.0", new JsonObject { ["request"] = request }, new Caller("akira", RunOrigin.Ai), Guid.NewGuid().ToString(), default);
+
+        var answer = Assert.IsType<CommandResult.Done>(result).Outputs["answer"]!;
+        var usd = rig.Trades().Where(t => t.Currency == "USD").ToList();
+        Assert.Equal((PortfolioTables.Trades, usd.Count, 0), (answer["table"]!.GetValue<string>(), answer["count"]!.GetValue<int>(), answer["more"]!.GetValue<int>()));
+        Assert.Equal(usd.Select(t => t.TradeId), answer["rows"]!.AsArray().Select(r => r!["key"]!.GetValue<string>()));
+        var first = answer["rows"]![0]!;
+        Assert.Equal(("ABC-LE-01-E00006", "existing", "FXForward|USD|45mm|2029-12-07|CSA-A|on"),
+            (first["key"]!.GetValue<string>(), first["subset"]!.GetValue<string>(), string.Join("|", first["cells"]!.AsArray().Select(c => c!.GetValue<string>()))));
+        // The same row as the grid's own reader gives it.
+        Assert.Equal(("ABC-LE-01-E00006", "FXForward", 45_000_000m, "2029-12-07", "CSA-A"), (usd[0].TradeId, usd[0].Product, usd[0].Notional, usd[0].Maturity, usd[0].Csa));
+    }
 }
