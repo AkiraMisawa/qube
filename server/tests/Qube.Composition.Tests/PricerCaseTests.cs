@@ -520,7 +520,7 @@ public class PricerCaseTests
     [InlineData(0, "0")]
     public void An_amount_is_written_as_it_reads_back(double amount, string written)
     {
-        var cell = new CellName("csa:CSA-A", "counterpartyMta", "CSA-A", "mta", CellName.Form.SignedAmount);
+        var cell = new CellName("csa:CSA-A", "counterpartyMta", "CSA-A", "mta", new FieldSpec(FieldForm.SignedAmount));
         var value = JsonValue.Create((decimal)amount);
 
         Assert.Equal(written, PortfolioCells.Write(cell, value));

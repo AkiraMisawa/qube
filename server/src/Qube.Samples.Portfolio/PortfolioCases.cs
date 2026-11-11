@@ -173,46 +173,52 @@ public static class PortfolioCases
 /// <summary>
 /// A cell named as ADR-0010 §9's note of 2026-11-08 names it: <c>&lt;row&gt; &lt;column&gt;</c>. The row is a CSA's id, the
 /// netting set's id or a trade's id; the column a field's title or one of its short names, case ignored. A value is read
-/// as the field takes it: an amount as ADR-0008 writes it (a bare number is millions), a rate in <c>%</c> or <c>bp</c>.
+/// as the field's form reads it (<see cref="FieldForms"/>, ADR-0016 §1): an amount as ADR-0008 writes it (a bare number
+/// is millions), a rate in <c>%</c> or <c>bp</c>.
 /// </summary>
-public sealed record CellName(string Entity, string Field, string Row, string Column, CellName.Form Kind)
-{
-    public enum Form { Amount, SignedAmount, Rate, Number, Flag, Id, OptionalId, Currency, Frequency, Schedule, Spread, Days }
-}
+public sealed record CellName(string Entity, string Field, string Row, string Column, FieldSpec Spec);
 
 public static partial class PortfolioCells
 {
-    sealed record Column(string Field, CellName.Form Form, params string[] Names);
+    sealed record Column(string Field, FieldSpec Spec, params string[] Names);
+
+    // How the pricer's fields are written. That a rate, an id or a number of days may be empty is the field's.
+    static readonly FieldSpec Amount = new(FieldForm.Amount), SignedAmount = new(FieldForm.SignedAmount), Rate = new(FieldForm.Rate, Optional: true),
+        Number = new(FieldForm.Number), Flag = new(FieldForm.Flag), Id = new(FieldForm.Id), OptionalId = new(FieldForm.Id, Optional: true),
+        Spread = new(FieldForm.Spread), Currency = Choice(PortfolioMarket.Currencies), Frequency = Choice(PortfolioCatalog.Frequencies), Schedule = Choice(["3M", "6M"]);
+
+    // A choice read by its own words, case ignored.
+    static FieldSpec Choice(IEnumerable<string> values) => new(FieldForm.Choice, Choices: values.ToDictionary(v => v.ToLowerInvariant(), v => v));
 
     static readonly IReadOnlyList<Column> CsaColumns =
     [
-        new("counterpartyThreshold", CellName.Form.Amount, "threshold", "counterparty threshold"),
-        new("counterpartyMta", CellName.Form.Amount, "mta", "counterparty mta"),
-        new("counterpartyCurrency", CellName.Form.Currency, "counterparty currency"),
-        new("selfThreshold", CellName.Form.Amount, "self threshold"),
-        new("selfMta", CellName.Form.Amount, "self mta"),
-        new("selfCurrency", CellName.Form.Currency, "self currency"),
-        new("currency", CellName.Form.Currency, "currency", "ccy"),
-        new("curve", CellName.Form.Id, "curve", "discount curve", "discount"),
-        new("fvaCurve", CellName.Form.Id, "fva curve", "fva discount curve", "fva discount"),
-        new("frequency", CellName.Form.Frequency, "frequency"),
-        new("exchange", CellName.Form.Flag, "exchange"),
-        new("oneWay", CellName.Form.Flag, "one-way", "one way", "oneway"),
+        new("counterpartyThreshold", Amount, "threshold", "counterparty threshold"),
+        new("counterpartyMta", Amount, "mta", "counterparty mta"),
+        new("counterpartyCurrency", Currency, "counterparty currency"),
+        new("selfThreshold", Amount, "self threshold"),
+        new("selfMta", Amount, "self mta"),
+        new("selfCurrency", Currency, "self currency"),
+        new("currency", Currency, "currency", "ccy"),
+        new("curve", Id, "curve", "discount curve", "discount"),
+        new("fvaCurve", Id, "fva curve", "fva discount curve", "fva discount"),
+        new("frequency", Frequency, "frequency"),
+        new("exchange", Flag, "exchange"),
+        new("oneWay", Flag, "one-way", "one way", "oneway"),
     ];
 
-    static readonly IReadOnlyList<Column> NettingColumns = [new("cvaRecovery", CellName.Form.Rate, "recovery", "cva recovery")];
+    static readonly IReadOnlyList<Column> NettingColumns = [new("cvaRecovery", Rate, "recovery", "cva recovery")];
 
     // The counterparty's CDS choice, row `credit`, and the chosen curve's spreads, row `cds` (ADR-0010 §8's note of 2026-11-09).
     static readonly IReadOnlyList<Column> CreditColumns =
     [
-        new("cdsType", CellName.Form.OptionalId, "cds type", "type"),
-        new("cdsReference", CellName.Form.OptionalId, "cds reference", "reference"),
-        new("proxySector", CellName.Form.OptionalId, "proxy sector", "sector"),
-        new("proxyRegion", CellName.Form.OptionalId, "proxy region", "region"),
-        new("proxyRating", CellName.Form.OptionalId, "proxy rating", "rating"),
+        new("cdsType", OptionalId, "cds type", "type"),
+        new("cdsReference", OptionalId, "cds reference", "reference"),
+        new("proxySector", OptionalId, "proxy sector", "sector"),
+        new("proxyRegion", OptionalId, "proxy region", "region"),
+        new("proxyRating", OptionalId, "proxy rating", "rating"),
     ];
 
-    static readonly IReadOnlyList<Column> SpreadColumns = [.. CdsCatalog.Tenors.Select(t => new Column(t, CellName.Form.Spread, t))];
+    static readonly IReadOnlyList<Column> SpreadColumns = [.. CdsCatalog.Tenors.Select(t => new Column(t, Spread, t))];
 
     /// <summary>The row that names the counterparty's CDS choice.</summary>
     public const string CreditRow = "credit";
@@ -222,15 +228,15 @@ public static partial class PortfolioCells
 
     static readonly IReadOnlyList<Column> TradeColumns =
     [
-        new("notional", CellName.Form.SignedAmount, "notional"),
-        new("fixedRate", CellName.Form.Rate, "rate", "fixed rate"),
-        new("schedule", CellName.Form.Schedule, "schedule"),
-        new("csa", CellName.Form.Id, "csa"),
-        new("curve", CellName.Form.Id, "curve", "discount curve"),
-        new("imR", CellName.Form.OptionalId, "im-r", "imr"),
-        new("imP", CellName.Form.OptionalId, "im-p", "imp"),
-        new("before", CellName.Form.Flag, "B", "before"),
-        new("after", CellName.Form.Flag, "A", "after"),
+        new("notional", SignedAmount, "notional"),
+        new("fixedRate", Rate, "rate", "fixed rate"),
+        new("schedule", Schedule, "schedule"),
+        new("csa", Id, "csa"),
+        new("curve", Id, "curve", "discount curve"),
+        new("imR", OptionalId, "im-r", "imr"),
+        new("imP", OptionalId, "im-p", "imp"),
+        new("before", Flag, "B", "before"),
+        new("after", Flag, "A", "after"),
     ];
 
     /// <summary>
@@ -263,7 +269,7 @@ public static partial class PortfolioCells
             throw new WorkspaceRefused("UnknownCell", $"{id} has no column {column.Trim()}; its columns are {string.Join(", ", columns.Select(c => c.Names[0]))}.");
         if (found.Count > 1)
             throw new WorkspaceRefused("AmbiguousCell", $"{column.Trim()} could be {string.Join(" or ", found.Select(c => c.Names[0]))} of {id}.");
-        return new CellName(entity, found[0].Field, id, found[0].Names[0], found[0].Form);
+        return new CellName(entity, found[0].Field, id, found[0].Names[0], found[0].Spec);
     }
 
     /// <summary>The cell of an entity's field, named as <see cref="Resolve"/> names it; refused where it is no cell.</summary>
@@ -276,7 +282,7 @@ public static partial class PortfolioCells
             ?? throw new WorkspaceRefused("UnknownCell", $"{id} has no column {field}; its columns are {string.Join(", ", columns.Select(c => c.Names[0]))}.");
         // A curve's spread is a cell of its own row whether or not it is the curve chosen now (the Changes tab sets it).
         if (kind == Entity.Cds)
-            return CdsCatalog.Find(id) is not null ? new CellName(entity, field, RowOf(state, entity), column.Names[0], column.Form)
+            return CdsCatalog.Find(id) is not null ? new CellName(entity, field, RowOf(state, entity), column.Names[0], column.Spec)
                 : throw new WorkspaceRefused("UnknownCell", $"{entity} is not a curve of the CDS catalogue.");
         var row = kind == Entity.Credit ? CreditRow : id;
         return Resolve(state, register, row, column.Names[0]) is var cell && cell.Entity == entity ? cell
@@ -300,7 +306,7 @@ public static partial class PortfolioCells
             _ => false,
         };
         var column = exists ? ColumnsOf(entity, register)?.FirstOrDefault(c => c.Field == field) : null;
-        return column is null ? null : new CellName(entity, field, RowOf(state, entity), column.Names[0], column.Form);
+        return column is null ? null : new CellName(entity, field, RowOf(state, entity), column.Names[0], column.Spec);
     }
 
     // How a row is named: the credit's and the chosen curve's by their rows' names, a curve not chosen by its id.
@@ -328,55 +334,17 @@ public static partial class PortfolioCells
     };
 
     // A module's settings are named by their titles' words and their own names (ADR-0010 §8).
-    static IReadOnlyList<Column> Settings(IMeasureModule module) => [.. module.Settings.Select(s => new Column(s.Id, s.Form, [.. MeasureSettings.Names(s)]))];
+    static IReadOnlyList<Column> Settings(IMeasureModule module) => [.. module.Settings.Select(s => new Column(s.Id, MeasureSettings.Spec(s), [.. MeasureSettings.Names(s)]))];
 
     /// <summary>
-    /// A value as the Changes tab and a case's title write it, in the form <see cref="Read"/> reads back to the same value:
-    /// an amount as ADR-0008 writes it (5mm, 250k, 1.5bn), never bare, since a bare number is read as millions, and with
-    /// every decimal it has; a rate in %; a flag on or off; empty for none.
+    /// A value as the Changes tab and a case's title write it, in the form <see cref="Read"/> reads back to the same value
+    /// (<see cref="FieldForms.Write"/>): an amount never bare, since a bare number is read as millions; empty for none.
     /// </summary>
-    public static string Write(CellName cell, JsonNode? value)
-    {
-        if (value is null) return "empty";
-        switch (cell.Kind)
-        {
-            case CellName.Form.Amount or CellName.Form.SignedAmount:
-            {
-                var n = value.GetValue<decimal>();
-                if (n == 0) return "0";
-                var (scale, unit) = Math.Abs(n) >= 1_000_000_000m ? (1_000_000_000m, "bn") : Math.Abs(n) >= 1_000_000m ? (1_000_000m, "mm") : (1_000m, "k");
-                return $"{Exact(n / scale)}{unit}";
-            }
-            case CellName.Form.Rate:
-                return $"{Exact(value.GetValue<decimal>() * 100m)}%";
-            case CellName.Form.Number:
-                return Exact(value.GetValue<decimal>());
-            case CellName.Form.Spread:
-                return CdsCatalog.Bp(value.GetValue<decimal>());
-            case CellName.Form.Flag:
-                return value.GetValue<bool>() ? "on" : "off";
-            case CellName.Form.Days:
-                return $"{Exact(value.GetValue<decimal>())}d";
-            default:
-                return value.GetValue<string>();
-        }
-    }
-
-    // A rate or a spread with its unit, as a fraction (40% is 0.4, 25bp 0.0025), or none where it is not one.
-    static decimal? Fraction(string t)
-    {
-        var m = RatePattern().Match(t);
-        if (!m.Success) return null;
-        var n = decimal.Parse(m.Groups[1].Value, NumberStyles.Number | NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture);
-        return m.Groups[2].Value.Equals("bp", StringComparison.OrdinalIgnoreCase) ? n / 10_000m : n / 100m;
-    }
-
-    // Every decimal a value has, and no trailing zero: written back, it reads as the same value.
-    static string Exact(decimal n) => n.ToString("0.############################", CultureInfo.InvariantCulture);
+    public static string Write(CellName cell, JsonNode? value) => FieldForms.Write(cell.Spec, value);
 
     // A module's typed trade column (ADR-0010 §10) is named by its id or its title, such as XVA's Margin.
     static IReadOnlyList<Column> Trade(MeasureRegister register) =>
-        [.. TradeColumns, .. register.TradeColumns.Where(c => c.Editable).Select(c => new Column(c.Field, CellName.Form.Number,
+        [.. TradeColumns, .. register.TradeColumns.Where(c => c.Editable).Select(c => new Column(c.Field, Number,
             [.. new[] { Words(c.Field[(c.Field.IndexOf('.') + 1)..]), Words(c.Title), Words(Unit().Replace(c.Title, "")) }.Distinct()]))];
 
     static string Words(string text) => string.Join(' ', text.Trim().ToLowerInvariant().Split(' ', StringSplitOptions.RemoveEmptyEntries));
@@ -384,57 +352,10 @@ public static partial class PortfolioCells
     /// <summary>A value as written for a cell of the form, or why it cannot be read; never a guess at what was meant.</summary>
     public static JsonNode? Read(CellName cell, string text)
     {
-        var t = text.Trim();
-        string Refuse(string what) => throw new WorkspaceRefused("InvalidValue", $"{cell.Row} {cell.Column} is {what}; {t} is not.");
-        switch (cell.Kind)
-        {
-            case CellName.Form.Amount or CellName.Form.SignedAmount:
-            {
-                var m = AmountPattern().Match(t);
-                if (!m.Success) return Refuse("an amount: 5mm, 250k, 1bn, or a bare number of millions");
-                var n = decimal.Parse(m.Groups[1].Value.Replace(",", "", StringComparison.Ordinal), NumberStyles.Number | NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture);
-                if (cell.Kind == CellName.Form.Amount && n < 0) return Refuse("an amount of 0 or more");
-                var scale = m.Groups[2].Value.ToLowerInvariant();
-                // As ADR-0008: a bare number is millions, and a bare one of a million or more was typed in full.
-                if (scale.Length == 0 && Math.Abs(n) >= 1_000_000m) return Refuse("in millions; write a full amount with its scale, such as 1bn");
-                return n * scale switch { "k" => 1_000m, "mm" => 1_000_000m, "bn" => 1_000_000_000m, _ => 1_000_000m };
-            }
-            case CellName.Form.Rate:
-                if (t.Equals("empty", StringComparison.OrdinalIgnoreCase) || t.Equals("none", StringComparison.OrdinalIgnoreCase)) return null;
-                return Fraction(t) is { } rate ? rate : Refuse("a rate with its unit, 40% or 25bp, or empty");
-            case CellName.Form.Spread:
-                // A spread is never empty: an edit back to the catalogue's is the Changes tab's reset.
-                return Fraction(t) is { } spread ? spread : Refuse("a spread with its unit, 120bp or 1.2%");
-            case CellName.Form.Number:
-            {
-                var m = NumberPattern().Match(t);
-                if (!m.Success) return Refuse("a number, with k, mm or bn for its scale, or bp");
-                var n = decimal.Parse(m.Groups[1].Value.Replace(",", "", StringComparison.Ordinal), NumberStyles.Number | NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture);
-                return n * m.Groups[2].Value.ToLowerInvariant() switch { "k" => 1_000m, "mm" => 1_000_000m, "bn" => 1_000_000_000m, _ => 1m };
-            }
-            case CellName.Form.Days:
-            {
-                if (t.Equals("empty", StringComparison.OrdinalIgnoreCase) || t.Equals("none", StringComparison.OrdinalIgnoreCase)) return null;
-                var m = DaysPattern().Match(t);
-                return m.Success && decimal.TryParse(m.Groups[1].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var days) ? days : Refuse("a whole number of days, 10 or 10d, or empty");
-            }
-            case CellName.Form.Flag:
-                return FlagWords.Read(t) is { } flag ? flag : Refuse("on or off");
-            case CellName.Form.Currency:
-                return PortfolioMarket.Currencies.FirstOrDefault(c => c.Equals(t, StringComparison.OrdinalIgnoreCase)) is { } code ? code
-                    : Refuse($"a currency, {string.Join(", ", PortfolioMarket.Currencies)}");
-            case CellName.Form.Frequency:
-                return PortfolioCatalog.Frequencies.FirstOrDefault(f => f.Equals(t, StringComparison.OrdinalIgnoreCase)) is { } often ? often
-                    : Refuse($"a frequency, {string.Join(", ", PortfolioCatalog.Frequencies)}");
-            case CellName.Form.Schedule:
-                return t.ToUpperInvariant() is "3M" or "6M" ? t.ToUpperInvariant() : Refuse("3M or 6M");
-            case CellName.Form.OptionalId:
-                return t.Equals("empty", StringComparison.OrdinalIgnoreCase) || t.Equals("none", StringComparison.OrdinalIgnoreCase) ? null : t;
-            case CellName.Form.Id:
-                return t.Length > 0 ? t : Refuse("an identifier");
-            default:
-                throw new InvalidOperationException($"No reading of {cell.Kind}.");
-        }
+        var read = FieldForms.Read(cell.Spec, text);
+        if (read.Problem == FieldForms.Problem.None) return read.Value;
+        var written = text.Trim();
+        throw new WorkspaceRefused("InvalidValue", $"{cell.Row} {cell.Column} is {read.What}; {(written.Length == 0 ? "nothing was written" : $"{written} is not")}.");
     }
 
     /// <summary>The value a reading holds in the cell now, as an edit would write it.</summary>
@@ -493,18 +414,6 @@ public static partial class PortfolioCells
                 throw new InvalidOperationException($"{cell.Entity} is not a cell's row.");
         }
     }
-
-    [GeneratedRegex("^(-?[0-9][0-9,]*(?:\\.[0-9]+)?)(k|mm|bn)?$", RegexOptions.IgnoreCase)]
-    private static partial Regex AmountPattern();
-
-    [GeneratedRegex("^(-?[0-9]+(?:\\.[0-9]+)?)(%|bp)$", RegexOptions.IgnoreCase)]
-    private static partial Regex RatePattern();
-
-    [GeneratedRegex("^(-?[0-9][0-9,]*(?:\\.[0-9]+)?)(k|mm|bn|bp)?$", RegexOptions.IgnoreCase)]
-    private static partial Regex NumberPattern();
-
-    [GeneratedRegex("^([0-9]+)\\s*(?:d|days?)?$", RegexOptions.IgnoreCase)]
-    private static partial Regex DaysPattern();
 
     [GeneratedRegex("\\s*\\([^)]*\\)")]
     private static partial Regex Unit();
