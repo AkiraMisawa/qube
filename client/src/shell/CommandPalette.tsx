@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNod
 import { Badge, Group, Kbd, Modal, Stack, Text, TextInput, UnstyledButton, useMantineColorScheme } from '@mantine/core';
 import { useHotkeys } from '@mantine/hooks';
 import {
-  assertDistinct, completionsOf, execute, finish, readLine, signature, take,
+  assertDistinct, completionsOf, drawn, execute, finish, listed, placeholder, readLine, signature, take,
   type Command, type Completion,
 } from '../platform/commands/commands';
 import { recordUse, usageScore } from '../platform/commands/usage';
@@ -49,7 +49,9 @@ export function buildCommands(args: {
 }): Command[] {
   const { catalog, state, activeRun } = args;
   const active: Panel | undefined = state.panels.find((p) => p.id === state.activePanelId);
-  const commands: Command[] = [];
+  // The applications' commands first: the empty line lists the groups in the order registered (ADR-0006's note 3 of
+  // 2026-11-11), and what an application offers comes before the catalog's workflows and the shell's own.
+  const commands: Command[] = [...appCommands(state)];
 
   for (const workflow of catalog.workflows)
     commands.push({
@@ -182,7 +184,6 @@ export function buildCommands(args: {
       ...(args.ai === undefined ? { unavailable: 'The AI pane is not shown here.' } : {}),
       run: () => args.ai?.setOpen(!args.ai.open),
     },
-    ...appCommands(state),
   );
   assertDistinct(commands);
   return commands;
@@ -194,6 +195,11 @@ export function wordsOf(title: string): string {
 }
 
 let openLine: (() => void) | undefined;
+
+// How much of a list the line draws before it says how many more there are (ADR-0006's note 3 of 2026-11-11): every
+// command an open page and the shell offer today, and a screenful of a slot's values, which may be a workspace's rows.
+const COMMANDS_DRAWN = 200;
+const VALUES_DRAWN = 50;
 
 /** Stands in for the AI store where no pane is mounted, so the hook order never changes. */
 const NO_AI = createStore<{ readonly open: boolean }>()(() => ({ open: false }));
@@ -280,8 +286,11 @@ export function CommandPalette() {
   }, []);
 
   const reading = readLine(text, commands);
-  const offered = completionsOf(reading, commands, usageScore);
-  const items: readonly (Command | Completion)[] = reading.kind === 'choosing' ? offered.commands : offered.values;
+  // While a command is chosen the list has sections (ADR-0006's note 3 of 2026-11-11); a slot's values have none.
+  const sections = reading.kind === 'choosing' ? listed(reading.query, commands, usageScore) : [];
+  const every: readonly (Command | Completion)[] = reading.kind === 'choosing' ? sections.flatMap((s) => s.commands) : completionsOf(reading, commands, usageScore).values;
+  // What is drawn is what the arrows reach; what is left out is counted and said, never cut in silence.
+  const { shown: items, more } = drawn(every, reading.kind === 'choosing' ? COMMANDS_DRAWN : VALUES_DRAWN);
   const at = Math.min(highlight, Math.max(items.length - 1, 0));
   const chosen = items[at];
 
@@ -349,13 +358,28 @@ export function CommandPalette() {
 
   const optionId = (i: number) => `qube-line-option-${i}`;
   const head = reading.kind === 'arguments' ? reading.command : chosen !== undefined && 'words' in chosen ? chosen : undefined;
+  // `under` is the heading an option is drawn under: a command does not repeat the panel its heading names.
+  const option = (item: Command | Completion, i: number, under?: string) => (
+    <UnstyledButton key={'words' in item ? item.id : item.value} id={optionId(i)} role="option" aria-selected={i === at} tabIndex={-1}
+      className="qube-line-option" data-selected={i === at || undefined} onMouseDown={(e) => e.preventDefault()}
+      onClick={() => ('words' in item && !(item.args ?? []).some((a) => a.required) && item.unavailable === undefined ? runNow(item, {}) : takeItem(item))}
+      px="xs" py={4} style={{ borderRadius: 4, background: i === at ? 'var(--mantine-color-default-hover)' : undefined }}>
+      {'words' in item ? <CommandOption command={item} under={under} /> : <ValueOption completion={item} />}
+    </UnstyledButton>
+  );
+  // Each section with where its first command is among those drawn, cut where the list is.
+  const drawnSections = sections.reduce<{ readonly heading: string | undefined; readonly start: number; readonly commands: readonly Command[] }[]>((list, section) => {
+    const start = list.reduce((n, s) => n + s.commands.length, 0);
+    const commands = section.commands.slice(0, Math.max(items.length - start, 0));
+    return commands.length === 0 ? list : [...list, { heading: section.heading, start, commands }];
+  }, []);
 
   return (
     <Modal opened={opened} onClose={close} withCloseButton={false} trapFocus returnFocus={false} size="lg" yOffset="10vh"
       transitionProps={{ duration: 0 }} className="qube-palette" aria-label="Command line" padding="sm">
       <Stack gap={6}>
         <TextInput ref={input} data-autofocus value={text} onChange={(e) => change(e.currentTarget.value)} onKeyDown={onKeyDown}
-          placeholder="Type what you want to do: price, new irs, live start… (? lists them)" aria-label="Command"
+          placeholder={placeholder(listed('', commands, usageScore))} aria-label="Command"
           role="combobox" aria-expanded={items.length > 0} aria-controls="qube-line-options" aria-autocomplete="list"
           {...(chosen === undefined ? {} : { 'aria-activedescendant': optionId(at) })}
           styles={{ input: { fontFamily: 'var(--mantine-font-family-monospace)' } }} />
@@ -367,14 +391,15 @@ export function CommandPalette() {
         )}
         <Stack gap={0} id="qube-line-options" role="listbox" aria-label={reading.kind === 'choosing' ? 'Commands' : `Values for ${reading.slot?.name ?? 'options'}`}
           style={{ maxHeight: '50vh', overflowY: 'auto' }}>
-          {items.slice(0, 50).map((item, i) => (
-            <UnstyledButton key={'words' in item ? item.id : item.value} id={optionId(i)} role="option" aria-selected={i === at} tabIndex={-1}
-              className="qube-line-option" data-selected={i === at || undefined} onMouseDown={(e) => e.preventDefault()}
-              onClick={() => ('words' in item && !(item.args ?? []).some((a) => a.required) && item.unavailable === undefined ? runNow(item, {}) : takeItem(item))}
-              px="xs" py={4} style={{ borderRadius: 4, background: i === at ? 'var(--mantine-color-default-hover)' : undefined }}>
-              {'words' in item ? <CommandOption command={item} /> : <ValueOption completion={item} />}
-            </UnstyledButton>
-          ))}
+          {reading.kind === 'arguments' ? items.map((item, i) => option(item, i)) : drawnSections.map((section) => (section.heading === undefined
+            ? section.commands.map((c, i) => option(c, section.start + i))
+            : (
+              <Stack key={section.heading} gap={0} role="group" aria-labelledby={`qube-line-heading-${section.start}`}>
+                <Text id={`qube-line-heading-${section.start}`} size="xs" fw={600} c="dimmed" px="xs" pt="xs" data-testid="command-heading">{section.heading}</Text>
+                {section.commands.map((c, i) => option(c, section.start + i, section.heading))}
+              </Stack>
+            )))}
+          {more > 0 && <Text size="xs" c="dimmed" px="xs" py="xs" data-testid="command-more">{more} more: type to narrow.</Text>}
           {items.length === 0 && reading.kind === 'choosing' && text.trim() !== '' && (
             <Text size="xs" c="dimmed" px="xs">No command matches. <Kbd size="xs">Enter</Kbd> asks the AI: <Kbd size="xs">ai {text.trim()}</Kbd></Text>
           )}
@@ -421,13 +446,14 @@ function Head({ command, reading }: { readonly command: Command; readonly readin
   );
 }
 
-function CommandOption({ command }: { readonly command: Command }): ReactNode {
+function CommandOption({ command, under }: { readonly command: Command; readonly under: string | undefined }): ReactNode {
+  const target = command.target === undefined || command.target === under ? '' : ` · ${command.target}`;
   return (
     <Group gap="xs" wrap="nowrap" justify="space-between">
       <Group gap="xs" wrap="wrap">
         <Text size="sm" ff="monospace" fw={600} {...(command.unavailable === undefined ? {} : { c: 'dimmed' })}>{command.words}</Text>
         {signature(command) !== '' && <Text size="xs" ff="monospace" c="dimmed">{signature(command)}</Text>}
-        <Text size="xs" c="dimmed">{command.title}{command.target === undefined ? '' : ` · ${command.target}`}</Text>
+        <Text size="xs" c="dimmed">{command.title}{target}</Text>
         {command.unavailable !== undefined && <Text size="xs" c="orange">{command.unavailable}</Text>}
       </Group>
       {command.shortcut !== undefined && <Kbd size="xs">{command.shortcut.replace('mod', 'Ctrl')}</Kbd>}

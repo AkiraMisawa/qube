@@ -143,7 +143,8 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
   const xva = xvaPanel?.id;
   const rates = ratesPanel?.id;
   // What an XVA command acts on, or why it cannot: every XVA command but `new xva` needs the page.
-  const onXva = xvaPanel === undefined ? { unavailable: 'Open an XVA workspace first.' } : { target: xvaPanel.title };
+  // A command of the page in the active panel says so: the empty line lists those first (ADR-0006's note 3 of 2026-11-11).
+  const onXva = xvaPanel === undefined ? { unavailable: 'Open an XVA workspace first.' } : { target: xvaPanel.title, page: true };
   const trace = active?.kind === 'app' && active.app === TRACE_VIEW ? active : undefined;
   // `explain` acts on the XVA page's Run or on the trace in view.
   const explainOn = xvaPanel ?? trace;
@@ -152,9 +153,9 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
     if (commands === undefined) throw new Error(`The Rates workspace in panel ${rates ?? '(none)'} registered no commands.`);
     return commands;
   };
-  const onRates = ratesPanel === undefined ? { unavailable: 'Open a Rates workspace first.' } : { target: ratesPanel.title };
+  const onRates = ratesPanel === undefined ? { unavailable: 'Open a Rates workspace first.' } : { target: ratesPanel.title, page: true };
   const pricedPanel = xvaPanel ?? ratesPanel;
-  const priceTarget = pricedPanel === undefined ? { unavailable: 'Open an XVA or Rates workspace to price it.' } : { target: pricedPanel.title };
+  const priceTarget = pricedPanel === undefined ? { unavailable: 'Open an XVA or Rates workspace to price it.' } : { target: pricedPanel.title, page: true };
   const xvaPage = () => {
     const registered = xvaPageOf(xva);
     if (registered === undefined) throw new Error(`The XVA workspace in panel ${xva ?? '(none)'} registered no commands.`);
@@ -168,7 +169,7 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
     if (name === undefined || name.trim() === '') throw new Error(`${words} needs ${what}.`);
     return name.trim();
   };
-  const onTraceView = trace !== undefined ? { target: trace.title } : xvaPanel !== undefined ? { target: xvaPanel.title }
+  const onTraceView = trace !== undefined ? { target: trace.title, page: true } : xvaPanel !== undefined ? { target: xvaPanel.title, page: true }
     : { unavailable: 'Open a trace, or an XVA workspace whose result dock shows one, first.' };
   /** The trace view a command acts on, when it runs: the trace panel in view, or the XVA dock's trace tab. */
   const traceView = (): string => {
@@ -439,7 +440,7 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
       words: 'explain',
       title: 'Open the calculation trace of a measure, at a term if one is named',
       group: 'Traces',
-      ...(explainOn === undefined ? { unavailable: 'Open an XVA workspace that has been priced, or a trace, first.' } : { target: explainOn.title }),
+      ...(explainOn === undefined ? { unavailable: 'Open an XVA workspace that has been priced, or a trace, first.' } : { target: explainOn.title, page: true }),
       args: [{
         name: 'measure', required: true, rest: true,
         hint: 'a measure that keeps a trace, or its module, then a term if wanted: simm collect',
@@ -619,7 +620,7 @@ function parsedValue(field: string, text: string): unknown {
  * product named. The words are read in any order; the line completes and shows them from the description, and the
  * server reads them again, fills what its defaults supply and refuses what is missing by name.
  */
-function productCommands(products: readonly ProductDescriptor[], on: Partial<Pick<Command, 'unavailable' | 'target'>>, create: (product: string, terms: string) => void): Command[] {
+function productCommands(products: readonly ProductDescriptor[], on: Partial<Pick<Command, 'unavailable' | 'target' | 'page'>>, create: (product: string, terms: string) => void): Command[] {
   return products.map((product) => ({
     id: `entity.create/${product.id}`,
     words: `new ${product.words}`,

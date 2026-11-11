@@ -9,10 +9,16 @@ narrow.` The placeholder names the first three commands of the empty line's list
 
 **Blocked by:** nothing.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] On an XVA workspace, the first heading is the panel's title and its commands are the page's.
-- [ ] `?` there lists `new rates` and `open pricing db`.
-- [ ] A command that cannot run now is under `Not available now` on the empty line and absent from `?`.
-- [ ] A list past its cap says how many more there are.
-- [ ] The placeholder names commands of the page in view, and `new xva`, `new rates`, `open pricing db` with none.
+- [x] On an XVA workspace, the first heading is the panel's title and its commands are the page's.
+- [x] `?` there lists `new rates` and `open pricing db`.
+- [x] A command that cannot run now is under `Not available now` on the empty line and absent from `?`.
+- [x] A list past its cap says how many more there are.
+- [x] The placeholder names commands of the page in view, and `new xva`, `new rates`, `open pricing db` with none.
+
+Done 2026-11-11. `listed`, `placeholder` and `drawn` are in `commands.ts`; `appCommands` marks the page's commands
+and `buildCommands` registers the applications' before the workflows' and the shell's. Under a heading that is a
+command's own panel the option does not repeat the panel's title. No list of the sample modules passes a cap today
+(an XVA page lists sixty commands), so the count past a cap is held by `drawn`'s test, and the browser test reads that
+`?` shows no such line.

@@ -3,9 +3,9 @@
 Status: ready-for-agent
 
 The decisions are ADR-0006's notes of 2026-11-11 (what a command says back, and what the empty line lists), with
-ADR-0016 §6 (a notice has a kind) and docs/design-guidelines.md §6 and §7. This spec orders ADR-0016's Delivery order,
-step 0, and names the seams it is tested at. The owner asked on 2026-11-11 for every step to be implemented without a
-question at each one, so the seams below are DEFAULTs and are reported, not asked.
+ADR-0016 §6 (a notice has a kind) and docs/design-guidelines.md §6 and §7. This spec orders ADR-0016's Delivery
+order, step 0, and names the seams it is tested at. The owner asked on 2026-11-11 for every step to be implemented
+without a question at each one, so the seams below are DEFAULTs and are reported, not asked.
 
 ## Problem Statement
 

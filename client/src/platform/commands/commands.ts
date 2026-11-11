@@ -39,6 +39,11 @@ export interface Command {
   readonly group: string;
   /** What it acts on now: the active panel by default (ADR-0006 §5). */
   readonly target?: string;
+  /**
+   * It acts on the page in the active panel: an application's own command while its page is open, with that panel's
+   * title as its `target`. The empty line lists these first (ADR-0006's note 3 of 2026-11-11).
+   */
+  readonly page?: boolean;
   readonly args?: readonly CommandArgument[];
   /** A shell chord in Mantine's notation (`mod+shift+G`). Only the shell's commands carry one (ADR-0006 §8). */
   readonly shortcut?: string;
@@ -89,15 +94,13 @@ export function assertDistinct(commands: readonly Command[]): void {
 export type UsageScore = (commandId: string) => number;
 
 /**
- * The commands a query matches, best first. The words typed in full come first, then words that start with the
+ * The commands a typed query matches, best first. The words typed in full come first, then words that start with the
  * query, then commands whose words each start with the query's words in order (`op pr` → `open pricing db`), then
  * those whose words or title contain the query. Within a tier, what the user runs most comes first, then what can
- * run now. `?` lists every command that can run now.
+ * run now. The empty line and `?` are `listed`'s.
  */
 export function rankCommands(query: string, commands: readonly Command[], usage: UsageScore = () => 0): Command[] {
   const q = query.trim().toLowerCase().replace(/\s+/g, ' ');
-  if (q === '') return order(commands.map((command, index) => ({ command, index, tier: 0 })), usage);
-  if (q === '?') return order(commands.filter((c) => c.unavailable === undefined).map((command, index) => ({ command, index, tier: 0 })), usage);
   const typed = q.split(' ');
   const tier = (command: Command): number => {
     if (command.words === q) return 0;
@@ -107,6 +110,62 @@ export function rankCommands(query: string, commands: readonly Command[], usage:
     return typed.every((t) => haystack.includes(t)) ? 3 : -1;
   };
   return order(commands.map((command, index) => ({ command, index, tier: tier(command) })).filter((r) => r.tier >= 0), usage);
+}
+
+/** A part of the list the line shows while a command is chosen: its commands, under a heading where it has one. */
+export interface ListSection {
+  readonly heading: string | undefined;
+  readonly commands: readonly Command[];
+}
+
+/** The heading of the commands that cannot run now, which the empty line lists last, each with its reason. */
+export const NOT_AVAILABLE_NOW = 'Not available now';
+
+/**
+ * What the line lists while a command is being chosen (ADR-0006's note 3 of 2026-11-11). For the empty line and `?`:
+ * the commands of the page in the active panel first, under the panel's title; then the other commands that can run,
+ * a heading per group, in the order the groups were registered; and on the empty line those that cannot run now,
+ * last. Under a heading, what the user runs most comes first (ADR-0006 §6), then the order registered. A typed query
+ * is one list with no heading, as `rankCommands` ranks it.
+ */
+export function listed(query: string, commands: readonly Command[], usage: UsageScore = () => 0): readonly ListSection[] {
+  const q = query.trim();
+  if (q !== '' && q !== '?') {
+    const ranked = rankCommands(query, commands, usage);
+    return ranked.length === 0 ? [] : [{ heading: undefined, commands: ranked }];
+  }
+  const byUse = (list: readonly Command[]) => list.map((command, index) => ({ command, index }))
+    .sort((a, b) => usage(b.command.id) - usage(a.command.id) || a.index - b.index).map((r) => r.command);
+  const sections: ListSection[] = [];
+  const can = commands.filter((c) => c.unavailable === undefined);
+  const page = can.filter((c) => c.page === true);
+  const first = page[0];
+  if (first !== undefined) {
+    if (first.target === undefined) throw new Error(`Command ${first.id} acts on the page in the active panel and does not say which panel.`);
+    sections.push({ heading: first.target, commands: byUse(page) });
+  }
+  const groups = new Map<string, Command[]>();
+  for (const command of can) {
+    if (command.page === true) continue;
+    const group = groups.get(command.group);
+    if (group === undefined) groups.set(command.group, [command]);
+    else group.push(command);
+  }
+  for (const [heading, group] of groups) sections.push({ heading, commands: byUse(group) });
+  const cannot = commands.filter((c) => c.unavailable !== undefined);
+  if (q === '' && cannot.length > 0) sections.push({ heading: NOT_AVAILABLE_NOW, commands: cannot });
+  return sections;
+}
+
+/** The line's placeholder: the first commands the empty line lists that can run, so it differs by page. */
+export function placeholder(sections: readonly ListSection[]): string {
+  const first = sections.flatMap((s) => s.commands).filter((c) => c.unavailable === undefined).slice(0, 3).map((c) => c.words);
+  return first.length === 0 ? 'Type what you want to do (? lists the commands)' : `Type what you want to do: ${first.join(', ')}… (? lists them)`;
+}
+
+/** What the line draws of a list: at most `cap` of it, and how many it leaves out, which it says. Never cut in silence. */
+export function drawn<T>(items: readonly T[], cap: number): { readonly shown: readonly T[]; readonly more: number } {
+  return { shown: items.slice(0, cap), more: Math.max(items.length - cap, 0) };
 }
 
 function inOrder(typed: readonly string[], words: readonly string[]): boolean {
@@ -206,7 +265,7 @@ export function readLine(text: string, commands: readonly Command[]): LineReadin
 /** The completions a reading offers: commands while choosing, the slot's values once a command is chosen. */
 export function completionsOf(reading: LineReading, commands: readonly Command[], usage: UsageScore = () => 0):
   { readonly commands: readonly Command[]; readonly values: readonly Completion[] } {
-  if (reading.kind === 'choosing') return { commands: rankCommands(reading.query, commands, usage), values: [] };
+  if (reading.kind === 'choosing') return { commands: listed(reading.query, commands, usage).flatMap((s) => s.commands), values: [] };
   const { command, given, slot, typed } = reading;
   const options = slot === undefined
     // Every required slot is filled: offer the options not given yet.

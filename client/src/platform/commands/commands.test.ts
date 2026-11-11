@@ -1,4 +1,4 @@
-import { assertDistinct, completionsOf, execute, finish, rankCommands, readLine, take, type Command } from './commands';
+import { assertDistinct, completionsOf, drawn, execute, finish, listed, placeholder, rankCommands, readLine, take, type Command, type ListSection } from './commands';
 
 const command = (words: string, extra: Partial<Command> = {}): Command => ({ id: words, words, title: words, group: 'G', run: vi.fn(), ...extra });
 
@@ -26,10 +26,6 @@ describe('finding a command by typing (ADR-0006)', () => {
     expect(ranked[0]!.words).toBe('price');
   });
 
-  it('lists only what can run now for ?', () => {
-    expect(rankCommands('?', [command('price', { unavailable: 'No workspace.' }), command('new irs')]).map((c) => c.words)).toEqual(['new irs']);
-  });
-
   it('does not run an unavailable command and says why', () => {
     const c = command('price', { unavailable: 'Open an XVA or Rates workspace to price it.' });
     expect(execute(c)).toBe('Open an XVA or Rates workspace to price it.');
@@ -44,6 +40,60 @@ describe('finding a command by typing (ADR-0006)', () => {
   it('refuses two commands with the same words, or on one chord', () => {
     expect(() => assertDistinct([command('price', { id: 'a' }), command('price', { id: 'b' })])).toThrow(/name both a and b/);
     expect(() => assertDistinct([command('a', { shortcut: 'mod+shift+G' }), command('b', { shortcut: 'Mod+Shift+g' })])).toThrow(/bound to both a and b/);
+  });
+});
+
+describe('what the empty line and ? list (ADR-0006 note 3 of 2026-11-11)', () => {
+  const onPage = { target: 'XVA ABC/LE-01', page: true } as const;
+  const commands = [
+    command('new xva', { group: 'XVA' }),
+    command('price', { group: 'Pricing', ...onPage }),
+    command('set', { group: 'XVA', ...onPage }),
+    command('live start', { group: 'Rates', unavailable: 'Open a Rates workspace first.' }),
+    command('new rates', { group: 'Rates' }),
+    command('run station summary', { group: 'Workflows' }),
+    command('close panel', { group: 'Panels', target: 'XVA ABC/LE-01' }),
+  ];
+  const shape = (sections: readonly ListSection[]) => sections.map((s) => [s.heading, s.commands.map((c) => c.words)]);
+
+  it('puts the commands of the page in the active panel first, under its title, then each group of the rest that can run', () => {
+    expect(shape(listed('?', commands))).toEqual([
+      ['XVA ABC/LE-01', ['price', 'set']],
+      ['XVA', ['new xva']],
+      ['Rates', ['new rates']],
+      ['Workflows', ['run station summary']],
+      ['Panels', ['close panel']],
+    ]);
+  });
+
+  it('lists what cannot run now last on the empty line, with the rest as ? has it, and not at all for ?', () => {
+    expect(shape(listed('', commands))).toEqual([...shape(listed('?', commands)), ['Not available now', ['live start']]]);
+  });
+
+  it('puts what the user runs most first under a heading (ADR-0006 §6)', () => {
+    expect(shape(listed('', commands, (id) => (id === 'set' ? 2 : 0)))[0]).toEqual(['XVA ABC/LE-01', ['set', 'price']]);
+  });
+
+  it('ranks a typed query as one list with no heading', () => {
+    expect(shape(listed('pr', commands))).toEqual([[undefined, ['price']]]);
+    expect(completionsOf(readLine('pr', commands), commands).commands.map((c) => c.words)).toEqual(['price']);
+  });
+
+  it('offers for Enter and the arrows the commands in the order listed', () => {
+    expect(completionsOf(readLine('', commands), commands).commands.map((c) => c.words))
+      .toEqual(['price', 'set', 'new xva', 'new rates', 'run station summary', 'close panel', 'live start']);
+  });
+
+  it('names the first commands of the list in the placeholder, so it differs by page', () => {
+    expect(placeholder(listed('', commands))).toBe('Type what you want to do: price, set, new xva… (? lists them)');
+    const nothingOpen = [command('new xva', { group: 'XVA' }), command('price', { group: 'Pricing', unavailable: 'Open a workspace.' }),
+      command('new rates', { group: 'Rates' }), command('open pricing db', { group: 'History' }), command('run station summary', { group: 'Workflows' })];
+    expect(placeholder(listed('', nothingOpen))).toBe('Type what you want to do: new xva, new rates, open pricing db… (? lists them)');
+  });
+
+  it('never cuts a list in silence: what is not drawn is counted', () => {
+    expect(drawn(['a', 'b', 'c'], 2)).toEqual({ shown: ['a', 'b'], more: 1 });
+    expect(drawn(['a', 'b'], 2)).toEqual({ shown: ['a', 'b'], more: 0 });
   });
 });
 

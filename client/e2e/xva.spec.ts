@@ -484,6 +484,50 @@ test('ADR-0006 note 2 (2026-11-11): a result is teal, takes no room and leaves b
   expect(problems.splice(0)).toHaveLength(1);
 });
 
+test('ADR-0006 note 3 (2026-11-11): the empty line and `?` list the page\'s commands first under its title, and the placeholder follows the page', async ({ page }) => {
+  await open(page);
+  const line = page.getByRole('combobox', { name: 'Command' });
+  const list = page.getByRole('listbox', { name: 'Commands' });
+  const headings = page.getByTestId('command-heading');
+  // An option is found by its words, which it draws in an element of their own.
+  const worded = (words: string | RegExp) => ({ has: page.getByText(words, { exact: true }) });
+
+  // With nothing open the line names what starts something. It named Rates' commands on every page.
+  await page.keyboard.press('ControlOrMeta+K');
+  await expect(line).toBeFocused();
+  await expect(line).toHaveAttribute('placeholder', 'Type what you want to do: new xva, new rates, open pricing db… (? lists them)');
+  await page.keyboard.press('Escape');
+  await expect(line).toBeHidden();
+
+  await newWorkspace(page, 'ABC/LE-01', 5);
+  await page.keyboard.press('ControlOrMeta+K');
+  await expect(line).toBeFocused();
+  await expect(line).toHaveAttribute('placeholder', 'Type what you want to do: price, measures, vary… (? lists them)');
+  // The page's commands come first, under the panel's title; the sample workflows came first.
+  await expect(headings.first()).toHaveText('XVA ABC/LE-01');
+  const ofThePage = page.getByRole('group', { name: 'XVA ABC/LE-01' }).getByRole('option');
+  await expect(ofThePage.first()).toContainText('price');
+  await expect(ofThePage.filter(worded('set'))).toHaveCount(1);
+  await expect(ofThePage.filter(worded(/^new /))).toHaveCount(0);
+  // What cannot run here is last, with why: Rates' commands on an XVA page.
+  await expect(headings.last()).toHaveText('Not available now');
+  await expect(page.getByRole('group', { name: 'Not available now' }).getByRole('option').filter(worded('capture')))
+    .toContainText('Open a Rates workspace first.');
+
+  // `?` lists what can run, all of it: it stopped at fifty in silence, before `new rates` and `open pricing db`.
+  await page.keyboard.type('?');
+  await expect(headings.first()).toHaveText('XVA ABC/LE-01');
+  await expect(headings.filter({ hasText: 'Not available now' })).toHaveCount(0);
+  await expect(list.getByRole('option').filter(worded('new rates'))).toHaveCount(1);
+  await expect(list.getByRole('option').filter(worded('open pricing db'))).toHaveCount(1);
+  await expect(list.getByRole('option').filter(worded('capture'))).toHaveCount(0);
+  await expect(page.getByTestId('command-more')).toHaveCount(0);
+
+  // The arrows reach across the headings: up from the first command is the last one listed.
+  await page.keyboard.press('ArrowUp');
+  await expect(list.getByRole('option', { selected: true })).toContainText('open ai pane');
+});
+
 test('ADR-0006 note 4 (2026-11-11): the hint of `set` shows this workspace\'s rows, and an A cell reads a flag as `set` reads it', async ({ page }) => {
   await open(page);
   await newWorkspace(page, 'ABC/LE-01', 5);
