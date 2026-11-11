@@ -338,12 +338,16 @@ public sealed class CommandLines
     public ViewSelection Selection(string workspaceId, Caller caller, LineView view)
     {
         var state = WorkspaceCommands.Owned(workspaces, workspaceId, caller, null);
-        var table = Views.TableOf(view, tables.Of(state));
+        var bound = tables.Of(state);
+        // The view is checked whole, as where a line's reading starts (Preview), whether or not it selects a row: one
+        // that names what the workspace has not is the page's fault, and never read as "nothing selected".
+        Views.Say(view, bound, state);
+        var table = Views.TableOf(view, bound);
         if (view.Selected == 0) return new(table.Descriptor.TableId, []);
-        var byKey = new Lazy<Dictionary<string, ITableRow>>(() => table.Table.Rows(state).ToDictionary(r => r.Key, StringComparer.OrdinalIgnoreCase));
+        var index = new Lazy<Selectors.RowIndex>(() => new(table, table.Table.Rows(state)));
         try
         {
-            return new(table.Descriptor.TableId, [.. Views.Selected(view, table, state, key => byKey.Value.GetValueOrDefault(key)).Select(r => r.Key)]);
+            return new(table.Descriptor.TableId, [.. Views.Selected(view, table, state, key => index.Value.Row(key)).Select(r => r.Key)]);
         }
         catch (TableRefused refused)
         {

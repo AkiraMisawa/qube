@@ -2,13 +2,13 @@ import { useState } from 'react';
 import { Button, Group, Modal, Stack, Text } from '@mantine/core';
 import type { Iteration } from './contracts';
 
-// *One case from the selection…* (ADR-0010 §3, ADR-0016 note 37 of 2026-11-11): one case of `add each` that adds the
-// new trades selected together and takes the existing trades selected out of After. A grid once clicked always has a
-// row selected, so the press opens this rather than making a case of a row the user only looked at: it lists what the
-// two selections name, any trade may be left out, and *Make case* is the change. The server checks every trade named
-// and says which it refuses; nothing here decides what a case may hold.
+// *Make case from the selection…* (ADR-0010 §3, ADR-0016 note 37 of 2026-11-11): one case of `add each` that adds the
+// new trades selected together and takes the existing trades selected out of After, made beside the cases made
+// before. A grid once clicked always has a row selected, so the press opens this rather than making a case of a row
+// the user only looked at: it lists what the two selections name, any trade may be left out, and *Make case* is the
+// change. The server checks every trade named and says which it refuses; nothing here decides what a case may hold.
 
-/** *One case from the selection…*'s id on a Context Menu of the trade grids (ex-grid ADR-0036). */
+/** *Make case from the selection…*'s id on a Context Menu of the trade grids (ex-grid ADR-0036). */
 export const CASE_COMMAND = 'xva.case.selection';
 
 export function CaseDialog({ selection, make, onClose }: {
@@ -19,7 +19,7 @@ export function CaseDialog({ selection, make, onClose }: {
   readonly onClose: () => void;
 }) {
   return (
-    <Modal opened={selection !== undefined} onClose={onClose} title="One case from the selection" size="md">
+    <Modal opened={selection !== undefined} onClose={onClose} title="Make case from the selection" size="md">
       {/* Made anew each time the dialog opens, so it opens with no trade left out and nothing refused. */}
       {selection !== undefined && <CaseForm selection={selection} make={make} onClose={onClose} />}
     </Modal>
@@ -57,7 +57,7 @@ function CaseForm({ selection, make, onClose }: {
     }
   };
   const list = (label: string, trades: readonly string[], empty: string, says: (trade: string, on: boolean) => string) => (
-    <Stack gap={4}>
+    <Stack gap="xs">
       <Text size="sm" fw={600}>{label}</Text>
       {trades.length === 0
         ? <Text size="sm">{empty}</Text>
@@ -76,7 +76,10 @@ function CaseForm({ selection, make, onClose }: {
   );
   return (
     <Stack gap="sm">
-      <Text size="sm">One case of add each, priced beside the Base by the next Price. The cases already made stay. Press a trade to leave it out.</Text>
+      <Text size="sm">
+        Makes one case of add each, priced beside the Base by the next Price. The cases already made stay as they are, and a new
+        trade with A ticked that no case adds gets a case of its own. Press a trade to leave it out.
+      </Text>
       {list('Adds together', selection.add, 'No row of New trades is selected.',
         (trade, on) => (on ? `The case adds ${trade}. Press to leave it out.` : `${trade} is left out. Press to add it.`))}
       {list('Takes out of After', selection.without, 'No row of Existing trades is selected: the case takes none out.',

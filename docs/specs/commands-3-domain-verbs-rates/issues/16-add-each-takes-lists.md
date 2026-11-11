@@ -24,3 +24,6 @@ candidates together.
   named one `trade`; one stored before is read as that trade alone.
 - *Added as built:* a workflow whose input contract holds a list is refused at registration (`ListInForm`), and
   Price refuses a set that takes out a trade After no longer holds.
+- *Corrected in review (ADR-0016 note 37):* the request also takes `keep`, with which the iterations given are made
+  beside the cases made, which stay the cases they are; the log names what is new of a set; and the request's
+  lists are read by `Iteration`'s own readers, a list that is none after the contract passed being a defect.

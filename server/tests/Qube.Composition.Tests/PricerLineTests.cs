@@ -70,6 +70,14 @@ public class PricerLineTests
             return result is CommandResult.Done done ? done.Outputs["answer"]!["said"]!.GetValue<string>()
                 : $"{string.Join(" ", ((CommandResult.Refused)result).Issues.Select(i => $"{i.Code}: {i.Message}"))}";
         }
+
+        /// <summary>Where each issue of a request the command refuses is, as its caller is told.</summary>
+        public async Task<IReadOnlyList<string>> Paths(string capability, JsonObject request)
+        {
+            request["workspaceId"] = Id;
+            var result = await Commands.InvokeAsync(capability, PortfolioContracts.Version, new JsonObject { ["request"] = request }, Akira, Guid.NewGuid().ToString(), default);
+            return [.. Assert.IsType<CommandResult.Refused>(result).Issues.Select(i => i.Path)];
+        }
     }
 
     static string Read(LinePreview preview) => preview.Refused is { } refused ? $"{refused.Code}: {refused.Sentence}" : preview.Would!;
@@ -250,15 +258,28 @@ public class PricerLineTests
         var shape = await rig.Invoke("xva.trades.add", Given(new JsonObject { ["add"] = new JsonArray("DRAFT-1", 2) }, "DRAFT-2", new JsonObject { ["without"] = new JsonArray(taken), ["also"] = true }));
         var refused = rig.State.Revision;
         var made = await rig.Invoke("xva.trades.add", Given(new JsonObject { ["add"] = new JsonArray("DRAFT-1", "DRAFT-2"), ["without"] = new JsonArray(taken) }, new JsonObject { ["add"] = new JsonArray("draft-1") }));
+        var undoes = rig.Preview("undo").Would;
+        // With keep, the cases made stay and the answer names the one made beside them (note 37, corrected in review).
+        var beside = Given(new JsonObject { ["add"] = new JsonArray("DRAFT-2", "DRAFT-3") });
+        beside["keep"] = true;
+        var kept = await rig.Invoke("xva.trades.add", beside);
+        var flag = await rig.Invoke("xva.trades.add", new JsonObject { ["keep"] = "yes" });
         // An empty list is the command as typed: a case per New row with A ticked.
         var typed = await rig.Invoke("xva.trades.add", Given());
 
         Assert.Equal("InvalidField: A list is required.", text);
         Assert.Equal("InvalidField: At least 1 item is required.", none);
         Assert.Equal("InvalidField: A text value is required. InvalidField: A record is required. Required: add is required. UnknownField: An item of iterations has no field also.", shape);
+        // Each issue is at its item's path in the request, where a caller that built the list finds it.
+        Assert.Equal(["/inputs/request/iterations/0/add/1", "/inputs/request/iterations/1", "/inputs/request/iterations/2/add", "/inputs/request/iterations/2/also"],
+            await rig.Paths("xva.trades.add", Given(new JsonObject { ["add"] = new JsonArray("DRAFT-1", 2) }, "DRAFT-2", new JsonObject { ["without"] = new JsonArray(taken), ["also"] = true })));
         Assert.Equal(start, refused);
         Assert.Equal($"Made 3 case(s): add DRAFT-1 + DRAFT-2 without {taken}, add DRAFT-1, add DRAFT-3.", made);
-        Assert.Equal($"Made 3 case(s): add DRAFT-1, add DRAFT-2, add DRAFT-3; replaced add DRAFT-1 + DRAFT-2 without {taken}, add DRAFT-1, add DRAFT-3.", typed);
+        // undo names the command by the iterations it was given, as the log does.
+        Assert.StartsWith($"Takes back: add each: DRAFT-1 + DRAFT-2 without {taken}; DRAFT-1 (you,", undoes);
+        Assert.Equal("Made 1 case(s): add DRAFT-2 + DRAFT-3.", kept);
+        Assert.Equal("InvalidField: true or false is required.", flag);
+        Assert.Equal($"Made 3 case(s): add DRAFT-1, add DRAFT-2, add DRAFT-3; replaced add DRAFT-1 + DRAFT-2 without {taken}, add DRAFT-1, add DRAFT-3, add DRAFT-2 + DRAFT-3.", typed);
         Assert.StartsWith("Takes back: add each (you,", rig.Preview("undo").Would);
     }
 

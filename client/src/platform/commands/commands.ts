@@ -121,8 +121,8 @@ export interface CommandDoor {
    * A command by its id, from a key or a button, which have no line: in the same turn, at the catalog's version and
    * the revision the page then holds. Resolves as `enter` does. A caller that says the answer itself, as a dialog
    * does, gives `heard`: it is told what the command said, and the page makes no notice of it. A request that says
-   * again something the page shows, as `add each`'s whole set of iterations does (note 37 of 2026-11-11), is given as
-   * a function: it is made in the turn, of the revision it is sent at, so an edit still on its way when the button was
+   * again something the page shows, such as a list the command takes whole (note 37 of 2026-11-11), is given as a
+   * function: it is made in the turn, of the revision it is sent at, so an edit still on its way when the button was
    * pressed is in it (spine 6); one that throws sends nothing, and its message is the reason.
    */
   invoke(capabilityId: string, request: CommandRequest | ((revision: number) => CommandRequest), heard?: (said: string) => void): Promise<LineReason | undefined>;

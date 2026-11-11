@@ -31,7 +31,7 @@ import type { ScenarioActions } from './XvaScenarios';
 import type { ChangeActions } from './XvaChanges';
 import { VARY_COMMAND, VaryDialog, type VaryTarget } from './VaryDialog';
 import { CASE_COMMAND, CaseDialog } from './CaseDialog';
-import { oneMore, tradeLeftOut } from './iterations';
+import { tradeLeftOut } from './iterations';
 import { compactGridHeight, GRID_FRAME, pixels, Resizer } from './layout';
 import { declaring, measureOfField, membershipColumn, scopesOf } from './membership';
 import { priceLabel, pricedMeasures } from './metrics';
@@ -180,7 +180,9 @@ function cellMessage(row: Row, col: GridColumn<Row>): string | undefined {
 
 /** The failed cell's action (ADR-0010 §6): ask again for that trade's results. */
 const RETRY = 'xva.retry';
-const pageLabel = (id: string) => (id === RETRY ? 'Ask again' : id === VARY_COMMAND ? 'Vary values…' : id === CASE_COMMAND ? 'One case from the selection…' : undefined);
+/** Why a button of the page is disabled while the page prices, refreshes or acquires (design guidelines §10). */
+const WAIT = 'The page is busy: wait until it has finished, then press again.';
+const pageLabel = (id: string) => (id === RETRY ? 'Ask again' : id === VARY_COMMAND ? 'Vary values…' : id === CASE_COMMAND ? 'Make case from the selection…' : undefined);
 /** No table's actions: what a grid's menu holds of them until the page has read its tables. */
 const NO_MENU: TableMenu = { commands: () => [], label: () => undefined };
 
@@ -487,7 +489,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   const declaredOf = (grid: TradeGrid): ScreenGrid => ({ table: TRADES_TABLE, subset: grid, columns: gridColumns.current[grid].map((c) => c.name) });
   // A trade grid's Context Menu: what the trades' table offers on the rows selected and the cell under the menu
   // (ADR-0016 note 25), then the page's own: Ask again on a failed result, Vary values… on a cell the user may type
-  // now (ADR-0010 §3), which a module's read-only cell, such as PV Adj while Margin is entered, is not, and One case
+  // now (ADR-0010 §3), which a module's read-only cell, such as PV Adj while Margin is entered, is not, and Make case
   // from the selection… (ADR-0016 note 37), of this grid's rows as the menu has them and the other grid's Selection.
   const tradeCommands = useCallback((grid: TradeGrid) => (context: GridContextMenuContext<Row>) => {
     const { row, column: name } = context;
@@ -720,10 +722,10 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
       throw new Error(`The page shows ${shown === undefined ? 'no workspace' : `revision ${shown.revision}`}, and the command would run at revision ${revision}. Try again.`);
     return { iterations: change(shown.cases) };
   };
-  // *One case…* (ADR-0016 note 37): the trades the two grids' selections name, while its dialog is open.
+  // *Make case…* (ADR-0016 note 37): the trades the two grids' selections name, while its dialog is open.
   const [caseOf, setCaseOf] = useState<Iteration | undefined>(undefined);
   /**
-   * Opens *One case from the selection…* on what the two trade grids' selections name: read by the server, as the
+   * Opens *Make case from the selection…* on what the two trade grids' selections name: read by the server, as the
    * line's `selected` is (ADR-0016 note 17), since it pages the grids and a position means a row only in its order.
    * From a Context Menu the grid it opened on is read as the menu has it. Refused, as where a grid's order has moved
    * since its rows were read, the page says why and opens nothing.
@@ -741,13 +743,19 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
       workspace.notify('refused', `The selection was not read: ${describe(error)}`);
     }
   };
-  /** *Make case*: the cases made, then the dialog's. Refused, the answer is the server's reason, for the dialog to say. */
-  const makeCase = async (iteration: Iteration) =>
-    (await door.invoke('xva.trades.add', iterationsWith((cases) => oneMore(cases, iteration))))?.sentence;
-  /** The Changes tab's removal of one trade from what a case adds or takes out (ADR-0016 note 37). */
+  /**
+   * *Make case*: the dialog's case, beside the cases made, which the server keeps as they are (`keep`, note 37 as
+   * corrected in review). Refused, the answer is the server's reason, for the dialog to say.
+   */
+  const makeCase = async (iteration: Iteration) => (await door.invoke('xva.trades.add', { iterations: [iteration], keep: true }))?.sentence;
+  /**
+   * The Changes tab's removal of one trade from what a case adds, or from what it takes out of After (ADR-0016 note
+   * 37): the whole set said again with that change, so the case is made anew where it stood among the others.
+   */
   const leaveOut = async (caseId: string, title: string, list: keyof Iteration, trade: string) => {
     const reason = await door.invoke('xva.trades.add', iterationsWith((cases) => tradeLeftOut(cases, caseId, list, trade)));
-    if (reason !== undefined) workspace.notify('refused', `${trade} was not left out of ${title}: ${reason.sentence}`);
+    if (reason !== undefined)
+      workspace.notify('refused', `${trade} was not ${list === 'add' ? 'left out of' : 'kept in After in'} ${title}: ${reason.sentence}`);
   };
   /**
    * *Vary values…* (ADR-0010 §3): a case per value of the dialog's cell, named by its entity and field, through
@@ -924,9 +932,9 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
             {/* The cases of `add each` (ADR-0016 note 37): one per ticked new trade, or one of the two grids' selections. */}
             <Group gap="xs" role="group" aria-label="Cases that add new trades">
               <Button size="compact-xs" variant="default" disabled={!notBusy} onClick={() => void addEach()}
-                title="A case per new trade with A ticked, each added alone beside the Base (add each).">Add each</Button>
+                title={notBusy ? 'Make a case per new trade with A ticked, each added alone beside the Base (add each).' : WAIT}>Add each</Button>
               <Button size="compact-xs" variant="default" disabled={!notBusy} onClick={() => void openCase()}
-                title="One case that adds the new trades selected together and takes the existing trades selected out of After.">One case…</Button>
+                title={notBusy ? 'Make one case that adds the new trades selected together and takes the existing trades selected out of After.' : WAIT}>Make case…</Button>
             </Group>
           </TradeCaption>
           <div aria-label="New trades" onFocusCapture={() => { screen.current = tradeScreen.new; }}>

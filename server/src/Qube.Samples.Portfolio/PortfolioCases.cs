@@ -28,6 +28,16 @@ public sealed record Iteration(IReadOnlyList<string> Add, IReadOnlyList<string> 
 
     /// <summary>Whether two iterations add the same trades and take the same out, in whatever order each names them.</summary>
     public bool Same(Iteration other) => Add.ToHashSet().SetEquals(other.Add) && Without.ToHashSet().SetEquals(other.Without);
+
+    /// <summary>The iteration as its two lists, <c>add</c> and <c>without</c>: as a case stores it, and as a Run freezes it.</summary>
+    public JsonObject Lists() => new()
+    {
+        ["add"] = new JsonArray([.. Add.Select(id => JsonValue.Create(id))]),
+        ["without"] = new JsonArray([.. Without.Select(id => JsonValue.Create(id))]),
+    };
+
+    /// <summary>The ids a list holds. Null where it is no list, which is its reader's to refuse or to say is none.</summary>
+    public static IReadOnlyList<string>? Ids(JsonNode? list) => list is JsonArray ids ? [.. ids.Select(id => id!.GetValue<string>())] : null;
 }
 
 /// <summary>What <c>vary</c> did: the state it left, the cases it made by title, and each value it skipped with why.</summary>
@@ -81,8 +91,8 @@ public static class PortfolioCases
     /// </summary>
     public static Iteration IterationOf(CreatedEntity c)
     {
-        IReadOnlyList<string> Ids(string list) => c.Fields[list] is JsonArray ids ? [.. ids.Select(id => id!.GetValue<string>())]
-            : throw new InvalidOperationException($"The case {Title(c)} of add each does not say its trades: it holds no list {list}.");
+        IReadOnlyList<string> Ids(string list) => Iteration.Ids(c.Fields[list])
+            ?? throw new InvalidOperationException($"The case {Title(c)} of add each does not say its trades: it holds no list {list}.");
         return c.Fields["trade"] is { } alone ? new([alone.GetValue<string>()], []) : new(Ids("add"), Ids("without"));
     }
 

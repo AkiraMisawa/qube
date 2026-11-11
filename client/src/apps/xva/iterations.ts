@@ -1,16 +1,12 @@
 import type { CaseView, Iteration } from './contracts';
 
-// `add each` takes its iterations as one list, which is the whole set (ADR-0016 note 37 of 2026-11-11): the cases made
-// before are replaced by it. A page that adds one case, or leaves one trade out of one, therefore says the made
-// iterations again with that one change. These read them of the cases the page shows; what the page no longer shows
-// is said, and no set is made of a guess.
+// `add each` takes its iterations as one list, which is the whole set unless it is told to keep the cases made
+// (ADR-0016 note 37 of 2026-11-11): the cases made before are replaced by it. A page that leaves one trade out of one
+// case therefore says the made iterations again with that one change. This reads them of the cases the page shows;
+// what the page no longer shows is said, and no set is made of a guess. One more case needs none of this: the page
+// asks for it beside the cases made.
 
 type Made = Pick<CaseView, 'id' | 'title' | 'iteration'>;
-
-const made = (cases: readonly Made[]): Iteration[] => cases.flatMap((c) => (c.iteration === undefined ? [] : [c.iteration]));
-
-/** The set with one more case: the cases made, in their order, then `iteration`. */
-export const oneMore = (cases: readonly Made[], iteration: Iteration): Iteration[] => [...made(cases), iteration];
 
 /**
  * The set with `trade` left out of what the case `caseId` adds, or of what it takes out of After. The one trade a case

@@ -1355,7 +1355,8 @@ each is built.
       no value. `One case…` beside it, and *One case from the selection…* on both trade grids' Context Menus,
       open a dialog that lists what the selections name: the New grid's as the trades the case adds, the Existing
       grid's as the trades it takes out, each of which may be left out there. *Make case* then invokes the command
-      with the iterations already made and this one. **The dialog is the change:** §3 had the press make the case.
+      with the iterations already made and this one (*corrected in review, below: with this one and `keep`; and
+      the button is named `Make case…`*). **The dialog is the change:** §3 had the press make the case.
       A grid that has been clicked always has a row selected, so a press would nearly always take an existing
       trade out that nobody chose; the dialog says the two lists before anything is made, as the line says a
       reading before Enter.
@@ -1376,13 +1377,45 @@ each is built.
       so one left out is put back by the same press. *Make case* is disabled, and says why, while no new trade is
       kept. Refused, the dialog stays with the server's reason and no case was made; taken, it closes and the
       notice is the server's sentence, which names the whole set (`Made 4 case(s): …; replaced …`), since the set
-      is what the command wrote. From a Context Menu, the grid the menu opened on is read as the menu has it (its
-      Selection, or the row under it), and the other grid by its own Selection.
+      is what the command wrote (*corrected in review, below: it names the case made*). From a Context Menu, the
+      grid the menu opened on is read as the menu has it (its Selection, or the row under it), and the other grid
+      by its own Selection.
     - *Added as built: the Changes tab.* The one trade a case adds is said without a button. A trade left out of
       what a case adds is still ticked, so the rule above makes it one more case alone; where what is left of the
       case is a case already made, the server refuses it (`GivenTwice`) and the case is removed whole instead.
     - *Found as built:* the wire leaves an empty field out, and the client typed a case's `note` as `null` where
       it has none. A case's `iteration` and `note` are typed as left out now, which is what the page reads.
+    - *Corrected in review: one more case is made beside the cases made (`keep`).* As built, *Make case* said the
+      whole set again with one more. A case of the set that had gone stale (its trade no longer ticked, say) then
+      refused the new case by a trade the dialog does not list, and the log named the set, never the case just
+      made. §3 has the button make "the next" case, so the request may hold `keep: true`. The cases of `add each`
+      made before then stay the cases they are and are not read again: a stale one refuses nothing here and stays
+      Price's to refuse (ADR-0010 §3's note). The iterations given are made beside them; one that a case kept
+      already is, is refused by that case's title (`AlreadyMade`). A ticked New row that no case names, kept or
+      given, is one more case alone, and a candidate that is in the set now is turned off in each case kept that
+      does not add it, so every case still adds its own trades alone. A candidate in Before is refused where the
+      command would make its case. `keep` needs an iteration (`NothingGiven`). The answer names what was made
+      (`Made 1 case(s): …`) and replaces none. Without `keep` the list is the whole set, as above: what the
+      Changes tab still sends, since a trade left out there changes a case, which is made anew where it stood.
+    - *Corrected in review: the command's name in the log says what is new.* With a whole set: the iterations
+      given that no case made before is, the first three and how many more, then how many are as before
+      (`add each: DRAFT-1 + DRAFT-2, with 3 as before`; `add each: 2 as before` where none is new). With `keep`:
+      the iterations given, then `beside the cases made`.
+    - *Corrected in review: a view's selection is checked whole.* As built, the reading answered no key for a view
+      that selects nothing, without checking it, and 409 for a table with no order. The view is now checked as
+      the preview checks one, before anything is read: a view that names what the table has not is `InvalidView`
+      (400), and only an order that has moved is `ViewMoved` (409, to be read again).
+    - *Added in review: Price's check of a case* also refuses a case whose After holds a trade the case takes
+      out. No state reaches it today, since a case of the set is not edited (ADR-0010 §3's note); it is there so
+      that such a case is refused, never priced as another set.
+    - *Changed in review: the page's names.* A button says what it does as a verb (design guidelines §10):
+      `Make case…` in the caption, *Make case from the selection…* on the menus and as the dialog's title. On the
+      Changes tab a trade a case takes out is `Keep <id> in After`, which is what its press does. The two caption
+      buttons say in their title why they are disabled while the page is busy.
+    - *Known limits, recorded in review.* The dialog's case and the Changes tab's buttons have no line and no
+      palette entry, since how the line spells a list is open (§3): they are the page's gestures over a command
+      the AI invokes with the same value. A trade left out on the Changes tab says the whole set again, so a
+      stale case of the set refuses it by that case's trade: the stale case is removed first.
 
 ## Rejected
 

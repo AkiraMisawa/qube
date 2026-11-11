@@ -237,10 +237,6 @@ export interface HeldEdit {
 }
 
 /**
- * A case Price prices (ADR-0010 §3): the workspace itself, the `base`, first; a case `vary` made, or one trade of `add
- * trades`, which names it. `changes` counts its own edits.
- */
-/**
  * One case of `add each` (ADR-0016 note 37 of 2026-11-11): the new trades it adds together, and the existing trades it
  * takes out of After.
  */
@@ -248,6 +244,11 @@ export interface Iteration {
   readonly add: readonly string[];
   readonly without: readonly string[];
 }
+
+/**
+ * A case Price prices (ADR-0010 §3): the workspace itself, the `base`, first; a case `vary` made, or an iteration of
+ * `add each`, which names its trades. `changes` counts its own edits.
+ */
 
 export interface CaseView {
   readonly id: string;

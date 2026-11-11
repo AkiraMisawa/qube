@@ -15,7 +15,7 @@ export interface ChangeActions {
   readonly remove: (change: ChangeItem) => void;
   readonly removeCase: (caseId: string, title: string) => void;
   readonly clearCases: () => void;
-  /** Leaves one trade out of what a case of `add each` adds, or of what it takes out of After (ADR-0016 note 37). */
+  /** Leaves one trade out of what a case of `add each` adds, or keeps in After one it takes out (ADR-0016 note 37). */
   readonly leaveOut: (caseId: string, title: string, list: keyof Iteration, trade: string) => void;
 }
 
@@ -70,14 +70,16 @@ function Section({ title, kind, note, action }: { readonly title: string; readon
 }
 
 /**
- * What a case of `add each` adds together and takes out of After (ADR-0016 note 37), each trade a button that leaves it
- * out. The one trade a case adds is said and has no button: a case that adds nothing is no case, so it is removed whole.
+ * What a case of `add each` adds together and takes out of After (ADR-0016 note 37), each trade a button: one the case
+ * adds is left out of it, one it takes out is kept in After. The one trade a case adds is said and has no button: a
+ * case that adds nothing is no case, so it is removed whole.
  */
 function Trades({ of, iteration, actions }: { readonly of: CaseView; readonly iteration: Iteration; readonly actions: ChangeActions }) {
   const lone = iteration.add.length === 1;
   const trade = (list: keyof Iteration, id: string) => (
     <Button key={`${list}.${id}`} size="compact-xs" variant="default" rightSection={<IconX size={14} stroke={1.75} aria-hidden />}
-      aria-label={`Leave ${id} out of ${of.title}`} title={list === 'add' ? `${of.title} adds ${id}. Press to leave it out.` : `${of.title} takes ${id} out of After. Press to leave it in.`}
+      aria-label={list === 'add' ? `Leave ${id} out of ${of.title}` : `Keep ${id} in After in ${of.title}`}
+      title={list === 'add' ? `${of.title} adds ${id}. Press to leave it out.` : `${of.title} takes ${id} out of After. Press to keep it in After.`}
       onClick={() => actions.leaveOut(of.id, of.title, list, id)}>{id}</Button>
   );
   return (

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { CaseView, Iteration } from './contracts';
-import { oneMore, tradeLeftOut } from './iterations';
+import { tradeLeftOut } from './iterations';
 
 // As the wire has them: a case that is no iteration has no `iteration` field.
 const made = (id: string, iteration?: Iteration): CaseView =>
@@ -13,16 +13,7 @@ const cases = [
 ];
 
 describe('add each\'s set of iterations, as the page says it again (ADR-0016 note 37)', () => {
-  it('one more case is the cases made, in their order, then that one; a case that is no iteration is no part of the set', () => {
-    expect(oneMore(cases, { add: ['DRAFT-1', 'DRAFT-2'], without: ['E00003'] })).toEqual([
-      { add: ['DRAFT-1'], without: [] },
-      { add: ['DRAFT-2', 'DRAFT-3'], without: ['E00003', 'E00004'] },
-      { add: ['DRAFT-1', 'DRAFT-2'], without: ['E00003'] },
-    ]);
-    expect(oneMore([made('c1')], { add: ['DRAFT-1'], without: [] })).toEqual([{ add: ['DRAFT-1'], without: [] }]);
-  });
-
-  it('a trade left out of one list of one case leaves the others as they are', () => {
+  it('a trade left out of one list of one case leaves the others as they are; a case that is no iteration is no part of the set', () => {
     expect(tradeLeftOut(cases, 'c3', 'without', 'E00003')).toEqual([
       { add: ['DRAFT-1'], without: [] },
       { add: ['DRAFT-2', 'DRAFT-3'], without: ['E00004'] },

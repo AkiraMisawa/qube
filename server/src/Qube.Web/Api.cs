@@ -130,10 +130,7 @@ public static class Api
             }
             catch (WorkspaceRefused refused)
             {
-                // A view that names what the workspace has not is the page's own fault: a bad request, never a reading.
-                var status = refused.Code == "InvalidView" ? 400
-                    : DoorStatus(refused.Code) ?? throw new InvalidOperationException($"No status is set for the preview's refusal {refused.Code}.");
-                return Results.Json(new ErrorEnvelope(refused.Code, refused.Message, [], Retryable: status == 409), statusCode: status);
+                return ViewRefused(refused, "the preview");
             }
         });
 
@@ -148,13 +145,7 @@ public static class Api
             }
             catch (WorkspaceRefused refused)
             {
-                var status = refused.Code switch
-                {
-                    "InvalidView" => 400,
-                    "ViewMoved" or "NoOrder" => 409,
-                    _ => DoorStatus(refused.Code) ?? throw new InvalidOperationException($"No status is set for the selection's refusal {refused.Code}."),
-                };
-                return Results.Json(new ErrorEnvelope(refused.Code, refused.Message, [], Retryable: status == 409), statusCode: status);
+                return ViewRefused(refused, "the selection");
             }
         });
 
@@ -244,6 +235,20 @@ public static class Api
         "RevisionMoved" => 409,
         _ => null,
     };
+
+    // A reading asked with a view, refused (the preview, a view's selection). A view that names what the workspace has
+    // not is the page's own fault: a bad request, never a reading. One whose order has moved since its rows were read
+    // is a conflict, to be read again. Else the workspace is refused as the door refuses it.
+    static IResult ViewRefused(WorkspaceRefused refused, string reading)
+    {
+        var status = refused.Code switch
+        {
+            "InvalidView" => 400,
+            "ViewMoved" => 409,
+            _ => DoorStatus(refused.Code) ?? throw new InvalidOperationException($"No status is set for {reading}'s refusal {refused.Code}."),
+        };
+        return Results.Json(new ErrorEnvelope(refused.Code, refused.Message, [], Retryable: status == 409), statusCode: status);
+    }
 
     static IResult NotFound(string code, string message) => Results.Json(new ErrorEnvelope(code, message, []), statusCode: 404);
 }

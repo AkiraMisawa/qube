@@ -211,6 +211,12 @@ public class CommandLineTests
         Assert.Equal("ViewMoved", Refused(paged with { Order = "an earlier order" }));
         Assert.Equal("ViewMoved", Refused(new LineView(Stations.Readings, Keys: ["R1", "R99"])));
         Assert.Equal("InvalidView", Refused(new LineView("no.such-table", Keys: ["R1"])));
+        // The view is checked whole, as where a line's reading starts, whether or not it selects a row: a range of no
+        // row is not "nothing selected", a subset the table has not is no subset, and positions in a table no reader
+        // pages are the page's fault, never a moment that passed.
+        Assert.Equal("InvalidView", Refused(paged with { Ranges = [new(0, 0)] }));
+        Assert.Equal("InvalidView", Refused(new LineView(Stations.Readings, "no-such-subset")));
+        Assert.Equal("InvalidView", Refused(new LineView(Stations.Sites, Ranges: [new(0, 1)])));
         Assert.Equal("NotOwner", Refused(paged, "ben"));
         Assert.Equal(before, rig.Board.Revision);
     }

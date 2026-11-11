@@ -488,8 +488,83 @@ public class PricerCaseTests
         Assert.Equal(["add DRAFT-1", "add DRAFT-1 + DRAFT-2", "add DRAFT-3"], answer.Made);
         Assert.Equal(["add DRAFT-1", "add DRAFT-2", "add DRAFT-3"], answer.Replaced);
         Assert.Equal(["Base", "add DRAFT-1", "add DRAFT-1 + DRAFT-2", "add DRAFT-3"], service.View(ws.WorkspaceId, "akira").Cases.Select(c => c.Title));
-        // The command has no line that types it, so the log names it by the iterations given.
-        Assert.Equal("add each: DRAFT-1; DRAFT-1 + DRAFT-2; DRAFT-3", answer.State.Log[^1].Command?.Said);
+        // The command has no line that types it, so the log names it by the iterations given that no case made before
+        // is, the first three and how many more, then how many are as before: what undo would take back is what is new.
+        Assert.Equal("add each: DRAFT-1 + DRAFT-2, with 2 as before", answer.State.Log[^1].Command?.Said);
+        var more = service.AddTrades(ws.WorkspaceId, answer.State.Revision, "akira", [new(["DRAFT-1"], []), new(["DRAFT-1", "DRAFT-2"], []), new(["DRAFT-3"], []),
+            new(["DRAFT-2"], []), new(["DRAFT-2", "DRAFT-3"], []), new(["DRAFT-1", "DRAFT-3"], []), new(["DRAFT-1", "DRAFT-2", "DRAFT-3"], [])]);
+        Assert.Equal("add each: DRAFT-2; DRAFT-2 + DRAFT-3; DRAFT-1 + DRAFT-3 and 1 more, with 3 as before", more.State.Log[^1].Command?.Said);
+        var same = service.AddTrades(ws.WorkspaceId, more.State.Revision, "akira", [new(["DRAFT-2", "DRAFT-1"], []), new(["DRAFT-3"], [])]);
+        Assert.Equal("add each: 2 as before", same.State.Log[^1].Command?.Said);
+    }
+
+    [Fact] // ADR-0016 §3, note 37 (corrected in review): with keep, the iterations given are made beside the cases made, which stay as they are; one made already is refused by its case's name
+    public async Task With_keep_the_iterations_given_are_made_beside_the_cases_made()
+    {
+        var (service, runs, store) = Priced();
+        var ws = service.Create("akira", "ABC/LE-01", Day1, 40);
+        var taken = service.Page(ws.WorkspaceId, "akira", 0, 1, [], "existing").Rows[0].TradeId;
+        ws = service.AddTrades(ws.WorkspaceId, ws.Revision, "akira").State;
+        var alone = Id(service, ws, "add DRAFT-1");
+
+        var answer = service.AddTrades(ws.WorkspaceId, ws.Revision, "akira", [new(["DRAFT-1", "DRAFT-2"], [taken])], keep: true);
+        var again = Assert.Throws<WorkspaceRefused>(() => service.AddTrades(ws.WorkspaceId, answer.State.Revision, "akira", [new(["DRAFT-2", "DRAFT-1"], [taken])], keep: true));
+        var none = Assert.Throws<WorkspaceRefused>(() => service.AddTrades(ws.WorkspaceId, answer.State.Revision, "akira", keep: true));
+        var (input, _, _) = await Price(runs, store, service, answer.State);
+
+        Assert.Equal([$"add DRAFT-1 + DRAFT-2 without {taken}"], answer.Made);
+        Assert.Empty(answer.Replaced);
+        Assert.Equal(["Base", "add DRAFT-1", "add DRAFT-2", "add DRAFT-3", $"add DRAFT-1 + DRAFT-2 without {taken}"], service.View(ws.WorkspaceId, "akira").Cases.Select(c => c.Title));
+        // A case kept is the case it was, not one made again under its title.
+        Assert.Equal(alone, Id(service, answer.State, "add DRAFT-1"));
+        Assert.Equal($"add each: DRAFT-1 + DRAFT-2 without {taken}, beside the cases made", answer.State.Log[^1].Command?.Said);
+        Assert.Equal(("AlreadyMade", $"The case add DRAFT-1 + DRAFT-2 without {taken} is made already."), (again.Code, again.Message));
+        Assert.Equal(("NothingGiven", "keep makes the iterations given beside the cases made, and none is given. Give one, or leave keep out for a case per New row with A ticked."),
+            (none.Code, none.Message));
+        var cases = PortfolioInput.Cases(input);
+        Assert.Equal([["DRAFT-1", "DRAFT-2", "DRAFT-3"], ["DRAFT-1"], ["DRAFT-2"], ["DRAFT-3"], ["DRAFT-1", "DRAFT-2"]], cases.Select(NewInAfter));
+        Assert.Equal([true, true, true, true, false], cases.Select(c => ExistingInAfter(c).Contains(taken)));
+    }
+
+    [Fact] // ADR-0016 §3, note 37 (corrected in review), ADR-0010 §3's note: a case kept is not read again, so a stale one refuses no new case and stays Price's to refuse
+    public async Task With_keep_a_stale_case_refuses_no_new_one_and_stays_prices_to_refuse()
+    {
+        var (service, runs, store) = Priced();
+        var ws = service.Create("akira", "ABC/LE-01", Day1, 40);
+        ws = service.AddTrades(ws.WorkspaceId, ws.Revision, "akira").State;
+        // The case add DRAFT-3 is stale from here: its trade is no longer ticked.
+        ws = service.Edit(ws.WorkspaceId, ws.Revision, "akira", "trade:DRAFT-3", "after", false);
+
+        var whole = Assert.Throws<WorkspaceRefused>(() => service.AddTrades(ws.WorkspaceId, ws.Revision, "akira",
+            [new(["DRAFT-1"], []), new(["DRAFT-2"], []), new(["DRAFT-3"], []), new(["DRAFT-1", "DRAFT-2"], [])]));
+        var kept = service.AddTrades(ws.WorkspaceId, ws.Revision, "akira", [new(["DRAFT-1", "DRAFT-2"], [])], keep: true);
+        var stale = Assert.Throws<WorkspaceRefused>(() => service.Price(ws.WorkspaceId, kept.State.Revision, "akira", Guid.NewGuid().ToString()));
+        var removed = service.RemoveCase(ws.WorkspaceId, kept.State.Revision, "akira", "add DRAFT-3").State;
+        var (input, _, _) = await Price(runs, store, service, removed);
+
+        // The whole set given again names the stale case, which the caller who adds one case did not name.
+        Assert.Equal("CandidateNotTicked", whole.Code);
+        Assert.Equal(["add DRAFT-1 + DRAFT-2"], kept.Made);
+        Assert.Equal(("AdditionSetChanged", "add each's cases add DRAFT-1, DRAFT-2, DRAFT-3, and DRAFT-3 is in a case and no longer ticked. Run add each again to make the set anew."),
+            (stale.Code, stale.Message));
+        Assert.Equal([["DRAFT-1", "DRAFT-2"], ["DRAFT-1"], ["DRAFT-2"], ["DRAFT-1", "DRAFT-2"]], PortfolioInput.Cases(input).Select(NewInAfter));
+    }
+
+    [Fact] // ADR-0016 §3, note 37 (corrected in review), docs/03 §5: with keep, a ticked New row no case names is a case alone, and it is off in the cases kept, so each still adds its own trades alone
+    public async Task With_keep_a_candidate_that_joins_the_set_is_a_case_alone_and_off_in_the_cases_kept()
+    {
+        var (service, runs, store) = Priced();
+        var ws = service.Create("akira", "ABC/LE-01", Day1, 40);
+        ws = service.Edit(ws.WorkspaceId, ws.Revision, "akira", "trade:DRAFT-3", "after", false);
+        ws = service.AddTrades(ws.WorkspaceId, ws.Revision, "akira").State;
+        ws = service.Edit(ws.WorkspaceId, ws.Revision, "akira", "trade:DRAFT-3", "after", true);
+
+        var answer = service.AddTrades(ws.WorkspaceId, ws.Revision, "akira", [new(["DRAFT-1", "DRAFT-2"], [])], keep: true);
+        var (input, _, _) = await Price(runs, store, service, answer.State);
+
+        Assert.Equal(["add DRAFT-1 + DRAFT-2", "add DRAFT-3"], answer.Made);
+        Assert.Equal(["Base", "add DRAFT-1", "add DRAFT-2", "add DRAFT-1 + DRAFT-2", "add DRAFT-3"], PortfolioInput.Cases(input).Select(c => c.Title));
+        Assert.Equal([["DRAFT-1", "DRAFT-2", "DRAFT-3"], ["DRAFT-1"], ["DRAFT-2"], ["DRAFT-1", "DRAFT-2"], ["DRAFT-3"]], PortfolioInput.Cases(input).Select(NewInAfter));
     }
 
     [Fact] // ADR-0016 §3, note 37: what an iteration cannot name is refused by the trade's name, and nothing is made, ticked or cleared

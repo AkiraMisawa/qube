@@ -699,59 +699,94 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
     /// in its reading only, A is off on every other New row of the set and on the trades taken out. With no iteration
     /// given, one per New row with A ticked at this moment, that trade alone; given some, those, then one alone for
     /// each ticked New row none names. A candidate in Before is refused by name, never unticked, and nothing is made.
-    /// A set made before is replaced in the same command; the <c>vary</c> cases stay.
+    /// A set made before is replaced in the same command, unless <paramref name="keep"/> says to make the iterations
+    /// given beside it; the <c>vary</c> cases stay.
     /// </summary>
-    public AddAnswer AddTrades(string workspaceId, long revision, string user, IReadOnlyList<Iteration>? iterations = null, RunOrigin? origin = null)
+    public AddAnswer AddTrades(string workspaceId, long revision, string user, IReadOnlyList<Iteration>? iterations = null, bool keep = false, RunOrigin? origin = null)
     {
         var raw = Owned(workspaceId, user);
-        var plan = PlanAdd(raw, revision, iterations);
+        var plan = PlanAdd(raw, revision, iterations, keep);
         return new(Written(raw, revision, user, plan.Command, origin), plan.Made, plan.Replaced);
     }
 
-    /// <summary><c>add each</c> as planned (ADR-0016 notes 28 and 37): the cases it would make at <paramref name="revision"/>, which names them, and those it would replace.</summary>
-    public AddPlan PlanAdd(WorkspaceState raw, long revision, IReadOnlyList<Iteration>? iterations = null)
+    /// <summary>
+    /// <c>add each</c> as planned (ADR-0016 notes 28 and 37): the cases it would make at <paramref name="revision"/>,
+    /// which names them, and those it would replace. With <paramref name="keep"/> (note 37, corrected in review) the
+    /// cases of the set made before stay the cases they are and are not read again, so a stale one refuses nothing
+    /// here and stays Price's to refuse; the iterations given are made beside them, and one made already is refused.
+    /// </summary>
+    public AddPlan PlanAdd(WorkspaceState raw, long revision, IReadOnlyList<Iteration>? iterations = null, bool keep = false)
     {
         var trades = PortfolioMaterialiser.Trades(PortfolioCases.Base(raw));
         var given = Given(trades, iterations ?? []);
+        if (keep && given.Count == 0)
+            throw new WorkspaceRefused("NothingGiven", "keep makes the iterations given beside the cases made, and none is given. Give one, or leave keep out for a case per New row with A ticked.");
         var candidates = trades.Where(t => t.IsNew && t.After).Select(t => (t.TradeId, t.Before)).ToList();
         if (candidates.Count == 0)
             throw new WorkspaceRefused("NothingToAdd", "add each makes a case per New row with A ticked, and no New row has A ticked.");
-        if (candidates.Where(c => c.Before).Select(c => c.TradeId).ToList() is { Count: > 0 } before)
-        {
-            var (are, them) = before.Count == 1 ? ("is", "it") : ("are", "them");
-            throw new WorkspaceRefused("CandidateInBefore",
-                $"{string.Join(", ", before)} {are} in Before, and a new trade is priced alone only out of Before. Clear B on {them}, or A to leave {them} out, then add each again.");
-        }
+        var before = PortfolioCases.Made(raw).Where(c => PortfolioCases.KindOf(c) == PortfolioCases.Add).Select(c => (Case: c, Iteration: PortfolioCases.IterationOf(c))).ToList();
+        var kept = keep ? before : [];
+        var replaced = keep ? [] : before;
+        foreach (var one in given)
+            if (kept.FirstOrDefault(k => k.Iteration.Same(one)) is { Case: { } already })
+                throw new WorkspaceRefused("AlreadyMade", $"The case {PortfolioCases.Title(already)} is made already.");
         var ids = candidates.Select(c => c.TradeId).ToList();
-        // The set is every New row with A ticked (§3): one that no iteration names is an iteration alone.
-        var named = given.SelectMany(i => i.Add).ToHashSet();
-        IReadOnlyList<Iteration> set = [.. given, .. ids.Where(id => !named.Contains(id)).Select(id => new Iteration([id], []))];
-        var replaced = PortfolioCases.Made(raw).Where(c => PortfolioCases.KindOf(c) == PortfolioCases.Add).ToList();
+        // The set is every New row with A ticked (§3): one that no iteration names, given or kept, is an iteration alone.
+        var named = given.Concat(kept.Select(k => k.Iteration)).SelectMany(i => i.Add).ToHashSet();
+        IReadOnlyList<Iteration> make = [.. given, .. ids.Where(id => !named.Contains(id)).Select(id => new Iteration([id], []))];
+        // What the command makes is checked: a candidate only a case kept adds is Price's to refuse.
+        if (candidates.Where(c => c.Before && make.Any(i => i.Add.Contains(c.TradeId))).Select(c => c.TradeId).ToList() is { Count: > 0 } inBefore)
+        {
+            var (are, them) = inBefore.Count == 1 ? ("is", "it") : ("are", "them");
+            throw new WorkspaceRefused("CandidateInBefore",
+                $"{string.Join(", ", inBefore)} {are} in Before, and a new trade is priced alone only out of Before. Clear B on {them}, or A to leave {them} out, then add each again.");
+        }
         // The cap counts the Base (ADR-0010 §3's note): a set Price would refuse is not written n² edits deep first.
-        var count = PortfolioCases.All(raw).Count - replaced.Count + set.Count;
+        var count = PortfolioCases.All(raw).Count - replaced.Count + make.Count;
         if (count > caseCap)
-            throw new WorkspaceRefused("TooManyCases", given.Count == 0
-                ? $"add each would make {set.Count} cases, and Price prices {caseCap} at most, the Base among them: {count - caseCap} over. Clear A on {count - caseCap} new trade(s) first."
-                : $"add each would make {set.Count} cases, and Price prices {caseCap} at most, the Base among them: {count - caseCap} over. Give fewer iterations, or clear A on a new trade none of them names.");
+        {
+            var over = count - caseCap;
+            throw new WorkspaceRefused("TooManyCases", $"add each would make {make.Count} case(s){(keep ? " beside those made" : "")}, and Price prices {caseCap} at most, the Base among them: {over} over. "
+                + (keep ? $"Remove {over} case(s) first, or give fewer iterations."
+                    : given.Count == 0 ? $"Clear A on {over} new trade(s) first." : "Give fewer iterations, or clear A on a new trade none of them names."));
+        }
         var source = Source(raw);
-        var changes = new List<WorkspaceChange>(replaced.Select(c => new WorkspaceChange.Remove(c.Entity, c.Entity)));
-        foreach (var iteration in set)
+        WorkspaceChange Off(string trade, string layer) =>
+            new WorkspaceChange.Set(PortfolioEditRules.Target(source, Entity.Of(Entity.Trade, trade), "after", layer), JsonValue.Create(false));
+        var changes = new List<WorkspaceChange>(replaced.Select(r => new WorkspaceChange.Remove(r.Case.Entity, r.Case.Entity)));
+        // A case kept holds A off on the candidates the set had when it was made. One that is in the set now and is
+        // not off in it yet is turned off there too, so each case kept still adds its own trades alone.
+        foreach (var (made, iteration) in kept)
+            changes.AddRange(ids.Where(other => !iteration.Add.Contains(other) && !HeldOff(raw, source, other, made.Entity)).Select(other => Off(other, made.Entity)));
+        foreach (var iteration in make)
         {
             // A case is named by the log entry that made it, so no id is ever given twice.
             var layer = PortfolioCases.Of($"c{revision + 1 + changes.Count}");
-            changes.Add(new WorkspaceChange.Create($"cp:{source.Registration.Key}", layer, new JsonObject
-            {
-                ["title"] = $"add {iteration.Said()}", ["kind"] = PortfolioCases.Add,
-                ["add"] = new JsonArray([.. iteration.Add.Select(id => JsonValue.Create(id))]),
-                ["without"] = new JsonArray([.. iteration.Without.Select(id => JsonValue.Create(id))]),
-            }));
-            changes.AddRange(ids.Where(other => !iteration.Add.Contains(other)).Concat(iteration.Without)
-                .Select(off => new WorkspaceChange.Set(PortfolioEditRules.Target(source, Entity.Of(Entity.Trade, off), "after", layer), JsonValue.Create(false))));
+            var fields = iteration.Lists();
+            fields["title"] = $"add {iteration.Said()}";
+            fields["kind"] = PortfolioCases.Add;
+            changes.Add(new WorkspaceChange.Create($"cp:{source.Registration.Key}", layer, fields));
+            changes.AddRange(ids.Where(other => !iteration.Add.Contains(other)).Concat(iteration.Without).Select(off => Off(off, layer)));
         }
-        // With a value there is no line that types the command (§3, Open): its name says the iterations given.
-        var said = given.Count == 0 ? "add each"
-            : $"add each: {string.Join("; ", given.Take(3).Select(i => i.Said()))}{(given.Count > 3 ? $"; and {given.Count - 3} more" : "")}";
-        return new(new(changes, said), [.. set.Select(i => $"add {i.Said()}")], [.. replaced.Select(PortfolioCases.Title)]);
+        return new(new(changes, AddSaid(given, [.. before.Select(b => b.Iteration)], keep)), [.. make.Select(i => $"add {i.Said()}")], [.. replaced.Select(r => PortfolioCases.Title(r.Case))]);
+    }
+
+    // Whether a case's layer holds A off on a trade already.
+    static bool HeldOff(WorkspaceState raw, PortfolioSourceVersion source, string trade, string layer) =>
+        raw.Overrides.TryGetValue(PortfolioEditRules.Target(source, Entity.Of(Entity.Trade, trade), "after", layer), out var held)
+        && held.Value is JsonValue value && value.GetValueKind() == System.Text.Json.JsonValueKind.False;
+
+    // With a value there is no line that types the command (§3, Open), so its name in the log, which undo says back,
+    // says the iterations given: those no case made before is, the first three and how many more, then how many are
+    // as before, or that they were made beside the cases made.
+    static string AddSaid(IReadOnlyList<Iteration> given, IReadOnlyList<Iteration> before, bool keep)
+    {
+        if (given.Count == 0) return "add each";
+        var fresh = given.Where(g => !before.Any(g.Same)).ToList();
+        var same = given.Count - fresh.Count;
+        var lead = $"{string.Join("; ", fresh.Take(3).Select(i => i.Said()))}{(fresh.Count > 3 ? $" and {fresh.Count - 3} more" : "")}";
+        if (keep) return before.Count == 0 ? $"add each: {lead}" : $"add each: {lead}, beside the cases made";
+        return same == 0 ? $"add each: {lead}" : fresh.Count == 0 ? $"add each: {same} as before" : $"add each: {lead}, with {same} as before";
     }
 
     // The iterations given, each trade by the id the workspace holds it under, whatever the case of its letters

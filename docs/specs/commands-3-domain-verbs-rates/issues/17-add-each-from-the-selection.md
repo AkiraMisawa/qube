@@ -23,3 +23,7 @@ The Changes tab shows an iteration's two lists and removes one trade from either
 - *Added as built:* the selections are read by the server (`POST /api/workspaces/{id}/selection`), since the trade
   grids are paged; the page's request is made in the command's turn, of the cases it shows at the revision the
   command is sent at (spine 6); the one trade a case adds has no button on the Changes tab.
+- *Corrected in review (ADR-0016 note 37):* the button is `Make case…` and the menu's item *Make case from the
+  selection…*; *Make case* sends the one iteration with `keep`, so a stale case of the set no longer refuses it
+  and the notice names the case made; a view's selection is checked whole, a malformed view refused with 400; on
+  the Changes tab a trade a case takes out is `Keep <id> in After`.

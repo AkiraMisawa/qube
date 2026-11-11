@@ -317,10 +317,13 @@ public class CommandGatewayTests(QubeFactory factory) : IClassFixture<QubeFactor
         var (status, named) = await Selection(View(page["orderToken"]!.GetValue<string>()));
         var (moved, why) = await Selection(View("an earlier order"));
         var (invalid, _) = await Selection(new JsonObject { ["table"] = "xva.tides", ["keys"] = new JsonArray("T1") });
+        // Positions in a table no reader pages are the page's fault, as the preview answers them: no retry reads them.
+        var (unordered, fault) = await Selection(new JsonObject { ["table"] = "xva.csas", ["ranges"] = new JsonArray(new JsonObject { ["start"] = 0, ["count"] = 1 }) });
 
         Assert.Equal((HttpStatusCode.OK, new JsonObject { ["table"] = "xva.trades", ["keys"] = new JsonArray(keys[1], keys[2], keys[5]) }.ToJsonString()), (status, named.ToJsonString()));
         Assert.Equal((HttpStatusCode.Conflict, "ViewMoved", true), (moved, why["code"]!.GetValue<string>(), why["retryable"]!.GetValue<bool>()));
         Assert.Equal(HttpStatusCode.BadRequest, invalid);
+        Assert.Equal((HttpStatusCode.BadRequest, "InvalidView", false), (unordered, fault["code"]!.GetValue<string>(), fault["retryable"]?.GetValue<bool>() ?? false));
     }
 
     [Fact] // ADR-0016 §9, note 23: on the CSA grid a table left out is the CSAs, a subset of the trades alone is still the trades, and with no screen the trades as before

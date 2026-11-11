@@ -274,11 +274,20 @@ public static class PortfolioInput
         var invalid = trades.Where(t => t.Issues.Count > 0).ToList();
         if (invalid.Count > 0)
             throw new WorkspaceRefused("InvalidInput", $"{named}{invalid.Count} trade(s) to price have validation issues, first {invalid[0].TradeId}: {invalid[0].Issues[0]}");
-        // A case of iterative addition prices its own candidates on top of the existing trades, never another set
-        // (docs/03 §5, ADR-0016 note 37).
-        if (@case.Iteration is { } iteration && trades.Where(t => t.IsNew && t.After).Select(t => t.TradeId).ToList() is var added && !added.ToHashSet().SetEquals(iteration.Add))
-            throw new WorkspaceRefused("AdditionSetChanged",
-                $"{named}its After holds {(added.Count == 0 ? "no new trade" : string.Join(", ", added))}, not {string.Join(" + ", iteration.Add)} alone. Run add each again to make the set anew.");
+        // A case of iterative addition prices its own candidates on top of the existing trades less those it takes
+        // out, never another set (docs/03 §5, ADR-0016 note 37): its After is read here, whatever its layer holds.
+        if (@case.Kind == PortfolioCases.Add)
+        {
+            var iteration = @case.Iteration ?? throw new InvalidOperationException($"{named}a case of add each names no iteration.");
+            var added = trades.Where(t => t.IsNew && t.After).Select(t => t.TradeId).ToList();
+            if (!added.ToHashSet().SetEquals(iteration.Add))
+                throw new WorkspaceRefused("AdditionSetChanged",
+                    $"{named}its After holds {(added.Count == 0 ? "no new trade" : string.Join(", ", added))}, not {string.Join(" + ", iteration.Add)} alone. Run add each again to make the set anew.");
+            var back = trades.Where(t => !t.IsNew && t.After && iteration.Without.Contains(t.TradeId)).Select(t => t.TradeId).ToList();
+            if (back.Count > 0)
+                throw new WorkspaceRefused("AdditionSetChanged",
+                    $"{named}its After holds {string.Join(", ", back)}, which the case takes out. Run add each again to make the set anew.");
+        }
         var refusals = register.Modules
             .SelectMany(m => m.Validate(state, [.. selected.Where(id => m.Measures.Any(d => d.Id == id))], trades))
             .ToDictionary(r => r.Measure);
@@ -293,11 +302,7 @@ public static class PortfolioInput
             ["title"] = @case.Note is null ? @case.Title : $"{@case.Title} · {@case.Note}",
             ["kind"] = @case.Kind,
             // The trades an iteration of add each adds together and takes out of After (ADR-0016 note 37); none for another case.
-            ["iteration"] = @case.Iteration is { } made ? new JsonObject
-            {
-                ["add"] = new JsonArray([.. made.Add.Select(id => JsonValue.Create(id))]),
-                ["without"] = new JsonArray([.. made.Without.Select(id => JsonValue.Create(id))]),
-            } : null,
+            ["iteration"] = @case.Iteration?.Lists(),
             // What makes it this case, as the Pricing DB and Download say it (ADR-0010 §3).
             ["changes"] = new JsonArray([.. PortfolioCases.ChangesOf(raw, @case.Id).Select(o => new JsonObject
             {

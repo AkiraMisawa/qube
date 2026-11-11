@@ -64,13 +64,13 @@ export interface TableAction {
   readonly line: string;
 }
 
-/** A table as a screen is told of it (note 25): its id, its title, and the actions a grid bound to it offers. */
 /** The rows a view's selection names (ADR-0016 note 37): their table, and their keys in the order the view names them. */
 export interface ViewSelection {
   readonly table: string;
   readonly keys: readonly string[];
 }
 
+/** A table as a screen is told of it (note 25): its id, its title, and the actions a grid bound to it offers. */
 export interface TableOnScreen {
   readonly tableId: string;
   readonly title: string;
@@ -165,7 +165,7 @@ export interface ValueSchema {
 
 /**
  * A field that is a list (ADR-0016 note 37 of 2026-11-11): of values, or of records whose fields are values or lists
- * of values. A command's typed value may be one (`add each`'s iterations); a form draws none.
+ * of values. A command's typed value may be one; a form draws none.
  */
 export interface ListSchema {
   readonly type: 'array';
