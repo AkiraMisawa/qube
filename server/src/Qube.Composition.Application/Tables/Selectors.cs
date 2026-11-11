@@ -157,6 +157,9 @@ public static partial class SelectorReader
 
     static string Said(string[] words, int at, int length) => string.Join(' ', words, at, length);
 
+    /// <summary>A line's words with one space between them, as a log names a command.</summary>
+    public static string Words(string text) => string.Join(' ', text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+
     static bool Is(string word, string keyword) => word.Equals(keyword, StringComparison.OrdinalIgnoreCase);
 
     [GeneratedRegex("!=|<=|>=|=|<|>|~")]
