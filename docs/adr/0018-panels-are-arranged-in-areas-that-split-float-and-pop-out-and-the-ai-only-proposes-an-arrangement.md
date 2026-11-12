@@ -142,8 +142,8 @@ in the window. Where a floating panel came from is kept by the browser tab with 
 dockview's own move, so a float by the pointer or by Shift is docked back as one by the line is. And of §11's step 1,
 the pricer's part (its section switch, its full-height button and `xva.css` reading its area, ticket 07's rest) is a
 pull request of its own after ADR-0016's step 5d, which changed the same files (5d merged first, as #33): until that
-pull request, the pricer read the window, and in a short area its grids scrolled under its result dock as they do in
-a window that short. With 5d, ADR-0016's step 5, which §11's step 3 waits for, is built. The pricer's pull
+pull request, the pricer read the window. In an area shorter than its parts need, its grids still scroll under its
+result dock, as they do in a window that short. With 5d, ADR-0016's step 5, which §11's step 3 waits for, is built. The pricer's pull
 request followed step 1's the same day, so the pricer reads its area's width and height; it also writes a page's
 container queries in pixels, since a container query's `em` is the page's 13px, not a media query's 16px, and in the
 range syntax (`width < 768px`), since an area's width is fractional. With it, a trace's roots and a declarative

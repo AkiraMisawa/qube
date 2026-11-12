@@ -369,11 +369,13 @@ test('ADR-0018 §5, ADR-0010 §1: the pricer lays itself out by its area: its Ex
   await command(page, 'gather panels');
   await tab(page, xva).click();
   await expect.poll(existingHeight).toBe(tall);
-  // Floated to the right half, a floating area under 768px wide and the window's height: the three tabs, the Trades
-  // tab's grid taking that area's height less a phone's other parts; docked again, the one screen.
+  // Floated to the right half, a floating area under 768px wide and the window's height: the three tabs, and the
+  // Trades tab's grid above its 20rem floor, which it has only where the floating area's room reaches it; docked
+  // again, the one screen.
   await command(page, 'float panel', 'right');
   await expect(floating(page)).toHaveCount(1);
-  await expect.poll(async () => Number(await pricerPage.getAttribute('data-panel-width'))).toBeLessThan(768);
+  // Half the window, less the floating area's edges: from 600 to 767px.
+  await expect(pricerPage).toHaveAttribute('data-panel-width', /^(6\d\d|7[0-5]\d|76[0-7])$/);
   await expect(sections).toBeVisible();
   await expect(full).toBeHidden();
   await expect.poll(existingHeight).toBeGreaterThan(320);

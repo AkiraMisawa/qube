@@ -3049,7 +3049,8 @@ offered to the agent, and no model has been asked to arrange panels. The XVA pag
 
 ### Known limits
 
-- The pricer's page reads the window, not its area, until its own pull request, the next one now that ADR-0016's step
+- *(Done by the next pull request, "the pricer by its area" below.)* The pricer's page reads the window, not its area,
+  until its own pull request, the next one now that ADR-0016's step
   5d has merged (ticket 07): an XVA page in a narrow area is laid out as the window's width says, and in a short one
   (split down at 1440 by 900px) its trade grids scroll under the result dock and their headers draw over it, as they
   do in a window that short.
@@ -3131,14 +3132,15 @@ on the pricer's files (ADR-0018 §11).
   section switch and Full height are shown by them, written in the range syntax (`width < 768px`, `width >= 768px`),
   so a switch and the layout never disagree at a fractional width: `max-width: 767.98px` and `min-width: 768px` both
   missed an area 767.99px wide, a third of a row (argued from the queries; no test reads a width that near 768px).
-  Every page's toolbar fields wrap by the panel too (the shell's toolbar rules, which read the window, now also read
-  the panel): the pricer's counterparty takes its own row in a narrow area, and the Rates toolbar and the Pricing DB's
-  wrap as they would in a window that narrow.
+  The shell's toolbar rules, which read the window, now also read the panel: inside a panel only the pricer uses them
+  (its context bar and the profile's choice), and its counterparty takes its own row in a narrow area. The header's
+  context bar and a dialog's fields use them too, by the window, as before.
 - **The pricer reads its panel's height.** The Existing grid takes what the page's other parts leave of the height the
   shell gives a page (`--qube-panel-room`): in an area the area's height less the gutter, in the strip the window's
   less the header, the strip and the gutter. The page's own number (`TAKEN`) counts its parts alone, 187px where the
   context bar is one row, read once at 1440px, so in one area of 1440 by 900 the page fits and does not scroll (it
-  overflowed by 18px). It holds in a floating and a maximized area too.
+  overflowed by 18px). Maximized, the area's room is the panels' whole space (the grid's height back, tested); floated
+  to the right half, under 768px, the Trades tab's grid reads the floating area's height (tested at 720px wide).
 - **The shell's own numbers say themselves once**: the header's offset is Mantine's, read without a default (Mantine
   sets it whenever the shell has a header); the strip page's top gutter is a class the room's formula names; and an
   area's strip and a floating area's title bar take their height from the tab's.
@@ -3156,7 +3158,7 @@ on the pricer's files (ADR-0018 §11).
 |---|---|
 | `dotnet test server/Qube.slnx` | 1594 passed (no server change) |
 | Client: `npm run typecheck`, `npm test`, `npm run build` | Clean; 462 passed in 44 files; built |
-| `npx playwright test` (Chromium, headless, Linux), against the built client | 127 passed, after the review's fixes |
+| `npx playwright test` (Chromium, headless, Linux), against the built client | 127 passed after the first review's fixes; 129 after the second's (two new tests) |
 | `areas.spec.ts`'s two tests of a page by its area, `--repeat-each=3` | 6 passed; the pricer's again after the review's fixes, 3 passed |
 | `scrollbars.spec.ts` with a 600px window, `--repeat-each=3` | 3 passed |
 | The trace's test with the trace's query in `em` again | Fails at 950px (two columns where one is right) |

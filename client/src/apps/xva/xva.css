@@ -136,9 +136,10 @@
   .qube-xva-inputs-body { height: auto; }
   .qube-xva-result-body { max-height: none; }
   .qube-xva-dock { position: static; border-top: 0; }
-  /* The Trades tab has the trades alone under the context bar, which takes about five rows on a phone: 21.5rem is what
-     the page's own parts above the Existing grid take there (the context bar, the status, the switch and the New grid).
-     It was 30rem of the window, the phone's shell included, before the shell said the page's room. */
+  /* The Trades tab has the trades alone under the context bar, which takes about five rows on a phone. 21.5rem is the
+     30rem the page took from the window before the shell said its room, an estimate of all above the grid on a phone,
+     less the phone's shell the room now leaves out (the 82px header, the 31px strip and three 8px gutters, 137px):
+     343px, rounded up to 344px. */
   .qube-xva-trades { height: max(20rem, calc(var(--qube-panel-room) - 21.5rem)); }
   .qube-xva .qube-xva-wide-only { display: none; }
 }

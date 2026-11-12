@@ -534,7 +534,7 @@ test('ADR-0016 notes 43 and 44: the line grid takes a Selection from the line, a
   expect(written.slice(1).map((cells) => cells.split(',')[0])).toEqual([FIRST, SECOND, '']);
 });
 
-test('ADR-0018 §5: a Run\'s view stands its two grids side by side in a panel from 992px, and one above the other in a narrower area of the same window', async ({ page }) => {
+test('ADR-0018 §5: a Run\'s view stands its two grids side by side in a 1440px panel, and one above the other in a 720px area of the same window', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await open(page);
   await newWorkspace(page);
