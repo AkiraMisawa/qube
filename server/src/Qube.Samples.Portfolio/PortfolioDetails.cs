@@ -49,74 +49,116 @@ public static class PortfolioDetails
         IrBases = FieldChoices.Of(TradeModel.IrBases), EquityModels = FieldChoices.Of(TradeModel.EquityModels), CreditModels = FieldChoices.Of(TradeModel.CreditModels),
         InflationModels = FieldChoices.Of(TradeModel.InflationModels), Unmodelled = FieldChoices.Of(TradeModel.UnmodelledMethods);
 
+    // A field beyond the grids with what the source holds in it for a row of its kind: declared together, so no field
+    // is without its value and no value without its field.
+    sealed record Detail<T>(TableField Field, Func<PortfolioSourceVersion, T, JsonNode?> Held);
+
+    // One term of a CSA's side, which each side has: its name after the side's, the words it is said by after the
+    // side's, what a side holds in it, and the term of the side that holds its unit.
+    sealed record SideTerm(string Name, string Title, IReadOnlyList<string> Words, FieldForm Form, Func<CsaSide, JsonNode?> Held,
+        bool Optional = false, string? Unit = null, IReadOnlyDictionary<string, string>? Choices = null);
+
+    static readonly IReadOnlyList<SideTerm> SideTerms =
+    [
+        new("Posts", "Posts", ["posts"], FieldForm.Flag, s => s.Posts),
+        new("VmCap", "VM cap", ["vm cap"], FieldForm.Amount, s => s.VmCap, Optional: true, Unit: "VmCapCurrency"),
+        new("VmCapCurrency", "VM cap currency", ["vm cap currency", "vm cap ccy"], FieldForm.Choice, s => s.VmCapCurrency, Choices: FieldChoices.Currencies),
+        new("IndependentAmount", "Independent amount", ["independent amount"], FieldForm.Amount, s => s.IndependentAmount, Unit: "Currency"),
+        new("Rounding", "Rounding", ["rounding"], FieldForm.Amount, s => s.Rounding, Unit: "Currency"),
+        new("DeliverRounding", "Delivery rounding", ["delivery rounding"], FieldForm.Choice, s => s.DeliverRounding, Choices: Roundings),
+        new("ReturnRounding", "Return rounding", ["return rounding"], FieldForm.Choice, s => s.ReturnRounding, Choices: Roundings),
+    ];
+
+    // One side's fields, each named as the side's (`self posts`, `cpty posts`) and, last, by the word the sides share:
+    // that word alone names both sides' field, and is refused with the two it could be.
+    static IEnumerable<Detail<Csa>> Side(string side, string group, IReadOnlyList<string> said, Func<Csa, CsaSide> of) =>
+        SideTerms.Select(term => new Detail<Csa>(
+            new($"{side}{term.Name}", term.Title, [.. term.Words.SelectMany(w => said.Select(s => $"{s} {w}")), .. term.Words], term.Form, Editable: true,
+                Optional: term.Optional, UnitField: term.Unit is { } unit ? $"{side}{unit}" : null, Choices: term.Choices, Group: group),
+            (_, csa) => term.Held(of(csa))));
+
+    // A CSA's: its general terms, which are the source's, and what each side posts, which a command sets.
+    static readonly IReadOnlyList<Detail<Csa>> OfCsa =
+    [
+        new(new("counterparty", "Counterparty", ["counterparty"], FieldForm.Id, Group: FieldGroups.General), (source, _) => source.Registration.Key),
+        new(new("nettingSet", "Netting set", ["netting set"], FieldForm.Id, Group: FieldGroups.General), (source, _) => source.Agreement.NettingSetId),
+        new(new("agreementName", "Agreement name", ["agreement name", "agreement"], FieldForm.Id, Group: FieldGroups.General), (_, csa) => csa.AgreementName),
+        new(new("enforceable", "Enforceable", ["enforceable"], FieldForm.Flag, Group: FieldGroups.General), (source, _) => source.Agreement.Enforceable),
+        new(new("main", "Main", ["main"], FieldForm.Flag, Group: FieldGroups.General), (source, csa) => source.Agreement.MainCsaId == csa.CsaId),
+        new(new("userDefined", "User-defined", ["user-defined", "user defined"], FieldForm.Id, Optional: true, Group: FieldGroups.General), (_, csa) => csa.UserDefined),
+        .. Side("counterparty", FieldGroups.Counterparty, ["counterparty", "cpty"], csa => csa.Counterparty),
+        .. Side("self", FieldGroups.Self, ["self"], csa => csa.Self),
+    ];
+
+    // What the synthetic source holds of a trade by its product: its type, the source's name for the product, its
+    // model and its pricer. A product it has no detail for is refused, never given another's.
+    static (string Type, string SourceType, string Model, string Pricer) Usual(SourceTrade trade) => trade.Product switch
+    {
+        "IRS" => ("Swap", "IR-SWAP-FIXFLT", "M-IR-01", "P-SWAP-01"),
+        "FXForward" => ("Forward", "FX-FWD", "M-FX-01", "P-FWD-01"),
+        _ => throw new InvalidOperationException($"The synthetic source has no detail for a {trade.Product}."),
+    };
+
+    // A trade's: its identity and its agreement, which are the source's, and its break and its model, which a command
+    // sets. The synthetic rule: its identity follows its id and its product, its agreement is the counterparty's, it
+    // has no break, and its model is its product's usual one. A new trade is no different: it is priced under the
+    // agreement it would join.
+    static readonly IReadOnlyList<Detail<SourceTrade>> OfTrade =
+    [
+        new(new("requestedId", "Requested id", ["requested id"], FieldForm.Id, Group: FieldGroups.Identity), (_, trade) => $"REQ-{trade.TradeId}"),
+        new(new("tradeType", "Trade type", ["trade type"], FieldForm.Id, Group: FieldGroups.Identity), (_, trade) => Usual(trade).Type),
+        new(new("sourceProductType", "Source product type", ["source product type", "source product"], FieldForm.Id, Group: FieldGroups.Identity), (_, trade) => Usual(trade).SourceType),
+        new(new("simmProductClass", "SIMM product class", ["simm product class", "product class"], FieldForm.Id, Group: FieldGroups.Identity), (_, _) => "RatesFX"),
+        new(new("userDefined", "User-defined", ["user-defined", "user defined"], FieldForm.Id, Optional: true, Group: FieldGroups.Identity), (_, _) => null),
+        new(new("masterAgreement", "Master agreement", ["master agreement", "ma"], FieldForm.Id, Group: FieldGroups.Agreement), (source, _) => source.Agreement.MaId),
+        new(new("nettingSet", "Netting set", ["netting set"], FieldForm.Id, Group: FieldGroups.Agreement), (source, _) => source.Agreement.NettingSetId),
+        new(new("breakDate", "Break date", ["break date", "break"], FieldForm.Date, Editable: true, Optional: true, Group: FieldGroups.Dates), (_, _) => null),
+        new(new("breakMandatory", "Mandatory break", ["mandatory break", "break mandatory"], FieldForm.Flag, Editable: true, Group: FieldGroups.Dates), (_, _) => false),
+        new(new("modelId", "Model id", ["model id", "model"], FieldForm.Id, Editable: true, Group: FieldGroups.Model), (_, trade) => Usual(trade).Model),
+        new(new("pricerId", "Pricer id", ["pricer id", "pricer"], FieldForm.Id, Editable: true, Group: FieldGroups.Model), (_, trade) => Usual(trade).Pricer),
+        new(new("interpolationId", "Interpolation id", ["interpolation id", "interpolation"], FieldForm.Id, Editable: true, Group: FieldGroups.Model), (_, _) => "I-LIN-01"),
+        new(new("domesticCurrency", "Domestic currency", ["domestic currency", "domestic ccy"], FieldForm.Choice, Editable: true, Choices: FieldChoices.Currencies, Group: FieldGroups.Model),
+            (_, trade) => trade.Currency),
+        new(new("irModel", "IR model", ["ir model"], FieldForm.Choice, Editable: true, Choices: IrModels, Group: FieldGroups.Model), (_, _) => "HW1F"),
+        new(new("irBasis", "IR basis", ["ir basis"], FieldForm.Choice, Editable: true, Choices: IrBases, Group: FieldGroups.Model), (_, _) => "deterministic"),
+        new(new("equityModel", "Equity model", ["equity model"], FieldForm.Choice, Editable: true, Optional: true, Choices: EquityModels, Group: FieldGroups.Model), (_, _) => null),
+        new(new("creditModel", "Credit model", ["credit model"], FieldForm.Choice, Editable: true, Optional: true, Choices: CreditModels, Group: FieldGroups.Model), (_, _) => null),
+        new(new("inflationModel", "Inflation model", ["inflation model"], FieldForm.Choice, Editable: true, Optional: true, Choices: InflationModels, Group: FieldGroups.Model), (_, _) => null),
+        new(new("unmodelledMethod", "Unmodelled method", ["unmodelled method", "unmodelled"], FieldForm.Choice, Editable: true, Choices: Unmodelled, Group: FieldGroups.Model),
+            (_, _) => "mtm-only"),
+    ];
+
+    // A kind of entity's fields beyond the grids, by name, and what the source holds in one for the entity of an id:
+    // nothing where this version has not the entity.
+    sealed record Kind(IReadOnlyList<TableField> Fields, IReadOnlyDictionary<string, TableField> Named, Func<PortfolioSourceVersion, string, string, SourceValue?> Held);
+
+    static Kind Of<T>(IReadOnlyList<Detail<T>> details, Func<PortfolioSourceVersion, string, T?> row) where T : class
+    {
+        var held = details.ToDictionary(d => d.Field.Name, d => d.Held);
+        return new([.. details.Select(d => d.Field)], details.ToDictionary(d => d.Field.Name, d => d.Field),
+            (source, id, field) => row(source, id) is { } found ? new(held[field](source, found)) : null);
+    }
+
+    static readonly IReadOnlyDictionary<string, Kind> Kinds = new Dictionary<string, Kind>
+    {
+        [Entity.Csa] = Of(OfCsa, (source, id) => source.CsaOf(id)),
+        [Entity.Trade] = Of(OfTrade, (source, id) => source.Trade(id)),
+    };
+
     /// <summary>
     /// A CSA's fields beyond the grid (ADR-0016 note 51): its general terms, which are the source's, and what each side
     /// posts, which a command sets. A side's field is said with its side: the word alone names both, and is refused.
     /// </summary>
-    public static IReadOnlyList<TableField> CsaFields { get; } =
-    [
-        new("counterparty", "Counterparty", ["counterparty"], FieldForm.Id, Group: FieldGroups.General),
-        new("nettingSet", "Netting set", ["netting set"], FieldForm.Id, Group: FieldGroups.General),
-        new("agreementName", "Agreement name", ["agreement name", "agreement"], FieldForm.Id, Group: FieldGroups.General),
-        new("enforceable", "Enforceable", ["enforceable"], FieldForm.Flag, Group: FieldGroups.General),
-        new("main", "Main", ["main"], FieldForm.Flag, Group: FieldGroups.General),
-        new("userDefined", "User-defined", ["user-defined", "user defined"], FieldForm.Id, Optional: true, Group: FieldGroups.General),
-        .. Side("counterparty", FieldGroups.Counterparty, ["counterparty", "cpty"]),
-        .. Side("self", FieldGroups.Self, ["self"]),
-    ];
-
-    // One side's fields, each named as the side's (`self posts`, `cpty posts`) and, last, by the word the sides share.
-    static IEnumerable<TableField> Side(string side, string group, IReadOnlyList<string> said)
-    {
-        IReadOnlyList<string> Words(params string[] words) => [.. words.SelectMany(w => said.Select(s => $"{s} {w}")), .. words];
-        return
-        [
-            new($"{side}Posts", "Posts", Words("posts"), FieldForm.Flag, Editable: true, Group: group),
-            new($"{side}VmCap", "VM cap", Words("vm cap"), FieldForm.Amount, Editable: true, Optional: true, UnitField: $"{side}VmCapCurrency", Group: group),
-            new($"{side}VmCapCurrency", "VM cap currency", Words("vm cap currency", "vm cap ccy"), FieldForm.Choice, Editable: true, Choices: FieldChoices.Currencies, Group: group),
-            new($"{side}IndependentAmount", "Independent amount", Words("independent amount"), FieldForm.Amount, Editable: true, UnitField: $"{side}Currency", Group: group),
-            new($"{side}Rounding", "Rounding", Words("rounding"), FieldForm.Amount, Editable: true, UnitField: $"{side}Currency", Group: group),
-            new($"{side}DeliverRounding", "Delivery rounding", Words("delivery rounding"), FieldForm.Choice, Editable: true, Choices: Roundings, Group: group),
-            new($"{side}ReturnRounding", "Return rounding", Words("return rounding"), FieldForm.Choice, Editable: true, Choices: Roundings, Group: group),
-        ];
-    }
+    public static IReadOnlyList<TableField> CsaFields { get; } = Kinds[Entity.Csa].Fields;
 
     /// <summary>
     /// A trade's fields beyond the grids (ADR-0016 note 51): its identity and its agreement, which are the source's, and
     /// its break and its model, which a command sets.
     /// </summary>
-    public static IReadOnlyList<TableField> TradeFields { get; } =
-    [
-        new("requestedId", "Requested id", ["requested id"], FieldForm.Id, Group: FieldGroups.Identity),
-        new("tradeType", "Trade type", ["trade type"], FieldForm.Id, Group: FieldGroups.Identity),
-        new("sourceProductType", "Source product type", ["source product type", "source product"], FieldForm.Id, Group: FieldGroups.Identity),
-        new("simmProductClass", "SIMM product class", ["simm product class", "product class"], FieldForm.Id, Group: FieldGroups.Identity),
-        new("userDefined", "User-defined", ["user-defined", "user defined"], FieldForm.Id, Optional: true, Group: FieldGroups.Identity),
-        new("masterAgreement", "Master agreement", ["master agreement", "ma"], FieldForm.Id, Group: FieldGroups.Agreement),
-        new("nettingSet", "Netting set", ["netting set"], FieldForm.Id, Group: FieldGroups.Agreement),
-        new("breakDate", "Break date", ["break date", "break"], FieldForm.Date, Editable: true, Optional: true, Group: FieldGroups.Dates),
-        new("breakMandatory", "Mandatory break", ["mandatory break", "break mandatory"], FieldForm.Flag, Editable: true, Group: FieldGroups.Dates),
-        new("modelId", "Model id", ["model id", "model"], FieldForm.Id, Editable: true, Group: FieldGroups.Model),
-        new("pricerId", "Pricer id", ["pricer id", "pricer"], FieldForm.Id, Editable: true, Group: FieldGroups.Model),
-        new("interpolationId", "Interpolation id", ["interpolation id", "interpolation"], FieldForm.Id, Editable: true, Group: FieldGroups.Model),
-        new("domesticCurrency", "Domestic currency", ["domestic currency", "domestic ccy"], FieldForm.Choice, Editable: true, Choices: FieldChoices.Currencies, Group: FieldGroups.Model),
-        new("irModel", "IR model", ["ir model"], FieldForm.Choice, Editable: true, Choices: IrModels, Group: FieldGroups.Model),
-        new("irBasis", "IR basis", ["ir basis"], FieldForm.Choice, Editable: true, Choices: IrBases, Group: FieldGroups.Model),
-        new("equityModel", "Equity model", ["equity model"], FieldForm.Choice, Editable: true, Optional: true, Choices: EquityModels, Group: FieldGroups.Model),
-        new("creditModel", "Credit model", ["credit model"], FieldForm.Choice, Editable: true, Optional: true, Choices: CreditModels, Group: FieldGroups.Model),
-        new("inflationModel", "Inflation model", ["inflation model"], FieldForm.Choice, Editable: true, Optional: true, Choices: InflationModels, Group: FieldGroups.Model),
-        new("unmodelledMethod", "Unmodelled method", ["unmodelled method", "unmodelled"], FieldForm.Choice, Editable: true, Choices: Unmodelled, Group: FieldGroups.Model),
-    ];
-
-    static readonly IReadOnlyDictionary<string, TableField> OfCsa = CsaFields.ToDictionary(f => f.Name), OfTrade = TradeFields.ToDictionary(f => f.Name);
+    public static IReadOnlyList<TableField> TradeFields { get; } = Kinds[Entity.Trade].Fields;
 
     /// <summary>The field beyond the grids an entity of the kind has under the name; none where it has no such field.</summary>
-    public static TableField? Find(string kind, string field) => kind switch
-    {
-        Entity.Csa => OfCsa.TryGetValue(field, out var csa) ? csa : null,
-        Entity.Trade => OfTrade.TryGetValue(field, out var trade) ? trade : null,
-        _ => null,
-    };
+    public static TableField? Find(string kind, string field) => Kinds.TryGetValue(kind, out var of) && of.Named.TryGetValue(field, out var found) ? found : null;
 
     /// <summary>
     /// What the source holds in a field beyond the grids, which is an edit's Original and what a carry compares; null
@@ -125,64 +167,7 @@ public static class PortfolioDetails
     public static SourceValue? Source(PortfolioSourceVersion source, string entity, string field)
     {
         var (kind, id) = Entity.Split(entity);
-        if (Find(kind, field) is null) return null;
-        return kind == Entity.Csa
-            ? source.CsaOf(id) is { } csa ? new(Held(source, csa, field)) : null
-            : source.Trade(id) is { } trade ? new(Held(source, trade, field)) : null;
-    }
-
-    static JsonNode? Held(PortfolioSourceVersion source, Csa csa, string field) => field switch
-    {
-        "counterparty" => source.Registration.Key,
-        "nettingSet" => source.Agreement.NettingSetId,
-        "agreementName" => csa.AgreementName,
-        "enforceable" => source.Agreement.Enforceable,
-        "main" => source.Agreement.MainCsaId == csa.CsaId,
-        "userDefined" => csa.UserDefined,
-        _ when field.StartsWith("counterparty", StringComparison.Ordinal) => Held(csa.Counterparty, field["counterparty".Length..]),
-        _ when field.StartsWith("self", StringComparison.Ordinal) => Held(csa.Self, field["self".Length..]),
-        _ => throw new InvalidOperationException($"A CSA has no {field}."),
-    };
-
-    static JsonNode? Held(CsaSide side, string term) => term switch
-    {
-        "Posts" => side.Posts, "VmCap" => side.VmCap, "VmCapCurrency" => side.VmCapCurrency, "IndependentAmount" => side.IndependentAmount,
-        "Rounding" => side.Rounding, "DeliverRounding" => side.DeliverRounding, "ReturnRounding" => side.ReturnRounding,
-        _ => throw new InvalidOperationException($"A CSA's side has no {term}."),
-    };
-
-    // The synthetic rule: a trade's identity follows its id and its product, its agreement is the counterparty's, it
-    // has no break, and its model is its product's usual one. A new trade is no different: it is priced under the
-    // agreement it would join.
-    static JsonNode? Held(PortfolioSourceVersion source, SourceTrade trade, string field)
-    {
-        var (type, sourceType, model, pricer) = trade.Product switch
-        {
-            "IRS" => ("Swap", "IR-SWAP-FIXFLT", "M-IR-01", "P-SWAP-01"),
-            "FXForward" => ("Forward", "FX-FWD", "M-FX-01", "P-FWD-01"),
-            _ => throw new InvalidOperationException($"The synthetic source has no detail for a {trade.Product}."),
-        };
-        return field switch
-        {
-            "requestedId" => $"REQ-{trade.TradeId}",
-            "tradeType" => type,
-            "sourceProductType" => sourceType,
-            "simmProductClass" => "RatesFX",
-            "userDefined" => null,
-            "masterAgreement" => source.Agreement.MaId,
-            "nettingSet" => source.Agreement.NettingSetId,
-            "breakDate" => null,
-            "breakMandatory" => false,
-            "modelId" => model,
-            "pricerId" => pricer,
-            "interpolationId" => "I-LIN-01",
-            "domesticCurrency" => trade.Currency,
-            "irModel" => "HW1F",
-            "irBasis" => "deterministic",
-            "equityModel" or "creditModel" or "inflationModel" => null,
-            "unmodelledMethod" => "mtm-only",
-            _ => throw new InvalidOperationException($"A trade has no {field}."),
-        };
+        return Find(kind, field) is null ? null : Kinds[kind].Held(source, id, field);
     }
 
     // The edits a reading holds of fields beyond the grids, read once: a state never changes, and most hold none.
@@ -209,13 +194,8 @@ public static class PortfolioDetails
     /// </summary>
     public static JsonObject Frozen(WorkspaceState reading, string entity)
     {
-        var fields = Entity.Split(entity).Kind switch
-        {
-            Entity.Csa => CsaFields,
-            Entity.Trade => TradeFields,
-            _ => throw new InvalidOperationException($"{entity} has no fields beyond the grids."),
-        };
-        return new(fields.Select(f => KeyValuePair.Create(f.Name, Value(reading, entity, f.Name))));
+        if (!Kinds.TryGetValue(Entity.Split(entity).Kind, out var kind)) throw new InvalidOperationException($"{entity} has no fields beyond the grids.");
+        return new(kind.Fields.Select(f => KeyValuePair.Create(f.Name, Value(reading, entity, f.Name))));
     }
 
     /// <summary>
@@ -250,8 +230,24 @@ public static class CsaTemplates
     static readonly IReadOnlyList<ProductField> Takes =
         [new("currency", "Currency", FieldForm.Choice, Required: true, Unnamed: true, Choices: FieldChoices.Currencies, Aliases: ["ccy"])];
 
-    static readonly IReadOnlyList<string> Writes =
-        ["currency", "counterpartyCurrency", "selfCurrency", "exchange", "oneWay", "counterpartyPosts", "selfPosts", "counterpartyThreshold", "counterpartyMta", "selfThreshold", "selfMta"];
+    // Each cell a template writes, in the order written, and its value for the currency given and for who posts: the
+    // counterparty, and we. Collateral is exchanged where either posts, and one-way where exactly one does.
+    static readonly IReadOnlyList<(string Field, Func<string, bool, bool, JsonNode?> Value)> Cells =
+    [
+        ("currency", (currency, _, _) => currency),
+        ("counterpartyCurrency", (currency, _, _) => currency),
+        ("selfCurrency", (currency, _, _) => currency),
+        ("exchange", (_, counterparty, self) => counterparty || self),
+        ("oneWay", (_, counterparty, self) => counterparty != self),
+        ("counterpartyPosts", (_, counterparty, _) => counterparty),
+        ("selfPosts", (_, _, self) => self),
+        ("counterpartyThreshold", (_, _, _) => 0m),
+        ("counterpartyMta", (_, _, _) => 0m),
+        ("selfThreshold", (_, _, _) => 0m),
+        ("selfMta", (_, _, _) => 0m),
+    ];
+
+    static readonly IReadOnlyList<string> Writes = [.. Cells.Select(c => c.Field)];
 
     // Each template with who posts under it: the counterparty, and we.
     static readonly IReadOnlyList<(TableTemplate Template, bool Counterparty, bool Self)> Posting =
@@ -270,12 +266,6 @@ public static class CsaTemplates
         var (_, counterparty, self) = Posting.Single(p => p.Template.Name == template.Name);
         var currency = terms["currency"] is JsonValue held && held.TryGetValue<string>(out var code) ? code
             : throw new InvalidOperationException($"The template {template.Name} was given no currency.");
-        return new Dictionary<string, JsonNode?>
-        {
-            ["currency"] = currency, ["counterpartyCurrency"] = currency, ["selfCurrency"] = currency,
-            ["exchange"] = counterparty || self, ["oneWay"] = counterparty != self,
-            ["counterpartyPosts"] = counterparty, ["selfPosts"] = self,
-            ["counterpartyThreshold"] = 0m, ["counterpartyMta"] = 0m, ["selfThreshold"] = 0m, ["selfMta"] = 0m,
-        };
+        return Cells.ToDictionary(c => c.Field, c => c.Value(currency, counterparty, self));
     }
 }

@@ -24,8 +24,6 @@ public class PricerLegTests
     // (-768,420), an FX forward that sells JPY against USD (-51,839,837 JPY), and a new trade.
     const string Swap = "ABC-LE-01-E00004", UsdSwap = "ABC-LE-01-E00013", Forward = "ABC-LE-01-E00003", Draft = "DRAFT-1";
 
-    static string Read(LinePreview preview) => preview.Refused is { } refused ? $"{refused.Code}: {refused.Sentence}" : preview.Would!;
-
     [Fact] // ADR-0016 note 49: an existing swap's legs are the source's, in its currency, and add up to its official PV
     public void A_swaps_two_legs_add_up_to_its_official_PV()
     {
@@ -52,7 +50,7 @@ public class PricerLegTests
     {
         var rig = new Rig();
 
-        Assert.Equal("NoRowMatches: DRAFT-1 has no legs.", Read(rig.Preview($"set legs {Draft} pv 1")));
+        Assert.Equal("NoRowMatches: DRAFT-1 has no legs.", rig.Read($"set legs {Draft} pv 1"));
         Assert.Null(rig.Pv(Draft));
     }
 
@@ -72,7 +70,7 @@ public class PricerLegTests
     [InlineData("set legs E00004/1 currency XXX", "InvalidValue")]
     [InlineData("set legs E00004/1 pv many", "InvalidValue")]
     [InlineData("set legs E00004/1 trade DRAFT-1", "NotEditable")]
-    public void A_legs_value_that_cannot_be_read_is_refused(string line, string code) => Assert.StartsWith($"{code}: ", Read(new Rig().Preview(line)));
+    public void A_legs_value_that_cannot_be_read_is_refused(string line, string code) => Assert.StartsWith($"{code}: ", new Rig().Read(line));
 
     [Fact] // ADR-0016 note 49: a trade's PV is its legs' in the display currency; in the legs' own it is the official PV
     public async Task A_trades_PV_is_its_legs_in_the_display_currency()
@@ -208,7 +206,7 @@ public class PricerLegTests
     [Theory] // ADR-0016 note 47: a PV that cannot be read, or in a currency there is none of, is refused by name
     [InlineData("set E00004 pv -350,000 XXX")]
     [InlineData("set E00004 pv lots")]
-    public void A_PV_that_cannot_be_read_is_refused(string line) => Assert.StartsWith("InvalidValue: ", Read(new Rig().Preview(line)));
+    public void A_PV_that_cannot_be_read_is_refused(string line) => Assert.StartsWith("InvalidValue: ", new Rig().Read(line));
 
     [Fact] // ADR-0016 note 48, 49: new makes a leg under a trade, numbered after its last, and remove takes it away
     public async Task New_makes_a_leg_under_a_trade_and_remove_takes_it_away()
@@ -248,7 +246,7 @@ public class PricerLegTests
     [InlineData("new leg NOPE eur 250,000", "UnreadWord")]
     [InlineData("new leg E00004 250,000", "MissingTerm")]
     [InlineData("new leg E00004 eur", "MissingTerm")]
-    public void A_leg_that_cannot_be_made_is_refused(string line, string code) => Assert.StartsWith($"{code}: ", Read(new Rig().Preview(line)));
+    public void A_leg_that_cannot_be_made_is_refused(string line, string code) => Assert.StartsWith($"{code}: ", new Rig().Read(line));
 
     [Fact] // ADR-0016 note 48, 49: a source's leg removed is taken out by an edit of its own, which reset and undo bring back
     public async Task A_sources_leg_removed_comes_back_by_reset_or_undo()
@@ -277,7 +275,7 @@ public class PricerLegTests
         var trade = amount.Under!;
         var before = rig.Amounts(trade);
 
-        Assert.StartsWith("NotEditable: ", Read(rig.Preview($"set amounts {amount.Key} value 1")));
+        Assert.StartsWith("NotEditable: ", rig.Read($"set amounts {amount.Key} value 1"));
         await rig.Run($"remove amounts {amount.Key}");
 
         Assert.Equal(before.Skip(1), rig.Amounts(trade));
@@ -299,7 +297,7 @@ public class PricerLegTests
         Assert.Equal(["IA1 USD 719290", "IA2 USD 1114602"], rig.Amounts("ABC-LE-01-E00006"));
         Assert.Equal(274_361_795.28m, Figure("ABC-LE-01-E00006"));
         Assert.Null(Figure(Draft));
-        Assert.StartsWith("NotEditable: ", Read(rig.Preview($"set {Swap} independent amount 5")));
+        Assert.StartsWith("NotEditable: ", rig.Read($"set {Swap} independent amount 5"));
     }
 
     [Fact] // ADR-0016 note 49, ADR-0003: a leg's edit is carried to another value date as any edit is, and a made leg stays
@@ -469,9 +467,14 @@ public class PricerLegTests
         Assert.Null(Row(UsdSwap).Original);
     }
 
-    // A trade of the accepted input's first case, the Base.
-    static JsonObject Frozen(JsonObject input, string trade) =>
-        input["cases"]![0]!["trades"]!.AsArray().Single(t => t!["tradeId"]!.GetValue<string>() == trade)!.AsObject();
+    // A trade of a case of the accepted input: of its first, the Base, where none is said.
+    static JsonObject Frozen(JsonObject input, string trade, int @case = 0) =>
+        input["cases"]![@case]!["trades"]!.AsArray().Single(t => t!["tradeId"]!.GetValue<string>() == trade)!.AsObject();
+
+    static string[] FrozenLegs(JsonObject trade) => [.. trade["legs"]!.AsArray().Select(l => $"{l!["legId"]!.GetValue<string>()} {l["currency"]!.GetValue<string>()} {l["pv"]!.GetValue<decimal>():0.##}")];
+
+    static string[] FrozenAmounts(JsonObject trade) => [.. trade["independentAmounts"]!.AsArray().Select(a =>
+        $"{a!["amountId"]!.GetValue<string>()} {a["currency"]!.GetValue<string>()} {a["value"]!.GetValue<decimal>():0.##}")];
 
     [Fact] // ADR-0016 note 53 (owner, 2026-11-12): Price freezes each trade's legs as the workspace holds them, an overwritten PV as its one leg
     public async Task The_accepted_input_carries_each_trades_legs_as_set()
@@ -482,9 +485,14 @@ public class PricerLegTests
 
         var input = await rig.Priced();
 
-        static string[] Legs(JsonObject trade) => [.. trade["legs"]!.AsArray().Select(l => $"{l!["legId"]!.GetValue<string>()} {l["currency"]!.GetValue<string>()} {l["pv"]!.GetValue<decimal>():0.##}")];
-        Assert.Equal([$"{Swap}/3 USD -350000"], Legs(Frozen(input, Swap)));
-        var usd = Legs(Frozen(input, UsdSwap));
+        Assert.Equal([$"{Swap}/3 USD -350000"], FrozenLegs(Frozen(input, Swap)));
+        // The one leg an overwritten PV leaves has no notional, and says so: the name is there and its value is empty.
+        var written = Frozen(input, Swap)["legs"]![0]!.AsObject();
+        Assert.True(written.ContainsKey("notional"));
+        Assert.Null(written["notional"]);
+        // The trade's PV is a figure of its legs, and is not carried beside them.
+        Assert.False(Frozen(input, Swap).ContainsKey("pv"));
+        var usd = FrozenLegs(Frozen(input, UsdSwap));
         Assert.Equal([$"{UsdSwap}/1 USD", $"{UsdSwap}/2 USD"], usd.Take(2).Select(l => l[..(UsdSwap.Length + 6)]));
         Assert.Equal($"{UsdSwap}/3 EUR 250000", usd[2]);
         // The source's two legs are frozen as they were: they still add up to the trade's official PV.
@@ -504,15 +512,26 @@ public class PricerLegTests
 
         var input = await rig.Priced();
 
-        static string[] Amounts(JsonObject trade) => [.. trade["independentAmounts"]!.AsArray().Select(a =>
-            $"{a!["amountId"]!.GetValue<string>()} {a["currency"]!.GetValue<string>()} {a["value"]!.GetValue<decimal>():0.##}")];
-        Assert.Equal([$"{Swap}/IA1 JPY 71506008"], Amounts(Frozen(input, Swap)));
-        Assert.Equal([$"{two}/IA2 USD 1114602"], Amounts(Frozen(input, two)));
+        Assert.Equal([$"{Swap}/IA1 JPY 71506008"], FrozenAmounts(Frozen(input, Swap)));
+        Assert.Equal([$"{two}/IA2 USD 1114602"], FrozenAmounts(Frozen(input, two)));
         Assert.Empty(Frozen(input, Draft)["independentAmounts"]!.AsArray());
-        // Its dates are those the amounts' table reads for it.
-        var row = rig.Register.Of(rig.State).Single(t => t.Descriptor.TableId == PortfolioTables.Amounts).Table.Rows(rig.State).Single(r => r.Key == $"{Swap}/IA1");
+        // Its dates are the synthetic source's for the amount: from the trade's start to its maturity.
         var frozen = Frozen(input, Swap)["independentAmounts"]![0]!;
-        Assert.Equal((row.Value("start")!.GetValue<string>(), row.Value("end")!.GetValue<string>()), (frozen["start"]!.GetValue<string>(), frozen["end"]!.GetValue<string>()));
+        Assert.Equal(("2025-07-18", "2028-01-18"), (frozen["start"]!.GetValue<string>(), frozen["end"]!.GetValue<string>()));
+    }
+
+    [Fact] // ADR-0016 note 53: every case carries what is under its trades, not the Base alone
+    public async Task Every_case_carries_its_trades_legs_and_independent_amounts()
+    {
+        var rig = new Rig();
+        await rig.Run("set E00004 pv -350,000 USD");
+        await rig.Run("vary CSA-B threshold 0");
+
+        var input = await rig.Priced();
+
+        Assert.Equal(2, input["cases"]!.AsArray().Count);
+        Assert.Equal([$"{Swap}/3 USD -350000"], FrozenLegs(Frozen(input, Swap, @case: 1)));
+        Assert.Equal([$"{Swap}/IA1 JPY 71506008"], FrozenAmounts(Frozen(input, Swap, @case: 1)));
     }
 
     [Fact] // ADR-0016 note 53: Price freezes every CSA a case's trades use, with its terms as that case holds them
@@ -528,12 +547,41 @@ public class PricerLegTests
         JsonObject Csa(int @case, string id) => input["cases"]![@case]!["csas"]!.AsArray().Single(c => c!["csaId"]!.GetValue<string>() == id)!.AsObject();
         Assert.Equal((5_000_000m, 250_000m), (Csa(0, "CSA-B")["counterpartyThreshold"]!.GetValue<decimal>(), Csa(0, "CSA-B")["selfMta"]!.GetValue<decimal>()));
         Assert.Equal((0m, 250_000m), (Csa(1, "CSA-B")["counterpartyThreshold"]!.GetValue<decimal>(), Csa(1, "CSA-B")["selfMta"]!.GetValue<decimal>()));
-        // Those the case's trades use and no other, in the order the CSAs' table reads them.
-        var used = input["cases"]![0]!["trades"]!.AsArray().Select(t => t!["csa"]!.GetValue<string>()).ToHashSet();
-        Assert.Equal(rig.Keys("csas all").Where(used.Contains), input["cases"]![0]!["csas"]!.AsArray().Select(c => c!["csaId"]!.GetValue<string>()));
-        Assert.Contains("CSA-B", used);
+        // Both of the agreement's CSAs have a trade of the case under them, and are carried in the agreement's order.
+        Assert.Equal(["CSA-A", "CSA-B"], CsasOf(input));
     }
 
+    static string[] CsasOf(JsonObject input, int @case = 0) => [.. input["cases"]![@case]!["csas"]!.AsArray().Select(c => c!["csaId"]!.GetValue<string>())];
+
+    [Fact] // ADR-0016 note 53: a CSA no priced trade of the case is under is not carried
+    public async Task A_CSA_no_priced_trade_is_under_is_not_carried()
+    {
+        var rig = new Rig();
+        await rig.Run("set trades where csa=CSA-B before off");
+        await rig.Run("set trades where csa=CSA-B after off");
+
+        var input = await rig.Priced();
+
+        Assert.Equal(["CSA-A"], CsasOf(input));
+        Assert.All(input["cases"]![0]!["trades"]!.AsArray(), t => Assert.Equal("CSA-A", t!["csa"]!.GetValue<string>()));
+    }
+
+    [Fact] // ADR-0016 note 53, docs/03 §2: a trade under no CSA carries the agreement's nocsa sentinel, which names no CSA and has no entry
+    public async Task An_uncollateralised_counterpartys_input_carries_the_sentinel_and_no_CSA()
+    {
+        var rig = new Rig("XYZ/LE-03");
+
+        var input = await rig.Priced();
+
+        Assert.Empty(input["cases"]![0]!["csas"]!.AsArray());
+        var trades = input["cases"]![0]!["trades"]!.AsArray();
+        Assert.NotEmpty(trades);
+        Assert.All(trades, t => Assert.Equal("nocsa_MA-003", t!["csa"]!.GetValue<string>()));
+    }
+
+    // The refusal itself is the kernel's, held by WorkspaceTests (ADR-0003: Price is refused while a priced entity has
+    // an unresolved edit). It is not driven from here to Price: the synthetic source gives a leg the same PV on every
+    // value date, so no carry of it leaves a leg's edit in conflict or lost.
     [Fact] // ADR-0016 note 53: what is under a trade Price reads is priced with it, so an unresolved edit on it would refuse Price
     public async Task A_priced_trades_legs_and_amounts_are_priced_entities()
     {

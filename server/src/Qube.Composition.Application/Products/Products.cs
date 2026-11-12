@@ -254,13 +254,12 @@ public static class ProductReader
     {
         var t = text.Trim();
         var read = FieldForms.Read(field.Spec, t);
-        var amount = $"{field.Name} is an amount in millions (1000 is a billion), or with its scale: 3bn, 500mm.";
         if (read.Problem == FieldForms.Problem.None)
         {
             if (read.Value is not JsonValue value || !value.TryGetValue<decimal>(out var n)) return Take(read.Value);
-            return field.Form == FieldForm.Amount && n == 0 ? Fail(amount) : Take((double)n);
+            return field.Form == FieldForm.Amount && n == 0 ? Fail(AnAmount(field)) : Take((double)n);
         }
-        return Fail(Unread(field, t, read, amount));
+        return Fail(Unread(field, t, read));
     }
 
     /// <summary>
@@ -271,16 +270,17 @@ public static class ProductReader
     {
         var t = text.Trim();
         var read = FieldForms.Read(field.Spec, t);
-        return read.Problem == FieldForms.Problem.None ? Take(read.Value)
-            : Fail(Unread(field, t, read, $"{field.Name} is an amount in millions (1000 is a billion), or with its scale: 3bn, 500mm."));
+        return read.Problem == FieldForms.Problem.None ? Take(read.Value) : Fail(Unread(field, t, read));
     }
 
     // Why a word is not the field's value, by the field's name.
-    static string Unread(ProductField field, string t, FieldForms.Reading read, string amount) => field.Form switch
+    static string AnAmount(ProductField field) => $"{field.Name} is an amount in millions (1000 is a billion), or with its scale: 3bn, 500mm.";
+
+    static string Unread(ProductField field, string t, FieldForms.Reading read) => field.Form switch
     {
         FieldForm.Amount when read.Problem == FieldForms.Problem.FullAmount =>
             $"{field.Name} is in millions, so {t} would be {decimal.Parse(t.Replace(",", "", StringComparison.Ordinal), CultureInfo.InvariantCulture):#,0} million; write it with its scale, such as 1bn.",
-        FieldForm.Amount => amount,
+        FieldForm.Amount => AnAmount(field),
         FieldForm.Choice => $"{field.Name} is one of {string.Join(", ", (field.Choices ?? throw new InvalidOperationException($"{field.Name} is a choice with no choices.")).Keys)}.",
         FieldForm.Number => $"{field.Name} is a number.",
         _ => $"{field.Name} is {read.What}.",

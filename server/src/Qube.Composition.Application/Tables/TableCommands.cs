@@ -109,7 +109,7 @@ public sealed partial class TableService(TableRegister register, WorkspaceServic
         var keyed = selector.Screen is null && implied is null ? null : Keyed(resolved, tables, selector.Screen);
         var subject = resolved.Rows.Count > 0 ? resolved.Rows[0].Key : bound.Word;
         var asTemplate = template ? Templates.Read(set, bound) : null;
-        IReadOnlyList<(TableField Field, JsonNode? Value)> values = asTemplate is not null ? Templates.Writes(state, bound, asTemplate) : [.. Assignments.Read(set, bound).Select(a =>
+        IReadOnlyList<(TableField Field, JsonNode? Value)> values = asTemplate is not null ? Templates.Values(state, bound, asTemplate) : [.. Assignments.Read(set, bound).Select(a =>
         {
             if (!a.Field.Editable) throw NotEditable(bound, a.Field);
             var reading = FieldForms.Read(a.Field.Written, a.Text);

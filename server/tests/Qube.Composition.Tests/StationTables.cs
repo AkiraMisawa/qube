@@ -233,7 +233,7 @@ static class Stations
             return [new WorkspaceChange.Set(Target(((Row)row).Entity, field.Name), value)];
         }
 
-        public IReadOnlyDictionary<string, JsonNode?> Template(WorkspaceState state, TableTemplate template, IReadOnlyDictionary<string, JsonNode?> terms) => template.Name switch
+        public IReadOnlyDictionary<string, JsonNode?> TemplateValues(WorkspaceState state, TableTemplate template, IReadOnlyDictionary<string, JsonNode?> terms) => template.Name switch
         {
             // A drift not given is written as none: the template says the reading's drift either way.
             "gauged" => new Dictionary<string, JsonNode?> { ["unit"] = terms["unit"], ["checked"] = true, ["note"] = "gauged", ["drift"] = terms.TryGetValue("drift", out var drift) ? drift : null },

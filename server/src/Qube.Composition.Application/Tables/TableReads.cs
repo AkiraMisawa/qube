@@ -86,12 +86,12 @@ public sealed class TablesDescribe(Func<TableService> tables) : ICapabilityHandl
                 ["tables"] = new JsonArray([.. described.Tables.Select(t => (JsonNode)Table(t.Table.Descriptor, t.Rows))]),
                 ["fields"] = new JsonArray([.. described.Tables.SelectMany(t => t.Table.Descriptor.Fields.Select(f => (JsonNode)Field(t.Table.Descriptor, f)))]),
                 // What `set <rows> as <template> [terms]` takes (note 50): each table's templates, and each term of each.
-                ["templates"] = new JsonArray([.. Templates(described).Select(x => (JsonNode)Template(x.Table, x.Template))]),
-                ["templateTerms"] = new JsonArray([.. Templates(described).SelectMany(x => x.Template.Takes.Select(term => (JsonNode)Term(x.Table, x.Template, term)))]),
+                ["templates"] = new JsonArray([.. TemplatesOf(described).Select(x => (JsonNode)Template(x.Table, x.Template))]),
+                ["templateTerms"] = new JsonArray([.. TemplatesOf(described).SelectMany(x => x.Template.Takes.Select(term => (JsonNode)Term(x.Table, x.Template, term)))]),
             };
         });
 
-    static IEnumerable<(TableDescriptor Table, TableTemplate Template)> Templates(TablesDescribed described) =>
+    static IEnumerable<(TableDescriptor Table, TableTemplate Template)> TemplatesOf(TablesDescribed described) =>
         described.Tables.SelectMany(t => (t.Table.Descriptor.Templates ?? []).Select(template => (t.Table.Descriptor, template)));
 
     static JsonObject Template(TableDescriptor table, TableTemplate template) => new()

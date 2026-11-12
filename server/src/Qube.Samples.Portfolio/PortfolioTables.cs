@@ -337,10 +337,6 @@ public sealed class PortfolioTables(MeasureRegister register) : ITableCatalog
 
         public virtual IReadOnlyList<WorkspaceChange> Remove(WorkspaceState state, ITableRow row) => throw new WorkspaceRefused("NotRemovable", notRemovable((Row)row));
 
-        /// <summary>What a template of the table writes; a table that lists one says it (ADR-0016 note 50).</summary>
-        public virtual IReadOnlyDictionary<string, JsonNode?> Template(WorkspaceState state, TableTemplate template, IReadOnlyDictionary<string, JsonNode?> terms) =>
-            throw new InvalidOperationException($"Table {TableId} lists the template {template.Name} and does not say what it writes.");
-
         protected static IReadOnlyList<WorkspaceChange> Resets(WorkspaceState state, string entity, IEnumerable<string> fields) => PortfolioEditRules.Resets(state, entity, fields);
     }
 
@@ -348,9 +344,10 @@ public sealed class PortfolioTables(MeasureRegister register) : ITableCatalog
     sealed class CsaTable(PortfolioChecks checks) : Table(checks,
         Described(Csas, "CSAs", ["csas"], "csaId", PortfolioFields.Csa) with { Templates = CsaTemplates.All },
         reading => [.. PortfolioMaterialiser.Csas(reading).Select(c => new Row(reading, Entity.Of(Entity.Csa, c.CsaId), c.CsaId, null, f => PortfolioFields.Value(reading, c, f)))],
-        row => $"{row.Key} is a CSA of the agreement, which the source holds: a command changes its terms and never removes it.")
+        row => $"{row.Key} is a CSA of the agreement, which the source holds: a command changes its terms and never removes it."), IWorkspaceTable
     {
-        public override IReadOnlyDictionary<string, JsonNode?> Template(WorkspaceState state, TableTemplate template, IReadOnlyDictionary<string, JsonNode?> terms) =>
+        // The one table of the pricer that lists templates says what each writes; the others keep the kernel's answer.
+        IReadOnlyDictionary<string, JsonNode?> IWorkspaceTable.TemplateValues(WorkspaceState state, TableTemplate template, IReadOnlyDictionary<string, JsonNode?> terms) =>
             CsaTemplates.Values(template, terms);
     }
 

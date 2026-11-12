@@ -155,7 +155,7 @@ public interface IWorkspaceTable
     /// The value each field of a template takes for the terms given (ADR-0016 note 50), one for each field the template
     /// says it writes. A template holds nothing of a row, so the answer is the same for every row it is written over.
     /// </summary>
-    IReadOnlyDictionary<string, JsonNode?> Template(WorkspaceState state, TableTemplate template, IReadOnlyDictionary<string, JsonNode?> terms) =>
+    IReadOnlyDictionary<string, JsonNode?> TemplateValues(WorkspaceState state, TableTemplate template, IReadOnlyDictionary<string, JsonNode?> terms) =>
         throw new InvalidOperationException($"Table {TableId} lists the template {template.Name} and does not say what it writes.");
 
     /// <summary>
@@ -243,7 +243,7 @@ public sealed class TableRegister
             // A template is said by one of its words alone, and writes fields a command sets, each once (note 50).
             if (table.Descriptor.Templates is { Count: > 0 } templates)
             {
-                if (templates.SelectMany(t => t.Words.Append(t.Name).Select(TableWords.Of).Distinct()).GroupBy(w => w).FirstOrDefault(g => g.Count() > 1) is { } answered)
+                if (templates.SelectMany(TableWords.Names).GroupBy(w => w).FirstOrDefault(g => g.Count() > 1) is { } answered)
                     throw new InvalidOperationException($"Table {table.Descriptor.TableId} has two templates that answer to {answered.Key}.");
                 foreach (var template in templates)
                 {
@@ -311,6 +311,9 @@ public static class TableWords
 
     /// <summary>Every name a field answers to: its name and its words.</summary>
     public static IReadOnlySet<string> Names(TableField field) => new HashSet<string>(field.Words.Select(Of).Append(Of(field.Name)));
+
+    /// <summary>Every name a template answers to: its name and its words.</summary>
+    public static IReadOnlySet<string> Names(TableTemplate template) => new HashSet<string>(template.Words.Select(Of).Append(Of(template.Name)));
 
     /// <summary>Every name a subset answers to: its name and its words.</summary>
     public static IReadOnlySet<string> Names(TableSubset subset) => new HashSet<string>(subset.Words.Select(Of).Append(Of(subset.Name)));

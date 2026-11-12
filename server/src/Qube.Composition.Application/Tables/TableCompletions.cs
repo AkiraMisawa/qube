@@ -268,7 +268,7 @@ static class TableCompletions
                 return;
             }
             var start = TableWords.Of(string.Join(' ', after.Append(typed)));
-            foreach (var one in templates.Where(t => t.Words.Append(t.Name).Any(w => TableWords.Of(w).StartsWith(start, StringComparison.Ordinal))))
+            foreach (var one in templates.Where(t => TableWords.Names(t).Any(w => w.StartsWith(start, StringComparison.Ordinal))))
                 items.Add(new(one.Name, pending.Count > 1 ? pending[1].Start : at, one.Title));
         }
 

@@ -274,7 +274,7 @@ public static class PortfolioMaterialiser
     {
         var source = (PortfolioSourceVersion)state.Source;
         var trades = Trades(state).Where(t => t.Before || t.After).ToList();
-        var read = trades.Select(t => t.TradeId).ToHashSet();
+        var pricedTrades = trades.Select(t => t.TradeId).ToHashSet();
         var entities = trades.Select(t => Entity.Of(Entity.Trade, t.TradeId))
             .Concat(trades.Select(t => Entity.Of(Entity.Csa, t.Csa)))
             .Append(Entity.Of(Entity.Netting, source.Agreement.NettingSetId))
@@ -289,7 +289,7 @@ public static class PortfolioMaterialiser
         return e => entities.Contains(e) || Entity.Split(e) switch
         {
             (Entity.Settings, _) => true,
-            (Entity.Leg or Entity.Amount, var id) => read.Contains(Entity.TradeOf(id)),
+            (Entity.Leg or Entity.Amount, var id) => pricedTrades.Contains(Entity.TradeOf(id)),
             _ => false,
         };
     }

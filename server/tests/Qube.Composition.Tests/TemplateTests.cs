@@ -82,6 +82,8 @@ public class TemplateTests
         Assert.Equal("unit: M3 to GAL; checked: off to on; note: empty to gauged; drift: empty to 2%", Read(rig.Preview("set R1 as by gauge drift=2% in=gal")));
         Assert.Equal("Set R1 as gauged unit=GAL drift=2%.", await rig.Run("set R1 as GAUGED drift=2% GAL"));
         Assert.Equal("GAL on gauged 2%", rig.Reading("R1", "unit", "checked", "note", "drift"));
+        // The log names the template by its name and each term by its own, whatever was typed.
+        Assert.Equal("set R1 as gauged unit=GAL drift=2%", rig.Board.Log[^1].Command!.Said);
     }
 
     [Fact] // ADR-0016 note 50, note 9: a row that holds every value takes no edit, and the line says so
@@ -110,6 +112,19 @@ public class TemplateTests
         Assert.Equal("set R1, R2, R3 as calm", rig.Board.Log[^1].Command!.Said);
         await rig.Run("undo");
         Assert.Equal(before, new[] { "R1", "R2", "R3" }.Select(k => rig.Reading(k, "windSpeed", "windDirection")));
+    }
+
+    [Fact] // ADR-0016 note 50, note 9: of several rows, those that hold every value are left as they are and counted in what is said
+    public async Task Rows_that_hold_every_value_are_counted_beside_those_written()
+    {
+        var rig = new Rig();
+        await rig.Run("set R1 as calm");
+        var held = rig.Board.Overrides.Count;
+
+        Assert.Equal("Set R2 and R3 as calm; 1 already held its values.", await rig.Run("set R1, R2, R3 as calm"));
+
+        // Two cells of each of the two rows written, and none of the row that held them.
+        Assert.Equal(held + 4, rig.Board.Overrides.Count);
     }
 
     [Theory] // ADR-0016 note 50: a template the table has not, a term it needs, a term it has not and a value that cannot be read are refused by name
@@ -264,6 +279,18 @@ public class TemplateTests
         Assert.Equal(failure, Assert.Throws<InvalidOperationException>(() => rig.Register.Of(rig.Board)).Message);
     }
 
+    [Fact] // ADR-0016 note 50, note 47: a template writes no figure, whose write is its table's rule; it fails when the tables are read, by name
+    public void A_template_that_writes_a_figure_fails_at_start()
+    {
+        var workspaces = Stations.Service();
+        var full = new TableTemplate("full", "Full", ["full"], [], ["load"]);
+        var register = new TableRegister([new Stations.Catalog(stations: Stations.SitesWithSensors with { Templates = [full] }, sensors: true)]);
+
+        var failure = Assert.Throws<InvalidOperationException>(() => register.Of(Stations.Board(workspaces)));
+
+        Assert.Equal("Table weather.stations's template full writes load, a figure: what a write of it does is its table's rule, and no template's.", failure.Message);
+    }
+
     [Fact] // ADR-0016 note 50: two templates of a table answer to no one word, and a template writes no field twice
     public void Templates_that_share_a_word_or_write_a_field_twice_fail_at_start()
     {
@@ -283,5 +310,18 @@ public class TemplateTests
         var failure = Assert.Throws<InvalidOperationException>(() => rig.Preview("set R1 as calm"));
 
         Assert.Equal("Template calm of weather.readings declares windSpeed, windDirection, unit and its table answered windSpeed, windDirection.", failure.Message);
+    }
+
+    [Fact] // ADR-0016 note 50: an answer that names a field the template does not declare is the registration's defect too, and nothing is written
+    public void An_answer_with_a_field_the_template_does_not_declare_throws()
+    {
+        // calm declares the wind's speed alone, and the board's table answers its direction as well.
+        var rig = new Rig(Stations.ReadingsTable with { Templates = [Stations.Calm with { Writes = ["windSpeed"] }] });
+        var revision = rig.Board.Revision;
+
+        var failure = Assert.Throws<InvalidOperationException>(() => rig.Preview("set R1 as calm"));
+
+        Assert.Equal("Template calm of weather.readings declares windSpeed and its table answered windSpeed, windDirection.", failure.Message);
+        Assert.Equal(revision, rig.Board.Revision);
     }
 }

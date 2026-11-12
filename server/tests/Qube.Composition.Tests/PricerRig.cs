@@ -52,6 +52,13 @@ sealed class PricerRig
 
     public LinePreview Preview(string line) => Lines.Preview(line, Id, null, Akira);
 
+    /// <summary>What a line would do as typed, before Enter; a refusal as its code and its sentence.</summary>
+    public string Read(string line)
+    {
+        var preview = Preview(line);
+        return preview.Refused is { } refused ? $"{refused.Code}: {refused.Sentence}" : preview.Would!;
+    }
+
     /// <summary>Runs a line as Enter does, and answers what the command said.</summary>
     public async Task<string> Run(string line)
     {

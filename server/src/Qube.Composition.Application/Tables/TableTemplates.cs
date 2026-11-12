@@ -50,9 +50,9 @@ static class Templates
     /// What a template writes over a row, as its table answers for the terms given: each field it declares, in the order
     /// declared, and no other. An answer that names another field, or leaves one out, is the registration's defect.
     /// </summary>
-    public static IReadOnlyList<(TableField Field, JsonNode? Value)> Writes(WorkspaceState state, BoundTable table, Said said)
+    public static IReadOnlyList<(TableField Field, JsonNode? Value)> Values(WorkspaceState state, BoundTable table, Said said)
     {
-        var answer = table.Table.Template(state, said.Template, said.Terms);
+        var answer = table.Table.TemplateValues(state, said.Template, said.Terms);
         var (declared, answered) = (said.Template.Writes.ToHashSet(StringComparer.Ordinal), answer.Keys.ToHashSet(StringComparer.Ordinal));
         if (!declared.SetEquals(answered))
             throw new InvalidOperationException($"Template {said.Template.Name} of {table.Descriptor.TableId} declares {TableWords.List(said.Template.Writes)} "
@@ -70,7 +70,7 @@ static class Templates
     // The template the words begin with, by any of its words in any case, the longest run first, and how many words name it.
     internal static (TableTemplate Template, int Words)? Named(IReadOnlyList<TableTemplate> templates, IReadOnlyList<string> words)
     {
-        var said = templates.SelectMany(t => t.Words.Append(t.Name).Select(TableWords.Of).Distinct().Select(w => (Template: t, Own: w.Split(' '))));
+        var said = templates.SelectMany(t => TableWords.Names(t).Select(w => (Template: t, Own: w.Split(' '))));
         foreach (var (template, own) in said.OrderByDescending(x => x.Own.Length))
             if (words.Count >= own.Length && own.Select((w, i) => words[i].Equals(w, StringComparison.OrdinalIgnoreCase)).All(same => same))
                 return (template, own.Length);

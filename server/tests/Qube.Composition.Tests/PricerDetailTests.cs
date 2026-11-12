@@ -11,8 +11,6 @@ namespace Qube.Composition.Tests;
 /// </summary>
 public class PricerDetailTests
 {
-    static string Read(LinePreview preview) => preview.Refused is { } refused ? $"{refused.Code}: {refused.Sentence}" : preview.Would!;
-
     [Fact] // ADR-0016 note 51: a CSA's general terms are the source's, read by their words, and no command sets them
     public void A_CSAs_general_terms_are_the_sources_and_no_command_sets_them()
     {
@@ -23,8 +21,8 @@ public class PricerDetailTests
         Assert.Equal("ABC-LE01-VM-USD off", rig.Written(PortfolioTables.Csas, "CSA-B", "agreementName", "main"));
         Assert.Equal(["CSA-B"], rig.Keys("csas where main=off"));
         Assert.Equal(["CSA-A", "CSA-B"], rig.Keys("csas where netting set=NS-001"));
-        Assert.StartsWith("NotEditable: enforceable is not a field a command sets", Read(rig.Preview("set CSA-A enforceable off")));
-        Assert.StartsWith("NotEditable: agreement name is not a field a command sets", Read(rig.Preview("set CSA-A agreement name X")));
+        Assert.StartsWith("NotEditable: enforceable is not a field a command sets", rig.Read("set CSA-A enforceable off"));
+        Assert.StartsWith("NotEditable: agreement name is not a field a command sets", rig.Read("set CSA-A agreement name X"));
     }
 
     static readonly string[] CounterpartySide =
@@ -54,8 +52,8 @@ public class PricerDetailTests
     {
         var rig = new PricerRig();
 
-        Assert.Equal("AmbiguousField: posts could be counterparty posts or self posts of csas.", Read(rig.Preview("set CSA-B posts off")));
-        Assert.Equal("AmbiguousField: vm cap could be counterparty vm cap or self vm cap of csas.", Read(rig.Preview("set CSA-B vm cap 5mm")));
+        Assert.Equal("AmbiguousField: posts could be counterparty posts or self posts of csas.", rig.Read("set CSA-B posts off"));
+        Assert.Equal("AmbiguousField: vm cap could be counterparty vm cap or self vm cap of csas.", rig.Read("set CSA-B vm cap 5mm"));
 
         await rig.Run("set CSA-B cpty threshold 2mm");
         await rig.Run("set CSA-B cpty mta=100k cpty currency=JPY");
@@ -68,7 +66,7 @@ public class PricerDetailTests
     [InlineData("set CSA-B self delivery rounding sideways", "InvalidValue: CSA-B self delivery rounding is one of up, down, nearest; sideways is not.")]
     [InlineData("set CSA-B self posts maybe", "InvalidValue: CSA-B self posts is on or off; maybe is not.")]
     [InlineData("set CSA-B self vm cap currency XXX", "InvalidValue: CSA-B self vm cap currency is one of GBP, JPY, USD, EUR; XXX is not.")]
-    public void A_sides_term_is_checked_by_its_form(string line, string refused) => Assert.Equal(refused, Read(new PricerRig().Preview(line)));
+    public void A_sides_term_is_checked_by_its_form(string line, string refused) => Assert.Equal(refused, new PricerRig().Read(line));
 
     [Theory] // ADR-0016 note 51: and however it arrives, a typed cell or the API's value included
     [InlineData("selfPosts", "\"yes\"", "self posts is true or false.")]
@@ -151,12 +149,12 @@ public class PricerDetailTests
         var rig = new PricerRig();
 
         Assert.Equal("currency: USD to JPY; counterparty currency: USD to JPY; self currency: USD to JPY; one-way: off to on; self posts: on to off; threshold: 1mm to 0; "
-            + "mta: 500k to 0; self mta: 250k to 0; 3 values already held", Read(rig.Preview("set CSA-B as 1way-cpty jpy")));
+            + "mta: 500k to 0; self mta: 250k to 0; 3 values already held", rig.Read("set CSA-B as 1way-cpty jpy"));
         Assert.Equal("Set CSA-A and CSA-B as none currency=USD.", await rig.Run("set csas all as no collateral ccy=usd"));
-        Assert.Equal("MissingTerm: 2way still needs currency: type it after it.", Read(rig.Preview("set CSA-B as 2way")));
-        Assert.StartsWith("UnknownTemplate: csas has no template 3way; its templates are 2way, 1way-self, 1way-cpty and none.", Read(rig.Preview("set CSA-B as 3way usd")));
+        Assert.Equal("MissingTerm: 2way still needs currency: type it after it.", rig.Read("set CSA-B as 2way"));
+        Assert.StartsWith("UnknownTemplate: csas has no template 3way; its templates are 2way, 1way-self, 1way-cpty and none.", rig.Read("set CSA-B as 3way usd"));
         // A trade has no template: `as` is refused there by name.
-        Assert.StartsWith("NoTemplates: trades has no template", Read(rig.Preview("set DRAFT-1 as 2way usd")));
+        Assert.StartsWith("NoTemplates: trades has no template", rig.Read("set DRAFT-1 as 2way usd"));
     }
 
     [Fact] // ADR-0016 note 53 (owner, 2026-11-12): each CSA Price freezes carries every field beyond the grid as the case holds it, an empty one as empty
@@ -199,10 +197,14 @@ public class PricerDetailTests
         Assert.Equal("REQ-ABC-LE-01-E00003 Forward FX-FWD RatesFX empty MA-001 NS-001", rig.Written(PortfolioTables.Trades, Forward, Identity));
         // A new trade is priced under the agreement it would join.
         Assert.Equal("REQ-DRAFT-1 MA-001 NS-001", rig.Written(PortfolioTables.Trades, "DRAFT-1", "requestedId", "masterAgreement", "nettingSet"));
-        Assert.Equal(rig.Keys("trades where product=FXForward"), rig.Keys("trades where trade type=Forward"));
+        // The trade type is read as a condition: the forward is among the rows it names, and the swap is not.
+        var forwards = rig.Keys("trades where trade type=Forward");
+        Assert.Contains(Forward, forwards);
+        Assert.DoesNotContain(Swap, forwards);
+        Assert.Equal(rig.Keys("trades where product=FXForward"), forwards);
         Assert.Contains(Forward, rig.Keys("trades where source product=FX-FWD"));
-        Assert.StartsWith("NotEditable: trade type is not a field a command sets", Read(rig.Preview("set E00004 trade type Cap")));
-        Assert.StartsWith("NotEditable: master agreement is not a field a command sets", Read(rig.Preview("set E00004 ma MA-009")));
+        Assert.StartsWith("NotEditable: trade type is not a field a command sets", rig.Read("set E00004 trade type Cap"));
+        Assert.StartsWith("NotEditable: master agreement is not a field a command sets", rig.Read("set E00004 ma MA-009"));
     }
 
     [Fact] // ADR-0016 note 51: a trade's break and its model are read from the source and set by their words
@@ -229,7 +231,7 @@ public class PricerDetailTests
     [InlineData("set E00004 ir model vasicek", "InvalidValue: ABC-LE-01-E00004 ir model is one of HW1F, HW2F, LMM; vasicek is not.")]
     [InlineData("set E00004 ir model empty", "InvalidValue: ABC-LE-01-E00004 ir model is one of HW1F, HW2F, LMM; empty is not.")]
     [InlineData("set E00004 mandatory break perhaps", "InvalidValue: ABC-LE-01-E00004 mandatory break is on or off; perhaps is not.")]
-    public void A_trades_break_and_model_are_checked_by_their_forms(string line, string refused) => Assert.Equal(refused, Read(new PricerRig().Preview(line)));
+    public void A_trades_break_and_model_are_checked_by_their_forms(string line, string refused) => Assert.Equal(refused, new PricerRig().Read(line));
 
     [Theory] // ADR-0016 note 51: and however it arrives
     [InlineData("breakDate", "\"soon\"", "break date is a date, yyyy-mm-dd, or empty.")]
