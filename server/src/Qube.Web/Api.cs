@@ -197,6 +197,25 @@ public static class Api
             }
         });
 
+        // A draft's form (ADR-0016 §10, note 54): what a page draws a row's dialog from, read from the lines the page
+        // holds and writing nothing. A draft the workspace has left is a conflict, with what moved it; a table or a row
+        // the workspace has not is not found.
+        api.MapPost("/workspaces/{workspaceId}/draft", (string workspaceId, LineDraft draft, CommandLines lines, CurrentUser user) =>
+        {
+            try
+            {
+                return Results.Ok(lines.Draft(workspaceId, new Caller(user.Id, RunOrigin.Pricer), draft));
+            }
+            catch (WorkspaceRefused refused)
+            {
+                return ViewRefused(refused, "the draft");
+            }
+            catch (TableRefused refused) when (refused.Code is "UnknownTable" or "UnknownRow")
+            {
+                return NotFound(refused.Code, refused.Message);
+            }
+        });
+
         // A workspace's tables as a screen is told of them (ADR-0016 §4, note 25 of step 2): the actions a grid bound to
         // each offers in its Context Menu. Refused as the door refuses a workspace: unknown, or another user's.
         api.MapGet("/workspaces/{workspaceId}/tables", (string workspaceId, CommandLines lines, CurrentUser user) =>

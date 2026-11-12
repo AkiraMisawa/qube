@@ -554,4 +554,27 @@ public class CommandGatewayTests(QubeFactory factory) : IClassFixture<QubeFactor
         Assert.Equal((HttpStatusCode.OK, "UnknownRow", null), (unread, refused["refused"]!["code"]!.GetValue<string>(), refused["text"]));
         Assert.Equal((HttpStatusCode.Forbidden, HttpStatusCode.Conflict), (notOwner, moved));
     }
+
+    [Fact] // ADR-0016 note 54: a draft's form is read through the host, which writes nothing; a draft the workspace has left is a conflict, and a row it has not is not found
+    public async Task A_drafts_form_is_read_through_the_host()
+    {
+        var ws = await Create();
+        var (id, revision) = (ws["workspaceId"]!.GetValue<string>(), ws["revision"]!.GetValue<long>());
+        Task<HttpResponseMessage> Draft(string key, long at, params string[] lines) =>
+            client.PostAsJsonAsync($"/api/workspaces/{id}/draft", new { table = "xva.csas", key, revision = at, lines });
+
+        var read = await Draft("CSA-B", revision, "set csas CSA-B currency JPY");
+        var form = (await read.Content.ReadFromJsonAsync<JsonObject>())!;
+        var left = await Draft("CSA-B", revision - 1);
+        var unknown = await Draft("CSA-Z", revision);
+        var after = (await (await client.GetAsync($"/api/xva/workspaces/{id}")).Content.ReadFromJsonAsync<JsonObject>())!;
+
+        Assert.Equal(HttpStatusCode.OK, read.StatusCode);
+        var currency = form["fields"]!.AsArray().Single(f => f!["field"]!["name"]!.GetValue<string>() == "currency")!;
+        Assert.Equal(("JPY", true, "Terms"), (currency["written"]!.GetValue<string>(), currency["changed"]!.GetValue<bool>(), currency["field"]!["group"]!.GetValue<string>()));
+        Assert.Equal("Set CSA-B currency to JPY.", form["lines"]![0]!["said"]!.GetValue<string>());
+        Assert.Equal((HttpStatusCode.Conflict, "RevisionMoved"), (left.StatusCode, (await left.Content.ReadFromJsonAsync<JsonObject>())!["code"]!.GetValue<string>()));
+        Assert.Equal((HttpStatusCode.NotFound, "UnknownRow"), (unknown.StatusCode, (await unknown.Content.ReadFromJsonAsync<JsonObject>())!["code"]!.GetValue<string>()));
+        Assert.Equal(revision, after["revision"]!.GetValue<long>());
+    }
 }

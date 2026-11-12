@@ -1028,10 +1028,19 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
     public (WorkspaceState State, string Leg) NewLeg(string workspaceId, long? revision, string user, string tradeId, string currency, decimal pv, decimal? notional, RunOrigin origin)
     {
         var raw = Owned(workspaceId, user);
+        var (made, id) = LegMade(raw, tradeId, currency, pv, notional);
+        return (workspaces.Create(workspaceId, revision ?? raw.Revision, user, made.Scope, made.Entity, made.Fields, origin), id);
+    }
+
+    /// <summary>
+    /// The change that makes a PV leg under a trade on a workspace as it stands, and the leg's id: what
+    /// <see cref="NewLeg"/> writes, and what a draft folds without writing (ADR-0016 note 54).
+    /// </summary>
+    public static (WorkspaceChange.Create Made, string Leg) LegMade(WorkspaceState raw, string tradeId, string currency, decimal pv, decimal? notional)
+    {
         var id = LegToMake(raw, tradeId);
         var entity = Entity.Of(Entity.Leg, id);
-        return (workspaces.Create(workspaceId, revision ?? raw.Revision, user, PortfolioEditRules.Target(Source(raw), entity, "*").Scope, entity,
-            PortfolioLegs.Fields(tradeId, currency, pv, notional), origin), id);
+        return (new(PortfolioEditRules.Target(Source(raw), entity, "*").Scope, entity, PortfolioLegs.Fields(tradeId, currency, pv, notional)), id);
     }
 
     IReadOnlyList<EffectiveTrade> Rows(WorkspaceState state) => TradeOrder.Ordered(state, register, null, []);
