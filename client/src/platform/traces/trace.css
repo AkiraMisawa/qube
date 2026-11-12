@@ -10,7 +10,7 @@
   gap: var(--mantine-spacing-sm);
   align-items: start;
 }
-@container qube-panel (min-width: 62em) {
+@container qube-panel (min-width: 992px) {
   .qube-trace-body { grid-template-columns: minmax(0, 3fr) minmax(20rem, 2fr); }
 }
 .qube-trace-tree-part, .qube-trace-detail-part { min-width: 0; }

@@ -294,9 +294,73 @@ test('ADR-0018 §5: the trace lays itself out by its area\'s width: it drills in
   const view = page.getByTestId('trace-view');
   await expect(view).toHaveAttribute('data-layout', 'drill');
   expect(await sideways(page)).toBe(0);
-  // Given three quarters of the row, it is a tree, in the same page: the trace stays open as its area widens.
+  // Given two thirds of the row, 950px, it is a tree with the formula below it: side by side is from `md`, 992px, the
+  // theme's boundary in pixels (a container query's `em` is the page's 13px). Three quarters, 1080px, puts them side
+  // by side, in the same page: the trace stays open as its area widens.
+  const columns = () => view.locator('.qube-trace-body').evaluate((e) => getComputedStyle(e).gridTemplateColumns.split(' ').length);
+  await command(page, 'size panel', '66%');
+  await expect(view).toHaveAttribute('data-layout', 'tree');
+  await expect.poll(columns).toBe(1);
   await command(page, 'size panel', '75%');
   await expect(view).toHaveAttribute('data-layout', 'tree');
+  await expect.poll(columns).toBe(2);
   await command(page, 'size panel', '33%');
   await expect(view).toHaveAttribute('data-layout', 'drill');
+});
+
+test('ADR-0018 §5, ADR-0010 §1: the pricer lays itself out by its area: its Existing grid takes the area\'s height, and under 768px it is the three tabs', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await open(page);
+  await newWorkspace(page, 'ABC/LE-01', 40);
+  await command(page, 'price');
+  await expect(page.getByTestId('xva-result-status')).toHaveText('succeeded');
+  const xva = 'XVA ABC/LE-01';
+  const body = areaOf(page, xva).locator('.qube-panel-page-body');
+  const existing = page.locator('.qube-xva-trades');
+  const sections = page.getByRole('radiogroup', { name: 'Part of the page' });
+  const full = page.getByTestId('xva-result-full');
+  const overflow = () => body.evaluate((e) => e.scrollHeight - e.clientHeight);
+  const documentScrolls = () => page.evaluate(() => document.documentElement.scrollHeight - document.documentElement.clientHeight);
+  const pageWidth = (width: number) => expect(areaOf(page, xva).locator('.qube-panel-page')).toHaveAttribute('data-panel-width', String(width));
+
+  // Alone in the window, the page fits its area: the Existing grid has what the other parts leave, above the dock, and
+  // the page itself does not scroll (§9).
+  await pageWidth(1440);
+  await expect(sections).toBeHidden();
+  await expect(full).toBeVisible();
+  await expect.poll(overflow).toBeLessThanOrEqual(0);
+  const tall = (await box(existing)).height;
+  expect(tall).toBeGreaterThan(192);
+  expect((await box(existing)).y + tall).toBeLessThanOrEqual((await box(page.getByTestId('xva-result'))).y);
+
+  // In the top half, the grid keeps its six rows' minimum and the page scrolls inside its area, not the document.
+  await command(page, 'open pricing db');
+  await settled(page, 'Pricing DB');
+  await command(page, 'split panel', 'down');
+  await tab(page, xva).click();
+  await expect.poll(async () => (await box(existing)).height).toBe(192);
+  await expect.poll(overflow).toBeGreaterThan(0);
+  expect(await documentScrolls()).toBe(0);
+  // Gathered again, the grid has the whole area's height back.
+  await command(page, 'gather panels');
+  await tab(page, xva).click();
+  await expect.poll(async () => (await box(existing)).height).toBe(tall);
+
+  // Beside the Pricing DB, in 720px, the pricer is a phone's three tabs, under its context bar, and the dock has no Full
+  // height; at three quarters of the row it is the one screen again, in the same page.
+  await tab(page, 'Pricing DB').click();
+  await command(page, 'split panel', 'right');
+  await tab(page, xva).click();
+  await pageWidth(720);
+  await expect(sections).toBeVisible();
+  await expect(full).toBeHidden();
+  await page.getByText('Results', { exact: true }).click();
+  await expect(page.getByTestId('xva-result')).toBeVisible();
+  await expect(existing).toBeHidden();
+  expect(await sideways(page)).toBe(0);
+  await command(page, 'size panel', '75%');
+  await pageWidth(1080);
+  await expect(sections).toBeHidden();
+  await expect(full).toBeVisible();
+  await expect(existing).toBeVisible();
 });

@@ -143,7 +143,9 @@ dockview's own move, so a float by the pointer or by Shift is docked back as one
 the pricer's part (its section switch, its full-height button and `xva.css` reading its area, ticket 07's rest) is a
 pull request of its own after ADR-0016's step 5d, which changed the same files (5d merged first, as #33): until that
 pull request merges, the pricer reads the window, and in a short area its grids scroll under its result dock as they
-do in a window that short. With 5d, ADR-0016's step 5, which §11's step 3 waits for, is built.
+do in a window that short. With 5d, ADR-0016's step 5, which §11's step 3 waits for, is built. The pricer's pull
+request followed step 1's the same day, so the pricer reads its area's width and height; it also writes a page's
+container queries in pixels, since a container query's `em` is the page's 13px, not a media query's 16px.
 
 Two sentences of §4 are read so, DEFAULTs put to the owner with that pull request too. While the panels stand in one
 area, no area is framed: its selected tab already says which panel the line acts on, as in the strip, and the frame

@@ -190,10 +190,20 @@ pull request.
   window: ADR-0018 §11 changes them last, after the pull requests on the pricer's files, and ADR-0016's step 5 (5d,
   the scenarios table and `load trades`) was built on them. 5d merged (#33) while this pull request was open, so they
   are the pull request after it.
-  Until then an XVA page in an area narrower than 768px is laid out as the window's width says, and in an area shorter
-  than its parts need (a page split down, at 1440 by 900) its trade grids scroll under the result dock and their
-  headers draw over it (ExGrid's header stacks at 4, the dock at 3), as they do in a window that short (seen at 1440 by
-  520px with one area, which lays the page out as the strip does).
+- **Ticket 07's rest, the pull request after step 1's (2026-11-12).** The pricer reads its panel: below 768px of its
+  area it is the three tabs and its dock has no Full height, and the profile's chart and table, and two measures'
+  deltas, stand side by side from 1200px of its area (they were Mantine's `SimpleGrid` on the window's `lg`). Its
+  Existing grid takes the height the shell gives the page (`--qube-panel-room`): in an area the area's height less the
+  gutter, the area's page being a `size` container there; in the strip the window's less the header, the strip and the
+  gutter, which the page's own number counted before. That number (`TAKEN`) now counts the page's parts alone, 190px
+  where the context bar is one row, read once at 1440 and 992px: in one area of 1440 by 900 the page fits and does not
+  scroll (it overflowed by 18px before). In an area shorter than its parts need (split down at 1440 by 900) the grid
+  keeps its six rows and the page scrolls inside its area, not the document; its trade grids scroll under the result
+  dock there and their headers draw over it (ExGrid's header stacks at 4, the dock at 3), as in a window that short.
+  A dialog (a row's draft) still reads the window: it is drawn over the window, not in the area.
+- **Container queries are written in pixels.** A container query's `em` is the container's font size, 13px in this
+  theme, where a media query's is 16px: step 1's trace put its formula beside the tree from 806px (`62em`), not the
+  theme's `md`, 992px, and the pricer's `48em` would have been 624px. The trace's test now reads 950px, below `md`.
 - **A change between the strip and the areas draws the pages anew** (ADR-0018 §5): a page's own state, such as an
   open trace or an input tab, starts again. The browser tests that cross 768px open again what they read after.
 

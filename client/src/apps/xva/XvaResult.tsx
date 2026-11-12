@@ -160,7 +160,7 @@ export function XvaResult({ runId, pricedRevision, revision, register, selected,
             : <Button size="compact-xs" variant="default" component="a" href={archiveUrl(runId)} download={`${runId}.zip`}>Download</Button>}
           <Button size="compact-xs" variant="default" onClick={onOpen}>Open run</Button>
           {open && (
-            <Button size="compact-xs" variant="default" visibleFrom="sm" onClick={() => onFull(!full)} data-testid="xva-result-full"
+            <Button size="compact-xs" variant="default" className="qube-xva-wide-only" onClick={() => onFull(!full)} data-testid="xva-result-full"
               title={full ? 'Put the dock back to the height its handle sets, under the trade grids.' : 'Widen the dock over the input tabs and the trade grids.'}>
               {full ? 'Restore height' : 'Full height'}
             </Button>

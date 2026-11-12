@@ -2934,7 +2934,7 @@ trades made from their ids); no trade, name or figure of it is a real one.
   are reached by scrolling the grid or by the keyboard. Where a row's buttons stand is ticket 16's question.
 - **No test reaches `ConflictUnresolved`**, the refusal to remove a loaded trade while an edit of it waits as a
   conflict: no editable value of the synthetic store, or of the synthetic source, moves with the value date, so
-  neither makes a conflict yet ("Next", item 6). The refusal is written and read, not run.
+  neither makes a conflict yet ("Next", item 5). The refusal is written and read, not run.
 - **A scenario's key with `_2` follows the scenarios' order**: once the earlier scenario of that key is removed or
   renamed, the later one takes the key without the number. Left for the owner with the key's spelling.
 
@@ -3118,20 +3118,67 @@ changes the document's box); the test waits for each scrollbar before the next w
 `float panel`'s refusal says "the only panel docked", true with a floating area open; and `reopen panel` in one area
 is checked to say nothing.
 
+## Panels in areas, step 1's rest: the pricer by its area (ADR-0018 ticket 07, 2026-11-12)
+
+The pull request after step 1's (`docs/specs/panels-1-areas`, ticket 07's rest), once ADR-0016's step 5d had merged
+on the pricer's files (ADR-0018 §11).
+
+### What runs
+
+- **The pricer reads its panel's width.** Below 768px of its area it is the three tabs under the context bar, as on a
+  phone, and its dock has no Full height; from 768px it is the one screen. The profile's chart and table, and two
+  measures' deltas, stand side by side from 1200px of its area. `xva.css` reads the panel by container queries; the
+  section switch and Full height are shown by them, so a switch and the layout never disagree at a fractional width.
+- **The pricer reads its panel's height.** The Existing grid takes what the page's other parts leave of the height the
+  shell gives a page (`--qube-panel-room`): in an area the area's height less the gutter, in the strip the window's
+  less the header, the strip and the gutter. The page's own number (`TAKEN`) counts its parts alone, 190px where the
+  context bar is one row, so in one area of 1440 by 900 the page fits and does not scroll (it overflowed by 18px).
+- **Container queries are in pixels.** A container query's `em` is the container's font size, 13px in this theme:
+  step 1's trace put its formula beside the tree from 806px, not 992px. Fixed with the pricer's queries, and the
+  trace's browser test reads 950px.
+- A dialog (a row's draft) still reads the window: it is drawn over the window, not in the area.
+
+### Verification performed
+
+| What | Result |
+|---|---|
+| `dotnet test server/Qube.slnx` | 1594 passed (no server change) |
+| Client: `npm run typecheck`, `npm test`, `npm run build` | Clean; 462 passed in 44 files; built |
+| `npx playwright test` (Chromium, headless, Linux), against the built client | 126 of 127 passed: `scrollbars.spec.ts` (below) |
+| `areas.spec.ts`'s two tests of a page by its area, `--repeat-each=3` | 6 passed |
+| `scrollbars.spec.ts` with a 600px window, `--repeat-each=3` | 3 passed |
+| The trace's test with the trace's query in `em` again | Fails at 950px (two columns where one is right) |
+
+`areas.spec.ts` holds the pricer in one area at 1440 by 900 (it fits, the grid above the dock), in the top half (the
+grid at its six rows, the area scrolling and not the document), gathered again (the grid's height back), and beside
+the Pricing DB at 720px (the three tabs, no Full height, nothing sideways) and at 1080px (the one screen, in the same
+page). `scrollbars.spec.ts` needs a pricer taller than its room, so that its page scrolls beside a scrollbar: at 992 by
+900 it overflowed its area by the 18px `TAKEN` left out, and now fits, so the test's window is 600px high.
+
+### Providers
+
+Unchanged: every figure is simulated and says so.
+
+### Known limits
+
+- In an area shorter than the page's parts need (split down at 1440 by 900), the grid keeps its six rows and the page
+  scrolls inside its area; its trade grids scroll under the result dock and their headers draw over it (ExGrid's
+  header stacks at 4, the dock at 3), as in a window that short.
+- Where the context bar wraps (an area from 768 to about 990px), the page scrolls by the rows it adds: `TAKEN` is the
+  one-row figure.
+
 ## Next
 
-1. Panels in areas: the pricer reads its area's width and height (ADR-0018 ticket 07's rest), the pull request after
-   step 1's, now that step 5d has merged.
-2. Generic commands: step 6 (saved sequences of edits). After step 5's pricer page: a page keeps its state by
+1. Generic commands: step 6 (saved sequences of edits). After step 5's pricer page: a page keeps its state by
    panel (ADR-0006 note 7, the owner's choice).
-3. Panels in areas, ADR-0018 steps 2 (other browser windows) and 3 (parts of a page with links), in that order, each
+2. Panels in areas, ADR-0018 steps 2 (other browser windows) and 3 (parts of a page with links), in that order, each
    once the owner has seen the one before.
-4. MVA with SIMM (`docs/12-implementation-plan.md` P2): spot IM from the XVA request's MVA option.
-5. ADR-0010 Delivery step 3 (Advanced: Before-only and After-only edits, the split fill), when the owner asks for it.
-6. The owner's review of ADR-0003 §7 (scopes, carry and conflict), then a synthetic source change that can produce a conflict, and the browser cases still open above (reload, failed case unavailable).
-7. Rates.
-8. ME-ID sign-in through MSAL (C30) and the visibility rules (C31, C32); AI over AG-UI with the company's Copilot behind the adapter port (C34).
-9. Slice 01b: Save and Pin (CO06), and the browser parts of CO03 and CO04.
+3. MVA with SIMM (`docs/12-implementation-plan.md` P2): spot IM from the XVA request's MVA option.
+4. ADR-0010 Delivery step 3 (Advanced: Before-only and After-only edits, the split fill), when the owner asks for it.
+5. The owner's review of ADR-0003 §7 (scopes, carry and conflict), then a synthetic source change that can produce a conflict, and the browser cases still open above (reload, failed case unavailable).
+6. Rates.
+7. ME-ID sign-in through MSAL (C30) and the visibility rules (C31, C32); AI over AG-UI with the company's Copilot behind the adapter port (C34).
+8. Slice 01b: Save and Pin (CO06), and the browser parts of CO03 and CO04.
 
 ## Later, perhaps
 

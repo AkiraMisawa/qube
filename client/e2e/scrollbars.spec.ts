@@ -15,9 +15,11 @@ test.use({
 
 const panels = (page: Page) => page.locator('.qube-panels');
 const sideways = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+/** A window shorter than the pricer's parts with its Existing grid at six rows, so that its page scrolls in either. */
+const HEIGHT = 600;
 
 test('ADR-0018 §5: a width past 768px is areas whichever it came from, and a page reads its whole panel beside a scrollbar', async ({ page }) => {
-  await page.setViewportSize({ width: 992, height: 900 });
+  await page.setViewportSize({ width: 992, height: HEIGHT });
   await open(page);
   await newWorkspace(page, 'ABC/LE-01', 40);
   const pageOf = page.locator('.qube-panel-page');
@@ -25,10 +27,10 @@ test('ADR-0018 §5: a width past 768px is areas whichever it came from, and a pa
   const scrollbar = () => page.evaluate(() => window.innerWidth - document.documentElement.clientWidth);
   const pageScrolls = () => page.locator('.qube-panel-page-body')
     .evaluate((body: HTMLElement) => body.scrollHeight > body.clientHeight && body.offsetWidth > body.clientWidth);
-  // The pricer is taller than the window: in the strip the document scrolls, beside its scrollbar; in an area the page
-  // scrolls inside its panel, whose width it reads whole.
+  // The pricer is taller than the window, which fits it at 900px since it reads its area's height: in the strip the
+  // document scrolls, beside its scrollbar; in an area the page scrolls inside its panel, whose width it reads whole.
   for (const [width, mode] of [[992, 'areas'], [760, 'strip'], [776, 'areas'], [768, 'areas'], [760, 'strip'], [768, 'areas']] as const) {
-    await page.setViewportSize({ width, height: 900 });
+    await page.setViewportSize({ width, height: HEIGHT });
     await expect(panels(page), `at ${width}px`).toHaveAttribute('data-mode', mode);
     // Read once the page has been told its width: the panel's whole width in an area, beside a scrollbar in the strip.
     await expect(pageOf, `at ${width}px`).toHaveAttribute('data-panel-width', mode === 'areas' ? String(width) : /^\d/);
@@ -38,7 +40,7 @@ test('ADR-0018 §5: a width past 768px is areas whichever it came from, and a pa
     expect(await sideways(page), `at ${width}px: the page scrolls sideways`).toBe(0);
   }
   // In the strip the document's scrollbar stands beside the page, which reads the width it has.
-  await page.setViewportSize({ width: 760, height: 900 });
+  await page.setViewportSize({ width: 760, height: HEIGHT });
   await expect(panels(page)).toHaveAttribute('data-mode', 'strip');
   await expect.poll(scrollbar, { message: 'the scrollbar takes room' }).toBeGreaterThan(0);
   const bar = await scrollbar();
