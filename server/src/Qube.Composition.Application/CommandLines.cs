@@ -315,6 +315,16 @@ public sealed class CommandLines
         return viewSaid is null ? preview : preview with { View = viewSaid.Sentence, ViewMoved = viewSaid.Moved };
     }
 
+    /// <summary>
+    /// The form of a draft (ADR-0016 §10, note 54): its row as its lines leave it, each line read in order on what the
+    /// lines before it left, and nothing written.
+    /// </summary>
+    public DraftForm Draft(string workspaceId, Caller caller, LineDraft draft)
+    {
+        var opened = WorkspaceCommands.Owned(workspaces, workspaceId, caller);
+        return DraftForms.Of(draft, tables.Of(opened), opened, opened, []);
+    }
+
     // The line as read among `named`: what a line of the workspace may name, or, for the line a short form stands for,
     // the commands and the screen's verbs alone.
     LinePreview Read(string line, WorkspaceState state, Caller caller, LineView? view, IReadOnlyList<Typed> named)
