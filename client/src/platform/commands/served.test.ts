@@ -764,23 +764,26 @@ describe('Enter on a line the server reads, through its page\'s door (ADR-0016 Â
     expect(p.notify.mock.calls).toEqual([['done', said, { stays: true }]]);
   });
 
-  it('ADR-0016 note 64: a run that does not say what its lines answered broke the door\'s contract, which is said, and the page is told of none', async () => {
+  it('ADR-0016 note 64: a run that does not say what its lines answered is done all the same: the page chains on it and reads again, the defect is said, and the page is told of no line', async () => {
     const answered = vi.fn();
     const bare = page(7, 8, undefined, undefined, answered);
     bare.command.mockResolvedValue({ capabilityId: 'sequence.run', version: '1.0.0', outputs: { answer: { workspaceId: 'ws-1', revision: 8, said: 'Ran morning.' } } });
-    expect(await bare.door.enter('sequence run morning', running(7))).toEqual({ sentence: 'sequence.run answered without the lines it ran.' });
+    expect(await bare.door.enter('sequence run morning', running(7))).toBeUndefined();
+    expect(bare.notify.mock.calls).toEqual([['refused', 'Ran morning. sequence.run answered without the lines it ran.']]);
+    // The lines ran on the server: the page stands where the run left the workspace, as read again.
+    expect([bare.turns.revision, bare.reread.mock.calls.length]).toEqual([8, 1]);
 
     const unreadable = page(7, 8, undefined, undefined, answered);
     unreadable.command.mockResolvedValue(ranSequence(8, 'Ran morning.', [['entity.set', 'not json']]));
-    expect(await unreadable.door.enter('sequence run morning', running(7))).toEqual({ sentence: 'sequence.run answered what line 1 (entity.set) answered as text that is no JSON.' });
+    expect(await unreadable.door.enter('sequence run morning', running(7))).toBeUndefined();
+    expect(unreadable.notify.mock.calls).toEqual([['refused', 'Ran morning. sequence.run answered what line 1 (entity.set) answered as text that is no JSON.']]);
 
     const silent = page(7, 8, undefined, undefined, answered);
     silent.command.mockResolvedValue(ranSequence(8, 'Ran morning.', [['entity.set', { workspaceId: 'ws-1' }]]));
-    expect(await silent.door.enter('sequence run morning', running(7)))
-      .toEqual({ sentence: 'entity.set, line 1 of the sequence, answered without the revision it left the workspace at and what it did.' });
+    expect(await silent.door.enter('sequence run morning', running(7))).toBeUndefined();
+    expect(silent.notify.mock.calls).toEqual([['refused', 'Ran morning. entity.set, line 1 of the sequence, answered without the revision it left the workspace at and what it did.']]);
 
     expect(answered).not.toHaveBeenCalled();
-    expect(bare.notify).not.toHaveBeenCalled();
   });
 });
 

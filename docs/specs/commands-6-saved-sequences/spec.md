@@ -66,5 +66,6 @@ API stubbed; and one Playwright flow through the built client. A test names the 
 - Taking a saved sequence away, values given at the run, a sequence made from the log or recorded as typed, and a
   dialog to write one in (note 60's "Not built").
 - All or nothing: §8 has the run stop at the first refusal with the lines before it written.
-- A list of the saved sequences as a capability of its own: the line offers them, and the AI reads a line's
-  completions through `commands.preview`'s reading of `sequence run`.
+- A list of the saved sequences as a capability of its own: the line offers them as it is typed. The AI's
+  `commands.preview` answers no completions, so the AI learns the names from `sequence run` with no name, whose
+  refusal names three and counts the rest (corrected in review: this said the AI read the line's completions).

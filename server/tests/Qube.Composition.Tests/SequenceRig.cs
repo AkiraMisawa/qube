@@ -11,9 +11,11 @@ namespace Qube.Composition.Tests;
 /// <summary>
 /// The stations with their sensors, the board's short forms, the kernel's commands and the line that reads them, over
 /// one board of Ana's: the kernel's rig for saved sequences of edits (ADR-0016 §8, notes 60 to 63). Ana and Ben are
-/// of the desk north, and Cy of none. Three commands are the rig's own: <c>survey</c> starts work on the board as it
-/// stands and edits nothing, as a Price does; <c>watch</c> neither edits nor starts work; and <c>nudge</c> edits the
-/// board, and can be told to let another hand move it behind its back, or to answer nothing of where it left it.
+/// of the desk north, and Cy of none. Four commands are the rig's own: <c>survey</c> starts work on the board as it
+/// stands and edits nothing, as a Price does; <c>watch</c> neither edits nor starts work; <c>nudge</c> edits the
+/// board, and can be told to let another hand move it behind its back, to answer nothing of where it left it, or to
+/// say that what it did waits for the user; and <c>resend</c> takes another version of the source, which no undo takes
+/// back. One short form is the rig's own: <c>poll</c> stands for <c>survey</c>.
 /// </summary>
 sealed class SequenceRig
 {
@@ -29,6 +31,7 @@ sealed class SequenceRig
     public SavedItems Saved { get; }
     public Survey Surveys { get; }
     public Nudge Nudges { get; }
+    public Resend Resends { get; }
     public ManualTime Clock { get; } = new();
     public string Id { get; }
 
@@ -37,14 +40,15 @@ sealed class SequenceRig
         Saved = new SavedItems(store ?? new InMemorySavedItemStore(), new Desks(new Dictionary<string, string> { ["ana"] = "north", ["ben"] = "north" }), Clock);
         Surveys = new Survey(() => Workspaces);
         Nudges = new Nudge(() => Workspaces);
+        Resends = new Resend(() => Workspaces);
         var sequences = new Sequences(() => Lines!, () => Commands!, () => Workspaces, Saved);
         Register = new([new Stations.Catalog(sensors: true)]);
         var tables = new TableService(Register, Workspaces);
         var products = new ProductService([new Stations.Products()], [new Stations.SensorRules(Workspaces)], Workspaces, Register);
         var registry = new CompositionRegistry([new TablesModule(() => tables), new WorkspaceCommandsModule(() => Workspaces), new ProductsModule(() => products),
-            new DraftsModule(() => Lines!), new SequencesModule(sequences), new Doubles(Surveys, Nudges)]);
+            new DraftsModule(() => Lines!), new SequencesModule(sequences), new Doubles(Surveys, Nudges, Resends)]);
         Commands = new CommandService(registry, new InMemoryDataStore());
-        Lines = new CommandLines(registry, Workspaces, Register, [new Stations.ShortForms()]);
+        Lines = new CommandLines(registry, Workspaces, Register, [new Stations.ShortForms(new Poll())]);
         Id = Stations.Board(Workspaces).WorkspaceId;
     }
 
@@ -163,12 +167,14 @@ sealed class Survey(Func<WorkspaceService> workspaces) : ICapabilityHandler, ILi
 /// <summary>
 /// <c>nudge</c> (<c>weather.nudge</c>): raises N1's altitude by one, as its own command. <see cref="After"/> is what
 /// another hand does to the board once the nudge is written and before it answers; <see cref="Silent"/> has it answer
-/// nothing of where it left the board, which no command of a workspace may.
+/// nothing of where it left the board, which no command of a workspace may; <see cref="Waits"/> has it say that what
+/// it did waits for the user (<c>stays</c>, note 33).
 /// </summary>
 sealed class Nudge(Func<WorkspaceService> workspaces) : ICapabilityHandler, ILineCommand
 {
     public Action? After { get; set; }
     public bool Silent { get; set; }
+    public bool Waits { get; set; }
 
     public CapabilityDescriptor Descriptor { get; } = new("weather.nudge", "1.0.0", "Raise the first station by one",
         [new("request", "weather.board-request", "1.0.0", Cardinality.One)], [new("answer", "weather.board-answer", "1.0.0", Cardinality.One)],
@@ -192,6 +198,7 @@ sealed class Nudge(Func<WorkspaceService> workspaces) : ICapabilityHandler, ILin
             var next = service.Set(state.WorkspaceId, state.Revision, caller.UserId, target, raised, caller.Origin);
             After?.Invoke();
             var answer = Silent ? new JsonObject { ["workspaceId"] = next.WorkspaceId } : new JsonObject { ["workspaceId"] = next.WorkspaceId, ["revision"] = next.Revision, ["said"] = $"Raised N1 to {raised:0}." };
+            if (Waits) answer["stays"] = true;
             return Task.FromResult<IReadOnlyDictionary<string, JsonNode?>>(new Dictionary<string, JsonNode?> { ["answer"] = answer });
         }
         catch (WorkspaceRefused refused)
@@ -199,6 +206,62 @@ sealed class Nudge(Func<WorkspaceService> workspaces) : ICapabilityHandler, ILin
             throw new CapabilityFailure(refused.Code, refused.Message);
         }
     }
+}
+
+/// <summary>
+/// <c>resend</c> (<c>weather.resend</c>): takes the stations' readings as sent again, each time another version of
+/// the board's source. It edits the board, and is a command no undo takes back, nor reaches past (ADR-0016 §11).
+/// </summary>
+sealed class Resend(Func<WorkspaceService> workspaces) : ICapabilityHandler, ILineCommand
+{
+    // The readings as the stations sent them, under the version of a later sending.
+    sealed class Sent(int sending) : ISourceVersion
+    {
+        readonly Stations.Source first = new();
+
+        public string Version => $"sent-{sending}";
+        public JsonObject Descriptor => new() { ["version"] = Version };
+        public SourceValue? Read(string entity, string field) => first.Read(entity, field);
+    }
+
+    int sendings = 1;
+
+    public CapabilityDescriptor Descriptor { get; } = new("weather.resend", "1.0.0", "Take the readings as the stations sent them again",
+        [new("request", "weather.board-request", "1.0.0", Cardinality.One)], [new("answer", "weather.board-answer", "1.0.0", Cardinality.One)],
+        ExecutionKind.RequestResponse, [CapabilityEffect.EditWorkspace], new(["resend"], [], Stations.App));
+
+    public LineRead Read(LineContext line) =>
+        new(new JsonObject { ["request"] = new JsonObject { ["workspaceId"] = line.State.WorkspaceId, ["revision"] = line.State.Revision } }, [], null, "Takes the readings as sent again.");
+
+    public LineCompletions Complete(LineContext line) => LineCompletions.None;
+
+    public Task<IReadOnlyDictionary<string, JsonNode?>> InvokeAsync(CapabilityInvocation invocation, CancellationToken cancellationToken)
+    {
+        var request = invocation.Inputs["request"]!;
+        var caller = invocation.Caller!;
+        try
+        {
+            var service = workspaces();
+            var state = WorkspaceCommands.Owned(service, request["workspaceId"]!.GetValue<string>(), caller, request["revision"]?.GetValue<long>());
+            var next = service.Reacquire(state.WorkspaceId, state.Revision, caller.UserId, state.Context, new Sent(++sendings), caller.Origin, "resend").State;
+            var answer = new JsonObject { ["workspaceId"] = next.WorkspaceId, ["revision"] = next.Revision, ["said"] = "Took the readings as sent again." };
+            return Task.FromResult<IReadOnlyDictionary<string, JsonNode?>>(new Dictionary<string, JsonNode?> { ["answer"] = answer });
+        }
+        catch (WorkspaceRefused refused)
+        {
+            throw new CapabilityFailure(refused.Code, refused.Message);
+        }
+    }
+}
+
+/// <summary><c>poll</c> (<c>weather.poll</c>): a short form that stands for <c>survey</c>, a command that starts work.</summary>
+sealed class Poll : IShortForm
+{
+    public ShortFormDescriptor Descriptor { get; } = new("weather.poll", "Start a survey of the board", new(["poll"], [], Stations.App));
+
+    public string Expand(LineContext line) => "survey";
+
+    public LineCompletions Complete(LineContext line) => LineCompletions.None;
 }
 
 /// <summary>A clock a test moves: a sequence saved twice is saved at two moments.</summary>
@@ -227,13 +290,14 @@ sealed class Watch : ICapabilityHandler, ILineCommand
         throw new InvalidOperationException("No test follows the board.");
 }
 
-/// <summary>The rig's three commands and the contracts they share.</summary>
-sealed class Doubles(Survey survey, Nudge nudge) : IQubeModule
+/// <summary>The rig's four commands and the contracts they share.</summary>
+sealed class Doubles(Survey survey, Nudge nudge, Resend resend) : IQubeModule
 {
     public void Register(CompositionRegistryBuilder builder)
     {
         builder.AddCapability(survey);
         builder.AddCapability(nudge);
+        builder.AddCapability(resend);
         builder.AddCapability(new Watch());
         builder.AddContract(new ContractDefinition("weather.board-request", "1.0.0", "A request of the board", new JsonObject
         {
@@ -248,7 +312,7 @@ sealed class Doubles(Survey survey, Nudge nudge) : IQubeModule
             ["properties"] = new JsonObject
             {
                 ["workspaceId"] = new JsonObject { ["type"] = "string" }, ["revision"] = new JsonObject { ["type"] = "integer" }, ["said"] = new JsonObject { ["type"] = "string" },
-                ["survey"] = new JsonObject { ["type"] = "integer" },
+                ["survey"] = new JsonObject { ["type"] = "integer" }, ["stays"] = new JsonObject { ["type"] = "boolean" },
             },
             ["required"] = new JsonArray("workspaceId"),
             ["additionalProperties"] = false,

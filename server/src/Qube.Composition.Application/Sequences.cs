@@ -31,7 +31,12 @@ public sealed record SequenceSaved(SavedSequence Sequence, bool Replaced, IReadO
 
 /// <summary>A line of a run that ran (note 62): its number, the command it named, what that command said, the revision it left, and its whole answer.</summary>
 /// <param name="Wrote">Whether it moved the workspace: a command that changed nothing is done, and is none that <c>undo</c> takes back.</param>
-public sealed record SequenceStep(int Number, string Line, string Command, string Said, long Revision, bool Wrote, JsonObject Answer);
+/// <param name="Barrier">
+/// Why no <c>undo</c> takes its command back, nor reaches a line before it (§11), in words that follow the line's own;
+/// none for a command that is taken back.
+/// </param>
+/// <param name="Stays">Whether what its command said waits for the user (note 33), as that command answered it.</param>
+public sealed record SequenceStep(int Number, string Line, string Command, string Said, long Revision, bool Wrote, string? Barrier, bool Stays, JsonObject Answer);
 
 /// <summary>The line a run stopped at, and why: the refusal's code and its sentence.</summary>
 public sealed record SequenceStop(int Number, string Line, string Code, string Why);
@@ -90,14 +95,9 @@ public sealed class Sequences(Func<CommandLines> lines, Func<CommandService> com
         {
             if (line.Length == 0) throw new WorkspaceRefused("EmptyLine", $"Line {number} is empty: a sequence's line is a command as it is typed.");
             var names = lines().Names(line, state) ?? throw new WorkspaceRefused("NotACommand", $"{Numbered(number, line)} begins with no command's words.");
-            WorkspaceRefused Refused((string Code, string Why) barred) => new(barred.Code, $"{Numbered(number, line)}: {barred.Why}");
-            if (Barred(names, number, typed.Count) is { } named) throw Refused(named);
-            var read = lines().Read(line, state, caller);
-            // What reads a screen can never be read by a sequence, whatever the workspace holds by then (§9).
-            if (read.Refused is { Code: "NoView" } screen) throw Refused((screen.Code, screen.Sentence));
-            // Any other refusal is of the workspace as it stands: what the line names may be made by a line before it.
+            var read = Held(names, number, typed.Count, state, () => lines().Read(line, state, caller), barred => new WorkspaceRefused(barred.Code, $"{Numbered(number, line)}: {barred.Why}"));
+            // A refusal the rule lets by is of the workspace as it stands: what the line names may be made by a line before it.
             if (read.Refused is { } refused) unread.Add(new(number, refused.Sentence));
-            else if (BarredAsRead(names, read, number, typed.Count, state) is { } meant) throw Refused(meant);
             kept.Add(new(line, names.Id));
         }
         var item = keep ? Kept(() => saved.Save(kind, Noun, caller.UserId, name, visibility, Content(kept))).Item : planned;
@@ -135,10 +135,14 @@ public sealed class Sequences(Func<CommandLines> lines, Func<CommandService> com
     public (SavedSequence Sequence, LinePreview First) Begins(WorkspaceState state, Caller caller, string named)
     {
         var sequence = Find(state, caller.UserId, named);
-        var (read, stopped) = Reads(sequence, 1, state, () => lines().Read(sequence.Lines[0].Line, state, Runner(caller)));
-        if (stopped is not null)
-            throw new WorkspaceRefused(stopped.Code, $"Line 1 of {sequence.Label} (`{stopped.Line}`) is refused as the workspace stands, and nothing would run: {stopped.Why}");
-        return (sequence, read ?? throw new InvalidOperationException("A line of a sequence is either read or stops the run."));
+        try
+        {
+            return (sequence, Reads(sequence, 1, state, () => lines().Read(sequence.Lines[0].Line, state, Runner(caller))));
+        }
+        catch (LineStops stops)
+        {
+            throw new WorkspaceRefused(stops.At.Code, $"Line 1 of {sequence.Label} (`{stops.At.Line}`) is refused as the workspace stands, and nothing would run: {stops.At.Why}");
+        }
     }
 
     /// <summary>
@@ -148,10 +152,14 @@ public sealed class Sequences(Func<CommandLines> lines, Func<CommandService> com
     /// </summary>
     public LineCompletions Completes(WorkspaceState state, Caller caller, string line)
     {
+        var names = lines().Names(line, state);
+        // A line a sequence may not hold is not read at all: a sequence's own verb would read the lines it holds in
+        // turn, as deep as they are typed.
+        if (names is not null && Barred(names, 1, 1) is not null) return LineCompletions.None;
         var read = lines().Read(line, state, caller);
-        if (lines().Names(line, state) is { } names) return Barred(names, 1, 1) is null ? new(read.Complete, read.More) : LineCompletions.None;
-        // No command is named yet: the line's first word is being typed, and what is offered is commands' words.
-        return new([.. read.Complete.Where(c => lines().Names(c.Value, state) is { } offered && Barred(offered, 1, 1) is null)]);
+        // Where no command is named yet the line's first word is being typed, and what is offered is commands' words.
+        return names is not null ? new(read.Complete, read.More)
+            : new([.. read.Complete.Where(c => lines().Names(c.Value, state) is { } offered && Barred(offered, 1, 1) is null)]);
     }
 
     /// <summary>
@@ -160,9 +168,15 @@ public sealed class Sequences(Func<CommandLines> lines, Func<CommandService> com
     /// </summary>
     public bool Follows(WorkspaceState state, Caller caller, string line)
     {
-        if (lines().Names(line, state) is not { } names || Barred(names, 1, 2) is not null) return false;
-        var read = lines().Read(line, state, caller);
-        return read.Refused is null && BarredAsRead(names, read, 1, 2, state) is null;
+        if (lines().Names(line, state) is not { } names) return false;
+        try
+        {
+            return Held(names, 1, 2, state, () => lines().Read(line, state, caller), barred => new LineStops(new(1, line, barred.Code, barred.Why))).Refused is null;
+        }
+        catch (LineStops)
+        {
+            return false;
+        }
     }
 
     // §8: the lines run with origin workflow. The AI's keep its own, so that the log does not say that no AI wrote
@@ -188,56 +202,74 @@ public sealed class Sequences(Func<CommandLines> lines, Func<CommandService> com
         var stands = state.Revision;
         for (var number = 1; number <= sequence.Lines.Count; number++)
         {
-            var (ran, stopped) = await Step(sequence, number, state, stands, runner, $"{key}:{number}", cancellationToken);
-            if (stopped is not null)
-                return steps.Count > 0 ? new(workspaceId, sequence, state.Revision, stands, steps, stopped)
-                    : throw new WorkspaceRefused(stopped.Code, $"Line {number} of {sequence.Label} (`{stopped.Line}`) was refused, and nothing ran: {stopped.Why}");
-            steps.Add(ran ?? throw new InvalidOperationException("A line of a sequence either ran or stopped the run."));
-            stands = ran.Revision;
+            try
+            {
+                steps.Add(await Step(sequence, number, state, stands, runner, $"{key}:{number}", cancellationToken));
+            }
+            catch (LineStops stops)
+            {
+                return steps.Count > 0 ? new(workspaceId, sequence, state.Revision, stands, steps, stops.At)
+                    : throw new WorkspaceRefused(stops.At.Code, $"Line {number} of {sequence.Label} (`{stops.At.Line}`) was refused, and nothing ran: {stops.At.Why}");
+            }
+            stands = steps[^1].Revision;
         }
         return new(workspaceId, sequence, state.Revision, stands, steps, null);
     }
 
-    // A line of a run before it is invoked (notes 61 and 62): what its first words name still, the rule on that, its
-    // reading as `reading` reads it, and the rule on the line a short form stands for. Either the reading, or why the
-    // run stops at the line.
-    (LinePreview? Read, SequenceStop? Stopped) Reads(SavedSequence sequence, int number, WorkspaceState state, Func<LinePreview> reading)
+    // A line a run stops at (note 62): said where it is found, and caught by the run, which ends there.
+    sealed class LineStops(SequenceStop at) : Exception(at.Why)
+    {
+        public SequenceStop At { get; } = at;
+    }
+
+    // The rule of note 61 on one line, the one function the save, its reading and a run hold a line to: the line's
+    // reading where a sequence may hold the line, and what `barred` makes of why where it may not. A reading that is
+    // refused as the workspace stands is no matter of the rule: it is its caller's to keep or to stop at.
+    LinePreview Held(LineNames names, int number, int count, WorkspaceState state, Func<LinePreview> reading, Func<(string Code, string Why), Exception> barred)
+    {
+        if (Barred(names, number, count) is { } named) throw barred(named);
+        var read = reading();
+        // What reads a screen can never be read by a sequence, whatever the workspace holds by then (§9).
+        if (read.Refused is { Code: TableRefused.NoView } screen) throw barred((screen.Code, screen.Sentence));
+        if (read.Refused is null && BarredAsRead(names, read, number, count, state) is { } meant) throw barred(meant);
+        return read;
+    }
+
+    // A line of a run before it is invoked (notes 61 and 62): what its first words name still, and the rule on the
+    // line as `reading` reads it. Its reading, or the run stops at the line.
+    LinePreview Reads(SavedSequence sequence, int number, WorkspaceState state, Func<LinePreview> reading)
     {
         var line = sequence.Lines[number - 1];
-        (LinePreview?, SequenceStop?) Stop(string code, string why) => (null, new(number, line.Line, code, why));
+        LineStops Stops(string code, string why) => new(new(number, line.Line, code, why));
         var names = lines().Names(line.Line, state);
         // The vocabulary changed under the line: it is not read as whatever its words mean now.
         if (names is null || names.Id != line.Names)
-            return Stop("LineMoved", $"Its first words named {line.Names} when the sequence was saved and name {names?.Id ?? "no command"} now: save the sequence again.");
-        if (Barred(names, number, sequence.Lines.Count) is { } named) return Stop(named.Code, named.Why);
+            throw Stops("LineMoved", $"Its first words named {line.Names} when the sequence was saved and name {names?.Id ?? "no command"} now: save the sequence again.");
         LinePreview read;
         try
         {
-            read = reading();
+            read = Held(names, number, sequence.Lines.Count, state, reading, barred => Stops(barred.Code, barred.Why));
         }
         catch (WorkspaceRefused refused)
         {
-            return Stop(refused.Code, refused.Message);
+            throw Stops(refused.Code, refused.Message);
         }
-        if (read.Refused is { } unread) return Stop(unread.Code, unread.Sentence);
-        return BarredAsRead(names, read, number, sequence.Lines.Count, state) is { } meant ? Stop(meant.Code, meant.Why) : (read, null);
+        return read.Refused is { } unread ? throw Stops(unread.Code, unread.Sentence) : read;
     }
 
-    // One line of a run: read at the revision the line before left, and the command it names invoked. Either the line
-    // as it ran, or why the run stops at it.
-    async Task<(SequenceStep? Ran, SequenceStop? Stopped)> Step(SavedSequence sequence, int number, WorkspaceState state, long stands, Caller runner, string key, CancellationToken cancellationToken)
+    // One line of a run: read at the revision the line before left, and the command it names invoked. The line as it
+    // ran, or the run stops at it.
+    async Task<SequenceStep> Step(SavedSequence sequence, int number, WorkspaceState state, long stands, Caller runner, string key, CancellationToken cancellationToken)
     {
         var line = sequence.Lines[number - 1];
         // A workspace another hand moved since the line before is refused by this reading, as any line read too late is.
-        var (read, stopped) = Reads(sequence, number, state, () => lines().Preview(line.Line, state.WorkspaceId, stands, runner));
-        if (stopped is not null) return (null, stopped);
-        if (read is null) throw new InvalidOperationException("A line of a sequence is either read or stops the run.");
+        var read = Reads(sequence, number, state, () => lines().Preview(line.Line, state.WorkspaceId, stands, runner));
         var command = read.Command ?? throw new InvalidOperationException($"`{line.Line}` was read as a command and names none.");
         var inputs = read.Inputs ?? throw new InvalidOperationException($"`{line.Line}` was read as {command.Id} with no inputs said.");
         switch (await commands().InvokeAsync(command.Id, command.Version, inputs, runner, key, cancellationToken))
         {
             case CommandResult.Refused refused:
-                return (null, new(number, line.Line, refused.Code, string.Join(" ", refused.Issues.Select(i => i.Message))));
+                throw new LineStops(new(number, line.Line, refused.Code, string.Join(" ", refused.Issues.Select(i => i.Message))));
             case CommandResult.Done done:
                 // What every command of a workspace answers (note 36): where it left it, and what it did. One that
                 // answers neither cannot be chained, which is its defect and no refusal.
@@ -246,10 +278,21 @@ public sealed class Sequences(Func<CommandLines> lines, Func<CommandService> com
                     throw new InvalidOperationException(
                         $"{done.CapabilityId} answered without the revision it left the workspace at and what it did, so line {number} of {sequence.Label} (`{line.Line}`) cannot be followed by another.");
                 var left = long.Parse(told["revision"]!.ToJsonString(), CultureInfo.InvariantCulture);
-                return (new(number, line.Line, done.CapabilityId, told["said"]!.GetValue<string>(), left, left != stands, told), null);
+                // What waits for the user (note 33) is said by a flag of the answer, where the command answers one.
+                var stays = told["stays"]?.GetValueKind() == JsonValueKind.True;
+                return new(number, line.Line, done.CapabilityId, told["said"]!.GetValue<string>(), left, left != stands, Barrier(state.WorkspaceId, stands, left), stays, told);
             default:
                 throw new InvalidOperationException("Unhandled command result.");
         }
+    }
+
+    // What of a line's command no undo takes back (§11), in the words the log says it by: the entries it wrote are the
+    // log's after the revision it was read at, up to the one it left. None where every command of them is taken back.
+    string? Barrier(string workspaceId, long after, long upTo)
+    {
+        if (upTo == after) return null;
+        var log = (workspaces().Find(workspaceId) ?? throw new InvalidOperationException($"The workspace {workspaceId} a line was written to is not found.")).Log;
+        return CommandHistory.Commands(log).Where(c => c.Entries[0].Seq > after && c.Entries[0].Seq <= upTo).Select(c => c.Barrier).FirstOrDefault(why => why is not null);
     }
 
     // What bars a line from a sequence by what its first words name (note 61), or nothing: a command of the workspace's
@@ -265,7 +308,7 @@ public sealed class Sequences(Func<CommandLines> lines, Func<CommandService> com
         if (read.Command is null) return OfTheScreen(names);
         if (!names.ShortForm) return null;
         var stands = read.Expands ?? throw new InvalidOperationException($"The short form {names.Words} was read and says no line it stands for.");
-        var meant = lines().Names(stands, state)?.Command ?? throw new InvalidOperationException($"`{stands}`, which {names.Words} stands for, was read as a command and names none.");
+        var meant = lines().Stood(stands, state)?.Command ?? throw new InvalidOperationException($"`{stands}`, which {names.Words} stands for, was read as a command and names none.");
         return Barred(meant, names.Words, number, count);
     }
 
@@ -327,7 +370,7 @@ public sealed class Sequences(Func<CommandLines> lines, Func<CommandService> com
         {
             [] => said,
             [var one] => $"{said} Line {one.Number} is refused on the workspace as it stands ({one.Why}); it is read again when the sequence runs, on what the lines before it leave.",
-            [var first, ..] => $"{said} Lines {TableWords.And(saved.Unread.Select(u => $"{u.Number}"))} are refused on the workspace as it stands (line {first.Number}: {first.Why}); "
+            _ => $"{said} Lines {TableWords.And(saved.Unread.Select(u => $"{u.Number}"))} are refused on the workspace as it stands ({string.Join("; ", saved.Unread.Select(u => $"line {u.Number}: {u.Why}"))}); "
                 + "each is read again when the sequence runs, on what the lines before it leave.",
         };
     }
@@ -435,7 +478,8 @@ public sealed class SequenceSave(Sequences sequences) : ICapabilityHandler, ILin
     {
         var workspaceId = CommandRequests.Text(request, "workspaceId");
         var saved = sequences.Save(workspaceId, caller, CommandRequests.Text(request, "name"), CommandRequests.Optional(request, "share"),
-            [.. (request["lines"] as JsonArray ?? throw new CapabilityFailure("InvalidInput", "The request has no lines.")).Select(l => l!.GetValue<string>())]);
+            [.. (request["lines"] as JsonArray ?? throw new CapabilityFailure("InvalidInput", "The request has no lines.")).Select(l =>
+                l?.GetValueKind() == JsonValueKind.String ? l.GetValue<string>() : throw new CapabilityFailure("InvalidInput", "A sequence's lines are text, each a command as it is typed."))]);
         var sequence = saved.Sequence;
         var answer = new JsonObject
         {
@@ -560,9 +604,10 @@ public sealed class SequenceRun(Sequences sequences) : ICapabilityHandler, ILine
             answer["stopped"] = stopped.Number;
             answer["stoppedCode"] = stopped.Code;
             answer["stoppedWhy"] = stopped.Why;
-            // What it left half done waits for the user (note 33): the notice does not leave by itself.
-            answer["stays"] = true;
         }
+        // What a run left half done waits for the user (note 33), and so does what a line's own command said waits:
+        // the notice does not leave by itself.
+        if (ran.Stopped is not null || ran.Steps.Any(s => s.Stays)) answer["stays"] = true;
         return answer;
     }
 
@@ -571,19 +616,38 @@ public sealed class SequenceRun(Sequences sequences) : ICapabilityHandler, ILine
     static string Said(SequenceRan ran)
     {
         var (name, steps) = (ran.Sequence.Label, ran.Steps);
+        // What a line's own command said waits for the user is said with the run's, wherever the line stands (note 33);
+        // a run that ran through says its last line's sentence in any case.
+        var waits = string.Concat(steps.Where(s => s.Stays && (ran.Stopped is not null || s.Number < steps.Count)).Select(s => $" Line {s.Number} (`{s.Line}`): {s.Said}"));
         if (ran.Stopped is not { } stopped)
-            return $"Ran {name}: {TableWords.Counted(steps.Count, "line")}, from revision {ran.Began} to {ran.Left}. {steps[^1].Said}";
+            return $"Ran {name}: {TableWords.Counted(steps.Count, "line")}, from revision {ran.Began} to {ran.Left}. {steps[^1].Said}{waits}";
+        return $"Stopped at line {stopped.Number} of {name} (`{stopped.Line}`): {stopped.Why} {Left(ran)}{waits}";
+    }
+
+    // What a stopped run left, and what of it undo takes back (§11): undo takes the latest command back and refuses one
+    // that cannot be, so of the lines that wrote it reaches those after the last such line alone.
+    static string Left(SequenceRan ran)
+    {
+        var steps = ran.Steps;
         var before = steps.Count switch { 1 => "Line 1", 2 => "Lines 1 and 2", var n => $"Lines 1 to {n}" };
-        var wrote = steps.Count(s => s.Wrote);
-        var left = wrote == 0 ? $"{before} ran and wrote nothing: the workspace is at revision {ran.Began} still."
-            : $"{before} ran, from revision {ran.Began} to {ran.Left}: " + (wrote, steps.Count) switch
+        var wrote = steps.Where(s => s.Wrote).ToList();
+        if (wrote.Count == 0) return $"{before} ran and wrote nothing: the workspace is at revision {ran.Began} still.";
+        var ranFrom = $"{before} ran, from revision {ran.Began} to {ran.Left}: ";
+        var last = wrote.FindLastIndex(s => s.Barrier is not null);
+        if (last >= 0)
+            return ranFrom + $"line {wrote[last].Number} (`{wrote[last].Line}`) {wrote[last].Barrier}, so undo neither takes it back nor reaches a line before it" + (wrote.Count - 1 - last) switch
             {
-                (1, 1) => "undo takes it back.",
-                var (w, n) when w == n => "undo takes them back one at a time, the last first.",
-                (1, _) => "1 of them wrote the workspace, and undo takes that one back.",
-                _ => $"{wrote} of them wrote the workspace, and undo takes those back one at a time, the last first.",
+                0 => ".",
+                1 => $", and takes back line {wrote[^1].Number} alone.",
+                var after => $", and takes back the {after} lines after it that wrote, the last first.",
             };
-        return $"Stopped at line {stopped.Number} of {name} (`{stopped.Line}`): {stopped.Why} {left}";
+        return ranFrom + (wrote.Count, steps.Count) switch
+        {
+            (1, 1) => "undo takes it back.",
+            var (w, n) when w == n => "undo takes them back one at a time, the last first.",
+            (1, _) => "1 of them wrote the workspace, and undo takes that one back.",
+            var (w, _) => $"{w} of them wrote the workspace, and undo takes those back one at a time, the last first.",
+        };
     }
 }
 
@@ -618,7 +682,7 @@ public sealed class SequencesModule(Sequences sequences) : IQubeModule
             {
                 ["type"] = "array", ["minItems"] = 1,
                 ["title"] = $"The lines in order, {Sequences.MostLines} at most: each a command that edits the workspace, as a person types it, with its rows by id, all, a subset or where; "
-                    + "the last may start work, as price does",
+                    + "the last may be one that starts work on the workspace",
                 ["items"] = new JsonObject { ["type"] = "string", ["minLength"] = 1 },
             },
         }, "workspaceId", "name", "lines")));

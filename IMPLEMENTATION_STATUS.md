@@ -2982,7 +2982,8 @@ each line runs as its own command. With it the generic commands are built.
   so each is a command of its own in the log and `undo` takes them back one at a time, the last first.
 - **A run stops at the first refusal.** The first line's refuses the command, and nothing ran. A later one ends the
   run: the lines before it stay written, and the notice says the line, why, the revisions the run began and ended
-  at, and what `undo` reaches. That notice stays until it is closed.
+  at, and what `undo` reaches. That notice stays until it is closed. So does a run's whose line said that what it
+  did waits for the user, with that line's sentence.
 - **What was read is what runs.** A sequence saved again since its reading is refused (`SequenceMoved`), a line
   whose first words name another command than when it was saved stops the run (`LineMoved`), and a workspace
   another hand moved between two lines stops it (`RevisionMoved`).
@@ -2999,7 +3000,7 @@ each line runs as its own command. With it the generic commands are built.
 
 | What | Result |
 |---|---|
-| `dotnet test server/Qube.slnx` | 1608 passed |
+| `dotnet test server/Qube.slnx` | 1616 passed |
 | Client: `npm run typecheck`, `npm test`, `npm run build` | Clean; 427 passed in 40 files; built |
 | `npx playwright test` (Chromium, headless, Linux) | 118 passed |
 | `python3 tools/validate_handoff.py` | Passed |
@@ -3036,7 +3037,10 @@ in the host's SQLite database.
   a desk. No command lists the sequences: `sequence run` offers them as it is typed.
 - **No values are given when it runs**, none is made from the log or recorded, and there is no dialog to write one
   in ("Later, perhaps").
-- **A run is not all or nothing.** The lines before a refused one stay written and `undo` takes each back.
+- **A run is not all or nothing.** The lines before a refused one stay written, and `undo` takes back those it
+  reaches: a line whose command no undo takes back (a `refresh` that took another source version) keeps it from
+  that line and the ones before, and the stopped run's notice says so.
+- **The AI has no list of the saved sequences.** `sequence run` with no name names three and counts the rest.
 - **The run's reading reads the first line alone**: it claims nothing of what a later line would change (§9).
 - **A typed line cannot hold the word `then` standing alone**, and a typed sequence's first line cannot begin with
   `desk` or `all`; the capability takes its lines as a list.
@@ -3045,6 +3049,36 @@ in the host's SQLite database.
 - **The save's reading reads every line at each keystroke**, fifty at most. Its cost is not measured.
 - **A sequence's lines are not run under a lock of the workspace**: a hand that moves it between two lines stops
   the run with the lines before written, as any refusal does.
+- **A run asked again with its key after it broke** (a command's defect in the middle) is refused at its first
+  line (`IdempotencyConflict`) and writes nothing; the lines that ran stay, for `undo`.
+
+### What the review changed
+
+Two reviews with fresh context, of the standards and of the spec (ADR-0016 notes 61 to 64 say each outcome).
+
+- **A line a sequence may not hold is not read for what it offers.** `sequence save a sequence save a …` read
+  itself once for each nesting, and a line long enough would have exhausted the server's stack.
+- **A stopped run says what `undo` reaches.** It said undo takes every line back, which is false after a line
+  whose command no undo takes back; it now names that line and the lines after it that undo reaches.
+- **A line's `stays` is carried by the run**: the notice stays and holds that line's sentence with its number.
+- **A run whose answer breaks the door's contract is done all the same**: the page chains on the revision it
+  left, reads the workspace again, and says the defect beside what the run said.
+- **Each line refused where the workspace stands is said with its reason**, not the first alone.
+- **The rule of note 61 is one function** (`Held`), asked by the save, its reading, the offer of `then` and a run;
+  what a short form stands for is named as the reader reads it; the reader's refusal of what reads a screen has
+  one name (`TableRefused.NoView`); a line of a request that is no text is refused by name.
+- **Documents**: the contracts document listed `InvalidShare` and `NoLines` as the command's refusals, which the
+  request's contract refuses first; the spec said the AI reads the line's completions, which it does not.
+- **Checked by breaking the code on purpose** (in a second working tree): of forty-seven breakages the tests
+  caught forty-three. Tests were added that catch three more (a line a sequence may not hold read for what it
+  offers, a short form not held to the rule, and the earlier of two lines no undo takes back taken for the later).
+  The last is caught by none: what a short form's line names, read among the short forms too, differs only where
+  such a line begins with a short form's words, and none does.
+- **Left as they are**: whom a saved item is for is put into words in the kernel's sequences and in the pricer's
+  scenario sets, each in its own sentences, and belongs on the store of saved items once a third kind is saved;
+  `sequence.run` answers through its own few lines beside `TableContracts.Answered`, which is not asynchronous;
+  a refusal's code and sentence travel as a pair; a spec's `Status: built` is not one of the tickets' roles, as
+  the specs before it.
 
 ## Next
 

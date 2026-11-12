@@ -113,7 +113,7 @@ interface LineRan {
 /**
  * What each line of a sequence's run answered, in order (ADR-0016 note 64): the run carries each command's own answer
  * whole, as JSON text. A run that says its lines otherwise, or a line's command that says neither where it left the
- * workspace nor what it did, broke the door's contract: that is said, and nothing is read in its place.
+ * workspace nor what it did, broke the door's contract: that is thrown by name, and nothing is read in its place.
  */
 function linesRan(run: Told): readonly LineRan[] {
   const steps = run.steps;
@@ -180,14 +180,12 @@ export function commandDoor(page: DoorPage, out: TakenOut = browserOut): Command
     page.turns.after(async (revision): Promise<Ended | LineReason | undefined> => {
       let told: Told;
       let ran: string;
-      let lines: readonly LineRan[];
       try {
         const call = await named(revision);
         // Nothing to invoke: the line cannot be read, or what it asked for is done already.
         if (call === undefined || !('id' in call)) return call;
         told = toldOf(await page.api.command(call.id, call.version, call.inputs, crypto.randomUUID()));
         ran = call.id;
-        lines = ran === SEQUENCE_RUN ? linesRan(told) : [];
       } catch (error) {
         const sentence = describe(error);
         if (!(error instanceof ApiError && error.envelope.code === 'RevisionMoved')) return { sentence };
@@ -196,9 +194,23 @@ export function commandDoor(page: DoorPage, out: TakenOut = browserOut): Command
           (unread: unknown) => ({ sentence: `${sentence} The page could not read the workspace again: ${describe(unread)}` }));
       }
       page.turns.rebase(told.revision);
+      // A run whose answer does not say its lines as the door reads them is done all the same (note 64): the page
+      // chains on what it left and reads the workspace again, the defect is said beside what was done, and the page
+      // is told of no line.
+      let lines: readonly LineRan[] = [];
+      let broke: string | undefined;
+      if (ran === SEQUENCE_RUN) {
+        try {
+          lines = linesRan(told);
+        } catch (error) {
+          broke = describe(error);
+        }
+      }
+      const said = broke === undefined ? told.said : `${told.said} ${broke}`;
       // A sequence's lines are commands of their own (note 64): the page is told what each answered, in order, as if
       // it had run that command, and then what the run itself answered.
       const tell = () => {
+        if (broke !== undefined) return;
         for (const line of lines) page.answered?.(line.command, line.answer);
         page.answered?.(ran, told);
       };
@@ -209,14 +221,17 @@ export function commandDoor(page: DoorPage, out: TakenOut = browserOut): Command
       try {
         page.turns.rebase(await page.reread());
       } catch (error) {
-        page.notify('refused', `${told.said} The page could not read the workspace again: ${describe(error)}`);
+        page.notify('refused', `${said} The page could not read the workspace again: ${describe(error)}`);
         heard?.(told.said);
         tell();
         return undefined;
       }
       tell();
+      if (broke !== undefined) {
+        page.notify('refused', said);
+        heard?.(told.said);
       // What waits for the user's decision does not leave by itself.
-      if (heard === undefined) page.notify('done', told.said, ...(told.stays === true ? [{ stays: true }] : []));
+      } else if (heard === undefined) page.notify('done', told.said, ...(told.stays === true ? [{ stays: true }] : []));
       else heard(told.said);
       return undefined;
     // The page's own earlier edit was refused, and this with it: nothing was sent.

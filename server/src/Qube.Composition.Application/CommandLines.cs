@@ -387,8 +387,16 @@ public sealed class CommandLines
     /// may name; none where they begin no command's words. Nothing of the line is read: a caller that holds lines to
     /// run later, as a saved sequence does, asks this of a line whose reading is refused as the workspace stands.
     /// </summary>
-    public LineNames? Names(string line, WorkspaceState state) =>
-        Named(Of(state), LineWords.Of(line)) is { } said ? new(said.Said, said.Id, said.Descriptor, said.Expand is not null) : null;
+    public LineNames? Names(string line, WorkspaceState state) => Names(Of(state), line);
+
+    /// <summary>
+    /// What the line a short form stands for names (note 61): read among the commands and the verbs of the screen alone,
+    /// as the reader reads that line, so that a short form's own words in it name no short form again.
+    /// </summary>
+    public LineNames? Stood(string line, WorkspaceState state) => Names(Of(state).Where(t => t.Expand is null), line);
+
+    static LineNames? Names(IEnumerable<Typed> among, string line) =>
+        Named(among, LineWords.Of(line)) is { } said ? new(said.Said, said.Id, said.Descriptor, said.Expand is not null) : null;
 
     /// <summary>
     /// The line as read on a workspace as given, with no screen behind it (ADR-0016 note 63 of step 6): what a command

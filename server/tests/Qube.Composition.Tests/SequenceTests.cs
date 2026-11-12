@@ -62,10 +62,13 @@ public sealed class SequenceTests
     [InlineData("find N1", "NotInASequence: Line 1 (`find N1`): find is done by a page of the workbench, and a sequence has no screen.")]
     [InlineData("set selected checked on",
         "NoView: Line 1 (`set selected checked on`): selected means the rows selected on a screen, and no screen is behind this command: name the rows by their ids, all, a subset or where.")]
+    [InlineData("set shown checked on",
+        "NoView: Line 1 (`set shown checked on`): shown means the rows shown on a screen, and no screen is behind this command: name the rows by their ids, all, a subset or where.")]
     [InlineData("undo", "NotInASequence: Line 1 (`undo`): undo acts on whatever command is the log's latest when it runs.")]
     [InlineData("redo", "NotInASequence: Line 1 (`redo`): redo acts on whatever command is the log's latest when it runs.")]
     [InlineData("apply", "NotInASequence: Line 1 (`apply`): apply writes the draft of an open dialog, and a sequence has none.")]
     [InlineData("sequence run evening", "NotInASequence: Line 1 (`sequence run evening`): sequence run is a sequence's own verb, and a sequence holds no other.")]
+    [InlineData("sequence save evening nudge", "NotInASequence: Line 1 (`sequence save evening nudge`): sequence save is a sequence's own verb, and a sequence holds no other.")]
     [InlineData("watch", "NotInASequence: Line 1 (`watch`): watch neither edits the workspace nor starts work on it.")]
     [InlineData("frobnicate N1", "NotACommand: Line 1 (`frobnicate N1`) begins with no command's words.")]
     [InlineData(" ", "EmptyLine: Line 1 is empty: a sequence's line is a command as it is typed.")]
@@ -103,7 +106,10 @@ public sealed class SequenceTests
         var (saved, _) = await rig.Save("later", null, ["set stations N1 altitude 130", "set stations N9 altitude 5", "set stations where zzz = 1 altitude 3"]);
 
         var why = rig.Preview("set stations N9 altitude 5").Refused!.Sentence;
-        Assert.Equal($"Saved 3 lines as the sequence later, for you alone. Lines 2 and 3 are refused on the workspace as it stands (line 2: {why}); "
+        // Each such line is said with its own reason.
+        var other = rig.Preview("set stations where zzz = 1 altitude 3").Refused!.Sentence;
+        Assert.NotEqual(why, other);
+        Assert.Equal($"Saved 3 lines as the sequence later, for you alone. Lines 2 and 3 are refused on the workspace as it stands (line 2: {why}; line 3: {other}); "
             + "each is read again when the sequence runs, on what the lines before it leave.", saved!["said"]!.GetValue<string>());
         Assert.Equal(3, rig.Kept("later").Length);
 
@@ -390,6 +396,130 @@ public sealed class SequenceTests
         var thrown = await Assert.ThrowsAsync<InvalidOperationException>(() => rig.RunSequence("twice"));
 
         Assert.Equal("weather.nudge answered without the revision it left the workspace at and what it did, so line 1 of twice (`nudge`) cannot be followed by another.", thrown.Message);
+    }
+
+    [Fact] // ADR-0016 note 62, ADR-0005: each line has a key of its own made from the run's, so a run asked again after it broke runs no line twice
+    public async Task A_run_that_broke_and_is_asked_again_with_its_key_runs_no_line_twice()
+    {
+        var rig = new SequenceRig();
+        await rig.Save("twice", null, ["nudge", "nudge"]);
+        // The second nudge writes, and answers nothing of where it left the board: the run breaks there.
+        var nudged = 0;
+        rig.Nudges.After = () => rig.Nudges.Silent = ++nudged == 2;
+        await Assert.ThrowsAsync<InvalidOperationException>(() => rig.RunSequence("twice", key: "one-run"));
+        Assert.Equal("122", rig.Written(Stations.Sites, "N1", "altitude"));
+        rig.Nudges.After = null;
+        rig.Nudges.Silent = false;
+
+        var (again, refused) = await rig.RunSequence("twice", key: "one-run");
+
+        // Line 1's key was used for the board as it then stood: it is not run again on the board as it stands now.
+        Assert.Null(again);
+        Assert.StartsWith("IdempotencyConflict: Line 1 of twice (`nudge`) was refused, and nothing ran: ", refused);
+        Assert.Equal("122", rig.Written(Stations.Sites, "N1", "altitude"));
+    }
+
+    [Fact] // ADR-0016 notes 33, 62 and 64: what a line's own command said waits for the user is said with the run's, and the run's notice stays
+    public async Task A_line_whose_answer_waits_for_the_user_keeps_the_runs_notice()
+    {
+        var rig = new SequenceRig();
+        await rig.Save("plain", null, ["nudge", "set stations S1 altitude 130"]);
+        await rig.Save("morning", null, ["nudge", "set stations S1 altitude 131"]);
+        await rig.Save("noon", null, ["set stations S1 altitude 140", "nudge"]);
+        var began = rig.Board.Revision;
+
+        // No line waits: the notice leaves by itself.
+        var (plain, _) = await rig.RunSequence("plain");
+        Assert.Equal((2, null), (plain!["ran"]!.GetValue<int>(), plain["stays"]));
+
+        rig.Nudges.Waits = true;
+        var (first, _) = await rig.RunSequence("morning");
+        var (last, _) = await rig.RunSequence("noon");
+
+        // A line before the last: its sentence is said after the run's, with its number.
+        var set = first!["steps"]![1]!["said"]!.GetValue<string>();
+        Assert.Equal((true, $"Ran morning: 2 lines, from revision {began + 2} to {began + 4}. {set} Line 1 (`nudge`): Raised N1 to 122."),
+            (first["stays"]!.GetValue<bool>(), first["said"]!.GetValue<string>()));
+        // The last line: its sentence is the run's already, said once.
+        Assert.Equal((true, $"Ran noon: 2 lines, from revision {began + 4} to {began + 6}. Raised N1 to 123."), (last!["stays"]!.GetValue<bool>(), last["said"]!.GetValue<string>()));
+    }
+
+    [Fact] // ADR-0016 §11, note 62: a stopped run promises of undo what undo reaches: a line no undo takes back keeps it from the lines before
+    public async Task A_stopped_run_says_what_undo_reaches_past_a_line_it_cannot_take_back()
+    {
+        var rig = new SequenceRig();
+        await rig.Save("later", null, ["nudge", "resend", "nudge", "set stations N9 altitude 5"]);
+        var why = rig.Preview("set stations N9 altitude 5").Refused!.Sentence;
+        var began = rig.Board.Revision;
+
+        var (later, _) = await rig.RunSequence("later");
+
+        var left = rig.Board.Revision;
+        Assert.Equal($"Stopped at line 4 of later (`set stations N9 altitude 5`): {why} Lines 1 to 3 ran, from revision {began} to {left}: "
+            + "line 2 (`resend`) took another source version (sent-2), so undo neither takes it back nor reaches a line before it, and takes back line 3 alone.",
+            later!["said"]!.GetValue<string>());
+        // And so it is: undo takes line 3 back, and is refused at line 2.
+        await rig.Run("undo");
+        Assert.Equal(("121", "CannotUndo"), (rig.Written(Stations.Sites, "N1", "altitude"), rig.Preview("undo").Refused?.Code));
+
+        // Where it is the last line that wrote, undo takes nothing back.
+        var fresh = new SequenceRig();
+        await fresh.Save("sooner", null, ["nudge", "resend", "set stations N9 altitude 5"]);
+        var (sooner, _) = await fresh.RunSequence("sooner");
+        Assert.EndsWith("line 2 (`resend`) took another source version (sent-2), so undo neither takes it back nor reaches a line before it.", sooner!["said"]!.GetValue<string>());
+
+        // Of two such lines the later is the one undo stops at.
+        await fresh.Save("twice", null, ["resend", "nudge", "resend", "nudge", "nudge", "set stations N9 altitude 5"]);
+        var (twice, _) = await fresh.RunSequence("twice");
+        Assert.EndsWith("line 3 (`resend`) took another source version (sent-4), so undo neither takes it back nor reaches a line before it, and takes back the 2 lines after it that wrote, "
+            + "the last first.", twice!["said"]!.GetValue<string>());
+    }
+
+    [Fact] // ADR-0016 note 61: a short form is held to the rule by the line it stands for, at the save and when it runs
+    public async Task A_short_form_is_held_to_the_rule_by_the_line_it_stands_for()
+    {
+        var rig = new SequenceRig();
+
+        // `poll` stands for `survey`, which starts work on the board.
+        Assert.Equal("ExecutesBeforeTheEnd: Line 1 (`poll`): poll starts work on the workspace as it stands, so it is a sequence's last line or none.",
+            (await rig.Save("morning", null, ["poll", "nudge"])).Refused);
+        Assert.Null((await rig.Save("morning", null, ["nudge", "poll"])).Refused);
+        Assert.Equal(["nudge [weather.nudge]", "poll [weather.poll]"], rig.Kept("morning"));
+        // The line offers no `then` after it.
+        Assert.DoesNotContain("then", rig.Preview("sequence save noon poll ").Complete.Select(c => c.Value));
+
+        var (ran, _) = await rig.RunSequence("morning");
+        Assert.Equal((2, 1), (ran!["ran"]!.GetValue<int>(), rig.Surveys.Started.Count));
+        // Kept before the rule held it, it stops the run where it stands.
+        rig.Keep("older", ("poll", "weather.poll"), ("nudge", "weather.nudge"));
+        Assert.StartsWith("ExecutesBeforeTheEnd: Line 1 of older (`poll`) was refused, and nothing ran: ", (await rig.RunSequence("older")).Refused);
+    }
+
+    [Fact] // ADR-0016 note 60: a kept sequence that does not hold its lines as a save writes them is the store's defect, and is not read as a shorter one
+    public void A_kept_sequence_that_does_not_hold_its_lines_is_a_defect()
+    {
+        var none = new SequenceRig();
+        none.Keep("empty");
+        Assert.Equal("The saved sequence empty of ana does not hold its lines as a sequence's are kept.", Assert.Throws<InvalidOperationException>(() => none.Preview("sequence run empty")).Message);
+
+        var odd = new SequenceRig();
+        odd.Saved.Save(SequenceRig.Kind, "sequence", "ana", "odd", SavedVisibility.Private, new JsonObject { ["lines"] = new JsonArray(new JsonObject { ["line"] = "nudge" }) });
+        Assert.Throws<InvalidOperationException>(() => odd.Preview("sequence run odd"));
+    }
+
+    [Fact] // ADR-0016 note 63: within a line a sequence may not hold nothing is offered, and the line is not read: a sequence's own verb typed ever deeper is refused as it stands
+    public async Task A_line_a_sequence_may_not_hold_is_offered_nothing_and_is_not_read()
+    {
+        var rig = new SequenceRig();
+        await rig.Save("morning", null, ["nudge"]);
+        // `sequence run` offers the sequences one can see where it is typed as the line; as a line of a sequence, nothing.
+        Assert.Equal(["morning"], rig.Preview("sequence run mor").Complete.Select(c => c.Value));
+        Assert.Empty(rig.Preview("sequence save noon sequence run mor").Complete);
+
+        var deep = rig.Preview("sequence save a " + string.Concat(Enumerable.Repeat("sequence save a ", 3000)) + "nudge");
+
+        Assert.Equal("NotInASequence", deep.Refused?.Code);
+        Assert.Empty(deep.Complete);
     }
 
     [Fact] // ADR-0016 note 63: `sequence save` reads its lines apart at the word then, and says each with its number

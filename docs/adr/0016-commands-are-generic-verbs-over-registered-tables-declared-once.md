@@ -2533,6 +2533,10 @@ Step 6 is one pull request (`docs/specs/commands-6-saved-sequences`). §8 leaves
       line is refused as the workspace stands it is kept, as any line is, and held to the rule when it runs.
     - *Added as built:* a line is read with no screen behind it, on the workspace as it is given: the save's
       reading, as a person types it, reads the lines on the workspace the page shows.
+    - *Corrected in review:* `NoLines` is the typed line's alone. A request with no line, or with a share other
+      than `desk` and `all`, is refused by its contract (`ValidationFailed`) before the rule is asked. Each line
+      refused where the workspace stands is said with its own reason; the first alone was. The rule is one
+      function, which the save, its reading, the offer of `then` and a run all ask.
 
 62. **`sequence.run` runs each line as its own command (§8, §11).**
     - *Each line is read, then invoked through the gateway.* The server's reader reads the line for the caller at
@@ -2565,6 +2569,13 @@ Step 6 is one pull request (`docs/specs/commands-6-saved-sequences`). §8 leaves
       answer whole, as JSON text: a contract holds no object in an object (note 12).
     - *Added as built:* a stopped run says what `undo` reaches: of the lines before the one it stopped at, only
       those that wrote the workspace, and "wrote nothing" where none did.
+    - *Corrected in review:* "`undo` takes them back one at a time" holds of commands undo takes back. A line
+      whose command is one no undo takes back (§11's note 2: it took another source version, left a scope with
+      its edits or decided a held edit) keeps `undo` from itself and from every line before it. A stopped run
+      said that undo takes all its lines back; it now names that line and says which lines after it undo reaches.
+    - *Added in review (DEFAULT, reported):* what a line's own command said waits for the user (`stays`, note
+      33) is carried by the run: its answer stays, and its sentence holds that line's with its number. A line's
+      `stays` was dropped, and its sentence with it where the line was not the last.
 
 63. **The lines that say them (§3, §9).** Two commands of every application, both among the AI's tools as every
     command is.
@@ -2590,6 +2601,9 @@ Step 6 is one pull request (`docs/specs/commands-6-saved-sequences`). §8 leaves
       since a command's sentence may end without a full stop, and names the owner of a sequence that is
       another user's. `sequence run` with no name is refused with the names the user can see
       (`SequenceNotNamed`), and a word after the name is refused (`UnreadWords`).
+    - *Corrected in review:* a line a sequence may not hold is not read for what it offers. It was read first,
+      so `sequence save a sequence save a …` read itself once for each `sequence save` typed, and a line long
+      enough would have exhausted the server's stack.
     - *§9's "several commands in one line" stands.* It refuses running a line of several commands, because one
       preview cannot show what the second would read after the first. `sequence save` runs none; and the run's
       reading therefore says the lines as they are written and reads the first alone, claiming nothing of what
@@ -2604,6 +2618,9 @@ Step 6 is one pull request (`docs/specs/commands-6-saved-sequences`). §8 leaves
     - *Added as built:* a run that stopped tells the page of the lines that ran, then of the run. A run's
       answer without its lines, or with a line that holds no command and no answer of it, is the server's
       defect: the door says it by name and tells the page of no line.
+    - *Corrected in review:* such a run is done all the same. The door answered as if nothing had run and left
+      the page at the revision before it; it now chains on the revision the run left, reads the workspace
+      again, and says the defect in a refused notice beside what the run said.
 
 ## Rejected
 
