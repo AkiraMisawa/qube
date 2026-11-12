@@ -240,6 +240,24 @@ public sealed class TableRegister
             // A figure is of a table under its own (note 47).
             if (table.Descriptor.Fields.FirstOrDefault(f => f.Figure is { } figure && bound.All(t => t.Descriptor.TableId != figure.Of || t.Descriptor.Under != table.Descriptor.TableId)) is { } astray)
                 throw new InvalidOperationException($"Table {table.Descriptor.TableId}'s field {astray.Name} is a figure of {astray.Figure!.Of}, which is not under it.");
+            // A template is said by one of its words alone, and writes fields a command sets, each once (note 50).
+            if (table.Descriptor.Templates is { Count: > 0 } templates)
+            {
+                if (templates.SelectMany(t => t.Words.Append(t.Name).Select(TableWords.Of).Distinct()).GroupBy(w => w).FirstOrDefault(g => g.Count() > 1) is { } answered)
+                    throw new InvalidOperationException($"Table {table.Descriptor.TableId} has two templates that answer to {answered.Key}.");
+                foreach (var template in templates)
+                {
+                    if (template.Writes.GroupBy(w => w).FirstOrDefault(g => g.Count() > 1) is { } again)
+                        throw new InvalidOperationException($"Table {table.Descriptor.TableId}'s template {template.Name} writes {again.Key} twice.");
+                    foreach (var name in template.Writes)
+                    {
+                        var of = $"Table {table.Descriptor.TableId}'s template {template.Name} writes {name}";
+                        var field = table.Descriptor.Fields.FirstOrDefault(f => f.Name == name) ?? throw new InvalidOperationException($"{of}, which the table has not.");
+                        if (!field.Editable) throw new InvalidOperationException($"{of}, which no command sets.");
+                        if (field.Figure is not null) throw new InvalidOperationException($"{of}, a figure: what a write of it does is its table's rule, and no template's.");
+                    }
+                }
+            }
             // A table under another (note 46): the table above is the workspace's, and its rows are said with no row or as the main table's never.
             if (table.Descriptor.Under is { } above)
             {

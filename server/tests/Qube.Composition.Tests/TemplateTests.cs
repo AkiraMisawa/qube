@@ -187,4 +187,101 @@ public class TemplateTests
         // A template of a table of one row is that table's, whichever grid is behind the line.
         Assert.Equal("alarm volume: 10mm to 1mm; daylight: on to off", rig.Preview("set as night", selected).Would);
     }
+
+    // What could follow, each with the place it is written from where that is not the line's end, and what it is where it says.
+    static string Offered(string line, LineView? view = null, Rig? rig = null)
+    {
+        var preview = (rig ?? new Rig()).Preview(line, view);
+        return string.Join(" | ", preview.Complete.Select(c => $"{c.Value}{(c.Start == line.Length ? "" : $"@{c.Start}")}{(c.Detail is null ? "" : $" ({c.Detail})")}"));
+    }
+
+    [Theory] // ADR-0016 note 50: after `as` the table's templates are offered, and after a template its terms, as `new` offers a product's
+    [InlineData("set R1 as ", "gauged (Gauged by hand) | calm (Calm)")]
+    [InlineData("set R1 as c", "calm@10 (Calm)")]
+    [InlineData("set R1 as by ga", "gauged@10 (Gauged by hand)")]
+    [InlineData("set R1 as gauged ", "M3 (Unit) | GAL (Unit) | drift= (Drift)")]
+    [InlineData("set R1 as gauged g", "GAL@17 (Unit)")]
+    [InlineData("set R1 as by gauge gal ", "drift= (Drift)")]
+    [InlineData("set R1 as gauged drift=", "")]
+    [InlineData("set R1 as calm ", "")]
+    [InlineData("set as ", "night (Night)")]
+    [InlineData("set S1 as ", "")]
+    public void After_as_the_templates_and_then_their_terms_are_offered(string line, string offered) => Assert.Equal(offered, Offered(line));
+
+    [Fact] // ADR-0016 note 50: `as` is offered beside the fields where the table has a template, and not where it has none
+    public void As_is_offered_beside_the_fields_of_a_table_that_has_a_template()
+    {
+        Assert.Contains("as (a template)", Offered("set R1 ").Split(" | "));
+        Assert.Equal("as@7 (a template)", Offered("set R1 a"));
+        Assert.DoesNotContain("as (a template)", Offered("set S1 ").Split(" | "));
+        Assert.DoesNotContain("as (a template)", Offered("set R1 ", rig: new Rig(Stations.ReadingsTable)).Split(" | "));
+        // Once a field is being named, a template is not what follows.
+        Assert.Equal("empty", Offered("set R1 note "));
+    }
+
+    [Fact] // ADR-0016 note 50, notes 7 and 18: with no rows said, `as` is offered for a table of one row and for the selection of the grid behind the line
+    public void As_is_offered_where_the_rows_may_be_left_out()
+    {
+        var selected = new LineView(Stations.Readings, Keys: ["R1", "R3"]);
+
+        Assert.Contains("as (settings)", Offered("set ").Split(" | "));
+        Assert.Contains("as (2 selected)", Offered("set ", selected).Split(" | "));
+        Assert.Equal("gauged (Gauged by hand) | calm (Calm) | night (Night)", Offered("set as ", selected));
+    }
+
+    [Fact] // ADR-0016 note 50, §7: tables.describe answers each template with its words, the fields it writes and the terms it takes
+    public async Task The_description_lists_each_template_and_its_terms()
+    {
+        var rig = new Rig();
+        var result = await rig.Commands.InvokeAsync("tables.describe", TableContracts.Version, new JsonObject { ["request"] = new JsonObject { ["workspaceId"] = rig.Id } }, Ana,
+            Guid.NewGuid().ToString(), default);
+        var answer = Assert.IsType<CommandResult.Done>(result).Outputs["answer"]!.AsObject();
+        static string Texts(JsonNode? list) => string.Join(", ", list!.AsArray().Select(x => x!.GetValue<string>()));
+
+        Assert.Equal(
+        [
+            "weather.readings gauged (Gauged by hand): gauged, by gauge; writes unit, checked, note, drift",
+            "weather.readings calm (Calm): calm, no wind; writes windSpeed, windDirection",
+            "weather.settings night (Night): night; writes alarm, daylight",
+        ], answer["templates"]!.AsArray().Select(t => $"{t!["table"]} {t["name"]} ({t["title"]}): {Texts(t["words"])}; writes {Texts(t["writes"])}"));
+        Assert.Equal(
+        [
+            "weather.readings gauged unit (Unit): choice, needed, typed alone, also in; M3, GAL",
+            "weather.readings gauged drift (Drift): rate, by its name",
+        ], answer["templateTerms"]!.AsArray().Select(t => string.Join("", $"{t!["table"]} {t["template"]} {t["name"]} ({t["title"]}): {t["form"]}",
+            t["required"]!.GetValue<bool>() ? ", needed" : "", t["typedAlone"]!.GetValue<bool>() ? ", typed alone" : ", by its name",
+            t["names"] is { } names ? $", also {Texts(names)}" : "", t["choices"] is { } choices ? $"; {Texts(choices)}" : "")));
+        Assert.Equal("one of its choices", answer["templateTerms"]![0]!["written"]!.GetValue<string>());
+    }
+
+    [Theory] // ADR-0016 note 50: a template that writes what no command sets, or shares a word with another, fails when the tables are read, by name
+    [InlineData("height", "Table weather.readings's template gauged writes height, which the table has not.")]
+    [InlineData("station", "Table weather.readings's template gauged writes station, which no command sets.")]
+    public void A_template_that_writes_what_cannot_be_written_fails_at_start(string field, string failure)
+    {
+        var rig = new Rig(Stations.ReadingsTable with { Templates = [Stations.Gauged with { Writes = ["unit", field] }] });
+
+        Assert.Equal(failure, Assert.Throws<InvalidOperationException>(() => rig.Register.Of(rig.Board)).Message);
+    }
+
+    [Fact] // ADR-0016 note 50: two templates of a table answer to no one word, and a template writes no field twice
+    public void Templates_that_share_a_word_or_write_a_field_twice_fail_at_start()
+    {
+        var shared = new Rig(Stations.ReadingsTable with { Templates = [Stations.Gauged, Stations.Calm with { Words = ["calm", "By Gauge"] }] });
+        var twice = new Rig(Stations.ReadingsTable with { Templates = [Stations.Calm with { Writes = ["windSpeed", "windSpeed"] }] });
+
+        Assert.Equal("Table weather.readings has two templates that answer to by gauge.", Assert.Throws<InvalidOperationException>(() => shared.Register.Of(shared.Board)).Message);
+        Assert.Equal("Table weather.readings's template calm writes windSpeed twice.", Assert.Throws<InvalidOperationException>(() => twice.Register.Of(twice.Board)).Message);
+    }
+
+    [Fact] // ADR-0016 note 50: an answer that leaves out a field the template declares is the registration's defect, and nothing is written
+    public void An_answer_that_is_not_the_templates_fields_throws()
+    {
+        // calm declares the wind's unit too, and the board's table answers the two it knows.
+        var rig = new Rig(Stations.ReadingsTable with { Templates = [Stations.Calm with { Writes = ["windSpeed", "windDirection", "unit"] }] });
+
+        var failure = Assert.Throws<InvalidOperationException>(() => rig.Preview("set R1 as calm"));
+
+        Assert.Equal("Template calm of weather.readings declares windSpeed, windDirection, unit and its table answered windSpeed, windDirection.", failure.Message);
+    }
 }

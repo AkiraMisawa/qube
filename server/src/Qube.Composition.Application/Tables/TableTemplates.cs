@@ -68,7 +68,7 @@ static class Templates
     }
 
     // The template the words begin with, by any of its words in any case, the longest run first, and how many words name it.
-    static (TableTemplate Template, int Words)? Named(IReadOnlyList<TableTemplate> templates, IReadOnlyList<string> words)
+    internal static (TableTemplate Template, int Words)? Named(IReadOnlyList<TableTemplate> templates, IReadOnlyList<string> words)
     {
         var said = templates.SelectMany(t => t.Words.Append(t.Name).Select(TableWords.Of).Distinct().Select(w => (Template: t, Own: w.Split(' '))));
         foreach (var (template, own) in said.OrderByDescending(x => x.Own.Length))
