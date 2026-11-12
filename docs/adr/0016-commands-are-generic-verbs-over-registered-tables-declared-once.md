@@ -2119,6 +2119,21 @@ has one button, edit; and `load trades` reads a synthetic store of booked trades
       `cancel` ends it; `price` is among them (Price takes committed state only). The verbs of the screen that
       change nothing (`find`, `sort`, `filter`, `select`, `copy`, `export`) stay.
     - **The line says the draft it is on**: the row and how many lines are pending.
+56. **`open <row>` is read by the server, beside the shell's `open <tab>` (§3, §10; 5c; DEFAULT).** §3 lists
+    `open <tab, view or row>` among the verbs of the client, and note 30 gave the shell one command for each tab.
+    - **`open <row>` is a verb of the screen that the server reads**, as it reads `find` and `select`: the row is
+      said as any command's rows are (an id, the end of one, its table where two tables have it), and with no
+      word it is the row the keyboard is on. It answers the page the one row whose dialog to open and the
+      revision it was read at, and invokes nothing. A line that names no row, or several, is refused: a dialog
+      is of one row.
+    - **`open <tab>` stays the shell's.** A line that is a tab's words is the tab's (`open csa`), and one that
+      is not is the server's to read (`open csa-b`). While what is typed still begins a command of the shell's,
+      the line lists those, so a tab's word half typed offers the tabs as it did; the same rule lets `new x`
+      offer `new xva`, which the server's `new` had taken from the list since step 3.
+    - **One draft is open at a time**: with a draft open, `open` is refused as every command but the draft's is
+      (note 55).
+    - **A row's button runs the same line** (`open <table> <key>`, ticket 16), so the button, the keys and the
+      line are one command (§10).
 
 ## Rejected
 
