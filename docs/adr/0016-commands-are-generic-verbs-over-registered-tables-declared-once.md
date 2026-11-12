@@ -2202,6 +2202,37 @@ has one button, edit; and `load trades` reads a synthetic store of booked trades
       lines again on the workspace as it now is, or to cancel. Nothing is read again unasked.
     - **A page may say one sentence above the form**, such as the pricer's that the simulated measures do not read the
       legs yet.
+    - *Changed as built (2026-11-12).* **The title is the row and how many lines are pending** ("2 pending"), not the
+      line's sentence of the draft under it: the count is what changes as the dialog is used.
+    - *Changed as built.* **What a field takes is its input's placeholder and its tip**, not text under it: a dialog of
+      forty fields reads better without forty hints. A field that may be empty says `empty` there.
+    - *Changed as built.* **The Cancel button, Escape and the close button discard the draft on the page and ask the
+      server nothing**, after asking the user where lines are pending: a draft is view state (§10), and one the
+      workspace has left must still close. `cancel` typed on the line is read by the server as before, and is read on
+      the workspace as it stands, so it closes a draft the workspace has left and one with a line that no longer reads
+      (note 55 had every reading be of the draft's revision).
+    - *Changed as built.* **A removed row keeps its Remove button**, where the bullet above gave it none: ExGrid's
+      Action Column draws the same buttons on every row. Pressed again, the server's refusal is said under the grid; the
+      removal is taken back among the pending lines.
+    - *Added as built.* **A table under the row is drawn without the field that names the row above** (a leg's trade):
+      every row listed has the draft's row there, so the form leaves the field out.
+    - *Added as built.* **A plain number is drawn with its digits grouped** (`3,600,000,000`), in a field and in a cell,
+      as every grid of the workbench draws one. A line reads the grouped number as it reads the plain one, so what is
+      drawn is still what a line writes. Every other value is drawn as the form writes it (`5bn`, `0.448%`), and a date
+      is typed as text (`2027-03-31`): no date picker is drawn yet.
+    - *Added as built.* **A line is sent once, and read on the draft as it is.** A field the keyboard leaves before the
+      form of its line is drawn does not send the line again. A line typed for a draft is read on the draft as its turn
+      finds it, and a reading of a draft that changed meanwhile does nothing and says so (spine 6).
+    - *Added as built.* **The line is typed over the dialog**: it is drawn above the dialog, says the draft it is on,
+      and lists every command a draft does not read as unavailable, naming the dialog that is open (note 55's
+      `draftCommands`). Escape pressed in the line closes the line alone.
+    - *Added as built.* **A row's button** (ticket 16): the trade grids and the CSA grid have a column of one button,
+      Edit, beside the row's key, with no header. It asks the page's door to read `open <key>` in the view of the grid's
+      table, where note 56 wrote `open <table> <key>`: the view says the table, so the page needs no table's word. The
+      press, Space on the button's cell and the line are so one command, and the dialog a button opens raises no notice.
+      A key that is not one word is refused on the page, never sent to be read as something else. At 390px the column
+      moves `Ccy` out of the trade grids' first view (Trade, Edit and Product stay, and the grid scrolls to the rest):
+      accepted for a button in view at every width.
 
 ## Rejected
 
