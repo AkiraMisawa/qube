@@ -11,6 +11,9 @@ import { PANEL_ID, type KeptPanels, type WorkspaceStore } from '../platform/work
 // tabs keep their own and a new tab starts with none. A value this version cannot read is not applied, and the shell
 // says so.
 
+/** The area each floating panel was floated from: the area's id, by the panel's id. */
+export type FloatedFrom = Readonly<Record<string, string>>;
+
 interface KeptArrangement {
   /** The last arrangement dockview drew while it fitted the panels' space (ADR-0018 §5): the strip waits with it. */
   readonly layout: SerializedDockview | undefined;
@@ -18,9 +21,9 @@ interface KeptArrangement {
    * The area each floating panel was floated from, by the panel's id, so that `dock panel` puts it back there
    * (ADR-0018 §3) after a reload, and after the panels were a strip a while, as before.
    */
-  readonly floatedFrom: Readonly<Record<string, string>>;
+  readonly floatedFrom: FloatedFrom;
   keep(layout: SerializedDockview | undefined): void;
-  keepFloatedFrom(floatedFrom: Readonly<Record<string, string>>): void;
+  keepFloatedFrom(floatedFrom: FloatedFrom): void;
 }
 
 export const keptArrangement = createStore<KeptArrangement>()((set) => ({
@@ -44,7 +47,7 @@ export interface KeptTab {
   readonly version: typeof VERSION;
   readonly panels: KeptPanels;
   readonly layout: SerializedDockview | undefined;
-  readonly floatedFrom: Readonly<Record<string, string>>;
+  readonly floatedFrom: FloatedFrom;
 }
 
 class Unreadable extends Error {}
@@ -84,14 +87,14 @@ function checkPart(value: unknown, path: string): void {
   else throw new Unreadable(`${path}.type is not a part of a grid`);
 }
 
-/** Checks a kept arrangement as far as the shell reads it, so that one this version cannot read is never drawn. */
 /** Checks that a floating area is placed from exactly one of an axis's two sides, by a number of pixels. */
-function anchor(position: Readonly<Record<string, unknown>>, one: string, other: string, path: string): void {
-  const [side, ...more] = [one, other].filter((s) => position[s] !== undefined);
-  if (side === undefined || more.length > 0) throw new Unreadable(`${path} is placed from neither or both of ${one} and ${other}`);
+function checkAnchor(position: Readonly<Record<string, unknown>>, sides: readonly ['left', 'right'] | readonly ['top', 'bottom'], path: string): void {
+  const [side, ...more] = sides.filter((s) => position[s] !== undefined);
+  if (side === undefined || more.length > 0) throw new Unreadable(`${path} is placed from neither or both of ${sides[0]} and ${sides[1]}`);
   number(position[side], `${path}.${side}`);
 }
 
+/** Checks a kept arrangement as far as the shell reads it, so that one this version cannot read is never drawn. */
 function checkLayout(value: unknown): void {
   const layout = record(value, 'layout');
   const grid = record(layout.grid, 'layout.grid');
@@ -109,8 +112,8 @@ function checkLayout(value: unknown): void {
       number(position.width, `${at}.position.width`);
       number(position.height, `${at}.position.height`);
       // Placed from one side of each axis (dockview's AnchoredBox): the title bar's keys move it from there.
-      anchor(position, 'left', 'right', `${at}.position`);
-      anchor(position, 'top', 'bottom', `${at}.position`);
+      checkAnchor(position, ['left', 'right'], `${at}.position`);
+      checkAnchor(position, ['top', 'bottom'], `${at}.position`);
       if (floating.data !== undefined) checkArea(floating.data, `${at}.data`);
       else checkPart(record(floating.grid, `${at}.grid`).root, `${at}.grid.root`);
     });

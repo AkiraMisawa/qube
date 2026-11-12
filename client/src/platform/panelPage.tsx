@@ -17,7 +17,8 @@ const PanelWidth = createContext<number | undefined>(undefined);
 export function PanelPage({ children }: { readonly children: ReactNode }) {
   const { ref, width } = useElementSize<HTMLDivElement>();
   return (
-    <div ref={ref} className="qube-panel-page">
+    // The width the page was last told, for what reads the page only once it has been laid out for it (the tests).
+    <div ref={ref} className="qube-panel-page" data-panel-width={width > 0 ? width : undefined}>
       <div className="qube-panel-page-body">
         {width > 0 && <PanelWidth.Provider value={width}>{children}</PanelWidth.Provider>}
       </div>

@@ -489,7 +489,7 @@ export const REOPEN: StripVerb = {
     }
     const beside = neighbourTitle(there.shown) ?? neighbourTitle(there.panels.find((id) => id !== panel.id));
     if (now?.id !== there.id) on.areas.sendTo(panel.id, there.id);
-    // In one area there is no other place it could be.
+    // Back in its area, among others, it is said; in one area there is no other place it could be.
     if (on.areas.areas().length > 1) notify('done', `Reopened ${panelLabel(panel)}${beside === undefined ? '' : ` beside ${beside}`}, in the area it stood in.`);
   },
 };

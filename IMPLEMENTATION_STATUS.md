@@ -2899,8 +2899,9 @@ proposes an arrangement, which he applies. ADR-0018 step 1, one pull request (`d
 |---|---|
 | `dotnet test server/Qube.slnx` | 1535 passed |
 | Client: `npm run typecheck`, `npm test`, `npm run build` | typecheck clean; 461 tests in 44 files passed; built |
-| `npx playwright test` (Chromium, headless, Linux), against the built client, after main's step 5c was rebased in and after both reviews' changes and the width fix | 123 passed (one earlier run: 122, `xva.spec.ts:2459`, below) |
+| `npx playwright test` (Chromium, headless, Linux), against the built client, after main's step 5c was rebased in and after the three reviews' changes | 124 passed (an earlier run: 122 of 123, `xva.spec.ts:2459`, below) |
 | `e2e/areas.spec.ts`, which this pull request adds, with `--repeat-each=3` | 24 passed |
+| `e2e/scrollbars.spec.ts`, which this pull request adds (Chromium with its scrollbars shown), with `--repeat-each=3` | 3 passed |
 | ADR-0018 §6's measurement: three XVA pages of 10,000 trades at 1440px, in three areas and in one | Passes: the pages shown and one tab per panel; a tab's switch 92ms in one area, 89ms in three (below) |
 | The areas, a tab's menu, a floating area, the AI's card and the strip at 1440 dark and light and 390px | Looked at, in the pull request's screens |
 
@@ -2945,8 +2946,8 @@ offered to the agent, and no model has been asked to arrange panels. The XVA pag
 - Other browser windows (step 2) and parts of a page with links (step 3) are not built.
 - The finger drag is checked in Chromium with touch emulated, not on a phone or a tablet.
 - dockview 8.9.0 is pinned exactly; its own context menu, overflow list and theme are not used.
-- One of four full browser runs on this branch failed `xva.spec.ts:2459` (ADR-0016 notes 43 and 44, from main): after
-  `select where ccy=USD` and Enter, the line was still open five seconds later. The test passed in the other three
+- One of five full browser runs on this branch failed `xva.spec.ts:2459` (ADR-0016 notes 43 and 44, from main): after
+  `select where ccy=USD` and Enter, the line was still open five seconds later. The test passed in the other four
   runs and six times of six alone. This branch changes when the line builds its list of commands again (as the
   arrangement changes), not what Enter does. Not explained yet; the host had by then priced three workspaces of 10,000
   trades for the measurement.
@@ -2986,8 +2987,18 @@ A second review, of those fixes alone:
 
 Found by the full browser run that followed: **a page read its width inside the shell's gutter**, 16px less than its
 panel, so in one area of a 768px window the trace drilled in where it had been a tree. `simm.spec.ts` had passed by
-reading the trace before the browser reported the width. The panel's width is now its whole width, the gutter
-included (`PanelPage`), as the window's was.
+reading the trace before the browser reported the width; it now waits for the page to be told its width
+(`data-panel-width`). The panel's width is now its whole width, the gutter included (`PanelPage`), as the window's was.
+
+A third review, of that fix, found with scrollbars that take room (Windows, Linux; checked in Chromium with its
+scrollbars shown): an area's scrollbar took 15px from the width its page read, and a window from 768 to 782px stayed
+areas or strip by whichever it was drawn in first, since the strip's document scrollbar narrowed the panels' space.
+An area's page now scrolls inside the panel's page, and the panels' space counts the document's scrollbar, read with
+the panels' width in one callback (read apart, the two added up for a render to a width neither layout had, and at
+760px the strip and the areas were drawn by turns). `e2e/scrollbars.spec.ts` launches Chromium with its scrollbars
+shown and crosses 768px both ways: each width is the same mode whichever it came from, and the page reads its panel's
+width. The same review: `reopen panel`'s notices are as ADR-0018's note now says, the Shift-press refusal says "the
+only area docked", and the kept floating area's check is named and typed as the others.
 
 ## Next
 

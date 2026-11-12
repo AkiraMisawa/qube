@@ -182,7 +182,11 @@ pull request.
   content, which a `size` container would not let it), and the trace view reads it. The container is the panel's
   whole width, reaching across the shell's gutter at each side, and the page is drawn inside the gutter: a page in one
   area of a 768px window reads 768px, as it read the window before. Measured inside the gutter it read 752px there,
-  and the trace drilled in at widths where it had been a tree. The pricer's three sections, its
+  and the trace drilled in at widths where it had been a tree. An area's page scrolls inside the panel's page, so a
+  scrollbar beside it (Windows, Linux) takes nothing from the width the page reads. In the strip the document scrolls:
+  its scrollbar is counted in the panels' space, so that a window just past 768px is areas or strip the same whichever
+  it was drawn in first (it was each, by turns, with the scrollbar left out), and a page in the strip reads the width
+  it has beside that scrollbar. The pricer's three sections, its
   full-height button and `xva.css` still read the window: ADR-0018 §11 changes them last, after the pull requests on
   the pricer's files, and ADR-0016's step 5 (5d, the scenarios table and `load trades`) is still being built on them.
   Until then an XVA page in an area narrower than 768px is laid out as the window's width says, and in an area shorter

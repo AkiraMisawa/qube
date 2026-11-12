@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef, useState, type RefObject } from 'react';
 import { Kbd, Stack, Text } from '@mantine/core';
 import { useElementSize } from '@mantine/hooks';
 import { registerAiAnswer, registerAiEffect, registerAiSharedContext } from '../ai/effects';
@@ -30,9 +30,11 @@ export function Panels() {
   useEffect(() => registerAiSharedContext(() => panelsContext(store.getState())), [store]);
   const count = useWorkspace((s) => s.panels.length);
   const kept = useKeptLayout();
-  // The width is the panels' own, edge to edge; the height is the window's below the header, which the strip does not
-  // fill but would have.
-  const { ref, width } = useElementSize<HTMLDivElement>();
+  // The width is the panels' own, edge to edge, with the document's scrollbar where it takes room: the strip's page
+  // scrolls the document, the areas do not, so without it a window a scrollbar's width past 768px would stay in
+  // whichever it was drawn in first. The height is the window's below the header, which the strip does not fill but
+  // would have.
+  const { ref, width } = usePanelsWidth();
   const { ref: below, height } = useElementSize<HTMLDivElement>();
   const room = { width, height };
   const measured = width > 0 && height > 0;
@@ -45,6 +47,30 @@ export function Panels() {
       )}
     </div>
   );
+}
+
+/**
+ * The panels' width edge to edge, with the width the document's own scrollbar takes from the window (none where the
+ * document does not scroll, or where the scrollbar is drawn over the page: macOS, a phone). Both are read in one
+ * callback, as the browser reports a change of the panels' box, the document's or the window's: a scrollbar coming or
+ * going changes the two in one layout, and read apart they would add up, for a render, to a width neither layout had,
+ * which drew the areas and the strip by turns.
+ */
+function usePanelsWidth(): { readonly ref: RefObject<HTMLDivElement | null>; readonly width: number } {
+  const ref = useRef<HTMLDivElement>(null);
+  const [width, setWidth] = useState(0);
+  useEffect(() => {
+    const panels = ref.current;
+    if (panels === null) throw new Error('The panels\' space is not drawn.');
+    const html = document.documentElement;
+    const read = () => setWidth(panels.getBoundingClientRect().width + window.innerWidth - html.clientWidth);
+    const observer = new ResizeObserver(read);
+    observer.observe(panels);
+    observer.observe(html);
+    window.addEventListener('resize', read);
+    return () => { observer.disconnect(); window.removeEventListener('resize', read); };
+  }, []);
+  return { ref, width };
 }
 
 function NothingOpen() {

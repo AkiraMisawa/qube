@@ -437,7 +437,7 @@ export function PanelAreas({ room }: { readonly room: Size }) {
     const docked = onNow(store.getState()).areas.areas().filter((a) => !a.floating);
     if (docked.length !== 1 || docked[0]?.id !== pressed.id) return;
     event.preventDefault();
-    notify('refused', `${FLOAT.words}: It is the only area in the window; floating it would leave none docked.`);
+    notify('refused', `${FLOAT.words}: It is the only area docked in the window; floating it would leave none docked.`);
   };
   // The middle button closes a tab, as a browser's does; held down it would start the browser's own scrolling.
   const onMouseDown = (event: MouseEvent<HTMLDivElement>) => {

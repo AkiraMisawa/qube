@@ -56,7 +56,10 @@ export interface Arrangement {
   gather(areaId: string, order: readonly string[]): void;
   /** Moves the panel to this place among its area's panels. */
   moveWithin(panelId: string, index: number): void;
-  /** Draws this arrangement in place of the one drawn (`arrange`, ADR-0018 §8); it names every panel open. */
+  /**
+   * Draws this arrangement in place of the one drawn (`arrange`, ADR-0018 §8); it names every panel open. Where its
+   * floating panels came from is not part of it: the caller keeps that after the drawing (`keptArrangement`).
+   */
   replace(layout: SerializedDockview): void;
 }
 

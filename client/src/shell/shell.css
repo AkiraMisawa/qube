@@ -213,7 +213,8 @@
 
 /* The panels' space (ADR-0018 §5): the window less the header and the AI pane, measured edge to edge, so the shell's
    padding is cancelled here and given back to the strip. `.qube-panels-room` is the space's height below the header,
-   which the strip does not fill but an arrangement would. */
+   which the strip does not fill but an arrangement would. The strip's gutter, and an area's (`.qube-area-page`), are
+   the shell's padding exactly: a panel's page reaches across it to be the panel's whole width (`.qube-panel-page`). */
 .qube-panels {
   margin-inline: calc(var(--app-shell-padding) * -1);
 }
@@ -399,12 +400,20 @@
   border: 2px solid var(--mantine-color-signal-filled);
 }
 
-/* An area's page scrolls inside it, with the room note 7's strip gave a page: the shell's gutter (`.qube-panel-page`
-   reaches across it at each side). */
+/* An area's page scrolls inside it, with the room note 7's strip gave a page: the shell's gutter at each side, which
+   `.qube-panel-page` reaches across. It scrolls inside the panel's page, so that a scrollbar beside it (Windows,
+   Linux) takes nothing from the width the page reads, as a window's never did. */
 .qube-area-page {
   height: 100%;
+  padding-inline: var(--app-shell-padding);
+}
+.qube-area-page > .qube-panel-page {
+  height: 100%;
+}
+.qube-area-page > .qube-panel-page > .qube-panel-page-body {
+  height: 100%;
   overflow: auto;
-  padding: var(--app-shell-padding);
+  padding-block: var(--app-shell-padding);
 }
 
 /* The list at the end of an area's strip stands on its line, as the strip's does. */

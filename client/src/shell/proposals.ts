@@ -7,7 +7,7 @@ import type { Notify } from '../platform/notices';
 import type { Api } from '../platform/api';
 import { panelLabel, type Panel, type PanelDraft, type WorkspaceState, type WorkspaceStore } from '../platform/workspace/workspaceStore';
 import { areaHolding, currentArrangement, FLOAT_PLACES, floatBox, nextAreaId, SIDES, type Arrangement, type FloatPlace, type Side } from './arrangement';
-import { keptArrangement } from './keptPanels';
+import { keptArrangement, type FloatedFrom } from './keptPanels';
 import { AREA_MIN, AREAS_FROM, oneArea, openPanels, panelState, reconciled, type Size } from './layout';
 
 // The AI's proposals of an arrangement (ADR-0018 §8, CONFIRMED by the owner: the AI proposes, the user applies). The
@@ -314,7 +314,7 @@ export function arrangingOf(workspace: { readonly store: WorkspaceStore; readonl
 let last: {
   readonly n: number;
   readonly before: SerializedDockview | undefined;
-  readonly floatedFrom: Readonly<Record<string, string>>;
+  readonly floatedFrom: FloatedFrom;
   readonly opened: readonly string[];
 } | undefined;
 
@@ -466,7 +466,7 @@ function applied(on: Arranging, proposal: Proposal, drafts: readonly { readonly 
  * Keeps an arrangement for the browser tab with the area each of its floating panels came from, and draws it where the
  * panels stand in areas; in the strip it is drawn when the room comes back (ADR-0018 §5, §7).
  */
-function keepDrawn(areas: Arrangement, layout: SerializedDockview, floatedFrom: Readonly<Record<string, string>>): void {
+function keepDrawn(areas: Arrangement, layout: SerializedDockview, floatedFrom: FloatedFrom): void {
   keptArrangement.getState().keep(layout);
   if (areas.strip === undefined) areas.replace(layout);
   // After the drawing, which dockview may tell as moves of the panels it draws.

@@ -146,9 +146,10 @@ window, and in a short area its grids scroll under its result dock as they do in
 
 Two sentences of §4 are read so, DEFAULTs put to the owner with that pull request too. While the panels stand in one
 area, no area is framed: its selected tab already says which panel the line acts on, as in the strip, and the frame
-comes with a second area. And `reopen panel` says where it put the panel only where there is more than one area: in
-one area, or in the strip, the panel is where it is seen, and a panel closed while the panels were one strip stood in
-no area, so it opens beside the active panel, as any panel does.
+comes with a second area. And `reopen panel` says where it put the panel where the area it stood in has gone, and,
+back in that area, only where there is more than one area: in one area, or in the strip, the panel is where it is seen,
+and a panel closed while the panels were one strip stood in no area, so it opens beside the active panel, as any panel
+does.
 
 - **The pointer.** A tab dragged onto an area's edge splits it there, into another strip joins that area, and with
   Shift held floats. A floating area moves by its title bar (dockview's own, above its tab strip) and is resized by its

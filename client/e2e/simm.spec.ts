@@ -391,6 +391,8 @@ test('ADR-0012 §6, §7: the SIMM tab shows a card per direction, marks the regi
     await expect(page.locator('html')).toHaveAttribute('data-mantine-color-scheme', scheme);
     for (const width of [1440, 992, 768]) {
       await page.setViewportSize({ width, height: 900 });
+      // Read once the page has been told its panel's width, the window's here: one panel, the AI pane shut.
+      await expect(page.locator('.qube-panel-page')).toHaveAttribute('data-panel-width', String(width));
       await expect(page.getByTestId('trace-view')).toHaveAttribute('data-layout', 'tree');
       // The view keeps its fold from pane to pane, so the matrices above are drawn, and measured, at every width.
       await expect(page.locator('[data-testid="trace-parameter"][data-name="rho"]')).toBeVisible();
