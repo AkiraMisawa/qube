@@ -13,11 +13,14 @@ public sealed record LineDraft(string Table, string Key, long Revision, IReadOnl
 /// <summary>A field of a draft's row: its value as a command writes it, and whether the draft's lines changed it.</summary>
 public sealed record DraftField(string Name, string Title, string? Group, bool Editable, string Written, bool Changed);
 
-/// <summary>A row under a draft's row as the draft leaves it: each field's value as written, and whether the draft made the row or removed it.</summary>
-/// <param name="Mark"><see cref="Made"/>, <see cref="Removed"/>, or null for a row the draft found and left.</param>
+/// <summary>
+/// A row under a draft's row as the draft leaves it: each field's value as written, and what the draft did to the row.
+/// A row the draft removed is as it was when the draft was opened.
+/// </summary>
+/// <param name="Mark"><see cref="Made"/>, <see cref="Changed"/>, <see cref="Removed"/>, or null for a row the draft found and left.</param>
 public sealed record DraftRow(string Key, IReadOnlyList<string> Written, string? Mark)
 {
-    public const string Made = "made", Removed = "removed";
+    public const string Made = "made", Changed = "changed", Removed = "removed";
 }
 
 /// <summary>A table under a draft's row: its fields' titles, and the rows under the row.</summary>
@@ -41,7 +44,7 @@ static class DraftForms
         var (before, after) = (Row(table, opened, draft.Key), Row(table, left, draft.Key));
         return new(draft.Table, draft.Key, draft.Revision,
             [.. table.Descriptor.Fields.Select(f => new DraftField(f.Name, f.Title, f.Group, f.Editable, Written(f, after), Written(f, after) != Written(f, before)))],
-            [.. tables.Where(t => t.Descriptor.Under == draft.Table).Select(under => Under(under, draft.Key, left))],
+            [.. tables.Where(t => t.Descriptor.Under == draft.Table).Select(under => Under(under, draft.Key, opened, left))],
             lines);
     }
 
@@ -50,7 +53,21 @@ static class DraftForms
 
     static string Written(TableField field, ITableRow row) => FieldForms.Write(field.Spec, row.Value(field.Name));
 
-    static DraftTable Under(BoundTable table, string key, WorkspaceState left) => new(table.Descriptor.TableId, table.Descriptor.Title,
-        [.. table.Descriptor.Fields.Select(f => f.Title)],
-        [.. table.Table.Rows(left).Where(r => r.Under == key).Select(r => new DraftRow(r.Key, [.. table.Descriptor.Fields.Select(f => Written(f, r))], null))]);
+    // The rows the draft was opened on in their order, each as the draft leaves it or, removed, as it was; then the rows
+    // the draft made. A row made and removed within the draft is in neither state, and is not listed.
+    static DraftTable Under(BoundTable table, string key, WorkspaceState opened, WorkspaceState left)
+    {
+        var fields = table.Descriptor.Fields;
+        IReadOnlyList<string> Row(ITableRow row) => [.. fields.Select(f => Written(f, row))];
+        var (before, after) = (Rows(opened), Rows(left));
+        var (was, now) = (before.ToDictionary(r => r.Key, Row), after.ToDictionary(r => r.Key, Row));
+        return new(table.Descriptor.TableId, table.Descriptor.Title, [.. fields.Select(f => f.Title)],
+        [
+            .. before.Select(r => !now.TryGetValue(r.Key, out var written) ? new DraftRow(r.Key, was[r.Key], DraftRow.Removed)
+                : new DraftRow(r.Key, written, written.SequenceEqual(was[r.Key]) ? null : DraftRow.Changed)),
+            .. after.Where(r => !was.ContainsKey(r.Key)).Select(r => new DraftRow(r.Key, now[r.Key], DraftRow.Made)),
+        ]);
+
+        List<ITableRow> Rows(WorkspaceState state) => [.. table.Table.Rows(state).Where(r => r.Under == key)];
+    }
 }

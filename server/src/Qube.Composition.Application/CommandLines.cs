@@ -335,7 +335,7 @@ public sealed class CommandLines
     /// </summary>
     public DraftForm Draft(string workspaceId, Caller caller, LineDraft draft)
     {
-        var opened = WorkspaceCommands.Owned(workspaces, workspaceId, caller);
+        var opened = Opened(workspaceId, caller, draft);
         var named = Of(opened).ToList();
         var (left, read) = (opened, new List<DraftLine>());
         foreach (var line in draft.Lines)
@@ -350,6 +350,18 @@ public sealed class CommandLines
             read.Add(new(line, changes.Said, null));
         }
         return DraftForms.Of(draft, tables.Of(left), opened, left, read);
+    }
+
+    // The caller's workspace at the revision the draft was opened at. One it has left is refused with what moved it
+    // (note 54): the draft's lines were accepted on other rows than the workspace now has.
+    WorkspaceState Opened(string workspaceId, Caller caller, LineDraft draft)
+    {
+        var state = WorkspaceCommands.Owned(workspaces, workspaceId, caller);
+        if (state.Revision == draft.Revision) return state;
+        const int shown = 3;
+        var since = workspaces.Since(state, draft.Revision);
+        var moved = since.Count <= shown ? TableWords.And(since) : $"{string.Join(", ", since.Take(shown))} and {since.Count - shown} more";
+        throw new WorkspaceRefused("RevisionMoved", $"The draft of {draft.Key} was opened at revision {draft.Revision} and the workspace is at {state.Revision}, after {moved}.");
     }
 
     // What a whole line would write on a state: its command's changes, where the command's line may be a draft's.
