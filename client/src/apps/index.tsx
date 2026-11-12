@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useState, type ReactNode } from 'react';
-import { Button, Group, Modal, NumberInput, Select, Stack, Text, TextInput } from '@mantine/core';
+import { Button, Group, Modal, NumberInput, Select, Stack, Text } from '@mantine/core';
 import { useQuery } from '@tanstack/react-query';
 import { CommandRefused, type Command } from '../platform/commands/commands';
 import { useWorkspace, useWorkspaceContext } from '../platform/workspace/WorkspaceProvider';
@@ -12,6 +12,8 @@ import { measureNamed, xvaPageOf } from './xva/commands';
 import { XvaWorkspacePanel } from './xva/XvaWorkspacePanel';
 import { registerAiContext, registerAiEffect } from '../ai/effects';
 import { registerGridFocus } from '../shell/places';
+import { isIsoDate } from '../platform/forms';
+import { IsoDateInput } from '../platform/IsoDateInput';
 import { httpTraceApi, type TraceApi } from '../platform/traces/api';
 import { TRACE_VIEW, explainTyped, openTrace, requestTerm, setTraceView, traceAddressOf } from '../platform/traces/open';
 
@@ -330,12 +332,14 @@ function NewXvaWorkspace({ onDone }: { readonly onDone: () => void }) {
   const registrations = useQuery({ queryKey: ['xva', 'registrations'], queryFn: () => xvaApi.registrations(), staleTime: Infinity });
   const [registration, setRegistration] = useState<string | null>(null);
   const [valueDate, setValueDate] = useState('2026-10-26');
+  const [valueDateError, setValueDateError] = useState<string | undefined>(undefined);
   const [size, setSize] = useState<number | string>(1000);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | undefined>(undefined);
 
   const submit = async () => {
     if (registration === null) { setError('Choose a counterparty.'); return; }
+    if (!isIsoDate(valueDate)) { setValueDateError('A date as yyyy-MM-dd is required.'); return; }
     if (typeof size !== 'number' || !Number.isInteger(size) || size < 0) { setError('The portfolio size is a whole number.'); return; }
     setBusy(true);
     try {
@@ -354,7 +358,8 @@ function NewXvaWorkspace({ onDone }: { readonly onDone: () => void }) {
       <Stack gap="sm">
         <Select label="Counterparty" data-autofocus searchable value={registration} onChange={setRegistration} error={error}
           data={(registrations.data ?? []).map((r) => ({ value: r.key, label: `${r.key} · ${r.name}` }))} />
-        <TextInput label="Value date" type="date" value={valueDate} onChange={(e) => setValueDate(e.currentTarget.value)} />
+        <IsoDateInput label="Value date" value={valueDate} error={valueDateError}
+          onChange={(text) => { setValueDate(text); setValueDateError(undefined); }} />
         <NumberInput label="Existing trades (synthetic)" min={0} max={100000} allowDecimal={false} value={size} onChange={setSize} />
         <Group justify="flex-end"><Button type="submit" loading={busy}>Create</Button></Group>
       </Stack>
@@ -369,7 +374,7 @@ function NewRatesWorkspace({ onDone }: { readonly onDone: () => void }) {
   const [error, setError] = useState<string | undefined>(undefined);
 
   const submit = async () => {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(valuationDate)) { setError('Choose a valuation date.'); return; }
+    if (!isIsoDate(valuationDate)) { setError('A date as yyyy-MM-dd is required.'); return; }
     setBusy(true);
     try {
       const created = await ratesApi.create(valuationDate);
@@ -385,7 +390,8 @@ function NewRatesWorkspace({ onDone }: { readonly onDone: () => void }) {
   return (
     <form onSubmit={(e) => { e.preventDefault(); void submit(); }}>
       <Stack gap="sm">
-        <TextInput label="Valuation date" type="date" data-autofocus value={valuationDate} error={error} onChange={(e) => setValuationDate(e.currentTarget.value)} />
+        <IsoDateInput label="Valuation date" data-autofocus value={valuationDate} error={error}
+          onChange={(text) => { setValuationDate(text); setError(undefined); }} />
         <Group justify="flex-end"><Button type="submit" loading={busy}>Create</Button></Group>
       </Stack>
     </form>

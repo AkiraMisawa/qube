@@ -40,6 +40,36 @@ async function goTo(page: Page, column: number): Promise<void> {
   for (let i = 0; i < column; i++) await page.keyboard.press('ArrowRight');
 }
 
+// ADR-0009, docs/design-guidelines.md §10: Escape shuts a date field's calendar, not the dialog the field is in (a
+// Mantine Modal hears Escape first, on the window); and a toolbar's date whose text is not one moves nothing, in words.
+test('ADR-0009: Escape shuts a date field\'s calendar before its dialog, and a valuation date that is not a date is refused in words', async ({ page }) => {
+  await open(page);
+  await command(page, 'new rates');
+  const dialog = page.getByRole('dialog', { name: 'New Rates workspace' });
+  const field = dialog.getByLabel('Valuation date');
+  await expect(field).toBeFocused();
+  await field.click();
+  const day = page.getByRole('button', { name: '27 October 2026' });
+  await expect(day).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(day).toBeHidden();
+  await expect(dialog).toBeVisible();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('tab', { name: 'Rates 2026-10-27' })).toHaveAttribute('aria-selected', 'true');
+  await settled(page, 'Lines');
+
+  const date = page.getByRole('tabpanel').getByLabel('Valuation date');
+  await date.click();
+  await page.keyboard.press('ControlOrMeta+A');
+  await page.keyboard.type('2026-02-30');
+  await page.keyboard.press('Enter');
+  await expect(notice(page)).toHaveAttribute('data-kind', 'refused');
+  await expect(notice(page)).toContainText('The valuation date was not moved: 2026-02-30 is not a date as yyyy-MM-dd, so it stays 2026-10-27.');
+  await expect(date).toHaveValue('2026-02-30');
+  await expect(date).toHaveAttribute('aria-invalid', 'true');
+  await expect(page.getByRole('tab', { name: 'Rates 2026-10-27' })).toBeVisible();
+});
+
 test('C40, docs/07: a line typed by keyboard ticks live, is captured and priced once', async ({ page }) => {
   await open(page);
   await newWorkspace(page);
