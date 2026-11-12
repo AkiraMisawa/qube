@@ -200,10 +200,15 @@ pull request.
   scroll (it overflowed by 18px before). In an area shorter than its parts need (split down at 1440 by 900) the grid
   keeps its six rows and the page scrolls inside its area, not the document; its trade grids scroll under the result
   dock there and their headers draw over it (ExGrid's header stacks at 4, the dock at 3), as in a window that short.
-  A dialog (a row's draft) still reads the window: it is drawn over the window, not in the area.
-- **Container queries are written in pixels.** A container query's `em` is the container's font size, 13px in this
-  theme, where a media query's is 16px: step 1's trace put its formula beside the tree from 806px (`62em`), not the
-  theme's `md`, 992px, and the pricer's `48em` would have been 624px. The trace's test now reads 950px, below `md`.
+  The context bar's fields wrap by the panel too (the shell's toolbar rules read the panel as well as the window), and
+  so do a trace's roots (spot IM's cards in the dock) and a declarative view's columns (the Run panel's), which were
+  Mantine's `SimpleGrid` on the window. A dialog (a row's draft) still reads the window: it is drawn over the window,
+  not in the area.
+- **Container queries are written in pixels, in the range syntax.** A container query's `em` is the container's font
+  size, 13px in this theme, where a media query's is 16px: step 1's trace put its formula beside the tree from 806px
+  (`62em`), not the theme's `md`, 992px, and the pricer's `48em` would have been 624px. The trace's test now reads
+  950px, below `md`. And an area's width is fractional, so a query is `width < 768px` / `width >= 768px`, never
+  `max-width: 767.98px` beside `min-width: 768px`, which both miss 767.99px.
 - **A change between the strip and the areas draws the pages anew** (ADR-0018 §5): a page's own state, such as an
   open trace or an input tab, starts again. The browser tests that cross 768px open again what they read after.
 

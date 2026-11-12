@@ -120,8 +120,11 @@
    A toolbar field is at least 14rem wide there: a date or a recovery stays readable, two fields that would squeeze
    each other take a row each, and Price still fits beside the field before it. `sm` is the panel's width, not the
    window's (ADR-0010 §1's note of 2026-11-12, ADR-0018 §5): a pricer in a 600px area is the three tabs. */
-@container qube-panel (max-width: 767.98px) {
+@container qube-panel (width < 768px) {
   .qube-xva .qube-toolbar-field { flex: 1 1 14rem; }
+  /* A wide field (the counterparty) keeps its row, as the shell's toolbar gives it: the 14rem above, read after the
+     shell's rule, left it beside the value date in a 720px area, where two such fields fit. */
+  .qube-xva .qube-toolbar-field--wide { flex-basis: 100%; }
   /* The measures' toggles take a row of their own and wrap: five titles squeezed into one row were cut to `CV.` and
      `Spot I` (seen at 390px once spot IM registered, 2026-11-08), and a title cut is a control the user cannot read. */
   .qube-xva .qube-toolbar-field--measures { flex-basis: 100%; flex-wrap: wrap; }
@@ -133,20 +136,19 @@
   .qube-xva-inputs-body { height: auto; }
   .qube-xva-result-body { max-height: none; }
   .qube-xva-dock { position: static; border-top: 0; }
-  /* The Trades tab has the trades alone under the context bar, which takes about five rows on a phone. */
+  /* The Trades tab has the trades alone under the context bar, which takes about five rows on a phone: 21.5rem is the
+     30rem the page took from the window before there were areas, less the phone's shell the room has taken already
+     (the 82px header, the 31px strip and three 8px gutters, 137px), rounded: 343px. */
   .qube-xva-trades { height: max(20rem, calc(var(--qube-panel-room) - 21.5rem)); }
   .qube-xva .qube-xva-wide-only { display: none; }
 }
 
-/* The switch between the three parts is there only below `sm`. */
-@container qube-panel (min-width: 768px) {
+/* From `sm` up: the switch between the three parts is not there. And widened (owner, 2026-11-08), the dock covers the
+   input tabs and the trade grids: it is the page's part below the context bar, no longer pinned to the panel's bottom,
+   and as high as what it shows; the page scrolls down it, never sideways. Below `sm` the Results part is already the
+   page's whole part (ADR-0010 §1). */
+@container qube-panel (width >= 768px) {
   .qube-xva .qube-xva-sections { display: none; }
-}
-
-/* Widened (owner, 2026-11-08), the dock covers the input tabs and the trade grids from `sm` up: it is the page's part
-   below the context bar, no longer pinned to the panel's bottom, and as high as what it shows; the page scrolls down
-   it, never sideways. Below `sm` the Results part is already the page's whole part (ADR-0010 §1). */
-@container qube-panel (min-width: 768px) {
   .qube-xva[data-dock='full'] > [data-part='inputs'],
   .qube-xva[data-dock='full'] > [data-part='trades'] { display: none; }
   .qube-xva[data-dock='full'] > .qube-xva-dock { position: static; border-top: 0; }
@@ -170,7 +172,7 @@
 /* The list's width: a scenario's name, its shift count and its two buttons on one line, geometry the theme has no
    name for (docs/design-guidelines.md §2). */
 .qube-xva-scenarios-list { flex: 0 0 22rem; min-width: 0; }
-@container qube-panel (max-width: 767.98px) {
+@container qube-panel (width < 768px) {
   .qube-xva-scenarios { flex-direction: column; }
   .qube-xva-scenarios-grid { width: 100%; }
   .qube-xva-scenarios-list { flex-basis: auto; width: 100%; }
@@ -183,7 +185,7 @@
   grid-template-columns: minmax(0, 1fr);
   gap: var(--mantine-spacing-sm);
 }
-@container qube-panel (min-width: 1200px) {
+@container qube-panel (width >= 1200px) {
   .qube-xva-pair[data-pair] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 

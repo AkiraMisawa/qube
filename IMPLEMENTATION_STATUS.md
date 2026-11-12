@@ -3128,7 +3128,10 @@ on the pricer's files (ADR-0018 §11).
 - **The pricer reads its panel's width.** Below 768px of its area it is the three tabs under the context bar, as on a
   phone, and its dock has no Full height; from 768px it is the one screen. The profile's chart and table, and two
   measures' deltas, stand side by side from 1200px of its area. `xva.css` reads the panel by container queries; the
-  section switch and Full height are shown by them, so a switch and the layout never disagree at a fractional width.
+  section switch and Full height are shown by them, written in the range syntax (`width < 768px`, `width >= 768px`),
+  so a switch and the layout never disagree at a fractional width: `max-width: 767.98px` and `min-width: 768px` both
+  missed an area 767.99px wide, a third of a row. Its context bar's fields wrap by the panel too, a counterparty on its
+  own row in a narrow area (the shell's toolbar rules, which read the window, now also read the panel).
 - **The pricer reads its panel's height.** The Existing grid takes what the page's other parts leave of the height the
   shell gives a page (`--qube-panel-room`): in an area the area's height less the gutter, in the strip the window's
   less the header, the strip and the gutter. The page's own number (`TAKEN`) counts its parts alone, 190px where the
@@ -3136,6 +3139,9 @@ on the pricer's files (ADR-0018 §11).
 - **Container queries are in pixels.** A container query's `em` is the container's font size, 13px in this theme:
   step 1's trace put its formula beside the tree from 806px, not 992px. Fixed with the pricer's queries, and the
   trace's browser test reads 950px.
+- **What else read the window inside a page now reads the panel**: a trace's roots (spot IM's cards, side by side from
+  the panel's 768px, in the pricer's dock) and a declarative view's columns (the Run panel's and a view panel's, the
+  wide count from the panel's 992px). Both were Mantine's `SimpleGrid`, whose columns read the window.
 - A dialog (a row's draft) still reads the window: it is drawn over the window, not in the area.
 
 ### Verification performed
@@ -3144,15 +3150,18 @@ on the pricer's files (ADR-0018 §11).
 |---|---|
 | `dotnet test server/Qube.slnx` | 1594 passed (no server change) |
 | Client: `npm run typecheck`, `npm test`, `npm run build` | Clean; 462 passed in 44 files; built |
-| `npx playwright test` (Chromium, headless, Linux), against the built client | 126 of 127 passed: `scrollbars.spec.ts` (below) |
-| `areas.spec.ts`'s two tests of a page by its area, `--repeat-each=3` | 6 passed |
+| `npx playwright test` (Chromium, headless, Linux), against the built client | 127 passed, after the review's fixes |
+| `areas.spec.ts`'s two tests of a page by its area, `--repeat-each=3` | 6 passed; the pricer's again after the review's fixes, 3 passed |
 | `scrollbars.spec.ts` with a 600px window, `--repeat-each=3` | 3 passed |
 | The trace's test with the trace's query in `em` again | Fails at 950px (two columns where one is right) |
+| The pricer at 390px (the strip) and at 768, 992 and 1440px (one area), 900px high, dark and light, in Chromium | Looked at: the three tabs at 390px, the one screen from 768px, nothing sideways; the pull request's screens |
 
 `areas.spec.ts` holds the pricer in one area at 1440 by 900 (it fits, the grid above the dock), in the top half (the
-grid at its six rows, the area scrolling and not the document), gathered again (the grid's height back), and beside
-the Pricing DB at 720px (the three tabs, no Full height, nothing sideways) and at 1080px (the one screen, in the same
-page). `scrollbars.spec.ts` needs a pricer taller than its room, so that its page scrolls beside a scrollbar: at 992 by
+grid at its six rows, the area scrolling and not the document), maximized (the grid's height back), in the strip at
+1440 by 480 (too short for the two areas: no switch, the grid at its six rows, the document scrolling), gathered again
+(the grid's height back), beside the Pricing DB at 605px (the three tabs, no Full height, nothing sideways) and at
+1080px (the one screen, in the same page), and in the strip at 1440px with the AI pane open beside four areas in a row
+(no switch, the grid above the dock and the document not scrolling: the strip's room). `scrollbars.spec.ts` needs a pricer taller than its room, so that its page scrolls beside a scrollbar: at 992 by
 900 it overflowed its area by the 18px `TAKEN` left out, and now fits, so the test's window is 600px high.
 
 ### Providers
@@ -3164,8 +3173,8 @@ Unchanged: every figure is simulated and says so.
 - In an area shorter than the page's parts need (split down at 1440 by 900), the grid keeps its six rows and the page
   scrolls inside its area; its trade grids scroll under the result dock and their headers draw over it (ExGrid's
   header stacks at 4, the dock at 3), as in a window that short.
-- Where the context bar wraps (an area from 768 to about 990px), the page scrolls by the rows it adds: `TAKEN` is the
-  one-row figure.
+- Where the context bar wraps (an area under about 1,000 to 1,100px, by the measures chosen and the Price button's
+  words), the page scrolls by the rows it adds: `TAKEN` is the one-row figure.
 
 ## Next
 
