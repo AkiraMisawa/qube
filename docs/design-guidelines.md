@@ -237,19 +237,26 @@ Mantine's breakpoints, beside the window classes Android and Material use for th
 | `lg` | 1200px (75em) | large (1200–1599dp) | the AI pane at 400px |
 | `xl` | 1408px (88em) | extra-large (≥ 1600dp) | desktop |
 
-- **SHOULD** respond in CSS (`@media` in `client/src/shell/shell.css` or a component's CSS, `hiddenFrom`,
-  `visibleFrom`), not with `useMediaQuery`. CSS answers before the first paint; a hook answers after it. Mantine
+- **SHOULD** respond in CSS, not with a hook. CSS answers before the first paint; a hook answers after it. Mantine
   recommends the same, and notes that a `size` prop is not responsive: render two components and show one
-  ([Mantine, responsive](#references)). `useMediaQuery` is for choosing which component mounts (the AI pane's aside
-  or drawer), not for styling.
-- CSS variables do not work inside a media query, so a breakpoint in CSS is written in `em` and matches the table
-  above (`max-width: 61.99em` is "below `md`").
-- **A page responds to its panel, not the window** (ADR-0018 §5). A panel's content is a CSS size container of its
-  width (`container: qube-panel / inline-size`, `PanelPage` in `client/src/platform/panelPage.tsx`), in an area and in
-  the strip alike: not of its height too, since in the strip a page grows with its content, which a `size` container
-  would not let it. A page's breakpoint is a container query on it, written with the table's widths
-  (`@container qube-panel (max-width: 47.99em)` is "below `sm`" for the page), and a height that filled the window
-  fills its area's page (`.qube-panel-page-body` in an area, its area's height, which scrolls the page). The width is
+  ([Mantine, responsive](#references)). A page responds by container queries on its panel (below); the shell and a
+  dialog, which stand in the window, by `@media` in `client/src/shell/shell.css` or a component's CSS, `hiddenFrom` and
+  `visibleFrom`. Mantine's responsive props (`hiddenFrom`, `visibleFrom`, `SimpleGrid`'s `cols`) read the window, so
+  a page does not use them. `useMediaQuery` is for choosing which component mounts (the AI pane's aside or drawer),
+  not for styling.
+- CSS variables do not work inside a media query, so a media query's breakpoint (the shell's, a dialog's) is written
+  in `em` and matches the table above (`max-width: 61.99em` is "below `md`"). A page's is a container query, below.
+- **A page responds to its panel, not the window** (ADR-0018 §5). A panel's content is a CSS size container,
+  `qube-panel` (`PanelPage` in `client/src/platform/panelPage.tsx`): of its width in the strip (`inline-size`, since a
+  page grows with its content there, which a `size` container would not let it), and of its size in an area, whose
+  height is the area's. A page's breakpoint is a container query on it, written **in pixels** with the table's widths,
+  in the range syntax (`@container qube-panel (width < 768px)` is "below `sm`" for the page, `width >= 768px` from
+  it): a container query's `em` is the container's font size, 13px in this theme, not the 16px a media query's `em`
+  is, so `48em` would be 624px; and an area's width is fractional, which `max-width: 767.98px` beside
+  `min-width: 768px` would both miss at 767.99px. A height
+  that filled the window reads `--qube-panel-room`, the height the shell gives the page: in an area its area's height
+  less the gutter (the page scrolls inside `.qube-panel-page-body` there), in the strip the window's less the header,
+  the strip and the gutter. The width is
   the panel's whole width, the shell's gutter included, and a scrollbar beside the page takes nothing from it: a page
   in one area of a 768px window reads 768px, as it read the window. A hook that chooses what mounts reads the panel's
   width as the browser reports it when it changes (`usePanelWidth`), never the window's. The shell itself (the header,

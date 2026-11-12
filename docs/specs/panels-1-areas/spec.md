@@ -179,21 +179,36 @@ pull request.
 - **The scripted stand-in** reads "side by side" and "beside" for panels the context names by title. It takes the
   whole request (`TakesTheRest`), since a title may hold a date the Rates request would otherwise read.
 - **Ticket 07 in part.** The panel's content is a size container (`inline-size`: in the strip the page grows with its
-  content, which a `size` container would not let it), and the trace view reads it. The container is the panel's
-  whole width, reaching across the shell's gutter at each side, and the page is drawn inside the gutter: a page in one
-  area of a 768px window reads 768px, as it read the window before. Measured inside the gutter it read 752px there,
-  and the trace drilled in at widths where it had been a tree. An area's page scrolls inside the panel's page, so a
-  scrollbar beside it (Windows, Linux) takes nothing from the width the page reads. In the strip the document scrolls:
-  its scrollbar is counted in the panels' space, so that a window just past 768px is areas or strip the same whichever
-  it was drawn in first (it was each, by turns, with the scrollbar left out), and a page in the strip reads the width
-  it has beside that scrollbar. The pricer's three sections, its full-height button and `xva.css` still read the
-  window: ADR-0018 §11 changes them last, after the pull requests on the pricer's files, and ADR-0016's step 5 (5d,
-  the scenarios table and `load trades`) was built on them. 5d merged (#33) while this pull request was open, so they
-  are the pull request after it.
-  Until then an XVA page in an area narrower than 768px is laid out as the window's width says, and in an area shorter
-  than its parts need (a page split down, at 1440 by 900) its trade grids scroll under the result dock and their
-  headers draw over it (ExGrid's header stacks at 4, the dock at 3), as they do in a window that short (seen at 1440 by
-  520px with one area, which lays the page out as the strip does).
+  content, which a `size` container would not let it), and the trace view reads it. The container is the panel's whole
+  width, reaching across the shell's gutter at each side, and the page is drawn inside the gutter: a page in one area
+  of a 768px window reads 768px, as it read the window before. Measured inside the gutter it read 752px there, and the
+  trace drilled in at widths where it had been a tree. An area's page scrolls inside the panel's page, so a scrollbar
+  beside it (Windows, Linux) takes nothing from the width the page reads. In the strip the document scrolls: its
+  scrollbar is counted in the panels' space, so that a window just past 768px is areas or strip the same whichever it
+  was drawn in first (it was each, by turns, with the scrollbar left out), and a page in the strip reads the width it
+  has beside that scrollbar. The pricer's three sections, its full-height button and `xva.css` were left reading the
+  window by step 1's pull request: ADR-0018 §11 changes them last, after the pull requests on the pricer's files, and
+  ADR-0016's step 5 (5d, the scenarios table and `load trades`) was built on them. 5d merged (#33) while this pull
+  request was open, so they are the pull request after it.
+- **Ticket 07's rest, the pull request after step 1's (2026-11-12).** The pricer reads its panel: below 768px of its
+  area it is the three tabs and its dock has no Full height, and the profile's chart and table, and two measures'
+  deltas, stand side by side from 1200px of its area (they were Mantine's `SimpleGrid` on the window's `lg`). Its
+  Existing grid takes the height the shell gives the page (`--qube-panel-room`): in an area the area's height less the
+  gutter, the area's page being a `size` container there; in the strip the window's less the header, the strip and the
+  gutter, which the page's own number counted before. That number (`TAKEN`) now counts the page's parts alone, 187px
+  where the context bar is one row, read once at 1440px: in one area of 1440 by 900 the page fits and does not scroll
+  (it overflowed by 18px before). In an area shorter than its parts need (split down at 1440 by 900) the grid keeps
+  its six rows and the page scrolls inside its area, not the document; its trade grids scroll under the result dock
+  there and their headers draw over it (ExGrid's header stacks at 4, the dock at 3), as in a window that short. The
+  pricer's context bar's fields wrap by the panel too (the shell's toolbar rules read the panel as well as the window;
+  inside a panel the pricer's parts and the trace's toolbar use them), and so do a trace's roots (spot IM's cards in the dock) and a declarative view's
+  columns (the Run panel's), which were Mantine's `SimpleGrid` on the window. A dialog (a row's draft) still reads the
+  window: it is drawn over the window, not in the area.
+- **Container queries are written in pixels, in the range syntax.** A container query's `em` is the container's font
+  size, 13px in this theme, where a media query's is 16px: step 1's trace put its formula beside the tree from 806px
+  (`62em`), not the theme's `md`, 992px, and the pricer's `48em` would have been 624px. The trace's test now reads
+  950px, below `md`. And an area's width is fractional, so a query is `width < 768px` / `width >= 768px`, never
+  `max-width: 767.98px` beside `min-width: 768px`, which both miss 767.99px.
 - **A change between the strip and the areas draws the pages anew** (ADR-0018 §5): a page's own state, such as an
   open trace or an input tab, starts again. The browser tests that cross 768px open again what they read after.
 

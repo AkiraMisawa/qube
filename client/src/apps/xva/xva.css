@@ -1,11 +1,12 @@
 /* The XVA workspace page (docs/design-guidelines.md). Geometry only; colour comes from the theme. */
 
-/* The Existing grid takes the room the window has left beside the page's other parts, so that it is the grid that
-   scrolls and not the page (§9). Those parts' heights are the page's own numbers (`--qube-xva-taken`, set on the page),
-   never measured (P4 of ExGrid); the grid is never less than about six rows. ExGrid fills it
+/* The Existing grid takes the room the panel has left beside the page's other parts, so that it is the grid that
+   scrolls and not the page (§9). The panel's room is the shell's (`--qube-panel-room`: the window's in the strip, the
+   area's in an area, ADR-0018 §5); the other parts' heights are the page's own numbers (`--qube-xva-taken`, set on the
+   page). Neither is measured (P4 of ExGrid); the grid is never less than about six rows. ExGrid fills it
    (`viewportHeight="stretch"`): the class is on the Mantine Wrapper's paper, the grid's parent. */
 .qube-xva-trades {
-  height: max(12rem, calc(100dvh - var(--qube-xva-taken, 20rem)));
+  height: max(12rem, calc(var(--qube-panel-room) - var(--qube-xva-taken)));
 }
 
 /* The Metrics grow by three columns a measure metric; the table scrolls inside the page, never the page itself. */
@@ -72,7 +73,7 @@
   overflow: auto;
 }
 
-/* The result dock (ADR-0010 §7) stays at the bottom of the window while the trades scroll, above the grid it covers;
+/* The result dock (ADR-0010 §7) stays at the bottom of the panel while the trades scroll, above the grid it covers;
    the open Metrics scroll inside the height its handle sets. */
 .qube-xva-dock {
   position: sticky;
@@ -115,11 +116,15 @@
 }
 
 /* Below `sm` (ADR-0010 §1) the page is three tabs under the context bar: only the part chosen shows, each as high as
-   its content, so the handles go; the dock is a part like the others, no longer pinned to the window's bottom.
+   its content, so the handles go; the dock is a part like the others, no longer pinned to the panel's bottom.
    A toolbar field is at least 14rem wide there: a date or a recovery stays readable, two fields that would squeeze
-   each other take a row each, and Price still fits beside the field before it. */
-@media (max-width: 47.99em) {
+   each other take a row each, and Price still fits beside the field before it. `sm` is the panel's width, not the
+   window's (ADR-0010 §1's note of 2026-11-12, ADR-0018 §5): a pricer in a 600px area is the three tabs. */
+@container qube-panel (width < 768px) {
   .qube-xva .qube-toolbar-field { flex: 1 1 14rem; }
+  /* A wide field (the counterparty) keeps its row, as the shell's toolbar gives it: the 14rem above, more specific than
+     the shell's `--wide` rule, left it beside the value date in a 720px area, where two such fields fit. */
+  .qube-xva .qube-toolbar-field--wide { flex-basis: 100%; }
   /* The measures' toggles take a row of their own and wrap: five titles squeezed into one row were cut to `CV.` and
      `Spot I` (seen at 390px once spot IM registered, 2026-11-08), and a title cut is a control the user cannot read. */
   .qube-xva .qube-toolbar-field--measures { flex-basis: 100%; flex-wrap: wrap; }
@@ -131,14 +136,20 @@
   .qube-xva-inputs-body { height: auto; }
   .qube-xva-result-body { max-height: none; }
   .qube-xva-dock { position: static; border-top: 0; }
-  /* The Trades tab has the trades alone under the context bar, which takes about five rows on a phone. */
-  .qube-xva-trades { height: max(20rem, calc(100dvh - 30rem)); }
+  /* The Trades tab has the trades alone under the context bar, which takes about five rows on a phone. 21.5rem is the
+     30rem the page took from the window before the shell said its room, an estimate of all above the grid on a phone,
+     less the phone's shell the room now leaves out (the 82px header, the 31px strip and three 8px gutters, 137px):
+     343px, rounded up to 344px. */
+  .qube-xva-trades { height: max(20rem, calc(var(--qube-panel-room) - 21.5rem)); }
+  .qube-xva .qube-xva-wide-only { display: none; }
 }
 
-/* Widened (owner, 2026-11-08), the dock covers the input tabs and the trade grids from `sm` up: it is the page's part
-   below the context bar, no longer pinned to the window's bottom, and as high as what it shows; the page scrolls down
-   it, never sideways. Below `sm` the Results part is already the page's whole part (ADR-0010 §1). */
-@media (min-width: 48em) {
+/* From `sm` up: the switch between the three parts is not there. And widened (owner, 2026-11-08), the dock covers the
+   input tabs and the trade grids: it is the page's part below the context bar, no longer pinned to the panel's bottom,
+   and as high as what it shows; the page scrolls down it, never sideways. Below `sm` the Results part is already the
+   page's whole part (ADR-0010 §1). */
+@container qube-panel (width >= 768px) {
+  .qube-xva .qube-xva-sections { display: none; }
   .qube-xva[data-dock='full'] > [data-part='inputs'],
   .qube-xva[data-dock='full'] > [data-part='trades'] { display: none; }
   .qube-xva[data-dock='full'] > .qube-xva-dock { position: static; border-top: 0; }
@@ -151,8 +162,8 @@
 }
 .qube-xva-result-tab[data-full='true'], .qube-xva-result-body[data-full='true'] { max-height: none; overflow: visible; }
 
-/* The Scenarios tab (ADR-0010 §4): the grid of shifts, and the list of scenarios beside it; below `sm` the list goes
-   under the grid, and the grid scrolls sideways inside its own frame, never the page. */
+/* The Scenarios tab (ADR-0010 §4): the grid of shifts, and the list of scenarios beside it; below the panel's `sm` the
+   list goes under the grid, and the grid scrolls sideways inside its own frame, never the page. */
 .qube-xva-scenarios {
   display: flex;
   gap: var(--mantine-spacing-sm);
@@ -162,10 +173,21 @@
 /* The list's width: a scenario's name, its shift count and its two buttons on one line, geometry the theme has no
    name for (docs/design-guidelines.md §2). */
 .qube-xva-scenarios-list { flex: 0 0 22rem; min-width: 0; }
-@media (max-width: 47.99em) {
+@container qube-panel (width < 768px) {
   .qube-xva-scenarios { flex-direction: column; }
   .qube-xva-scenarios-grid { width: 100%; }
   .qube-xva-scenarios-list { flex-basis: auto; width: 100%; }
+}
+
+/* Two results side by side (the profile's chart and its table, two measures' deltas) from the panel's `lg`, one above
+   the other below it. */
+.qube-xva-pair {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--mantine-spacing-sm);
+}
+@container qube-panel (width >= 1200px) {
+  .qube-xva-pair[data-pair] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 /* A date in a table cell is one line: 2026-10-26 never breaks at its hyphens. */

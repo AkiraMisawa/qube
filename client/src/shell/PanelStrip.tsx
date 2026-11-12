@@ -165,7 +165,7 @@ export function PanelStrip({ room, why }: {
         <TabMenu key={`${menuAt.panelId} ${menuAt.x} ${menuAt.y}`} at={menuAt} panel={menuPanel} run={run} onClose={closeMenu} />
       )}
       {panels.map((p) => (
-        <Tabs.Panel key={p.id} value={p.id} pt="sm"><PanelContent panel={p} /></Tabs.Panel>
+        <Tabs.Panel key={p.id} value={p.id} className="qube-strip-page"><PanelContent panel={p} /></Tabs.Panel>
       ))}
     </Tabs>
   );

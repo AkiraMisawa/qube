@@ -1,0 +1,12 @@
+/* A declarative view (docs/09-ai-and-views.md): its components in the columns its layout names, the narrow count below
+   the panel's `md` and the wide one from it. The width is the panel's, not the window's (ADR-0018 §5): a view in a
+   narrow area is laid out as in a narrow window. The two counts are set on the view (`--qube-view-narrow`,
+   `--qube-view-wide`), as the server validated them. */
+.qube-view-grid {
+  display: grid;
+  grid-template-columns: repeat(var(--qube-view-narrow), minmax(0, 1fr));
+  gap: var(--mantine-spacing-md);
+}
+@container qube-panel (width >= 992px) {
+  .qube-view-grid { grid-template-columns: repeat(var(--qube-view-wide), minmax(0, 1fr)); }
+}

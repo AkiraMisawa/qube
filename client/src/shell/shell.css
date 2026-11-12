@@ -108,13 +108,21 @@
   .qube-toolbar-field--wide { flex-basis: 100%; }
   .qube-toolbar-input { flex: 1 1 auto; width: auto; min-width: 0; }
 }
+/* A page's toolbar reads its panel's `sm` too (ADR-0018 §5): in a 720px area of a wide window it is a phone's, where the
+   window's query alone left a counterparty's 16rem over the field beside it. The header's and a dialog's read the
+   window, above; a page's toolbar in a narrow window matches both, alike. */
+@container qube-panel (width < 768px) {
+  .qube-toolbar-field { flex: 1 1 0; }
+  .qube-toolbar-field--wide { flex-basis: 100%; }
+  .qube-toolbar-input { flex: 1 1 auto; width: auto; min-width: 0; }
+}
 
 /* A notice (ADR-0006's note 2 of 2026-11-11; docs/design-guidelines.md §6). The strip has no height, so what it holds
    is drawn over the page and nothing under it moves; it stays under the header as the main area scrolls. It is over
    the panels and under the header's own layer (Mantine's `app`, 100), every menu and every dialog. */
 .qube-notice-strip {
   position: sticky;
-  top: calc(var(--app-shell-header-offset, 0rem) + var(--app-shell-padding));
+  top: calc(var(--app-shell-header-offset) + var(--app-shell-padding));
   z-index: 99;
   height: 0;
   display: flex;
@@ -203,7 +211,7 @@
 
 /* A tab is one Control Height (§3), as the list's button beside it is: Mantine's tab has no size to say it by. */
 .qube-panel-tab {
-  height: 30px;
+  height: var(--qube-panel-tab-height);
 }
 
 /* Where a dragged tab will go: the edge of the tab it takes the place of. */
@@ -216,6 +224,9 @@
    which the strip does not fill but an arrangement would. The strip's gutter, and an area's (`.qube-area-page`), are
    the shell's padding exactly: a panel's page reaches across it to be the panel's whole width (`.qube-panel-page`). */
 .qube-panels {
+  --qube-panel-tab-height: 30px;
+  /* An area's strip's line under its tabs (`.dv-tabs-and-actions-container`), which dockview counts in its height. */
+  --qube-panel-tab-line-width: 1px;
   margin-inline: calc(var(--app-shell-padding) * -1);
 }
 
@@ -225,7 +236,7 @@
 
 .qube-panels-room {
   position: fixed;
-  top: var(--app-shell-header-offset, 0rem);
+  top: var(--app-shell-header-offset);
   bottom: 0;
   left: 0;
   width: 0;
@@ -262,8 +273,8 @@
 .dockview-theme-qube {
   --dv-group-view-background-color: var(--mantine-color-body);
   --dv-tabs-and-actions-container-background-color: var(--mantine-color-body);
-  /* One Control Height and the strip's 1px line under it, which dockview counts in this height. */
-  --dv-tabs-and-actions-container-height: 31px;
+  /* One Control Height, a tab's, and the strip's line under it, which dockview counts in this height (`.qube-panels`). */
+  --dv-tabs-and-actions-container-height: calc(var(--qube-panel-tab-height) + var(--qube-panel-tab-line-width));
   --dv-tabs-and-actions-container-font-size: var(--mantine-font-size-sm);
   --dv-tab-font-size: var(--mantine-font-size-sm);
   --dv-activegroup-visiblepanel-tab-background-color: var(--mantine-color-body);
@@ -286,7 +297,7 @@
   --dv-icon-hover-background-color: var(--mantine-color-default-hover);
   --dv-floating-box-shadow: var(--mantine-shadow-md);
   --dv-floating-border: 1px solid var(--mantine-color-default-border);
-  --dv-floating-titlebar-height: 30px;
+  --dv-floating-titlebar-height: var(--qube-panel-tab-height);
   --dv-floating-titlebar-background-color: var(--mantine-color-default);
   --dv-floating-titlebar-border-bottom: 1px solid var(--mantine-color-default-border);
   --dv-overlay-z-index: 99;
@@ -315,7 +326,7 @@
 
 /* A strip's line under its tabs, as note 7's strip has it; the selected tab stands on it in the primary colour. */
 .dockview-theme-qube .dv-tabs-and-actions-container {
-  border-bottom: 1px solid var(--mantine-color-default-border);
+  border-bottom: var(--qube-panel-tab-line-width) solid var(--mantine-color-default-border);
 }
 
 /* As note 7's tab: Mantine's outline tab has 12px each side. */
@@ -409,6 +420,10 @@
 }
 .qube-area-page > .qube-panel-page {
   height: 100%;
+  container: qube-panel / size;
+  /* `100cqh` is resolved where the variable is read, against the nearest size container there: this page, as long as
+     no size container stands between it and the part that reads its room. */
+  --qube-panel-room: calc(100cqh - 2 * var(--app-shell-padding));
 }
 .qube-area-page > .qube-panel-page > .qube-panel-page-body {
   height: 100%;
@@ -470,12 +485,31 @@
 }
 
 /* A panel's page is a size container (ADR-0018 §5): its stylesheets' container queries read the panel's width, not the
-   window's. Its width only: in the strip a page is as high as its content. The container reaches across the shell's
+   window's. In the strip, its width only: a page there is as high as its content. In an area, its size, so that a page
+   reads the area's height too (`.qube-area-page > .qube-panel-page`, above). The container reaches across the shell's
    gutter, which the strip and an area each give their page, so that it is the panel's whole width, as the window was;
-   the page is drawn inside the gutter again. */
+   the page is drawn inside the gutter again. A query on it is written in pixels, in the range syntax
+   (`width >= 768px` for the theme's `sm`, `width < 768px` below it): a container query's `em` is the container's font
+   size, 13px here, where a media query's is 16px, so `48em` would have been 624px; and an area's width is fractional
+   (a third of a row), where `max-width: 767.98px` and `min-width: 768px` would both miss 767.99px. */
 .qube-panel-page {
   container: qube-panel / inline-size;
   margin-inline: calc(var(--app-shell-padding) * -1);
+}
+
+/* The height a panel's page has to lay itself out in (ADR-0018 §5), `--qube-panel-room`, for a page that fits a part to
+   what is left of it (the pricer's Existing grid): the shell's own numbers, never measured. In the strip it is the
+   window less the header, the strip's tabs and three gutters: the shell's above the strip, the strip's page's above the
+   page (`.qube-strip-page`) and the shell's below it, as the page had before there were areas; a page taller than that
+   scrolls the document. In an area it is the area's height less the gutter above and below the page (the area's page
+   is a size container there), and a page taller than that scrolls inside its area. */
+.qube-panels[data-mode='strip'] .qube-panel-page {
+  --qube-panel-room: calc(100dvh - var(--app-shell-header-offset) - 3 * var(--app-shell-padding)
+    - var(--qube-panel-tab-height) - var(--tabs-list-border-width));
+}
+/* The strip's page starts one gutter under its tabs, the gutter `--qube-panel-room` counts. */
+.qube-strip-page {
+  padding-top: var(--app-shell-padding);
 }
 .qube-panel-page-body {
   padding-inline: var(--app-shell-padding);
