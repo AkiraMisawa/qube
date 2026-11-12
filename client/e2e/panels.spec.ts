@@ -51,8 +51,16 @@ for (const width of [768, 390]) {
       // The active panel's verbs, each with the words the line takes.
       /^Close.*close panel$/, /^Close others/, /^Close to the right/, /^Close all/, /^Pin/, /^Move left/, /^Move right/, /^Reopen closed panel/,
     ]);
-    // The last panel goes no further right, and the menu says so before it is chosen.
-    await expect(list.getByRole('menuitem', { name: /^Move right/ })).toBeDisabled();
+    // The last panel goes no further right: the menu says so before it is chosen, and the item stays in the keys' reach,
+    // where choosing it says why.
+    const moveRight = list.getByRole('menuitem', { name: /^Move right/ });
+    await expect(moveRight).toBeDisabled();
+    await moveRight.focus();
+    await page.keyboard.press('Enter');
+    await expect(page.getByTestId('notice')).toContainText('move panel: This is the last panel already.');
+    // A refused notice stays until it is closed, and on a phone it lies over the strip's end.
+    await page.getByRole('button', { name: 'Close the notice' }).click();
+    await page.getByRole('button', { name: 'All panels (6)' }).click();
     await list.getByRole('menuitem', { name: 'Pricing DB' }).click();
     await expect(tab(page, 'Pricing DB')).toHaveAttribute('aria-selected', 'true');
     await expect.poll(() => inSight(page, 'Pricing DB')).toBe(true);
@@ -89,9 +97,10 @@ test('ADR-0006 note 7: a tab\'s menu opens by right click and by Shift+F10, and 
   await expect.poll(() => labels(page)).toEqual(['Pricing DB', 'Rates 2026-10-27 · 5']);
   await expect(page.getByTestId('notice')).toContainText('Closed 4 panels. 1 pinned panel was kept.');
 
+  // A close of several comes back from its left, each where it stood.
   await command(page, 'reopen panel');
-  await expect(tab(page, 'Rates 2026-10-27 · 4')).toHaveAttribute('aria-selected', 'true');
-  await expect.poll(() => labels(page)).toEqual(['Pricing DB', 'Rates 2026-10-27 · 5', 'Rates 2026-10-27 · 4']);
+  await expect(tab(page, 'Rates 2026-10-27')).toHaveAttribute('aria-selected', 'true');
+  await expect.poll(() => labels(page)).toEqual(['Pricing DB', 'Rates 2026-10-27', 'Rates 2026-10-27 · 5']);
 });
 
 test('ADR-0006 note 7: Delete closes the focused tab and the keyboard follows to the panel shown before; the middle button closes a tab', async ({ page }) => {

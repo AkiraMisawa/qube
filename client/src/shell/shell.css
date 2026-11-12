@@ -211,6 +211,14 @@
   box-shadow: inset 2px 0 0 var(--mantine-primary-color-filled);
 }
 
+/* A verb that cannot act now, in a tab's menu or the list: drawn as Mantine draws a disabled item, but left in the
+   arrows' reach, so choosing it says why (Panels.tsx, VerbItems). */
+.qube-menu-unavailable {
+  color: var(--mantine-color-disabled-color);
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 /* The list's mark beside the panels that are not shown, as wide as the tick beside the one that is. */
 .qube-panel-list-mark {
   display: inline-block;

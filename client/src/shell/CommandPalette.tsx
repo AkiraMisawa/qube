@@ -289,6 +289,8 @@ export function CommandPalette() {
   const queryClient = useQueryClient();
   const panels = useWorkspace((s) => s.panels);
   const activePanelId = useWorkspace((s) => s.activePanelId);
+  // The closed panels, so `reopen panel` is listed as it stands: one shown again where it was open changes no panel.
+  const closed = useWorkspace((s) => s.closed);
   const context = useWorkspace((s) => s.context);
   const { toggleColorScheme } = useMantineColorScheme();
   const { settings } = useSettings();
@@ -343,9 +345,9 @@ export function CommandPalette() {
       setOpen: (open: boolean) => aiStore.getState().setOpen(open),
       ask: (request: string) => aiStore.getState().ask(request, aiContextOf(active)),
     };
-    return buildCommands({ catalog: workspace.catalog, state: { ...state, panels, activePanelId, context }, activeRun, toggleTheme: toggleColorScheme, notify: workspace.notify,
+    return buildCommands({ catalog: workspace.catalog, state: { ...state, panels, activePanelId, closed, context }, activeRun, toggleTheme: toggleColorScheme, notify: workspace.notify,
       settings: Object.values(settings), ...(ai === undefined ? {} : { ai }) });
-  }, [workspace, panels, activePanelId, context, activeRun, toggleColorScheme, opened, opening, aiStore, aiOpen, active, settings]);
+  }, [workspace, panels, activePanelId, closed, context, activeRun, toggleColorScheme, opened, opening, aiStore, aiOpen, active, settings]);
 
   /** Reads what the page in the active panel shows now, as an opening: at each opening, and at each chained command. */
   const readScreen = useCallback(() => {

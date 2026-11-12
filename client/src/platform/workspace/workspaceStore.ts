@@ -5,7 +5,7 @@ import { validate, type FieldIssue } from '../forms';
 // One store per workspace (ADR-0003 §1): the context it works in and the panels it shows. Server data
 // lives in TanStack Query; a panel holds references to it, never copies of rows.
 
-export type Panel = PanelPage & {
+export type Panel = PanelDraft & {
   readonly id: string;
   /** Kept at the start of the strip, and left open by the closes that take several panels (ADR-0006 note 7). */
   readonly pinned?: true;
@@ -16,14 +16,12 @@ export type Panel = PanelPage & {
   readonly copy?: number;
 };
 
-/** What a panel shows, which is all a draft says. */
-type PanelPage =
+/** What a panel shows, which is all a draft of one says. */
+export type PanelDraft =
   | { readonly kind: 'run'; readonly title: string; readonly runId: string; readonly viewKey: string | undefined }
   | { readonly kind: 'data'; readonly title: string; readonly view: ViewDefinition }
   /** A fixed application page: an app registered in `src/apps` draws it from its parameters. */
   | { readonly kind: 'app'; readonly title: string; readonly app: string; readonly params: Readonly<Record<string, string>> };
-
-export type PanelDraft = PanelPage;
 
 /** A panel as the strip and the line name it: its title, and its number where another open panel has that title. */
 export const panelLabel = (panel: Pick<Panel, 'title' | 'copy'>): string => (panel.copy === undefined ? panel.title : `${panel.title} · ${panel.copy}`);
@@ -48,6 +46,13 @@ export function namedBy(panels: readonly Panel[], which: PanelsClosed, panelId: 
   const at = panels.findIndex((p) => p.id === panelId);
   if (at < 0) throw new Error(`No open panel is ${panelId}.`);
   return panels.filter((p, i) => (which === 'all' || p.id !== panelId) && (which !== 'right' || i > at));
+}
+
+/** The open panel of this id; one that is not open is a defect of the caller, never a panel quietly left alone. */
+function openOne(panels: readonly Panel[], panelId: string): Panel {
+  const panel = panels.find((p) => p.id === panelId);
+  if (panel === undefined) throw new Error(`No open panel is ${panelId}.`);
+  return panel;
 }
 
 /** How many panels are pinned: they stand first, so this is where the others begin. */
@@ -101,9 +106,10 @@ export interface WorkspaceState {
   showApp(app: string, title: string, params: Readonly<Record<string, string>>): string;
   /**
    * Opens the app panel with these parameters behind the active one, or finds it open, without activating it; it is
-   * active only when no panel was (ADR-0007 §7: what the AI opens never takes the user's place).
+   * active only when no panel was (ADR-0007 §7: what the AI opens never takes the user's place). Answers the panel, so
+   * what names it can name it as the strip does.
    */
-  openPanelBehind(app: string, title: string, params: Readonly<Record<string, string>>): string;
+  openPanelBehind(app: string, title: string, params: Readonly<Record<string, string>>): Panel;
 }
 
 export type WorkspaceStore = ReturnType<typeof createWorkspaceStore>;
@@ -147,6 +153,7 @@ export function createWorkspaceStore(initialContext: Readonly<Record<string, unk
     },
 
     closePanel(panelId) {
+      openOne(get().panels, panelId);
       set((state) => withClosed(state, [panelId]));
     },
 
@@ -181,16 +188,15 @@ export function createWorkspaceStore(initialContext: Readonly<Record<string, unk
 
     movePanel(panelId, index) {
       set((state) => {
-        const panel = state.panels.find((p) => p.id === panelId);
-        if (panel === undefined) return {};
+        const panel = openOne(state.panels, panelId);
         return { panels: placed(state.panels.filter((p) => p.id !== panelId), panel, index) };
       });
     },
 
     pinPanel(panelId, pinned) {
       set((state) => {
-        const panel = state.panels.find((p) => p.id === panelId);
-        if (panel === undefined || (panel.pinned === true) === pinned) return {};
+        const panel = openOne(state.panels, panelId);
+        if ((panel.pinned === true) === pinned) return {};
         const rest = state.panels.filter((p) => p.id !== panelId);
         const { pinned: _, ...unpinned } = panel;
         // Pinned, it goes after the pinned panels; unpinned, before the others: next to where it was in either case.
@@ -230,14 +236,15 @@ export function createWorkspaceStore(initialContext: Readonly<Record<string, unk
 
     openPanelBehind(app, title, params) {
       const open = get().panels.find((p) => shows(p, { kind: 'app', title, app, params }));
-      if (open !== undefined) return open.id;
+      if (open !== undefined) return open;
       const id = `panel-${++next}`;
+      const panel = newPanel(get().panels, { kind: 'app', title, app, params }, id);
       set((state) => ({
-        panels: placed(state.panels, newPanel(state.panels, { kind: 'app', title, app, params }, id), besideActive(state)),
+        panels: placed(state.panels, panel, besideActive(state)),
         activePanelId: state.activePanelId ?? id,
         recent: state.activePanelId === undefined ? [id, ...state.recent] : [...state.recent, id],
       }));
-      return id;
+      return panel;
     },
   }));
 }
@@ -280,10 +287,12 @@ function placed(panels: readonly Panel[], panel: Panel, index: number): readonly
 function withClosed(state: WorkspaceState, ids: readonly string[]): Partial<WorkspaceState> {
   const gone = new Set(ids);
   const kept: ClosedPanel[] = [];
+  // Kept from the right, so the leftmost is reopened first: each then goes back where it stood, the strip to its left
+  // already as it was, and a close of several comes back in its order.
   state.panels.forEach((p, index) => {
     if (!gone.has(p.id)) return;
     const { id: _, pinned, copy, ...page } = p;
-    kept.push({ page, index, pinned: pinned === true, copy });
+    kept.unshift({ page, index, pinned: pinned === true, copy });
   });
   const panels = state.panels.filter((p) => !gone.has(p.id));
   const recent = state.recent.filter((id) => !gone.has(id));

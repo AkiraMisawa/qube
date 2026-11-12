@@ -80,7 +80,7 @@ function moved(state: PanelState, panel: Panel, move: Move): { readonly to: numb
 /** Says what a close of several did, and how to have a panel back (ADR-0006's note 2: a command says what it did). */
 function closedSaid(notify: Notify, done: { readonly closed: number; readonly pinned: number }): void {
   const kept = done.pinned === 0 ? '' : ` ${done.pinned} pinned ${done.pinned === 1 ? 'panel was' : 'panels were'} kept.`;
-  notify('done', `Closed ${done.closed} ${done.closed === 1 ? 'panel' : 'panels'}.${kept} reopen panel brings back the last closed.`);
+  notify('done', `Closed ${done.closed} ${done.closed === 1 ? 'panel' : 'panels'}.${kept} Bring one back with reopen panel.`);
 }
 
 /** Why a close of several takes nothing from this panel's strip; absent when it takes one or more. */
@@ -165,6 +165,8 @@ export const MOVE: PanelVerb = {
     return 'reason' in to ? to.reason : undefined;
   },
   run: (state, panel, _, args) => {
+    // The line runs no command without an argument it requires: one missing here is a defect, one it cannot read a reason.
+    if (args.where === undefined) throw new Error('The line ran move panel without its where.');
     const move = moveOf(args);
     if (move === undefined) throw new CommandRefused(`move panel takes where to: ${MOVES.join(', ')}.`);
     const to = moved(state, panel, move);

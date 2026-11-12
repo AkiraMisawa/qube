@@ -2479,15 +2479,18 @@ the practices taken are the ones editors and browsers share, each a verb of the 
   the active panel's verbs, which is how a phone reaches them. Its tooltip names `show panel`.
 - **A tab's menu** opens by a right click, Shift+F10 or the menu key, names its panel, and shows each verb with the
   words the line takes. A key opens it on its first item and gives the keyboard back to the tab, or to the tab shown
-  next where it closed its own. An item that cannot act is disabled and says why.
+  next where it closed its own. An item that cannot act is drawn disabled and says why, in its title to the pointer
+  and in a refused notice when chosen; it stays in the arrows' reach, so the keyboard and a phone are told too.
 - **Keys and the pointer**: Delete closes the focused tab and the keyboard follows to the tab shown next; the middle
   button closes a tab; a tab dragged onto another takes its place.
 - **Where panels open and what closing shows**: a new panel opens beside the active one; closing the active panel
   shows the one shown before it. A Run or a page open already is shown, not opened twice, by `reopen panel` too.
 - **Numbering**: panels of one title are `Title`, `Title · 2`, …; a panel keeps its number while open and has it
-  back when reopened where it is free. The strip, the list, `show panel` and every command's target use it.
+  back when reopened where it is free. The strip, the list, `show panel`, every command's target and the AI pane's
+  card for a panel the AI opened use it.
 - **Pinned panels** stand first, show a pin and no close button, and stay open through the closes of several.
-- **Closed panels**: the last twenty are kept with where they stood, whether pinned, and their number.
+- **Closed panels**: the last twenty are kept with where they stood, whether pinned, and their number. A close of
+  several comes back from its left, each where it stood.
 - **The verbs**, declared once in `client/src/shell/panelVerbs.ts` and run by the line, the menus and the keys:
   `close panel` (Ctrl/⌘+Shift+X), `close other panels`, `close panels to the right`, `close all panels`, `pin panel`,
   `unpin panel`, `move panel <left|right|first|last>`, `reopen panel`, beside `next panel`, `previous panel` and
@@ -2498,10 +2501,11 @@ the practices taken are the ones editors and browsers share, each a verb of the 
 
 | What | Result |
 |---|---|
-| Client: `npm run typecheck`, `npm test`, `npm run build` | Clean; 364 passed in 37 files; built |
+| Client: `npm run typecheck`, `npm test`, `npm run build`, after the rebase on #28 | Clean; 369 passed in 37 files; built |
 | `npx playwright test e2e/panels.spec.ts --repeat-each=3` (Chromium, headless, Linux) | 15 passed |
-| `npx playwright test` (Chromium, headless, Linux), after the rebase on #26 and #27 | 111 passed |
+| `npx playwright test` (Chromium, headless, Linux), after the second review's fixes and the rebase on #28 | 112 passed |
 | The strip, a tab's menu, the list and the line at 1440px dark and light, 992, 768 and 390px dark and light | Looked at; no sideways scroll of the page at 768 or 390 |
+| Elements and the switch back to a page, twelve panels open (before the change, which does not alter what is mounted) | About 700 elements whatever the number; about 150 ms back to an XVA page of 10,000 trades. One run of a Playwright script against the built client in this container's headless Chromium: elements by `querySelectorAll('*')`, the switch from the tab's click to its grid settled. An indication, not a target |
 
 The store's tests read where a panel opens and what closing shows, numbering, the closes of several with pinned
 panels, reopening (and its refusal to open a page twice), the closed panels kept, and moves within the pinned or
@@ -2522,6 +2526,8 @@ Unchanged; nothing on the server changed.
 - The panels, their order and the closed ones are kept while the page is loaded, as before; a reload starts empty.
 - On a Mac laptop Delete is Fn+Delete, and Shift+F10 may need Fn: the menu is reached by a right click (or
   Ctrl+click) and the list, and `close panel` has its chord.
+- On a phone a refused notice lies over the strip's end, the list's button with it, until it is closed: a notice is
+  drawn over the top of the main area (ADR-0006 note 2), and at 390px it takes the width.
 - A drag is checked with a mouse only; on a touch screen it is not checked, and the list's Move left and Move right
   reach the same move.
 
@@ -2534,6 +2540,16 @@ strip's ends; keeping the active tab in sight could scroll the page under the st
 two panels of one title alike; a tab was 28px beside the list's 30px button; a menu's name hung on an empty mark; a
 close of several beside a panel not open answered "Closed 0 panels"; and the empty strip told a phone to press
 Ctrl+K. Each is said in note 7 or the design guidelines, with a test where a test can hold it.
+
+A second pair of reviews, of the corrected and rebased branch, found, and this pull request corrects: a close of
+several came back in the wrong order (A B E C D after `close other panels` on A and four `reopen panel`), since the
+rightmost was reopened first where the strip was too short for its place; an item that cannot act was skipped by the
+arrows and said why only to a hovering pointer; the AI pane's card named a numbered panel by its bare title; the line
+could list `reopen panel` as available after a reopen that only showed a page; `move panel` with no where was a
+refusal, where a required argument missing is the line's defect; a move, a pin or a close of a panel not open did
+nothing, where it now throws; the menu key, let go on Windows, could open the browser's own menu over the tab's; the
+pin was 14px in a 30px control, and the close button had no tooltip naming `close panel`; and the notice opened a
+sentence in lower case.
 
 ## Next
 

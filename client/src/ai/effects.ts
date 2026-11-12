@@ -11,7 +11,7 @@ export interface AiEffectTarget {
   readonly queryClient: QueryClient;
 }
 
-/** What a done command's outputs change on screen. Answers the panel it opened, if any. */
+/** What a done command's outputs change on screen. Answers the panel it opened, if any, named as the strip names it. */
 export type AiEffect = (outputs: Readonly<Record<string, unknown>>, target: AiEffectTarget) => { readonly panelId: string; readonly title: string } | undefined;
 
 const effects = new Map<string, AiEffect>();

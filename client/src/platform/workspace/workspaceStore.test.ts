@@ -113,10 +113,29 @@ describe('workspace store', () => {
     expect(store.getState().closed).toHaveLength(0);
   });
 
+  // ADR-0006 note 7: a close of several comes back from its left, each where it stood, so the strip is as it was.
+  it('reopens a close of several in the order the panels stood', () => {
+    const store = createWorkspaceStore(valid, contextContract);
+    ['A', 'B', 'C', 'D', 'E'].forEach((t, i) => store.getState().openPanel({ kind: 'run', title: t, runId: `r${i}`, viewKey: undefined }));
+    const order = () => store.getState().panels.map((p) => p.title).join('');
+    const idOf = (title: string) => store.getState().panels.find((p) => p.title === title)!.id;
+    store.getState().closePanels('others', idOf('A'));
+    for (let i = 0; i < 4; i++) store.getState().reopenPanel();
+    expect(order()).toBe('ABCDE');
+    store.getState().closePanels('right', idOf('C'));
+    store.getState().reopenPanel();
+    expect(order()).toBe('ABCD');
+    store.getState().reopenPanel();
+    expect(order()).toBe('ABCDE');
+  });
+
   // The owner's rule of 2026-11-11: no answer stands in for a panel that is not there.
-  it('refuses to close the panels beside one that is not open', () => {
+  it('refuses to close, move or pin a panel that is not open', () => {
     const store = createWorkspaceStore(valid, contextContract);
     expect(() => store.getState().closePanels('others', 'panel-0')).toThrow('No open panel is panel-0.');
+    expect(() => store.getState().closePanel('panel-0')).toThrow('No open panel is panel-0.');
+    expect(() => store.getState().movePanel('panel-0', 0)).toThrow('No open panel is panel-0.');
+    expect(() => store.getState().pinPanel('panel-0', true)).toThrow('No open panel is panel-0.');
   });
 
   it('keeps no more closed panels than it can reopen', () => {

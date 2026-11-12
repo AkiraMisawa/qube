@@ -124,7 +124,9 @@ make the good operations commands too"). DEFAULT, decided as recommended and rep
      one title could not be told apart: each `new rates` of one date was `Rates 2026-10-27`, and `show panel` could
      name none of them. Opening a Run from the Pricing DB twice opened it twice. Closing the active panel showed its
      right-hand neighbour. Only the active panel's page is mounted, so the screen's cost does not grow with the panels
-     (about 700 elements whatever their number; back to an XVA page of 10,000 trades in about 150 ms). The price is
+     (about 700 elements whatever their number; back to an XVA page of 10,000 trades in about 150 ms: one run of a
+     Playwright script against the built client in a headless Chromium, the elements counted by `querySelectorAll`,
+     the switch timed from the tab's click to its grid settled, so an indication, not a target). The price is
      that a page's own state goes when it is hidden: its inner tab, a grid's sort, filter, selection and scroll. The
      widths dragged stay: they are the user's setting by grid (ADR-0017 §5), the same in every panel.
    - *What the strip does now.*
@@ -134,8 +136,10 @@ make the good operations commands too"). DEFAULT, decided as recommended and rep
        list are the active panel's verbs, which a touch screen has no right click for.
      - A tab's menu, by a right click or Shift+F10 (or the menu key), runs the verbs on that tab, and names the tab at
        its top. A key opens it on its first item and gives the keyboard back to the tab as it closes, or to the tab
-       shown next where the menu closed its own (the WAI-ARIA tabs pattern). An item that cannot act is disabled and
-       says why: Move left on the first tab, for one.
+       shown next where the menu closed its own (the WAI-ARIA tabs pattern). An item that cannot act (Move left on
+       the first tab) is drawn disabled and says why: in its title to the pointer, and in a refused notice when it is
+       chosen. It stays in the arrows' reach, as WAI-ARIA's menu pattern keeps a disabled item, so the keyboard and a
+       touch screen, which has no hover, are told why too.
      - Delete on a focused tab closes it (Fn+Delete on a Mac laptop, whose delete key is Backspace), and the keyboard
        follows to the tab shown next. The middle button closes a tab. A tab dragged onto another takes its place: the
        drag calls the store's move, as `move panel` does, and reaches any place, where the verb takes a step or an end.
@@ -148,12 +152,14 @@ make the good operations commands too"). DEFAULT, decided as recommended and rep
      would bring back that has been opened again since it closed.
    - *Two panels of one title* are numbered from the second (`Rates 2026-10-27 · 2`). A panel keeps its number while
      it is open, and reopened it has its number back where no other panel has taken it. The strip, the list and
-     `show panel` use the number, so the first is named by the title alone and the others by their number.
+     `show panel` use the number, and so do every command's target and the AI pane's card for a panel the AI opened:
+     the first is named by the title alone and the others by their number.
    - *Pinned panels* stand first, show a pin and no close button, and stay open through the closes of several. A
      close of one closes a pinned panel too, as the user named it. A move keeps a pinned panel among the pinned, and
      the others among the others.
    - *Closed panels* are kept, the last twenty, each with where it stood, whether it was pinned and its number.
-     `reopen panel` brings back the last closed, one at a time. A closed page comes back as a page opened anew: its
+     `reopen panel` brings back the last closed, one at a time; a close of several comes back from its left, each
+     where it stood, so the strip is as it was. A closed page comes back as a page opened anew: its
      workspace and its Run are the server's, so nothing of the user's work is lost by a close.
    - *The verbs.* `close panel` (Ctrl/⌘+Shift+X, as before), `close other panels`, `close panels to the right`,
      `close all panels`, `pin panel`, `unpin panel`, `move panel <left|right|first|last>` and `reopen panel`, beside

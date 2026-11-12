@@ -1,5 +1,5 @@
 import { execute } from '../platform/commands/commands';
-import { createWorkspaceStore } from '../platform/workspace/workspaceStore';
+import { createWorkspaceStore, panelLabel } from '../platform/workspace/workspaceStore';
 import { contextContract } from '../test/catalog';
 import { CLOSE_RIGHT, MOVE, PANEL_VERBS, REOPEN, panelCommands, runStripVerb, runVerb } from './panelVerbs';
 
@@ -17,7 +17,7 @@ function strip(titles: readonly string[]) {
     if (found === undefined) throw new Error(`No command ${id}`);
     return found;
   };
-  const titlesNow = () => store.getState().panels.map((p) => p.title + (p.copy === undefined ? '' : ` · ${p.copy}`));
+  const titlesNow = () => store.getState().panels.map(panelLabel);
   return { store, ids, notify, command, commands, titlesNow };
 }
 
@@ -45,7 +45,7 @@ describe('panel verbs', () => {
     store.getState().activate(ids[2]!);
     expect(execute(command('panel.closeOthers'))).toBeUndefined();
     expect(titlesNow()).toEqual(['A', 'C']);
-    expect(notify).toHaveBeenCalledWith('done', 'Closed 2 panels. 1 pinned panel was kept. reopen panel brings back the last closed.');
+    expect(notify).toHaveBeenCalledWith('done', 'Closed 2 panels. 1 pinned panel was kept. Bring one back with reopen panel.');
     expect(command('panel.closeOthers').unavailable).toBe('The other panels are pinned.');
     expect(command('panel.closeRight').unavailable).toBe('No panel is to the right of this one.');
   });
