@@ -17,7 +17,7 @@ sealed record GridBehind(LineView View, BoundTable Table, string Named, IReadOnl
     /// <param name="does">What the verb does to the grid, for a line with none behind it: <c>sort sorts the grid on screen</c>.</param>
     public static GridBehind Of(LineContext line, TableRegister register, string does)
     {
-        var view = line.View ?? throw new TableRefused("NoView", $"{does}, and no grid of a table is behind this line: go to one first.");
+        var view = line.View ?? throw new TableRefused(TableRefused.NoView, $"{does}, and no grid of a table is behind this line: go to one first.");
         var tables = register.Of(line.State);
         var table = Views.TableOf(view, tables);
         return new(view, table, Views.Named(view, table), tables);

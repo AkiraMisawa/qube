@@ -203,6 +203,9 @@ public interface ITableCatalog
 /// </summary>
 public sealed class TableRefused(string code, string message, string? word = null, IReadOnlyList<string>? candidates = null) : Exception(message)
 {
+    /// <summary>The code of what reads a screen, where no screen is behind the line (§9): a view verb, <c>selected</c>, <c>shown</c>.</summary>
+    public const string NoView = "NoView";
+
     public string Code { get; } = code;
     public string? Word { get; } = word;
     public IReadOnlyList<string> Candidates { get; } = candidates ?? [];

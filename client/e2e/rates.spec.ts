@@ -533,3 +533,58 @@ test('ADR-0016 notes 43 and 44: the line grid takes a Selection from the line, a
   const written = (await readFile(await saved.path())).subarray(3).toString('utf8').split('\r\n');
   expect(written.slice(1).map((cells) => cells.split(',')[0])).toEqual([FIRST, SECOND, '']);
 });
+
+test('ADR-0016 §8, notes 60 to 64: a sequence is saved from the line and offered by name; its run makes a line and prices it, the Run opens, and undo takes the run\'s line back', async ({ page }) => {
+  await open(page);
+  await newWorkspace(page);
+  const line = page.getByRole('combobox', { name: 'Command' });
+  const options = page.getByRole('listbox');
+  const read = page.getByTestId('command-preview');
+  const workspace = page.getByRole('tab', { name: 'Rates 2026-10-27' });
+
+  // The lines are typed with `then` between them. The reading says each with its number, and that `price` is refused
+  // while the workspace has nothing to price: it is read again when the sequence runs. A run of this spec's file
+  // repeated finds the sequence saved, and says that it replaces it.
+  await page.keyboard.press('ControlOrMeta+K');
+  await expect(line).toBeFocused();
+  await page.keyboard.type('sequence save ten-year new irs jpy 10y 1bn pay then price');
+  await expect(read).toHaveText(new RegExp('^Saves 2 lines as the sequence ten-year, for you alone(, replacing your own of that name)?\\. '
+    + 'Line 2 is refused on the workspace as it stands \\(.+\\); it is read again when the sequence runs, on what the lines before it leave\\. '
+    + '1\\. `new irs jpy 10y 1bn pay` 2\\. `price`$'));
+  await page.keyboard.press('Enter');
+  await expect(line).toBeHidden();
+  await expect(notice(page)).toHaveText(/^Saved 2 lines as the sequence ten-year, for you alone/);
+  // Saving ran none of them.
+  await expect(summary(page)).toContainText('0 line(s)');
+
+  // `sequence run` offers what the user can see, and its reading says every line and what the first would do here.
+  await page.keyboard.press('ControlOrMeta+K');
+  await expect(line).toBeFocused();
+  await page.keyboard.type('sequence run ten');
+  await expect(options).not.toHaveAttribute('aria-busy');
+  await expect(options.getByRole('option').first()).toContainText('ten-year');
+  await expect(options.getByRole('option').first()).toContainText('2 lines, for you alone, saved by ');
+  await page.keyboard.press('Tab');
+  await expect(line).toHaveValue('sequence run ten-year ');
+  await expect(read).toHaveText(new RegExp('^Runs ten-year, of 2 lines, each as its own command, until one is refused: 1\\. `new irs jpy 10y 1bn pay` 2\\. `price`\\. '
+    + 'Each line after the first is read as it is reached, on what the lines before it leave\\. Line 1, as the workspace stands: Makes L\\d+: Interest rate swap\\.'));
+  await page.keyboard.press('Enter');
+  await expect(notice(page)).toHaveText(/^Ran ten-year: 2 lines, from revision \d+ to \d+\. Price was accepted as Run \S+\.$/);
+  // The page was told what the last line's command answered, as if `price` had been typed (note 64): its Run opens.
+  await expect(page.getByRole('tab', { name: /^Rates \d+(?![\d-])/ })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByTestId('run-status')).toHaveText('succeeded');
+
+  // Back on the workspace the line is there. Each line of the run is a command of its own: undo says that a saved
+  // sequence ran the one it would take back, and takes the line away.
+  await workspace.click();
+  await settled(page, 'Lines');
+  await expect(summary(page)).toContainText('1 line(s)');
+  await page.keyboard.press('ControlOrMeta+K');
+  await expect(line).toBeFocused();
+  await page.keyboard.type('undo');
+  await expect(read).toHaveText(/^Takes back: .+ \(a saved sequence for you, \d+ edits?\)/);
+  await page.keyboard.press('Enter');
+  await expect(line).toBeHidden();
+  await expect(notice(page)).toHaveText(/^Took back: /);
+  await expect(summary(page)).toContainText('0 line(s)');
+});

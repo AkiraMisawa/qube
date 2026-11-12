@@ -133,6 +133,12 @@ builder.Services.AddSingleton<ISavedItemStore>(_ => new SqliteSavedItemStore(dat
 builder.Services.AddSingleton(new Desks(builder.Configuration.GetSection("Qube:Desks").GetChildren()
     .ToDictionary(d => d.Key, d => d.Value ?? throw new InvalidOperationException($"Qube:Desks:{d.Key} names no desk."), StringComparer.OrdinalIgnoreCase)));
 builder.Services.AddSingleton<SavedItems>();
+// Saved sequences of edits (ADR-0016 §8, notes 60 to 63) are kept beside the saved sets. Their lines are read by the
+// line's reader and run through the command gateway, which are built from the registry these commands register into,
+// so each is asked for when first needed.
+builder.Services.AddSingleton(sp => new Sequences(sp.GetRequiredService<CommandLines>, sp.GetRequiredService<CommandService>, sp.GetRequiredService<WorkspaceService>,
+    sp.GetRequiredService<SavedItems>()));
+builder.Services.AddSingleton<IQubeModule>(sp => new SequencesModule(sp.GetRequiredService<Sequences>()));
 // A user's settings (ADR-0017 §2) beside the saved items. Each module registers its own: the shell's are the theme,
 // the command ranking and column widths, the pricer's the display currency a new workspace starts in, and Rates' the
 // defaults of a new line. The commands reach the service only when invoked, as the tables' do.

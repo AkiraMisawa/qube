@@ -85,6 +85,14 @@ public interface ILineCommand
 public sealed record LineCommand(string Id, string Version);
 
 /// <summary>
+/// What a line's first words name (ADR-0016 note 61 of step 6), said whether or not the rest of the line reads: the
+/// words, and the id of the command, the verb of the screen or the short form whose words they are.
+/// </summary>
+/// <param name="Command">The command, where the words are one's: a verb of the screen and a short form name none.</param>
+/// <param name="ShortForm">Whether the words are a short form's, which stands for another line.</param>
+public sealed record LineNames(string Words, string Id, CapabilityDescriptor? Command, bool ShortForm);
+
+/// <summary>
 /// What a verb of the screen asks of the page behind a line (ADR-0016 §9, notes 21, 39 and 42): one thing, said by
 /// its kind, with the sentence to say once it is done.
 /// </summary>
@@ -276,7 +284,7 @@ public sealed class CommandLines
     // how it is typed, the command Enter invokes where there is one, and how it completes and reads the rest of the
     // line. A short form reads nothing: it answers the line it stands for.
     sealed record Typed(string[] Words, string Said, string Id, CommandForm Form, LineCommand? Command, Func<LineContext, LineCompletions> Complete, Func<LineContext, Reading>? Read, Func<LineContext, string>? Expand = null,
-        Func<LineContext, string>? Content = null, Func<LineContext, LineChanges>? Changes = null, bool WithDraft = false)
+        Func<LineContext, string>? Content = null, Func<LineContext, LineChanges>? Changes = null, bool WithDraft = false, CapabilityDescriptor? Descriptor = null)
     {
         /// <summary>Whether it is read while a draft is open (note 55): a line the draft may hold, or what says it is read then.</summary>
         public bool InDraft => Changes is not null || WithDraft;
@@ -331,7 +339,7 @@ public sealed class CommandLines
             // A command whose line a draft may hold says its changes too (note 54).
             Func<LineContext, LineChanges>? changes = reader is IDraftLine drafted ? drafted.Changes : null;
             named.AddRange(form.Words.Select(w => new Typed(TableWords.Of(w).Split(' '), TableWords.Of(w), descriptor.CapabilityId, form, command, reader.Complete, Read, Changes: changes,
-                WithDraft: reader is IDraftCommand)));
+                WithDraft: reader is IDraftCommand, Descriptor: descriptor)));
         }
         foreach (var verb in verbs)
         {
@@ -373,6 +381,28 @@ public sealed class CommandLines
         var preview = Read(line, state, caller, view, Of(state).ToList());
         return viewSaid is null ? preview : preview with { View = viewSaid.Sentence, ViewMoved = viewSaid.Moved };
     }
+
+    /// <summary>
+    /// What a line's first words name on a workspace (ADR-0016 note 61 of step 6), among what a line of that workspace
+    /// may name; none where they begin no command's words. Nothing of the line is read: a caller that holds lines to
+    /// run later, as a saved sequence does, asks this of a line whose reading is refused as the workspace stands.
+    /// </summary>
+    public LineNames? Names(string line, WorkspaceState state) => Names(Of(state), line);
+
+    /// <summary>
+    /// What the line a short form stands for names (note 61): read among the commands and the verbs of the screen alone,
+    /// as the reader reads that line, so that a short form's own words in it name no short form again.
+    /// </summary>
+    public LineNames? Stood(string line, WorkspaceState state) => Names(Of(state).Where(t => t.Expand is null), line);
+
+    static LineNames? Names(IEnumerable<Typed> among, string line) =>
+        Named(among, LineWords.Of(line)) is { } said ? new(said.Said, said.Id, said.Descriptor, said.Expand is not null) : null;
+
+    /// <summary>
+    /// The line as read on a workspace as given, with no screen behind it (ADR-0016 note 63 of step 6): what a command
+    /// that holds lines, as a saved sequence does, asks while its own line is read, of the state that reading was given.
+    /// </summary>
+    public LinePreview Read(string line, WorkspaceState state, Caller caller) => Read(line, state, caller, null, Of(state).ToList());
 
     /// <summary>
     /// The form of a draft (ADR-0016 §10, note 54): its row as its lines leave it, each line read in order on what the

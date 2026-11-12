@@ -26,7 +26,8 @@ public sealed class WorkspaceTakeBack(Func<WorkspaceService> workspaces, bool un
 
     /// <summary>
     /// The line names the command it would act on (ADR-0016 §5), so that Enter takes back the one that was shown or is
-    /// refused, and says whose it was (§11): the reader's own, or one the AI ran for them, which they did not type.
+    /// refused, and says whose it was (§11): the reader's own, or one the AI or a saved sequence ran for them (note 62
+    /// of step 6), which they did not type.
     /// The sentence holds no time: a client writes when in its user's zone.
     /// </summary>
     public LineRead Read(LineContext line)
@@ -34,7 +35,7 @@ public sealed class WorkspaceTakeBack(Func<WorkspaceService> workspaces, bool un
         var told = workspaces().WouldTakeBack(line.State, line.Caller.UserId, undo);
         var request = new JsonObject { ["workspaceId"] = line.State.WorkspaceId, ["command"] = told.Command };
         var whose = told.User == line.Caller.UserId ? "you" : told.User;
-        var who = told.Origin == RunOrigin.Ai ? $"the AI for {whose}" : whose;
+        var who = told.Origin switch { RunOrigin.Ai => $"the AI for {whose}", RunOrigin.Workflow => $"a saved sequence for {whose}", _ => whose };
         return new(new JsonObject { ["request"] = request }, [], null,
             $"{(undo ? "Takes back" : "Puts back")}: {told.Said} ({who}, {told.Edits} edit{(told.Edits == 1 ? "" : "s")})", told.At);
     }
