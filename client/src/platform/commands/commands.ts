@@ -151,6 +151,13 @@ export class CommandRefused extends Error {
   override readonly name = 'CommandRefused';
 }
 
+/** A required argument as the line ran the command with it: the line runs none without it, so one missing is a defect. */
+export function given(args: Readonly<Record<string, string | undefined>>, name: string): string {
+  const value = args[name];
+  if (value === undefined) throw new Error(`The line ran a command without its ${name}.`);
+  return value;
+}
+
 /**
  * Runs a command if it is available. Returns the reason when it is not, or when it refused what it was given, so a
  * caller can show it: a command that does not run never does so in silence. A defect is thrown on, to be reported as

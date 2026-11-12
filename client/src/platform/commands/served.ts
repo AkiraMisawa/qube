@@ -3,6 +3,7 @@ import type { Catalog, CommandForm, GridAsk, LineArgument, LineCompletion, LineP
 import type { Notify } from '../notices';
 import type { Command, CommandDoor, Completion, KeyboardMoved, LineReading, LineReason, Screen } from './commands';
 import { browserOut, type TakenOut } from './takenOut';
+import { panelLabel, type Panel } from '../workspace/workspaceStore';
 
 // The commands the catalog says how to type (ADR-0016 §4, §5): the line builds each from the catalog and reads nothing
 // of its line itself. The server reads the line, while it is typed and at Enter; what the line does with the answer is
@@ -216,7 +217,7 @@ export function commandDoorOf(panelId: string | undefined): CommandDoor | undefi
  * commands are listed and say why they cannot run. A command of one application (note 27) is listed on a page of that
  * application alone: elsewhere its words are no command, as the server reads them.
  */
-export function servedCommands(catalog: Pick<Catalog, 'capabilities' | 'viewVerbs' | 'shortForms'>, panel: { readonly title: string } | undefined, door: CommandDoor | undefined, notify: Notify): Command[] {
+export function servedCommands(catalog: Pick<Catalog, 'capabilities' | 'viewVerbs' | 'shortForms'>, panel: Pick<Panel, 'title' | 'copy'> | undefined, door: CommandDoor | undefined, notify: Notify): Command[] {
   const typed: readonly { readonly id: string; readonly title: string; readonly form: CommandForm }[] = [
     ...catalog.capabilities.flatMap((c) => (c.command === undefined ? [] : [{ id: c.capabilityId, title: c.title, form: c.command }])),
     // A verb is no capability, and its id says so: its use is counted apart from any command's.
@@ -234,7 +235,7 @@ export function servedCommands(catalog: Pick<Catalog, 'capabilities' | 'viewVerb
       group: 'Workspace',
       ...(door === undefined || panel === undefined
         ? { unavailable: 'This panel has no workspace for it to act on.' }
-        : { target: panel.title, page: true, served: { arguments: form.arguments, door, ...(form.app === undefined ? {} : { app: form.app }) } }),
+        : { target: panelLabel(panel), page: true, served: { arguments: form.arguments, door, ...(form.app === undefined ? {} : { app: form.app }) } }),
       // From a key or a button there is no line: the words alone are read, with what is on screen at the press, and a
       // refusal is a notice.
       run: () => {

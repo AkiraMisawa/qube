@@ -54,6 +54,11 @@ test('ADR-0007 §1, §7, ADR-0006 §7: `ai` on the command line makes a line and
   await settled(page, 'Lines');
   await expect(page.getByLabel('Lines', { exact: true }).getByRole('row', { name: /^L\d+ / })).toHaveCount(1);
   await expect(page.getByTestId('live-toggle')).toHaveText('Stop live');
+
+  // ADR-0006 note 7: a panel the card opened and the user has closed since is said closed, not offered to be shown.
+  await command(page, 'close panel');
+  await expect(cards(page).first().getByText('Rates 2026-10-27 is closed')).toBeVisible();
+  await expect(cards(page).first().getByRole('button', { name: /^Show / })).toHaveCount(0);
 });
 
 test('ADR-0005 §4, ADR-0006 §2, ADR-0008 §5: in the chat `/` opens its own commands, and a missing term is asked for, not filled in', async ({ page }) => {

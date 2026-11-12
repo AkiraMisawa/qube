@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, AppShell, CloseButton, Drawer, Group, Kbd, Loader, ScrollArea, Stack, Tabs, Text, em } from '@mantine/core';
+import { Alert, AppShell, Drawer, Group, Loader, Text, em } from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
 import { useQuery } from '@tanstack/react-query';
 import type { Api } from './platform/api';
@@ -7,18 +7,15 @@ import type { Notice, Notify } from './platform/notices';
 import { telemetry } from './platform/telemetry';
 import { loadSettings, say, settingsStore } from './platform/settings/settings';
 import { adoptUsage } from './platform/commands/usage';
-import { ViewRenderer } from './platform/views/ViewRenderer';
-import { WorkspaceProvider, useWorkspace, useWorkspaceContext } from './platform/workspace/WorkspaceProvider';
-import type { Panel } from './platform/workspace/workspaceStore';
+import { WorkspaceProvider, useWorkspaceContext } from './platform/workspace/WorkspaceProvider';
 import { AppHeader, HEADER_HEIGHT } from './shell/AppHeader';
 import { CommandPalette } from './shell/CommandPalette';
 import { ContextIssues } from './shell/ContextBar';
 import { NoticeStrip } from './shell/Notice';
 import { RunDialog } from './shell/RunDialog';
 import { SettingsDialog } from './shell/SettingsDialog';
-import { AppDialogs, AppPanel } from './apps';
-import { RunPanel } from './shell/RunPanel';
-import { registerGridFocus } from './shell/places';
+import { AppDialogs } from './apps';
+import { Panels } from './shell/Panels';
 import { AiProvider, useAi, useAiContext } from './ai/AiProvider';
 import { AiPane } from './ai/AiPane';
 import type { AgentTransport } from './ai/agui';
@@ -101,43 +98,4 @@ function Shell({ notice, clearNotice }: { readonly notice: Notice | undefined; r
       <SettingsDialog notify={workspace.notify} />
     </AppShell>
   );
-}
-
-function Panels() {
-  const panels = useWorkspace((s) => s.panels);
-  const activePanelId = useWorkspace((s) => s.activePanelId);
-  const activate = useWorkspace((s) => s.activate);
-  const closePanel = useWorkspace((s) => s.closePanel);
-
-  if (panels.length === 0)
-    return (
-      <Stack align="center" mt="xl" gap="xs">
-        <Text c="dimmed">Nothing open yet.</Text>
-        <Text c="dimmed" size="sm">Press <Kbd>Ctrl</Kbd> + <Kbd>K</Kbd> and type what you want to do: <Kbd>new rates</Kbd>, <Kbd>new xva</Kbd>, <Kbd>open pricing db</Kbd>, or <Kbd>?</Kbd> for every command.</Text>
-      </Stack>
-    );
-
-  return (
-    <Tabs value={activePanelId ?? null} onChange={(id) => id !== null && activate(id)} keepMounted={false} variant="outline">
-      <ScrollArea type="auto" scrollbarSize={6}>
-        <Tabs.List style={{ flexWrap: 'nowrap' }}>
-          {panels.map((p) => (
-            <Tabs.Tab key={p.id} value={p.id} rightSection={
-              <CloseButton size="xs" component="span" aria-label={`Close ${p.title}`} onClick={(e) => { e.stopPropagation(); closePanel(p.id); }} />
-            }>{p.title}</Tabs.Tab>
-          ))}
-        </Tabs.List>
-      </ScrollArea>
-      {panels.map((p) => (
-        <Tabs.Panel key={p.id} value={p.id} pt="sm"><PanelContent panel={p} /></Tabs.Panel>
-      ))}
-    </Tabs>
-  );
-}
-
-function PanelContent({ panel }: { readonly panel: Panel }) {
-  const registerFocus = useCallback((focus: (() => void) | undefined) => registerGridFocus(panel.id, focus), [panel.id]);
-  if (panel.kind === 'run') return <RunPanel panel={panel} />;
-  if (panel.kind === 'app') return <AppPanel panel={panel} />;
-  return <ViewRenderer view={panel.view} outputs={{}} registerFocus={registerFocus} />;
 }

@@ -112,6 +112,78 @@ the owner asked for the fixes of that review that need no decision, and this is 
    refusal stays as note 1 says. It is a key of the line, not a chord of the shell (8). While an IME composes,
    every key of the line is the IME's: before this note, the Enter that committed a composition also ran the line.
 
+## Notes of 2026-11-12: the panels' tabs
+
+Raised by the owner on 2026-11-11 ("what happens when I open many tabs in a page, what is good practice for tabs, and
+make the good operations commands too"). DEFAULT, decided as recommended and reported, except where it says the owner.
+
+7. **The shell manages its panels' tabs, and every way of doing so is one of its verbs** (extends 1 and 8).
+   - *What many panels did* (measured on 2026-11-11 at 1440, 1280, 992, 768 and 390px with twelve panels). The
+     strip is one row that scrolls sideways: about ten tabs show at 1440px, five at 768px and two and a half on a
+     phone. A panel opened past the edge stayed there, out of sight, and so did one `next panel` showed. Panels of
+     one title could not be told apart: each `new rates` of one date was `Rates 2026-10-27`, and `show panel` could
+     name none of them. Opening a Run from the Pricing DB twice opened it twice. Closing the active panel showed its
+     right-hand neighbour. Only the active panel's page is mounted, so the screen's cost does not grow with the panels
+     (about 700 elements whatever their number; back to an XVA page of 10,000 trades in about 150 ms: one run of a
+     Playwright script against the built client in a headless Chromium, the elements counted by `querySelectorAll`,
+     the switch timed from the tab's click to its grid settled, so an indication, not a target). The price is
+     that a page's own state goes when it is hidden: its inner tab, a grid's sort, filter, selection and scroll. The
+     widths dragged stay: they are the user's setting by grid (ADR-0017 §5), the same in every panel.
+   - *What the strip does now.*
+     - The active tab is kept in sight: one just opened, one chosen elsewhere, and the active one of a strip the
+       window has narrowed.
+     - At the strip's end, a button says how many panels are open and lists them all. Choosing one shows it. Under the
+       list are the active panel's verbs, which a touch screen has no right click for.
+     - A tab's menu, by a right click or Shift+F10 (or the menu key), runs the verbs on that tab, and names the tab at
+       its top. A key opens it on its first item and gives the keyboard back to the tab as it closes, or to the tab
+       shown next where the menu closed its own (the WAI-ARIA tabs pattern). The menu key's own contextmenu, which
+       Windows sends as the key is let go, leaves the menu that key opened as it is. An item that cannot act (Move
+       left on the first tab) is dimmed with why under it, which a pointer, a key and a touch screen all read. It
+       stays in the arrows' reach, as WAI-ARIA's menu pattern keeps a disabled item; choosing it does nothing and
+       leaves the menu open. A refused notice would say it too, but on a phone it would lie over the list it was
+       chosen from (a third review's finding); the account menu's Sign out is drawn the same way.
+     - Delete on a focused tab closes it (Fn+Delete on a Mac laptop, whose delete key is Backspace), and the keyboard
+       follows to the tab shown next. The middle button closes a tab. A tab dragged onto another takes its place: the
+       drag calls the store's move, as `move panel` does, and reaches any place, where the verb takes a step or an end.
+     - A long title is cut with an ellipsis. The tab's title and the list say it whole. A tab is one Control Height,
+       as the list's button beside it is (docs/design-guidelines.md §3).
+     - Only the strip scrolls to keep a tab in sight, sideways: the page under it stays where the user scrolled it.
+   - *Where a panel opens, and what closing shows.* A new panel opens beside the active one, so a Run opens next to
+     the page that made it. Closing the active panel shows the panel shown before it, as an editor does. A Run that
+     is open already is shown in its panel, in the view asked for, and not opened twice; so is a page `reopen panel`
+     would bring back that has been opened again since it closed.
+   - *Two panels of one title* are numbered from the second (`Rates 2026-10-27 · 2`). A panel keeps its number while
+     it is open, and reopened it has its number back where no other panel has taken it. The strip, the list and
+     `show panel` use the number, and so do every command's target and the AI pane's card for a panel the AI opened:
+     the first is named by the title alone and the others by their number.
+   - *Pinned panels* stand first, show a pin and no close button, and stay open through the closes of several. A
+     close of one closes a pinned panel too, as the user named it. A move keeps a pinned panel among the pinned, and
+     the others among the others.
+   - *Closed panels* are kept, the last twenty, each with where it stood, whether it was pinned and its number.
+     `reopen panel` brings back the last closed, one at a time; a close of several comes back from its left, each
+     where it stood, so the strip is as it was. A closed page comes back as a page opened anew: its
+     workspace and its Run are the server's, so nothing of the user's work is lost by a close.
+   - *The verbs.* `close panel` (Ctrl/⌘+Shift+X, as before), `close other panels`, `close panels to the right`,
+     `close all panels`, `pin panel`, `unpin panel`, `move panel <left|right|first|last>` and `reopen panel`, beside
+     `next panel`, `previous panel` and `show panel`. Each is declared once (`client/src/shell/panelVerbs.ts`), and the
+     line, a tab's menu, the list and a tab's keys run that declaration. A menu shows each verb's words beside it, so
+     the menu teaches the command. A close of several says how many it closed and how many pinned panels it kept,
+     and how to bring one back. A verb that cannot act says why: on the line, under its item in a menu, and from a
+     key in a refused notice.
+   - *They are the client's.* They change the screen only: they are not logged, `undo` does not reach them, and the
+     AI is not given them (ADR-0016 §3: the AI calls capabilities, never page automation). They are read by the line,
+     not by the server: a panel is no table of a workspace. The panels are kept while the page is loaded, as before.
+   - *Not taken.* Closing panels by themselves past a number (an editor's tab limit): a panel the user did not close
+     would go, quietly. Tabs on several rows: the shell's height would move with the number of panels (ADR-0009).
+     New chords: the browser takes Ctrl+W, Ctrl+Shift+T, Ctrl+Tab and Ctrl+1 to 9 before a page sees them, and §8
+     keeps chords few.
+   - *A page's state, when its panel is hidden* (the owner, 2026-11-11, from three options): each page keeps what it
+     shows by panel (its inner tab, a grid's sort, filter and selection, what is opened or folded) and shows it again
+     when its panel comes back; the scroll is not kept. Pages are not kept mounted while
+     hidden: tried, the `new xva` dialog no longer had the keyboard as it opened over hidden pages, and a hidden Rates
+     page would watch its live frames, so live would run on unseen while the panel is open (docs/07 §6 stops it once
+     nobody watches). Built in its own pull request, after ADR-0016's step 5 changes the pricer's page.
+
 ## Changed from the proposal
 
 The owner's corrections, 2026-10-27: the command line and the AI chat's slash commands are separate, and `/` opens

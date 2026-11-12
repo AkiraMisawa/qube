@@ -3,7 +3,7 @@ import { Badge, Box, Group, Kbd, Modal, Stack, Text, TextInput, UnstyledButton, 
 import { useHotkeys } from '@mantine/hooks';
 import { IconCheck, IconX } from '@tabler/icons-react';
 import {
-  assertDistinct, CommandRefused, completionsOf, drawn, drawnSections, execute, finish, listed, placeholder, readLine, signature, take,
+  assertDistinct, CommandRefused, completionsOf, drawn, drawnSections, execute, finish, given, listed, placeholder, readLine, signature, take,
   type Command, type CommandDoor, type Completion,
 } from '../platform/commands/commands';
 import { argumentShown, argumentsDrawn, commandDoorOf, lineAsked, previewShown, screenShown, servedCommands, taken } from '../platform/commands/served';
@@ -15,9 +15,10 @@ import type { Catalog, LineCompletion, LinePreview, LineView, RunRecord } from '
 import type { Notice, Notify } from '../platform/notices';
 import { viewsFor } from '../platform/views/binding';
 import { CONTEXT_CONTRACT, useWorkspace, useWorkspaceContext } from '../platform/workspace/WorkspaceProvider';
-import { keyOf, type Panel, type WorkspaceState } from '../platform/workspace/workspaceStore';
+import { keyOf, panelLabel, type Panel, type WorkspaceState } from '../platform/workspace/workspaceStore';
 import { holdKeyboard, keepKeyboard, keyboardAwaited, letGo, releaseKeyboard, rememberKeyboard, returnKeyboard } from './keyboard';
 import { goTo, placesOf } from './places';
+import { panelCommands, type PanelState } from './panelVerbs';
 import { useStore } from 'zustand';
 import { createStore } from 'zustand/vanilla';
 import { useOptionalAiStore } from '../ai/AiProvider';
@@ -25,31 +26,10 @@ import { aiContextOf } from '../ai/effects';
 import { appCommands } from '../apps';
 
 /**
- * The open panel a typed title names: the one titled so, else the only one whose title contains the text. Two of one
- * title, or a part that several contain, are named back rather than guessed between.
- */
-export function panelTitled(panels: readonly Panel[], text: string): { readonly panel: Panel } | { readonly reason: string } {
-  const t = text.trim().toLowerCase();
-  if (t === '') return { reason: 'Type the title of an open panel.' };
-  const exact = panels.filter((p) => p.title.toLowerCase() === t);
-  const matching = exact.length > 0 ? exact : panels.filter((p) => p.title.toLowerCase().includes(t));
-  if (matching.length === 1) return { panel: matching[0]! };
-  return matching.length === 0
-    ? { reason: `No open panel is titled like "${text.trim()}".` }
-    : { reason: `${matching.length} panels match "${text.trim()}": ${matching.map((p) => p.title).join(', ')}.` };
-}
-
-/**
  * The commands of the user's settings (ADR-0017 §4), on every page, with or without a workspace: `settings` shows the
  * dialog, `settings <name> <value>` sets one a line types, completing its choices, and `settings reset <name>` returns
  * one the user set to its registered value. The server reads and checks the value, and what it answered is the notice.
  */
-/** A required argument as the line ran the command with it: the line runs none without it, so one missing is a defect. */
-function given(args: Readonly<Record<string, string | undefined>>, name: string): string {
-  const value = args[name];
-  if (value === undefined) throw new Error(`The line ran a command without its ${name}.`);
-  return value;
-}
 
 export function settingCommands(settings: readonly SettingDescribed[], notify: Notify): Command[] {
   const said = (act: Promise<SettingChanged>) =>
@@ -88,7 +68,7 @@ export function settingCommands(settings: readonly SettingDescribed[], notify: N
  */
 export function buildCommands(args: {
   readonly catalog: Catalog;
-  readonly state: Pick<WorkspaceState, 'panels' | 'activePanelId' | 'context' | 'openRunDialog' | 'setPanelView' | 'closePanel' | 'cycle' | 'activate' | 'requestContext' | 'showApp' | 'openAppDialog'>;
+  readonly state: PanelState & Pick<WorkspaceState, 'context' | 'openRunDialog' | 'setPanelView' | 'requestContext' | 'showApp' | 'openAppDialog'>;
   readonly activeRun: RunRecord | undefined;
   readonly toggleTheme: () => void;
   readonly notify: Notify;
@@ -130,7 +110,7 @@ export function buildCommands(args: {
         title: `Show as ${view.title}`,
         group: 'Views',
         // A Run's views are its page's commands: the empty line lists them first (ADR-0006's note 3 of 2026-11-11).
-        target: active.title,
+        target: panelLabel(active),
         page: true,
         run: () => state.setPanelView(active.id, keyOf(view)),
       });
@@ -179,7 +159,7 @@ export function buildCommands(args: {
       words: `open ${tab.word}`,
       title: `Open ${tab.title}`,
       group: 'Panels',
-      target: active.title,
+      target: panelLabel(active),
       page: true,
       run: () => {
         // Read again when it runs: the page may have drawn its tabs anew since the line opened.
@@ -200,7 +180,7 @@ export function buildCommands(args: {
         complete: () => placesToGo().map((p) => ({ value: p.word, detail: p.title })),
         check: (word) => (placesToGo().some((p) => p.word === word.toLowerCase()) ? undefined : `one of ${placesToGo().map((p) => p.word).join(', ')}`),
       }],
-      ...(active === undefined ? { unavailable: 'No panel is open.' } : placesToGo().length === 0 ? { unavailable: 'This page has no places to go to.' } : { target: active.title }),
+      ...(active === undefined ? { unavailable: 'No panel is open.' } : placesToGo().length === 0 ? { unavailable: 'This page has no places to go to.' } : { target: panelLabel(active) }),
       run: (a) => {
         const place = placesToGo().find((p) => p.word === a.place?.toLowerCase());
         if (place === undefined) throw new CommandRefused(`go needs a place of this page: ${placesToGo().map((p) => p.word).join(', ')}.`);
@@ -214,53 +194,15 @@ export function buildCommands(args: {
       title: 'Give the keyboard to the panel\'s grid',
       group: 'Panels',
       shortcut: 'mod+shift+G',
-      ...(active === undefined ? { unavailable: 'No panel is open.' } : { target: active.title }),
+      ...(active === undefined ? { unavailable: 'No panel is open.' } : { target: panelLabel(active) }),
       run: () => {
         const grid = placesOf(active?.id).find((p) => p.grid === true);
         if (grid === undefined) throw new CommandRefused('This panel has no grid yet.');
         goTo(grid, args.notify);
       },
     },
-    {
-      id: 'panel.next',
-      words: 'next panel',
-      title: 'Show the next panel',
-      group: 'Panels',
-      shortcut: 'mod+alt+ArrowRight',
-      ...(state.panels.length < 2 ? { unavailable: 'There is no other panel.' } : {}),
-      run: () => state.cycle(1),
-    },
-    {
-      id: 'panel.previous',
-      words: 'previous panel',
-      title: 'Show the previous panel',
-      group: 'Panels',
-      shortcut: 'mod+alt+ArrowLeft',
-      ...(state.panels.length < 2 ? { unavailable: 'There is no other panel.' } : {}),
-      run: () => state.cycle(-1),
-    },
-    {
-      id: 'panel.show',
-      words: 'show panel',
-      title: 'Show an open panel by its title',
-      group: 'Panels',
-      args: [{
-        name: 'panel', required: true, rest: true, hint: 'its title, or a part of it',
-        complete: () => state.panels.map((p) => ({ value: p.title })),
-        check: (text) => { const named = panelTitled(state.panels, text); return 'reason' in named ? named.reason : undefined; },
-      }],
-      ...(state.panels.length === 0 ? { unavailable: 'No panel is open.' } : {}),
-      run: (a) => { const named = panelTitled(state.panels, a.panel ?? ''); if ('panel' in named) state.activate(named.panel.id); },
-    },
-    {
-      id: 'panel.close',
-      words: 'close panel',
-      title: 'Close the panel',
-      group: 'Panels',
-      shortcut: 'mod+shift+X',
-      ...(active === undefined ? { unavailable: 'No panel is open.' } : { target: active.title }),
-      run: () => { if (active !== undefined) state.closePanel(active.id); },
-    },
+    // The shell's verbs over its panels (ADR-0006 note 7), declared once with the strip's menus and keys.
+    ...panelCommands(state, args.notify),
     {
       id: 'theme.toggle',
       words: 'toggle theme',
@@ -277,7 +219,7 @@ export function buildCommands(args: {
       group: 'AI',
       args: [{ name: 'request', required: true, rest: true, hint: 'what you want done, in your own words' }],
       ...(args.ai === undefined ? { unavailable: 'The AI pane is not shown here; nothing was sent.' } : {}),
-      ...(active === undefined ? {} : { target: active.title }),
+      ...(active === undefined ? {} : { target: panelLabel(active) }),
       run: (a) => {
         const refused = args.ai?.ask(a.request ?? '');
         if (refused !== undefined) args.notify('refused', `ai: ${refused}`);
@@ -341,6 +283,8 @@ export function CommandPalette() {
   const queryClient = useQueryClient();
   const panels = useWorkspace((s) => s.panels);
   const activePanelId = useWorkspace((s) => s.activePanelId);
+  // The closed panels, so `reopen panel` is listed as it stands: one shown again where it was open changes no panel.
+  const closed = useWorkspace((s) => s.closed);
   const context = useWorkspace((s) => s.context);
   const { toggleColorScheme } = useMantineColorScheme();
   const { settings } = useSettings();
@@ -395,9 +339,9 @@ export function CommandPalette() {
       setOpen: (open: boolean) => aiStore.getState().setOpen(open),
       ask: (request: string) => aiStore.getState().ask(request, aiContextOf(active)),
     };
-    return buildCommands({ catalog: workspace.catalog, state: { ...state, panels, activePanelId, context }, activeRun, toggleTheme: toggleColorScheme, notify: workspace.notify,
+    return buildCommands({ catalog: workspace.catalog, state: { ...state, panels, activePanelId, closed, context }, activeRun, toggleTheme: toggleColorScheme, notify: workspace.notify,
       settings: Object.values(settings), ...(ai === undefined ? {} : { ai }) });
-  }, [workspace, panels, activePanelId, context, activeRun, toggleColorScheme, opened, opening, aiStore, aiOpen, active, settings]);
+  }, [workspace, panels, activePanelId, closed, context, activeRun, toggleColorScheme, opened, opening, aiStore, aiOpen, active, settings]);
 
   /** Reads what the page in the active panel shows now, as an opening: at each opening, and at each chained command. */
   const readScreen = useCallback(() => {

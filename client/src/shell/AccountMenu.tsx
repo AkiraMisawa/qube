@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { call } from '../platform/api';
 import { ICON, STROKE } from './icons';
 import { openSettings } from './SettingsDialog';
+import { UnavailableMenuItem } from './UnavailableMenuItem';
 
 // The header's account menu: who the page is for, their settings, the theme, and signing out. It takes the place of the
 // header's theme button, so that the settings are found where a user looks for their account (owner, 2026-11-11).
@@ -145,15 +146,10 @@ export function AccountMenu() {
           {SCHEMES.map((scheme) => <Menu.RadioItem key={scheme.value} value={scheme.value}>{scheme.label}</Menu.RadioItem>)}
         </Menu.RadioGroup>
         <Menu.Divider />
-        {/* Not `disabled`: Mantine takes a disabled item out of the arrows' reach, and its reason would reach only the eye.
-            Mantine's item writes `aria-disabled` only with that, so the root is rendered here to say it. */}
-        <Menu.Item leftSection={<IconLogout size={ICON} stroke={STROKE} aria-hidden />} closeMenuOnClick={false} c="dimmed"
-          aria-describedby="qube-account-signout" renderRoot={(props) => <button type="button" {...props} aria-disabled />}>
+        <UnavailableMenuItem leftSection={<IconLogout size={ICON} stroke={STROKE} aria-hidden />}
+          why="Sign-in is not set up yet, so every browser of this host is the same user.">
           Sign out
-        </Menu.Item>
-        <Text id="qube-account-signout" size="xs" c="dimmed" px="sm" pb="xs">
-          Sign-in is not set up yet, so every browser of this host is the same user.
-        </Text>
+        </UnavailableMenuItem>
       </Menu.Dropdown>
     </Menu>
   );

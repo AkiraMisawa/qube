@@ -3,7 +3,7 @@ import { Button, Group, Modal, NumberInput, Select, Stack, Text } from '@mantine
 import { useQuery } from '@tanstack/react-query';
 import { CommandRefused, type Command } from '../platform/commands/commands';
 import { useWorkspace, useWorkspaceContext } from '../platform/workspace/WorkspaceProvider';
-import type { Panel, WorkspaceState } from '../platform/workspace/workspaceStore';
+import { panelLabel, type Panel, type WorkspaceState } from '../platform/workspace/workspaceStore';
 import { PricingDbPanel } from './history/PricingDbPanel';
 import { httpRatesApi, type RatesApi } from './rates/api';
 import { RatesWorkspacePanel } from './rates/RatesWorkspacePanel';
@@ -55,8 +55,7 @@ registerAiContext(RATES_WORKSPACE, (panel) => panel.params.workspaceId === undef
 });
 registerAiEffect('rates.workspace.create', (outputs, { workspace }) => {
   const made = outputs.workspace as { readonly workspaceId: string; readonly valuationDate: string };
-  const title = `Rates ${made.valuationDate}`;
-  return { panelId: workspace.openPanelBehind(RATES_WORKSPACE, title, { workspaceId: made.workspaceId }), title };
+  return workspace.openPanelBehind(RATES_WORKSPACE, `Rates ${made.valuationDate}`, { workspaceId: made.workspaceId });
 });
 // `entity.create` is the kernel's (ADR-0008 §5); a Rates product's line is fetched again where its workspace is shown,
 // and its workspace opened behind the panel in use when it is not open yet.
@@ -67,8 +66,7 @@ registerAiEffect('entity.create', (outputs, { workspace, queryClient }) => {
   const open = workspace.panels.some((p) => p.kind === 'app' && p.app === RATES_WORKSPACE && p.params.workspaceId === entity.workspaceId);
   if (open) return undefined;
   const valuationDate = queryClient.getQueryData<{ readonly valuationDate: string }>(['rates', entity.workspaceId])?.valuationDate;
-  const title = valuationDate === undefined ? 'Rates' : `Rates ${valuationDate}`;
-  return { panelId: workspace.openPanelBehind(RATES_WORKSPACE, title, { workspaceId: entity.workspaceId }), title };
+  return workspace.openPanelBehind(RATES_WORKSPACE, valuationDate === undefined ? 'Rates' : `Rates ${valuationDate}`, { workspaceId: entity.workspaceId });
 });
 // What the AI pane knows of XVA (ADR-0010 §9): the workspace open is the one `vary`, `add each` and the kernel's `set`,
 // `reset`, `undo` and `redo` act on (ADR-0016 §3, §11), and what they change is read again where the page shows it. The
@@ -151,7 +149,7 @@ function oneOf<T extends string>(value: string | undefined, options: readonly T[
 
 /** What a command of the page in this panel says of itself: what it acts on, and that the empty line lists it first
  * (ADR-0006's note 3 of 2026-11-11). */
-const onPage = (panel: Panel): Pick<Command, 'target' | 'page'> => ({ target: panel.title, page: true });
+const onPage = (panel: Panel): Pick<Command, 'target' | 'page'> => ({ target: panelLabel(panel), page: true });
 
 export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDialog' | 'panels' | 'activePanelId'>): Command[] {
   const active = state.panels.find((p) => p.id === state.activePanelId);
