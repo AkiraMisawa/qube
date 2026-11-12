@@ -103,6 +103,23 @@ export interface LineView {
   readonly focus?: { readonly field: string; readonly key?: string; readonly position?: number };
   readonly shown?: readonly string[];
   readonly where?: string;
+  /**
+   * The draft of the dialog the line is typed over (ADR-0016 §10, note 55 of 2026-11-12). With one the server reads the
+   * line for the draft's row, on what its lines leave, and nothing else of the view.
+   */
+  readonly draft?: LineDraft;
+}
+
+/**
+ * A draft as a page holds it (ADR-0016 §10, note 54 of 2026-11-12): the row its dialog is of, the revision of the
+ * workspace it was opened at, and the lines accepted so far, each a whole line of the workbench that names the row. The
+ * server stores none of it.
+ */
+export interface LineDraft {
+  readonly table: string;
+  readonly key: string;
+  readonly revision: number;
+  readonly lines: readonly string[];
 }
 
 /** An argument as the server read it: the words read for it, and whether they were typed or come from the view (note 18). */
@@ -181,6 +198,30 @@ export interface LineExport {
   readonly said: string;
 }
 
+/** The row whose dialog a reading of `open` asks the page to open (ADR-0016 note 56 of 2026-11-12). */
+export interface LineOpen {
+  readonly kind: 'open';
+  readonly table: string;
+  readonly key: string;
+  readonly said: string;
+}
+
+/** The whole line an open draft gains of a line typed in it (ADR-0016 note 55 of 2026-11-12): nothing is written until `apply`. */
+export interface LineDrafted {
+  readonly kind: 'draft';
+  readonly line: string;
+  readonly said: string;
+}
+
+/** A reading of `cancel` asks the page to discard its open draft (ADR-0016 note 55 of 2026-11-12). */
+export interface LineCancel {
+  readonly kind: 'cancel';
+  readonly said: string;
+}
+
+/** What a reading asks of the page's draft: a row's dialog to open, a line for the open draft, or the draft discarded. */
+export type DraftAsk = LineOpen | LineDrafted | LineCancel;
+
 /** What a reading asks of the grid its view was read of: a place, a sort, a filter or rows to select. */
 export type GridAsk = LinePlace | LineSort | LineFilter | LineSelect;
 
@@ -191,7 +232,7 @@ export type ContentAsk = LineCopy | LineExport;
  * The one thing a view verb's reading asks of the page, said by its kind (ADR-0016 note 42 of 2026-11-11): of the grid
  * the view was read of, or of the door.
  */
-export type ViewAsk = GridAsk | ContentAsk;
+export type ViewAsk = GridAsk | ContentAsk | DraftAsk;
 
 /**
  * What `copy` or `export` takes out of the workbench (ADR-0016 note 44; `POST /api/commands/content`): the text of the
@@ -379,10 +420,92 @@ export interface Catalog {
   readonly viewVerbs: readonly ViewVerbDescriptor[];
   /** The short forms a line may say (ADR-0016 note 29 of 2026-11-11), listed apart too: what runs is the kernel command each stands for. */
   readonly shortForms: readonly ShortFormDescriptor[];
+  /**
+   * The capabilities and the verbs of the screen that are read while a draft is open, by id (ADR-0016 §10, note 55 of
+   * 2026-11-12): a line lists every other served command as unavailable then, as the server would refuse it.
+   */
+  readonly draftCommands: readonly string[];
   readonly contracts: readonly ContractDefinition[];
   readonly workflows: readonly WorkflowDefinition[];
   readonly views: readonly ViewDefinition[];
   readonly actions: readonly ActionDefinition[];
+}
+
+/**
+ * What a dialog draws a field's input from (ADR-0016 notes 54 and 57 of 2026-11-12): the word a line says it by,
+ * whether a command sets it and whether it may be empty, the form of its value, what it takes in words and, where it is
+ * one of a few, each as a line writes it.
+ */
+export interface FieldInput {
+  readonly name: string;
+  readonly title: string;
+  readonly word: string;
+  readonly group?: string;
+  readonly editable: boolean;
+  readonly optional: boolean;
+  readonly form: string;
+  readonly takes: string;
+  readonly choices?: readonly string[];
+  readonly unit?: string;
+  readonly figureOf?: string;
+}
+
+/** A term a template or a product takes, as a dialog asks for it. */
+export interface DraftTerm {
+  readonly name: string;
+  readonly title: string;
+  readonly required: boolean;
+  readonly form: string;
+  readonly takes: string;
+  readonly choices?: readonly string[];
+}
+
+/** A template of a draft's table, or a product that makes a row under its row: the word a line says it by, and its terms. */
+export interface DraftTemplate {
+  readonly word: string;
+  readonly title: string;
+  readonly takes: readonly DraftTerm[];
+}
+
+/** A row under a draft's row as the draft leaves it, each field as a line writes it; one the draft removed is as it was. */
+export interface DraftRow {
+  readonly key: string;
+  readonly written: readonly string[];
+  readonly mark?: 'made' | 'changed' | 'removed';
+}
+
+/** A table under a draft's row: its fields, the rows under the row, and what makes a row there. */
+export interface DraftTable {
+  readonly table: string;
+  readonly title: string;
+  readonly word: string;
+  readonly fields: readonly FieldInput[];
+  readonly rows: readonly DraftRow[];
+  readonly makes: readonly DraftTemplate[];
+}
+
+/** Why a line is not read, as a reading says it. */
+export interface LineRefusal {
+  readonly code: string;
+  readonly sentence: string;
+}
+
+/**
+ * What a dialog is drawn from (ADR-0016 notes 54 and 57 of 2026-11-12): the row's fields as the draft's lines leave
+ * them, each saying whether they changed it; the tables under the row; the table's templates; each line with the
+ * sentence it was accepted with, or why it no longer reads; and Original, the row with nothing of the user's on it,
+ * none for a row the workspace made.
+ */
+export interface DraftForm {
+  readonly table: string;
+  readonly word: string;
+  readonly key: string;
+  readonly revision: number;
+  readonly fields: readonly { readonly field: FieldInput; readonly written: string; readonly changed: boolean }[];
+  readonly under: readonly DraftTable[];
+  readonly templates: readonly DraftTemplate[];
+  readonly lines: readonly { readonly line: string; readonly said?: string; readonly refused?: LineRefusal }[];
+  readonly original?: { readonly written: readonly string[]; readonly under: readonly DraftTable[] };
 }
 
 export type DatasetColumnType = 'string' | 'number' | 'integer' | 'boolean' | 'date' | 'dataRef';

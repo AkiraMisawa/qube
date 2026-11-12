@@ -1,4 +1,4 @@
-import type { Catalog, Dataset, ErrorEnvelope, LineContent, LinePreview, LineView, RunRecord, TableOnScreen, TypedDataRef, ViewDefinition, ViewSelection, ViewShown, WorkflowDefinition } from './contracts';
+import type { Catalog, Dataset, DraftForm, ErrorEnvelope, LineContent, LineDraft, LinePreview, LineView, RunRecord, TableOnScreen, TypedDataRef, ViewDefinition, ViewSelection, ViewShown, WorkflowDefinition } from './contracts';
 import { telemetry, traced } from './telemetry';
 
 /** A refusal from the server, carrying its code and the located issues. Never turned into an empty result. */
@@ -91,6 +91,11 @@ export interface Api {
    * be read.
    */
   shown(workspaceId: string, view: LineView, signal?: AbortSignal): Promise<ViewShown>;
+  /**
+   * What a row's dialog is drawn from (ADR-0016 notes 54 and 57): the server reads the draft's lines in order on the
+   * workspace at the revision it was opened at, and writes nothing. A draft the workspace has left is refused.
+   */
+  draft(workspaceId: string, draft: LineDraft, signal?: AbortSignal): Promise<DraftForm>;
   submitRun(workflow: WorkflowDefinition, context: Record<string, unknown>, input: Record<string, unknown>, idempotencyKey: string): Promise<RunRecord>;
   run(runId: string): Promise<RunRecord>;
   dataset(reference: TypedDataRef): Promise<Dataset>;
@@ -107,6 +112,7 @@ export const httpApi: Api = {
   tables: (workspaceId) => call(`/api/workspaces/${encodeURIComponent(workspaceId)}/tables`),
   selection: (workspaceId, view) => call(`/api/workspaces/${encodeURIComponent(workspaceId)}/selection`, { method: 'POST', body: JSON.stringify({ view }) }),
   shown: (workspaceId, view, signal) => call(`/api/workspaces/${encodeURIComponent(workspaceId)}/shown`, { method: 'POST', body: JSON.stringify({ view }), ...(signal === undefined ? {} : { signal }) }),
+  draft: (workspaceId, draft, signal) => call(`/api/workspaces/${encodeURIComponent(workspaceId)}/draft`, { method: 'POST', body: JSON.stringify(draft), ...(signal === undefined ? {} : { signal }) }),
   submitRun: (workflow, context, input, idempotencyKey) =>
     call('/api/runs', { method: 'POST', body: JSON.stringify({ workflow, context, input, idempotencyKey }) }),
   run: (runId) => call(`/api/runs/${encodeURIComponent(runId)}`),

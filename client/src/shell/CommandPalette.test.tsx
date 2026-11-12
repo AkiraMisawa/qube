@@ -93,7 +93,7 @@ describe('the page\'s commands (ADR-0006 note 3 of 2026-11-11)', () => {
 
     expect(served(typed).unavailable).toBe('This panel has no workspace for it to act on.');
 
-    registerCommandDoor('p', { workspaceId: 'w', app: 'weather', settled: () => Promise.resolve(), view: () => undefined, enter: () => Promise.resolve(undefined), invoke: () => Promise.resolve(undefined) });
+    registerCommandDoor('p', { workspaceId: 'w', app: 'weather', settled: () => Promise.resolve(), view: () => undefined, draft: () => undefined, enter: () => Promise.resolve(undefined), invoke: () => Promise.resolve(undefined), redraft: () => Promise.resolve(undefined) });
     try {
       const set = served(typed);
       expect([set.words, set.group, set.target, set.page, set.unavailable, set.served?.door.workspaceId]).toEqual(['set', 'Workspace', 'XVA ABC/LE-01', true, undefined, 'w']);
@@ -108,7 +108,7 @@ describe('the page\'s commands (ADR-0006 note 3 of 2026-11-11)', () => {
       command: { words: [words], arguments: [], ...(app === undefined ? {} : { app }) },
     });
     const typed = { ...catalog([], []), capabilities: [served('entity.set', 'set'), served('weather.price', 'price', 'weather'), served('weather.vary', 'vary', 'weather'), served('tide.ebb', 'ebb', 'tide')] };
-    registerCommandDoor('p', { workspaceId: 'w', app: 'weather', settled: () => Promise.resolve(), view: () => undefined, enter: () => Promise.resolve(undefined), invoke: () => Promise.resolve(undefined) });
+    registerCommandDoor('p', { workspaceId: 'w', app: 'weather', settled: () => Promise.resolve(), view: () => undefined, draft: () => undefined, enter: () => Promise.resolve(undefined), invoke: () => Promise.resolve(undefined), redraft: () => Promise.resolve(undefined) });
     try {
       const page = build(typed, s).filter((c) => c.page === true).map((c) => c.id);
       // Of the page's application first; another application's is no command here (note 27).

@@ -2168,6 +2168,12 @@ has one button, edit; and `load trades` reads a synthetic store of booked trades
       (note 55).
     - **A row's button runs the same line** (`open <table> <key>`, ticket 16), so the button, the keys and the
       line are one command (§10).
+    - *Corrected as built (2026-11-12).* **The rule is for a served command that needs no argument**, as `open` needs
+      no row: while what follows its word could still become a command of the shell's (`open `, `open cs`), the line
+      lists those with `open` first, which Enter runs for the row the keyboard is on. A served command that needs an
+      argument (`set`, `new`) reads whatever follows its word, as it has since step 1: the server completes it, and
+      listing the shell's `set currency` at `set c` would hide the fields it offers there. So `new x` does not offer
+      `new xva`, against what the bullet above says; `new xva` typed whole is the shell's, as before.
 57. **The dialog is drawn from the form (§10; 5c; DEFAULT).** The page holds the draft and draws one dialog for it,
     the same for every table; nothing in it knows a table or a field.
     - **A modal, the whole screen on a phone.** Its title is the row, and under it the line's own sentence of the
