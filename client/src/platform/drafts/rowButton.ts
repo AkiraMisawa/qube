@@ -12,7 +12,7 @@ export const ROW_ACTIONS = 'Actions';
 export const EDIT_ROW = 'edit';
 
 /** The column a grid gains for its rows' edit button: no header, and as wide as the button. */
-export const editColumn = <Row>(): GridColumn<Row> => actionColumn<Row>(ROW_ACTIONS, [{ name: EDIT_ROW, label: 'Edit' }], { header: '', width: 56 });
+export const editColumn = <Row>(): GridColumn<Row> => actionColumn<Row>(ROW_ACTIONS, [{ name: EDIT_ROW, label: 'Edit' }], { header: '', width: 64 });
 
 /**
  * Opens the dialog of a row of a grid: `open <key>` read in the view of the grid's table. A refusal is a notice; the
