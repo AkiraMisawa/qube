@@ -117,16 +117,30 @@ public sealed record ProductReading(
     public bool Complete => Missing.Count == 0 && Issues.Count == 0;
 }
 
-/// <summary>Reads words against a description (ADR-0008 §3). Pure: the same words and description read the same.</summary>
+/// <summary>
+/// Reads words against the terms something takes (ADR-0008 §3): a product's, and a template's (ADR-0016 note 50), which
+/// are typed alike. Pure: the same words and terms read the same.
+/// </summary>
 public static class ProductReader
 {
     /// <summary>The term a name typed before <c>=</c> is: by its own name or another of its names, in any case; none where the product has no such term.</summary>
-    public static ProductField? Named(ProductDescriptor product, string name) =>
-        product.Fields.FirstOrDefault(f => f.Name.Equals(name, StringComparison.OrdinalIgnoreCase)
+    public static ProductField? Named(ProductDescriptor product, string name) => Named(product.Fields, name);
+
+    /// <summary>As <see cref="Named(ProductDescriptor, string)"/>, among the terms given.</summary>
+    public static ProductField? Named(IReadOnlyList<ProductField> fields, string name) =>
+        fields.FirstOrDefault(f => f.Name.Equals(name, StringComparison.OrdinalIgnoreCase)
             || (f.Aliases?.Any(a => a.Equals(name, StringComparison.OrdinalIgnoreCase)) ?? false));
 
     /// <summary>Splits the typed terms into words, and reads each by name or by form.</summary>
-    public static (Dictionary<string, JsonNode?> Values, List<ProductIssue> Issues) Read(ProductDescriptor product, string text)
+    public static (Dictionary<string, JsonNode?> Values, List<ProductIssue> Issues) Read(ProductDescriptor product, string text) =>
+        Read(product.Words, product.Fields, text, Parse);
+
+    /// <summary>
+    /// As <see cref="Read(ProductDescriptor, string)"/>, for the terms of whatever <paramref name="words"/> names, each
+    /// word read as <paramref name="parse"/> reads it: a product's as <see cref="Parse"/>, a template's as <see cref="Written"/>.
+    /// </summary>
+    public static (Dictionary<string, JsonNode?> Values, List<ProductIssue> Issues) Read(string words, IReadOnlyList<ProductField> fields, string text,
+        Func<ProductField, string, Parsed> parse)
     {
         var values = new Dictionary<string, JsonNode?>(StringComparer.Ordinal);
         var issues = new List<ProductIssue>();
@@ -136,23 +150,25 @@ public static class ProductReader
             if (eq > 0)
             {
                 var name = word[..eq];
-                var field = Named(product, name);
+                var field = Named(fields, name);
                 if (field is null)
                 {
-                    issues.Add(new("UnknownTerm", null, $"{product.Words} has no term named {name}; it takes {string.Join(", ", product.Fields.Select(NameOf))}."));
+                    issues.Add(new("UnknownTerm", null, fields.Count == 0 ? $"{words} takes no term; {name} is not read."
+                        : $"{words} has no term named {name}; it takes {string.Join(", ", fields.Select(NameOf))}."));
                     continue;
                 }
                 Fill(field, word[(eq + 1)..]);
                 continue;
             }
-            var candidates = product.Fields.Where(f => f.Unnamed && !values.ContainsKey(f.Name) && Parse(f, word).Ok).ToList();
+            var candidates = fields.Where(f => f.Unnamed && !values.ContainsKey(f.Name) && parse(f, word).Ok).ToList();
             if (candidates.Count == 0)
             {
-                var amountMistake = product.Fields.FirstOrDefault(f => f.Unnamed && f.Form == FieldForm.Amount && !values.ContainsKey(f.Name)
+                var amountMistake = fields.FirstOrDefault(f => f.Unnamed && f.Form == FieldForm.Amount && !values.ContainsKey(f.Name)
                     && FieldForms.Read(new FieldSpec(FieldForm.Amount), word).Problem == FieldForms.Problem.FullAmount);
                 issues.Add(amountMistake is not null
-                    ? new("InvalidTerm", amountMistake.Name, Parse(amountMistake, word).Message!)
-                    : new("UnreadWord", null, $"'{word}' is no term of {product.Words} left to fill; name it as name=value."));
+                    ? new("InvalidTerm", amountMistake.Name, parse(amountMistake, word).Message!)
+                    : new("UnreadWord", null, fields.Count == 0 ? $"{words} takes no term; '{word}' is not read."
+                        : $"'{word}' is no term of {words} left to fill; name it as name=value."));
                 continue;
             }
             var sequence = candidates[0].Sequence;
@@ -172,7 +188,7 @@ public static class ProductReader
                 issues.Add(new("RepeatedTerm", field.Name, $"{field.Name} is given twice."));
                 return;
             }
-            var parsed = Parse(field, text);
+            var parsed = parse(field, text);
             if (parsed.Ok) values[field.Name] = parsed.Value;
             else issues.Add(new("InvalidTerm", field.Name, parsed.Message!));
         }
@@ -202,18 +218,21 @@ public static class ProductReader
     /// an unnamed choice not yet filled, as its form writes it, where a sequence offers its next field alone; an
     /// unnamed field's examples; and <c>name=</c> for each field typed by its name. Each with the field's title.
     /// </summary>
-    public static IReadOnlyList<(string Value, string Detail)> Offers(ProductDescriptor product, string done)
+    public static IReadOnlyList<(string Value, string Detail)> Offers(ProductDescriptor product, string done) => Offers(product.Words, product.Fields, done, Parse);
+
+    /// <summary>As <see cref="Offers(ProductDescriptor, string)"/>, for the terms of whatever <paramref name="words"/> names.</summary>
+    public static IReadOnlyList<(string Value, string Detail)> Offers(string words, IReadOnlyList<ProductField> fields, string done, Func<ProductField, string, Parsed> parse)
     {
-        var filled = Read(product, done).Values;
+        var filled = Read(words, fields, done, parse).Values;
         var offers = new List<(string Value, string Detail)>();
         void Offer(string value, ProductField field)
         {
             if (offers.All(o => o.Value != value)) offers.Add((value, field.Title));
         }
-        foreach (var field in product.Fields.Where(f => !filled.ContainsKey(f.Name)))
+        foreach (var field in fields.Where(f => !filled.ContainsKey(f.Name)))
         {
             if (!field.Unnamed) Offer($"{field.Name}=", field);
-            else if (field.Sequence is null || product.Fields.First(f => f.Sequence == field.Sequence && !filled.ContainsKey(f.Name)) == field)
+            else if (field.Sequence is null || fields.First(f => f.Sequence == field.Sequence && !filled.ContainsKey(f.Name)) == field)
                 foreach (var value in field.Choices is { } choices ? choices.Values.Distinct().Select(v => FieldForms.Write(field.Spec, v)) : field.Examples ?? [])
                     Offer(value, field);
         }
@@ -235,22 +254,37 @@ public static class ProductReader
     {
         var t = text.Trim();
         var read = FieldForms.Read(field.Spec, t);
-        var amount = $"{field.Name} is an amount in millions (1000 is a billion), or with its scale: 3bn, 500mm.";
         if (read.Problem == FieldForms.Problem.None)
         {
             if (read.Value is not JsonValue value || !value.TryGetValue<decimal>(out var n)) return Take(read.Value);
-            return field.Form == FieldForm.Amount && n == 0 ? Fail(amount) : Take((double)n);
+            return field.Form == FieldForm.Amount && n == 0 ? Fail(AnAmount(field)) : Take((double)n);
         }
-        return Fail(field.Form switch
-        {
-            FieldForm.Amount when read.Problem == FieldForms.Problem.FullAmount =>
-                $"{field.Name} is in millions, so {t} would be {decimal.Parse(t.Replace(",", "", StringComparison.Ordinal), CultureInfo.InvariantCulture):#,0} million; write it with its scale, such as 1bn.",
-            FieldForm.Amount => amount,
-            FieldForm.Choice => $"{field.Name} is one of {string.Join(", ", (field.Choices ?? throw new InvalidOperationException($"{field.Name} is a choice with no choices.")).Keys)}.",
-            FieldForm.Number => $"{field.Name} is a number.",
-            _ => $"{field.Name} is {read.What}.",
-        });
+        return Fail(Unread(field, t, read));
     }
+
+    /// <summary>
+    /// One word as the field's form reads it and a table's field holds it (ADR-0016 note 50): a number stays the
+    /// number read, and an amount of nothing is an amount. The sentences are <see cref="Parse"/>'s.
+    /// </summary>
+    public static Parsed Written(ProductField field, string text)
+    {
+        var t = text.Trim();
+        var read = FieldForms.Read(field.Spec, t);
+        return read.Problem == FieldForms.Problem.None ? Take(read.Value) : Fail(Unread(field, t, read));
+    }
+
+    // Why a word is not the field's value, by the field's name.
+    static string AnAmount(ProductField field) => $"{field.Name} is an amount in millions (1000 is a billion), or with its scale: 3bn, 500mm.";
+
+    static string Unread(ProductField field, string t, FieldForms.Reading read) => field.Form switch
+    {
+        FieldForm.Amount when read.Problem == FieldForms.Problem.FullAmount =>
+            $"{field.Name} is in millions, so {t} would be {decimal.Parse(t.Replace(",", "", StringComparison.Ordinal), CultureInfo.InvariantCulture):#,0} million; write it with its scale, such as 1bn.",
+        FieldForm.Amount => AnAmount(field),
+        FieldForm.Choice => $"{field.Name} is one of {string.Join(", ", (field.Choices ?? throw new InvalidOperationException($"{field.Name} is a choice with no choices.")).Keys)}.",
+        FieldForm.Number => $"{field.Name} is a number.",
+        _ => $"{field.Name} is {read.What}.",
+    };
 }
 
 /// <summary>

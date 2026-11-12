@@ -3,6 +3,7 @@ import { Alert, Badge, Button, CloseButton, Code, Group, Kbd, Loader, Paper, Scr
 import { useQuery } from '@tanstack/react-query';
 import { useValue } from '../platform/settings/settings';
 import { useWorkspace } from '../platform/workspace/WorkspaceProvider';
+import type { Panel } from '../platform/workspace/workspaceStore';
 import { useAi, useAiContext } from './AiProvider';
 import { answering, conversationModel } from './aiStore';
 import type { AiCard, AiStep } from './cards';
@@ -133,7 +134,7 @@ export function AiPane() {
               {runtime.data?.simulated === true && <Text size="sm" mt={4}>{runtime.data.label}: requests such as "make a 10y JPY TONA swap, pay fixed, 3bn, fixed 12m float 12m, spread 0", "start ticking" or "stop ticking".</Text>}
             </Alert>
           )}
-          {cards.map((card) => <TaskCard key={card.runId} card={card} onOpen={activate} />)}
+          {cards.map((card) => <TaskCard key={card.runId} card={card} panels={panels} onOpen={activate} />)}
           <div ref={end} />
         </Stack>
       </ScrollArea>
@@ -181,7 +182,12 @@ function ModelChoice({ models }: { readonly models: readonly string[] }) {
   );
 }
 
-function TaskCard({ card, onOpen }: { readonly card: AiCard; readonly onOpen: (panelId: string) => void }) {
+function TaskCard({ card, panels, onOpen }: {
+  readonly card: AiCard;
+  /** The panels open now: one the card opened may have been closed since, and is then said closed, not offered. */
+  readonly panels: readonly Panel[];
+  readonly onOpen: (panelId: string) => void;
+}) {
   return (
     <Paper withBorder p="xs" data-testid="ai-card" data-status={card.status}>
       <Stack gap={6}>
@@ -196,7 +202,9 @@ function TaskCard({ card, onOpen }: { readonly card: AiCard; readonly onOpen: (p
         {card.error !== undefined && <Text size="sm" c="red" role="alert">{card.error}</Text>}
         {card.opened.length > 0 && (
           <Group gap={4}>
-            {card.opened.map((p) => <Button key={p.panelId} size="compact-xs" variant="default" onClick={() => onOpen(p.panelId)}>Show {p.title}</Button>)}
+            {card.opened.map((p) => (panels.some((open) => open.id === p.panelId)
+              ? <Button key={p.panelId} size="compact-xs" variant="default" onClick={() => onOpen(p.panelId)}>Show {p.title}</Button>
+              : <Text key={p.panelId} size="xs" c="dimmed">{p.title} is closed</Text>))}
           </Group>
         )}
       </Stack>

@@ -2537,8 +2537,9 @@ test('ADR-0016 notes 43 and 44: in the CSA grid, whose page holds every CSA, `se
   await expect(notice).toHaveText('Selected 2 rows of csas.');
   await page.keyboard.press('ControlOrMeta+K');
   await expect(line).toBeFocused();
-  // The grid had no Focus to keep, so it is on the first row in the grid's first column, which is no field's.
-  await expect(page.getByTestId('command-context')).toHaveText('On screen: csas, 2 selected, CSA-A');
+  // The grid had no Focus to keep, so it is on the first row in the grid's first column, Main, which is a field of
+  // the CSAs since step 5b (ADR-0016 note 51) and is named with the row.
+  await expect(page.getByTestId('command-context')).toHaveText('On screen: csas, 2 selected, CSA-A · main');
   await page.keyboard.type('copy csa id, ccy with headers');
   await expect(page.getByTestId('command-preview')).toContainText('Copies 2 rows of csas, 2 fields: csa id, currency, with headers.');
   await page.keyboard.press('Enter');

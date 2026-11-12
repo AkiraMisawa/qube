@@ -93,30 +93,36 @@ public sealed partial class TableService(TableRegister register, WorkspaceServic
     Plan PlanSet(WorkspaceState state, Caller caller, string? table, string? rows, string set, LineView? view = null)
     {
         var (tables, selector, named, fromScreen) = ReadRows(state, table, rows, view);
+        // After the rows, `as` says a template of their table and its terms, where a field and its value would be (note 50).
+        var template = Templates.Leads(set);
+        bool Meant(BoundTable t) => template ? Templates.Names(set, t) : Assignments.StartsWithAFieldOf(set, t);
         // A table of one row is addressed without a row where the first field's words say which (note 7).
-        var alone = selector.Table is null && selector.SaysNoRows ? tables.Where(t => t.Descriptor.SingleRow && Assignments.StartsWithAFieldOf(set, t)).ToList() : [];
+        var alone = selector.Table is null && selector.SaysNoRows ? tables.Where(t => t.Descriptor.SingleRow && Meant(t)).ToList() : [];
         if (alone.Count > 1)
             throw new TableRefused("AmbiguousTable", $"{set.Trim()} could be set on {TableWords.Either(alone.Select(t => t.Word))}; say which, as in {alone[0].Word} {set.Trim()}.",
                 candidates: [.. alone.Select(t => t.Word)]);
         // With a screen behind the line, a field of its table acts on its selection (note 18 of step 2).
-        var implied = Implied(selector, tables, view, t => Assignments.StartsWithAFieldOf(set, t) ? Assignments.Leading(set, t) : null, alone, set.Trim());
+        var implied = Implied(selector, tables, view, t => !Meant(t) ? null : template ? [] : Assignments.Leading(set, t), alone, set.Trim());
         var resolved = implied is not null ? Selectors.LeftOut(view!, tables, state)
             : Selectors.Resolve(alone.Count == 1 ? new RowSelector(alone[0].Descriptor.TableId) : selector, tables, state, view);
         var bound = resolved.Table;
         var keyed = selector.Screen is null && implied is null ? null : Keyed(resolved, tables, selector.Screen);
         var subject = resolved.Rows.Count > 0 ? resolved.Rows[0].Key : bound.Word;
-        var values = Assignments.Read(set, bound).Select(a =>
+        var asTemplate = template ? Templates.Read(set, bound) : null;
+        IReadOnlyList<(TableField Field, JsonNode? Value)> values = asTemplate is not null ? Templates.Values(state, bound, asTemplate) : [.. Assignments.Read(set, bound).Select(a =>
         {
             if (!a.Field.Editable) throw NotEditable(bound, a.Field);
             var reading = FieldForms.Read(a.Field.Written, a.Text);
             return reading.Problem == FieldForms.Problem.None ? (a.Field, reading.Value)
                 : throw new TableRefused("InvalidValue", $"{subject} {TableWords.Word(a.Field)} is {reading.What}; {a.Text} is not.", a.Text);
-        }).ToList();
+        })];
 
         var changes = new List<WorkspaceChange>();
         var changed = new HashSet<string>(StringComparer.Ordinal);
         var written = new List<(TableField Field, JsonNode? Value)>();
         var would = new List<string>();
+        // A template writes many cells: of one row, the line names those that would change and counts the rest (note 50).
+        var heldCells = 0;
         var whole = resolved.Whole?.ToDictionary(s => s.Name);
         // Several values are written in the order given, each checked against the rows as the ones before it left them
         // (note 9): what two commands would take, one takes, and what the second would refuse refuses both.
@@ -134,7 +140,8 @@ public sealed partial class TableService(TableRegister register, WorkspaceServic
             // with none holds the value, since the figure alone cannot say whether the rows under it would change.
             var figure = field.Figure is null ? null : rowsNow.ToDictionary(r => r.Key, r => bound.Table.Set(standing, r, field, value), StringComparer.Ordinal);
             var differing = rowsNow.Where(r => figure is null ? !FieldForms.Same(r.Value(field.Name), value) : figure[r.Key].Count > 0).ToList();
-            would.Add(figure is null ? WouldSet(field, value, rowsNow.Count, differing)
+            if (asTemplate is not null && rowsNow.Count == 1 && differing.Count == 0) heldCells++;
+            else would.Add(figure is null ? WouldSet(field, value, rowsNow.Count, differing)
                 : WouldSetFigure(field, value, rowsNow.Count, differing, differing is [var one] && rowsNow.Count == 1 ? bound.Table.SetSays(standing, one, field, value) : null));
             if (differing.Count == 0) continue;
             written.Add((field, value));
@@ -148,14 +155,22 @@ public sealed partial class TableService(TableRegister register, WorkspaceServic
             changed.UnionWith(differing.Select(r => r.Key));
         }
 
-        // One value is named as the line first spells it, `<field> <value>`; several keep their signs.
-        var words = Words("set", table, named, set.Count(c => c == '=') == 1 ? set.Replace('=', ' ') : set);
+        // One value is named as the line first spells it, `<field> <value>`; several keep their signs; a template is
+        // named with its terms as read, each by its name.
+        var words = Words("set", table, named, asTemplate is not null ? $"{Templates.Word} {asTemplate.Says}" : set.Count(c => c == '=') == 1 ? set.Replace('=', ' ') : set);
         var touched = resolved.Rows.Where(r => changed.Contains(r.Key)).ToList();
         var held = resolved.Rows.Count - touched.Count;
         if (touched.Count == 0)
         {
-            var holds = TableWords.And(values.Select(v => $"{TableWords.Word(v.Field)} {FieldForms.Write(v.Field.Written, v.Value)}"));
+            var holds = asTemplate is not null ? $"every value of {asTemplate.Says}"
+                : TableWords.And(values.Select(v => $"{TableWords.Word(v.Field)} {FieldForms.Write(v.Field.Written, v.Value)}"));
             return Unchanged(state, resolved, $"{Rows(bound, resolved.Rows, all: true)} already hold{(resolved.Rows.Count == 1 ? "s" : "")} {holds}", words, keyed) with { TableFromScreen = fromScreen };
+        }
+        if (asTemplate is not null)
+        {
+            var rest = heldCells == 0 ? "" : $"; {TableWords.Counted(heldCells, "value")} already held";
+            return new(state, resolved, changes, touched, $"Set {Rows(bound, touched)} as {asTemplate.Says}{(held == 0 ? "" : $"; {held} already held its values")}.",
+                $"{string.Join("; ", would)}{rest}", words, keyed, TableFromScreen: fromScreen);
         }
         var assigned = TableWords.And(written.Select(v => $"{TableWords.Word(v.Field)} to {FieldForms.Write(v.Field.Written, v.Value)}"));
         var already = held == 0 ? "" : $"; {held} already held {(written.Count == 1 ? "it" : "them")}";
@@ -667,7 +682,7 @@ public sealed class TablesModule(Func<TableService> tables) : IQubeModule
         builder.AddCapability(new TablesRead(tables));
         TableReadContracts.Register(builder);
         builder.AddContract(new ContractDefinition(TableContracts.SetRequest, TableContracts.Version, "Set fields of rows", TableContracts.Request(TableContracts.RowsTitle,
-            ("set", new JsonObject { ["type"] = "string", ["minLength"] = 1, ["title"] = "Values as name=value, one or several (<field>=<value> <field>=<value>), each written as its field is typed and checked in the order given; one value may follow its field with no sign (<field> <value>)" }, true))));
+            ("set", new JsonObject { ["type"] = "string", ["minLength"] = 1, ["title"] = "Values as name=value, one or several (<field>=<value> <field>=<value>), each written as its field is typed and checked in the order given; one value may follow its field with no sign (<field> <value>); or a template of the table and its terms (as <template> <term>=<value>), which tables.describe lists" }, true))));
         builder.AddContract(new ContractDefinition(TableContracts.ResetRequest, TableContracts.Version, "Reset fields of rows", TableContracts.Request(TableContracts.RowsTitle,
             ("field", new JsonObject { ["type"] = "string", ["minLength"] = 1, ["title"] = "The field to reset, by its words; every field of the rows where left out" }, false))));
         builder.AddContract(new ContractDefinition(TableContracts.RemoveRequest, TableContracts.Version, "Remove rows", TableContracts.Request(TableContracts.RowsTitle)));

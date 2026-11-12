@@ -136,6 +136,18 @@ public static class PortfolioLegs
     public static IReadOnlyList<EffectiveAmount> Amounts(WorkspaceState reading) => Of(reading).Amounts;
 
     /// <summary>
+    /// A trade's legs and independent amounts as the accepted input carries them (note 53): each leg as its id,
+    /// currency, PV and its notional where it holds one, each amount as its id, currency, dates and value. A trade
+    /// with none carries an empty list, so that it has none is said.
+    /// </summary>
+    public static (JsonArray Legs, JsonArray Amounts) Frozen(WorkspaceState reading, string tradeId) =>
+        (new([.. Of(reading).LegsOf[tradeId].Select(l => new JsonObject { ["legId"] = l.LegId, ["currency"] = l.Currency, ["pv"] = l.Pv, ["notional"] = l.Notional })]),
+            new([.. Of(reading).AmountsOf[tradeId].Select(a => new JsonObject
+            {
+                ["amountId"] = a.AmountId, ["currency"] = a.Currency, ["start"] = a.Start, ["end"] = a.End, ["value"] = a.Value,
+            })]));
+
+    /// <summary>
     /// A trade's PV (note 49): its legs' PVs, each currency's into the display currency at the value date's synthetic
     /// rate, added up and held to the cent. Empty where the trade has no leg: no book holds a PV for it.
     /// </summary>

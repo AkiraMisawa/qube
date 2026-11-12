@@ -85,8 +85,41 @@ public sealed class TablesDescribe(Func<TableService> tables) : ICapabilityHandl
                 ["app"] = described.State.App,
                 ["tables"] = new JsonArray([.. described.Tables.Select(t => (JsonNode)Table(t.Table.Descriptor, t.Rows))]),
                 ["fields"] = new JsonArray([.. described.Tables.SelectMany(t => t.Table.Descriptor.Fields.Select(f => (JsonNode)Field(t.Table.Descriptor, f)))]),
+                // What `set <rows> as <template> [terms]` takes (note 50): each table's templates, and each term of each.
+                ["templates"] = new JsonArray([.. TemplatesOf(described).Select(x => (JsonNode)Template(x.Table, x.Template))]),
+                ["templateTerms"] = new JsonArray([.. TemplatesOf(described).SelectMany(x => x.Template.Takes.Select(term => (JsonNode)Term(x.Table, x.Template, term)))]),
             };
         });
+
+    static IEnumerable<(TableDescriptor Table, TableTemplate Template)> TemplatesOf(TablesDescribed described) =>
+        described.Tables.SelectMany(t => (t.Table.Descriptor.Templates ?? []).Select(template => (t.Table.Descriptor, template)));
+
+    static JsonObject Template(TableDescriptor table, TableTemplate template) => new()
+    {
+        ["table"] = table.TableId,
+        ["name"] = template.Name,
+        ["title"] = template.Title,
+        ["words"] = List(template.Words),
+        ["writes"] = List(template.Writes),
+    };
+
+    static JsonObject Term(TableDescriptor table, TableTemplate template, Products.ProductField term)
+    {
+        var described = new JsonObject
+        {
+            ["table"] = table.TableId,
+            ["template"] = template.Name,
+            ["name"] = term.Name,
+            ["title"] = term.Title,
+            ["form"] = JsonNamingPolicy.CamelCase.ConvertName(term.Form.ToString()),
+            ["written"] = FieldForms.Takes(term.Spec, choicesBeside: true),
+            ["required"] = term.Required,
+            ["typedAlone"] = term.Unnamed,
+        };
+        if (term.Aliases is { Count: > 0 } names) described["names"] = List(names);
+        if (term.Choices is { } choices) described["choices"] = List(choices.Values.Distinct().Select(v => FieldForms.Write(term.Spec, v)));
+        return described;
+    }
 
     static JsonObject Table(TableDescriptor table, int rows)
     {
@@ -227,7 +260,28 @@ public static class TableReadContracts
                 ["pointsTo"] = Text("The id of the table whose row its value names"),
                 ["group"] = Text("The group it is drawn under"),
             }, "table", "name", "title", "words", "form", "written", "editable", "optional"),
-        }, "workspaceId", "revision", "app", "tables", "fields")));
+            ["templates"] = Records("The templates of those tables: set <rows> as <template> [terms] writes the fields one names", new JsonObject
+            {
+                ["table"] = Text("The id of its table"),
+                ["name"] = Text("Its name"),
+                ["title"] = Text("Its title"),
+                ["words"] = Texts("The words that name it after as"),
+                ["writes"] = Texts("The fields it writes, by name, in the order it writes them; no other field of a row is written"),
+            }, "table", "name", "title", "words", "writes"),
+            ["templateTerms"] = Records("The terms those templates take, typed after the template", new JsonObject
+            {
+                ["table"] = Text("The id of the template's table"),
+                ["template"] = Text("The name of its template"),
+                ["name"] = Text("Its name, as in name=value"),
+                ["title"] = Text("Its title"),
+                ["form"] = Text("How its value is written, by name"),
+                ["written"] = Text("How its value is written, in words"),
+                ["required"] = Flag("Whether the template is refused without it"),
+                ["typedAlone"] = Flag("Whether its value may be typed without its name"),
+                ["names"] = Texts("Its other names"),
+                ["choices"] = Texts("The values it takes, where it takes one of a few"),
+            }, "table", "template", "name", "title", "form", "written", "required", "typedAlone"),
+        }, "workspaceId", "revision", "app", "tables", "fields", "templates", "templateTerms")));
 
         var read = TableContracts.Request(TableContracts.RowsTitle + "; all for every row",
             ("fields", Texts("The fields wanted, each by its name or its words, in the order wanted; the rows' keys alone when left out"), false),

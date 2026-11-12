@@ -2448,8 +2448,8 @@ and the market that converts them are synthetic.
 - **No measure reads the legs.** The simulated XVA figures and SA-CCR's replacement cost read an existing trade's
   official PV; a new trade is taken at market, or at its PV Adj where XVA's PV adjustment is on; spot IM reads
   sensitivities. A PV overwritten changes the grid's PV and nothing Price answers, and the cell of such a PV says
-  so. What Price freezes carries neither the legs nor the PV. Whether a changed PV should
-  reach a measure is the owner's to decide (ADR-0016 note 49; ADR-0010 and ADR-0013 say what a measure reads).
+  so. What Price freezes carried neither the legs nor the PV in this step; since 5b it carries the legs (below).
+  The owner put the measures off until the XVA analytics is connected (2026-11-12, note 49).
 - A leg's and an independent amount's fields are typed in a command; no grid shows them until the trade's dialog
   (5c). An independent amount is read and removed, never made or edited.
 - A PV is converted at the synthetic market's rates of the value date, and a leg's currency is one of the four
@@ -2464,13 +2464,247 @@ and the market that converts them are synthetic.
   with its currency is one.
 - A figure is no cell of `vary`: a case of another PV is not made.
 
+## Generic commands, delivery step 5b: templates and the fields beyond the grids (ADR-0016 notes 50 to 53, 2026-11-12)
+
+The second of step 5's four pull requests (`docs/specs/commands-5-drafts-rows-under-a-row`, tickets 09 to 12). A
+table may register templates, which `set <rows> as <template>` writes over rows; the pricer's trade and CSA carry
+the fields the owner's examples show beyond the grids, each under a group; and what Price freezes carries what the
+user set.
+
+### What runs
+
+- **A template** (`TableDescriptor.Templates`, `IWorkspaceTable.TemplateValues`): a name, the words it answers to, the
+  terms it takes and the fields it writes. `set CSA-B as 2way usd` writes them as several values are written: in
+  the template's order, each checked, all or none, one command and one `undo`. Its terms are read as a product's
+  are, by name or by form in any order (`ccy=USD`, `usd`). Before Enter the line says each cell that would change
+  and how many hold their value already; after, `Set CSA-B as 2way currency=USD.` The line completes `as`, the
+  templates and their terms; `tables_describe` lists them; a template that writes a field its table has not, one
+  no command sets or a figure fails when the tables are read.
+- **The CSA's fields beyond the grid**, read from the synthetic source: its general terms (counterparty, netting
+  set, agreement name, enforceable, main, user-defined), which no command sets, and for each side whether it
+  posts, its VM cap and the cap's currency, its independent amount, its rounding and how a delivery and a return
+  are rounded, set as any field and said with the side (`set CSA-B self vm cap 5mm`, `cpty posts=off`). A word
+  the sides share is refused alone with the two it could be.
+- **The CSA's four templates**: `2way`, `1way-self`, `1way-cpty` and `none`, each taking a currency. They write
+  the CSA's currency and each side's, `exchange`, `one-way`, who posts, and both sides' threshold and MTA as 0;
+  curves, frequency, VM caps, independent amounts and rounding stay.
+- **The trade's fields beyond the grids**: its identity (requested id, trade type, the source's product type, SIMM
+  product class, user-defined) and its agreement (master agreement, netting set), which no command sets, and its
+  break (date, mandatory) and model (model, pricer and interpolation ids, domestic currency, IR model and basis,
+  equity, credit and inflation models, the method for what is not modelled), set and checked by their forms.
+- **They are fields of the row and no column of a grid**: a condition reads them (`trades where ir model=HW2F`),
+  `set`, `reset`, `undo`, `vary` and `tables_read` reach them, the Changes tab lists an edit of one with the
+  source's value and takes a value typed over it, and an edit is carried when the source is acquired again. A new
+  trade's break and model stay with it through a counterparty change. Every field of both tables has a group; B
+  and A have none.
+- **The CSA grid's Main column is the field `main` now**, so the line's context names it with the row when the
+  Focus stands there (`CSA-A · main`), as it names any column that is a field.
+- **What Price freezes** (note 53, the owner's of 2026-11-12): each trade of a case with its legs, its independent
+  amounts and its fields beyond the grids, and each CSA the case's trades use with its terms and its fields beyond
+  the grid, a case's own values in its own input. A leg and an independent amount of a priced trade are priced
+  entities, so an unresolved edit on one refuses Price. `docs/10-api-contracts.md` says the shape.
+
+### Verification performed
+
+| What | Result |
+|---|---|
+| `dotnet test server/Qube.slnx` | 1467 passed |
+| Client: `npm run typecheck`, `npm test`, `npm run build` | Clean; 351 passed in 36 files; built |
+| `npx playwright test` (Chromium, headless, Linux), on the host rebuilt after the review's changes | 107 passed |
+| `python3 tools/validate_handoff.py` | Passed |
+| The line with a template typed (what follows `as`, the preview, the refusal of a word both sides share) and the Changes tab | Looked at, at 1440px dark; the preview at 992px light, 768px dark and 390px in both themes, where it wraps inside the line |
+
+The kernel's tests read two templates registered on the stations' readings and one on the board's one row of
+settings, only for the tests that ask for them: a template written over one row and over several, its terms by
+name and by form, what the line says before and after Enter, the rows that already hold its values, `undo`, the
+grid's selection, completion, the description, and each defect of a registration by name. The pricer's read the
+source's value of every field beyond the grids, each write of one with its `reset` and `undo`, the refusal of a
+word both sides share and of a value its form does not hold, the four templates cell by cell, a value date and a
+counterparty changed under an edit, `vary`, the Changes tab, and the accepted input: a trade's legs, independent
+amounts and details, a CSA's terms and details, a case other than the Base, a CSA no priced trade is under, and an
+uncollateralised counterparty. No browser test was added: the line draws a template with what it had, and the one
+browser expectation the step changed is the context's name for the Main column.
+
+The tests of the fields beyond the grids were written from the spec in the same step as their code, and several
+passed at their first run. They were checked by breaking the code: the source's read of a detail field taken out,
+the Changes tab's read not routed, and the form's check answering nothing failed 23 tests; after the review, six
+more breaks (the view writing the source's values, a CSA no trade is under carried, a figure let into a template,
+an undeclared field let through, a leg's notional left out, the count of rows already held dropped) failed the six
+tests written for them. Each passed again with the code restored.
+
+### What the review changed
+
+The two reviews of this step (standards and spec) found, and this pull request corrects:
+
+- The workspace view wrote the source's values of a CSA's fields beyond the grid inside its agreement, beside rows
+  a user may since have changed. They are no part of the view; a test holds the view's CSA to the names it had.
+- A trade under no CSA has no entry in the input's `csas`, which was so and was said nowhere; and an id that was no
+  CSA of the agreement was passed over in the same way. The sentinel is said in note 53 and `docs/10`, and any
+  other id throws.
+- Three tests of the input recomputed what the code computes (the CSAs carried, an independent amount's dates,
+  the rows a condition names). They hold literals now.
+- No test held a template that writes a figure, an answer with an undeclared field, the rows that already hold a
+  template's values in what is said, the log's name for a template with its terms, a leg's `notional: null`, that
+  the PV is not carried, or a case other than the Base. Each has one.
+- A field beyond the grids was declared in one list and its source value in a switch by name, with a side's name
+  cut out of the field's; each field is declared with what the source holds in it, and a side's terms once for
+  both sides. A template's cells were listed twice (what it writes, and its values); they are declared once.
+- The table's answer for a template was `IWorkspaceTable.Template`; it is `TemplateValues`. A template's words
+  were matched in three places and the sentence for an amount written twice; each is in one place.
+- The CSA grid's Main column being a field now, and so named in the line's context, was not said in note 51.
+
+Each is said in notes 50, 51 and 53 as "Corrected in review" or "Added as built". Left as they are: the reader of
+a template's terms keeps the product reader's names (`ProductReader`, `ProductField`), since `new` and `as` share
+it and a rename reaches every product; `set` branches on a template inside the one plan that counts and words
+every `set`; and the pricer's tests keep one reader of a preview in their rig while each older test class keeps its
+own. The "Later, perhaps" section below was added on this branch at the owner's request of 2026-11-12.
+
+### Providers
+
+Unchanged: every figure of the pricer and of Rates is simulated, and says so. The fields beyond the grids are
+worked by the synthetic source from what it holds; every name and value is made up.
+
+### Known limits
+
+- **No simulated measure reads the new fields or the legs**, by the owner's word: the measures are connected with
+  the XVA analytics. FVA's rule and SA-CCR keep reading `one-way`, `exchange`, the thresholds and the MTAs.
+- **Who posts and `one-way` are two things a user can set apart.** A template writes them together; an edit by
+  hand can leave `one-way` on with both sides posting. Whether `one-way` should be what the two flags say is the
+  owner's to decide.
+- The input holds an existing trade's official PV and its legs. Which the real request reads is not decided.
+- No dialog shows the new fields until 5c, and no grid but the CSA grid's Main column, which was there: they
+  are typed in a command and read by `tables_read`.
+- No test drives Price to its refusal for an unresolved edit on a leg. The synthetic source gives a leg the same
+  PV on every value date, so no carry leaves a leg's edit in conflict or lost; the rule is held by the kernel's
+  test of it and by a test that a priced trade's legs are priced entities ("Next" names the source change).
+- A refusal that lists a table's fields is long now (a trade has more than thirty). The groups are told to a
+  reader of the description, and the order they are drawn in is 5c's.
+- `new` makes no row from a template: no table of the samples makes its rows from one.
+- A template's currency does not choose curves: the market has no curve for every currency, and none is guessed.
+
+## The panels' tabs: many panels, and every way of managing them a command (ADR-0006 note 7, 2026-11-12)
+
+The owner asked what happens when many panels are open, what good practice for tabs is, and for the good operations
+as commands too. Measured first at 1440, 1280, 992, 768 and 390px with twelve panels (note 7 says what was found);
+the practices taken are the ones editors and browsers share, each a verb of the shell.
+
+### What runs
+
+- **The strip** keeps the active tab in sight (opened, chosen elsewhere, moved, or narrowed past), scrolling only
+  itself, sideways. A long title is cut with an ellipsis and said whole by the tab's title and the list. A tab is
+  one Control Height.
+- **The list** at the strip's end says how many panels are open and lists them; choosing one shows it. Under it are
+  the active panel's verbs, which is how a phone reaches them. Its tooltip names `show panel`.
+- **A tab's menu** opens by a right click, Shift+F10 or the menu key, names its panel, and shows each verb with the
+  words the line takes. A key opens it on its first item and gives the keyboard back to the tab, or to the tab shown
+  next where it closed its own; the menu key's own contextmenu, which Windows sends as it is let go, leaves that menu
+  as it is. An item that cannot act is dimmed with why under it, where a phone reads it too, and stays in the arrows'
+  reach; choosing it does nothing and leaves the menu open (`UnavailableMenuItem`, which the account menu's Sign out
+  now uses too).
+- **Keys and the pointer**: Delete closes the focused tab and the keyboard follows to the tab shown next; the middle
+  button closes a tab; a tab dragged onto another takes its place.
+- **Where panels open and what closing shows**: a new panel opens beside the active one; closing the active panel
+  shows the one shown before it. A Run or a page open already is shown, not opened twice, by `reopen panel` too.
+- **Numbering**: panels of one title are `Title`, `Title · 2`, …; a panel keeps its number while open and has it
+  back when reopened where it is free. The strip, the list, `show panel`, every command's target and the AI pane's
+  card for a panel the AI opened use it; the card says a panel closed since is closed, where its Show did nothing.
+- **Pinned panels** stand first, show a pin and no close button, and stay open through the closes of several.
+- **Closed panels**: the last twenty are kept with where they stood, whether pinned, and their number. A close of
+  several comes back from its left, each where it stood.
+- **The verbs**, declared once in `client/src/shell/panelVerbs.ts` and run by the line, the menus and the keys:
+  `close panel` (Ctrl/⌘+Shift+X), `close other panels`, `close panels to the right`, `close all panels`, `pin panel`,
+  `unpin panel`, `move panel <left|right|first|last>`, `reopen panel`, beside `next panel`, `previous panel` and
+  `show panel`. A close of several says how many it closed and kept. They are the client's: not logged, not undone,
+  not the AI's (ADR-0016 §3).
+
+### Verification performed
+
+| What | Result |
+|---|---|
+| Client: `npm run typecheck`, `npm test`, `npm run build`, after the third review's fixes | Clean; 369 passed in 37 files; built |
+| `npx playwright test e2e/panels.spec.ts --repeat-each=3` (Chromium, headless, Linux) | 15 passed |
+| `npx playwright test` (Chromium, headless, Linux), after the third review's fixes and the rebase on #28 | 112 passed |
+| The strip, a tab's menu, the list and the line at 1440px dark and light, 992, 768 and 390px dark and light | Looked at; no sideways scroll of the page at 768 or 390 |
+| Elements and the switch back to a page, twelve panels open (before the change, which does not alter what is mounted) | About 700 elements whatever the number; about 150 ms back to an XVA page of 10,000 trades. One run of a Playwright script against the built client in this container's headless Chromium: elements by `querySelectorAll('*')`, the switch from the tab's click to its grid settled. An indication, not a target |
+
+The store's tests read where a panel opens and what closing shows, numbering, the closes of several with pinned
+panels, reopening (and its refusal to open a page twice), the closed panels kept, and moves within the pinned or
+the others. The verbs' tests read that the line has each verb, `show panel`'s numbered names, what each says when it
+cannot act, a refusal from a key as a notice, and a move without its where as a defect. The browser tests read what
+only a browser shows: a tab in sight at 768 and 390px, the list's names, an item that cannot act reached by the arrows
+with its reason, the menu by right click, Shift+F10 and the menu key and where the keyboard goes as it closes, Delete
+and the middle button, a drag, and the AI card's word for a panel closed since.
+
+### Providers
+
+Unchanged; nothing on the server changed.
+
+### Known limits
+
+- A page's own state (its inner tab, a grid's sort, filter and selection) still goes when its panel is hidden. The
+  owner chose that each page keep it by panel and show it again (note 7's last bullet): its own pull request, after
+  ADR-0016's step 5 changes the pricer's page.
+- The panels, their order and the closed ones are kept while the page is loaded, as before; a reload starts empty.
+- On a Mac laptop Delete is Fn+Delete, and Shift+F10 may need Fn: the menu is reached by a right click (or
+  Ctrl+click) and the list, and `close panel` has its chord.
+- On a phone a refused notice (from the line or a key) lies over the strip's end, the list's button with it, until it
+  is closed: a notice is drawn over the top of the main area (ADR-0006 note 2), and at 390px it takes the width. The
+  menus raise none.
+- The menu key is checked on Linux only: its contextmenu as Windows sends it is played in the browser test, not
+  pressed on Windows.
+- A drag is checked with a mouse only; on a touch screen it is not checked, and the list's Move left and Move right
+  reach the same move.
+
+### What the review changed
+
+The two reviews (standards and spec) found, and this pull request corrects: `reopen panel` opened a second panel of
+a page opened again since it closed; after a menu opened from the keyboard closed its own tab, the keyboard was lost,
+and after Delete closed the last panel the next panel opened took it; Move left and Move right stayed enabled at the
+strip's ends; keeping the active tab in sight could scroll the page under the strip; other commands' targets named
+two panels of one title alike; a tab was 28px beside the list's 30px button; a menu's name hung on an empty mark; a
+close of several beside a panel not open answered "Closed 0 panels"; and the empty strip told a phone to press
+Ctrl+K. Each is said in note 7 or the design guidelines, with a test where a test can hold it.
+
+A second pair of reviews, of the corrected and rebased branch, found, and this pull request corrects: a close of
+several came back in the wrong order (A B E C D after `close other panels` on A and four `reopen panel`), since the
+rightmost was reopened first where the strip was too short for its place; an item that cannot act was skipped by the
+arrows and said why only to a hovering pointer; the AI pane's card named a numbered panel by its bare title; the line
+could list `reopen panel` as available after a reopen that only showed a page; `move panel` with no where was a
+refusal, where a required argument missing is the line's defect; a move, a pin or a close of a panel not open did
+nothing, where it now throws; the menu key, let go on Windows, could open the browser's own menu over the tab's; the
+pin was 14px in a 30px control, and the close button had no tooltip naming `close panel`; and the notice opened a
+sentence in lower case.
+
+A third pair, of those fixes alone, found, and this pull request corrects: choosing an item that cannot act raised a
+refused notice, which on a phone lay over the list it was chosen from, so the reason is now under the item; the item
+was marked by writing to the page from a ref, where the account menu already drew such an item through React, so both
+use one component; the list's tick was 14px beside a 16px pin; showing a panel, or setting a Run panel's view, did
+nothing for a panel not open, and the AI card's Show did nothing for a panel closed since; the Windows menu key's
+contextmenu could reopen the menu as a pointer's, losing the keyboard, when it came before the keyboard reached the
+menu; the AI's effects each named their panel, where the pane now names what they open; and the line's check for a
+required argument was written three times.
+
 ## Next
 
-1. Generic commands: the rest of delivery step 5 (5b templates and the fields the owner's examples show, 5c drafts
-   and the detail dialog, 5d scenarios as a table and `load trades`), then step 6 (saved sequences of edits).
+1. Generic commands: the rest of delivery step 5 (5c drafts and the detail dialog, 5d scenarios as a table and
+   `load trades`), then step 6 (saved sequences of edits). After step 5's
+   pricer page: a page keeps its state by panel (ADR-0006 note 7, the owner's choice).
 2. MVA with SIMM (`docs/12-implementation-plan.md` P2): spot IM from the XVA request's MVA option.
 3. ADR-0010 Delivery step 3 (Advanced: Before-only and After-only edits, the split fill), when the owner asks for it.
 4. The owner's review of ADR-0003 §7 (scopes, carry and conflict), then a synthetic source change that can produce a conflict, and the browser cases still open above (reload, failed case unavailable).
 5. Rates.
 6. ME-ID sign-in through MSAL (C30) and the visibility rules (C31, C32); AI over AG-UI with the company's Copilot behind the adapter port (C34).
 7. Slice 01b: Save and Pin (CO06), and the browser parts of CO03 and CO04.
+
+## Later, perhaps
+
+What the owner asked to keep in mind and has not asked to build. Nothing here is planned; an item moves to "Next"
+when he asks for it.
+
+- **Bundling many changes on the server** (owner, 2026-11-12). A cell edited by hand is one request and one revision
+  today, and a command over many rows is already one. Where a user makes many changes in a row, by hand or by
+  command, the server may gather them and apply them together, or work out only the part they touch, as long as the
+  outcome is the one applying each in turn gives. The lines it must hold: nothing half applied is shown or priced
+  (Price freezes one whole revision); every change stays in the log, for undo, the Changes tab and the account of
+  it; changes whose order matters are bundled only where the result is that of their order. Measure the slow
+  operation first.

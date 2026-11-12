@@ -77,6 +77,13 @@ it is written (`written`), which may differ from how it reads: the pricer's legs
 its trades, and a trade's `pv` reads as a number in the display currency and is written as an amount with or
 without a currency. `tables_read` reads the rows under a row by that row's id (`legs E00003`).
 
+Since step 5b (ADR-0016 notes 50 to 52) the description lists a table's templates (`templates`: the table, a name,
+a title, the words it answers to and the fields it writes) and the terms each takes (`templateTerms`: its form, how
+it is written, whether it is needed, whether it may be typed without its name, its other names and its choices).
+`entity_set` writes one with the words the line takes, `set: "as 2way currency=USD"`. Each field says the group it
+is drawn under (`group`): the pricer's trades and CSAs now describe the fields beyond their grids, which
+`tables_read` reads and a condition compares as any field.
+
 Not verified: a model using the three. None is configured, so they were exercised through the gateway and through
 the scripted stand-in, which takes `describe the tables`, `read <rows> [fields …]` and `preview <line>`; the
 instructions tell a model to read rather than guess and to say a count as the tool gave it, and what a model does

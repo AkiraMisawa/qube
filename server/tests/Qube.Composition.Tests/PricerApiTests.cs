@@ -65,6 +65,17 @@ public class PricerApiTests(QubeFactory factory) : IClassFixture<QubeFactory>
         return (run, rows);
     }
 
+    [Fact] // ADR-0016 note 51: the page's row contracts are unchanged: the view's agreement carries each CSA's terms as before, and no field beyond the grid
+    public async Task The_views_agreement_carries_no_field_beyond_the_grid()
+    {
+        var ws = await Create();
+
+        var csa = ws["agreement"]!["csas"]!.AsArray().Single(c => c!["csaId"]!.GetValue<string>() == "CSA-B")!.AsObject();
+
+        Assert.Equal(["csaId", "type", "currency", "curve", "fvaCurve", "frequency", "exchange", "oneWay", "counterpartyThreshold", "counterpartyMta", "counterpartyCurrency",
+            "selfThreshold", "selfMta", "selfCurrency", "disputes", "illiquidCollateral"], csa.Select(p => p.Key));
+    }
+
     [Fact] // ADR-0010 §3, §9, ADR-0016 note 28: vary over HTTP makes its cases, by a cell's name or by its entity and field, and Price gives a row per case
     public async Task Vary_makes_cases_and_price_gives_a_row_per_case()
     {
