@@ -361,15 +361,17 @@ public class PricerLegTests
     public void A_trades_independent_amount_is_a_figure_no_command_writes()
     {
         var rig = new Rig();
-        var amounts = rig.Register.Of(rig.State).Single(t => t.Descriptor.TableId == PortfolioTables.Amounts).Table.Rows(rig.State);
-        var inJpy = amounts.First(a => a.Value("currency")!.GetValue<string>() == "JPY");
-        var trade = inJpy.Under!;
-        var total = amounts.Where(a => a.Under == trade).Sum(a => a.Value("value")!.GetValue<decimal>());
+        decimal? Figure(string trade) => rig.Register.Of(rig.State).Single(t => t.Descriptor.TableId == PortfolioTables.Trades).Table.Rows(rig.State).Single(r => r.Key == trade)
+            .Value("independentAmount")?.GetValue<decimal>();
 
-        var figure = rig.Register.Of(rig.State).Single(t => t.Descriptor.TableId == PortfolioTables.Trades).Table.Rows(rig.State).Single(r => r.Key == trade).Value("independentAmount");
-
-        Assert.Equal(total, figure!.GetValue<decimal>());
-        Assert.StartsWith("NotEditable: ", Read(rig.Preview($"set {trade} independent amount 5")));
+        // The swap holds one amount in JPY, the display currency. The forward E00006 holds two in USD, 719,290 and
+        // 1,114,602: together 1,833,892 USD, which at 188.1 JPY and 1.2573 USD to the GBP is 274,361,795.28 JPY.
+        Assert.Equal(["IA1 JPY 71506008"], rig.Amounts(Swap));
+        Assert.Equal(71_506_008m, Figure(Swap));
+        Assert.Equal(["IA1 USD 719290", "IA2 USD 1114602"], rig.Amounts("ABC-LE-01-E00006"));
+        Assert.Equal(274_361_795.28m, Figure("ABC-LE-01-E00006"));
+        Assert.Null(Figure(Draft));
+        Assert.StartsWith("NotEditable: ", Read(rig.Preview($"set {Swap} independent amount 5")));
     }
 
     [Fact] // ADR-0016 note 49, ADR-0003: a leg's edit is carried to another value date as any edit is, and a made leg stays
@@ -407,6 +409,63 @@ public class PricerLegTests
         var (_, took) = rig.Workspaces.Undo(rig.Id, rig.State.Revision, "akira");
 
         Assert.Equal($"made leg {Swap}/3", took.Said);
+    }
+
+    [Fact] // ADR-0016 notes 38, 46: the AI reads a trade's legs by the trade's name, each cell as a command reads it back
+    public async Task The_AI_reads_the_legs_under_a_trade()
+    {
+        var rig = new Rig();
+
+        var result = await rig.Commands.InvokeAsync("tables.read", TableContracts.Version,
+            new JsonObject { ["request"] = new JsonObject { ["workspaceId"] = rig.Id, ["rows"] = "legs E00004", ["fields"] = new JsonArray("ccy", "pv") } }, Akira, Guid.NewGuid().ToString(), default);
+        var answer = Assert.IsType<CommandResult.Done>(result).Outputs["answer"]!.AsObject();
+
+        Assert.Equal((PortfolioTables.Legs, 2), (answer["table"]!.GetValue<string>(), answer["count"]!.GetValue<int>()));
+        Assert.Equal([$"{Swap}/1", $"{Swap}/2"], answer["rows"]!.AsArray().Select(r => r!["key"]!.GetValue<string>()));
+        Assert.Equal(["currency", "pv"], answer["fields"]!.AsArray().Select(f => f!.GetValue<string>()));
+        // The cells are text a command reads back: the two PVs, read as numbers, are the swap's official PV.
+        var cells = answer["rows"]!.AsArray().Select(r => r!["cells"]!.AsArray().Select(c => c!.GetValue<string>()).ToArray()).ToArray();
+        Assert.All(cells, c => Assert.Equal("JPY", c[0]));
+        Assert.Equal(14_286_696m, cells.Sum(c => decimal.Parse(c[1], System.Globalization.CultureInfo.InvariantCulture)));
+    }
+
+    [Fact] // ADR-0016 notes 16, 49: `ia` is the amounts' table whatever grid is behind the line, never a trade's field
+    public void The_word_ia_names_the_amounts_with_a_trade_grid_behind_the_line()
+    {
+        var rig = new Rig();
+
+        var preview = rig.Lines.Preview($"remove ia {Swap}/IA1", rig.Id, null, Akira, new LineView(PortfolioTables.Trades, "existing"));
+
+        Assert.True(preview.Refused is null, preview.Refused?.Sentence);
+        Assert.Equal("entity.remove", preview.Command!.Id);
+        Assert.Equal([$"{Swap}/IA1"], rig.Keys($"ia {Swap}/IA1"));
+    }
+
+    [Fact] // ADR-0016 notes 48, 49: the trade typed by its name's ending makes the leg the first word would
+    public async Task A_leg_is_made_under_the_trade_named_by_the_term()
+    {
+        var rig = new Rig();
+
+        var said = await rig.Run("new leg trade=E00004 eur 5");
+
+        Assert.Equal($"Made {Swap}/3: PV leg.", said);
+        Assert.Equal("3 EUR 5", rig.Legs(Swap)[2]);
+    }
+
+    [Fact] // ADR-0016 note 49: a made leg takes the number after the trade's last, so a removed made leg's number is used again, with none of its edits
+    public async Task A_removed_made_legs_number_is_used_again_with_none_of_its_edits()
+    {
+        var rig = new Rig();
+        await rig.Run("new leg E00004 eur 10 notional=5mm");
+        await rig.Run("set legs E00004/3 pv 20");
+        await rig.Run("remove legs E00004/3");
+
+        await rig.Run("new leg E00004 usd 5");
+
+        Assert.Equal("3 USD 5", rig.Legs(Swap)[2]);
+        var leg = rig.Register.Of(rig.State).Single(t => t.Descriptor.TableId == PortfolioTables.Legs).Table.Rows(rig.State).Single(r => r.Key == $"{Swap}/3");
+        Assert.Null(leg.Value("notional"));
+        Assert.DoesNotContain(rig.State.Overrides.Keys, t => t.Entity == $"leg:{Swap}/3");
     }
 
     [Fact] // ADR-0016 note 49: the workspace's count of edits holds a leg made, as it holds the legs taken out for it
@@ -455,6 +514,20 @@ public class PricerLegTests
         Assert.Equal(pvs.OrderByDescending(pv => pv), pvs);
     }
 
+    [Fact] // ADR-0016 note 49: a page says the currency its PVs are in, so a header never names another than the rows under it hold
+    public void A_page_of_rows_says_the_currency_its_PVs_are_in()
+    {
+        var rig = new Rig();
+        var inYen = rig.Service.Page(rig.Id, "akira", 0, 100, [], "existing");
+
+        rig.Service.SetDisplayCurrency(rig.Id, rig.State.Revision, "akira", "USD");
+        var inDollars = rig.Service.Page(rig.Id, "akira", 0, 100, [], "existing");
+
+        // 14,286,696 JPY at 188.1 JPY and 1.2573 USD to the GBP is 95,495.28 USD.
+        Assert.Equal(("JPY", 14_286_696m), (inYen.PvCurrency, inYen.Rows.Single(r => r.TradeId == Swap).Pv));
+        Assert.Equal(("USD", 95_495.28m), (inDollars.PvCurrency, inDollars.Rows.Single(r => r.TradeId == Swap).Pv));
+    }
+
     [Fact] // ADR-0016 note 49, ADR-0010 §2: a PV that differs from what the source's legs give is marked with Original's, as any value
     public async Task A_PV_that_differs_from_the_sources_is_marked_with_Originals()
     {
@@ -475,7 +548,12 @@ public class PricerLegTests
 
         var amounts = rig.Register.Of(rig.State).Single(t => t.Descriptor.TableId == PortfolioTables.Amounts).Table.Rows(rig.State);
 
+        var legs = rig.Register.Of(rig.State).Single(t => t.Descriptor.TableId == PortfolioTables.Legs).Table.Rows(rig.State).Select(l => l.Key).ToHashSet();
+
         Assert.NotEmpty(amounts);
-        Assert.All(amounts, a => Assert.Equal($"{a.Under}/IA", a.Key[..^1]));
+        Assert.All(amounts, a => Assert.StartsWith($"{a.Under}/IA", a.Key));
+        Assert.DoesNotContain(amounts, a => legs.Contains(a.Key));
+        // Each kind is a kind of entity of its own, so an edit of one never reads as the other's.
+        Assert.Equal(amounts.Count + legs.Count, amounts.Select(a => $"ia:{a.Key}").Concat(legs.Select(l => $"leg:{l}")).Distinct().Count());
     }
 }

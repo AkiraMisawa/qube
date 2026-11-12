@@ -1854,6 +1854,9 @@ has one button, edit; and `load trades` reads a synthetic store of booked trades
       field. `tables.describe` says a figure's `figureOf` and `unit`, and what a write takes in `written`, which for
       a figure is how it is written and not how it is read. What a money field takes lists its units as a sentence
       does (`GBP, JPY, USD or EUR`). A figure that no command sets is registered as any field that is not editable.
+    - *Corrected in review (2026-11-12).* A field written as a number with what it is in and given nothing it may
+      be in is refused when the tables are read, naming the field: it was found only at the first write. A
+      condition compares a figure as the number it is (`where load>50`), which the tests now hold.
 48. **`new` makes a row under a row, and `remove` takes one away (§1, §3; 5a).** A row a workspace makes is an entity
     of a described product (ADR-0008), as a Rates line is. A product may say the registered table its entities are
     rows of (`Table`) and the term that names the row its entity is made under (`Under`).
@@ -1870,6 +1873,13 @@ has one button, edit; and `load trades` reads a synthetic store of booked trades
       it (`AmbiguousRow`), by the line and by the command invoked alike. One that names no row above is read as any
       term, and refused as a word that fills none. A product made under a row that has no such term, or says no
       table, is refused when the products are read.
+    - *Corrected in review (2026-11-12): the term typed by its name.* "Read as any term" left `trade=E00004`
+      refused where `E00004` as the first word was read: the two now read alike. The value typed by the term's name
+      or by one of its other names names the row above as the first word does, by its whole key or by its end, is
+      written into the terms with its whole key, and is refused where it names several; the first word is then a
+      term like any other. A product whose table its application does not register, or made under a row with no
+      tables given to read it in, is refused when the products are read; one whose table is under no table still
+      fails where its terms are first read, since that is a table's description and not the product's.
 49. **The pricer's legs and independent amounts (5a; the sample's own, every figure synthetic).**
     - **Tables**: `xva.legs` (`legs`, `leg`; under the trades; the leg's id, its trade, currency, PV in that
       currency, and notional) and `xva.amounts` (`independent amounts`, `amounts`, `ia`; under the trades; currency,
@@ -1891,10 +1901,16 @@ has one button, edit; and `load trades` reads a synthetic store of booked trades
       brings the source's legs back. A trade that already holds that one leg alone is counted as holding it.
     - *Added as built: the write and the reset.* The PV is held to the cent. Each leg the trade holds is taken out
       (a source's by an edit of its own, one the workspace made by its removal) and one leg is made, numbered after
-      the last the trade has had, taken out or not; a new trade, which has none, is told "1 leg made". `reset
+      the last the trade holds as the write reads it, taken out or not; a new trade, which has none, is told "1 leg
+      made". `reset
       <trade> pv` resets every edit of the trade's legs and removes every leg made under it, and `reset <trade>`
       with no field does that too, since the figure is one of the row's fields. A figure is no cell `vary` names:
       it holds no value of its own for a case to change.
+    - *Corrected in review (2026-11-12): a number is not kept for a leg that is gone.* "The last the trade has
+      had" said more than is built. A leg is numbered after the last of the source's legs, taken out or not, and of
+      the legs the workspace holds as the command reads it: an overwrite's leg therefore takes the number after the
+      one it replaces, and a made leg removed by `remove` leaves its number to the next leg made, which holds none
+      of its edits (the removal drops them with it). The log names both by the same id; `undo` reads them in order.
     - **`new leg <trade> <currency> <pv> [notional=<amount>]`** adds a leg, numbered after the trade's last.
       Nothing is defaulted. The leg is in its trade's scope: a new trade's leg stays with it through a counterparty
       change, and an existing trade's is dropped with the counterparty's other edits, counted among them.
@@ -1912,12 +1928,23 @@ has one button, edit; and `load trades` reads a synthetic store of booked trades
       each leg made, named in words (`leg E00003/1 taken out`), and resets each; their values are typed in a
       command, and in the trade's dialog from 5c, never there. The workspace's count of edits holds a leg made,
       as it holds the legs taken out for it: a PV typed for a new trade is one edit, not none.
+    - *Corrected in review (2026-11-12): the cell and its header.* A PV cell committed as it was shown writes
+      nothing: what it shows is every leg in one rounded figure, and written back it left the trade one leg of that
+      figure, which the first build did. The header's currency is the page's own (`pvCurrency` on each page of
+      rows), not the workspace view's, so a header never names another currency than the rows under it hold while
+      one of the two answers is still on its way; before a grid's first page it names none. `ia` is the amounts'
+      table alone: as a word of the trade's field too, it was ambiguous with a trade grid behind the line.
     - **No measure of the sample reads the legs yet.** SA-CCR's replacement cost reads an existing trade's
       official PV and takes a new trade as traded at market (ADR-0010 §6, ADR-0013), and a change of the legs
       moves neither. The PV legs say so where they are shown (in 5a, on the cell of a PV that differs from
       Original, which names the one of the two that holds for its trade; from 5c, in the trade's dialog), and
       whether a changed PV should reach a measure is those ADRs' to decide, put to the owner with the summary of
       decisions made for him.
+    - *Corrected in review (2026-11-12): who reads what.* Naming SA-CCR alone was too narrow. The simulated XVA
+      provider reads an existing trade's official PV too, and a new trade's PV Adj where XVA's PV adjustment is on
+      (ADR-0010 §6, §8); spot IM reads sensitivities. So the cell says what Price reads, not what one measure
+      does: "Price reads the official PV" on an existing trade, "Price takes a new trade at market, or at its PV
+      Adj" on a new one.
     - *Changed as built: what Price freezes.* The first note said the legs are frozen with the rest of the input.
       They are not: the accepted input carries what a measure reads, and none reads a leg or the PV they add up
       to, so it carries neither. When a measure reads them, its module's part of the input will carry them.

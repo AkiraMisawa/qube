@@ -412,6 +412,8 @@ export interface RowPage {
   readonly totalCount: number;
   readonly orderToken: string;
   readonly revision: number;
+  /** The currency every row's `pv` is in: the display currency as this page was read (ADR-0016 note 49). */
+  readonly pvCurrency: string;
   /** Under conditions, how many rows the grid has with none. */
   readonly of?: number;
 }

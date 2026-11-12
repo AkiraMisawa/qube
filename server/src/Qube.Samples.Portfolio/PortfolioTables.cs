@@ -101,7 +101,7 @@ public static partial class PortfolioFields
         // in the currency written with it or the display currency. The unit is the workspace's, which the table says
         // when it describes itself for one (PortfolioTables).
         new(PortfolioLegs.Pv, "PV", ["pv"], FieldForm.Number, Editable: true, Optional: true, Figure: new(PortfolioTables.Legs, new(FieldForm.Money, Choices: Currencies))),
-        new(PortfolioLegs.IndependentAmount, "Independent amount", ["independent amount", "ia"], FieldForm.Number, Optional: true, Figure: new(PortfolioTables.Amounts)),
+        new(PortfolioLegs.IndependentAmount, "Independent amount", ["independent amount"], FieldForm.Number, Optional: true, Figure: new(PortfolioTables.Amounts)),
         new("csa", "CSA", ["csa"], FieldForm.Id, Editable: true, Table: PortfolioTables.Csas),
         new("curve", "Discount curve", ["curve", "discount curve"], FieldForm.Id, Editable: true),
         new("imR", "IM-R", ["im-r", "imr"], FieldForm.Id, Editable: true, Optional: true),
@@ -320,10 +320,7 @@ public sealed class PortfolioTables(MeasureRegister register) : ITableCatalog
 
         public virtual IReadOnlyList<WorkspaceChange> Remove(WorkspaceState state, ITableRow row) => throw new WorkspaceRefused("NotRemovable", notRemovable((Row)row));
 
-        // The Common edits an entity holds on these fields, each to be removed; an edit held back as a conflict is the user's to decide.
-        protected static IReadOnlyList<WorkspaceChange> Resets(WorkspaceState state, string entity, IEnumerable<string> fields) =>
-            [.. fields.Select(f => PortfolioEditRules.Target(Source(state), entity, f)).Where(t => state.Overrides.ContainsKey(t) || state.Lost.ContainsKey(t))
-                .Select(t => new WorkspaceChange.Reset(t))];
+        protected static IReadOnlyList<WorkspaceChange> Resets(WorkspaceState state, string entity, IEnumerable<string> fields) => PortfolioEditRules.Resets(state, entity, fields);
     }
 
     /// <summary>
@@ -333,6 +330,8 @@ public sealed class PortfolioTables(MeasureRegister register) : ITableCatalog
     sealed class UnderTrade(PortfolioChecks checks, TableDescriptor descriptor, string kind, Func<WorkspaceState, IReadOnlyList<ITableRow>> rows)
         : Table(checks, descriptor, rows, row => throw new InvalidOperationException($"{row.Key} is removed as any row under a trade is."))
     {
+        // Taking a row out is the table's own change and no edit of a field a user types (`out` is none of the
+        // editable fields), so it does not pass the checks a typed value does.
         public override IReadOnlyList<WorkspaceChange> Remove(WorkspaceState state, ITableRow row)
         {
             var at = (Row)row;
@@ -399,6 +398,8 @@ public sealed class PortfolioTables(MeasureRegister register) : ITableCatalog
         }
 
         // A trade's PV is written as its legs (ADR-0016 note 49): the table says what the write is, as for any figure.
+        // The checks of a typed field do not apply to it: `pv` is no field an edit of the trade holds, and the write
+        // reads the amount and its currency itself, refusing what it cannot read.
         public override IReadOnlyList<WorkspaceChange> Set(WorkspaceState state, ITableRow row, TableField field, JsonNode? value) =>
             field.Name == PortfolioLegs.Pv ? PortfolioLegs.SetPv(((Row)row).Reading, row.Key, value) : base.Set(state, row, field, value);
 

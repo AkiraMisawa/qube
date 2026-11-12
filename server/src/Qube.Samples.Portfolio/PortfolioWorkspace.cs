@@ -153,8 +153,17 @@ public sealed class PortfolioEditRules(MeasureRegister? register = null) : IEdit
         // A leg and an independent amount are their trade's content (ADR-0016 note 49): a new trade's stay with it.
         var under = kind is Entity.Leg or Entity.Amount;
         var trade = under ? Entity.TradeOf(id) : id;
+        // A trade this version has not is none of the workspace's new trades, which no version drops: what is held on
+        // it is the counterparty's, and is listed to be resolved or removed.
         var isNew = (kind == Entity.Trade || under) && source.Trade(trade)?.IsNew == true;
         return new EditTarget((tradeContent || under) && isNew ? $"new:{trade}" : $"cp:{source.Registration.Key}", entity, field);
+    }
+
+    /// <summary>The edits an entity holds on these fields, each to be removed; an edit held back as a conflict is the user's to decide.</summary>
+    public static IReadOnlyList<WorkspaceChange> Resets(WorkspaceState state, string entity, IEnumerable<string> fields)
+    {
+        var source = (PortfolioSourceVersion)state.Source;
+        return [.. fields.Select(f => Target(source, entity, f)).Where(t => state.Overrides.ContainsKey(t) || state.Lost.ContainsKey(t)).Select(t => new WorkspaceChange.Reset(t))];
     }
 }
 

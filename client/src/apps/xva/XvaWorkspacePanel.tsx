@@ -245,6 +245,11 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   // how many rows they leave, of how many. None for a grid with no conditions, and none once a read under them failed.
   const [counted, setCounted] = useState<Readonly<Record<TradeGrid, Counted | undefined>>>({ new: undefined, existing: undefined });
 
+  // The currency each trade grid's PV figures are in, as its reader last answered (ADR-0016 note 49): the PV header
+  // names it, so a header never names another currency than the rows under it hold, as it could between the answers
+  // of two readings of the workspace. None until a grid's first page is read: the header then names no currency.
+  const [pvIn, setPvIn] = useState<Readonly<Record<TradeGrid, string | undefined>>>({ new: undefined, existing: undefined });
+
   // One source per grid, each paged, sorted and narrowed on the server (ADR-0010 §6); an edit may move a row in either.
   const sources = useMemo(() => {
     const answered = new WeakMap<Row, Answered>();
@@ -267,6 +272,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
       const answer: Answered = { sorts: query.sorts, orderToken: page.orderToken, ...(where === undefined ? {} : { where }) };
       for (const row of page.rows) answered.set(row, answer);
       count(grid, where === undefined || page.of === undefined ? undefined : { where, left: page.totalCount, of: page.of });
+      setPvIn((before) => (before[grid] === page.pvCurrency ? before : { ...before, [grid]: page.pvCurrency }));
       // The grid's trades are read: a failure said of it before is no longer how it stands.
       failed(grid, undefined);
       return { rows: page.rows, start: page.start, totalCount: page.totalCount, orderToken: page.orderToken };
@@ -337,11 +343,12 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   // The trade fields the selected measures need, on both grids (ADR-0010 §10): a hidden one keeps its value.
   const fieldsKey = (view.data?.inputs ?? []).filter((i) => i.tab === TRADES_TAB).map((i) => i.field).join('|');
   const assignment = useMemo(() => assignmentOf(fieldsKey === '' ? [] : fieldsKey.split('|')), [fieldsKey]);
-  // The PV column names the display currency: another currency is another declaration, and every row paints again.
-  const displayCurrency = view.data?.displayCurrency;
-  const pv = useMemo(() => pvColumn(displayCurrency), [displayCurrency]);
-  const newColumns = useMemo<readonly GridColumn<Row>[]>(() => [...leading, ...assignment, pv, ...moduleColumns(registered.current), ...membership, ...derived], [columnsKey, pv, assignment, membership]);
-  const existingColumns = useMemo<readonly GridColumn<Row>[]>(() => [...existingTerms, ...assignment, pv, ...membership, ...derived], [pv, assignment, membership]);
+  // Each grid's PV column names the currency its rows' figures are in: another currency is another declaration, and
+  // every row paints again.
+  const newPv = useMemo(() => pvColumn(pvIn.new), [pvIn.new]);
+  const existingPv = useMemo(() => pvColumn(pvIn.existing), [pvIn.existing]);
+  const newColumns = useMemo<readonly GridColumn<Row>[]>(() => [...leading, ...assignment, newPv, ...moduleColumns(registered.current), ...membership, ...derived], [columnsKey, newPv, assignment, membership]);
+  const existingColumns = useMemo<readonly GridColumn<Row>[]>(() => [...existingTerms, ...assignment, existingPv, ...membership, ...derived], [existingPv, assignment, membership]);
   gridColumns.current = { new: newColumns, existing: existingColumns };
   // Each grid's columns at the widths the user dragged them to, kept per panel while it is open.
   const newWidths = useColumnWidths(panelId, 'trades/new', newColumns);
@@ -422,9 +429,9 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
     // A PV is written by the command the line types (ADR-0016 note 49), which the server alone reads.
     if (intent.column === PV_COLUMN) {
       if (intent.seenText !== intent.replacedText) { intent.refuse('The value changed while you were editing. Look at it again.'); return; }
-      const typed = pvRequest(intent.row.tradeId, intent.value);
-      if (!typed.ok) { intent.refuse(typed.message); return; }
-      writePv.current(intent.row.tradeId, typed.request);
+      const typed = pvRequest(intent.row.tradeId, intent.value, intent.seenText);
+      if (typed.kind === 'refused') intent.refuse(typed.message);
+      else if (typed.kind === 'write') writePv.current(intent.row.tradeId, typed.request);
       return;
     }
     const module = registered.current.find((c) => c.field === intent.column);

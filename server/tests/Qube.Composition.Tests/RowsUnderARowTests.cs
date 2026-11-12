@@ -18,11 +18,11 @@ public class RowsUnderARowTests
         public CommandLines Lines { get; }
         public string Id { get; }
 
-        public Rig(bool described = true)
+        public Rig(bool described = true, ProductDescriptor? sensor = null)
         {
             var tables = new TableService(Register, Workspaces);
             var products = described
-                ? new ProductService([new Stations.Products()], [new Stations.SensorRules(Workspaces)], Workspaces, Register)
+                ? new ProductService([new Stations.Products(sensor)], [new Stations.SensorRules(Workspaces)], Workspaces, Register)
                 : new ProductService([], [], Workspaces, Register);
             var registry = new CompositionRegistry([new TablesModule(() => tables), new WorkspaceCommandsModule(() => Workspaces), new ProductsModule(() => products)]);
             Commands = new CommandService(registry, new InMemoryDataStore());
@@ -127,6 +127,30 @@ public class RowsUnderARowTests
 
         // N1's two sensors, 40 and 25 cubic metres; S1's one of 10 gallons, each four cubic metres.
         Assert.Equal((65m, 40m, 0m), (rig.Load("N1"), rig.Load("S1"), rig.Load("X1")));
+    }
+
+    [Fact] // ADR-0016 note 47: a condition compares a figure as the number it reads as
+    public void A_condition_compares_a_figure_as_a_number()
+    {
+        var rig = new Rig();
+
+        Assert.Equal(["N1"], rig.Keys("stations where load>50"));
+        Assert.Equal(["S1"], rig.Keys("stations where load=40"));
+    }
+
+    [Theory] // ADR-0016 note 47 (corrected in review): a number with a unit that has no unit to be in fails when the tables are read, by name
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Money_with_nothing_it_may_be_in_is_checked_when_the_tables_are_read(bool figure)
+    {
+        TableField load = figure
+            ? new("load", "Load", ["load"], FieldForm.Number, Editable: true, Unit: "M3", Figure: new(Stations.Sensors, new(FieldForm.Money)))
+            : new("load", "Load", ["load"], FieldForm.Money, Editable: true);
+        var register = new TableRegister([new Stations.Catalog(Stations.SitesTable with { Fields = [.. Stations.SitesTable.Fields, load] }, sensors: true)]);
+
+        var thrown = Assert.Throws<InvalidOperationException>(() => register.Of(Stations.Board(Stations.Service())));
+
+        Assert.Equal("Table weather.stations's field load is a number with what it is in, and has nothing it may be in.", thrown.Message);
     }
 
     [Fact] // ADR-0016 note 47: a write of a figure is the changes its table answers, as one command; for one row the line says the table's own sentence
@@ -237,6 +261,27 @@ public class RowsUnderARowTests
     public void The_request_names_the_row_above_by_its_whole_key() =>
         Assert.Equal("station=S1 rain 30 gal", new Rig().Preview("new sensor s1 rain 30 gal").Inputs!["request"]!["terms"]!.GetValue<string>());
 
+    [Theory] // ADR-0016 note 48 (corrected in review): the term typed by a name of its own names the row as the first word does, whole or by how it ends, and is written by the term's name and the whole key
+    [InlineData("new sensor rain 30 gal station=s1", "rain 30 gal station=S1")]
+    [InlineData("new sensor at=s1 rain 30 gal", "station=S1 rain 30 gal")]
+    public void The_term_typed_by_its_name_names_the_row_as_the_first_word_does(string line, string terms)
+    {
+        var sensor = Stations.SensorProduct with
+        {
+            Fields = [.. Stations.SensorProduct.Fields.Select(f => f.Name == "station" ? f with { Aliases = ["at"] } : f)],
+        };
+
+        Assert.Equal(terms, new Rig(sensor: sensor).Preview(line).Inputs!["request"]!["terms"]!.GetValue<string>());
+    }
+
+    [Fact] // ADR-0016 note 48 (corrected in review): a name that could be several rows above is refused with them, typed by the term's name as it is as the first word
+    public void A_named_term_that_could_be_several_rows_above_is_refused()
+    {
+        var refused = new Rig().Preview("new sensor rain 30 gal station=1").Refused!;
+
+        Assert.Equal("AmbiguousRow", refused.Code);
+    }
+
     [Fact] // ADR-0016 note 36: `new` is the kernel's and is read on every workspace; where the application describes no product, it says so
     public void New_on_a_workspace_whose_application_describes_no_product_is_refused_by_name()
     {
@@ -280,9 +325,10 @@ public class RowsUnderARowTests
         Assert.Empty(rig.Board.Created);
     }
 
-    [Theory] // ADR-0016 note 48: a product that names the row above by a term it has not, or says no table, fails at start, by name
+    [Theory] // ADR-0016 note 48: a product that names the row above by a term it has not, says no table, or says one its application has not registered, fails at start, by name
     [InlineData(Stations.Sensors, "place", "Product weather.sensor is made under the row its term place names, and has no such term.")]
     [InlineData(null, "station", "Product weather.sensor is made under a row and does not say the table its rows are of.")]
+    [InlineData("weather.nowhere", "station", "Product weather.sensor makes rows of weather.nowhere, which no table of weather registers.")]
     public void A_product_made_under_a_row_is_checked_at_start(string? table, string under, string message)
     {
         var workspaces = Stations.Service();
@@ -291,5 +337,25 @@ public class RowsUnderARowTests
             [new Stations.SensorRules(workspaces)], workspaces, new TableRegister([new Stations.Catalog(sensors: true)])));
 
         Assert.Equal(message, thrown.Message);
+    }
+
+    [Fact] // ADR-0016 note 48 (corrected in review): a product made under a row is given the tables it is read with, or fails at start
+    public void A_product_made_under_a_row_needs_the_tables_at_start()
+    {
+        var workspaces = Stations.Service();
+
+        var thrown = Assert.Throws<InvalidOperationException>(() => new ProductService([new Stations.Products()], [new Stations.SensorRules(workspaces)], workspaces));
+
+        Assert.Equal("Product weather.sensor is made under a row, and the products were given no tables to read it in.", thrown.Message);
+    }
+
+    [Fact] // ADR-0016 note 48: a table is under another as a workspace describes it, so a product whose table is under none fails when its terms are first read there, by name
+    public void A_product_whose_table_is_under_none_fails_when_its_terms_are_read()
+    {
+        var rig = new Rig(sensor: Stations.SensorProduct with { Table = Stations.Sites });
+
+        var thrown = Assert.Throws<InvalidOperationException>(() => rig.Preview("new sensor s1 rain 30 gal"));
+
+        Assert.Equal("Product weather.sensor is made under a row, and weather.stations is under no table.", thrown.Message);
     }
 }

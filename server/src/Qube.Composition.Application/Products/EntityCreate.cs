@@ -57,11 +57,9 @@ public sealed class EntityCreate(Func<ProductService> products) : ICapabilityHan
     // (note 48). What the product's rules refuse of complete terms is the line's refusal, in their words.
     static (string Terms, ProductReading Reading, string? Entity) Would(ProductService service, WorkspaceState state, ProductDescriptor product, string typed)
     {
-        var terms = service.Terms(state, product, typed);
         try
         {
-            var (reading, entity) = service.Would(state, product.Id, terms);
-            return (terms, reading, entity);
+            return service.Would(state, product.Id, typed);
         }
         catch (ProductTermsRefused refused)
         {

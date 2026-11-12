@@ -80,21 +80,32 @@ describe("a module's trade cells", () => {
 // ADR-0016 note 49: a PV typed in a trade grid is written by the command the line types, and read by the server alone.
 describe("a trade's PV cell", () => {
   it('asks entity.set for the trade by its id, with what was typed as its value', () => {
-    expect(pvRequest('ABC-LE-01-E00004', ' -350,000 USD ')).toEqual({ ok: true, request: { table: 'xva.trades', rows: 'ABC-LE-01-E00004', set: 'pv -350,000 USD' } });
-    expect(pvRequest('DRAFT-1', '-350k')).toEqual({ ok: true, request: { table: 'xva.trades', rows: 'DRAFT-1', set: 'pv -350k' } });
+    expect(pvRequest('ABC-LE-01-E00004', ' -350,000 USD ', '14,286,696'))
+      .toEqual({ kind: 'write', request: { table: 'xva.trades', rows: 'ABC-LE-01-E00004', set: 'pv -350,000 USD' } });
+    expect(pvRequest('DRAFT-1', '-350k', '')).toEqual({ kind: 'write', request: { table: 'xva.trades', rows: 'DRAFT-1', set: 'pv -350k' } });
+  });
+
+  // The cell shows a rounded figure of every leg: written back, it would leave the trade one leg of that figure.
+  it('writes nothing where the cell is committed as it was shown', () => {
+    expect(pvRequest('ABC-LE-01-E00004', '14,286,696', '14,286,696')).toEqual({ kind: 'unchanged' });
+    expect(pvRequest('ABC-LE-01-E00004', ' 14,286,696 ', '14,286,696')).toEqual({ kind: 'unchanged' });
+    expect(pvRequest('DRAFT-1', '', '')).toEqual({ kind: 'unchanged' });
+    // The same figure with its currency is a write: it says which currency the one leg is in.
+    expect(pvRequest('ABC-LE-01-E00004', '14,286,696 JPY', '14,286,696').kind).toBe('write');
   });
 
   it('says what Original held and that no measure reads it, where it differs from the source\'s', () => {
     expect(pvMessage({ ...trade({}), pv: 14_286_696 })).toBeUndefined();
     expect(pvMessage({ ...trade({}, { pv: 14_286_696 }), isNew: false, pv: 1_000_000 }))
-      .toBe('Original 14,286,696 · now 1,000,000. No measure reads the PV legs yet: SA-CCR reads the official PV.');
-    // A new trade has no official PV: SA-CCR takes it as traded at market (ADR-0010 §6).
+      .toBe('Original 14,286,696 · now 1,000,000. No measure reads the PV legs yet: Price reads the official PV.');
+    // A new trade has no official PV: Price takes it as traded at market, or at the PV Adj typed for it (ADR-0010 §6).
     expect(pvMessage({ ...trade({}, { pv: null }), pv: 40_598_290.6 }))
-      .toBe('Original empty · now 40,598,290.6. No measure reads the PV legs yet: SA-CCR takes a new trade at market.');
+      .toBe('Original empty · now 40,598,290.6. No measure reads the PV legs yet: Price takes a new trade at market, or at its PV Adj.');
   });
 
   it('refuses nothing typed, and a value that would name another field', () => {
-    expect(pvRequest('DRAFT-1', '  ').ok).toBe(false);
-    expect(pvRequest('DRAFT-1', '5 after=off').ok).toBe(false);
+    const message = 'Type a PV as a number, alone or followed by its currency: -350,000 or -350,000 USD.';
+    expect(pvRequest('ABC-LE-01-E00004', '  ', '14,286,696')).toEqual({ kind: 'refused', message });
+    expect(pvRequest('DRAFT-1', '5 after=off', '')).toEqual({ kind: 'refused', message });
   });
 });

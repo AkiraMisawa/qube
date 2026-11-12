@@ -39,6 +39,14 @@ public static class PortfolioLegs
         public ILookup<string, EffectiveAmount> AmountsOf { get; } = amounts.ToLookup(a => a.TradeId);
     }
 
+    // The legs a state made, and those under each trade, read once: a write of many trades' PVs asks for them per trade.
+    sealed class MadeLegs(IReadOnlyList<CreatedEntity> all)
+    {
+        public IReadOnlyList<CreatedEntity> All => all;
+        public ILookup<string, CreatedEntity> Under { get; } = all.ToLookup(c => Entity.TradeOf(Entity.Split(c.Entity).Id));
+    }
+
+    static readonly ConditionalWeakTable<WorkspaceState, MadeLegs> MadeRead = new();
     static readonly ConditionalWeakTable<WorkspaceState, Standing> Read = new();
     // Most workspaces hold no edit of a leg: their legs are the source's, worked out once for the version.
     static readonly ConditionalWeakTable<PortfolioSourceVersion, Standing> Untouched = new();
@@ -106,21 +114,23 @@ public static class PortfolioLegs
         return $"{(kind == Entity.Leg ? "leg" : "independent amount")} {id}";
     }
 
+    /// <summary>What the value that takes a leg or an independent amount out says in the Changes tab: taken out, or held.</summary>
+    public static string TakenOutSays(JsonNode? value, string entity) => Flag(value, entity) ? "taken out" : "held";
+
     /// <summary>A leg the workspace made, as the Changes tab lists it: reset there, it is removed.</summary>
     public static ChangeItem MadeChange(CreatedEntity made) =>
         new(made.Entity, "*", null, Named(made.Entity), made.Fields.DeepClone(),
-            $"made: {Number(made.Fields["pv"], made.Entity, "pv").ToString("0.############################", CultureInfo.InvariantCulture)} {Text(made.Fields["currency"], made.Entity, "currency")}",
+            $"made: {FieldForms.Write(new(FieldForm.Number), Number(made.Fields["pv"], made.Entity, "pv"))} {Text(made.Fields["currency"], made.Entity, "currency")}",
             null, "none", "set", false);
 
     /// <summary>The legs the workspace made, in the order they were made.</summary>
-    public static IReadOnlyList<CreatedEntity> Made(WorkspaceState state) =>
-        [.. state.Created.Values.Where(c => c.Entity.StartsWith($"{Entity.Leg}:", StringComparison.Ordinal)).OrderBy(c => c.Seq)];
+    public static IReadOnlyList<CreatedEntity> Made(WorkspaceState state) => MadeIn(state).All;
+
+    static MadeLegs MadeIn(WorkspaceState state) => MadeRead.GetValue(state, s =>
+        new([.. s.Created.Values.Where(c => c.Entity.StartsWith($"{Entity.Leg}:", StringComparison.Ordinal)).OrderBy(c => c.Seq)]));
 
     /// <summary>Every leg of the reading: the source's that no edit took out, in the trades' order, then those the workspace made.</summary>
     public static IReadOnlyList<EffectiveLeg> Legs(WorkspaceState reading) => Of(reading).Legs;
-
-    /// <summary>A trade's legs as the reading holds them.</summary>
-    public static IEnumerable<EffectiveLeg> LegsOf(WorkspaceState reading, string tradeId) => Of(reading).LegsOf[tradeId];
 
     /// <summary>Every independent amount of the reading that no edit took out.</summary>
     public static IReadOnlyList<EffectiveAmount> Amounts(WorkspaceState reading) => Of(reading).Amounts;
@@ -147,8 +157,7 @@ public static class PortfolioLegs
     {
         var (display, date) = (PortfolioMaterialiser.DisplayCurrency(reading), Source(reading).ValueDate);
         // Each currency is added up before it is converted, so amounts in the display currency are never divided at all.
-        return Math.Round(amounts.GroupBy(a => a.Currency, a => a.Amount).Sum(g => g.Key == display ? g.Sum()
-            : g.Sum() * PortfolioMarket.UnitsPerGbp(display, date) / PortfolioMarket.UnitsPerGbp(g.Key, date)), 2);
+        return Math.Round(amounts.GroupBy(a => a.Currency, a => a.Amount).Sum(g => g.Key == display ? g.Sum() : PortfolioMarket.Converted(g.Sum(), g.Key, display, date)), 2);
     }
 
     // A PV as written (FieldForm.Money): its amount, and the currency written or, with none, the display currency
@@ -167,8 +176,7 @@ public static class PortfolioLegs
     /// </summary>
     public static IReadOnlyList<WorkspaceChange> SetPv(WorkspaceState reading, string tradeId, JsonNode? value)
     {
-        var (amount, currency) = Written(reading, value);
-        var legs = Of(reading).LegsOf[tradeId].ToList();
+        var (amount, currency, legs) = Overwrite(reading, tradeId, value);
         if (legs is [var one] && one.Currency == currency && one.Pv == amount) return [];
         var entity = Entity.Of(Entity.Leg, $"{tradeId}/{Next(reading, tradeId)}");
         return
@@ -181,22 +189,33 @@ public static class PortfolioLegs
     /// <summary>What overwriting a trade's PV would do to its legs, as a preview says it: "2 legs replaced by 1 leg, USD".</summary>
     public static string SetPvSays(WorkspaceState reading, string tradeId, JsonNode? value)
     {
-        var (_, currency) = Written(reading, value);
-        var legs = Of(reading).LegsOf[tradeId].Count();
-        return legs == 0 ? $"1 leg made, {currency}" : $"{legs} leg{(legs == 1 ? "" : "s")} replaced by 1 leg, {currency}";
+        var (_, currency, legs) = Overwrite(reading, tradeId, value);
+        return legs.Count == 0 ? $"1 leg made, {currency}" : $"{legs.Count} leg{(legs.Count == 1 ? "" : "s")} replaced by 1 leg, {currency}";
+    }
+
+    // What an overwrite of a trade's PV is read as, by the write and by the sentence that says it: the one leg's amount
+    // and currency, and the legs it replaces.
+    static (decimal Amount, string Currency, IReadOnlyList<EffectiveLeg> Legs) Overwrite(WorkspaceState reading, string tradeId, JsonNode? value)
+    {
+        var (amount, currency) = Written(reading, value);
+        return (amount, currency, [.. Of(reading).LegsOf[tradeId]]);
     }
 
     /// <summary>A made leg's fields as its entity holds them.</summary>
     public static JsonObject Fields(string tradeId, string currency, decimal pv, decimal? notional) =>
         new() { ["trade"] = tradeId, ["currency"] = currency, ["pv"] = pv, ["notional"] = notional };
 
-    /// <summary>The number a leg made under a trade now takes: one after the last of the source's and of those made, taken out or not.</summary>
+    /// <summary>
+    /// The number a leg made under a trade now takes: one after the last of the source's, taken out or not, and of the
+    /// legs the workspace holds made. A made leg that was removed holds no number: the next made takes it again, and
+    /// holds none of its edits, which were removed with it.
+    /// </summary>
     public static int Next(WorkspaceState reading, string tradeId)
     {
         var prefix = $"{tradeId}/";
-        var held = Held(reading, tradeId).Legs.Select(l => l.LegId)
-            .Concat(Made(reading).Select(c => Entity.Split(c.Entity).Id)).Where(id => id.StartsWith(prefix, StringComparison.Ordinal));
-        return held.Select(id => int.Parse(id[prefix.Length..], CultureInfo.InvariantCulture)).DefaultIfEmpty(0).Max() + 1;
+        var numbers = Held(reading, tradeId).Legs.Select(l => l.LegId).Concat(MadeIn(reading).Under[tradeId].Select(c => Entity.Split(c.Entity).Id))
+            .Select(id => int.Parse(id[prefix.Length..], CultureInfo.InvariantCulture)).ToList();
+        return numbers.Count == 0 ? 1 : numbers.Max() + 1;
     }
 
     /// <summary>
@@ -213,22 +232,17 @@ public static class PortfolioLegs
     /// What brings a trade's legs back to the source's (<c>reset &lt;trade&gt; pv</c>, note 47): every edit of one of its
     /// legs is reset, one that took it out among them, and every leg the workspace made under it is removed.
     /// </summary>
-    public static IReadOnlyList<WorkspaceChange> ResetPv(WorkspaceState state, string tradeId)
-    {
-        var prefix = $"{tradeId}/";
-        return
-        [
-            .. Resets(state, Entity.Leg, Held(state, tradeId).Legs.Select(l => l.LegId), [.. EditableFields, Entity.TakenOut]),
-            .. Made(state).Where(c => Entity.Split(c.Entity).Id.StartsWith(prefix, StringComparison.Ordinal)).Select(c => new WorkspaceChange.Remove(c.Entity)),
-        ];
-    }
+    public static IReadOnlyList<WorkspaceChange> ResetPv(WorkspaceState state, string tradeId) =>
+    [
+        .. Resets(state, Entity.Leg, Held(state, tradeId).Legs.Select(l => l.LegId), [.. EditableFields, Entity.TakenOut]),
+        .. MadeIn(state).Under[tradeId].Select(c => new WorkspaceChange.Remove(c.Entity)),
+    ];
 
     /// <summary>What brings back the independent amounts of a trade that an edit took out.</summary>
     public static IReadOnlyList<WorkspaceChange> ResetAmounts(WorkspaceState state, string tradeId) =>
         Resets(state, Entity.Amount, Held(state, tradeId).Amounts.Select(a => a.AmountId), [Entity.TakenOut]);
 
-    // The edits rows of a kind hold on these fields, each to be removed; one held back as a conflict is the user's to decide.
+    // The edits rows of a kind hold on these fields, each to be removed.
     static IReadOnlyList<WorkspaceChange> Resets(WorkspaceState state, string kind, IEnumerable<string> ids, IReadOnlyList<string> fields) =>
-        [.. ids.SelectMany(id => fields.Select(f => PortfolioEditRules.Target(Source(state), Entity.Of(kind, id), f)))
-            .Where(t => state.Overrides.ContainsKey(t) || state.Lost.ContainsKey(t)).Select(t => new WorkspaceChange.Reset(t))];
+        [.. ids.SelectMany(id => PortfolioEditRules.Resets(state, Entity.Of(kind, id), fields))];
 }

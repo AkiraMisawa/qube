@@ -223,12 +223,6 @@ public sealed class PortfolioSourceVersion : ISourceVersion
 
     public SourceTrade? Trade(string tradeId) => trades.GetValueOrDefault(tradeId);
 
-    /// <summary>A PV leg by its id, <c>T/1</c>; null where the source holds none.</summary>
-    public SourceLeg? Leg(string legId) => legs.GetValueOrDefault(legId);
-
-    /// <summary>An independent amount by its id; null where the source holds none.</summary>
-    public SourceAmount? Amount(string amountId) => amounts.GetValueOrDefault(amountId);
-
     public Csa? CsaOf(string csaId) => Agreement.Csas.SingleOrDefault(c => c.CsaId == csaId);
 
     /// <summary>
@@ -365,7 +359,7 @@ public sealed class PortfolioSourceVersion : ISourceVersion
         {
             // Against JPY, or JPY against USD, at the synthetic FX of the day it was traded.
             var counter = currency == "JPY" ? "USD" : "JPY";
-            var counterNotional = Math.Round(notional * PortfolioMarket.UnitsPerGbp(counter, start) / PortfolioMarket.UnitsPerGbp(currency, start), 0);
+            var counterNotional = Math.Round(PortfolioMarket.Converted(notional, currency, counter, start), 0);
             return new(tradeId, isNew, "FXForward", currency, notional, maturity, null, null, null, csa, officialPv,
                 start, buysOrPays ? "buy" : "sell", counter, counterNotional, imR, imP)
             {
@@ -402,7 +396,7 @@ public sealed class PortfolioSourceVersion : ISourceVersion
         DateOnly valueDate)
     {
         var second = Math.Round((decimal)(new Random(seed ^ 0x1b873593).NextDouble() - 0.5) * counterNotional * 0.2m, 0);
-        var first = Math.Round(officialPv - second * PortfolioMarket.UnitsPerGbp(currency, valueDate) / PortfolioMarket.UnitsPerGbp(counter, valueDate), 2);
+        var first = Math.Round(officialPv - PortfolioMarket.Converted(second, counter, currency, valueDate), 2);
         return [new($"{tradeId}/1", tradeId, currency, first, notional), new($"{tradeId}/2", tradeId, counter, second, counterNotional)];
     }
 
@@ -500,4 +494,7 @@ public static class PortfolioMarket
     }
 
     public static decimal ToGbp(decimal amount, string currency, DateOnly valueDate) => amount / UnitsPerGbp(currency, valueDate);
+
+    /// <summary>An amount of one currency in another, at the value date's synthetic rates.</summary>
+    public static decimal Converted(decimal amount, string from, string to, DateOnly valueDate) => amount * UnitsPerGbp(to, valueDate) / UnitsPerGbp(from, valueDate);
 }

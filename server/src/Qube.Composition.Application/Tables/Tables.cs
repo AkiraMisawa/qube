@@ -40,7 +40,7 @@ public sealed record TableField(
 }
 
 /// <summary>
-/// A field that is worked out from the rows under its row (ADR-0016 §1, note 47), as a trade's PV is from its legs.
+/// A field that is worked out from the rows under its row (ADR-0016 §1, note 47), as a total is from its parts.
 /// What a write of it means is its table's (<see cref="IWorkspaceTable.Set"/>), and never the kernel's guess.
 /// </summary>
 /// <param name="Of">The table under its own whose rows it is a figure of.</param>
@@ -54,7 +54,7 @@ public sealed record TableFigure(string Of, FieldSpec? Written = null);
 /// <param name="SingleRow">A table of one row is addressed without a row: <c>set &lt;field&gt; &lt;value&gt;</c>.</param>
 /// <param name="Main">The application's main table, which <c>all</c>, a subset or <c>where</c> mean where no table is named (note 7).</param>
 /// <param name="Actions">What a grid bound to the table offers beside the kernel's own (note 25 of step 2); none where it is left out.</param>
-/// <param name="Under">The table its rows are under, where it belongs to a row (§1, note 46): a trade's legs are under the trades.</param>
+/// <param name="Under">The table its rows are under, where it belongs to a row (§1, note 46): the lines of an order are under the orders.</param>
 public sealed record TableDescriptor(
     string TableId,
     string Version,
@@ -135,7 +135,7 @@ public interface IWorkspaceTable
 
     /// <summary>
     /// What writing a value into a row's figure would do to the rows under it, in the table's words, for a line to say
-    /// before Enter (ADR-0016 note 47: "2 legs replaced by 1 leg, USD"); null where the table says nothing more than
+    /// before Enter (ADR-0016 note 47: "2 parts replaced by 1 part, M3"); null where the table says nothing more than
     /// that the row changes.
     /// </summary>
     string? SetSays(WorkspaceState state, ITableRow row, TableField field, JsonNode? value) => null;
@@ -197,6 +197,9 @@ public sealed class TableRegister
         byApp = tables.ToLookup(t => t.App);
     }
 
+    /// <summary>Whether an application registers a table of this id, which is known before any workspace describes it.</summary>
+    public bool Registers(string app, string tableId) => byApp[app].Any(t => t.TableId == tableId);
+
     /// <summary>The tables of the workspace's application, each as this workspace has it, in the order registered.</summary>
     public IReadOnlyList<BoundTable> Of(WorkspaceState state)
     {
@@ -213,6 +216,9 @@ public sealed class TableRegister
             // A choice is read, written and offered by what it has to choose from (FieldForms).
             if (table.Descriptor.Fields.FirstOrDefault(f => f.Form == FieldForm.Choice && f.Choices is null) is { } unchosen)
                 throw new InvalidOperationException($"Table {table.Descriptor.TableId}'s field {unchosen.Name} is a choice with nothing to choose from.");
+            // A number with what it is in is read and written by the units it may be in (FieldForms), as it reads or as its figure is written.
+            if (table.Descriptor.Fields.FirstOrDefault(f => f.Written is { Form: FieldForm.Money, Choices: not { Count: > 0 } }) is { } unitless)
+                throw new InvalidOperationException($"Table {table.Descriptor.TableId}'s field {unitless.Name} is a number with what it is in, and has nothing it may be in.");
             // A figure is of a table under its own (note 47).
             if (table.Descriptor.Fields.FirstOrDefault(f => f.Figure is { } figure && bound.All(t => t.Descriptor.TableId != figure.Of || t.Descriptor.Under != table.Descriptor.TableId)) is { } astray)
                 throw new InvalidOperationException($"Table {table.Descriptor.TableId}'s field {astray.Name} is a figure of {astray.Figure!.Of}, which is not under it.");

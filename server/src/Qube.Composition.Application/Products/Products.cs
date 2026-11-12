@@ -43,7 +43,7 @@ public sealed record ProductField(
 /// <param name="Table">The registered table its entities are rows of, where it says one (ADR-0016 note 48).</param>
 /// <param name="Under">
 /// The field of its terms that names the row its entity is made under, where its table is under another (ADR-0016 note
-/// 48): a leg is made under a trade. The first word after the product's own is read as that row where it names one.
+/// 48): a line is made under an order. The first word after the product's own is read as that row where it names one.
 /// </param>
 public sealed record ProductDescriptor(
     string Id,
@@ -120,6 +120,11 @@ public sealed record ProductReading(
 /// <summary>Reads words against a description (ADR-0008 §3). Pure: the same words and description read the same.</summary>
 public static class ProductReader
 {
+    /// <summary>The term a name typed before <c>=</c> is: by its own name or another of its names, in any case; none where the product has no such term.</summary>
+    public static ProductField? Named(ProductDescriptor product, string name) =>
+        product.Fields.FirstOrDefault(f => f.Name.Equals(name, StringComparison.OrdinalIgnoreCase)
+            || (f.Aliases?.Any(a => a.Equals(name, StringComparison.OrdinalIgnoreCase)) ?? false));
+
     /// <summary>Splits the typed terms into words, and reads each by name or by form.</summary>
     public static (Dictionary<string, JsonNode?> Values, List<ProductIssue> Issues) Read(ProductDescriptor product, string text)
     {
@@ -131,8 +136,7 @@ public static class ProductReader
             if (eq > 0)
             {
                 var name = word[..eq];
-                var field = product.Fields.FirstOrDefault(f => f.Name.Equals(name, StringComparison.OrdinalIgnoreCase)
-                    || (f.Aliases?.Any(a => a.Equals(name, StringComparison.OrdinalIgnoreCase)) ?? false));
+                var field = Named(product, name);
                 if (field is null)
                 {
                     issues.Add(new("UnknownTerm", null, $"{product.Words} has no term named {name}; it takes {string.Join(", ", product.Fields.Select(NameOf))}."));
@@ -276,7 +280,10 @@ public sealed class ProductService
             if (p.Under is { } under)
             {
                 if (p.Fields.All(f => f.Name != under)) throw new InvalidOperationException($"Product {p.Id} is made under the row its term {under} names, and has no such term.");
-                if (p.Table is null) throw new InvalidOperationException($"Product {p.Id} is made under a row and does not say the table its rows are of.");
+                if (p.Table is not { } table) throw new InvalidOperationException($"Product {p.Id} is made under a row and does not say the table its rows are of.");
+                if (tables is null) throw new InvalidOperationException($"Product {p.Id} is made under a row, and the products were given no tables to read it in.");
+                // Which table that one is under is a workspace's to describe, so it is checked where the terms are read.
+                if (!tables.Registers(p.App, table)) throw new InvalidOperationException($"Product {p.Id} makes rows of {table}, which no table of {p.App} registers.");
             }
         }
         if (products.Values.GroupBy(p => (p.App, p.Words)).FirstOrDefault(g => g.Count() > 1) is { } twice)
@@ -299,12 +306,14 @@ public sealed class ProductService
     /// What the words would make in a workspace as it stands (ADR-0016 note 36): the reading with the product's defaults
     /// filled, and, where it is complete, the entity the product's rules would make of it. Nothing is written. Terms the
     /// rules refuse are refused here as <see cref="Create"/> would refuse them (<see cref="ProductTermsRefused"/>).
+    /// <c>Terms</c> are the words as a request holds them, the row the entity is made under named (<see cref="Terms"/>).
     /// </summary>
-    public (ProductReading Reading, string? Entity) Would(WorkspaceState state, string productId, string text)
+    public (string Terms, ProductReading Reading, string? Entity) Would(WorkspaceState state, string productId, string text)
     {
         var (product, rule) = Described(productId, state);
-        var reading = ProductReader.Complete(product, Terms(state, product, text), given => rule.Defaults(state, given));
-        return (reading, reading.Complete ? rule.WouldCreate(state, reading.Values) : null);
+        var terms = Terms(state, product, text);
+        var reading = ProductReader.Complete(product, terms, given => rule.Defaults(state, given));
+        return (terms, reading, reading.Complete ? rule.WouldCreate(state, reading.Values) : null);
     }
 
     /// <summary>Creates one entity of the product from what was typed, at the revision the caller saw (the current one when null).</summary>
@@ -320,26 +329,31 @@ public sealed class ProductService
     }
 
     /// <summary>
-    /// The terms as typed with the row the entity is made under named (ADR-0016 note 48). Where the product says the
-    /// term that names that row and the terms do not give it by its name, their first word is the row where it names
-    /// one of the rows of the table above, as that table's ids are read (whole, or by how it ends): it is then written
-    /// by the term's name and the row's whole key, so what is invoked and logged names the row exactly. Any other
-    /// terms are answered as they are, and read as any terms; a word whose end names several rows is refused with them,
-    /// as a selector refuses it (<see cref="TableRefused"/>).
+    /// The terms as typed with the row the entity is made under named (ADR-0016 note 48). The row is said by the term
+    /// that names it, typed by a name of its own (<c>station=s1</c>), or else by the terms' first word where that names
+    /// one of the rows of the table above. Either is read as that table's ids are read (whole, or by how it ends, in
+    /// any case) and written by the term's name and the row's whole key, so what is invoked and logged names the row
+    /// exactly. Words that name no row are answered as they are and read as any terms, so the product's rules refuse a
+    /// row that is not there; words whose end names several rows are refused with them, as a selector refuses them
+    /// (<see cref="TableRefused"/>).
     /// </summary>
     public string Terms(WorkspaceState state, ProductDescriptor product, string text)
     {
         if (product.Under is not { } under) return text;
         var words = text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
-        if (words.Length == 0 || words.Any(w => w.StartsWith($"{under}=", StringComparison.OrdinalIgnoreCase))) return text;
+        if (words.Length == 0) return text;
+        // The term typed by its name wins over the first word, which is then a term like any other.
+        var named = Array.FindIndex(words, w => w.IndexOf('=') is > 0 and var eq && ProductReader.Named(product, w[..eq])?.Name == under);
+        var said = named < 0 ? words[0] : words[named][(words[named].IndexOf('=') + 1)..];
         var bound = (tables ?? throw new InvalidOperationException($"Product {product.Id} is made under a row, and the products were given no tables to read it in.")).Of(state);
         var own = bound.FirstOrDefault(t => t.Descriptor.TableId == product.Table) ?? throw new InvalidOperationException($"Product {product.Id} makes rows of {product.Table}, which this workspace has not.");
         var above = bound.Single(t => t.Descriptor.TableId == (own.Descriptor.Under ?? throw new InvalidOperationException($"Product {product.Id} is made under a row, and {product.Table} is under no table.")));
-        return Selectors.RowsNamed(words[0], new Selectors.RowIndex(above, above.Table.Rows(state))) switch
+        return Selectors.RowsNamed(said, new Selectors.RowIndex(above, above.Table.Rows(state))) switch
         {
-            [var one] => string.Join(' ', [$"{under}={one.Key}", .. words.Skip(1)]),
+            [var one] when named < 0 => string.Join(' ', [$"{under}={one.Key}", .. words.Skip(1)]),
+            [var one] => string.Join(' ', words.Select((w, i) => i == named ? $"{under}={one.Key}" : w)),
             [] => text,
-            var several => throw Selectors.AmbiguousRow(words[0], several, above.Word),
+            var several => throw Selectors.AmbiguousRow(said, several, above.Word),
         };
     }
 

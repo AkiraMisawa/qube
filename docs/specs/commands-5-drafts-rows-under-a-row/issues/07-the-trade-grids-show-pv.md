@@ -15,4 +15,6 @@
       refuses is a notice that names the trade, as for any typed cell.)
 - [x] As built: the column stands after B and A on both grids, a made leg counts among the workspace's edits, and
       the cell of a PV that differs from Original says no measure reads the legs.
+- [x] Corrected in review: a cell committed as it was shown writes nothing; the header's currency is the page's
+      own (`pvCurrency`); the cell says what Price reads instead of the legs, for an existing and for a new trade.
 - [x] Looked at 390, 768, 992 and 1440px in both themes.

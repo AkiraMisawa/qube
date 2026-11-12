@@ -23,8 +23,10 @@ public sealed record ScenarioSetView(string Label, string Name, string Owner, Sa
 public sealed record RowSort(string Column, string Direction);
 
 /// <summary>One page of effective rows, in the shape ExGrid's fetching source takes (ADR-0003 §4).</summary>
+/// <param name="PvCurrency">The currency every row's PV is in, the display currency as the page was read (ADR-0016 note 49): a header that names it
+/// takes it from the page whose rows it stands over, never from another reading of the workspace.</param>
 /// <param name="Of">How many rows the grid has with no conditions, where the page was read under some (ADR-0016 note 41 of step 4); none where it was not.</param>
-public sealed record RowPage(IReadOnlyList<EffectiveTrade> Rows, int Start, int TotalCount, string OrderToken, long Revision, int? Of = null);
+public sealed record RowPage(IReadOnlyList<EffectiveTrade> Rows, int Start, int TotalCount, string OrderToken, long Revision, string PvCurrency, int? Of = null);
 
 /// <summary>What the workspace panel shows beside the grid. <c>Overrides</c> counts the edits to the portfolio's data,
 /// a leg made under a trade among them (ADR-0016 note 49); the selection of measures is the page's choice, shown on its own. <c>TradeColumns</c> are the selected modules'
@@ -441,7 +443,10 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
             {
                 var named = PortfolioLegs.Named(t.Entity);
                 var held = raw.SourceOf(t).Read(t.Entity, t.Field)?.Value;
-                if (t.Field == Entity.TakenOut) return new(t.Entity, t.Field, null, named, o.Value?.DeepClone(), "taken out", held?.DeepClone(), "held", state, false);
+                // A row the source no longer has holds nothing to say of it; the edit is listed to be removed.
+                if (t.Field == Entity.TakenOut)
+                    return new(t.Entity, t.Field, null, named, o.Value?.DeepClone(), PortfolioLegs.TakenOutSays(o.Value, t.Entity), held?.DeepClone(),
+                        held is null ? "not in the source" : PortfolioLegs.TakenOutSays(held, t.Entity), state, false);
                 var spec = PortfolioFields.Leg.Single(f => f.Name == t.Field).Spec;
                 return new(t.Entity, t.Field, null, $"{named} {t.Field}", o.Value?.DeepClone(), FieldForms.Write(spec, o.Value), held?.DeepClone(), FieldForms.Write(spec, held), state, false);
             }
@@ -596,7 +601,7 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
         }
         // The modules' cells are read for the page alone, each time: a result such as PV01 arrives with no edit.
         var page = start >= all.Count ? [] : register.WithCells(state, [.. all.Skip(start).Take(count)]);
-        return new([.. page.Select(t => WithPv(state, t))], start, all.Count, token, state.Revision, of);
+        return new([.. page.Select(t => WithPv(state, t))], start, all.Count, token, state.Revision, PortfolioMaterialiser.DisplayCurrency(state), of);
     }
 
     // A row's PV is its legs' as the state holds them (ADR-0016 note 49), read for the page alone as the cells are; one

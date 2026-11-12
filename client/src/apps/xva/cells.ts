@@ -60,28 +60,36 @@ export function parseCellNumber(text: string): Parsed {
 /** What a typed PV asks of `entity.set`: the trade by its id in the trades' table, and the value as typed. */
 export type PvRequest = Readonly<Record<'table' | 'rows' | 'set', string>>;
 
+/** What a PV cell's commit asks: a write, nothing where the cell is left as it was shown, or a refusal said at the cell. */
+export type PvTyped =
+  | { readonly kind: 'write'; readonly request: PvRequest }
+  | { readonly kind: 'unchanged' }
+  | { readonly kind: 'refused'; readonly message: string };
+
 /**
  * A PV typed into a trade's PV cell (ADR-0016 note 49), as the request of the command that writes it. The server reads
  * what was typed, a number alone or followed by its currency, as it reads the line `set <trade> pv <typed>`: the page
- * reads none of it. Nothing typed is refused here, since a PV is written and never emptied, and so is an `=`, which
- * would name another field of the trade.
+ * reads none of it. A cell committed as it was shown writes nothing: what it shows is every leg's PV in one rounded
+ * figure, and written back it would leave the trade one leg of that figure. Nothing typed over a PV is refused here,
+ * since a PV is written and never emptied, and so is an `=`, which would name another field of the trade.
  */
-export function pvRequest(tradeId: string, typed: string): { readonly ok: true; readonly request: PvRequest } | { readonly ok: false; readonly message: string } {
+export function pvRequest(tradeId: string, typed: string, shown: string): PvTyped {
   const text = typed.trim();
-  if (text === '' || text.includes('=')) return { ok: false, message: 'Type a PV as a number, alone or followed by its currency: -350,000 or -350,000 USD.' };
-  return { ok: true, request: { table: TRADES_TABLE, rows: tradeId, set: `pv ${text}` } };
+  if (text === shown.trim()) return { kind: 'unchanged' };
+  if (text === '' || text.includes('=')) return { kind: 'refused', message: 'Type a PV as a number, alone or followed by its currency: -350,000 or -350,000 USD.' };
+  return { kind: 'write', request: { table: TRADES_TABLE, rows: tradeId, set: `pv ${text}` } };
 }
 
 /**
  * What a PV that differs from Original says (ADR-0016 note 49): what Original held, and that no measure reads it, which
  * a user who has just overwritten it must not be left to assume. Nothing where the PV is what the source's legs give.
- * It names what SA-CCR's replacement cost reads instead: an existing trade's official PV, and nothing for a new one,
- * which it takes as traded at market (ADR-0010 §6).
+ * It names what Price reads instead: an existing trade's official PV, for XVA's figures and SA-CCR's replacement cost
+ * alike, and for a new trade nothing but its PV Adj, where XVA's PV adjustment is on (ADR-0010 §6, §8).
  */
 export function pvMessage(row: EffectiveTrade): string | undefined {
   const original = originalMessage(row, 'pv', row.pv);
   if (original === undefined) return undefined;
-  const read = row.isNew ? 'SA-CCR takes a new trade at market' : 'SA-CCR reads the official PV';
+  const read = row.isNew ? 'Price takes a new trade at market, or at its PV Adj' : 'Price reads the official PV';
   return `${original}. No measure reads the PV legs yet: ${read}.`;
 }
 
