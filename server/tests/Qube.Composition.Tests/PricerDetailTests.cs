@@ -1,0 +1,185 @@
+using System.Text.Json.Nodes;
+using Qube.Composition.Application;
+using Qube.Composition.Application.Workspaces;
+using Qube.Samples.Portfolio;
+
+namespace Qube.Composition.Tests;
+
+/// <summary>
+/// The pricer's fields beyond its grids (ADR-0016 notes 51 to 53): a CSA's general and per-side terms and its four
+/// templates, a trade's identity, agreement, dates and model, and what Price freezes of them. Every value is synthetic.
+/// </summary>
+public class PricerDetailTests
+{
+    static string Read(LinePreview preview) => preview.Refused is { } refused ? $"{refused.Code}: {refused.Sentence}" : preview.Would!;
+
+    [Fact] // ADR-0016 note 51: a CSA's general terms are the source's, read by their words, and no command sets them
+    public void A_CSAs_general_terms_are_the_sources_and_no_command_sets_them()
+    {
+        var rig = new PricerRig();
+
+        Assert.Equal("ABC/LE-01 NS-001 ABC-LE01-VM-JPY on on empty",
+            rig.Written(PortfolioTables.Csas, "CSA-A", "counterparty", "nettingSet", "agreementName", "enforceable", "main", "userDefined"));
+        Assert.Equal("ABC-LE01-VM-USD off", rig.Written(PortfolioTables.Csas, "CSA-B", "agreementName", "main"));
+        Assert.Equal(["CSA-B"], rig.Keys("csas where main=off"));
+        Assert.Equal(["CSA-A", "CSA-B"], rig.Keys("csas where netting set=NS-001"));
+        Assert.StartsWith("NotEditable: enforceable is not a field a command sets", Read(rig.Preview("set CSA-A enforceable off")));
+        Assert.StartsWith("NotEditable: agreement name is not a field a command sets", Read(rig.Preview("set CSA-A agreement name X")));
+    }
+
+    static readonly string[] CounterpartySide =
+        ["counterpartyPosts", "counterpartyVmCap", "counterpartyVmCapCurrency", "counterpartyIndependentAmount", "counterpartyRounding", "counterpartyDeliverRounding", "counterpartyReturnRounding"];
+
+    static readonly string[] SelfSide = ["selfPosts", "selfVmCap", "selfVmCapCurrency", "selfIndependentAmount", "selfRounding", "selfDeliverRounding", "selfReturnRounding"];
+
+    [Fact] // ADR-0016 note 51: what a side posts is read from the source, said with its side, and set as any field is
+    public async Task A_sides_terms_are_said_with_the_side_and_set()
+    {
+        var rig = new PricerRig();
+        Assert.Equal("on 25mm USD 2mm 10k up down", rig.Written(PortfolioTables.Csas, "CSA-B", CounterpartySide));
+        Assert.Equal("on empty USD 0 10k up down", rig.Written(PortfolioTables.Csas, "CSA-B", SelfSide));
+
+        Assert.Equal("Set CSA-B self vm cap to 5mm.", await rig.Run("set CSA-B self vm cap 5mm"));
+        await rig.Run("set CSA-B cpty posts=off cpty rounding=50k counterparty delivery rounding=nearest self vm cap ccy=JPY");
+
+        Assert.Equal("off 25mm USD 2mm 50k nearest down", rig.Written(PortfolioTables.Csas, "CSA-B", CounterpartySide));
+        Assert.Equal("on 5mm JPY 0 10k up down", rig.Written(PortfolioTables.Csas, "CSA-B", SelfSide));
+        Assert.Equal(["CSA-B"], rig.Keys("csas where cpty posts=off"));
+        // The other CSA is as the source holds it.
+        Assert.Equal("on empty JPY 0 1mm up down", rig.Written(PortfolioTables.Csas, "CSA-A", CounterpartySide));
+    }
+
+    [Fact] // ADR-0016 note 51: a word the two sides share names neither alone, and `cpty` says the counterparty's side of the grid's fields too
+    public async Task A_word_two_sides_share_is_refused_alone_and_cpty_says_the_counterpartys()
+    {
+        var rig = new PricerRig();
+
+        Assert.Equal("AmbiguousField: posts could be counterparty posts or self posts of csas.", Read(rig.Preview("set CSA-B posts off")));
+        Assert.Equal("AmbiguousField: vm cap could be counterparty vm cap or self vm cap of csas.", Read(rig.Preview("set CSA-B vm cap 5mm")));
+
+        await rig.Run("set CSA-B cpty threshold 2mm");
+        await rig.Run("set CSA-B cpty mta=100k cpty currency=JPY");
+        Assert.Equal("2mm 100k JPY", rig.Written(PortfolioTables.Csas, "CSA-B", "counterpartyThreshold", "counterpartyMta", "counterpartyCurrency"));
+    }
+
+    [Theory] // ADR-0016 note 51: a side's term is checked by its form, as it is typed
+    [InlineData("set CSA-B self vm cap -1mm", "InvalidValue: CSA-B self vm cap is an amount of 0 or more; -1mm is not.")]
+    [InlineData("set CSA-B self rounding empty", "InvalidValue: CSA-B self rounding is an amount: 5mm, 250k, 1bn, or a bare number of millions; empty is not.")]
+    [InlineData("set CSA-B self delivery rounding sideways", "InvalidValue: CSA-B self delivery rounding is one of up, down, nearest; sideways is not.")]
+    [InlineData("set CSA-B self posts maybe", "InvalidValue: CSA-B self posts is on or off; maybe is not.")]
+    [InlineData("set CSA-B self vm cap currency XXX", "InvalidValue: CSA-B self vm cap currency is one of GBP, JPY, USD, EUR; XXX is not.")]
+    public void A_sides_term_is_checked_by_its_form(string line, string refused) => Assert.Equal(refused, Read(new PricerRig().Preview(line)));
+
+    [Theory] // ADR-0016 note 51: and however it arrives, a typed cell or the API's value included
+    [InlineData("selfPosts", "\"yes\"", "self posts is true or false.")]
+    [InlineData("selfVmCap", "-1", "self vm cap is an amount of 0 or more, or empty.")]
+    [InlineData("selfRounding", "null", "self rounding is an amount of 0 or more.")]
+    [InlineData("selfDeliverRounding", "\"sideways\"", "self delivery rounding is one of up, down, nearest.")]
+    [InlineData("counterpartyVmCapCurrency", "\"XXX\"", "counterparty vm cap currency is one of GBP, JPY, USD, EUR.")]
+    public void A_sides_term_is_checked_however_it_arrives(string field, string json, string problem)
+    {
+        var rig = new PricerRig();
+        var refused = Assert.Throws<WorkspaceRefused>(() => rig.Service.Edit(rig.Id, rig.State.Revision, "akira", "csa:CSA-B", field, JsonNode.Parse(json)));
+        Assert.Equal(("InvalidValue", problem), (refused.Code, refused.Message));
+        // And a general term is the source's, whoever asks.
+        Assert.Equal("NotEditable", Assert.Throws<WorkspaceRefused>(() => rig.Service.Edit(rig.Id, rig.State.Revision, "akira", "csa:CSA-B", "enforceable", false)).Code);
+    }
+
+    static string[] Listed(PricerRig rig) => [.. rig.Service.Changes(rig.Id, "akira").Common.Select(c => $"{c.Title}: {c.OriginalText} to {c.Text}{(c.Editable ? "" : " (not typed)")}")];
+
+    [Fact] // ADR-0016 note 51: an edit of one is the row's edit as any other: listed in Changes with the source's value, retyped there, reset and undone
+    public async Task An_edit_of_a_sides_term_is_listed_retyped_reset_and_undone()
+    {
+        var rig = new PricerRig();
+        await rig.Run("set CSA-B self vm cap 5mm");
+        await rig.Run("set CSA-B cpty posts off");
+        Assert.Equal(["CSA-B self vm cap: empty to 5mm", "CSA-B counterparty posts: on to off"], Listed(rig));
+
+        // The Changes tab types a value over the change, read and checked as the cell's is.
+        rig.Service.SetText(rig.Id, rig.State.Revision, "akira", "csa:CSA-B", "selfVmCap", "7.5mm");
+        Assert.Equal("7.5mm", rig.Written(PortfolioTables.Csas, "CSA-B", "selfVmCap"));
+
+        Assert.Equal("Reset CSA-B self vm cap.", await rig.Run("reset CSA-B self vm cap"));
+        Assert.Equal(["CSA-B counterparty posts: on to off"], Listed(rig));
+        await rig.Run("undo");
+        Assert.Equal("7.5mm", rig.Written(PortfolioTables.Csas, "CSA-B", "selfVmCap"));
+
+        // A whole row's reset takes the fields beyond the grid with the grid's.
+        await rig.Run("set CSA-B threshold 2mm");
+        await rig.Run("reset CSA-B");
+        Assert.Empty(Listed(rig));
+        Assert.Equal("on empty 1mm", rig.Written(PortfolioTables.Csas, "CSA-B", "counterpartyPosts", "selfVmCap", "counterpartyThreshold"));
+    }
+
+    [Fact] // ADR-0016 note 51, ADR-0010 §3: a case varies a field beyond the grid as it varies a cell, and the Base keeps its own
+    public async Task A_case_varies_a_sides_term()
+    {
+        var rig = new PricerRig();
+
+        await rig.Run("vary CSA-B self vm cap 5mm, 10mm");
+
+        var cases = rig.Service.Changes(rig.Id, "akira").Cases;
+        Assert.Equal(["CSA-B self vm cap: empty to 5mm", "CSA-B self vm cap: empty to 10mm"], cases.Select(c => $"{c.Changes.Single().Title}: {c.Changes.Single().OriginalText} to {c.Changes.Single().Text}"));
+        Assert.Equal("empty", rig.Written(PortfolioTables.Csas, "CSA-B", "selfVmCap"));
+    }
+
+    static readonly string[] Posting =
+        ["currency", "counterpartyCurrency", "selfCurrency", "exchange", "oneWay", "counterpartyPosts", "selfPosts", "counterpartyThreshold", "counterpartyMta", "selfThreshold", "selfMta"];
+
+    [Theory] // ADR-0016 note 52: each of the CSA's four templates writes who posts for the currency given, and thresholds and MTAs of 0
+    [InlineData("2way", "EUR EUR EUR on off on on 0 0 0 0")]
+    [InlineData("1way-self", "EUR EUR EUR on on off on 0 0 0 0")]
+    [InlineData("1way-cpty", "EUR EUR EUR on on on off 0 0 0 0")]
+    [InlineData("none", "EUR EUR EUR off off off off 0 0 0 0")]
+    public async Task Each_CSA_template_writes_who_posts_for_the_currency_given(string template, string written)
+    {
+        var rig = new PricerRig();
+
+        Assert.Equal($"Set CSA-B as {template} currency=EUR.", await rig.Run($"set CSA-B as {template} eur"));
+
+        Assert.Equal(written, rig.Written(PortfolioTables.Csas, "CSA-B", Posting));
+        // What a template does not write stays as it was: curves, frequency, VM caps, independent amounts and rounding.
+        Assert.Equal("usd_sofr usd_funding daily 25mm USD 2mm 10k up down",
+            rig.Written(PortfolioTables.Csas, "CSA-B", ["curve", "fvaCurve", "frequency", .. CounterpartySide[1..]]));
+        await rig.Run("undo");
+        Assert.Equal("USD USD USD on off on on 1mm 500k 0 250k", rig.Written(PortfolioTables.Csas, "CSA-B", Posting));
+    }
+
+    [Fact] // ADR-0016 notes 50, 52: a template is said by its words, its currency by name or alone, and one it needs is asked for
+    public async Task A_CSA_template_takes_its_currency_by_name_or_alone()
+    {
+        var rig = new PricerRig();
+
+        Assert.Equal("currency: USD to JPY; counterparty currency: USD to JPY; self currency: USD to JPY; one-way: off to on; self posts: on to off; threshold: 1mm to 0; "
+            + "mta: 500k to 0; self mta: 250k to 0; 3 values already held", Read(rig.Preview("set CSA-B as 1way-cpty jpy")));
+        Assert.Equal("Set CSA-A and CSA-B as none currency=USD.", await rig.Run("set csas all as no collateral ccy=usd"));
+        Assert.Equal("MissingTerm: 2way still needs currency: type it after it.", Read(rig.Preview("set CSA-B as 2way")));
+        Assert.StartsWith("UnknownTemplate: csas has no template 3way; its templates are 2way, 1way-self, 1way-cpty and none.", Read(rig.Preview("set CSA-B as 3way usd")));
+        // A trade has no template: `as` is refused there by name.
+        Assert.StartsWith("NoTemplates: trades has no template", Read(rig.Preview("set DRAFT-1 as 2way usd")));
+    }
+
+    [Fact] // ADR-0016 note 53 (owner, 2026-11-12): each CSA Price freezes carries every field beyond the grid as the case holds it, an empty one as empty
+    public async Task The_accepted_input_carries_each_CSAs_details_as_set()
+    {
+        var rig = new PricerRig();
+        await rig.Run("set CSA-B self vm cap 5mm");
+        await rig.Run("set CSA-B cpty posts=off cpty delivery rounding=nearest");
+        await rig.Run("vary CSA-B self vm cap 10mm");
+
+        var input = await rig.Priced();
+
+        JsonObject Details(int @case, string id) => input["cases"]![@case]!["csas"]!.AsArray().Single(c => c!["csaId"]!.GetValue<string>() == id)!["details"]!.AsObject();
+        Assert.Equal("""
+            {"counterparty":"ABC/LE-01","nettingSet":"NS-001","agreementName":"ABC-LE01-VM-USD","enforceable":true,"main":false,"userDefined":"legacy",
+            "counterpartyPosts":false,"counterpartyVmCap":25000000,"counterpartyVmCapCurrency":"USD","counterpartyIndependentAmount":2000000,"counterpartyRounding":10000,
+            "counterpartyDeliverRounding":"nearest","counterpartyReturnRounding":"down",
+            "selfPosts":true,"selfVmCap":5000000,"selfVmCapCurrency":"USD","selfIndependentAmount":0,"selfRounding":10000,"selfDeliverRounding":"up","selfReturnRounding":"down"}
+            """.ReplaceLineEndings("").Replace("            ", ""), Details(0, "CSA-B").ToJsonString());
+        // The case's own value, and the rest as the Base holds it.
+        Assert.Equal((10_000_000m, false), (Details(1, "CSA-B")["selfVmCap"]!.GetValue<decimal>(), Details(1, "CSA-B")["counterpartyPosts"]!.GetValue<bool>()));
+        // An empty field is said as empty, never left out.
+        Assert.True(Details(0, "CSA-A").ContainsKey("userDefined") && Details(0, "CSA-A")["userDefined"] is null);
+        Assert.True(Details(0, "CSA-A").ContainsKey("counterpartyVmCap") && Details(0, "CSA-A")["counterpartyVmCap"] is null);
+    }
+}

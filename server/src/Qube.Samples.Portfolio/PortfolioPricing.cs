@@ -324,7 +324,12 @@ public static class PortfolioInput
     static JsonArray Csas(WorkspaceState reading, IReadOnlyList<EffectiveTrade> trades)
     {
         var used = trades.Select(t => t.Csa).ToHashSet();
-        return new([.. PortfolioMaterialiser.Csas(reading).Where(c => used.Contains(c.CsaId)).Select(c => JsonSerializer.SerializeToNode(c, WireJson.Options))]);
+        return new([.. PortfolioMaterialiser.Csas(reading).Where(c => used.Contains(c.CsaId)).Select(c =>
+        {
+            var row = JsonSerializer.SerializeToNode(c, WireJson.Options)!.AsObject();
+            row.Add("details", PortfolioDetails.Frozen(reading, Entity.Of(Entity.Csa, c.CsaId)));
+            return row;
+        })]);
     }
 
     // A trade as the input carries it: its row, and what the workspace holds under it (ADR-0016 note 53). Whatever a

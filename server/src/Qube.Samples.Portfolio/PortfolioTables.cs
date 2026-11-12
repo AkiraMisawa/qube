@@ -20,34 +20,37 @@ public static partial class PortfolioFields
     public const string Row = "id";
 
     /// <summary>The display currencies, as a field and the user's setting read them (ADR-0017 §6.1).</summary>
-    internal static readonly IReadOnlyDictionary<string, string> Currencies = Choice(PortfolioMarket.Currencies);
+    internal static readonly IReadOnlyDictionary<string, string> Currencies = FieldChoices.Currencies;
 
-    static readonly IReadOnlyDictionary<string, string> Frequencies = Choice(PortfolioCatalog.Frequencies), Schedules = Choice(["3M", "6M"]);
-
-    // A choice read by its own words, case ignored.
-    static IReadOnlyDictionary<string, string> Choice(IEnumerable<string> values) => values.ToDictionary(v => v.ToLowerInvariant(), v => v);
+    static readonly IReadOnlyDictionary<string, string> Frequencies = FieldChoices.Of(PortfolioCatalog.Frequencies), Schedules = FieldChoices.Of(["3M", "6M"]);
 
     static TableField OneRow => new(Row, "Row", [Row], FieldForm.Id);
 
-    const string Counterparty = "Counterparty", Self = "Self";
+    const string General = FieldGroups.General, Terms = FieldGroups.Terms, Counterparty = FieldGroups.Counterparty, Self = FieldGroups.Self;
 
-    /// <summary>A CSA's terms (ADR-0010 §8): each party's threshold and minimum transfer amount in that party's currency.</summary>
+    /// <summary>
+    /// A CSA's terms (ADR-0010 §8): each party's threshold and minimum transfer amount in that party's currency. Every
+    /// field has a group (ADR-0016 note 51), and a side's is said with its side: `threshold` and `mta` alone are the
+    /// counterparty's, as the grid's first columns are.
+    /// </summary>
     public static IReadOnlyList<TableField> Csa { get; } =
     [
-        new("csaId", "CSA", ["csa id", "id"], FieldForm.Id),
-        new("type", "Type", ["type"], FieldForm.Id),
-        new("counterpartyThreshold", "Threshold", ["threshold", "counterparty threshold"], FieldForm.Amount, Editable: true, UnitField: "counterpartyCurrency", Group: Counterparty),
-        new("counterpartyMta", "MTA", ["mta", "counterparty mta"], FieldForm.Amount, Editable: true, UnitField: "counterpartyCurrency", Group: Counterparty),
-        new("counterpartyCurrency", "Currency", ["counterparty currency"], FieldForm.Choice, Editable: true, Choices: Currencies, Group: Counterparty),
+        new("csaId", "CSA", ["csa id", "id"], FieldForm.Id, Group: General),
+        new("type", "Type", ["type"], FieldForm.Id, Group: General),
+        new("counterpartyThreshold", "Threshold", ["threshold", "counterparty threshold", "cpty threshold"], FieldForm.Amount, Editable: true, UnitField: "counterpartyCurrency", Group: Counterparty),
+        new("counterpartyMta", "MTA", ["mta", "counterparty mta", "cpty mta"], FieldForm.Amount, Editable: true, UnitField: "counterpartyCurrency", Group: Counterparty),
+        new("counterpartyCurrency", "Currency", ["counterparty currency", "cpty currency"], FieldForm.Choice, Editable: true, Choices: Currencies, Group: Counterparty),
         new("selfThreshold", "Threshold", ["self threshold"], FieldForm.Amount, Editable: true, UnitField: "selfCurrency", Group: Self),
         new("selfMta", "MTA", ["self mta"], FieldForm.Amount, Editable: true, UnitField: "selfCurrency", Group: Self),
         new("selfCurrency", "Currency", ["self currency"], FieldForm.Choice, Editable: true, Choices: Currencies, Group: Self),
-        new("currency", "Currency", ["currency", "ccy"], FieldForm.Choice, Editable: true, Choices: Currencies),
-        new("curve", "Discount curve", ["curve", "discount curve", "discount"], FieldForm.Id, Editable: true),
-        new("fvaCurve", "FVA discount curve", ["fva curve", "fva discount curve", "fva discount"], FieldForm.Id, Editable: true),
-        new("frequency", "Frequency", ["frequency"], FieldForm.Choice, Editable: true, Choices: Frequencies),
-        new("exchange", "Exchange", ["exchange"], FieldForm.Flag, Editable: true),
-        new("oneWay", "One-way", ["one-way", "one way", "oneway"], FieldForm.Flag, Editable: true),
+        new("currency", "Currency", ["currency", "ccy"], FieldForm.Choice, Editable: true, Choices: Currencies, Group: Terms),
+        new("curve", "Discount curve", ["curve", "discount curve", "discount"], FieldForm.Id, Editable: true, Group: Terms),
+        new("fvaCurve", "FVA discount curve", ["fva curve", "fva discount curve", "fva discount"], FieldForm.Id, Editable: true, Group: Terms),
+        new("frequency", "Frequency", ["frequency"], FieldForm.Choice, Editable: true, Choices: Frequencies, Group: Terms),
+        new("exchange", "Exchange", ["exchange"], FieldForm.Flag, Editable: true, Group: Terms),
+        new("oneWay", "One-way", ["one-way", "one way", "oneway"], FieldForm.Flag, Editable: true, Group: Terms),
+        // The fields beyond the grid (ADR-0016 note 51): the general terms and what each side posts.
+        .. PortfolioDetails.CsaFields,
     ];
 
     /// <summary>The netting set: its CVA recovery, which may be empty (XV15).</summary>
@@ -173,6 +176,14 @@ public static partial class PortfolioFields
         _ => throw new InvalidOperationException($"A CSA has no {field}."),
     };
 
+    /// <summary>The value a reading holds in a field of a CSA: a term of the page's row, or a field beyond the grid (ADR-0016 note 51).</summary>
+    public static JsonNode? Value(WorkspaceState reading, EffectiveCsa c, string field) =>
+        PortfolioDetails.Find(Entity.Csa, field) is null ? Value(c, field) : PortfolioDetails.Value(reading, Entity.Of(Entity.Csa, c.CsaId), field);
+
+    /// <summary>The value a reading holds in one of a trade's own fields: one of the page's row, or a field beyond the grids (ADR-0016 note 51).</summary>
+    public static JsonNode? Value(WorkspaceState reading, EffectiveTrade t, string field) =>
+        PortfolioDetails.Find(Entity.Trade, field) is null ? Value(t, field) : PortfolioDetails.Value(reading, Entity.Of(Entity.Trade, t.TradeId), field);
+
     /// <summary>The value the counterparty's CDS choice holds in a key.</summary>
     public static JsonNode? Value(CdsChoice choice, string field) => field switch
     {
@@ -219,9 +230,7 @@ public sealed class PortfolioTables(MeasureRegister register) : ITableCatalog
         new UnderTrade(checks, Described(Amounts, "Independent amounts", ["independent amounts", "amounts", "ia"], "amountId", PortfolioFields.Amount, under: Trades), Entity.Amount,
             reading => [.. PortfolioLegs.Amounts(reading).Select(a => new Row(reading, Entity.Of(Entity.Amount, a.AmountId), a.AmountId, null, f => PortfolioFields.Value(a, f), a.TradeId))]),
         // `csa` alone is a trade's field, which a line with trades selected sets (ADR-0016 note 18 of step 2): the table is `csas`.
-        new Table(checks, Described(Csas, "CSAs", ["csas"], "csaId", PortfolioFields.Csa), reading =>
-            [.. PortfolioMaterialiser.Csas(reading).Select(c => new Row(reading, Entity.Of(Entity.Csa, c.CsaId), c.CsaId, null, f => PortfolioFields.Value(c, f)))],
-            row => $"{row.Key} is a CSA of the agreement, which the source holds: a command changes its terms and never removes it."),
+        new CsaTable(checks),
         OneRow(checks, Described(Netting, "Netting set", ["netting"], "nettingSetId", PortfolioFields.Netting, one: true), reading =>
         {
             var id = Source(reading).Agreement.NettingSetId;
@@ -322,7 +331,21 @@ public sealed class PortfolioTables(MeasureRegister register) : ITableCatalog
 
         public virtual IReadOnlyList<WorkspaceChange> Remove(WorkspaceState state, ITableRow row) => throw new WorkspaceRefused("NotRemovable", notRemovable((Row)row));
 
+        /// <summary>What a template of the table writes; a table that lists one says it (ADR-0016 note 50).</summary>
+        public virtual IReadOnlyDictionary<string, JsonNode?> Template(WorkspaceState state, TableTemplate template, IReadOnlyDictionary<string, JsonNode?> terms) =>
+            throw new InvalidOperationException($"Table {TableId} lists the template {template.Name} and does not say what it writes.");
+
         protected static IReadOnlyList<WorkspaceChange> Resets(WorkspaceState state, string entity, IEnumerable<string> fields) => PortfolioEditRules.Resets(state, entity, fields);
+    }
+
+    /// <summary>The CSAs, with the four templates that say who posts (ADR-0016 note 52): <c>set CSA-B as 2way usd</c>.</summary>
+    sealed class CsaTable(PortfolioChecks checks) : Table(checks,
+        Described(Csas, "CSAs", ["csas"], "csaId", PortfolioFields.Csa) with { Templates = CsaTemplates.All },
+        reading => [.. PortfolioMaterialiser.Csas(reading).Select(c => new Row(reading, Entity.Of(Entity.Csa, c.CsaId), c.CsaId, null, f => PortfolioFields.Value(reading, c, f)))],
+        row => $"{row.Key} is a CSA of the agreement, which the source holds: a command changes its terms and never removes it.")
+    {
+        public override IReadOnlyDictionary<string, JsonNode?> Template(WorkspaceState state, TableTemplate template, IReadOnlyDictionary<string, JsonNode?> terms) =>
+            CsaTemplates.Values(template, terms);
     }
 
     /// <summary>

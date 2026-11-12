@@ -65,7 +65,31 @@ public sealed record Csa(
     string CsaId, string Type, string Currency, string Curve, string FvaCurve, string Frequency, bool Exchange, bool OneWay,
     decimal CounterpartyThreshold, decimal CounterpartyMta, string CounterpartyCurrency,
     decimal SelfThreshold, decimal SelfMta, string SelfCurrency,
-    int Disputes = 0, bool IlliquidCollateral = false);
+    int Disputes = 0, bool IlliquidCollateral = false)
+{
+    /// <summary>The name the agreement's document gives the CSA (ADR-0016 note 51), one word.</summary>
+    public required string AgreementName { get; init; }
+
+    /// <summary>What the desk wrote on the CSA for itself; null where it wrote nothing.</summary>
+    public required string? UserDefined { get; init; }
+
+    /// <summary>What the counterparty posts under it, beyond its threshold and MTA.</summary>
+    public required CsaSide Counterparty { get; init; }
+
+    /// <summary>What we post under it, beyond our threshold and MTA.</summary>
+    public required CsaSide Self { get; init; }
+}
+
+/// <summary>
+/// One party's side of a CSA beyond its threshold and MTA (ADR-0016 note 51): whether it posts; the cap on the variation
+/// margin it posts, in the cap's own currency, and no cap where it is null; its independent amount and its rounding, in
+/// the side's currency; and how an amount it delivers and one returned to it are rounded.
+/// </summary>
+public sealed record CsaSide(bool Posts, decimal? VmCap, string VmCapCurrency, decimal IndependentAmount, decimal Rounding, string DeliverRounding, string ReturnRounding)
+{
+    public const string Up = "up", Down = "down", Nearest = "nearest";
+    public static readonly IReadOnlyList<string> Roundings = [Up, Down, Nearest];
+}
 
 /// <summary>
 /// One acquired trade, as the source reports it for one value date. Its start and direction are what SA-CCR's
@@ -138,8 +162,16 @@ public static class PortfolioCatalog
     public static readonly IReadOnlyList<Agreement> Agreements =
     [
         new("MA-001", "NS-001", "ABC/LE-01",
-            [new("CSA-A", "VM", "JPY", "jpy_ois", "jpy_funding", "daily", true, false, 0m, 50_000_000m, "JPY", 0m, 50_000_000m, "JPY"),
-             new("CSA-B", "VM", "USD", "usd_sofr", "usd_funding", "daily", true, false, 1_000_000m, 500_000m, "USD", 0m, 250_000m, "USD", Disputes: 3)], "CSA-A")
+            [new("CSA-A", "VM", "JPY", "jpy_ois", "jpy_funding", "daily", true, false, 0m, 50_000_000m, "JPY", 0m, 50_000_000m, "JPY")
+             {
+                 AgreementName = "ABC-LE01-VM-JPY", UserDefined = null,
+                 Counterparty = new(true, null, "JPY", 0m, 1_000_000m, CsaSide.Up, CsaSide.Down), Self = new(true, null, "JPY", 0m, 1_000_000m, CsaSide.Up, CsaSide.Down),
+             },
+             new("CSA-B", "VM", "USD", "usd_sofr", "usd_funding", "daily", true, false, 1_000_000m, 500_000m, "USD", 0m, 250_000m, "USD", Disputes: 3)
+             {
+                 AgreementName = "ABC-LE01-VM-USD", UserDefined = "legacy",
+                 Counterparty = new(true, 25_000_000m, "USD", 2_000_000m, 10_000m, CsaSide.Up, CsaSide.Down), Self = new(true, null, "USD", 0m, 10_000m, CsaSide.Up, CsaSide.Down),
+             }], "CSA-A")
         {
             ImCsas =
             [
@@ -148,7 +180,11 @@ public static class PortfolioCatalog
             ],
         },
         new("MA-002", "NS-002", "ABC/LE-02",
-            [new("CSA-C", "VM", "USD", "usd_sofr", "usd_funding", "daily", true, false, 0m, 250_000m, "USD", 0m, 250_000m, "USD")], "CSA-C")
+            [new("CSA-C", "VM", "USD", "usd_sofr", "usd_funding", "daily", true, false, 0m, 250_000m, "USD", 0m, 250_000m, "USD")
+             {
+                 AgreementName = "ABC-LE02-VM-USD", UserDefined = null,
+                 Counterparty = new(true, null, "USD", 0m, 10_000m, CsaSide.Nearest, CsaSide.Nearest), Self = new(true, null, "USD", 0m, 10_000m, CsaSide.Nearest, CsaSide.Nearest),
+             }], "CSA-C")
         {
             ImCsas =
             [
@@ -247,6 +283,8 @@ public sealed class PortfolioSourceVersion : ISourceVersion
     public SourceValue? Read(string entity, string field)
     {
         var (kind, id) = Entity.Split(entity);
+        // A field beyond the grids (ADR-0016 note 51) is the source's too: an edit of one is carried as any other.
+        if (PortfolioDetails.Find(kind, field) is not null) return PortfolioDetails.Source(this, entity, field);
         switch (kind)
         {
             case Entity.Trade when trades.GetValueOrDefault(id) is { } t:
