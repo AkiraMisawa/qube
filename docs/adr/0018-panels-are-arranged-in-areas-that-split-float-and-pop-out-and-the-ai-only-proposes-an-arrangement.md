@@ -1,8 +1,9 @@
 # ADR-0018: Panels are arranged in areas that split, float and pop out, and the AI only proposes an arrangement
 
-Status: PROPOSED 2026-11-12. Raised by the owner on 2026-11-12: beyond the panels' tabs, can the workbench float a
+Status: ACCEPTED 2026-11-12. Raised by the owner on 2026-11-12: beyond the panels' tabs, can the workbench float a
 tab, or float and dock its parts one by one as Bloomberg's terminal does? The owner decided the AI's part the same day
-(§8) and the order of delivery (§11). The number 0018 is the next free one.
+(§8) and the order of delivery (§11). Proposed the same day in #30; the owner accepted it as written at 08:06Z, with
+the amendment of ADR-0010 §1 below. The number 0018 is the next free one.
 
 What it changes in earlier decisions, each said where it is decided:
 
@@ -11,7 +12,7 @@ What it changes in earlier decisions, each said where it is decided:
 - **ADR-0007 §7 and §8**: the AI pane's card gains a button that applies a proposal, and the context the pane sends
   gains the open panels and their arrangement (§8).
 - **ADR-0010 §1, CONFIRMED by the owner**: "Below `sm` (768px) the screen is three tabs" would read the width of the
-  pricer's area rather than the window's (§5). This is the owner's to accept.
+  pricer's area rather than the window's (§5). Accepted by the owner with this record, 2026-11-12.
 - **docs/design-guidelines.md §9**, which has layouts respond to the window with media queries: a page responds to its
   area (§5). The guidelines change with step 1, before its code (ADR-0009).
 
