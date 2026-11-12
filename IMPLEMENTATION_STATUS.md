@@ -3281,8 +3281,8 @@ on the pricer's files (ADR-0018 §11).
 | What | Result |
 |---|---|
 | `dotnet test server/Qube.slnx` | 1594 passed (no server change) |
-| Client: `npm run typecheck`, `npm test`, `npm run build` | Clean; 462 passed in 44 files; built |
-| `npx playwright test` (Chromium, headless, Linux), against the built client | 127 passed after the first review's fixes; 129 after the second's (two new tests) |
+| Client: `npm run typecheck`, `npm test`, `npm run build` | Clean; 462 passed in 44 files (465 with main's step 6 merged in); built |
+| `npx playwright test` (Chromium, headless, Linux), against the built client | 127 passed after the first review's fixes; 129 after the second's (two new tests); 130 with main's step 6 merged in, after the fourth's |
 | `areas.spec.ts`'s two tests of a page by its area, `--repeat-each=3` | 6 passed; the pricer's again after the review's fixes, 3 passed |
 | `scrollbars.spec.ts` with a 600px window, `--repeat-each=3` | 3 passed |
 | The trace's test with the trace's query in `em` again | Fails at 950px (two columns where one is right) |
