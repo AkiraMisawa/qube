@@ -16,7 +16,7 @@ public sealed class PortfolioChecks(MeasureRegister register)
     /// <param name="selected">The modules whose measures the reading selects, where the caller has read them already.</param>
     public void Check(WorkspaceState reading, string entity, string field, JsonNode? value, EffectiveTrade? trade = null, IReadOnlyList<IMeasureModule>? selected = null)
     {
-        Held(reading, entity);
+        RefuseNotLoaded(reading, entity);
         if (register.ColumnOf(field) is { } column) CheckCell(reading, entity, field, column, value, trade, selected);
         // A module's setting is checked by the module that reads it (ADR-0010 §8, §10).
         else if (register.SettingsOf(entity) is { } module)
@@ -57,7 +57,7 @@ public sealed class PortfolioChecks(MeasureRegister register)
 
     // A value is written on a trade the workspace holds, or on a row under one (ADR-0016 note 59): the source answers
     // for every trade of the store of booked trades, so one the workspace has not loaded is refused here, by name.
-    static void Held(WorkspaceState reading, string entity)
+    static void RefuseNotLoaded(WorkspaceState reading, string entity)
     {
         var (kind, id) = Entity.Split(entity);
         if (kind is not (Entity.Trade or Entity.Leg or Entity.Amount)) return;

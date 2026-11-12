@@ -63,6 +63,9 @@ public class PricerLoadTradesTests
         rig.Service.ChangeValueDate(rig.Id, Revision(rig), "akira", new DateOnly(2030, 1, 15));
 
         Assert.Equal("UnknownTrade: The store of booked trades has not B00039 on 2030-01-15: it is past maturity then.", rig.Read("load trades B00012, B00039"));
+        // Every id it has not is named at once, whichever way it has it not.
+        Assert.Equal("UnknownTrade: The store of booked trades has no trade B00099: its trades are B00001 to B00040. And it has not B00039 on 2030-01-15: it is past maturity then.",
+            rig.Read("load trades B00039, B00012, B00099"));
     }
 
     [Fact] // note 59: the line offers the store's ids that begin with what is typed, without those the line or the workspace has
@@ -88,6 +91,8 @@ public class PricerLoadTradesTests
         var shown = rig.Service.Page(rig.Id, "akira", 0, 100, [], "new");
         var chosen = new LineView(PortfolioTables.Trades, "new", [], shown.OrderToken, Ranges: [new(0, 2)], Focus: new("notional", Position: 0));
         var version = rig.Service.View(rig.Id, "akira").SourceVersion;
+        var existing = rig.Service.Page(rig.Id, "akira", 0, 100, [], "existing").OrderToken;
+        var sorted = rig.Service.Page(rig.Id, "akira", 0, 100, [new("notional", "descending")], "existing").OrderToken;
         Assert.Equal("A: 2 on to off", rig.Preview("set selected a off", chosen).Would);
 
         await rig.Run("load trades B00012");
@@ -96,6 +101,9 @@ public class PricerLoadTradesTests
         Assert.Equal(("ViewMoved", "trades (new), no longer in the order it was shown in"), (stale.Refused!.Code, stale.View));
         Assert.NotEqual(shown.OrderToken, rig.Service.Page(rig.Id, "akira", 0, 100, [], "new").OrderToken);
         Assert.Equal(version, rig.Service.View(rig.Id, "akira").SourceVersion);
+        // A loaded trade is in the New grid alone: the Existing grid's rows are where they were, sorted or not.
+        Assert.Equal(existing, rig.Service.Page(rig.Id, "akira", 0, 100, [], "existing").OrderToken);
+        Assert.Equal(sorted, rig.Service.Page(rig.Id, "akira", 0, 100, [new("notional", "descending")], "existing").OrderToken);
         await rig.Run("remove trades B00012");
         Assert.Equal(shown.OrderToken, rig.Service.Page(rig.Id, "akira", 0, 100, [], "new").OrderToken);
     }
@@ -266,5 +274,80 @@ public class PricerLoadTradesTests
         Assert.Equal(250_000m, frozen["legs"]![2]!["pv"]!.GetValue<decimal>());
         Assert.Equal("B00002/IA1", Assert.Single(frozen["independentAmounts"]!.AsArray())!["amountId"]!.GetValue<string>());
         Assert.Equal(("M-FX-09", "Forward"), (frozen["details"]!["modelId"]!.GetValue<string>(), frozen["details"]!["tradeType"]!.GetValue<string>()));
+        // The store the terms were read from, as of the value date: the source version beside it is the counterparty's.
+        Assert.Equal("booked@2026-10-26#40", input["loadedTradesVersion"]!.GetValue<string>());
+    }
+
+    [Fact] // notes 53 and 59: the input names the loaded trades the store has on the value date; one past its maturity is not priced and not named
+    public async Task Price_names_no_loaded_trade_the_store_has_not_on_the_value_date()
+    {
+        var rig = new PricerRig();
+        var none = await rig.Priced();
+        Assert.Equal((0, null), (none["loadedTrades"]!.AsArray().Count, none["loadedTradesVersion"]));
+        await rig.Run("load trades B00039, B00012");
+        rig.Service.ChangeValueDate(rig.Id, Revision(rig), "akira", new DateOnly(2030, 1, 15));
+
+        var input = await rig.Priced();
+
+        Assert.Equal(["B00012"], input["loadedTrades"]!.AsArray().Select(id => id!.GetValue<string>()));
+        Assert.StartsWith("booked@2030-01-15#", input["loadedTradesVersion"]!.GetValue<string>());
+        Assert.DoesNotContain(input["cases"]![0]!["trades"]!.AsArray(), t => t!["tradeId"]!.GetValue<string>() == "B00039");
+    }
+
+    [Fact] // note 59, §11: a load and a removal are each one command, which redo puts back as undo took it
+    public async Task A_load_and_a_removal_are_put_back_by_redo()
+    {
+        var rig = new PricerRig();
+        var drafts = rig.Keys("new");
+        await rig.Run("load trades B00012");
+        await rig.Run("undo");
+
+        Assert.Equal("Put back: load trades B00012.", await rig.Run("redo"));
+        Assert.Equal([.. drafts, "B00012"], rig.Keys("new"));
+
+        await rig.Run("set B00012 notional 3bn");
+        await rig.Run("remove trades B00012");
+        await rig.Run("undo");
+        Assert.Equal("3bn", rig.Written(PortfolioTables.Trades, "B00012", "notional"));
+        Assert.Equal("Put back: remove trades B00012.", await rig.Run("redo"));
+        Assert.Equal(drafts, rig.Keys("new"));
+        Assert.DoesNotContain(rig.State.Overrides.Keys, t => t.Entity.Contains("B00012"));
+    }
+
+    [Fact] // note 59: a loaded trade past its maturity is removed from the Changes tab with the edits it lost its place for
+    public async Task A_loaded_trade_past_its_maturity_is_removed_with_what_was_set_on_it()
+    {
+        var rig = new PricerRig();
+        await rig.Run("load trades B00039");
+        await rig.Run("set B00039 notional 2bn");
+        rig.Service.ChangeValueDate(rig.Id, Revision(rig), "akira", new DateOnly(2030, 1, 15));
+        Assert.Contains(rig.State.Lost.Keys, t => t.Entity == "trade:B00039");
+
+        rig.Service.Resolve(rig.Id, Revision(rig), "akira", "loaded:B00039", "*", "reset");
+
+        Assert.DoesNotContain(rig.State.Lost.Keys, t => t.Entity.Contains("B00039"));
+        Assert.DoesNotContain(rig.State.Created.Keys, e => e.Contains("B00039"));
+        Assert.DoesNotContain(rig.Service.Changes(rig.Id, "akira").Common, c => c.Title.Contains("B00039"));
+        // Loaded again on a date the store has it, it is as the store holds it.
+        rig.Service.ChangeValueDate(rig.Id, Revision(rig), "akira", PricerRig.Day1);
+        await rig.Run("load trades B00039");
+        Assert.NotEqual("2bn", rig.Written(PortfolioTables.Trades, "B00039", "notional"));
+    }
+
+    [Fact] // notes 54 and 59: a loaded trade's dialog has the store's terms as its Original, whatever was set on it since
+    public async Task A_loaded_trades_draft_keeps_the_stores_terms_as_its_original()
+    {
+        var rig = new PricerRig();
+        await rig.Run("load trades B00002");
+        await rig.Run("set B00002 notional 30mm");
+        await rig.Run("remove legs B00002/2");
+
+        var form = rig.Lines.Draft(rig.Id, PricerRig.Akira, new(PortfolioTables.Trades, "B00002", Revision(rig), []));
+
+        var notional = form.Fields.Select((f, at) => (Field: f, At: at)).Single(f => f.Field.Field.Name == "notional");
+        Assert.NotNull(form.Original);
+        Assert.Equal(("30mm", "25mm"), (notional.Field.Written, form.Original.Written[notional.At]));
+        Assert.Equal(2, form.Original.Under.Single(t => t.Table == PortfolioTables.Legs).Rows.Count);
+        Assert.Equal(1, form.Under.Single(t => t.Table == PortfolioTables.Legs).Rows.Count(r => r.Mark is null));
     }
 }

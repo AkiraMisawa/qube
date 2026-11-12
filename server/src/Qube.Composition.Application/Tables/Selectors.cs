@@ -408,21 +408,30 @@ public static class Selectors
     }
 
     // The rows ids name in a table. In a table under another (note 46), an id that names no row of it and one row of
-    // the table above names every row under that row; `above` reads an id among the rows above, where there are any.
-    static IReadOnlyList<ITableRow> ById(IReadOnlyList<string> ids, BoundTable table, RowIndex index, IReadOnlyList<ITableRow> all, Func<string, ITableRow?>? above)
+    // the table above names every row under that row. An id as written is read before the end of one (note 7), above
+    // as here: the whole id of a row above is that row's rows, though some row here ends with it (note 58).
+    static IReadOnlyList<ITableRow> ById(IReadOnlyList<string> ids, BoundTable table, RowIndex index, IReadOnlyList<ITableRow> all, (RowIndex Index, string Word)? above)
     {
+        IReadOnlyList<ITableRow> Under(ITableRow over, string id) => all.Where(r => r.Under == over.Key).ToList() is { Count: > 0 } under ? under
+            : throw new TableRefused("NoRowMatches", $"{over.Key} has no {table.Word}.", id);
         var named = new List<ITableRow>(ids.Count);
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var id in ids)
         {
-            IReadOnlyList<ITableRow> rows = RowsNamed(id, index) switch
-            {
-                [var one] => [one],
-                [] when above?.Invoke(id) is { } over => all.Where(r => r.Under == over.Key).ToList() is { Count: > 0 } under ? under
-                    : throw new TableRefused("NoRowMatches", $"{over.Key} has no {table.Word}.", id),
-                [] => throw UnknownRow(id, all, table.Word),
-                var several => throw AmbiguousRow(id, several, table.Word),
-            };
+            IReadOnlyList<ITableRow> rows = index.Row(id) is { } own ? [own]
+                : above?.Index.Row(id) is { } whole ? Under(whole, id)
+                : index.Ending(id) switch
+                {
+                    [var one] => [one],
+                    [] when above is { } over => over.Index.Ending(id) switch
+                    {
+                        [var one] => Under(one, id),
+                        [] => throw UnknownRow(id, all, table.Word),
+                        var several => throw AmbiguousRow(id, several, over.Word),
+                    },
+                    [] => throw UnknownRow(id, all, table.Word),
+                    var several => throw AmbiguousRow(id, several, table.Word),
+                };
             foreach (var row in rows)
             {
                 if (!seen.Add(row.Key)) throw new TableRefused("RowTwice", $"{row.Key} is named twice; name each row once.", id);
@@ -432,18 +441,13 @@ public static class Selectors
         return named;
     }
 
-    // How an id is read among the rows of the table above a table (note 46), as that table's ids are read: the row it
-    // names, none where it names none, and a refusal where its end names several. Null for a table under no other.
-    static Func<string, ITableRow?>? Above(BoundTable table, IReadOnlyList<BoundTable> tables, Func<BoundTable, RowIndex> indexOf)
+    // The rows of the table above a table (note 46), with that table's word, where an id is read as that table's ids
+    // are. Null for a table under no other.
+    static (RowIndex Index, string Word)? Above(BoundTable table, IReadOnlyList<BoundTable> tables, Func<BoundTable, RowIndex> indexOf)
     {
         if (table.Descriptor.Under is not { } under) return null;
         var above = tables.Single(t => t.Descriptor.TableId == under);
-        return id => RowsNamed(id, indexOf(above)) switch
-        {
-            [var one] => one,
-            [] => null,
-            var several => throw AmbiguousRow(id, several, above.Word),
-        };
+        return (indexOf(above), above.Word);
     }
 
     /// <summary>The rows an id names among those indexed (note 7): the one of that id as written, or else every row whose id ends with it.</summary>

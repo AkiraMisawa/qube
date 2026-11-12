@@ -142,6 +142,13 @@ public class PricerScenarioTableTests
         Assert.Equal("5y 10 bp", rig.Written(PortfolioTables.Shifts, shift, "factor", "size"));
         await rig.Run($"reset shifts {shift}");
         Assert.Equal("all 10 bp", rig.Written(PortfolioTables.Shifts, shift, "factor", "size"));
+        // A size goes back whole, its amount with its unit: under another index the amount never stands in that index's
+        // unit, and the row says that it cannot be priced as it is.
+        await rig.Run($"set shifts {shift} index usdjpy");
+        await rig.Run($"set shifts {shift} size -5%");
+        await rig.Run($"reset shifts {shift} size");
+        Assert.Equal("usdjpy 10 bp", rig.Written(PortfolioTables.Shifts, shift, "index", "size"));
+        Assert.NotEqual("", rig.Written(PortfolioTables.Shifts, shift, "issue"));
         Assert.Equal("NotResettable: up is a scenario the workspace made, and has nothing to go back to: set up included on prices it, and off leaves it out.", rig.Read("reset scenarios up"));
     }
 
@@ -158,8 +165,10 @@ public class PricerScenarioTableTests
 
         Assert.Equal($"Removed {up[0]} and {up[1]}.", said);
         Assert.Equal(["down"], rig.Keys("scenarios all"));
-        // Made again it is priced: the list of those left out lost its name with its last shift.
-        await rig.Run("scenario up jpy_ois +10bp");
+        // Made again by a row typed in the grid it is priced: the list of those left out lost its name with its last
+        // shift. (`scenario up …` would not tell: it includes a scenario it makes anew whatever the list holds.)
+        rig.Service.EditShifts(rig.Id, rig.State.Revision, "akira",
+            [new ShiftEdit(null, 2, new Dictionary<string, string?> { ["scenario"] = "up", ["index"] = "jpy_ois", ["size"] = "+10bp" })]);
         Assert.Equal([("down", true), ("up", true)], Scenarios(rig));
         // One shift of two removed leaves the scenario, with the other.
         await rig.Run("scenario fx usdjpy -5%; eurjpy -5%");
@@ -221,5 +230,40 @@ public class PricerScenarioTableTests
 
         Assert.Equal(new LineOpen(PortfolioTables.Scenarios, "up", "Opened up."), rig.Preview("open up").Asks);
         Assert.Equal(new LineOpen(PortfolioTables.Shifts, shift, $"Opened {shift}."), rig.Preview($"open shifts {shift}").Asks);
+    }
+
+    [Fact] // notes 7, 46 and 58: an id that is a scenario's key as written names its shifts, before the end of another shift's key
+    public async Task A_scenarios_key_as_written_names_its_shifts_before_the_end_of_a_shifts_key()
+    {
+        var rig = new PricerRig();
+        await rig.Run("scenario up jpy_ois +10bp; usdjpy -5%");
+        var number = rig.Keys("shifts up")[1].Split('/')[1];
+        // A scenario named as the number the second shift of `up` ends with.
+        Typed(rig, number, "eurjpy", "-1%");
+
+        var named = Assert.Single(rig.Keys($"shifts {number}"));
+
+        Assert.StartsWith($"{number}/", named);
+        Assert.Equal("eurjpy", rig.Written(PortfolioTables.Shifts, named, "index"));
+        // The shift is still named by its whole key, and by an end no scenario is named as.
+        Assert.Equal([$"up/{number}"], rig.Keys($"shifts up/{number}"));
+        Assert.Equal([$"up/{number}"], rig.Keys($"shifts p/{number}"));
+    }
+
+    [Fact] // note 58: an FX shift's risk factor is its spot: `all` is of a curve and is refused for it at both doors, so no row is counted as written that was not
+    public async Task An_FX_shifts_factor_is_not_written_as_all()
+    {
+        var rig = new PricerRig();
+        await rig.Run("scenario up jpy_ois 5y +10bp; usdjpy -5%");
+        var up = rig.Keys("shifts up");
+
+        Assert.Equal($"InvalidShift: {up[1]}, Risk factor: usdjpy is a spot rate and has no tenor: leave it spot.", rig.Read($"set shifts {up[1]} factor all"));
+        Assert.Equal($"InvalidShift: {up[1]}, Risk factor: usdjpy is a spot rate and has no tenor: leave it spot.", rig.Read("set shifts up factor all"));
+        var typed = Assert.Throws<WorkspaceRefused>(() => rig.Service.EditShifts(rig.Id, rig.State.Revision, "akira",
+            [new(rig.Service.View(rig.Id, "akira").Shifts[1].Id, 2, new Dictionary<string, string?> { ["factor"] = "all" })]));
+        Assert.Equal("Row 2, Risk factor: usdjpy is a spot rate and has no tenor: leave it spot.", typed.Message);
+
+        Assert.Equal($"Set {up[0]} factor to all.", await rig.Run("set shifts where category = IR factor all"));
+        Assert.Equal(["all", "spot"], up.Select(key => rig.Written(PortfolioTables.Shifts, key, "factor")));
     }
 }

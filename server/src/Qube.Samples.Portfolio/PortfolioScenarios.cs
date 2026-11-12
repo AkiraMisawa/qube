@@ -406,8 +406,10 @@ public static partial class PortfolioScenarios
         if (edit.Cells.ContainsKey("factor"))
         {
             var word = Typed("factor");
-            after["tenor"] = word is null || string.Equals(word, WholeIndex, StringComparison.OrdinalIgnoreCase)
-                    || (string.Equals(word, ScenarioCatalog.Spot, StringComparison.OrdinalIgnoreCase) && index?.Category == ScenarioCatalog.Fx) ? null
+            // `all` is the whole of a curve and `spot` an FX rate's: each is refused for the other, as a tenor is, so
+            // no cell takes a word and writes nothing of it (ADR-0016 note 58, in review).
+            var spot = index?.Category == ScenarioCatalog.Fx;
+            after["tenor"] = word is null || string.Equals(word, spot ? ScenarioCatalog.Spot : WholeIndex, StringComparison.OrdinalIgnoreCase) ? null
                 : index?.Category == ScenarioCatalog.Fx ? throw Refused("factor", $"{index.Id} is a spot rate and has no tenor: leave it spot")
                 : index is not null ? ScenarioCatalog.TenorsOf(index.Category).FirstOrDefault(t => string.Equals(t, word, StringComparison.OrdinalIgnoreCase))
                     ?? throw Refused("factor", $"{word} is no tenor of {index.Id}: {ScenarioCatalog.WithArticle(index.Category)} tenor is {string.Join(", ", ScenarioCatalog.TenorsOf(index.Category))}, or {WholeIndex} for the whole curve")

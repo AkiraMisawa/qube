@@ -2374,6 +2374,28 @@ has one button, edit; and `load trades` reads a synthetic store of booked trades
         shift's cell typed there is a line of the draft. With nine fields the grid of shifts is wider than the
         dialog, so its Draft mark and its Remove are reached by scrolling the grid or by the keyboard. Where a
         row's buttons stand is ticket 16's question, which is the owner's.
+    - *Corrected in review (2026-11-12).*
+      - *An id as written is read before the end of one, above as here.* A scenario may be named with digits alone
+        (`4`), and a shift's key ends with digits (`up/4`). `shifts 4` was read as the shift whose key ends with
+        `4`, where note 46 has it the shifts of the scenario `4`. For any table under another, the kernel now reads
+        an id as a row's whole key, then as the whole key of a row above (that row's rows), then as the end of a
+        row's key, then as the end of a row above's: note 7's order, a table further.
+      - *`all` is no risk factor of an FX shift.* The cell took `all` for an FX shift and wrote nothing of it. So
+        `set shifts up factor all` counted the FX shift among the rows it wrote, and on that shift alone was read
+        as a change and then refused as none. The cell now refuses it as it refuses a tenor there (`usdjpy is a
+        spot rate and has no tenor: leave it spot`), at the grid's door as at the command's. A line that names
+        curves and FX rates together is refused whole; `where category = IR` says the curves.
+      - *A condition with `!=`.* "A row whose value is in another unit is no match" holds of an order (`<`, `>`),
+        which is among the values in the unit asked. Equal is the same number in the same unit, so `!=` holds of
+        a value in another unit, as the kernel's tests have had it.
+    - *Left as they are in review.*
+      - *A key with `_2` follows the scenarios' order.* Once the earlier scenario of that key is removed or
+        renamed, the later one takes the key without the number, and its shifts' keys change with it. A key typed
+        from memory after that names the other scenario; a line names what its reading says as it is typed. Keys
+        that kept their number would have the workspace hold them. *For the owner to judge*, with the key's
+        spelling.
+      - `ScenarioTable` and `ShiftTable` override most of what the pricer's `Table` gives a table, since their
+        writes are the Scenarios grid's own edits; `PortfolioScenarios.Keyed` answers its two lists as a pair.
 
 59. **`load trades <ids>` (§3; 5d; DEFAULT, 2026-11-12).** The owner chose that it reads a synthetic store of booked
     trades by id (2026-11-11). §3 says it brings trades that exist into the New grid and computes nothing.
@@ -2436,6 +2458,31 @@ has one button, edit; and `load trades` reads a synthetic store of booked trades
         after it; the version the page shows, and Price freezes as `sourceVersion`, does not change with a load.
       - *A Changes tab's row for a loaded trade* says `loaded` against `not in the workspace`, under Common, and
         counts as one edit in the workspace's count of edits.
+    - *Corrected in review (2026-11-12).*
+      - *A loaded trade's dialog has its Original*: the store's terms, legs and independent amounts, as an existing
+        trade's has the source's. The state with no edit (note 54) dropped every entity the workspace held, the
+        one that says a trade was loaded among them, so the dialog said the workspace had made the row. A module's
+        rules now say which entities bring in a row a source has (`IEditRules.Brings`; none, for most modules),
+        and the state with no edit keeps those.
+      - *The Existing grid's order does not move with a load.* A loaded trade is in the New grid alone, so the
+        token of the Existing grid's order names the acquired version alone, and rows chosen there are still
+        acted on after a load.
+      - *Every id the store has not is named in one refusal.* Where a line named an id of no trade of the store
+        and a trade past its maturity, the refusal named the first alone.
+      - *The accepted input names the store's version* beside the ids (`loadedTradesVersion`, `booked@<value
+        date>#<trades it has then>`): the terms it froze were read from the store as of the value date, and the
+        source version says nothing of the store. Where no trade is loaded it is null.
+      - *Tests added:* a loaded trade past its maturity is not among `loadedTrades`; `redo` of a load and of a
+        removal; the Changes tab's removal of a loaded trade past its maturity, with the edit it lost its place
+        for.
+      - *From the standards review:* the source's views with loaded trades are remembered under a lock; a loaded
+        trade's terms as a line says them (`Terms`) and the entities that say a trade was loaded (`Markers`) are
+        each read in one place; what names a grid's rows is `RowsVersion`, beside `Version`.
+    - *Left as they are in review.* No test reaches `ConflictUnresolved` on `remove trades`: no value of a store's
+      trade that a command sets moves with the value date, so the synthetic store makes no conflict. A reader that
+      cast a workspace's source to the pricer's own type would read it without its loaded trades; every reader
+      goes through `PortfolioSourceVersion.Of`, and review alone holds that. The store's indices are built in two
+      places, and two readers gather a trade's edits from the three places an edit may be held.
 
 ## Rejected
 

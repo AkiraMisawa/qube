@@ -479,7 +479,7 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
         // A leg the workspace made is a change too (ADR-0016 note 49), listed where it was made among the edits.
         var made = PortfolioLegs.Made(raw);
         // So is a booked trade the workspace loaded (note 59), listed where it was loaded.
-        var loaded = raw.Created.Values.Where(c => c.Entity.StartsWith($"{Entity.Loaded}:", StringComparison.Ordinal)).ToList();
+        var loaded = BookedTrades.Markers(raw);
         var common = edits.Where(o => o.Target.Layer is null).Select(o => (o.Seq, Item: Item(o)))
             .Concat(made.Select(c => (c.Seq, Item: PortfolioLegs.MadeChange(c))))
             .Concat(loaded.Select(c => (c.Seq, Item: LoadedChange(Source(raw), c)))).OrderBy(x => x.Seq).Select(x => x.Item).ToList();
@@ -1090,17 +1090,20 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
         }
         if (typed.GroupBy(t => t, StringComparer.OrdinalIgnoreCase).FirstOrDefault(g => g.Count() > 1) is { } twice)
             throw new WorkspaceRefused("GivenTwice", $"{twice.First()} is named twice.", word: twice.First());
-        var unknown = typed.Where(t => !BookedTrades.Ids.Contains(t, StringComparer.OrdinalIgnoreCase)).ToList();
-        if (unknown.Count > 0)
-            throw new WorkspaceRefused("UnknownTrade",
-                $"The store of booked trades has no trade {TableWords.Or(unknown)}: its trades are {BookedTrades.Ids[0]} to {BookedTrades.Ids[^1]}.", word: unknown[0]);
-        // Each id with the word that typed it, which a refusal marks on the line.
-        var named = typed.Select(t => (Typed: t, Id: BookedTrades.Ids.Single(id => string.Equals(id, t, StringComparison.OrdinalIgnoreCase)))).ToList();
+        // Each id with the word that typed it, which a refusal marks on the line; no id where the store has no such trade.
+        var read = typed.Select(t => (Typed: t, Id: BookedTrades.Ids.SingleOrDefault(id => string.Equals(id, t, StringComparison.OrdinalIgnoreCase)))).ToList();
+        var unknown = read.Where(r => r.Id is null).Select(r => r.Typed).ToList();
+        var named = read.Where(r => r.Id is not null).Select(r => (r.Typed, Id: r.Id!)).ToList();
         var matured = named.Where(n => !source.Booked.Trades.ContainsKey(n.Id)).ToList();
-        if (matured.Count > 0)
-            throw new WorkspaceRefused("UnknownTrade",
-                $"The store of booked trades has not {TableWords.Or(matured.Select(n => n.Id))} on {source.ValueDate:yyyy-MM-dd}: {(matured.Count == 1 ? "it is" : "they are")} past maturity then.",
-                word: matured[0].Typed);
+        if (unknown.Count > 0 || matured.Count > 0)
+        {
+            // Every id the store has not is named in the one refusal, whichever way it has it not.
+            var never = unknown.Count == 0 ? null : $"has no trade {TableWords.Or(unknown)}: its trades are {BookedTrades.Ids[0]} to {BookedTrades.Ids[^1]}.";
+            var then = matured.Count == 0 ? null
+                : $"has not {TableWords.Or(matured.Select(n => n.Id))} on {source.ValueDate:yyyy-MM-dd}: {(matured.Count == 1 ? "it is" : "they are")} past maturity then.";
+            throw new WorkspaceRefused("UnknownTrade", $"The store of booked trades {string.Join(" And it ", new[] { never, then }.OfType<string>())}",
+                word: read.First(r => r.Id is null || !source.Booked.Trades.ContainsKey(r.Id)).Typed);
+        }
         var held = BookedTrades.LoadedBy(raw).ToHashSet();
         var again = named.Where(n => held.Contains(n.Id)).ToList();
         if (again.Count > 0)
@@ -1231,14 +1234,18 @@ public static class TradeOrder
 
     /// <summary>
     /// The token of a grid's order (ADR-0016 note 26 of step 2): it moves when the order does, and only then. Unsorted,
-    /// the order is the source's and moves with a new version, and with a booked trade loaded or removed (note 59).
-    /// Sorted, an edit may move a row: the token is the rows' name and a digest of the keys in that order, so an edit
-    /// that moves, adds and removes no row leaves it.
+    /// the order is the source's and moves with a new version, and with a booked trade loaded or removed (note 59)
+    /// where the grid may hold one: the Existing grid holds none. Sorted, an edit may move a row: the token is the
+    /// rows' name and a digest of the keys in that order, so an edit that moves, adds and removes no row leaves it.
     /// </summary>
-    public static string Token(WorkspaceState state, MeasureRegister register, string? grid, IReadOnlyList<(string Column, bool Descending)> keys) =>
-        keys.Count == 0 ? PortfolioSourceVersion.Of(state).Rows
-        : Digests.GetOrCreateValue(state).GetOrAdd((register, OrderOf(grid, keys)), _ =>
-            $"{PortfolioSourceVersion.Of(state).Rows}/o{Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join('\n', Ordered(state, register, grid, keys).Select(t => t.TradeId)))).AsSpan(0, 8))}");
+    public static string Token(WorkspaceState state, MeasureRegister register, string? grid, IReadOnlyList<(string Column, bool Descending)> keys)
+    {
+        var source = PortfolioSourceVersion.Of(state);
+        var rows = grid == Entity.ExistingGrid ? source.Version : source.RowsVersion;
+        return keys.Count == 0 ? rows
+            : Digests.GetOrCreateValue(state).GetOrAdd((register, OrderOf(grid, keys)), _ =>
+                $"{rows}/o{Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join('\n', Ordered(state, register, grid, keys).Select(t => t.TradeId)))).AsSpan(0, 8))}");
+    }
 
     static string OrderOf(string? grid, IReadOnlyList<(string Column, bool Descending)> keys) => $"{grid}|{string.Join(",", keys.Select(k => $"{k.Column}:{k.Descending}"))}";
 

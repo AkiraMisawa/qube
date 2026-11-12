@@ -92,6 +92,9 @@ public sealed class PortfolioEditRules(MeasureRegister? register = null) : IEdit
     /// <summary>The scope of what belongs to the workspace itself rather than to a counterparty or a new trade.</summary>
     public const string WorkspaceScope = "ws";
 
+    /// <summary>A booked trade the workspace loaded is the store's, brought in (ADR-0016 note 59): its row has an original.</summary>
+    public bool Brings(CreatedEntity held) => Entity.Split(held.Entity).Kind == Entity.Loaded;
+
     public string KindOf(EditTarget target) => (Entity.Split(target.Entity).Kind, target.Field) switch
     {
         (Entity.Trade or Entity.Grid, "before" or "after") => "xva.membership",
@@ -136,13 +139,13 @@ public sealed class PortfolioEditRules(MeasureRegister? register = null) : IEdit
     public IReadOnlyList<string> ConflictGroup(EditTarget target) =>
         target.Field is "fixedRate" or "schedule" ? ["fixedRate", "schedule"] : [target.Field];
 
+    /// <summary>The scope of a new trade's own content, which no counterparty change drops.</summary>
+    public static string ScopeOf(string newTrade) => $"new:{newTrade}";
+
     /// <summary>
     /// The scope of an edit, decided here and never taken from the client: a new trade's own content belongs to
     /// that trade and survives a counterparty change; everything else belongs to the counterparty registration.
     /// </summary>
-    /// <summary>The scope of a new trade's own content, which no counterparty change drops.</summary>
-    public static string ScopeOf(string newTrade) => $"new:{newTrade}";
-
     public static EditTarget Target(PortfolioSourceVersion source, string entity, string field, string? layer = null)
     {
         var (kind, id) = Entity.Split(entity);

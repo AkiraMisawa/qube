@@ -50,14 +50,21 @@ public static partial class PortfolioCommandContracts
             .Concat(plan.Replaced.Count == 0 ? [] : [$"replaces {string.Join(", ", plan.Replaced)}"])) + ".";
 
     /// <summary>The trades a load names, as its sentence says them: <c>B00012 and B00013 as new trades</c>.</summary>
-    public static string AsNew(IEnumerable<string> trades) => trades.ToList() is var named ? $"{TableWords.And(named)} as {(named.Count == 1 ? "a new trade" : "new trades")}" : "";
+    public static string AsNew(IEnumerable<string> trades)
+    {
+        var named = trades.ToList();
+        return $"{TableWords.And(named)} as {(named.Count == 1 ? "a new trade" : "new trades")}";
+    }
+
+    /// <summary>What a booked trade is, in the three words a line tells one from another by: <c>IRS JPY 2.6bn</c>.</summary>
+    public static string Terms(SourceTrade trade) => $"{trade.Product} {trade.Currency} {FieldForms.Write(new(FieldForm.SignedAmount), trade.Notional)}";
 
     /// <summary>
     /// What a reading of <c>load trades</c> says it would load (ADR-0016 note 59): each trade with its product, its
     /// currency and its notional, as the store holds it on the value date.
     /// </summary>
     public static string WouldLoad(LoadPlan plan) =>
-        $"Loads {AsNew(plan.Loaded.Select(t => $"{t.TradeId} ({t.Product} {t.Currency} {FieldForms.Write(new(FieldForm.SignedAmount), t.Notional)})"))}.";
+        $"Loads {AsNew(plan.Loaded.Select(t => $"{t.TradeId} ({Terms(t)})"))}.";
 
     /// <summary>The cases a command removes, counted and named: <c>2 cases: a and b</c>.</summary>
     public static string Cases(CasesPlan plan) =>
@@ -378,7 +385,7 @@ public sealed class PortfolioTradesLoad(Func<PortfolioWorkspaces> workspaces) : 
         var held = BookedTrades.LoadedBy(line.State).ToHashSet();
         var offered = PortfolioSourceVersion.Of(line.State).Booked.Trades.Values
             .Where(t => t.TradeId.StartsWith(typing, StringComparison.OrdinalIgnoreCase) && !held.Contains(t.TradeId) && !done.Contains(t.TradeId, StringComparer.OrdinalIgnoreCase))
-            .Select(t => new LineCompletion(t.TradeId, from, $"{t.Product} {t.Currency} {FieldForms.Write(new(FieldForm.SignedAmount), t.Notional)}")).ToList();
+            .Select(t => new LineCompletion(t.TradeId, from, PortfolioCommandContracts.Terms(t))).ToList();
         // As many at a time as a line lists of a table's rows, with how many more there are.
         return new([.. offered.Take(LineCompletions.RowsListed)], Math.Max(0, offered.Count - LineCompletions.RowsListed));
     }

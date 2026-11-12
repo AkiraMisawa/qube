@@ -576,16 +576,18 @@ public sealed class WorkspaceService(IReadOnlyDictionary<string, IEditRules> rul
 
     /// <summary>
     /// The workspace with no edit of its own (ADR-0016 note 54): its context and its source under the rules, with
-    /// nothing set, held or made. What a row was before anyone changed it; never written.
+    /// nothing set, held or made. What a row was before anyone changed it; never written. A row the workspace brought
+    /// in from a source (<see cref="IEditRules.Brings"/>) is in it, as the source has it.
     /// </summary>
     public WorkspaceState Unedited(WorkspaceState state)
     {
+        var rules = RulesOf(state.App);
         var bare = state with
         {
             Overrides = ImmutableDictionary<EditTarget, Override>.Empty, Conflicts = ImmutableDictionary<EditTarget, Conflict>.Empty,
-            Lost = ImmutableDictionary<EditTarget, LostTarget>.Empty, Created = ImmutableDictionary<string, CreatedEntity>.Empty,
+            Lost = ImmutableDictionary<EditTarget, LostTarget>.Empty, Created = state.Created.Where(c => rules.Brings(c.Value)).ToImmutableDictionary(),
         };
-        return bare with { Derived = RulesOf(state.App).Derive(bare).ToImmutableDictionary() };
+        return bare with { Derived = rules.Derive(bare).ToImmutableDictionary() };
     }
 
     /// <summary>

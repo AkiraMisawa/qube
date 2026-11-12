@@ -228,6 +228,7 @@ public static class PortfolioInput
         var state = PortfolioCases.Base(raw);
         var source = PortfolioSourceVersion.Of(state);
         var selected = PortfolioMaterialiser.SelectedMeasures(state, register);
+        var loaded = BookedTrades.LoadedBy(raw).Where(id => source.Trade(id) is not null).ToList();
         return new JsonObject
         {
             ["workspaceId"] = freeze.WorkspaceId,
@@ -240,9 +241,11 @@ public static class PortfolioInput
             ["registration"] = source.Registration.Key,
             ["agreement"] = source.Agreement.MaId,
             ["nettingSet"] = source.Agreement.NettingSetId,
-            // The booked trades the workspace loaded that are among its trades on this value date (ADR-0016 note 59): the
-            // source version above is the counterparty's, and says nothing of them.
-            ["loadedTrades"] = new JsonArray([.. BookedTrades.LoadedBy(raw).Where(id => source.Trade(id) is not null).Select(id => JsonValue.Create(id))]),
+            // The booked trades the workspace loaded that are among its trades on this value date (ADR-0016 note 59), and
+            // the version of the store their terms were read from: the source version above is the counterparty's, and
+            // says nothing of them. No trade loaded, no store was read, and no version is named.
+            ["loadedTrades"] = new JsonArray([.. loaded.Select(id => JsonValue.Create(id))]),
+            ["loadedTradesVersion"] = loaded.Count == 0 ? null : source.Booked.Version,
             // Each membership rule's version, frozen with the trades it classified (ADR-0010 §5).
             ["membership"] = new JsonObject([.. register.Rules(state).Select(r => KeyValuePair.Create(r.Measure, (JsonNode?)new JsonObject { ["version"] = r.Version }))]),
             ["selection"] = new JsonArray([.. selected.Select(id => JsonValue.Create(id))]),

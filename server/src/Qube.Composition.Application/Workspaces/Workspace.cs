@@ -181,6 +181,13 @@ public interface IEditRules
     /// </summary>
     string TitleOf(WorkspaceState state, EditTarget target) => target.Field == "*" ? target.Entity : $"{target.Entity} {target.Field}";
 
+    /// <summary>
+    /// Whether an entity the workspace holds brings in a row a source has, rather than making one (ADR-0016 note 59,
+    /// in review): the row is then in the workspace with no edit of its own, as the source has it, where a row the
+    /// workspace made is not. No entity does, for most modules.
+    /// </summary>
+    bool Brings(CreatedEntity held) => false;
+
     static readonly IReadOnlyDictionary<string, ISourceVersion> NoDerivations = new Dictionary<string, ISourceVersion>();
 }
 

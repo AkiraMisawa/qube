@@ -2862,7 +2862,8 @@ booked trades of a synthetic store into the New grid. With it step 5 is built.
   where size > 5bp size 20bp`, `remove shifts up/4`. A write is the grid's own edit of that cell, so a cell has one
   reader. `copy`, `export`, the AI's `tables.read` and a `where` read them as any table.
 - **A scenario's key** is its name with what a typed id does not hold written as `_` (`parallel up` is
-  `parallel_up`); a shift's is its scenario's key and the number of its row (`up/3`).
+  `parallel_up`); a shift's is its scenario's key and the number of its row (`up/3`). `shifts up` is a scenario's
+  shifts: a scenario's key as written is read before the end of a shift's key.
 - **A scenario's dialog** (`open up`): its fields, and its shifts as rows under it. A size typed in a shift's cell
   is a line of the draft; a unit the index does not shift by is refused at the cell by the shift's key.
 - **The kernel**, for any table: a number written with its unit against it (`10bp`, `-5%`, `+10bp`); a condition
@@ -2872,19 +2873,20 @@ booked trades of a synthetic store into the New grid. With it step 5 is built.
   its product, currency and notional, and says what it would load. The trades join the New grid after the drafts,
   out of Before and in After, under the main CSA. One command, one `undo`.
 - **A loaded trade is a new trade.** Its fields, legs and independent amounts are set, reset, varied and opened in
-  its dialog as any trade's. `remove trades B00012` takes it out with its edits, and so does Remove on its row of
-  the Changes tab, which lists it as `loaded`.
+  its dialog as any trade's, where Original shows the store's terms. `remove trades B00012` takes it out with its
+  edits, and so does Remove on its row of the Changes tab, which lists it as `loaded`.
 - **The workspace holds that it loaded the trade; the terms stay the store's**, read on the workspace's value date.
   A counterparty change keeps a loaded trade and its edits. A value date past its maturity leaves it in no grid,
   and the Changes tab says so.
-- **Price freezes it**: the accepted input names the loaded trades (`loadedTrades`) and carries each among the
-  case's trades with everything set on it.
+- **Price freezes it**: the accepted input names the loaded trades (`loadedTrades`) and the version of the store
+  their terms were read from (`loadedTradesVersion`), and carries each among the case's trades with everything set
+  on it.
 
 ### Verification performed
 
 | What | Result |
 |---|---|
-| `dotnet test server/Qube.slnx` | 1562 passed |
+| `dotnet test server/Qube.slnx` | 1568 passed |
 | Client: `npm run typecheck`, `npm test`, `npm run build` | Clean; 424 passed in 40 files; built |
 | `npx playwright test` (Chromium, headless, Linux) | 117 passed |
 | `python3 tools/validate_handoff.py` | Passed |
@@ -2899,7 +2901,11 @@ scenario's draft with its shifts and `open`. Note 32's verbs are held by the tes
 load and its `undo`, the reading, each refusal with nothing loaded, a trade past its maturity, the completions, a
 loaded trade's fields, legs and amounts edited, its removal and what refuses it, the Changes tab's row and its
 reset, a counterparty change, a value date past its maturity, an edit of a booked trade that was not loaded, the
-grid's order moving with a load, and the accepted input of a Price with a loaded trade edited in every place. The
+grid's order moving with a load, and the accepted input of a Price with a loaded trade edited in every place. After
+the review: `redo` of a load and of a removal, a trade past its maturity left out of `loadedTrades` and removed
+from the Changes tab with the edit it lost its place for, the Original of a loaded trade's dialog, the Existing
+grid's order left alone by a load, a scenario named as the end of a shift's key, and `all` refused as an FX shift's
+risk factor. The
 kernel's read a number with its unit against it, a condition on it, and rows written and removed together over the
 stations' sensors. Two browser tests hold what only a browser shows: the New grid drawn again after a load, a
 removal and an `undo`; and a scenario's dialog with a shift's cell typed, refused and saved.
@@ -2924,6 +2930,35 @@ trades made from their ids); no trade, name or figure of it is a real one.
   not act on it, and it has no Edit button; a scenario's dialog is opened by `open <key>`.
 - **In a scenario's dialog the grid of shifts is wider than the dialog** (nine fields): its Draft mark and Remove
   are reached by scrolling the grid or by the keyboard. Where a row's buttons stand is ticket 16's question.
+- **No test reaches `ConflictUnresolved`**, the refusal to remove a loaded trade while an edit of it waits as a
+  conflict: no editable value of the synthetic store, or of the synthetic source, moves with the value date, so
+  neither makes a conflict yet ("Next", item 4). The refusal is written and read, not run.
+- **A scenario's key with `_2` follows the scenarios' order**: once the earlier scenario of that key is removed or
+  renamed, the later one takes the key without the number. Left for the owner with the key's spelling.
+
+### What the review changed
+
+Two reviews with fresh context, of the standards and of the spec (ADR-0016 notes 58 and 59 say each outcome).
+
+- **An id as written is read before the end of one** (kernel, any table under another): `shifts 4` is the shifts
+  of a scenario named `4`, not the shift whose key ends with `4`.
+- **`all` is refused as an FX shift's risk factor**, at the grid's cell as at the command's. The cell took it and
+  wrote nothing, so a `set` over curves and FX rates counted a row it had not written.
+- **A loaded trade's dialog has its Original.** The state with no edit dropped the entity that says a trade was
+  loaded; a module's rules now say which entities bring in a row a source has (`IEditRules.Brings`).
+- **The Existing grid's order does not move with a load**: its token names the acquired version alone.
+- **One refusal names every id the store has not**, the unknown and the matured together.
+- **The accepted input names the store's version** (`loadedTradesVersion`).
+- **From the standards review**: the remembered views of a source with loaded trades are held under a lock; the
+  reading of a loaded trade's terms and of the entities that say a trade was loaded are each in one place;
+  `RowsVersion` names a grid's rows beside `Version`; `RefuseNotLoaded` says what it refuses.
+- **Checked by breaking the code on purpose** (in a second working tree): of seventeen breakages the tests caught
+  fourteen. Two tests were made to catch two more (a size's unit left out of a reset, and shifts removed one by
+  one); the last is the refusal no test reaches, above. One more breakage, lost edits left behind by the Changes
+  tab's removal, is caught by a test the review added.
+- **Left as they are**: the key with `_2` (above); the tables of scenarios and shifts overriding most of the
+  pricer's `Table`; a reader that cast a workspace's source to the pricer's type would miss its loaded trades, and
+  only review holds that every reader goes through `PortfolioSourceVersion.Of`.
 
 ## Next
 
