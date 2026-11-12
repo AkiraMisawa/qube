@@ -34,6 +34,8 @@ import type { ScenarioActions } from './XvaScenarios';
 import type { ChangeActions } from './XvaChanges';
 import { VARY_COMMAND, VaryDialog, type VaryTarget } from './VaryDialog';
 import { CASE_COMMAND, CaseDialog } from './CaseDialog';
+import { DraftDialog } from '../../platform/drafts/DraftDialog';
+import { useDraft } from '../../platform/drafts/useDraft';
 import { tradeLeftOut } from './iterations';
 import { compactGridHeight, GRID_FRAME, pixels, Resizer } from './layout';
 import { declaring, measureOfField, membershipColumn, scopesOf } from './membership';
@@ -215,6 +217,18 @@ function currencyFrom(currency: string, from: XvaWorkspaceView['displayCurrencyF
     case 'profile': return `Display currency ${currency}, the company profile's.`;
   }
 }
+
+/**
+ * What the pricer says above a row's dialog (ADR-0016 note 57): the dialog sets every field of a row, and the simulated
+ * measures read only some of them yet (note 53). Price freezes every value all the same.
+ */
+const draftNote = (table: string): string | undefined => {
+  switch (table) {
+    case TRADES_TABLE: return "The simulated measures do not read a trade's legs or its fields outside the grids yet. Price keeps every value set here in the input it freezes.";
+    case CSAS_TABLE: return "The simulated measures do not read a CSA's fields outside the grid yet. Price keeps every value set here in the input it freezes.";
+    default: return undefined;
+  }
+};
 
 export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   readonly panelId: string; readonly workspaceId: string; readonly api: XvaApi; readonly traceApi: TraceApi;
@@ -708,12 +722,15 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
    * take their turn in the queue, after the edits already sent (spine 6), and the workspace is read again in that same
    * turn, since any of its rows may have moved, so this view never arrives after a later edit's.
    */
+  // A row's dialog and its draft (ADR-0016 §10, note 54): view state of this page, which the door reads in its turn.
+  const { draft, drafts, drop } = useDraft();
   const door = useMemo(() => commandDoor({
     workspaceId,
     app: XVA_APP,
     catalog: workspace.catalog,
     api: workspace.api,
     turns: queue,
+    drafts,
     screen: () => screen.current?.(),
     reread: async () => {
       const fresh = await api.view(workspaceId);
@@ -726,7 +743,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
       return fresh.revision;
     },
     notify: workspace.notify,
-  }), [api, workspaceId, workspace, queue, show, sources]);
+  }), [api, workspaceId, workspace, queue, show, sources, drafts]);
   // A typed PV goes through the door as any command does, in its turn after the edits already sent. The cell shows
   // the outcome, as any typed cell does, so the door hands the sentence here and raises no notice of it.
   writePv.current = (tradeId, request) => {
@@ -1005,6 +1022,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
           changeList={changeList.data} changeActions={changeActions} scenarioActions={scenarioActions} onVary={setVarying} commandLabel={commandLabel} csaMenu={menus} />
         <VaryDialog target={varying} vary={varyCell} onClose={() => setVarying(undefined)} />
         <CaseDialog selection={caseOf} make={makeCase} onClose={() => setCaseOf(undefined)} />
+        <DraftDialog draft={draft} workspaceId={workspaceId} revision={ws.revision} api={workspace.api} door={door} drop={drop} discard={drafts.close} note={draftNote} />
         {inputsOpen && <Resizer label="Height of the input tabs" value={inputsHeight} min={48} max={640} grows="down" onChange={setInputsDragged} />}
       </div>
       {issue !== undefined && <Text size="xs" c="red" role="alert" data-testid="field-issue">{issue}</Text>}

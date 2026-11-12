@@ -309,6 +309,9 @@ const COMMANDS_DRAWN = 200;
 const VALUES_DRAWN = 50;
 // How much of what a chain has said the line draws (ADR-0016 §9, note 24): the last two commands and what each said.
 const SAID_DRAWN = 4;
+// The line is typed over whatever is open, a row's dialog included (ADR-0016 note 57): above Mantine's modals (200) and
+// below its popovers (300), which the line draws none of.
+const LINE_Z_INDEX = 210;
 
 /**
  * One thing an open line says of its chain (ADR-0016 §9, note 24 of 2026-11-11): a line the chain key ran, which has
@@ -756,7 +759,7 @@ export function CommandPalette() {
   );
 
   return (
-    <Modal opened={opened} onClose={close} withCloseButton={false} trapFocus returnFocus={false} size="lg" yOffset="10vh"
+    <Modal opened={opened} onClose={close} withCloseButton={false} trapFocus returnFocus={false} size="lg" yOffset="10vh" zIndex={LINE_Z_INDEX}
       transitionProps={{ duration: 0 }} className="qube-palette" aria-label="Command line" padding="sm">
       <Stack gap={6}>
         <TextInput ref={input} data-autofocus value={text} onChange={(e) => change(e.currentTarget.value)} onKeyDown={onKeyDown}

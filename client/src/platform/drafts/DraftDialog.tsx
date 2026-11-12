@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useCallback, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { Alert, Badge, Button, CloseButton, Group, Loader, Modal, Select, SimpleGrid, Stack, Switch, Tabs, Text, TextInput, em } from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
@@ -280,10 +280,19 @@ function DraftBody({ draft, workspaceId, revision, api, door, drop, discard, not
     queryFn: ({ signal }) => api.draft(workspaceId, draft, signal),
     placeholderData: keepPreviousData, staleTime: Infinity, retry: false,
   });
+  // The line the draft last gained from this dialog, and whether the form drawn is of the draft as it now is. Until it
+  // is, a field still shows what the lines before left, so leaving it would send its line a second time: the same line
+  // is sent once, whenever the keyboard leaves the field (spine 6).
+  const gained = useRef<string | undefined>(undefined);
+  const drawn = useRef(true);
+  drawn.current = !form.isPlaceholderData && !form.isFetching;
   const send = useCallback<Send>(async (line) => {
+    if (!drawn.current && line === gained.current) return undefined;
     // The dialog shows what the draft gained itself: the sentence is heard here, and no notice is raised.
     const ended = await door.enter(line, undefined, door.view(), () => undefined);
-    return ended !== undefined && 'sentence' in ended ? ended.sentence : undefined;
+    if (ended !== undefined && 'sentence' in ended) return ended.sentence;
+    gained.current = line;
+    return undefined;
   }, [door]);
   const save = async () => {
     if (saving) return;
