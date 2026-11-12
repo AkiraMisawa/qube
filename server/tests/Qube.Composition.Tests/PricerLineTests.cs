@@ -215,7 +215,8 @@ public class PricerLineTests
     [InlineData("vary CSA-A colour 5mm", "UnknownCell: colour@11-17 | threshold, mta, counterparty currency, self threshold, self mta, self currency, currency, curve, fva curve, frequency, exchange, one-way, "
         + "counterparty posts, counterparty vm cap, counterparty vm cap currency, counterparty independent amount, counterparty rounding, counterparty delivery rounding, counterparty return rounding, self posts, self vm cap, self vm cap currency, self independent amount, self rounding, self delivery rounding, self return rounding")]
     // A column of several words is named whole.
-    [InlineData("vary DRAFT-1 fixed colour 1%", "UnknownCell: fixed colour@13-25 | notional, rate, schedule, csa, curve, im-r, im-p, B, A, margin, pvadj")]
+    [InlineData("vary DRAFT-1 fixed colour 1%", "UnknownCell: fixed colour@13-25 | notional, rate, schedule, csa, curve, im-r, im-p, B, A, margin, pvadj, "
+        + "break date, mandatory break, model id, pricer id, interpolation id, domestic currency, ir model, ir basis, equity model, credit model, inflation model, unmodelled method")]
     [InlineData("measures cva dva2", "UnknownMeasure: dva2@13-17 | cva, fva, kva, ccr.spotCapital")]
     [InlineData("cds zzz", "UnknownCds: zzz@4-7 | ABCH USD SNRFOR XR14, ABCH USD SUBLT2 XR14, ABCH JPY SNRFOR CR14, ABCS USD SNRFOR XR14, DEFG EUR SNRFOR MM14, HIJK USD SNRFOR XR14, LMNO JPY SNRFOR CR14")]
     // What a proxy's word could have been is of a kind the line has not given: the sector is given here.

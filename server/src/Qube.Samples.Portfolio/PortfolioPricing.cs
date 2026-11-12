@@ -340,6 +340,7 @@ public static class PortfolioInput
         var (legs, amounts) = PortfolioLegs.Frozen(reading, trade.TradeId);
         row.Add("legs", legs);
         row.Add("independentAmounts", amounts);
+        row.Add("details", PortfolioDetails.Frozen(reading, Entity.Of(Entity.Trade, trade.TradeId)));
         return row;
     }
 

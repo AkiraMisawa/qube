@@ -233,7 +233,7 @@ public static class PortfolioDetails
             FieldForm.Choice when field.Choices is { } choices => text is not null && choices.Values.Contains(text) ? null : $"{what} is one of {string.Join(", ", choices.Values)}{orEmpty}.",
             FieldForm.Amount => value is JsonValue amount && amount.TryGetValue<decimal>(out var n) && n >= 0 ? null : $"{what} is an amount of 0 or more{orEmpty}.",
             FieldForm.Date => text is not null && DateOnly.TryParseExact(text, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out _)
-                ? null : $"{what} is a date written YYYY-MM-DD{orEmpty}.",
+                ? null : $"{what} is a date, yyyy-mm-dd{orEmpty}.",
             FieldForm.Id => text is { Length: > 0 } && !text.Any(char.IsWhiteSpace) ? null : $"{what} is an identifier of one word{orEmpty}.",
             _ => throw new InvalidOperationException($"{field.Name} is a {field.Form}, which no check of the fields beyond the grids reads."),
         };

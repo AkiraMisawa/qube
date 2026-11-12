@@ -27,6 +27,7 @@ public static partial class PortfolioFields
     static TableField OneRow => new(Row, "Row", [Row], FieldForm.Id);
 
     const string General = FieldGroups.General, Terms = FieldGroups.Terms, Counterparty = FieldGroups.Counterparty, Self = FieldGroups.Self;
+    const string Identity = FieldGroups.Identity, Agreement = FieldGroups.Agreement, Dates = FieldGroups.Dates, Valuation = FieldGroups.Valuation;
 
     /// <summary>
     /// A CSA's terms (ADR-0010 §8): each party's threshold and minimum transfer amount in that party's currency. Every
@@ -89,33 +90,38 @@ public static partial class PortfolioFields
     /// A trade's fields: the source's terms, which a condition reads; what the user sets; and each module's typed column
     /// (ADR-0010 §10), named by its id or its title, such as XVA's Margin. A module's result column, such as PV01, is not a
     /// field: it changes with no edit, so a condition on it would depend on when it was asked. A module's amount is in
-    /// the trade's currency and is typed as its grid cell is, a plain number (-3000, -3k), never in millions.
+    /// the trade's currency and is typed as its grid cell is, a plain number (-3000, -3k), never in millions. Every field
+    /// but B and A has a group (ADR-0016 note 51).
     /// </summary>
     public static IReadOnlyList<TableField> Trade(MeasureRegister register) =>
     [
-        new("tradeId", "Trade", ["trade id", "id"], FieldForm.Id),
-        new("product", "Product", ["product"], FieldForm.Id),
-        new("currency", "Currency", ["ccy", "currency"], FieldForm.Choice, Choices: Currencies),
-        new("notional", "Notional", ["notional"], FieldForm.SignedAmount, Editable: true, UnitField: "currency"),
-        new("maturity", "Maturity", ["maturity"], FieldForm.Date),
-        new("fixedRate", "Fixed rate", ["rate", "fixed rate"], FieldForm.Rate, Editable: true, Optional: true),
-        new("schedule", "Schedule", ["schedule"], FieldForm.Choice, Editable: true, Choices: Schedules),
-        new("lastFixing", "Last fixing", ["last fixing"], FieldForm.Rate, Optional: true),
-        new("officialPv", "Official PV", ["official pv"], FieldForm.SignedAmount, Optional: true, UnitField: "currency"),
+        new("tradeId", "Trade", ["trade id", "id"], FieldForm.Id, Group: Identity),
+        new("product", "Product", ["product"], FieldForm.Id, Group: Identity),
+        new("currency", "Currency", ["ccy", "currency"], FieldForm.Choice, Choices: Currencies, Group: Terms),
+        new("notional", "Notional", ["notional"], FieldForm.SignedAmount, Editable: true, UnitField: "currency", Group: Terms),
+        new("maturity", "Maturity", ["maturity"], FieldForm.Date, Group: Dates),
+        new("fixedRate", "Fixed rate", ["rate", "fixed rate"], FieldForm.Rate, Editable: true, Optional: true, Group: Terms),
+        new("schedule", "Schedule", ["schedule"], FieldForm.Choice, Editable: true, Choices: Schedules, Group: Terms),
+        new("lastFixing", "Last fixing", ["last fixing"], FieldForm.Rate, Optional: true, Group: Terms),
+        new("officialPv", "Official PV", ["official pv"], FieldForm.SignedAmount, Optional: true, UnitField: "currency", Group: Valuation),
         // The legs' PVs in the display currency (ADR-0016 note 49). Written, it leaves the trade one leg of the amount,
         // in the currency written with it or the display currency. The unit is the workspace's, which the table says
         // when it describes itself for one (PortfolioTables).
-        new(PortfolioLegs.Pv, "PV", ["pv"], FieldForm.Number, Editable: true, Optional: true, Figure: new(PortfolioTables.Legs, new(FieldForm.Money, Choices: Currencies))),
-        new(PortfolioLegs.IndependentAmount, "Independent amount", ["independent amount"], FieldForm.Number, Optional: true, Figure: new(PortfolioTables.Amounts)),
-        new("csa", "CSA", ["csa"], FieldForm.Id, Editable: true, Table: PortfolioTables.Csas),
-        new("curve", "Discount curve", ["curve", "discount curve"], FieldForm.Id, Editable: true),
-        new("imR", "IM-R", ["im-r", "imr"], FieldForm.Id, Editable: true, Optional: true),
-        new("imP", "IM-P", ["im-p", "imp"], FieldForm.Id, Editable: true, Optional: true),
+        new(PortfolioLegs.Pv, "PV", ["pv"], FieldForm.Number, Editable: true, Optional: true, Group: Valuation,
+            Figure: new(PortfolioTables.Legs, new(FieldForm.Money, Choices: Currencies))),
+        new(PortfolioLegs.IndependentAmount, "Independent amount", ["independent amount"], FieldForm.Number, Optional: true, Group: Valuation, Figure: new(PortfolioTables.Amounts)),
+        new("csa", "CSA", ["csa"], FieldForm.Id, Editable: true, Table: PortfolioTables.Csas, Group: Agreement),
+        new("curve", "Discount curve", ["curve", "discount curve"], FieldForm.Id, Editable: true, Group: Agreement),
+        new("imR", "IM-R", ["im-r", "imr"], FieldForm.Id, Editable: true, Optional: true, Group: Agreement),
+        new("imP", "IM-P", ["im-p", "imp"], FieldForm.Id, Editable: true, Optional: true, Group: Agreement),
+        // B and A are membership, and under no group.
         new("before", "Before", ["B", "before"], FieldForm.Flag, Editable: true),
         new("after", "After", ["A", "after"], FieldForm.Flag, Editable: true),
         .. register.TradeColumns.Where(c => c.Editable).Select(c => new TableField(c.Field, c.Title,
             [.. new[] { Words(c.Field[(c.Field.IndexOf('.') + 1)..]), Words(c.Title), Words(Unit().Replace(c.Title, "")) }.Distinct()], FieldForm.Number, Editable: true,
-            UnitField: c.Type == "amount" ? "currency" : null)),
+            UnitField: c.Type == "amount" ? "currency" : null, Group: Valuation)),
+        // The fields beyond the grids (ADR-0016 note 51): identity, agreement, break and model.
+        .. PortfolioDetails.TradeFields,
     ];
 
     /// <summary>
@@ -418,7 +424,7 @@ public sealed class PortfolioTables(MeasureRegister register) : ITableCatalog
                 // The figures of the rows under the trade (ADR-0016 note 49), read when asked.
                 PortfolioLegs.Pv => PortfolioLegs.PvOf(reading, t.TradeId),
                 PortfolioLegs.IndependentAmount => PortfolioLegs.IndependentAmountOf(reading, t.TradeId),
-                _ => columns.Contains(f) ? shared.WithCells.Value[i].Cells?.GetValueOrDefault(f)?.Value?.DeepClone() : PortfolioFields.Value(t, f),
+                _ => columns.Contains(f) ? shared.WithCells.Value[i].Cells?.GetValueOrDefault(f)?.Value?.DeepClone() : PortfolioFields.Value(reading, t, f),
             }))];
         }
 

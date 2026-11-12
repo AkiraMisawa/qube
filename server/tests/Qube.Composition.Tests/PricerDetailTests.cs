@@ -182,4 +182,148 @@ public class PricerDetailTests
         Assert.True(Details(0, "CSA-A").ContainsKey("userDefined") && Details(0, "CSA-A")["userDefined"] is null);
         Assert.True(Details(0, "CSA-A").ContainsKey("counterpartyVmCap") && Details(0, "CSA-A")["counterpartyVmCap"] is null);
     }
+
+    const string Swap = "ABC-LE-01-E00004", Forward = "ABC-LE-01-E00003";
+
+    static readonly string[] Identity = ["requestedId", "tradeType", "sourceProductType", "simmProductClass", "userDefined", "masterAgreement", "nettingSet"];
+
+    static readonly string[] BreakAndModel =
+        ["breakDate", "breakMandatory", "modelId", "pricerId", "interpolationId", "domesticCurrency", "irModel", "irBasis", "equityModel", "creditModel", "inflationModel", "unmodelledMethod"];
+
+    [Fact] // ADR-0016 note 51: a trade's identity and its agreement are the source's, read by their words, and no command sets them
+    public void A_trades_identity_and_agreement_are_the_sources_and_no_command_sets_them()
+    {
+        var rig = new PricerRig();
+
+        Assert.Equal("REQ-ABC-LE-01-E00004 Swap IR-SWAP-FIXFLT RatesFX empty MA-001 NS-001", rig.Written(PortfolioTables.Trades, Swap, Identity));
+        Assert.Equal("REQ-ABC-LE-01-E00003 Forward FX-FWD RatesFX empty MA-001 NS-001", rig.Written(PortfolioTables.Trades, Forward, Identity));
+        // A new trade is priced under the agreement it would join.
+        Assert.Equal("REQ-DRAFT-1 MA-001 NS-001", rig.Written(PortfolioTables.Trades, "DRAFT-1", "requestedId", "masterAgreement", "nettingSet"));
+        Assert.Equal(rig.Keys("trades where product=FXForward"), rig.Keys("trades where trade type=Forward"));
+        Assert.Contains(Forward, rig.Keys("trades where source product=FX-FWD"));
+        Assert.StartsWith("NotEditable: trade type is not a field a command sets", Read(rig.Preview("set E00004 trade type Cap")));
+        Assert.StartsWith("NotEditable: master agreement is not a field a command sets", Read(rig.Preview("set E00004 ma MA-009")));
+    }
+
+    [Fact] // ADR-0016 note 51: a trade's break and its model are read from the source and set by their words
+    public async Task A_trades_break_and_model_are_set()
+    {
+        var rig = new PricerRig();
+        Assert.Equal("empty off M-IR-01 P-SWAP-01 I-LIN-01 JPY HW1F deterministic empty empty empty mtm-only", rig.Written(PortfolioTables.Trades, Swap, BreakAndModel));
+        Assert.Equal("M-FX-01 P-FWD-01", rig.Written(PortfolioTables.Trades, Forward, "modelId", "pricerId"));
+
+        Assert.Equal("Set ABC-LE-01-E00004 break date to 2028-06-30.", await rig.Run("set E00004 break 2028-06-30"));
+        await rig.Run("set E00004 mandatory break=on ir model=hw2f ir basis=stochastic model=M-IR-02 unmodelled=addon credit model=cir domestic ccy=usd");
+
+        Assert.Equal("2028-06-30 on M-IR-02 P-SWAP-01 I-LIN-01 USD HW2F stochastic empty cir empty addon", rig.Written(PortfolioTables.Trades, Swap, BreakAndModel));
+        Assert.Equal([Swap], rig.Keys("trades where ir model=HW2F"));
+        Assert.Equal(["ABC-LE-01-E00004 break date: empty to 2028-06-30", "ABC-LE-01-E00004 mandatory break: off to on"], Listed(rig)[..2]);
+        // Empty again where the field may be, and the source's by reset.
+        await rig.Run("set E00004 break empty");
+        await rig.Run("reset E00004 ir model");
+        Assert.Equal("empty HW1F", rig.Written(PortfolioTables.Trades, Swap, "breakDate", "irModel"));
+    }
+
+    [Theory] // ADR-0016 note 51: each is checked by its form as it is typed
+    [InlineData("set E00004 break someday", "InvalidValue: ABC-LE-01-E00004 break date is a date, yyyy-mm-dd, or empty; someday is not.")]
+    [InlineData("set E00004 ir model vasicek", "InvalidValue: ABC-LE-01-E00004 ir model is one of HW1F, HW2F, LMM; vasicek is not.")]
+    [InlineData("set E00004 ir model empty", "InvalidValue: ABC-LE-01-E00004 ir model is one of HW1F, HW2F, LMM; empty is not.")]
+    [InlineData("set E00004 mandatory break perhaps", "InvalidValue: ABC-LE-01-E00004 mandatory break is on or off; perhaps is not.")]
+    public void A_trades_break_and_model_are_checked_by_their_forms(string line, string refused) => Assert.Equal(refused, Read(new PricerRig().Preview(line)));
+
+    [Theory] // ADR-0016 note 51: and however it arrives
+    [InlineData("breakDate", "\"soon\"", "break date is a date, yyyy-mm-dd, or empty.")]
+    [InlineData("breakMandatory", "null", "mandatory break is true or false.")]
+    [InlineData("modelId", "\"two words\"", "model id is an identifier of one word.")]
+    [InlineData("pricerId", "null", "pricer id is an identifier of one word.")]
+    [InlineData("irModel", "\"vasicek\"", "ir model is one of HW1F, HW2F, LMM.")]
+    [InlineData("equityModel", "\"vasicek\"", "equity model is one of black-scholes, local-vol, heston, or empty.")]
+    public void A_trades_break_and_model_are_checked_however_they_arrive(string field, string json, string problem)
+    {
+        var rig = new PricerRig();
+        var refused = Assert.Throws<WorkspaceRefused>(() => rig.Service.Edit(rig.Id, rig.State.Revision, "akira", $"trade:{Swap}", field, JsonNode.Parse(json)));
+        Assert.Equal(("InvalidValue", problem), (refused.Code, refused.Message));
+        Assert.Equal("NotEditable", Assert.Throws<WorkspaceRefused>(() => rig.Service.Edit(rig.Id, rig.State.Revision, "akira", $"trade:{Swap}", "tradeType", "Cap")).Code);
+    }
+
+    [Fact] // ADR-0016 note 53 (owner, 2026-11-12): each trade Price freezes carries every field beyond the grids as the case holds it, an empty one as empty
+    public async Task The_accepted_input_carries_each_trades_details_as_set()
+    {
+        var rig = new PricerRig();
+        await rig.Run("set E00004 break=2028-06-30 mandatory break=on ir model=hw2f credit model=cir");
+        await rig.Run("vary ABC-LE-01-E00004 ir model lmm");
+
+        var input = await rig.Priced();
+
+        JsonObject Details(int @case, string id) => input["cases"]![@case]!["trades"]!.AsArray().Single(t => t!["tradeId"]!.GetValue<string>() == id)!["details"]!.AsObject();
+        Assert.Equal("""
+            {"requestedId":"REQ-ABC-LE-01-E00004","tradeType":"Swap","sourceProductType":"IR-SWAP-FIXFLT","simmProductClass":"RatesFX","userDefined":null,
+            "masterAgreement":"MA-001","nettingSet":"NS-001","breakDate":"2028-06-30","breakMandatory":true,
+            "modelId":"M-IR-01","pricerId":"P-SWAP-01","interpolationId":"I-LIN-01","domesticCurrency":"JPY","irModel":"HW2F","irBasis":"deterministic",
+            "equityModel":null,"creditModel":"cir","inflationModel":null,"unmodelledMethod":"mtm-only"}
+            """.ReplaceLineEndings("").Replace("            ", ""), Details(0, Swap).ToJsonString());
+        // The case's own value, and the rest as the Base holds it.
+        Assert.Equal(("LMM", "2028-06-30"), (Details(1, Swap)["irModel"]!.GetValue<string>(), Details(1, Swap)["breakDate"]!.GetValue<string>()));
+        // A trade no one touched carries the source's, a new trade among them.
+        Assert.Equal(("FX-FWD", "M-FX-01"), (Details(0, Forward)["sourceProductType"]!.GetValue<string>(), Details(0, Forward)["modelId"]!.GetValue<string>()));
+        Assert.True(Details(0, "DRAFT-1").ContainsKey("breakDate") && Details(0, "DRAFT-1")["breakDate"] is null);
+    }
+
+    [Fact] // ADR-0016 note 51, ADR-0003: an edit of a field beyond the grids is carried when the source is acquired again, as any edit is
+    public async Task An_edit_of_a_field_beyond_the_grids_survives_a_reacquisition()
+    {
+        var rig = new PricerRig();
+        await rig.Run("set E00004 ir model hw2f");
+        await rig.Run("set CSA-B self vm cap 5mm");
+
+        var (_, carried) = rig.Service.ChangeValueDate(rig.Id, rig.State.Revision, "akira", PricerRig.Day1.AddDays(1));
+
+        Assert.Equal(new CarrySummary(2, 0, 0), carried);
+        Assert.Equal("HW2F", rig.Written(PortfolioTables.Trades, Swap, "irModel"));
+        Assert.Equal("5mm", rig.Written(PortfolioTables.Csas, "CSA-B", "selfVmCap"));
+        Assert.Equal(["ABC-LE-01-E00004 ir model: HW1F to HW2F", "CSA-B self vm cap: empty to 5mm"], Listed(rig));
+    }
+
+    [Fact] // ADR-0016 note 51, D07: a new trade's model is its own content, which stays with it through a counterparty change; a CSA's term is the counterparty's
+    public async Task A_new_trades_model_stays_with_it_through_a_counterparty_change()
+    {
+        var rig = new PricerRig();
+        await rig.Run("set DRAFT-1 ir model=lmm break=2029-01-15");
+        await rig.Run("set CSA-B self vm cap 5mm");
+
+        rig.Service.ChangeCounterparty(rig.Id, rig.State.Revision, "akira", "ABC/LE-02", 1);
+
+        Assert.Equal("LMM 2029-01-15 MA-002", rig.Written(PortfolioTables.Trades, "DRAFT-1", "irModel", "breakDate", "masterAgreement"));
+        Assert.Equal(["DRAFT-1 ir model: HW1F to LMM", "DRAFT-1 break date: empty to 2029-01-15"], Listed(rig));
+    }
+
+    [Fact] // ADR-0016 note 51: every field of the trades and of the CSAs has a group, B and A alone having none, and the AI is told each
+    public async Task Every_field_of_the_trades_and_the_CSAs_has_a_group()
+    {
+        var described = await new PricerRig().Described();
+
+        string[] Groups(string table) => [.. described["fields"]!.AsArray().Where(f => f!["table"]!.GetValue<string>() == table)
+            .GroupBy(f => f!["group"]?.GetValue<string>()).Select(g => $"{g.Key ?? "none"}: {string.Join(", ", g.Select(f => f!["name"]!.GetValue<string>()))}")];
+        Assert.Equal(
+        [
+            "Identity: tradeId, product, requestedId, tradeType, sourceProductType, simmProductClass, userDefined",
+            "Terms: currency, notional, fixedRate, schedule, lastFixing",
+            "Dates: maturity, breakDate, breakMandatory",
+            "Valuation: officialPv, pv, independentAmount, xva.margin, xva.pvAdj",
+            "Agreement: csa, curve, imR, imP, masterAgreement, nettingSet",
+            "none: before, after",
+            "Model: modelId, pricerId, interpolationId, domesticCurrency, irModel, irBasis, equityModel, creditModel, inflationModel, unmodelledMethod",
+        ], Groups(PortfolioTables.Trades));
+        Assert.Equal(
+        [
+            "General: csaId, type, counterparty, nettingSet, agreementName, enforceable, main, userDefined",
+            "Counterparty: counterpartyThreshold, counterpartyMta, counterpartyCurrency, counterpartyPosts, counterpartyVmCap, counterpartyVmCapCurrency, "
+                + "counterpartyIndependentAmount, counterpartyRounding, counterpartyDeliverRounding, counterpartyReturnRounding",
+            "Self: selfThreshold, selfMta, selfCurrency, selfPosts, selfVmCap, selfVmCapCurrency, selfIndependentAmount, selfRounding, selfDeliverRounding, selfReturnRounding",
+            "Terms: currency, curve, fvaCurve, frequency, exchange, oneWay",
+        ], Groups(PortfolioTables.Csas));
+        // The CSA's templates are described with the currency each takes.
+        Assert.Equal(["2way", "1way-self", "1way-cpty", "none"], described["templates"]!.AsArray().Where(t => t!["table"]!.GetValue<string>() == PortfolioTables.Csas).Select(t => t!["name"]!.GetValue<string>()));
+        Assert.All(described["templateTerms"]!.AsArray(), t => Assert.Equal(("currency", true, true), (t!["name"]!.GetValue<string>(), t["required"]!.GetValue<bool>(), t["typedAlone"]!.GetValue<bool>())));
+    }
 }
