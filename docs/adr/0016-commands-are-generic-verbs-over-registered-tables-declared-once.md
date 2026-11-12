@@ -2085,6 +2085,40 @@ has one button, edit; and `load trades` reads a synthetic store of booked trades
       has an issue, which refuses Price); were one to, building the input throws. The tests of the input held
       what the code computes in two places; they hold literals now, with a case other than the Base, a CSA no
       priced trade is under, and an uncollateralised counterparty.
+54. **A draft is its lines (§10; 5c).** §10 says a draft is view state: the row, the revision it was opened at
+    and its changes. Its changes are held as lines.
+    - **A line of a draft is a whole line of the workbench that names the row** (`set E00003 notional 5bn`, `new
+      leg E00003 eur 250,000`, `remove legs E00003/1`), as the log would name the command. A draft so needs no
+      reader of its own: what reads the line typed at the workbench reads it in a draft, and a draft can be read
+      again by anything that holds its lines.
+    - **The server reads the lines in order and stores nothing.** Each line's changes are worked on the state
+      the lines before it left, which is written nowhere (as a batch checks its later changes against its
+      earlier ones, note 9). A command says the changes its line would write only where it can be part of a
+      draft: `set`, `reset`, `new` and `remove`.
+    - **The form** is what the page draws a dialog from: the row's fields in the table's order, each with its
+      group, its value as written and whether the draft changed it; each table under the row with its rows as
+      the draft leaves them, a row the draft made and one it removed each marked; the table's templates; each
+      line with the sentence it was accepted with; and Original, the row as the source alone gives it.
+    - **A line that no longer reads** is answered with its refusal and the form of the lines before it. The lines
+      after it are not read: each was accepted on what the ones before it left.
+    - **A draft carries its revision.** One the workspace has left is refused, saying the revision the workspace
+      is at and the commands that moved it, so nothing typed before is silently read on other rows.
+    - **A draft is of the workspace's own rows**, the layer every grid shows. §10's "a dialog shows one layer" is
+      kept by its two tabs (the owner's answer of 2026-11-11): Original, read-only, and Live, the draft.
+55. **The line acts on a draft (§10; 5c).** The view a preview is asked with carries the draft.
+    - **`set`, `reset`, `new` and `remove` are read for the draft's row** on the state its lines leave. `set
+      notional 5bn` names no row and means the draft's; `new leg eur 250,000` makes a row under it; `remove leg 1`
+      takes the row under it of that number. A line that names another row is refused: a draft is of one row.
+    - **Such a line is answered as pending**: the whole line the draft gains and what it would change. It has no
+      command to invoke, and Enter adds it to the draft.
+    - **`apply` is one command.** It reads the lines again at the draft's revision and writes every change as
+      one batch, which the log names by the row and the count of lines and one `undo` takes back whole. It is
+      refused where the workspace moved, as the form is.
+    - **`cancel`** is a verb of the screen: the page discards the draft.
+    - **Every other command is refused while the draft is open**, saying whose draft it is and that `apply` or
+      `cancel` ends it; `price` is among them (Price takes committed state only). The verbs of the screen that
+      change nothing (`find`, `sort`, `filter`, `select`, `copy`, `export`) stay.
+    - **The line says the draft it is on**: the row and how many lines are pending.
 
 ## Rejected
 
