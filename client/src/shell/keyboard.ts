@@ -5,9 +5,14 @@
 
 let before: HTMLElement | null = null;
 
-/** Remembers where the keyboard is as the line opens; an opening that already remembers a place keeps it. */
-export function rememberKeyboard(): void {
-  if (before === null && document.activeElement instanceof HTMLElement && document.activeElement !== document.body) before = document.activeElement;
+/**
+ * Remembers where the keyboard is as the line opens, or the place it is to go back to where the line is opened for one
+ * (a tab's Rename opens it for its tab); an opening that already remembers a place keeps it.
+ */
+export function rememberKeyboard(place?: HTMLElement): void {
+  if (before !== null) return;
+  const at = place ?? document.activeElement;
+  if (at instanceof HTMLElement && at !== document.body) before = at;
 }
 
 export function letGo(): void {

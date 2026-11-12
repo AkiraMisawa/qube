@@ -128,6 +128,15 @@ describe('arrange and arrange back (ADR-0018 §8)', () => {
     expect(notify).toHaveBeenCalledWith('done', `Arranged as proposal ${n}: 2 areas. 1 panel the proposal did not place is in the area of B, the first in reading order. To put back what it replaced: arrange back.`);
   });
 
+  // ADR-0006 note 9: a panel the user renames is called so now, so a proposal that placed it by its old name is stale.
+  it('ADR-0006 note 9: refuses a proposal whose panel has been renamed since, and moves nothing', () => {
+    const { id, command, replaced, store } = page(['A', 'B']);
+    const { n } = proposed(SIDE_BY_SIDE, [{ area: 'left', panel: id(0), title: 'A', shown: true }, { area: 'right', panel: id(1), title: 'B', shown: true }]);
+    store.getState().renamePanel(id(0), 'Hedge desk');
+    expect(execute(command('panel.arrange'), { proposal: String(n) })).toBe(`Proposal ${n} places ${id(0)} as A, and it is Hedge desk now; nothing was moved.`);
+    expect(replaced).toEqual([]);
+  });
+
   it('refuses by name a proposal whose panel has closed or been retitled since, and moves nothing', () => {
     const { id, command, replaced, store } = page(['A', 'B', 'C']);
     const { n } = proposed(SIDE_BY_SIDE, [{ area: 'left', panel: id(0), title: 'A', shown: true }, { area: 'right', panel: id(1), title: 'B', shown: true }]);

@@ -203,6 +203,34 @@ make the good operations commands too"). DEFAULT, decided as recommended and rep
      `unmaximize panel`, `gather panels`, `arrange`) are declared in `panelVerbs.ts` as note 7's are, and are the
      client's in the same way. Their words are settled in `docs/specs/panels-1-areas/spec.md`.
 
+## Notes of 2026-11-12: a panel's name
+
+Asked by the owner on 2026-11-12 ("can a tab's name be changed?", then "let's support renaming"). DEFAULT, decided as
+recommended and reported.
+
+9. **A panel takes a name of the user's, on the line** (extends 7).
+   - *The name.* `rename panel <name>` gives the active panel a name of the user's, shown in place of its page's title
+     in the strip, the list, the tab's menu, `show panel`, every command's target and the AI pane's card for a panel
+     the AI opened. The page's own title is kept: the name is the panel's, never the page's or its workspace's, so
+     two panels of one workspace may be named apart. The page's title back is `rename panel` with that title, in any
+     case, which the line completes. Spaces around a name are dropped and runs of them made one. A name is at most 60
+     characters: a tab shows about half of that, and every request to the AI carries each panel's name.
+   - *Numbering* (note 7) goes by what a panel is called, its name or else its title, told apart regardless of case,
+     as `show panel` reads them. A panel renamed takes the lowest number free among its new name; the others keep
+     theirs while they are open, as they do when a panel of their name closes. A name ending in `·` and a number is
+     refused, saying why: the strip would read it as one of its numbers.
+   - *Where it is typed.* A tab's menu and the list have Rename (the list is a phone's way), and F2 on a focused tab
+     and a double click on a tab do the same:
+     each shows that panel and opens the line on `rename panel` with the name it has, selected, so typing replaces it
+     as a field for a name opens on the name. Enter names the panel; Escape names nothing. The keyboard goes back to
+     the tab as the line closes, from a menu a key opened as well. There is no field in the tab itself: the line is
+     where the name is typed, and the menu teaches its words (note 7).
+   - *Kept.* A panel closed keeps its name, and `reopen panel` brings it back with it and its number. The browser
+     tab keeps the names across a reload (note 8); one this version could not have given is refused with the rest.
+   - *An arrangement the AI proposed* names panels as they were called (ADR-0018 §8): one renamed since is refused by
+     that proposal's Apply, saying what it is called now, as for any panel whose title changed.
+   - *It is the client's*, as note 7's verbs are: not logged, not undone, not the AI's (ADR-0016 §3).
+
 ## Changed from the proposal
 
 The owner's corrections, 2026-10-27: the command line and the AI chat's slash commands are separate, and `/` opens

@@ -51,7 +51,7 @@ for (const width of [768, 390]) {
     await expect(list.getByRole('menuitem')).toHaveText([
       'Pricing DB', 'Rates 2026-10-27', 'Rates 2026-10-27 · 2', 'Rates 2026-10-27 · 3', 'Rates 2026-10-27 · 4', 'Rates 2026-10-27 · 5',
       // The active panel's verbs, each with the words the line takes.
-      /^Close.*close panel$/, /^Close others/, /^Close to the right/, /^Close all/, /^Pin/, /^Move left/, /^Move right/,
+      /^Close.*close panel$/, /^Close others/, /^Close to the right/, /^Close all/, /^Pin/, /^Move left/, /^Move right/, /^Rename…rename panel$/,
       // In an area, the verbs that arrange (ADR-0018 §3); the phone's one strip has no areas to arrange.
       ...(width === 390 ? [] : [/^Split/, /^Send to/, /^Float/, /^Size/, /^Maximize/, /^Gather all panels here/]),
       /^Reopen closed panel/,
@@ -135,3 +135,73 @@ test('ADR-0006 note 7: a tab dragged onto another takes its place', async ({ pag
   await tab(page, 'Rates 2026-10-27 · 5').dragTo(tab(page, 'Rates 2026-10-27'));
   await expect.poll(() => labels(page)).toEqual(['Pricing DB', 'Rates 2026-10-27 · 5', 'Rates 2026-10-27', 'Rates 2026-10-27 · 2', 'Rates 2026-10-27 · 3', 'Rates 2026-10-27 · 4']);
 });
+
+// ADR-0006 note 9: a tab's Rename, its F2, its double click and the list's Rename (a phone's way) open the line on
+// `rename panel`, the name typed and selected, so typing replaces it; the keyboard goes back to the tab as the line
+// closes. In an area's strip at 1280px and in the phone's one strip, whose tabs and keys are drawn apart.
+for (const width of [1280, 390]) {
+  test(`ADR-0006 note 9: at ${width}px a tab is renamed on the line from its menu, F2, a double click and the list`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 800 });
+    await open(page);
+    await command(page, 'open pricing db');
+    await settled(page, 'Pricing DB');
+    await newRates(page, 'Rates 2026-10-27');
+    await newRates(page, 'Rates 2026-10-27 · 2');
+    const line = page.getByRole('combobox', { name: 'Command' });
+    /** The line's text, and the part of it selected. */
+    const typed = () => line.evaluate((input: HTMLInputElement) => ({ value: input.value, selected: input.value.slice(input.selectionStart ?? 0, input.selectionEnd ?? 0) }));
+    /** The line is open on `rename panel` with this name selected, and has the keyboard. */
+    const renaming = async (name: string) => {
+      await expect(line).toBeFocused();
+      await expect.poll(typed).toEqual({ value: `rename panel ${name}`, selected: name });
+    };
+
+    // From a tab that is not shown: the menu shows it, and the line names it.
+    await tab(page, 'Rates 2026-10-27').click({ button: 'right' });
+    await page.getByRole('menu', { name: 'Rates 2026-10-27', exact: true }).getByRole('menuitem', { name: /^Rename/ }).click();
+    await renaming('Rates 2026-10-27');
+    await expect(tab(page, 'Rates 2026-10-27')).toHaveAttribute('aria-selected', 'true');
+    await page.keyboard.type('Hedge desk');
+    await page.keyboard.press('Enter');
+    await expect(line).toBeHidden();
+    await expect(tab(page, 'Hedge desk')).toHaveAttribute('aria-selected', 'true');
+    await expect(tab(page, 'Hedge desk')).toBeFocused();
+
+    // F2 on the focused tab; Escape names nothing, and the keyboard is the tab's again.
+    await tab(page, 'Pricing DB').click();
+    await page.keyboard.press('F2');
+    await renaming('Pricing DB');
+    await page.keyboard.press('Escape');
+    await expect(line).toBeHidden();
+    await expect(tab(page, 'Pricing DB')).toBeFocused();
+
+    // The menu a key opened, Rename reached by the arrows: the line has the keyboard, not the tab, until it closes. At
+    // 1280px this is the first tab of an area at the window's edge, whose menu is drawn too.
+    await page.keyboard.press('Shift+F10');
+    const menu = page.getByRole('menu', { name: 'Pricing DB', exact: true });
+    await expect(menu.getByRole('menuitem', { name: /^Close.*close panel$/ })).toBeFocused();
+    for (let i = 0; i < 7; i += 1) await page.keyboard.press('ArrowDown');
+    await expect(menu.getByRole('menuitem', { name: /^Rename/ })).toBeFocused();
+    await page.keyboard.press('Enter');
+    await renaming('Pricing DB');
+    await page.keyboard.type('Book');
+    await page.keyboard.press('Enter');
+    await expect(tab(page, 'Book')).toBeFocused();
+
+    // The list's Rename, which a touch screen reaches: the shown panel's name.
+    await page.getByRole('button', { name: 'All panels (3)' }).click();
+    await page.getByRole('menu', { name: 'All panels (3)', exact: true }).getByRole('menuitem', { name: /^Rename/ }).click();
+    await renaming('Book');
+    await page.keyboard.type('Runs');
+    await page.keyboard.press('Enter');
+    await expect(tab(page, 'Runs')).toBeFocused();
+
+    // A double click; its page's title gives the panel that title back, and the lowest number free among that title.
+    await tab(page, 'Hedge desk').dblclick();
+    await renaming('Hedge desk');
+    await page.keyboard.type('Rates 2026-10-27');
+    await page.keyboard.press('Enter');
+    await expect(line).toBeHidden();
+    await expect.poll(() => labels(page)).toEqual(['Runs', 'Rates 2026-10-27', 'Rates 2026-10-27 · 2']);
+  });
+}
