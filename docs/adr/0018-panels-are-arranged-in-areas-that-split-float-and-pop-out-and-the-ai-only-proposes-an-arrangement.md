@@ -6,7 +6,7 @@ tab, or float and dock its parts one by one as Bloomberg's terminal does? The ow
 
 What it changes in earlier decisions, each said where it is decided:
 
-- **ADR-0006 note 7** (the panels' tabs, in the pull request that manages them): its verbs act within the panel's area
+- **ADR-0006 note 7** (the panels' tabs, merged in #29): its verbs act within the panel's area
   (§1), and "the panels are kept while the page is loaded" becomes "kept by the browser tab across a reload" (§7).
 - **ADR-0007 §7 and §8**: the AI pane's card gains a button that applies a proposal, and the context the pane sends
   gains the open panels and their arrangement (§8).
@@ -15,8 +15,8 @@ What it changes in earlier decisions, each said where it is decided:
 - **docs/design-guidelines.md §9**, which has layouts respond to the window with media queries: a page responds to its
   area (§5). The guidelines change with step 1, before its code (ADR-0009).
 
-Each of these gets a note in its own ADR in step 1's pull request, before its code (docs/agents/domain.md); ADR-0006
-note 7 is not merged yet. Every point below not marked CONFIRMED or OPEN is DEFAULT.
+Each of these gets a note in its own ADR in step 1's pull request, before its code (docs/agents/domain.md). Every point
+below not marked CONFIRMED or OPEN is DEFAULT.
 
 ## Context
 
@@ -271,8 +271,8 @@ The AI pane stays in the main window.
 DEFAULT.
 
 1. In the window: areas, splits, floating, maximising, the verbs and gestures, widths read by area, the arrangement
-   kept by the tab, and the AI's proposal. Built after this ADR is accepted and the pull request that manages the
-   panels' tabs (note 7) is merged. It changes the pricer's files (the section switch, the full-height button,
+   kept by the tab, and the AI's proposal. Built after this ADR is accepted, on main, which has had note 7's tabs since
+   #29. It changes the pricer's files (the section switch, the full-height button,
    `xva.css`) last, after the pull requests open on them at that time are merged: ADR-0016's step 5 and note 7's
    per-panel page state, which changes the same section switch. Whichever of step 1 and that page-state pull request
    comes second is built on the first.
