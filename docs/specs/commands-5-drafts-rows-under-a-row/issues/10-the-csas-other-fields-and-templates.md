@@ -7,9 +7,11 @@ group, and four templates that take a currency.
 
 **Blocked by:** 09.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Each field is read from the synthetic source and named in a command by its words, with its group's where two
+- [x] Each field is read from the synthetic source and named in a command by its words, with its group's where two
       sides share a word.
-- [ ] A field the source holds and no one edits is refused as not editable.
-- [ ] Each of the four templates writes its terms for the currency given.
+- [x] A field the source holds and no one edits is refused as not editable.
+- [x] Each of the four templates writes its terms for the currency given.
+- [x] Each CSA of the accepted input carries the fields under `details`, as the case holds them (ADR-0016 note 53,
+      added 2026-11-12).

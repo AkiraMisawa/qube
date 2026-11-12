@@ -1981,6 +1981,11 @@ has one button, edit; and `load trades` reads a synthetic store of booked trades
     - **Checked when the tables are read:** a template that writes a field its table has not, one no command sets
       or a figure, and two templates that answer to one word, fail by name. At a write, an answer that names a
       field the template did not declare, or leaves one out, is the registration's defect and throws.
+    - *Added as built.* `as` ends the rows as `where` does, so a row whose id is `as` cannot be said alone; no
+      table of the samples has one. With no rows written, `set as <template>` is read for the rows a `set` with no
+      rows means: the grid's selection where the grid's table has the template, or a table of one row that has it.
+      A row that would change nothing is counted, and where no row would change the line says the rows already
+      hold every value.
     - Not built: `new` making a row from a template (§1). No table of the samples makes its rows from one yet
       (the pricer's hypothetical CSA is ADR-0010 §8's, not built); it comes with the first that does.
 51. **The pricer's fields beyond its grids (5b; the sample's own, every value synthetic).** The owner chose that the
@@ -2010,21 +2015,43 @@ has one button, edit; and `load trades` reads a synthetic store of booked trades
       edit by hand can leave them saying different things, and no simulated measure reads the side's flag.
       Whether `one-way` should become what the two flags say is put to the owner with the summary of decisions
       made for him.
+    - *Added as built.*
+      - A word the two sides share (`posts`, `vm cap`, `rounding`) names neither alone: it is refused with the two
+        it could be. `threshold` and `mta` alone stay the counterparty's, as the grid's first columns are.
+      - A side's VM cap may be empty, which is no cap, and has a currency of its own; its independent amount and
+        its rounding are in the side's currency. A delivery and a return are rounded `up`, `down` or `nearest`.
+      - A trade's model fields choose from textbook names (an IR model of `HW1F`, `HW2F` or `LMM`, a basis that is
+        `deterministic` or `stochastic`); the equity, credit and inflation models may be empty, and are for a swap
+        and an FX forward. The ids are one word each.
+      - The synthetic source works each value from what it holds already: a trade's identity from its id and its
+        product, its agreement from the counterparty's, no break, and its product's usual model. A new trade reads
+        the agreement it would join, so a counterparty change moves that and keeps what the user set on the trade:
+        an edit of a new trade's break or model is the trade's own content (ADR-0003 §7), as its notional is.
+      - `vary` names an editable one as it names a cell, since a cell is a field the table says a command sets,
+        and the Changes tab lists an edit of one by its row and its words and takes a value typed over it.
+      - A value is checked wherever it comes from: typed in a line it is read by the field's form, and one that
+        arrives as a value (the API, a typed cell) is refused in the field's words (`self vm cap is an amount of 0
+        or more, or empty.`).
+      - The fields are listed after the grid's, so a refusal that lists a table's fields is long (a trade has
+        more than thirty). Their groups say how to draw them; the order of the groups is the dialog's to say (5c).
 52. **The CSA's four templates (5b).** `2way` (both sides post), `1way-self` (we post alone), `1way-cpty` (the
     counterparty posts alone) and `none` (no collateral). Each takes a currency, by name or alone, and writes the
     CSA's currency and each side's, `exchange`, `one-way`, who posts, and both sides' threshold and MTA as 0. Curves,
     frequency, VM caps, independent amounts and rounding stay as they are and are changed with `set`: the market
     has no curve for every currency a CSA may be in, and none is guessed. The owner's examples give the four
     templates and that each takes a currency; what each writes beyond who posts is the sample's own.
+    *Added as built:* `exchange` is on where either side posts and `one-way` where exactly one does. A template
+    also answers to its words: `two-way`, `one-way self`, `one-way cpty` or `one-way counterparty`, `no
+    collateral`.
 53. **The accepted input carries what the user set (owner, 2026-11-12; 5b).** The owner, the same day he put off
     the measures: what matters for now is that the input to the analytics is built correctly and as expected. A
     value a user can set is therefore in what Price freezes exactly as set, whether or not a simulated measure
     reads it; a value left out because nothing reads it yet is the defect the real analytics would meet.
-    - **Each trade of a case carries its `legs` and its `independentAmounts`**, as the reading of that case holds
-      them: a leg as its id, currency, PV and its notional where it holds one; an independent amount as its id,
-      currency, start, end and value. A trade with none carries an empty list, never no list, so that "it has no
-      leg" is said and not left to be guessed. A PV overwritten is the one leg the write left (note 49), in the
-      currency written.
+    - **Each trade of a case carries its `legs` and its `independentAmounts`**, as the reading of that case holds them:
+      a leg as its id, currency, PV and notional, the notional `null` where it holds none (the leg an overwritten PV
+      leaves); an independent amount as its id, currency, start, end and value. A trade with none carries an empty list,
+      never no list, so that "it has no leg" is said and not left to be guessed. A PV overwritten is the one leg the
+      write left (note 49), in the currency written.
     - **The PV they add up to is not carried.** It is a figure of the legs in the display currency, which the
       input names; a second copy could only disagree with them.
     - **Each case carries its `csas`**: every CSA a trade of the case uses, in the CSA table's order, with the

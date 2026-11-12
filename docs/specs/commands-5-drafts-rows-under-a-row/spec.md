@@ -1,6 +1,6 @@
 # Generic commands, delivery step 5: rows under a row, templates, and drafts
 
-Status: in progress (5a built; 5b next)
+Status: in progress (5a and 5b built; 5c next)
 
 The decisions are ADR-0016 §1 (a table under a row, a figure, templates) and §10 (a dialog is a draft), with its
 notes of 2026-11-11 for step 5 (46 onward). This spec orders ADR-0016's Delivery order, step 5, and names the seams
@@ -97,6 +97,10 @@ shifts under it. `load trades <ids>` reads booked trades from a synthetic store 
   synthetic source, and edited as any field is. A field the source holds and no one edits is registered read-only.
 - **The CSA's templates**: two-way, one-way with our posting, one-way with the counterparty's posting, and none,
   each taking a currency.
+- **What Price freezes** (added 2026-11-12 on the owner's word; the decision is ADR-0016 note 53). Each trade of a
+  case's accepted input carries its legs, its independent amounts and, under `details`, its fields beyond the
+  grids; each case carries the CSAs its trades use, with their fields beyond the grid under `details`. A value a
+  user can set is in the input as set, whether or not a simulated measure reads it, and a test holds the input.
 
 ### 5c. Drafts and the detail dialog (tickets 13 to 17)
 
