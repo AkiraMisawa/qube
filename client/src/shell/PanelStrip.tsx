@@ -8,7 +8,8 @@ import { ICON, STROKE } from './icons';
 import { registerArrangement, stripArrangement } from './arrangement';
 import type { Size } from './layout';
 import { CLOSE } from './panelVerbs';
-import { PanelContent, PanelList, TabMenu, useRunVerb, type MenuAt } from './panelMenus';
+import { PanelContent, PanelList, renameOnLine, TabMenu, useRunVerb, type MenuAt } from './panelMenus';
+import { lineIsOpen } from './CommandPalette';
 
 // The panels under one strip of tabs (ADR-0006 note 7 of 2026-11-12): what a phone shows, and what a wider window shows
 // where its arrangement of areas has no room (ADR-0018 §5). The strip is one row that scrolls sideways and keeps the
@@ -60,6 +61,8 @@ export function PanelStrip({ room, why }: {
     const to = keyboardTo.current;
     if (to === undefined) return;
     keyboardTo.current = undefined;
+    // A menu's Rename gave the keyboard to the line, which gives it back to the tab as it closes.
+    if (lineIsOpen()) return;
     const shown = store.getState().activePanelId;
     const tab = (to.tab === undefined ? null : tabOf(to.tab)) ?? (shown === undefined ? null : tabOf(shown));
     tab?.focus();
@@ -70,6 +73,10 @@ export function PanelStrip({ room, why }: {
       event.preventDefault();
       keyboardTo.current = { tab: undefined };
       run(CLOSE, panel);
+    } else if (event.key === 'F2') {
+      // F2 renames, as it does a file or a symbol (ADR-0006 note 9).
+      event.preventDefault();
+      renameOnLine(store.getState(), panel);
     } else if (event.key === 'ContextMenu' || (event.key === 'F10' && event.shiftKey)) {
       event.preventDefault();
       const box = event.currentTarget.getBoundingClientRect();
@@ -83,6 +90,11 @@ export function PanelStrip({ room, why }: {
     setMenuAt((open) => (open?.keyboard === true && open.panelId === panel.id
       ? open
       : { panelId: panel.id, x: event.clientX, y: event.clientY, keyboard: false }));
+  };
+  // A double click on a tab renames it, as a sheet's tab is renamed (ADR-0006 note 9); not one on its close button.
+  const onDoubleClick = (panel: Panel) => (event: MouseEvent<HTMLButtonElement>) => {
+    if (event.target instanceof Element && event.target.closest('.qube-panel-tab-close') !== null) return;
+    renameOnLine(store.getState(), panel);
   };
   // The middle button closes a tab, as a browser's does; held down it would start the browser's own scrolling.
   const onMouseDown = (event: MouseEvent<HTMLButtonElement>) => { if (event.button === 1) event.preventDefault(); };
@@ -133,12 +145,12 @@ export function PanelStrip({ room, why }: {
               return (
                 <Tabs.Tab key={p.id} value={p.id} data-panel={p.id} className="qube-panel-tab" draggable
                   {...(dropOn === p.id ? { 'data-drop': true } : {})} {...(p.pinned === true ? { 'data-pinned': true } : {})}
-                  aria-haspopup="menu" onKeyDown={onKeyDown(p)} onContextMenu={onContextMenu(p)} onMouseDown={onMouseDown}
+                  aria-haspopup="menu" onKeyDown={onKeyDown(p)} onContextMenu={onContextMenu(p)} onDoubleClick={onDoubleClick(p)} onMouseDown={onMouseDown}
                   onAuxClick={onAuxClick(p)} onDragStart={onDragStart(p)} onDragOver={onDragOver(p)} onDrop={onDrop(p)} onDragEnd={onDragEnd}
                   leftSection={p.pinned === true ? <IconPin size={ICON} stroke={STROKE} aria-label="pinned" /> : undefined}
                   rightSection={p.pinned === true ? undefined : (
                     <Tooltip label="Close (close panel)">
-                      <CloseButton size="xs" component="span" aria-label={`Close ${label}`} onClick={(e) => { e.stopPropagation(); run(CLOSE, p); }} />
+                      <CloseButton size="xs" component="span" className="qube-panel-tab-close" aria-label={`Close ${label}`} onClick={(e) => { e.stopPropagation(); run(CLOSE, p); }} />
                     </Tooltip>
                   )}>
                   <span className="qube-panel-tab-title" title={label}>{label}</span>

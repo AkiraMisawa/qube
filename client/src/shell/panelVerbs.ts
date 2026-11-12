@@ -1,6 +1,6 @@
 import { CommandRefused, given, type Command, type CommandArgument } from '../platform/commands/commands';
 import type { Notify } from '../platform/notices';
-import { namedBy, panelLabel, pinnedCount, type Panel, type PanelsClosed, type WorkspaceState } from '../platform/workspace/workspaceStore';
+import { namedBy, panelLabel, pinnedCount, readName, type Panel, type PanelsClosed, type WorkspaceState } from '../platform/workspace/workspaceStore';
 import { areaHolding, currentArrangement, FLOAT_PLACES, floatBox, SIDES, type Arrangement, type FloatPlace, type Side } from './arrangement';
 import { AREA_MIN } from './layout';
 
@@ -13,7 +13,7 @@ import { AREA_MIN } from './layout';
 
 /** What the verbs read and change: the workspace store's panels. */
 export type PanelState = Pick<WorkspaceState,
-  'panels' | 'activePanelId' | 'closed' | 'activate' | 'closePanel' | 'closePanels' | 'reopenPanel' | 'movePanel' | 'pinPanel'>;
+  'panels' | 'activePanelId' | 'closed' | 'activate' | 'closePanel' | 'closePanels' | 'reopenPanel' | 'movePanel' | 'pinPanel' | 'renamePanel'>;
 
 /** What a verb acts on: the store's panels, and the arrangement they stand in. */
 export interface On {
@@ -222,6 +222,38 @@ export const MOVE: PanelVerb = {
     if ('reason' in to) throw new CommandRefused(to.reason);
     if (on.areas.strip === undefined) on.areas.moveWithin(panel.id, to.to);
     else on.state.movePanel(panel.id, to.to);
+  },
+};
+
+/** Why a typed name cannot name this panel, where it cannot (`readName`). */
+const nameRefusedFor = (panel: Panel, typed: string): string | undefined => {
+  const read = readName(panel.title, typed);
+  return 'refused' in read ? read.refused : undefined;
+};
+
+export const RENAME: PanelVerb = {
+  id: 'panel.rename',
+  words: 'rename panel',
+  title: 'Give the panel a name of your own, or its page\'s title back',
+  label: 'Rename',
+  // The rest of the line is the name, read against the active panel, on which the line acts: completed with the page's
+  // own title, which gives that back, and refused on the line where it cannot be a name.
+  argsOn: (on) => {
+    const active = on.state.panels.find((p) => p.id === on.state.activePanelId);
+    return [{
+      name: 'name', required: true, rest: true, hint: 'a name of your own, or its page\'s title to have that back',
+      ...(active === undefined ? {} : {
+        complete: () => [{ value: active.title, detail: 'its page\'s title' }],
+        check: (typed: string) => nameRefusedFor(active, typed),
+      }),
+    }];
+  },
+  unavailable: () => undefined,
+  run: (on, panel, _, args) => {
+    const typed = given(args, 'name');
+    const refused = nameRefusedFor(panel, typed);
+    if (refused !== undefined) throw new CommandRefused(refused);
+    on.state.renamePanel(panel.id, typed);
   },
 };
 
@@ -455,8 +487,8 @@ export const GATHER: PanelVerb = {
   },
 };
 
-/** Note 7's verbs over one panel, as the line lists them. */
-export const PANEL_VERBS: readonly PanelVerb[] = [CLOSE, CLOSE_OTHERS, CLOSE_RIGHT, CLOSE_ALL, PIN, UNPIN, MOVE];
+/** Note 7's verbs over one panel, and note 9's `rename panel`, as the line lists them. */
+export const PANEL_VERBS: readonly PanelVerb[] = [CLOSE, CLOSE_OTHERS, CLOSE_RIGHT, CLOSE_ALL, PIN, UNPIN, MOVE, RENAME];
 
 /** ADR-0018 §3's verbs that arrange, as the line lists them. */
 export const ARRANGE_VERBS: readonly PanelVerb[] = [SPLIT, SEND, FLOAT, DOCK, SIZE, MAXIMIZE, UNMAXIMIZE, GATHER];

@@ -1,4 +1,4 @@
-import { execute } from '../platform/commands/commands';
+import { execute, finish, readLine } from '../platform/commands/commands';
 import { createWorkspaceStore, panelLabel } from '../platform/workspace/workspaceStore';
 import { contextContract } from '../test/catalog';
 import { stripArrangement } from './arrangement';
@@ -109,5 +109,25 @@ describe('panel verbs', () => {
   it('every verb is unavailable on the line while no panel is open', () => {
     const { commands } = strip([]);
     for (const verb of PANEL_VERBS) expect(commands().find((c) => c.id === verb.id)?.unavailable).toBe('No panel is open.');
+  });
+
+  // ADR-0006 note 9: `rename panel` names the active panel, completes its page's title to give that back, and refuses a
+  // name the strip would read as its number, on the line before it runs.
+  it('ADR-0006 note 9: `rename panel` names the active panel, completes its title, and refuses a name on the line', () => {
+    const { store, ids, command, commands, titlesNow } = strip(['Rates 2026-10-27', 'Rates 2026-10-27']);
+    expect(execute(command('panel.rename'), { name: 'Hedge desk' })).toBeUndefined();
+    expect(titlesNow()).toEqual(['Rates 2026-10-27', 'Hedge desk']);
+    expect(store.getState().activePanelId).toBe(ids[1]);
+    expect(command('panel.rename').target).toBe('Hedge desk');
+    expect(command('panel.rename').args?.[0]?.complete?.({})).toEqual([{ value: 'Rates 2026-10-27', detail: 'its page\'s title' }]);
+    // The line reads the rest of the line as the name, spaces and all.
+    const typed = readLine('rename panel EUR swaps desk', commands());
+    if (typed.kind !== 'arguments') throw new Error('The line did not read rename panel.');
+    expect(finish(typed)).toEqual({ args: { name: 'EUR swaps desk' } });
+    const refused = readLine('rename panel Rates · 2', commands());
+    if (refused.kind !== 'arguments') throw new Error('The line did not read rename panel.');
+    expect(finish(refused)).toEqual({ problems: ['name: A name cannot end in · and a number: the strip numbers panels of one name itself.'] });
+    expect(execute(command('panel.rename'), { name: 'Rates · 2' })).toBe('A name cannot end in · and a number: the strip numbers panels of one name itself.');
+    expect(titlesNow()).toEqual(['Rates 2026-10-27', 'Hedge desk']);
   });
 });

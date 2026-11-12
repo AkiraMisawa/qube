@@ -151,7 +151,9 @@ The shell is the header, the panels under their tabs, and the AI pane (ADR-0007 
   tab's menu (right click, Shift+F10) shows each verb with the words the command line takes for it. A tab is one
   Control Height, as the button is (§3). A new item of a menu or key of a tab is a verb of
   `client/src/shell/panelVerbs.ts`, so the line, the menus and the keys stay one; the pointer's own gestures (a click
-  that shows a tab, a drag that moves one to any place) call the same action of the store the verb does.
+  that shows a tab, a drag that moves one to any place) call the same action of the store the verb does. A name is
+  typed on the line, never in a field of the tab: Rename, F2 and a double click open `rename panel` with the panel's
+  name selected (ADR-0006 note 9).
 - **The AI pane** is an aside beside the panels from `sm` up, and a drawer over them on a phone; neither takes the
   keyboard when it opens (ADR-0007).
 - **Areas** (ADR-0018). From a panels' space of 768px (the window less the AI pane), the panels stand in areas, each

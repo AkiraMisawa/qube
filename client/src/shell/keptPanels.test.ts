@@ -42,6 +42,35 @@ describe('the panels a browser tab keeps (ADR-0018 §7)', () => {
     expect(notify).not.toHaveBeenCalled();
   });
 
+  // ADR-0006 note 9: a panel's name is the user's, so a reload keeps it, on a panel open and on one closed.
+  it('ADR-0006 note 9: a reload keeps the names the user gave panels, open and closed, and refuses a name it could not give', () => {
+    const before = fresh();
+    const stop = keepPanels(before, vi.fn(), USER);
+    const a = before.getState().openPanel({ kind: 'app', title: 'Rates', app: 'rates', params: { workspaceId: 'w1' } });
+    const b = before.getState().openPanel({ kind: 'app', title: 'Rates', app: 'rates', params: { workspaceId: 'w2' } });
+    before.getState().renamePanel(a, 'Hedge desk');
+    before.getState().renamePanel(b, 'Swaps');
+    before.getState().closePanel(b);
+    stop();
+
+    const after = fresh();
+    keepPanels(after, vi.fn(), USER)();
+    expect(after.getState().panels.map(panelLabel)).toEqual(['Hedge desk']);
+    after.getState().reopenPanel();
+    expect(after.getState().panels.map(panelLabel)).toEqual(['Hedge desk', 'Swaps']);
+
+    const named = (name: unknown) => JSON.stringify({ version: 1, panels: { panels: [{ id: 'panel-1', kind: 'run', title: 'A', runId: 'r1', name }], recent: [], closed: [] }, floatedFrom: {} });
+    expect(readKept(named('Mine'))).toMatchObject({ kept: { panels: { panels: [{ name: 'Mine' }] } } });
+    expect(readKept(named(7))).toEqual({ refused: 'panels.panels[0].name is not text' });
+    // A name the store could not have given: empty, spaced, its title, or one the strip would read as a number.
+    for (const name of [' ', ' Mine', 'My  rates', 'a', 'Mine · 2', 'x'.repeat(61)]) {
+      expect(readKept(named(name))).toEqual({ refused: 'panels.panels[0].name is not a name the workbench gives' });
+    }
+    const closedNamed = (name: unknown) => JSON.stringify({ version: 1, panels: { panels: [], recent: [], closed: [{ page: { kind: 'run', title: 'A', runId: 'r1' }, index: 0, pinned: false, name }] }, floatedFrom: {} });
+    expect(readKept(closedNamed('Mine'))).toMatchObject({ kept: { panels: { closed: [{ name: 'Mine' }] } } });
+    expect(readKept(closedNamed('A'))).toEqual({ refused: 'panels.closed[0].name is not a name the workbench gives' });
+  });
+
   it('another user\'s panels are not this user\'s, and a tab that kept nothing starts with none', () => {
     const before = fresh();
     const stop = keepPanels(before, vi.fn(), USER);

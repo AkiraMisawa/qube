@@ -10,8 +10,13 @@ export type Panel = PanelDraft & {
   /** Kept at the start of the strip, and left open by the closes that take several panels (ADR-0006 note 7). */
   readonly pinned?: true;
   /**
-   * Which of the open panels of one title this is, from 2, given when it opens and kept while it is open: the strip and
-   * the line name it `<title> · <copy>` (ADR-0006 note 7). The first of a title has none.
+   * The name the user gave it (`rename panel`, ADR-0006 note 9), shown in place of its page's title; the page's own
+   * title is kept, and the panel has none of its own until it is renamed.
+   */
+  readonly name?: string;
+  /**
+   * Which of the open panels of one name this is, from 2, given when it opens or is renamed and kept while it is open:
+   * the strip and the line name it `<name> · <copy>` (ADR-0006 note 7). The first of a name has none.
    */
   readonly copy?: number;
 };
@@ -23,15 +28,42 @@ export type PanelDraft =
   /** A fixed application page: an app registered in `src/apps` draws it from its parameters. */
   | { readonly kind: 'app'; readonly title: string; readonly app: string; readonly params: Readonly<Record<string, string>> };
 
-/** A panel as the strip and the line name it: its title, and its number where another open panel has that title. */
-export const panelLabel = (panel: Pick<Panel, 'title' | 'copy'>): string => (panel.copy === undefined ? panel.title : `${panel.title} · ${panel.copy}`);
+/** What a panel is called before its number: the name the user gave it, else its page's title. */
+export const panelName = (panel: Pick<Panel, 'title' | 'name'>): string => panel.name ?? panel.title;
+
+/** A panel as the strip and the line name it: its name, and its number where another open panel has that name. */
+export const panelLabel = (panel: Pick<Panel, 'title' | 'name' | 'copy'>): string => (panel.copy === undefined ? panelName(panel) : `${panelName(panel)} · ${panel.copy}`);
+
+/** The number the strip gives a panel, at the end of its label: a name the user gives cannot end so. */
+const NUMBERED = /·\s*\d+$/;
+
+/** The longest name a panel takes: a tab shows about half of it, and every request to the AI carries each panel's name. */
+export const NAME_LONGEST = 60;
+
+/**
+ * What a typed name gives a panel of this title (ADR-0006 note 9), the one reading of a name the store, the line and a
+ * browser tab's kept panels share: its spaces trimmed and made single; no name of its own where it is empty or is the
+ * title, in any case, which gives the title back; or why it cannot be a name.
+ */
+export function readName(title: string, typed: string): { readonly name: string | undefined } | { readonly refused: string } {
+  const spaced = (text: string) => text.trim().replace(/\s+/g, ' ');
+  const name = spaced(typed);
+  if (name === '' || name.toLowerCase() === spaced(title).toLowerCase()) return { name: undefined };
+  if (NUMBERED.test(name)) return { refused: 'A name cannot end in · and a number: the strip numbers panels of one name itself.' };
+  // Counted as a reader counts them: an emoji is one character, not the two halves JavaScript stores it as.
+  const characters = [...name].length;
+  if (characters > NAME_LONGEST) return { refused: `A name is at most ${NAME_LONGEST} characters; this one is ${characters}.` };
+  return { name };
+}
 
 /** A panel that was closed, as `reopenPanel` brings it back: what it showed and where it stood. */
 export interface ClosedPanel {
   readonly page: PanelDraft;
   readonly index: number;
   readonly pinned: boolean;
-  /** Its number among the panels of its title: it comes back with it, where no open panel has taken it since. */
+  /** The name the user gave it, which it comes back with (ADR-0006 note 9). */
+  readonly name?: string;
+  /** Its number among the panels of its name: it comes back with it, where no open panel has taken it since. */
   readonly copy: number | undefined;
   /** The area it stood in, where the panels stood in areas (ADR-0018 §4): `reopen panel` puts it back there. */
   readonly area?: string;
@@ -128,6 +160,12 @@ export interface WorkspaceState {
   restore(kept: KeptPanels): void;
   /** Pins a panel at the end of the pinned ones, or unpins it to the start of the others. */
   pinPanel(panelId: string, pinned: boolean): void;
+  /**
+   * Names a panel as `readName` reads what was typed (ADR-0006 note 9): with an empty name, or its page's title, it has
+   * that title again. It is numbered anew among the panels of its new name. Throws for a name `readName` refuses, and
+   * for a panel that is not open.
+   */
+  renamePanel(panelId: string, typed: string): void;
   /** Shows this panel. Throws for a panel that is not open. */
   activate(panelId: string): void;
   openRunDialog(workflowKey: string | undefined): void;
@@ -207,7 +245,7 @@ export function createWorkspaceStore(initialContext: Readonly<Record<string, unk
         return open;
       }
       const id = `panel-${++next}`;
-      const panel = newPanel(get().panels, last.page, id, last.pinned, last.copy);
+      const panel = newPanel(get().panels, last.page, id, { pinned: last.pinned, ...(last.name === undefined ? {} : { name: last.name }), copy: last.copy });
       set((state) => ({
         panels: placed(state.panels, panel, last.index),
         activePanelId: id,
@@ -260,6 +298,19 @@ export function createWorkspaceStore(initialContext: Readonly<Record<string, unk
       });
     },
 
+    renamePanel(panelId, typed) {
+      const panel = requireOpen(get().panels, panelId);
+      const read = readName(panel.title, typed);
+      if ('refused' in read) throw new Error(read.refused);
+      if (read.name === panel.name) return;
+      const { name: _, copy: __, ...titled } = panel;
+      const renamed: Panel = { ...titled, ...(read.name === undefined ? {} : { name: read.name }) };
+      set((state) => {
+        const copy = freeCopy(state.panels.filter((p) => p.id !== panelId), panelName(renamed));
+        return { panels: state.panels.map((p) => (p.id === panelId ? { ...renamed, ...(copy === 1 ? {} : { copy }) } : p)) };
+      });
+    },
+
     activate(panelId) {
       requireOpen(get().panels, panelId);
       set((state) => ({ activePanelId: panelId, recent: [panelId, ...state.recent.filter((id) => id !== panelId)] }));
@@ -298,14 +349,23 @@ export function createWorkspaceStore(initialContext: Readonly<Record<string, unk
 }
 
 /**
- * A new panel of this page: numbered where an open panel has its title (ADR-0006 note 7). A panel reopened asks for the
- * number it had, which it keeps where that is free.
+ * The number a panel of this name takes among these: the one it asks for where that is free, else the lowest free, 1
+ * being none. Names are told apart regardless of case, as `show panel` reads them.
  */
-function newPanel(panels: readonly Panel[], page: PanelDraft, id: string, pinned = false, had?: number): Panel {
-  const taken = new Set(panels.filter((p) => p.title === page.title).map((p) => p.copy ?? 1));
+function freeCopy(panels: readonly Panel[], name: string, had?: number): number {
+  const taken = new Set(panels.filter((p) => panelName(p).toLowerCase() === name.toLowerCase()).map((p) => p.copy ?? 1));
   let copy = had !== undefined && !taken.has(had) ? had : 1;
   while (taken.has(copy)) copy += 1;
-  return { ...page, id, ...(copy === 1 ? {} : { copy }), ...(pinned ? { pinned: true as const } : {}) };
+  return copy;
+}
+
+/**
+ * A new panel of this page: numbered where an open panel has its name (ADR-0006 note 7). A panel reopened comes back
+ * with the name the user gave it, and asks for the number it had, which it keeps where that is free.
+ */
+function newPanel(panels: readonly Panel[], page: PanelDraft, id: string, was: { readonly pinned?: boolean; readonly name?: string; readonly copy?: number | undefined } = {}): Panel {
+  const copy = freeCopy(panels, was.name ?? page.title, was.copy);
+  return { ...page, id, ...(was.name === undefined ? {} : { name: was.name }), ...(copy === 1 ? {} : { copy }), ...(was.pinned === true ? { pinned: true as const } : {}) };
 }
 
 /** Whether an open panel shows this page: a Run by its id, an application by its parameters. A data view is never the same. */
@@ -339,9 +399,9 @@ function withClosed(state: WorkspaceState, ids: readonly string[], areaOf?: Area
   // already as it was, and a close of several comes back in its order.
   state.panels.forEach((p, index) => {
     if (!gone.has(p.id)) return;
-    const { id, pinned, copy, ...page } = p;
+    const { id, pinned, name, copy, ...page } = p;
     const area = areaOf?.(id);
-    kept.unshift({ page, index, pinned: pinned === true, copy, ...(area === undefined ? {} : { area }) });
+    kept.unshift({ page, index, pinned: pinned === true, ...(name === undefined ? {} : { name }), copy, ...(area === undefined ? {} : { area }) });
   });
   const panels = state.panels.filter((p) => !gone.has(p.id));
   const recent = state.recent.filter((id) => !gone.has(id));

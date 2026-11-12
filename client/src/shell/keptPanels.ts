@@ -4,7 +4,7 @@ import { useStore } from 'zustand';
 import type { SerializedDockview } from 'dockview-react';
 import type { Notify } from '../platform/notices';
 import { useWorkspaceContext } from '../platform/workspace/WorkspaceProvider';
-import { PANEL_ID, type KeptPanels, type WorkspaceStore } from '../platform/workspace/workspaceStore';
+import { PANEL_ID, readName, type KeptPanels, type WorkspaceStore } from '../platform/workspace/workspaceStore';
 
 // What a browser tab keeps of its panels across a reload (ADR-0018 §7): the panels, what each shows, the active one,
 // the ones shown last and closed, and the arrangement. It is the tab's session storage, under the user's id, so two
@@ -120,14 +120,29 @@ function checkLayout(value: unknown): void {
   }
 }
 
-/** Checks what a panel shows as the store holds it; the page itself is read anew from the server when it is drawn. */
-function checkPage(value: unknown, path: string): void {
+/**
+ * Checks what a panel shows as the store holds it, and answers its title; the page itself is read anew from the server
+ * when it is drawn.
+ */
+function checkPage(value: unknown, path: string): string {
   const page = record(value, path);
-  text(page.title, `${path}.title`);
+  const title = text(page.title, `${path}.title`);
   if (page.kind === 'run') text(page.runId, `${path}.runId`);
   else if (page.kind === 'app') { text(page.app, `${path}.app`); record(page.params, `${path}.params`); }
   else if (page.kind === 'data') record(page.view, `${path}.view`);
   else throw new Unreadable(`${path}.kind is not a kind of panel`);
+  return title;
+}
+
+/**
+ * Checks the name the user gave a panel of this title, where it has one (ADR-0006 note 9): only a name the store could
+ * have given it, as `readName` reads one, is read back.
+ */
+function checkName(value: unknown, title: string, path: string): void {
+  if (value === undefined) return;
+  const name = text(value, path);
+  const read = readName(title, name);
+  if ('refused' in read || read.name !== name) throw new Unreadable(`${path} is not a name the workbench gives`);
 }
 
 /**
@@ -141,15 +156,20 @@ export function readKept(stored: string | null): { readonly kept: KeptTab | unde
     if (value.version !== VERSION) throw new Unreadable(`it is of version ${String(value.version)}, and this workbench reads ${VERSION}`);
     const kept = record(value.panels, 'panels');
     list(kept.panels, 'panels.panels').forEach((p, i) => {
-      checkPage(p, `panels.panels[${i}]`);
-      if (!PANEL_ID.test(text(record(p, '').id, `panels.panels[${i}].id`))) throw new Unreadable(`panels.panels[${i}].id is not a panel's id`);
+      const at = `panels.panels[${i}]`;
+      const title = checkPage(p, at);
+      const panel = record(p, at);
+      if (!PANEL_ID.test(text(panel.id, `${at}.id`))) throw new Unreadable(`${at}.id is not a panel's id`);
+      checkName(panel.name, title, `${at}.name`);
     });
     if (kept.activePanelId !== undefined) text(kept.activePanelId, 'panels.activePanelId');
     list(kept.recent, 'panels.recent').forEach((id, i) => text(id, `panels.recent[${i}]`));
     list(kept.closed, 'panels.closed').forEach((c, i) => {
-      const closed = record(c, `panels.closed[${i}]`);
-      checkPage(closed.page, `panels.closed[${i}].page`);
-      if (typeof closed.index !== 'number' || typeof closed.pinned !== 'boolean') throw new Unreadable(`panels.closed[${i}] has no place`);
+      const at = `panels.closed[${i}]`;
+      const closed = record(c, at);
+      const title = checkPage(closed.page, `${at}.page`);
+      if (typeof closed.index !== 'number' || typeof closed.pinned !== 'boolean') throw new Unreadable(`${at} has no place`);
+      checkName(closed.name, title, `${at}.name`);
     });
     if (value.layout !== undefined) checkLayout(value.layout);
     Object.entries(record(value.floatedFrom, 'floatedFrom')).forEach(([panel, area]) => text(area, `floatedFrom.${panel}`));

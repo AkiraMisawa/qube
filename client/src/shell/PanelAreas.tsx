@@ -13,7 +13,8 @@ import { dockArrangement } from './dockArrangement';
 import { keptArrangement } from './keptPanels';
 import { AREA_MIN, areasOf, fits, needs, oneArea, openPanels, PAGE_COMPONENT, reconciled, stripOrder, TAB_COMPONENT, type Size } from './layout';
 import { CLOSE, FLOAT, onNow } from './panelVerbs';
-import { PanelContent, PanelList, TabMenu, useRunVerb, type MenuAt } from './panelMenus';
+import { PanelContent, PanelList, renameOnLine, TabMenu, useRunVerb, type MenuAt } from './panelMenus';
+import { lineIsOpen } from './CommandPalette';
 
 // The panels in areas (ADR-0018), drawn by dockview from a panels' space of 768px. The workspace store stays what each
 // panel shows, which one is active, and which were closed; dockview holds where each stands, and the verbs reach that
@@ -380,6 +381,8 @@ export function PanelAreas({ room }: { readonly room: Size }) {
     const to = keyboardTo.current;
     if (to === undefined) return;
     keyboardTo.current = undefined;
+    // A menu's Rename gave the keyboard to the line, which gives it back to the tab as it closes.
+    if (lineIsOpen()) return;
     (tabElement(to.tab) ?? tabElement(store.getState().activePanelId))?.focus();
   });
 
@@ -395,6 +398,11 @@ export function PanelAreas({ room }: { readonly room: Size }) {
       event.stopPropagation();
       keyboardTo.current = { tab: undefined };
       run(CLOSE, tab.panel);
+    } else if (event.key === 'F2') {
+      // F2 renames, as it does a file or a symbol (ADR-0006 note 9).
+      event.preventDefault();
+      event.stopPropagation();
+      renameOnLine(store.getState(), tab.panel);
     } else if (event.key === 'ContextMenu' || (event.key === 'F10' && event.shiftKey)) {
       event.preventDefault();
       event.stopPropagation();
@@ -439,6 +447,12 @@ export function PanelAreas({ room }: { readonly room: Size }) {
     event.preventDefault();
     notify('refused', `${FLOAT.words}: It is the only area docked in the window; floating it would leave none docked.`);
   };
+  // A double click on a tab renames it, as a sheet's tab is renamed (ADR-0006 note 9); not one on its close button.
+  const onDoubleClick = (event: MouseEvent<HTMLDivElement>) => {
+    const tab = tabAt(event.target, store.getState().panels);
+    if (tab === undefined || (event.target instanceof Element && event.target.closest('.qube-area-tab-close') !== null)) return;
+    renameOnLine(store.getState(), tab.panel);
+  };
   // The middle button closes a tab, as a browser's does; held down it would start the browser's own scrolling.
   const onMouseDown = (event: MouseEvent<HTMLDivElement>) => {
     if (event.button === 1 && tabAt(event.target, store.getState().panels) !== undefined) event.preventDefault();
@@ -459,7 +473,7 @@ export function PanelAreas({ room }: { readonly room: Size }) {
   return (
     // The tabs' and the areas' own events reach dockview through here: the keys and presses above are taken first.
     <div ref={root} className="qube-areas" data-areas={areaCount} onKeyDownCapture={onKeyDownCapture} onContextMenu={onContextMenu}
-      onPointerDownCapture={onPointerDownCapture} onMouseDown={onMouseDown} onAuxClick={onAuxClick}>
+      onDoubleClick={onDoubleClick} onPointerDownCapture={onPointerDownCapture} onMouseDown={onMouseDown} onAuxClick={onAuxClick}>
       <DockviewReact components={COMPONENTS} tabComponents={TABS} defaultTabComponent={AreaTab} rightHeaderActionsComponent={AreaActions}
         onReady={onReady} theme={THEME} disableTabsOverflowList groupIdGenerator={nextAreaId} floatingGroupBounds="boundedWithinViewport" />
       {menuAt !== undefined && menuPanel !== undefined && (

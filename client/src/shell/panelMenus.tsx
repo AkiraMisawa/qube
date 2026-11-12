@@ -3,16 +3,17 @@ import { Button, Group, Menu, ScrollArea, Text, Tooltip } from '@mantine/core';
 import { IconCheck, IconChevronRight, IconLayoutList, IconPin } from '@tabler/icons-react';
 import { ViewRenderer } from '../platform/views/ViewRenderer';
 import { useWorkspaceContext } from '../platform/workspace/WorkspaceProvider';
-import { panelLabel, type Panel } from '../platform/workspace/workspaceStore';
+import { panelLabel, panelName, type Panel, type WorkspaceState } from '../platform/workspace/workspaceStore';
 import { AppPanel } from '../apps';
 import { RunPanel } from './RunPanel';
 import { registerGridFocus } from './places';
 import { ICON, STROKE } from './icons';
 import { FLOAT_PLACES, SIDES, useArrangementVersion } from './arrangement';
 import {
-  CLOSE, CLOSE_ALL, CLOSE_OTHERS, CLOSE_RIGHT, DOCK, FLOAT, GATHER, MAXIMIZE, MOVE, onNow, otherAreas, PIN, REOPEN, runStripVerb, runVerb,
-  SEND, SIZE, SPLIT, UNMAXIMIZE, UNPIN, type On, type PanelVerb,
+  CLOSE, CLOSE_ALL, CLOSE_OTHERS, CLOSE_RIGHT, DOCK, FLOAT, GATHER, MAXIMIZE, MOVE, onNow, otherAreas, PIN, RENAME, REOPEN, runStripVerb,
+  runVerb, SEND, SIZE, SPLIT, UNMAXIMIZE, UNPIN, type On, type PanelVerb,
 } from './panelVerbs';
+import { openLineWith } from './CommandPalette';
 import { UnavailableMenuItem } from './UnavailableMenuItem';
 import { PanelPage } from '../platform/panelPage';
 
@@ -38,6 +39,31 @@ export interface MenuAt {
   readonly y: number;
   /** Opened from the keyboard: the keyboard goes back to the tab when it closes. */
   readonly keyboard: boolean;
+}
+
+/**
+ * A panel's tab, in the strip or in an area: what the keyboard goes back to once the line has named the panel. Rename is
+ * reached from a tab, or from the list of the panel an area or the strip shows, so its tab is drawn.
+ */
+function tabOf(panelId: string): HTMLElement {
+  const tab = document.querySelector(`[data-panel="${CSS.escape(panelId)}"]`)?.closest<HTMLElement>('[role="tab"]');
+  if (tab === null || tab === undefined) throw new Error(`The tab of ${panelId} is not drawn.`);
+  return tab;
+}
+
+/**
+ * Opens the line on `rename panel` with the panel's name on it and selected, as a field for a name opens on the name
+ * (ADR-0006 note 9): typing replaces it, and Enter names the panel. The panel is shown first, as the line acts on the
+ * panel shown, and the keyboard goes back to its tab as the line closes. A tab's Rename, its double click and its F2
+ * all open it so, and the line is where the name is typed: there is no field of a tab's own.
+ */
+export function renameOnLine(state: Pick<WorkspaceState, 'activate'>, panel: Panel): void {
+  // The tab first: a tab not drawn is a defect, which leaves no other panel shown than before.
+  const returnTo = tabOf(panel.id);
+  state.activate(panel.id);
+  const words = `${RENAME.words} `;
+  const name = panelName(panel);
+  openLineWith(`${words}${name}`, { selected: { start: words.length, end: words.length + name.length }, returnTo });
 }
 
 const SHARES = ['25%', '33%', '50%', '67%', '75%'] as const;
@@ -92,6 +118,8 @@ export function VerbItems({ panel, run, fromKeyboard = false }: {
       {onPanel(panel.pinned === true ? UNPIN : PIN)}
       {onPanel(MOVE, 'Move left', { where: 'left' })}
       {onPanel(MOVE, 'Move right', { where: 'right' })}
+      {/* Opens the line with the name to type over: the words beside it are those it puts there (ADR-0006 note 9). */}
+      {item(RENAME.id, `${RENAME.label}…`, RENAME.words, RENAME.unavailable(on, panel), () => renameOnLine(store.getState(), panel))}
       {arranging && (
         <>
           <Menu.Divider />
@@ -133,6 +161,10 @@ export function PanelList({ panels, shown, run, name }: {
   return (
     <div className="qube-panel-list">
       {/* Named by its button, as a menu button's menu is. */}
+      {/*
+        Closed, it gives the keyboard back to its button, 10ms on, where nothing has taken it meanwhile: the line its
+        Rename opens has, as its field takes the keyboard at once (Mantine's focus trap, on the next turn).
+      */}
       <Menu opened={opened} onChange={setOpened} position="bottom-end" shadow="md" withinPortal>
         <Tooltip label={`${name} (show panel)`} disabled={opened}>
           <Menu.Target>
@@ -171,7 +203,9 @@ export function PanelList({ panels, shown, run, name }: {
  * placed itself is not followed, and the menu would stay hidden at the corner it was first placed by. A key outside it
  * does not close it, as Mantine's Menu has it by default: the Shift+F10 that opens it is such a key, and would close it
  * as it opened. The keyboard is in the menu while it is open: on its first item where a key opened it, on none where the
- * pointer did.
+ * pointer did. Its target is never hidden by a scroll, being fixed where it opened: one on the window's left edge (the
+ * first tab of an area there, at Shift+F10) counts as wholly clipped to Mantine's check of a detached target, which would
+ * draw the menu hidden, so the menu does not make that check.
  */
 export function TabMenu({ at, panel, run, onClose }: {
   readonly at: MenuAt;
@@ -181,7 +215,7 @@ export function TabMenu({ at, panel, run, onClose }: {
 }) {
   const label = useId();
   return (
-    <Menu opened onClose={onClose} position="bottom-start" shadow="md" withinPortal
+    <Menu opened onClose={onClose} position="bottom-start" shadow="md" withinPortal hideDetached={false}
       returnFocus={false} trapFocus withInitialFocusPlaceholder={!at.keyboard} clickOutsideEvents={['mousedown', 'touchstart']}>
       <Menu.Target>
         <div aria-hidden style={{ position: 'fixed', left: at.x, top: at.y, width: 0, height: 0 }} />
