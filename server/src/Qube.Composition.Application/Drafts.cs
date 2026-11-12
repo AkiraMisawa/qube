@@ -121,7 +121,8 @@ static class DraftForms
     // the draft made. A row made and removed within the draft is in neither state, and is not listed.
     static DraftTable Rows(BoundTable table, string key, WorkspaceState opened, WorkspaceState left, IReadOnlyList<DraftTemplate> makes)
     {
-        var fields = table.Descriptor.Fields;
+        // The field that names the row above is left out (note 57): every row listed has the draft's row there.
+        var fields = table.Descriptor.Fields.Where(f => f.Table != table.Descriptor.Under).ToList();
         IReadOnlyList<string> Row(ITableRow row) => [.. fields.Select(f => Written(f, row))];
         var (before, after) = (Rows(opened), Rows(left));
         var (was, now) = (before.ToDictionary(r => r.Key, Row), after.ToDictionary(r => r.Key, Row));

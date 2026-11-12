@@ -62,10 +62,21 @@ class Rig {
   redrafts = 0;
   drafts: Drafts | undefined;
 
+  /** The server's answers that wait for `release`; none while it answers at once. */
+  private waiting: (() => void)[] | undefined;
+
+  /** From here the server's answers wait, as over a slow line. */
+  hold() { this.waiting = []; }
+
+  release() { const waiting = this.waiting; this.waiting = undefined; waiting?.forEach((answer) => answer()); }
+
   readonly api = {
-    draft: (_workspace: string, draft: LineDraft): Promise<DraftForm> => (this.left
-      ? Promise.reject(new ApiError(409, { code: 'RevisionMoved', message: `The workspace is at revision 8 and the draft of ${draft.key} was opened at 7.`, issues: [] }))
-      : Promise.resolve(formOf(draft, this.made))),
+    draft: async (_workspace: string, draft: LineDraft): Promise<DraftForm> => {
+      const waiting = this.waiting;
+      if (waiting !== undefined) await new Promise<void>((answer) => { waiting.push(answer); });
+      if (this.left) throw new ApiError(409, { code: 'RevisionMoved', message: `The workspace is at revision 8 and the draft of ${draft.key} was opened at 7.`, issues: [] });
+      return formOf(draft, this.made);
+    },
   };
 
   door(drafts: Drafts): Pick<CommandDoor, 'enter' | 'view' | 'redraft'> {
@@ -143,9 +154,13 @@ describe('a row\'s dialog, drawn from the form the server answers (ADR-0016 note
 
   it('note 57: a line is sent once though the keyboard leaves the field before the form of it is drawn', async () => {
     const { rig, user } = await opened();
+    rig.hold();
     await typed(user, /Altitude/, '150');
-    await user.tab();
+    // The draft has the line, and the form drawn is still the one of no line.
     await waitFor(() => expect(pending()).toBe('1 pending'));
+    await user.tab();
+    rig.release();
+    await waitFor(() => expect(screen.getByRole('textbox', { name: /Altitude/ })).toHaveAccessibleName(/changed/));
     expect(lines(rig)).toEqual(['set altitude 150']);
   });
 

@@ -1,5 +1,5 @@
-import { useCallback, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
-import { Alert, Badge, Button, CloseButton, Group, Loader, Modal, Select, SimpleGrid, Stack, Switch, Tabs, Text, TextInput, em } from '@mantine/core';
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { Alert, Badge, Button, CloseButton, Group, Loader, Modal, Select, SimpleGrid, Stack, Switch, Tabs, Text, TextInput, em, rem } from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { actionColumn, type GridActionEvent, type GridColumn, type GridEditIntent } from '@ex-grid/core';
@@ -7,7 +7,8 @@ import { ApiError, type Api } from '../api';
 import type { CommandDoor } from '../commands/commands';
 import type { DraftForm, DraftRow, DraftTable, DraftTemplate, DraftTerm, FieldInput, LineDraft } from '../contracts';
 import { QubeGrid } from '../grid/QubeGrid';
-import { EMPTY, cellLine, fieldLine, makeLine, removeLine, sectionsOf, templateLine } from './draftLines';
+import { cellLine, fieldLine, makeLine, removeLine, sectionsOf, shownOf, templateLine } from './draftLines';
+import { compactGridHeight } from '../grid/metrics';
 
 // A row's dialog (ADR-0016 §10, note 57 of 2026-11-12), the same for every table: it is drawn from the form the server
 // answers for the page's draft, and every change made in it is a line the server reads in that draft. It has no rule
@@ -19,11 +20,12 @@ type Send = (line: string) => Promise<string | undefined>;
 const REMOVE = 'remove';
 const ACTIONS = 'Actions';
 const MARK = 'Draft';
+/** A dialog's Control Height (docs/design-guidelines.md): what a `sm` input is as high as. */
+const DIALOG_CONTROL = 36;
+/** How many rows a table under the row is as high as, before it scrolls. */
+const ROWS_DRAWN = 8;
 /** The forms whose values are figures, drawn against the right edge as every grid draws them. */
 const FIGURES = new Set(['amount', 'signedAmount', 'number', 'percent', 'rate', 'spread', 'days']);
-
-/** A value as a field shows it: nothing for none. */
-const shownOf = (written: string): string => (written === EMPTY ? '' : written);
 
 const labelOf = (field: Pick<FieldInput, 'title' | 'unit'>, changed: boolean): ReactNode => (
   <>
@@ -40,7 +42,7 @@ function FieldBox({ field, written, changed, send }: {
   /** None on Original, which is read-only. */
   readonly send?: Send;
 }) {
-  const shown = shownOf(written);
+  const shown = shownOf(field, written);
   const [seen, setSeen] = useState(shown);
   const [text, setText] = useState(shown);
   const [problem, setProblem] = useState<string | undefined>(undefined);
@@ -62,11 +64,15 @@ function FieldBox({ field, written, changed, send }: {
     }
   };
   if (field.form === 'flag' && !field.optional) {
-    return <Switch size="sm" label={label} checked={written === 'on'} onChange={(event) => void commit(event.currentTarget.checked ? 'on' : 'off')} {...(problem === undefined ? {} : { error: problem })} />;
+    // On the line of the inputs beside it, which stand under their labels.
+    return (
+      <Switch size="sm" label={label} checked={written === 'on'} onChange={(event) => void commit(event.currentTarget.checked ? 'on' : 'off')}
+        style={{ alignSelf: 'end', minHeight: rem(DIALOG_CONTROL), display: 'flex', alignItems: 'center' }} {...(problem === undefined ? {} : { error: problem })} />
+    );
   }
   if (field.choices !== undefined) {
     return (
-      <Select size="sm" label={label} data={[...field.choices]} value={shown === '' ? null : shown} searchable clearable={field.optional} allowDeselect={false}
+      <Select size="sm" label={label} data={[...field.choices]} value={shown === '' ? null : shown} searchable selectFirstOptionOnChange clearable={field.optional} allowDeselect={false}
         placeholder={field.optional ? 'empty' : field.takes} onChange={(value) => void commit(value ?? '')} {...(problem === undefined ? {} : { error: problem })} />
     );
   }
@@ -105,10 +111,12 @@ function TermsForm({ what, verb, line, send, onDone }: {
   return (
     <Stack gap="xs" role="group" aria-label={what.title} data-testid={`terms-${what.word}`}>
       <SimpleGrid cols={{ base: 1, xs: 2, md: 3 }} spacing="sm">
-        {what.takes.map((term) => (term.choices !== undefined
-          ? <Select key={term.name} size="sm" label={term.title} withAsterisk={term.required} data={[...term.choices]} value={values[term.name] ?? null} searchable
-              onChange={(value) => set(term, value ?? '')} />
+        {/* The terms were asked for, so the first takes the keyboard. */}
+        {what.takes.map((term, at) => (term.choices !== undefined
+          ? <Select key={term.name} size="sm" label={term.title} withAsterisk={term.required} data={[...term.choices]} value={values[term.name] ?? null} searchable selectFirstOptionOnChange
+              autoFocus={at === 0} onChange={(value) => set(term, value ?? '')} />
           : <TextInput key={term.name} size="sm" label={term.title} withAsterisk={term.required} value={values[term.name] ?? ''} placeholder={term.takes} title={term.takes}
+              autoFocus={at === 0}
               onChange={(event) => set(term, event.currentTarget.value)}
               onKeyDown={(event) => { if (event.key === 'Enter' && !event.nativeEvent.isComposing) void submit(); }} />))}
       </SimpleGrid>
@@ -132,13 +140,18 @@ function UnderGrid({ table, send }: { readonly table: DraftTable; readonly send?
       name: field.name,
       header: field.unit === undefined ? field.title : `${field.title} (${field.unit})`,
       type: 'text',
-      value: (row) => { const written = row.written[at]; return written === undefined || written === EMPTY ? undefined : written; },
+      value: (row) => {
+        const written = row.written[at];
+        if (written === undefined) throw new Error(`The row ${row.key} of ${table.word} holds no value of ${field.name}, its field at ${at}.`);
+        const shown = shownOf(field, written);
+        return shown === '' ? undefined : shown;
+      },
       ...(FIGURES.has(field.form) ? { align: 'right' as const } : {}),
       ...(send !== undefined && field.editable ? { editable: true } : {}),
     })),
     ...(send === undefined ? [] : [
       { name: MARK, header: MARK, type: 'text' as const, value: (row: DraftRow) => markWord(row.mark), width: 88 },
-      actionColumn<DraftRow>(ACTIONS, [{ name: REMOVE, label: 'Remove' }], { width: 92 }),
+      actionColumn<DraftRow>(ACTIONS, [{ name: REMOVE, label: 'Remove' }], { header: '', width: 92 }),
     ]),
   ], [table.fields, send]);
   const onEdit = useCallback(async (intent: GridEditIntent<DraftRow>) => {
@@ -161,7 +174,7 @@ function UnderGrid({ table, send }: { readonly table: DraftTable; readonly send?
         ? <Text size="sm" c="dimmed">No rows.</Text>
         : (
           <div aria-label={table.title} data-rows={table.rows.length}>
-            <QubeGrid<DraftRow> columns={columns} rows={table.rows} density="compact" viewportWidth="stretch" viewportHeight={Math.min(36 + table.rows.length * 28, 260)} locale="en-US"
+            <QubeGrid<DraftRow> columns={columns} rows={table.rows} density="compact" viewportWidth="stretch" viewportHeight={compactGridHeight(Math.min(table.rows.length, ROWS_DRAWN))} locale="en-US" hideColumnMenu
               {...(send === undefined ? {} : { onEdit, onAction })} />
           </div>
         )}
@@ -271,6 +284,9 @@ function DraftBody({ draft, workspaceId, revision, api, door, drop, discard, not
   readonly close: () => void;
 }) {
   const [tab, setTab] = useState<string | null>('live');
+  // The question takes the keyboard as it is asked: Enter keeps the draft, and Tab reaches Discard.
+  const keep = useRef<HTMLButtonElement>(null);
+  useEffect(() => { if (confirming) keep.current?.focus(); }, [confirming]);
   const [problem, setProblem] = useState<string | undefined>(undefined);
   const [saving, setSaving] = useState(false);
   // What the server answers for a draft at a revision never changes: it is asked once, and the form of the lines
@@ -310,7 +326,7 @@ function DraftBody({ draft, workspaceId, revision, api, door, drop, discard, not
         ? (
           <Group gap="xs" role="alertdialog" aria-label="Discard the draft">
             <Text size="sm">Discard {draft.lines.length === 1 ? 'the pending line' : `the ${draft.lines.length} pending lines`}?</Text>
-            <Button size="sm" variant="default" data-autofocus onClick={() => setConfirming(false)}>Keep editing</Button>
+            <Button ref={keep} size="sm" variant="default" onClick={() => setConfirming(false)}>Keep editing</Button>
             <Button size="sm" color="red" onClick={discard}>Discard</Button>
           </Group>
         )

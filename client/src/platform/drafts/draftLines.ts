@@ -7,6 +7,20 @@ import type { DraftForm, DraftTable, DraftTemplate, FieldInput } from '../contra
 /** What a line writes for no value: an emptied field is sent as this, and the server says where a field may not be empty. */
 export const EMPTY = 'empty';
 
+/**
+ * A value as a dialog draws it: nothing for none, and a plain number with its digits grouped, as every grid of the
+ * workbench draws one. A line reads the grouped number as it reads the plain one, so what is drawn is still what a line
+ * writes. Anything else is drawn as it is written.
+ */
+export const shownOf = (field: Pick<FieldInput, 'form'>, written: string): string => {
+  if (written === EMPTY) return '';
+  if (field.form !== 'number') return written;
+  const plain = /^(-?)(\d+)(\.\d+)?$/.exec(written);
+  if (plain === null) return written;
+  const [, sign = '', whole = '', fraction = ''] = plain;
+  return `${sign}${whole.replace(/\B(?=(\d{3})+$)/g, ',')}${fraction}`;
+};
+
 const valueOf = (text: string): string => { const typed = text.trim(); return typed === '' ? EMPTY : typed; };
 
 /** A field of the draft's own row: a line typed in a draft names no row for it. */

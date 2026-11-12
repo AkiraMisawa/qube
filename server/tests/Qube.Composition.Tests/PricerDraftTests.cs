@@ -13,7 +13,12 @@ public class PricerDraftTests
 
     static DraftForm Form(PricerRig rig, string table, string key, params string[] lines) => rig.Lines.Draft(rig.Id, PricerRig.Akira, new(table, key, rig.State.Revision, lines));
 
-    static string[] Rows(DraftForm form, string table) => [.. form.Under.Single(t => t.Table == table).Rows.Select(r => $"{r.Key[(Trade.Length + 1)..]} {r.Written[2]} {r.Written[3]} {r.Mark}".TrimEnd())];
+    // The rows of a table under the trade: each row's key within the trade, what it holds in the fields named, and its mark.
+    static string[] Rows(DraftForm form, string table, params string[] fields)
+    {
+        var under = form.Under.Single(t => t.Table == table);
+        return [.. under.Rows.Select(r => $"{r.Key[(Trade.Length + 1)..]} {string.Join(' ', fields.Select(f => DraftTests.Held(under, r, f)))} {r.Mark}".TrimEnd())];
+    }
 
     [Fact] // ADR-0016 note 54: a trade's draft holds its legs and its independent amounts; a leg is made and removed within it, its PV follows, and nothing is written
     public void A_trades_draft_makes_and_removes_its_legs_and_writes_nothing()
@@ -27,8 +32,8 @@ public class PricerDraftTests
         // The trade's PV is a figure of its legs (note 47), so it moved with them; what it is then is PricerLegTests' to hold.
         Assert.Equal(["notional", "pv"], form.Fields.Where(f => f.Changed).Select(f => f.Field.Word));
         Assert.Equal("5bn", form.Fields.Single(f => f.Field.Name == "notional").Written);
-        Assert.Equal(["1 JPY -191258226 removed", "2 JPY 205544922", "3 EUR 250000 made"], Rows(form, PortfolioTables.Legs));
-        Assert.Equal(["IA1 JPY 2025-07-18"], Rows(form, PortfolioTables.Amounts));
+        Assert.Equal(["1 JPY -191258226 removed", "2 JPY 205544922", "3 EUR 250000 made"], Rows(form, PortfolioTables.Legs, "currency", "pv"));
+        Assert.Equal(["IA1 JPY 2025-07-18"], Rows(form, PortfolioTables.Amounts, "currency", "start"));
         // A leg is made by `new leg`, with the terms a dialog asks for; nothing makes an independent amount (note 57).
         Assert.Equal(["leg: currency*, pv*, notional"],
             form.Under.Single(t => t.Table == PortfolioTables.Legs).Makes.Select(m => $"{m.Word}: {string.Join(", ", m.Takes.Select(x => $"{x.Name}{(x.Required ? "*" : "")}"))}"));

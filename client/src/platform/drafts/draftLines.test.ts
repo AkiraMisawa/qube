@@ -1,5 +1,5 @@
 import type { DraftForm, DraftTable, DraftTemplate, FieldInput } from '../contracts';
-import { cellLine, fieldLine, makeLine, removeLine, sectionsOf, templateLine } from './draftLines';
+import { cellLine, fieldLine, makeLine, removeLine, sectionsOf, shownOf, templateLine } from './draftLines';
 
 // ADR-0016 note 57 of 2026-11-12: every change a dialog makes is a line the server reads. What the dialog writes of a
 // field, a cell, a row and a template is held here; the names are made up.
@@ -12,6 +12,20 @@ const gauged: DraftTemplate = { word: 'gauged', title: 'Gauged by hand', takes: 
   { name: 'drift', title: 'Drift', required: false, form: 'rate', takes: 'a rate' }] };
 
 describe('the lines a dialog writes (ADR-0016 note 57)', () => {
+  it('a value is drawn as written, but nothing for none and a plain number with its digits grouped, which a line reads as well', () => {
+    const number = field('pv', { form: 'number' });
+    expect(shownOf(number, 'empty')).toBe('');
+    expect(shownOf(number, '-191258226')).toBe('-191,258,226');
+    expect(shownOf(number, '3600000000')).toBe('3,600,000,000');
+    expect(shownOf(number, '54884986.6125')).toBe('54,884,986.6125');
+    expect(shownOf(number, '999')).toBe('999');
+    expect(shownOf(number, '0.448')).toBe('0.448');
+    // What is not a plain number is drawn as it is written, and so is a number-like text of another form.
+    expect(shownOf(number, '1e6')).toBe('1e6');
+    expect(shownOf(field('notional', { form: 'signedAmount' }), '3.6bn')).toBe('3.6bn');
+    expect(shownOf(field('id', { form: 'id' }), '20261112')).toBe('20261112');
+  });
+
   it('a field of the draft\'s row is set by its word, with no row; an emptied one is written empty, for the server to take or refuse', () => {
     expect(fieldLine(field('altitude'), ' 20 ')).toBe('set altitude 20');
     expect(fieldLine(field('cpty threshold', { word: 'cpty threshold' }), '5mm')).toBe('set cpty threshold 5mm');

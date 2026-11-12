@@ -38,6 +38,9 @@ public class DraftTests
         Assert.Equal(rig.Board.Revision, form.Revision);
     }
 
+    /// <summary>What a row under the draft's row holds in a field, by the field's name: a row's values stand in its table's fields' order.</summary>
+    internal static string Held(DraftTable table, DraftRow row, string field) => row.Written[table.Fields.Select(f => f.Name).ToList().IndexOf(field)];
+
     // A line of the form as the line and what it said, or its refusal's code.
     static string[] Lines(DraftForm form) => [.. form.Lines.Select(l => $"{l.Line} => {l.Said ?? l.Refused!.Code}")];
 
@@ -79,8 +82,10 @@ public class DraftTests
 
         // The removed row stays where it stood, as it was; a row made and removed within the draft was never the workspace's.
         var sensors = Assert.Single(form.Under);
-        Assert.Equal(["N1/1 rain removed", "N1/2 gust changed", "N1/3 wind made"], sensors.Rows.Select(r => $"{r.Key} {r.Written[2]} {r.Mark}"));
-        Assert.Equal(["Sensor", "Station", "Kind", "Load", "Unit"], sensors.Fields.Select(f => f.Title));
+        // The field that names the row above is left out (note 57): every row listed has the draft's row there.
+        Assert.Equal(["Sensor", "Kind", "Load", "Unit"], sensors.Fields.Select(f => f.Title));
+        Assert.Equal(["N1/1 rain removed", "N1/2 gust changed", "N1/3 wind made"], sensors.Rows.Select(r => $"{r.Key} {Held(sensors, r, "kind")} {r.Mark}"));
+        Assert.All(sensors.Rows, r => Assert.Equal(sensors.Fields.Count, r.Written.Count));
     }
 
     [Fact] // ADR-0016 note 54: a draft carries its revision, and one the workspace has left is refused, saying the revision it is at and the commands that moved it
@@ -111,7 +116,7 @@ public class DraftTests
         Assert.Equal(["S1/2"], Assert.Single(form.Under).Rows.Select(r => r.Key));
         var original = form.Original!;
         Assert.Equal(["S1", "15", "N1"], form.Fields.Zip(original.Written).Where(f => f.First.Field.Name is "id" or "altitude" or "backup").Select(f => f.Second));
-        Assert.Equal(["S1/1 rain "], Assert.Single(original.Under).Rows.Select(r => $"{r.Key} {r.Written[2]} {r.Mark}"));
+        Assert.Equal(["S1/1 rain "], Assert.Single(original.Under).Rows.Select(r => $"{r.Key} {Held(Assert.Single(original.Under), r, "kind")} {r.Mark}"));
     }
 
     [Fact] // ADR-0016 note 54: a row the workspace made has no Original
@@ -279,7 +284,7 @@ public class DraftTests
         Assert.Equal(["altitude 15"], Fields(Form(rig, "S1"), "altitude"));
         Assert.Equal(["S1/1 rain"], Sensors(Form(rig, "S1")));
 
-        static string[] Sensors(DraftForm form) => [.. Assert.Single(form.Under).Rows.Select(r => $"{r.Key} {r.Written[2]}")];
+        static string[] Sensors(DraftForm form) => [.. Assert.Single(form.Under).Rows.Select(r => $"{r.Key} {Held(Assert.Single(form.Under), r, "kind")}")];
     }
 
     [Fact] // ADR-0016 note 55: apply is refused where the workspace moved, where the draft has no line, and where no draft is open; nothing is written
