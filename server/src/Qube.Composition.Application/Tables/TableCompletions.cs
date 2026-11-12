@@ -346,7 +346,7 @@ static class TableCompletions
             return table.Descriptor.Fields.Where(f => (f.Editable || !editable) && TableWords.Names(f).Any(n => n.StartsWith(start, StringComparison.Ordinal) || (typed.Length == 0 && n == whole)));
         }
 
-        IReadOnlyList<string> Keys(BoundTable table) => keys.TryGetValue(table, out var read) ? read : keys[table] = [.. table.Table.Rows(state).Select(r => r.Key)];
+        IReadOnlyList<string> Keys(BoundTable table) => keys.TryGetValue(table, out var read) ? read : keys[table] = [.. Views.InDraft(view, table, table.Table.Rows(state)).Select(r => r.Key)];
 
         // The table the verb's words are read against: the one the rows say, or, with no rows, each table of one row that has the field they start with.
         IEnumerable<BoundTable> TablesOf(RowSelector selector, BoundTable? said, BoundTable? unsaid, BoundTable? onScreen, string pending)

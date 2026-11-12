@@ -555,6 +555,41 @@ public class CommandGatewayTests(QubeFactory factory) : IClassFixture<QubeFactor
         Assert.Equal((HttpStatusCode.Forbidden, HttpStatusCode.Conflict), (notOwner, moved));
     }
 
+    [Fact] // ADR-0016 §10, note 55: the catalog says which commands and verbs are read while a draft is open, so that a line lists the rest as unavailable, with that reason
+    public async Task The_catalog_says_which_commands_are_read_while_a_draft_is_open()
+    {
+        var catalog = (await client.GetFromJsonAsync<JsonObject>("/api/catalog"))!;
+
+        Assert.Equal(["cancel", "copy", "draft.apply", "entity.create", "entity.remove", "entity.reset", "entity.set", "export", "filter", "find", "select", "sort"],
+            catalog["draftCommands"]!.AsArray().Select(c => c!.GetValue<string>()).Order(StringComparer.Ordinal));
+    }
+
+    [Fact] // ADR-0016 note 55: the draft travels in the preview's view: the host reads it from JSON, answers the line the draft gains as an ask and writes nothing, and apply is invoked as any command
+    public async Task A_draft_travels_in_the_previews_view_and_apply_is_invoked_as_any_command()
+    {
+        var ws = await Create();
+        var (id, revision) = (ws["workspaceId"]!.GetValue<string>(), ws["revision"]!.GetValue<long>());
+        JsonObject Dialog(params string[] lines) => new()
+        {
+            ["table"] = "xva.csas",
+            ["draft"] = new JsonObject { ["table"] = "xva.csas", ["key"] = "CSA-B", ["revision"] = revision, ["lines"] = new JsonArray([.. lines.Select(l => (JsonNode)l)]) },
+        };
+
+        var (_, gained) = await Preview("set currency JPY", id, view: Dialog());
+        var (_, other) = await Preview("undo", id, view: Dialog());
+        var (_, apply) = await Preview("apply", id, view: Dialog("set csas CSA-B currency JPY"));
+        var unwritten = (await client.GetFromJsonAsync<JsonObject>($"/api/xva/workspaces/{id}"))!["revision"]!.GetValue<long>();
+        var applied = await Ok(await Command("draft.apply", apply["inputs"]!["request"]!.DeepClone().AsObject()));
+
+        Same(new JsonObject { ["kind"] = "draft", ["line"] = "set csas CSA-B currency JPY", ["said"] = "Added to the draft of CSA-B: set csas CSA-B currency JPY." }, gained["asks"]);
+        Assert.Equal((null, "Editing CSA-B: nothing pending."), (gained["command"], gained["view"]!.GetValue<string>()));
+        Assert.Equal("DraftOpen", other["refused"]!["code"]!.GetValue<string>());
+        Assert.Equal(("""{"id":"draft.apply","version":"1.0.0"}""", "Editing CSA-B: 1 line pending."), (apply["command"]!.ToJsonString(), apply["view"]!.GetValue<string>()));
+        Assert.Equal(revision, unwritten);
+        Assert.Equal(("Applied 1 line to CSA-B.", revision + 1, "xva.csas", "CSA-B"),
+            (applied["said"]!.GetValue<string>(), applied["revision"]!.GetValue<long>(), applied["table"]!.GetValue<string>(), applied["key"]!.GetValue<string>()));
+    }
+
     [Fact] // ADR-0016 note 54: a draft's form is read through the host, which writes nothing; a draft the workspace has left is a conflict, and a row it has not is not found
     public async Task A_drafts_form_is_read_through_the_host()
     {

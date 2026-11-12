@@ -425,6 +425,19 @@ public partial class CommandLineTests
     public void Words_that_name_a_field_of_the_screens_table_and_something_else_are_refused_with_both_spellings(string line, bool screen, string read) =>
         Assert.Equal(read, Read(new Rig().Preview(line, screen ? new LineView(Stations.Readings, "manual", Keys: ["R1", "R3"], Focus: new("note", Key: "R3")) : null)));
 
+    [Theory] // ADR-0016 note 55: in a draft a field named alone is the draft's row's: a table of one row that has the word too is none of the draft's, so nothing is ambiguous; a word that is only that table's is refused as another row's
+    [InlineData("set limit 6mm", "set readings R1 limit 6mm")]
+    [InlineData("reset limit", "NothingToAdd: Nothing would change: R1 has no edit of volume. The draft of R1 gains nothing.")]
+    [InlineData("set alarm 5mm", "NotTheDraftsRow: The draft is of R1, and this line is of settings: apply or cancel the draft first.")]
+    public void In_a_draft_a_field_named_alone_is_the_drafts_rows(string line, string gained)
+    {
+        var rig = new Rig();
+
+        var read = rig.Preview(line, new LineView(Stations.Readings, Draft: new(Stations.Readings, "R1", rig.Board.Revision, [])));
+
+        Assert.Equal(gained, read.Asks is LineDrafted drafted ? drafted.Line : $"{read.Refused?.Code}: {read.Refused?.Sentence}");
+    }
+
     [Theory] // ADR-0016 §5, note 18: where rows may be left out, the fields of the screen's table are offered, saying what they would act on
     [InlineData("set ", "R1,R3", "daylight (settings) | volume (2 selected) | unit (2 selected) | checked (2 selected) | note (2 selected) | wind speed (2 selected) | wind direction (2 selected) | drift (2 selected) | R1 (readings)")]
     [InlineData("set ", "", "daylight (settings) | volume (R2) | unit (R2)")]

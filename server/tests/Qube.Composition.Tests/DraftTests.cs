@@ -204,6 +204,18 @@ public class DraftTests
         Assert.Equal([$"{line} => Made S1/2: Sensor.", "remove sensors S1/2 => Removed S1/2."], Lines(Form(rig, "S1", line, "remove sensors S1/2")));
     }
 
+    [Fact] // ADR-0016 note 55: in a draft the rows offered of a table under the draft's are the rows under its row alone, as the line then reads them
+    public void In_a_draft_the_rows_offered_under_it_are_its_own()
+    {
+        var rig = new SensorRig();
+
+        string[] outside = [.. rig.Preview("remove sensors ").Complete!.Select(c => c.Value).Where(v => v.Contains('/'))];
+        string[] inside = [.. rig.Preview("remove sensors ", Dialog(rig, "S1")).Complete!.Select(c => c.Value).Where(v => v.Contains('/'))];
+
+        Assert.Equal(["N1/1", "N1/2", "S1/1"], outside);
+        Assert.Equal(["S1/1"], inside);
+    }
+
     [Theory] // ADR-0016 note 55: a draft is of one row: a line of another row, one that changes nothing, and every command that is not the draft's are refused, and the draft gains nothing
     [InlineData("set stations N1 altitude 1", "NotTheDraftsRow", "The draft is of S1, and this line is of N1: apply or cancel the draft first.")]
     [InlineData("new sensor N1 wind 2 m3", "NotTheDraftsRow", "The draft is of S1, and this line is of N1: apply or cancel the draft first.")]

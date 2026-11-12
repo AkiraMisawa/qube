@@ -1,4 +1,5 @@
 using Qube.Composition.Application;
+using Qube.Composition.Application.Tables;
 using Qube.Samples.Portfolio;
 
 namespace Qube.Composition.Tests;
@@ -47,5 +48,59 @@ public class PricerDraftTests
         Assert.Equal(["currency JPY *, from USD", "oneWay on *, from off"], terms);
         Assert.Equal(["General", "Counterparty", "Self", "Terms"], form.Fields.Select(f => f.Field.Group).Distinct());
         Assert.Empty(form.Under);
+    }
+
+    static LineView Dialog(PricerRig rig, params string[] lines) => new(PortfolioTables.Trades, Draft: new(PortfolioTables.Trades, Trade, rig.State.Revision, lines));
+
+    [Fact] // ADR-0016 note 55: in a trade's draft the line names no row: a field of the trade, a leg made and a leg removed are each the whole line the draft gains, and price is refused while it is open
+    public void In_a_trades_draft_the_line_names_no_row_and_price_waits_for_the_draft()
+    {
+        var rig = new PricerRig();
+        var revision = rig.State.Revision;
+
+        var set = rig.Preview("set notional 5bn", Dialog(rig));
+        var made = rig.Preview("new leg eur 250,000", Dialog(rig));
+        var removed = rig.Preview("remove legs 1", Dialog(rig));
+        var price = rig.Preview("price", Dialog(rig, $"set trades {Trade} notional 5bn"));
+
+        Assert.Equal($"set trades {Trade} notional 5bn", Assert.IsType<LineDrafted>(set.Asks).Line);
+        Assert.Equal($"new leg trade={Trade} eur 250,000", Assert.IsType<LineDrafted>(made.Asks).Line);
+        Assert.Equal($"remove legs {Trade}/1", Assert.IsType<LineDrafted>(removed.Asks).Line);
+        Assert.Equal(($"Editing {Trade}: nothing pending.", $"Editing {Trade}: 1 line pending."), (set.View, price.View));
+        Assert.Equal(("DraftOpen", $"price is not read while the draft of {Trade} is open: apply writes it, and cancel discards it."), (price.Refused?.Code, price.Refused?.Sentence));
+        Assert.Equal(revision, rig.State.Revision);
+    }
+
+    [Fact] // ADR-0016 §10, note 55: in a CSA's draft a template is typed with no row, as its button says it, and `leg` is the legs' word in a trade's
+    public void In_a_draft_a_template_and_a_row_under_it_are_typed_with_no_row()
+    {
+        var rig = new PricerRig();
+        var csa = new LineView(PortfolioTables.Csas, Draft: new(PortfolioTables.Csas, "CSA-B", rig.State.Revision, []));
+
+        var template = rig.Preview("set as 1way-cpty ccy=JPY", csa);
+        var unfilled = rig.Preview("set as 1way-cpty", csa);
+        var leg = rig.Preview("remove leg 1", Dialog(rig));
+
+        Assert.Equal("set csas CSA-B as 1way-cpty currency=JPY", Assert.IsType<LineDrafted>(template.Asks).Line);
+        Assert.Equal(("MissingTerm", null), (unfilled.Refused?.Code, unfilled.Asks));
+        Assert.Equal($"remove legs {Trade}/1", Assert.IsType<LineDrafted>(leg.Asks).Line);
+    }
+
+    [Fact] // ADR-0016 note 55: apply writes a trade's draft as one command: the notional, the leg made and the leg removed arrive together, and one undo takes them back
+    public async Task Apply_writes_a_trades_draft_as_one_command()
+    {
+        var rig = new PricerRig();
+        string[] lines = [$"set trades {Trade} notional 5bn", $"new leg trade={Trade} eur 250,000", $"remove legs {Trade}/1"];
+        var (legs, notional) = (rig.Legs(Trade), rig.Written(PortfolioTables.Trades, Trade, "notional"));
+
+        var said = await rig.Run("apply", Dialog(rig, lines));
+
+        Assert.Equal($"Applied 3 lines to {Trade}.", said);
+        Assert.Equal(["2 JPY 205544922", "3 EUR 250000"], rig.Legs(Trade));
+        Assert.Equal("5bn", rig.Written(PortfolioTables.Trades, Trade, "notional"));
+        await rig.Run("undo");
+        Assert.Equal(legs, rig.Legs(Trade));
+        Assert.Equal(notional, rig.Written(PortfolioTables.Trades, Trade, "notional"));
+        Assert.Equal(2, legs.Length);
     }
 }

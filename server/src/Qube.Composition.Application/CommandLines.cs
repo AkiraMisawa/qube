@@ -295,6 +295,12 @@ public sealed class CommandLines
     /// <summary>The short forms (ADR-0016 §3, note 29 of step 3), for the catalog to list apart from the capabilities.</summary>
     public IReadOnlyList<ShortFormDescriptor> ShortForms { get; }
 
+    /// <summary>
+    /// The commands and the verbs of the screen that are read while a draft is open (ADR-0016 §10, note 55), by id, for
+    /// the catalog: a line lists every other as unavailable, as the preview refuses it.
+    /// </summary>
+    public IReadOnlyList<string> DraftCommands => [.. typed.Where(t => t.InDraft).Select(t => t.Id).Distinct()];
+
     /// <summary>The most cells a line takes out of the workbench where a host sets no other (ADR-0016 note 44 of step 4).</summary>
     public const int MostCells = 1_000_000;
 
@@ -446,7 +452,11 @@ public sealed class CommandLines
         var under = table?.Descriptor.Under == draft.Table && written.Rows.Count > 0
             && table.Table.Rows(left).Where(r => written.Rows.Contains(r.Key)).All(r => r.Under == draft.Key);
         if (!own && !under)
-            throw new TableRefused("NotTheDraftsRow", $"The draft is of {draft.Key}, and this line is of {(written.Rows.Count == 0 ? "no row of it" : TableWords.Some(written.Rows))}: apply or cancel the draft first.");
+        {
+            // A table of one row is said by its word: its row's key is no word of the line.
+            var of = table is { Descriptor.SingleRow: true } ? table.Word : written.Rows.Count == 0 ? "no row of it" : TableWords.Some(written.Rows);
+            throw new TableRefused("NotTheDraftsRow", $"The draft is of {draft.Key}, and this line is of {of}: apply or cancel the draft first.");
+        }
         if (written.Changes.Count == 0) throw new TableRefused("NothingToAdd", $"{written.Would} The draft of {draft.Key} gains nothing.");
         if (own && tables.Of(left).Single(t => t.Descriptor.TableId == draft.Table).Table.Rows(workspaces.After(left, caller.UserId, written.Changes, caller.Origin)).All(r => r.Key != draft.Key))
             throw new TableRefused("RemovesTheDraftsRow", $"The draft is of {draft.Key}, which this line would take away: cancel the draft, and remove the row outside it.");

@@ -50,7 +50,7 @@ sealed class PricerRig
 
     public WorkspaceState State => Workspaces.Find(Id)!;
 
-    public LinePreview Preview(string line) => Lines.Preview(line, Id, null, Akira);
+    public LinePreview Preview(string line, LineView? view = null) => Lines.Preview(line, Id, null, Akira, view);
 
     /// <summary>What a line would do as typed, before Enter; a refusal as its code and its sentence.</summary>
     public string Read(string line)
@@ -60,9 +60,9 @@ sealed class PricerRig
     }
 
     /// <summary>Runs a line as Enter does, and answers what the command said.</summary>
-    public async Task<string> Run(string line)
+    public async Task<string> Run(string line, LineView? view = null)
     {
-        var preview = Preview(line);
+        var preview = Preview(line, view);
         Assert.True(preview.Refused is null, preview.Refused?.Sentence);
         var result = await Commands.InvokeAsync(preview.Command!.Id, preview.Command.Version, preview.Inputs!, Akira, Guid.NewGuid().ToString(), default);
         return result is CommandResult.Done done ? done.Outputs.Values.Single()!["said"]!.GetValue<string>()

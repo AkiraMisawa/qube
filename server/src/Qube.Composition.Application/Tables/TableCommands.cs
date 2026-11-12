@@ -316,7 +316,8 @@ public sealed partial class TableService(TableRegister register, WorkspaceServic
         if (view is null || selector.Table is not null || !selector.SaysNoRows) return null;
         var table = Views.TableOf(view, tables);
         if (table.Descriptor.SingleRow || named(table) is not { } there) return null;
-        if (alone.Count == 0 || there.Count == 0) return table;
+        // In a draft the words are of the draft's row (note 55): a table of one row is none of the draft's.
+        if (alone.Count == 0 || there.Count == 0 || view.Draft is not null) return table;
         // A field of the screen's rows that no command sets is not what the words meant where a table of one row has them.
         if (there.All(f => !f.Editable)) return null;
         var other = named(alone[0]) ?? throw new InvalidOperationException($"{alone[0].Word} was read as having the field.");
