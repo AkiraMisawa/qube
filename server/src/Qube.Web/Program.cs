@@ -59,6 +59,9 @@ builder.Services.AddSingleton<IQubeModule>(sp => new PortfolioCommandsModule(sp.
 builder.Services.AddSingleton<IProductCatalog>(new RatesProductCatalog(conventions));
 builder.Services.AddSingleton<IProductRules>(sp => new IrsRules(conventions, sp.GetRequiredService<RatesWorkspaces>));
 builder.Services.AddSingleton<IProductRules>(sp => new CcsRules(conventions, sp.GetRequiredService<RatesWorkspaces>));
+// The pricer describes a PV leg, which `new` makes under a trade (ADR-0016 notes 48, 49).
+builder.Services.AddSingleton<IProductCatalog>(new PortfolioProducts());
+builder.Services.AddSingleton<IProductRules>(sp => new LegRules(sp.GetRequiredService<PortfolioWorkspaces>));
 builder.Services.AddSingleton<ProductService>();
 builder.Services.AddSingleton<IQubeModule>(sp => new ProductsModule(sp.GetRequiredService<ProductService>));
 // The kernel's commands over any workspace (ADR-0016 §11): undo and redo.

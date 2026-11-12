@@ -8,10 +8,11 @@ and notional are set, a row is removed, and `reset` and `undo` bring it back (AD
 
 **Blocked by:** 01.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] `set legs E00003/1 pv 250,000` changes the leg, checked as a typed cell is.
-- [ ] `remove legs E00003/1` takes a source's leg out; `reset` of the trade's PV and `undo` bring it back.
-- [ ] `remove amounts E00003/1` takes an independent amount out; its fields are not set.
-- [ ] A new trade has no leg.
-- [ ] An edit of a leg survives a re-acquisition as any edit does, and is the trade's scope's.
+- [x] `set legs E00003/1 pv 250,000` changes the leg, checked as a typed cell is.
+- [x] `remove legs E00003/1` takes a source's leg out; `reset` of the trade's PV and `undo` bring it back.
+- [x] `remove amounts E00003/IA1` takes an independent amount out; its fields are not set. (As built: an amount's
+      id is `<trade>/IA<n>`, so that it is never a leg's.)
+- [x] A new trade has no leg.
+- [x] An edit of a leg survives a re-acquisition as any edit does, and is the trade's scope's.

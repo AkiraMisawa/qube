@@ -398,4 +398,29 @@ public class PricerApiTests(QubeFactory factory) : IClassFixture<QubeFactory>
         var unknown = await Command(other, "xva.scenario.load", new JsonObject { ["set"] = "no-such-set" });
         Assert.Equal(HttpStatusCode.UnprocessableEntity, unknown.StatusCode);
     }
+
+    [Fact] // ADR-0016 notes 48, 49: over HTTP, new makes a leg under a trade, a PV is written, and the grid's rows carry it with Original's
+    public async Task A_leg_is_made_and_a_PV_written_over_http()
+    {
+        var ws = await Create();
+        const string trade = "ABC-LE-01-E00004";
+
+        var read = (await (await client.PostAsJsonAsync("/api/commands/preview", new { line = "new leg E00004 eur 250,000", workspaceId = Id(ws) })).Content.ReadFromJsonAsync<JsonObject>())!;
+        Assert.Equal($"Makes {trade}/3: PV leg.", read["would"]!.GetValue<string>());
+        var made = await client.PostAsJsonAsync("/api/commands/entity.create/1.0.0", new { inputs = read["inputs"], idempotencyKey = Guid.NewGuid().ToString() });
+        Assert.True(made.IsSuccessStatusCode, await made.Content.ReadAsStringAsync());
+
+        var set = await client.PostAsJsonAsync("/api/commands/entity.set/1.0.0", new
+        {
+            inputs = new { request = new { workspaceId = Id(ws), table = "xva.trades", rows = trade, set = "pv -350,000 USD" } },
+            idempotencyKey = Guid.NewGuid().ToString(),
+        });
+
+        Assert.True(set.IsSuccessStatusCode, await set.Content.ReadAsStringAsync());
+        Assert.Equal($"Set {trade} pv to -350000 USD.", (await set.Content.ReadFromJsonAsync<JsonObject>())!["outputs"]!["answer"]!["said"]!.GetValue<string>());
+        var rows = (await (await Post(ws, "rows", new { start = 0, count = 50, sorts = Array.Empty<object>(), grid = "existing" })).Content.ReadFromJsonAsync<JsonObject>())!;
+        var row = rows["rows"]!.AsArray().Single(r => r!["tradeId"]!.GetValue<string>() == trade)!;
+        // -350,000 USD x 188.1 / 1.2573 in the display currency, against the 14,286,696 JPY the source's legs give.
+        Assert.Equal((-52_362_204.72m, 14_286_696m), (row["pv"]!.GetValue<decimal>(), row["original"]!["pv"]!.GetValue<decimal>()));
+    }
 }

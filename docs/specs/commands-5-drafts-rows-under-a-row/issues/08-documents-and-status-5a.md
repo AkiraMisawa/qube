@@ -7,9 +7,9 @@ and `IMPLEMENTATION_STATUS.md` say it; the full suite passes.
 
 **Blocked by:** 01 to 07.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Notes 46 to 49 match the code.
-- [ ] `docs/10` names the new fields of a description.
-- [ ] `IMPLEMENTATION_STATUS.md` has the slice, with what is simulated.
-- [ ] Server, client and browser suites pass, and `validate_handoff`.
+- [x] Notes 46 to 49 match the code.
+- [x] `docs/10` names the new fields of a description, and of a page of rows; `docs/09` says them for the AI.
+- [x] `IMPLEMENTATION_STATUS.md` has the slice, with what is simulated.
+- [x] Server, client and browser suites pass, and `validate_handoff`.

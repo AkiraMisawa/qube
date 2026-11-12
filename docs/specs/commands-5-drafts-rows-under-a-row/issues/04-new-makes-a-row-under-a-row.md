@@ -8,10 +8,10 @@ whole key (ADR-0016 note 48).
 
 **Blocked by:** 01.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] The first word after the product's words is the row above where it names one, whole or by how it ends, and the
+- [x] The first word after the product's words is the row above where it names one, whole or by how it ends, and the
       request names it by its whole key.
-- [ ] The term typed by its name is read as any term.
-- [ ] With neither, the product is refused as missing the term.
-- [ ] A product that says a table the workspace has not, or a term it has not, fails at start, by name.
+- [x] The term typed by its name is read as any term.
+- [x] With neither, the product is refused as missing the term.
+- [x] A product that says a table the workspace has not, or a term it has not, fails at start, by name.

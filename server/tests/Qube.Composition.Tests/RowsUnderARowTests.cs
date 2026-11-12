@@ -18,10 +18,12 @@ public class RowsUnderARowTests
         public CommandLines Lines { get; }
         public string Id { get; }
 
-        public Rig()
+        public Rig(bool described = true)
         {
             var tables = new TableService(Register, Workspaces);
-            var products = new ProductService([new Stations.Products()], [new Stations.SensorRules(Workspaces)], Workspaces, Register);
+            var products = described
+                ? new ProductService([new Stations.Products()], [new Stations.SensorRules(Workspaces)], Workspaces, Register)
+                : new ProductService([], [], Workspaces, Register);
             var registry = new CompositionRegistry([new TablesModule(() => tables), new WorkspaceCommandsModule(() => Workspaces), new ProductsModule(() => products)]);
             Commands = new CommandService(registry, new InMemoryDataStore());
             Lines = new CommandLines(registry, Workspaces, Register, []);
@@ -234,6 +236,14 @@ public class RowsUnderARowTests
     [Fact] // ADR-0016 note 48: the row above is written into the terms by its name and its whole key, so what is invoked names the row exactly
     public void The_request_names_the_row_above_by_its_whole_key() =>
         Assert.Equal("station=S1 rain 30 gal", new Rig().Preview("new sensor s1 rain 30 gal").Inputs!["request"]!["terms"]!.GetValue<string>());
+
+    [Fact] // ADR-0016 note 36: `new` is the kernel's and is read on every workspace; where the application describes no product, it says so
+    public void New_on_a_workspace_whose_application_describes_no_product_is_refused_by_name()
+    {
+        var refused = new Rig(described: false).Preview("new sensor s1 rain 30 gal").Refused!;
+
+        Assert.Equal(("NoProduct", "new makes nothing in this workspace: no product is described for it."), (refused.Code, refused.Sentence));
+    }
 
     [Fact] // ADR-0016 note 48: with no row above named, the product is refused as missing that term, as any required term is
     public void With_no_row_above_the_term_is_missing()

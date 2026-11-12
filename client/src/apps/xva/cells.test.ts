@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { EffectiveTrade, RegisteredColumn, TradeCell } from './contracts';
-import { amountText, cellMessage, cellRefusal, cellState, cellValue, figureText, moduleColumns, parseCellNumber, pvRequest } from './cells';
+import { amountText, cellMessage, cellRefusal, cellState, cellValue, figureText, moduleColumns, parseCellNumber, pvMessage, pvRequest } from './cells';
 
 // ADR-0010 §6, §10: a module's trade columns show what the server answers for each cell, PV01 pending or failed as a
 // word and never as 0, and are typed only where the cell says so.
@@ -82,6 +82,15 @@ describe("a trade's PV cell", () => {
   it('asks entity.set for the trade by its id, with what was typed as its value', () => {
     expect(pvRequest('ABC-LE-01-E00004', ' -350,000 USD ')).toEqual({ ok: true, request: { table: 'xva.trades', rows: 'ABC-LE-01-E00004', set: 'pv -350,000 USD' } });
     expect(pvRequest('DRAFT-1', '-350k')).toEqual({ ok: true, request: { table: 'xva.trades', rows: 'DRAFT-1', set: 'pv -350k' } });
+  });
+
+  it('says what Original held and that no measure reads it, where it differs from the source\'s', () => {
+    expect(pvMessage({ ...trade({}), pv: 14_286_696 })).toBeUndefined();
+    expect(pvMessage({ ...trade({}, { pv: 14_286_696 }), isNew: false, pv: 1_000_000 }))
+      .toBe('Original 14,286,696 · now 1,000,000. No measure reads the PV legs yet: SA-CCR reads the official PV.');
+    // A new trade has no official PV: SA-CCR takes it as traded at market (ADR-0010 §6).
+    expect(pvMessage({ ...trade({}, { pv: null }), pv: 40_598_290.6 }))
+      .toBe('Original empty · now 40,598,290.6. No measure reads the PV legs yet: SA-CCR takes a new trade at market.');
   });
 
   it('refuses nothing typed, and a value that would name another field', () => {

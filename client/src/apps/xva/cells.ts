@@ -72,6 +72,19 @@ export function pvRequest(tradeId: string, typed: string): { readonly ok: true; 
   return { ok: true, request: { table: TRADES_TABLE, rows: tradeId, set: `pv ${text}` } };
 }
 
+/**
+ * What a PV that differs from Original says (ADR-0016 note 49): what Original held, and that no measure reads it, which
+ * a user who has just overwritten it must not be left to assume. Nothing where the PV is what the source's legs give.
+ * It names what SA-CCR's replacement cost reads instead: an existing trade's official PV, and nothing for a new one,
+ * which it takes as traded at market (ADR-0010 §6).
+ */
+export function pvMessage(row: EffectiveTrade): string | undefined {
+  const original = originalMessage(row, 'pv', row.pv);
+  if (original === undefined) return undefined;
+  const read = row.isNew ? 'SA-CCR takes a new trade at market' : 'SA-CCR reads the official PV';
+  return `${original}. No measure reads the PV legs yet: ${read}.`;
+}
+
 /** Whether a cell has failed, so that asking again is its action (ADR-0010 §6). */
 export const failed = (row: EffectiveTrade, field: string): boolean => cellOf(row, field)?.state === 'failed';
 

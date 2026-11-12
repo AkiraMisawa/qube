@@ -39,7 +39,7 @@ import { declaring, measureOfField, membershipColumn, scopesOf } from './members
 import { priceLabel, pricedMeasures } from './metrics';
 import { differs, originalMessage } from './original';
 import { copyRich, downloadRun } from '../../platform/runs';
-import { cellMessage as moduleCellMessage, cellRefusal, cellState as moduleCellState, failed, moduleColumns, parseCellNumber, pvRequest, type PvRequest } from './cells';
+import { cellMessage as moduleCellMessage, cellRefusal, cellState as moduleCellState, failed, moduleColumns, parseCellNumber, pvMessage, pvRequest, type PvRequest } from './cells';
 
 // The trace tab draws with the trace view and KaTeX, read once a tab is opened (as the trace panel is).
 const TraceTab = lazy(() => import('../../platform/traces/TraceTab').then((m) => ({ default: m.TraceTab })));
@@ -111,7 +111,8 @@ const PV_COLUMN = 'pv';
 /**
  * A trade's PV on both grids (ADR-0016 note 49): its PV legs' in the display currency, which the header says, since it
  * is not the trade's own. Typed, it is written as the line writes it (`set <trade> pv -350,000 USD`): the trade is left
- * one leg of that amount. As wide as the official PV, for the same figures.
+ * one leg of that amount. As wide as the official PV, for the same figures. It stands after B and A, where a grid's
+ * figures begin (the New grid's PV01, Margin and PV Adj follow it), so no column a user types a term in moves.
  */
 const pvColumn = (currency: string | undefined): GridColumn<Row> =>
   column(PV_COLUMN, currency === undefined ? 'PV' : `PV (${currency})`, 'number', 152, { editable: true, format: formatAmount, tone: amountTone });
@@ -182,6 +183,7 @@ function cellMessage(row: Row, col: GridColumn<Row>): string | undefined {
     : 'This edit lost its trade in the new version. Acknowledge or reset it in the panel above.';
   if ((col.name === 'csa' || col.name === 'curve' || col.name === 'issues') && row.issues.length > 0) return row.issues.join(' ');
   if (row.cells?.[col.name] !== undefined) return moduleCellMessage(row, col.name);
+  if (col.name === PV_COLUMN) return pvMessage(row);
   // A measure priced per scope says each scope's standing on its membership cell (ADR-0012 §2).
   const measure = measureOfField(col.name);
   if (measure !== undefined) return scopesOf(row, measure);
@@ -338,8 +340,8 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   // The PV column names the display currency: another currency is another declaration, and every row paints again.
   const displayCurrency = view.data?.displayCurrency;
   const pv = useMemo(() => pvColumn(displayCurrency), [displayCurrency]);
-  const newColumns = useMemo<readonly GridColumn<Row>[]>(() => [...leading, pv, ...assignment, ...moduleColumns(registered.current), ...membership, ...derived], [columnsKey, pv, assignment, membership]);
-  const existingColumns = useMemo<readonly GridColumn<Row>[]>(() => [...existingTerms, pv, ...assignment, ...membership, ...derived], [pv, assignment, membership]);
+  const newColumns = useMemo<readonly GridColumn<Row>[]>(() => [...leading, ...assignment, pv, ...moduleColumns(registered.current), ...membership, ...derived], [columnsKey, pv, assignment, membership]);
+  const existingColumns = useMemo<readonly GridColumn<Row>[]>(() => [...existingTerms, ...assignment, pv, ...membership, ...derived], [pv, assignment, membership]);
   gridColumns.current = { new: newColumns, existing: existingColumns };
   // Each grid's columns at the widths the user dragged them to, kept per panel while it is open.
   const newWidths = useColumnWidths(panelId, 'trades/new', newColumns);

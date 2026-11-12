@@ -174,14 +174,14 @@ public class CommandGatewayTests(QubeFactory factory) : IClassFixture<QubeFactor
         return (response.StatusCode, (await response.Content.ReadFromJsonAsync<JsonObject>())!);
     }
 
-    [Fact] // ADR-0016 note 36: `new` is the kernel's and is read on every workspace; where the application describes no product, it says so
-    public async Task New_on_a_workspace_whose_application_describes_no_product_is_refused_by_name()
+    [Fact] // ADR-0016 note 36: `new` is the kernel's and is read on every workspace, with the products its own application describes: Rates' swap is none of the pricer's
+    public async Task New_on_a_workspace_names_the_products_its_own_application_describes()
     {
         var ws = await Create();
 
         var (status, read) = await Preview("new irs 5y", ws["workspaceId"]!.GetValue<string>());
 
-        Assert.Equal((HttpStatusCode.OK, "NoProduct", "new makes nothing in this workspace: no product is described for it."),
+        Assert.Equal((HttpStatusCode.OK, "UnknownProduct", "irs is no product new makes here: leg."),
             (status, read["refused"]!["code"]!.GetValue<string>(), read["refused"]!["sentence"]!.GetValue<string>()));
     }
 

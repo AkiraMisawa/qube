@@ -409,6 +409,17 @@ public class PricerLegTests
         Assert.Equal($"made leg {Swap}/3", took.Said);
     }
 
+    [Fact] // ADR-0016 note 49: the workspace's count of edits holds a leg made, as it holds the legs taken out for it
+    public async Task The_workspaces_count_of_edits_holds_a_leg_made()
+    {
+        var rig = new Rig();
+        await rig.Run($"set {Draft} pv 250,000 EUR");
+        var one = rig.Service.View(rig.Id, "akira").Overrides;
+        await rig.Run("set E00004 pv -350,000 USD");
+
+        Assert.Equal((1, 4), (one, rig.Service.View(rig.Id, "akira").Overrides));
+    }
+
     [Fact] // ADR-0016 note 49, ADR-0010 §3: the Changes tab lists what was done to a trade's legs, each named in words, and resets each
     public async Task The_Changes_tab_lists_what_was_done_to_a_trades_legs()
     {

@@ -1,6 +1,6 @@
 # Generic commands, delivery step 5: rows under a row, templates, and drafts
 
-Status: in progress (5a)
+Status: in progress (5a built; 5b next)
 
 The decisions are ADR-0016 §1 (a table under a row, a figure, templates) and §10 (a dialog is a draft), with its
 notes of 2026-11-11 for step 5 (46 onward). This spec orders ADR-0016's Delivery order, step 5, and names the seams
@@ -81,7 +81,7 @@ shifts under it. `load trades <ids>` reads booked trades from a synthetic store 
   a record of the amount and, where written, the unit.
 - **`new` under a row.** `ProductDescriptor.Table` and `Under`. `EntityCreate` reads the first word after the
   product's as the row above where it names one, and writes it into the terms by name and whole key.
-- **The pricer.** Entities `leg:<trade>/<n>` and `ia:<trade>/<n>`, read from the source, edited field by field,
+- **The pricer.** Entities `leg:<trade>/<n>` and `ia:<trade>/IA<n>`, read from the source, edited field by field,
   made and removed as any entity is; a source's row is taken out by an edit of its own, so `reset` and `undo` bring
   it back. `pv` is the trade table's figure. The page's rows carry `pv`, and the grids show it.
 - **What no measure reads.** The legs change no figure Price answers (note 49). The dialog says so in 5c.

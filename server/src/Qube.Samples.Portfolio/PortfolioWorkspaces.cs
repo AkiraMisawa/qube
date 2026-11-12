@@ -26,8 +26,8 @@ public sealed record RowSort(string Column, string Direction);
 /// <param name="Of">How many rows the grid has with no conditions, where the page was read under some (ADR-0016 note 41 of step 4); none where it was not.</param>
 public sealed record RowPage(IReadOnlyList<EffectiveTrade> Rows, int Start, int TotalCount, string OrderToken, long Revision, int? Of = null);
 
-/// <summary>What the workspace panel shows beside the grid. <c>Overrides</c> counts the edits to the portfolio's data;
-/// the selection of measures is the page's choice, shown on its own. <c>TradeColumns</c> are the selected modules'
+/// <summary>What the workspace panel shows beside the grid. <c>Overrides</c> counts the edits to the portfolio's data,
+/// a leg made under a trade among them (ADR-0016 note 49); the selection of measures is the page's choice, shown on its own. <c>TradeColumns</c> are the selected modules'
 /// (ADR-0010 §10), as are the shared tabs' <c>Inputs</c> they need, and <c>PendingCells</c> counts their cells on the new trades still waiting for a result, so the page
 /// asks again while any is. <c>DisplayCurrency</c> is the workspace's setting, and <c>Simulated</c> names the modules whose
 /// figures come from a simulated provider, which the page says (ADR-0010 §1).</summary>
@@ -207,7 +207,7 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
             .Select(r => new RunLink(r.RunId, r.Relations.WorkspaceRevision ?? throw new InvalidOperationException($"Run {r.RunId} names a workspace but no revision.")))
             .ToList();
         return new(state.WorkspaceId, state.Revision, state.Context, source.Version, source.Registration, source.Agreement,
-            register.WithMembership(state, PortfolioMaterialiser.Csas(state)), PortfolioMaterialiser.Credit(state), Rows(state).Count, Rows(state).Count(t => t.IsNew), Rows(state).Count(t => t.Before), Rows(state).Count(t => t.After), state.Overrides.Keys.Count(t => t.Scope != PortfolioEditRules.WorkspaceScope),
+            register.WithMembership(state, PortfolioMaterialiser.Csas(state)), PortfolioMaterialiser.Credit(state), Rows(state).Count, Rows(state).Count(t => t.IsNew), Rows(state).Count(t => t.Before), Rows(state).Count(t => t.After), Edits(state, raw),
             // Every edit held back is the user's to resolve, a case's among them.
             [.. raw.Conflicts.Values.OrderBy(c => c.Override.Seq).Select(c => new HeldEdit(c.Override.Target.Scope, c.Override.Target.Entity, c.Override.Target.Field, c.Override.Value, c.Source, false, CaseIdOf(c.Override.Target)))],
             [.. raw.Lost.Values.OrderBy(l => l.Override.Seq).Select(l => new HeldEdit(l.Override.Target.Scope, l.Override.Target.Entity, l.Override.Target.Field, l.Override.Value, null, l.Acknowledged, CaseIdOf(l.Override.Target)))],
@@ -400,6 +400,13 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
 
     // The edits to the portfolio's data in any layer, as the Changes tab counts them: the selection, the display currency
     // and the scenarios are the page's, shown on their own; a module's settings are inputs and listed (ADR-0010 §8).
+    /// <summary>
+    /// How many edits the workspace holds, as its summary says them: each value written over the source's, and each
+    /// leg made under a trade (ADR-0016 note 49), which is what a PV typed for a trade with no leg leaves.
+    /// </summary>
+    static int Edits(WorkspaceState state, WorkspaceState raw) =>
+        state.Overrides.Keys.Count(t => t.Scope != PortfolioEditRules.WorkspaceScope) + PortfolioLegs.Made(raw).Count;
+
     IEnumerable<Override> DataEdits(WorkspaceState raw) =>
         raw.Overrides.Values.Concat(raw.Conflicts.Values.Select(c => c.Override)).Concat(raw.Lost.Values.Select(l => l.Override))
             .Where(o => o.Target.Scope != PortfolioEditRules.WorkspaceScope || register.SettingsOf(o.Target.Entity) is not null);

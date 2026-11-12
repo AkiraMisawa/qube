@@ -7,8 +7,8 @@ alone (ADR-0016 note 47).
 
 **Blocked by:** nothing.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] `-350,000 USD`, `-350k usd` and `-350000` read; what is written reads back to the same value.
-- [ ] A unit that is none of the choices, and words that are no number, are refused with what the field takes.
-- [ ] A cell for a spreadsheet writes the number and its unit.
+- [x] `-350,000 USD`, `-350k usd` and `-350000` read; what is written reads back to the same value.
+- [x] A unit that is none of the choices, and words that are no number, are refused with what the field takes.
+- [x] A cell for a spreadsheet writes the number and its unit.
