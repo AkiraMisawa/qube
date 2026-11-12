@@ -2464,10 +2464,82 @@ and the market that converts them are synthetic.
   with its currency is one.
 - A figure is no cell of `vary`: a case of another PV is not made.
 
+## The panels' tabs: many panels, and every way of managing them a command (ADR-0006 note 7, 2026-11-12)
+
+The owner asked what happens when many panels are open, what good practice for tabs is, and for the good operations
+as commands too. Measured first at 1440, 1280, 992, 768 and 390px with twelve panels (note 7 says what was found);
+the practices taken are the ones editors and browsers share, each a verb of the shell.
+
+### What runs
+
+- **The strip** keeps the active tab in sight (opened, chosen elsewhere, moved, or narrowed past), scrolling only
+  itself, sideways. A long title is cut with an ellipsis and said whole by the tab's title and the list. A tab is
+  one Control Height.
+- **The list** at the strip's end says how many panels are open and lists them; choosing one shows it. Under it are
+  the active panel's verbs, which is how a phone reaches them. Its tooltip names `show panel`.
+- **A tab's menu** opens by a right click, Shift+F10 or the menu key, names its panel, and shows each verb with the
+  words the line takes. A key opens it on its first item and gives the keyboard back to the tab, or to the tab shown
+  next where it closed its own. An item that cannot act is disabled and says why.
+- **Keys and the pointer**: Delete closes the focused tab and the keyboard follows to the tab shown next; the middle
+  button closes a tab; a tab dragged onto another takes its place.
+- **Where panels open and what closing shows**: a new panel opens beside the active one; closing the active panel
+  shows the one shown before it. A Run or a page open already is shown, not opened twice, by `reopen panel` too.
+- **Numbering**: panels of one title are `Title`, `Title · 2`, …; a panel keeps its number while open and has it
+  back when reopened where it is free. The strip, the list, `show panel` and every command's target use it.
+- **Pinned panels** stand first, show a pin and no close button, and stay open through the closes of several.
+- **Closed panels**: the last twenty are kept with where they stood, whether pinned, and their number.
+- **The verbs**, declared once in `client/src/shell/panelVerbs.ts` and run by the line, the menus and the keys:
+  `close panel` (Ctrl/⌘+Shift+X), `close other panels`, `close panels to the right`, `close all panels`, `pin panel`,
+  `unpin panel`, `move panel <left|right|first|last>`, `reopen panel`, beside `next panel`, `previous panel` and
+  `show panel`. A close of several says how many it closed and kept. They are the client's: not logged, not undone,
+  not the AI's (ADR-0016 §3).
+
+### Verification performed
+
+| What | Result |
+|---|---|
+| Client: `npm run typecheck`, `npm test`, `npm run build` | Clean; 364 passed in 37 files; built |
+| `npx playwright test e2e/panels.spec.ts --repeat-each=3` (Chromium, headless, Linux) | 15 passed |
+| `npx playwright test` (Chromium, headless, Linux), after the rebase on #26 and #27 | 111 passed |
+| The strip, a tab's menu, the list and the line at 1440px dark and light, 992, 768 and 390px dark and light | Looked at; no sideways scroll of the page at 768 or 390 |
+
+The store's tests read where a panel opens and what closing shows, numbering, the closes of several with pinned
+panels, reopening (and its refusal to open a page twice), the closed panels kept, and moves within the pinned or
+the others. The verbs' tests read that the line has each verb, `show panel`'s numbered names, what each says when it
+cannot act, and a refusal from a menu as a notice. The browser tests read what only a browser shows: a tab in sight
+at 768 and 390px, the list's names, the menu by right click and Shift+F10 and where the keyboard goes as it closes,
+Delete and the middle button, and a drag.
+
+### Providers
+
+Unchanged; nothing on the server changed.
+
+### Known limits
+
+- A page's own state (its inner tab, a grid's sort, filter and selection) still goes when its panel is hidden. The
+  owner chose that each page keep it by panel and show it again (note 7's last bullet): its own pull request, after
+  ADR-0016's step 5 changes the pricer's page.
+- The panels, their order and the closed ones are kept while the page is loaded, as before; a reload starts empty.
+- On a Mac laptop Delete is Fn+Delete, and Shift+F10 may need Fn: the menu is reached by a right click (or
+  Ctrl+click) and the list, and `close panel` has its chord.
+- A drag is checked with a mouse only; on a touch screen it is not checked, and the list's Move left and Move right
+  reach the same move.
+
+### What the review changed
+
+The two reviews (standards and spec) found, and this pull request corrects: `reopen panel` opened a second panel of
+a page opened again since it closed; after a menu opened from the keyboard closed its own tab, the keyboard was lost,
+and after Delete closed the last panel the next panel opened took it; Move left and Move right stayed enabled at the
+strip's ends; keeping the active tab in sight could scroll the page under the strip; other commands' targets named
+two panels of one title alike; a tab was 28px beside the list's 30px button; a menu's name hung on an empty mark; a
+close of several beside a panel not open answered "Closed 0 panels"; and the empty strip told a phone to press
+Ctrl+K. Each is said in note 7 or the design guidelines, with a test where a test can hold it.
+
 ## Next
 
 1. Generic commands: the rest of delivery step 5 (5b templates and the fields the owner's examples show, 5c drafts
-   and the detail dialog, 5d scenarios as a table and `load trades`), then step 6 (saved sequences of edits).
+   and the detail dialog, 5d scenarios as a table and `load trades`), then step 6 (saved sequences of edits). After step 5's
+   pricer page: a page keeps its state by panel (ADR-0006 note 7, the owner's choice).
 2. MVA with SIMM (`docs/12-implementation-plan.md` P2): spot IM from the XVA request's MVA option.
 3. ADR-0010 Delivery step 3 (Advanced: Before-only and After-only edits, the split fill), when the owner asks for it.
 4. The owner's review of ADR-0003 §7 (scopes, carry and conflict), then a synthetic source change that can produce a conflict, and the browser cases still open above (reload, failed case unavailable).
