@@ -80,6 +80,21 @@ static class Stations
 
     sealed record Sent(string Id, string Subset, string Station, decimal Volume, string Unit, string Taken, bool Checked, string? Note, decimal WindSpeed, string WindDirection, string Window);
 
+    // Two templates of the readings (ADR-0016 note 50), registered only for the tests that ask for them. A reading
+    // gauged by hand takes its unit, alone or by name, and may take a drift; it writes the note before the drift, which
+    // the board's own rule needs explained by one. A calm takes nothing.
+    public static readonly TableTemplate Gauged = new("gauged", "Gauged by hand", ["gauged", "by gauge"],
+        [new("unit", "Unit", FieldForm.Choice, Required: true, Unnamed: true, Choices: Units, Aliases: ["in"]), new("drift", "Drift", FieldForm.Rate)],
+        ["unit", "checked", "note", "drift"]);
+
+    public static readonly TableTemplate Calm = new("calm", "Calm", ["calm", "no wind"], [], ["windSpeed", "windDirection"]);
+
+    public static readonly TableDescriptor ReadingsWithTemplates = ReadingsTable with { Templates = [Gauged, Calm] };
+
+    // The board's one row of settings has a template too: a night's settings, which take nothing.
+    public static readonly TableTemplate Night = new("night", "Night", ["night"], [], ["alarm", "daylight"]);
+    public static readonly TableDescriptor SettingsWithTemplates = SettingsTable with { Templates = [Night] };
+
     static readonly Sent[] Sends =
     [
         new("R1", "manual", "NORTH", 5_000_000m, "M3", "2026-11-01", false, null, 12m, "N", "1d"),
@@ -218,6 +233,15 @@ static class Stations
             return [new WorkspaceChange.Set(Target(((Row)row).Entity, field.Name), value)];
         }
 
+        public IReadOnlyDictionary<string, JsonNode?> Template(WorkspaceState state, TableTemplate template, IReadOnlyDictionary<string, JsonNode?> terms) => template.Name switch
+        {
+            // A drift not given is written as none: the template says the reading's drift either way.
+            "gauged" => new Dictionary<string, JsonNode?> { ["unit"] = terms["unit"], ["checked"] = true, ["note"] = "gauged", ["drift"] = terms.TryGetValue("drift", out var drift) ? drift : null },
+            "calm" => new Dictionary<string, JsonNode?> { ["windSpeed"] = 0m, ["windDirection"] = "none" },
+            "night" => new Dictionary<string, JsonNode?> { ["alarm"] = 1_000_000m, ["daylight"] = false },
+            _ => throw new InvalidOperationException($"The readings have no template {template.Name}."),
+        };
+
         public IReadOnlyList<WorkspaceChange>? SetAll(WorkspaceState state, TableSubset subset, TableField field, JsonNode? value) =>
             kind == "reading" && field.Name == "checked" ? [new WorkspaceChange.Set(Target($"readings:{subset.Name}", field.Name), value)] : null;
 
@@ -296,11 +320,12 @@ static class Stations
     /// fault; with <paramref name="sensors"/>, the sensors under the stations too, and each station's load, a figure of
     /// them, or the sensors as <paramref name="sensorsAs"/> describes them.
     /// </summary>
-    public sealed class Catalog(TableDescriptor? stations = null, bool sensors = false, TableDescriptor? sensorsAs = null) : ITableCatalog
+    public sealed class Catalog(TableDescriptor? stations = null, bool sensors = false, TableDescriptor? sensorsAs = null, TableDescriptor? readings = null,
+        TableDescriptor? settings = null) : ITableCatalog
     {
         public IEnumerable<IWorkspaceTable> Tables =>
         [
-            new Table(ReadingsTable, "reading"), new Table(stations ?? (sensors ? SitesWithSensors : SitesTable), "station"), new Table(SettingsTable, "settings"),
+            new Table(readings ?? ReadingsTable, "reading"), new Table(stations ?? (sensors ? SitesWithSensors : SitesTable), "station"), new Table(settings ?? SettingsTable, "settings"),
             .. sensors || sensorsAs is not null ? [new Table(sensorsAs ?? SensorsTable, "sensor")] : Array.Empty<IWorkspaceTable>(),
         ];
     }

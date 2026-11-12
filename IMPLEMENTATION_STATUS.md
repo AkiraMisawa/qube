@@ -2474,3 +2474,16 @@ and the market that converts them are synthetic.
 5. Rates.
 6. ME-ID sign-in through MSAL (C30) and the visibility rules (C31, C32); AI over AG-UI with the company's Copilot behind the adapter port (C34).
 7. Slice 01b: Save and Pin (CO06), and the browser parts of CO03 and CO04.
+
+## Later, perhaps
+
+What the owner asked to keep in mind and has not asked to build. Nothing here is planned; an item moves to "Next"
+when he asks for it.
+
+- **Bundling many changes on the server** (owner, 2026-11-12). A cell edited by hand is one request and one revision
+  today, and a command over many rows is already one. Where a user makes many changes in a row, by hand or by
+  command, the server may gather them and apply them together, or work out only the part they touch, as long as the
+  outcome is the one applying each in turn gives. The lines it must hold: nothing half applied is shown or priced
+  (Price freezes one whole revision); every change stays in the log, for undo, the Changes tab and the account of
+  it; changes whose order matters are bundled only where the result is that of their order. Measure the slow
+  operation first.

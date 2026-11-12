@@ -48,6 +48,15 @@ public sealed record TableField(
 public sealed record TableFigure(string Of, FieldSpec? Written = null);
 
 /// <summary>
+/// A named set of field values a table registers (ADR-0016 §1, note 50): where a row starts, which holds nothing
+/// afterwards. <c>set &lt;rows&gt; as &lt;template&gt; [terms]</c> writes it over rows.
+/// </summary>
+/// <param name="Words">What a person types for it after <c>as</c>, the first the one a sentence uses.</param>
+/// <param name="Takes">The terms it takes, read as a product's are (ADR-0008 §3): by name, or by form where one may be typed without its name.</param>
+/// <param name="Writes">The fields it writes, in the order they are written and checked; no other field of a row is.</param>
+public sealed record TableTemplate(string Name, string Title, IReadOnlyList<string> Words, IReadOnlyList<Products.ProductField> Takes, IReadOnlyList<string> Writes);
+
+/// <summary>
 /// A table as a workspace has it (ADR-0016 §1): its id and version, which a saved definition and the AI name; the words
 /// a person types for it; the field that names a row; its fields, resolved for the workspace, and its subsets.
 /// </summary>
@@ -55,6 +64,7 @@ public sealed record TableFigure(string Of, FieldSpec? Written = null);
 /// <param name="Main">The application's main table, which <c>all</c>, a subset or <c>where</c> mean where no table is named (note 7).</param>
 /// <param name="Actions">What a grid bound to the table offers beside the kernel's own (note 25 of step 2); none where it is left out.</param>
 /// <param name="Under">The table its rows are under, where it belongs to a row (§1, note 46): the lines of an order are under the orders.</param>
+/// <param name="Templates">The named sets of field values it registers (§1, note 50); none where it is left out.</param>
 public sealed record TableDescriptor(
     string TableId,
     string Version,
@@ -67,7 +77,8 @@ public sealed record TableDescriptor(
     bool SingleRow = false,
     bool Main = false,
     IReadOnlyList<TableAction>? Actions = null,
-    string? Under = null);
+    string? Under = null,
+    IReadOnlyList<TableTemplate>? Templates = null);
 
 /// <summary>
 /// An act on a table's rows that a screen offers by its title (ADR-0016 §4, note 25 of step 2): the line that does it,
@@ -139,6 +150,13 @@ public interface IWorkspaceTable
     /// that the row changes.
     /// </summary>
     string? SetSays(WorkspaceState state, ITableRow row, TableField field, JsonNode? value) => null;
+
+    /// <summary>
+    /// The value each field of a template takes for the terms given (ADR-0016 note 50), one for each field the template
+    /// says it writes. A template holds nothing of a row, so the answer is the same for every row it is written over.
+    /// </summary>
+    IReadOnlyDictionary<string, JsonNode?> Template(WorkspaceState state, TableTemplate template, IReadOnlyDictionary<string, JsonNode?> terms) =>
+        throw new InvalidOperationException($"Table {TableId} lists the template {template.Name} and does not say what it writes.");
 
     /// <summary>
     /// The changes that write a value for every row of a subset at once, where the field has a whole-set edit (one edit

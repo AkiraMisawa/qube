@@ -3,6 +3,7 @@ using Qube.Composition.Application;
 using Qube.Composition.Application.Products;
 using Qube.Composition.Application.Tables;
 using Qube.Composition.Application.Workspaces;
+using Qube.Composition.Contracts;
 using Qube.Samples.Ccr;
 using Qube.Samples.Portfolio;
 using Qube.Samples.Xva;
@@ -30,6 +31,8 @@ public class PricerLegTests
         public TableRegister Register { get; }
         public TableService Tables { get; }
         public string Id { get; }
+        InMemoryDataStore Store { get; }
+        RunService Runs { get; }
 
         public Rig(string registration = "ABC/LE-01")
         {
@@ -42,8 +45,9 @@ public class PricerLegTests
             var products = new ProductService([new PortfolioProducts()], [new LegRules(Pricer)], Workspaces, Register);
             var registry = new CompositionRegistry([new PortfolioModule(), new XvaModule(), new CcrModule(), new TablesModule(() => tables), new WorkspaceCommandsModule(() => Workspaces),
                 new ProductsModule(() => products), new PortfolioCommandsModule(Pricer, register)]);
-            var store = new InMemoryDataStore();
-            Service = service = new PortfolioWorkspaces(Workspaces, store, new RunService(registry, store, TimeProvider.System), register, UnsetSettings.Pricer());
+            var store = Store = new InMemoryDataStore();
+            Runs = new RunService(registry, store, TimeProvider.System);
+            Service = service = new PortfolioWorkspaces(Workspaces, store, Runs, register, UnsetSettings.Pricer());
             Commands = new CommandService(registry, store);
             Lines = new CommandLines(registry, Workspaces, Register, [new PortfolioShortForms()]);
             Id = Service.Create("akira", registration, Day1, 40).WorkspaceId;
@@ -61,6 +65,15 @@ public class PricerLegTests
             var result = await Commands.InvokeAsync(preview.Command!.Id, preview.Command.Version, preview.Inputs!, Akira, Guid.NewGuid().ToString(), default);
             return result is CommandResult.Done done ? done.Outputs.Values.Single()!["said"]!.GetValue<string>()
                 : throw new Xunit.Sdk.XunitException($"{line} was refused: {string.Join(" ", ((CommandResult.Refused)result).Issues.Select(i => i.Message))}");
+        }
+
+        /// <summary>Prices the workspace as it stands and answers the accepted input its Run keeps.</summary>
+        public async Task<JsonObject> Priced()
+        {
+            var accepted = Assert.IsType<SubmissionResult.Accepted>(Service.Price(Id, State.Revision, "akira", Guid.NewGuid().ToString()));
+            await Runs.Completion(accepted.Run.RunId);
+            var run = Runs.Find(accepted.Run.RunId)!;
+            return Store.ReadRequired(((DataReferenceBinding)run.Workflow.Steps[0].Bindings["acceptedInput"]).Reference).AsObject();
         }
 
         /// <summary>What <c>tables.describe</c> answers the AI for this workspace.</summary>
@@ -539,6 +552,88 @@ public class PricerLegTests
 
         Assert.Equal((1_000_000m, 14_286_696m), (Row(Swap).Pv, Row(Swap).Original!["pv"]!.GetValue<decimal>()));
         Assert.Null(Row(UsdSwap).Original);
+    }
+
+    // A trade of the accepted input's first case, the Base.
+    static JsonObject Frozen(JsonObject input, string trade) =>
+        input["cases"]![0]!["trades"]!.AsArray().Single(t => t!["tradeId"]!.GetValue<string>() == trade)!.AsObject();
+
+    [Fact] // ADR-0016 note 53 (owner, 2026-11-12): Price freezes each trade's legs as the workspace holds them, an overwritten PV as its one leg
+    public async Task The_accepted_input_carries_each_trades_legs_as_set()
+    {
+        var rig = new Rig();
+        await rig.Run("set E00004 pv -350,000 USD");
+        await rig.Run("new leg E00013 eur 250,000");
+
+        var input = await rig.Priced();
+
+        static string[] Legs(JsonObject trade) => [.. trade["legs"]!.AsArray().Select(l => $"{l!["legId"]!.GetValue<string>()} {l["currency"]!.GetValue<string>()} {l["pv"]!.GetValue<decimal>():0.##}")];
+        Assert.Equal([$"{Swap}/3 USD -350000"], Legs(Frozen(input, Swap)));
+        var usd = Legs(Frozen(input, UsdSwap));
+        Assert.Equal([$"{UsdSwap}/1 USD", $"{UsdSwap}/2 USD"], usd.Take(2).Select(l => l[..(UsdSwap.Length + 6)]));
+        Assert.Equal($"{UsdSwap}/3 EUR 250000", usd[2]);
+        // The source's two legs are frozen as they were: they still add up to the trade's official PV.
+        Assert.Equal(-768_420m, Frozen(input, UsdSwap)["legs"]!.AsArray().Take(2).Sum(l => l!["pv"]!.GetValue<decimal>()));
+        // A new trade no leg was made for carries none, and says so: the list is there and empty.
+        Assert.Empty(Frozen(input, Draft)["legs"]!.AsArray());
+        // What the simulated measures read is as it was: the official PV is the source's.
+        Assert.Equal(14_286_696m, Frozen(input, Swap)["officialPv"]!.GetValue<decimal>());
+    }
+
+    [Fact] // ADR-0016 note 53: Price freezes each trade's independent amounts, less one the workspace took out
+    public async Task The_accepted_input_carries_each_trades_independent_amounts()
+    {
+        var rig = new Rig();
+        const string two = "ABC-LE-01-E00006";
+        await rig.Run($"remove ia {two}/IA1");
+
+        var input = await rig.Priced();
+
+        static string[] Amounts(JsonObject trade) => [.. trade["independentAmounts"]!.AsArray().Select(a =>
+            $"{a!["amountId"]!.GetValue<string>()} {a["currency"]!.GetValue<string>()} {a["value"]!.GetValue<decimal>():0.##}")];
+        Assert.Equal([$"{Swap}/IA1 JPY 71506008"], Amounts(Frozen(input, Swap)));
+        Assert.Equal([$"{two}/IA2 USD 1114602"], Amounts(Frozen(input, two)));
+        Assert.Empty(Frozen(input, Draft)["independentAmounts"]!.AsArray());
+        // Its dates are those the amounts' table reads for it.
+        var row = rig.Register.Of(rig.State).Single(t => t.Descriptor.TableId == PortfolioTables.Amounts).Table.Rows(rig.State).Single(r => r.Key == $"{Swap}/IA1");
+        var frozen = Frozen(input, Swap)["independentAmounts"]![0]!;
+        Assert.Equal((row.Value("start")!.GetValue<string>(), row.Value("end")!.GetValue<string>()), (frozen["start"]!.GetValue<string>(), frozen["end"]!.GetValue<string>()));
+    }
+
+    [Fact] // ADR-0016 note 53: Price freezes every CSA a case's trades use, with its terms as that case holds them
+    public async Task The_accepted_input_carries_the_CSAs_the_trades_use_as_set()
+    {
+        var rig = new Rig();
+        await rig.Run("set CSA-B threshold 5mm");
+        await rig.Run("set CSA-B self mta 250k");
+        await rig.Run("vary CSA-B threshold 0");
+
+        var input = await rig.Priced();
+
+        JsonObject Csa(int @case, string id) => input["cases"]![@case]!["csas"]!.AsArray().Single(c => c!["csaId"]!.GetValue<string>() == id)!.AsObject();
+        Assert.Equal((5_000_000m, 250_000m), (Csa(0, "CSA-B")["counterpartyThreshold"]!.GetValue<decimal>(), Csa(0, "CSA-B")["selfMta"]!.GetValue<decimal>()));
+        Assert.Equal((0m, 250_000m), (Csa(1, "CSA-B")["counterpartyThreshold"]!.GetValue<decimal>(), Csa(1, "CSA-B")["selfMta"]!.GetValue<decimal>()));
+        // Those the case's trades use and no other, in the order the CSAs' table reads them.
+        var used = input["cases"]![0]!["trades"]!.AsArray().Select(t => t!["csa"]!.GetValue<string>()).ToHashSet();
+        Assert.Equal(rig.Keys("csas all").Where(used.Contains), input["cases"]![0]!["csas"]!.AsArray().Select(c => c!["csaId"]!.GetValue<string>()));
+        Assert.Contains("CSA-B", used);
+    }
+
+    [Fact] // ADR-0016 note 53: what is under a trade Price reads is priced with it, so an unresolved edit on it would refuse Price
+    public async Task A_priced_trades_legs_and_amounts_are_priced_entities()
+    {
+        var rig = new Rig();
+        await rig.Run("set E00013 before off");
+        await rig.Run("set E00013 after off");
+
+        var priced = PortfolioCases.PricedEntities(rig.State);
+
+        Assert.True(priced($"leg:{Swap}/1"));
+        Assert.True(priced($"ia:{Swap}/IA1"));
+        Assert.True(priced($"trade:{Swap}"));
+        // A trade in neither side is not read, nor what is under it.
+        Assert.False(priced($"trade:{UsdSwap}"));
+        Assert.False(priced($"leg:{UsdSwap}/1"));
     }
 
     [Fact] // ADR-0016 note 49: a leg and an independent amount of one trade never share an id

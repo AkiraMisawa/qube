@@ -314,9 +314,28 @@ public static class PortfolioInput
                 ["module"] = register.Measures.Single(m => m.Id == id).Module,
                 ["refused"] = refusals.TryGetValue(id, out var refusal) ? new JsonObject { ["code"] = refusal.Code, ["message"] = refusal.Message } : null,
             })]),
-            ["trades"] = JsonSerializer.SerializeToNode(trades, WireJson.Options),
+            ["trades"] = new JsonArray([.. trades.Select(t => Trade(state, t))]),
+            // Every CSA a trade of the case uses, with its terms as the case holds them (ADR-0016 note 53).
+            ["csas"] = Csas(state, trades),
             ["modules"] = modules,
         };
+    }
+
+    static JsonArray Csas(WorkspaceState reading, IReadOnlyList<EffectiveTrade> trades)
+    {
+        var used = trades.Select(t => t.Csa).ToHashSet();
+        return new([.. PortfolioMaterialiser.Csas(reading).Where(c => used.Contains(c.CsaId)).Select(c => JsonSerializer.SerializeToNode(c, WireJson.Options))]);
+    }
+
+    // A trade as the input carries it: its row, and what the workspace holds under it (ADR-0016 note 53). Whatever a
+    // user can set is frozen as set, whether or not a measure reads it yet.
+    static JsonNode Trade(WorkspaceState reading, EffectiveTrade trade)
+    {
+        var row = JsonSerializer.SerializeToNode(trade, WireJson.Options)!.AsObject();
+        var (legs, amounts) = PortfolioLegs.Frozen(reading, trade.TradeId);
+        row.Add("legs", legs);
+        row.Add("independentAmounts", amounts);
+        return row;
     }
 
     /// <summary>

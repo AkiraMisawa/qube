@@ -1945,9 +1945,98 @@ has one button, edit; and `load trades` reads a synthetic store of booked trades
       (ADR-0010 §6, §8); spot IM reads sensitivities. So the cell says what Price reads, not what one measure
       does: "Price reads the official PV" on an existing trade, "Price takes a new trade at market, or at its PV
       Adj" on a new one.
+    - *Decided by the owner (2026-11-12):* a changed PV does not reach a measure for now; it will when the real
+      XVA analytics is connected. The question above is closed until then, and the cell goes on saying what Price
+      reads.
     - *Changed as built: what Price freezes.* The first note said the legs are frozen with the rest of the input.
       They are not: the accepted input carries what a measure reads, and none reads a leg or the PV they add up
       to, so it carries neither. When a measure reads them, its module's part of the input will carry them.
+    - *Changed after the owner's words of 2026-11-12: what Price freezes.* The entry above was wrong for what the
+      owner needs, and stood for one pull request (5a). The legs and the independent amounts are frozen with the
+      rest of the input, whichever measure reads them: note 53.
+50. **A template (§1, §3; 5b).** A table's description lists its templates (`Templates`): each a name, a title, the
+    words it answers to, the terms it takes and the fields it writes.
+    - **The terms a template takes are read as a product's are (ADR-0008 §3):** by name (`currency=USD`,
+      `ccy=USD`), or by form in any order where a term may be typed without its name (`set CSA-B as 2way usd`). §10's
+      `set as 2way ccy=USD` reads the same. One reader serves `new` and `as`, and the owner's rule for typed terms
+      holds for both (2026-11-04: short, in any order).
+    - **`set <rows> as <template> [<terms>]`.** After the rows, `as` names a template of their table by its words,
+      the longest run that names one. The table answers the value of each field the template writes for the terms
+      given (`IWorkspaceTable.Template`), and they are written as several values are (note 9): in the template's
+      order, each checked as the ones before it left the rows, all or none, one command and one `undo`. No other
+      field of a row is written. `entity.set` takes the same words in `set`, so the AI and a button write a
+      template as the line does.
+    - **Refused by name:** `as` on a table with no template; a template the table has not, with those it has; a
+      term it needs and was not given; and a term it has not, a word that fills none and a value that cannot be
+      read, each as `new` refuses a product's.
+    - **What the line says.** Before Enter, for one row, each cell that would change with what it holds and what it
+      would hold, and how many cells hold their value already; for several rows, each field's counts as `set` says
+      them. §3 said the preview names each cell: a cell that would not change is counted and not named, since a
+      template writes ten cells or more. After Enter it says the rows and the template with its terms by name
+      (`Set CSA-B as 2way currency=USD.`), which is also how the log names the command.
+    - **Completion.** After the rows, `as` is offered beside the fields where the table has a template; after
+      `as`, the templates; after a template, its terms as `new` offers a product's.
+    - **`tables.describe`** answers each template: its name, title and words, the terms it takes (name, title,
+      form, whether it is needed, its other names, what a choice has to choose from) and the fields it writes.
+    - **Checked when the tables are read:** a template that writes a field its table has not, one no command sets
+      or a figure, and two templates that answer to one word, fail by name. At a write, an answer that names a
+      field the template did not declare, or leaves one out, is the registration's defect and throws.
+    - Not built: `new` making a row from a template (§1). No table of the samples makes its rows from one yet
+      (the pricer's hypothetical CSA is ADR-0010 §8's, not built); it comes with the first that does.
+51. **The pricer's fields beyond its grids (5b; the sample's own, every value synthetic).** The owner chose that the
+    sample's trade and CSA carry every field of his examples (2026-11-11).
+    - **The trade** gains its identity (requested id, trade type, the source's product type, SIMM product class,
+      user-defined), its master agreement and netting set, its break (date, mandatory) and its model (model,
+      pricer and interpolation ids, domestic currency, the IR model and its basis, the equity, credit and inflation
+      models, the method for what is not modelled). The model's and the break's are set; the rest are the
+      source's and are refused as not editable.
+    - **The CSA** gains its general terms (counterparty, netting set, agreement name, enforceable, main,
+      user-defined), read-only, and for each side whether it posts, its VM cap and the cap's currency, its
+      independent amount, its rounding and how a delivery and a return are rounded, all set.
+    - **Every field of both tables has a group**, the ones the grids already showed too: a trade's Identity,
+      Terms, Agreement, Dates, Model and Valuation, a CSA's General, Terms, Counterparty and Self. B and A are
+      membership and have none. A side's field is said with its side (`self posts`, `counterparty posts`, `cpty
+      posts`), and `cpty` now also says the counterparty's side of the fields the grid had.
+    - **They are fields of the row and no column of the page's rows.** The table reads them, so a condition,
+      `set`, `reset`, `tables.read` and from 5c the dialog do; an edit of one is an edit of the row's entity as any
+      other, so it is listed in Changes, undone, and carried or held back when the source is acquired again, with
+      the source's value as Original. The page's row contracts are unchanged, and no grid shows them.
+    - **Checked by their forms:** a flag, one of a choice's values, an amount of 0 or more, a date, an id of one
+      word; a field that may be empty says so.
+    - **No simulated measure reads them, and Price freezes every one** (owner, 2026-11-12: "not now; when the XVA
+      analytics is connected", said of the PV legs of note 49 and read here for these fields too; and, of the
+      input, note 53). FVA's rule and SA-CCR keep reading `one-way`, `exchange`, the thresholds and the MTAs. Who
+      posts is carried beside `one-way` and `exchange`, not in their place: a template writes them together, an
+      edit by hand can leave them saying different things, and no simulated measure reads the side's flag.
+      Whether `one-way` should become what the two flags say is put to the owner with the summary of decisions
+      made for him.
+52. **The CSA's four templates (5b).** `2way` (both sides post), `1way-self` (we post alone), `1way-cpty` (the
+    counterparty posts alone) and `none` (no collateral). Each takes a currency, by name or alone, and writes the
+    CSA's currency and each side's, `exchange`, `one-way`, who posts, and both sides' threshold and MTA as 0. Curves,
+    frequency, VM caps, independent amounts and rounding stay as they are and are changed with `set`: the market
+    has no curve for every currency a CSA may be in, and none is guessed. The owner's examples give the four
+    templates and that each takes a currency; what each writes beyond who posts is the sample's own.
+53. **The accepted input carries what the user set (owner, 2026-11-12; 5b).** The owner, the same day he put off
+    the measures: what matters for now is that the input to the analytics is built correctly and as expected. A
+    value a user can set is therefore in what Price freezes exactly as set, whether or not a simulated measure
+    reads it; a value left out because nothing reads it yet is the defect the real analytics would meet.
+    - **Each trade of a case carries its `legs` and its `independentAmounts`**, as the reading of that case holds
+      them: a leg as its id, currency, PV and its notional where it holds one; an independent amount as its id,
+      currency, start, end and value. A trade with none carries an empty list, never no list, so that "it has no
+      leg" is said and not left to be guessed. A PV overwritten is the one leg the write left (note 49), in the
+      currency written.
+    - **The PV they add up to is not carried.** It is a figure of the legs in the display currency, which the
+      input names; a second copy could only disagree with them.
+    - **Each case carries its `csas`**: every CSA a trade of the case uses, in the CSA table's order, with the
+      terms the page shows and, under `details`, the fields of note 51 by name. Before this note a CSA's terms
+      reached the input only in SA-CCR's part, and only where a capital measure was selected.
+    - **Each trade carries, under `details`, the fields of note 51 by name**, those the source alone sets among
+      them. An empty one is carried as empty (`null`), not left out.
+    - **A leg and an independent amount of a priced trade are priced entities**: an unresolved conflict or an
+      unacknowledged lost edit on one refuses Price, as one on the trade does.
+    - **What the simulated measures read stays as it was** (note 49). The input so holds an existing trade's
+      official PV and its legs, and where the PV was overwritten the two differ. Which of them the real request
+      reads is decided when the analytics is connected (ADR-0010, ADR-0013).
 
 ## Rejected
 
