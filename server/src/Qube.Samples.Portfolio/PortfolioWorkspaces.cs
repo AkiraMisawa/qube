@@ -100,6 +100,9 @@ public sealed record VaryPlan(CommandPlan Command, IReadOnlyList<string> Made, I
 /// <summary><c>add each</c> as planned: the cases it would make, and those of the set made before that it would replace.</summary>
 public sealed record AddPlan(CommandPlan Command, IReadOnlyList<string> Made, IReadOnlyList<string> Replaced);
 
+/// <summary><c>load trades</c> as planned (ADR-0016 note 59): the booked trades it would load, each as the store holds it on the value date.</summary>
+public sealed record LoadPlan(CommandPlan Command, IReadOnlyList<SourceTrade> Loaded);
+
 /// <summary>The cases a command would remove, each by its title with how many changes it holds.</summary>
 public sealed record CasesPlan(CommandPlan Command, IReadOnlyList<(string Title, int Changes)> Removed);
 
@@ -229,7 +232,7 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
             [.. register.TradeColumns.Where(c => register.Selected(state).Any(m => m.Id == c.Module))], register.Inputs(state),
             register.WithCells(state, [.. Rows(state).Where(t => t.IsNew)]).Sum(t => t.Cells?.Values.Count(c => c.State == TradeCell.Pending) ?? 0),
             PortfolioMaterialiser.DisplayCurrency(state), PortfolioMaterialiser.DisplayCurrencyFrom(state), PortfolioMarket.Currencies, [.. register.Selected(state).Where(m => m.Simulated).Select(m => m.Id)],
-            PortfolioCases.All(raw), DataEdits(raw).Count() + PortfolioLegs.Made(raw).Count, PortfolioScenarios.All(raw), PortfolioScenarios.Rows(raw), register.Settings(state));
+            PortfolioCases.All(raw), DataEdits(raw).Count() + PortfolioLegs.Made(raw).Count + BookedTrades.LoadedBy(raw).Count, PortfolioScenarios.All(raw), PortfolioScenarios.Rows(raw), register.Settings(state));
     }
 
     /// <summary>
@@ -415,11 +418,12 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
     // The edits to the portfolio's data in any layer, as the Changes tab counts them: the selection, the display currency
     // and the scenarios are the page's, shown on their own; a module's settings are inputs and listed (ADR-0010 §8).
     /// <summary>
-    /// How many edits the workspace holds, as its summary says them: each value written over the source's, and each
-    /// leg made under a trade (ADR-0016 note 49), which is what a PV typed for a trade with no leg leaves.
+    /// How many edits the workspace holds, as its summary says them: each value written over the source's, each leg
+    /// made under a trade (ADR-0016 note 49), which is what a PV typed for a trade with no leg leaves, and each booked
+    /// trade loaded (note 59).
     /// </summary>
     static int Edits(WorkspaceState state, WorkspaceState raw) =>
-        state.Overrides.Keys.Count(t => t.Scope != PortfolioEditRules.WorkspaceScope) + PortfolioLegs.Made(raw).Count;
+        state.Overrides.Keys.Count(t => t.Scope != PortfolioEditRules.WorkspaceScope) + PortfolioLegs.Made(raw).Count + BookedTrades.LoadedBy(raw).Count;
 
     IEnumerable<Override> DataEdits(WorkspaceState raw) =>
         raw.Overrides.Values.Concat(raw.Conflicts.Values.Select(c => c.Override)).Concat(raw.Lost.Values.Select(l => l.Override))
@@ -474,11 +478,23 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
         var edits = DataEdits(raw).OrderBy(o => o.Seq).ToList();
         // A leg the workspace made is a change too (ADR-0016 note 49), listed where it was made among the edits.
         var made = PortfolioLegs.Made(raw);
+        // So is a booked trade the workspace loaded (note 59), listed where it was loaded.
+        var loaded = raw.Created.Values.Where(c => c.Entity.StartsWith($"{Entity.Loaded}:", StringComparison.Ordinal)).ToList();
         var common = edits.Where(o => o.Target.Layer is null).Select(o => (o.Seq, Item: Item(o)))
-            .Concat(made.Select(c => (c.Seq, Item: PortfolioLegs.MadeChange(c)))).OrderBy(x => x.Seq).Select(x => x.Item).ToList();
+            .Concat(made.Select(c => (c.Seq, Item: PortfolioLegs.MadeChange(c))))
+            .Concat(loaded.Select(c => (c.Seq, Item: LoadedChange(Source(raw), c)))).OrderBy(x => x.Seq).Select(x => x.Item).ToList();
         var cases = PortfolioCases.All(raw).Skip(1)
             .Select(c => new CaseChanges(c, [.. edits.Where(o => o.Target.Layer == PortfolioCases.Of(c.Id)).Select(Item)])).ToList();
-        return new ChangesList(raw.Revision, common, cases, edits.Count + made.Count);
+        return new ChangesList(raw.Revision, common, cases, edits.Count + made.Count + loaded.Count);
+    }
+
+    // A booked trade the workspace loaded, as the Changes tab lists it: reset there, it is removed. One the store has
+    // not got on the value date is in no grid, and is said here, where it would otherwise be said nowhere.
+    static ChangeItem LoadedChange(PortfolioSourceVersion source, CreatedEntity loaded)
+    {
+        var id = Entity.Split(loaded.Entity).Id;
+        return new(loaded.Entity, "*", null, id, null,
+            source.Trade(id) is null ? $"loaded: past its maturity on {source.ValueDate:yyyy-MM-dd}, and in no grid" : "loaded", null, "not in the workspace", "set", false);
     }
 
     /// <summary>
@@ -932,6 +948,9 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
         // A leg the workspace made is a change of the Changes tab (ADR-0016 note 49): reset, it is removed.
         if (resolution == "reset" && field == "*" && caseId is null && PortfolioLegs.Made(raw).Any(c => c.Entity == entity))
             return workspaces.Remove(workspaceId, revision, user, entity);
+        // So is a booked trade the workspace loaded (note 59): reset, it is removed as `remove trades` removes it.
+        if (resolution == "reset" && field == "*" && caseId is null && raw.Created.ContainsKey(entity) && Entity.Split(entity) is (Entity.Loaded, var loaded))
+            return workspaces.Batch(workspaceId, revision, user, Unload(raw, loaded), said: $"remove trades {loaded}");
         var target = Held(raw, entity, field, caseId is null ? null : resolution == "reset" ? Changeable(raw, caseId) : CaseOf(raw, caseId));
         return resolution switch
         {
@@ -1043,6 +1062,86 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
         return (new(PortfolioEditRules.Target(Source(raw), entity, "*").Scope, entity, PortfolioLegs.Fields(tradeId, currency, pv, notional)), id);
     }
 
+    /// <summary>
+    /// <c>load trades B00012, B00013</c> (ADR-0016 note 59): each booked trade named becomes a new trade of the
+    /// workspace, as one command, which one <c>undo</c> takes back.
+    /// </summary>
+    public (WorkspaceState State, LoadPlan Plan) LoadTrades(string workspaceId, long revision, string user, string trades, RunOrigin? origin = null)
+    {
+        var raw = Owned(workspaceId, user);
+        var plan = PlanLoad(raw, trades);
+        return (Written(raw, revision, user, plan.Command, origin), plan);
+    }
+
+    /// <summary>
+    /// <c>load trades</c> as planned: the ids separated by commas or spaces, each as the store spells it whatever the
+    /// case it was typed in. Refused by name, with nothing loaded: no id, an id said twice, an id the store has not on
+    /// the workspace's value date, and a trade the workspace has loaded already.
+    /// </summary>
+    public static LoadPlan PlanLoad(WorkspaceState raw, string trades)
+    {
+        var typed = trades.Split([',', ' '], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var source = Source(raw);
+        if (typed.Length == 0)
+        {
+            // An example that can be typed as it is: trades the store has on the value date, where it has any.
+            var example = source.Booked.Trades.Keys.Take(2).ToList() is { Count: > 0 } there ? $", such as load trades {string.Join(", ", there)}" : "";
+            throw new WorkspaceRefused("NothingToLoad", $"load trades takes the ids of the booked trades to load{example}.");
+        }
+        if (typed.GroupBy(t => t, StringComparer.OrdinalIgnoreCase).FirstOrDefault(g => g.Count() > 1) is { } twice)
+            throw new WorkspaceRefused("GivenTwice", $"{twice.First()} is named twice.", word: twice.First());
+        var unknown = typed.Where(t => !BookedTrades.Ids.Contains(t, StringComparer.OrdinalIgnoreCase)).ToList();
+        if (unknown.Count > 0)
+            throw new WorkspaceRefused("UnknownTrade",
+                $"The store of booked trades has no trade {TableWords.Or(unknown)}: its trades are {BookedTrades.Ids[0]} to {BookedTrades.Ids[^1]}.", word: unknown[0]);
+        // Each id with the word that typed it, which a refusal marks on the line.
+        var named = typed.Select(t => (Typed: t, Id: BookedTrades.Ids.Single(id => string.Equals(id, t, StringComparison.OrdinalIgnoreCase)))).ToList();
+        var matured = named.Where(n => !source.Booked.Trades.ContainsKey(n.Id)).ToList();
+        if (matured.Count > 0)
+            throw new WorkspaceRefused("UnknownTrade",
+                $"The store of booked trades has not {TableWords.Or(matured.Select(n => n.Id))} on {source.ValueDate:yyyy-MM-dd}: {(matured.Count == 1 ? "it is" : "they are")} past maturity then.",
+                word: matured[0].Typed);
+        var held = BookedTrades.LoadedBy(raw).ToHashSet();
+        var again = named.Where(n => held.Contains(n.Id)).ToList();
+        if (again.Count > 0)
+            throw new WorkspaceRefused("TradeHeld", $"{TableWords.And(again.Select(n => n.Id))} {(again.Count == 1 ? "is" : "are")} loaded already.", word: again[0].Typed);
+        return new(new([.. named.Select(n => new WorkspaceChange.Create(PortfolioEditRules.ScopeOf(n.Id), BookedTrades.Marker(n.Id), []))],
+            $"load trades {string.Join(", ", named.Select(n => n.Id))}"), [.. named.Select(n => source.Booked.Trades[n.Id])]);
+    }
+
+    /// <summary>
+    /// What removes a booked trade the workspace loaded (ADR-0016 note 59): every edit of the trade, of its legs and of
+    /// its independent amounts, the legs made under it, and the entity that says it was loaded. Refused while a case
+    /// holds a change of the trade or names it, and while an edit of it waits for the user as a conflict: neither is
+    /// removed for the user unseen.
+    /// </summary>
+    public static IReadOnlyList<WorkspaceChange> Unload(WorkspaceState raw, string tradeId)
+    {
+        bool OfTrade(string entity)
+        {
+            var (kind, id) = Entity.Split(entity);
+            return kind == Entity.Trade ? id == tradeId : kind is Entity.Leg or Entity.Amount && id.StartsWith($"{tradeId}/", StringComparison.Ordinal);
+        }
+        var edits = raw.Overrides.Values.Concat(raw.Conflicts.Values.Select(c => c.Override)).Concat(raw.Lost.Values.Select(l => l.Override))
+            .Where(o => OfTrade(o.Target.Entity)).OrderBy(o => o.Seq).Select(o => o.Target).ToList();
+        // A case of add each holds a change of every candidate: the one it adds, and each it leaves out of After.
+        var cases = PortfolioCases.All(raw).Skip(1)
+            .Where(c => c.Iteration is { } named && (named.Add.Contains(tradeId) || named.Without.Contains(tradeId)) || edits.Any(t => t.Layer == PortfolioCases.Of(c.Id)))
+            .Select(c => c.Title).ToList();
+        if (cases.Count > 0)
+            throw new WorkspaceRefused("TradeInCase", cases.Count == 1
+                ? $"The case {cases[0]} holds a change of {tradeId}: remove the case first, with case remove."
+                : $"{cases.Count} cases hold a change of {tradeId}, {TableWords.Some(cases)}: remove them first, with case remove or cases clear.");
+        if (edits.Where(raw.Conflicts.ContainsKey).ToList() is { Count: > 0 } waiting)
+            throw new WorkspaceRefused("ConflictUnresolved", $"{tradeId} holds an edit that waits for you: keep it or take the source's value before the trade is removed.", waiting);
+        return
+        [
+            .. edits.Select(t => new WorkspaceChange.Reset(t)),
+            .. PortfolioLegs.Made(raw).Where(c => OfTrade(c.Entity)).Select(c => new WorkspaceChange.Remove(c.Entity)),
+            new WorkspaceChange.Remove(BookedTrades.Marker(tradeId)),
+        ];
+    }
+
     IReadOnlyList<EffectiveTrade> Rows(WorkspaceState state) => TradeOrder.Ordered(state, register, null, []);
 
     /// <summary>The user's own workspace of the pricer, as it stands; another's, or none of that id, is refused.</summary>
@@ -1054,7 +1153,7 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
         return state;
     }
 
-    static PortfolioSourceVersion Source(WorkspaceState state) => (PortfolioSourceVersion)state.Source;
+    static PortfolioSourceVersion Source(WorkspaceState state) => PortfolioSourceVersion.Of(state);
 
     static JsonObject Context(string registration, DateOnly valueDate, int existingCount) => new()
     {
@@ -1132,13 +1231,14 @@ public static class TradeOrder
 
     /// <summary>
     /// The token of a grid's order (ADR-0016 note 26 of step 2): it moves when the order does, and only then. Unsorted,
-    /// the order is the source's and moves with a new version. Sorted, an edit may move a row: the token is the version
-    /// and a digest of the keys in that order, so an edit that moves, adds and removes no row leaves it.
+    /// the order is the source's and moves with a new version, and with a booked trade loaded or removed (note 59).
+    /// Sorted, an edit may move a row: the token is the rows' name and a digest of the keys in that order, so an edit
+    /// that moves, adds and removes no row leaves it.
     /// </summary>
     public static string Token(WorkspaceState state, MeasureRegister register, string? grid, IReadOnlyList<(string Column, bool Descending)> keys) =>
-        keys.Count == 0 ? state.Source.Version
+        keys.Count == 0 ? PortfolioSourceVersion.Of(state).Rows
         : Digests.GetOrCreateValue(state).GetOrAdd((register, OrderOf(grid, keys)), _ =>
-            $"{state.Source.Version}/o{Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join('\n', Ordered(state, register, grid, keys).Select(t => t.TradeId)))).AsSpan(0, 8))}");
+            $"{PortfolioSourceVersion.Of(state).Rows}/o{Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join('\n', Ordered(state, register, grid, keys).Select(t => t.TradeId)))).AsSpan(0, 8))}");
 
     static string OrderOf(string? grid, IReadOnlyList<(string Column, bool Descending)> keys) => $"{grid}|{string.Join(",", keys.Select(k => $"{k.Column}:{k.Descending}"))}";
 

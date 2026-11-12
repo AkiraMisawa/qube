@@ -71,6 +71,13 @@ static class Stations
         Fields = [.. SitesTable.Fields, new("load", "Load", ["load"], FieldForm.Number, Editable: true, Unit: "M3", Figure: new(Sensors, new(FieldForm.Money, Choices: Units)))],
     };
 
+    // A flag whose value no station holds (ADR-0016 note 58): the board keeps one list of the stations it has muted.
+    // Registered only where a test asks for it (`Catalog(muted: true)`).
+    public const string MutedList = "board:muted";
+    static readonly TableField Muted = new("muted", "Muted", ["muted"], FieldForm.Flag, Editable: true);
+    // How far a station reaches: a number with what it is in, held as both (note 58). Registered with the flag.
+    static readonly TableField Reach = new("reach", "Reach", ["reach"], FieldForm.Money, Editable: true, Optional: true, Choices: Units);
+
     public static readonly TableDescriptor SettingsTable = new(Settings, "1.0", App, "Board settings", ["settings", "board"], "id",
     [
         new("id", "Settings", ["id"], FieldForm.Id),
@@ -113,10 +120,10 @@ static class Stations
 
     static readonly IReadOnlyDictionary<string, JsonObject> Entities = Sends.ToDictionary(s => $"reading:{s.Id}", FieldsOf)
         .Concat([
-            KeyValuePair.Create("station:N1", new JsonObject { ["id"] = "N1", ["subset"] = "high", ["altitude"] = 120m, ["backup"] = null }),
-            KeyValuePair.Create("station:S1", new JsonObject { ["id"] = "S1", ["subset"] = "manual", ["altitude"] = 15m, ["backup"] = "N1" }),
+            KeyValuePair.Create("station:N1", new JsonObject { ["id"] = "N1", ["subset"] = "high", ["altitude"] = 120m, ["backup"] = null, ["reach"] = new JsonObject { ["amount"] = 40m, ["unit"] = "M3" } }),
+            KeyValuePair.Create("station:S1", new JsonObject { ["id"] = "S1", ["subset"] = "manual", ["altitude"] = 15m, ["backup"] = "N1", ["reach"] = new JsonObject { ["amount"] = 40m, ["unit"] = "GAL" } }),
             // A station that shares its id with a reading, so an id alone cannot say which table it means.
-            KeyValuePair.Create("station:X1", new JsonObject { ["id"] = "X1", ["altitude"] = 40m, ["backup"] = null }),
+            KeyValuePair.Create("station:X1", new JsonObject { ["id"] = "X1", ["altitude"] = 40m, ["backup"] = null, ["reach"] = null }),
             KeyValuePair.Create("sensor:N1/1", new JsonObject { ["id"] = "N1/1", ["station"] = "N1", ["kind"] = "rain", ["load"] = 40m, ["unit"] = "M3", ["out"] = false }),
             KeyValuePair.Create("sensor:N1/2", new JsonObject { ["id"] = "N1/2", ["station"] = "N1", ["kind"] = "wind", ["load"] = 25m, ["unit"] = "M3", ["out"] = false }),
             KeyValuePair.Create("sensor:S1/1", new JsonObject { ["id"] = "S1/1", ["station"] = "S1", ["kind"] = "rain", ["load"] = 10m, ["unit"] = "GAL", ["out"] = false }),
@@ -174,6 +181,25 @@ static class Stations
     static ITableRow WithLoad(WorkspaceState state, Row station) =>
         station with { Values = new Dictionary<string, JsonNode?>(station.Values) { ["load"] = SensorsOf(state, station.Key).Sum(InM3) } };
 
+    /// <summary>The stations the board has muted, as its one list holds them.</summary>
+    public static IReadOnlySet<string> MutedOn(WorkspaceState state)
+    {
+        var held = state.Overrides.TryGetValue(Target(MutedList, "stations"), out var edit) ? edit.Value
+            : state.Created.TryGetValue(MutedList, out var made) ? made.Fields["stations"] : null;
+        return new HashSet<string>(held is JsonArray stations ? stations.Select(s => s!.GetValue<string>()) : [], StringComparer.Ordinal);
+    }
+
+    // The list written whole: made with the first station muted, and set after that.
+    static WorkspaceChange Muting(WorkspaceState state, IEnumerable<string> muted)
+    {
+        var stations = new JsonArray([.. muted.Order(StringComparer.Ordinal).Select(s => (JsonNode?)JsonValue.Create(s))]);
+        return state.Created.ContainsKey(MutedList) ? new WorkspaceChange.Set(Target(MutedList, "stations"), stations)
+            : new WorkspaceChange.Create(Scope, MutedList, new JsonObject { ["stations"] = stations });
+    }
+
+    static ITableRow WithMuted(WorkspaceState state, Row station) =>
+        station with { Values = new Dictionary<string, JsonNode?>(station.Values) { ["muted"] = MutedOn(state).Contains(station.Key) } };
+
     static IReadOnlyList<ITableRow> RowsOf(WorkspaceState state, string kind) =>
     [
         .. Entities.Where(e => e.Key.StartsWith($"{kind}:", StringComparison.Ordinal)).Select(e => RowOf(state, e.Key, e.Value)),
@@ -185,10 +211,24 @@ static class Stations
         public string TableId => descriptor.TableId;
         public string App => Stations.App;
         public TableDescriptor Describe(WorkspaceState state) => descriptor;
-        public IReadOnlyList<ITableRow> Rows(WorkspaceState state) =>
-            kind == "sensor" ? [.. RowsOf(state, kind).Where(r => !r.Value("out")!.GetValue<bool>())]
-            : descriptor.Fields.Any(f => f.Figure is not null) ? [.. RowsOf(state, kind).Select(r => WithLoad(state, (Row)r))]
-            : RowsOf(state, kind);
+        public IReadOnlyList<ITableRow> Rows(WorkspaceState state)
+        {
+            IReadOnlyList<ITableRow> rows = kind == "sensor" ? [.. RowsOf(state, kind).Where(r => !r.Value("out")!.GetValue<bool>())]
+                : descriptor.Fields.Any(f => f.Figure is not null) ? [.. RowsOf(state, kind).Select(r => WithLoad(state, (Row)r))]
+                : RowsOf(state, kind);
+            return descriptor.Fields.Contains(Muted) ? [.. rows.Select(r => WithMuted(state, (Row)r))] : rows;
+        }
+
+        // Whether a station is muted is in the board's one list (ADR-0016 note 58), written whole: several stations
+        // are written as one, since each one's change alone would leave the others out of the list.
+        public IReadOnlyList<WorkspaceChange>? SetRows(WorkspaceState state, IReadOnlyList<ITableRow> rows, TableField field, JsonNode? value) =>
+            field.Name != Muted.Name ? null
+            : [Muting(state, value!.GetValue<bool>() ? MutedOn(state).Union(rows.Select(r => r.Key)) : MutedOn(state).Except(rows.Select(r => r.Key)))];
+
+        // Stations removed leave the list too, in one write of it.
+        public IReadOnlyList<WorkspaceChange>? RemoveRows(WorkspaceState state, IReadOnlyList<ITableRow> rows) =>
+            !descriptor.Fields.Contains(Muted) || !rows.Any(r => MutedOn(state).Contains(r.Key)) ? null
+            : [.. rows.Select(r => Remove(state, r).Single()), Muting(state, MutedOn(state).Except(rows.Select(r => r.Key)))];
 
         // The readings have a reader that pages them in an order, as a grid's does; the other tables have none. Unsorted,
         // the order is the source's and no edit moves it; sorted, any edit may.
@@ -224,6 +264,7 @@ static class Stations
         public IReadOnlyList<WorkspaceChange> Set(WorkspaceState state, ITableRow row, TableField field, JsonNode? value)
         {
             if (field.Figure is not null) return SetLoad(state, row, value!);
+            if (field.Name == Muted.Name) return SetRows(state, [row], field, value)!;
             // The domain's own rule, which no form says: a tank holds so much.
             if (field.Name == "volume" && value!.GetValue<decimal>() > 50_000_000m)
                 throw new WorkspaceRefused("InvalidValue", $"{row.Key} holds at most 50mm.", [Target(((Row)row).Entity, field.Name)]);
@@ -333,11 +374,14 @@ static class Stations
     /// them, or the sensors as <paramref name="sensorsAs"/> describes them.
     /// </summary>
     public sealed class Catalog(TableDescriptor? stations = null, bool sensors = false, TableDescriptor? sensorsAs = null, TableDescriptor? readings = null,
-        TableDescriptor? settings = null) : ITableCatalog
+        TableDescriptor? settings = null, bool muted = false) : ITableCatalog
     {
+        // With `muted`, the stations have the flag one list of the board holds, and their reach (ADR-0016 note 58).
+        static TableDescriptor With(TableDescriptor sites, bool muted) => muted ? sites with { Fields = [.. sites.Fields, Muted, Reach] } : sites;
+
         public IEnumerable<IWorkspaceTable> Tables =>
         [
-            new Table(readings ?? ReadingsTable, "reading"), new Table(stations ?? (sensors ? SitesWithSensors : SitesTable), "station"), new Table(settings ?? SettingsTable, "settings"),
+            new Table(readings ?? ReadingsTable, "reading"), new Table(With(stations ?? (sensors ? SitesWithSensors : SitesTable), muted), "station"), new Table(settings ?? SettingsTable, "settings"),
             .. sensors || sensorsAs is not null ? [new Table(sensorsAs ?? SensorsTable, "sensor")] : Array.Empty<IWorkspaceTable>(),
         ];
     }

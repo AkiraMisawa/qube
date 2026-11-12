@@ -7,8 +7,8 @@
 
 **Blocked by:** 18, 19.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] The notes match the code.
-- [ ] Step 5 is marked built.
-- [ ] Server, client and browser suites pass, and `validate_handoff`.
+- [x] The notes match the code.
+- [x] Step 5 is marked built.
+- [x] Server, client and browser suites pass, and `validate_handoff`.

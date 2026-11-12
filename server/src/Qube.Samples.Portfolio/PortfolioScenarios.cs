@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
+using Qube.Composition.Application.Tables;
 using Qube.Composition.Application.Workspaces;
 
 namespace Qube.Samples.Portfolio;
@@ -54,7 +55,8 @@ public static class ScenarioCatalog
     };
 
     // Every tenor of any category, a word is read as one before its index is known.
-    static readonly IReadOnlyList<string> AnyTenor = [.. Tenors.Union(CdsCatalog.Tenors).OrderBy(YearsOf)];
+    /// <summary>Every tenor an index of some category has, shortest first.</summary>
+    public static readonly IReadOnlyList<string> AnyTenor = [.. Tenors.Union(CdsCatalog.Tenors).OrderBy(YearsOf)];
 
     static readonly IReadOnlyDictionary<string, string> CurveCurrency = new Dictionary<string, string>
     {
@@ -241,9 +243,15 @@ public sealed record ScenarioView(string Name, int Shifts, bool Included, string
 
 /// <summary>
 /// An edit of the Scenarios grid's row (ADR-0010 §4): its cells as typed, by column, for a row that exists (<c>Id</c>) or a
-/// blank one, which the edit makes. <c>Row</c> is where the grid shows it, counted from 1, as a refusal names it.
+/// blank one, which the edit makes. <c>Row</c> is where the grid shows it, counted from 1, as a refusal names it to
+/// whoever edits in the grid; an edit that names its row by a key (a command's, ADR-0016 note 58) says it as
+/// <c>Key</c>, and a refusal names that.
 /// </summary>
-public sealed record ShiftEdit(string? Id, int Row, IReadOnlyDictionary<string, string?> Cells);
+public sealed record ShiftEdit(string? Id, int Row, IReadOnlyDictionary<string, string?> Cells, string? Key = null)
+{
+    /// <summary>The row as a refusal names it: by its key to who named it so, by where the grid shows it otherwise.</summary>
+    public string Named => Key is null ? $"Row {Row}" : Key;
+}
 
 /// <summary>A scenario as Price freezes it: its id in the Run (<c>base</c>, <c>s1</c>, …), its title and its shifts.</summary>
 public sealed record PricedScenario(string Id, string Title, IReadOnlyList<Shift> Shifts);
@@ -325,7 +333,16 @@ public static partial class PortfolioScenarios
     /// edit whole. A blank row's edit makes a shift, and a row left with no cell is removed. Category and Shift type
     /// follow the index and the size: a value there is taken only where it is what they give.
     /// </summary>
-    public static IReadOnlyList<WorkspaceChange> Edit(WorkspaceState state, IReadOnlyList<ShiftEdit> edits, long revision)
+    public static IReadOnlyList<WorkspaceChange> Edit(WorkspaceState state, IReadOnlyList<ShiftEdit> edits, long revision) => Edit(state, edits, made => NewRow(revision, made));
+
+    /// <summary>
+    /// Cells of shifts the workspace holds, as the grid's edit of them (ADR-0016 note 58): what a command over the
+    /// shifts' table writes. No row is made, so the edit needs no revision to name one by.
+    /// </summary>
+    public static IReadOnlyList<WorkspaceChange> EditHeld(WorkspaceState state, IReadOnlyList<ShiftEdit> edits) =>
+        Edit(state, edits, _ => throw new InvalidOperationException("An edit of the shifts the workspace holds makes no row."));
+
+    static IReadOnlyList<WorkspaceChange> Edit(WorkspaceState state, IReadOnlyList<ShiftEdit> edits, Func<int, string> newRow)
     {
         var raw = Raw(state).ToDictionary(r => Entity.Split(r.Entity).Id, r => r.Fields);
         var changes = new List<WorkspaceChange>();
@@ -336,13 +353,13 @@ public static partial class PortfolioScenarios
             var unknown = edit.Cells.Keys.FirstOrDefault(c => !Columns.Contains(c));
             if (unknown is not null) throw new WorkspaceRefused("InvalidShift", $"The Scenarios grid has no column {unknown}; its columns are {string.Join(", ", Columns)}.");
             var before = edit.Id is null ? Blank()
-                : raw.GetValueOrDefault(edit.Id) ?? throw new WorkspaceRefused("UnknownShift", $"Row {edit.Row} is no longer a shift of this workspace. Look at the grid again.");
+                : raw.GetValueOrDefault(edit.Id) ?? throw new WorkspaceRefused("UnknownShift", $"{edit.Named} is no longer a shift of this workspace. Look at the grid again.");
             var after = Cells(before, edit);
             var empty = RowFields.All(f => after[f] is null);
             if (edit.Id is null)
             {
                 if (empty) continue;
-                var made = NewRow(revision, changes.Count);
+                var made = newRow(changes.Count);
                 names[Entity.Split(made).Id] = NameIn(after);
                 changes.Add(new WorkspaceChange.Create(PortfolioEditRules.WorkspaceScope, made, after));
                 continue;
@@ -374,7 +391,7 @@ public static partial class PortfolioScenarios
         var after = (JsonObject)before.DeepClone();
         string? Typed(string column) => edit.Cells.TryGetValue(column, out var text) && text?.Trim() is { Length: > 0 } t ? t : null;
         WorkspaceRefused Refused(string column, string why) =>
-            new("InvalidShift", $"Row {edit.Row}, {Title(column)}: {why}.", [new EditTarget(PortfolioEditRules.WorkspaceScope, edit.Id is null ? $"{ShiftKind}:new" : Entity.Of(ShiftKind, edit.Id), column)]);
+            new("InvalidShift", $"{edit.Named}, {Title(column)}: {why}.", [new EditTarget(PortfolioEditRules.WorkspaceScope, edit.Id is null ? $"{ShiftKind}:new" : Entity.Of(ShiftKind, edit.Id), column)]);
         if (edit.Cells.ContainsKey("index"))
             after["index"] = Typed("index") is { } word
                 ? (ScenarioCatalog.Find(word) ?? throw Refused("index", $"{word} is no index: the indices are {string.Join(", ", ScenarioCatalog.Indices.Select(i => i.Id))}")).Id
@@ -443,21 +460,31 @@ public static partial class PortfolioScenarios
     /// <c>scenario include|exclude &lt;name&gt;</c>: whether Price prices the scenario, as its box says; its rows stay. None
     /// where it already stands so.
     /// </summary>
-    public static IReadOnlyList<WorkspaceChange> Include(WorkspaceState state, string name, bool included)
+    public static IReadOnlyList<WorkspaceChange> Include(WorkspaceState state, string name, bool included) => Include(state, [name], included);
+
+    /// <summary>
+    /// Several scenarios at once (ADR-0016 note 58): those left out of Price are one list, so it is written once for
+    /// all of them. A change for each alone, worked out on the same workspace, would leave the others' names out.
+    /// </summary>
+    public static IReadOnlyList<WorkspaceChange> Include(WorkspaceState state, IReadOnlyList<string> names, bool included)
     {
-        var scenario = Existing(state, name);
         var excluded = ExcludedNames(state);
-        var changed = included ? excluded.Remove(scenario) : excluded.Add(scenario);
+        var changed = false;
+        foreach (var scenario in names.Select(n => Existing(state, n)))
+            changed |= included ? excluded.Remove(scenario) : excluded.Add(scenario);
         return changed ? [Leaving(state, excluded)] : [];
     }
 
     /// <summary><c>scenario remove &lt;name&gt;</c>: the scenario's rows, in one batch; it is no longer left out of anything.</summary>
-    public static IReadOnlyList<WorkspaceChange> Remove(WorkspaceState state, string name)
+    public static IReadOnlyList<WorkspaceChange> Remove(WorkspaceState state, string name) => Remove(state, [name]);
+
+    /// <summary>Several scenarios removed at once (ADR-0016 note 58): their rows, and the list of those left out written once.</summary>
+    public static IReadOnlyList<WorkspaceChange> Remove(WorkspaceState state, IReadOnlyList<string> names)
     {
-        var scenario = Existing(state, name);
-        var changes = Rows(state).Where(r => Same(r.Scenario, scenario)).Select(r => (WorkspaceChange)new WorkspaceChange.Remove(Entity.Of(ShiftKind, r.Id))).ToList();
+        var scenarios = names.Select(n => Existing(state, n)).ToList();
+        var changes = Rows(state).Where(r => scenarios.Any(s => Same(r.Scenario, s))).Select(r => (WorkspaceChange)new WorkspaceChange.Remove(Entity.Of(ShiftKind, r.Id))).ToList();
         var excluded = ExcludedNames(state);
-        if (excluded.Remove(scenario)) changes.Add(Leaving(state, excluded));
+        if (excluded.RemoveWhere(n => scenarios.Any(s => Same(s, n))) > 0) changes.Add(Leaving(state, excluded));
         return changes;
     }
 
@@ -517,6 +544,50 @@ public static partial class PortfolioScenarios
     {
         var excluded = ExcludedNames(state);
         return [.. Named(Rows(state)).Select(g => new ScenarioView(g.Name, g.Rows.Count, !excluded.Contains(g.Name), Issue(g.Name, g.Rows)))];
+    }
+
+    // What a typed id holds: letters, digits and the signs a shift's name is written with. A row's id is one word
+    // (ADR-0016 note 7), and a comma parts two.
+    [GeneratedRegex(@"[^\p{L}\p{Nd}_+\-%.]+")]
+    private static partial Regex NotOfAnId();
+
+    // The words that say rows where an id would stand, which no row may be keyed by.
+    static readonly IReadOnlySet<string> RowWords = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        { SelectorReader.AllWord, SelectorReader.SelectedWord, SelectorReader.ShownWord, SelectorReader.WhereWord, SelectorReader.AsWord };
+
+    /// <summary>
+    /// The key a command names each scenario's row by (ADR-0016 note 58), for names in the scenarios' order: the name
+    /// with every run of characters a typed id does not hold written as one <c>_</c> (<c>parallel up</c> is
+    /// <c>parallel_up</c>); a key that is a word that says rows, such as <c>all</c>, gains a <c>_</c>; and a key a
+    /// scenario before it has is told apart by its place (<c>_2</c>), so no key is held twice, whatever its case.
+    /// </summary>
+    public static IReadOnlyList<string> Keys(IReadOnlyList<string> names)
+    {
+        var taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        return [.. names.Select(name =>
+        {
+            var word = NotOfAnId().Replace(name, "_");
+            if (RowWords.Contains(word)) word += "_";
+            var key = word;
+            for (var n = 2; !taken.Add(key); n++) key = $"{word}_{n}";
+            return key;
+        })];
+    }
+
+    /// <summary>
+    /// The scenarios and the shift rows as a command names them (ADR-0016 note 58): each scenario with its key, and
+    /// each shift with its own, which is its scenario's key and the number of its row (<c>parallel_up/12</c>), and with
+    /// that scenario's key. A shift that names no scenario is under none, and its key begins with the stroke.
+    /// </summary>
+    public static (IReadOnlyList<(string Key, ScenarioView Scenario)> Scenarios, IReadOnlyList<(string Key, string? Under, ShiftRow Shift)> Shifts) Keyed(WorkspaceState state)
+    {
+        var all = All(state);
+        var keys = Keys([.. all.Select(s => s.Name)]);
+        var byName = all.Zip(keys).ToDictionary(s => s.First.Name, s => s.Second, StringComparer.OrdinalIgnoreCase);
+        // A row's entity is named s<n> by the log entry that made it (NewRow): the number alone tells the rows apart,
+        // and no key of a shift then ends as a scenario's name such as s1 does.
+        static string Number(string id) => id.Length > 1 && id[0] == 's' ? id[1..] : id;
+        return ([.. keys.Zip(all)], [.. Rows(state).Select(r => r.Scenario is { } name ? ($"{byName[name]}/{Number(r.Id)}", byName[name], r) : ($"/{Number(r.Id)}", (string?)null, r))]);
     }
 
     /// <summary>

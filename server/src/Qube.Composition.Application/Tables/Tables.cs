@@ -164,6 +164,13 @@ public interface IWorkspaceTable
     /// </summary>
     IReadOnlyList<WorkspaceChange>? SetAll(WorkspaceState state, TableSubset subset, TableField field, JsonNode? value) => null;
 
+    /// <summary>
+    /// The changes that write a value into a field of several rows as one write (ADR-0016 note 58), where the rows share
+    /// what holds the value, such as one list of the workspace: each row's changes worked out alone on the same state
+    /// would then write over the others'. Null where each row holds its own, and the rows are then written one by one.
+    /// </summary>
+    IReadOnlyList<WorkspaceChange>? SetRows(WorkspaceState state, IReadOnlyList<ITableRow> rows, TableField field, JsonNode? value) => null;
+
     /// <summary>The changes that remove the row's own edit of a field, or of every field where none is named; none where it follows already.</summary>
     IReadOnlyList<WorkspaceChange> Reset(WorkspaceState state, ITableRow row, TableField? field);
 
@@ -172,6 +179,13 @@ public interface IWorkspaceTable
 
     /// <summary>The changes that remove a row the workspace made; a row it did not make is refused by name, saying what to do instead.</summary>
     IReadOnlyList<WorkspaceChange> Remove(WorkspaceState state, ITableRow row);
+
+    /// <summary>
+    /// The changes that remove several rows as one removal (ADR-0016 note 58), where the rows share something their
+    /// removal writes; null where each is removed on its own. A row that cannot be removed is refused as
+    /// <see cref="Remove"/> refuses it.
+    /// </summary>
+    IReadOnlyList<WorkspaceChange>? RemoveRows(WorkspaceState state, IReadOnlyList<ITableRow> rows) => null;
 }
 
 /// <summary>

@@ -28,8 +28,12 @@ public sealed record FieldInput(string Name, string Title, string Word, string? 
 
     public static string FormOf(FieldForm form) => JsonNamingPolicy.CamelCase.ConvertName(form.ToString());
 
-    /// <summary>Each value a choice may be, once, as a cell writes it and a command reads it back.</summary>
-    public static IReadOnlyList<string>? Written(FieldSpec spec) => spec.Choices is { } choices ? [.. choices.Values.Distinct().Select(v => FieldForms.Write(spec, v))] : null;
+    /// <summary>
+    /// Each value a choice may be, once, as a cell writes it and a command reads it back. What a number is in (note 58)
+    /// is no value of its field: <see cref="Takes"/> says it.
+    /// </summary>
+    public static IReadOnlyList<string>? Written(FieldSpec spec) =>
+        spec.Form == FieldForm.Choice && spec.Choices is { } choices ? [.. choices.Values.Distinct().Select(v => FieldForms.Write(spec, v))] : null;
 }
 
 /// <summary>A field of a draft's row: its value as a command writes it, and whether the draft's lines changed it.</summary>

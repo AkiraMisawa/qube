@@ -6,8 +6,8 @@
 
 **Blocked by:** the pull request before it.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] `tables.read scenarios` answers each scenario with whether it is priced.
-- [ ] A scenario's shifts are rows under it, set and removed as any rows are.
-- [ ] The scenario verbs of note 32 still read, and make the same edits.
+- [x] `tables.read scenarios` answers each scenario with whether it is priced.
+- [x] A scenario's shifts are rows under it, set and removed as any rows are.
+- [x] The scenario verbs of note 32 still read, and make the same edits.

@@ -142,7 +142,8 @@ public static class PortfolioDetails
     static readonly IReadOnlyDictionary<string, Kind> Kinds = new Dictionary<string, Kind>
     {
         [Entity.Csa] = Of(OfCsa, (source, id) => source.CsaOf(id)),
-        [Entity.Trade] = Of(OfTrade, (source, id) => source.Trade(id)),
+        // A booked trade the workspace loaded is read against the acquired version, which knows the store's (note 59).
+        [Entity.Trade] = Of(OfTrade, (source, id) => source.Known(id)),
     };
 
     /// <summary>
@@ -184,7 +185,7 @@ public static class PortfolioDetails
     public static JsonNode? Value(WorkspaceState reading, string entity, string field)
     {
         if (Edits(reading).TryGetValue((entity, field), out var set)) return set?.DeepClone();
-        var held = Source((PortfolioSourceVersion)reading.Source, entity, field) ?? throw new InvalidOperationException($"{entity} has no {field} in this workspace.");
+        var held = Source(PortfolioSourceVersion.Of(reading), entity, field) ?? throw new InvalidOperationException($"{entity} has no {field} in this workspace.");
         return held.Value;
     }
 

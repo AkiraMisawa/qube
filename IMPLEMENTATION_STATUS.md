@@ -2848,11 +2848,87 @@ synthetic source and the workspace's edits; every name and value is made up.
 - **No simulated measure reads the legs or the fields beyond the grids** (5b's limit); the dialog says so above
   the form, and that Price keeps every value in the input it freezes.
 
+## Generic commands, delivery step 5d: scenarios as tables, and `load trades` (ADR-0016 notes 58 and 59, 2026-11-12)
+
+The last of step 5's four pull requests (`docs/specs/commands-5-drafts-rows-under-a-row`, tickets 18 to 20). The
+pricer's scenarios and their shifts are tables the kernel's verbs read and write, and `load trades <ids>` brings
+booked trades of a synthetic store into the New grid. With it step 5 is built.
+
+### What runs
+
+- **`xva.scenarios` and, under it, `xva.shifts`.** A scenario's row says its name, how many shifts it holds, whether
+  Price prices it and why it cannot be priced; `set scenarios up included off` leaves it out of Price and `remove
+  scenarios up` removes it. A shift's row is the Scenarios grid's row: `set shifts up/3 size 15bp`, `set shifts
+  where size > 5bp size 20bp`, `remove shifts up/4`. A write is the grid's own edit of that cell, so a cell has one
+  reader. `copy`, `export`, the AI's `tables.read` and a `where` read them as any table.
+- **A scenario's key** is its name with what a typed id does not hold written as `_` (`parallel up` is
+  `parallel_up`); a shift's is its scenario's key and the number of its row (`up/3`).
+- **A scenario's dialog** (`open up`): its fields, and its shifts as rows under it. A size typed in a shift's cell
+  is a line of the draft; a unit the index does not shift by is refused at the cell by the shift's key.
+- **The kernel**, for any table: a number written with its unit against it (`10bp`, `-5%`, `+10bp`); a condition
+  on such a field, with its unit said; rows written together, and removed together, where they share what holds
+  the value (`SetRows`, `RemoveRows`); and the units of such a field in `tables.describe`.
+- **`load trades B00012, B00002`** (`xva.trades.load`). The line offers the store's ids as it is typed, each with
+  its product, currency and notional, and says what it would load. The trades join the New grid after the drafts,
+  out of Before and in After, under the main CSA. One command, one `undo`.
+- **A loaded trade is a new trade.** Its fields, legs and independent amounts are set, reset, varied and opened in
+  its dialog as any trade's. `remove trades B00012` takes it out with its edits, and so does Remove on its row of
+  the Changes tab, which lists it as `loaded`.
+- **The workspace holds that it loaded the trade; the terms stay the store's**, read on the workspace's value date.
+  A counterparty change keeps a loaded trade and its edits. A value date past its maturity leaves it in no grid,
+  and the Changes tab says so.
+- **Price freezes it**: the accepted input names the loaded trades (`loadedTrades`) and carries each among the
+  case's trades with everything set on it.
+
+### Verification performed
+
+| What | Result |
+|---|---|
+| `dotnet test server/Qube.slnx` | 1562 passed |
+| Client: `npm run typecheck`, `npm test`, `npm run build` | Clean; 424 passed in 40 files; built |
+| `npx playwright test` (Chromium, headless, Linux) | 117 passed |
+| `python3 tools/validate_handoff.py` | Passed |
+| `load trades` typed, its completions and reading, the New grid and the Changes tab after it, a loaded trade's dialog, `set`, `remove trades`, the tab's Remove and `undo` | Looked at in the browser at 1440px, light and dark; the completions and the page also at 390 and 768px |
+| A scenario's and a shift's rows read, set and removed by the line; a scenario's dialog, a shift's cell typed and refused there, its Remove by the keyboard, Save | Looked at in the browser at 1440px, light and dark; the dialog also at 390px |
+
+The pricer's tests drive the line as a user does (`PricerRig`). For the scenarios: a scenario's row and its
+one-word key, a shift's row under it and a condition on its size, `included` set on one scenario and on several at
+once, as the edit `scenario exclude` makes, a size with its unit, without it and in the wrong one, a shift's cell
+written as the grid writes it, a reset, the removal of a scenario's last shifts and of several scenarios, and a
+scenario's draft with its shifts and `open`. Note 32's verbs are held by the tests they had. For `load trades`: the
+load and its `undo`, the reading, each refusal with nothing loaded, a trade past its maturity, the completions, a
+loaded trade's fields, legs and amounts edited, its removal and what refuses it, the Changes tab's row and its
+reset, a counterparty change, a value date past its maturity, an edit of a booked trade that was not loaded, the
+grid's order moving with a load, and the accepted input of a Price with a loaded trade edited in every place. The
+kernel's read a number with its unit against it, a condition on it, and rows written and removed together over the
+stations' sensors. Two browser tests hold what only a browser shows: the New grid drawn again after a load, a
+removal and an `undo`; and a scenario's dialog with a shift's cell typed, refused and saved.
+
+### Providers
+
+Unchanged: every figure is simulated and says so. The store of booked trades is synthetic (`BookedTrades`, forty
+trades made from their ids); no trade, name or figure of it is a real one.
+
+### Known limits
+
+- **The store is a sample's.** It is of no counterparty, holds forty trades, and is searched by an id's first
+  characters only. Loading from a file is not built.
+- **A loaded trade's own CSA is not carried**: it joins the main CSA, as a draft does.
+- **No simulated measure reads a loaded trade's official PV or its legs**; it is priced as a draft is. The input
+  Price freezes carries them.
+- **A shift's number is its row's own** and does not begin at 1 in each scenario (`up/3`, `up/4`): the line offers
+  a scenario's shifts as it is typed.
+- **No product makes a shift** (`new shift`), and a scenario is not renamed, nor a shift moved, by a field: the
+  `scenario` verbs and the Scenarios grid do those.
+- **The Scenarios tab is as it was.** Its grid is no view of the table: `find`, `sort`, `filter` and `select` do
+  not act on it, and it has no Edit button; a scenario's dialog is opened by `open <key>`.
+- **In a scenario's dialog the grid of shifts is wider than the dialog** (nine fields): its Draft mark and Remove
+  are reached by scrolling the grid or by the keyboard. Where a row's buttons stand is ticket 16's question.
+
 ## Next
 
-1. Generic commands: the rest of delivery step 5 (5d scenarios as a table and `load trades`), then step 6 (saved
-   sequences of edits). After step 5's pricer page: a page keeps its state by panel (ADR-0006 note 7, the owner's
-   choice).
+1. Generic commands: step 6 (saved sequences of edits). After step 5's pricer page: a page keeps its state by
+   panel (ADR-0006 note 7, the owner's choice).
 2. MVA with SIMM (`docs/12-implementation-plan.md` P2): spot IM from the XVA request's MVA option.
 3. ADR-0010 Delivery step 3 (Advanced: Before-only and After-only edits, the split fill), when the owner asks for it.
 4. The owner's review of ADR-0003 §7 (scopes, carry and conflict), then a synthetic source change that can produce a conflict, and the browser cases still open above (reload, failed case unavailable).

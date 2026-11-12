@@ -531,7 +531,8 @@ static partial class Conditions
     /// <param name="Compares">Whether it sets a value beside the rows'; false where it only asks whether a row has one.</param>
     public sealed record Compiled(string Text, Func<ITableRow, bool> Holds, bool Compares = true);
 
-    enum Kind { Number, Date, Flag, Text }
+    // Money is a number with what it is in (note 58): compared with its unit said, and never across units.
+    enum Kind { Number, Date, Flag, Text, Money }
 
     public static IReadOnlyList<Compiled> Compile(IReadOnlyList<Condition> conditions, BoundTable table, IReadOnlyList<ITableRow> rows, WorkspaceState state)
     {
@@ -557,6 +558,7 @@ static partial class Conditions
     {
         FieldForm.Date => Kind.Date,
         FieldForm.Flag => Kind.Flag,
+        FieldForm.Money => Kind.Money,
         FieldForm.Period or FieldForm.PeriodOrDate or FieldForm.Choice or FieldForm.Id => Kind.Text,
         _ => throw new InvalidOperationException($"No comparing of {field.Form}."),
     };
@@ -564,7 +566,7 @@ static partial class Conditions
     /// <summary>The operators a condition on the field takes, as <see cref="One"/> accepts them: an order for numbers and dates, <c>~</c> for text.</summary>
     public static IReadOnlyList<string> OperatorsOf(TableField field) => KindOf(field) switch
     {
-        Kind.Number or Kind.Date => ["=", "!=", "<", "<=", ">", ">=", SelectorReader.InWord],
+        Kind.Number or Kind.Date or Kind.Money => ["=", "!=", "<", "<=", ">", ">=", SelectorReader.InWord],
         Kind.Flag => ["=", "!=", SelectorReader.InWord],
         _ => ["=", "!=", "~", SelectorReader.InWord],
     };
@@ -573,7 +575,7 @@ static partial class Conditions
     {
         var word = TableWords.Word(field);
         var kind = KindOf(field);
-        var what = kind switch { Kind.Number => "a number", Kind.Date => "a date", Kind.Flag => "a flag", _ => "text" };
+        var what = kind switch { Kind.Number => "a number", Kind.Date => "a date", Kind.Flag => "a flag", Kind.Money => "a number with what it is in", _ => "text" };
         switch (condition.Operator)
         {
             case "<" or "<=" or ">" or ">=" when kind is Kind.Text or Kind.Flag:
@@ -599,6 +601,12 @@ static partial class Conditions
         {
             var reading = FieldForms.Read(spec, text);
             if (reading.Problem != FieldForms.Problem.None) throw new TableRefused("InvalidValue", $"{word} is {reading.What}; {text} is not.", text);
+            // A number alone would be compared with values in every unit, which is no comparison (ADR-0016 §2).
+            if (kind == Kind.Money && reading.Value is { } money && money["unit"] is null)
+            {
+                var units = (field.Choices ?? throw new InvalidOperationException($"{field.Name} is in nothing a condition could say.")).Values.Distinct().ToList();
+                throw new TableRefused("InvalidValue", $"{word} is compared with what it is in, {TableWords.Or(units)}; {text} says {(units.Count == 2 ? "neither" : "none")}.", text, units);
+            }
             return kind == Kind.Date && reading.Value is { } typed ? Dated(typed.GetValue<string>(), word, table, state) : reading.Value;
         }).ToList();
         var written = TableWords.List(values.Select(v => FieldForms.Write(field.Spec with { Optional = true }, v)));
@@ -615,14 +623,18 @@ static partial class Conditions
             _ => kind switch
             {
                 Kind.Number => FieldForms.Held(held) == FieldForms.Held(asked),
+                Kind.Money => FieldForms.Same(held, asked),
                 Kind.Flag => held.GetValue<bool>() == asked.GetValue<bool>(),
                 Kind.Date => string.Equals(Written(held), Written(asked), StringComparison.Ordinal),
                 _ => string.Equals(Written(held), Written(asked), StringComparison.OrdinalIgnoreCase),
             },
         };
         // Less than nothing and more than nothing are both false: a row with no value is in no order.
+        // And so is a number in another unit than the one asked: it is neither less nor more.
         int? Order(JsonNode? held) => held is null || values[0] is not { } asked ? null
-            : kind == Kind.Number ? FieldForms.Held(held).CompareTo(FieldForms.Held(asked)) : string.CompareOrdinal(Written(held), Written(asked));
+            : kind == Kind.Number ? FieldForms.Held(held).CompareTo(FieldForms.Held(asked))
+            : kind == Kind.Money ? FieldForms.Same(held["unit"], asked["unit"]) ? FieldForms.Held(Amount(held)).CompareTo(FieldForms.Held(Amount(asked))) : null
+            : string.CompareOrdinal(Written(held), Written(asked));
 
         var compares = values.Any(v => v is not null);
         return condition.Operator switch
@@ -658,6 +670,8 @@ static partial class Conditions
     }
 
     static string Written(JsonNode value) => value.GetValueKind() == JsonValueKind.String ? value.GetValue<string>() : value.ToJsonString();
+
+    static JsonNode Amount(JsonNode money) => money["amount"] ?? throw new InvalidOperationException("A number with what it is in holds its amount.");
 
     [GeneratedRegex("[0-9],[0-9]{3}(?![0-9])")]
     private static partial Regex GroupedDigits();
