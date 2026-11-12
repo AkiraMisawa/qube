@@ -19,11 +19,12 @@ public sealed record LineDraft(string Table, string Key, long Revision, IReadOnl
 /// </summary>
 /// <param name="Takes">What a value of it looks like, in words, as the table's description says it.</param>
 /// <param name="FigureOf">The table under its own whose rows it is a figure of (note 47), where it is one.</param>
+/// <param name="Number">Whether its values are numbers, which a page draws against the right edge as a grid does.</param>
 public sealed record FieldInput(string Name, string Title, string Word, string? Group, bool Editable, bool Optional, string Form, string Takes, IReadOnlyList<string>? Choices,
-    string? Unit, string? FigureOf)
+    string? Unit, string? FigureOf, bool Number)
 {
     public static FieldInput Of(TableField field) => new(field.Name, field.Title, TableWords.Word(field), field.Group, field.Editable, field.Optional, FormOf(field.Form),
-        FieldForms.Takes(field.Written, choicesBeside: true), Written(field.Spec), field.Unit, field.Figure?.Of);
+        FieldForms.Takes(field.Written, choicesBeside: true), Written(field.Spec), field.Unit, field.Figure?.Of, FieldForms.IsNumber(field.Form));
 
     public static string FormOf(FieldForm form) => JsonNamingPolicy.CamelCase.ConvertName(form.ToString());
 
@@ -62,7 +63,12 @@ public interface IRowMaker
 }
 
 /// <summary>A term a template takes (note 50), as a page asks for it before the template is written.</summary>
-public sealed record DraftTerm(string Name, string Title, bool Required, string Form, string Takes, IReadOnlyList<string>? Choices);
+public sealed record DraftTerm(string Name, string Title, bool Required, string Form, string Takes, IReadOnlyList<string>? Choices)
+{
+    /// <summary>A term of a template or of a product, which declare theirs alike: by name, with the spec of its value.</summary>
+    public static DraftTerm Of(string name, string title, bool required, FieldSpec spec) =>
+        new(name, title, required, FieldInput.FormOf(spec.Form), FieldForms.Takes(spec, choicesBeside: true), FieldInput.Written(spec));
+}
 
 /// <summary>A template of a draft's table (note 50): <c>set &lt;row&gt; as &lt;word&gt; [name=value …]</c> writes it over the row.</summary>
 public sealed record DraftTemplate(string Word, string Title, IReadOnlyList<DraftTerm> Takes);
@@ -115,14 +121,16 @@ static class DraftForms
     static string Written(TableField field, ITableRow row) => FieldForms.Write(field.Spec, row.Value(field.Name));
 
     static DraftTemplate Template(TableTemplate template) => new(template.Words.Count > 0 ? template.Words[0] : template.Name, template.Title,
-        [.. template.Takes.Select(t => new DraftTerm(t.Name, t.Title, t.Required, FieldInput.FormOf(t.Form), FieldForms.Takes(t.Spec, choicesBeside: true), FieldInput.Written(t.Spec)))]);
+        [.. template.Takes.Select(t => DraftTerm.Of(t.Name, t.Title, t.Required, t.Spec))]);
 
     // The rows the draft was opened on in their order, each as the draft leaves it or, removed, as it was; then the rows
     // the draft made. A row made and removed within the draft is in neither state, and is not listed.
     static DraftTable Rows(BoundTable table, string key, WorkspaceState opened, WorkspaceState left, IReadOnlyList<DraftTemplate> makes)
     {
-        // The field that names the row above is left out (note 57): every row listed has the draft's row there.
-        var fields = table.Descriptor.Fields.Where(f => f.Table != table.Descriptor.Under).ToList();
+        // The field that names the row above is left out (note 57): every row listed has the draft's row there. It is
+        // the one field that points into the table above; where several do, none says which names the row, and all stay.
+        var above = table.Descriptor.Fields.Where(f => f.Table == table.Descriptor.Under).ToList();
+        var fields = table.Descriptor.Fields.Where(f => above.Count != 1 || f != above[0]).ToList();
         IReadOnlyList<string> Row(ITableRow row) => [.. fields.Select(f => Written(f, row))];
         var (before, after) = (Rows(opened), Rows(left));
         var (was, now) = (before.ToDictionary(r => r.Key, Row), after.ToDictionary(r => r.Key, Row));
@@ -155,10 +163,13 @@ public sealed class DraftApply(Func<CommandLines> lines) : ICapabilityHandler, I
         ExecutionKind.RequestResponse, [CapabilityEffect.EditWorkspace],
         new(["apply"], []));
 
+    /// <summary>Why a draft of no line is not written, said alike before Enter and by the command itself.</summary>
+    public static string Nothing(LineDraft draft) => $"The draft of {draft.Key} has no line to apply: cancel closes it.";
+
     public LineRead Read(LineContext line)
     {
         var draft = line.View?.Draft ?? throw new TableRefused("NoDraft", "apply writes the lines of an open draft, and none is open: open a row first.");
-        if (draft.Lines.Count == 0) throw new TableRefused("NothingToApply", $"The draft of {draft.Key} has no line to apply: cancel closes it.");
+        if (draft.Lines.Count == 0) throw new TableRefused("NothingToApply", Nothing(draft));
         var request = new JsonObject
         {
             ["workspaceId"] = line.State.WorkspaceId, ["revision"] = draft.Revision, ["table"] = draft.Table, ["key"] = draft.Key,

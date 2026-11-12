@@ -553,9 +553,8 @@ static partial class Conditions
         return compiled;
     }
 
-    static Kind KindOf(TableField field) => field.Form switch
+    static Kind KindOf(TableField field) => FieldForms.IsNumber(field.Form) ? Kind.Number : field.Form switch
     {
-        FieldForm.Amount or FieldForm.SignedAmount or FieldForm.Percent or FieldForm.Rate or FieldForm.Spread or FieldForm.Number or FieldForm.Days => Kind.Number,
         FieldForm.Date => Kind.Date,
         FieldForm.Flag => Kind.Flag,
         FieldForm.Period or FieldForm.PeriodOrDate or FieldForm.Choice or FieldForm.Id => Kind.Text,

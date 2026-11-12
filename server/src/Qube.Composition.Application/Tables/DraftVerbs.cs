@@ -24,7 +24,7 @@ sealed class OpenVerb(TableRegister register) : IViewVerb
         var resolved = selector.SaysNoRows && selector.Table is null && line.View is { } view ? Selectors.LeftOut(view, tables, line.State) : Selectors.Resolve(selector, tables, line.State, line.View);
         if (resolved.Rows is not [var row])
             throw resolved.Rows.Count == 0 ? TableService.NoRowMatches(resolved, Word, $"{said} names no row of {resolved.Table.Word}: there is none to {Word}.")
-                : new TableRefused("SeveralRows", $"{Word} opens the dialog of one row, and {said} names {resolved.Rows.Count}: {TableWords.Some([.. resolved.Rows.Select(r => r.Key)])}.");
+                : new TableRefused("SeveralRows", $"{Word} opens the dialog of one row, and {(said.Length == 0 ? "the screen has" : $"{said} names")} {resolved.Rows.Count}: {TableWords.Some([.. resolved.Rows.Select(r => r.Key)])}.");
         return new(said.Length == 0 ? [] : [new("row", said)], TableService.Titled(resolved.Table, resolved.Table.Word, resolved.Rows), $"Opens {row.Key}.",
             new LineOpen(resolved.Table.Descriptor.TableId, row.Key, $"Opened {row.Key}."));
     }

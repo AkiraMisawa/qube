@@ -50,6 +50,10 @@ public class PricerCommandTests(QubeFactory factory) : IClassFixture<QubeFactory
         // `set` is the kernel's, over the pricer's registered tables (ADR-0016 §3): no tool of the pricer's own.
         Assert.Equal(["workspaceId", "revision", "table", "rows", "set"], Fields("entity_set"));
         Assert.Equal(["workspaceId", "set"], Required("entity_set"));
+        // A draft is written by a command as any other (ADR-0016 note 55), so the agent has it: several lines of one
+        // row, read by the server and written as one command. It holds the draft whole, and opens no dialog.
+        Assert.Equal(["workspaceId", "revision", "table", "key", "lines"], Fields("draft_apply"));
+        Assert.Equal(["workspaceId", "revision", "table", "key", "lines"], Required("draft_apply"));
         Assert.DoesNotContain("xva_set", tools.Keys);
     }
 

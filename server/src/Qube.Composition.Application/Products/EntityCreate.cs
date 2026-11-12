@@ -53,7 +53,7 @@ public sealed class EntityCreate(Func<ProductService> products) : ICapabilityHan
     public IReadOnlyList<DraftTemplate> Makes(WorkspaceState state, string table) =>
     [
         .. products().Creatable(state.App).Where(p => p.Table == table && p.Under is not null).Select(p => new DraftTemplate(p.Words, p.Title,
-            [.. p.Fields.Where(f => f.Name != p.Under).Select(f => new DraftTerm(f.Name, f.Title, f.Required, FieldInput.FormOf(f.Form), FieldForms.Takes(f.Spec, choicesBeside: true), FieldInput.Written(f.Spec)))])),
+            [.. p.Fields.Where(f => f.Name != p.Under).Select(f => DraftTerm.Of(f.Name, f.Title, f.Required, f.Spec))])),
     ];
 
     /// <summary>What a line of <c>new</c> would write (ADR-0016 note 54): the changes that make the row, for a draft to fold.</summary>

@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using Qube.Composition.Application;
 using Qube.Composition.Application.Products;
 using Qube.Composition.Application.Tables;
@@ -157,7 +158,7 @@ public class DraftTests
     }
 
     [Theory] // ADR-0016 note 54: a draft holds the lines that edit a row, and no other command's
-    [InlineData("undo", "NotOfADraft", "undo is no line of a draft: a draft holds set, reset, new and remove.")]
+    [InlineData("undo", "NotOfADraft", "undo is no line of a draft: a draft holds set, reset, remove and new.")]
     [InlineData("measure S1", "UnknownCommand", "`measure S1` begins with no command.")]
     public void A_line_of_another_command_is_refused_as_no_line_of_a_draft(string line, string code, string sentence)
     {
@@ -181,6 +182,22 @@ public class DraftTests
         var several = rig.Preview("open stations all").Refused!;
         Assert.Equal("SeveralRows", several.Code);
         Assert.Equal("open opens the dialog of one row, and stations all names 3: N1, S1 and X1.", several.Sentence);
+    }
+
+    [Fact] // ADR-0016 note 56: open with no word is of the row the screen gives, as any command's: the one row selected, else the row the keyboard is on; several selected, and words that name no row, are refused
+    public void Open_with_no_word_is_of_the_row_the_screen_gives()
+    {
+        var rig = new SensorRig();
+
+        var focused = rig.Preview("open", new LineView(Stations.Sites, Focus: new("altitude", "N1")));
+        var selected = rig.Preview("open", new LineView(Stations.Sites, Keys: ["S1"], Focus: new("altitude", "N1")));
+        var several = rig.Preview("open", new LineView(Stations.Sites, Keys: ["N1", "S1"])).Refused!;
+        var none = rig.Preview("open stations where altitude > 9000").Refused!;
+
+        Assert.Equal(new LineOpen(Stations.Sites, "N1", "Opened N1."), focused.Asks);
+        Assert.Equal(new LineOpen(Stations.Sites, "S1", "Opened S1."), selected.Asks);
+        Assert.Equal(("SeveralRows", "open opens the dialog of one row, and the screen has 2: N1 and S1."), (several.Code, several.Sentence));
+        Assert.Equal(("NoRowMatches", "No row of stations matches altitude > 9000: there is nothing to open."), (none.Code, none.Sentence));
     }
 
     // The dialog of a station's draft as the screen behind a line: the draft's table, its row selected, and its lines.
@@ -302,6 +319,33 @@ public class DraftTests
         Assert.Equal(("NothingToApply", "The draft of S1 has no line to apply: cancel closes it."), (rig.Preview("apply", Dialog(rig, "S1")).Refused?.Code, rig.Preview("apply", Dialog(rig, "S1")).Refused?.Sentence));
         Assert.Equal(("NoDraft", "apply writes the lines of an open draft, and none is open: open a row first."), (rig.Preview("apply").Refused?.Code, rig.Preview("apply").Refused?.Sentence));
         Assert.Equal(revision, rig.Board.Revision);
+    }
+
+    [Fact] // ADR-0016 note 55: the command reads the draft's lines again itself: one that no longer reads refuses the draft whole by the line's number, and nothing is written
+    public async Task Apply_itself_is_refused_where_a_line_of_the_draft_no_longer_reads()
+    {
+        var rig = new SensorRig();
+        var applied = rig.Preview("apply", Dialog(rig, "S1", "set stations S1 altitude 20"));
+        var revision = rig.Board.Revision;
+        // A request is the draft whole: here with a second line that, after the first, changes nothing.
+        applied.Inputs!["request"]!["lines"] = new JsonArray("set stations S1 altitude 20", "set stations S1 altitude 20");
+
+        var unread = await rig.Commands.InvokeAsync(applied.Command!.Id, applied.Command.Version, applied.Inputs, SensorRig.Ana, Guid.NewGuid().ToString(), default);
+
+        var issue = Assert.Single(Assert.IsType<CommandResult.Refused>(unread).Issues);
+        Assert.Equal("DraftUnread", issue.Code);
+        Assert.StartsWith("Line 2 of the draft of S1 no longer reads: ", issue.Message);
+        Assert.EndsWith("The draft of S1 gains nothing.", issue.Message);
+        Assert.Equal(revision, rig.Board.Revision);
+    }
+
+    [Fact] // ADR-0016 note 57: the form says which fields hold numbers, for a page to draw them as a grid does
+    public void The_form_says_which_fields_hold_numbers()
+    {
+        var form = Form(new SensorRig(), "S1");
+
+        Assert.Equal(["altitude", "load"], form.Fields.Where(f => f.Field.Number).Select(f => f.Field.Name));
+        Assert.Equal(["load"], Assert.Single(form.Under).Fields.Where(f => f.Number).Select(f => f.Name));
     }
 
     [Fact] // ADR-0016 note 55: cancel needs nothing of the workspace or of the draft's lines: a draft the workspace has left, or one a line of which no longer reads, is still discarded

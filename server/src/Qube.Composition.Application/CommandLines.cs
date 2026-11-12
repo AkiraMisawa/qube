@@ -394,19 +394,13 @@ public sealed class CommandLines
         {
             var before = left;
             // Each line is one the draft could have gained, as it was when it was typed: of the draft's row, and no other.
-            LineChanges OfTheDraft()
-            {
-                var changes = Changes(line, before, caller, named);
-                Gained(draft, changes, before, caller);
-                return changes;
-            }
-            if (Refusal(OfTheDraft, out var changes) is { } refused)
+            if (Refusal(() => Gained(draft, Changes(line, before, caller, named), before, caller), out var gain) is { } refused)
             {
                 read.Add((new(line, null, refused), null));
                 break;
             }
-            left = workspaces.After(left, caller.UserId, changes!.Changes, caller.Origin);
-            read.Add((new(line, changes.Said, null), changes));
+            left = gain!.Left;
+            read.Add((new(line, gain.Written.Said, null), gain.Written));
         }
         return (left, read);
     }
@@ -420,10 +414,10 @@ public sealed class CommandLines
     {
         var opened = Opened(workspaceId, caller, draft);
         var (_, read) = Folded(opened, caller, draft, Of(opened).ToList());
-        if (read.Count > 0 && read[^1].Line.Refused is { } unread)
-            throw new WorkspaceRefused("DraftUnread", $"Line {read.Count} of the draft of {draft.Key} no longer reads: {unread.Sentence}");
+        if (read.Count > 0 && read[^1].Line.Refused is { } unread) throw new WorkspaceRefused("DraftUnread", Unread(draft, read.Count, unread));
+        // A line that changes nothing is none a draft gains (`NothingToAdd`), so only a draft of no line has none to write.
         IReadOnlyList<WorkspaceChange> changes = [.. read.SelectMany(r => r.Changes!.Changes)];
-        if (changes.Count == 0) throw new WorkspaceRefused("NothingToApply", $"The draft of {draft.Key} has no line to apply: cancel closes it.");
+        if (changes.Count == 0) throw new WorkspaceRefused("NothingToApply", DraftApply.Nothing(draft));
         var lines = TableWords.Counted(read.Count, "line");
         var next = workspaces.Batch(workspaceId, draft.Revision, caller.UserId, changes, caller.Origin, $"apply {draft.Key} ({lines})");
         return (next, next.Log[^1].Command?.Id ?? throw new InvalidOperationException("An accepted command has an id."), $"Applied {lines} to {draft.Key}.");
@@ -437,25 +431,31 @@ public sealed class CommandLines
         // A verb of the screen that a draft reads, which is `cancel`, writes nothing and reads nothing of the draft's
         // lines: a draft the workspace has left, or one a line of which no longer reads, is still discarded by it.
         var stands = WorkspaceCommands.Owned(workspaces, workspaceId, caller);
-        var typedOn = Of(stands).ToList();
-        if (Named(typedOn, LineWords.Of(line)) is { Command: null, Changes: null, WithDraft: true })
-            return Read(line, stands, caller, new LineView(draft.Table, Keys: [draft.Key], Draft: draft), typedOn) with { Revision = draft.Revision, View = editing };
+        var named = Of(stands).ToList();
+        if (Named(named, LineWords.Of(line)) is { Command: null, Changes: null, WithDraft: true })
+            return Read(line, stands, caller, new LineView(draft.Table, Keys: [draft.Key], Draft: draft), named) with { Revision = draft.Revision, View = editing };
         var opened = At(stands, draft);
-        var named = typedOn;
         var (left, read) = Folded(opened, caller, draft, named);
         if (read.Count > 0 && read[^1].Line.Refused is { } unread)
-            return new(draft.Revision, null, null, null, null, null, null,
-                new("DraftUnread", $"Line {read.Count} of the draft of {draft.Key} no longer reads: {unread.Sentence}", null, null, null, []), [], 0, View: editing);
+            return new(draft.Revision, null, null, null, null, null, null, new("DraftUnread", Unread(draft, read.Count, unread), null, null, null, []), [], 0, View: editing);
         var screen = new LineView(draft.Table, Keys: [draft.Key], Draft: draft);
         return Read(line, left, caller, screen, named) with { Revision = draft.Revision, View = editing };
     }
 
-    // The line a draft gains of what a line typed in it would write. A draft is of one row (note 55): a line that is of
-    // another row, that would take the draft's own row away, or that changes nothing is refused, and adds nothing.
-    LineDrafted Gained(LineDraft draft, LineChanges written, WorkspaceState left, Caller caller)
+    // Why a draft's line no longer reads, by its number among the draft's lines.
+    static string Unread(LineDraft draft, int at, LineRefusal why) => $"Line {at} of the draft of {draft.Key} no longer reads: {why.Sentence}";
+
+    // What a draft gains of what a line typed in it would write, and the workspace as the line leaves it.
+    sealed record DraftGain(LineChanges Written, WorkspaceState Left)
     {
-        var bound = tables.Of(left);
-        var table = written.Table is null ? null : bound.SingleOrDefault(t => t.Descriptor.TableId == written.Table);
+        public LineDrafted Asked(LineDraft draft) => new(Written.Line, $"Added to the draft of {draft.Key}: {Written.Line}.");
+    }
+
+    // A draft is of one row (note 55): a line that is of another row, that would take the draft's own row away, or that
+    // changes nothing is refused, and adds nothing.
+    DraftGain Gained(LineDraft draft, LineChanges written, WorkspaceState left, Caller caller)
+    {
+        var table = written.Table is null ? null : tables.Of(left).SingleOrDefault(t => t.Descriptor.TableId == written.Table);
         var own = table?.Descriptor.TableId == draft.Table && written.Rows.Count > 0 && written.Rows.All(key => key == draft.Key);
         var under = table?.Descriptor.Under == draft.Table && written.Rows.Count > 0
             && table.Table.Rows(left).Where(r => written.Rows.Contains(r.Key)).All(r => r.Under == draft.Key);
@@ -466,9 +466,10 @@ public sealed class CommandLines
             throw new TableRefused("NotTheDraftsRow", $"The draft is of {draft.Key}, and this line is of {of}: apply or cancel the draft first.");
         }
         if (written.Changes.Count == 0) throw new TableRefused("NothingToAdd", $"{written.Would} The draft of {draft.Key} gains nothing.");
-        if (own && tables.Of(left).Single(t => t.Descriptor.TableId == draft.Table).Table.Rows(workspaces.After(left, caller.UserId, written.Changes, caller.Origin)).All(r => r.Key != draft.Key))
+        var after = workspaces.After(left, caller.UserId, written.Changes, caller.Origin);
+        if (own && table is { } its && its.Table.Rows(after).All(r => r.Key != draft.Key))
             throw new TableRefused("RemovesTheDraftsRow", $"The draft is of {draft.Key}, which this line would take away: cancel the draft, and remove the row outside it.");
-        return new(written.Line, $"Added to the draft of {draft.Key}: {written.Line}.");
+        return new(written, after);
     }
 
     // The caller's workspace at the revision the draft was opened at. One it has left is refused with what moved it
@@ -485,7 +486,7 @@ public sealed class CommandLines
         var words = LineWords.Of(line);
         var said = Named(named, words) ?? throw new TableRefused("UnknownCommand", $"`{line}` begins with no command.");
         if (said.Changes is not { } changes)
-            throw new TableRefused("NotOfADraft", $"{said.Said} is no line of a draft: a draft holds set, reset, new and remove.", said.Said);
+            throw new TableRefused("NotOfADraft", $"{said.Said} is no line of a draft: a draft holds {TableWords.And(named.Where(n => n.Changes is not null).Select(n => n.Said))}.", said.Said);
         var last = words[said.Words.Length - 1];
         return changes(new LineContext(state, caller, line[(last.Start + last.Word.Length)..]));
     }
@@ -554,7 +555,7 @@ public sealed class CommandLines
                 throw new TableRefused("DraftOpen", $"{said.Said} is not read while the draft of {open.Key} is open: apply writes it, and cancel discards it.", said.Said);
             var read = (said.Read ?? throw new InvalidOperationException($"{said.Id} neither reads its line nor stands for another."))(context);
             if (view?.Draft is { } draft && said.Changes is { } changes)
-                return new(state.Revision, null, null, read.Arguments, read.Rows, read.Would, null, null, complete, completions.More, Asks: Gained(draft, changes(context), state, caller));
+                return new(state.Revision, null, null, read.Arguments, read.Rows, read.Would, null, null, complete, completions.More, Asks: Gained(draft, changes(context), state, caller).Asked(draft));
             return new(state.Revision, said.Command, read.Inputs, read.Arguments, read.Rows, read.Would, read.At, null, complete, completions.More, Asks: read.Asks);
         }
         catch (TableRefused refused)

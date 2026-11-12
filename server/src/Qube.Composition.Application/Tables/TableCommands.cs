@@ -108,7 +108,7 @@ public sealed partial class TableService(TableRegister register, WorkspaceServic
     LineChanges Changes(WorkspaceState state, Plan plan, string verb)
     {
         var keyed = plan.Keyed ?? Keyed(plan.Resolved, register.Of(state), null);
-        return new(plan.Changes, plan.Said, plan.Would, Words(verb, keyed.Table, keyed.Rows ?? "", plan.Rest), plan.Resolved.Table.Descriptor.TableId, [.. plan.Resolved.Rows.Select(r => r.Key)]);
+        return new(plan.Changes, plan.Said, plan.Would, Words(verb, keyed.Table, keyed.Rows, plan.Rest), plan.Resolved.Table.Descriptor.TableId, [.. plan.Resolved.Rows.Select(r => r.Key)]);
     }
 
     /// <summary>What could follow the last word of a line of <c>set</c>, <c>reset</c> or <c>remove</c>: the verb says what comes after its rows.</summary>
@@ -480,9 +480,10 @@ public sealed partial class TableService(TableRegister register, WorkspaceServic
     static string Counted(int count) => count.ToString(CultureInfo.InvariantCulture);
 
     // The command as its caller gave it, in the line's own spelling: what the log names it by (ADR-0016 note 3).
-    static string Words(string verb, string? table, string said, string? rest)
+    // `said` is the rows as the line says them; a table of one row has none to say.
+    static string Words(string verb, string? table, string? said, string? rest)
     {
-        var named = table is null || said.StartsWith(TableWords.Of(table), StringComparison.OrdinalIgnoreCase) ? null : table.Trim();
+        var named = table is null || (said is not null && said.StartsWith(TableWords.Of(table), StringComparison.OrdinalIgnoreCase)) ? null : table.Trim();
         return string.Join(' ', new[] { verb, named, said, rest is null ? null : SelectorReader.Words(rest) }.Where(w => !string.IsNullOrEmpty(w)));
     }
 }
