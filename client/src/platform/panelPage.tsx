@@ -1,5 +1,6 @@
 import { createContext, useContext, type ReactNode } from 'react';
 import { useElementSize } from '@mantine/hooks';
+import { PanelIdProvider } from './panelState';
 
 // A panel's page lays itself out by the panel's width, not the window's (ADR-0018 §5, amending ADR-0010 §1 and
 // docs/design-guidelines.md §9): in an area of 600px a page is a narrow page, as in a window of 600px. The page's box is
@@ -13,14 +14,17 @@ export const SM = 768;
 
 const PanelWidth = createContext<number | undefined>(undefined);
 
-/** The page of one panel: drawn once its width is known, so that nothing mounts for a width it does not have. */
-export function PanelPage({ children }: { readonly children: ReactNode }) {
+/**
+ * The page of one panel: drawn once its width is known, so that nothing mounts for a width it does not have, and told
+ * which panel it is, for what it keeps while hidden (ADR-0006 note 10).
+ */
+export function PanelPage({ panelId, children }: { readonly panelId: string; readonly children: ReactNode }) {
   const { ref, width } = useElementSize<HTMLDivElement>();
   return (
     // The width the page was last told, for what reads the page only once it has been laid out for it (the tests).
     <div ref={ref} className="qube-panel-page" data-panel-width={width > 0 ? width : undefined}>
       <div className="qube-panel-page-body">
-        {width > 0 && <PanelWidth.Provider value={width}>{children}</PanelWidth.Provider>}
+        {width > 0 && <PanelIdProvider value={panelId}><PanelWidth.Provider value={width}>{children}</PanelWidth.Provider></PanelIdProvider>}
       </div>
     </div>
   );

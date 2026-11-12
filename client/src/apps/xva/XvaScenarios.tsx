@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type Ref } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { Button, Checkbox, Group, Modal, Stack, Table, Text, TextInput } from '@mantine/core';
 import { GridSource, type CellState, type GridClearIntent, type GridColumn, type GridEditIntent, type GridPasteIntent } from '@ex-grid/core';
 import type { ExGridApi } from '@ex-grid/react';
@@ -6,6 +6,7 @@ import { QubeGrid } from '../../platform/grid/QubeGrid';
 import type { ScenarioView, ShiftEdit, ShiftRow } from './contracts';
 import { clearedEdits, pastedEdits, shiftGridRows, type ShiftColumn, type ShiftGridRow } from './scenarios';
 import { useColumnWidths } from '../../platform/grid/columnWidths';
+import { keysInOrder, useKeptGrid } from '../../platform/grid/keptGrid';
 import type { Notify } from '../../platform/notices';
 
 // The Scenarios input tab (ADR-0010 §4 and its note of 2026-11-09): every shift in one grid, rows sharing a name being
@@ -68,13 +69,15 @@ export function XvaScenarios({ shifts, scenarios, actions, height, gridRef, comm
   /** The tab's height in pixels, which the grid fills. */
   readonly height: number;
   /** The grid, for `open scenarios` to put the keyboard in. */
-  readonly gridRef: Ref<ExGridApi<ShiftGridRow>>;
+  readonly gridRef: RefObject<ExGridApi<ShiftGridRow> | null>;
   readonly commandLabel: (id: string) => string | undefined;
 }) {
   const rows = useMemo(() => shiftGridRows(shifts), [shifts]);
   const { columns, onColumnWidthChanged } = useColumnWidths('xva/scenarios', COLUMNS, { hideColumnMenu: true });
   const source = useMemo(() => GridSource.from<ShiftGridRow>([], { rowKey: (row) => row.key }), []);
   useEffect(() => { source.replaceAll(rows); }, [rows, source]);
+  // Its Selection, kept by the panel while the tab or the panel is hidden (ADR-0006 note 10).
+  useKeptGrid('xva/scenarios', source, gridRef, columns, keysInOrder((row) => row.key));
   const actionsNow = useRef(actions);
   actionsNow.current = actions;
 

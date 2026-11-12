@@ -182,7 +182,7 @@ make the good operations commands too"). DEFAULT, decided as recommended and rep
      when its panel comes back; the scroll is not kept. Pages are not kept mounted while
      hidden: tried, the `new xva` dialog no longer had the keyboard as it opened over hidden pages, and a hidden Rates
      page would watch its live frames, so live would run on unseen while the panel is open (docs/07 §6 stops it once
-     nobody watches). Built in its own pull request, after ADR-0016's step 5 changes the pricer's page.
+     nobody watches). Built in its own pull request, after ADR-0016's step 5 changes the pricer's page: note 10.
 
 ## Notes of 2026-11-12: areas (ADR-0018)
 
@@ -230,6 +230,45 @@ recommended and reported.
    - *An arrangement the AI proposed* names panels as they were called (ADR-0018 §8): one renamed since is refused by
      that proposal's Apply, saying what it is called now, as for any panel whose title changed.
    - *It is the client's*, as note 7's verbs are: not logged, not undone, not the AI's (ADR-0016 §3).
+
+## Notes of 2026-11-12: a page's state by its panel
+
+The owner's choice of 2026-11-11 (note 7's last point), built after ADR-0016's steps 5 and 6. DEFAULT where it says so,
+decided as recommended and reported.
+
+10. **A page keeps what it shows by its panel, and shows it again when its panel comes back** (extends 7).
+    - *What is kept.* The pricer's layout as the user left it (its part on a phone, the inputs open or folded and their
+      height, the dock open or folded, its height and whether it is widened), the input tab and the dock's tab open,
+      the case and the market the dock shows, the profile chosen and the series hidden; in a trace, the term selected,
+      the terms open, the pages of children read and the card shown; the Rates page's levels opened (ADR-0015 §7) and
+      the line whose cashflows are open; the Pricing DB's domain; and every grid's sort, conditions (ADR-0016 note 41)
+      and Selection. The widths a user drags are not the panel's: they stay the user's setting (ADR-0017 §5). A Run's
+      view is the panel's already (`viewKey`), and a trace's order and what it shows below a term are kept by the view.
+    - *What is not.* What the user typed and has not committed, a dialog, a notice, a busy state, and the scroll of a
+      page or a grid (the Focus placed is revealed). Nothing kept is an input to what is priced: the user's work is
+      the server's, and a page shown again reads it afresh (ADR-0003).
+    - *A grid's Selection comes back only onto the rows it was made among* (DEFAULT, the spine's first rule). A
+      position means a row only in one order (ExGrid ADR-0011), and the rows may have moved while the panel was
+      hidden: an edit, a live tick under a sort by a live figure, a Run added to the Pricing DB. So the Selection is
+      kept with the order its positions were read in, named by the page (a paged grid by the order token its reader
+      answered, ADR-0016 note 17; a grid whose page holds every row by its rows' keys in turn; rows that never change,
+      a Run's datasets and trace, by the sort), and with the grid's columns by name. Drawn again, the grid takes back
+      its sort and conditions at once; once its first rows are in hand, the Selection is placed where the order and
+      the columns are the ones it was read in, and nowhere otherwise, leaving nothing selected as ExGrid leaves a grid
+      whose order moved. A trace's term is placed by its key, as a term asked for is.
+    - *One range.* ExGrid places one range and its Focus from outside a grid (`placeSelection`); a view it reads is
+      handed back only to the grid that read it (`showViewWith`, its ADR-0331), and a grid drawn anew is another grid.
+      So a Selection of several ranges is not kept, and neither is a grid's scroll.
+    - *How long.* While the panel is open, in this page load, in memory. A panel closed takes it with it, so `reopen
+      panel` brings back a page opened anew (note 7), and a reload restores the panels (ADR-0018 §7), each page opened
+      anew. A panel moved to another area keeps its page mounted (ADR-0018 §6) and so loses nothing either way.
+    - *How* (`client/src/platform/panelState.ts`, `client/src/platform/grid/keptGrid.ts`). A value a page keeps is
+      declared once with its type and a name no other takes, as a verb is; `usePanelState` is React's `useState` kept
+      by the panel the component is drawn in, and `useKeptGrid` keeps a grid's sort, conditions and Selection. A
+      component drawn more than once in a panel (a trace of each measure) keeps its own under an instance.
+    - *Not taken.* Keeping hidden pages mounted (note 7's tried and refused option). Keeping the state across a reload
+      or a close: a page restored from storage would bring back a Selection of rows that may have moved, and a
+      reopened panel is the page opened anew by note 7.
 
 ## Changed from the proposal
 

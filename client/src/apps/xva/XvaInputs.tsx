@@ -25,6 +25,7 @@ import { compactGridHeight, GRID_FRAME, partHeight, pixels } from './layout';
 import { declaring, membershipColumn } from './membership';
 import { changes, differs, originalMessage } from './original';
 import { useColumnWidths } from '../../platform/grid/columnWidths';
+import { keysInOrder, useKeptGrid } from '../../platform/grid/keptGrid';
 
 // The shared input tabs (ADR-0010 §1, §8): Netting and CSA. The server holds every term and every rule; these send what
 // the user changed and show what the server answers. What a measure adds to them is its registration's (§10): a field
@@ -338,6 +339,8 @@ function CsaGrid({ workspaceId, revision, csas, columns: declared, push, height,
 }) {
   const source = useMemo(() => GridSource.from<CsaRow>([], { rowKey: csaKey }), []);
   const { columns, onColumnWidthChanged } = useColumnWidths('xva/csas', declared);
+  // Its sort, conditions and Selection, kept by the panel while the tab or the panel is hidden (ADR-0006 note 10).
+  useKeptGrid('xva/csas', source, gridRef, columns, keysInOrder(csaKey));
   const onAction = useCallback((event: GridActionEvent<CsaRow>) => {
     if (event.action !== EDIT_ROW) throw new Error(`The CSA grid reported an action it was not given: ${event.action}.`);
     onEditRow(CSAS_TABLE, event.row.csaId);

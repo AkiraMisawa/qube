@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { Alert, Anchor, Badge, Breadcrumbs, Button, Code, CopyButton, Group, SegmentedControl, Stack, Text, UnstyledButton } from '@mantine/core';
 import { useQueries, useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
 import { useStore } from 'zustand';
@@ -14,6 +14,7 @@ import { TraceTree } from './TraceTree';
 import { opened, treeRows, type ChildrenRead, type TreeRow } from './tree';
 import { SIDE_TITLE, governsMark, leadText, providerOf } from './words';
 import { SM, usePanelWidth } from '../panelPage';
+import { panelKey, useKeptBefore, usePanelState } from '../panelState';
 import './trace.css';
 
 // One view draws every trace (ADR-0011 §6): on desktop the tree of every level beside the formula of the selected
@@ -22,6 +23,13 @@ import './trace.css';
 // opened. A case priced on one side is shown on that side alone, said once (§4).
 
 const ROOT = '\u0000root';
+
+// What a trace view shows, kept by its panel (ADR-0006 note 10), by the view it is of.
+const SELECTED = panelKey<string | undefined>('trace.selected');
+const OPEN = panelKey<ReadonlySet<string>>('trace.open');
+const PAGES_ASKED = panelKey<Readonly<Record<string, number>>>('trace.pagesAsked');
+const PLACE = panelKey<number>('trace.place');
+const ANSWERED = panelKey<number>('trace.answered');
 
 /** Keeps a row object while nothing it draws changed, so the grid paints only what did (ADR-0003). */
 function stable(next: readonly TreeRow[], previous: ReadonlyMap<string, TreeRow>): readonly TreeRow[] {
@@ -49,16 +57,25 @@ export function TraceView({ panelId, address, api, registerFocus, root }: {
   // How it draws, kept per view, which its controls and the trace commands set alike (ADR-0006).
   const settings = useStore(traceViews, (s) => s.views[panelId]) ?? DEFAULT_TRACE_VIEW;
   const { order, below, above } = settings;
-  const [selected, setSelected] = useState<string | undefined>(undefined);
-  const [open, setOpen] = useState<ReadonlySet<string>>(() => new Set());
-  const [pagesAsked, setPagesAsked] = useState<Readonly<Record<string, number>>>({});
-  const [place, setPlace] = useState(0);
-  // The term asked for by a Metrics cell or `explain`: it opens as well as the terms above it, once it is read.
-  const reveal = useRef<string | undefined>(ROOT);
+  // The term selected, the terms open and the pages of children read, kept by the panel while it is hidden (ADR-0006
+  // note 10), each by the view it is of and the root it draws; and the asks of the grid's Focus, so that a tree drawn
+  // again puts it back on the term selected.
+  const viewId = root === undefined ? panelId : `${panelId}/${root}`;
+  const [selected, setSelected] = usePanelState(SELECTED, undefined, viewId);
+  const [open, setOpen] = usePanelState<ReadonlySet<string>>(OPEN, () => new Set(), viewId);
+  const [pagesAsked, setPagesAsked] = usePanelState<Readonly<Record<string, number>>>(PAGES_ASKED, {}, viewId);
+  const [place, setPlace] = usePanelState(PLACE, 0, viewId);
+  // The term asked for by a Metrics cell or `explain`: it opens as well as the terms above it, once it is read. A view
+  // drawn again keeps the terms it had open, the root closed if the user closed it.
+  const drawnAgain = useKeptBefore(OPEN, viewId);
+  const reveal = useRef<string | undefined>(drawnAgain ? undefined : ROOT);
 
+  // A term asked for is shown once: a view drawn again does not take back the term it was last asked for.
   const request = useStore(termRequests, (s) => s.requests[panelId]);
+  const [answered, setAnswered] = usePanelState(ANSWERED, 0, viewId);
   useEffect(() => {
-    if (request === undefined) return;
+    if (request === undefined || request.number === answered) return;
+    setAnswered(request.number);
     setSelected(request.path);
     reveal.current = request.path ?? ROOT;
     setPlace((p) => p + 1);
@@ -66,8 +83,13 @@ export function TraceView({ panelId, address, api, registerFocus, root }: {
 
   const key = useCallback((path: string | undefined, offset: number) => termKey(address, path, order, offset), [address, order]);
   const read = useCallback((path: string | undefined, offset: number) => readTerm(api, address, path, order, offset), [api, address, order]);
-  // Another order reads the children afresh, from their first page.
-  useEffect(() => setPagesAsked({}), [order]);
+  // Another order reads the children afresh, from their first page; a view drawn again under the order it had keeps them.
+  const pagesOrder = useRef(order);
+  useEffect(() => {
+    if (pagesOrder.current === order) return;
+    pagesOrder.current = order;
+    setPagesAsked({});
+  }, [order, setPagesAsked]);
 
   // The trace's header and its first root; the root's page is the same answer, so it is not read twice.
   const first = useQuery(firstPageQuery(queryClient, api, address, order));

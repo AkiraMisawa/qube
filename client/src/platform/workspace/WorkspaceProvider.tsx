@@ -1,9 +1,10 @@
-import { createContext, useContext, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useQueries, useQuery } from '@tanstack/react-query';
 import { useStore } from 'zustand';
 import type { Api } from '../api';
 import type { Catalog, Dataset, RunRecord, TypedDataRef } from '../contracts';
 import { hearing, type Hearing, type Notify } from '../notices';
+import { PanelScreens } from './panelScreens';
 import { createWorkspaceStore, type WorkspaceState, type WorkspaceStore } from './workspaceStore';
 
 interface Workspace {
@@ -13,6 +14,8 @@ interface Workspace {
   readonly notify: Notify;
   /** Hears what `notify` says (ADR-0016 note 24): the command line, kept open, says it too. */
   readonly hear: Hearing['hear'];
+  /** What each open panel's page shows, kept while it is hidden (ADR-0006 note 10). */
+  readonly screens: PanelScreens;
 }
 
 const WorkspaceContext = createContext<Workspace | undefined>(undefined);
@@ -29,9 +32,12 @@ export function WorkspaceProvider({ api, catalog, initialContext, notify, childr
   const contract = catalog.contracts.find((c) => c.contractId === CONTEXT_CONTRACT);
   if (contract === undefined) throw new Error(`No module registered the ${CONTEXT_CONTRACT} contract; the workbench has no context to bind.`);
   const [store] = useState(() => createWorkspaceStore(initialContext, contract));
+  // A page's state is its panel's: a panel closed takes it with it (ADR-0006 note 10).
+  const [screens] = useState(() => new PanelScreens());
+  useEffect(() => store.subscribe((state) => screens.keepOnly(state.panels.map((p) => p.id))), [store, screens]);
   // One value while its parts stand: a notice draws the application again, and a value made anew then would have every
   // page make its command door anew in the middle of the command that said it.
-  const value = useMemo(() => { const { notify: said, hear } = hearing(notify); return { api, catalog, store, notify: said, hear }; }, [api, catalog, store, notify]);
+  const value = useMemo(() => { const { notify: said, hear } = hearing(notify); return { api, catalog, store, notify: said, hear, screens }; }, [api, catalog, store, notify, screens]);
   return <WorkspaceContext.Provider value={value}>{children}</WorkspaceContext.Provider>;
 }
 

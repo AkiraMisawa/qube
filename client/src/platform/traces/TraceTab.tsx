@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo } from 'react';
 import { Alert, Badge, Group, SimpleGrid, Stack, Text, UnstyledButton } from '@mantine/core';
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useStore } from 'zustand';
@@ -7,7 +7,12 @@ import { rootCard, rootOf, type RootCard } from './cards';
 import type { TraceAddress } from './contracts';
 import { requestTerm, termRequests } from './open';
 import { TraceView } from './TraceView';
+import { panelKey, usePanelState } from '../panelState';
 import './trace.css';
+
+// The card a trace tab shows, kept by its panel while hidden (ADR-0006 note 10), and the last term asked for that chose it.
+const CHOSEN = panelKey<string | undefined>('trace.tab.chosen');
+const ANSWERED = panelKey<number>('trace.tab.answered');
 
 // A measure's trace as a result tab of a page (ADR-0010 §7, §10; ADR-0012 §7): a card per root of the trace, then the
 // drill-down of the root the card chose, under a caption the page gives, such as the rate its figures were converted
@@ -32,11 +37,16 @@ export function TraceTab({ tabId, address, api, registerFocus, caption }: {
   });
 
   const request = useStore(termRequests, (s) => s.requests[tabId]);
-  const [chosen, setChosen] = useState<string | undefined>(undefined);
+  // The card chosen, kept by the panel while it is hidden (ADR-0006 note 10); a term asked for chooses its card once.
+  const [chosen, setChosen] = usePanelState(CHOSEN, undefined, tabId);
+  const [answered, setAnswered] = usePanelState(ANSWERED, 0, tabId);
   useEffect(() => {
-    const under = rootOf(roots, request?.path);
-    if (under !== undefined) setChosen(under);
-  }, [request, roots]);
+    if (request === undefined || request.number === answered) return;
+    const under = rootOf(roots, request.path);
+    if (under === undefined) return;
+    setAnswered(request.number);
+    setChosen(under);
+  }, [request, roots, answered, setAnswered, setChosen]);
   const root = chosen !== undefined && roots.includes(chosen) ? chosen : roots[0];
 
   if (first.isPending) return <Text size="sm" data-testid="trace-loading">Reading the trace…</Text>;
