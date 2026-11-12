@@ -29,7 +29,7 @@ public sealed class EntityCreate(Func<ProductService> products) : ICapabilityHan
     {
         var service = products();
         var (product, typed) = Said(service, line);
-        var (terms, reading, entity) = Would(service, line.State, product, typed);
+        var (terms, reading, entity) = Would(service, line.State, product, typed, line.View?.Draft);
         if (reading.Issues.Count > 0) throw new TableRefused(reading.Issues[0].Code, string.Join(" ", reading.Issues.Select(i => i.Message)));
         if (reading.Missing.Count > 0)
             throw new TableRefused("MissingTerm", reading.Missing.Count == 1
@@ -53,8 +53,9 @@ public sealed class EntityCreate(Func<ProductService> products) : ICapabilityHan
         var (product, typed) = Said(service, line);
         try
         {
-            var (changes, entity) = service.Planned(line.State, product.Id, typed);
-            return new(changes, $"Made {entity}: {product.Title}.", $"Makes {entity}: {product.Title}.");
+            var planned = service.Planned(line.State, product.Id, typed, line.View?.Draft);
+            return new(planned.Changes, $"Made {planned.Entity}: {product.Title}.", $"Makes {planned.Entity}: {product.Title}.", $"new {product.Words} {planned.Terms}",
+                planned.AboveTable, planned.Above is null ? [] : [planned.Above]);
         }
         catch (ProductTermsRefused refused)
         {
@@ -77,11 +78,11 @@ public sealed class EntityCreate(Func<ProductService> products) : ICapabilityHan
 
     // What the terms would make, with the terms as the request holds them: the row the entity is made under named
     // (note 48). What the product's rules refuse of complete terms is the line's refusal, in their words.
-    static (string Terms, ProductReading Reading, string? Entity) Would(ProductService service, WorkspaceState state, ProductDescriptor product, string typed)
+    static (string Terms, ProductReading Reading, string? Entity) Would(ProductService service, WorkspaceState state, ProductDescriptor product, string typed, LineDraft? draft)
     {
         try
         {
-            return service.Would(state, product.Id, typed);
+            return service.Would(state, product.Id, typed, draft);
         }
         catch (ProductTermsRefused refused)
         {

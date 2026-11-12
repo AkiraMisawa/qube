@@ -114,7 +114,7 @@ public partial class CommandLineTests
         Assert.Equal(("weather.readings manual: off | Took the filter off readings (manual).", "Takes the filter off readings (manual).", null), (Filtered(off), off.Would, off.Rows));
         Assert.Equal("weather.stations : altitude>20 | Showing 2 of 3 rows of stations where altitude > 20.", Filtered(held));
         Assert.Equal(before, rig.Board.Revision);
-        Assert.Equal(["find", "sort", "filter", "select", "copy", "export"], rig.Lines.ViewVerbs.Select(v => v.VerbId));
+        Assert.Equal(["find", "sort", "filter", "select", "copy", "export", "open", "cancel"], rig.Lines.ViewVerbs.Select(v => v.VerbId));
     }
 
     [Theory] // ADR-0016 notes 39 and 41: filter refuses conditions as `where` refuses them, and by name a line that asks for another grid's rows

@@ -148,4 +148,139 @@ public class DraftTests
 
         Assert.Equal((code, sentence), (refused.Code, refused.Sentence));
     }
+
+    [Fact] // ADR-0016 note 56: open <row> answers the page the one row whose dialog to open, and invokes nothing; no row and several rows are refused
+    public void Open_answers_the_one_row_whose_dialog_the_page_opens()
+    {
+        var rig = new SensorRig();
+
+        var station = rig.Preview("open S1");
+        var sensor = rig.Preview("open sensors n1/2");
+
+        Assert.Equal(new LineOpen(Stations.Sites, "S1", "Opened S1."), station.Asks);
+        Assert.Equal((null, "Opens S1.", rig.Board.Revision), (station.Command, station.Would, station.Revision));
+        Assert.Equal(new LineOpen(Stations.Sensors, "N1/2", "Opened N1/2."), sensor.Asks);
+        Assert.Equal(("UnknownRow", "S9"), (rig.Preview("open S9").Refused!.Code, rig.Preview("open S9").Refused!.Word));
+        var several = rig.Preview("open stations all").Refused!;
+        Assert.Equal("SeveralRows", several.Code);
+        Assert.Equal("open opens the dialog of one row, and stations all names 3: N1, S1 and X1.", several.Sentence);
+    }
+
+    // The dialog of a station's draft as the screen behind a line: the draft's table, its row selected, and its lines.
+    static LineView Dialog(SensorRig rig, string station, params string[] lines) => new(Stations.Sites, Draft: new(Stations.Sites, station, rig.Board.Revision, lines));
+
+    [Fact] // ADR-0016 note 55: with a draft open, set names no row and means the draft's; the line answers the whole line the draft gains and what it would change, and has nothing to invoke
+    public void With_a_draft_open_set_is_read_for_the_drafts_row_and_answers_the_line_the_draft_gains()
+    {
+        var rig = new SensorRig();
+        var revision = rig.Board.Revision;
+
+        var read = rig.Preview("set altitude 20", Dialog(rig, "S1"));
+        // On what the draft's lines left: the second reading starts from 20.
+        var again = rig.Preview("set altitude 25", Dialog(rig, "S1", "set stations S1 altitude 20"));
+
+        Assert.Equal(new LineDrafted("set stations S1 altitude 20", "Added to the draft of S1: set stations S1 altitude 20."), read.Asks);
+        Assert.Equal((null, null, null, "altitude: 15 to 20", revision), (read.Command, read.Inputs, read.Refused, read.Would, read.Revision));
+        Assert.Equal("altitude: 20 to 25", again.Would);
+        Assert.Equal(("Editing S1: nothing pending.", "Editing S1: 1 line pending."), (read.View, again.View));
+        Assert.Equal(revision, rig.Board.Revision);
+    }
+
+    [Fact] // ADR-0016 note 55: new and remove are of the draft's row: a row is made under it without naming it, and a row under it is said by how its id ends
+    public void With_a_draft_open_new_and_remove_are_of_the_rows_under_the_drafts_row()
+    {
+        var rig = new SensorRig();
+
+        var made = rig.Preview("new sensor wind 2 m3", Dialog(rig, "S1"));
+        var line = Assert.IsType<LineDrafted>(made.Asks).Line;
+        // N1 has a sensor 2 as well: in the draft of S1 the sensors are S1's alone.
+        var removed = rig.Preview("remove sensors 2", Dialog(rig, "S1", line));
+        var set = rig.Preview("set sensors 1 kind gust", Dialog(rig, "S1"));
+
+        Assert.Equal(("new sensor station=S1 wind 2 m3", "Makes S1/2: Sensor."), (line, made.Would));
+        Assert.Equal("remove sensors S1/2", Assert.IsType<LineDrafted>(removed.Asks).Line);
+        Assert.Equal("set sensors S1/1 kind gust", Assert.IsType<LineDrafted>(set.Asks).Line);
+        // Each line the draft gains reads again as a whole line, with no draft behind it.
+        Assert.Equal([$"{line} => Made S1/2: Sensor.", "remove sensors S1/2 => Removed S1/2."], Lines(Form(rig, "S1", line, "remove sensors S1/2")));
+    }
+
+    [Theory] // ADR-0016 note 55: a draft is of one row: a line of another row, one that changes nothing, and every command that is not the draft's are refused, and the draft gains nothing
+    [InlineData("set stations N1 altitude 1", "NotTheDraftsRow", "The draft is of S1, and this line is of N1: apply or cancel the draft first.")]
+    [InlineData("new sensor N1 wind 2 m3", "NotTheDraftsRow", "The draft is of S1, and this line is of N1: apply or cancel the draft first.")]
+    [InlineData("set sensors N1/1 kind gust", "UnknownRow", "No row N1/1 in sensors: its rows are S1/1.")]
+    [InlineData("set altitude 15", "NothingToAdd", "Nothing would change: S1 already holds altitude 15. The draft of S1 gains nothing.")]
+    [InlineData("undo", "DraftOpen", "undo is not read while the draft of S1 is open: apply writes it, and cancel discards it.")]
+    [InlineData("open N1", "DraftOpen", "open is not read while the draft of S1 is open: apply writes it, and cancel discards it.")]
+    public void With_a_draft_open_a_line_that_is_not_of_its_row_is_refused(string line, string code, string sentence)
+    {
+        var rig = new SensorRig();
+
+        var read = rig.Preview(line, Dialog(rig, "S1"));
+
+        Assert.Equal((code, sentence, null), (read.Refused?.Code, read.Refused?.Sentence, read.Asks));
+    }
+
+    [Fact] // ADR-0016 note 55: a draft does not take its own row away
+    public async Task A_draft_does_not_remove_its_own_row()
+    {
+        var rig = new SensorRig();
+        await rig.Run("new sensor S1 wind 2 m3");
+
+        var read = rig.Preview("remove sensors S1/2", new LineView(Stations.Sensors, Draft: new(Stations.Sensors, "S1/2", rig.Board.Revision, [])));
+
+        Assert.Equal(("RemovesTheDraftsRow", "The draft is of S1/2, which this line would take away: cancel the draft, and remove the row outside it."), (read.Refused?.Code, read.Refused?.Sentence));
+    }
+
+    [Fact] // ADR-0016 note 55: apply writes every line of the draft as one command at the revision it was opened at, and one undo takes it back whole
+    public async Task Apply_writes_the_drafts_lines_as_one_command_that_one_undo_takes_back()
+    {
+        var rig = new SensorRig();
+        var dialog = Dialog(rig, "S1", "set stations S1 altitude 20", "new sensor station=S1 wind 2 m3", "set sensors S1/2 kind gust");
+        var commands = rig.Board.Log.Select(e => e.Command?.Id).Distinct().Count();
+
+        var read = rig.Preview("apply", dialog);
+        var told = await rig.Run("apply", dialog);
+
+        Assert.Equal(("draft.apply", "Writes the 3 lines of the draft of S1 as one command.", null), (read.Command?.Id, read.Would, read.Asks));
+        Assert.Equal(("Applied 3 lines to S1.", Stations.Sites, "S1", 3), (told["said"]!.GetValue<string>(), told["table"]!.GetValue<string>(), told["key"]!.GetValue<string>(), told["lines"]!.GetValue<int>()));
+        Assert.Equal(commands + 1, rig.Board.Log.Select(e => e.Command?.Id).Distinct().Count());
+        Assert.Equal("apply S1 (3 lines)", rig.Board.Log[^1].Command!.Said);
+        Assert.Equal(["altitude 20"], Fields(Form(rig, "S1"), "altitude"));
+        Assert.Equal(["S1/1 rain", "S1/2 gust"], Sensors(Form(rig, "S1")));
+
+        await rig.Run("undo");
+        Assert.Equal(["altitude 15"], Fields(Form(rig, "S1"), "altitude"));
+        Assert.Equal(["S1/1 rain"], Sensors(Form(rig, "S1")));
+
+        static string[] Sensors(DraftForm form) => [.. Assert.Single(form.Under).Rows.Select(r => $"{r.Key} {r.Written[2]}")];
+    }
+
+    [Fact] // ADR-0016 note 55: apply is refused where the workspace moved, where the draft has no line, and where no draft is open; nothing is written
+    public async Task Apply_is_refused_where_the_workspace_moved_or_there_is_nothing_to_apply()
+    {
+        var rig = new SensorRig();
+        var dialog = Dialog(rig, "S1", "set stations S1 altitude 20");
+        var applied = rig.Preview("apply", dialog);
+        await rig.Run("set stations N1 altitude 130");
+        var revision = rig.Board.Revision;
+
+        var moved = await rig.Commands.InvokeAsync(applied.Command!.Id, applied.Command.Version, applied.Inputs!, SensorRig.Ana, Guid.NewGuid().ToString(), default);
+
+        Assert.Equal("RevisionMoved", Assert.Single(Assert.IsType<CommandResult.Refused>(moved).Issues).Code);
+        Assert.Equal(("NothingToApply", "The draft of S1 has no line to apply: cancel closes it."), (rig.Preview("apply", Dialog(rig, "S1")).Refused?.Code, rig.Preview("apply", Dialog(rig, "S1")).Refused?.Sentence));
+        Assert.Equal(("NoDraft", "apply writes the lines of an open draft, and none is open: open a row first."), (rig.Preview("apply").Refused?.Code, rig.Preview("apply").Refused?.Sentence));
+        Assert.Equal(revision, rig.Board.Revision);
+    }
+
+    [Fact] // ADR-0016 note 55: cancel is a verb of the screen: the page discards the draft, and nothing is invoked
+    public void Cancel_asks_the_page_to_discard_the_draft()
+    {
+        var rig = new SensorRig();
+
+        var read = rig.Preview("cancel", Dialog(rig, "S1", "set stations S1 altitude 20"));
+
+        Assert.Equal((new LineCancel("Discarded the draft of S1."), null, "Discards the draft of S1 and its 1 line."), (read.Asks, read.Command, read.Would));
+        Assert.Equal("Closes the draft of S1.", rig.Preview("cancel", Dialog(rig, "S1")).Would);
+        Assert.Equal(("NoDraft", "cancel discards an open draft, and none is open."), (rig.Preview("cancel").Refused?.Code, rig.Preview("cancel").Refused?.Sentence));
+    }
 }

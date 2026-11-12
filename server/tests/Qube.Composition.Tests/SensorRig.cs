@@ -27,7 +27,8 @@ sealed class SensorRig
         var products = described
             ? new ProductService([new Stations.Products(sensor)], [new Stations.SensorRules(Workspaces)], Workspaces, Register)
             : new ProductService([], [], Workspaces, Register);
-        var registry = new CompositionRegistry([new TablesModule(() => tables), new WorkspaceCommandsModule(() => Workspaces), new ProductsModule(() => products)]);
+        var registry = new CompositionRegistry([new TablesModule(() => tables), new WorkspaceCommandsModule(() => Workspaces), new ProductsModule(() => products),
+            new DraftsModule(() => Lines!)]);
         Commands = new CommandService(registry, new InMemoryDataStore());
         Lines = new CommandLines(registry, Workspaces, Register, []);
         Id = Stations.Board(Workspaces).WorkspaceId;
@@ -47,11 +48,11 @@ sealed class SensorRig
 
     public TableRefused RowsRefused(string rows) => Assert.Throws<TableRefused>(() => Keys(rows));
 
-    public LinePreview Preview(string line) => Lines.Preview(line, Id, null, Ana);
+    public LinePreview Preview(string line, LineView? view = null) => Lines.Preview(line, Id, null, Ana, view);
 
-    public async Task<JsonObject> Run(string line)
+    public async Task<JsonObject> Run(string line, LineView? view = null)
     {
-        var preview = Preview(line);
+        var preview = Preview(line, view);
         Assert.True(preview.Refused is null, preview.Refused?.Sentence);
         var result = await Commands.InvokeAsync(preview.Command!.Id, preview.Command.Version, preview.Inputs!, Ana, Guid.NewGuid().ToString(), default);
         return result is CommandResult.Done done ? done.Outputs.Values.Single()!.AsObject()

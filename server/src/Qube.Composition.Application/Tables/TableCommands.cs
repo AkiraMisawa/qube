@@ -30,8 +30,9 @@ public sealed partial class TableService(TableRegister register, WorkspaceServic
     /// <param name="Keyed">Where the rows were read from a screen: how a request names them (note 17 of step 2).</param>
     /// <param name="Context">What the line left out and the screen behind it gave (note 18 of step 2): its rows, and for <c>reset</c> alone the field too.</param>
     /// <param name="TableFromScreen">Where the line named no table and the screen gave one that is not the main table: that table, as a request names it (note 23 of step 2).</param>
+    /// <param name="Rest">What the command says after its rows, as the log spells it: the values of a <c>set</c>, the field of a <c>reset</c>.</param>
     sealed record Plan(WorkspaceState State, ResolvedRows Resolved, IReadOnlyList<WorkspaceChange> Changes, IReadOnlyList<ITableRow> Touched, string Said, string Would, string Words,
-        ScreenKeys? Keyed = null, TableField? Context = null, string? TableFromScreen = null);
+        ScreenKeys? Keyed = null, TableField? Context = null, string? TableFromScreen = null, string? Rest = null);
 
     /// <summary>
     /// Rows read from a screen as a request names them (note 17 of step 2): their table, and their keys as a line lists
@@ -89,20 +90,26 @@ public sealed partial class TableService(TableRegister register, WorkspaceServic
     public LineChanges SetChanges(LineContext line)
     {
         var (rows, rest) = Split(line);
-        return Changes(PlanSet(line.State, line.Caller, null, rows, rest, line.View));
+        return Changes(line.State, PlanSet(line.State, line.Caller, null, rows, rest, line.View), "set");
     }
 
     /// <summary>What a line of <c>reset</c> would write (note 54).</summary>
     public LineChanges ResetChanges(LineContext line)
     {
         var (rows, rest) = Split(line);
-        return Changes(PlanReset(line.State, null, rows, rest.Length == 0 ? null : rest, line.View));
+        return Changes(line.State, PlanReset(line.State, null, rows, rest.Length == 0 ? null : rest, line.View), "reset");
     }
 
     /// <summary>What a line of <c>remove</c> would write (note 54).</summary>
-    public LineChanges RemoveChanges(LineContext line) => Changes(PlanRemove(line.State, null, SelectorReader.Words(line.Text), line.View));
+    public LineChanges RemoveChanges(LineContext line) => Changes(line.State, PlanRemove(line.State, null, SelectorReader.Words(line.Text), line.View), "remove");
 
-    static LineChanges Changes(Plan plan) => new(plan.Changes, plan.Said, plan.Would);
+    // The whole line is the verb, the rows by their keys in their table, as a request names rows read from a screen
+    // (note 17 of step 2), and what the line says of them: it reads again as those rows whatever screen is behind it.
+    LineChanges Changes(WorkspaceState state, Plan plan, string verb)
+    {
+        var keyed = plan.Keyed ?? Keyed(plan.Resolved, register.Of(state), null);
+        return new(plan.Changes, plan.Said, plan.Would, Words(verb, keyed.Table, keyed.Rows ?? "", plan.Rest), plan.Resolved.Table.Descriptor.TableId, [.. plan.Resolved.Rows.Select(r => r.Key)]);
+    }
 
     /// <summary>What could follow the last word of a line of <c>set</c>, <c>reset</c> or <c>remove</c>: the verb says what comes after its rows.</summary>
     public LineCompletions Complete(LineContext line, CommandArgumentKind? afterRows) =>
@@ -176,25 +183,26 @@ public sealed partial class TableService(TableRegister register, WorkspaceServic
 
         // One value is named as the line first spells it, `<field> <value>`; several keep their signs; a template is
         // named with its terms as read, each by its name.
-        var words = Words("set", table, named, asTemplate is not null ? $"{Templates.Word} {asTemplate.Says}" : set.Count(c => c == '=') == 1 ? set.Replace('=', ' ') : set);
+        var rest = asTemplate is not null ? $"{Templates.Word} {asTemplate.Says}" : set.Count(c => c == '=') == 1 ? set.Replace('=', ' ') : set;
+        var words = Words("set", table, named, rest);
         var touched = resolved.Rows.Where(r => changed.Contains(r.Key)).ToList();
         var held = resolved.Rows.Count - touched.Count;
         if (touched.Count == 0)
         {
             var holds = asTemplate is not null ? $"every value of {asTemplate.Says}"
                 : TableWords.And(values.Select(v => $"{TableWords.Word(v.Field)} {FieldForms.Write(v.Field.Written, v.Value)}"));
-            return Unchanged(state, resolved, $"{Rows(bound, resolved.Rows, all: true)} already hold{(resolved.Rows.Count == 1 ? "s" : "")} {holds}", words, keyed) with { TableFromScreen = fromScreen };
+            return Unchanged(state, resolved, $"{Rows(bound, resolved.Rows, all: true)} already hold{(resolved.Rows.Count == 1 ? "s" : "")} {holds}", words, keyed) with { TableFromScreen = fromScreen, Rest = rest };
         }
         if (asTemplate is not null)
         {
-            var rest = heldCells == 0 ? "" : $"; {TableWords.Counted(heldCells, "value")} already held";
+            var heldToo = heldCells == 0 ? "" : $"; {TableWords.Counted(heldCells, "value")} already held";
             return new(state, resolved, changes, touched, $"Set {Rows(bound, touched)} as {asTemplate.Says}{(held == 0 ? "" : $"; {held} already held its values")}.",
-                $"{string.Join("; ", would)}{rest}", words, keyed, TableFromScreen: fromScreen);
+                $"{string.Join("; ", would)}{heldToo}", words, keyed, TableFromScreen: fromScreen, Rest: rest);
         }
         var assigned = TableWords.And(written.Select(v => $"{TableWords.Word(v.Field)} to {FieldForms.Write(v.Field.Written, v.Value)}"));
         var already = held == 0 ? "" : $"; {held} already held {(written.Count == 1 ? "it" : "them")}";
         var said = touched.Count == 1 ? $"Set {touched[0].Key} {assigned}{already}." : $"Set {assigned} on {Rows(bound, touched)}{already}.";
-        return new(state, resolved, changes, touched, said, string.Join("; ", would), words, keyed, TableFromScreen: fromScreen);
+        return new(state, resolved, changes, touched, said, string.Join("; ", would), words, keyed, TableFromScreen: fromScreen, Rest: rest);
     }
 
     Plan PlanReset(WorkspaceState state, string? table, string? rows, string? field, LineView? view = null)
@@ -232,16 +240,18 @@ public sealed partial class TableService(TableRegister register, WorkspaceServic
             changed.Add(row);
         }
 
+        // The field as the line said it, or the cell the screen gave, by its word.
+        var fieldSaid = cell is not null ? TableWords.Word(cell) : field;
         var words = Words("reset", table, said, field);
         var touched = resolved.Rows.Where(changed.Contains).ToList();
         var held = resolved.Rows.Count - touched.Count;
         if (touched.Count == 0)
-            return Unchanged(state, resolved, $"{Rows(bound, resolved.Rows, all: true)} {(resolved.Rows.Count == 1 ? "has" : "have")} no edit{of}", words, keyed) with { Context = cell, TableFromScreen = fromScreen };
+            return Unchanged(state, resolved, $"{Rows(bound, resolved.Rows, all: true)} {(resolved.Rows.Count == 1 ? "has" : "have")} no edit{of}", words, keyed) with { Context = cell, TableFromScreen = fromScreen, Rest = fieldSaid };
         var without = held == 0 ? "" : $"; {held} had no edit";
         var done = touched.Count == 1 ? $"Reset {touched[0].Key}{(named is null ? "" : $" {TableWords.Word(named)}")}{without}."
             : named is null ? $"Reset {Rows(bound, touched)}{without}." : $"Reset {TableWords.Word(named)} on {Rows(bound, touched)}{without}.";
         var would = resolved.Rows.Count == 1 ? "reset" : $"{Counted(touched.Count)} reset{(held == 0 ? "" : $", {Counted(held)} with no edit")}";
-        return new(state, resolved, changes, touched, done, $"{(named is null ? "every field" : TableWords.Word(named))}: {would}", words, keyed, cell, fromScreen);
+        return new(state, resolved, changes, touched, done, $"{(named is null ? "every field" : TableWords.Word(named))}: {would}", words, keyed, cell, fromScreen, fieldSaid);
     }
 
     Plan PlanRemove(WorkspaceState state, string? table, string? rows, LineView? view = null)

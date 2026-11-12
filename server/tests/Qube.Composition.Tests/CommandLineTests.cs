@@ -611,7 +611,7 @@ public partial class CommandLineTests
     [InlineData("set R1 volume lots", "InvalidValue", "lots", 14, 18, "")]
     [InlineData("set R1 wind 4", "AmbiguousField", "wind", 7, 11, "wind speed, wind direction")]
     [InlineData("set where unit==m3 checked on", "UnknownOperator", "==", 14, 16, "")]
-    [InlineData("sett R1", "UnknownCommand", "sett", 0, 4, "set, reset, remove, undo, redo, find, sort, filter, select, copy, export, tick, alarm")]
+    [InlineData("sett R1", "UnknownCommand", "sett", 0, 4, "set, reset, remove, undo, redo, find, sort, filter, select, copy, export, open, cancel, tick, alarm")]
     [InlineData("undo that", "UnreadWords", "that", 5, 9, "")]
     public void A_line_that_cannot_be_read_says_the_word_its_place_and_what_it_could_be(string line, string code, string word, int start, int end, string candidates)
     {
@@ -787,7 +787,7 @@ public partial class CommandLineTests
         var other = rig.Preview("bell").Refused!;
 
         Assert.Equal(("weather.horn", "weather.horn would run"), (own.Command!.Id, own.Would));
-        Assert.Equal(("UnknownCommand", "set, reset, remove, undo, redo, horn, find, sort, filter, select, copy, export, tick, alarm"), (other.Code, string.Join(", ", other.Candidates)));
+        Assert.Equal(("UnknownCommand", "set, reset, remove, undo, redo, horn, find, sort, filter, select, copy, export, open, cancel, tick, alarm"), (other.Code, string.Join(", ", other.Candidates)));
         Assert.Equal(["horn"], rig.Preview("h").Complete.Select(c => c.Value));
         Assert.Empty(rig.Preview("b").Complete);
     }
@@ -863,7 +863,7 @@ public partial class CommandLineTests
         Assert.Equal("manual | automatic", Offered("tick "));
         Assert.Equal("automatic@5", Offered("tick au"));
         Assert.Equal("tick@0", Offered("ti"));
-        Assert.Equal("set, reset, remove, undo, redo, find, sort, filter, select, copy, export, tick, alarm", string.Join(", ", rig.Preview("sett").Refused!.Candidates));
+        Assert.Equal("set, reset, remove, undo, redo, find, sort, filter, select, copy, export, open, cancel, tick, alarm", string.Join(", ", rig.Preview("sett").Refused!.Candidates));
     }
 
     [Fact] // ADR-0016 note 29: a short form's words are its own, and it expands to a command's line, never to nothing or to another short form: a registration at fault fails

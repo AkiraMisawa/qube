@@ -52,7 +52,10 @@ public sealed record LineCompletions(IReadOnlyList<LineCompletion> Items, int Mo
 }
 
 /// <summary>What a line would write (ADR-0016 note 54): its changes in order, what it says once they are written, and what it would change, each in one sentence.</summary>
-public sealed record LineChanges(IReadOnlyList<WorkspaceChange> Changes, string Said, string Would);
+/// <param name="Line">The whole line, its rows named by their keys in their table: what a draft holds, and reads again as any line is read.</param>
+/// <param name="Table">The table of the rows the line is of.</param>
+/// <param name="Rows">The rows it is of, by key: those it writes or removes, and for a row it makes, the row it makes it under.</param>
+public sealed record LineChanges(IReadOnlyList<WorkspaceChange> Changes, string Said, string Would, string Line, string? Table, IReadOnlyList<string> Rows);
 
 /// <summary>
 /// A command whose line may be a line of a draft (ADR-0016 note 54): it says the changes the words after its own would
@@ -62,6 +65,9 @@ public interface IDraftLine
 {
     LineChanges Changes(LineContext line);
 }
+
+/// <summary>A command that ends an open draft by writing it (ADR-0016 note 55): read while a draft is open, as no other command is.</summary>
+public interface IDraftCommand : ILineCommand;
 
 /// <summary>
 /// A command capability that reads its own line (ADR-0016 §4, §5): one whose descriptor says how it is typed. Reading
@@ -74,6 +80,9 @@ public interface ILineCommand
 
     /// <summary>What could follow the line's last word, or complete it where it is half typed; places count from the start of <see cref="LineContext.Text"/>.</summary>
     LineCompletions Complete(LineContext line);
+
+    /// <summary>Whether it is read while a draft is open (ADR-0016 note 55): a verb that changes nothing of the draft is, and one that opens another is not.</summary>
+    bool WithDraft => true;
 }
 
 public sealed record LineCommand(string Id, string Version);
@@ -89,6 +98,9 @@ public sealed record LineCommand(string Id, string Version);
 [JsonDerivedType(typeof(LineSelect), "select")]
 [JsonDerivedType(typeof(LineCopy), "copy")]
 [JsonDerivedType(typeof(LineExport), "export")]
+[JsonDerivedType(typeof(LineOpen), "open")]
+[JsonDerivedType(typeof(LineDrafted), "draft")]
+[JsonDerivedType(typeof(LineCancel), "cancel")]
 public abstract record ViewAsk(string Said);
 
 /// <summary>What is done with the grid the view was read of (notes 21 and 39): each names that grid, by its table and subset.</summary>
@@ -125,6 +137,18 @@ public sealed record LineCopy(string Said) : ViewAsk(Said);
 /// <summary>Rows' cells for a file (note 44 of step 4): the page asks for the line's content at Enter and saves it under <paramref name="FileName"/>.</summary>
 public sealed record LineExport(string FileName, string Said) : ViewAsk(Said);
 
+/// <summary>The row whose dialog the page opens (ADR-0016 note 56), as a draft of that row at the revision the line was read at.</summary>
+public sealed record LineOpen(string Table, string Key, string Said) : ViewAsk(Said);
+
+/// <summary>
+/// The line an open draft gains (ADR-0016 note 55): the page adds it to the draft it holds and reads the draft's form
+/// again. Nothing is invoked, and nothing written until the draft is applied.
+/// </summary>
+public sealed record LineDrafted(string Line, string Said) : ViewAsk(Said);
+
+/// <summary>The page discards the draft it holds and closes its dialog (ADR-0016 note 55): nothing was written, and nothing is.</summary>
+public sealed record LineCancel(string Said) : ViewAsk(Said);
+
 /// <summary>A line as a view verb read it: each argument as read, the rows it means where it means rows, what Enter would do, and what it asks the page for.</summary>
 public sealed record ViewRead(IReadOnlyList<LineArgument> Arguments, LineRows? Rows, string Would, ViewAsk Asks);
 
@@ -142,6 +166,9 @@ public interface IViewVerb
 
     /// <summary>What could follow the line's last word, or complete it where it is half typed; places count from the start of <see cref="LineContext.Text"/>.</summary>
     LineCompletions Complete(LineContext line);
+
+    /// <summary>Whether it is read while a draft is open (ADR-0016 note 55): a verb that changes nothing of the draft is, and one that opens another is not.</summary>
+    bool WithDraft => true;
 }
 
 /// <summary>
@@ -175,6 +202,9 @@ public interface IShortForm
 
     /// <summary>What could follow the line's last word, or complete it where it is half typed; places count from the start of <see cref="LineContext.Text"/>.</summary>
     LineCompletions Complete(LineContext line);
+
+    /// <summary>Whether it is read while a draft is open (ADR-0016 note 55): a verb that changes nothing of the draft is, and one that opens another is not.</summary>
+    bool WithDraft => true;
 }
 
 /// <summary>A module's short forms, for the applications it serves.</summary>
@@ -249,7 +279,11 @@ public sealed class CommandLines
     // how it is typed, the command Enter invokes where there is one, and how it completes and reads the rest of the
     // line. A short form reads nothing: it answers the line it stands for.
     sealed record Typed(string[] Words, string Said, string Id, CommandForm Form, LineCommand? Command, Func<LineContext, LineCompletions> Complete, Func<LineContext, Reading>? Read, Func<LineContext, string>? Expand = null,
-        Func<LineContext, string>? Content = null, Func<LineContext, LineChanges>? Changes = null);
+        Func<LineContext, string>? Content = null, Func<LineContext, LineChanges>? Changes = null, bool WithDraft = false)
+    {
+        /// <summary>Whether it is read while a draft is open (note 55): a line the draft may hold, or what says it is read then.</summary>
+        public bool InDraft => Changes is not null || WithDraft;
+    }
 
     readonly WorkspaceService workspaces;
     readonly TableRegister tables;
@@ -272,7 +306,8 @@ public sealed class CommandLines
         this.tables = tables;
         IShortForm[] forms = [.. shortForms.SelectMany(c => c.ShortForms)];
         ShortForms = [.. forms.Select(f => f.Descriptor)];
-        IViewVerb[] verbs = [new FindVerb(tables), new SortVerb(tables), new FilterVerb(tables), new SelectVerb(tables), new CopyVerb(tables, mostCells), new ExportVerb(tables, mostCells)];
+        IViewVerb[] verbs = [new FindVerb(tables), new SortVerb(tables), new FilterVerb(tables), new SelectVerb(tables), new CopyVerb(tables, mostCells), new ExportVerb(tables, mostCells),
+            new OpenVerb(tables), new CancelVerb()];
         ViewVerbs = [.. verbs.Select(v => v.Descriptor)];
         var named = new List<Typed>();
         foreach (var descriptor in registry.CapabilityDescriptors)
@@ -288,7 +323,8 @@ public sealed class CommandLines
             }
             // A command whose line a draft may hold says its changes too (note 54).
             Func<LineContext, LineChanges>? changes = reader is IDraftLine drafted ? drafted.Changes : null;
-            named.AddRange(form.Words.Select(w => new Typed(TableWords.Of(w).Split(' '), TableWords.Of(w), descriptor.CapabilityId, form, command, reader.Complete, Read, Changes: changes)));
+            named.AddRange(form.Words.Select(w => new Typed(TableWords.Of(w).Split(' '), TableWords.Of(w), descriptor.CapabilityId, form, command, reader.Complete, Read, Changes: changes,
+                WithDraft: reader is IDraftCommand)));
         }
         foreach (var verb in verbs)
         {
@@ -300,7 +336,7 @@ public sealed class CommandLines
                 return new(null, asked.Arguments, asked.Rows, asked.Would, null, asked.Asks);
             }
             named.AddRange(verb.Descriptor.Command.Words.Select(w => new Typed(TableWords.Of(w).Split(' '), TableWords.Of(w), verb.Descriptor.VerbId, verb.Descriptor.Command, null, verb.Complete, Read,
-                Content: verb is IContentVerb content ? content.Content : null)));
+                Content: verb is IContentVerb content ? content.Content : null, WithDraft: verb.WithDraft)));
         }
         named.AddRange(forms.SelectMany(form => form.Descriptor.Command.Words.Select(w =>
             new Typed(TableWords.Of(w).Split(' '), TableWords.Of(w), form.Descriptor.FormId, form.Descriptor.Command, null, form.Complete, null, form.Expand))));
@@ -323,6 +359,7 @@ public sealed class CommandLines
     /// </summary>
     public LinePreview Preview(string line, string workspaceId, long? revision, Caller caller, LineView? view = null)
     {
+        if (view?.Draft is { } draft) return Drafted(line, workspaceId, caller, draft);
         var state = WorkspaceCommands.Owned(workspaces, workspaceId, caller, revision);
         var viewSaid = view is null ? null : Views.Say(view, tables.Of(state), state);
         var preview = Read(line, state, caller, view, Of(state).ToList());
@@ -336,20 +373,84 @@ public sealed class CommandLines
     public DraftForm Draft(string workspaceId, Caller caller, LineDraft draft)
     {
         var opened = Opened(workspaceId, caller, draft);
-        var named = Of(opened).ToList();
-        var (left, read) = (opened, new List<DraftLine>());
+        var (left, read) = Folded(opened, caller, draft, Of(opened).ToList());
+        return DraftForms.Of(draft, tables.Of(left), opened, left, workspaces.Unedited(opened), [.. read.Select(r => r.Line)]);
+    }
+
+    // The draft's lines read in order, each on what the ones before it left, and the workspace as they leave it. A
+    // line that no longer reads ends the reading: the lines after it were accepted on what it left.
+    (WorkspaceState Left, IReadOnlyList<(DraftLine Line, LineChanges? Changes)> Read) Folded(WorkspaceState opened, Caller caller, LineDraft draft, IReadOnlyList<Typed> named)
+    {
+        var (left, read) = (opened, new List<(DraftLine, LineChanges?)>());
         foreach (var line in draft.Lines)
         {
-            // A line that no longer reads ends the reading: the lines after it were accepted on what it left.
-            if (Refusal(() => Changes(line, left, caller, named), out var changes) is { } refused)
+            var before = left;
+            // Each line is one the draft could have gained, as it was when it was typed: of the draft's row, and no other.
+            LineChanges OfTheDraft()
             {
-                read.Add(new(line, null, refused));
+                var changes = Changes(line, before, caller, named);
+                Gained(draft, changes, before, caller);
+                return changes;
+            }
+            if (Refusal(OfTheDraft, out var changes) is { } refused)
+            {
+                read.Add((new(line, null, refused), null));
                 break;
             }
             left = workspaces.After(left, caller.UserId, changes!.Changes, caller.Origin);
-            read.Add(new(line, changes.Said, null));
+            read.Add((new(line, changes.Said, null), changes));
         }
-        return DraftForms.Of(draft, tables.Of(left), opened, left, workspaces.Unedited(opened), read);
+        return (left, read);
+    }
+
+    /// <summary>
+    /// Writes a draft (ADR-0016 note 55): its lines are read again, in order, at the revision it was opened at, and
+    /// every change they make is written as one command, which one undo takes back whole. Refused, and nothing written,
+    /// where the workspace has left that revision, where a line no longer reads, and where there is nothing to write.
+    /// </summary>
+    public (WorkspaceState State, string Command, string Said) Apply(string workspaceId, Caller caller, LineDraft draft)
+    {
+        var opened = Opened(workspaceId, caller, draft);
+        var (_, read) = Folded(opened, caller, draft, Of(opened).ToList());
+        if (read.Count > 0 && read[^1].Line.Refused is { } unread)
+            throw new WorkspaceRefused("DraftUnread", $"Line {read.Count} of the draft of {draft.Key} no longer reads: {unread.Sentence}");
+        IReadOnlyList<WorkspaceChange> changes = [.. read.SelectMany(r => r.Changes!.Changes)];
+        if (changes.Count == 0) throw new WorkspaceRefused("NothingToApply", $"The draft of {draft.Key} has no line to apply: cancel closes it.");
+        var lines = TableWords.Counted(read.Count, "line");
+        var next = workspaces.Batch(workspaceId, draft.Revision, caller.UserId, changes, caller.Origin, $"apply {draft.Key} ({lines})");
+        return (next, next.Log[^1].Command?.Id ?? throw new InvalidOperationException("An accepted command has an id."), $"Applied {lines} to {draft.Key}.");
+    }
+
+    // A line typed while a draft is open (note 55): read on the workspace as the draft's lines leave it, with the
+    // draft's dialog as the screen behind it, which is the draft's table with its row selected.
+    LinePreview Drafted(string line, string workspaceId, Caller caller, LineDraft draft)
+    {
+        var opened = Opened(workspaceId, caller, draft);
+        var named = Of(opened).ToList();
+        var (left, read) = Folded(opened, caller, draft, named);
+        var editing = $"Editing {draft.Key}: {(draft.Lines.Count == 0 ? "nothing" : TableWords.Counted(draft.Lines.Count, "line"))} pending.";
+        if (read.Count > 0 && read[^1].Line.Refused is { } unread)
+            return new(draft.Revision, null, null, null, null, null, null,
+                new("DraftUnread", $"Line {read.Count} of the draft of {draft.Key} no longer reads: {unread.Sentence}", null, null, null, []), [], 0, View: editing);
+        var screen = new LineView(draft.Table, Keys: [draft.Key], Draft: draft);
+        return Read(line, left, caller, screen, named) with { Revision = draft.Revision, View = editing };
+    }
+
+    // The line a draft gains of what a line typed in it would write. A draft is of one row (note 55): a line that is of
+    // another row, that would take the draft's own row away, or that changes nothing is refused, and adds nothing.
+    LineDrafted Gained(LineDraft draft, LineChanges written, WorkspaceState left, Caller caller)
+    {
+        var bound = tables.Of(left);
+        var table = written.Table is null ? null : bound.SingleOrDefault(t => t.Descriptor.TableId == written.Table);
+        var own = table?.Descriptor.TableId == draft.Table && written.Rows.Count > 0 && written.Rows.All(key => key == draft.Key);
+        var under = table?.Descriptor.Under == draft.Table && written.Rows.Count > 0
+            && table.Table.Rows(left).Where(r => written.Rows.Contains(r.Key)).All(r => r.Under == draft.Key);
+        if (!own && !under)
+            throw new TableRefused("NotTheDraftsRow", $"The draft is of {draft.Key}, and this line is of {(written.Rows.Count == 0 ? "no row of it" : TableWords.Some(written.Rows))}: apply or cancel the draft first.");
+        if (written.Changes.Count == 0) throw new TableRefused("NothingToAdd", $"{written.Would} The draft of {draft.Key} gains nothing.");
+        if (own && tables.Of(left).Single(t => t.Descriptor.TableId == draft.Table).Table.Rows(workspaces.After(left, caller.UserId, written.Changes, caller.Origin)).All(r => r.Key != draft.Key))
+            throw new TableRefused("RemovesTheDraftsRow", $"The draft is of {draft.Key}, which this line would take away: cancel the draft, and remove the row outside it.");
+        return new(written.Line, $"Added to the draft of {draft.Key}: {written.Line}.");
     }
 
     // The caller's workspace at the revision the draft was opened at. One it has left is refused with what moved it
@@ -431,7 +532,13 @@ public sealed class CommandLines
                 var marked = meant.Refused?.Word is { } word ? Place(line, from, word) : null;
                 return meant with { Expands = stands, Complete = complete, More = completions.More, Refused = meant.Refused is null ? null : meant.Refused with { Start = marked?.Start, End = marked?.End } };
             }
+            // While a draft is open the line acts on it (note 55): no command but the draft's is read, and a line the
+            // draft may hold is answered as the line it gains.
+            if (view?.Draft is { } open && !said.InDraft)
+                throw new TableRefused("DraftOpen", $"{said.Said} is not read while the draft of {open.Key} is open: apply writes it, and cancel discards it.", said.Said);
             var read = (said.Read ?? throw new InvalidOperationException($"{said.Id} neither reads its line nor stands for another."))(context);
+            if (view?.Draft is { } draft && said.Changes is { } changes)
+                return new(state.Revision, null, null, read.Arguments, read.Rows, read.Would, null, null, complete, completions.More, Asks: Gained(draft, changes(context), state, caller));
             return new(state.Revision, said.Command, read.Inputs, read.Arguments, read.Rows, read.Would, read.At, null, complete, completions.More, Asks: read.Asks);
         }
         catch (TableRefused refused)

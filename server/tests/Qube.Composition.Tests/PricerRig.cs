@@ -39,7 +39,7 @@ sealed class PricerRig
         PortfolioWorkspaces Pricer() => service ?? throw new InvalidOperationException("The pricer's service is not built yet.");
         var products = new ProductService([new PortfolioProducts()], [new LegRules(Pricer)], Workspaces, Register);
         var registry = new CompositionRegistry([new PortfolioModule(), new XvaModule(), new CcrModule(), new TablesModule(() => tables), new WorkspaceCommandsModule(() => Workspaces),
-            new ProductsModule(() => products), new PortfolioCommandsModule(Pricer, register)]);
+            new ProductsModule(() => products), new PortfolioCommandsModule(Pricer, register), new DraftsModule(() => Lines!)]);
         var store = Store = new InMemoryDataStore();
         Runs = new RunService(registry, store, TimeProvider.System);
         Service = service = new PortfolioWorkspaces(Workspaces, store, Runs, register, UnsetSettings.Pricer());

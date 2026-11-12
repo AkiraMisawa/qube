@@ -1,6 +1,8 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Qube.Composition.Application.Tables;
 using Qube.Composition.Application.Workspaces;
+using Qube.Composition.Contracts;
 
 namespace Qube.Composition.Application;
 
@@ -114,5 +116,93 @@ static class DraftForms
         ]);
 
         List<ITableRow> Rows(WorkspaceState state) => [.. table.Table.Rows(state).Where(r => r.Under == key)];
+    }
+}
+
+/// <summary>
+/// <c>draft.apply</c>, typed <c>apply</c> (ADR-0016 §10, note 55): the lines of a draft, written as one command at the
+/// revision the draft was opened at. The line reads the draft from the dialog behind it; a request holds the draft
+/// whole, since the server stores none.
+/// </summary>
+public sealed class DraftApply(Func<CommandLines> lines) : ICapabilityHandler, IDraftCommand
+{
+    public const string Id = "draft.apply";
+    public const string Request = "draft.apply-request";
+    public const string Applied = "draft.applied";
+    public const string Version = "1.0.0";
+
+    public CapabilityDescriptor Descriptor { get; } = new(Id, Version, "Write an open draft's lines as one command",
+        [new("request", Request, Version, Cardinality.One)],
+        [new("answer", Applied, Version, Cardinality.One)],
+        ExecutionKind.RequestResponse, [CapabilityEffect.EditWorkspace],
+        new(["apply"], []));
+
+    public LineRead Read(LineContext line)
+    {
+        var draft = line.View?.Draft ?? throw new TableRefused("NoDraft", "apply writes the lines of an open draft, and none is open: open a row first.");
+        if (draft.Lines.Count == 0) throw new TableRefused("NothingToApply", $"The draft of {draft.Key} has no line to apply: cancel closes it.");
+        var request = new JsonObject
+        {
+            ["workspaceId"] = line.State.WorkspaceId, ["revision"] = draft.Revision, ["table"] = draft.Table, ["key"] = draft.Key,
+            ["lines"] = new JsonArray([.. draft.Lines.Select(l => (JsonNode)l)]),
+        };
+        return new(new JsonObject { ["request"] = request }, [], null, $"Writes the {TableWords.Counted(draft.Lines.Count, "line")} of the draft of {draft.Key} as one command.");
+    }
+
+    public LineCompletions Complete(LineContext line) => LineCompletions.None;
+
+    public Task<IReadOnlyDictionary<string, JsonNode?>> InvokeAsync(CapabilityInvocation invocation, CancellationToken cancellationToken) => TableContracts.Answered(invocation, (request, caller) =>
+    {
+        var draft = new LineDraft(request["table"]!.GetValue<string>(), request["key"]!.GetValue<string>(), request["revision"]!.GetValue<long>(),
+            [.. request["lines"]!.AsArray().Select(l => l!.GetValue<string>())]);
+        var (state, command, said) = lines().Apply(request["workspaceId"]!.GetValue<string>(), caller, draft);
+        return new JsonObject
+        {
+            ["workspaceId"] = state.WorkspaceId, ["revision"] = state.Revision, ["command"] = command, ["said"] = said,
+            ["table"] = draft.Table, ["key"] = draft.Key, ["lines"] = draft.Lines.Count,
+        };
+    });
+}
+
+/// <summary>The kernel's command over a draft, and its contracts. Knows no application.</summary>
+public sealed class DraftsModule(Func<CommandLines> lines) : IQubeModule
+{
+    public void Register(CompositionRegistryBuilder builder)
+    {
+        builder.AddCapability(new DraftApply(lines));
+        builder.AddContract(new ContractDefinition(DraftApply.Request, DraftApply.Version, "Write a draft's lines as one command", new JsonObject
+        {
+            ["type"] = "object",
+            ["properties"] = new JsonObject
+            {
+                ["workspaceId"] = new JsonObject { ["type"] = "string", ["minLength"] = 1, ["title"] = "Workspace" },
+                ["revision"] = new JsonObject { ["type"] = "integer", ["title"] = "Revision the draft was opened at; a workspace that has left it refuses the draft" },
+                ["table"] = new JsonObject { ["type"] = "string", ["minLength"] = 1, ["title"] = "The table of the draft's row, by its id" },
+                ["key"] = new JsonObject { ["type"] = "string", ["minLength"] = 1, ["title"] = "The draft's row, by its key" },
+                ["lines"] = new JsonObject
+                {
+                    ["type"] = "array", ["minItems"] = 1, ["title"] = "The draft's lines in order: whole lines of set, reset, new and remove that name the row or the rows under it",
+                    ["items"] = new JsonObject { ["type"] = "string", ["minLength"] = 1 },
+                },
+            },
+            ["required"] = new JsonArray("workspaceId", "revision", "table", "key", "lines"),
+            ["additionalProperties"] = false,
+        }));
+        builder.AddContract(new ContractDefinition(DraftApply.Applied, DraftApply.Version, "Draft written", new JsonObject
+        {
+            ["type"] = "object",
+            ["properties"] = new JsonObject
+            {
+                ["workspaceId"] = new JsonObject { ["type"] = "string", ["title"] = "Workspace" },
+                ["revision"] = new JsonObject { ["type"] = "integer", ["title"] = "Revision" },
+                ["command"] = new JsonObject { ["type"] = "string", ["title"] = "This command's id, to name to take it back" },
+                ["said"] = new JsonObject { ["type"] = "string", ["title"] = "What was done, in words" },
+                ["table"] = new JsonObject { ["type"] = "string", ["title"] = "The table of the draft's row" },
+                ["key"] = new JsonObject { ["type"] = "string", ["title"] = "The draft's row" },
+                ["lines"] = new JsonObject { ["type"] = "integer", ["title"] = "How many lines were written" },
+            },
+            ["required"] = new JsonArray("workspaceId", "revision", "command", "said", "table", "key", "lines"),
+            ["additionalProperties"] = false,
+        }));
     }
 }

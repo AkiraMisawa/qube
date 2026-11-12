@@ -135,7 +135,7 @@ public class CommandGatewayTests(QubeFactory factory) : IClassFixture<QubeFactor
         var capabilities = catalog["capabilities"]!.AsArray();
         var typed = capabilities.Where(c => c!["command"] is not null).ToDictionary(c => c!["capabilityId"]!.GetValue<string>(), c => c!["command"]!.ToJsonString());
 
-        Assert.Equal(["entity.create", "entity.remove", "entity.reset", "entity.set", "rates.frame.capture", "rates.line.add", "rates.live.start", "rates.live.stop",
+        Assert.Equal(["draft.apply", "entity.create", "entity.remove", "entity.reset", "entity.set", "rates.frame.capture", "rates.line.add", "rates.live.start", "rates.live.stop",
             "rates.workspace.price", "workspace.redo", "workspace.undo", "xva.case.remove", "xva.cases.clear", "xva.cds", "xva.measures",
             "xva.pv01.retry", "xva.refresh", "xva.scenario", "xva.scenario.cross", "xva.scenario.duplicate", "xva.scenario.exclude", "xva.scenario.include",
             "xva.scenario.ladder", "xva.scenario.load", "xva.scenario.remove", "xva.scenario.save", "xva.scenarios.clear", "xva.trades.add", "xva.vary", "xva.workspace.price"],
@@ -467,7 +467,7 @@ public class CommandGatewayTests(QubeFactory factory) : IClassFixture<QubeFactor
         Assert.Equal(string.Join(", ", expected), shown["inputs"]!["request"]!["rows"]!.GetValue<string>());
         Assert.Equal($"trades (existing), filtered to {expected.Count}, nothing selected", shown["view"]!.GetValue<string>());
         Assert.Equal(expected.Count - 1, found["asks"]!["position"]!.GetValue<int>());
-        Assert.Equal(["find", "sort", "filter", "select", "copy", "export"], catalog["viewVerbs"]!.AsArray().Select(v => v!["verbId"]!.GetValue<string>()));
+        Assert.Equal(["find", "sort", "filter", "select", "copy", "export", "open", "cancel"], catalog["viewVerbs"]!.AsArray().Select(v => v!["verbId"]!.GetValue<string>()));
         Assert.DoesNotContain(catalog["capabilities"]!.AsArray(), c => c!["command"]?["words"]!.AsArray().Any(w => w!.GetValue<string>() is "sort" or "filter") == true);
     }
 
