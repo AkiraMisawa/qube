@@ -85,6 +85,25 @@ public sealed partial class TableService(TableRegister register, WorkspaceServic
         return Read(line, PlanRemove(line.State, null, rows, line.View), new LineArgument("rows", rows));
     }
 
+    /// <summary>What a line of <c>set</c> would write (note 54), read as <see cref="SetLine"/> reads it: for a draft to fold, and nothing written.</summary>
+    public LineChanges SetChanges(LineContext line)
+    {
+        var (rows, rest) = Split(line);
+        return Changes(PlanSet(line.State, line.Caller, null, rows, rest, line.View));
+    }
+
+    /// <summary>What a line of <c>reset</c> would write (note 54).</summary>
+    public LineChanges ResetChanges(LineContext line)
+    {
+        var (rows, rest) = Split(line);
+        return Changes(PlanReset(line.State, null, rows, rest.Length == 0 ? null : rest, line.View));
+    }
+
+    /// <summary>What a line of <c>remove</c> would write (note 54).</summary>
+    public LineChanges RemoveChanges(LineContext line) => Changes(PlanRemove(line.State, null, SelectorReader.Words(line.Text), line.View));
+
+    static LineChanges Changes(Plan plan) => new(plan.Changes, plan.Said, plan.Would);
+
     /// <summary>What could follow the last word of a line of <c>set</c>, <c>reset</c> or <c>remove</c>: the verb says what comes after its rows.</summary>
     public LineCompletions Complete(LineContext line, CommandArgumentKind? afterRows) =>
         TableCompletions.Of(line.Text, register.Of(line.State), line.State, afterRows, line.View);
@@ -536,7 +555,7 @@ static class Assignments
 }
 
 /// <summary><c>entity.set</c> (ADR-0016 §3): one value or several, as written, into rows of a registered table of the caller's workspace.</summary>
-public sealed class EntitySet(Func<TableService> tables) : ICapabilityHandler, ILineCommand
+public sealed class EntitySet(Func<TableService> tables) : ICapabilityHandler, ILineCommand, IDraftLine
 {
     public const string Id = "entity.set";
 
@@ -548,6 +567,8 @@ public sealed class EntitySet(Func<TableService> tables) : ICapabilityHandler, I
 
     public LineRead Read(LineContext line) => tables().SetLine(line);
 
+    public LineChanges Changes(LineContext line) => tables().SetChanges(line);
+
     public LineCompletions Complete(LineContext line) => tables().Complete(line, CommandArgumentKind.Assignments);
 
     public Task<IReadOnlyDictionary<string, JsonNode?>> InvokeAsync(CapabilityInvocation invocation, CancellationToken cancellationToken) =>
@@ -556,7 +577,7 @@ public sealed class EntitySet(Func<TableService> tables) : ICapabilityHandler, I
 }
 
 /// <summary><c>entity.reset</c> (ADR-0016 §3): removes the edits on rows of a registered table, of one field or of every field.</summary>
-public sealed class EntityReset(Func<TableService> tables) : ICapabilityHandler, ILineCommand
+public sealed class EntityReset(Func<TableService> tables) : ICapabilityHandler, ILineCommand, IDraftLine
 {
     public const string Id = "entity.reset";
 
@@ -568,6 +589,8 @@ public sealed class EntityReset(Func<TableService> tables) : ICapabilityHandler,
 
     public LineRead Read(LineContext line) => tables().ResetLine(line);
 
+    public LineChanges Changes(LineContext line) => tables().ResetChanges(line);
+
     public LineCompletions Complete(LineContext line) => tables().Complete(line, CommandArgumentKind.Field);
 
     public Task<IReadOnlyDictionary<string, JsonNode?>> InvokeAsync(CapabilityInvocation invocation, CancellationToken cancellationToken) =>
@@ -576,7 +599,7 @@ public sealed class EntityReset(Func<TableService> tables) : ICapabilityHandler,
 }
 
 /// <summary><c>entity.remove</c> (ADR-0016 §3): removes rows the workspace made from a registered table.</summary>
-public sealed class EntityRemove(Func<TableService> tables) : ICapabilityHandler, ILineCommand
+public sealed class EntityRemove(Func<TableService> tables) : ICapabilityHandler, ILineCommand, IDraftLine
 {
     public const string Id = "entity.remove";
 
@@ -587,6 +610,8 @@ public sealed class EntityRemove(Func<TableService> tables) : ICapabilityHandler
         new(["remove"], [new("rows", CommandArgumentKind.Rows, Required: true)]));
 
     public LineRead Read(LineContext line) => tables().RemoveLine(line);
+
+    public LineChanges Changes(LineContext line) => tables().RemoveChanges(line);
 
     public LineCompletions Complete(LineContext line) => tables().Complete(line, null);
 

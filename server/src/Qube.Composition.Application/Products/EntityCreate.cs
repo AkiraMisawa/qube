@@ -12,7 +12,7 @@ namespace Qube.Composition.Application.Products;
 /// missing or unreadable term by name. Its reading of a line fills the product's defaults and says the entity the
 /// terms would make and where each default came from, and writes nothing.
 /// </summary>
-public sealed class EntityCreate(Func<ProductService> products) : ICapabilityHandler, ILineCommand
+public sealed class EntityCreate(Func<ProductService> products) : ICapabilityHandler, ILineCommand, IDraftLine
 {
     public const string Id = "entity.create";
     public const string Request = "entity.create-request";
@@ -28,14 +28,7 @@ public sealed class EntityCreate(Func<ProductService> products) : ICapabilityHan
     public LineRead Read(LineContext line)
     {
         var service = products();
-        var creatable = service.Creatable(line.State.App).ToList();
-        var names = creatable.Select(p => p.Words).ToList();
-        if (creatable.Count == 0) throw new TableRefused("NoProduct", "new makes nothing in this workspace: no product is described for it.");
-        var words = LineWords.Of(line.Text);
-        if (words.Count == 0) throw new TableRefused("NoProduct", $"new takes a product: {TableWords.Or(names)}.", null, names);
-        if (Named(creatable, [.. words.Select(w => w.Word)]) is not (var product, var own))
-            throw new TableRefused("UnknownProduct", $"{words[0].Word} is no product new makes here: {TableWords.Or(names)}.", words[0].Word, names);
-        var typed = line.Text[(words[own - 1].Start + words[own - 1].Word.Length)..].Trim();
+        var (product, typed) = Said(service, line);
         var (terms, reading, entity) = Would(service, line.State, product, typed);
         if (reading.Issues.Count > 0) throw new TableRefused(reading.Issues[0].Code, string.Join(" ", reading.Issues.Select(i => i.Message)));
         if (reading.Missing.Count > 0)
@@ -51,6 +44,35 @@ public sealed class EntityCreate(Func<ProductService> products) : ICapabilityHan
         return new(new JsonObject { ["request"] = request },
             [new("product", product.Words), .. written.Where(w => !reading.Sources.ContainsKey(w.Field.Name)).Select(w => new LineArgument(w.Field.Name, w.Text))],
             null, $"Makes {entity}: {product.Title}.{(defaulted.Count == 0 ? "" : $" Not typed: {TableWords.List(defaulted)}.")}");
+    }
+
+    /// <summary>What a line of <c>new</c> would write (ADR-0016 note 54): the changes that make the row, for a draft to fold.</summary>
+    public LineChanges Changes(LineContext line)
+    {
+        var service = products();
+        var (product, typed) = Said(service, line);
+        try
+        {
+            var (changes, entity) = service.Planned(line.State, product.Id, typed);
+            return new(changes, $"Made {entity}: {product.Title}.", $"Makes {entity}: {product.Title}.");
+        }
+        catch (ProductTermsRefused refused)
+        {
+            throw new TableRefused("InvalidTerms", refused.Message);
+        }
+    }
+
+    // The product a line's first words name, and the words after it; refused with the products there are.
+    (ProductDescriptor Product, string Typed) Said(ProductService service, LineContext line)
+    {
+        var creatable = service.Creatable(line.State.App).ToList();
+        var names = creatable.Select(p => p.Words).ToList();
+        if (creatable.Count == 0) throw new TableRefused("NoProduct", "new makes nothing in this workspace: no product is described for it.");
+        var words = LineWords.Of(line.Text);
+        if (words.Count == 0) throw new TableRefused("NoProduct", $"new takes a product: {TableWords.Or(names)}.", null, names);
+        if (Named(creatable, [.. words.Select(w => w.Word)]) is not (var product, var own))
+            throw new TableRefused("UnknownProduct", $"{words[0].Word} is no product new makes here: {TableWords.Or(names)}.", words[0].Word, names);
+        return (product, line.Text[(words[own - 1].Start + words[own - 1].Word.Length)..].Trim());
     }
 
     // What the terms would make, with the terms as the request holds them: the row the entity is made under named

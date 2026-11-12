@@ -56,4 +56,24 @@ public class DraftTests
         Assert.Empty(form.Lines);
         Assert.Equal(rig.Board.Revision, form.Revision);
     }
+
+    // A line of the form as the line and what it said, or its refusal's code.
+    static string[] Lines(DraftForm form) => [.. form.Lines.Select(l => $"{l.Line} => {l.Said ?? l.Refused!.Code}")];
+
+    [Fact] // ADR-0016 note 54: each line is read on what the lines before it left, the form marks what the draft changed, and nothing is written
+    public void Each_line_is_read_on_what_the_lines_before_it_left()
+    {
+        var rig = new Rig();
+        var revision = rig.Board.Revision;
+
+        // The third line sets a sensor the second makes: it reads only on what the second left.
+        var form = rig.Form("S1", "set stations S1 altitude 20", "new sensor S1 wind 2 m3", "set sensors S1/2 kind gust");
+
+        Assert.Equal(["altitude 20 *", "backup N1"], Fields(form, "altitude", "backup"));
+        Assert.Equal(["set stations S1 altitude 20 => Set S1 altitude to 20.", "new sensor S1 wind 2 m3 => Made S1/2: Sensor.", "set sensors S1/2 kind gust => Set S1/2 kind to gust."],
+            Lines(form));
+        Assert.Equal(["S1/1", "S1/2"], Assert.Single(form.Under).Rows.Select(r => r.Key));
+        Assert.Equal(revision, rig.Board.Revision);
+        Assert.Empty(rig.Board.Overrides);
+    }
 }

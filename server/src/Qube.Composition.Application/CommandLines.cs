@@ -51,6 +51,18 @@ public sealed record LineCompletions(IReadOnlyList<LineCompletion> Items, int Mo
     public static LineCompletions None { get; } = new([]);
 }
 
+/// <summary>What a line would write (ADR-0016 note 54): its changes in order, what it says once they are written, and what it would change, each in one sentence.</summary>
+public sealed record LineChanges(IReadOnlyList<WorkspaceChange> Changes, string Said, string Would);
+
+/// <summary>
+/// A command whose line may be a line of a draft (ADR-0016 note 54): it says the changes the words after its own would
+/// write on a workspace as it stands, and writes none. A line it cannot read is refused as the command refuses it.
+/// </summary>
+public interface IDraftLine
+{
+    LineChanges Changes(LineContext line);
+}
+
 /// <summary>
 /// A command capability that reads its own line (ADR-0016 §4, §5): one whose descriptor says how it is typed. Reading
 /// writes nothing. A line it cannot read is refused as the command itself would refuse it, by name, with the word at fault.
@@ -237,7 +249,7 @@ public sealed class CommandLines
     // how it is typed, the command Enter invokes where there is one, and how it completes and reads the rest of the
     // line. A short form reads nothing: it answers the line it stands for.
     sealed record Typed(string[] Words, string Said, string Id, CommandForm Form, LineCommand? Command, Func<LineContext, LineCompletions> Complete, Func<LineContext, Reading>? Read, Func<LineContext, string>? Expand = null,
-        Func<LineContext, string>? Content = null);
+        Func<LineContext, string>? Content = null, Func<LineContext, LineChanges>? Changes = null);
 
     readonly WorkspaceService workspaces;
     readonly TableRegister tables;
@@ -274,7 +286,9 @@ public sealed class CommandLines
                 var read = reader.Read(line);
                 return new(read.Inputs, read.Arguments, read.Rows, read.Would, read.At, null);
             }
-            named.AddRange(form.Words.Select(w => new Typed(TableWords.Of(w).Split(' '), TableWords.Of(w), descriptor.CapabilityId, form, command, reader.Complete, Read)));
+            // A command whose line a draft may hold says its changes too (note 54).
+            Func<LineContext, LineChanges>? changes = reader is IDraftLine drafted ? drafted.Changes : null;
+            named.AddRange(form.Words.Select(w => new Typed(TableWords.Of(w).Split(' '), TableWords.Of(w), descriptor.CapabilityId, form, command, reader.Complete, Read, Changes: changes)));
         }
         foreach (var verb in verbs)
         {
@@ -322,7 +336,50 @@ public sealed class CommandLines
     public DraftForm Draft(string workspaceId, Caller caller, LineDraft draft)
     {
         var opened = WorkspaceCommands.Owned(workspaces, workspaceId, caller);
-        return DraftForms.Of(draft, tables.Of(opened), opened, opened, []);
+        var named = Of(opened).ToList();
+        var (left, read) = (opened, new List<DraftLine>());
+        foreach (var line in draft.Lines)
+        {
+            // A line that no longer reads ends the reading: the lines after it were accepted on what it left.
+            if (Refusal(() => Changes(line, left, caller, named), out var changes) is { } refused)
+            {
+                read.Add(new(line, null, refused));
+                break;
+            }
+            left = workspaces.After(left, caller.UserId, changes!.Changes, caller.Origin);
+            read.Add(new(line, changes.Said, null));
+        }
+        return DraftForms.Of(draft, tables.Of(left), opened, left, read);
+    }
+
+    // What a whole line would write on a state: its command's changes, where the command's line may be a draft's.
+    static LineChanges Changes(string line, WorkspaceState state, Caller caller, IReadOnlyList<Typed> named)
+    {
+        var words = LineWords.Of(line);
+        var said = Named(named, words) ?? throw new TableRefused("UnknownCommand", $"`{line}` begins with no command.");
+        if (said.Changes is not { } changes)
+            throw new TableRefused("NotOfADraft", $"{said.Said} is no line of a draft: a draft holds set, reset, new and remove.", said.Said);
+        var last = words[said.Words.Length - 1];
+        return changes(new LineContext(state, caller, line[(last.Start + last.Word.Length)..]));
+    }
+
+    // What a reading answers, or why it was refused, a table's refusal and a workspace's alike.
+    static LineRefusal? Refusal<T>(Func<T> read, out T? answer) where T : class
+    {
+        answer = null;
+        try
+        {
+            answer = read();
+            return null;
+        }
+        catch (TableRefused refused)
+        {
+            return new(refused.Code, refused.Message, refused.Word, null, null, refused.Candidates);
+        }
+        catch (WorkspaceRefused refused)
+        {
+            return new(refused.Code, refused.Message, refused.Word, null, null, refused.Candidates);
+        }
     }
 
     // The line as read among `named`: what a line of the workspace may name, or, for the line a short form stands for,

@@ -96,6 +96,13 @@ public interface IProductRules
     /// note 36).
     /// </summary>
     string WouldCreate(WorkspaceState workspace, IReadOnlyDictionary<string, JsonNode?> terms);
+
+    /// <summary>
+    /// The changes <see cref="Create"/> writes for complete terms on a workspace as it stands, and the entity they
+    /// make (ADR-0016 note 54): what a draft folds without writing, refused as <see cref="Create"/> refuses. Null for
+    /// a product whose making is more than a batch of changes: it is not made in a draft, and a draft says so.
+    /// </summary>
+    (IReadOnlyList<WorkspaceChange> Changes, string Entity)? Planned(WorkspaceState workspace, IReadOnlyDictionary<string, JsonNode?> terms, IReadOnlyDictionary<string, string> sources) => null;
 }
 
 /// <summary>Terms that do not make the product: every reason, by field where there is one. Nothing was written.</summary>
@@ -354,12 +361,30 @@ public sealed class ProductService
     public (WorkspaceState State, string Entity, ProductReading Reading) Create(string workspaceId, long? revision, string user, string productId, string text, RunOrigin origin)
     {
         var (product, rule, state) = Resolve(workspaceId, user, productId);
-        var reading = ProductReader.Complete(product, Terms(state, product, text), given => rule.Defaults(state, given));
-        if (!reading.Complete)
-            throw new ProductTermsRefused([.. reading.Issues, .. reading.Missing.Select(m => new ProductIssue("MissingTerm", m,
-                $"{m} is missing: type it, or set a default for it."))]);
+        var reading = Whole(state, product, rule, text);
         var (created, entity) = rule.Create(workspaceId, revision, user, reading.Values, reading.Sources, origin);
         return (created, entity, reading);
+    }
+
+    /// <summary>
+    /// The changes making one entity of the product from what was typed would write on a workspace as it stands, and
+    /// the entity (ADR-0016 note 54): what a draft folds, and nothing written. Refused as <see cref="Create"/> refuses,
+    /// and for a product that is not made in a draft.
+    /// </summary>
+    public (IReadOnlyList<WorkspaceChange> Changes, string Entity) Planned(WorkspaceState state, string productId, string text)
+    {
+        var (product, rule) = Described(productId, state);
+        var reading = Whole(state, product, rule, text);
+        return rule.Planned(state, reading.Values, reading.Sources)
+            ?? throw new WorkspaceRefused("NotOfADraft", $"A {product.Words} is not made in a draft: make it with new outside one.");
+    }
+
+    // What was typed with the product's defaults filled, refused where a term is still missing or cannot be read.
+    ProductReading Whole(WorkspaceState state, ProductDescriptor product, IProductRules rule, string text)
+    {
+        var reading = ProductReader.Complete(product, Terms(state, product, text), given => rule.Defaults(state, given));
+        return reading.Complete ? reading
+            : throw new ProductTermsRefused([.. reading.Issues, .. reading.Missing.Select(m => new ProductIssue("MissingTerm", m, $"{m} is missing: type it, or set a default for it."))]);
     }
 
     /// <summary>
