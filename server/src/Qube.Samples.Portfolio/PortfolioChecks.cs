@@ -56,6 +56,8 @@ public sealed class PortfolioChecks(MeasureRegister register)
 
     static bool Editable(string entity, string field) => (Entity.Split(entity).Kind, field) switch
     {
+        // A field beyond the grids is set where its table says a command sets it (ADR-0016 note 51).
+        (Entity.Trade or Entity.Csa, var f) when PortfolioDetails.Find(Entity.Split(entity).Kind, f) is { } detail => detail.Editable,
         (Entity.Trade, var f) => PortfolioMaterialiser.EditableFields.Contains(f),
         (Entity.Csa, var f) => PortfolioMaterialiser.CsaFields.Contains(f),
         // A PV leg's currency, PV and notional (ADR-0016 note 49). An independent amount is removed, never changed.
@@ -74,8 +76,11 @@ public sealed class PortfolioChecks(MeasureRegister register)
 
     static void Validate(WorkspaceState state, string entity, string field, JsonNode? value)
     {
+        var kind = Entity.Split(entity).Kind;
+        // A field beyond the grids is checked by its form (ADR-0016 note 51).
+        string? problem = PortfolioDetails.Find(kind, field) is { } detail ? PortfolioDetails.Problem(detail, value)
         // A leg's fields share names with a trade's and mean their own (ADR-0016 note 49): its notional may be empty.
-        string? problem = Entity.Split(entity).Kind == Entity.Leg ? field switch
+        : kind == Entity.Leg ? field switch
         {
             "pv" => value is JsonValue p && p.TryGetValue<decimal>(out _) ? null : "A leg's PV is a number.",
             "notional" => value is null || value is JsonValue l && l.TryGetValue<decimal>(out _) ? null : "A leg's notional is a number or empty.",
@@ -108,7 +113,7 @@ public sealed class PortfolioChecks(MeasureRegister register)
             "proxySector" => OneOf(value, CdsCatalog.Sectors, "A proxy's sector"),
             "proxyRegion" => OneOf(value, CdsCatalog.Regions, "A proxy's region"),
             "proxyRating" => OneOf(value, CdsCatalog.Ratings, "A proxy's rating"),
-            _ when Entity.Split(entity).Kind == Entity.Cds =>
+            _ when kind == Entity.Cds =>
                 value is JsonValue sp && sp.TryGetValue<decimal>(out var spread) && spread is > 0 and < 1 ? null : "A spread is above 0bp and below 10000bp.",
             _ => null,
         };

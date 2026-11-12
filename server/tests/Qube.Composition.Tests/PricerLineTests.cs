@@ -212,9 +212,11 @@ public class PricerLineTests
 
     [Theory] // ADR-0016 note 45: where one of the pricer's verbs refuses a word of its line, the refusal names it, where it stands, and what it could have been
     [InlineData("vary CSA-Z threshold 5mm", "UnknownCell: CSA-Z@5-10 | CSA-A, CSA-B, NS-001, credit, cds, xva")]
-    [InlineData("vary CSA-A colour 5mm", "UnknownCell: colour@11-17 | threshold, mta, counterparty currency, self threshold, self mta, self currency, currency, curve, fva curve, frequency, exchange, one-way")]
+    [InlineData("vary CSA-A colour 5mm", "UnknownCell: colour@11-17 | threshold, mta, counterparty currency, self threshold, self mta, self currency, currency, curve, fva curve, frequency, exchange, one-way, "
+        + "counterparty posts, counterparty vm cap, counterparty vm cap currency, counterparty independent amount, counterparty rounding, counterparty delivery rounding, counterparty return rounding, self posts, self vm cap, self vm cap currency, self independent amount, self rounding, self delivery rounding, self return rounding")]
     // A column of several words is named whole.
-    [InlineData("vary DRAFT-1 fixed colour 1%", "UnknownCell: fixed colour@13-25 | notional, rate, schedule, csa, curve, im-r, im-p, B, A, margin, pvadj")]
+    [InlineData("vary DRAFT-1 fixed colour 1%", "UnknownCell: fixed colour@13-25 | notional, rate, schedule, csa, curve, im-r, im-p, B, A, margin, pvadj, "
+        + "break date, mandatory break, model id, pricer id, interpolation id, domestic currency, ir model, ir basis, equity model, credit model, inflation model, unmodelled method")]
     [InlineData("measures cva dva2", "UnknownMeasure: dva2@13-17 | cva, fva, kva, ccr.spotCapital")]
     [InlineData("cds zzz", "UnknownCds: zzz@4-7 | ABCH USD SNRFOR XR14, ABCH USD SUBLT2 XR14, ABCH JPY SNRFOR CR14, ABCS USD SNRFOR XR14, DEFG EUR SNRFOR MM14, HIJK USD SNRFOR XR14, LMNO JPY SNRFOR CR14")]
     // What a proxy's word could have been is of a kind the line has not given: the sector is given here.
@@ -276,10 +278,11 @@ public class PricerLineTests
     // A row is found by how its id starts or ends, as set finds one.
     [InlineData("vary e00003", "ABC-LE-01-E00003 (a trade)@5")]
     // A row's columns, by the word that names each.
-    [InlineData("vary CSA-A ", "threshold | mta | counterparty currency | self threshold | self mta | self currency | currency | curve | fva curve | frequency | exchange | one-way")]
+    [InlineData("vary CSA-A ", "threshold | mta | counterparty currency | self threshold | self mta | self currency | currency | curve | fva curve | frequency | exchange | one-way | "
+        + "counterparty posts | counterparty vm cap | counterparty vm cap currency | counterparty independent amount | counterparty rounding | counterparty delivery rounding | counterparty return rounding | self posts | self vm cap | self vm cap currency | self independent amount | self rounding | self delivery rounding | self return rounding")]
     [InlineData("vary NS-001 ", "recovery")]
     // A column of several words is written from its first word, and one typed by another of its names is offered by the word that names it.
-    [InlineData("vary CSA-A self ", "self threshold@11 | self mta@11 | self currency@11")]
+    [InlineData("vary CSA-A self ", "self threshold@11 | self mta@11 | self currency@11 | self posts@11 | self vm cap@11 | self vm cap currency@11 | self independent amount@11 | self rounding@11 | self delivery rounding@11 | self return rounding@11")]
     [InlineData("vary CSA-A self c", "self currency@11")]
     [InlineData("vary DRAFT-1 fixed", "rate@13")]
     // A flag's two words and a choice's values, as a line writes them.

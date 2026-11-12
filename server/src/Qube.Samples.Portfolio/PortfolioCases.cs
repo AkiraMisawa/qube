@@ -461,7 +461,7 @@ public static class PortfolioCells
         switch (kind)
         {
             case Entity.Csa:
-                return PortfolioFields.Value(PortfolioMaterialiser.Csas(reading).Single(x => x.CsaId == id), cell.Field);
+                return PortfolioFields.Value(reading, PortfolioMaterialiser.Csas(reading).Single(x => x.CsaId == id), cell.Field);
             case Entity.Netting:
                 return PortfolioMaterialiser.Credit(reading).CvaRecovery;
             case Entity.Credit:
@@ -474,7 +474,7 @@ public static class PortfolioCells
             case Entity.Trade:
             {
                 var t = PortfolioMaterialiser.Trades(reading).Single(x => x.TradeId == id);
-                return register.ColumnOf(cell.Field) is null ? PortfolioFields.Value(t, cell.Field)
+                return register.ColumnOf(cell.Field) is null ? PortfolioFields.Value(reading, t, cell.Field)
                     : register.WithCells(reading, [t])[0].Cells?.GetValueOrDefault(cell.Field)?.Value?.DeepClone();
             }
             case Entity.Settings:

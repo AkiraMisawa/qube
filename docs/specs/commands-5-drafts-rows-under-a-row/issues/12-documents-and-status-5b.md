@@ -6,7 +6,7 @@
 
 **Blocked by:** 09 to 11.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] The notes match the code.
-- [ ] Server, client and browser suites pass, and `validate_handoff`.
+- [x] The notes match the code.
+- [x] Server, client and browser suites pass, and `validate_handoff`.
