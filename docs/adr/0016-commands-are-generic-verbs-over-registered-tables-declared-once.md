@@ -1962,7 +1962,7 @@ has one button, edit; and `load trades` reads a synthetic store of booked trades
       holds for both (2026-11-04: short, in any order).
     - **`set <rows> as <template> [<terms>]`.** After the rows, `as` names a template of their table by its words,
       the longest run that names one. The table answers the value of each field the template writes for the terms
-      given (`IWorkspaceTable.Template`), and they are written as several values are (note 9): in the template's
+      given (`IWorkspaceTable.TemplateValues`), and they are written as several values are (note 9): in the template's
       order, each checked as the ones before it left the rows, all or none, one command and one `undo`. No other
       field of a row is written. `entity.set` takes the same words in `set`, so the AI and a button write a
       template as the line does.
@@ -1986,6 +1986,11 @@ has one button, edit; and `load trades` reads a synthetic store of booked trades
       rows means: the grid's selection where the grid's table has the template, or a table of one row that has it.
       A row that would change nothing is counted, and where no row would change the line says the rows already
       hold every value.
+    - *Corrected in review.* The table's answer was first named `IWorkspaceTable.Template`, which read as the
+      template itself; it is `TemplateValues`, and the bullet above now says so. A template's words are read in
+      one place, where its name was matched in three. Tests were added for what the bullets above say and no test
+      held: a template that writes a figure, an answer with a field the template does not declare, the rows that
+      already hold a template's values counted in what is said, and the log's name for a template with terms.
     - Not built: `new` making a row from a template (§1). No table of the samples makes its rows from one yet
       (the pricer's hypothetical CSA is ADR-0010 §8's, not built); it comes with the first that does.
 51. **The pricer's fields beyond its grids (5b; the sample's own, every value synthetic).** The owner chose that the
@@ -2034,6 +2039,15 @@ has one button, edit; and `load trades` reads a synthetic store of booked trades
         or more, or empty.`).
       - The fields are listed after the grid's, so a refusal that lists a table's fields is long (a trade has
         more than thirty). Their groups say how to draw them; the order of the groups is the dialog's to say (5c).
+      - The CSA grid already drew a Main column, which the client works from the agreement's main CSA. Its name
+        is the field's, `main`, so with the Focus on it the line's context names the field with the row (`CSA-A ·
+        main`), as it names any column that is a field. The grid draws it as before, and it is the one field of
+        this note a grid shows.
+    - *Corrected in review.* The source's record of a CSA holds what its fields beyond the grid read where no edit
+      is set. The workspace view writes the agreement's CSAs from that record, and as first built it wrote those
+      values too: the source's, beside rows a user may since have changed. They are no part of the view, and a
+      test holds the view's CSA to the names it had. Each field is now declared with what the source holds in it,
+      and a side's terms once for both sides, where a second list by field name had to be kept in step.
 52. **The CSA's four templates (5b).** `2way` (both sides post), `1way-self` (we post alone), `1way-cpty` (the
     counterparty posts alone) and `none` (no collateral). Each takes a currency, by name or alone, and writes the
     CSA's currency and each side's, `exchange`, `one-way`, who posts, and both sides' threshold and MTA as 0. Curves,
@@ -2064,6 +2078,13 @@ has one button, edit; and `load trades` reads a synthetic store of booked trades
     - **What the simulated measures read stays as it was** (note 49). The input so holds an existing trade's
       official PV and its legs, and where the PV was overwritten the two differ. Which of them the real request
       reads is decided when the analytics is connected (ADR-0010, ADR-0013).
+    - *Corrected in review.* A trade under no CSA carries the agreement's `nocsa_{ma id}` as its `csa` (docs/03
+      §2). That names no CSA, so the case's `csas` has no entry for it, and an uncollateralised counterparty's
+      `csas` is empty: the trades' `csa` says why. As first built this was so and was not said, and any id that
+      was no CSA of the agreement was passed over in the same way. Such an id cannot reach the input (the trade
+      has an issue, which refuses Price); were one to, building the input throws. The tests of the input held
+      what the code computes in two places; they hold literals now, with a case other than the Base, a CSA no
+      priced trade is under, and an uncollateralised counterparty.
 
 ## Rejected
 

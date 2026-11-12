@@ -2473,7 +2473,7 @@ user set.
 
 ### What runs
 
-- **A template** (`TableDescriptor.Templates`, `IWorkspaceTable.Template`): a name, the words it answers to, the
+- **A template** (`TableDescriptor.Templates`, `IWorkspaceTable.TemplateValues`): a name, the words it answers to, the
   terms it takes and the fields it writes. `set CSA-B as 2way usd` writes them as several values are written: in
   the template's order, each checked, all or none, one command and one `undo`. Its terms are read as a product's
   are, by name or by form in any order (`ccy=USD`, `usd`). Before Enter the line says each cell that would change
@@ -2504,6 +2504,61 @@ user set.
   the grid, a case's own values in its own input. A leg and an independent amount of a priced trade are priced
   entities, so an unresolved edit on one refuses Price. `docs/10-api-contracts.md` says the shape.
 
+### Verification performed
+
+| What | Result |
+|---|---|
+| `dotnet test server/Qube.slnx` | 1467 passed |
+| Client: `npm run typecheck`, `npm test`, `npm run build` | Clean; 351 passed in 36 files; built |
+| `npx playwright test` (Chromium, headless, Linux), on the host rebuilt after the review's changes | 107 passed |
+| `python3 tools/validate_handoff.py` | Passed |
+| The line with a template typed (what follows `as`, the preview, the refusal of a word both sides share) and the Changes tab | Looked at, at 1440px dark; the preview at 992px light, 768px dark and 390px in both themes, where it wraps inside the line |
+
+The kernel's tests read two templates registered on the stations' readings and one on the board's one row of
+settings, only for the tests that ask for them: a template written over one row and over several, its terms by
+name and by form, what the line says before and after Enter, the rows that already hold its values, `undo`, the
+grid's selection, completion, the description, and each defect of a registration by name. The pricer's read the
+source's value of every field beyond the grids, each write of one with its `reset` and `undo`, the refusal of a
+word both sides share and of a value its form does not hold, the four templates cell by cell, a value date and a
+counterparty changed under an edit, `vary`, the Changes tab, and the accepted input: a trade's legs, independent
+amounts and details, a CSA's terms and details, a case other than the Base, a CSA no priced trade is under, and an
+uncollateralised counterparty. No browser test was added: the line draws a template with what it had, and the one
+browser expectation the step changed is the context's name for the Main column.
+
+The tests of the fields beyond the grids were written from the spec in the same step as their code, and several
+passed at their first run. They were checked by breaking the code: the source's read of a detail field taken out,
+the Changes tab's read not routed, and the form's check answering nothing failed 23 tests; after the review, six
+more breaks (the view writing the source's values, a CSA no trade is under carried, a figure let into a template,
+an undeclared field let through, a leg's notional left out, the count of rows already held dropped) failed the six
+tests written for them. Each passed again with the code restored.
+
+### What the review changed
+
+The two reviews of this step (standards and spec) found, and this pull request corrects:
+
+- The workspace view wrote the source's values of a CSA's fields beyond the grid inside its agreement, beside rows
+  a user may since have changed. They are no part of the view; a test holds the view's CSA to the names it had.
+- A trade under no CSA has no entry in the input's `csas`, which was so and was said nowhere; and an id that was no
+  CSA of the agreement was passed over in the same way. The sentinel is said in note 53 and `docs/10`, and any
+  other id throws.
+- Three tests of the input recomputed what the code computes (the CSAs carried, an independent amount's dates,
+  the rows a condition names). They hold literals now.
+- No test held a template that writes a figure, an answer with an undeclared field, the rows that already hold a
+  template's values in what is said, the log's name for a template with its terms, a leg's `notional: null`, that
+  the PV is not carried, or a case other than the Base. Each has one.
+- A field beyond the grids was declared in one list and its source value in a switch by name, with a side's name
+  cut out of the field's; each field is declared with what the source holds in it, and a side's terms once for
+  both sides. A template's cells were listed twice (what it writes, and its values); they are declared once.
+- The table's answer for a template was `IWorkspaceTable.Template`; it is `TemplateValues`. A template's words
+  were matched in three places and the sentence for an amount written twice; each is in one place.
+- The CSA grid's Main column being a field now, and so named in the line's context, was not said in note 51.
+
+Each is said in notes 50, 51 and 53 as "Corrected in review" or "Added as built". Left as they are: the reader of
+a template's terms keeps the product reader's names (`ProductReader`, `ProductField`), since `new` and `as` share
+it and a rename reaches every product; `set` branches on a template inside the one plan that counts and words
+every `set`; and the pricer's tests keep one reader of a preview in their rig while each older test class keeps its
+own. The "Later, perhaps" section below was added on this branch at the owner's request of 2026-11-12.
+
 ### Providers
 
 Unchanged: every figure of the pricer and of Rates is simulated, and says so. The fields beyond the grids are
@@ -2517,7 +2572,11 @@ worked by the synthetic source from what it holds; every name and value is made 
   hand can leave `one-way` on with both sides posting. Whether `one-way` should be what the two flags say is the
   owner's to decide.
 - The input holds an existing trade's official PV and its legs. Which the real request reads is not decided.
-- No grid and no dialog shows the new fields until 5c: they are typed in a command and read by `tables_read`.
+- No dialog shows the new fields until 5c, and no grid but the CSA grid's Main column, which was there: they
+  are typed in a command and read by `tables_read`.
+- No test drives Price to its refusal for an unresolved edit on a leg. The synthetic source gives a leg the same
+  PV on every value date, so no carry leaves a leg's edit in conflict or lost; the rule is held by the kernel's
+  test of it and by a test that a priced trade's legs are priced entities ("Next" names the source change).
 - A refusal that lists a table's fields is long now (a trade has more than thirty). The groups are told to a
   reader of the description, and the order they are drawn in is 5c's.
 - `new` makes no row from a template: no table of the samples makes its rows from one.

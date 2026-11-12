@@ -90,7 +90,7 @@ shifts under it. `load trades <ids>` reads booked trades from a synthetic store 
 
 - **A template** is registered on its table: a name, words, a title, and the values it takes, each a field of its
   own with a form. The table answers the field values it writes for the values given
-  (`IWorkspaceTable.Template`). `set <rows> as <template> [<name>=<value> …]` writes them as several values are
+  (`IWorkspaceTable.TemplateValues`). `set <rows> as <template> [<name>=<value> …]` writes them as several values are
   written (note 9), each checked in order; a value it needs and is not given refuses it by name.
 - **Completion** offers the templates after `as`, then each value it takes by name.
 - **The pricer's fields.** The trade's and the CSA's other fields are registered with their groups, read from the

@@ -53,7 +53,8 @@ In iterative mode, `candidateTradeInstanceIds` is a derived consistency projecti
 The sample's accepted input holds a list of `cases`, the Base first. Since step 5b each case carries what a user can set, as set, whether or not a simulated measure reads it:
 
 - Each trade of `trades` carries `legs` (`legId`, `currency`, `pv`, `notional`, the notional `null` where the leg holds none), `independentAmounts` (`amountId`, `currency`, `start`, `end`, `value`) and `details`, the trade's fields beyond the grids by name (identity, agreement, break and model). A trade with no leg or no independent amount carries an empty list, and an empty field of `details` is `null`: neither is left out. The PV the legs add up to is not carried; it is a figure of the legs in the display currency, which the input names.
-- `csas` holds every CSA a trade of the case uses, in the CSA table's order: the terms the page shows, and under `details` its general terms and what each side posts.
+- `csas` holds every CSA a trade of the case uses, in the CSA table's order: the terms the page shows, and under `details` its general terms and what each side posts. A trade under no CSA carries the agreement's `nocsa_{ma id}` as its `csa`; that names no CSA and has no entry in `csas`, so an uncollateralised counterparty's `csas` is empty.
+- A trade's PV is not carried: it is a figure of its `legs` in the display currency the input names.
 - A case made by `vary` or `add each` carries its own values in the same places.
 
 What the simulated measures read is unchanged: an existing trade's `officialPv`, and for SA-CCR the CSA terms under `modules.ccr`. The input so holds both an official PV and the legs, and which of them the real analytics request reads is decided when it is connected.
