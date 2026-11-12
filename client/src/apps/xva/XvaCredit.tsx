@@ -53,10 +53,8 @@ const curveCellMessage = (row: Row, col: GridColumn<Row>): string | undefined =>
   return typeof was === 'number' && now !== undefined ? `Catalogue ${bpText(was)} · now ${bpText(now)}` : undefined;
 };
 
-export function XvaCredit({ panelId, credit, registration, catalogue: read, push, setText, onVary, commandLabel, focusRef }: {
+export function XvaCredit({ credit, registration, catalogue: read, push, setText, onVary, commandLabel, focusRef }: {
   readonly credit: EffectiveCredit;
-  /** The panel the page is in, which keeps the widths the user dragged in its grids. */
-  readonly panelId: string;
   /** The counterparty's registration key, whose CDS the choice is. */
   readonly registration: string;
   /** The catalogue the reference search offers; none until it has been read, and why where it could not be. */
@@ -116,7 +114,7 @@ export function XvaCredit({ panelId, credit, registration, catalogue: read, push
       {refused !== undefined && <Text size="sm" c="red" data-testid="cds-catalogue-refused">The CDS catalogue could not be read: {refused}</Text>}
       {credit.missing != null && <Text size="sm" c="red" data-testid="cds-missing">{credit.missing}</Text>}
       {credit.cds != null && (
-        <CurveGrid panelId={panelId} curve={credit.cds} tenors={catalogue?.tenors ?? Object.keys(credit.cds.spreads)} setText={setText} onVary={onVary}
+        <CurveGrid curve={credit.cds} tenors={catalogue?.tenors ?? Object.keys(credit.cds.spreads)} setText={setText} onVary={onVary}
           commandLabel={commandLabel} />
       )}
     </Stack>
@@ -140,9 +138,7 @@ function keyOf(field: string): keyof EffectiveCredit['choice'] {
  * bp. *Vary values…* on a spread makes a case per value (ADR-0010 §3). It shows no Selection Summary: a sum of spreads
  * at different tenors is no figure.
  */
-function CurveGrid({ panelId, curve, tenors, setText, onVary, commandLabel }: {
-  /** The panel the page is in, which keeps the widths the user dragged in its grids. */
-  readonly panelId: string;
+function CurveGrid({ curve, tenors, setText, onVary, commandLabel }: {
   readonly curve: EffectiveCds;
   readonly tenors: readonly string[];
   readonly setText: SetText;
@@ -153,7 +149,7 @@ function CurveGrid({ panelId, curve, tenors, setText, onVary, commandLabel }: {
   useEffect(() => { source.replaceAll([curve]); }, [curve, source]);
   const tenorsKey = tenors.join('|');
   const declared = useMemo(() => curveColumnsOf(tenorsKey.split('|')), [tenorsKey]);
-  const { columns, onColumnWidthChanged } = useColumnWidths(panelId, 'credit/curve', declared);
+  const { columns, onColumnWidthChanged } = useColumnWidths('xva/credit/curve', declared);
 
   // The server reads the spread and checks it; one it refuses keeps the editor open with its reason (ExGrid ADR-0380),
   // unless the user has cancelled the commit meanwhile.

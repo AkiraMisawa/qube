@@ -19,8 +19,10 @@ public static partial class PortfolioFields
     /// <summary>The field that names the row of a table of one row.</summary>
     public const string Row = "id";
 
-    static readonly IReadOnlyDictionary<string, string> Currencies = Choice(PortfolioMarket.Currencies), Frequencies = Choice(PortfolioCatalog.Frequencies),
-        Schedules = Choice(["3M", "6M"]);
+    /// <summary>The display currencies, as a field and the user's setting read them (ADR-0017 §6.1).</summary>
+    internal static readonly IReadOnlyDictionary<string, string> Currencies = Choice(PortfolioMarket.Currencies);
+
+    static readonly IReadOnlyDictionary<string, string> Frequencies = Choice(PortfolioCatalog.Frequencies), Schedules = Choice(["3M", "6M"]);
 
     // A choice read by its own words, case ignored.
     static IReadOnlyDictionary<string, string> Choice(IEnumerable<string> values) => values.ToDictionary(v => v.ToLowerInvariant(), v => v);

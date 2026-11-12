@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
-import { Alert, Badge, Button, Group, Stack, Table, Text, TextInput } from '@mantine/core';
+import { Alert, Badge, Button, Group, Stack, Table, Text } from '@mantine/core';
 import { GridSource, type CellPosition, type GridActionEvent, type GridColumn, type GridContextMenuContext, type GridEditIntent, type GridSelection, type HeaderGroupToggle } from '@ex-grid/core';
 import type { ExGridApi } from '@ex-grid/react';
 import { QubeGrid } from '../../platform/grid/QubeGrid';
@@ -15,10 +15,11 @@ import { EditQueue } from '../../platform/workspace/editQueue';
 import { useWorkspaceContext } from '../../platform/workspace/WorkspaceProvider';
 import { keyOf } from '../../platform/workspace/workspaceStore';
 import { registerPlaces, type Place } from '../../shell/places';
+import { CommittedDateInput } from '../../platform/IsoDateInput';
 import type { FrameStream, RatesApi } from './api';
 import type { CashflowsView, HeldEdit, LiveFrame, PeriodView, RatesWorkspaceView, Resolution } from './contracts';
 import {
-  FOLDED, PINNED_COLUMNS, headerTiers, lineCellMessage, lineResult, lineCellState, lineColumns, hiddenEdits, lineHeaderGroups, lineRows, openedAt, parserOf, periodCellState,
+  FOLDED, PINNED_COLUMNS, defaultsSaid, headerTiers, lineCellMessage, lineResult, lineCellState, lineColumns, hiddenEdits, lineHeaderGroups, lineRows, openedAt, parserOf, periodCellState,
   lineFieldTitle, periodColumns, periodFieldTitle, periodParserOf, toggled, type HiddenEdits, type LineLayout, type LineRow,
 } from './lines';
 
@@ -194,9 +195,9 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
   // columns (ExGrid ADR-0400, ADR-0015 §2).
   const onGroupToggled = useCallback((toggle: HeaderGroupToggle) => setOpened((layout) => toggled(layout, toggle)), []);
 
-  // The columns at the widths the user dragged them to, kept per panel; the line grid hides its column menu, so a header
+  // The columns at the widths the user dragged them to, the user's for this grid (ADR-0017 §5); the line grid hides its column menu, so a header
   // needs no room for one (ADR-0015 §4).
-  const { columns, onColumnWidthChanged } = useColumnWidths(panelId, 'lines', columnsOf(opened), { hideColumnMenu: true });
+  const { columns, onColumnWidthChanged } = useColumnWidths('rates/lines', columnsOf(opened), { hideColumnMenu: true });
 
   // A double click on a folded column opens what it folds (ADR-0015 §1).
   const onCellDoubleClick = useCallback((cell: CellPosition) => {
@@ -371,6 +372,7 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
   if (view.isPending) return <Text c="dimmed">Loading workspace…</Text>;
   if (view.isError) return <Alert color="red" title="Workspace">{view.error.message}</Alert>;
   const ws = view.data;
+  const defaults = defaultsSaid(ws.defaults);
   const groups = groupsOf(opened, hiddenEdits(ws.lines));
   // The rows under a header of its tiers and the column headings, each a row high, so an open leg's extra tier takes no
   // row from view (ADR-0015 §2).
@@ -381,7 +383,8 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
     // A grid entered is the screen only where it says so below, after this: a grid of no table leaves the line none.
     <Stack gap="sm" onFocusCapture={(event) => { if (event.target instanceof Element && event.target.closest('.ex-grid') !== null) screen.current = undefined; }}>
       <Group gap="sm" wrap="wrap" align="flex-end">
-        <ValuationDate value={ws.valuationDate} disabled={busy !== undefined} onCommit={(d) => void changeValuationDate(d)} />
+        <CommittedDateInput label="Valuation date" what="valuation date" size="xs" w={150} value={ws.valuationDate} disabled={busy !== undefined}
+          onCommit={(d) => void changeValuationDate(d)} onRefused={(sentence) => workspace.notify('refused', sentence)} />
         {/* Each button runs the line a user types (ADR-0016 note 36), so the two cannot differ. */}
         <Button size="xs" variant="default" onClick={() => void enter('add line irs')}>Add IRS</Button>
         <Button size="xs" variant="default" onClick={() => void enter('add line ccs')}>Add CCS</Button>
@@ -411,6 +414,7 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
           </Badge>
         )}
         <Text size="xs" c="dimmed" data-testid="workspace-summary">{ws.lines.length} line(s) · revision {ws.revision}</Text>
+        {defaults !== undefined && <Text size="xs" c="dimmed" data-testid="line-defaults">{defaults}</Text>}
       </Group>
       <HeldEdits conflicts={ws.conflicts} lost={ws.lost} resolve={(held, resolution) => void queue.push({ kind: 'resolve', held, resolution })} />
       <ResultStrip row={(focusLine === undefined ? undefined : shownRows.get(focusLine)) ?? (shownRows.size === 1 ? [...shownRows.values()][0] : undefined)} />
@@ -476,7 +480,7 @@ function Cashflows({ panelId, workspaceId, line, revision, api, gridRef, edit, o
   const flows = useQuery({ queryKey: ['rates', workspaceId, 'cashflows', line, revision], queryFn: () => api.cashflows(workspaceId, line) });
   const source = useMemo(() => GridSource.from<PeriodView>([], { rowKey: (p) => p.entity }), []);
   useEffect(() => { if (flows.data !== undefined) source.replaceAll(flows.data.periods); }, [flows.data, source]);
-  const widths = useColumnWidths(panelId, 'cashflows', periodColumns);
+  const widths = useColumnWidths('rates/cashflows', periodColumns);
 
   const onEdit = useCallback((intent: GridEditIntent<PeriodView>) => {
     const parse = periodParserOf(intent.column);
@@ -523,16 +527,6 @@ function Exchanges({ flows }: { readonly flows: CashflowsView }) {
         ))}
       </Table.Tbody>
     </Table>
-  );
-}
-
-function ValuationDate({ value, disabled, onCommit }: { readonly value: string; readonly disabled: boolean; readonly onCommit: (date: string) => void }) {
-  const [draft, setDraft] = useState(value);
-  useEffect(() => setDraft(value), [value]);
-  const commit = () => { if (draft !== value && /^\d{4}-\d{2}-\d{2}$/.test(draft)) onCommit(draft); };
-  return (
-    <TextInput label="Valuation date" type="date" size="xs" w={150} value={draft} disabled={disabled}
-      onChange={(e) => setDraft(e.currentTarget.value)} onBlur={commit} onKeyDown={(e) => { if (e.key === 'Enter') commit(); }} />
   );
 }
 

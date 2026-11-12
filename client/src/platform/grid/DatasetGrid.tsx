@@ -35,8 +35,7 @@ export function gridColumnOf(column: ViewColumn, dataset: Dataset): GridColumn<R
   };
 }
 
-export function DatasetGrid({ panelId, grid: gridKey, dataset, columns, actions, onAction, registerFocus, label }: {
-  readonly panelId: string;
+export function DatasetGrid({ grid: gridKey, dataset, columns, actions, onAction, registerFocus, label }: {
   /** Names this grid among its panel's, for the widths the user drags. */
   readonly grid: string;
   readonly dataset: Dataset;
@@ -54,7 +53,7 @@ export function DatasetGrid({ panelId, grid: gridKey, dataset, columns, actions,
       ? mapped
       : [...mapped, actionColumn<Row>(ACTIONS_COLUMN, actions.map((a) => ({ name: a.actionId, label: a.label })), { width: 260 })];
   }, [columns, actions, dataset]);
-  const widths = useColumnWidths(panelId, gridKey, gridColumns);
+  const widths = useColumnWidths(`view/${gridKey}`, gridColumns);
 
   const handleAction = useCallback((event: GridActionEvent<Row>) => {
     const action = actions.find((a) => a.actionId === event.action);

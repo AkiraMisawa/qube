@@ -8,7 +8,7 @@ const column = (name: string, header: string, width: GridColumn<Row>['width'], q
 const needs = (header: string, sortable = true) => gridHeaderRequiredPx(header, { density: 'compact', menuButton: true, sortable });
 
 // Column widths as ExGrid ADR-0016 hands them to the page: a declared width never cuts its header, and a dragged one is
-// kept per panel (IMPLEMENTATION_STATUS, slice 01's ExGrid notes).
+// drawn at the width the user chose, which is their setting for that grid (ADR-0017 §5).
 describe('column widths', () => {
   it('never cuts a header at the default width, but leaves a wide declaration and an Auto width as declared', () => {
     const [narrow, bounded, unsorted, wide, auto] = columnsAt([

@@ -42,7 +42,11 @@ export interface RatesWorkspaceView {
   readonly revision: number;
   readonly valuationDate: string;
   /** The workspace's defaults for new lines, set by its user (ADR-0008 §4b); null where none is set. Notional is the full amount. */
-  readonly defaults: { readonly currency: string | null; readonly notional: number | null; readonly direction: string | null };
+  readonly defaults: {
+    readonly currency: string | null; readonly notional: number | null; readonly direction: string | null;
+    /** The defaults the user's settings gave as the workspace was made (ADR-0017 §3); one set in the workspace since is not listed. */
+    readonly fromSettings: readonly ('currency' | 'notional' | 'direction')[];
+  };
   readonly lines: readonly LineView[];
   readonly conflicts: readonly HeldEdit[];
   readonly lost: readonly HeldEdit[];

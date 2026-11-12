@@ -40,6 +40,36 @@ async function goTo(page: Page, column: number): Promise<void> {
   for (let i = 0; i < column; i++) await page.keyboard.press('ArrowRight');
 }
 
+// ADR-0009, docs/design-guidelines.md §10: Escape shuts a date field's calendar, not the dialog the field is in (a
+// Mantine Modal hears Escape first, on the window); and a toolbar's date whose text is not one moves nothing, in words.
+test('ADR-0009: Escape shuts a date field\'s calendar before its dialog, and a valuation date that is not a date is refused in words', async ({ page }) => {
+  await open(page);
+  await command(page, 'new rates');
+  const dialog = page.getByRole('dialog', { name: 'New Rates workspace' });
+  const field = dialog.getByLabel('Valuation date');
+  await expect(field).toBeFocused();
+  await field.click();
+  const day = page.getByRole('button', { name: '27 October 2026' });
+  await expect(day).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(day).toBeHidden();
+  await expect(dialog).toBeVisible();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('tab', { name: 'Rates 2026-10-27' })).toHaveAttribute('aria-selected', 'true');
+  await settled(page, 'Lines');
+
+  const date = page.getByRole('tabpanel').getByLabel('Valuation date');
+  await date.click();
+  await page.keyboard.press('ControlOrMeta+A');
+  await page.keyboard.type('2026-02-30');
+  await page.keyboard.press('Enter');
+  await expect(notice(page)).toHaveAttribute('data-kind', 'refused');
+  await expect(notice(page)).toContainText('The valuation date was not moved: 2026-02-30 is not a date as yyyy-MM-dd, so it stays 2026-10-27.');
+  await expect(date).toHaveValue('2026-02-30');
+  await expect(date).toHaveAttribute('aria-invalid', 'true');
+  await expect(page.getByRole('tab', { name: 'Rates 2026-10-27' })).toBeVisible();
+});
+
 test('C40, docs/07: a line typed by keyboard ticks live, is captured and priced once', async ({ page }) => {
   await open(page);
   await newWorkspace(page);
@@ -397,7 +427,7 @@ test('ADR-0016 note 34: a default is set alone and a new line takes it; a value 
   await expect(cell(page, LEG1_SUMMARY)).toHaveText('JPY 500mm Fixed par 12m');
 });
 
-test('ExGrid ADR-0016: a column dragged wider by its header grip keeps its width when its page comes back', async ({ page }) => {
+test('ExGrid ADR-0016, ADR-0017 §5: a column dragged wider by its header grip keeps its width when its page comes back, after a reload and in another workspace', async ({ page }) => {
   await open(page);
   await newWorkspace(page);
   // A column in view at the left: off-screen columns, the result among them, are not in the DOM.
@@ -416,6 +446,12 @@ test('ExGrid ADR-0016: a column dragged wider by its header grip keeps its width
   await command(page, 'open pricing db');
   await settled(page, 'Pricing DB');
   await page.getByRole('tab', { name: 'Rates 2026-10-27' }).click();
+  await settled(page, 'Lines');
+  await expect.poll(width).toBe(Math.round(before.width) + 100);
+
+  // The width is the user's (ADR-0017 §5): a reload and another workspace find it as it was released.
+  await open(page);
+  await newWorkspace(page);
   await settled(page, 'Lines');
   await expect.poll(width).toBe(Math.round(before.width) + 100);
 });

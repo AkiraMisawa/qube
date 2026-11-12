@@ -113,10 +113,8 @@ export const shownTab = (ws: Pick<XvaWorkspaceView, 'inputs' | 'settings'>, tab:
  * The tabs, one open at a time and collapsible to their tab row (ADR-0010 §1). The page keeps which tab is open,
  * whether it is open and its height, so that a command opens a tab as a press does.
  */
-export function XvaInputs({ panelId, ws, push, setText, catalogue, onIssue, onGridEntered, onPlaced, tab, onTab, open, onOpen, height, focusRequest, changeList, changeActions, scenarioActions, onVary, commandLabel, csaMenu }: {
+export function XvaInputs({ ws, push, setText, catalogue, onIssue, onGridEntered, onPlaced, tab, onTab, open, onOpen, height, focusRequest, changeList, changeActions, scenarioActions, onVary, commandLabel, csaMenu }: {
   readonly ws: XvaWorkspaceView;
-  /** The panel the page is in, which keeps the widths the user dragged in its grids. */
-  readonly panelId: string;
   /** A value as written, for the server to read as the cell reads it (a spread, a setting). */
   readonly setText: SetText;
   /** The CDS catalogue the Credit tab searches; none until it has been read, and why where it could not be. */
@@ -245,11 +243,11 @@ export function XvaInputs({ panelId, ws, push, setText, catalogue, onIssue, onGr
           <Tabs.Panel value="csa" pt="xs">
             {ws.csas.length === 0
               ? <Text size="sm">{ws.agreement.maId} has no CSA: its trades are uncollateralised ({ws.agreement.noCsa}).</Text>
-              : <CsaGrid panelId={panelId} workspaceId={ws.workspaceId} revision={ws.revision} csas={ws.csas} columns={csaColumns} push={push} height={height - gap - GRID_FRAME} gridRef={csaGrid} onVary={onVary} commandLabel={commandLabel} menu={csaMenu} onGridEntered={onGridEntered} onPlaced={onPlaced} />}
+              : <CsaGrid workspaceId={ws.workspaceId} revision={ws.revision} csas={ws.csas} columns={csaColumns} push={push} height={height - gap - GRID_FRAME} gridRef={csaGrid} onVary={onVary} commandLabel={commandLabel} menu={csaMenu} onGridEntered={onGridEntered} onPlaced={onPlaced} />}
           </Tabs.Panel>
           {creditShown && (
             <Tabs.Panel value={CREDIT_TAB} pt="xs">
-              <XvaCredit panelId={panelId} credit={ws.credit} registration={ws.registration.key} catalogue={catalogue} push={push} setText={setText}
+              <XvaCredit credit={ws.credit} registration={ws.registration.key} catalogue={catalogue} push={push} setText={setText}
                 onVary={onVary} commandLabel={commandLabel} focusRef={creditType} />
             </Tabs.Panel>
           )}
@@ -259,7 +257,7 @@ export function XvaInputs({ panelId, ws, push, setText, catalogue, onIssue, onGr
             </Tabs.Panel>
           )}
           <Tabs.Panel value={SCENARIOS_TAB} pt="xs">
-            <XvaScenarios panelId={panelId} shifts={ws.shifts} scenarios={ws.scenarios} actions={scenarioActions} height={height - gap - GRID_FRAME} gridRef={scenarioGrid} commandLabel={commandLabel} />
+            <XvaScenarios shifts={ws.shifts} scenarios={ws.scenarios} actions={scenarioActions} height={height - gap - GRID_FRAME} gridRef={scenarioGrid} commandLabel={commandLabel} />
           </Tabs.Panel>
           {settingsShown && (
             <Tabs.Panel value={SETTINGS_TAB} pt="xs">
@@ -315,9 +313,7 @@ function ImCsas({ ws, focusRef }: { readonly ws: XvaWorkspaceView; readonly focu
  * The CSA terms, as high as their rows within `height`, what the tab's height leaves under the panel's top gap and the
  * grid's frame. It shows no Selection Summary: a sum or an average of terms in different currencies is no figure.
  */
-function CsaGrid({ panelId, workspaceId, revision, csas, columns: declared, push, height, gridRef, onVary, commandLabel, menu, onGridEntered, onPlaced }: {
-  /** The panel the page is in, which keeps the widths the user dragged in its grids. */
-  readonly panelId: string;
+function CsaGrid({ workspaceId, revision, csas, columns: declared, push, height, gridRef, onVary, commandLabel, menu, onGridEntered, onPlaced }: {
   /** The workspace the CSAs are of, and the revision the page shows of it. */
   readonly workspaceId: string;
   readonly revision: number;
@@ -334,7 +330,7 @@ function CsaGrid({ panelId, workspaceId, revision, csas, columns: declared, push
   readonly onPlaced: () => string | undefined;
 }) {
   const source = useMemo(() => GridSource.from<CsaRow>([], { rowKey: csaKey }), []);
-  const { columns, onColumnWidthChanged } = useColumnWidths(panelId, 'csas', declared);
+  const { columns, onColumnWidthChanged } = useColumnWidths('xva/csas', declared);
   const { api } = useWorkspaceContext();
   const heldGrid = useMemo(() => ({ api, workspaceId, table: CSAS_TABLE, revision }), [api, workspaceId, revision]);
   // Filtered from the line (ADR-0016 note 41), the grid shows the CSAs the server says its conditions leave.

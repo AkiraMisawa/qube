@@ -10,6 +10,7 @@ using Qube.Agent;
 using Qube.AgentHost;
 using Qube.AgentHost.Contracts;
 using Qube.Composition.Application;
+using Qube.Composition.Application.Settings;
 using Qube.Composition.Application.Workspaces;
 using Qube.Samples.Rates;
 using Qube.Web;
@@ -41,7 +42,8 @@ public class CopilotRuntimeTests(QubeFactory factory) : IClassFixture<QubeFactor
             .UseSetting("Agent:Runtime", "copilot")
             .UseSetting("Agent:Copilot:HostUrl", "http://agent-host/")
             .UseSetting("Agent:Copilot:HostKey", Key)
-            .UseSetting("Agent:Copilot:Model", "fake-model")
+            .UseSetting("Agent:Copilot:Models:0", "fake-model")
+            .UseSetting("Agent:Copilot:Models:1", "other-model")
             .ConfigureTestServices(s => s.AddHttpClient(Program.CopilotHttpClient).ConfigurePrimaryHttpMessageHandler(() => handler)));
     }
 
@@ -101,7 +103,8 @@ public class CopilotRuntimeTests(QubeFactory factory) : IClassFixture<QubeFactor
         Assert.Equal("RUN_FINISHED", Types(events).Last());
         var qubeMeta = events[0]["metadata"]!["qube"]!;
         Assert.Equal("copilot", qubeMeta["runtime"]!.GetValue<string>());
-        Assert.Equal("Copilot · fake-model", qubeMeta["label"]!.GetValue<string>());
+        Assert.Equal("Copilot", qubeMeta["label"]!.GetValue<string>());
+        Assert.Equal("fake-model", qubeMeta["model"]!.GetValue<string>());
         Assert.False(qubeMeta["simulated"]!.GetValue<bool>());
         Assert.Equal(["rates_workspace_create", "entity_create"], events.Where(e => e["type"]!.GetValue<string>() == "TOOL_CALL_START").Select(e => e["toolCallName"]!.GetValue<string>()));
         Assert.Equal("Made the swap.", Reply(events));
@@ -216,6 +219,101 @@ public class CopilotRuntimeTests(QubeFactory factory) : IClassFixture<QubeFactor
         var unset = factory.WithWebHostBuilder(b => b.UseSetting("Agent:Runtime", "copilot"));
         var failure = Assert.Throws<InvalidOperationException>(() => unset.CreateClient());
         Assert.Contains("Agent:Copilot:", failure.Message, StringComparison.Ordinal);
+    }
+
+    string User => Qube.Services.GetRequiredService<CurrentUser>().Id;
+
+    UserSettings Settings => Qube.Services.GetRequiredService<UserSettings>();
+
+    /// <summary>The request with the model chosen in the pane for its conversation, as the pane sends it.</summary>
+    static JsonObject WithChosenModel(JsonObject input, string chosen)
+    {
+        input["forwardedProps"] = new JsonObject { ["qube"] = new JsonObject { ["model"] = chosen } };
+        return input;
+    }
+
+    /// <summary>The model a run says it ran on.</summary>
+    static string? RanOn(List<JsonObject> events) => events[0]["metadata"]!["qube"]!["model"]?.GetValue<string>();
+
+    void ModelSaysOk() => model.Answer = (_, sink, _) =>
+    {
+        sink.Say("ok");
+        return Task.CompletedTask;
+    };
+
+    [Fact] // ADR-0017 §6.3: a new conversation starts on the user's default model and holds it after the default moves; each run says the model it ran on
+    public async Task A_new_conversation_starts_on_the_users_default_model()
+    {
+        ModelSaysOk();
+        Settings.Set(User, "default model", "other-model");
+        try
+        {
+            var first = await Run(Input("c-m1", "r-1", "m-1", "hello"));
+            Settings.Set(User, "default model", "fake-model");
+            var held = await Run(Input("c-m1", "r-2", "m-2", "again"));
+            var next = await Run(Input("c-m2", "r-1", "m-1", "hello"));
+
+            Assert.Equal(["other-model", "other-model", "fake-model"], model.Turns.Select(t => t.Model));
+            Assert.Equal(["other-model", "other-model", "fake-model"], new[] { first, held, next }.Select(RanOn));
+        }
+        finally
+        {
+            Settings.Reset(User, "default model");
+        }
+    }
+
+    [Fact] // ADR-0017 §6.3: a model chosen in the pane is its conversation's alone, and one the configuration does not allow is refused and runs nothing
+    public async Task A_model_chosen_for_a_conversation_is_its_own_and_one_not_allowed_is_refused()
+    {
+        ModelSaysOk();
+        var client = Qube.CreateClient();
+
+        var chosen = await Run(WithChosenModel(Input("c-m3", "r-1", "m-1", "hello"), "other-model"), client);
+        var kept = await Run(Input("c-m3", "r-2", "m-2", "again"), client);
+        var other = await Run(Input("c-m4", "r-1", "m-1", "hello"), client);
+        var refused = await client.PostAsJsonAsync("/api/agent/runs", WithChosenModel(Input("c-m5", "r-1", "m-1", "hello"), "unlisted-model"));
+
+        Assert.Equal(["other-model", "other-model", "fake-model"], model.Turns.Select(t => t.Model));
+        Assert.Equal(["other-model", "other-model", "fake-model"], new[] { chosen, kept, other }.Select(RanOn));
+        Assert.Equal("other-model", Qube.Services.GetRequiredService<AgentThreads>().Find("c-m3")!.Model);
+        var setting = Settings.One(User, "default model");
+        Assert.Equal((false, "fake-model"), (setting.Set, setting.Value!.GetValue<string>()));
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, refused.StatusCode);
+        var error = (await refused.Content.ReadFromJsonAsync<JsonObject>())!;
+        Assert.Equal(("ModelNotAllowed", "unlisted-model is not one of the models the AI may use: fake-model, other-model."),
+            (error["code"]!.GetValue<string>(), error["message"]!.GetValue<string>()));
+    }
+
+    [Fact] // ADR-0017 §2, §6.3: a default model the configuration no longer allows is a preference no longer taken: a new conversation runs on the registered one, and the settings say the user's is unreadable
+    public async Task A_default_model_no_longer_allowed_gives_way_to_the_registered_one_and_says_so()
+    {
+        ModelSaysOk();
+        Qube.Services.GetRequiredService<IUserSettingStore>().Put(User, new StoredSetting(AgentSettings.DefaultModel, JsonValue.Create("retired-model"), DateTimeOffset.UnixEpoch));
+        try
+        {
+            var events = await Run(Input("c-m6", "r-1", "m-1", "hello"));
+            var setting = Settings.One(User, "default model");
+
+            Assert.Equal("fake-model", RanOn(events));
+            Assert.Equal("fake-model", Assert.Single(model.Turns).Model);
+            Assert.Equal(("retired-model", "one of fake-model, other-model"), (setting.Stored!.GetValue<string>(), setting.Unreadable));
+        }
+        finally
+        {
+            Settings.Reset(User, "default model");
+        }
+    }
+
+    [Fact] // ADR-0017 §6.3: the one model of before stops startup and says it is now a list, rather than being read as a list of one
+    public void The_one_model_of_before_stops_startup_naming_the_list()
+    {
+        var before = factory.WithWebHostBuilder(b => b
+            .UseSetting("Agent:Runtime", "copilot")
+            .UseSetting("Agent:Copilot:HostUrl", "http://agent-host/")
+            .UseSetting("Agent:Copilot:HostKey", Key)
+            .UseSetting("Agent:Copilot:Model", "fake-model"));
+        var failure = Assert.Throws<InvalidOperationException>(() => before.CreateClient());
+        Assert.Contains("Agent:Copilot:Model is now Agent:Copilot:Models", failure.Message, StringComparison.Ordinal);
     }
 
     /// <summary>The model behind the host, answering as each test says, and keeping the turns it was asked.</summary>

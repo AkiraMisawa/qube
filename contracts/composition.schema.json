@@ -360,7 +360,9 @@
               "readRun",
               "saveItem",
               "execute",
-              "readWorkspace"
+              "readWorkspace",
+              "readSettings",
+              "editSettings"
             ]
           },
           "minItems": 0

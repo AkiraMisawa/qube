@@ -34,9 +34,7 @@ function lastSide(header: TraceHeader): Side {
   return side;
 }
 
-export function LeafRows({ panelId, api, address, header, path, set, rows }: {
-  /** The panel the trace is in, which keeps the widths the user dragged. */
-  readonly panelId: string;
+export function LeafRows({ api, address, header, path, set, rows }: {
   readonly api: TraceApi;
   readonly address: TraceAddress;
   readonly header: TraceHeader;
@@ -87,7 +85,7 @@ export function LeafRows({ panelId, api, address, header, path, set, rows }: {
     { name: 'membership', header: 'Sides', type: 'text', width: { auto: true, minPx: 96, maxPx: 200 }, queryable: false, value: (r) => sidesHolding(r, header.sides) },
     { name: 'mismatch', header: 'Reconciliation', type: 'text', width: { auto: true, minPx: 120, maxPx: 360 }, queryable: false, value: (r) => mismatchText(r, side, set) },
   ], [set, side, header.sides]);
-  const { columns, onColumnWidthChanged } = useColumnWidths(panelId, `trace/rows/${set.leafSet}`, declared, { hideColumnMenu: true });
+  const { columns, onColumnWidthChanged } = useColumnWidths(`trace/rows/${set.leafSet}`, declared, { hideColumnMenu: true });
 
   const rowsRef = useRef(source);
   rowsRef.current = source;

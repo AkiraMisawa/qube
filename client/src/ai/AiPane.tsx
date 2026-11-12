@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { Alert, Badge, Button, CloseButton, Code, Group, Kbd, Loader, Paper, ScrollArea, Stack, Text, Textarea, Title } from '@mantine/core';
+import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
+import { Alert, Badge, Button, CloseButton, Code, Group, Kbd, Loader, Paper, ScrollArea, Select, Stack, Text, Textarea, Title } from '@mantine/core';
 import { useQuery } from '@tanstack/react-query';
+import { useValue } from '../platform/settings/settings';
 import { useWorkspace } from '../platform/workspace/WorkspaceProvider';
 import { useAi, useAiContext } from './AiProvider';
-import { answering } from './aiStore';
+import { answering, conversationModel } from './aiStore';
 import type { AiCard, AiStep } from './cards';
 import { aiContextOf } from './effects';
 
@@ -13,6 +14,8 @@ import { aiContextOf } from './effects';
 interface SlashCommand {
   readonly words: string;
   readonly title: string;
+  /** The model `/model <id>` runs the conversation on (ADR-0017 §6.3). */
+  readonly model?: string;
 }
 
 export const SLASH_COMMANDS: readonly SlashCommand[] = [
@@ -22,10 +25,15 @@ export const SLASH_COMMANDS: readonly SlashCommand[] = [
   { words: 'close', title: 'Close the AI pane' },
 ];
 
-export function slashMatches(text: string): readonly SlashCommand[] {
+/**
+ * The chat commands the text starts, narrowed as it is typed: the conversation's own, and `/model <id>` for each model
+ * the conversation may run on, so that the pane's model is chosen from the keyboard too (ADR-0006 §2).
+ */
+export function slashMatches(text: string, models: readonly string[] = []): readonly SlashCommand[] {
   if (!text.startsWith('/')) return [];
   const typed = text.slice(1).trim().toLowerCase();
-  return SLASH_COMMANDS.filter((c) => c.words.startsWith(typed));
+  const choices = models.map((model) => ({ words: `model ${model}`, title: `Run this conversation on ${model}`, model }));
+  return [...SLASH_COMMANDS, ...choices].filter((c) => c.words.toLowerCase().startsWith(typed));
 }
 
 let chatInput: HTMLTextAreaElement | null = null;
@@ -58,13 +66,15 @@ export function AiPane() {
   }, []);
   useEffect(() => { end.current?.scrollIntoView?.({ block: 'end' }); }, [cards]);
 
-  const slash = slashMatches(text);
+  // `/model` is offered once the runtime has said which models it runs on.
+  const slash = slashMatches(text, runtime.data === undefined ? [] : runtime.data.models);
   const at = Math.min(highlight, Math.max(slash.length - 1, 0));
 
   const runSlash = (command: SlashCommand) => {
     setText('');
     setHighlight(0);
     const state = store.getState();
+    if (command.model !== undefined) state.chooseModel(command.model);
     const refused = command.words === 'new' ? state.restart() : command.words === 'stop' ? state.stop() : undefined;
     if (command.words === 'help') setHelp(true);
     if (command.words === 'close') state.setOpen(false);
@@ -144,7 +154,30 @@ export function AiPane() {
           placeholder={busy ? 'Answering… /stop to stop' : 'Ask the AI, or / for chat commands'} autosize minRows={1} maxRows={6}
           aria-label="Ask the AI" data-ai-chat="" />
       </div>
+      {runtime.data !== undefined && runtime.data.models.length > 0 && <ModelChoice models={runtime.data.models} />}
     </Stack>
+  );
+}
+
+/** The key of the user's default model (ADR-0017 §6.3), registered where models are configured. */
+const DEFAULT_MODEL = 'agent.defaultModel';
+
+/**
+ * The model this conversation runs on, chosen among those configured (ADR-0017 §6.3). A choice here is the
+ * conversation's alone: the user's default model, which a new conversation starts on, is in their settings.
+ */
+function ModelChoice({ models }: { readonly models: readonly string[] }) {
+  const { store } = useAiContext();
+  const id = useId();
+  const userDefault = useValue(DEFAULT_MODEL);
+  const shown = useAi((s) => conversationModel(s, userDefault));
+  return (
+    <Group gap="xs" wrap="nowrap" data-testid="ai-model-choice">
+      <Text component="label" htmlFor={id} size="xs" c="dimmed">Model</Text>
+      <Select id={id} size="xs" data={[...models]} value={shown ?? null} allowDeselect={false} placeholder="Choose a model"
+        title="The model this conversation runs on. A new conversation starts on your default model, in your settings."
+        onChange={(model) => { if (model !== null) store.getState().chooseModel(model); }} comboboxProps={{ withinPortal: true }} style={{ flex: 1 }} />
+    </Group>
   );
 }
 
@@ -157,6 +190,7 @@ function TaskCard({ card, onOpen }: { readonly card: AiCard; readonly onOpen: (p
           <StatusBadge status={card.status} />
         </Group>
         {card.runtime?.simulated === true && <Text size="xs" c="yellow">{card.runtime.label}</Text>}
+        {card.runtime?.model !== undefined && <Text size="xs" c="dimmed" data-testid="ai-run-model">{card.runtime.label} on {card.runtime.model}</Text>}
         {card.steps.map((s) => <Step key={s.toolCallId} step={s} />)}
         {card.reply !== '' && <Text size="sm" style={{ whiteSpace: 'pre-wrap' }} data-testid="ai-reply">{card.reply}</Text>}
         {card.error !== undefined && <Text size="sm" c="red" role="alert">{card.error}</Text>}

@@ -21,8 +21,10 @@ public enum ExecutionKind { RequestResponse, Job, Subscription }
 /// <c>Execute</c> starts work for its caller that the command does not wait for, such as a Run submitted or a failed
 /// result asked for again (ADR-0016 note 33): it writes no workspace. <c>ReadWorkspace</c> reads its caller's own
 /// workspace, such as rows of one of its tables (ADR-0016 §7, note 38): it writes nothing and starts nothing.
+/// <c>ReadSettings</c> reads its caller's own settings, and <c>EditSettings</c> writes them (ADR-0017 §2): neither
+/// touches a workspace or a Run, so both are commands too.
 /// </summary>
-public enum CapabilityEffect { ReadData, Compute, PersistAnalysis, EditWorkspace, Subscribe, ReadRun, SaveItem, Execute, ReadWorkspace }
+public enum CapabilityEffect { ReadData, Compute, PersistAnalysis, EditWorkspace, Subscribe, ReadRun, SaveItem, Execute, ReadWorkspace, ReadSettings, EditSettings }
 
 public sealed record Port(string Name, string ContractId, string ContractVersion, Cardinality Cardinality);
 

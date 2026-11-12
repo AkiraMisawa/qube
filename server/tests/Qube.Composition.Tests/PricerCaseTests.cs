@@ -22,7 +22,7 @@ public class PricerCaseTests
         var store = new InMemoryDataStore();
         var runs = new RunService(new CompositionRegistry([new PortfolioModule(), new XvaModule(), new CcrModule()]), store, TimeProvider.System);
         var register = new MeasureRegister([new XvaMeasures(Pv01Provider.Simulated(TimeSpan.Zero)), new CcrMeasures()]);
-        return (new PortfolioWorkspaces(workspaces, store, runs, register, options), runs, store);
+        return (new PortfolioWorkspaces(workspaces, store, runs, register, UnsetSettings.Pricer(), options), runs, store);
     }
 
     /// <summary>Prices the revision and reads the whole accepted input and the XVA request's rows.</summary>

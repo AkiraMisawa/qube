@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import './xva.css';
-import { Alert, Badge, Button, Group, Modal, SegmentedControl, Select, Stack, Table, Text, TextInput, useMantineTheme } from '@mantine/core';
+import { Alert, Badge, Button, Group, Modal, SegmentedControl, Select, Stack, Table, Text, useMantineTheme } from '@mantine/core';
 import { GridSource, type CellState, type GridColumn, type GridContextMenuContext, type GridEditIntent } from '@ex-grid/core';
 import type { ExGridApi } from '@ex-grid/react';
 import { QubeGrid } from '../../platform/grid/QubeGrid';
@@ -27,6 +27,7 @@ import type { RunRecord } from '../../platform/contracts';
 import { dockTabs, METRICS_TAB, type DockTab, type MeasureTab } from './dock';
 import { CSAS_TABLE, EditQueue, SETTINGS_ENTITY, TRADES_TABLE, XVA_APP, refusedEdit, tradeFields, type PendingEdit, type SetText } from './editing';
 import { ToolbarField } from './fields';
+import { CommittedDateInput } from '../../platform/IsoDateInput';
 import { CHANGES_TAB, CREDIT_TAB, SCENARIOS_TAB, SETTINGS_TAB, shownTab, TAB_TITLES, tabShown, XvaInputs, type InputTab } from './XvaInputs';
 import { XvaRisks } from './XvaRisks';
 import type { ScenarioActions } from './XvaScenarios';
@@ -203,6 +204,18 @@ const describe = (error: unknown) => (error instanceof Error ? error.message : S
 /** What a workspace's trades were read of: the counterparty, the value date and the source's version of them. */
 const sourceOf = (view: XvaWorkspaceView) => `${view.registration.key} ${view.context.valueDate} ${view.sourceVersion}`;
 
+/**
+ * Where the display currency came from, in words (ADR-0017 §3): the user's setting, copied in as the workspace was made;
+ * a choice in this workspace; or the company profile's. A workspace keeps its own whatever the setting says later.
+ */
+function currencyFrom(currency: string, from: XvaWorkspaceView['displayCurrencyFrom']): string {
+  switch (from) {
+    case 'settings': return `Display currency ${currency}, from your settings as this workspace was made.`;
+    case 'workspace': return `Display currency ${currency}, chosen in this workspace.`;
+    case 'profile': return `Display currency ${currency}, the company profile's.`;
+  }
+}
+
 export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   readonly panelId: string; readonly workspaceId: string; readonly api: XvaApi; readonly traceApi: TraceApi;
 }) {
@@ -350,9 +363,9 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   const newColumns = useMemo<readonly GridColumn<Row>[]>(() => [...leading, ...assignment, newPv, ...moduleColumns(registered.current), ...membership, ...derived], [columnsKey, newPv, assignment, membership]);
   const existingColumns = useMemo<readonly GridColumn<Row>[]>(() => [...existingTerms, ...assignment, existingPv, ...membership, ...derived], [existingPv, assignment, membership]);
   gridColumns.current = { new: newColumns, existing: existingColumns };
-  // Each grid's columns at the widths the user dragged them to, kept per panel while it is open.
-  const newWidths = useColumnWidths(panelId, 'trades/new', newColumns);
-  const existingWidths = useColumnWidths(panelId, 'trades/existing', existingColumns);
+  // Each grid's columns at the widths the user dragged them to, the user's for that grid in every workspace (ADR-0017 §5).
+  const newWidths = useColumnWidths('xva/trades/new', newColumns);
+  const existingWidths = useColumnWidths('xva/trades/existing', existingColumns);
 
   // The layout (ADR-0010 §1): the input tabs open, or collapsed to their row, at a height the user drags; the dock the
   // same at the bottom; and below `sm` the part in view.
@@ -935,7 +948,8 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
       {/* The context bar (ADR-0010 §1; docs/design-guidelines.md §3, §4): one 30px Control Height, each label beside its input. */}
       <div className="qube-toolbar" role="toolbar" aria-label="Workspace">
         <ValueDate value={ws.context.valueDate} disabled={!notBusy}
-          onCommit={(date) => void reacquire('Value date moved', (revision) => api.changeValueDate(workspaceId, revision, date))} />
+          onCommit={(date) => void reacquire('Value date moved', (revision) => api.changeValueDate(workspaceId, revision, date))}
+          onRefused={(sentence) => workspace.notify('refused', sentence)} />
         <ToolbarField label="Counterparty" wide>
           {(id) => (
             <Select id={id} size="xs" className="qube-toolbar-input qube-toolbar-input--wide" allowDeselect={false} searchable value={ws.registration.key}
@@ -951,6 +965,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
         <ToolbarField label="Currency">
           {(id) => (
             <Select id={id} size="xs" className="qube-toolbar-input qube-toolbar-input--currency" allowDeselect={false} value={ws.displayCurrency}
+              title={notBusy ? currencyFrom(ws.displayCurrency, ws.displayCurrencyFrom) : WAIT}
               data={ws.currencies} onChange={(value) => { if (value !== null) setCurrency(value); }} disabled={!notBusy} comboboxProps={{ withinPortal: true }} />
           )}
         </ToolbarField>
@@ -974,6 +989,8 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
       <Group gap="xs" wrap="wrap" className="qube-xva-status">
         <Text size="xs" data-testid="workspace-summary">{ws.trades} trades · {ws.overrides} edit(s) · revision {ws.revision} · {ws.sourceVersion}</Text>
         <Text size="xs">{ws.agreement.maId} · {ws.agreement.collateralised ? `main CSA ${ws.agreement.mainCsaId}` : ws.agreement.noCsa}</Text>
+        {/* Said where it is read on every width, a touch screen's too: the control's title is a pointer's alone. */}
+        <Text size="xs" data-testid="display-currency-from">{currencyFrom(ws.displayCurrency, ws.displayCurrencyFrom)}</Text>
         {ws.simulated.length > 0 && (
           <Badge variant="light" color="yellow" data-testid="simulated" title={`Figures from a simulated provider: ${ws.simulated.join(', ')}. They are not a model of anything.`}>SIMULATED</Badge>
         )}
@@ -982,7 +999,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
       <SegmentedControl hiddenFrom="sm" size="xs" fullWidth aria-label="Part of the page" value={section} onChange={(v) => setSection(v as Section)}
         data={[{ value: 'inputs', label: 'Inputs' }, { value: 'trades', label: 'Trades' }, { value: 'results', label: 'Results' }]} />
       <div data-part="inputs" className="qube-xva-part">
-        <XvaInputs panelId={panelId} ws={ws} onIssue={setIssue} push={(entity, field, value, title) => void queue.push({ entity, field, value, title })} setText={setText}
+        <XvaInputs ws={ws} onIssue={setIssue} push={(entity, field, value, title) => void queue.push({ entity, field, value, title })} setText={setText}
           catalogue={catalogue.isError ? { refused: describe(catalogue.error) } : catalogue.data} onGridEntered={(seen) => { screen.current = seen; }} onPlaced={() => openTab('csa')}
           tab={inputTab} onTab={(tab) => { setInputTab(tab); setInputsOpen(true); }} open={inputsOpen} onOpen={setInputsOpen} height={inputsHeight} focusRequest={focusRequest}
           changeList={changeList.data} changeActions={changeActions} scenarioActions={scenarioActions} onVary={setVarying} commandLabel={commandLabel} csaMenu={menus} />
@@ -1122,15 +1139,17 @@ function TradeCaption({ title, count, grid, setSide, disabled, source, counted, 
   );
 }
 
-function ValueDate({ value, disabled, onCommit }: { readonly value: string; readonly disabled: boolean; readonly onCommit: (date: string) => void }) {
-  const [draft, setDraft] = useState(value);
-  useEffect(() => setDraft(value), [value]);
-  const commit = () => { if (draft !== value && /^\d{4}-\d{2}-\d{2}$/.test(draft)) onCommit(draft); };
+function ValueDate({ value, disabled, onCommit, onRefused }: {
+  readonly value: string;
+  readonly disabled: boolean;
+  readonly onCommit: (date: string) => void;
+  readonly onRefused: (sentence: string) => void;
+}) {
   return (
     <ToolbarField label="Value date">
       {(id) => (
-        <TextInput id={id} type="date" size="xs" className="qube-toolbar-input qube-toolbar-input--date" value={draft} disabled={disabled}
-          onChange={(e) => setDraft(e.currentTarget.value)} onBlur={commit} onKeyDown={(e) => { if (e.key === 'Enter') commit(); }} />
+        <CommittedDateInput id={id} size="xs" className="qube-toolbar-input qube-toolbar-input--date" what="value date" value={value}
+          disabled={disabled} onCommit={onCommit} onRefused={onRefused} />
       )}
     </ToolbarField>
   );

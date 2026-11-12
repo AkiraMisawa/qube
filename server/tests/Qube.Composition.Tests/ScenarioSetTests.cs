@@ -29,7 +29,7 @@ public sealed class ScenarioSetTests : IDisposable
         var store = new InMemoryDataStore();
         var runs = new RunService(new CompositionRegistry([new PortfolioModule(), new XvaModule(), new CcrModule()]), store, TimeProvider.System);
         var register = new MeasureRegister([new XvaMeasures(Pv01Provider.Simulated(TimeSpan.Zero)), new CcrMeasures()]);
-        return new PortfolioWorkspaces(workspaces, store, runs, register, saved: new SavedItems(sets ?? new InMemorySavedItemStore(), Desks, TimeProvider.System));
+        return new PortfolioWorkspaces(workspaces, store, runs, register, UnsetSettings.Pricer(), saved: new SavedItems(sets ?? new InMemorySavedItemStore(), Desks, TimeProvider.System));
     }
 
     static WorkspaceState Workspace(PortfolioWorkspaces service, string user, params (string Name, string Shifts)[] scenarios)

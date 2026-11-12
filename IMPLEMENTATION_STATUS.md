@@ -56,7 +56,7 @@ Every provider is simulated. All data is synthetic and labelled as such on scree
 - `@ex-grid/core`, `@ex-grid/data`, `@ex-grid/react` and `@ex-grid/mantine`, with `@ex-grid/chart`, `@ex-grid/chart-react` and `@ex-grid/chart-mantine` since step 5, at `0.2.0` from npm (since 2026-11-10; `0.2.0-beta.3` from 2026-11-04; before that, tarballs packed from ex-grid commit `3bf523d` in `vendor/ex-grid/`). Since 2026-11-06 (ADR-0009) every grid is `QubeGrid`, ExGrid drawn by its Mantine Wrapper; the stylesheets are `@ex-grid/core/styles.css` and `@ex-grid/mantine/styles.css`.
 - A key sent to a newly drawn grid before it carries its Settled Mark is lost, by ExGrid's own contract. Browser tests wait for the mark, as ex-grid's own tests do.
 - ExGrid's TypeScript core has no touch support yet.
-- Column widths (ExGrid ADR-0016): in the grids that take them (below), a declared width is raised to what its header needs (`gridHeaderRequiredPx`, as the grid charges an Auto column's, with no menu button on the Rates line grid, which hides its column menu, ADR-0015 §4), so a header is never cut at the default; a longer value may be. The grids of 2026-10-28 take `onColumnWidthChanged` (a view's grid, the Pricing DB, the Rates lines and cashflows, and the XVA page's New and Existing trades): a drag on a header's right edge (or a double click, which fits the column) moves it, and the width is kept per panel in the workspace store until the panel closes. Widths are not saved with a workspace. Since 2026-11-10 (owner: every grid gets the grip) the XVA CSA, Credit and Scenarios grids and the calculation trace's tree, entities and rows take it too, each kept per panel under its own key; the grids that hide their column menu (the Rates lines, Scenarios, the trace's three) are charged no menu button.
+- Column widths (ExGrid ADR-0016): in the grids that take them (below), a declared width is raised to what its header needs (`gridHeaderRequiredPx`, as the grid charges an Auto column's, with no menu button on the Rates line grid, which hides its column menu, ADR-0015 §4), so a header is never cut at the default; a longer value may be. The grids of 2026-10-28 take `onColumnWidthChanged` (a view's grid, the Pricing DB, the Rates lines and cashflows, and the XVA page's New and Existing trades): a drag on a header's right edge (or a double click, which fits the column) moves it. Since ADR-0017 (2026-11-11) a grid's widths are the user's setting `grid.widths.<grid id>`, the same in every workspace and panel, after a reload and in another browser; they are not saved with a workspace (before, they were kept per panel until it closed). Since 2026-11-10 (owner: every grid gets the grip) the XVA CSA, Credit and Scenarios grids and the calculation trace's tree, entities and rows take it too, each under its own grid id; the grids that hide their column menu (the Rates lines, Scenarios, the trace's three) are charged no menu button.
 - Off-screen columns are not in the DOM, so a browser test moves the grid's Focus to a column before reading its cells.
 
 ### Known limits
@@ -202,7 +202,7 @@ The provider and the market are simulated. Real holiday calendars, the confirmed
 
 ### Known limits
 
-- Frequency ranking is kept in the browser until the user settings store arrives with sign-in (C30).
+- Frequency ranking was kept in the browser until the user settings store (ADR-0017, 2026-11-11), which now keeps it for the user; sign-in (C30) is still the demo user.
 - `new ccs` with terms is not there yet: `add line ccs` adds an empty line to fill in the grid.
 - New XVA and New Rates still open their dialogs rather than taking their arguments on the line.
 
@@ -2220,6 +2220,138 @@ written (`yes` still offered `on`); the sentence for a row that is not there lis
 a choice registered with nothing to choose from would have thrown at each key typed, where it now fails when its
 table is read. Each is said in note 45 as "Corrected in review", with a test.
 
+## Dates read yyyy-MM-dd (design guidelines §10, ADR-0009, 2026-11-11)
+
+### What runs
+
+- Every date field draws and takes its date as `yyyy-MM-dd`, whatever the browser's locale: the header's As of, a
+  workflow's date in the run dialog, the XVA toolbar's Value date, the Rates toolbar's Valuation date, and the New XVA
+  and New Rates workspace dialogs. Each was a native `<input type="date">`, which drew `11/11/2026` in en-US and
+  `2026/11/11` in ja-JP.
+- They are `IsoDateInput`: a text field, with Mantine's `DatePicker` in a popover that a click or a tap opens on the
+  month the text names. The field is its text: text that is not a date that exists (`2026-02-30`) stays as typed,
+  is marked invalid, and is said where its holder says things: the header's context issues, the dialog's field, and
+  for the toolbars' dates (`CommittedDateInput`, moved when the field is left or Enter is pressed) a refused notice
+  that names the date that stays. Escape with the calendar open closes the calendar only; Enter closes it too.
+- New dependencies, pinned exactly: `@mantine/dates` 9.7.4 (Mantine's own version) and `dayjs` 1.11.23, its peer.
+
+### Verification performed
+
+| Suite | Result |
+|---|---|
+| `npm run typecheck`, `npm test` (Vitest) | Clean; 328 passed |
+| `npx playwright test --grep "As of field\|Escape shuts" --repeat-each=3` (Chromium, headless, Linux) | 6 passed: the two new tests |
+| `npx playwright test` (Chromium, headless, Linux) | 95 passed |
+
+The header was looked at in screenshots at 390, 768, 992 and 1440px in both themes, with the calendar open, and the
+New Rates dialog and the Rates toolbar at 1440px.
+
+### Known limits
+
+- The calendar's days are reached by pointer or touch; the keyboard types the date. The native input's ArrowUp and
+  ArrowDown, which stepped a part of the date, are gone.
+
+## A user's settings: the store, preferences, defaults and the AI's model (ADR-0017, 2026-11-11)
+
+One pull request in three steps (`docs/specs/user-settings`, tickets 01 to 09). What a user prefers, and the values a
+workspace they make starts with, are kept by the server for that user and follow them to any browser. They are
+changed by the line, the settings dialog and the AI through the same three commands.
+
+### What runs
+
+- **One store that knows no setting.** A module registers its settings (`ISettingCatalog`) with a key or a family of
+  keys (`grid.widths.*`), words, a kind (preference or default), a form and a registered value. The kernel keeps a
+  user's values in SQLite's `UserSetting` beside `SavedItem`, checks each against its form, and refuses an
+  unregistered key or a value the form does not take by name. A value stored that the form no longer takes is never
+  replaced: it is read as unreadable, a preference then applies its registered value and the dialog says that theirs
+  is unreadable, and a default refuses the making that needs it, naming the setting and how to reset it.
+- **Three commands through the gateway**: `settings.read`, `settings.set` and `settings.reset`, with their own effect
+  (`UserSetting`) and permissions (`readSettings`, `editSettings`). The caller is the server's, never an input. A set
+  or a reset answers what applies now, what it replaced and the line that takes it back. The page reads them at start
+  with `GET /api/settings`, which answers as `settings.read` does. The agent is offered them as it is every command,
+  and a setting it changes applies at once on the page.
+- **The line and the account menu**: `settings` opens the settings dialog; `settings <name> <value>` and
+  `settings reset <name>` set and reset, with names and values completed. The header's account menu, which took the
+  place of its theme button at the owner's request, opens as the mouse rests on the user's initials, leaving the
+  keyboard where it was, and is held open by a click, a tap or Enter, with the keyboard in it; a second click closes
+  it. It names the user and their desk (`GET /api/me`), opens Settings, chooses the theme among the three, and says
+  on an item the keyboard and a screen reader reach that signing out waits for sign-in. The dialog lists each setting with its value, whether the user set it or
+  the registered value applies, and a reset; on a phone it keeps two columns and says the source and the reset under
+  the setting's name.
+- **Preferences** (step 1, step 3): the theme (`dark`, `light`, `auto`, which follows the device), a grid's column
+  widths, the command ranking and, where models are configured, the AI's default model. The page's own writes (a
+  theme toggled, a column dragged, a command run) are ordered per setting with the line's and the dialog's, and only
+  the last one made settles what applies. The theme the browser last drew is kept there for the first frame only.
+- **Defaults** (step 2): the pricer's display currency (registered as the company profile's, JPY) and a new Rates
+  line's currency, notional and direction (registered as none). The making of a workspace copies the ones the user
+  set: the pricer as the making's own edit, which `undo` never takes, and Rates into the workspace's defaults with a
+  record of which came from the settings. The page says where each came from, where it is read on every width: the
+  pricer's status line (`Display currency USD, from your settings as this workspace was made.`), the Rates status
+  line (`New lines default to JPY · 500mm · receive from your settings.`), and a new line's preview (`currency JPY from
+  settings`). A workspace made before a setting moved keeps what it was made with; Price reads only the workspace.
+- **The AI's model** (step 3): configuration lists the models the AI may use (`Agent:Copilot:Models`); the first is
+  the default model's registered value. A conversation holds its model from its first turn: one chosen in the pane
+  (its Model menu, or `/model <id>`), else the user's default. A chosen model not configured is refused with the list;
+  a default no longer configured gives way to the registered one. A choice changes neither the default nor another
+  conversation. Each run says its model in `RUN_STARTED`, its trace (`qube.agent.model`), its failure and its card
+  (`Copilot on gpt-5.1`). The scripted stand-in runs on no model, registers no default model and refuses one chosen.
+
+### Verification performed
+
+| What | Result |
+|---|---|
+| `dotnet test server/Qube.slnx` | 1296 passed |
+| Client: `npm run typecheck`, `npm test`, `npm run build` | Clean; 347 passed in 36 files; built |
+| `npx playwright test` (Chromium, headless, Linux), after main's yyyy-MM-dd dates were merged in | 106 passed |
+| `e2e/settings.spec.ts`, which this pull request adds, with `--repeat-each=3` | 33 passed |
+| `python3 tools/validate_handoff.py` | Passed |
+| The settings dialog and the account menu at 390, 768, 992 and 1440px, dark and light; the AI pane at 390 and 1440px | Looked at; no sideways scroll, nothing cut off |
+| The AI pane against a stand-in Copilot host with two models | Looked at: a conversation on the default model, `/model gpt-5.1`, and the next run on it |
+
+The server's tests read the store over a registration with no domain (`UserSettingsTests`), the commands through the
+gateway and the host, the defaults through the pricer's and Rates' makings (`PricerDefaultsTests`,
+`RatesLineCommandTests`) and the models through the agent's endpoint with a runtime that has models
+(`CopilotRuntimeTests`). The client's tests order the page's writes, the theme's double toggle, a setting the AI
+changes, an unreadable ranking and theme, and the conversation's model. The browser tests carry the theme and the
+ranking to another browser, follow the device's scheme, set and reset from the line and the dialog, keep a dragged
+width across a reload and another workspace, make a pricer and a Rates workspace from the user's defaults, and fit
+the dialog on a phone.
+
+### Providers
+
+Unchanged: every figure of the pricer and of Rates is simulated, and says so. The browser tests run the scripted
+agent, which has no model; the model choice was looked at against a stand-in host that answers as Copilot's does,
+not against Copilot.
+
+### Known limits
+
+- The user is `Qube:DemoUser` until sign-in (C30): every browser of one host is one user's.
+- Sort and filter are not remembered (ADR-0017 §6.4).
+- Column widths a browser dragged before were kept per panel and are not carried over.
+- A conflict kept by its holder re-writes the display currency's edit, so a workspace whose currency was copied from
+  the settings then says it was chosen in the workspace.
+- Model ids are compared exactly; a value typed on the line is matched to one ignoring case.
+- `Agent:Copilot:Model`, the one model of before, stops startup and says to list it (README, "Coming from before the
+  user's settings").
+- The account menu's avatar shows the initials of the user's id. A name and a photo come with sign-in, from MSAL's
+  ID token and Microsoft Graph in the browser; `GET /api/me` stays the server's word on the id and the desk.
+
+### What the review changed
+
+Each step was reviewed on its two axes (standards and spec) and every finding was corrected. Step 1: the page's
+writes are ordered per setting, so a drag made while an earlier width was being kept is no longer lost; the AI's
+changes apply at once; a ranking no longer taken is neither applied nor written over; the workbench opens on the
+registered values when settings cannot be read, and says so. Step 2: the page says each default's source where it
+is read on every width, not in a title only; the display currency registers the profile's; the services take the
+settings as a required dependency; a default no longer taken refuses the making in the kernel; a Rates default's
+rule lives once; `undo` of a Rates default set in the workspace gives the settings' back. Step 3: an unreadable
+preference gives way to its registered value on the page as on the server; the default model is registered from the
+runtime's own models; a conversation's model is held by its thread; the pane offers `/model <id>`; the dialog fits a
+phone. The account menu: the menu opens on its own delays instead of Mantine's `click-hover`, whose open delay
+outlived an item's close and opened the menu again over the settings a tap on a phone had just opened; the theme is
+chosen among radio items that say which is checked; Sign out is reached by the arrows and describes why it waits;
+the user who cannot be read is said, never stood in for; a second click closes the menu.
+
 ## Generic commands, delivery step 5a: rows under a row (ADR-0016 notes 46 to 49, 2026-11-11)
 
 The first of step 5's four pull requests (`docs/specs/commands-5-drafts-rows-under-a-row`, tickets 01 to 08). A
@@ -2262,9 +2394,9 @@ in the display currency.
 
 | What | Result |
 |---|---|
-| `dotnet test server/Qube.slnx` | 1353 passed |
-| Client: `npm run typecheck`, `npm test`, `npm run build` | Clean; 332 passed in 35 files; built |
-| `npx playwright test` (Chromium, headless, Linux) | 94 passed |
+| `dotnet test server/Qube.slnx` | 1383 passed |
+| Client: `npm run typecheck`, `npm test`, `npm run build` | Clean; 351 passed in 36 files; built |
+| `npx playwright test` (Chromium, headless, Linux), after main's dates and settings were merged in | 107 passed |
 | `python3 tools/validate_handoff.py` | Passed |
 | The PV column, a PV overwritten and the Changes tab at 390, 768, 992 and 1440px, dark and light | Looked at; the column comes into view with the Focus at every width, and the Changes tab's rows wrap at 390px |
 

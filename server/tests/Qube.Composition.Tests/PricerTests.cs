@@ -21,7 +21,7 @@ public class PricerTests
         var workspaces = new WorkspaceService(new Dictionary<string, IEditRules> { [PortfolioEditRules.App] = new PortfolioEditRules() }, TimeProvider.System);
         var store = new InMemoryDataStore();
         var runs = new RunService(new CompositionRegistry([new PortfolioModule(), new XvaModule(), new CcrModule()]), store, TimeProvider.System);
-        return (new PortfolioWorkspaces(workspaces, store, runs, new MeasureRegister([xva ?? new XvaMeasures(Pv01Provider.Simulated(TimeSpan.Zero)), new CcrMeasures()])), runs, store, workspaces);
+        return (new PortfolioWorkspaces(workspaces, store, runs, new MeasureRegister([xva ?? new XvaMeasures(Pv01Provider.Simulated(TimeSpan.Zero)), new CcrMeasures()]), UnsetSettings.Pricer()), runs, store, workspaces);
     }
 
     /// <summary>Prices the revision and reads its accepted input and the XVA module's rows.</summary>

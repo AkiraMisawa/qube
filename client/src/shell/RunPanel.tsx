@@ -54,7 +54,7 @@ export function RunPanel({ panel }: { readonly panel: Extract<Panel, { kind: 'ru
         <Text size="sm" c="dimmed">This Run has no view attached. Its outputs are retained; open a view from the palette.</Text>
       )}
       {record.status !== 'running' && view !== undefined && Object.keys(record.outputs).length > 0 && (
-        <ViewRenderer panelId={panel.id} view={view} outputs={record.outputs} registerFocus={registerFocus} />
+        <ViewRenderer view={view} outputs={record.outputs} registerFocus={registerFocus} />
       )}
     </Stack>
   );

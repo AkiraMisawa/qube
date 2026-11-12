@@ -57,6 +57,43 @@ test('UX01: a context rebound by keyboard reaches the next run, whose failed ite
   await expect(row.getByRole('gridcell')).toHaveText(['ST-05', 'unavailable', '', '', '', '', 'Synthetic station ST-05 is offline.', /Show readings/]);
 });
 
+// ADR-0009, docs/design-guidelines.md §10: a date reads yyyy-MM-dd whatever the browser's locale. The native date input
+// it replaced drew 11/11/2026 here, and a year typed into it went into the month.
+test('ADR-0009: the As of field reads and takes a date as yyyy-MM-dd, says when its text is not one, and picks one from its calendar', async ({ page }) => {
+  await open(page);
+  const asOf = page.locator('header').getByLabel('As of');
+  await expect(asOf).toHaveValue(/^\d{4}-\d{2}-\d{2}$/);
+
+  // February has no 30th. The field keeps what was typed and is marked, and the context in force is said to stay.
+  await asOf.click();
+  await page.keyboard.press('ControlOrMeta+A');
+  await page.keyboard.type('2026-02-30');
+  await page.keyboard.press('Tab');
+  await expect(asOf).toHaveValue('2026-02-30');
+  await expect(asOf).toHaveAttribute('aria-invalid', 'true');
+  await expect(page.getByTestId('context-pending')).toContainText('As of: A date as yyyy-MM-dd is required.');
+
+  await asOf.click();
+  await page.keyboard.press('ControlOrMeta+A');
+  await page.keyboard.type('2026-10-27');
+  await page.keyboard.press('Tab');
+  await expect(asOf).toHaveValue('2026-10-27');
+  await expect(page.getByTestId('context-pending')).toBeHidden();
+
+  // The calendar opens on October 2026, the month the field names; a day picked there is written as yyyy-MM-dd.
+  await asOf.click();
+  await page.getByRole('button', { name: '15 October 2026' }).click();
+  await expect(asOf).toHaveValue('2026-10-15');
+  await expect(page.getByRole('button', { name: '15 October 2026' })).toBeHidden();
+
+  await command(page, 'run station summary');
+  await expect(page.getByRole('dialog', { name: 'Station summary' }).getByLabel('Days')).toBeFocused();
+  await page.keyboard.type('1');
+  await page.keyboard.press('Enter');
+  await expect(page.getByTestId('run-status')).toHaveText('succeeded');
+  await expect(page.getByText(/^region North · asOf 2026-10-15/)).toBeVisible();
+});
+
 test('the palette gives the keyboard back to the grid it was opened from', async ({ page }) => {
   await open(page);
   await command(page, 'run station summary');
@@ -136,7 +173,7 @@ for (const width of [1440, 992, 768, 390]) {
     await open(page);
     const header = page.locator('header');
     const controls = header.locator('button, input:visible');
-    // Commands, Region, As of, AI and the theme.
+    // Commands, Region, As of, AI and the account menu.
     await expect(controls).toHaveCount(5);
     const boxes = await controls.evaluateAll((elements) => elements.map((e) => {
       const r = e.getBoundingClientRect();

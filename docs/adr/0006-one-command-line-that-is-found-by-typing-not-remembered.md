@@ -49,7 +49,9 @@ runs out, but every code has to be learned. The owner does not want that.
 - The chords for New XVA, Price XVA, New Rates, Pricing DB and the theme toggle are removed now, before the command
   line covers everything they did (the owner, 2026-10-27).
 - Ranking by frequency is per user. Until the user settings store exists (with sign-in, C30), it is kept in the
-  browser and says so; it moves to the server then.
+  browser and says so; it moves to the server then. *(2026-11-11: the store exists, ADR-0017 §5. The ranking is the
+  user's setting `commands.usage`, the same in every browser; a browser's earlier ranking is added to it once and
+  removed. Sign-in (C30) is still the demo user.)*
 - `?` lists what can be done in the current context.
 
 ## Notes of 2026-11-11: what a command says back, and what the empty line lists

@@ -16,8 +16,12 @@ in the workbench (C44). This page says how to run it on your own machine (C46).
 
 ```sh
 export COPILOT_GITHUB_TOKEN=github_pat_...      # this shell only
-tools/run-with-copilot.sh --model <model id>
+tools/run-with-copilot.sh --model <model id> [--model <another id> ...]
 ```
+
+Each `--model` is one the AI may use (`Agent:Copilot:Models`, ADR-0017 §6.3). A new conversation starts on your
+default model, a setting (`settings default model <id>`, or the settings dialog), which is the first listed until you
+set it. The AI pane's Model choice changes the model of its conversation alone.
 
 The script does the following:
 
@@ -47,11 +51,11 @@ nix develop -c dotnet run --project server/src/Qube.AgentHost
 # Terminal 2: the workbench, without the token
 export Agent__Runtime=copilot
 export Agent__Copilot__HostKey=<the same key>
-export Agent__Copilot__Model=<model id>
+export Agent__Copilot__Models__0=<model id>      # :1, :2 … for more; the first is a new conversation's default
 nix develop -c dotnet run --project server/src/Qube.Web --urls http://localhost:5080
 ```
 
-If the host is not running, a request fails with "The agent host … could not be reached". It never falls back to the scripted agent. If `Agent:Copilot:HostKey` or `Agent:Copilot:Model` is missing, the workbench does not start.
+If the host is not running, a request fails with "The agent host … could not be reached". It never falls back to the scripted agent. If `Agent:Copilot:HostKey` or `Agent:Copilot:Models` is missing, the workbench does not start. `Agent:Copilot:Model`, the one model of before, is not read: the workbench stops and says to list it under `Agent:Copilot:Models`.
 
 ## Running the agent as another OS user
 
@@ -62,7 +66,7 @@ The host can run as a user of its own. The OS then keeps the workbench's databas
    `tools/run-with-copilot.sh --install-host /usr/local/lib/qube-agent-host`
 3. Put the token in a file only that user can read, for example `/Users/_qubeagent/.copilot-token`. Set its mode with `sudo chmod 600` and its owner with `sudo chown _qubeagent`.
 4. Start both:
-   `tools/run-with-copilot.sh --model <id> --as-user _qubeagent --host-dir /usr/local/lib/qube-agent-host --token-file /Users/_qubeagent/.copilot-token`
+   `tools/run-with-copilot.sh --model <id> [--model <id> ...] --as-user _qubeagent --host-dir /usr/local/lib/qube-agent-host --token-file /Users/_qubeagent/.copilot-token`
 
 The SDK keeps its state under that user's home (`~/.local/share/qube/agent-host` or its macOS equivalent).
 A loopback port is open to every user of the machine, which is why the shared key is required in this form too.

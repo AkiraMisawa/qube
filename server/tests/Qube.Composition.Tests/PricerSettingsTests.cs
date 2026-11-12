@@ -26,7 +26,7 @@ public class PricerSettingsTests
         var runs = new RunService(new CompositionRegistry([new PortfolioModule(), new XvaModule(), new CcrModule()]), store, TimeProvider.System);
         var register = new MeasureRegister([new XvaMeasures(pv01 ?? Pv01Provider.Simulated(TimeSpan.Zero)), new CcrMeasures()]);
         tables = new TableService(new TableRegister([new PortfolioTables(register)]), workspaces);
-        return (new PortfolioWorkspaces(workspaces, store, runs, register), runs, store);
+        return (new PortfolioWorkspaces(workspaces, store, runs, register, UnsetSettings.Pricer()), runs, store);
     }
 
     static async Task<(JsonObject Input, IReadOnlyList<JsonNode> Rows)> Price(RunService runs, IDataStore store, PortfolioWorkspaces service, WorkspaceState ws)

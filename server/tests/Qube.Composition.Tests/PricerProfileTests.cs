@@ -20,7 +20,7 @@ public class PricerProfileTests
         var store = new InMemoryDataStore();
         var runs = new RunService(new CompositionRegistry([new PortfolioModule(), new XvaModule(), new CcrModule()]), store, TimeProvider.System);
         var register = new MeasureRegister([new XvaMeasures(Pv01Provider.Simulated(TimeSpan.Zero)), new CcrMeasures()]);
-        return (new PortfolioWorkspaces(workspaces, store, runs, register), runs, store);
+        return (new PortfolioWorkspaces(workspaces, store, runs, register, UnsetSettings.Pricer()), runs, store);
     }
 
     static async Task<(JsonObject Input, IReadOnlyList<JsonNode> Profiles)> Price(RunService runs, IDataStore store, PortfolioWorkspaces service, WorkspaceState ws)

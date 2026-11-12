@@ -43,7 +43,7 @@ public class PricerLegTests
             var registry = new CompositionRegistry([new PortfolioModule(), new XvaModule(), new CcrModule(), new TablesModule(() => tables), new WorkspaceCommandsModule(() => Workspaces),
                 new ProductsModule(() => products), new PortfolioCommandsModule(Pricer, register)]);
             var store = new InMemoryDataStore();
-            Service = service = new PortfolioWorkspaces(Workspaces, store, new RunService(registry, store, TimeProvider.System), register);
+            Service = service = new PortfolioWorkspaces(Workspaces, store, new RunService(registry, store, TimeProvider.System), register, UnsetSettings.Pricer());
             Commands = new CommandService(registry, store);
             Lines = new CommandLines(registry, Workspaces, Register, [new PortfolioShortForms()]);
             Id = Service.Create("akira", registration, Day1, 40).WorkspaceId;

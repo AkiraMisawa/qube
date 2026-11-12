@@ -9,6 +9,8 @@ export interface AgentRuntimeInfo {
   readonly name: string;
   readonly label: string;
   readonly simulated: boolean;
+  /** The models a conversation may run on (ADR-0017 §6.3); none for a runtime with no model. */
+  readonly models: readonly string[];
 }
 
 export interface AgentTransport {
