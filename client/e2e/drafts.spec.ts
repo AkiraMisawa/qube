@@ -185,3 +185,40 @@ test.describe('on a touch screen', () => {
     await expect(page.getByTestId('workspace-summary')).toContainText('0 edit(s)');
   });
 });
+
+test('ADR-0016 note 58: a scenario opens as a row with its shifts under it; a size typed in a shift\'s cell is a line of the draft that names the shift, a unit the index does not shift by is refused at the cell, and Save writes the draft', async ({ page }) => {
+  await open(page);
+  await newWorkspace(page, 'ABC/LE-01', 5);
+  await taken(page, 'scenario', 'up jpy_ois +10bp; usdjpy -5%');
+  await command(page, 'open', 'up');
+  const pending = page.getByTestId('draft-pending');
+  await expect(pending).toHaveText('nothing pending');
+  const dialog = page.getByRole('dialog').filter({ has: pending });
+  const shifts = page.getByTestId('under-xva.shifts');
+  const curve = shifts.getByRole('row', { name: /^up\/\d+ IR / });
+  const rate = shifts.getByRole('row', { name: /^up\/\d+ FX / });
+  await expect(await under(shifts, curve, 'Size')).toHaveText('10 bp');
+  await expect(await under(shifts, rate, 'Size')).toHaveText('-5 %');
+
+  await press(await under(shifts, curve, 'Size'));
+  await page.keyboard.type('15bp');
+  await page.keyboard.press('Enter');
+  await expect(pending).toHaveText('1 pending');
+  await expect(page.getByTestId('draft-lines')).toContainText(/set shifts up\/\d+ size 15bp/);
+  await expect(await under(shifts, curve, 'Size')).toHaveText('15 bp');
+  await expect(await under(shifts, curve, 'Draft')).toHaveText('changed');
+
+  // An FX rate shifts by a percentage. The server refuses basis points by the shift's key, and the grid says so.
+  await press(await under(shifts, rate, 'Size'));
+  await page.keyboard.type('3bp');
+  await page.keyboard.press('Enter');
+  await expect(shifts.getByRole('status')).toHaveText(/^up\/\d+, Size: an FX shift is relative, in %: write \+3%\.$/);
+  await page.keyboard.press('Escape');
+  await expect(await under(shifts, rate, 'Size')).toHaveText('-5 %');
+  await expect(pending).toHaveText('1 pending');
+
+  await dialog.getByRole('button', { name: 'Save' }).click();
+  await expect(page.getByTestId('notice')).toHaveText('Applied 1 line to up.');
+  await command(page, 'open scenarios');
+  await expect(page.getByLabel('Shifts', { exact: true }).getByRole('row', { name: /^up IR jpy_ois all abs \+15bp/ })).toHaveCount(1);
+});

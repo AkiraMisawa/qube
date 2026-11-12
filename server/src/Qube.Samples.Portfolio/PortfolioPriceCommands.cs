@@ -127,7 +127,7 @@ public sealed class PortfolioRefresh(Func<PortfolioWorkspaces> workspaces) : ICa
 
     public LineRead Read(LineContext line)
     {
-        var source = (PortfolioSourceVersion)PortfolioCases.Base(line.State).Source;
+        var source = PortfolioSourceVersion.Of(PortfolioCases.Base(line.State));
         return PortfolioCommand.Read(line, [], $"Reads {source.Registration.Key} again as of {source.ValueDate:yyyy-MM-dd}, and carries your edits onto what it reads.");
     }
 

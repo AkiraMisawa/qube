@@ -20,9 +20,9 @@ sealed class SensorRig
     public CommandLines Lines { get; }
     public string Id { get; }
 
-    public SensorRig(bool described = true, ProductDescriptor? sensor = null, TableDescriptor? readings = null)
+    public SensorRig(bool described = true, ProductDescriptor? sensor = null, TableDescriptor? readings = null, bool muted = false)
     {
-        Register = new([new Stations.Catalog(sensors: true, readings: readings)]);
+        Register = new([new Stations.Catalog(sensors: true, readings: readings, muted: muted)]);
         var tables = new TableService(Register, Workspaces);
         var products = described
             ? new ProductService([new Stations.Products(sensor)], [new Stations.SensorRules(Workspaces)], Workspaces, Register)

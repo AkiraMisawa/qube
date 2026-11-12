@@ -1,4 +1,6 @@
+using System.Collections.Immutable;
 using System.Globalization;
+using System.Runtime.CompilerServices;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using Qube.Composition.Application.Workspaces;
@@ -201,6 +203,12 @@ public static class PortfolioCatalog
 /// What the synthetic source answers for one registration, value date and portfolio size. Deterministic: the
 /// same request gives the same trades. A trade past its maturity is absent, and a trade's last fixing moves
 /// when a fixing date has passed, so another value date is another version of the same trades.
+/// <para>
+/// A workspace reads its trades from <see cref="Of"/>: the version it acquired with the booked trades it loaded among
+/// the new ones (ADR-0016 note 59). The acquired version answers <see cref="Read"/> for every trade of the store, loaded
+/// or not, so that the kernel reads an edit of a loaded trade against it; which trades a workspace holds is
+/// <see cref="Trade"/>'s to say, on the version <see cref="Of"/> gives.
+/// </para>
 /// </summary>
 public sealed class PortfolioSourceVersion : ISourceVersion
 {
@@ -213,25 +221,34 @@ public sealed class PortfolioSourceVersion : ISourceVersion
     /// <summary>The counterparty's CDS as the source names it (ADR-0010 §8's note of 2026-11-09).</summary>
     public CdsChoice Cds { get; }
     public string Version { get; }
+    /// <summary>
+    /// What names the rows read here: the version, and after it the booked trades a workspace loaded, in the order they
+    /// were loaded. A grid's order is taken against it, so a trade loaded or removed makes another (ADR-0016 note 59).
+    /// The version itself stays the acquired source's, which is what Price freezes beside the loaded ids.
+    /// </summary>
+    public string RowsVersion { get; }
     public JsonObject Descriptor => new() { ["registration"] = Registration.Key, ["valueDate"] = ValueDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), ["existingCount"] = existingCount };
 
     readonly int existingCount;
     readonly Dictionary<string, SourceTrade> trades;
     readonly Dictionary<string, SourceLeg> legs;
     readonly Dictionary<string, SourceAmount> amounts;
+    // The store of booked trades as of the value date, read when a trade of it is first asked for.
+    readonly Lazy<BookedTrades.Snapshot> booked;
 
     public PortfolioSourceVersion(string registrationKey, DateOnly valueDate, int existingCount)
     {
         Registration = PortfolioCatalog.Find(registrationKey);
         Agreement = PortfolioCatalog.AgreementOf(registrationKey);
         ValueDate = valueDate;
-        Existing = [.. Enumerable.Range(1, existingCount).Select(i => Generate(Registration, $"{Registration.Code}-{Registration.LegalEntity}-E{i:D5}", false, valueDate)).OfType<SourceTrade>()];
+        Existing = [.. Enumerable.Range(1, existingCount).Select(i => Generate(Agreement, $"{Registration.Code}-{Registration.LegalEntity}-E{i:D5}", false, valueDate)).OfType<SourceTrade>()];
         this.existingCount = existingCount;
         // Drafts the user loaded belong to no counterparty, so they stay through a counterparty change (D07).
-        New = [.. Enumerable.Range(1, 3).Select(i => Generate(Registration, $"DRAFT-{i}", true, valueDate)).OfType<SourceTrade>()];
+        New = [.. Enumerable.Range(1, 3).Select(i => Generate(Agreement, $"DRAFT-{i}", true, valueDate)).OfType<SourceTrade>()];
         trades = Existing.Concat(New).ToDictionary(t => t.TradeId);
         legs = trades.Values.SelectMany(t => t.Legs).ToDictionary(l => l.LegId);
         amounts = trades.Values.SelectMany(t => t.Amounts).ToDictionary(a => a.AmountId);
+        booked = new(() => BookedTrades.On(valueDate));
         // Each ABC entity has a single name; XYZ Industries, an unrated corporate, is proxied.
         Cds = Registration.Key switch
         {
@@ -241,7 +258,7 @@ public sealed class PortfolioSourceVersion : ISourceVersion
         };
         // One registration has an explicit empty CVA recovery: analytics then uses the CDS recovery (docs/03).
         CvaRecovery = Registration.LegalEntity == "LE-01" ? null : 0.35m;
-        Version = $"{registrationKey}@{valueDate:yyyy-MM-dd}#{existingCount}";
+        Version = RowsVersion = $"{registrationKey}@{valueDate:yyyy-MM-dd}#{existingCount}";
     }
 
     /// <summary>Acquires the version a descriptor names again. The synthetic source is deterministic, so it is the same.</summary>
@@ -250,7 +267,73 @@ public sealed class PortfolioSourceVersion : ISourceVersion
         DateOnly.ParseExact(descriptor["valueDate"]!.GetValue<string>(), "yyyy-MM-dd", CultureInfo.InvariantCulture),
         descriptor["existingCount"]!.GetValue<int>());
 
+    // The acquired version with the booked trades a workspace loaded among its new ones, in the order they were loaded.
+    PortfolioSourceVersion(PortfolioSourceVersion acquired, IReadOnlyList<SourceTrade> loaded)
+    {
+        (Registration, Agreement, ValueDate, Existing, Cds, CvaRecovery) = (acquired.Registration, acquired.Agreement, acquired.ValueDate, acquired.Existing, acquired.Cds, acquired.CvaRecovery);
+        (existingCount, booked) = (acquired.existingCount, acquired.booked);
+        New = [.. acquired.New, .. loaded];
+        trades = Existing.Concat(New).ToDictionary(t => t.TradeId);
+        legs = trades.Values.SelectMany(t => t.Legs).ToDictionary(l => l.LegId);
+        amounts = trades.Values.SelectMany(t => t.Amounts).ToDictionary(a => a.AmountId);
+        (Version, RowsVersion) = (acquired.Version, $"{acquired.Version}+{string.Join(',', loaded.Select(t => t.TradeId))}");
+    }
+
+    static readonly ConditionalWeakTable<WorkspaceState, PortfolioSourceVersion> Held = new();
+
+    // The versions lately read with loaded trades, the latest first, by the ids loaded: the states of a workspace follow
+    // one another, and a reading of a line tries a state beside them, so a few are asked for again and again. Each
+    // holds what was worked out of its rows, so no more than a few are kept. Requests of one workspace, and of
+    // workspaces that acquired the same version, read and write the list together: under the lock.
+    ImmutableList<(string Loaded, PortfolioSourceVersion Version)> lately = [];
+    readonly Lock latelyHeld = new();
+    const int KeptLately = 4;
+
+    /// <summary>
+    /// The version a workspace reads its trades from (ADR-0016 note 59): the one it acquired, with the booked trades it
+    /// loaded among its new trades, each as the store holds it on the value date. A trade the store has not got on that
+    /// date is in no grid, as a matured trade of the counterparty is in none. The acquired version itself where the
+    /// workspace loaded none.
+    /// </summary>
+    public static PortfolioSourceVersion Of(WorkspaceState state) => Held.GetValue(state, s =>
+    {
+        var acquired = (PortfolioSourceVersion)s.Source;
+        var loaded = BookedTrades.LoadedBy(s);
+        return loaded.Count == 0 ? acquired : acquired.With(loaded);
+    });
+
+    PortfolioSourceVersion With(IReadOnlyList<string> loaded)
+    {
+        // A trade the store has not got on the value date is past its maturity there, and is in no grid (note 59).
+        var held = loaded.Where(booked.Value.Trades.ContainsKey).Select(id => booked.Value.Trades[id]).ToList();
+        if (held.Count == 0) return this;
+        var key = string.Join(',', held.Select(t => t.TradeId));
+        lock (latelyHeld)
+        {
+            var at = lately.FindIndex(v => v.Loaded == key);
+            if (at == 0) return lately[0].Version;
+            var version = at > 0 ? lately[at].Version : new PortfolioSourceVersion(this, held);
+            lately = [(key, version), .. (at > 0 ? lately.RemoveAt(at) : lately).Take(KeptLately - 1)];
+            return version;
+        }
+    }
+
+    /// <summary>A trade of this version: the counterparty's, a draft, or a booked trade it was made with (<see cref="Of"/>).</summary>
     public SourceTrade? Trade(string tradeId) => trades.GetValueOrDefault(tradeId);
+
+    /// <summary>The store of booked trades as of this version's value date (ADR-0016 note 59).</summary>
+    public BookedTrades.Snapshot Booked => booked.Value;
+
+    /// <summary>
+    /// A trade <see cref="Read"/> answers for: one of this version, or one the store of booked trades holds on the value
+    /// date (ADR-0016 note 59). Which of the two an id names is the id's to say: neither answers where the other has
+    /// nothing. Whether a workspace holds the trade is <see cref="Trade"/>'s to say.
+    /// </summary>
+    internal SourceTrade? Known(string tradeId) => BookedTrades.Names(tradeId) ? booked.Value.Trades.GetValueOrDefault(tradeId) : trades.GetValueOrDefault(tradeId);
+
+    SourceLeg? KnownLeg(string legId) => BookedTrades.TradeNamed(legId) is null ? legs.GetValueOrDefault(legId) : booked.Value.Legs.GetValueOrDefault(legId);
+
+    bool KnowsAmount(string amountId) => BookedTrades.TradeNamed(amountId) is null ? amounts.ContainsKey(amountId) : booked.Value.Amounts.ContainsKey(amountId);
 
     public Csa? CsaOf(string csaId) => Agreement.Csas.SingleOrDefault(c => c.CsaId == csaId);
 
@@ -280,7 +363,7 @@ public sealed class PortfolioSourceVersion : ISourceVersion
         if (PortfolioDetails.Find(kind, field) is not null) return PortfolioDetails.Source(this, entity, field);
         switch (kind)
         {
-            case Entity.Trade when trades.GetValueOrDefault(id) is { } t:
+            case Entity.Trade when Known(id) is { } t:
                 return field switch
                 {
                     "notional" => new(t.Notional),
@@ -303,7 +386,7 @@ public sealed class PortfolioSourceVersion : ISourceVersion
                     _ => null,
                 };
             // A PV leg and an independent amount (ADR-0016 note 49). Each is in the trade until an edit takes it out.
-            case Entity.Leg when legs.GetValueOrDefault(id) is { } leg:
+            case Entity.Leg when KnownLeg(id) is { } leg:
                 return field switch
                 {
                     "currency" => new(leg.Currency),
@@ -312,7 +395,7 @@ public sealed class PortfolioSourceVersion : ISourceVersion
                     Entity.TakenOut => new(false),
                     _ => null,
                 };
-            case Entity.Amount when amounts.ContainsKey(id):
+            case Entity.Amount when KnowsAmount(id):
                 return field == Entity.TakenOut ? new(false) : null;
             case Entity.Csa when CsaOf(id) is { } csa:
                 return field switch
@@ -365,22 +448,24 @@ public sealed class PortfolioSourceVersion : ISourceVersion
         }
     }
 
-    static SourceTrade? Generate(Registration registration, string tradeId, bool isNew, DateOnly valueDate)
+    // A trade held under an agreement, or under none: a draft, and a trade of the store of booked trades, which runs
+    // some years longer than a counterparty's so that the store holds every one of its trades for a while.
+    internal static SourceTrade? Generate(Agreement? agreement, string tradeId, bool isNew, DateOnly valueDate, int yearsLonger = 0)
     {
         var seed = Seed(tradeId);
         var random = new Random(seed);
         var start = new DateOnly(2024, 1, 2).AddDays(random.Next(0, 900));
-        var maturity = start.AddMonths(6 + random.Next(0, 9) * 6);
+        var maturity = start.AddMonths(6 + random.Next(0, 9) * 6).AddYears(yearsLonger);
         if (isNew) maturity = valueDate.AddYears(5);
         else if (maturity <= valueDate) return null;
         var swap = random.NextDouble() < 0.7;
         var currency = random.NextDouble() < 0.6 ? "JPY" : "USD";
         var notional = Math.Round((decimal)(1 + random.Next(1, 100)) * (currency == "JPY" ? 100_000_000m : 1_000_000m), 0);
-        var agreement = PortfolioCatalog.AgreementOf(registration.Key);
-        string? csa = isNew ? null : agreement.Collateralised ? agreement.Csas[random.Next(agreement.Csas.Count)].CsaId : agreement.NoCsa;
+        var held = isNew ? null : agreement;
+        string? csa = held is null ? null : held.Collateralised ? held.Csas[random.Next(held.Csas.Count)].CsaId : held.NoCsa;
         // Every existing trade is held under the counterparty's IM CSAs, where it has them; which regimes it counts under
         // is the classification's, not the holding's (ADR-0012 §2).
-        var (imR, imP) = isNew ? (null, null) : (agreement.ImCsaOf(ImCsaTerms.Collect)?.ImCsaId, agreement.ImCsaOf(ImCsaTerms.Post)?.ImCsaId);
+        var (imR, imP) = held is null ? (null, null) : (held.ImCsaOf(ImCsaTerms.Collect)?.ImCsaId, held.ImCsaOf(ImCsaTerms.Post)?.ImCsaId);
         // Drawn from a generator of its own, so the trades' other values stay as they were before it existed.
         decimal? officialPv = isNew ? null : Math.Round((decimal)(new Random(seed ^ 0x5bd1e995).NextDouble() - 0.5) * notional * 0.02m, 0);
         // A new trade starts on the value date. Its direction is drawn from a generator of its own, as the PV is.
@@ -394,7 +479,7 @@ public sealed class PortfolioSourceVersion : ISourceVersion
             return new(tradeId, isNew, "FXForward", currency, notional, maturity, null, null, null, csa, officialPv,
                 start, buysOrPays ? "buy" : "sell", counter, counterNotional, imR, imP)
             {
-                Legs = officialPv is { } held ? ForwardLegs(tradeId, seed, currency, notional, counter, counterNotional, held, valueDate) : [],
+                Legs = officialPv is { } official ? ForwardLegs(tradeId, seed, currency, notional, counter, counterNotional, official, valueDate) : [],
                 Amounts = isNew ? [] : AmountsOf(tradeId, seed, currency, notional, start, maturity),
             };
         }
@@ -449,6 +534,70 @@ public sealed class PortfolioSourceVersion : ISourceVersion
     }
 }
 
+/// <summary>
+/// The synthetic store of booked trades <c>load trades</c> reads (ADR-0016 note 59): forty trades, <c>B00001</c> to
+/// <c>B00040</c>, of no counterparty, each with the terms the source gives an existing trade. Deterministic by id and
+/// value date; a trade past its maturity on the value date is not in it. Every figure is made up.
+/// </summary>
+public static class BookedTrades
+{
+    // Every trade of the store matures in 2029 or later; from then on, fewer of them are in it.
+    const int YearsLonger = 5;
+
+    /// <summary>Every id the store has, on some value date or other.</summary>
+    public static IReadOnlyList<string> Ids { get; } = [.. Enumerable.Range(1, 40).Select(i => $"B{i:D5}")];
+
+    static readonly HashSet<string> Known = [.. Ids];
+
+    /// <summary>True where the id is one of the store's, as the store spells it.</summary>
+    public static bool Names(string tradeId) => Known.Contains(tradeId);
+
+    /// <summary>
+    /// The store's trade that the id of a trade, or of a leg or an independent amount under one, names
+    /// (<c>B00002</c>, <c>B00002/1</c>); none where the id is of no trade of the store.
+    /// </summary>
+    public static string? TradeNamed(string id)
+    {
+        var at = id.IndexOf('/');
+        var trade = at < 0 ? id : id[..at];
+        return Known.Contains(trade) ? trade : null;
+    }
+
+    /// <summary>The store as of a value date: its trades, and their legs and independent amounts, by id.</summary>
+    public sealed class Snapshot
+    {
+        public IReadOnlyDictionary<string, SourceTrade> Trades { get; }
+        public IReadOnlyDictionary<string, SourceLeg> Legs { get; }
+        public IReadOnlyDictionary<string, SourceAmount> Amounts { get; }
+
+        /// <summary>What names the store as it was read: its value date and how many trades it has then.</summary>
+        public string Version { get; }
+
+        internal Snapshot(DateOnly valueDate)
+        {
+            // A booked trade is under no agreement of the workspace's counterparty, and is brought in as a new trade:
+            // the CSA it would join is the user's question (note 59).
+            Trades = Ids.Select(id => PortfolioSourceVersion.Generate(null, id, false, valueDate, YearsLonger)).OfType<SourceTrade>().ToDictionary(t => t.TradeId, t => t with { IsNew = true });
+            Legs = Trades.Values.SelectMany(t => t.Legs).ToDictionary(l => l.LegId);
+            Amounts = Trades.Values.SelectMany(t => t.Amounts).ToDictionary(a => a.AmountId);
+            Version = $"booked@{valueDate:yyyy-MM-dd}#{Trades.Count}";
+        }
+    }
+
+    public static Snapshot On(DateOnly valueDate) => new(valueDate);
+
+    /// <summary>The entity that says a workspace loaded the trade.</summary>
+    public static string Marker(string tradeId) => Entity.Of(Entity.Loaded, tradeId);
+
+    /// <summary>The trades a workspace loaded, in the order it loaded them, whether or not the store has each on its value date.</summary>
+    public static IReadOnlyList<string> LoadedBy(WorkspaceState state) =>
+        [.. Markers(state).Select(c => Entity.Split(c.Entity).Id)];
+
+    /// <summary>The entities that say a workspace loaded a trade, in the order they were loaded.</summary>
+    public static IReadOnlyList<CreatedEntity> Markers(WorkspaceState state) =>
+        [.. state.Created.Values.Where(c => c.Entity.StartsWith($"{Entity.Loaded}:", StringComparison.Ordinal)).OrderBy(c => c.Seq)];
+}
+
 /// <summary>Entity names in portfolio edit targets: <c>trade:ID</c>, <c>csa:ID</c>, <c>netting:ID</c>,
 /// <c>credit:CODE/LE</c> (a CVA recovery set before it moved to the netting set) and <c>selection:measures</c>.</summary>
 public static class Entity
@@ -462,6 +611,11 @@ public static class Entity
     /// <summary>The field whose edit takes a leg or an independent amount the source holds out of its trade, so that a
     /// reset or an undo brings it back.</summary>
     public const string TakenOut = "out";
+    /// <summary>
+    /// That the workspace loaded a booked trade, <c>loaded:&lt;trade id&gt;</c> (ADR-0016 note 59): the trade's terms stay
+    /// the store's, read on the value date, and this entity alone is the workspace's.
+    /// </summary>
+    public const string Loaded = "loaded";
     public const string Netting = "netting";
     /// <summary>A trade grid as a whole, <c>grid:new</c> or <c>grid:existing</c>: B or A set for every row by one edit.</summary>
     public const string Grid = "grid";

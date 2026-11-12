@@ -408,21 +408,30 @@ public static class Selectors
     }
 
     // The rows ids name in a table. In a table under another (note 46), an id that names no row of it and one row of
-    // the table above names every row under that row; `above` reads an id among the rows above, where there are any.
-    static IReadOnlyList<ITableRow> ById(IReadOnlyList<string> ids, BoundTable table, RowIndex index, IReadOnlyList<ITableRow> all, Func<string, ITableRow?>? above)
+    // the table above names every row under that row. An id as written is read before the end of one (note 7), above
+    // as here: the whole id of a row above is that row's rows, though some row here ends with it (note 58).
+    static IReadOnlyList<ITableRow> ById(IReadOnlyList<string> ids, BoundTable table, RowIndex index, IReadOnlyList<ITableRow> all, (RowIndex Index, string Word)? above)
     {
+        IReadOnlyList<ITableRow> Under(ITableRow over, string id) => all.Where(r => r.Under == over.Key).ToList() is { Count: > 0 } under ? under
+            : throw new TableRefused("NoRowMatches", $"{over.Key} has no {table.Word}.", id);
         var named = new List<ITableRow>(ids.Count);
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var id in ids)
         {
-            IReadOnlyList<ITableRow> rows = RowsNamed(id, index) switch
-            {
-                [var one] => [one],
-                [] when above?.Invoke(id) is { } over => all.Where(r => r.Under == over.Key).ToList() is { Count: > 0 } under ? under
-                    : throw new TableRefused("NoRowMatches", $"{over.Key} has no {table.Word}.", id),
-                [] => throw UnknownRow(id, all, table.Word),
-                var several => throw AmbiguousRow(id, several, table.Word),
-            };
+            IReadOnlyList<ITableRow> rows = index.Row(id) is { } own ? [own]
+                : above?.Index.Row(id) is { } whole ? Under(whole, id)
+                : index.Ending(id) switch
+                {
+                    [var one] => [one],
+                    [] when above is { } over => over.Index.Ending(id) switch
+                    {
+                        [var one] => Under(one, id),
+                        [] => throw UnknownRow(id, all, table.Word),
+                        var several => throw AmbiguousRow(id, several, over.Word),
+                    },
+                    [] => throw UnknownRow(id, all, table.Word),
+                    var several => throw AmbiguousRow(id, several, table.Word),
+                };
             foreach (var row in rows)
             {
                 if (!seen.Add(row.Key)) throw new TableRefused("RowTwice", $"{row.Key} is named twice; name each row once.", id);
@@ -432,18 +441,13 @@ public static class Selectors
         return named;
     }
 
-    // How an id is read among the rows of the table above a table (note 46), as that table's ids are read: the row it
-    // names, none where it names none, and a refusal where its end names several. Null for a table under no other.
-    static Func<string, ITableRow?>? Above(BoundTable table, IReadOnlyList<BoundTable> tables, Func<BoundTable, RowIndex> indexOf)
+    // The rows of the table above a table (note 46), with that table's word, where an id is read as that table's ids
+    // are. Null for a table under no other.
+    static (RowIndex Index, string Word)? Above(BoundTable table, IReadOnlyList<BoundTable> tables, Func<BoundTable, RowIndex> indexOf)
     {
         if (table.Descriptor.Under is not { } under) return null;
         var above = tables.Single(t => t.Descriptor.TableId == under);
-        return id => RowsNamed(id, indexOf(above)) switch
-        {
-            [var one] => one,
-            [] => null,
-            var several => throw AmbiguousRow(id, several, above.Word),
-        };
+        return (indexOf(above), above.Word);
     }
 
     /// <summary>The rows an id names among those indexed (note 7): the one of that id as written, or else every row whose id ends with it.</summary>
@@ -531,7 +535,8 @@ static partial class Conditions
     /// <param name="Compares">Whether it sets a value beside the rows'; false where it only asks whether a row has one.</param>
     public sealed record Compiled(string Text, Func<ITableRow, bool> Holds, bool Compares = true);
 
-    enum Kind { Number, Date, Flag, Text }
+    // Money is a number with what it is in (note 58): compared with its unit said, and never across units.
+    enum Kind { Number, Date, Flag, Text, Money }
 
     public static IReadOnlyList<Compiled> Compile(IReadOnlyList<Condition> conditions, BoundTable table, IReadOnlyList<ITableRow> rows, WorkspaceState state)
     {
@@ -557,6 +562,7 @@ static partial class Conditions
     {
         FieldForm.Date => Kind.Date,
         FieldForm.Flag => Kind.Flag,
+        FieldForm.Money => Kind.Money,
         FieldForm.Period or FieldForm.PeriodOrDate or FieldForm.Choice or FieldForm.Id => Kind.Text,
         _ => throw new InvalidOperationException($"No comparing of {field.Form}."),
     };
@@ -564,7 +570,7 @@ static partial class Conditions
     /// <summary>The operators a condition on the field takes, as <see cref="One"/> accepts them: an order for numbers and dates, <c>~</c> for text.</summary>
     public static IReadOnlyList<string> OperatorsOf(TableField field) => KindOf(field) switch
     {
-        Kind.Number or Kind.Date => ["=", "!=", "<", "<=", ">", ">=", SelectorReader.InWord],
+        Kind.Number or Kind.Date or Kind.Money => ["=", "!=", "<", "<=", ">", ">=", SelectorReader.InWord],
         Kind.Flag => ["=", "!=", SelectorReader.InWord],
         _ => ["=", "!=", "~", SelectorReader.InWord],
     };
@@ -573,7 +579,7 @@ static partial class Conditions
     {
         var word = TableWords.Word(field);
         var kind = KindOf(field);
-        var what = kind switch { Kind.Number => "a number", Kind.Date => "a date", Kind.Flag => "a flag", _ => "text" };
+        var what = kind switch { Kind.Number => "a number", Kind.Date => "a date", Kind.Flag => "a flag", Kind.Money => "a number with what it is in", _ => "text" };
         switch (condition.Operator)
         {
             case "<" or "<=" or ">" or ">=" when kind is Kind.Text or Kind.Flag:
@@ -599,6 +605,12 @@ static partial class Conditions
         {
             var reading = FieldForms.Read(spec, text);
             if (reading.Problem != FieldForms.Problem.None) throw new TableRefused("InvalidValue", $"{word} is {reading.What}; {text} is not.", text);
+            // A number alone would be compared with values in every unit, which is no comparison (ADR-0016 §2).
+            if (kind == Kind.Money && reading.Value is { } money && money["unit"] is null)
+            {
+                var units = (field.Choices ?? throw new InvalidOperationException($"{field.Name} is in nothing a condition could say.")).Values.Distinct().ToList();
+                throw new TableRefused("InvalidValue", $"{word} is compared with what it is in, {TableWords.Or(units)}; {text} says {(units.Count == 2 ? "neither" : "none")}.", text, units);
+            }
             return kind == Kind.Date && reading.Value is { } typed ? Dated(typed.GetValue<string>(), word, table, state) : reading.Value;
         }).ToList();
         var written = TableWords.List(values.Select(v => FieldForms.Write(field.Spec with { Optional = true }, v)));
@@ -615,14 +627,18 @@ static partial class Conditions
             _ => kind switch
             {
                 Kind.Number => FieldForms.Held(held) == FieldForms.Held(asked),
+                Kind.Money => FieldForms.Same(held, asked),
                 Kind.Flag => held.GetValue<bool>() == asked.GetValue<bool>(),
                 Kind.Date => string.Equals(Written(held), Written(asked), StringComparison.Ordinal),
                 _ => string.Equals(Written(held), Written(asked), StringComparison.OrdinalIgnoreCase),
             },
         };
         // Less than nothing and more than nothing are both false: a row with no value is in no order.
+        // And so is a number in another unit than the one asked: it is neither less nor more.
         int? Order(JsonNode? held) => held is null || values[0] is not { } asked ? null
-            : kind == Kind.Number ? FieldForms.Held(held).CompareTo(FieldForms.Held(asked)) : string.CompareOrdinal(Written(held), Written(asked));
+            : kind == Kind.Number ? FieldForms.Held(held).CompareTo(FieldForms.Held(asked))
+            : kind == Kind.Money ? FieldForms.Same(held["unit"], asked["unit"]) ? FieldForms.Held(Amount(held)).CompareTo(FieldForms.Held(Amount(asked))) : null
+            : string.CompareOrdinal(Written(held), Written(asked));
 
         var compares = values.Any(v => v is not null);
         return condition.Operator switch
@@ -658,6 +674,8 @@ static partial class Conditions
     }
 
     static string Written(JsonNode value) => value.GetValueKind() == JsonValueKind.String ? value.GetValue<string>() : value.ToJsonString();
+
+    static JsonNode Amount(JsonNode money) => money["amount"] ?? throw new InvalidOperationException("A number with what it is in holds its amount.");
 
     [GeneratedRegex("[0-9],[0-9]{3}(?![0-9])")]
     private static partial Regex GroupedDigits();

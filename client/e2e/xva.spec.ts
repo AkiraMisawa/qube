@@ -1169,7 +1169,7 @@ test('ADR-0016 §2, §9, notes 16, 17, 19: the CSA grid is a screen of the CSAs,
   await expect(line).toBeFocused();
   await page.keyboard.type('set threshold 5mm');
   // With no rows on screen `threshold` is no field of theirs: the first word is read as a row, as it always was.
-  await expect(read).toHaveText('No row threshold in trades, legs, independent amounts, csas, netting, credit, cds, workspace or xva.');
+  await expect(read).toHaveText('No row threshold in trades, legs, independent amounts, csas, scenarios, shifts, netting, credit, cds, workspace or xva.');
   await expect(screen).toHaveCount(0);
 });
 
@@ -2623,4 +2623,47 @@ test('ADR-0016 notes 46 to 49: each trade grid shows PV in the display currency,
   await expect(cell(page, swap, 15)).not.toHaveClass(/ex-state-modified/);
   // One edit is left, the new trade's leg: the swap's cell committed as it stood made none.
   await expect(page.getByTestId('workspace-summary')).toContainText('1 edit(s)');
+});
+
+test('ADR-0016 note 59: `load trades` offers the booked trades as it is typed and puts them in the New grid, where one is set and removed as a new trade is, the Changes tab removes the other, and `undo` brings it back', async ({ page }) => {
+  await open(page);
+  await newWorkspace(page, 'ABC/LE-01', 5);
+  const summary = page.getByTestId('workspace-summary');
+  const notice = page.getByTestId('notice');
+  const line = page.getByRole('combobox', { name: 'Command' });
+  const loaded = (id: string) => page.getByLabel('New trades', { exact: true }).getByRole('row', { name: new RegExp(`^${id} `) });
+
+  // The store's ids are offered as the line is typed, each with what the trade is, and the line says what it would load.
+  await page.keyboard.press('ControlOrMeta+K');
+  await expect(line).toBeFocused();
+  await page.keyboard.type('load trades B0001');
+  await expect(page.getByRole('option', { name: /^B00012/ })).toContainText('IRS JPY 2.6bn');
+  await page.keyboard.type('2, B00002');
+  await expect(page.getByTestId('command-preview')).toContainText('Loads B00012 (IRS JPY 2.6bn) and B00002 (FXForward USD 25mm) as new trades.');
+  await page.keyboard.press('Enter');
+  await expect(line).toBeHidden();
+  await expect(notice).toHaveText('Loaded B00012 and B00002 as new trades.');
+  // The grid draws them after the trades the workspace made, with the store's terms, and each is an edit.
+  await expect(loaded('B00012')).toContainText('2,600,000,000');
+  await expect(loaded('B00002')).toContainText('FXForward');
+  await expect(summary).toContainText('7 trades · 2 edit(s)');
+
+  // A loaded trade takes a value and is removed by the words any new trade is.
+  await taken(page, 'set', 'B00012 notional 3bn');
+  await expect(loaded('B00012')).toContainText('3,000,000,000');
+  await taken(page, 'remove', 'trades B00012');
+  await expect(notice).toHaveText('Removed B00012.');
+  await expect(loaded('B00012')).toHaveCount(0);
+  await expect(summary).toContainText('6 trades · 1 edit(s)');
+
+  // The Changes tab lists the other as loaded, and its Remove takes the trade out of the workspace.
+  await command(page, 'open changes');
+  const changes = page.getByRole('table', { name: 'Changes' });
+  await expect(changes.getByRole('row', { name: /^B00002 / })).toContainText('loaded');
+  await changes.getByRole('button', { name: 'Remove B00002 in Common' }).click();
+  await expect(loaded('B00002')).toHaveCount(0);
+  await expect(summary).toContainText('5 trades · 0 edit(s)');
+  await taken(page, 'undo');
+  await expect(notice).toHaveText('Took back: remove trades B00002. redo puts it back.');
+  await expect(loaded('B00002')).toContainText('25,000,000');
 });

@@ -1,6 +1,6 @@
 # Generic commands, delivery step 5: rows under a row, templates, and drafts
 
-Status: in progress (5a, 5b and 5c built; 5d next)
+Status: built (5a, 5b, 5c and 5d; ticket 16's place of a row's button is left for the owner)
 
 The decisions are ADR-0016 §1 (a table under a row, a figure, templates) and §10 (a dialog is a draft), with its
 notes of 2026-11-11 for step 5 (46 onward). This spec orders ADR-0016's Delivery order, step 5, and names the seams
@@ -123,7 +123,9 @@ shifts under it. `load trades <ids>` reads booked trades from a synthetic store 
 - **Scenarios.** `xva.scenarios`, a row a scenario, with `xva.shifts` under it; the scenario verbs of note 32 stay
   as short ways to say the same edits.
 - **`load trades <ids>`** reads the ids from a synthetic store of booked trades of the counterparty and makes each
-  a new trade of the workspace; an id the store has not is refused by name, and none is loaded.
+  a new trade of the workspace; an id the store has not is refused by name, and none is loaded. *As built:* the
+  store is of no counterparty, and the workspace holds that it loaded a trade, not a copy of its terms (ADR-0016
+  note 59 says why).
 
 ## Testing Decisions
 

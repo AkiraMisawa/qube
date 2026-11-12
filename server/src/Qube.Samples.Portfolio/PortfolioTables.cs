@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Globalization;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using Qube.Composition.Application;
@@ -148,6 +149,58 @@ public static partial class PortfolioFields
         new("value", "Value", ["value"], FieldForm.Number, UnitField: "currency"),
     ];
 
+    static readonly IReadOnlyDictionary<string, string> Indices = FieldChoices.Of(ScenarioCatalog.Indices.Select(i => i.Id));
+    static readonly IReadOnlyDictionary<string, string> Factors = FieldChoices.Of([PortfolioScenarios.WholeIndex, ScenarioCatalog.Spot, .. ScenarioCatalog.AnyTenor]);
+    static readonly IReadOnlyDictionary<string, string> ShiftUnits = FieldChoices.Of([ScenarioCatalog.Bp, ScenarioCatalog.Percent]);
+
+    /// <summary>
+    /// A scenario's fields (ADR-0016 note 58): its key, its name as the workspace holds it, how many shifts it holds,
+    /// whether Price prices it, which a command sets, and why Price cannot price it, where it cannot.
+    /// </summary>
+    public static IReadOnlyList<TableField> Scenario { get; } =
+    [
+        new("scenarioId", "Scenario", ["scenario id", "id"], FieldForm.Id),
+        new("name", "Name", ["name"], FieldForm.Id),
+        new("count", "Shifts", ["count", "shift count"], FieldForm.Number),
+        new("included", "Included", ["included"], FieldForm.Flag, Editable: true),
+        new("issue", "Issue", ["issue"], FieldForm.Id, Optional: true),
+    ];
+
+    /// <summary>
+    /// A shift's fields (ADR-0016 note 58), in the order of the Scenarios grid's columns. Category and Shift type follow
+    /// the index and the size, and are read. A size is a number with the unit that says how the index shifts, bp or %
+    /// (ADR-0010 §4): no form turns one into the other.
+    /// </summary>
+    public static IReadOnlyList<TableField> Shift { get; } =
+    [
+        new("shiftId", "Shift", ["shift id", "id"], FieldForm.Id),
+        new("scenario", "Scenario", ["scenario"], FieldForm.Id, Optional: true, Table: PortfolioTables.Scenarios),
+        new("category", "Category", ["category"], FieldForm.Id, Optional: true),
+        new("index", "Index", ["index"], FieldForm.Choice, Editable: true, Choices: Indices),
+        new("factor", "Risk factor", ["factor", "risk factor", "tenor"], FieldForm.Choice, Editable: true, Choices: Factors),
+        new("type", "Shift type", ["type", "shift type"], FieldForm.Id, Optional: true),
+        new("size", "Size", ["size"], FieldForm.Money, Editable: true, Choices: ShiftUnits),
+        new("description", "Description", ["description"], FieldForm.Id, Editable: true, Optional: true),
+        new("issue", "Issue", ["issue"], FieldForm.Id, Optional: true),
+    ];
+
+    /// <summary>The value a scenario holds in a field; its key is the table's.</summary>
+    public static JsonNode? Value(string key, ScenarioView s, string field) => field switch
+    {
+        "scenarioId" => key, "name" => s.Name, "count" => s.Shifts, "included" => s.Included, "issue" => s.Issue,
+        _ => throw new InvalidOperationException($"A scenario has no {field}."),
+    };
+
+    /// <summary>The value a shift holds in a field; its key and its scenario's are the table's. A size is its amount and its unit.</summary>
+    public static JsonNode? Value(string key, string? scenario, ShiftRow r, string field) => field switch
+    {
+        "shiftId" => key, "scenario" => scenario, "category" => r.Category, "index" => r.Index, "factor" => r.Factor, "type" => r.Type,
+        "size" => r.Size is not { } size ? null
+            : r.Type is null ? new JsonObject { ["amount"] = size } : new JsonObject { ["amount"] = size, ["unit"] = ScenarioCatalog.UnitOfType(r.Type) },
+        "description" => r.Description, "issue" => r.Issue,
+        _ => throw new InvalidOperationException($"A shift has no {field}."),
+    };
+
     /// <summary>The value a leg holds in a field.</summary>
     public static JsonNode? Value(EffectiveLeg l, string field) => field switch
     {
@@ -217,6 +270,10 @@ public sealed class PortfolioTables(MeasureRegister register) : ITableCatalog
     public const string Legs = "xva.legs";
     /// <summary>A trade's independent amounts, under the trades (ADR-0016 note 49).</summary>
     public const string Amounts = "xva.amounts";
+    /// <summary>The scenarios Price prices beside the base market (ADR-0016 note 58).</summary>
+    public const string Scenarios = "xva.scenarios";
+    /// <summary>A scenario's shifts, under the scenarios (ADR-0016 note 58).</summary>
+    public const string Shifts = "xva.shifts";
     public const string Netting = "xva.netting";
     public const string Credit = "xva.credit";
     public const string Cds = "xva.cds";
@@ -237,6 +294,9 @@ public sealed class PortfolioTables(MeasureRegister register) : ITableCatalog
             reading => [.. PortfolioLegs.Amounts(reading).Select(a => new Row(reading, Entity.Of(Entity.Amount, a.AmountId), a.AmountId, null, f => PortfolioFields.Value(a, f), a.TradeId))]),
         // `csa` alone is a trade's field, which a line with trades selected sets (ADR-0016 note 18 of step 2): the table is `csas`.
         new CsaTable(checks),
+        // The scenarios, and under them their shifts (ADR-0016 note 58): `shifts parallel_up` is a scenario's shifts.
+        new ScenarioTable(checks),
+        new ShiftTable(checks),
         OneRow(checks, Described(Netting, "Netting set", ["netting"], "nettingSetId", PortfolioFields.Netting, one: true), reading =>
         {
             var id = Source(reading).Agreement.NettingSetId;
@@ -282,7 +342,7 @@ public sealed class PortfolioTables(MeasureRegister register) : ITableCatalog
         new(checks, descriptor, reading => row(reading) is { } one ? [one] : [],
             _ => $"{descriptor.Words[0]} is always one row: a command changes its values and never removes it.", whyEmpty);
 
-    static PortfolioSourceVersion Source(WorkspaceState state) => (PortfolioSourceVersion)state.Source;
+    static PortfolioSourceVersion Source(WorkspaceState state) => PortfolioSourceVersion.Of(state);
 
     /// <summary>
     /// A row as a command reads it: the Base it was read on, the entity its edits are on (<c>trade:ID</c>), and its values
@@ -328,6 +388,11 @@ public sealed class PortfolioTables(MeasureRegister register) : ITableCatalog
 
         public virtual IReadOnlyList<WorkspaceChange>? SetAll(WorkspaceState state, TableSubset subset, TableField field, JsonNode? value) => null;
 
+        // No rows of most tables share what holds a value (ADR-0016 note 58): each is written, and removed, alone.
+        public virtual IReadOnlyList<WorkspaceChange>? SetRows(WorkspaceState state, IReadOnlyList<ITableRow> rows, TableField field, JsonNode? value) => null;
+
+        public virtual IReadOnlyList<WorkspaceChange>? RemoveRows(WorkspaceState state, IReadOnlyList<ITableRow> rows) => null;
+
         public virtual string? SetSays(WorkspaceState state, ITableRow row, TableField field, JsonNode? value) => null;
 
         public virtual IReadOnlyList<WorkspaceChange> Reset(WorkspaceState state, ITableRow row, TableField? field) =>
@@ -349,6 +414,99 @@ public sealed class PortfolioTables(MeasureRegister register) : ITableCatalog
         // The one table of the pricer that lists templates says what each writes; the others keep the kernel's answer.
         IReadOnlyDictionary<string, JsonNode?> IWorkspaceTable.TemplateValues(WorkspaceState state, TableTemplate template, IReadOnlyDictionary<string, JsonNode?> terms) =>
             CsaTemplates.Values(template, terms);
+    }
+
+    /// <summary>
+    /// The scenarios (ADR-0016 note 58): a row a scenario, which is the shifts that name it. Whether Price prices one is
+    /// in the workspace's one list of those left out, so the rows a command names are written, and removed, as one.
+    /// </summary>
+    sealed class ScenarioTable(PortfolioChecks checks) : Table(checks, Described(Scenarios, "Scenarios", ["scenarios"], "scenarioId", PortfolioFields.Scenario),
+        reading => [.. PortfolioScenarios.Keyed(reading).Scenarios.Select(s => new ScenarioRow(reading, s.Key, s.Scenario))],
+        row => throw new InvalidOperationException($"{row.Key} is removed as any scenario is."))
+    {
+        const string Included = "included";
+
+        // A scenario is no entity of the workspace: its row says the name its shifts hold, which an edit is made by.
+        sealed class ScenarioRow(WorkspaceState reading, string key, ScenarioView scenario)
+            : Row(reading, Entity.Of(PortfolioScenarios.ScenariosKind, scenario.Name), key, null, f => PortfolioFields.Value(key, scenario, f), made: true)
+        {
+            public string Name => scenario.Name;
+        }
+
+        static IReadOnlyList<string> Names(IEnumerable<ITableRow> rows) => [.. rows.Select(r => ((ScenarioRow)r).Name)];
+
+        public override IReadOnlyList<WorkspaceChange> Set(WorkspaceState state, ITableRow row, TableField field, JsonNode? value) => Written(state, [row], field, value);
+
+        public override IReadOnlyList<WorkspaceChange>? SetRows(WorkspaceState state, IReadOnlyList<ITableRow> rows, TableField field, JsonNode? value) => Written(state, rows, field, value);
+
+        static IReadOnlyList<WorkspaceChange> Written(WorkspaceState state, IReadOnlyList<ITableRow> rows, TableField field, JsonNode? value) =>
+            field.Name == Included && value is not null ? PortfolioScenarios.Include(state, Names(rows), value.GetValue<bool>())
+                : throw new InvalidOperationException($"A scenario's {field.Name} is not written as {value?.ToJsonString() ?? "nothing"}.");
+
+        // Whether a scenario is priced is no edit of something a source gave: there is nothing for it to go back to.
+        public override IReadOnlyList<WorkspaceChange> Reset(WorkspaceState state, ITableRow row, TableField? field) =>
+            throw new WorkspaceRefused("NotResettable", $"{row.Key} is a scenario the workspace made, and has nothing to go back to: set {row.Key} {Included} on prices it, and off leaves it out.");
+
+        public override IReadOnlyList<WorkspaceChange> Remove(WorkspaceState state, ITableRow row) => PortfolioScenarios.Remove(state, Names([row]));
+
+        public override IReadOnlyList<WorkspaceChange>? RemoveRows(WorkspaceState state, IReadOnlyList<ITableRow> rows) => PortfolioScenarios.Remove(state, Names(rows));
+    }
+
+    /// <summary>
+    /// A scenario's shifts, under the scenarios (ADR-0016 note 58). A write is the Scenarios grid's own edit of that cell
+    /// (<see cref="PortfolioScenarios.EditHeld"/>), so a cell has one reader whichever door a value came through. The
+    /// rows a command names are one edit: a scenario whose last shifts go leaves the list of those left out of Price.
+    /// </summary>
+    sealed class ShiftTable(PortfolioChecks checks) : Table(checks, Described(Shifts, "Shifts", ["shifts", "shift"], "shiftId", PortfolioFields.Shift, under: Scenarios),
+        reading => [.. PortfolioScenarios.Keyed(reading).Shifts.Select(s => new ShiftAt(reading, s.Key, s.Under, s.Shift))],
+        row => throw new InvalidOperationException($"{row.Key} is removed as any shift is."))
+    {
+        const string Size = "size";
+
+        // Every cell of the grid's row cleared, which removes the row.
+        static readonly IReadOnlyDictionary<string, string?> Cleared = PortfolioScenarios.Columns.ToDictionary(c => c, _ => (string?)null);
+
+        sealed class ShiftAt(WorkspaceState reading, string key, string? under, ShiftRow shift)
+            : Row(reading, Entity.Of(PortfolioScenarios.ShiftKind, shift.Id), key, null, f => PortfolioFields.Value(key, under, shift, f), under, made: true)
+        {
+            public ShiftRow Shift => shift;
+        }
+
+        static IReadOnlyList<WorkspaceChange> Edited(WorkspaceState state, IEnumerable<ITableRow> rows, Func<ShiftAt, IReadOnlyDictionary<string, string?>> cells) =>
+            PortfolioScenarios.EditHeld(state, [.. rows.Cast<ShiftAt>().Select(r => new ShiftEdit(r.Shift.Id, r.Shift.Row, cells(r), r.Key))]);
+
+        public override IReadOnlyList<WorkspaceChange> Set(WorkspaceState state, ITableRow row, TableField field, JsonNode? value) =>
+            Edited(state, [row], r => new Dictionary<string, string?> { [field.Name] = Typed(r, field, value) });
+
+        public override IReadOnlyList<WorkspaceChange>? SetRows(WorkspaceState state, IReadOnlyList<ITableRow> rows, TableField field, JsonNode? value) =>
+            Edited(state, rows, r => new Dictionary<string, string?> { [field.Name] = Typed(r, field, value) });
+
+        // A value as the grid's cell takes it typed. A size says its unit, as `scenario` has it said (ADR-0010 §4): the
+        // unit says how the index shifts, and a command that left it out would be read by the index alone.
+        static string? Typed(ShiftAt row, TableField field, JsonNode? value)
+        {
+            if (field.Name != Size || value is null) return value?.GetValue<string>();
+            var amount = FieldForms.Held(value["amount"] ?? throw new InvalidOperationException("A size holds its amount."));
+            if (value["unit"] is { } unit) return $"{amount.ToString(Plain, CultureInfo.InvariantCulture)}{unit.GetValue<string>()}";
+            var index = row.Shift.Index is { } held ? ScenarioCatalog.Find(held) : null;
+            throw new WorkspaceRefused("InvalidShift", index is null
+                ? $"{row.Key} size has no unit, and the unit says how it shifts: write +10bp for a curve or -5% for an FX rate."
+                : $"{row.Key} size has no unit, and the unit says how it shifts: write {Qube.Samples.Portfolio.Shift.Signed(amount, ScenarioCatalog.UnitOfType(ScenarioCatalog.TypeOf(index.Category)))}.");
+        }
+
+        // Every digit a decimal holds, and no exponent: the grid reads the number back as it was written.
+        const string Plain = "0.############################";
+
+        // The fields of the shift's entity that hold a field of the table: the factor is its tenor, and a size its unit too.
+        static IEnumerable<string> HeldIn(string field) => field switch { "factor" => ["tenor"], Size => [Size, "unit"], _ => [field] };
+
+        // A shift reset goes back to what it was made as; the scenario it names is not a field a command writes.
+        public override IReadOnlyList<WorkspaceChange> Reset(WorkspaceState state, ITableRow row, TableField? field) =>
+            Resets(state, ((Row)row).EntityId, (field is null ? Whole.Fields.Where(f => f.Editable) : [field]).SelectMany(f => HeldIn(f.Name)));
+
+        public override IReadOnlyList<WorkspaceChange> Remove(WorkspaceState state, ITableRow row) => Edited(state, [row], _ => Cleared);
+
+        public override IReadOnlyList<WorkspaceChange>? RemoveRows(WorkspaceState state, IReadOnlyList<ITableRow> rows) => Edited(state, rows, _ => Cleared);
     }
 
     /// <summary>
@@ -377,6 +535,10 @@ public sealed class PortfolioTables(MeasureRegister register) : ITableCatalog
         reading => Read(register, reading),
         row => $"{row.Key} is a trade the workspace was given, not one it made: take it out of After with set {row.Key} A off.")
     {
+        // A booked trade the workspace loaded is removed (ADR-0016 note 59); one the source gave is refused, as before.
+        public override IReadOnlyList<WorkspaceChange> Remove(WorkspaceState state, ITableRow row) =>
+            BookedTrades.LoadedBy(state).Contains(row.Key) ? PortfolioWorkspaces.Unload(state, row.Key) : base.Remove(state, row);
+
         static readonly IReadOnlyList<string> Sides = ["before", "after"];
 
         // The table as a selection of modules and a display currency have it, described once for each met.

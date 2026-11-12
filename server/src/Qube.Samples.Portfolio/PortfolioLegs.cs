@@ -53,7 +53,7 @@ public static class PortfolioLegs
 
     static Standing Of(WorkspaceState reading) => Read.GetValue(reading, ReadAll);
 
-    static PortfolioSourceVersion Source(WorkspaceState state) => (PortfolioSourceVersion)state.Source;
+    static PortfolioSourceVersion Source(WorkspaceState state) => PortfolioSourceVersion.Of(state);
 
     static bool Under(string entity) => entity.StartsWith($"{Entity.Leg}:", StringComparison.Ordinal) || entity.StartsWith($"{Entity.Amount}:", StringComparison.Ordinal);
 

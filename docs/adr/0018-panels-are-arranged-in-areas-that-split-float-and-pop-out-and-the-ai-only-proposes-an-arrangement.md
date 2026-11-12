@@ -141,8 +141,8 @@ one area: `split panel` is refused in it, and a drop onto its edge is not offere
 in the window. Where a floating panel came from is kept by the browser tab with the arrangement (§7), and is read from
 dockview's own move, so a float by the pointer or by Shift is docked back as one by the line is. And of §11's step 1,
 the pricer's part (its section switch, its full-height button and `xva.css` reading its area, ticket 07's rest) is a
-pull request of its own after ADR-0016's step 5d, which changes the same files: until it merges, the pricer reads the
-window, and in a short area its grids scroll under its result dock as they do in a window that short.
+pull request of its own after ADR-0016's step 5d, which changed the same files and merged while step 1's was open:
+until the pricer's merges, it reads the window, and in a short area its grids scroll under its result dock as they do in a window that short.
 
 Two sentences of §4 are read so, DEFAULTs put to the owner with that pull request too. While the panels stand in one
 area, no area is framed: its selected tab already says which panel the line acts on, as in the strip, and the frame

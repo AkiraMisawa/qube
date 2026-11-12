@@ -22,6 +22,7 @@ public static partial class PortfolioCommandContracts
     public const string MeasuresRequest = "xva.measures-request";
     public const string CaseRemoveRequest = "xva.case-remove-request";
     public const string CasesClearRequest = "xva.cases-clear-request";
+    public const string TradesLoadRequest = "xva.trades-load-request";
     public const string CasesMade = "xva.cases-made";
     public const string Edited = "xva.workspace-edited";
 
@@ -47,6 +48,23 @@ public static partial class PortfolioCommandContracts
     public static string WouldAdd(AddPlan plan) =>
         string.Join("; ", new[] { $"Makes {plan.Made.Count} case(s): {string.Join(", ", plan.Made)}" }
             .Concat(plan.Replaced.Count == 0 ? [] : [$"replaces {string.Join(", ", plan.Replaced)}"])) + ".";
+
+    /// <summary>The trades a load names, as its sentence says them: <c>B00012 and B00013 as new trades</c>.</summary>
+    public static string AsNew(IEnumerable<string> trades)
+    {
+        var named = trades.ToList();
+        return $"{TableWords.And(named)} as {(named.Count == 1 ? "a new trade" : "new trades")}";
+    }
+
+    /// <summary>What a booked trade is, in the three words a line tells one from another by: <c>IRS JPY 2.6bn</c>.</summary>
+    public static string Terms(SourceTrade trade) => $"{trade.Product} {trade.Currency} {FieldForms.Write(new(FieldForm.SignedAmount), trade.Notional)}";
+
+    /// <summary>
+    /// What a reading of <c>load trades</c> says it would load (ADR-0016 note 59): each trade with its product, its
+    /// currency and its notional, as the store holds it on the value date.
+    /// </summary>
+    public static string WouldLoad(LoadPlan plan) =>
+        $"Loads {AsNew(plan.Loaded.Select(t => $"{t.TradeId} ({Terms(t)})"))}.";
 
     /// <summary>The cases a command removes, counted and named: <c>2 cases: a and b</c>.</summary>
     public static string Cases(CasesPlan plan) =>
@@ -222,7 +240,7 @@ public sealed class PortfolioCds(Func<PortfolioWorkspaces> workspaces) : ICapabi
         {
             var workspaceId = CommandRequests.Text(request, "workspaceId");
             var (state, credit) = service.ChooseCds(workspaceId, revision, caller.UserId, CommandRequests.Text(request, "cds"), caller.Origin);
-            return (state, null, PortfolioWorkspaces.CdsSaid(((PortfolioSourceVersion)state.Source).Registration, credit));
+            return (state, null, PortfolioWorkspaces.CdsSaid(PortfolioSourceVersion.Of(state).Registration, credit));
         });
 }
 
@@ -333,6 +351,53 @@ public sealed class PortfolioCasesClear(Func<PortfolioWorkspaces> workspaces) : 
         });
 }
 
+/// <summary>
+/// <c>xva.trades.load</c>, typed <c>load trades B00012, B00013</c> (ADR-0016 §3, note 59): booked trades of the synthetic
+/// store, by their ids, become new trades of the workspace. It computes nothing. Its reading is a trial: the trades it
+/// would load, each with its product, currency and notional.
+/// </summary>
+public sealed class PortfolioTradesLoad(Func<PortfolioWorkspaces> workspaces) : ICapabilityHandler, ILineCommand
+{
+    public CapabilityDescriptor Descriptor { get; } = new("xva.trades.load", PortfolioContracts.Version,
+        "Load booked trades into an XVA workspace as new trades, by their ids, such as load trades B00012, B00013",
+        [new("request", PortfolioCommandContracts.TradesLoadRequest, PortfolioContracts.Version, Cardinality.One)],
+        [new("answer", PortfolioCommandContracts.Edited, PortfolioContracts.Version, Cardinality.One)],
+        ExecutionKind.RequestResponse, [CapabilityEffect.EditWorkspace],
+        new(["load trades"], [new("trades", CommandArgumentKind.Text, Required: true)], PortfolioEditRules.App));
+
+    public LineRead Read(LineContext line)
+    {
+        var typed = line.Text.Trim();
+        var plan = PortfolioWorkspaces.PlanLoad(line.State, typed);
+        workspaces().Trial(line.State, line.Caller.UserId, plan.Command, line.Caller.Origin);
+        return PortfolioCommand.Read(line, new JsonObject { ["trades"] = typed }, PortfolioCommandContracts.WouldLoad(plan));
+    }
+
+    /// <summary>
+    /// The store's ids that begin with the word being typed, each with what the trade is, without those the line names
+    /// already and those the workspace has loaded. A trade the store has not on the value date is not offered.
+    /// </summary>
+    public LineCompletions Complete(LineContext line)
+    {
+        if (line.Text.Length == 0) return LineCompletions.None;
+        var from = line.Text.LastIndexOfAny([',', ' ']) + 1;
+        var (done, typing) = (line.Text[..from].Split([',', ' '], StringSplitOptions.RemoveEmptyEntries), line.Text[from..]);
+        var held = BookedTrades.LoadedBy(line.State).ToHashSet();
+        var offered = PortfolioSourceVersion.Of(line.State).Booked.Trades.Values
+            .Where(t => t.TradeId.StartsWith(typing, StringComparison.OrdinalIgnoreCase) && !held.Contains(t.TradeId) && !done.Contains(t.TradeId, StringComparer.OrdinalIgnoreCase))
+            .Select(t => new LineCompletion(t.TradeId, from, PortfolioCommandContracts.Terms(t))).ToList();
+        // As many at a time as a line lists of a table's rows, with how many more there are.
+        return new([.. offered.Take(LineCompletions.RowsListed)], Math.Max(0, offered.Count - LineCompletions.RowsListed));
+    }
+
+    public Task<IReadOnlyDictionary<string, JsonNode?>> InvokeAsync(CapabilityInvocation invocation, CancellationToken cancellationToken) =>
+        PortfolioCommand.Run(invocation, workspaces, (service, request, caller, revision) =>
+        {
+            var (state, plan) = service.LoadTrades(CommandRequests.Text(request, "workspaceId"), revision, caller.UserId, CommandRequests.Text(request, "trades"), caller.Origin);
+            return (state, null, $"Loaded {PortfolioCommandContracts.AsNew(plan.Loaded.Select(t => t.TradeId))}.");
+        });
+}
+
 static class PortfolioCommand
 {
     /// <summary>The workspace a request of one of the pricer's commands names, as its contract says it.</summary>
@@ -410,6 +475,7 @@ public sealed class PortfolioCommandsModule(Func<PortfolioWorkspaces> workspaces
         builder.AddCapability(new PortfolioPriceCommand(workspaces));
         builder.AddCapability(new PortfolioVary(workspaces, register));
         builder.AddCapability(new PortfolioTradesAdd(workspaces));
+        builder.AddCapability(new PortfolioTradesLoad(workspaces));
         builder.AddCapability(new PortfolioCds(workspaces));
         builder.AddCapability(new PortfolioMeasures(workspaces, register));
         builder.AddCapability(new PortfolioCaseRemove(workspaces));
@@ -470,6 +536,12 @@ public sealed class PortfolioCommandsModule(Func<PortfolioWorkspaces> workspaces
                     + "It needs an iteration. Left out or false: the iterations given are the whole set, and the set made before is replaced.",
             },
         }, "workspaceId");
+        Request(PortfolioCommandContracts.TradesLoadRequest, "Load booked trades", new JsonObject
+        {
+            ["workspaceId"] = PortfolioCommand.WorkspaceField(),
+            ["revision"] = CommandRequests.RevisionField(),
+            ["trades"] = Text("Trades", "The ids of the booked trades to load as new trades, separated by commas or spaces: B00012, B00013."),
+        }, "workspaceId", "trades");
         Request(PortfolioCommandContracts.CdsRequest, "Choose the CDS", new JsonObject
         {
             ["workspaceId"] = PortfolioCommand.WorkspaceField(),

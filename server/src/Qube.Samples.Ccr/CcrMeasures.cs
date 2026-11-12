@@ -68,7 +68,7 @@ public sealed class CcrMeasures(CapitalRatio? kappa = null) : IMeasureModule
     public string? Check(string column, JsonNode? value) => $"{column} is what SA-CCR decided; it is not typed.";
 
     public IReadOnlyList<IMembershipRule> Membership(WorkspaceState state) =>
-        [new Decomposable(MarketOf(state), ((PortfolioSourceVersion)state.Source).Agreement.NettingSetId)];
+        [new Decomposable(MarketOf(state), PortfolioSourceVersion.Of(state).Agreement.NettingSetId)];
 
     public JsonObject Input(WorkspaceState state) => InputOf(state, kappa);
 
@@ -79,7 +79,7 @@ public sealed class CcrMeasures(CapitalRatio? kappa = null) : IMeasureModule
     /// </summary>
     public static JsonObject InputOf(WorkspaceState state, CapitalRatio kappa)
     {
-        var source = (PortfolioSourceVersion)state.Source;
+        var source = PortfolioSourceVersion.Of(state);
         var registration = source.Registration;
         var profile = PortfolioCredit.ProfileOf(registration.Key);
         var market = MarketOf(state);
@@ -155,7 +155,7 @@ public sealed class CcrMeasures(CapitalRatio? kappa = null) : IMeasureModule
     /// </summary>
     public static string? Problem(WorkspaceState state, IReadOnlyList<EffectiveTrade> priced, CapitalRatio? kappa = null)
     {
-        var source = (PortfolioSourceVersion)state.Source;
+        var source = PortfolioSourceVersion.Of(state);
         if (PortfolioCredit.ProfileOf(source.Registration.Key) is null)
             return $"{source.Registration.Key} has no reference data, so its exposure class cannot be decided.";
         // Through its text, as the provider reads the input the Run retained.
@@ -188,7 +188,7 @@ public sealed class CcrMeasures(CapitalRatio? kappa = null) : IMeasureModule
     /// </summary>
     public static CapitalMarket MarketOf(WorkspaceState state)
     {
-        var date = ((PortfolioSourceVersion)state.Source).ValueDate;
+        var date = PortfolioSourceVersion.Of(state).ValueDate;
         var currency = PortfolioMaterialiser.DisplayCurrency(state);
         var reporting = PortfolioMarket.UnitsPerGbp(currency, date);
         return new CapitalMarket(date, currency,

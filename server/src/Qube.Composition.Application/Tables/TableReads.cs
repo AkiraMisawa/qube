@@ -152,7 +152,9 @@ public sealed class TablesDescribe(Func<TableService> tables) : ICapabilityHandl
             ["editable"] = field.Editable,
             ["optional"] = field.Optional,
         };
-        if (field.Choices is { } choices)
+        // What a number is in (note 58) is no value of its field: said as its units, and never as its choices.
+        if (field.Form == FieldForm.Money) described["units"] = List((field.Choices ?? throw new InvalidOperationException($"{field.Name} is in nothing.")).Values.Distinct());
+        else if (field.Choices is { } choices)
         {
             // Each value once, as a cell writes it and a command reads it back.
             IReadOnlyList<string> written = [.. choices.Values.Distinct().Select(v => FieldForms.Write(field.Spec, v))];
@@ -254,6 +256,7 @@ public static class TableReadContracts
                 ["optional"] = Flag("Whether it may be empty, written empty"),
                 ["choices"] = Texts($"The values it takes, where it takes one of a few; the first {TablesDescribe.MostChoices}"),
                 ["moreChoices"] = Whole("How many more values it takes than are listed"),
+                ["units"] = Texts("What its number may be in, where its value is a number written with that"),
                 ["unitField"] = Text("The field of the same row that holds its unit"),
                 ["unit"] = Text("Its unit, where the table fixes one for the workspace"),
                 ["figureOf"] = Text("The id of the table under its row whose rows it is worked out from; what a write of it does to them is the table's rule"),

@@ -226,8 +226,9 @@ public static class PortfolioInput
                 : $"Price prices {caseCap} pairs of a case and a market at most: {cases.Count} case(s) × {scenarios.Count} markets (the base market and {scenarios.Count - 1} scenario(s)) are {pairs}, {pairs - caseCap} over. Remove a case or exclude a scenario to price.");
         PortfolioCases.CheckAdditionSet(raw);
         var state = PortfolioCases.Base(raw);
-        var source = (PortfolioSourceVersion)state.Source;
+        var source = PortfolioSourceVersion.Of(state);
         var selected = PortfolioMaterialiser.SelectedMeasures(state, register);
+        var loaded = BookedTrades.LoadedBy(raw).Where(id => source.Trade(id) is not null).ToList();
         return new JsonObject
         {
             ["workspaceId"] = freeze.WorkspaceId,
@@ -240,6 +241,11 @@ public static class PortfolioInput
             ["registration"] = source.Registration.Key,
             ["agreement"] = source.Agreement.MaId,
             ["nettingSet"] = source.Agreement.NettingSetId,
+            // The booked trades the workspace loaded that are among its trades on this value date (ADR-0016 note 59), and
+            // the version of the store their terms were read from: the source version above is the counterparty's, and
+            // says nothing of them. No trade loaded, no store was read, and no version is named.
+            ["loadedTrades"] = new JsonArray([.. loaded.Select(id => JsonValue.Create(id))]),
+            ["loadedTradesVersion"] = loaded.Count == 0 ? null : source.Booked.Version,
             // Each membership rule's version, frozen with the trades it classified (ADR-0010 §5).
             ["membership"] = new JsonObject([.. register.Rules(state).Select(r => KeyValuePair.Create(r.Measure, (JsonNode?)new JsonObject { ["version"] = r.Version }))]),
             ["selection"] = new JsonArray([.. selected.Select(id => JsonValue.Create(id))]),
@@ -326,7 +332,7 @@ public static class PortfolioInput
     // has no issue, so its CSA is one of the two; another id is a defect, and is not passed over.
     static JsonArray Csas(WorkspaceState reading, IReadOnlyList<EffectiveTrade> trades)
     {
-        var agreement = ((PortfolioSourceVersion)reading.Source).Agreement;
+        var agreement = PortfolioSourceVersion.Of(reading).Agreement;
         var held = PortfolioMaterialiser.Csas(reading);
         var used = trades.Select(t => t.Csa).Where(id => id != agreement.NoCsa).ToHashSet();
         if (used.Except(held.Select(c => c.CsaId)).FirstOrDefault() is { } unknown)

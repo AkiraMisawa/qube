@@ -250,7 +250,7 @@ public static class PortfolioCells
     // capital 12%`).
     static IReadOnlyList<Row> Rows(WorkspaceState state, MeasureRegister register)
     {
-        var source = (PortfolioSourceVersion)state.Source;
+        var source = PortfolioSourceVersion.Of(state);
         var trade = Trade(register);
         return
         [
@@ -274,7 +274,7 @@ public static class PortfolioCells
     /// </summary>
     public static CellName Resolve(WorkspaceState state, MeasureRegister register, string row, string column)
     {
-        var source = (PortfolioSourceVersion)state.Source;
+        var source = PortfolioSourceVersion.Of(state);
         var credit = PortfolioMaterialiser.Credit(state);
         if (Says(row, CdsRow) && credit.Cds is null)
             throw new WorkspaceRefused("UnknownCell", credit.Missing ?? throw new InvalidOperationException("A credit with no curve says why."), word: row.Trim());
@@ -390,7 +390,7 @@ public static class PortfolioCells
     public static CellName? Find(WorkspaceState state, MeasureRegister register, string entity, string field)
     {
         var (kind, id) = Entity.Split(entity);
-        var source = (PortfolioSourceVersion)state.Source;
+        var source = PortfolioSourceVersion.Of(state);
         var exists = kind switch
         {
             Entity.Csa => source.Agreement.Csas.Any(c => c.CsaId == id),

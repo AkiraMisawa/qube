@@ -92,11 +92,14 @@ public sealed class PortfolioEditRules(MeasureRegister? register = null) : IEdit
     /// <summary>The scope of what belongs to the workspace itself rather than to a counterparty or a new trade.</summary>
     public const string WorkspaceScope = "ws";
 
+    /// <summary>A booked trade the workspace loaded is the store's, brought in (ADR-0016 note 59): its row has an original.</summary>
+    public bool Brings(CreatedEntity held) => Entity.Split(held.Entity).Kind == Entity.Loaded;
+
     public string KindOf(EditTarget target) => (Entity.Split(target.Entity).Kind, target.Field) switch
     {
         (Entity.Trade or Entity.Grid, "before" or "after") => "xva.membership",
         (Entity.Trade, "csa" or "curve" or "imR" or "imP") => "xva.assignment",
-        (Entity.Trade, _) => "xva.trade",
+        (Entity.Trade or Entity.Loaded, _) => "xva.trade",
         (Entity.Csa, _) => "xva.csa",
         (Entity.Leg, _) => "xva.leg",
         (Entity.Amount, _) => "xva.amount",
@@ -136,6 +139,9 @@ public sealed class PortfolioEditRules(MeasureRegister? register = null) : IEdit
     public IReadOnlyList<string> ConflictGroup(EditTarget target) =>
         target.Field is "fixedRate" or "schedule" ? ["fixedRate", "schedule"] : [target.Field];
 
+    /// <summary>The scope of a new trade's own content, which no counterparty change drops.</summary>
+    public static string ScopeOf(string newTrade) => $"new:{newTrade}";
+
     /// <summary>
     /// The scope of an edit, decided here and never taken from the client: a new trade's own content belongs to
     /// that trade and survives a counterparty change; everything else belongs to the counterparty registration.
@@ -156,13 +162,13 @@ public sealed class PortfolioEditRules(MeasureRegister? register = null) : IEdit
         // A trade this version has not is none of the workspace's new trades, which no version drops: what is held on
         // it is the counterparty's, and is listed to be resolved or removed.
         var isNew = (kind == Entity.Trade || under) && source.Trade(trade)?.IsNew == true;
-        return new EditTarget((tradeContent || under) && isNew ? $"new:{trade}" : $"cp:{source.Registration.Key}", entity, field);
+        return new EditTarget((tradeContent || under) && isNew ? ScopeOf(trade) : $"cp:{source.Registration.Key}", entity, field);
     }
 
     /// <summary>The edits an entity holds on these fields, each to be removed; an edit held back as a conflict is the user's to decide.</summary>
     public static IReadOnlyList<WorkspaceChange> Resets(WorkspaceState state, string entity, IEnumerable<string> fields)
     {
-        var source = (PortfolioSourceVersion)state.Source;
+        var source = PortfolioSourceVersion.Of(state);
         return [.. fields.Select(f => Target(source, entity, f)).Where(t => state.Overrides.ContainsKey(t) || state.Lost.ContainsKey(t)).Select(t => new WorkspaceChange.Reset(t))];
     }
 }
@@ -193,7 +199,7 @@ public static class PortfolioMaterialiser
     static IReadOnlyList<EffectiveTrade> ReadTrades(WorkspaceState state)
     {
         PortfolioCases.Unlayered(state);
-        var source = (PortfolioSourceVersion)state.Source;
+        var source = PortfolioSourceVersion.Of(state);
         var overrides = state.Overrides.Values.ToDictionary(o => (o.Target.Entity, o.Target.Field));
         var held = state.Conflicts.Keys.Select(t => (t, "conflict")).Concat(state.Lost.Keys.Select(t => (t, "lost")))
             .ToLookup(x => x.t.Entity, x => $"{x.t.Field}: {x.Item2}");
@@ -272,7 +278,7 @@ public static class PortfolioMaterialiser
     /// selection of measures.</summary>
     public static Func<string, bool> PricedEntities(WorkspaceState state)
     {
-        var source = (PortfolioSourceVersion)state.Source;
+        var source = PortfolioSourceVersion.Of(state);
         var trades = Trades(state).Where(t => t.Before || t.After).ToList();
         var pricedTrades = trades.Select(t => t.TradeId).ToHashSet();
         var entities = trades.Select(t => Entity.Of(Entity.Trade, t.TradeId))
@@ -321,7 +327,7 @@ public static class PortfolioMaterialiser
     static IReadOnlyList<EffectiveCsa> ReadCsas(WorkspaceState state)
     {
         PortfolioCases.Unlayered(state);
-        var source = (PortfolioSourceVersion)state.Source;
+        var source = PortfolioSourceVersion.Of(state);
         return [.. source.Agreement.Csas.Select(c =>
         {
             var entity = Entity.Of(Entity.Csa, c.CsaId);
@@ -349,7 +355,7 @@ public static class PortfolioMaterialiser
     static EffectiveCredit ReadCredit(WorkspaceState state)
     {
         PortfolioCases.Unlayered(state);
-        var source = (PortfolioSourceVersion)state.Source;
+        var source = PortfolioSourceVersion.Of(state);
         var credit = Entity.Of(Entity.Credit, source.Registration.Key);
         Override? Set(string entity, string field) => EditsOf(state, entity).SingleOrDefault(x => x.Target.Field == field);
         var original = new Dictionary<string, JsonNode?>();
