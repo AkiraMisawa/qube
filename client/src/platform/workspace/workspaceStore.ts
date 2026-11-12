@@ -29,8 +29,6 @@ export interface WorkspaceState {
   readonly runDialog: string | undefined;
   /** The app dialog that is open, by the name its app registered. */
   readonly appDialog: string | undefined;
-  /** Column widths the user dragged, by panel, then grid, then column: kept while the panel is open. */
-  readonly columnWidths: Readonly<Record<string, Readonly<Record<string, Readonly<Record<string, number>>>>>>;
   requestContext(contract: ContractDefinition, changes: Readonly<Record<string, unknown>>): void;
   openPanel(panel: PanelDraft): string;
   setPanelView(panelId: string, viewKey: string): void;
@@ -46,7 +44,6 @@ export interface WorkspaceState {
    * active only when no panel was (ADR-0007 §7: what the AI opens never takes the user's place).
    */
   openPanelBehind(app: string, title: string, params: Readonly<Record<string, string>>): string;
-  setColumnWidth(panelId: string, grid: string, column: string, px: number): void;
 }
 
 export type WorkspaceStore = ReturnType<typeof createWorkspaceStore>;
@@ -60,7 +57,6 @@ export function createWorkspaceStore(initialContext: Readonly<Record<string, unk
     activePanelId: undefined,
     runDialog: undefined,
     appDialog: undefined,
-    columnWidths: {},
 
     requestContext(contextContract, changes) {
       const requested = { ...get().context.requested, ...changes };
@@ -85,8 +81,7 @@ export function createWorkspaceStore(initialContext: Readonly<Record<string, unk
         const index = state.panels.findIndex((p) => p.id === panelId);
         const panels = state.panels.filter((p) => p.id !== panelId);
         const active = state.activePanelId === panelId ? panels[Math.min(index, panels.length - 1)]?.id : state.activePanelId;
-        const columnWidths = Object.fromEntries(Object.entries(state.columnWidths).filter(([id]) => id !== panelId));
-        return { panels, activePanelId: active, columnWidths };
+        return { panels, activePanelId: active };
       });
     },
 
@@ -126,13 +121,6 @@ export function createWorkspaceStore(initialContext: Readonly<Record<string, unk
       const id = `panel-${++next}`;
       set((state) => ({ panels: [...state.panels, { kind: 'app', title, app, params, id }], activePanelId: state.activePanelId ?? id }));
       return id;
-    },
-
-    setColumnWidth(panelId, grid, column, px) {
-      set((state) => {
-        const panel = state.columnWidths[panelId] ?? {};
-        return { columnWidths: { ...state.columnWidths, [panelId]: { ...panel, [grid]: { ...panel[grid], [column]: px } } } };
-      });
     },
   }));
 }

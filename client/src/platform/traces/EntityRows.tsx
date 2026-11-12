@@ -20,9 +20,7 @@ const format = (v: unknown) => (typeof v === 'number' ? figure.format(v) : Strin
 /** A contribution that is an amount is red when negative (C48), to the cent as the trace writes it. */
 const lossTone = toneOf((v) => figure.format(v));
 
-export function EntityRows({ panelId, api, address, header, path, set }: {
-  /** The panel the trace is in, which keeps the widths the user dragged. */
-  readonly panelId: string;
+export function EntityRows({ api, address, header, path, set }: {
   readonly api: TraceApi;
   readonly address: TraceAddress;
   readonly header: TraceHeader;
@@ -73,7 +71,7 @@ export function EntityRows({ panelId, api, address, header, path, set }: {
     if (both) out.push({ name: 'sides', header: 'Sides', type: 'text', width: { auto: true, minPx: 96, maxPx: 200 }, queryable: false, value: (r) => sidesHolding(r, header.sides) });
     return out;
   }, [set, header, both, currency, unit]);
-  const { columns, onColumnWidthChanged } = useColumnWidths(panelId, `trace/entities/${set.leafSet}`, declared, { hideColumnMenu: true });
+  const { columns, onColumnWidthChanged } = useColumnWidths(`trace/entities/${set.leafSet}`, declared, { hideColumnMenu: true });
 
   const line = checks === undefined ? undefined : checkLine(checks, unit);
 

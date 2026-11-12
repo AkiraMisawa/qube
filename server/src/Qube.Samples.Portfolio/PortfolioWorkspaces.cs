@@ -8,6 +8,7 @@ using System.Text.Json.Nodes;
 using Qube.Composition.Application;
 using Qube.Composition.Application.Saved;
 using Qube.Composition.Application.Tables;
+using Qube.Composition.Application.Settings;
 using Qube.Composition.Application.Workspaces;
 
 namespace Qube.Samples.Portfolio;
@@ -28,7 +29,8 @@ public sealed record RowPage(IReadOnlyList<EffectiveTrade> Rows, int Start, int 
 /// <summary>What the workspace panel shows beside the grid. <c>Overrides</c> counts the edits to the portfolio's data;
 /// the selection of measures is the page's choice, shown on its own. <c>TradeColumns</c> are the selected modules'
 /// (ADR-0010 §10), as are the shared tabs' <c>Inputs</c> they need, and <c>PendingCells</c> counts their cells on the new trades still waiting for a result, so the page
-/// asks again while any is. <c>DisplayCurrency</c> is the workspace's setting, and <c>Simulated</c> names the modules whose
+/// asks again while any is. <c>DisplayCurrency</c> is the workspace's setting, <c>DisplayCurrencyFrom</c> where it came
+/// from (<c>settings</c>, <c>workspace</c> or <c>profile</c>, ADR-0017 §3), and <c>Simulated</c> names the modules whose
 /// figures come from a simulated provider, which the page says (ADR-0010 §1).</summary>
 public sealed record PortfolioWorkspaceView(
     string WorkspaceId,
@@ -53,6 +55,7 @@ public sealed record PortfolioWorkspaceView(
     IReadOnlyList<MeasureInput> Inputs,
     int PendingCells,
     string DisplayCurrency,
+    string DisplayCurrencyFrom,
     IReadOnlyList<string> Currencies,
     IReadOnlyList<string> Simulated,
     IReadOnlyList<CaseView> Cases,
@@ -131,8 +134,9 @@ public sealed record ScopeDrop(string Scope, int Count, IReadOnlyDictionary<stri
 /// endpoints call. It decides scopes and sources; the generic
 /// kernel stores and checks the edits. The user is passed in; who may act is decided before this is called.
 /// </summary>
-public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore store, RunService runs, MeasureRegister register, PortfolioOptions? options = null,
-    SavedItems? saved = null)
+/// <param name="settings">The users' settings, whose display currency a new workspace starts in (ADR-0017 §3).</param>
+public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore store, RunService runs, MeasureRegister register, UserSettings settings,
+    PortfolioOptions? options = null, SavedItems? saved = null)
 {
     readonly int caseCap = (options ?? new PortfolioOptions()).CaseCap;
     readonly PortfolioChecks checks = new(register);
@@ -140,13 +144,21 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
     // The pricer's tables as the kernel reads them, for a page read under a grid's conditions (ADR-0016 note 41 of step 4).
     readonly TableRegister tables = new([new PortfolioTables(register)]);
 
-    /// <summary>A new workspace, on its owner's last selection of measures (ADR-0010 §10, DEFAULT).</summary>
+    /// <summary>
+    /// A new workspace, on its owner's last selection of measures (ADR-0010 §10, DEFAULT) and in the display currency they
+    /// set (ADR-0017 §3). A display currency they set that is no longer one the pricer offers refuses the making, by the
+    /// setting's name, rather than starting in another.
+    /// </summary>
     public WorkspaceState Create(string user, string registration, DateOnly valueDate, int existingCount)
     {
         var source = new PortfolioSourceVersion(registration, valueDate, existingCount);
-        // The selection its owner set last is part of the workspace's making, so `undo` never takes it back (ADR-0016 §11, note 2).
-        IReadOnlyList<WorkspaceChange.Set>? last = LastSelection(user) is { } selection ? [new(PortfolioEditRules.Target(source, Entity.Measures, Entity.MeasuresField), Chosen(selection))] : null;
-        return workspaces.Create(user, PortfolioEditRules.App, Context(registration, valueDate, existingCount), source, with: last);
+        // Both are part of the workspace's making, so `undo` never takes them back (ADR-0016 §11, note 2), and the page
+        // says the display currency came from the user's setting (ADR-0017 §3).
+        var made = new List<WorkspaceChange.Set>();
+        if (LastSelection(user) is { } selection) made.Add(new(PortfolioEditRules.Target(source, Entity.Measures, Entity.MeasuresField), Chosen(selection)));
+        if (settings.Default(user, PortfolioSettings.DisplayCurrency) is { } currency)
+            made.Add(new(PortfolioEditRules.Target(source, Entity.WorkspaceSettings, Entity.DisplayCurrency), currency));
+        return workspaces.Create(user, PortfolioEditRules.App, Context(registration, valueDate, existingCount), source, with: made);
     }
 
     JsonArray Chosen(IReadOnlyList<string> measures) => new([.. register.Checked(measures).Select(id => JsonValue.Create(id))]);
@@ -213,7 +225,7 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
             links, register.Measures, PortfolioMaterialiser.SelectedMeasures(state, register),
             [.. register.TradeColumns.Where(c => register.Selected(state).Any(m => m.Id == c.Module))], register.Inputs(state),
             register.WithCells(state, [.. Rows(state).Where(t => t.IsNew)]).Sum(t => t.Cells?.Values.Count(c => c.State == TradeCell.Pending) ?? 0),
-            PortfolioMaterialiser.DisplayCurrency(state), PortfolioMarket.Currencies, [.. register.Selected(state).Where(m => m.Simulated).Select(m => m.Id)],
+            PortfolioMaterialiser.DisplayCurrency(state), PortfolioMaterialiser.DisplayCurrencyFrom(state), PortfolioMarket.Currencies, [.. register.Selected(state).Where(m => m.Simulated).Select(m => m.Id)],
             PortfolioCases.All(raw), DataEdits(raw).Count(), PortfolioScenarios.All(raw), PortfolioScenarios.Rows(raw), register.Settings(state));
     }
 

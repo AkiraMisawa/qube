@@ -30,8 +30,11 @@ export interface AiCard {
   readonly runId: string;
   readonly request: string;
   readonly status: 'sending' | 'running' | 'done' | 'cancelled' | 'failed';
-  /** The runtime that answered, as the run names it, and whether it is a model at all. */
-  readonly runtime: { readonly label: string; readonly simulated: boolean } | undefined;
+  /**
+   * The runtime that answered, as the run names it, whether it is a model at all, and the model it ran on (ADR-0017
+   * §6.3), none for a runtime with no model.
+   */
+  readonly runtime: { readonly label: string; readonly simulated: boolean; readonly model: string | undefined } | undefined;
   readonly steps: readonly AiStep[];
   readonly reply: string;
   readonly error: string | undefined;
@@ -57,7 +60,8 @@ export function applyEvent(card: AiCard, event: BaseEvent): AiCard {
   switch (event.type) {
     case EventType.RUN_STARTED: {
       const qube = (e.metadata as Fields | undefined)?.qube as Fields | undefined;
-      const runtime = qube === undefined ? undefined : { label: text(qube, 'label'), simulated: qube.simulated === true };
+      const runtime = qube === undefined ? undefined
+        : { label: text(qube, 'label'), simulated: qube.simulated === true, model: qube.model === undefined ? undefined : text(qube, 'model') };
       return { ...card, status: 'running', runtime };
     }
     case EventType.TEXT_MESSAGE_CONTENT:

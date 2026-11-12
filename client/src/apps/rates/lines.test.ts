@@ -1,7 +1,7 @@
 import type { LineView, LiveFrame } from './contracts';
 import { gridHeaderRequiredPx } from '@ex-grid/core';
 import {
-  FOLDED, hiddenEdits, legOverrides, legSummary, lineCellState, lineColumns, lineFieldTitle, lineHeaderGroups, lineResult, lineRows, openedAt, parserOf, periodFieldTitle,
+  FOLDED, defaultsSaid, hiddenEdits, legOverrides, legSummary, lineCellState, lineColumns, lineFieldTitle, lineHeaderGroups, lineResult, lineRows, openedAt, parserOf, periodFieldTitle,
   toggled,
   type LineLayout,
 } from './lines';
@@ -250,5 +250,16 @@ describe('what a refused edit calls a field (ADR-0006 note 2 of 2026-11-11)', ()
 
   it('refuses to name a field no column shows', () => {
     expect(() => lineFieldTitle('leg3.quote')).toThrow('The line grid has no column leg3.quote to name an edit by.');
+  });
+});
+
+describe("a workspace's defaults for a new line (ADR-0017 §3)", () => {
+  it('says each default with where it came from, and nothing where the workspace holds none', () => {
+    expect(defaultsSaid({ currency: 'JPY', notional: 500e6, direction: 'receive', fromSettings: ['currency', 'notional', 'direction'] }))
+      .toBe('New lines default to JPY · 500mm · receive from your settings.');
+    expect(defaultsSaid({ currency: 'JPY', notional: 1e9, direction: 'receive', fromSettings: ['currency', 'direction'] }))
+      .toBe('New lines default to JPY · receive from your settings; 1bn set in this workspace.');
+    expect(defaultsSaid({ currency: null, notional: 2.5e6, direction: null, fromSettings: [] })).toBe('New lines default to 2.5mm set in this workspace.');
+    expect(defaultsSaid({ currency: null, notional: null, direction: null, fromSettings: [] })).toBeUndefined();
   });
 });

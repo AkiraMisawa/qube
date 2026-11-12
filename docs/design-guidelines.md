@@ -34,7 +34,7 @@ Four principles follow, and every rule below is one of them made concrete.
 | Spacing | `xs` 4 · `sm` 8 · `md` 12 · `lg` 16 · `xl` 24 px | Gaps and padding. A 4px grid, the base unit of Fluent and Carbon ([Fluent 2](#references)). |
 | Font size | `xs` 11 · `sm` 12 · `md` 13 · `lg` 15 · `xl` 18 px | `md` is body text, `sm` dense labels and table text, `xs` captions and hints. |
 | Control Height | 30px (Mantine `xs`) in rows; 36px (`sm`) in dialogs | See §3. |
-| Radius | `xs` (2px) | Square enough to tile; nothing in the workbench is a pill except a Badge. |
+| Radius | `xs` (2px) | Square enough to tile; nothing in the workbench is a pill except a Badge, and the account menu's avatar, a circle as a person is drawn everywhere (2026-11-11). |
 | Colour | `signal` (amber, primary), `ink`, `dark` | See §7. |
 
 - **MUST** take spacing, font size, radius and colour from the theme (`gap="sm"`, `c="dimmed"`,
@@ -99,8 +99,10 @@ WCAG's minimum target size (§8). Smaller controls would save little: the grids,
   left-aligned ([Spectrum](#references)).
 - **Content in a row is vertically centred**, text and controls alike ([Spectrum](#references)).
 - **Column widths.** Every data grid takes `onColumnWidthChanged` through `useColumnWidths`
-  (`client/src/platform/grid/columnWidths.ts`): a drag on a header's right edge moves the column, and the width is kept
-  for the panel until it closes (owner, 2026-11-10). A declared width is a default that never cuts its header.
+  (`client/src/platform/grid/columnWidths.ts`): a drag on a header's right edge moves the column (owner, 2026-11-10),
+  and the width is the user's setting for that grid, by its id with its application's prefix (`xva/trades/existing`):
+  the same in every workspace, after a reload and in another browser (ADR-0017 §5). A declared width is a default
+  that never cuts its header.
 
 ## 5. Icons
 
@@ -109,17 +111,20 @@ WCAG's minimum target size (§8). Smaller controls would save little: the grids,
   differ from the text beside it and between platforms.
 - Size 16 with `stroke={1.75}` inside a 30px control; 14 inside a `compact-xs` one.
 - An icon-only control **MUST** have an `aria-label`, and **SHOULD** have a `Tooltip` that names it and, where one
-  exists, the command that does the same (`Light theme (toggle theme)`). Decorative icons beside text take
+  exists, the command that does the same. The account menu's avatar has none: resting the pointer on it opens the
+  menu, which names it and the `settings` command. Decorative icons beside text take
   `aria-hidden`.
-- An icon beside a word is preferred to an icon alone; only a control whose meaning is conventional (close, theme,
-  the command line) goes without its word.
+- An icon beside a word is preferred to an icon alone; only a control whose meaning is conventional (close, the
+  account's avatar, the command line) goes without its word.
 
 ## 6. The shell
 
 The shell is the header, the panels under their tabs, and the AI pane (ADR-0007 §7).
 
 - **The header has three zones**, left to right: what this is and how to command it (title, Commands); the context
-  every run is bound to (Region, As of); the switches that change only the shell (AI, theme).
+  every run is bound to (Region, As of); what is the user's own (the AI pane, and the account menu: who they are,
+  Settings, the theme, signing out). The account menu opens as the pointer rests on the avatar, or on a click or a
+  tap (owner, 2026-11-11: settings are looked for under the user's account, not behind a theme button).
 - **MUST** give the header a fixed height on each breakpoint, `HEADER_HEIGHT` in `client/src/shell/AppHeader.tsx`,
   never `auto`. AppShell offsets the main area by that number; a header that grows past it covers the top of the
   panel. That is what `height: 'auto'` did on a phone before ADR-0009: the Rates toolbar slid under the header.

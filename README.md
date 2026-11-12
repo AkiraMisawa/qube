@@ -50,7 +50,15 @@ workbench with `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317`; see
 
 The AI pane runs on the scripted agent (no model) by default. To run it on Copilot, with the agent in a process of its
 own, and to open the workbench from a phone or another Mac over Tailscale, see
-[`docs/running-with-copilot.md`](docs/running-with-copilot.md) (`tools/run-with-copilot.sh --model <id>`).
+[`docs/running-with-copilot.md`](docs/running-with-copilot.md) (`tools/run-with-copilot.sh --model <id>`, once for
+each model the AI may use; the first is a new conversation's until the user sets a default model).
+
+A user's settings (ADR-0017) are kept by the host in the same database, for the user `Qube:DemoUser` names until
+sign-in: the theme, column widths by grid, the command ranking, the AI's default model where models are configured,
+and the defaults a new workspace starts with (the pricer's display currency, a Rates line's currency, notional and
+direction). `settings` on the command line, or Settings in the header's account menu, lists them with where each
+value comes from, `settings <name> <value>` sets one, and `settings reset <name>` puts the registered value back; the
+AI has the same three commands.
 
 Playwright uses its own Chromium (`npx playwright install chromium`). Where a Chromium is already
 installed for another Playwright version, name it with `PLAYWRIGHT_CHROMIUM=/path/to/chrome`.
@@ -78,6 +86,15 @@ it then, these carry its local state over:
   `qube-agent-host`, and the instruments are `qube.*`. `docker compose -p quant-workbench-observability down -v`
   removes the earlier containers and what they collected.
 - **Browser.** The command line's usage ranking starts again (its storage key changed).
+
+## Coming from before the user's settings (2026-11-11)
+
+- **Copilot models.** `Agent:Copilot:Model` is now `Agent:Copilot:Models`, a list (`Agent__Copilot__Models__0`, `__1`
+  …); the workbench stops at startup while only the earlier key is set, and says so. `tools/run-with-copilot.sh`
+  takes `--model` once for each.
+- **Browser.** The theme and the command ranking a browser kept are the user's now. The ranking is added to the
+  user's once, the first time that browser meets the server, and its copy removed; the theme the browser kept draws
+  the first frame only. Column widths dragged before were kept per panel and are not carried over.
 
 ## Rules
 

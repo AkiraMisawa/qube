@@ -244,17 +244,13 @@ public sealed class RatesTables(ConventionRegistry conventions) : ITableCatalog
         }
 
         // The defaults with one of them changed; an empty value is no default.
-        static LineDefaults With(LineDefaults defaults, string field, JsonNode? value) => field switch
+        static LineDefaults With(LineDefaults defaults, string field, JsonNode? value) => defaults.Edited(field switch
         {
-            DefaultCurrency => defaults with { Currency = value?.GetValue<string>() },
-            DefaultNotional => defaults with
-            {
-                Notional = value is null ? null : RatesMaterialiser.Number(value) is > 0 and var notional ? notional
-                    : throw new WorkspaceRefused("InvalidValue", "A default notional is more than 0."),
-            },
-            DefaultDirection => defaults with { Direction = value?.GetValue<string>() },
+            DefaultCurrency => LineDefaults.CurrencyField,
+            DefaultNotional => LineDefaults.NotionalField,
+            DefaultDirection => LineDefaults.DirectionField,
             _ => throw new InvalidOperationException($"The workspace has no {field} a command sets."),
-        };
+        }, value);
 
         // The whole context with these defaults: everything else it holds stays as it is.
         static WorkspaceChange Context(WorkspaceState state, LineDefaults defaults)

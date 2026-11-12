@@ -3,6 +3,7 @@ using System.Text.Json.Nodes;
 using Qube.Agent;
 using Qube.Composition.Application;
 using Qube.Composition.Application.Saved;
+using Qube.Composition.Application.Settings;
 using Qube.Composition.Application.Tables;
 using Qube.Composition.Application.Traces;
 using Qube.Composition.Application.Workspaces;
@@ -126,6 +127,15 @@ builder.Services.AddSingleton<ISavedItemStore>(_ => new SqliteSavedItemStore(dat
 builder.Services.AddSingleton(new Desks(builder.Configuration.GetSection("Qube:Desks").GetChildren()
     .ToDictionary(d => d.Key, d => d.Value ?? throw new InvalidOperationException($"Qube:Desks:{d.Key} names no desk."), StringComparer.OrdinalIgnoreCase)));
 builder.Services.AddSingleton<SavedItems>();
+// A user's settings (ADR-0017 §2) beside the saved items. Each module registers its own: the shell's are the theme,
+// the command ranking and column widths, the pricer's the display currency a new workspace starts in, and Rates' the
+// defaults of a new line. The commands reach the service only when invoked, as the tables' do.
+builder.Services.AddSingleton<IUserSettingStore>(_ => new SqliteUserSettingStore(database));
+builder.Services.AddSingleton<ISettingCatalog, ShellSettings>();
+builder.Services.AddSingleton<ISettingCatalog, PortfolioSettings>();
+builder.Services.AddSingleton<ISettingCatalog>(new RatesNewLineSettings(conventions));
+builder.Services.AddSingleton<UserSettings>();
+builder.Services.AddSingleton<IQubeModule>(sp => new SettingsModule(sp.GetRequiredService<UserSettings>));
 builder.Services.AddSingleton<PortfolioWorkspaces>();
 // The AI pane (ADR-0007): the agent runtime is chosen here and nowhere else, by configuration, and an unknown one stops
 // startup rather than falling back to another. "copilot" talks to the agent host, a separate process under the agent's
@@ -146,13 +156,15 @@ switch (agentRuntime)
         var copilot = new CopilotRuntimeOptions(
             new Uri(Required("Agent:Copilot:HostUrl")),
             Required("Agent:Copilot:HostKey"),
-            Required("Agent:Copilot:Model"));
+            AllowedModels());
         builder.Services.AddHttpClient(CopilotHttpClient).ConfigureHttpClient(c => c.Timeout = Timeout.InfiniteTimeSpan);
         builder.Services.AddSingleton<IAgentRuntime>(sp => new CopilotAgentRuntime(sp.GetRequiredService<IHttpClientFactory>().CreateClient(CopilotHttpClient), copilot));
         break;
     default:
         throw new InvalidOperationException($"Agent:Runtime is {(agentRuntime is null ? "not set" : $"'{agentRuntime}'")}; the runtimes are: scripted, copilot.");
 }
+// The user's default model, among the models the runtime runs on (ADR-0017 §6.3): a setting only where there are any.
+builder.Services.AddSingleton<ISettingCatalog>(sp => new AgentSettings(sp.GetRequiredService<IAgentRuntime>().Info));
 builder.Services.AddSingleton(new CurrentUser(builder.Configuration["Qube:DemoUser"] ?? "demo"));
 
 var app = builder.Build();
@@ -177,6 +189,18 @@ app.Run();
 string Required(string key) => builder.Configuration[key] is { Length: > 0 } value
     ? value
     : throw new InvalidOperationException($"{key} is not set; Agent:Runtime copilot needs it.");
+
+// The models a conversation may run on (ADR-0017 §6.3), the first being a new one's unless its user chose another. The
+// one model of before is not taken as a list of one: the configuration is moved, and says how.
+IReadOnlyList<string> AllowedModels()
+{
+    var listed = builder.Configuration.GetSection("Agent:Copilot:Models").GetChildren()
+        .Select(m => m.Value is { Length: > 0 } id ? id : throw new InvalidOperationException($"Agent:Copilot:Models:{m.Key} names no model.")).ToList();
+    if (listed.Count > 0) return listed;
+    throw new InvalidOperationException(builder.Configuration["Agent:Copilot:Model"] is { Length: > 0 }
+        ? "Agent:Copilot:Model is now Agent:Copilot:Models, the list of models the AI may use, the first being a new conversation's (ADR-0017 §6.3): set Agent:Copilot:Models:0, :1 and so on, and remove Agent:Copilot:Model."
+        : "Agent:Copilot:Models is not set; Agent:Runtime copilot needs the models the AI may use, the first being a new conversation's.");
+}
 
 /// <summary>Exposed for the in-process API tests.</summary>
 public partial class Program

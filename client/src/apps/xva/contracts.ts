@@ -388,6 +388,11 @@ export interface XvaWorkspaceView {
   readonly pendingCells: number;
   /** The currency the figures are shown in, and those it may be (ADR-0010 §1). */
   readonly displayCurrency: string;
+  /**
+   * Where the display currency came from (ADR-0017 §3): the user's setting, copied in as the workspace was made; a
+   * choice in this workspace since; or the company profile's, where neither is.
+   */
+  readonly displayCurrencyFrom: 'settings' | 'workspace' | 'profile';
   readonly currencies: readonly string[];
   /** The selected modules whose figures come from a simulated provider: the page says `SIMULATED` while any is. */
   readonly simulated: readonly string[];

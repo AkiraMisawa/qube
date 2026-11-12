@@ -280,6 +280,16 @@ public static class PortfolioMaterialiser
             ? chosen.GetValue<string>()
             : PortfolioCatalog.Profile.DisplayCurrency;
 
+    /// <summary>
+    /// Where the display currency came from (ADR-0017 §3), as a Rates default's source is named: <c>settings</c>, the
+    /// user's, copied in as the workspace was made; <c>workspace</c>, chosen in it since; <c>profile</c>, the company
+    /// profile's, where neither is.
+    /// </summary>
+    public static string DisplayCurrencyFrom(WorkspaceState state) =>
+        EditsOf(state, Entity.WorkspaceSettings).SingleOrDefault(o => o.Target.Field == Entity.DisplayCurrency) is { Value: not null } chosen
+            ? state.WrittenByMaking(chosen) ? "settings" : "workspace"
+            : "profile";
+
     public static IReadOnlyList<EffectiveCsa> Csas(WorkspaceState state) => CsasRead.GetValue(state, ReadCsas);
 
     static IReadOnlyList<EffectiveCsa> ReadCsas(WorkspaceState state)

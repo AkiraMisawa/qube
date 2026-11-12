@@ -61,10 +61,8 @@ const cellMessage = (row: ShiftGridRow, col: GridColumn<ShiftGridRow>): string |
 
 const describe = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
-export function XvaScenarios({ panelId, shifts, scenarios, actions, height, gridRef, commandLabel }: {
+export function XvaScenarios({ shifts, scenarios, actions, height, gridRef, commandLabel }: {
   readonly shifts: readonly ShiftRow[];
-  /** The panel the page is in, which keeps the widths the user dragged in its grids. */
-  readonly panelId: string;
   readonly scenarios: readonly ScenarioView[];
   readonly actions: ScenarioActions;
   /** The tab's height in pixels, which the grid fills. */
@@ -74,7 +72,7 @@ export function XvaScenarios({ panelId, shifts, scenarios, actions, height, grid
   readonly commandLabel: (id: string) => string | undefined;
 }) {
   const rows = useMemo(() => shiftGridRows(shifts), [shifts]);
-  const { columns, onColumnWidthChanged } = useColumnWidths(panelId, 'scenarios', COLUMNS, { hideColumnMenu: true });
+  const { columns, onColumnWidthChanged } = useColumnWidths('xva/scenarios', COLUMNS, { hideColumnMenu: true });
   const source = useMemo(() => GridSource.from<ShiftGridRow>([], { rowKey: (row) => row.key }), []);
   useEffect(() => { source.replaceAll(rows); }, [rows, source]);
   const actionsNow = useRef(actions);

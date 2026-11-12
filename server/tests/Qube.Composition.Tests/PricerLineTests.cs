@@ -39,7 +39,7 @@ public class PricerLineTests
                 new PortfolioCommandsModule(() => service ?? throw new InvalidOperationException("The pricer's service is not built yet."), register)]);
             var store = new InMemoryDataStore();
             Runs = new RunService(registry, store, TimeProvider.System);
-            Service = service = new PortfolioWorkspaces(Workspaces, store, Runs, register,
+            Service = service = new PortfolioWorkspaces(Workspaces, store, Runs, register, UnsetSettings.Pricer(),
                 caseCap is { } cap ? new PortfolioOptions(cap) : null,
                 new SavedItems(new InMemorySavedItemStore(), new Desks(new Dictionary<string, string> { ["akira"] = "rates" }), TimeProvider.System));
             Commands = new CommandService(registry, store);

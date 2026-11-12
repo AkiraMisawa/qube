@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Starts the agent host and the workbench with the Copilot runtime (ADR-0007 §5, C44).
 #
-#   tools/run-with-copilot.sh --model <id> [--port 5080] [--host-port 5395] [--token-file <file>]
-#       The host runs as you; only the host is given the token. It is taken from, in this order:
+#   tools/run-with-copilot.sh --model <id> [--model <id> ...] [--port 5080] [--host-port 5395] [--token-file <file>]
+#       The models are those a conversation may run on, the first being a new one's unless you set another as your
+#       default model (ADR-0017 §6.3). The host runs as you; only the host is given the token. It is taken from, in this order:
 #       COPILOT_GITHUB_TOKEN in this shell, --token-file, or the macOS Keychain item named below
 #       (store it once: tools/run-with-copilot.sh --store-token).
 #
@@ -12,7 +13,7 @@
 #   tools/run-with-copilot.sh --install-host <dir>
 #       Publishes the host into <dir> (with sudo), readable by every user, for the next form.
 #
-#   tools/run-with-copilot.sh --model <id> --as-user <user> --host-dir <dir> --token-file <file>
+#   tools/run-with-copilot.sh --model <id> [--model <id> ...] --as-user <user> --host-dir <dir> --token-file <file>
 #       The host runs as <user>, from the published <dir>, and reads the token from <file>, which only <user> can read.
 #       Your files (the workbench's database, your credentials) are then out of the agent's reach by the OS's rules.
 #
@@ -21,7 +22,7 @@
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd)
-model="" port=5080 host_port=5395 as_user="" host_dir="" token_file="" install_dir="" store_token=""
+models=() port=5080 host_port=5395 as_user="" host_dir="" token_file="" install_dir="" store_token=""
 keychain_item=qube-copilot
 # The item's name until 2026-11-10 (C50). It is read while the one above is absent, and never written.
 earlier_keychain_item=quant-workbench-copilot
@@ -30,7 +31,7 @@ die() { echo "run-with-copilot: $*" >&2; exit 1; }
 
 while [[ $# -gt 0 ]]; do
   case $1 in
-    --model) model=$2; shift 2 ;;
+    --model) models+=("$2"); shift 2 ;;
     --port) port=$2; shift 2 ;;
     --host-port) host_port=$2; shift 2 ;;
     --as-user) as_user=$2; shift 2 ;;
@@ -70,7 +71,7 @@ if [[ -n $install_dir ]]; then
   exit 0
 fi
 
-[[ -n $model ]] || die "--model is required (the host's /models lists the ids your account may use)"
+[[ ${#models[@]} -gt 0 ]] || die "--model is required, once for each model the AI may use (the host's /models lists the ids your account may use)"
 
 export AgentHost__Key=$(openssl rand -hex 32)
 export AgentHost__Url="http://127.0.0.1:$host_port"
@@ -116,6 +117,6 @@ echo "Agent host is up at $AgentHost__Url."
 export Agent__Runtime=copilot
 export Agent__Copilot__HostUrl="$AgentHost__Url"
 export Agent__Copilot__HostKey="$AgentHost__Key"
-export Agent__Copilot__Model="$model"
+for i in "${!models[@]}"; do export "Agent__Copilot__Models__$i=${models[$i]}"; done
 env -u COPILOT_GITHUB_TOKEN -u GH_TOKEN -u GITHUB_TOKEN -u AgentHost__Key -u AgentHost__Copilot__TokenFile \
   nix develop -c dotnet run --project server/src/Qube.Web --urls "http://localhost:$port"

@@ -9,6 +9,7 @@ static class AgentTelemetry
     public const string ThreadId = "qube.agent.thread.id";
     public const string RunId = "qube.agent.run.id";
     public const string Runtime = "qube.agent.runtime";
+    public const string Model = "qube.agent.model";
     public const string Tool = "qube.agent.tool";
 
     /// <summary>Agent runs, by runtime and outcome (finished, cancelled, runaway, failed).</summary>

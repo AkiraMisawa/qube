@@ -32,7 +32,7 @@ public class PricerTableTests
             var tables = new TableService(registered, Workspaces);
             var registry = new CompositionRegistry([new PortfolioModule(), new XvaModule(), new CcrModule(), new TablesModule(() => tables), new WorkspaceCommandsModule(() => Workspaces)]);
             var store = new InMemoryDataStore();
-            Service = new PortfolioWorkspaces(Workspaces, store, new RunService(registry, store, TimeProvider.System), register);
+            Service = new PortfolioWorkspaces(Workspaces, store, new RunService(registry, store, TimeProvider.System), register, UnsetSettings.Pricer());
             Commands = new CommandService(registry, store);
             Lines = new CommandLines(registry, Workspaces, registered, []);
             Id = Service.Create("akira", "ABC/LE-01", Day1, existing).WorkspaceId;
