@@ -156,7 +156,7 @@ describe('the verbs that arrange (ADR-0018 §3)', () => {
       'float D at 288,160 864×480', 'float D at 288,160 864×480', `float D at ${right.left},${right.top} ${right.width}×${right.height}`,
     ]);
     const alone = areas(['A', 'B'], [{ id: 'area-1', panels: ['A'] }, { id: 'area-2', panels: ['B'], floating: true }], 'A');
-    expect(alone.command('panel.float').unavailable).toBe('It is the only panel in the window; floating it would leave none docked.');
+    expect(alone.command('panel.float').unavailable).toBe('It is the only panel docked in the window; floating it would leave none docked.');
     // A floating panel alone in its area is placed again.
     alone.store.getState().activate(alone.idOf('B'));
     expect(execute(alone.command('panel.float'), { where: 'left' })).toBeUndefined();
@@ -265,5 +265,14 @@ describe('note 7\'s verbs within an area (ADR-0018 §4)', () => {
     expect(execute(command('panel.reopen'))).toBeUndefined();
     expect(asked).toEqual(['send A to area-1']);
     expect(notify).toHaveBeenLastCalledWith('done', 'Reopened A beside D: the area it stood in has gone.');
+  });
+
+  it('`reopen panel` in one area says nothing of where: the panel is where it is seen (ADR-0018 §4\'s note)', () => {
+    const { command, notify, store, idOf } = areas(['A', 'B'], [{ id: 'area-1', panels: ['A', 'B'] }], 'A');
+    expect(execute(command('panel.close'))).toBeUndefined();
+    notify.mockClear();
+    expect(execute(command('panel.reopen'))).toBeUndefined();
+    expect(store.getState().panels.map((p) => p.id)).toContain(idOf('A'));
+    expect(notify).not.toHaveBeenCalled();
   });
 });

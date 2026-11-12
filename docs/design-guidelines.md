@@ -247,9 +247,11 @@ Mantine's breakpoints, beside the window classes Android and Material use for th
   the strip alike: not of its height too, since in the strip a page grows with its content, which a `size` container
   would not let it. A page's breakpoint is a container query on it, written with the table's widths
   (`@container qube-panel (max-width: 47.99em)` is "below `sm`" for the page), and a height that filled the window
-  fills its area's page (`.qube-area-page`, its area's height). A hook that chooses what mounts reads the panel's width
-  as the browser reports it when it changes (`usePanelWidth`), never the window's. The shell itself (the header, the
-  AI pane, areas or a strip) still reads the window.
+  fills its area's page (`.qube-panel-page-body` in an area, its area's height, which scrolls the page). The width is
+  the panel's whole width, the shell's gutter included, and a scrollbar beside the page takes nothing from it: a page
+  in one area of a 768px window reads 768px, as it read the window. A hook that chooses what mounts reads the panel's
+  width as the browser reports it when it changes (`usePanelWidth`), never the window's. The shell itself (the header,
+  the AI pane, areas or a strip) still reads the window.
 - **MUST NOT** scroll the page sideways. A grid scrolls inside itself; a toolbar wraps.
 - **MUST** look at a layout change at 390, 768, 992 and 1440px wide, in both themes, before it is reviewed: those are
   the widths where this shell changes shape.

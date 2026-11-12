@@ -326,7 +326,7 @@ export const FLOAT: PanelVerb = {
   unavailable: (on, panel) => {
     if (on.areas.strip !== undefined) return on.areas.strip;
     const area = areaFor(on, panel);
-    if (!area.floating && area.panels.length === 1 && docked(on).length === 1) return 'It is the only panel in the window; floating it would leave none docked.';
+    if (!area.floating && area.panels.length === 1 && docked(on).length === 1) return 'It is the only panel docked in the window; floating it would leave none docked.';
     return undefined;
   },
   run: (on, panel, _, args) => {

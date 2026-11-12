@@ -36,6 +36,7 @@ export function Panels() {
   // would have.
   const { ref, width } = usePanelsWidth();
   const { ref: below, height } = useElementSize<HTMLDivElement>();
+  // The room the areas would have: in the strip, wider than the strip by the document's scrollbar where it takes room.
   const room = { width, height };
   const measured = width > 0 && height > 0;
   const areas = measured && count > 0 && fits(kept, room);
@@ -50,11 +51,12 @@ export function Panels() {
 }
 
 /**
- * The panels' width edge to edge, with the width the document's own scrollbar takes from the window (none where the
- * document does not scroll, or where the scrollbar is drawn over the page: macOS, a phone). Both are read in one
- * callback, as the browser reports a change of the panels' box, the document's or the window's: a scrollbar coming or
- * going changes the two in one layout, and read apart they would add up, for a render, to a width neither layout had,
- * which drew the areas and the strip by turns.
+ * The panels' space (ADR-0018 §5): the panels' width edge to edge, with the width the document's own scrollbar takes
+ * from the window (none where the document does not scroll, or where the scrollbar is drawn over the page: macOS, a
+ * phone), which is what the areas would have, since they do not scroll the document. Both are read in one callback, as
+ * the browser reports a change of the panels' box or the document's, after its layout: a scrollbar coming or going
+ * changes the two in one layout, and read apart they would add up, for a render, to a width neither layout had, which
+ * drew the areas and the strip by turns. A window's change of width changes the document's box, so it is reported too.
  */
 function usePanelsWidth(): { readonly ref: RefObject<HTMLDivElement | null>; readonly width: number } {
   const ref = useRef<HTMLDivElement>(null);
@@ -63,12 +65,13 @@ function usePanelsWidth(): { readonly ref: RefObject<HTMLDivElement | null>; rea
     const panels = ref.current;
     if (panels === null) throw new Error('The panels\' space is not drawn.');
     const html = document.documentElement;
-    const read = () => setWidth(panels.getBoundingClientRect().width + window.innerWidth - html.clientWidth);
+    // A scrollbar takes no less than nothing: where the window's inner width follows a pinch-zoomed visual viewport
+    // (a phone, whose scrollbars are drawn over the page), it is narrower than the document, not wider.
+    const read = () => setWidth(panels.getBoundingClientRect().width + Math.max(0, window.innerWidth - html.clientWidth));
     const observer = new ResizeObserver(read);
     observer.observe(panels);
     observer.observe(html);
-    window.addEventListener('resize', read);
-    return () => { observer.disconnect(); window.removeEventListener('resize', read); };
+    return () => observer.disconnect();
   }, []);
   return { ref, width };
 }
