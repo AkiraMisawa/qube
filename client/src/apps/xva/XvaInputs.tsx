@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useId, useMemo, useRef, type Ref, type RefObject } from 'react';
 import { Button, Group, Stack, Table, Tabs, Text, useMantineTheme } from '@mantine/core';
 import { useElementSize } from '@mantine/hooks';
-import { GridSource, type CellState, type GridColumn, type GridContextMenuContext, type GridEditIntent } from '@ex-grid/core';
+import { GridSource, type CellState, type GridActionEvent, type GridColumn, type GridContextMenuContext, type GridEditIntent } from '@ex-grid/core';
 import type { ExGridApi } from '@ex-grid/react';
 import { QubeGrid } from '../../platform/grid/QubeGrid';
 import { filterGrid, heldRowOf, heldView, menuView, placeFocus, selectRows, sortGrid } from '../../platform/grid/lineView';
@@ -9,6 +9,7 @@ import { GridFilterLine } from '../../platform/grid/GridFilterLine';
 import { useHeldFilter } from '../../platform/grid/heldFilter';
 import { useWorkspaceContext } from '../../platform/workspace/WorkspaceProvider';
 import type { TableMenu } from '../../platform/commands/served';
+import { EDIT_ROW, editColumn } from '../../platform/drafts/rowButton';
 import type { Screen } from '../../platform/commands/commands';
 import type { Agreement, ChangesList, EffectiveCsa, RegisteredMeasure, XvaWorkspaceView } from './contracts';
 import { creditChanges, emptyRecovery, nettingChanges, type CatalogueRead } from './credit';
@@ -64,7 +65,10 @@ const csaTerms: readonly GridColumn<CsaRow>[] = [
  */
 const csaColumnsOf = (agreement: Agreement, reading: readonly RegisteredMeasure[]): readonly GridColumn<CsaRow>[] => [
   { name: 'main', header: 'Main', type: 'text', width: 80, value: (row) => (row.csaId === agreement.mainCsaId ? 'Yes' : 'No'), format: (v) => String(v) },
-  csaId, csaType,
+  csaId,
+  // The row's dialog (ADR-0016 note 57), beside the CSA it is of.
+  editColumn<CsaRow>(),
+  csaType,
   { name: 'ma', header: 'MA', type: 'text', width: 96, value: () => agreement.maId, format: (v) => String(v) },
   ...csaTerms,
   ...reading.map((m) => membershipColumn<CsaRow>(m)),
@@ -113,7 +117,7 @@ export const shownTab = (ws: Pick<XvaWorkspaceView, 'inputs' | 'settings'>, tab:
  * The tabs, one open at a time and collapsible to their tab row (ADR-0010 §1). The page keeps which tab is open,
  * whether it is open and its height, so that a command opens a tab as a press does.
  */
-export function XvaInputs({ ws, push, setText, catalogue, onIssue, onGridEntered, onPlaced, tab, onTab, open, onOpen, height, focusRequest, changeList, changeActions, scenarioActions, onVary, commandLabel, csaMenu }: {
+export function XvaInputs({ ws, push, setText, catalogue, onIssue, onGridEntered, onPlaced, tab, onTab, open, onOpen, height, focusRequest, changeList, changeActions, scenarioActions, onVary, commandLabel, csaMenu, onEditRow }: {
   readonly ws: XvaWorkspaceView;
   /** A value as written, for the server to read as the cell reads it (a spread, a setting). */
   readonly setText: SetText;
@@ -129,6 +133,8 @@ export function XvaInputs({ ws, push, setText, catalogue, onIssue, onGridEntered
   readonly commandLabel: (id: string) => string | undefined;
   /** What the CSAs' table offers in the CSA grid's Context Menu (ADR-0016 note 25), read when a menu opens. */
   readonly csaMenu: { readonly current: { readonly csas: TableMenu } };
+  /** A row's edit button was pressed (ADR-0016 note 57): the page opens the dialog of that row of that table. */
+  readonly onEditRow: (table: string, key: string) => void;
   /** An edit of a field, titled as the screen names it: its row and its column's header, or its label. */
   readonly push: PushEdit;
   readonly onIssue: (message: string | undefined) => void;
@@ -243,7 +249,7 @@ export function XvaInputs({ ws, push, setText, catalogue, onIssue, onGridEntered
           <Tabs.Panel value="csa" pt="xs">
             {ws.csas.length === 0
               ? <Text size="sm">{ws.agreement.maId} has no CSA: its trades are uncollateralised ({ws.agreement.noCsa}).</Text>
-              : <CsaGrid workspaceId={ws.workspaceId} revision={ws.revision} csas={ws.csas} columns={csaColumns} push={push} height={height - gap - GRID_FRAME} gridRef={csaGrid} onVary={onVary} commandLabel={commandLabel} menu={csaMenu} onGridEntered={onGridEntered} onPlaced={onPlaced} />}
+              : <CsaGrid workspaceId={ws.workspaceId} revision={ws.revision} csas={ws.csas} columns={csaColumns} push={push} height={height - gap - GRID_FRAME} gridRef={csaGrid} onVary={onVary} commandLabel={commandLabel} menu={csaMenu} onEditRow={onEditRow} onGridEntered={onGridEntered} onPlaced={onPlaced} />}
           </Tabs.Panel>
           {creditShown && (
             <Tabs.Panel value={CREDIT_TAB} pt="xs">
@@ -313,13 +319,14 @@ function ImCsas({ ws, focusRef }: { readonly ws: XvaWorkspaceView; readonly focu
  * The CSA terms, as high as their rows within `height`, what the tab's height leaves under the panel's top gap and the
  * grid's frame. It shows no Selection Summary: a sum or an average of terms in different currencies is no figure.
  */
-function CsaGrid({ workspaceId, revision, csas, columns: declared, push, height, gridRef, onVary, commandLabel, menu, onGridEntered, onPlaced }: {
+function CsaGrid({ workspaceId, revision, csas, columns: declared, push, height, gridRef, onVary, commandLabel, menu, onEditRow, onGridEntered, onPlaced }: {
   /** The workspace the CSAs are of, and the revision the page shows of it. */
   readonly workspaceId: string;
   readonly revision: number;
   readonly onVary: (target: VaryTarget) => void;
   readonly commandLabel: (id: string) => string | undefined;
   readonly menu: { readonly current: { readonly csas: TableMenu } };
+  readonly onEditRow: (table: string, key: string) => void;
   readonly csas: readonly EffectiveCsa[];
   readonly columns: readonly GridColumn<CsaRow>[];
   /** An edit of a field, titled as the screen names it: its row and its column's header, or its label. */
@@ -331,6 +338,10 @@ function CsaGrid({ workspaceId, revision, csas, columns: declared, push, height,
 }) {
   const source = useMemo(() => GridSource.from<CsaRow>([], { rowKey: csaKey }), []);
   const { columns, onColumnWidthChanged } = useColumnWidths('xva/csas', declared);
+  const onAction = useCallback((event: GridActionEvent<CsaRow>) => {
+    if (event.action !== EDIT_ROW) throw new Error(`The CSA grid reported an action it was not given: ${event.action}.`);
+    onEditRow(CSAS_TABLE, event.row.csaId);
+  }, [onEditRow]);
   const { api } = useWorkspaceContext();
   const heldGrid = useMemo(() => ({ api, workspaceId, table: CSAS_TABLE, revision }), [api, workspaceId, revision]);
   // Filtered from the line (ADR-0016 note 41), the grid shows the CSAs the server says its conditions leave.
@@ -383,6 +394,7 @@ function CsaGrid({ workspaceId, revision, csas, columns: declared, push, height,
       sort: (asked) => sortGrid(declared, source, asked),
       filter: (asked) => filterGrid(source, asked),
       select: (asked) => selectRows(declared, grid, read, asked, rowOf),
+      keyboard: (from) => grid.returnKeyboard(from),
     };
   }, [gridRef, source]);
   const filterOff = useCallback(() => { filterGrid(source, {}); }, [source]);
@@ -396,7 +408,7 @@ function CsaGrid({ workspaceId, revision, csas, columns: declared, push, height,
     <Stack gap="xs">
       {filter === undefined ? null : <div ref={filterLine}><GridFilterLine said={filter} grid="the CSA terms" onOff={filterOff} /></div>}
       <div aria-label="CSA terms" onFocusCapture={() => onGridEntered(screen)}>
-        <QubeGrid<CsaRow> ref={gridRef} columns={columns} onColumnWidthChanged={onColumnWidthChanged} source={source} onEdit={onEdit} cellState={csaCellState} cellMessage={csaCellMessage}
+        <QubeGrid<CsaRow> ref={gridRef} columns={columns} onColumnWidthChanged={onColumnWidthChanged} source={source} onEdit={onEdit} onAction={onAction} cellState={csaCellState} cellMessage={csaCellMessage}
           contextCommands={contextCommands} commandLabel={commandLabel}
           density="compact" viewportWidth="stretch" viewportHeight={Math.max(compactGridHeight(1), gridHeight)} pinnedColumnCount={2} showSelectionSummary={false} locale="en-US" />
       </div>

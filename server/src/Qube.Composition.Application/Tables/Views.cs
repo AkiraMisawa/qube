@@ -34,7 +34,8 @@ public sealed record LineView(
     IReadOnlyList<ViewRange>? Ranges = null,
     ViewCell? Focus = null,
     IReadOnlyList<string>? Shown = null,
-    string? Where = null)
+    string? Where = null,
+    LineDraft? Draft = null)
 {
     public IReadOnlyList<ViewSort> Sorts { get; init; } = Sorts ?? [];
 
@@ -117,6 +118,14 @@ static class Views
     const string Moved = "ViewMoved";
     const string Unordered = "NoOrder";
     internal const string Unread = "FilterUnread";
+
+    /// <summary>
+    /// A table's rows as a line typed in a draft says them (ADR-0016 note 55): of a table under the draft's, the rows
+    /// under the draft's row alone, so that one is said by how its id ends (<c>remove legs 1</c>) though another row
+    /// has a row of that number. Every other table's rows are as they are: a line that is of one is refused as such.
+    /// </summary>
+    public static IReadOnlyList<ITableRow> InDraft(LineView? view, BoundTable table, IReadOnlyList<ITableRow> rows) =>
+        view?.Draft is { } draft && table.Descriptor.Under == draft.Table ? [.. rows.Where(r => r.Under == draft.Key)] : rows;
 
     public static BoundTable TableOf(LineView view, IReadOnlyList<BoundTable> tables) =>
         tables.FirstOrDefault(t => t.Descriptor.TableId == view.Table) ?? throw Invalid($"The view names a table, {view.Table}, that this workspace has not.");

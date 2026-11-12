@@ -276,6 +276,9 @@ test('ADR-0008, ADR-0016 note 36: a line is made from short words in any order, 
 
   // Each word is completed from the description: a currency the server's profiles name, taken with Tab.
   await page.keyboard.type('jp');
+  // The list is of this text once the server's reading of it is in: until then it says it is busy, and Tab takes
+  // nothing from a list of an earlier text.
+  await expect(options).not.toHaveAttribute('aria-busy');
   await expect(options.getByRole('option').first()).toContainText('JPY');
   await page.keyboard.press('Tab');
   await expect(line).toHaveValue('new irs JPY ');

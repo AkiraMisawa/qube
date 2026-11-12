@@ -78,7 +78,8 @@ public static class CommandHistory
         from.RemoveAt(from.Count - 1);
     }
 
-    static IEnumerable<LoggedCommand> Commands(IReadOnlyList<EditEntry> log)
+    /// <summary>The log's commands in the order they were written.</summary>
+    public static IEnumerable<LoggedCommand> Commands(IReadOnlyList<EditEntry> log)
     {
         var entries = new List<EditEntry>();
         foreach (var entry in log)

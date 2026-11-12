@@ -67,6 +67,8 @@ builder.Services.AddSingleton<ProductService>();
 builder.Services.AddSingleton<IQubeModule>(sp => new ProductsModule(sp.GetRequiredService<ProductService>));
 // The kernel's commands over any workspace (ADR-0016 §11): undo and redo.
 builder.Services.AddSingleton<IQubeModule>(sp => new WorkspaceCommandsModule(sp.GetRequiredService<WorkspaceService>));
+// And over a draft of one row (ADR-0016 §10, note 55): apply reads the draft's lines again, as the line reads any.
+builder.Services.AddSingleton<IQubeModule>(sp => new DraftsModule(sp.GetRequiredService<CommandLines>));
 // Tables are descriptions from catalogs too (ADR-0016 §1); the kernel's entity.set, entity.reset and entity.remove read
 // them. The pricer registers its trades, CSAs, netting set, credit, CDS, workspace and each module's settings.
 builder.Services.AddSingleton<ITableCatalog>(sp => new PortfolioTables(sp.GetRequiredService<MeasureRegister>()));

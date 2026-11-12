@@ -30,8 +30,9 @@ public sealed partial class TableService(TableRegister register, WorkspaceServic
     /// <param name="Keyed">Where the rows were read from a screen: how a request names them (note 17 of step 2).</param>
     /// <param name="Context">What the line left out and the screen behind it gave (note 18 of step 2): its rows, and for <c>reset</c> alone the field too.</param>
     /// <param name="TableFromScreen">Where the line named no table and the screen gave one that is not the main table: that table, as a request names it (note 23 of step 2).</param>
+    /// <param name="Rest">What the command says after its rows, as the log spells it: the values of a <c>set</c>, the field of a <c>reset</c>.</param>
     sealed record Plan(WorkspaceState State, ResolvedRows Resolved, IReadOnlyList<WorkspaceChange> Changes, IReadOnlyList<ITableRow> Touched, string Said, string Would, string Words,
-        ScreenKeys? Keyed = null, TableField? Context = null, string? TableFromScreen = null);
+        ScreenKeys? Keyed = null, TableField? Context = null, string? TableFromScreen = null, string? Rest = null);
 
     /// <summary>
     /// Rows read from a screen as a request names them (note 17 of step 2): their table, and their keys as a line lists
@@ -83,6 +84,31 @@ public sealed partial class TableService(TableRegister register, WorkspaceServic
     {
         var rows = SelectorReader.Words(line.Text);
         return Read(line, PlanRemove(line.State, null, rows, line.View), new LineArgument("rows", rows));
+    }
+
+    /// <summary>What a line of <c>set</c> would write (note 54), read as <see cref="SetLine"/> reads it: for a draft to fold, and nothing written.</summary>
+    public LineChanges SetChanges(LineContext line)
+    {
+        var (rows, rest) = Split(line);
+        return Changes(line.State, PlanSet(line.State, line.Caller, null, rows, rest, line.View), "set");
+    }
+
+    /// <summary>What a line of <c>reset</c> would write (note 54).</summary>
+    public LineChanges ResetChanges(LineContext line)
+    {
+        var (rows, rest) = Split(line);
+        return Changes(line.State, PlanReset(line.State, null, rows, rest.Length == 0 ? null : rest, line.View), "reset");
+    }
+
+    /// <summary>What a line of <c>remove</c> would write (note 54).</summary>
+    public LineChanges RemoveChanges(LineContext line) => Changes(line.State, PlanRemove(line.State, null, SelectorReader.Words(line.Text), line.View), "remove");
+
+    // The whole line is the verb, the rows by their keys in their table, as a request names rows read from a screen
+    // (note 17 of step 2), and what the line says of them: it reads again as those rows whatever screen is behind it.
+    LineChanges Changes(WorkspaceState state, Plan plan, string verb)
+    {
+        var keyed = plan.Keyed ?? Keyed(plan.Resolved, register.Of(state), null);
+        return new(plan.Changes, plan.Said, plan.Would, Words(verb, keyed.Table, keyed.Rows, plan.Rest), plan.Resolved.Table.Descriptor.TableId, [.. plan.Resolved.Rows.Select(r => r.Key)]);
     }
 
     /// <summary>What could follow the last word of a line of <c>set</c>, <c>reset</c> or <c>remove</c>: the verb says what comes after its rows.</summary>
@@ -157,25 +183,26 @@ public sealed partial class TableService(TableRegister register, WorkspaceServic
 
         // One value is named as the line first spells it, `<field> <value>`; several keep their signs; a template is
         // named with its terms as read, each by its name.
-        var words = Words("set", table, named, asTemplate is not null ? $"{Templates.Word} {asTemplate.Says}" : set.Count(c => c == '=') == 1 ? set.Replace('=', ' ') : set);
+        var rest = asTemplate is not null ? $"{Templates.Word} {asTemplate.Says}" : set.Count(c => c == '=') == 1 ? set.Replace('=', ' ') : set;
+        var words = Words("set", table, named, rest);
         var touched = resolved.Rows.Where(r => changed.Contains(r.Key)).ToList();
         var held = resolved.Rows.Count - touched.Count;
         if (touched.Count == 0)
         {
             var holds = asTemplate is not null ? $"every value of {asTemplate.Says}"
                 : TableWords.And(values.Select(v => $"{TableWords.Word(v.Field)} {FieldForms.Write(v.Field.Written, v.Value)}"));
-            return Unchanged(state, resolved, $"{Rows(bound, resolved.Rows, all: true)} already hold{(resolved.Rows.Count == 1 ? "s" : "")} {holds}", words, keyed) with { TableFromScreen = fromScreen };
+            return Unchanged(state, resolved, $"{Rows(bound, resolved.Rows, all: true)} already hold{(resolved.Rows.Count == 1 ? "s" : "")} {holds}", words, keyed) with { TableFromScreen = fromScreen, Rest = rest };
         }
         if (asTemplate is not null)
         {
-            var rest = heldCells == 0 ? "" : $"; {TableWords.Counted(heldCells, "value")} already held";
+            var heldToo = heldCells == 0 ? "" : $"; {TableWords.Counted(heldCells, "value")} already held";
             return new(state, resolved, changes, touched, $"Set {Rows(bound, touched)} as {asTemplate.Says}{(held == 0 ? "" : $"; {held} already held its values")}.",
-                $"{string.Join("; ", would)}{rest}", words, keyed, TableFromScreen: fromScreen);
+                $"{string.Join("; ", would)}{heldToo}", words, keyed, TableFromScreen: fromScreen, Rest: rest);
         }
         var assigned = TableWords.And(written.Select(v => $"{TableWords.Word(v.Field)} to {FieldForms.Write(v.Field.Written, v.Value)}"));
         var already = held == 0 ? "" : $"; {held} already held {(written.Count == 1 ? "it" : "them")}";
         var said = touched.Count == 1 ? $"Set {touched[0].Key} {assigned}{already}." : $"Set {assigned} on {Rows(bound, touched)}{already}.";
-        return new(state, resolved, changes, touched, said, string.Join("; ", would), words, keyed, TableFromScreen: fromScreen);
+        return new(state, resolved, changes, touched, said, string.Join("; ", would), words, keyed, TableFromScreen: fromScreen, Rest: rest);
     }
 
     Plan PlanReset(WorkspaceState state, string? table, string? rows, string? field, LineView? view = null)
@@ -213,16 +240,18 @@ public sealed partial class TableService(TableRegister register, WorkspaceServic
             changed.Add(row);
         }
 
+        // The field as the line said it, or the cell the screen gave, by its word.
+        var fieldSaid = cell is not null ? TableWords.Word(cell) : field;
         var words = Words("reset", table, said, field);
         var touched = resolved.Rows.Where(changed.Contains).ToList();
         var held = resolved.Rows.Count - touched.Count;
         if (touched.Count == 0)
-            return Unchanged(state, resolved, $"{Rows(bound, resolved.Rows, all: true)} {(resolved.Rows.Count == 1 ? "has" : "have")} no edit{of}", words, keyed) with { Context = cell, TableFromScreen = fromScreen };
+            return Unchanged(state, resolved, $"{Rows(bound, resolved.Rows, all: true)} {(resolved.Rows.Count == 1 ? "has" : "have")} no edit{of}", words, keyed) with { Context = cell, TableFromScreen = fromScreen, Rest = fieldSaid };
         var without = held == 0 ? "" : $"; {held} had no edit";
         var done = touched.Count == 1 ? $"Reset {touched[0].Key}{(named is null ? "" : $" {TableWords.Word(named)}")}{without}."
             : named is null ? $"Reset {Rows(bound, touched)}{without}." : $"Reset {TableWords.Word(named)} on {Rows(bound, touched)}{without}.";
         var would = resolved.Rows.Count == 1 ? "reset" : $"{Counted(touched.Count)} reset{(held == 0 ? "" : $", {Counted(held)} with no edit")}";
-        return new(state, resolved, changes, touched, done, $"{(named is null ? "every field" : TableWords.Word(named))}: {would}", words, keyed, cell, fromScreen);
+        return new(state, resolved, changes, touched, done, $"{(named is null ? "every field" : TableWords.Word(named))}: {would}", words, keyed, cell, fromScreen, fieldSaid);
     }
 
     Plan PlanRemove(WorkspaceState state, string? table, string? rows, LineView? view = null)
@@ -287,7 +316,8 @@ public sealed partial class TableService(TableRegister register, WorkspaceServic
         if (view is null || selector.Table is not null || !selector.SaysNoRows) return null;
         var table = Views.TableOf(view, tables);
         if (table.Descriptor.SingleRow || named(table) is not { } there) return null;
-        if (alone.Count == 0 || there.Count == 0) return table;
+        // In a draft the words are of the draft's row (note 55): a table of one row is none of the draft's.
+        if (alone.Count == 0 || there.Count == 0 || view.Draft is not null) return table;
         // A field of the screen's rows that no command sets is not what the words meant where a table of one row has them.
         if (there.All(f => !f.Editable)) return null;
         var other = named(alone[0]) ?? throw new InvalidOperationException($"{alone[0].Word} was read as having the field.");
@@ -450,9 +480,10 @@ public sealed partial class TableService(TableRegister register, WorkspaceServic
     static string Counted(int count) => count.ToString(CultureInfo.InvariantCulture);
 
     // The command as its caller gave it, in the line's own spelling: what the log names it by (ADR-0016 note 3).
-    static string Words(string verb, string? table, string said, string? rest)
+    // `said` is the rows as the line says them; a table of one row has none to say.
+    static string Words(string verb, string? table, string? said, string? rest)
     {
-        var named = table is null || said.StartsWith(TableWords.Of(table), StringComparison.OrdinalIgnoreCase) ? null : table.Trim();
+        var named = table is null || (said is not null && said.StartsWith(TableWords.Of(table), StringComparison.OrdinalIgnoreCase)) ? null : table.Trim();
         return string.Join(' ', new[] { verb, named, said, rest is null ? null : SelectorReader.Words(rest) }.Where(w => !string.IsNullOrEmpty(w)));
     }
 }
@@ -536,7 +567,7 @@ static class Assignments
 }
 
 /// <summary><c>entity.set</c> (ADR-0016 §3): one value or several, as written, into rows of a registered table of the caller's workspace.</summary>
-public sealed class EntitySet(Func<TableService> tables) : ICapabilityHandler, ILineCommand
+public sealed class EntitySet(Func<TableService> tables) : ICapabilityHandler, ILineCommand, IDraftLine
 {
     public const string Id = "entity.set";
 
@@ -548,6 +579,8 @@ public sealed class EntitySet(Func<TableService> tables) : ICapabilityHandler, I
 
     public LineRead Read(LineContext line) => tables().SetLine(line);
 
+    public LineChanges Changes(LineContext line) => tables().SetChanges(line);
+
     public LineCompletions Complete(LineContext line) => tables().Complete(line, CommandArgumentKind.Assignments);
 
     public Task<IReadOnlyDictionary<string, JsonNode?>> InvokeAsync(CapabilityInvocation invocation, CancellationToken cancellationToken) =>
@@ -556,7 +589,7 @@ public sealed class EntitySet(Func<TableService> tables) : ICapabilityHandler, I
 }
 
 /// <summary><c>entity.reset</c> (ADR-0016 §3): removes the edits on rows of a registered table, of one field or of every field.</summary>
-public sealed class EntityReset(Func<TableService> tables) : ICapabilityHandler, ILineCommand
+public sealed class EntityReset(Func<TableService> tables) : ICapabilityHandler, ILineCommand, IDraftLine
 {
     public const string Id = "entity.reset";
 
@@ -568,6 +601,8 @@ public sealed class EntityReset(Func<TableService> tables) : ICapabilityHandler,
 
     public LineRead Read(LineContext line) => tables().ResetLine(line);
 
+    public LineChanges Changes(LineContext line) => tables().ResetChanges(line);
+
     public LineCompletions Complete(LineContext line) => tables().Complete(line, CommandArgumentKind.Field);
 
     public Task<IReadOnlyDictionary<string, JsonNode?>> InvokeAsync(CapabilityInvocation invocation, CancellationToken cancellationToken) =>
@@ -576,7 +611,7 @@ public sealed class EntityReset(Func<TableService> tables) : ICapabilityHandler,
 }
 
 /// <summary><c>entity.remove</c> (ADR-0016 §3): removes rows the workspace made from a registered table.</summary>
-public sealed class EntityRemove(Func<TableService> tables) : ICapabilityHandler, ILineCommand
+public sealed class EntityRemove(Func<TableService> tables) : ICapabilityHandler, ILineCommand, IDraftLine
 {
     public const string Id = "entity.remove";
 
@@ -587,6 +622,8 @@ public sealed class EntityRemove(Func<TableService> tables) : ICapabilityHandler
         new(["remove"], [new("rows", CommandArgumentKind.Rows, Required: true)]));
 
     public LineRead Read(LineContext line) => tables().RemoveLine(line);
+
+    public LineChanges Changes(LineContext line) => tables().RemoveChanges(line);
 
     public LineCompletions Complete(LineContext line) => tables().Complete(line, null);
 

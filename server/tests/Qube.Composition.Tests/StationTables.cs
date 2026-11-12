@@ -309,9 +309,21 @@ static class Stations
         public (WorkspaceState State, string Entity) Create(string workspaceId, long? revision, string user, IReadOnlyDictionary<string, JsonNode?> terms, IReadOnlyDictionary<string, string> sources, RunOrigin origin)
         {
             var board = service.Find(workspaceId) ?? throw new WorkspaceRefused("UnknownWorkspace", $"No board {workspaceId}.");
-            var id = WouldCreate(board, terms);
-            var fields = new JsonObject { ["id"] = id, ["station"] = terms["station"]!.GetValue<string>(), ["kind"] = terms["kind"]!.GetValue<string>(), ["load"] = FieldForms.Held(terms["load"]!), ["unit"] = terms["unit"]!.GetValue<string>(), ["out"] = false };
+            var (id, fields) = Made(board, terms);
             return (service.Create(workspaceId, revision ?? board.Revision, user, Scope, $"sensor:{id}", fields, origin), id);
+        }
+
+        // A sensor is made by one change, so a draft may hold its making (ADR-0016 note 54).
+        public (IReadOnlyList<WorkspaceChange> Changes, string Entity)? Planned(WorkspaceState workspace, IReadOnlyDictionary<string, JsonNode?> terms, IReadOnlyDictionary<string, string> sources)
+        {
+            var (id, fields) = Made(workspace, terms);
+            return ([new WorkspaceChange.Create(Scope, $"sensor:{id}", fields)], id);
+        }
+
+        (string Id, JsonObject Fields) Made(WorkspaceState board, IReadOnlyDictionary<string, JsonNode?> terms)
+        {
+            var id = WouldCreate(board, terms);
+            return (id, new JsonObject { ["id"] = id, ["station"] = terms["station"]!.GetValue<string>(), ["kind"] = terms["kind"]!.GetValue<string>(), ["load"] = FieldForms.Held(terms["load"]!), ["unit"] = terms["unit"]!.GetValue<string>(), ["out"] = false });
         }
     }
 

@@ -16,12 +16,13 @@ async function focusCell(page: Page, right: number): Promise<void> {
   for (let i = 0; i < right; i++) await page.keyboard.press('ArrowRight');
 }
 
-// The CSA's column in the New grid, which has no last fixing (ADR-0010 §6).
-const CSA = 7;
+// The CSA's column in the New grid, which has no last fixing (ADR-0010 §6), counted from the trade's id: the row's Edit
+// button stands beside the id (ADR-0016 note 57), so every column after it is one further right than its terms alone.
+const CSA = 8;
 // XVA's columns in the New grid, after B and A and the trade's PV (ADR-0010 §6, ADR-0016 note 49), by the grid's own
 // 1-based column index: the grid draws the columns in view, so a cell is found by its column, not by how many cells
 // are drawn before it.
-const XVA = { pv01: 13, margin: 14, pvAdj: 15 } as const;
+const XVA = { pv01: 14, margin: 15, pvAdj: 16 } as const;
 const cell = (page: Page, id: string, column: number) => trade(page, id).locator(`[aria-colindex="${column}"]`);
 /** What the open line says of its chain (ADR-0016 §9, note 24): the last it draws, a line that ran as `› <line>` and a notice as its sentence. */
 const saidIn = (page: Page) => page.getByTestId('command-said').locator('[data-kind]');
@@ -87,10 +88,10 @@ test('docs/03, ADR-0003: a new trade takes the main CSA, a CSA typed in moves it
 test('ADR-0003 §6: a counterparty change asks before dropping its edits, and keeps a new trade\'s own', async ({ page }) => {
   await open(page);
   await newWorkspace(page, 'ABC/LE-01', 0);
-  await focusCell(page, 3);
+  await focusCell(page, 4);
   await page.keyboard.type('7000000');
   await page.keyboard.press('Enter');
-  await expect(trade(page, 'DRAFT-1').getByRole('gridcell').nth(3)).toHaveText('7,000,000');
+  await expect(trade(page, 'DRAFT-1').getByRole('gridcell').nth(4)).toHaveText('7,000,000');
   await focusCell(page, CSA);
   await page.keyboard.type('CSA-B');
   await page.keyboard.press('Enter');
@@ -105,7 +106,7 @@ test('ADR-0003 §6: a counterparty change asks before dropping its edits, and ke
 
   await expect(page.getByTestId('notice')).toContainText('1 edit(s) carried');
   await settled(page, 'New trades');
-  await expect(trade(page, 'DRAFT-1').getByRole('gridcell').nth(3)).toHaveText('7,000,000');
+  await expect(trade(page, 'DRAFT-1').getByRole('gridcell').nth(4)).toHaveText('7,000,000');
   await expect(trade(page, 'DRAFT-1').getByRole('gridcell').nth(CSA)).toHaveText('CSA-C');
 });
 
@@ -166,12 +167,12 @@ test('ADR-0010 §1, §5, §8, §9: by keyboard, a CSA edit moves a trade into FV
   await page.keyboard.press('End');
   await expect(csaA).toContainText('Out · CSA-A perfect: daily, MTA+threshold');
   await page.keyboard.press('Home');
-  for (let i = 0; i < 10; i++) await page.keyboard.press('ArrowRight');
+  for (let i = 0; i < 11; i++) await page.keyboard.press('ArrowRight');
   await page.keyboard.type('200000000');
   await page.keyboard.press('Enter');
   // The tab counts the value that differs from Original, and the cell is marked (ADR-0010 §2).
   await expect(page.getByRole('tab', { name: 'CSA ●1' })).toBeVisible();
-  await expect(csaA.locator('[aria-colindex="11"]')).toHaveClass(/ex-state-modified/);
+  await expect(csaA.locator('[aria-colindex="12"]')).toHaveClass(/ex-state-modified/);
   await page.keyboard.press('ArrowUp');
   await page.keyboard.press('End');
   await expect(csaA).toContainText('In · CSA-A imperfect: counterparty MTA+threshold');
@@ -599,12 +600,12 @@ test('ADR-0006 note 2 (2026-11-11): a result is teal, takes no room and leaves b
   expect(problems.splice(0)).toEqual([refused]);
 
   // And a cell by its row and its column's header, as its grid names them (it read `csa:CSA-A currency`). Ccy is the
-  // CSA grid's fifth column; the grid's first key only places its Focus (ex-grid ADR-0037).
+  // CSA grid's sixth column, past the row's Edit button; the grid's first key only places its Focus (ex-grid ADR-0037).
   await command(page, 'open csa');
   await settled(page, 'CSA terms');
   await page.keyboard.press('Home');
   await page.keyboard.press('Home');
-  for (let i = 0; i < 4; i++) await page.keyboard.press('ArrowRight');
+  for (let i = 0; i < 5; i++) await page.keyboard.press('ArrowRight');
   await page.keyboard.type('XXX');
   await page.keyboard.press('Enter');
   await expect(notice).toHaveText(/^CSA-A Ccy was not changed: A currency is /);
@@ -711,9 +712,10 @@ test('ADR-0006 note 4 (2026-11-11), ADR-0016 note 28: `vary` shows this workspac
   await page.keyboard.press('Escape');
   await expect(page.getByRole('combobox', { name: 'Command' })).toBeHidden();
 
-  // A is the eleventh column of the New grid: ten to the right of the trade's id. The grid writes a flag True or False.
-  const after = cell(page, 'DRAFT-1', 11);
-  await focusCell(page, 10);
+  // A is the twelfth column of the New grid: eleven to the right of the trade's id, past the row's Edit button. The grid
+  // writes a flag True or False.
+  const after = cell(page, 'DRAFT-1', 12);
+  await focusCell(page, 11);
   await expect(after).toHaveText('True');
 
   await page.keyboard.type('off');
@@ -810,12 +812,12 @@ test('ADR-0016 §5: `set where` says its rows and what would change before Enter
   await settled(page, 'New trades');
   const line = page.getByRole('combobox', { name: 'Command' });
   const read = page.getByTestId('command-preview');
-  // Ccy is the third column of the New grid and A the eleventh, ten to the right of the trade's id: two of the three
+  // Ccy is the fourth column of the New grid and A the twelfth, eleven to the right of the trade's id: two of the three
   // new trades are in USD, and each has A ticked. The grid draws the columns in view, so A is read once it is in view.
-  await expect(cell(page, 'DRAFT-1', 3)).toHaveText('JPY');
-  for (const id of ['DRAFT-2', 'DRAFT-3']) await expect(cell(page, id, 3)).toHaveText('USD');
-  await focusCell(page, 10);
-  for (const id of ['DRAFT-1', 'DRAFT-2', 'DRAFT-3']) await expect(cell(page, id, 11)).toHaveText('True');
+  await expect(cell(page, 'DRAFT-1', 4)).toHaveText('JPY');
+  for (const id of ['DRAFT-2', 'DRAFT-3']) await expect(cell(page, id, 4)).toHaveText('USD');
+  await focusCell(page, 11);
+  for (const id of ['DRAFT-1', 'DRAFT-2', 'DRAFT-3']) await expect(cell(page, id, 12)).toHaveText('True');
 
   await page.keyboard.press('ControlOrMeta+K');
   await expect(line).toBeFocused();
@@ -827,8 +829,8 @@ test('ADR-0016 §5: `set where` says its rows and what would change before Enter
   await page.keyboard.press('Enter');
   await expect(line).toBeHidden();
   await expect(page.getByTestId('notice')).toHaveText('Set A to off on DRAFT-2 and DRAFT-3.');
-  await expect(cell(page, 'DRAFT-1', 11)).toHaveText('True');
-  for (const id of ['DRAFT-2', 'DRAFT-3']) await expect(cell(page, id, 11)).toHaveText('False');
+  await expect(cell(page, 'DRAFT-1', 12)).toHaveText('True');
+  for (const id of ['DRAFT-2', 'DRAFT-3']) await expect(cell(page, id, 12)).toHaveText('False');
   await expect(page.getByTestId('workspace-summary')).toContainText('2 edit(s)');
 
   // A line the server cannot read stays at Enter, with its text and the reason, and the word at fault selected.
@@ -884,8 +886,8 @@ test('ADR-0016 §2, §5: Enter runs the reading the line shows, and a workspace 
   await page.keyboard.press('Enter');
   await expect(line).toBeHidden();
   await expect(page.getByTestId('notice')).toHaveText('Set A to off on DRAFT-2 and DRAFT-3; 1 already held it.');
-  await focusCell(page, 10);
-  for (const id of ['DRAFT-1', 'DRAFT-2', 'DRAFT-3']) await expect(cell(page, id, 11)).toHaveText('False');
+  await focusCell(page, 11);
+  for (const id of ['DRAFT-1', 'DRAFT-2', 'DRAFT-3']) await expect(cell(page, id, 12)).toHaveText('False');
 });
 
 test('ADR-0016 §5: while the server reads the line, nothing is taken from its reading of an earlier text; a line closed while Enter is read says its reason as a notice; and a reading the server did not give is said as a failure', async ({ page, problems }) => {
@@ -982,9 +984,9 @@ test('ADR-0016 §11: `undo` says what it would take back before Enter and what i
   await expect(page.getByTestId('notice')).toHaveText('Put back: set CSA-A threshold 5mm.');
   await expect(page.getByTestId('workspace-summary')).toContainText('1 edit(s)');
 
-  // In a grid the keys run the same two commands: A is ten to the right of a new trade's id.
-  const after = cell(page, 'DRAFT-1', 11);
-  await focusCell(page, 10);
+  // In a grid the keys run the same two commands: A is eleven to the right of a new trade's id.
+  const after = cell(page, 'DRAFT-1', 12);
+  await focusCell(page, 11);
   await expect(after).toHaveText('True');
   await page.keyboard.type('off');
   await page.keyboard.press('Enter');
@@ -1093,7 +1095,7 @@ test('ADR-0016 §2, notes 16, 17: every row of a grid selected with one key is t
 
   // Sorted by notional, largest first, from the column's menu: a position is a row of that order.
   await page.keyboard.press('ControlOrMeta+Home');
-  for (let i = 0; i < 3; i++) await page.keyboard.press('ArrowRight');
+  for (let i = 0; i < 4; i++) await page.keyboard.press('ArrowRight');
   await page.keyboard.press('Alt+ArrowDown');
   await page.getByRole('menuitem', { name: 'Sort descending' }).click();
   await expect(existing.getByRole('columnheader', { name: 'Notional' })).toHaveAttribute('aria-sort', 'descending');
@@ -1123,13 +1125,14 @@ test('ADR-0016 §2, §9, notes 16, 17, 19: the CSA grid is a screen of the CSAs,
   const read = page.getByTestId('command-preview');
   const screen = page.getByTestId('command-context');
 
-  // The keyboard in the CSA grid, on CSA-A's currency, the first term after Main, the id, the type and the agreement.
+  // The keyboard in the CSA grid, on CSA-A's currency, the first term after Main, the id, the row's Edit button, the type
+  // and the agreement.
   await command(page, 'open', 'csa');
   await expect(page.getByRole('tab', { name: /^CSA/ })).toHaveAttribute('aria-selected', 'true');
   await settled(page, 'CSA terms');
   await page.keyboard.press('ControlOrMeta+Home');
   await page.keyboard.press('ControlOrMeta+Home');
-  for (let i = 0; i < 4; i++) await page.keyboard.press('ArrowRight');
+  for (let i = 0; i < 5; i++) await page.keyboard.press('ArrowRight');
   await page.keyboard.press('ControlOrMeta+K');
   await expect(line).toBeFocused();
   await expect(screen).toHaveText('On screen: csas, 1 selected, CSA-A · currency');
@@ -1343,7 +1346,7 @@ test('ADR-0016 §9, note 21: `find` puts the Focus on a row the sorted grid has 
   await command(page, 'go', 'existing');
   await page.keyboard.press('ControlOrMeta+Home');
   await page.keyboard.press('ControlOrMeta+Home');
-  for (let i = 0; i < 3; i++) await page.keyboard.press('ArrowRight');
+  for (let i = 0; i < 4; i++) await page.keyboard.press('ArrowRight');
   await page.keyboard.press('Alt+ArrowDown');
   await page.getByRole('menuitem', { name: 'Sort descending' }).click();
   await expect(existing.getByRole('columnheader', { name: 'Notional' })).toHaveAttribute('aria-sort', 'descending');
@@ -1419,7 +1422,14 @@ test('ADR-0016 §9, note 23: on the CSA grid rows said by `where` alone are CSAs
   await page.keyboard.press('Enter');
   await expect(line).toBeHidden();
   await expect(page.getByTestId('notice')).toHaveText('Set CSA-B threshold to 0.');
-  await expect(page.getByLabel('CSA terms').getByRole('row', { name: /^No CSA-B / }).locator('[aria-colindex="11"]')).toHaveText('0');
+  // The grid draws the columns in view, and with the row's Edit button the threshold is past the first: the Focus brings
+  // it there.
+  await command(page, 'open', 'csa');
+  await settled(page, 'CSA terms');
+  await page.keyboard.press('ControlOrMeta+Home');
+  await page.keyboard.press('ControlOrMeta+Home');
+  for (let i = 0; i < 11; i++) await page.keyboard.press('ArrowRight');
+  await expect(page.getByLabel('CSA terms').getByRole('row', { name: /^No CSA-B / }).locator('[aria-colindex="12"]')).toHaveText('0');
 
   // The log reads as a line that would do the same from anywhere: it names the table the screen gave.
   await page.keyboard.press('ControlOrMeta+K');
@@ -1637,7 +1647,7 @@ test('ADR-0016 §9, notes 24, 26: a sorted grid keeps its selection across two c
   await existing.getByRole('grid').focus();
   await page.keyboard.press('ControlOrMeta+Home');
   await page.keyboard.press('ControlOrMeta+Home');
-  for (let i = 0; i < 3; i++) await page.keyboard.press('ArrowRight');
+  for (let i = 0; i < 4; i++) await page.keyboard.press('ArrowRight');
   await page.keyboard.press('Alt+ArrowDown');
   await page.getByRole('menuitem', { name: 'Sort descending' }).click();
   await expect(existing.getByRole('columnheader', { name: 'Notional' })).toHaveAttribute('aria-sort', 'descending');
@@ -1755,11 +1765,11 @@ test('ADR-0016 §4, note 25: a grid\'s Context Menu offers its table\'s actions 
 
   // The CSA grid is bound to the CSAs, which declare no action: its menu holds the kernel's own alone before the
   // page's, and that resets the term the menu was opened on.
-  const threshold = page.getByLabel('CSA terms').getByRole('row', { name: /^Yes CSA-A / }).locator('[aria-colindex="11"]');
+  const threshold = page.getByLabel('CSA terms').getByRole('row', { name: /^Yes CSA-A / }).locator('[aria-colindex="12"]');
   const toThreshold = async () => {
     await page.keyboard.press('ControlOrMeta+Home');
     await page.keyboard.press('ControlOrMeta+Home');
-    for (let i = 1; i < 11; i++) await page.keyboard.press('ArrowRight');
+    for (let i = 1; i < 12; i++) await page.keyboard.press('ArrowRight');
   };
   await command(page, 'open', 'csa');
   await settled(page, 'CSA terms');
@@ -1978,8 +1988,8 @@ test('ADR-0010 §3: Vary values… on a CSA threshold\'s Context Menu makes thre
   await page.keyboard.press('Escape');
   await expect(page.getByRole('menu')).toHaveCount(0);
 
-  // The counterparty's threshold, the eleventh column: the Consumer's commands follow the grid's own, so End reaches it.
-  for (let i = 0; i < 10; i++) await page.keyboard.press('ArrowRight');
+  // The counterparty's threshold, the twelfth column: the Consumer's commands follow the grid's own, so End reaches it.
+  for (let i = 0; i < 11; i++) await page.keyboard.press('ArrowRight');
   await page.keyboard.press('Shift+F10');
   await expect(page.getByRole('menuitem').first()).toBeFocused();
   await page.keyboard.press('End');
@@ -2318,7 +2328,7 @@ test('ADR-0016 notes 39 to 41: `sort` and `filter` give a trade grid its own sor
   await settled(page, 'Existing trades');
   await expect(existing.getByRole('grid')).toHaveAttribute('aria-rowcount', String(usd + 1));
   await expect(existing.getByRole('columnheader', { name: 'Notional' })).toHaveAttribute('aria-sort', 'descending');
-  expect(new Set(await existing.locator('[role=row] [role=gridcell][aria-colindex="3"]').allInnerTexts())).toEqual(new Set(['USD']));
+  expect(new Set(await existing.locator('[role=row] [role=gridcell][aria-colindex="4"]').allInnerTexts())).toEqual(new Set(['USD']));
 
   // `shown` is the rows the filter leaves (ADR-0016 §2), and the line says that the grid is filtered.
   await page.keyboard.press('ControlOrMeta+K');
@@ -2558,32 +2568,32 @@ test('ADR-0016 notes 46 to 49: each trade grid shows PV in the display currency,
   await taken(page, 'measures', 'cva fva');
   await settled(page, 'New trades');
 
-  // PV stands after B and A, the New grid's twelfth column, and its header names the display currency. The grid draws
+  // PV stands after B and A, the New grid's thirteenth column, and its header names the display currency. The grid draws
   // the columns in view, so it is read once the Focus has brought it there.
-  await focusCell(page, 11);
+  await focusCell(page, 12);
   await expect(header('New trades')).toBeVisible();
   // A new trade has no leg, so no PV. Typed with its currency, the PV is one leg's, shown in yen at the synthetic
   // market's 188.1 yen and 1.1583 euro to the pound.
-  await expect(cell(page, 'DRAFT-1', 12)).toHaveText('');
+  await expect(cell(page, 'DRAFT-1', 13)).toHaveText('');
   // A PV the server cannot read is not written, and the page says so with the server's sentence.
   await page.keyboard.type('lots');
   await page.keyboard.press('Enter');
   await expect(page.getByTestId('notice')).toHaveText('The PV of DRAFT-1 was not written: DRAFT-1 pv is a number, alone or followed by what it is in: GBP, JPY, USD or EUR; lots is not.');
-  await expect(cell(page, 'DRAFT-1', 12)).toHaveText('');
+  await expect(cell(page, 'DRAFT-1', 13)).toHaveText('');
   // The browser logs the refused request, and nothing else.
   expect(problems.splice(0)).toEqual(['error: Failed to load resource: the server responded with a status of 422 (Unprocessable Entity)']);
-  await focusCell(page, 11);
+  await focusCell(page, 12);
   await page.keyboard.type('250,000 EUR');
   await page.keyboard.press('Enter');
-  await expect(cell(page, 'DRAFT-1', 12)).toHaveText('40,598,291');
+  await expect(cell(page, 'DRAFT-1', 13)).toHaveText('40,598,291');
 
-  // The Existing grid has a last fixing and an official PV, so PV is its fourteenth column. This yen swap's two legs
+  // The Existing grid has a last fixing and an official PV, so PV is its fifteenth column. This yen swap's two legs
   // are in yen and add up to the books' PV.
   await taken(page, 'go', 'existing');
   await taken(page, 'find', 'E00004 pv');
   await expect(page.getByTestId('notice')).toHaveText(`The keyboard is on ${swap} · pv in trades (existing).`);
   await expect(header('Existing trades')).toBeVisible();
-  await expect(cell(page, swap, 14)).toHaveText('14,286,696');
+  await expect(cell(page, swap, 15)).toHaveText('14,286,696');
   // The cell shows the two legs in one figure. Committed as it stands, it writes nothing: the two legs stay, which the
   // line's preview below and the count of edits after `undo` both say.
   await page.keyboard.press('F2');
@@ -2595,13 +2605,13 @@ test('ADR-0016 notes 46 to 49: each trade grid shows PV in the display currency,
   await expect(line).toBeFocused();
   await page.keyboard.type('set E00004 pv -350,000 USD');
   await expect(page.getByTestId('command-preview')).toContainText('pv: 2 legs replaced by 1 leg, USD');
-  await expect(cell(page, swap, 14)).toHaveText('14,286,696');
+  await expect(cell(page, swap, 15)).toHaveText('14,286,696');
   await page.keyboard.press('Enter');
   await expect(line).toBeHidden();
   await expect(page.getByTestId('notice')).toHaveText(`Set ${swap} pv to -350000 USD.`);
-  await expect(cell(page, swap, 14)).toHaveText('-52,362,205');
-  await expect(cell(page, swap, 14)).toHaveClass(/ex-tone-negative/);
-  await expect(cell(page, swap, 14)).toHaveClass(/ex-state-modified/);
+  await expect(cell(page, swap, 15)).toHaveText('-52,362,205');
+  await expect(cell(page, swap, 15)).toHaveClass(/ex-tone-negative/);
+  await expect(cell(page, swap, 15)).toHaveClass(/ex-state-modified/);
 
   // `undo` brings the two legs back, and with them the PV.
   await page.keyboard.press('ControlOrMeta+K');
@@ -2609,8 +2619,8 @@ test('ADR-0016 notes 46 to 49: each trade grid shows PV in the display currency,
   await page.keyboard.type('undo');
   await page.keyboard.press('Enter');
   await expect(line).toBeHidden();
-  await expect(cell(page, swap, 14)).toHaveText('14,286,696');
-  await expect(cell(page, swap, 14)).not.toHaveClass(/ex-state-modified/);
+  await expect(cell(page, swap, 15)).toHaveText('14,286,696');
+  await expect(cell(page, swap, 15)).not.toHaveClass(/ex-state-modified/);
   // One edit is left, the new trade's leg: the swap's cell committed as it stood made none.
   await expect(page.getByTestId('workspace-summary')).toContainText('1 edit(s)');
 });

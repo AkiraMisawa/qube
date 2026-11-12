@@ -134,6 +134,30 @@ describe('completing arguments one slot at a time (ADR-0006 §4)', () => {
     expect(readLine('new irs 5y', [made, rates])).toMatchObject({ kind: 'arguments', command: { id: 'new' } });
   });
 
+  it('ADR-0016 note 56: while what follows a served command that needs no argument could still become a command of the shell\'s, the line lists those; anything else is the server\'s to read', () => {
+    // `open` reads a row, and may be typed alone; the shell has a command for each tab, as it had before `open` read rows.
+    const open = command('open', { served: { arguments: [{ name: 'row', required: false }], door: {} as CommandDoor } });
+    const tabs = [command('open csa'), command('open credit')];
+    const all = [open, ...tabs];
+
+    expect(readLine('open ', all)).toEqual({ kind: 'choosing', query: 'open ' });
+    expect(readLine('open c', all)).toEqual({ kind: 'choosing', query: 'open c' });
+    expect(readLine('open csa', all)).toEqual({ kind: 'choosing', query: 'open csa' });
+    // Words no command of the shell's begins with are a row's.
+    expect(readLine('open csa-b', all)).toMatchObject({ kind: 'arguments', command: { id: 'open' } });
+    expect(readLine('open e0', all)).toMatchObject({ kind: 'arguments', command: { id: 'open' } });
+    expect(readLine('open trades e0', all)).toMatchObject({ kind: 'arguments', command: { id: 'open' } });
+    // A tab's words typed whole, with a space, are the tab's command, as before.
+    expect(readLine('open csa ', all)).toMatchObject({ kind: 'arguments', command: { id: 'open csa' } });
+    // With no such command of the shell's, the word and a space are the served command's.
+    expect(readLine('open ', [open])).toMatchObject({ kind: 'arguments', command: { id: 'open' } });
+    // A served command that needs an argument reads whatever follows its word, as it has since step 1: the server
+    // completes it, and a list of the shell's `set …` would hide the fields it offers.
+    const set = command('set', { served: { arguments: [{ name: 'rows', required: false }, { name: 'set', required: true }], door: {} as CommandDoor } });
+    expect(readLine('set c', [set, command('set currency')])).toMatchObject({ kind: 'arguments', command: { id: 'set' } });
+    expect(readLine('set ', [set, command('set currency')])).toMatchObject({ kind: 'arguments', command: { id: 'set' } });
+  });
+
   it('offers values that follow from the arguments before them', () => {
     expect(completionsOf(readLine('new irs USD ', [irs])).map((v) => v.value)).toEqual(['SOFR']);
   });

@@ -286,7 +286,7 @@ public static class Selectors
     {
         // The rows of each table are read once, and only when the selector asks for them.
         var read = new Dictionary<string, IReadOnlyList<ITableRow>>();
-        IReadOnlyList<ITableRow> RowsOf(BoundTable t) => read.TryGetValue(t.Descriptor.TableId, out var rows) ? rows : read[t.Descriptor.TableId] = t.Table.Rows(state);
+        IReadOnlyList<ITableRow> RowsOf(BoundTable t) => read.TryGetValue(t.Descriptor.TableId, out var rows) ? rows : read[t.Descriptor.TableId] = Views.InDraft(view, t, t.Table.Rows(state));
 
         var indexed = new Dictionary<string, RowIndex>();
         RowIndex IndexOf(BoundTable t) => indexed.TryGetValue(t.Descriptor.TableId, out var index) ? index : indexed[t.Descriptor.TableId] = new(t, RowsOf(t));
@@ -553,9 +553,8 @@ static partial class Conditions
         return compiled;
     }
 
-    static Kind KindOf(TableField field) => field.Form switch
+    static Kind KindOf(TableField field) => FieldForms.IsNumber(field.Form) ? Kind.Number : field.Form switch
     {
-        FieldForm.Amount or FieldForm.SignedAmount or FieldForm.Percent or FieldForm.Rate or FieldForm.Spread or FieldForm.Number or FieldForm.Days => Kind.Number,
         FieldForm.Date => Kind.Date,
         FieldForm.Flag => Kind.Flag,
         FieldForm.Period or FieldForm.PeriodOrDate or FieldForm.Choice or FieldForm.Id => Kind.Text,

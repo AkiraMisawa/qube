@@ -2,7 +2,7 @@
 // here and runs them, so availability and behaviour cannot differ between surfaces. A command is found by typing the
 // English words for what it does; its arguments are completed one slot at a time.
 
-import type { LineFilter, LinePlace, LinePreview, LineSelect, LineSort, LineView } from '../contracts';
+import type { LineDraft, LineFilter, LinePlace, LinePreview, LineSelect, LineSort, LineView } from '../contracts';
 
 /** A value a slot offers, with what it means. */
 export interface Completion {
@@ -57,6 +57,11 @@ export interface Command {
   /** Why the command cannot run now; absent when it can. */
   readonly unavailable?: string;
   /**
+   * A draft reads it (ADR-0016 §10, note 55 of 2026-11-12): it stays available while the page's row dialog is open.
+   * Every other command is held until the dialog closes, the shell's own among them.
+   */
+  readonly inDraft?: boolean;
+  /**
    * Does it. It reads its arguments before it does anything, and throws `CommandRefused` with the reason when it cannot
    * read them, so that a refusal has changed nothing and the line can stay open with what was typed (ADR-0006's note 1
    * of 2026-11-11).
@@ -84,6 +89,13 @@ export interface Screen {
   readonly sort: (asked: LineSort) => string | undefined;
   readonly filter: (asked: LineFilter) => string | undefined;
   readonly select: (asked: LineSelect) => string | undefined;
+  /**
+   * Gives the grid the keyboard back from something of the page's that held it over the grid and has gone, such as a
+   * row's dialog (ADR-0016 §10; ex-grid ADR-0070). The grid takes it only while nothing else has, or while `from`,
+   * the frame that is going, still has it: a control the user moved to keeps it. Neither the Focus nor the Selection
+   * moves.
+   */
+  readonly keyboard: (from?: Element) => void;
 }
 
 /** A line that ended with its command having put the keyboard somewhere itself (`find`; ADR-0016 note 21 of 2026-11-11): the line gives none back. */
@@ -113,6 +125,11 @@ export interface CommandDoor {
    */
   view(): LineView | undefined;
   /**
+   * The draft of the dialog the page has open (ADR-0016 §10, note 55 of 2026-11-12), none while it has none. While one
+   * is open the line's view is the draft, and the server reads the draft's own commands alone.
+   */
+  draft(): LineDraft | undefined;
+  /**
    * Enter on a line, in the page's own turn, after the edits it has sent. The reading the line showed for exactly this
    * text is what is invoked, by its own inputs, which carry the revision it was read at: a workspace that has moved
    * since refuses it (ADR-0016 §2). With none shown the server reads the line at the revision the page then holds, with
@@ -120,9 +137,12 @@ export interface CommandDoor {
    * why nothing ran, and the line stays; or with nothing, the page showing what the command left and its notice said.
    * A view verb's reading invokes nothing (notes 21 and 39 of 2026-11-11): the page does what it asks with the grid the
    * view was read of. For a place the door answers that the keyboard was moved; a sort or a filter ends as a command
-   * done does.
+   * done does. A reading of `open` has the page open the row's dialog, which then has the keyboard (note 56 of
+   * 2026-11-12). A line typed for a draft (`view` carries one) is read on the draft as its turn finds it, and what the
+   * server answers is added to it; `cancel` discards it. A caller that shows what a reading asked for itself, as a
+   * dialog shows the line its draft gained, gives `heard`: it is told the sentence, and no notice is made.
    */
-  enter(line: string, shown?: LinePreview, view?: LineView): Promise<Entered>;
+  enter(line: string, shown?: LinePreview, view?: LineView, heard?: (said: string) => void): Promise<Entered>;
   /**
    * A command by its id, from a key or a button, which have no line: in the same turn, at the catalog's version and
    * the revision the page then holds. Resolves as `enter` does. A caller that says the answer itself, as a dialog
@@ -132,6 +152,18 @@ export interface CommandDoor {
    * pressed is in it (spine 6); one that throws sends nothing, and its message is the reason.
    */
   invoke(capabilityId: string, request: CommandRequest | ((revision: number) => CommandRequest), heard?: (said: string) => void): Promise<LineReason | undefined>;
+  /**
+   * Reads an open draft again (ADR-0016 note 57 of 2026-11-12), for one the workspace has left: the page reads the
+   * workspace, and the draft keeps its lines at the revision it then stands at, where the server reads them anew.
+   * Never done unasked. Resolves with why where nothing was read.
+   */
+  redraft(): Promise<LineReason | undefined>;
+  /**
+   * Gives the keyboard back to the grid the page has on screen, once a dialog that stood over it has closed (ADR-0016
+   * §10: the dialog "returns to the row"). `from` is the dialog, where it is still drawn and may hold the keyboard as
+   * it goes. A page with no grid on screen does nothing.
+   */
+  keyboard(from?: Element): void;
 }
 
 /** What a served command is typed with and run through: its arguments as the catalog names them, and its page's door. */
@@ -328,7 +360,8 @@ export type LineReading =
  * arguments: required ones in order, optional ones as `name=value`. A line that is exactly a command's words, with no
  * space yet, is that command still being chosen, though a shorter command's words begin it (ADR-0016 note 36): a
  * command of two words is the command of those words, which the list then puts first, and not the command of its
- * first word with the second after it.
+ * first word with the second after it. The same holds while the words are still being typed after a served command that
+ * needs no argument (note 56 of 2026-11-12): `open cs` lists `open csa`.
  */
 export function readLine(text: string, commands: readonly Command[]): LineReading {
   const lead = text.replace(/^\s+/, '');
@@ -346,8 +379,16 @@ export function readLine(text: string, commands: readonly Command[]): LineReadin
   if (chosen === undefined) return { kind: 'choosing', query: lead };
 
   const { command } = chosen;
-  // A served command's line is the server's to read: nothing after its words is placed here.
-  if (command.served !== undefined) return { kind: 'arguments', command, given: {}, slot: undefined, typed: '', problems: [] };
+  if (command.served !== undefined) {
+    // A served command that needs no argument, as `open` needs no row, shares its first words with commands of the
+    // shell's (`open csa`; ADR-0016 note 56): while what is typed could still become one of those the line lists
+    // them, with the served command first, which Enter then runs alone. One that needs an argument reads whatever
+    // follows its words, as before: the server completes it.
+    const begun = closed ? `${whole} ` : whole;
+    if (command.served.arguments.every((a) => !a.required) && commands.some((c) => c.served === undefined && c.words.startsWith(begun))) return { kind: 'choosing', query: lead };
+    // A served command's line is the server's to read: nothing after its words is placed here.
+    return { kind: 'arguments', command, given: {}, slot: undefined, typed: '', problems: [] };
+  }
   const args = command.args ?? [];
   const rest = tokens.slice(chosen.length);
   const done = closed ? rest : rest.slice(0, -1);

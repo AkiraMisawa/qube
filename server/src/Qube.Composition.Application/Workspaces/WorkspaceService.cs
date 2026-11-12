@@ -574,6 +574,30 @@ public sealed class WorkspaceService(IReadOnlyDictionary<string, IEditRules> rul
         return latest;
     }
 
+    /// <summary>
+    /// The workspace with no edit of its own (ADR-0016 note 54): its context and its source under the rules, with
+    /// nothing set, held or made. What a row was before anyone changed it; never written.
+    /// </summary>
+    public WorkspaceState Unedited(WorkspaceState state)
+    {
+        var bare = state with
+        {
+            Overrides = ImmutableDictionary<EditTarget, Override>.Empty, Conflicts = ImmutableDictionary<EditTarget, Conflict>.Empty,
+            Lost = ImmutableDictionary<EditTarget, LostTarget>.Empty, Created = ImmutableDictionary<string, CreatedEntity>.Empty,
+        };
+        return bare with { Derived = RulesOf(state.App).Derive(bare).ToImmutableDictionary() };
+    }
+
+    /// <summary>
+    /// The commands the log holds after a revision, in order, each as it was said or, with no words, by its edits; an
+    /// undo and a redo by the command they acted on. What a reader of an earlier revision is told moved the workspace.
+    /// </summary>
+    public IReadOnlyList<string> Since(WorkspaceState state, long revision) =>
+    [
+        .. CommandHistory.Commands(state.Log).Where(c => c.Entries[0].Seq > revision).Select(c => (Command: c, Said: c.Stamp?.Said ?? Named(state, c)))
+            .Select(c => c.Command.Stamp?.Undoes is not null ? $"undo of {c.Said}" : c.Command.Stamp?.Redoes is not null ? $"redo of {c.Said}" : c.Said),
+    ];
+
     /// <summary>A command with no words is named by its edits' titles, as the module's rules give them (note 3).</summary>
     string Named(WorkspaceState state, LoggedCommand command)
     {

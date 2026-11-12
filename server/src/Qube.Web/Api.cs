@@ -16,6 +16,7 @@ public static class Api
 
     /// <param name="ViewVerbs">The verbs of the screen a line may say (ADR-0016 §3, note 21 of step 2): listed apart from the capabilities, which they are not.</param>
     /// <param name="ShortForms">The words an application's users type for a line of a kernel verb (ADR-0016 §3, note 29 of step 3): listed apart too, since what runs is the kernel command.</param>
+    /// <param name="DraftCommands">The ids of the commands and the verbs read while a draft is open (ADR-0016 §10, note 55): a line lists the rest as unavailable.</param>
     public sealed record Catalog(
         IEnumerable<CapabilityDescriptor> Capabilities,
         IEnumerable<ContractDefinition> Contracts,
@@ -23,7 +24,8 @@ public static class Api
         IEnumerable<ViewDefinition> Views,
         IEnumerable<ActionDefinition> Actions,
         IEnumerable<ViewVerbDescriptor> ViewVerbs,
-        IEnumerable<ShortFormDescriptor> ShortForms);
+        IEnumerable<ShortFormDescriptor> ShortForms,
+        IEnumerable<string> DraftCommands);
 
     public sealed record RunRequest(WorkflowDefinition Workflow, JsonObject Context, JsonObject Input, string IdempotencyKey);
 
@@ -57,7 +59,7 @@ public static class Api
 
         api.MapGet("/catalog", (CompositionRegistry registry, CommandLines lines) => new Catalog(
             registry.CapabilityDescriptors, registry.ContractDefinitions, registry.WorkflowDefinitions,
-            registry.ViewDefinitions, registry.ActionDefinitions, lines.ViewVerbs, lines.ShortForms));
+            registry.ViewDefinitions, registry.ActionDefinitions, lines.ViewVerbs, lines.ShortForms, lines.DraftCommands));
 
         // The signed-in user's settings (ADR-0017 §2), as settings.read answers them, for the page as it starts. Written
         // through the gateway, as settings.set and settings.reset.
@@ -194,6 +196,25 @@ public static class Api
             catch (WorkspaceRefused refused)
             {
                 return ViewRefused(refused, "the rows shown");
+            }
+        });
+
+        // A draft's form (ADR-0016 §10, note 54): what a page draws a row's dialog from, read from the lines the page
+        // holds and writing nothing. A draft the workspace has left is a conflict, with what moved it; a table or a row
+        // the workspace has not is not found.
+        api.MapPost("/workspaces/{workspaceId}/draft", (string workspaceId, LineDraft draft, CommandLines lines, CurrentUser user) =>
+        {
+            try
+            {
+                return Results.Ok(lines.Draft(workspaceId, new Caller(user.Id, RunOrigin.Pricer), draft));
+            }
+            catch (WorkspaceRefused refused)
+            {
+                return ViewRefused(refused, "the draft");
+            }
+            catch (TableRefused refused) when (refused.Code is "UnknownTable" or "UnknownRow")
+            {
+                return NotFound(refused.Code, refused.Message);
             }
         });
 

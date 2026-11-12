@@ -1,6 +1,6 @@
 # Generic commands, delivery step 5: rows under a row, templates, and drafts
 
-Status: in progress (5a and 5b built; 5c next)
+Status: in progress (5a, 5b and 5c built; 5d next)
 
 The decisions are ADR-0016 §1 (a table under a row, a figure, templates) and §10 (a dialog is a draft), with its
 notes of 2026-11-11 for step 5 (46 onward). This spec orders ADR-0016's Delivery order, step 5, and names the seams

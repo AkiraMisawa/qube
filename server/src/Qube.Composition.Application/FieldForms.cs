@@ -61,6 +61,10 @@ public sealed record FieldSpec(FieldForm Form, bool Optional = false, IReadOnlyD
 /// </summary>
 public static partial class FieldForms
 {
+    /// <summary>Whether a form's values are numbers: a condition compares them as numbers, and a page draws them against the right edge.</summary>
+    public static bool IsNumber(FieldForm form) =>
+        form is FieldForm.Amount or FieldForm.SignedAmount or FieldForm.Percent or FieldForm.Rate or FieldForm.Spread or FieldForm.Number or FieldForm.Days;
+
     /// <summary>Why a text is not a value of its field: it is not written as the form is, or it is an amount the field refuses.</summary>
     public enum Problem
     {

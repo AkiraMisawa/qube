@@ -10,69 +10,13 @@ namespace Qube.Composition.Tests;
 // rows a command makes and removes there. The registration is a station's sensors, with no financial word.
 public class RowsUnderARowTests
 {
-    sealed class Rig
-    {
-        public WorkspaceService Workspaces { get; } = Stations.Service();
-        public TableRegister Register { get; } = new([new Stations.Catalog(sensors: true)]);
-        public CommandService Commands { get; }
-        public CommandLines Lines { get; }
-        public string Id { get; }
-
-        public Rig(bool described = true, ProductDescriptor? sensor = null)
-        {
-            var tables = new TableService(Register, Workspaces);
-            var products = described
-                ? new ProductService([new Stations.Products(sensor)], [new Stations.SensorRules(Workspaces)], Workspaces, Register)
-                : new ProductService([], [], Workspaces, Register);
-            var registry = new CompositionRegistry([new TablesModule(() => tables), new WorkspaceCommandsModule(() => Workspaces), new ProductsModule(() => products)]);
-            Commands = new CommandService(registry, new InMemoryDataStore());
-            Lines = new CommandLines(registry, Workspaces, Register, []);
-            Id = Stations.Board(Workspaces).WorkspaceId;
-        }
-
-        public WorkspaceState Board => Workspaces.Find(Id)!;
-
-        public ResolvedRows Rows(string rows)
-        {
-            var tables = Register.Of(Board);
-            var read = SelectorReader.Read(rows, [.. tables.Select(t => t.Descriptor)]);
-            Assert.Empty(read.Rest);
-            return Selectors.Resolve(read.Selector, tables, Board);
-        }
-
-        public string[] Keys(string rows) => [.. Rows(rows).Rows.Select(r => r.Key)];
-
-        public TableRefused RowsRefused(string rows) => Assert.Throws<TableRefused>(() => Keys(rows));
-
-        public LinePreview Preview(string line) => Lines.Preview(line, Id, null, new Caller("ana", RunOrigin.Pricer));
-
-        public async Task<JsonObject> Run(string line)
-        {
-            var preview = Preview(line);
-            Assert.True(preview.Refused is null, preview.Refused?.Sentence);
-            var result = await Commands.InvokeAsync(preview.Command!.Id, preview.Command.Version, preview.Inputs!, new Caller("ana", RunOrigin.Pricer), Guid.NewGuid().ToString(), default);
-            return result is CommandResult.Done done ? done.Outputs.Values.Single()!.AsObject()
-                : throw new Xunit.Sdk.XunitException($"{line} was refused: {string.Join(" ", ((CommandResult.Refused)result).Issues.Select(i => i.Message))}");
-        }
-
-        /// <summary>A station's sensors as they stand, each as its key, load and unit.</summary>
-        public string[] Sensors(string station) =>
-        [
-            .. Register.Of(Board).Single(t => t.Descriptor.TableId == Stations.Sensors).Table.Rows(Board).Where(r => r.Under == station)
-                .Select(r => $"{r.Key} {r.Value("load")!.GetValue<decimal>():0.##} {r.Value("unit")!.GetValue<string>()}"),
-        ];
-
-        public decimal Load(string station) =>
-            Register.Of(Board).Single(t => t.Descriptor.TableId == Stations.Sites).Table.Rows(Board).Single(r => r.Key == station).Value("load")!.GetValue<decimal>();
-    }
-
     [Fact] // ADR-0016 note 46: a row under a row is named by its whole key, or by how it ends, as any row is
-    public void A_row_under_a_row_is_named_by_its_key() => Assert.Equal(["S1/1", "N1/2"], new Rig().Keys("sensors S1/1, 1/2"));
+    public void A_row_under_a_row_is_named_by_its_key() => Assert.Equal(["S1/1", "N1/2"], new SensorRig().Keys("sensors S1/1, 1/2"));
 
     [Fact] // ADR-0016 note 46: in a table under another, the id of a row above names every row under it
     public void The_id_of_the_row_above_names_every_row_under_it()
     {
-        var rig = new Rig();
+        var rig = new SensorRig();
 
         Assert.Equal(["N1/1", "N1/2"], rig.Keys("sensors N1"));
         Assert.Equal(["S1/1", "N1/1", "N1/2"], rig.Keys("sensors S1, N1"));
@@ -81,7 +25,7 @@ public class RowsUnderARowTests
     [Fact] // ADR-0016 note 46: a row above with nothing under it matches nothing, and is said so
     public void A_row_above_with_nothing_under_it_is_refused()
     {
-        var refused = new Rig().RowsRefused("sensors X1");
+        var refused = new SensorRig().RowsRefused("sensors X1");
 
         Assert.Equal(("NoRowMatches", "X1 has no sensors.", "X1"), (refused.Code, refused.Message, refused.Word));
     }
@@ -89,7 +33,7 @@ public class RowsUnderARowTests
     [Fact] // ADR-0016 note 46: an id that names neither a row of the table nor one above it is refused as any unknown row is
     public void An_id_of_neither_is_refused()
     {
-        var refused = new Rig().RowsRefused("sensors Q9");
+        var refused = new SensorRig().RowsRefused("sensors Q9");
 
         Assert.Equal(("UnknownRow", "Q9"), (refused.Code, refused.Word));
     }
@@ -97,7 +41,7 @@ public class RowsUnderARowTests
     [Fact] // ADR-0016 notes 7 and 46: with no table said, an id is looked for among each table's own rows alone
     public void With_no_table_an_id_names_a_row_of_its_own_table()
     {
-        var rig = new Rig();
+        var rig = new SensorRig();
 
         Assert.Equal(["N1/2"], rig.Keys("N1/2"));
         // N1 is a station, and never its sensors: those are said with their table.
@@ -123,7 +67,7 @@ public class RowsUnderARowTests
     [Fact] // ADR-0016 note 47: a figure is read as a number worked out from the rows under its row
     public void A_figure_is_read_from_the_rows_under_its_row()
     {
-        var rig = new Rig();
+        var rig = new SensorRig();
 
         // N1's two sensors, 40 and 25 cubic metres; S1's one of 10 gallons, each four cubic metres.
         Assert.Equal((65m, 40m, 0m), (rig.Load("N1"), rig.Load("S1"), rig.Load("X1")));
@@ -132,7 +76,7 @@ public class RowsUnderARowTests
     [Fact] // ADR-0016 note 47: a condition compares a figure as the number it reads as
     public void A_condition_compares_a_figure_as_a_number()
     {
-        var rig = new Rig();
+        var rig = new SensorRig();
 
         Assert.Equal(["N1"], rig.Keys("stations where load>50"));
         Assert.Equal(["S1"], rig.Keys("stations where load=40"));
@@ -156,7 +100,7 @@ public class RowsUnderARowTests
     [Fact] // ADR-0016 note 47: a write of a figure is the changes its table answers, as one command; for one row the line says the table's own sentence
     public async Task Writing_a_figure_writes_what_its_table_answers()
     {
-        var rig = new Rig();
+        var rig = new SensorRig();
 
         Assert.Equal("load: 2 sensors replaced by 1 sensor, GAL", rig.Preview("set N1 load 30 gal").Would);
         var told = await rig.Run("set N1 load 30 gal");
@@ -172,7 +116,7 @@ public class RowsUnderARowTests
     [Fact] // ADR-0016 note 47: written alone, the unit is the table's to supply
     public async Task A_figure_written_alone_is_in_the_tables_own_unit()
     {
-        var rig = new Rig();
+        var rig = new SensorRig();
 
         await rig.Run("set N1 load 30");
 
@@ -182,7 +126,7 @@ public class RowsUnderARowTests
     [Fact] // ADR-0016 note 47: a row whose write changes nothing is counted as holding the value, whatever the figure reads
     public async Task A_row_whose_write_changes_nothing_holds_the_value()
     {
-        var rig = new Rig();
+        var rig = new SensorRig();
 
         // S1 holds one sensor of 10 gallons already: its load reads 40, and writing 10 gallons changes nothing.
         Assert.Equal("Nothing would change: S1 already holds load 10 GAL.", rig.Preview("set S1 load 10 gal").Would);
@@ -197,7 +141,7 @@ public class RowsUnderARowTests
     [Fact] // ADR-0016 note 47: a value that is not written as the figure's write is refused with what it takes, naming the value
     public void A_figure_written_in_no_unit_it_takes_is_refused()
     {
-        var refused = new Rig().Preview("set N1 load 30 litres").Refused!;
+        var refused = new SensorRig().Preview("set N1 load 30 litres").Refused!;
 
         Assert.Equal(("InvalidValue", "N1 load is a number, alone or followed by what it is in: M3 or GAL; 30 litres is not.", "30 litres"), (refused.Code, refused.Sentence, refused.Word));
     }
@@ -205,7 +149,7 @@ public class RowsUnderARowTests
     [Fact] // ADR-0016 note 47: reset of a figure is the table's too, and brings back the rows that were sent
     public async Task Resetting_a_figure_brings_back_the_rows_under_it()
     {
-        var rig = new Rig();
+        var rig = new SensorRig();
         await rig.Run("set N1 load 30 gal");
 
         var told = await rig.Run("reset N1 load");
@@ -217,7 +161,7 @@ public class RowsUnderARowTests
     [Fact] // ADR-0016 notes 46 and 48: a row under a row is set and removed as any row is; one that was sent is taken out by an edit, which undo takes back
     public async Task A_row_under_a_row_is_set_and_removed()
     {
-        var rig = new Rig();
+        var rig = new SensorRig();
 
         await rig.Run("set sensors N1/2 load 5");
         await rig.Run("remove sensors N1/1");
@@ -247,7 +191,7 @@ public class RowsUnderARowTests
     [InlineData("new sensor rain 30 gal station=N1")]
     public async Task New_makes_a_row_under_the_row_named(string line)
     {
-        var rig = new Rig();
+        var rig = new SensorRig();
 
         var preview = rig.Preview(line);
         Assert.Equal("Makes N1/3: Sensor.", preview.Would);
@@ -259,7 +203,7 @@ public class RowsUnderARowTests
 
     [Fact] // ADR-0016 note 48: the row above is written into the terms by its name and its whole key, so what is invoked names the row exactly
     public void The_request_names_the_row_above_by_its_whole_key() =>
-        Assert.Equal("station=S1 rain 30 gal", new Rig().Preview("new sensor s1 rain 30 gal").Inputs!["request"]!["terms"]!.GetValue<string>());
+        Assert.Equal("station=S1 rain 30 gal", new SensorRig().Preview("new sensor s1 rain 30 gal").Inputs!["request"]!["terms"]!.GetValue<string>());
 
     [Theory] // ADR-0016 note 48 (corrected in review): the term typed by a name of its own names the row as the first word does, whole or by how it ends, and is written by the term's name and the whole key
     [InlineData("new sensor rain 30 gal station=s1", "rain 30 gal station=S1")]
@@ -271,13 +215,13 @@ public class RowsUnderARowTests
             Fields = [.. Stations.SensorProduct.Fields.Select(f => f.Name == "station" ? f with { Aliases = ["at"] } : f)],
         };
 
-        Assert.Equal(terms, new Rig(sensor: sensor).Preview(line).Inputs!["request"]!["terms"]!.GetValue<string>());
+        Assert.Equal(terms, new SensorRig(sensor: sensor).Preview(line).Inputs!["request"]!["terms"]!.GetValue<string>());
     }
 
     [Fact] // ADR-0016 note 48 (corrected in review): a name that could be several rows above is refused with them, typed by the term's name as it is as the first word
     public void A_named_term_that_could_be_several_rows_above_is_refused()
     {
-        var refused = new Rig().Preview("new sensor rain 30 gal station=1").Refused!;
+        var refused = new SensorRig().Preview("new sensor rain 30 gal station=1").Refused!;
 
         Assert.Equal("AmbiguousRow", refused.Code);
     }
@@ -285,7 +229,7 @@ public class RowsUnderARowTests
     [Fact] // ADR-0016 note 36: `new` is the kernel's and is read on every workspace; where the application describes no product, it says so
     public void New_on_a_workspace_whose_application_describes_no_product_is_refused_by_name()
     {
-        var refused = new Rig(described: false).Preview("new sensor s1 rain 30 gal").Refused!;
+        var refused = new SensorRig(described: false).Preview("new sensor s1 rain 30 gal").Refused!;
 
         Assert.Equal(("NoProduct", "new makes nothing in this workspace: no product is described for it."), (refused.Code, refused.Sentence));
     }
@@ -293,7 +237,7 @@ public class RowsUnderARowTests
     [Fact] // ADR-0016 note 48: with no row above named, the product is refused as missing that term, as any required term is
     public void With_no_row_above_the_term_is_missing()
     {
-        var refused = new Rig().Preview("new sensor rain 30 gal").Refused!;
+        var refused = new SensorRig().Preview("new sensor rain 30 gal").Refused!;
 
         Assert.Equal(("MissingTerm", "sensor still needs station: type it, or set a default for it."), (refused.Code, refused.Sentence));
     }
@@ -301,7 +245,7 @@ public class RowsUnderARowTests
     [Fact] // ADR-0016 note 48: a first word whose end names several rows above is refused with those it could be
     public async Task A_first_word_that_could_be_several_rows_above_is_refused()
     {
-        var rig = new Rig();
+        var rig = new SensorRig();
 
         var refused = rig.Preview("new sensor 1 rain 30 gal").Refused!;
 
@@ -316,7 +260,7 @@ public class RowsUnderARowTests
     [Fact] // ADR-0016 note 48: a row made under a row is removed as a row the workspace made
     public async Task A_row_made_under_a_row_is_removed()
     {
-        var rig = new Rig();
+        var rig = new SensorRig();
         await rig.Run("new sensor S1 wind 2 m3");
 
         await rig.Run("remove sensors S1/2");
@@ -352,7 +296,7 @@ public class RowsUnderARowTests
     [Fact] // ADR-0016 note 48: a table is under another as a workspace describes it, so a product whose table is under none fails when its terms are first read there, by name
     public void A_product_whose_table_is_under_none_fails_when_its_terms_are_read()
     {
-        var rig = new Rig(sensor: Stations.SensorProduct with { Table = Stations.Sites });
+        var rig = new SensorRig(sensor: Stations.SensorProduct with { Table = Stations.Sites });
 
         var thrown = Assert.Throws<InvalidOperationException>(() => rig.Preview("new sensor s1 rain 30 gal"));
 

@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import './xva.css';
 import { Alert, Badge, Button, Group, Modal, SegmentedControl, Select, Stack, Table, Text, useMantineTheme } from '@mantine/core';
-import { GridSource, type CellState, type GridColumn, type GridContextMenuContext, type GridEditIntent } from '@ex-grid/core';
+import { GridSource, type CellState, type GridActionEvent, type GridColumn, type GridContextMenuContext, type GridEditIntent } from '@ex-grid/core';
 import type { ExGridApi } from '@ex-grid/react';
 import { QubeGrid } from '../../platform/grid/QubeGrid';
 import { GridUndoContext } from '../../platform/grid/gridUndo';
@@ -34,6 +34,9 @@ import type { ScenarioActions } from './XvaScenarios';
 import type { ChangeActions } from './XvaChanges';
 import { VARY_COMMAND, VaryDialog, type VaryTarget } from './VaryDialog';
 import { CASE_COMMAND, CaseDialog } from './CaseDialog';
+import { DraftDialog } from '../../platform/drafts/DraftDialog';
+import { useDraft } from '../../platform/drafts/useDraft';
+import { EDIT_ROW, editColumn, openRow } from '../../platform/drafts/rowButton';
 import { tradeLeftOut } from './iterations';
 import { compactGridHeight, GRID_FRAME, pixels, Resizer } from './layout';
 import { declaring, measureOfField, membershipColumn, scopesOf } from './membership';
@@ -70,6 +73,8 @@ const column = (name: keyof Row & string, header: string, type: GridColumn<Row>[
  */
 const leading: readonly GridColumn<Row>[] = [
   column('tradeId', 'Trade', 'text', 168),
+  // The row's dialog (ADR-0016 note 57), beside the trade it is of: in view at every width while the grid is not scrolled.
+  editColumn<Row>(),
   column('product', 'Product', 'text', 104),
   column('currency', 'Ccy', 'text', 76),
   column('notional', 'Notional', 'number', 168, { editable: true, format: (v) => asTyped.format(v as number) }),
@@ -215,6 +220,18 @@ function currencyFrom(currency: string, from: XvaWorkspaceView['displayCurrencyF
     case 'profile': return `Display currency ${currency}, the company profile's.`;
   }
 }
+
+/**
+ * What the pricer says above a row's dialog (ADR-0016 note 57): the dialog sets every field of a row, and the simulated
+ * measures read only some of them yet (note 53). Price freezes every value all the same.
+ */
+const draftNote = (table: string): string | undefined => {
+  switch (table) {
+    case TRADES_TABLE: return "The simulated measures do not read a trade's legs or its fields outside the grids yet. Price keeps every value set here in the input it freezes.";
+    case CSAS_TABLE: return "The simulated measures do not read a CSA's fields outside the grid yet. Price keeps every value set here in the input it freezes.";
+    default: return undefined;
+  }
+};
 
 export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   readonly panelId: string; readonly workspaceId: string; readonly api: XvaApi; readonly traceApi: TraceApi;
@@ -708,12 +725,15 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
    * take their turn in the queue, after the edits already sent (spine 6), and the workspace is read again in that same
    * turn, since any of its rows may have moved, so this view never arrives after a later edit's.
    */
+  // A row's dialog and its draft (ADR-0016 §10, note 54): view state of this page, which the door reads in its turn.
+  const { draft, drafts, drop } = useDraft();
   const door = useMemo(() => commandDoor({
     workspaceId,
     app: XVA_APP,
     catalog: workspace.catalog,
     api: workspace.api,
     turns: queue,
+    drafts,
     screen: () => screen.current?.(),
     reread: async () => {
       const fresh = await api.view(workspaceId);
@@ -726,7 +746,14 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
       return fresh.revision;
     },
     notify: workspace.notify,
-  }), [api, workspaceId, workspace, queue, show, sources]);
+  }), [api, workspaceId, workspace, queue, show, sources, drafts]);
+  // A row's edit button opens its dialog as `open <row>` typed does (ADR-0016 note 57). One function for the page's
+  // life while the door is, so no grid is made again for it.
+  const editRow = useCallback((table: string, key: string) => { void openRow(door, table, key, workspace.notify); }, [door, workspace]);
+  const onRowAction = useCallback((event: GridActionEvent<Row>) => {
+    if (event.action !== EDIT_ROW) throw new Error(`A trade grid reported an action it was not given: ${event.action}.`);
+    editRow(TRADES_TABLE, event.row.tradeId);
+  }, [editRow]);
   // A typed PV goes through the door as any command does, in its turn after the edits already sent. The cell shows
   // the outcome, as any typed cell does, so the door hands the sentence here and raises no notice of it.
   writePv.current = (tradeId, request) => {
@@ -911,6 +938,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
         filter: (asked) => filterGrid(sources[grid], asked),
         // The server said the run by its first position in the order this view was read in (note 43).
         select: (asked) => selectRows(declared, shown, read, asked),
+        keyboard: (from) => shown.returnKeyboard(from),
       };
     };
     return { new: of('new', newGrid), existing: of('existing', existingGrid) };
@@ -1002,9 +1030,10 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
         <XvaInputs ws={ws} onIssue={setIssue} push={(entity, field, value, title) => void queue.push({ entity, field, value, title })} setText={setText}
           catalogue={catalogue.isError ? { refused: describe(catalogue.error) } : catalogue.data} onGridEntered={(seen) => { screen.current = seen; }} onPlaced={() => openTab('csa')}
           tab={inputTab} onTab={(tab) => { setInputTab(tab); setInputsOpen(true); }} open={inputsOpen} onOpen={setInputsOpen} height={inputsHeight} focusRequest={focusRequest}
-          changeList={changeList.data} changeActions={changeActions} scenarioActions={scenarioActions} onVary={setVarying} commandLabel={commandLabel} csaMenu={menus} />
+          changeList={changeList.data} changeActions={changeActions} scenarioActions={scenarioActions} onVary={setVarying} commandLabel={commandLabel} csaMenu={menus} onEditRow={editRow} />
         <VaryDialog target={varying} vary={varyCell} onClose={() => setVarying(undefined)} />
         <CaseDialog selection={caseOf} make={makeCase} onClose={() => setCaseOf(undefined)} />
+        <DraftDialog draft={draft} workspaceId={workspaceId} revision={ws.revision} api={workspace.api} door={door} drop={drop} discard={drafts.close} note={draftNote} />
         {inputsOpen && <Resizer label="Height of the input tabs" value={inputsHeight} min={48} max={640} grows="down" onChange={setInputsDragged} />}
       </div>
       {issue !== undefined && <Text size="xs" c="red" role="alert" data-testid="field-issue">{issue}</Text>}
@@ -1024,7 +1053,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
             </Group>
           </TradeCaption>
           <div aria-label="New trades" onFocusCapture={() => { screen.current = tradeScreen.new; }}>
-            <QubeGrid<Row> ref={newGrid} columns={newWidths.columns} onColumnWidthChanged={newWidths.onColumnWidthChanged} source={sources.new} onEdit={onEdit} cellState={cellState} cellMessage={cellMessage}
+            <QubeGrid<Row> ref={newGrid} columns={newWidths.columns} onColumnWidthChanged={newWidths.onColumnWidthChanged} source={sources.new} onEdit={onEdit} onAction={onRowAction} cellState={cellState} cellMessage={cellMessage}
               contextCommands={newCommands} commandLabel={commandLabel}
               density="compact" viewportWidth="stretch" viewportHeight={newHeight} pinnedColumnCount={1} locale="en-US" />
           </div>
@@ -1032,7 +1061,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
             source={sources.existing} counted={counted.existing} onFilterOff={filterOff.existing} />
           <div aria-label="Existing trades" onFocusCapture={() => { screen.current = tradeScreen.existing; }}>
             <QubeGrid<Row> ref={existingGrid} className="qube-xva-trades" columns={existingWidths.columns} onColumnWidthChanged={existingWidths.onColumnWidthChanged}
-              source={sources.existing} onEdit={onEdit} cellState={cellState} cellMessage={cellMessage}
+              source={sources.existing} onEdit={onEdit} onAction={onRowAction} cellState={cellState} cellMessage={cellMessage}
               contextCommands={existingCommands} commandLabel={commandLabel}
               density="compact" viewportWidth="stretch" viewportHeight="stretch" pinnedColumnCount={1} locale="en-US" />
           </div>

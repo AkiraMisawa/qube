@@ -96,7 +96,20 @@ public interface IProductRules
     /// note 36).
     /// </summary>
     string WouldCreate(WorkspaceState workspace, IReadOnlyDictionary<string, JsonNode?> terms);
+
+    /// <summary>
+    /// The changes <see cref="Create"/> writes for complete terms on a workspace as it stands, and the entity they
+    /// make (ADR-0016 note 54): what a draft folds without writing, refused as <see cref="Create"/> refuses. Null for
+    /// a product whose making is more than a batch of changes: it is not made in a draft, and a draft says so.
+    /// </summary>
+    (IReadOnlyList<WorkspaceChange> Changes, string Entity)? Planned(WorkspaceState workspace, IReadOnlyDictionary<string, JsonNode?> terms, IReadOnlyDictionary<string, string> sources) => null;
 }
+
+/// <summary>
+/// What making an entity would write (ADR-0016 note 54): its changes, the entity, the terms as a request holds them,
+/// and the row it is made under, with that row's table, where the product is made under one.
+/// </summary>
+public sealed record ProductPlanned(IReadOnlyList<WorkspaceChange> Changes, string Entity, string Terms, string? AboveTable, string? Above);
 
 /// <summary>Terms that do not make the product: every reason, by field where there is one. Nothing was written.</summary>
 public sealed class ProductTermsRefused(IReadOnlyList<ProductIssue> issues) : Exception(string.Join(" ", issues.Select(i => i.Message)))
@@ -342,10 +355,11 @@ public sealed class ProductService
     /// rules refuse are refused here as <see cref="Create"/> would refuse them (<see cref="ProductTermsRefused"/>).
     /// <c>Terms</c> are the words as a request holds them, the row the entity is made under named (<see cref="Terms"/>).
     /// </summary>
-    public (string Terms, ProductReading Reading, string? Entity) Would(WorkspaceState state, string productId, string text)
+    /// <param name="draft">The draft the words are typed in, where one is open: terms that name no row are of its row (note 55).</param>
+    public (string Terms, ProductReading Reading, string? Entity) Would(WorkspaceState state, string productId, string text, LineDraft? draft = null)
     {
         var (product, rule) = Described(productId, state);
-        var terms = Terms(state, product, text);
+        var terms = Terms(state, product, text, draft);
         var reading = ProductReader.Complete(product, terms, given => rule.Defaults(state, given));
         return (terms, reading, reading.Complete ? rule.WouldCreate(state, reading.Values) : null);
     }
@@ -354,12 +368,38 @@ public sealed class ProductService
     public (WorkspaceState State, string Entity, ProductReading Reading) Create(string workspaceId, long? revision, string user, string productId, string text, RunOrigin origin)
     {
         var (product, rule, state) = Resolve(workspaceId, user, productId);
-        var reading = ProductReader.Complete(product, Terms(state, product, text), given => rule.Defaults(state, given));
-        if (!reading.Complete)
-            throw new ProductTermsRefused([.. reading.Issues, .. reading.Missing.Select(m => new ProductIssue("MissingTerm", m,
-                $"{m} is missing: type it, or set a default for it."))]);
+        var reading = Whole(state, product, rule, text);
         var (created, entity) = rule.Create(workspaceId, revision, user, reading.Values, reading.Sources, origin);
         return (created, entity, reading);
+    }
+
+    /// <summary>
+    /// The changes making one entity of the product from what was typed would write on a workspace as it stands
+    /// (ADR-0016 note 54): what a draft folds, and nothing written. Refused as <see cref="Create"/> refuses, and for a
+    /// product that is not made in a draft.
+    /// </summary>
+    /// <param name="draft">The draft the words are typed in, where one is open: terms that name no row are of its row (note 55).</param>
+    public ProductPlanned Planned(WorkspaceState state, string productId, string text, LineDraft? draft = null)
+    {
+        var (product, rule) = Described(productId, state);
+        var terms = Terms(state, product, text, draft);
+        var reading = Whole(state, product, rule, terms);
+        var (changes, entity) = rule.Planned(state, reading.Values, reading.Sources)
+            ?? throw new WorkspaceRefused("NotOfADraft", $"A {product.Words} is not made in a draft: make it with new outside one.");
+        // The row it is made under, in the table above its own, where the product is made under one (note 48).
+        var above = product.Under is { } under && product.Table is { } own
+            ? (Table: (tables ?? throw new InvalidOperationException($"Product {product.Id} is made under a row, and the products were given no tables to read it in."))
+                .Of(state).Single(t => t.Descriptor.TableId == own).Descriptor.Under, Key: reading.Values[under]?.GetValue<string>())
+            : default;
+        return new(changes, entity, terms, above.Table, above.Key);
+    }
+
+    // What was typed with the product's defaults filled, refused where a term is still missing or cannot be read.
+    ProductReading Whole(WorkspaceState state, ProductDescriptor product, IProductRules rule, string text)
+    {
+        var reading = ProductReader.Complete(product, Terms(state, product, text), given => rule.Defaults(state, given));
+        return reading.Complete ? reading
+            : throw new ProductTermsRefused([.. reading.Issues, .. reading.Missing.Select(m => new ProductIssue("MissingTerm", m, $"{m} is missing: type it, or set a default for it."))]);
     }
 
     /// <summary>
@@ -371,21 +411,27 @@ public sealed class ProductService
     /// row that is not there; words whose end names several rows are refused with them, as a selector refuses them
     /// (<see cref="TableRefused"/>).
     /// </summary>
-    public string Terms(WorkspaceState state, ProductDescriptor product, string text)
+    /// <param name="draft">
+    /// The draft the terms are typed in, where one is open (note 55): in a draft of a row of the table above, terms
+    /// that name no row are of the draft's row, which is then named as any is.
+    /// </param>
+    public string Terms(WorkspaceState state, ProductDescriptor product, string text, LineDraft? draft = null)
     {
         if (product.Under is not { } under) return text;
         var words = text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
-        if (words.Length == 0) return text;
-        // The term typed by its name wins over the first word, which is then a term like any other.
-        var named = Array.FindIndex(words, w => w.IndexOf('=') is > 0 and var eq && ProductReader.Named(product, w[..eq])?.Name == under);
-        var said = named < 0 ? words[0] : words[named][(words[named].IndexOf('=') + 1)..];
         var bound = (tables ?? throw new InvalidOperationException($"Product {product.Id} is made under a row, and the products were given no tables to read it in.")).Of(state);
         var own = bound.FirstOrDefault(t => t.Descriptor.TableId == product.Table) ?? throw new InvalidOperationException($"Product {product.Id} makes rows of {product.Table}, which this workspace has not.");
         var above = bound.Single(t => t.Descriptor.TableId == (own.Descriptor.Under ?? throw new InvalidOperationException($"Product {product.Id} is made under a row, and {product.Table} is under no table.")));
+        var drafted = draft is not null && draft.Table == above.Descriptor.TableId ? $"{under}={draft.Key}" : null;
+        if (words.Length == 0) return drafted ?? text;
+        // The term typed by its name wins over the first word, which is then a term like any other.
+        var named = Array.FindIndex(words, w => w.IndexOf('=') is > 0 and var eq && ProductReader.Named(product, w[..eq])?.Name == under);
+        var said = named < 0 ? words[0] : words[named][(words[named].IndexOf('=') + 1)..];
         return Selectors.RowsNamed(said, new Selectors.RowIndex(above, above.Table.Rows(state))) switch
         {
             [var one] when named < 0 => string.Join(' ', [$"{under}={one.Key}", .. words.Skip(1)]),
             [var one] => string.Join(' ', words.Select((w, i) => i == named ? $"{under}={one.Key}" : w)),
+            [] when drafted is not null && named < 0 => string.Join(' ', [drafted, .. words]),
             [] => text,
             var several => throw Selectors.AmbiguousRow(said, several, above.Word),
         };

@@ -8,12 +8,12 @@ and `remove` are read on the draft and answer a line to add to it; `apply` write
 
 **Blocked by:** 13.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] `open E00003` answers the dialog's row; a row the workspace has not is refused by name.
-- [ ] With a draft open, `set notional 5bn` names no row and answers the line the draft gains, with what it would
+- [x] `open E00003` answers the dialog's row; a row the workspace has not is refused by name.
+- [x] With a draft open, `set notional 5bn` names no row and answers the line the draft gains, with what it would
       change, and writes nothing.
-- [ ] `new leg eur 250,000` and `remove leg 1` are of the draft's row.
-- [ ] `apply` writes one command that `undo` takes back whole, and is refused where the workspace moved.
-- [ ] `price` and every command that is not the draft's is refused, saying a draft is open.
-- [ ] The line says the draft it is on and how many lines are pending.
+- [x] `new leg eur 250,000` and `remove leg 1` are of the draft's row.
+- [x] `apply` writes one command that `undo` takes back whole, and is refused where the workspace moved.
+- [x] `price` and every command that is not the draft's is refused, saying a draft is open.
+- [x] The line says the draft it is on and how many lines are pending.

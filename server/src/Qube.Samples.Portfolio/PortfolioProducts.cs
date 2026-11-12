@@ -43,8 +43,16 @@ public sealed class LegRules(Func<PortfolioWorkspaces> workspaces) : IProductRul
 
     public (WorkspaceState State, string Entity) Create(string workspaceId, long? revision, string user, IReadOnlyDictionary<string, JsonNode?> terms,
         IReadOnlyDictionary<string, string> sources, RunOrigin origin) =>
-        workspaces().NewLeg(workspaceId, revision, user, Text(terms, PortfolioProducts.Trade), Text(terms, "currency"), FieldForms.Held(Term(terms, "pv")),
-            terms.GetValueOrDefault("notional") is { } notional ? FieldForms.Held(notional) : null, origin);
+        workspaces().NewLeg(workspaceId, revision, user, Text(terms, PortfolioProducts.Trade), Text(terms, "currency"), FieldForms.Held(Term(terms, "pv")), Notional(terms), origin);
+
+    public (IReadOnlyList<WorkspaceChange> Changes, string Entity)? Planned(WorkspaceState workspace, IReadOnlyDictionary<string, JsonNode?> terms, IReadOnlyDictionary<string, string> sources)
+    {
+        var (made, id) = PortfolioWorkspaces.LegMade(workspace, Text(terms, PortfolioProducts.Trade), Text(terms, "currency"), FieldForms.Held(Term(terms, "pv")), Notional(terms));
+        return ([made], id);
+    }
+
+    // A leg's notional is typed or it has none.
+    static decimal? Notional(IReadOnlyDictionary<string, JsonNode?> terms) => terms.GetValueOrDefault("notional") is { } notional ? FieldForms.Held(notional) : null;
 
     // A term the description requires, which the reading filled before the rules were asked.
     static JsonNode Term(IReadOnlyDictionary<string, JsonNode?> terms, string name) =>
