@@ -23,7 +23,9 @@ pricer's files that blocked the rest of this ticket have merged. The rest is the
 2026-11-12, the pricer's pull request: the pricer's three sections, its Full height and `xva.css` read the panel's
 width, and its Existing grid the panel's height (`--qube-panel-room`), with the profile's and the deltas' two columns
 from the panel's 1200px. The checkbox is `areas.spec.ts`'s "the pricer lays itself out by its area": the switch in an
-area of 605px (`size panel 42%` of a 1440px row), and none in the strip at 1440px, both where the strip is too short
-for two areas one above the other and where the AI pane leaves too little for four in a row. The container queries
+area of 605px (`size panel 42%` of a 1440px row; no verb gives an area 600px), and none in the strip of a 1440px
+window, twice: where the window is too short for two areas one above the other (the page 1440px wide), and where the
+AI pane leaves too little for four areas in a row (the page 1040px wide). The same test floats the pricer to the right
+half of the window, under 768px, where it is the three tabs. The container queries
 are in pixels and the range syntax: in `em` they read the page's 13px, which put the trace's `md` at 806px in step 1's
 pull request, and an area's fractional width fell between `max-width: 767.98px` and `min-width: 768px`.

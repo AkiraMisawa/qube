@@ -242,8 +242,8 @@ Mantine's breakpoints, beside the window classes Android and Material use for th
   `visibleFrom`. Mantine's responsive props (`hiddenFrom`, `visibleFrom`, `SimpleGrid`'s `cols`) read the window, so
   a page does not use them. `useMediaQuery` is for choosing which component mounts (the AI pane's aside or drawer),
   not for styling.
-- CSS variables do not work inside a media query, so a breakpoint in CSS is written in `em` and matches the table
-  above (`max-width: 61.99em` is "below `md`").
+- CSS variables do not work inside a media query, so a media query's breakpoint (the shell's, a dialog's) is written
+  in `em` and matches the table above (`max-width: 61.99em` is "below `md`"). A page's is a container query, below.
 - **A page responds to its panel, not the window** (ADR-0018 §5). A panel's content is a CSS size container,
   `qube-panel` (`PanelPage` in `client/src/platform/panelPage.tsx`): of its width in the strip (`inline-size`, since a
   page grows with its content there, which a `size` container would not let it), and of its size in an area, whose

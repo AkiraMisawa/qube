@@ -186,8 +186,8 @@ pull request.
   scrollbar beside it (Windows, Linux) takes nothing from the width the page reads. In the strip the document scrolls:
   its scrollbar is counted in the panels' space, so that a window just past 768px is areas or strip the same whichever
   it was drawn in first (it was each, by turns, with the scrollbar left out), and a page in the strip reads the width
-  it has beside that scrollbar. The pricer's three sections, its full-height button and `xva.css` still read the
-  window: ADR-0018 §11 changes them last, after the pull requests on the pricer's files, and ADR-0016's step 5 (5d,
+  it has beside that scrollbar. The pricer's three sections, its full-height button and `xva.css` were left reading
+  the window by step 1's pull request: ADR-0018 §11 changes them last, after the pull requests on the pricer's files, and ADR-0016's step 5 (5d,
   the scenarios table and `load trades`) was built on them. 5d merged (#33) while this pull request was open, so they
   are the pull request after it.
 - **Ticket 07's rest, the pull request after step 1's (2026-11-12).** The pricer reads its panel: below 768px of its
@@ -195,13 +195,13 @@ pull request.
   deltas, stand side by side from 1200px of its area (they were Mantine's `SimpleGrid` on the window's `lg`). Its
   Existing grid takes the height the shell gives the page (`--qube-panel-room`): in an area the area's height less the
   gutter, the area's page being a `size` container there; in the strip the window's less the header, the strip and the
-  gutter, which the page's own number counted before. That number (`TAKEN`) now counts the page's parts alone, 190px
-  where the context bar is one row, read once at 1440 and 992px: in one area of 1440 by 900 the page fits and does not
-  scroll (it overflowed by 18px before). In an area shorter than its parts need (split down at 1440 by 900) the grid
+  gutter, which the page's own number counted before. That number (`TAKEN`) now counts the page's parts alone, 187px
+  where the context bar is one row, read once at 1440px: in one area of 1440 by 900 the page fits and does not scroll
+  (it overflowed by 18px before). In an area shorter than its parts need (split down at 1440 by 900) the grid
   keeps its six rows and the page scrolls inside its area, not the document; its trade grids scroll under the result
   dock there and their headers draw over it (ExGrid's header stacks at 4, the dock at 3), as in a window that short.
-  The context bar's fields wrap by the panel too (the shell's toolbar rules read the panel as well as the window), and
-  so do a trace's roots (spot IM's cards in the dock) and a declarative view's columns (the Run panel's), which were
+  Every page's toolbar fields wrap by the panel too (the shell's toolbar rules read the panel as well as the window:
+  the pricer's, the Rates toolbar, the Pricing DB's), and so do a trace's roots (spot IM's cards in the dock) and a declarative view's columns (the Run panel's), which were
   Mantine's `SimpleGrid` on the window. A dialog (a row's draft) still reads the window: it is drawn over the window,
   not in the area.
 - **Container queries are written in pixels, in the range syntax.** A container query's `em` is the container's font

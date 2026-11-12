@@ -122,8 +122,8 @@
    window's (ADR-0010 §1's note of 2026-11-12, ADR-0018 §5): a pricer in a 600px area is the three tabs. */
 @container qube-panel (width < 768px) {
   .qube-xva .qube-toolbar-field { flex: 1 1 14rem; }
-  /* A wide field (the counterparty) keeps its row, as the shell's toolbar gives it: the 14rem above, read after the
-     shell's rule, left it beside the value date in a 720px area, where two such fields fit. */
+  /* A wide field (the counterparty) keeps its row, as the shell's toolbar gives it: the 14rem above, more specific than
+     the shell's `--wide` rule, left it beside the value date in a 720px area, where two such fields fit. */
   .qube-xva .qube-toolbar-field--wide { flex-basis: 100%; }
   /* The measures' toggles take a row of their own and wrap: five titles squeezed into one row were cut to `CV.` and
      `Spot I` (seen at 390px once spot IM registered, 2026-11-08), and a title cut is a control the user cannot read. */
@@ -136,9 +136,9 @@
   .qube-xva-inputs-body { height: auto; }
   .qube-xva-result-body { max-height: none; }
   .qube-xva-dock { position: static; border-top: 0; }
-  /* The Trades tab has the trades alone under the context bar, which takes about five rows on a phone: 21.5rem is the
-     30rem the page took from the window before there were areas, less the phone's shell the room has taken already
-     (the 82px header, the 31px strip and three 8px gutters, 137px), rounded: 343px. */
+  /* The Trades tab has the trades alone under the context bar, which takes about five rows on a phone: 21.5rem is what
+     the page's own parts above the Existing grid take there (the context bar, the status, the switch and the New grid).
+     It was 30rem of the window, the phone's shell included, before the shell said the page's room. */
   .qube-xva-trades { height: max(20rem, calc(var(--qube-panel-room) - 21.5rem)); }
   .qube-xva .qube-xva-wide-only { display: none; }
 }

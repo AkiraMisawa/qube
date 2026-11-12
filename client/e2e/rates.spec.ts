@@ -533,3 +533,24 @@ test('ADR-0016 notes 43 and 44: the line grid takes a Selection from the line, a
   const written = (await readFile(await saved.path())).subarray(3).toString('utf8').split('\r\n');
   expect(written.slice(1).map((cells) => cells.split(',')[0])).toEqual([FIRST, SECOND, '']);
 });
+
+test('ADR-0018 §5: a Run\'s view stands its two grids side by side in a panel from 992px, and one above the other in a narrower area of the same window', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await open(page);
+  await newWorkspace(page);
+  await taken(page, 'new', 'irs jpy 10mm 5y pay');
+  await page.getByRole('button', { name: 'Price' }).click();
+  await expect(page.getByTestId('run-status')).toHaveText('succeeded');
+  const run = page.getByRole('tabpanel').filter({ has: page.getByTestId('run-status') });
+  const grid = async (title: string) => {
+    const found = await run.getByLabel(title, { exact: true }).boundingBox();
+    if (found === null) throw new Error(`The Run's ${title} grid is not drawn.`);
+    return found;
+  };
+  // The Run alone in a 1440px window: its Lines and its Risk share a row.
+  await expect.poll(async () => { const [a, b] = [await grid('Lines'), await grid('Risk')]; return b.x > a.x && b.y === a.y; }).toBe(true);
+  // In its own area of 720px beside the workspace: the panel's width, not the window's, puts one above the other.
+  await command(page, 'split panel', 'right');
+  await expect(run.locator('.qube-panel-page')).toHaveAttribute('data-panel-width', '720');
+  await expect.poll(async () => { const [a, b] = [await grid('Lines'), await grid('Risk')]; return b.y > a.y && b.x === a.x; }).toBe(true);
+});

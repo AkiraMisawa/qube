@@ -132,15 +132,14 @@ const TRADES_TAB = 'trades';
  * The heights of the page's own parts (ADR-0010 §1), in pixels the page sets and never reads back. The input tabs fit
  * their content until the handle is dragged: Netting's one row, or the CSA grid's rows up to about seven. The dock's
  * Metrics take up to about four cases. What the context bar, the status line, the tab rows and the captions take
- * together is TAKEN, where the context bar is one row: 187px at 1440 and 992px, read once in Chromium on 2026-11-12,
- * and 3px spare for a line that another browser or zoom rounds otherwise, not read there. Where the bar wraps, the
- * page scrolls by the rows it adds. The Existing grid has the rest of the panel's room, which the
+ * together is TAKEN, where the context bar is one row: 187px, read once at 1440px in Chromium on 2026-11-12. Where the
+ * bar wraps, the page scrolls by the rows it adds. The Existing grid has the rest of the panel's room, which the
  * shell says (`--qube-panel-room`, ADR-0018 §5): the area's height in an area, and in the strip the window's less the
  * header, the strip and the gutter, which TAKEN counted, as an estimate, before there were areas.
  */
 const RESIZER = 12;
 const DOCK_HEIGHT = 136;
-const TAKEN = 190;
+const TAKEN = 187;
 const CSA_ROWS = 7;
 /** The Changes tab's rows it is as high as, until its handle is dragged. */
 const CHANGE_ROWS = 6;

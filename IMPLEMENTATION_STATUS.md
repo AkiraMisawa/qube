@@ -3130,12 +3130,18 @@ on the pricer's files (ADR-0018 §11).
   measures' deltas, stand side by side from 1200px of its area. `xva.css` reads the panel by container queries; the
   section switch and Full height are shown by them, written in the range syntax (`width < 768px`, `width >= 768px`),
   so a switch and the layout never disagree at a fractional width: `max-width: 767.98px` and `min-width: 768px` both
-  missed an area 767.99px wide, a third of a row. Its context bar's fields wrap by the panel too, a counterparty on its
-  own row in a narrow area (the shell's toolbar rules, which read the window, now also read the panel).
+  missed an area 767.99px wide, a third of a row (argued from the queries; no test reads a width that near 768px).
+  Every page's toolbar fields wrap by the panel too (the shell's toolbar rules, which read the window, now also read
+  the panel): the pricer's counterparty takes its own row in a narrow area, and the Rates toolbar and the Pricing DB's
+  wrap as they would in a window that narrow.
 - **The pricer reads its panel's height.** The Existing grid takes what the page's other parts leave of the height the
   shell gives a page (`--qube-panel-room`): in an area the area's height less the gutter, in the strip the window's
-  less the header, the strip and the gutter. The page's own number (`TAKEN`) counts its parts alone, 190px where the
-  context bar is one row, so in one area of 1440 by 900 the page fits and does not scroll (it overflowed by 18px).
+  less the header, the strip and the gutter. The page's own number (`TAKEN`) counts its parts alone, 187px where the
+  context bar is one row, read once at 1440px, so in one area of 1440 by 900 the page fits and does not scroll (it
+  overflowed by 18px). It holds in a floating and a maximized area too.
+- **The shell's own numbers say themselves once**: the header's offset is Mantine's, read without a default (Mantine
+  sets it whenever the shell has a header); the strip page's top gutter is a class the room's formula names; and an
+  area's strip and a floating area's title bar take their height from the tab's.
 - **Container queries are in pixels.** A container query's `em` is the container's font size, 13px in this theme:
   step 1's trace put its formula beside the tree from 806px, not 992px. Fixed with the pricer's queries, and the
   trace's browser test reads 950px.
@@ -3155,11 +3161,14 @@ on the pricer's files (ADR-0018 §11).
 | `scrollbars.spec.ts` with a 600px window, `--repeat-each=3` | 3 passed |
 | The trace's test with the trace's query in `em` again | Fails at 950px (two columns where one is right) |
 | The pricer at 390px (the strip) and at 768, 992 and 1440px (one area), 900px high, dark and light, in Chromium | Looked at: the three tabs at 390px, the one screen from 768px, nothing sideways; the pull request's screens |
+| The SIMM tab's two cards and a Rates Run's two grids, side by side in a wide panel and one above the other in a 720px area of a 1440px window (`simm.spec.ts`, `rates.spec.ts`), `--repeat-each=3` | 6 passed |
+| `areas.spec.ts` whole, three times in a row, after the second review's fixes | 27 passed; its mouse-drag test (step 1's) failed once before that, its drop on an area's edge not taken, and passed 5 of 5 alone |
 
 `areas.spec.ts` holds the pricer in one area at 1440 by 900 (it fits, the grid above the dock), in the top half (the
 grid at its six rows, the area scrolling and not the document), maximized (the grid's height back), in the strip at
 1440 by 480 (too short for the two areas: no switch, the grid at its six rows, the document scrolling), gathered again
-(the grid's height back), beside the Pricing DB at 605px (the three tabs, no Full height, nothing sideways) and at
+(the grid's height back), floated to the right half (the three tabs, the Trades tab's grid from the floating area's
+height) and docked back, beside the Pricing DB at 605px (the three tabs, no Full height, nothing sideways) and at
 1080px (the one screen, in the same page), and in the strip at 1440px with the AI pane open beside four areas in a row
 (no switch, the grid above the dock and the document not scrolling: the strip's room). `scrollbars.spec.ts` needs a pricer taller than its room, so that its page scrolls beside a scrollbar: at 992 by
 900 it overflowed its area by the 18px `TAKEN` left out, and now fits, so the test's window is 600px high.

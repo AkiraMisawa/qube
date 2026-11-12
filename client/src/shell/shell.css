@@ -225,6 +225,8 @@
    the shell's padding exactly: a panel's page reaches across it to be the panel's whole width (`.qube-panel-page`). */
 .qube-panels {
   --qube-panel-tab-height: 30px;
+  /* An area's strip's line under its tabs (`.dv-tabs-and-actions-container`), which dockview counts in its height. */
+  --qube-panel-tab-line: 1px;
   margin-inline: calc(var(--app-shell-padding) * -1);
 }
 
@@ -272,7 +274,7 @@
   --dv-group-view-background-color: var(--mantine-color-body);
   --dv-tabs-and-actions-container-background-color: var(--mantine-color-body);
   /* One Control Height, a tab's (`.qube-panels`), and the strip's 1px line under it, which dockview counts in this height. */
-  --dv-tabs-and-actions-container-height: calc(var(--qube-panel-tab-height) + 1px);
+  --dv-tabs-and-actions-container-height: calc(var(--qube-panel-tab-height) + var(--qube-panel-tab-line));
   --dv-tabs-and-actions-container-font-size: var(--mantine-font-size-sm);
   --dv-tab-font-size: var(--mantine-font-size-sm);
   --dv-activegroup-visiblepanel-tab-background-color: var(--mantine-color-body);
@@ -324,7 +326,7 @@
 
 /* A strip's line under its tabs, as note 7's strip has it; the selected tab stands on it in the primary colour. */
 .dockview-theme-qube .dv-tabs-and-actions-container {
-  border-bottom: 1px solid var(--mantine-color-default-border);
+  border-bottom: var(--qube-panel-tab-line) solid var(--mantine-color-default-border);
 }
 
 /* As note 7's tab: Mantine's outline tab has 12px each side. */

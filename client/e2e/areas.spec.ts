@@ -315,15 +315,15 @@ test('ADR-0018 §5, ADR-0010 §1: the pricer lays itself out by its area: its Ex
   await command(page, 'price');
   await expect(page.getByTestId('xva-result-status')).toHaveText('succeeded');
   const xva = 'XVA ABC/LE-01';
-  const pageOf = page.locator('.qube-panel-page').filter({ has: page.getByTestId('xva-result') });
-  const body = pageOf.locator('.qube-panel-page-body');
+  const pricerPage = page.locator('.qube-panel-page').filter({ has: page.getByTestId('xva-result') });
+  const body = pricerPage.locator('.qube-panel-page-body');
   const existing = page.locator('.qube-xva-trades');
   const sections = page.getByRole('radiogroup', { name: 'Part of the page' });
   const full = page.getByTestId('xva-result-full');
   const overflow = () => body.evaluate((e) => e.scrollHeight - e.clientHeight);
   const documentScrolls = () => page.evaluate(() => document.documentElement.scrollHeight - document.documentElement.clientHeight);
-  const pageWidth = (width: number) => expect(pageOf).toHaveAttribute('data-panel-width', String(width));
-  const height = async () => (await box(existing)).height;
+  const pageWidth = (width: number) => expect(pricerPage).toHaveAttribute('data-panel-width', String(width));
+  const existingHeight = async () => (await box(existing)).height;
   // The Existing grid's bottom is above the dock's top: the page's one screen, the grid scrolling and not the page.
   const aboveTheDock = async () => {
     const grid = await box(existing);
@@ -336,23 +336,23 @@ test('ADR-0018 §5, ADR-0010 §1: the pricer lays itself out by its area: its Ex
   await expect(sections).toBeHidden();
   await expect(full).toBeVisible();
   await expect.poll(overflow).toBeLessThanOrEqual(0);
-  await expect.poll(height).toBeGreaterThan(192);
+  await expect.poll(existingHeight).toBeGreaterThan(192);
   await expect.poll(aboveTheDock).toBe(true);
-  const tall = await height();
+  const tall = await existingHeight();
 
   // In the top half, the grid keeps its six rows' minimum and the page scrolls inside its area, not the document.
   await command(page, 'open pricing db');
   await settled(page, 'Pricing DB');
   await command(page, 'split panel', 'down');
   await tab(page, xva).click();
-  await expect.poll(height).toBe(192);
+  await expect.poll(existingHeight).toBe(192);
   await expect.poll(overflow).toBeGreaterThan(0);
   expect(await documentScrolls()).toBe(0);
   // Maximized, its area is the panels' whole space, and the grid has its height back; put back, it is half again.
   await command(page, 'maximize panel');
-  await expect.poll(height).toBe(tall);
+  await expect.poll(existingHeight).toBe(tall);
   await command(page, 'unmaximize panel');
-  await expect.poll(height).toBe(192);
+  await expect.poll(existingHeight).toBe(192);
   // Too short a window for the two areas one above the other: the strip, 1440px wide, where the pricer is the one
   // screen and no switch, its grid at its minimum and the document scrolling.
   await page.setViewportSize({ width: 1440, height: 480 });
@@ -361,14 +361,28 @@ test('ADR-0018 §5, ADR-0010 §1: the pricer lays itself out by its area: its Ex
   await pageWidth(1440);
   await expect(sections).toBeHidden();
   await expect(full).toBeVisible();
-  await expect.poll(height).toBe(192);
+  await expect.poll(existingHeight).toBe(192);
   await expect.poll(documentScrolls).toBeGreaterThan(0);
   await page.setViewportSize({ width: 1440, height: 900 });
   await expect(panels(page)).toHaveAttribute('data-mode', 'areas');
   // Gathered again, the grid has the whole area's height back.
   await command(page, 'gather panels');
   await tab(page, xva).click();
-  await expect.poll(height).toBe(tall);
+  await expect.poll(existingHeight).toBe(tall);
+  // Floated to the right half, a floating area under 768px wide and the window's height: the three tabs, the Trades
+  // tab's grid taking that area's height less a phone's other parts; docked again, the one screen.
+  await command(page, 'float panel', 'right');
+  await expect(floating(page)).toHaveCount(1);
+  await expect.poll(async () => Number(await pricerPage.getAttribute('data-panel-width'))).toBeLessThan(768);
+  await expect(sections).toBeVisible();
+  await expect(full).toBeHidden();
+  await expect.poll(existingHeight).toBeGreaterThan(320);
+  expect(await sideways(page)).toBe(0);
+  await command(page, 'dock panel');
+  await expect(floating(page)).toHaveCount(0);
+  await tab(page, xva).click();
+  await expect(sections).toBeHidden();
+  await expect.poll(existingHeight).toBe(tall);
 
   // Beside the Pricing DB, in 605px, the pricer is a phone's three tabs, under its context bar, and the dock has no
   // Full height; at three quarters of the row it is the one screen again, in the same page.
@@ -406,10 +420,11 @@ test('ADR-0018 §5, ADR-0010 §1: the pricer lays itself out by its area: its Ex
   await page.getByRole('button', { name: 'Show the AI pane' }).click();
   await expect(panels(page)).toHaveAttribute('data-mode', 'strip');
   await tab(page, xva).click();
-  await expect(pageOf).toHaveAttribute('data-panel-width', /^1\d{3}$/);
+  // The page reads what the pane leaves of the window, its 400px from `lg` taken off.
+  await pageWidth(1440 - 400);
   await expect(sections).toBeHidden();
   await expect(full).toBeVisible();
-  await expect.poll(height).toBeGreaterThan(192);
+  await expect.poll(existingHeight).toBeGreaterThan(192);
   await expect.poll(aboveTheDock).toBe(true);
   await expect.poll(documentScrolls).toBeLessThanOrEqual(0);
 });
