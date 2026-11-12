@@ -1,5 +1,6 @@
 import { useCallback } from 'react';
-import { Alert, Badge, Group, SimpleGrid, Stack, Text, Title } from '@mantine/core';
+import { Alert, Badge, Group, Stack, Text, Title } from '@mantine/core';
+import './views.css';
 import type { Dataset, TypedDataRef, ViewAction, ViewComponent, ViewDefinition } from '../contracts';
 import { ApiError } from '../api';
 import { DatasetGrid } from '../grid/DatasetGrid';
@@ -17,12 +18,16 @@ export function ViewRenderer({ view, outputs, registerFocus }: {
   readonly registerFocus?: (focus: (() => void) | undefined) => void;
 }) {
   return (
-    <SimpleGrid cols={{ base: view.layout.narrowColumns, md: view.layout.wideColumns }} spacing="md">
+    // The view's columns by its panel's width, not the window's (ADR-0018 §5): views.css.
+    <div className="qube-view-grid" style={{
+      ['--qube-view-narrow' as string]: String(view.layout.narrowColumns),
+      ['--qube-view-wide' as string]: String(view.layout.wideColumns),
+    }}>
       {view.components.map((component, index) => (
         <ComponentRenderer key={component.id} grid={`${keyOf(view)}/${component.id}`} component={component} outputs={outputs}
           {...(index === 0 && registerFocus !== undefined ? { registerFocus } : {})} />
       ))}
-    </SimpleGrid>
+    </div>
   );
 }
 

@@ -439,3 +439,36 @@ test('ADR-0010 §4 with ADR-0012 §7: the SIMM tab draws the market the dock\'s 
   await expect(cards).toHaveCount(2);
   await expect(cards.first()).not.toHaveText(ofBase);
 });
+
+test('ADR-0018 §5 with ADR-0012 §7: the SIMM tab\'s two cards stand side by side in a wide area, and one above the other in an area under 768px of a wide window', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await open(page);
+  await newWorkspace(page, 'ABC/LE-01', 5);
+  await selectSpotIm(page);
+  await command(page, 'price');
+  const result = page.getByTestId('xva-result');
+  await expect(result.getByTestId('xva-result-status')).toHaveText('succeeded');
+  await result.getByRole('button', { name: /^IM-R After .+: open its trace$/ }).click();
+  const cards = page.getByTestId('trace-card');
+  await expect(cards).toHaveCount(2);
+  const card = async (i: number) => {
+    const found = await cards.nth(i).boundingBox();
+    if (found === null) throw new Error(`Card ${i} is not drawn.`);
+    return found;
+  };
+  // The pricer alone in a 1440px window: the two cards share a row.
+  await expect.poll(async () => { const [a, b] = [await card(0), await card(1)]; return b.x > a.x && b.y === a.y; }).toBe(true);
+  // Beside the Pricing DB, in 720px of the same window: the panel's width, not the window's, puts one above the other.
+  await command(page, 'open pricing db');
+  await settled(page, 'Pricing DB');
+  await command(page, 'split panel', 'right');
+  await page.locator('.qube-panel-tab-title', { hasText: 'XVA ABC/LE-01' }).click();
+  await expect(page.locator('.qube-panel-page').filter({ has: result })).toHaveAttribute('data-panel-width', '720');
+  // The page was drawn anew as the Pricing DB took its area's view (a page keeps no state of its own yet), so the trace
+  // is opened again, from the Results part.
+  await page.getByText('Results', { exact: true }).click();
+  await result.getByRole('button', { name: /^IM-R After .+: open its trace$/ }).click();
+  await expect(cards).toHaveCount(2);
+  await expect.poll(async () => { const [a, b] = [await card(0), await card(1)]; return b.y > a.y && b.x === a.x; }).toBe(true);
+  expect(await sideways(page)).toBe(0);
+});

@@ -1,7 +1,7 @@
 import { useMemo, useRef } from 'react';
 import '@ex-grid/chart/styles.css';
 import '@ex-grid/chart-mantine/styles.css';
-import { Alert, NativeSelect, SimpleGrid, Stack, Table, Text } from '@mantine/core';
+import { Alert, NativeSelect, Stack, Table, Text } from '@mantine/core';
 import { useElementSize } from '@mantine/hooks';
 import { ChartDefinition, tenor } from '@ex-grid/chart';
 import { ExChart } from '@ex-grid/chart-react';
@@ -55,10 +55,11 @@ export function XvaProfile({ runId, measures, register, caseId, scenario }: {
           Returned: {profiles.map((p) => p.title).join(', ')}{profile.currency === undefined ? '' : ` · ${profile.title} in ${profile.currency}`}
         </Text>
       </div>
-      <SimpleGrid cols={{ base: 1, lg: 2 }} spacing="sm">
+      {/* Side by side from the panel's `lg`, not the window's (ADR-0018 §5). */}
+      <div className="qube-xva-pair" data-pair>
         <ProfileChart table={table} />
         <ProfileGrid table={table} />
-      </SimpleGrid>
+      </div>
     </Stack>
   );
 }

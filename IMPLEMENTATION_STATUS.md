@@ -2934,7 +2934,7 @@ trades made from their ids); no trade, name or figure of it is a real one.
   are reached by scrolling the grid or by the keyboard. Where a row's buttons stand is ticket 16's question.
 - **No test reaches `ConflictUnresolved`**, the refusal to remove a loaded trade while an edit of it waits as a
   conflict: no editable value of the synthetic store, or of the synthetic source, moves with the value date, so
-  neither makes a conflict yet ("Next", item 6). The refusal is written and read, not run.
+  neither makes a conflict yet ("Next", item 5). The refusal is written and read, not run.
 - **A scenario's key with `_2` follows the scenarios' order**: once the earlier scenario of that key is removed or
   renamed, the later one takes the key without the number. Left for the owner with the key's spelling.
 
@@ -3049,7 +3049,9 @@ offered to the agent, and no model has been asked to arrange panels. The XVA pag
 
 ### Known limits
 
-- The pricer's page reads the window, not its area, until its own pull request, the next one now that ADR-0016's step
+- *(Its width half is done by the next pull request, "the pricer by its area" below; a short area's trade grids still
+  scroll under the result dock, as that section's Known limits say.)* The pricer's page reads the window, not its area,
+  until its own pull request, the next one now that ADR-0016's step
   5d has merged (ticket 07): an XVA page in a narrow area is laid out as the window's width says, and in a short one
   (split down at 1440 by 900px) its trade grids scroll under the result dock and their headers draw over it, as they
   do in a window that short.
@@ -3294,20 +3296,91 @@ Unchanged; nothing on the server changed.
   rise until the field is tapped.
 - `settings.spec.ts:132` failed once in a full run and passed when run again: a red that passes on a re-run, still open.
 
+## Panels in areas, step 1's rest: the pricer by its area (ADR-0018 ticket 07, 2026-11-12)
+
+The pull request after step 1's (`docs/specs/panels-1-areas`, ticket 07's rest), once ADR-0016's step 5d had merged
+on the pricer's files (ADR-0018 §11).
+
+### What runs
+
+- **The pricer reads its panel's width.** Below 768px of its area it is the three tabs under the context bar, as on a
+  phone, and its dock has no Full height; from 768px it is the one screen. The profile's chart and table, and two
+  measures' deltas, stand side by side from 1200px of its area. `xva.css` reads the panel by container queries; the
+  section switch and Full height are shown by them, written in the range syntax (`width < 768px`, `width >= 768px`),
+  so a switch and the layout never disagree at a fractional width: `max-width: 767.98px` and `min-width: 768px` both
+  missed an area 767.99px wide, a third of a row (argued from the queries; no test reads a width that near 768px).
+  The shell's toolbar rules, which read the window, now also read the panel: inside a panel the pricer's parts use
+  them (its context bar, the Credit and Settings tabs' fields, the profile's choice) and the trace's toolbar, and the
+  pricer's counterparty takes its own row in a narrow area. The header's context bar and a dialog's fields use them
+  too, by the window, as before.
+- **The pricer reads its panel's height.** The Existing grid takes what the page's other parts leave of the height the
+  shell gives a page (`--qube-panel-room`): in an area the area's height less the gutter, in the strip the window's
+  less the header, the strip and the gutter. The page's own number (`TAKEN`) counts its parts alone, 187px where the
+  context bar is one row, read once at 1440px, so in one area of 1440 by 900 the page fits and does not scroll (it
+  overflowed by 18px). Maximized, the area's room is the panels' whole space (the grid's height back, tested). Floated
+  to the right half, under 768px, the pricer is the three tabs and the Trades tab's grid stands above its 20rem floor
+  (tested at a width between 600 and 768px); that floating area is the window's height, so the test does not tell its room from the
+  window's.
+- **The shell's own numbers say themselves once**: the header's offset is Mantine's, read without a default (Mantine
+  sets it whenever the shell has a header); the strip page's top gutter is a class the room's formula names; and an
+  area's strip and a floating area's title bar take their height from the tab's.
+- **Container queries are in pixels.** A container query's `em` is the container's font size, 13px in this theme:
+  step 1's trace put its formula beside the tree from 806px, not 992px. Fixed with the pricer's queries, and the
+  trace's browser test reads 950px.
+- **What else read the window inside a page now reads the panel**: a trace's roots (spot IM's cards, side by side from
+  the panel's 768px, in the pricer's dock) and a declarative view's columns (the Run panel's and a view panel's, the
+  wide count from the panel's 992px). Both were Mantine's `SimpleGrid`, whose columns read the window.
+- A dialog (a row's draft) still reads the window: it is drawn over the window, not in the area.
+
+### Verification performed
+
+| What | Result |
+|---|---|
+| `dotnet test server/Qube.slnx` | 1594 passed (no server change) |
+| Client: `npm run typecheck`, `npm test`, `npm run build` | Clean; 462 passed in 44 files (465 with main's step 6 merged in); built |
+| `npx playwright test` (Chromium, headless, Linux), against the built client | 127 passed after the first review's fixes; 129 after the second's (two new tests); 130 with main's step 6 merged in, after the fourth's |
+| `areas.spec.ts`'s two tests of a page by its area, `--repeat-each=3` | 6 passed; the pricer's again after the review's fixes, 3 passed |
+| `scrollbars.spec.ts` with a 600px window, `--repeat-each=3` | 3 passed |
+| The trace's test with the trace's query in `em` again | Fails at 950px (two columns where one is right) |
+| The pricer at 390px (the strip) and at 768, 992 and 1440px (one area), 900px high, dark and light, in Chromium | Looked at: the three tabs at 390px, the one screen from 768px, nothing sideways; the pull request's screens |
+| The SIMM tab's two cards and a Rates Run's two grids, side by side in a wide panel and one above the other in a 720px area of a 1440px window (`simm.spec.ts`, `rates.spec.ts`), `--repeat-each=3` | 6 passed |
+| `areas.spec.ts` whole, three times in a row, after the second review's fixes | 27 passed; its mouse-drag test (step 1's) failed once before that, its drop on an area's edge not taken, and passed 5 of 5 alone |
+| After the third review's fixes: the pricer's, the trace's, the panels' space, the SIMM cards' and the Rates Run's tests, `--repeat-each=3`; `areas.spec.ts` whole | 15 passed; 9 passed |
+
+`areas.spec.ts` holds the pricer in one area at 1440 by 900 (it fits, the grid above the dock), in the top half (the
+grid at its six rows, the area scrolling and not the document), maximized (the grid's height back), in the strip at
+1440 by 480 (too short for the two areas: no switch, the grid at its six rows, the document scrolling), gathered again
+(the grid's height back), floated to the right half (the three tabs, the Trades tab's grid above its 20rem floor) and
+docked back, beside the Pricing DB at 605px (the three tabs, no Full height, nothing sideways) and at
+1080px (the one screen, in the same page), and in the strip at 1440px with the AI pane open beside four areas in a row
+(no switch, the grid above the dock and the document not scrolling: the strip's room). `scrollbars.spec.ts` needs a
+pricer taller than its room, so that its page scrolls beside a scrollbar: at 992 by 900 it overflowed its area by the
+18px `TAKEN` left out, and now fits, so the test's window is 600px high.
+
+### Providers
+
+Unchanged: every figure is simulated and says so.
+
+### Known limits
+
+- In an area shorter than the page's parts need (split down at 1440 by 900), the grid keeps its six rows and the page
+  scrolls inside its area; its trade grids scroll under the result dock and their headers draw over it (ExGrid's
+  header stacks at 4, the dock at 3), as in a window that short.
+- Where the context bar wraps (an area under about 1,000 to 1,100px, by the measures chosen and the Price button's
+  words), the page scrolls by the rows it adds: `TAKEN` is the one-row figure.
+
 ## Next
 
-1. Panels in areas: the pricer reads its area's width and height (ADR-0018 ticket 07's rest), the pull request after
-   step 1's, now that step 5d has merged.
-2. A page keeps its state by panel (ADR-0006 note 7, the owner's choice). The generic commands (ADR-0016) are
+1. A page keeps its state by panel (ADR-0006 note 7, the owner's choice). The generic commands (ADR-0016) are
    built through step 6; what each step left for the owner is in its section's "Known limits".
-3. Panels in areas, ADR-0018 steps 2 (other browser windows) and 3 (parts of a page with links), in that order, each
+2. Panels in areas, ADR-0018 steps 2 (other browser windows) and 3 (parts of a page with links), in that order, each
    once the owner has seen the one before.
-4. MVA with SIMM (`docs/12-implementation-plan.md` P2): spot IM from the XVA request's MVA option.
-5. ADR-0010 Delivery step 3 (Advanced: Before-only and After-only edits, the split fill), when the owner asks for it.
-6. The owner's review of ADR-0003 §7 (scopes, carry and conflict), then a synthetic source change that can produce a conflict, and the browser cases still open above (reload, failed case unavailable).
-7. Rates.
-8. ME-ID sign-in through MSAL (C30) and the visibility rules (C31, C32); AI over AG-UI with the company's Copilot behind the adapter port (C34).
-9. Slice 01b: Save and Pin (CO06), and the browser parts of CO03 and CO04.
+3. MVA with SIMM (`docs/12-implementation-plan.md` P2): spot IM from the XVA request's MVA option.
+4. ADR-0010 Delivery step 3 (Advanced: Before-only and After-only edits, the split fill), when the owner asks for it.
+5. The owner's review of ADR-0003 §7 (scopes, carry and conflict), then a synthetic source change that can produce a conflict, and the browser cases still open above (reload, failed case unavailable).
+6. Rates.
+7. ME-ID sign-in through MSAL (C30) and the visibility rules (C31, C32); AI over AG-UI with the company's Copilot behind the adapter port (C34).
+8. Slice 01b: Save and Pin (CO06), and the browser parts of CO03 and CO04.
 
 ## Later, perhaps
 

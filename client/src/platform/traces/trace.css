@@ -10,8 +10,19 @@
   gap: var(--mantine-spacing-sm);
   align-items: start;
 }
-@container qube-panel (min-width: 62em) {
+@container qube-panel (width >= 992px) {
   .qube-trace-body { grid-template-columns: minmax(0, 3fr) minmax(20rem, 2fr); }
+}
+
+/* A trace's roots (spot IM's, one card each) side by side from the panel's `sm`, up to four in a row; one above the
+   other below it, as in a narrow window (ADR-0018 §5). `--qube-trace-roots` is how many there are, set on the row. */
+.qube-trace-roots {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--mantine-spacing-xs);
+}
+@container qube-panel (width >= 768px) {
+  .qube-trace-roots { grid-template-columns: repeat(var(--qube-trace-roots), minmax(0, 1fr)); }
 }
 .qube-trace-tree-part, .qube-trace-detail-part { min-width: 0; }
 .qube-trace-detail-part {

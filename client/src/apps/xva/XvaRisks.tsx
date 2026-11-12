@@ -1,4 +1,4 @@
-import { SimpleGrid, Stack, Table, Text } from '@mantine/core';
+import { Stack, Table, Text } from '@mantine/core';
 import type { RegisteredMeasure } from './contracts';
 import type { MetricCell } from './metrics';
 import { useRequestRows } from './requestRows';
@@ -20,9 +20,10 @@ export function XvaRisks({ runId, measures, register, caseId, scenario }: {
   if (read.kind === 'none') return <Text size="sm" data-testid="xva-risks-none">{read.reason}</Text>;
   const sections = riskSections(read.rows, measures, register, caseId, scenario);
   return (
-    <SimpleGrid cols={{ base: 1, lg: Math.min(sections.length, 2) }} spacing="sm" data-testid="xva-risks">
+    // Two measures side by side from the panel's `lg`, not the window's (ADR-0018 §5).
+    <div className="qube-xva-pair" {...(sections.length > 1 ? { 'data-pair': true } : {})} data-testid="xva-risks">
       {sections.map((s) => <Section key={s.measure} section={s} />)}
-    </SimpleGrid>
+    </div>
   );
 }
 

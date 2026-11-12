@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from 'react';
-import { Alert, Badge, Group, SimpleGrid, Stack, Text, UnstyledButton } from '@mantine/core';
+import { Alert, Badge, Group, Stack, Text, UnstyledButton } from '@mantine/core';
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useStore } from 'zustand';
 import { firstPageQuery, readTerm, refusalText as describe, termKey, type TraceApi } from './api';
@@ -58,7 +58,7 @@ export function TraceTab({ tabId, address, api, registerFocus, caption }: {
     <Stack gap="sm" className="qube-trace-tab" data-testid="trace-tab">
       {caption !== undefined && <Text size="xs" data-testid="trace-tab-caption">{caption}</Text>}
       {roots.length > 1 && (
-        <SimpleGrid cols={{ base: 1, sm: Math.min(roots.length, 4) }} spacing="xs" role="group" aria-label="Roots">
+        <div className="qube-trace-roots" style={{ ['--qube-trace-roots' as string]: String(Math.min(roots.length, 4)) }} role="group" aria-label="Roots">
           {roots.map((id, i) => {
             const page = pages[i];
             if (page?.isError === true) {
@@ -67,7 +67,7 @@ export function TraceTab({ tabId, address, api, registerFocus, caption }: {
             const card = page?.data === undefined ? undefined : rootCard(page.data.term, page.data.trace);
             return <Card key={id} id={id} label={header.roots[i]?.label ?? id} card={card} chosen={id === root} onChoose={() => choose(id)} />;
           })}
-        </SimpleGrid>
+        </div>
       )}
       <TraceView key={root} panelId={tabId} address={address} api={api} registerFocus={registerFocus} root={root} />
     </Stack>

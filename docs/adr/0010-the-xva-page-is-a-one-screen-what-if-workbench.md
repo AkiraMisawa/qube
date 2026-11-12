@@ -64,7 +64,7 @@ follows `docs/design-guidelines.md`.
 area the page is in, not the window's, now that a page can stand in an area beside others. A pricer in a 600px area is
 the three tabs, as it is in a 600px window; the full-height button and the page's heights read its area alike. The
 pricer reads its area from a pull request of its own, after ADR-0016's step 5d and ADR-0018's step 1 (ADR-0018 §11 and
-its note of 2026-11-12); until that merges, it reads the window, as before.
+its note of 2026-11-12); before that pull request, it read the window.
 
 ### 2. Original, Before and After are layers of changes (CONFIRMED, owner 2026-11-06)
 

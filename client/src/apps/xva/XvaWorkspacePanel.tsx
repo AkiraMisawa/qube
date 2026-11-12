@@ -134,11 +134,14 @@ const TRADES_TAB = 'trades';
  * The heights of the page's own parts (ADR-0010 §1), in pixels the page sets and never reads back. The input tabs fit
  * their content until the handle is dragged: Netting's one row, or the CSA grid's rows up to about seven. The dock's
  * Metrics take up to about four cases. What the context bar, the status line, the tab rows and the captions take
- * together is TAKEN; the Existing grid has the window's rest.
+ * together is TAKEN, where the context bar is one row: 187px, read once at 1440px in Chromium on 2026-11-12. Where the
+ * bar wraps, the page scrolls by the rows it adds. The Existing grid has the rest of the panel's room, which the
+ * shell says (`--qube-panel-room`, ADR-0018 §5): the area's height in an area, and in the strip the window's less the
+ * header, the strip and the gutter, which TAKEN counted, as an estimate, before there were areas.
  */
 const RESIZER = 12;
 const DOCK_HEIGHT = 136;
-const TAKEN = 260;
+const TAKEN = 187;
 const CSA_ROWS = 7;
 /** The Changes tab's rows it is as high as, until its handle is dragged. */
 const CHANGE_ROWS = 6;
@@ -170,7 +173,7 @@ const inputsFit = (tab: InputTab, ws: XvaWorkspaceView, gap: number, catalogueRe
   }
 };
 
-/** The page's parts, which below `sm` are three tabs (ADR-0010 §1). */
+/** The page's parts, which below its panel's `sm` are three tabs (ADR-0010 §1, ADR-0018 §5). */
 type Section = 'inputs' | 'trades' | 'results';
 
 // What the page shows, kept by its panel while the panel is hidden (ADR-0006 note 10): the layout of ADR-0010 §1 as the
@@ -411,7 +414,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   useKeptGrid('xva/trades/existing', sources.existing, existingGrid, existingWidths.columns, sources.orderOf);
 
   // The layout (ADR-0010 §1): the input tabs open, or collapsed to their row, at a height the user drags; the dock the
-  // same at the bottom; and below `sm` the part in view.
+  // same at the bottom; and below the panel's `sm` the part in view.
   const [section, setSection] = usePanelState(SECTION, 'trades');
   const [inputTab, setInputTab] = usePanelState<InputTab>(INPUT_TAB, 'netting');
   const [inputsOpen, setInputsOpen] = usePanelState(INPUTS_OPEN, true);
@@ -1049,8 +1052,8 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
           <Badge variant="light" color="yellow" data-testid="simulated" title={`Figures from a simulated provider: ${ws.simulated.join(', ')}. They are not a model of anything.`}>SIMULATED</Badge>
         )}
       </Group>
-      {/* Below `sm` the screen is three tabs (ADR-0010 §1), with the context bar above them. */}
-      <SegmentedControl hiddenFrom="sm" size="xs" fullWidth aria-label="Part of the page" value={section} onChange={(v) => setSection(v as Section)}
+      {/* Below the panel's `sm` the screen is three tabs (ADR-0010 §1), with the context bar above them. */}
+      <SegmentedControl className="qube-xva-sections" size="xs" fullWidth aria-label="Part of the page" value={section} onChange={(v) => setSection(v as Section)}
         data={[{ value: 'inputs', label: 'Inputs' }, { value: 'trades', label: 'Trades' }, { value: 'results', label: 'Results' }]} />
       <div data-part="inputs" className="qube-xva-part">
         <XvaInputs ws={ws} onIssue={setIssue} push={(entity, field, value, title) => void queue.push({ entity, field, value, title })} setText={setText}

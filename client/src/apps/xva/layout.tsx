@@ -20,8 +20,8 @@ export function pixels(length: string): number {
 export { compactGridHeight } from '../../platform/grid/metrics';
 
 /**
- * A part's height as the stylesheet reads it (`--qube-part-height`), so that below `sm`, where a part is a tab as high
- * as its content, the stylesheet sets it aside.
+ * A part's height as the stylesheet reads it (`--qube-part-height`), so that below the panel's `sm`, where a part is a
+ * tab as high as its content, the stylesheet sets it aside.
  */
 export const partHeight = (height: number): CSSProperties => ({ ['--qube-part-height' as string]: `${height}px` });
 
