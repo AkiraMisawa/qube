@@ -43,7 +43,8 @@ public enum FieldForm
     Id,
     /// <summary>
     /// A number followed by what it is in, one of the field's choices: <c>-350,000 USD</c>, <c>-350k usd</c>; or the
-    /// number alone, where the field says what it is then in (ADR-0016 note 47). Held as its amount and, where one was
+    /// number alone, where the field says what it is then in (ADR-0016 note 47). What it is in may be written against
+    /// the number, and a plus before it (<c>+10bp</c>, <c>-5%</c>; note 58). Held as its amount and, where one was
     /// written, its unit.
     /// </summary>
     Money,
@@ -135,15 +136,36 @@ public static partial class FieldForms
             {
                 // The number, and after it what it is in, where that is said: one of the field's choices.
                 var words = t.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
-                // Its number is written as an amount's is, and is never millions: a bare one is itself.
-                if (words.Length is 0 or > 2 || AmountPattern().Match(words[0]) is not { Success: true } m || Number(m.Groups[1].Value) is not { } n
-                    || Scaled(n, m.Groups[2].Value.ToLowerInvariant()) is not { } amount) return Refuse(spec);
-                if (words.Length == 1) return Take(new JsonObject { ["amount"] = amount });
-                return Units(spec).TryGetValue(words[1].ToLowerInvariant(), out var said) ? Take(new JsonObject { ["amount"] = amount, ["unit"] = said }) : Refuse(spec);
+                if (words.Length is 0 or > 2) return Refuse(spec);
+                if (MoneyNumber(words[0]) is { } amount)
+                {
+                    if (words.Length == 1) return Take(new JsonObject { ["amount"] = amount });
+                    return Units(spec).TryGetValue(words[1].ToLowerInvariant(), out var said) ? Take(new JsonObject { ["amount"] = amount, ["unit"] = said }) : Refuse(spec);
+                }
+                // What it is in written against the number (ADR-0016 note 58), `10bp` or `-5%`: a word that is no
+                // number as it stands, and ends with one of the field's units after a number.
+                return words.Length == 1 && Against(words[0], Units(spec)) is var (number, against) ? Take(new JsonObject { ["amount"] = number, ["unit"] = against }) : Refuse(spec);
             }
             default:
                 throw new InvalidOperationException($"No reading of {spec.Form}.");
         }
+    }
+
+    // Money's number: written as an amount's is, with a plus before it where one is written (note 58), and never
+    // millions: a bare one is itself.
+    static decimal? MoneyNumber(string word)
+    {
+        var digits = word.Length > 1 && word[0] == '+' && char.IsAsciiDigit(word[1]) ? word[1..] : word;
+        return AmountPattern().Match(digits) is { Success: true } m && Number(m.Groups[1].Value) is { } n ? Scaled(n, m.Groups[2].Value.ToLowerInvariant()) : null;
+    }
+
+    // A number with one of the units written against it: the longest unit the word ends with that leaves a number.
+    static (decimal Number, string Unit)? Against(string word, IReadOnlyDictionary<string, string> units)
+    {
+        foreach (var (typed, unit) in units.OrderByDescending(u => u.Key.Length).ThenBy(u => u.Key, StringComparer.Ordinal))
+            if (word.Length > typed.Length && word.EndsWith(typed, StringComparison.OrdinalIgnoreCase) && MoneyNumber(word[..^typed.Length]) is { } number)
+                return (number, unit);
+        return null;
     }
 
     // What money of a field may be in: its choices, each word that may be typed with the unit it reads as.

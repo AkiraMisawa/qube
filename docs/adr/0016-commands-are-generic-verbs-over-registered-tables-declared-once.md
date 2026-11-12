@@ -485,7 +485,11 @@ log cannot yet say which entries were one command, or what an entry replaced.
 5. Drafts (§10): a detail dialog drawn from a registration, with the tables under its row and its templates. The
    pricer's trade and CSA must carry those fields and tables first; its sample has neither them nor such a dialog.
    The pricer's scenarios as a registered table, a row computed from its shifts with their table under it, come
-   with this step too (note 32).
+   with this step too (note 32). **Built 2026-11-12** (`docs/specs/commands-5-drafts-rows-under-a-row`, four pull
+   requests); what it settled is notes 46 to 59 below. 5a: rows under a row, and the pricer's PV legs and
+   independent amounts. 5b: templates, the pricer's fields beyond its grids, and the input Price freezes. 5c:
+   drafts, a row's dialog and its button in the grid. 5d: the scenarios and their shifts as tables, and
+   `load trades <ids>`. Left for the owner: where a row's button stands in a grid (ticket 16).
 6. Saved sequences of edits (§8). §1 and §2 serve them as they are.
 
 ### Notes of 2026-11-11: what step 1 settles (all DEFAULT)
@@ -2299,6 +2303,186 @@ has one button, edit; and `load trades` reads a synthetic store of booked trades
       no base of their own); the dialog's own reading of the phone width beside the shell's (the shell's is in
       `App.tsx`, which the panels' work is changing); and the older browser tests that find a cell by its number, which
       the new ones find by the column's header.
+
+58. **The pricer's scenarios are a table, with their shifts under them (§1; 5d; DEFAULT, 2026-11-12).** Note 32 left
+    the table for this step and named what the kernel's tables did not hold. What 5d decides of each:
+    - *A scenario's key is one word.* The selector names a row by an id of one word (note 7), and a name may be
+      several (`jpy_ois -50bp · usdjpy -10%`). A scenario's key is its name where that is one word, and else its
+      name with each run of spaces, and each comma, written as one `_` (`parallel up` is `parallel_up`). Two names
+      that give one key are told apart in the scenarios' order: the second is `<key>_2`, and so on, so no key is
+      held twice. The name is a field of the row, read-only. A quoted id (`"parallel up"`) was weighed and left:
+      the selector, the lists of a `where`, the completions and the client's reading of a line would each learn
+      quotes for one table. *For the owner to judge.*
+    - *`xva.scenarios`* (`scenarios`): a row a scenario, in the order of their first shifts. Its fields: `scenario`
+      (the key), `name`, `shifts` (how many it holds), `included` (whether Price prices it; a flag a command sets),
+      and `issue` (why Price cannot price it, empty where it can). `set scenarios parallel_up included off` is
+      `scenario exclude parallel up`; `remove scenarios parallel_up` is `scenario remove parallel up`.
+    - *`xva.shifts`* (`shifts`), under the scenarios: a row a shift, keyed by its id (`s12`), under the scenario its
+      name gives; a shift that names no scenario is under none. Its fields: `shift` (the key), `scenario` (the key
+      of the row above, read-only), `category` and `type` (read-only: they follow the index and the size), `index`
+      and `factor` (a choice each: the catalogue's indices; a tenor, `all` or `spot`), `size`, `description`, and
+      `issue`. A write is the grid's own edit of that cell (`PortfolioScenarios.Edit`), with its checks and its
+      refusals, which name the grid's row and column: one reader of a shift's cell, whichever door it came through.
+      `remove shifts s12` clears the row, which removes it; the last shift of a scenario removed, the scenario is
+      gone and is left out of nothing.
+    - *A size is written with its unit* (`+10bp`, `-5%`): the unit says how the index shifts (ADR-0010 §4), so a
+      form that turns one unit into the other (`Rate`, `Spread`) would take `1%` on a curve as 100bp where the
+      grid refuses it. The field's form is `Money` over `bp` and `%`: its amount and what it is in.
+    - *What the kernel gains, each for any table.* **A number's unit may be written against it** (`10bp`, `-5%`,
+      `350k usd` as before): `Money` reads a word that ends with one of the field's units as the number before it
+      and that unit, where the word is no number as it stands, and reads a `+` before the number. **Rows written
+      together**: a table may answer the write of a field on several rows, and the removal of several rows, as one
+      (`SetRows`, `RemoveRows`), where its rows share what holds the value. The scenarios left out of Price are one
+      list of the workspace, so two rows' changes worked out on the same state would each write the list without
+      the other's name, and the second would win. A table that answers neither is written a row at a time, as
+      before.
+    - *Not in 5d.* Renaming a scenario and moving a shift to another scenario (`scenario` of a shift is read-only):
+      the grid's cell and `scenario duplicate` do that. No product makes a shift (`new shift`): `scenario <name>
+      <shifts>` and the grid's blank row do. The Scenarios tab is as it was, and its grid is no view of the table:
+      `find`, `sort`, `filter` and `select` do not act on it yet.
+    - *The ten verbs of note 32 stay*, each reading its own line and making the edits it made.
+    - *Changed as built (2026-11-12).*
+      - *The key.* Every run of characters a typed id does not hold is written as one `_`, not spaces and commas
+        alone: a name may hold a `·`, a stroke or a bracket, and each would part the id or be read as something
+        else. A typed id holds letters, digits and `_ + - % .`, the signs a shift is written with, so
+        `jpy_ois -50bp · usdjpy -10%` is `jpy_ois_-50bp_usdjpy_-10%`. A key that is a word that says rows (`all`,
+        `selected`, `shown`, `where`, `as`) gains a `_` (`all_`), since the selector reads the word as itself. Two
+        keys are one whatever their case.
+      - *A shift's key is its scenario's key, a stroke, and the number of its row's id* (`up/12`, and `/12` for a
+        shift that names no scenario), not the id alone (`s12`). The id alone says nothing of where the shift is,
+        and `s1` is a name a scenario may have. The number is the row's own: it does not move when another shift
+        is removed, so a key read before a removal still names its row, and the numbers of one scenario need not
+        begin at 1. *For the owner to judge.*
+      - *The fields' names.* A scenario's are `scenarioId` (said `id`), `name`, `count` (titled Shifts: `shifts` is
+        the word of the table under it), `included` and `issue`. A shift's are `shiftId` (said `id`), `scenario`,
+        `category`, `index`, `factor` (said `factor`, `risk factor` or `tenor`), `type`, `size`, `description` and
+        `issue`, in the order of the grid's columns.
+      - *A size without its unit is refused* (`InvalidShift`), with the size as the index takes it (`write
+        +15bp`): `Money` reads a bare number, and the grid's cell would then read it by the index alone.
+      - *A refusal names the shift by its key* where a command named it so (`up/4, Size: an FX shift is relative,
+        in %: write +3%.`), and by the grid's row where the grid's cell did (`Row 2, Size: …`), as before. One
+        reader of the cell still, and each door told in its own words.
+      - *`reset scenarios <key>` is refused* (`NotResettable`): a scenario is the workspace's own and has nothing to
+        go back to, and the refusal says the line that prices it or leaves it out. A shift is reset to what it was
+        made as.
+      - *What the kernel gains beside the two above, each for any table.* A condition compares a `Money` field with
+        its unit said (`where size > 5bp`): a number alone is refused, since it would be compared with values in
+        every unit, and a row whose value is in another unit is no match. `tables.describe` lists a `Money`
+        field's `units`. A draft's form offers no list of values for a `Money` field: what it is in is no value
+        of it.
+      - *A scenario opens as any row does* (notes 56, 57): `open up` draws its fields and its shifts under it, and a
+        shift's cell typed there is a line of the draft. With nine fields the grid of shifts is wider than the
+        dialog, so its Draft mark and its Remove are reached by scrolling the grid or by the keyboard. Where a
+        row's buttons stand is ticket 16's question, which is the owner's.
+    - *Corrected in review (2026-11-12).*
+      - *An id as written is read before the end of one, above as here.* A scenario may be named with digits alone
+        (`4`), and a shift's key ends with digits (`up/4`). `shifts 4` was read as the shift whose key ends with
+        `4`, where note 46 has it the shifts of the scenario `4`. For any table under another, the kernel now reads
+        an id as a row's whole key, then as the whole key of a row above (that row's rows), then as the end of a
+        row's key, then as the end of a row above's: note 7's order, a table further.
+      - *`all` is no risk factor of an FX shift.* The cell took `all` for an FX shift and wrote nothing of it. So
+        `set shifts up factor all` counted the FX shift among the rows it wrote, and on that shift alone was read
+        as a change and then refused as none. The cell now refuses it as it refuses a tenor there (`usdjpy is a
+        spot rate and has no tenor: leave it spot`), at the grid's door as at the command's. A line that names
+        curves and FX rates together is refused whole; `where category = IR` says the curves.
+      - *A condition with `!=`.* "A row whose value is in another unit is no match" holds of an order (`<`, `>`),
+        which is among the values in the unit asked. Equal is the same number in the same unit, so `!=` holds of
+        a value in another unit, as the kernel's tests have had it.
+    - *Left as they are in review.*
+      - *A key with `_2` follows the scenarios' order.* Once the earlier scenario of that key is removed or
+        renamed, the later one takes the key without the number, and its shifts' keys change with it. A key typed
+        from memory after that names the other scenario; a line names what its reading says as it is typed. Keys
+        that kept their number would have the workspace hold them. *For the owner to judge*, with the key's
+        spelling.
+      - `ScenarioTable` and `ShiftTable` override most of what the pricer's `Table` gives a table, since their
+        writes are the Scenarios grid's own edits; `PortfolioScenarios.Keyed` answers its two lists as a pair.
+
+59. **`load trades <ids>` (§3; 5d; DEFAULT, 2026-11-12).** The owner chose that it reads a synthetic store of booked
+    trades by id (2026-11-11). §3 says it brings trades that exist into the New grid and computes nothing.
+    - *The store* (`BookedTrades`) holds forty synthetic trades, `B00001` to `B00040`, each with the terms the
+      source gives an existing trade: its start and maturity, its rate, schedule and last fixing, its official PV,
+      its PV legs and its independent amounts. It is deterministic by id and value date; a trade past its maturity
+      on the value date is not in it. *Changed as built:* the spec says the store is "of the counterparty". It is
+      of no counterparty: the counterparty's booked trades are the Existing grid already, and a trade brought into
+      the New grid is one the netting set does not hold.
+    - *What the workspace holds is that it loaded the trade; the terms stay the store's.* A load makes one entity
+      per trade (`loaded:<id>`, in the trade's own scope, so a counterparty change keeps it, as it keeps a draft).
+      The trade's terms, its legs and its independent amounts are read from the store on the workspace's value
+      date, as an existing trade's are read from the source: a value date moved, or a `refresh`, reads them again,
+      and an edit of the trade carries or is held as any edit is (ADR-0003 §7). A loaded trade past its maturity
+      on the value date is in no grid, as a matured existing trade is in none; the Changes tab still lists that it
+      was loaded, and says that the store has not got it on that date.
+      *Weighed and left: the terms kept as they were loaded* (note 37 expected "a trade the workspace holds with
+      its terms"). The workspace would then price an official PV, legs and a last fixing of the day of the load on
+      another value date and say nothing of it; and every field a command may set, a module's column among them,
+      would be copied at the load, so a column registered later could not be set on the trade. *For the owner to
+      judge.*
+    - *A loaded trade is a new trade.* It is in the New grid, out of Before and in After. Its CSA is the main CSA
+      and its IM CSAs the counterparty's, as a draft's are: the CSA it was booked under is not carried, since which
+      CSA it would join is what the user is asking. Every field is set, reset and varied as any trade's; its legs
+      and independent amounts are taken out and brought back as the source's are. The synthetic measures price it
+      as they price a draft: none reads its official PV or its legs yet (ADR-0010 §6; the owner, 2026-11-12).
+    - *The line.* `load trades B00012, B00013`: ids separated by commas or spaces, whatever their case. Its reading
+      says the trades it would load with each one's product, currency and notional. One command, one `undo`.
+      Refused, with nothing loaded: no id; an id said twice; an id the store has not on the value date
+      (`UnknownTrade`, every such id named); and a trade the workspace has already loaded (`TradeHeld`). The line
+      offers the store's ids that begin with what is typed, without those the line or the workspace already has.
+    - *`remove trades B00012` removes a loaded trade*: the entity that says it was loaded, every edit of the trade,
+      of its legs and of its independent amounts, and the legs made under it, as one command that one `undo`
+      takes back. It is refused while a case holds a change of the trade or an iteration of `add each` names it
+      (the case is removed first), and while an edit of it is held as a conflict (the user decides it first). A
+      trade the source gave is still refused, as before. The Changes tab lists a loaded trade where it was loaded,
+      and a reset there removes it as the command does.
+    - *An edit names a trade the workspace holds.* The source answers for every trade of the store, loaded or not,
+      so that the kernel reads an edit of a loaded trade against it as it reads any edit. The pricer's checks
+      therefore refuse a value written on a trade, a leg or an independent amount whose trade the workspace does
+      not hold (`UnknownTarget`), whichever door it came through.
+    - *Price freezes it as any trade* (note 53): the accepted input carries a loaded trade in After with its terms,
+      its legs, its independent amounts and its fields beyond the grids, and names the trades that were loaded
+      (`loadedTrades`), since the source version it also names is the counterparty's.
+    - *A capability, `xva.trades.load`*, with the workspace's revision as every command of the pricer has it; it
+      is among the AI's tools, as every command is.
+    - *Not built:* loading from a file (§3 names it; the owner chose the store), and a search of the store by
+      anything but an id's first characters.
+    - *Added as built (2026-11-12).*
+      - *The store's trades run five years longer than an existing trade's.* Generated as an existing trade is,
+        eleven of the forty were past their maturity on the first value date a workspace opens with, the two this
+        note's example names among them. With five years more all forty are in the store on 2026-10-26.
+      - *The refusals' codes.* No id is `NothingToLoad`, with a line of the store's first two ids to type; an id
+        said twice is `GivenTwice`. `remove trades` of a loaded trade is `TradeInCase` while a case holds a change
+        of it, naming the case or, with several, how many and the first of them, and `ConflictUnresolved` while an
+        edit of it waits as a conflict.
+      - *The line lists twenty ids at a time*, and says how many more there are, as every list of rows does.
+      - *The page's source version is the counterparty's still.* What names a grid's rows for a selection (note 26)
+        is that version and the ids loaded after it, so rows chosen before a load or a removal are not acted on
+        after it; the version the page shows, and Price freezes as `sourceVersion`, does not change with a load.
+      - *A Changes tab's row for a loaded trade* says `loaded` against `not in the workspace`, under Common, and
+        counts as one edit in the workspace's count of edits.
+    - *Corrected in review (2026-11-12).*
+      - *A loaded trade's dialog has its Original*: the store's terms, legs and independent amounts, as an existing
+        trade's has the source's. The state with no edit (note 54) dropped every entity the workspace held, the
+        one that says a trade was loaded among them, so the dialog said the workspace had made the row. A module's
+        rules now say which entities bring in a row a source has (`IEditRules.Brings`; none, for most modules),
+        and the state with no edit keeps those.
+      - *The Existing grid's order does not move with a load.* A loaded trade is in the New grid alone, so the
+        token of the Existing grid's order names the acquired version alone, and rows chosen there are still
+        acted on after a load.
+      - *Every id the store has not is named in one refusal.* Where a line named an id of no trade of the store
+        and a trade past its maturity, the refusal named the first alone.
+      - *The accepted input names the store's version* beside the ids (`loadedTradesVersion`, `booked@<value
+        date>#<trades it has then>`): the terms it froze were read from the store as of the value date, and the
+        source version says nothing of the store. Where no trade is loaded it is null.
+      - *Tests added:* a loaded trade past its maturity is not among `loadedTrades`; `redo` of a load and of a
+        removal; the Changes tab's removal of a loaded trade past its maturity, with the edit it lost its place
+        for.
+      - *From the standards review:* the source's views with loaded trades are remembered under a lock; a loaded
+        trade's terms as a line says them (`Terms`) and the entities that say a trade was loaded (`Markers`) are
+        each read in one place; what names a grid's rows is `RowsVersion`, beside `Version`.
+    - *Left as they are in review.* No test reaches `ConflictUnresolved` on `remove trades`: no value of a store's
+      trade that a command sets moves with the value date, so the synthetic store makes no conflict. A reader that
+      cast a workspace's source to the pricer's own type would read it without its loaded trades; every reader
+      goes through `PortfolioSourceVersion.Of`, and review alone holds that. The store's indices are built in two
+      places, and two readers gather a trade's edits from the three places an edit may be held.
 
 ## Rejected
 

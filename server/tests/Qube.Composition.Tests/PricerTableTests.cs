@@ -344,7 +344,7 @@ public class PricerTableTests
         var oneBad = await rig.SetRefused($"{End(one)}, DRAFT-1", "notional=lots");
         var recovery = await rig.SetRefused("NS-001", "recovery=120%");
 
-        Assert.Equal(("UnknownRow", "No row CSA-Z in trades, legs, independent amounts, csas, netting, credit, cds, workspace or xva."), noRow);
+        Assert.Equal(("UnknownRow", "No row CSA-Z in trades, legs, independent amounts, csas, scenarios, shifts, netting, credit, cds, workspace or xva."), noRow);
         Assert.Equal(("InvalidValue", "CSA-A threshold is an amount of 0 or more; -1mm is not."), negative);
         Assert.Equal(("NotEditable", "maturity is not a field a command sets; trades takes notional, rate, schedule, pv, csa, curve, im-r, im-p, B, A, margin, pvadj, "
             + "break date, mandatory break, model id, pricer id, interpolation id, domestic currency, ir model, ir basis, equity model, credit model, inflation model and unmodelled method."), readOnly);

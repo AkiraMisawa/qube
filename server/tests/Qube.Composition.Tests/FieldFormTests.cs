@@ -206,4 +206,51 @@ public class FieldFormTests
         Assert.True(FieldForms.Same(held, new JsonObject { ["amount"] = -350000.50m, ["unit"] = "GAL" }));
         Assert.False(FieldForms.Same(held, new JsonObject { ["amount"] = -350000.5m }));
     }
+
+    static readonly FieldSpec Move = new(FieldForm.Money, Choices: new Dictionary<string, string> { ["bp"] = "bp", ["%"] = "%" });
+
+    [Theory] // ADR-0016 note 58: a number's unit may be written against it, and a plus before the number
+    [InlineData("+10bp", "10", "bp")]
+    [InlineData("10BP", "10", "bp")]
+    [InlineData("-5%", "-5", "%")]
+    [InlineData("+2.5 %", "2.5", "%")]
+    [InlineData("+7", "7", null)]
+    [InlineData("1,250bp", "1250", "bp")]
+    public void Money_reads_its_unit_written_against_the_number_and_a_plus_before_it(string text, string amount, string? unit)
+    {
+        var read = FieldForms.Read(Move, text);
+
+        Assert.Equal(FieldForms.Problem.None, read.Problem);
+        Assert.Equal((decimal.Parse(amount), unit), (FieldForms.Held(read.Value!["amount"]!), read.Value["unit"]?.GetValue<string>()));
+        // What is written reads back to the same value.
+        var again = FieldForms.Read(Move, FieldForms.Write(Move, read.Value));
+        Assert.Equal((decimal.Parse(amount), unit), (FieldForms.Held(again.Value!["amount"]!), again.Value["unit"]?.GetValue<string>()));
+    }
+
+    [Theory] // ADR-0016 note 58: the number keeps its scale before a unit written against it
+    [InlineData("350kgal", "350000", "GAL")]
+    [InlineData("-1.5mmM3", "-1500000", "M3")]
+    public void Money_reads_a_scaled_number_with_its_unit_against_it(string text, string amount, string unit)
+    {
+        var read = FieldForms.Read(Load, text);
+
+        Assert.Equal(FieldForms.Problem.None, read.Problem);
+        Assert.Equal((decimal.Parse(amount), unit), (FieldForms.Held(read.Value!["amount"]!), read.Value["unit"]?.GetValue<string>()));
+    }
+
+    [Theory] // ADR-0016 note 58: what is against the number is one of the field's units, and a sign is written once
+    [InlineData("10xyz")]
+    [InlineData("++10bp")]
+    [InlineData("+-10bp")]
+    [InlineData("bp")]
+    [InlineData("+")]
+    [InlineData("+bp")]
+    [InlineData("10bp %")]
+    [InlineData("10bp bp")]
+    public void Money_with_a_unit_against_it_that_is_not_one_is_refused(string text)
+    {
+        var read = FieldForms.Read(Move, text);
+
+        Assert.Equal((FieldForms.Problem.NotOfForm, "a number, alone or followed by what it is in: bp or %"), (read.Problem, read.What));
+    }
 }

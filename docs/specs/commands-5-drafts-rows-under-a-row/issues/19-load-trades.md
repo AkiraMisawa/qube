@@ -7,8 +7,8 @@ workspace (ADR-0016 note 37).
 
 **Blocked by:** the pull request before it.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] `load trades B00012, B00013` adds the two as new trades, as one command.
-- [ ] An id the store has not, or a trade the workspace has already, is refused by name, and none is loaded.
-- [ ] The line completes ids from the store.
+- [x] `load trades B00012, B00013` adds the two as new trades, as one command.
+- [x] An id the store has not, or a trade the workspace has already, is refused by name, and none is loaded.
+- [x] The line completes ids from the store.

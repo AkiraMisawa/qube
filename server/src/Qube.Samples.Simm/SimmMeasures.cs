@@ -40,7 +40,7 @@ public sealed class SimmMeasures(ConventionRegistry conventions, Func<DateOnly, 
     /// <summary>The trade grids, as an input's tab: a field of every trade there (ADR-0010 §10's note of 2026-11-08).</summary>
     public const string TradesTab = "trades";
 
-    public IReadOnlyList<IMembershipRule> Membership(WorkspaceState state) => [new Scopes((PortfolioSourceVersion)state.Source)];
+    public IReadOnlyList<IMembershipRule> Membership(WorkspaceState state) => [new Scopes(PortfolioSourceVersion.Of(state))];
 
     /// <summary>
     /// SIMM's part of the accepted input (ADR-0012 §4's note of 2026-11-08): the IM CSAs, the classification of every
@@ -49,7 +49,7 @@ public sealed class SimmMeasures(ConventionRegistry conventions, Func<DateOnly, 
     /// </summary>
     public JsonObject Input(WorkspaceState state)
     {
-        var source = (PortfolioSourceVersion)state.Source;
+        var source = PortfolioSourceVersion.Of(state);
         var priced = PortfolioMaterialiser.Trades(state).Where(t => t.Before || t.After).ToList();
         var classification = priced.ToDictionary(t => t.TradeId, t =>
         {
@@ -80,7 +80,7 @@ public sealed class SimmMeasures(ConventionRegistry conventions, Func<DateOnly, 
 
     string? Problem(WorkspaceState state, IReadOnlyList<EffectiveTrade> priced)
     {
-        var source = (PortfolioSourceVersion)state.Source;
+        var source = PortfolioSourceVersion.Of(state);
         var agreement = source.Agreement;
         // Through its text, as the request reads the input the Run retained.
         IReadOnlyList<PricedImTrade> trades;

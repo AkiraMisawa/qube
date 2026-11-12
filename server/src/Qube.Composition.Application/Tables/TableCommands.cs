@@ -172,6 +172,8 @@ public sealed partial class TableService(TableRegister register, WorkspaceServic
             if (differing.Count == 0) continue;
             written.Add((field, value));
             if (figure is not null) changes.AddRange(differing.SelectMany(r => figure[r.Key]));
+            // Rows that share what holds the value are written as one (note 58): the table says so by answering.
+            else if (bound.Table.SetRows(standing, differing, field, value) is { } together) changes.AddRange(together);
             else foreach (var group in differing.GroupBy(r => r.Subset))
             {
                 // One edit for the whole subset where the field has one (ADR-0016 §2); it wins over each row's earlier edit.
@@ -261,7 +263,8 @@ public sealed partial class TableService(TableRegister register, WorkspaceServic
         var keyed = selector.Screen is null ? null : Keyed(resolved, tables, selector.Screen);
         var words = Words("remove", table, said, null);
         if (resolved.Rows.Count == 0) return Unchanged(state, resolved, "", words, keyed) with { TableFromScreen = fromScreen };
-        var changes = resolved.Rows.SelectMany(r => resolved.Table.Table.Remove(state, r)).ToList();
+        // As one removal where the rows share something it writes (note 58), and else a row at a time.
+        var changes = resolved.Table.Table.RemoveRows(state, resolved.Rows)?.ToList() ?? resolved.Rows.SelectMany(r => resolved.Table.Table.Remove(state, r)).ToList();
         var would = resolved.Rows.Count == 1 ? "removed, with its edits" : $"{Counted(resolved.Rows.Count)} removed, with their edits";
         return new(state, resolved, changes, resolved.Rows, $"Removed {Rows(resolved.Table, resolved.Rows)}.", would, words, keyed, TableFromScreen: fromScreen);
     }

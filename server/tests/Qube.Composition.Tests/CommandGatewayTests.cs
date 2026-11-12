@@ -138,7 +138,7 @@ public class CommandGatewayTests(QubeFactory factory) : IClassFixture<QubeFactor
         Assert.Equal(["draft.apply", "entity.create", "entity.remove", "entity.reset", "entity.set", "rates.frame.capture", "rates.line.add", "rates.live.start", "rates.live.stop",
             "rates.workspace.price", "workspace.redo", "workspace.undo", "xva.case.remove", "xva.cases.clear", "xva.cds", "xva.measures",
             "xva.pv01.retry", "xva.refresh", "xva.scenario", "xva.scenario.cross", "xva.scenario.duplicate", "xva.scenario.exclude", "xva.scenario.include",
-            "xva.scenario.ladder", "xva.scenario.load", "xva.scenario.remove", "xva.scenario.save", "xva.scenarios.clear", "xva.trades.add", "xva.vary", "xva.workspace.price"],
+            "xva.scenario.ladder", "xva.scenario.load", "xva.scenario.remove", "xva.scenario.save", "xva.scenarios.clear", "xva.trades.add", "xva.trades.load", "xva.vary", "xva.workspace.price"],
             typed.Keys.Order(StringComparer.Ordinal));
         // The catalog lists a module's commands in the order it registers them, which the line keeps (note 33): Price first.
         Assert.Equal("xva.workspace.price", capabilities.Select(c => c!["capabilityId"]!.GetValue<string>()).First(id => id.StartsWith("xva.", StringComparison.Ordinal) && typed.ContainsKey(id)));
@@ -148,6 +148,7 @@ public class CommandGatewayTests(QubeFactory factory) : IClassFixture<QubeFactor
         // A command of one application says so (ADR-0016 note 27 of step 3); the kernel's say none, and act on every workspace.
         Assert.Equal("""{"words":["vary"],"arguments":[{"name":"cell","kind":"text","required":true},{"name":"values","kind":"text","required":true}],"app":"xva"}""", typed["xva.vary"]);
         Assert.Equal("""{"words":["add each"],"arguments":[],"app":"xva"}""", typed["xva.trades.add"]);
+        Assert.Equal("""{"words":["load trades"],"arguments":[{"name":"trades","kind":"text","required":true}],"app":"xva"}""", typed["xva.trades.load"]);
         // The short forms are listed apart (note 29): what runs is the kernel command each stands for.
         Assert.Equal(["xva.before", "xva.after", "xva.currency"], catalog["shortForms"]!.AsArray().Select(f => f!["formId"]!.GetValue<string>()));
         Assert.Equal("""{"formId":"xva.currency","title":"Show the figures in a currency, such as USD","command":{"words":["currency"],"arguments":[{"name":"currency","kind":"text","required":true}],"app":"xva"}}""",

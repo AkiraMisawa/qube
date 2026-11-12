@@ -111,7 +111,7 @@ public sealed class XvaMeasures(Pv01Provider pv01, decimal fvaLimitGbp = 1_000_0
     /// </summary>
     public IReadOnlyList<IReadOnlyDictionary<string, TradeCell>?> Cells(WorkspaceState state, IReadOnlyList<EffectiveTrade> trades)
     {
-        var source = (PortfolioSourceVersion)state.Source;
+        var source = PortfolioSourceVersion.Of(state);
         var typed = state.Overrides.Values.Where(o => o.Target.Field.StartsWith($"{Module}.", StringComparison.Ordinal))
             .ToDictionary(o => (o.Target.Entity, o.Target.Field), o => o.Value);
         decimal? Typed(EffectiveTrade t, string column) => typed.GetValueOrDefault((Entity.Of(Entity.Trade, t.TradeId), Field(column)))?.GetValue<decimal>();
@@ -147,7 +147,7 @@ public sealed class XvaMeasures(Pv01Provider pv01, decimal fvaLimitGbp = 1_000_0
 
     public int Retry(WorkspaceState state, IReadOnlyList<EffectiveTrade> trades)
     {
-        var source = (PortfolioSourceVersion)state.Source;
+        var source = PortfolioSourceVersion.Of(state);
         return pv01.Retry(trades.Where(t => t.IsNew).Select(t => Pv01Request.Of(t, source.ValueDate)));
     }
 
@@ -155,7 +155,7 @@ public sealed class XvaMeasures(Pv01Provider pv01, decimal fvaLimitGbp = 1_000_0
 
     public IReadOnlyList<IMembershipRule> Membership(WorkspaceState state)
     {
-        var source = (PortfolioSourceVersion)state.Source;
+        var source = PortfolioSourceVersion.Of(state);
         return [new ImperfectCsa(PortfolioMaterialiser.Csas(state), source.Agreement.NoCsa, source.ValueDate, fvaLimitGbp)];
     }
 
