@@ -264,7 +264,19 @@ export function wordsOf(title: string): string {
   return title.toLowerCase().replace(/[^a-z0-9.\-/ ]+/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
-let openLine: (() => void) | undefined;
+/** Where a part of the line's text starts and ends, as an input's selection does. */
+interface LineRange { readonly start: number; readonly end: number }
+
+let openLine: ((typed: string, selected: LineRange | undefined) => void) | undefined;
+// Whether the line is open, from the moment it is asked to open to the moment it closes, for what would otherwise put
+// the keyboard somewhere as it opens.
+let lineOpen = false;
+
+/**
+ * Whether the line is open, or opening: a tab's menu whose item opened it gives the keyboard to the line, not back to
+ * its tab, which the line gives it back to as it closes.
+ */
+export const lineIsOpen = (): boolean => lineOpen;
 
 // How much of a list the line draws before it says how many more there are (ADR-0006's note 3 of 2026-11-11): every
 // command an open page and the shell offer today, and a screenful of a slot's values, which may be a workspace's rows.
@@ -296,10 +308,19 @@ const NO_AI = createStore<{ readonly open: boolean }>()(() => ({ open: false }))
 
 /** Opens the command line (Ctrl+K anywhere; `/` where it would not be typed into something). */
 export function openPalette(): void {
+  openLineWith('');
+}
+
+/**
+ * Opens the command line with this text on it, as a menu item that teaches its command does (a tab's Rename, ADR-0006
+ * note 9): `selected` is the part typing replaces, and `returnTo` where the keyboard goes back to as the line closes,
+ * where that is not where it is now.
+ */
+export function openLineWith(typed: string, { selected, returnTo }: { readonly selected?: LineRange; readonly returnTo?: HTMLElement } = {}): void {
   if (document.activeElement?.closest('.qube-palette') != null) return;
-  rememberKeyboard();
+  rememberKeyboard(returnTo);
   letGo();
-  openLine?.();
+  openLine?.(typed, selected);
 }
 
 export function CommandPalette() {
@@ -352,7 +373,7 @@ export function CommandPalette() {
   // What ends the chained line that put the keyboard in a place the page has yet to draw, once the place takes it.
   const arriving = useRef<(() => void) | undefined>(undefined);
   // The part of a refused line to select once the line is drawn with that text.
-  const select = useRef<{ readonly start: number; readonly end: number } | undefined>(undefined);
+  const select = useRef<LineRange | undefined>(undefined);
 
   // Built when the line opens, at each chained command and as the panels change, so a page that registers its commands
   // after mounting is seen.
@@ -378,12 +399,13 @@ export function CommandPalette() {
     setOpening((n) => n + 1);
   }, [workspace]);
   useEffect(() => {
-    openLine = () => {
+    openLine = (typed, selected) => {
+      lineOpen = true;
       readScreen();
-      running.current = undefined; arriving.current = undefined; select.current = undefined;
-      turn.current += 1; setClosing(false); setText(''); setProblems([]); setHighlight(NONE); setSaid(undefined); setOpened(true);
+      running.current = undefined; arriving.current = undefined; select.current = selected;
+      turn.current += 1; setClosing(false); setText(typed); setProblems([]); setHighlight(lists(typed) ? NONE : 0); setSaid(undefined); setOpened(true);
     };
-    return () => { openLine = undefined; };
+    return () => { openLine = undefined; lineOpen = false; };
   }, [readScreen]);
   // The line hears what the application says (ADR-0016 §9, note 24): once a chain has begun, each notice is said under
   // the line as it arrives, a Price's result long after its command as much as an edit's sentence.
@@ -392,12 +414,12 @@ export function CommandPalette() {
     setSaid((before) => (before === undefined ? before : [...before, { id, notice }]));
   }), [workspace]);
   // A refused line's word at fault is selected once the line is drawn with its text: a chained line's was cleared
-  // while it ran.
+  // while it ran. So is the part of a line opened with text that typing replaces, once its field is drawn.
   useLayoutEffect(() => {
     const at = select.current;
-    if (at === undefined) return;
+    if (at === undefined || input.current === null) return;
     select.current = undefined;
-    input.current?.setSelectionRange(at.start, at.end);
+    input.current.setSelectionRange(at.start, at.end);
   });
   /** The view this opening was read with, for a command of the workspace it is of. */
   const viewOn = (door: CommandDoor): LineView | undefined => (screen !== undefined && screen.door.workspaceId === door.workspaceId ? screen.view : undefined);
@@ -487,6 +509,7 @@ export function CommandPalette() {
   const change = (next: string) => { setText(next); setHighlight(lists(next) ? NONE : 0); setProblems([]); };
   /** The line closes, and holds nothing: no turn of it is left to answer, and no chain to say anything of. */
   const leave = () => {
+    lineOpen = false;
     turn.current += 1; running.current = undefined; arriving.current = undefined; select.current = undefined;
     setClosing(false); setSaid(undefined); setOpened(false);
   };
@@ -512,7 +535,7 @@ export function CommandPalette() {
    * The chained line was refused, and nothing ran (ADR-0006's note 1 of 2026-11-11): the line holds it again as it
    * was typed, with why, and `at` selected. What was typed while it ran was typed for after it, and goes with it.
    */
-  const chainRefused = (reason: string, at?: { readonly start: number; readonly end: number }) => {
+  const chainRefused = (reason: string, at?: LineRange) => {
     const refused = running.current;
     if (refused === undefined) throw new Error('A chained line was refused, and the line holds none that is running.');
     running.current = undefined; arriving.current = undefined;

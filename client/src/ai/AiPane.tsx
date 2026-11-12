@@ -3,7 +3,7 @@ import { Alert, Badge, Button, CloseButton, Code, Group, Kbd, Loader, Paper, Scr
 import { useQuery } from '@tanstack/react-query';
 import { useValue } from '../platform/settings/settings';
 import { useWorkspace } from '../platform/workspace/WorkspaceProvider';
-import type { Panel } from '../platform/workspace/workspaceStore';
+import { panelLabel, type Panel } from '../platform/workspace/workspaceStore';
 import { useAi, useAiContext } from './AiProvider';
 import { answering, conversationModel } from './aiStore';
 import type { AiCard, AiStep } from './cards';
@@ -202,9 +202,13 @@ function TaskCard({ card, panels, onOpen }: {
         {card.error !== undefined && <Text size="sm" c="red" role="alert">{card.error}</Text>}
         {card.opened.length > 0 && (
           <Group gap={4}>
-            {card.opened.map((p) => (panels.some((open) => open.id === p.panelId)
-              ? <Button key={p.panelId} size="compact-xs" variant="default" onClick={() => onOpen(p.panelId)}>Show {p.title}</Button>
-              : <Text key={p.panelId} size="xs" c="dimmed">{p.title} is closed</Text>))}
+            {/* An open panel by its label now, which the user may have renamed since; a closed one as it was opened. */}
+            {card.opened.map((p) => {
+              const open = panels.find((q) => q.id === p.panelId);
+              return open !== undefined
+                ? <Button key={p.panelId} size="compact-xs" variant="default" onClick={() => onOpen(p.panelId)}>Show {panelLabel(open)}</Button>
+                : <Text key={p.panelId} size="xs" c="dimmed">{p.title} is closed</Text>;
+            })}
           </Group>
         )}
       </Stack>

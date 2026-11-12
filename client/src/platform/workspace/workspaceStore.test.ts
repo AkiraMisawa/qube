@@ -1,4 +1,4 @@
-import { CLOSED_KEPT, createWorkspaceStore, panelLabel } from './workspaceStore';
+import { CLOSED_KEPT, createWorkspaceStore, NAME_LONGEST, panelLabel, readName } from './workspaceStore';
 import { contextContract } from '../../test/catalog';
 
 const valid = { region: 'North', asOf: '2026-10-26' };
@@ -135,6 +135,7 @@ describe('workspace store', () => {
     expect(() => store.getState().closePanel('panel-0')).toThrow('No open panel is panel-0.');
     expect(() => store.getState().movePanel('panel-0', 0)).toThrow('No open panel is panel-0.');
     expect(() => store.getState().pinPanel('panel-0', true)).toThrow('No open panel is panel-0.');
+    expect(() => store.getState().renamePanel('panel-0', 'Mine')).toThrow('No open panel is panel-0.');
     expect(() => store.getState().activate('panel-0')).toThrow('No open panel is panel-0.');
     expect(() => store.getState().setPanelView('panel-0', 'table')).toThrow('No open panel is panel-0.');
   });
@@ -225,5 +226,50 @@ describe('workspace store', () => {
     expect(store.getState().recent).toEqual(['panel-7', 'panel-4']);
     expect(store.getState().openPanel({ kind: 'run', title: 'C', runId: 'r3', viewKey: undefined })).toBe('panel-8');
     expect(() => store.getState().restore({ panels: [], activePanelId: undefined, recent: [], closed: [] })).toThrow();
+  });
+
+  // ADR-0006 note 9: a panel the user names is called by that name, numbered among the panels of its name, and has its
+  // page's title back with an empty name or that title.
+  it('ADR-0006 note 9: names a panel, numbers it among its name, and gives its title back', () => {
+    const store = createWorkspaceStore(valid, contextContract);
+    const open = () => store.getState().openPanel({ kind: 'app', title: 'Rates 2026-10-27', app: 'rates', params: { workspaceId: crypto.randomUUID() } });
+    const [first, second, third] = [open(), open(), open()];
+    const labels = () => store.getState().panels.map(panelLabel);
+    store.getState().renamePanel(second, '  Hedge   desk ');
+    expect(labels()).toEqual(['Rates 2026-10-27', 'Hedge desk', 'Rates 2026-10-27 · 3']);
+    // Named as another panel already is, regardless of case, it takes the next number of that name.
+    store.getState().renamePanel(third, 'hedge desk');
+    expect(labels()).toEqual(['Rates 2026-10-27', 'Hedge desk', 'hedge desk · 2']);
+    // Its page's title back, by that title or by no name, it takes the lowest number free among that title. The others
+    // keep theirs while they are open, as they do when a panel of their name closes.
+    store.getState().renamePanel(second, 'Rates 2026-10-27');
+    expect(labels()).toEqual(['Rates 2026-10-27', 'Rates 2026-10-27 · 2', 'hedge desk · 2']);
+    store.getState().renamePanel(third, '');
+    expect(labels()).toEqual(['Rates 2026-10-27', 'Rates 2026-10-27 · 2', 'Rates 2026-10-27 · 3']);
+    store.getState().renamePanel(first, 'Mine');
+    store.getState().renamePanel(first, 'rates 2026-10-27');
+    expect(store.getState().panels.every((p) => p.name === undefined)).toBe(true);
+    // A name the strip would read as its own number, or a long one, is refused, and nothing changes.
+    expect(() => store.getState().renamePanel(first, 'Rates · 4')).toThrow('A name cannot end in · and a number');
+    expect(() => store.getState().renamePanel(first, 'x'.repeat(NAME_LONGEST + 1))).toThrow(`A name is at most ${NAME_LONGEST} characters`);
+    expect(labels()).toEqual(['Rates 2026-10-27', 'Rates 2026-10-27 · 2', 'Rates 2026-10-27 · 3']);
+    // A page whose own title ends so, or has a run of spaces, has it back by that title as the line completes it.
+    expect(readName('Q · 4', 'q · 4')).toEqual({ name: undefined });
+    expect(readName('Rates  EUR ', 'Rates  EUR ')).toEqual({ name: undefined });
+    // A character is counted as a reader counts it.
+    expect(readName('A', '📈'.repeat(NAME_LONGEST))).toEqual({ name: '📈'.repeat(NAME_LONGEST) });
+  });
+
+  // ADR-0006 note 9: a panel closed keeps its name, and comes back with it and its number, where that is free.
+  it('ADR-0006 note 9: reopens a named panel with its name', () => {
+    const store = createWorkspaceStore(valid, contextContract);
+    const [, b] = ['A', 'B'].map((t, i) => store.getState().openPanel({ kind: 'run', title: t, runId: `r${i}`, viewKey: undefined })) as [string, string];
+    store.getState().renamePanel(b, 'A');
+    expect(store.getState().panels.map(panelLabel)).toEqual(['A', 'A · 2']);
+    store.getState().closePanel(b);
+    expect(store.getState().closed.at(-1)).toMatchObject({ name: 'A', copy: 2, page: { title: 'B' } });
+    store.getState().reopenPanel();
+    expect(store.getState().panels.map(panelLabel)).toEqual(['A', 'A · 2']);
+    expect(store.getState().panels[1]).toMatchObject({ title: 'B', name: 'A' });
   });
 });

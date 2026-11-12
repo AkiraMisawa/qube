@@ -3238,6 +3238,62 @@ Two reviews with fresh context, of the standards and of the spec (ADR-0016 notes
   a refusal's code and sentence travel as a pair; a spec's `Status: built` is not one of the tickets' roles, as
   the specs before it.
 
+## A panel's name: `rename panel` (ADR-0006 note 9, 2026-11-12)
+
+The owner asked whether a tab's name can be changed, then for renaming. A panel takes a name of the user's, typed on
+the line.
+
+### What runs
+
+- **`rename panel <name>`** names the active panel. The name is shown in place of its page's title wherever the panel
+  is named: the strip, the list, the tab's menu, `show panel`, every command's target, and the AI pane's card, whose
+  Show now names an open panel as it is called now. `rename panel` with the page's title, in any case, which the line
+  completes, gives that back. A name ending in `·` and a number, or longer than 60 characters, is refused on the line
+  before it runs. One reading of a name (`readName`) serves the store, the line and the kept panels.
+- **Numbering** goes by what a panel is called, regardless of case: a panel renamed takes the lowest number free among
+  its new name, and the others keep theirs.
+- **Rename** in a tab's menu and in the list, **F2** on a focused tab and a **double click** on a tab each show the
+  panel and open the line with `rename panel` and its name, selected; typing replaces it. The keyboard goes back to
+  the tab as the line closes, from a menu a key opened too (`lineIsOpen` keeps the menu from giving it to the tab as
+  the line opens).
+- **Kept**: a closed panel keeps its name and is reopened with it; the browser tab keeps the names across a reload,
+  and refuses a kept name this version could not have given (spaced, the title, empty, numbered or too long).
+- **A fix from step 1**: a tab's menu opened by Shift+F10 on the first tab of an area at the window's left edge was
+  drawn hidden (Mantine took its mark, 0px wide on the edge, for a detached target). The menu no longer makes that
+  check; the browser test below opens it there.
+
+### Verification performed
+
+| What | Result |
+|---|---|
+| Client: `npm run typecheck`, `npx vitest run`, `npm run build`, after the rebase on #35 | Clean; 470 passed in 44 files; built |
+| `npx playwright test e2e/panels.spec.ts --grep "note 9" --repeat-each=3` (Chromium, headless, Linux), after the second review's fixes | 6 passed |
+| `npx playwright test` (Chromium, headless, Linux), after the rebase on #35 | 129 passed |
+| The same, once before, after the first review's fixes | 127 passed, 1 failed: `settings.spec.ts:132` (the account menu's End did not reach Sign out), which this change does not touch; it passed 5 of 5 run again alone, and in the runs before and after |
+
+The store's tests read a name given, numbered among its name regardless of case, the title given back in any case, a
+refused name changing nothing, and a reopened panel with its name and number. The verbs' test reads `rename panel` on
+the line: its target, its completion, the rest of the line as the name, and a refused name. The kept panels' test
+reads names across a reload, open and closed, and the refusal of a name the store could not give. The proposals' test
+reads an arrangement the AI proposed refused after a rename (ADR-0018 §8). The browser test reads, at 1280px in an
+area and at 390px in the phone's strip, the menu's Rename on a tab not shown, F2 and Escape, Rename reached by the
+arrows in the menu a key opened on the window's first tab, the list's Rename, and a double click, each with the name
+selected on the line and the keyboard back on the tab. The AI card's Show by the name now is not read by a test.
+
+### Providers
+
+Unchanged; nothing on the server changed.
+
+### Known limits
+
+- The name is the browser tab's, as its panels are (ADR-0018 §7): another tab or another browser does not see it.
+- An arrangement the AI proposed before a rename is refused by its Apply, saying what the panel is called now
+  (ADR-0018 §8, as designed).
+- Not checked on a real phone: the list's Rename was clicked in a narrow desktop Chromium, not tapped. The line takes
+  the keyboard on the next turn after a tap, as it does from the header's button, so a phone's own keyboard may not
+  rise until the field is tapped.
+- `settings.spec.ts:132` failed once in a full run and passed when run again: a red that passes on a re-run, still open.
+
 ## Next
 
 1. Panels in areas: the pricer reads its area's width and height (ADR-0018 ticket 07's rest), the pull request after
