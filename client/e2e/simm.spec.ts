@@ -14,9 +14,10 @@ const header = (page: Page, grid: string, title: string) =>
   page.getByLabel(grid, { exact: true }).getByRole('columnheader', { name: `${title} Column menu`, exact: true });
 const sideways = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
 
-// The New grid's columns while CVA and spot IM are selected: the assignments, IM-R and IM-P beside the CSA, B and A,
-// XVA's PV01, Margin and PV Adj, then spot IM's scopes (ADR-0010 §6, ADR-0012 §3).
-const COLUMN = { imR: 10, imP: 11, scopes: 18 } as const;
+// The New grid's columns while CVA and spot IM are selected: the row's Edit button beside its id (ADR-0016 note 57),
+// the assignments, IM-R and IM-P beside the CSA, B and A, XVA's PV01, Margin and PV Adj, then spot IM's scopes
+// (ADR-0010 §6, ADR-0012 §3).
+const COLUMN = { imR: 11, imP: 12, scopes: 19 } as const;
 
 /** Puts the New grid's Focus on a cell of its first row, `right` columns from the first. */
 async function focusCell(page: Page, right: number): Promise<void> {
