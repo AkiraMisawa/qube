@@ -186,10 +186,10 @@ pull request.
   scrollbar beside it (Windows, Linux) takes nothing from the width the page reads. In the strip the document scrolls:
   its scrollbar is counted in the panels' space, so that a window just past 768px is areas or strip the same whichever
   it was drawn in first (it was each, by turns, with the scrollbar left out), and a page in the strip reads the width
-  it has beside that scrollbar. The pricer's three sections, its
-  full-height button and `xva.css` still read the window: ADR-0018 §11 changes them last, after the pull requests on
-  the pricer's files, and ADR-0016's step 5 (5d, the scenarios table and `load trades`) was built on them; 5d merged while this pull
-  request was open, so they are the next one.
+  it has beside that scrollbar. The pricer's three sections, its full-height button and `xva.css` still read the
+  window: ADR-0018 §11 changes them last, after the pull requests on the pricer's files, and ADR-0016's step 5 (5d,
+  the scenarios table and `load trades`) was built on them. 5d merged (#33) while this pull request was open, so they
+  are the pull request after it.
   Until then an XVA page in an area narrower than 768px is laid out as the window's width says, and in an area shorter
   than its parts need (a page split down, at 1440 by 900) its trade grids scroll under the result dock and their
   headers draw over it (ExGrid's header stacks at 4, the dock at 3), as they do in a window that short (seen at 1440 by

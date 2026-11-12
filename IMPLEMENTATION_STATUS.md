@@ -2934,7 +2934,7 @@ trades made from their ids); no trade, name or figure of it is a real one.
   are reached by scrolling the grid or by the keyboard. Where a row's buttons stand is ticket 16's question.
 - **No test reaches `ConflictUnresolved`**, the refusal to remove a loaded trade while an edit of it waits as a
   conflict: no editable value of the synthetic store, or of the synthetic source, moves with the value date, so
-  neither makes a conflict yet ("Next", item 4). The refusal is written and read, not run.
+  neither makes a conflict yet ("Next", item 6). The refusal is written and read, not run.
 - **A scenario's key with `_2` follows the scenarios' order**: once the earlier scenario of that key is removed or
   renamed, the later one takes the key without the number. Left for the owner with the key's spelling.
 
@@ -3011,7 +3011,7 @@ proposes an arrangement, which he applies. ADR-0018 step 1, one pull request (`d
 |---|---|
 | `dotnet test server/Qube.slnx`, after main (step 5d, #33) was merged in | 1594 passed |
 | Client: `npm run typecheck`, `npm test`, `npm run build` | typecheck clean; 462 tests in 44 files passed; built |
-| `npx playwright test` (Chromium, headless, Linux), against the built client, after the four reviews' changes | 124 passed; after main's step 5d (#33) was merged in, 126 passed (an earlier run: 122 of 123, `xva.spec.ts:2459`, below) |
+| `npx playwright test` (Chromium, headless, Linux), against the built client, after main's step 5c was rebased in and after the four reviews' changes | 124 passed; after main's step 5d (#33) was merged in, 126 passed (an earlier run: 122 of 123, `xva.spec.ts:2459`, below) |
 | `e2e/areas.spec.ts`, which this pull request adds, with `--repeat-each=3` | 24 passed |
 | `e2e/scrollbars.spec.ts`, which this pull request adds (Chromium with its scrollbars shown), with `--repeat-each=3` | 3 passed |
 | ADR-0018 §6's measurement: three XVA pages of 10,000 trades at 1440px, in three areas and in one | Passes: the pages shown and one tab per panel; a tab's switch 92ms in one area, 89ms in three (below) |
@@ -3051,7 +3051,8 @@ offered to the agent, and no model has been asked to arrange panels. The XVA pag
 
 - The pricer's page reads the window, not its area, until its own pull request, the next one now that ADR-0016's step
   5d has merged (ticket 07): an XVA page in a narrow area is laid out as the window's width says, and in a short one
-  (split down at 1440 by 900px) its trade grids scroll under the result dock and their headers draw over it, as they do in a window that short.
+  (split down at 1440 by 900px) its trade grids scroll under the result dock and their headers draw over it, as they
+  do in a window that short.
 - A change between the strip and the areas, at 768px or as the AI pane opens beside many areas, draws the pages anew:
   a page's own state (an open trace, an input tab, a grid's sort) starts again, as it does when its tab is hidden,
   until pages keep their state by panel (note 7's pull request).
@@ -3082,8 +3083,9 @@ Two-axis review (standards and spec) of the whole branch:
 - **A splitter says its place** (`aria-valuenow`); the page inside an area is no second tab panel.
 - **A proposal's place** names exactly one of a panel, a Run or a page, and a label never stands in for one it could
   not read; `arrange back` says so where none of the earlier arrangement's panels is still open.
-- **The records**: ADR-0018's note and ADR-0010's say the pricer reads its area only from the pull request after
-  ADR-0016's step 5d; the spec's "As built" says what the build settled; the touch claim says Chromium's emulation.
+- **The records**: ADR-0018's note and ADR-0010's say the pricer reads its area only from a pull request of its own
+  after ADR-0016's step 5d; the spec's "As built" says what the build settled; the touch claim says Chromium's
+  emulation.
 
 A second review, of those fixes alone:
 
@@ -3118,17 +3120,18 @@ is checked to say nothing.
 
 ## Next
 
-1. Generic commands: step 6 (saved sequences of edits). After step 5's pricer page: a page keeps its state by
-   panel (ADR-0006 note 7, the owner's choice), and the pricer reads its area's width and height (ADR-0018 ticket
-   07's rest).
-2. Panels in areas, ADR-0018 steps 2 (other browser windows) and 3 (parts of a page with links), in that order, each
+1. Panels in areas: the pricer reads its area's width and height (ADR-0018 ticket 07's rest), the pull request after
+   step 1's, now that step 5d has merged.
+2. Generic commands: step 6 (saved sequences of edits). After step 5's pricer page: a page keeps its state by
+   panel (ADR-0006 note 7, the owner's choice).
+3. Panels in areas, ADR-0018 steps 2 (other browser windows) and 3 (parts of a page with links), in that order, each
    once the owner has seen the one before.
-3. MVA with SIMM (`docs/12-implementation-plan.md` P2): spot IM from the XVA request's MVA option.
-4. ADR-0010 Delivery step 3 (Advanced: Before-only and After-only edits, the split fill), when the owner asks for it.
-5. The owner's review of ADR-0003 §7 (scopes, carry and conflict), then a synthetic source change that can produce a conflict, and the browser cases still open above (reload, failed case unavailable).
-6. Rates.
-7. ME-ID sign-in through MSAL (C30) and the visibility rules (C31, C32); AI over AG-UI with the company's Copilot behind the adapter port (C34).
-8. Slice 01b: Save and Pin (CO06), and the browser parts of CO03 and CO04.
+4. MVA with SIMM (`docs/12-implementation-plan.md` P2): spot IM from the XVA request's MVA option.
+5. ADR-0010 Delivery step 3 (Advanced: Before-only and After-only edits, the split fill), when the owner asks for it.
+6. The owner's review of ADR-0003 §7 (scopes, carry and conflict), then a synthetic source change that can produce a conflict, and the browser cases still open above (reload, failed case unavailable).
+7. Rates.
+8. ME-ID sign-in through MSAL (C30) and the visibility rules (C31, C32); AI over AG-UI with the company's Copilot behind the adapter port (C34).
+9. Slice 01b: Save and Pin (CO06), and the browser parts of CO03 and CO04.
 
 ## Later, perhaps
 
