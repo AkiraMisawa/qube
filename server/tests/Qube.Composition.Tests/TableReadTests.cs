@@ -282,7 +282,7 @@ public class TableReadTests
         var effects = Assert.Single(Effects(schema));
 
         Assert.Equal(
-            ["readData", "compute", "persistAnalysis", "editWorkspace", "subscribe", "readRun", "saveItem", "execute", "readWorkspace", "readSettings", "editSettings"],
+            ["readData", "compute", "persistAnalysis", "editWorkspace", "subscribe", "readRun", "saveItem", "execute", "readWorkspace", "readSettings", "editSettings", "propose"],
             Enum.GetNames<CapabilityEffect>().Select(n => System.Text.Json.JsonNamingPolicy.CamelCase.ConvertName(n)));
         Assert.Equal(Enum.GetNames<CapabilityEffect>().Select(n => System.Text.Json.JsonNamingPolicy.CamelCase.ConvertName(n)), effects);
     }

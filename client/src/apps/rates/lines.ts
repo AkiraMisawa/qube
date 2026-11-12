@@ -288,8 +288,8 @@ export function legSummary(fields: Readonly<Record<string, unknown>>, leg: 1 | 2
  * copied in as the workspace was made, or set in the workspace since. None where the workspace holds no default.
  */
 export function defaultsSaid(defaults: RatesWorkspaceView['defaults']): string | undefined {
-  const terms = ([['currency', defaults.currency], ['notional', defaults.notional === null ? null : scaled(defaults.notional)], ['direction', defaults.direction]] as const)
-    .flatMap(([field, value]) => (value === null ? [] : [{ value, fromSettings: defaults.fromSettings.includes(field) }]));
+  const terms = ([['currency', defaults.currency], ['notional', defaults.notional === undefined ? undefined : scaled(defaults.notional)], ['direction', defaults.direction]] as const)
+    .flatMap(([field, value]) => (value === undefined ? [] : [{ value, fromSettings: defaults.fromSettings.includes(field) }]));
   if (terms.length === 0) return undefined;
   const from = (fromSettings: boolean) => {
     const values = terms.filter((t) => t.fromSettings === fromSettings).map((t) => t.value);

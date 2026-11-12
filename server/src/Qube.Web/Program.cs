@@ -2,6 +2,7 @@ using Qube.Composition.Application.Products;
 using System.Text.Json.Nodes;
 using Qube.Agent;
 using Qube.Composition.Application;
+using Qube.Composition.Application.Layout;
 using Qube.Composition.Application.Saved;
 using Qube.Composition.Application.Settings;
 using Qube.Composition.Application.Tables;
@@ -141,6 +142,8 @@ builder.Services.AddSingleton<ISettingCatalog, PortfolioSettings>();
 builder.Services.AddSingleton<ISettingCatalog>(new RatesNewLineSettings(conventions));
 builder.Services.AddSingleton<UserSettings>();
 builder.Services.AddSingleton<IQubeModule>(sp => new SettingsModule(sp.GetRequiredService<UserSettings>));
+// The AI's proposal of an arrangement of the panels (ADR-0018 §8): answered and applied by the user, never applied here.
+builder.Services.AddSingleton<IQubeModule, LayoutModule>();
 builder.Services.AddSingleton<PortfolioWorkspaces>();
 // The AI pane (ADR-0007): the agent runtime is chosen here and nowhere else, by configuration, and an unknown one stops
 // startup rather than falling back to another. "copilot" talks to the agent host, a separate process under the agent's
@@ -151,6 +154,8 @@ builder.Services.AddSingleton<AgentService>();
 foreach (var request in RatesScriptedRequests.All(conventions)) builder.Services.AddSingleton(request);
 // The stand-in's words for the kernel's readings (ADR-0016 note 38): describe, read and preview, of the workspace shown.
 foreach (var request in ReadingScriptedRequests.All()) builder.Services.AddSingleton(request);
+// And for a proposal of the panels' arrangement (ADR-0018 §8): two panels side by side, or one beside another.
+foreach (var request in LayoutScriptedRequests.All()) builder.Services.AddSingleton(request);
 var agentRuntime = builder.Configuration["Agent:Runtime"];
 switch (agentRuntime)
 {

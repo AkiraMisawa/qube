@@ -33,10 +33,29 @@ export interface ClosedPanel {
   readonly pinned: boolean;
   /** Its number among the panels of its title: it comes back with it, where no open panel has taken it since. */
   readonly copy: number | undefined;
+  /** The area it stood in, where the panels stood in areas (ADR-0018 §4): `reopen panel` puts it back there. */
+  readonly area?: string;
+}
+
+/**
+ * Which area a panel stands in, where the panels stand in areas (ADR-0018 §4): closing the active panel then shows the
+ * panel its area showed before, and a panel closed is kept with its area.
+ */
+export type AreaOfPanel = (panelId: string) => string | undefined;
+
+/** What a browser tab keeps of its panels across a reload (ADR-0018 §7), as the store holds them. */
+export interface KeptPanels {
+  readonly panels: readonly Panel[];
+  readonly activePanelId: string | undefined;
+  readonly recent: readonly string[];
+  readonly closed: readonly ClosedPanel[];
 }
 
 /** How many closed panels `reopenPanel` can bring back, the last closed first. */
 export const CLOSED_KEPT = 20;
+
+/** A panel's id as this store gives it, `panel-<n>`, with its number. */
+export const PANEL_ID = /^panel-(\d+)$/;
 
 /** Which panels a close of several takes, beside the one it is given (ADR-0006 note 7). Pinned panels stay. */
 export type PanelsClosed = 'others' | 'right' | 'all';
@@ -86,21 +105,31 @@ export interface WorkspaceState {
   openPanel(panel: PanelDraft): string;
   /** Shows a Run panel's result in this view. Throws for a panel that is not open. */
   setPanelView(panelId: string, viewKey: string): void;
-  closePanel(panelId: string): void;
-  /** Closes the panels `which` names beside this one, the pinned left open; answers how many it closed and kept. */
-  closePanels(which: PanelsClosed, panelId: string): { readonly closed: number; readonly pinned: number };
+  /** Closes a panel; where the panels stand in areas, `areaOf` says which, and the active one is followed in its area. */
+  closePanel(panelId: string, areaOf?: AreaOfPanel): void;
   /**
-   * Opens the panel closed last where it stood, and shows it; undefined when none was closed. A page
-   * open again since it closed is shown in its panel instead, and not opened twice.
+   * Closes the panels `which` names beside this one among `strip` (every panel, or its area's), the pinned left open;
+   * answers how many it closed and kept.
    */
-  reopenPanel(): string | undefined;
+  closePanels(which: PanelsClosed, panelId: string, strip?: readonly string[], areaOf?: AreaOfPanel): { readonly closed: number; readonly pinned: number };
+  /**
+   * Opens the panel closed last where it stood, and shows it; answers that panel, or undefined when none was closed. A
+   * page open again since it closed is shown in its panel instead, and not opened twice.
+   */
+  reopenPanel(): Panel | undefined;
   /** Moves a panel to this place in the strip, kept among the pinned or the unpinned as it is. */
   movePanel(panelId: string, index: number): void;
+  /**
+   * Puts the open panels in this order, which names each of them once: the strip's order while areas are shown, which
+   * is their reading order with the pinned first (ADR-0018 §5).
+   */
+  setOrder(ids: readonly string[]): void;
+  /** Takes up what a browser tab kept of its panels (ADR-0018 §7), in place of none. Throws where a panel is open. */
+  restore(kept: KeptPanels): void;
   /** Pins a panel at the end of the pinned ones, or unpins it to the start of the others. */
   pinPanel(panelId: string, pinned: boolean): void;
   /** Shows this panel. Throws for a panel that is not open. */
   activate(panelId: string): void;
-  cycle(step: 1 | -1): void;
   openRunDialog(workflowKey: string | undefined): void;
   openAppDialog(dialog: string | undefined): void;
   /** Activates the app panel with these parameters if one is open, else opens it. */
@@ -154,15 +183,17 @@ export function createWorkspaceStore(initialContext: Readonly<Record<string, unk
       }));
     },
 
-    closePanel(panelId) {
+    closePanel(panelId, areaOf) {
       requireOpen(get().panels, panelId);
-      set((state) => withClosed(state, [panelId]));
+      set((state) => withClosed(state, [panelId], areaOf));
     },
 
-    closePanels(which, panelId) {
-      const named = namedBy(get().panels, which, panelId);
+    closePanels(which, panelId, strip, areaOf) {
+      const panels = get().panels;
+      const within = strip === undefined ? panels : strip.map((id) => requireOpen(panels, id));
+      const named = namedBy(within, which, panelId);
       const taken = named.filter((p) => p.pinned !== true).map((p) => p.id);
-      if (taken.length > 0) set((state) => withClosed(state, taken));
+      if (taken.length > 0) set((state) => withClosed(state, taken, areaOf));
       return { closed: taken.length, pinned: named.length - taken.length };
     },
 
@@ -173,25 +204,48 @@ export function createWorkspaceStore(initialContext: Readonly<Record<string, unk
       if (open !== undefined) {
         set((state) => ({ closed: state.closed.slice(0, -1) }));
         get().activate(open.id);
-        return open.id;
+        return open;
       }
       const id = `panel-${++next}`;
-      set((state) => {
-        const panel = newPanel(state.panels, last.page, id, last.pinned, last.copy);
-        return {
-          panels: placed(state.panels, panel, last.index),
-          activePanelId: id,
-          recent: [id, ...state.recent],
-          closed: state.closed.slice(0, -1),
-        };
-      });
-      return id;
+      const panel = newPanel(get().panels, last.page, id, last.pinned, last.copy);
+      set((state) => ({
+        panels: placed(state.panels, panel, last.index),
+        activePanelId: id,
+        recent: [id, ...state.recent],
+        closed: state.closed.slice(0, -1),
+      }));
+      return panel;
     },
 
     movePanel(panelId, index) {
       set((state) => {
         const panel = requireOpen(state.panels, panelId);
         return { panels: placed(state.panels.filter((p) => p.id !== panelId), panel, index) };
+      });
+    },
+
+    setOrder(ids) {
+      const panels = get().panels;
+      if (ids.length !== panels.length || new Set(ids).size !== ids.length) throw new Error(`An order of ${ids.length} names the ${panels.length} open panels.`);
+      const ordered = ids.map((id) => requireOpen(panels, id));
+      if (ordered.every((p, i) => p === panels[i])) return;
+      set({ panels: ordered });
+    },
+
+    restore(kept) {
+      if (get().panels.length > 0) throw new Error('Panels kept by the browser tab are taken up only before any is open.');
+      for (const p of kept.panels) {
+        const n = PANEL_ID.exec(p.id);
+        if (n === null) throw new Error(`A kept panel's id ${p.id} is not one this store gives.`);
+        next = Math.max(next, Number(n[1]));
+      }
+      const open = new Set(kept.panels.map((p) => p.id));
+      const active = kept.activePanelId !== undefined && open.has(kept.activePanelId) ? kept.activePanelId : kept.panels[0]?.id;
+      set({
+        panels: kept.panels,
+        activePanelId: active,
+        recent: kept.recent.filter((id) => open.has(id)),
+        closed: kept.closed.slice(-CLOSED_KEPT),
       });
     },
 
@@ -209,14 +263,6 @@ export function createWorkspaceStore(initialContext: Readonly<Record<string, unk
     activate(panelId) {
       requireOpen(get().panels, panelId);
       set((state) => ({ activePanelId: panelId, recent: [panelId, ...state.recent.filter((id) => id !== panelId)] }));
-    },
-
-    cycle(step) {
-      const { panels, activePanelId } = get();
-      if (panels.length === 0) return;
-      const index = panels.findIndex((p) => p.id === activePanelId);
-      const target = panels[(index + step + panels.length) % panels.length];
-      if (target !== undefined) get().activate(target.id);
     },
 
     openRunDialog(workflowKey) {
@@ -286,19 +332,25 @@ function placed(panels: readonly Panel[], panel: Panel, index: number): readonly
  * The state with these panels closed: each kept to be reopened; the active one, where it goes, followed
  * by the panel shown before it (ADR-0006 note 7).
  */
-function withClosed(state: WorkspaceState, ids: readonly string[]): Partial<WorkspaceState> {
+function withClosed(state: WorkspaceState, ids: readonly string[], areaOf?: AreaOfPanel): Partial<WorkspaceState> {
   const gone = new Set(ids);
   const kept: ClosedPanel[] = [];
   // Kept from the right, so the leftmost is reopened first: each then goes back where it stood, the strip to its left
   // already as it was, and a close of several comes back in its order.
   state.panels.forEach((p, index) => {
     if (!gone.has(p.id)) return;
-    const { id: _, pinned, copy, ...page } = p;
-    kept.unshift({ page, index, pinned: pinned === true, copy });
+    const { id, pinned, copy, ...page } = p;
+    const area = areaOf?.(id);
+    kept.unshift({ page, index, pinned: pinned === true, copy, ...(area === undefined ? {} : { area }) });
   });
   const panels = state.panels.filter((p) => !gone.has(p.id));
   const recent = state.recent.filter((id) => !gone.has(id));
-  const active = state.activePanelId !== undefined && gone.has(state.activePanelId) ? recent[0] : state.activePanelId;
+  // The active panel gone, the panel shown before it follows: in its own area where the panels stand in areas, so the
+  // area shows what it showed before and keeps the line's attention (ADR-0018 §4), else the one shown last anywhere.
+  const was = state.activePanelId;
+  const area = was !== undefined && gone.has(was) ? areaOf?.(was) : undefined;
+  const followed = area === undefined ? undefined : recent.find((id) => areaOf?.(id) === area);
+  const active = was !== undefined && gone.has(was) ? followed ?? recent[0] : was;
   return { panels, activePanelId: active, recent, closed: [...state.closed, ...kept].slice(-CLOSED_KEPT) };
 }
 

@@ -210,3 +210,273 @@
 .qube-panel-tab[data-drop] {
   box-shadow: inset 2px 0 0 var(--mantine-primary-color-filled);
 }
+
+/* The panels' space (ADR-0018 §5): the window less the header and the AI pane, measured edge to edge, so the shell's
+   padding is cancelled here and given back to the strip. `.qube-panels-room` is the space's height below the header,
+   which the strip does not fill but an arrangement would. The strip's gutter, and an area's (`.qube-area-page`), are
+   the shell's padding exactly: a panel's page reaches across it to be the panel's whole width (`.qube-panel-page`). */
+.qube-panels {
+  margin-inline: calc(var(--app-shell-padding) * -1);
+}
+
+.qube-panels[data-mode='strip'] {
+  padding-inline: var(--app-shell-padding);
+}
+
+.qube-panels-room {
+  position: fixed;
+  top: var(--app-shell-header-offset, 0rem);
+  bottom: 0;
+  left: 0;
+  width: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* In areas the panels fill what is left of the main area under the header and the context's issues, edge to edge, and
+   each area scrolls its own page: the document does not scroll. */
+.mantine-AppShell-main:has(> .qube-panels[data-mode='areas']) {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+}
+
+.qube-panels[data-mode='areas'] {
+  flex: 1;
+  min-height: 0;
+  margin-top: calc(var(--app-shell-padding) * -1);
+  margin-bottom: calc(var(--app-shell-padding) * -1);
+}
+
+/* dockview sizes its views in pixels and follows a change of room by a ResizeObserver, a frame after the browser
+   laid the narrower window out. Clipped here, the views of the wider window it still holds for that frame never widen
+   the page, whenever the page is read (docs/design-guidelines.md §9: the page never scrolls sideways). `clip`, not
+   `hidden`, so that nothing can scroll the areas themselves, a focus moved into that frame's overhang included. */
+.qube-areas {
+  height: 100%;
+  overflow: clip;
+}
+
+/* dockview's own look, from the shell's tokens in both schemes (docs/design-guidelines.md §6): a strip of tabs one
+   Control Height high, the title bar of a floating area one Control Height, no colours of dockview's own. */
+.dockview-theme-qube {
+  --dv-group-view-background-color: var(--mantine-color-body);
+  --dv-tabs-and-actions-container-background-color: var(--mantine-color-body);
+  /* One Control Height and the strip's 1px line under it, which dockview counts in this height. */
+  --dv-tabs-and-actions-container-height: 31px;
+  --dv-tabs-and-actions-container-font-size: var(--mantine-font-size-sm);
+  --dv-tab-font-size: var(--mantine-font-size-sm);
+  --dv-activegroup-visiblepanel-tab-background-color: var(--mantine-color-body);
+  --dv-activegroup-hiddenpanel-tab-background-color: var(--mantine-color-body);
+  --dv-inactivegroup-visiblepanel-tab-background-color: var(--mantine-color-body);
+  --dv-inactivegroup-hiddenpanel-tab-background-color: var(--mantine-color-body);
+  --dv-activegroup-visiblepanel-tab-color: var(--mantine-color-text);
+  --dv-activegroup-hiddenpanel-tab-color: var(--mantine-color-dimmed);
+  --dv-inactivegroup-visiblepanel-tab-color: var(--mantine-color-text);
+  --dv-inactivegroup-hiddenpanel-tab-color: var(--mantine-color-dimmed);
+  --dv-tab-divider-color: transparent;
+  --dv-separator-border: var(--mantine-color-default-border);
+  --dv-paneview-header-border-color: var(--mantine-color-default-border);
+  --dv-paneview-active-outline-color: var(--mantine-color-signal-filled);
+  --dv-drag-over-background-color: color-mix(in srgb, var(--mantine-primary-color-filled) 20%, transparent);
+  --dv-drag-over-border-color: var(--mantine-primary-color-filled);
+  --dv-edge-dock-indicator-color: var(--mantine-primary-color-filled);
+  --dv-edge-drop-strip-size: 8px;
+  --dv-tabs-container-scrollbar-color: var(--mantine-color-dimmed);
+  --dv-icon-hover-background-color: var(--mantine-color-default-hover);
+  --dv-floating-box-shadow: var(--mantine-shadow-md);
+  --dv-floating-border: 1px solid var(--mantine-color-default-border);
+  --dv-floating-titlebar-height: 30px;
+  --dv-floating-titlebar-background-color: var(--mantine-color-default);
+  --dv-floating-titlebar-border-bottom: 1px solid var(--mantine-color-default-border);
+  --dv-overlay-z-index: 99;
+  --dv-border-radius: 0px;
+  --dv-tab-margin: 0;
+  --dv-sash-color: transparent;
+  --dv-active-sash-color: var(--mantine-primary-color-filled);
+  --dv-active-sash-transition-duration: 0.1s;
+  --dv-active-sash-transition-delay: 0.3s;
+  --dv-spacing-padding: 0px;
+  --dv-tab-border-radius: 0px;
+  --dv-sash-border-radius: 0px;
+  --dv-dropdown-border-radius: 0px;
+  --dv-tab-close-icon-size: inherit;
+  --dv-floating-group-border: none;
+  --dv-drag-over-border: none;
+  --dv-floating-group-dragging-opacity: 0.5;
+}
+
+/* A floating area stands over the docked areas and under every menu, list and dropdown the shell and its pages open
+   (Mantine's portals stand at 200 to 400). dockview's own rule defines this variable by itself, which a browser reads
+   as no value, so its floating areas took 999 and covered a tab's menu opened beside them. */
+.dockview-theme-qube .dv-resize-container {
+  --dv-overlay-z-index: 99;
+}
+
+/* A strip's line under its tabs, as note 7's strip has it; the selected tab stands on it in the primary colour. */
+.dockview-theme-qube .dv-tabs-and-actions-container {
+  border-bottom: 1px solid var(--mantine-color-default-border);
+}
+
+/* As note 7's tab: Mantine's outline tab has 12px each side. */
+.dockview-theme-qube .dv-tab {
+  padding: 0 var(--mantine-spacing-md);
+}
+
+.dockview-theme-qube .dv-tab.dv-active-tab {
+  box-shadow: inset 0 -2px 0 var(--mantine-primary-color-filled);
+}
+
+.dockview-theme-qube .dv-tab:focus-visible,
+.dockview-theme-qube .dv-floating-titlebar:focus-visible,
+.dockview-theme-qube .dv-sash:focus-visible {
+  outline: 2px solid var(--mantine-primary-color-filled);
+  outline-offset: -2px;
+}
+
+/* A floating area's title bar is its move handle (ADR-0018 §3): it carries the grip of the XVA page's height handles,
+   so that it reads as something to take, and the keyboard's focus on it, or on a splitter, is shown as a tab's is. */
+.dockview-theme-qube .dv-floating-titlebar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.dockview-theme-qube .dv-floating-titlebar::before {
+  content: '';
+  width: 48px;
+  height: 4px;
+  border-radius: var(--mantine-radius-xs);
+  background: var(--mantine-color-dimmed);
+}
+/* Hover and the keyboard's focus alike (docs/design-guidelines.md §8); the focus's outline is the tab's, above. */
+.dockview-theme-qube .dv-floating-titlebar:hover::before,
+.dockview-theme-qube .dv-floating-titlebar:focus-visible::before { background: var(--mantine-color-text); }
+
+/* To a finger, a splitter and a floating area's edges are at least 24px (docs/design-guidelines.md §8). dockview's own
+   rule for a coarse pointer gives a splitter 24px (4px and 10px each side) and an edge only 16px; an edge here is 24px,
+   reaching 18px out and 6px in, as far into the title bar as dockview's own. Geometry the theme has no name for. */
+@media (pointer: coarse) {
+  .dockview-theme-qube .dv-resize-container .dv-resize-handle-top,
+  .dockview-theme-qube .dv-resize-container .dv-resize-handle-bottom { height: 24px; }
+  .dockview-theme-qube .dv-resize-container .dv-resize-handle-top { top: -18px; }
+  .dockview-theme-qube .dv-resize-container .dv-resize-handle-bottom { bottom: -18px; }
+  .dockview-theme-qube .dv-resize-container .dv-resize-handle-left,
+  .dockview-theme-qube .dv-resize-container .dv-resize-handle-right { width: 24px; }
+  .dockview-theme-qube .dv-resize-container .dv-resize-handle-left { left: -18px; }
+  .dockview-theme-qube .dv-resize-container .dv-resize-handle-right { right: -18px; }
+  .dockview-theme-qube .dv-resize-container .dv-resize-handle-topleft,
+  .dockview-theme-qube .dv-resize-container .dv-resize-handle-topright,
+  .dockview-theme-qube .dv-resize-container .dv-resize-handle-bottomleft,
+  .dockview-theme-qube .dv-resize-container .dv-resize-handle-bottomright { width: 24px; height: 24px; }
+  .dockview-theme-qube .dv-resize-container .dv-resize-handle-topleft { top: -18px; left: -18px; }
+  .dockview-theme-qube .dv-resize-container .dv-resize-handle-topright { top: -18px; right: -18px; }
+  .dockview-theme-qube .dv-resize-container .dv-resize-handle-bottomleft { bottom: -18px; left: -18px; }
+  .dockview-theme-qube .dv-resize-container .dv-resize-handle-bottomright { bottom: -18px; right: -18px; }
+}
+
+.qube-area-tab {
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-xs);
+  height: 100%;
+}
+
+/* Each area framed: the area of the active panel, which the line acts on, in `signal`, 2px; the others in the default
+   border. With one area there is nothing to tell apart, and no frame. */
+.dockview-theme-qube .dv-groupview {
+  position: relative;
+}
+
+.qube-areas:not([data-areas='1']) .dockview-theme-qube .dv-groupview::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border: 1px solid var(--mantine-color-default-border);
+  pointer-events: none;
+  z-index: 3;
+}
+
+.qube-areas:not([data-areas='1']) .dockview-theme-qube .dv-groupview.dv-active-group::after {
+  border: 2px solid var(--mantine-color-signal-filled);
+}
+
+/* An area's page scrolls inside it, with the room note 7's strip gave a page: the shell's gutter at each side, which
+   `.qube-panel-page` reaches across. It scrolls inside the panel's page, so that a scrollbar beside it (Windows,
+   Linux) takes nothing from the width the page reads, as a window's never did. */
+.qube-area-page {
+  height: 100%;
+  padding-inline: var(--app-shell-padding);
+}
+.qube-area-page > .qube-panel-page {
+  height: 100%;
+}
+.qube-area-page > .qube-panel-page > .qube-panel-page-body {
+  height: 100%;
+  overflow: auto;
+  padding-block: var(--app-shell-padding);
+}
+
+/* The list at the end of an area's strip stands on its line, as the strip's does. */
+.dockview-theme-qube .qube-panel-list {
+  height: 100%;
+  border-bottom: none;
+}
+
+/* A proposal of the AI on its card (ADR-0018 §8): its areas as boxes in a space of the panels' usual shape (16 by 10,
+   a laptop's), each named by the page it shows, a floating one raised over the others. */
+.qube-plan {
+  position: relative;
+  /* Small beside the card's words: titles stay readable in a quarter of it. */
+  max-width: 280px;
+  aspect-ratio: 16 / 10;
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: var(--mantine-radius-xs);
+  background: var(--mantine-color-body);
+}
+
+.qube-plan-area {
+  position: absolute;
+  box-sizing: border-box;
+  /* The body's colour as a border keeps a gap between two boxes that touch. */
+  border: 2px solid var(--mantine-color-body);
+  background: var(--mantine-color-default-hover);
+  border-radius: var(--mantine-radius-xs);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  font-size: var(--mantine-font-size-xs);
+  line-height: 1.2;
+  text-align: center;
+}
+
+.qube-plan-area[data-floating] {
+  border-color: var(--mantine-primary-color-filled);
+  box-shadow: var(--mantine-shadow-sm);
+  z-index: 1;
+}
+
+.qube-plan-title {
+  max-width: 100%;
+  padding: 0 var(--mantine-spacing-xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.qube-plan-more {
+  color: var(--mantine-color-dimmed);
+}
+
+/* A panel's page is a size container (ADR-0018 §5): its stylesheets' container queries read the panel's width, not the
+   window's. Its width only: in the strip a page is as high as its content. The container reaches across the shell's
+   gutter, which the strip and an area each give their page, so that it is the panel's whole width, as the window was;
+   the page is drawn inside the gutter again. */
+.qube-panel-page {
+  container: qube-panel / inline-size;
+  margin-inline: calc(var(--app-shell-padding) * -1);
+}
+.qube-panel-page-body {
+  padding-inline: var(--app-shell-padding);
+}

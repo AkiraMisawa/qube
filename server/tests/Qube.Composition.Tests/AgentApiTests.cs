@@ -305,4 +305,43 @@ public class AgentApiTests : IClassFixture<QubeFactory>
         Assert.Equal(["tables_describe"], Called(next));
         Assert.StartsWith("The workspace has ", Reply(next));
     }
+    // The pane's context of the open panels (ADR-0018 §8), as the client sends it: each panel by its id and title.
+    static JsonArray Panels(params (string Id, string Title)[] panels) =>
+        [new JsonObject
+        {
+            ["description"] = "The open panels and how they are arranged",
+            ["value"] = new JsonObject
+            {
+                ["kind"] = "qube.panels",
+                ["panels"] = new JsonArray([.. panels.Select(p => (JsonNode)new JsonObject { ["panel"] = p.Id, ["title"] = p.Title, ["area"] = "area-1" })]),
+            }.ToJsonString(),
+        }];
+
+    [Fact] // ADR-0018 §8, ADR-0007 §6: the stand-in proposes the panels it is asked for side by side, by their titles in the context, and moves nothing
+    public async Task The_scripted_agent_proposes_two_panels_side_by_side_and_one_beside_another()
+    {
+        JsonArray Context() => Panels(("panel-1", "Pricing DB"), ("panel-2", "Rates 2026-10-27"), ("panel-3", "Rates 2026-10-27 · 2"));
+
+        var sideBySide = await Asked("t-side", "put rates 2026-10-27 · 2 and pricing db side by side", Context());
+        var beside = await Asked("t-beside", "put the pricing db beside rates 2026-10-27", Context());
+
+        Assert.Equal(["layout_propose"], Called(sideBySide));
+        var proposed = Results(sideBySide).Single()["outputs"]!["answer"]!;
+        Assert.Equal(["panel-3", "panel-1"], proposed["places"]!.AsArray().Select(p => p!["panel"]!.GetValue<string>()));
+        Assert.Equal((2, 640), (proposed["count"]!.GetValue<int>(), proposed["width"]!.GetValue<int>()));
+        Assert.StartsWith("Proposed 2 areas, for a panels' space of at least 640 by 240px.", Reply(sideBySide));
+        // "a beside b" keeps b on the left.
+        var placed = Results(beside).Single()["outputs"]!["answer"]!["places"]!.AsArray();
+        Assert.Equal(["panel-2", "panel-1"], placed.Select(p => p!["panel"]!.GetValue<string>()));
+    }
+
+    [Fact] // ADR-0018 §8, ADR-0007 §6: a request naming one open panel leaves the other area empty, and the stand-in says what the proposal lacks
+    public async Task The_scripted_agent_asks_for_a_second_panel_when_the_request_names_one()
+    {
+        var events = await Asked("t-one", "put pricing db side by side", Panels(("panel-1", "Pricing DB"), ("panel-2", "Rates 2026-10-27")));
+
+        Assert.Equal("refused", Results(events).Single()["status"]!.GetValue<string>());
+        Assert.Contains("Area area 2 holds nothing", Reply(events));
+        Assert.Contains("two open panels by their titles", Reply(events));
+    }
 }
