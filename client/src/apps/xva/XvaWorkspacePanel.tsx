@@ -40,7 +40,7 @@ import { declaring, measureOfField, membershipColumn, scopesOf } from './members
 import { priceLabel, pricedMeasures } from './metrics';
 import { differs, originalMessage } from './original';
 import { copyRich, downloadRun } from '../../platform/runs';
-import { cellMessage as moduleCellMessage, cellRefusal, cellState as moduleCellState, failed, moduleColumns, parseCellNumber } from './cells';
+import { cellMessage as moduleCellMessage, cellRefusal, cellState as moduleCellState, failed, moduleColumns, parseCellNumber, pvMessage, pvRequest, type PvRequest } from './cells';
 
 // The trace tab draws with the trace view and KaTeX, read once a tab is opened (as the trace panel is).
 const TraceTab = lazy(() => import('../../platform/traces/TraceTab').then((m) => ({ default: m.TraceTab })));
@@ -108,6 +108,15 @@ const existingTerms: readonly GridColumn<Row>[] = [
   // The books' PV, the source's and read-only (ADR-0010 §6): the PV an adjustment uses.
   column('officialPv', 'Official PV', 'number', 152, { format: formatAmount, tone: amountTone }),
 ];
+const PV_COLUMN = 'pv';
+/**
+ * A trade's PV on both grids (ADR-0016 note 49): its PV legs' in the display currency, which the header says, since it
+ * is not the trade's own. Typed, it is written as the line writes it (`set <trade> pv -350,000 USD`): the trade is left
+ * one leg of that amount. As wide as the official PV, for the same figures. It stands after B and A, where a grid's
+ * figures begin (the New grid's PV01, Margin and PV Adj follow it), so no column a user types a term in moves.
+ */
+const pvColumn = (currency: string | undefined): GridColumn<Row> =>
+  column(PV_COLUMN, currency === undefined ? 'PV' : `PV (${currency})`, 'number', 152, { editable: true, format: formatAmount, tone: amountTone });
 
 export type TradeGrid = 'new' | 'existing';
 
@@ -175,6 +184,7 @@ function cellMessage(row: Row, col: GridColumn<Row>): string | undefined {
     : 'This edit lost its trade in the new version. Acknowledge or reset it in the panel above.';
   if ((col.name === 'csa' || col.name === 'curve' || col.name === 'issues') && row.issues.length > 0) return row.issues.join(' ');
   if (row.cells?.[col.name] !== undefined) return moduleCellMessage(row, col.name);
+  if (col.name === PV_COLUMN) return pvMessage(row);
   // A measure priced per scope says each scope's standing on its membership cell (ADR-0012 §2).
   const measure = measureOfField(col.name);
   if (measure !== undefined) return scopesOf(row, measure);
@@ -248,6 +258,11 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   // how many rows they leave, of how many. None for a grid with no conditions, and none once a read under them failed.
   const [counted, setCounted] = useState<Readonly<Record<TradeGrid, Counted | undefined>>>({ new: undefined, existing: undefined });
 
+  // The currency each trade grid's PV figures are in, as its reader last answered (ADR-0016 note 49): the PV header
+  // names it, so a header never names another currency than the rows under it hold, as it could between the answers
+  // of two readings of the workspace. None until a grid's first page is read: the header then names no currency.
+  const [pvIn, setPvIn] = useState<Readonly<Record<TradeGrid, string | undefined>>>({ new: undefined, existing: undefined });
+
   // One source per grid, each paged, sorted and narrowed on the server (ADR-0010 §6); an edit may move a row in either.
   const sources = useMemo(() => {
     const answered = new WeakMap<Row, Answered>();
@@ -270,6 +285,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
       const answer: Answered = { sorts: query.sorts, orderToken: page.orderToken, ...(where === undefined ? {} : { where }) };
       for (const row of page.rows) answered.set(row, answer);
       count(grid, where === undefined || page.of === undefined ? undefined : { where, left: page.totalCount, of: page.of });
+      setPvIn((before) => (before[grid] === page.pvCurrency ? before : { ...before, [grid]: page.pvCurrency }));
       // The grid's trades are read: a failure said of it before is no longer how it stands.
       failed(grid, undefined);
       return { rows: page.rows, start: page.start, totalCount: page.totalCount, orderToken: page.orderToken };
@@ -340,8 +356,12 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   // The trade fields the selected measures need, on both grids (ADR-0010 §10): a hidden one keeps its value.
   const fieldsKey = (view.data?.inputs ?? []).filter((i) => i.tab === TRADES_TAB).map((i) => i.field).join('|');
   const assignment = useMemo(() => assignmentOf(fieldsKey === '' ? [] : fieldsKey.split('|')), [fieldsKey]);
-  const newColumns = useMemo<readonly GridColumn<Row>[]>(() => [...leading, ...assignment, ...moduleColumns(registered.current), ...membership, ...derived], [columnsKey, assignment, membership]);
-  const existingColumns = useMemo<readonly GridColumn<Row>[]>(() => [...existingTerms, ...assignment, ...membership, ...derived], [assignment, membership]);
+  // Each grid's PV column names the currency its rows' figures are in: another currency is another declaration, and
+  // every row paints again.
+  const newPv = useMemo(() => pvColumn(pvIn.new), [pvIn.new]);
+  const existingPv = useMemo(() => pvColumn(pvIn.existing), [pvIn.existing]);
+  const newColumns = useMemo<readonly GridColumn<Row>[]>(() => [...leading, ...assignment, newPv, ...moduleColumns(registered.current), ...membership, ...derived], [columnsKey, newPv, assignment, membership]);
+  const existingColumns = useMemo<readonly GridColumn<Row>[]>(() => [...existingTerms, ...assignment, existingPv, ...membership, ...derived], [existingPv, assignment, membership]);
   gridColumns.current = { new: newColumns, existing: existingColumns };
   // Each grid's columns at the widths the user dragged them to, the user's for that grid in every workspace (ADR-0017 §5).
   const newWidths = useColumnWidths('xva/trades/new', newColumns);
@@ -407,6 +427,8 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
     take();
   }, [placeRequest]);
 
+  // What writes a typed PV, set once the page's door is made below; a grid cannot be typed in before it is.
+  const writePv = useRef<(tradeId: string, request: PvRequest) => void>(() => { throw new Error("The pricer page's command door is not made yet."); });
   // A result that arrives changes the New grid's rows with no edit: they are read again when the count waiting moves.
   const pendingCells = view.data?.pendingCells;
   const seenPending = useRef<number | undefined>(undefined);
@@ -417,6 +439,14 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   }, [pendingCells, sources]);
 
   const onEdit = useCallback((intent: GridEditIntent<Row>) => {
+    // A PV is written by the command the line types (ADR-0016 note 49), which the server alone reads.
+    if (intent.column === PV_COLUMN) {
+      if (intent.seenText !== intent.replacedText) { intent.refuse('The value changed while you were editing. Look at it again.'); return; }
+      const typed = pvRequest(intent.row.tradeId, intent.value, intent.seenText);
+      if (typed.kind === 'refused') intent.refuse(typed.message);
+      else if (typed.kind === 'write') writePv.current(intent.row.tradeId, typed.request);
+      return;
+    }
     const module = registered.current.find((c) => c.field === intent.column);
     if (module !== undefined) {
       // As the server would refuse it: PV Adj is read-only while Margin is entered, and says why (ADR-0010 §6).
@@ -697,6 +727,13 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
     },
     notify: workspace.notify,
   }), [api, workspaceId, workspace, queue, show, sources]);
+  // A typed PV goes through the door as any command does, in its turn after the edits already sent. The cell shows
+  // the outcome, as any typed cell does, so the door hands the sentence here and raises no notice of it.
+  writePv.current = (tradeId, request) => {
+    void door.invoke('entity.set', request, () => undefined).then((reason) => {
+      if (reason !== undefined) workspace.notify('refused', `The PV of ${tradeId} was not written: ${reason.sentence}`);
+    });
+  };
   // The tables' actions (ADR-0016 §4, note 25 of 2026-11-11): read once for the workspace, and run through the door.
   const tables = useQuery({ queryKey: ['workspace-tables', workspaceId], queryFn: () => workspace.api.tables(workspaceId), staleTime: Infinity });
   menus.current = useMemo(() => {

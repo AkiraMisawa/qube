@@ -48,7 +48,7 @@ public class XvaApiTests(QubeFactory factory) : IClassFixture<QubeFactory>
     {
         var ws = await Create();
 
-        var response = await Post(ws, "rows", new { start = 0, count = 10, sorts = new[] { new { column = "pv", direction = "ascending" } } });
+        var response = await Post(ws, "rows", new { start = 0, count = 10, sorts = new[] { new { column = "issues", direction = "ascending" } } });
 
         Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
         Assert.Equal("UnknownColumn", (await response.Content.ReadFromJsonAsync<JsonObject>())!["code"]!.GetValue<string>());

@@ -58,6 +58,8 @@ public sealed class PortfolioChecks(MeasureRegister register)
     {
         (Entity.Trade, var f) => PortfolioMaterialiser.EditableFields.Contains(f),
         (Entity.Csa, var f) => PortfolioMaterialiser.CsaFields.Contains(f),
+        // A PV leg's currency, PV and notional (ADR-0016 note 49). An independent amount is removed, never changed.
+        (Entity.Leg, var f) => PortfolioLegs.EditableFields.Contains(f),
         // The CVA recovery is the netting set's since ADR-0010 §8; one set on the counterparty before still applies.
         (Entity.Netting, "cvaRecovery") => true,
         // The counterparty's CDS and the spreads of a curve of the catalogue (ADR-0010 §8's note of 2026-11-09).
@@ -72,7 +74,16 @@ public sealed class PortfolioChecks(MeasureRegister register)
 
     static void Validate(WorkspaceState state, string entity, string field, JsonNode? value)
     {
-        string? problem = field switch
+        // A leg's fields share names with a trade's and mean their own (ADR-0016 note 49): its notional may be empty.
+        string? problem = Entity.Split(entity).Kind == Entity.Leg ? field switch
+        {
+            "pv" => value is JsonValue p && p.TryGetValue<decimal>(out _) ? null : "A leg's PV is a number.",
+            "notional" => value is null || value is JsonValue l && l.TryGetValue<decimal>(out _) ? null : "A leg's notional is a number or empty.",
+            "currency" => value is JsonValue lc && lc.TryGetValue<string>(out var legCode) && PortfolioMarket.Currencies.Contains(legCode)
+                ? null : $"A currency is {string.Join(", ", PortfolioMarket.Currencies)}.",
+            _ => null,
+        }
+        : field switch
         {
             "notional" => value is JsonValue v && v.TryGetValue<decimal>(out var n) && n != 0 ? null : "A notional is a non-zero number.",
             "fixedRate" => value is null || value is JsonValue r && r.TryGetValue<decimal>(out _) ? null : "A fixed rate is a number or empty.",

@@ -71,6 +71,12 @@ narrows with `where` and asks the fields it needs, and the answer says the count
 the description names, never a column's title. The agent drives no grid: the rows and the verbs of a screen
 (`selected`, `shown`, `find`) are refused to it by name.
 
+Since step 5a (ADR-0016 notes 46 to 49) the description says a table under another's rows (`under`), and of a field
+that is a figure of the rows under its row the table it is a figure of (`figureOf`), what it is in (`unit`) and how
+it is written (`written`), which may differ from how it reads: the pricer's legs and independent amounts are under
+its trades, and a trade's `pv` reads as a number in the display currency and is written as an amount with or
+without a currency. `tables_read` reads the rows under a row by that row's id (`legs E00003`).
+
 Not verified: a model using the three. None is configured, so they were exercised through the gateway and through
 the scripted stand-in, which takes `describe the tables`, `read <rows> [fields …]` and `preview <line>`; the
 instructions tell a model to read rather than guess and to say a count as the tool gave it, and what a model does

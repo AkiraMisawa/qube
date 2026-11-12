@@ -1814,6 +1814,141 @@ and notes 42 to 44 are 4c's.
       - Left as it is: a refusal names one word, so of several measures that are not registered it names the
         first, while its sentence says them all.
 
+### Notes of 2026-11-11: what step 5 settles (all DEFAULT unless marked)
+
+Step 5 is four pull requests (`docs/specs/commands-5-drafts-rows-under-a-row`): 5a tables under a row, a figure of
+them and the rows `new` makes under a row; 5b templates and the pricer's fields by group; 5c drafts and the detail
+dialog; 5d the pricer's scenarios as a table, and `load trades`. The owner chose four things of the dialog's look
+before it started (2026-11-11, by decision cards in the thread, each the option proposed): the sample's trade and CSA
+carry every field of his examples and the tables under the row; the dialog's tabs are Original and Live; a grid's row
+has one button, edit; and `load trades` reads a synthetic store of booked trades by id. Notes 46 to 49 are 5a's.
+
+46. **A table under a row (§1; 5a).** A table's description names the table its rows are under (`Under`), and each
+    of its rows the key of the row it is under. A row's key is whole in its own table, and its table writes it: the
+    key of the row above, a slash, and its own (`E00003/1`). The kernel takes no key apart.
+    - **Rows are said as any rows are**, and one way more: in a table under another, an id that names no row of it
+      and one row of the table above, as that table's ids are read (note 7: whole, or by how it ends), names every
+      row under that row. `legs E00003/1` is one leg, `legs E00003` the trade's legs. An id that names a row above
+      with nothing under it is refused as rows that match nothing are, saying so (`NoRowMatches`).
+    - **With no table said**, ids are still looked for among each table's own rows (note 7): `E00003/1` is a leg and
+      `E00003` a trade, never the trade's legs.
+    - **The registration is checked when the tables are read**, as the others are: the table above is one of the
+      workspace's, and a table under another is neither the main table nor a table of one row.
+    - `tables.describe` (note 38) says a table's `under`; `tables.read` reads its rows as any table's.
+47. **A figure of the rows under a row, and a number written with what it is in (§1; 5a; settles an Open item).**
+    - **A field says it is a figure** (`Figure`): the table under its row whose rows it is worked out from, and,
+      where it can be written, how a write is written, which may differ from how it is read. The figure is read as
+      its form says (a number), in the unit the registration names for the workspace (`Unit`: the pricer's PV is in
+      the display currency, which is the workspace's and no field of the row; §1's "resolved for a scope").
+    - **What a write means is the table's**, as §1 says: `Set` answers the changes, and a row whose write changes
+      nothing is counted as holding the value, since the figure alone cannot say whether the rows under it would
+      change. For one row the preview says what the table says the write would do (`SetSays`: "2 legs replaced by
+      1 leg, USD"); for several it says the count, as for any field.
+    - **`FieldForm.Money`** is a number followed by what it is in: `-350,000 USD`, `-350k usd`, or the number alone.
+      It reads as the number and, where one was written, the unit, one of the field's choices; a unit that is not
+      one is refused with those there are. Written alone, the unit is the table's to supply and to say (the
+      pricer's display currency). This settles "how a currency is written with an amount" under Open. A grid cell,
+      the line and the AI write it the same way.
+    - **`reset <row> <figure>`** is the table's too: it answers the changes that bring back the rows the source has.
+    - *Added as built.* A figure whose table is not under its own is refused when the tables are read, naming the
+      field. `tables.describe` says a figure's `figureOf` and `unit`, and what a write takes in `written`, which for
+      a figure is how it is written and not how it is read. What a money field takes lists its units as a sentence
+      does (`GBP, JPY, USD or EUR`). A figure that no command sets is registered as any field that is not editable.
+    - *Corrected in review (2026-11-12).* A field written as a number with what it is in and given nothing it may
+      be in is refused when the tables are read, naming the field: it was found only at the first write. A
+      condition compares a figure as the number it is (`where load>50`), which the tests now hold.
+48. **`new` makes a row under a row, and `remove` takes one away (§1, §3; 5a).** A row a workspace makes is an entity
+    of a described product (ADR-0008), as a Rates line is. A product may say the registered table its entities are
+    rows of (`Table`) and the term that names the row its entity is made under (`Under`).
+    - **`new leg E00003 eur 250,000`**: after the product's words, the first word is the row above where it names
+      one of that table's rows, as its ids are read; it is then written into the terms by its name and its whole
+      key, so what is invoked and logged names the row exactly. Typed by its name (`trade=E00003`) it is read as any
+      term. With neither, the product is refused as missing that term, as any required term is.
+    - **`remove legs E00003/1`** is §3's `remove`: the table answers the changes. A row the workspace made is
+      removed; a row the source holds is the table's to decide (the pricer marks a source's leg as taken out, so
+      `reset` and `undo` bring it back).
+    - Left for 5c: a product whose rules can say the changes that would make its entity without writing them
+      (`Plan`), which a draft needs; and the row above read from the draft, where the line names none.
+    - *Added as built.* A first word whose end names several rows above is refused with them, as a selector refuses
+      it (`AmbiguousRow`), by the line and by the command invoked alike. One that names no row above is read as any
+      term, and refused as a word that fills none. A product made under a row that has no such term, or says no
+      table, is refused when the products are read.
+    - *Corrected in review (2026-11-12): the term typed by its name.* "Read as any term" left `trade=E00004`
+      refused where `E00004` as the first word was read: the two now read alike. The value typed by the term's name
+      or by one of its other names names the row above as the first word does, by its whole key or by its end, is
+      written into the terms with its whole key, and is refused where it names several; the first word is then a
+      term like any other. A product whose table its application does not register, or made under a row with no
+      tables given to read it in, is refused when the products are read; one whose table is under no table still
+      fails where its terms are first read, since that is a table's description and not the product's.
+49. **The pricer's legs and independent amounts (5a; the sample's own, every figure synthetic).**
+    - **Tables**: `xva.legs` (`legs`, `leg`; under the trades; the leg's id, its trade, currency, PV in that
+      currency, and notional) and `xva.amounts` (`independent amounts`, `amounts`, `ia`; under the trades; currency,
+      start, end and value, which a command removes and does not change, as the owner's example shows them). An
+      existing trade's legs are the source's; a new trade has none, since no book holds it.
+    - *Changed as built: what the source's legs add up to.* A swap has two legs in its currency, which add up to
+      its official PV. An FX forward has a leg in each of its currencies, which add up to its official PV at the
+      value date's synthetic rate, to the unit: the first note said "in the trade's currency" of every trade, which
+      a forward's legs are not. So a forward's first leg moves with the value date, and an edit of it is then held
+      as a conflict, as any edit whose source moved is (ADR-0003).
+    - *Added as built: ids.* A leg is `<trade>/<n>` and an independent amount `<trade>/IA<n>`, so that no leg and
+      amount of a trade share an id and an id typed with no table names one row. A leg's PV and notional are plain
+      numbers, as a grid cell takes them (`250,000`, `250k`), never in millions; a leg an overwritten PV made holds
+      no notional.
+    - **A trade's `pv`** is a figure of its legs: each leg's PV into the display currency at the value date's
+      synthetic rate, added up; empty where the trade has no leg. Written (`set E00003 pv -350,000 USD`), the trade
+      is left one leg of that amount, in the currency written or, with none, the display currency (owner,
+      2026-11-10); the preview says "2 legs replaced by 1 leg, USD", the write is one command, and `reset E00003 pv`
+      brings the source's legs back. A trade that already holds that one leg alone is counted as holding it.
+    - *Added as built: the write and the reset.* The PV is held to the cent. Each leg the trade holds is taken out
+      (a source's by an edit of its own, one the workspace made by its removal) and one leg is made, numbered after
+      the last the trade holds as the write reads it, taken out or not; a new trade, which has none, is told "1 leg
+      made". `reset
+      <trade> pv` resets every edit of the trade's legs and removes every leg made under it, and `reset <trade>`
+      with no field does that too, since the figure is one of the row's fields. A figure is no cell `vary` names:
+      it holds no value of its own for a case to change.
+    - *Corrected in review (2026-11-12): a number is not kept for a leg that is gone.* "The last the trade has
+      had" said more than is built. A leg is numbered after the last of the source's legs, taken out or not, and of
+      the legs the workspace holds as the command reads it: an overwrite's leg therefore takes the number after the
+      one it replaces, and a made leg removed by `remove` leaves its number to the next leg made, which holds none
+      of its edits (the removal drops them with it). The log names both by the same id; `undo` reads them in order.
+    - **`new leg <trade> <currency> <pv> [notional=<amount>]`** adds a leg, numbered after the trade's last.
+      Nothing is defaulted. The leg is in its trade's scope: a new trade's leg stays with it through a counterparty
+      change, and an existing trade's is dropped with the counterparty's other edits, counted among them.
+    - **A trade's `independent amount`** is a figure of its independent amounts, added up in the display currency
+      as the PV is, which no command sets; `reset <trade> independent amount` brings back those taken out (*added
+      as built*: without it only `undo` and the Changes tab would).
+    - **Each grid shows PV** beside the trade's other columns, and a PV typed in a cell is the same `set`.
+    - *Added as built: the grids and the Changes tab.* The column's header names the display currency (`PV (JPY)`),
+      since the figure is not in the trade's own. It stands after B and A on both grids, where a grid's figures
+      begin (the New grid's PV01, Margin and PV Adj follow it), so no column a term is typed in moves and the
+      assignments stay in view at a laptop's width. The server sorts by it, and a PV that differs from what the
+      source's legs give is marked against Original as any value is (ADR-0010 §2). A typed PV is sent as it was
+      typed to `entity.set`, which reads it: the page reads none of it, and refuses only nothing typed and an `=`,
+      which would name another field. The Changes tab lists each edit of a leg, each leg or amount taken out and
+      each leg made, named in words (`leg E00003/1 taken out`), and resets each; their values are typed in a
+      command, and in the trade's dialog from 5c, never there. The workspace's count of edits holds a leg made,
+      as it holds the legs taken out for it: a PV typed for a new trade is one edit, not none.
+    - *Corrected in review (2026-11-12): the cell and its header.* A PV cell committed as it was shown writes
+      nothing: what it shows is every leg in one rounded figure, and written back it left the trade one leg of that
+      figure, which the first build did. The header's currency is the page's own (`pvCurrency` on each page of
+      rows), not the workspace view's, so a header never names another currency than the rows under it hold while
+      one of the two answers is still on its way; before a grid's first page it names none. `ia` is the amounts'
+      table alone: as a word of the trade's field too, it was ambiguous with a trade grid behind the line.
+    - **No measure of the sample reads the legs yet.** SA-CCR's replacement cost reads an existing trade's
+      official PV and takes a new trade as traded at market (ADR-0010 §6, ADR-0013), and a change of the legs
+      moves neither. The PV legs say so where they are shown (in 5a, on the cell of a PV that differs from
+      Original, which names the one of the two that holds for its trade; from 5c, in the trade's dialog), and
+      whether a changed PV should reach a measure is those ADRs' to decide, put to the owner with the summary of
+      decisions made for him.
+    - *Corrected in review (2026-11-12): who reads what.* Naming SA-CCR alone was too narrow. The simulated XVA
+      provider reads an existing trade's official PV too, and a new trade's PV Adj where XVA's PV adjustment is on
+      (ADR-0010 §6, §8); spot IM reads sensitivities. So the cell says what Price reads, not what one measure
+      does: "Price reads the official PV" on an existing trade, "Price takes a new trade at market, or at its PV
+      Adj" on a new one.
+    - *Changed as built: what Price freezes.* The first note said the legs are frozen with the rest of the input.
+      They are not: the accepted input carries what a measure reads, and none reads a leg or the PV they add up
+      to, so it carries neither. When a measure reads them, its module's part of the input will carry them.
+
 ## Rejected
 
 - **A range syntax of the pricer's own** (`after off where ccy=USD`, the review's R6). A second grammar per domain,
@@ -1834,7 +1969,5 @@ and notes 42 to 44 are 4c's.
   50,000).
 - How a layer is named. ADR-0010 §9 writes `set after CSA-A threshold 5mm`; with `after` also a field of a trade, a
   named option (`layer=after`) reads without ambiguity. Decided when ADR-0010's Advanced step is built.
-- How a currency is written with an amount (`-350,000 USD`), as a form of `FieldForm`, where the field's unit is not
-  fixed by the row.
 - How the line spells the lists of an `add each` iteration (§3): the trades added together, the trades taken out,
   and where the next iteration starts. Left aside by the owner (2026-11-11); the typed value does not wait for it.

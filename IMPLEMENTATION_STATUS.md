@@ -2352,10 +2352,122 @@ outlived an item's close and opened the menu again over the settings a tap on a 
 chosen among radio items that say which is checked; Sign out is reached by the arrows and describes why it waits;
 the user who cannot be read is said, never stood in for; a second click closes the menu.
 
+## Generic commands, delivery step 5a: rows under a row (ADR-0016 notes 46 to 49, 2026-11-11)
+
+The first of step 5's four pull requests (`docs/specs/commands-5-drafts-rows-under-a-row`, tickets 01 to 08). A
+table may be under another's rows, a field may be a figure of the rows under its row, and a number may be written
+with what it is in. The pricer registers a trade's PV legs and independent amounts, and a trade's PV as its legs'
+in the display currency.
+
+### What runs
+
+- **A table under another's rows** (`TableDescriptor.Under`, `ITableRow.Under`). A row's key is whole in its
+  table (`E00003/1`). The selector reads an id first among the table's own rows, then among the rows above, where
+  it means every row under that one: `legs E00003/1` is a leg, `legs E00003` the trade's legs.
+- **A figure of the rows under a row** (`TableField.Figure`, `Unit`). It reads as a number, sorts and is compared
+  as one, and is written as the table decides: `set` reads the value as the figure says it is written, asks the
+  table for each row's changes, and counts a row with none as holding it. For a line that writes one row, the
+  preview says what the write does to the rows under it (`IWorkspaceTable.SetSays`); for several it says how many.
+- **A number with what it is in** (`FieldForm.Money`): `-350,000 USD`, or the number alone. A unit that is not one
+  of the field's is refused with the units it takes.
+- **`new` makes a row under a row** (`ProductDescriptor.Table`, `Under`): the first word after the product's is
+  the row above where it names one (`new leg E00003 eur 250,000`), and typed by its name (`trade=E00003`) it is
+  read the same way. `remove` takes one away.
+- **The pricer's legs and independent amounts** (`xva.legs`, `xva.amounts`), read from the synthetic source: a
+  swap has two legs in its currency, an FX forward one in each currency, and about a third of the trades hold an
+  independent amount or two. A leg's currency, PV and notional are edited as any field is, and `reset` and `undo`
+  take an edit back. A leg of the source is taken out by an edit of its own, so `reset` and `undo` bring it back;
+  a leg made in the workspace is removed. A new trade has no leg until one is made.
+- **A trade's PV** (`pv`) is its legs' PVs in the display currency at the workspace's value date, absent where the
+  trade has no leg. `set E00003 pv -350,000 USD` leaves the trade one leg of that amount, in the display currency
+  where none is written; the line says `2 legs replaced by 1 leg, USD` before Enter. `reset E00003 pv` and `undo`
+  bring the legs back. `independent amount` is a figure too, read-only.
+- **Both trade grids show PV**, after B and A, the header naming the currency the page of rows says its PVs are
+  in (`PV (JPY)`). A PV typed in a cell is the same `set`, and a cell committed as it was shown writes nothing.
+  The server sorts by it, and a PV that differs from what the source's legs give is marked against Original, its
+  cell saying what Original held, that no measure reads the legs, and what Price reads instead. The Changes
+  tab lists each leg edited, taken out and made, and resets each; a leg made counts among the workspace's edits.
+- **The AI reads the same**: `tables_describe` says which table is under which and which field is a figure of
+  which, with its unit and how it is written; `tables_read` reads `legs E00003`.
+
+### Verification performed
+
+| What | Result |
+|---|---|
+| `dotnet test server/Qube.slnx` | 1383 passed |
+| Client: `npm run typecheck`, `npm test`, `npm run build` | Clean; 351 passed in 36 files; built |
+| `npx playwright test` (Chromium, headless, Linux), after main's dates and settings were merged in | 107 passed |
+| `python3 tools/validate_handoff.py` | Passed |
+| The PV column, a PV overwritten and the Changes tab at 390, 768, 992 and 1440px, dark and light | Looked at; the column comes into view with the Focus at every width, and the Changes tab's rows wrap at 390px |
+
+The kernel's tests read a table under the stations and a figure of it, registered only for the tests that ask for
+them: the selector by a row's own id and by the row above, a figure read and compared, a figure written
+with and without its unit, the preview's sentence, `new` under a row and `remove`. The pricer's read the source's
+legs, each write of a leg and of a PV with its `undo` and `reset`, the display currency's figure worked by hand
+from the synthetic market, a value date and a counterparty changed under made legs, the Changes tab and the page's
+rows, and one flow over HTTP. One browser test types a PV in a cell, one the server refuses and one left as it was
+shown, overwrites another from the line and takes it back.
+
+The tests of the pricer's write, reset and remove were written from the spec in the same step as their code, so
+no run showed them red first. They were checked afterwards by breaking the code three ways (a leg not taken out,
+a PV not converted, a made leg not removed): seven tests failed, and passed again with the code restored.
+
+### What the review changed
+
+The two reviews of this step (standards and spec) found, and this pull request corrects:
+
+- A PV cell committed as it was shown (F2, Enter) wrote the rounded figure back and left the trade one leg. It
+  writes nothing now.
+- `ia` was a word of the amounts' table and of the trade's field: `remove ia <amount>` was refused as ambiguous
+  with a trade grid behind the line. It is the table's alone.
+- `new leg trade=E00004 …` was refused where `new leg E00004 …` was read. The term typed by its name now names the
+  row above as the first word does.
+- The cell of an overwritten PV named SA-CCR alone as what reads the official PV; the simulated XVA figures read it
+  too, and a new trade's PV Adj. The cell says what Price reads.
+- The PV header took its currency from the workspace's view while the rows came from another answer, so the two
+  could disagree between the answers. Each page of rows says its currency (`pvCurrency`), and the header takes it.
+- A money field registered with nothing it may be in, and a product whose table its application does not
+  register, failed at the first use; they fail when the tables and the products are read.
+- `set all pv` read the workspace's made legs once for each trade; they are read once for a state.
+- The kernel's comments named the pricer's things; the conversion and the reset's rule were each written twice;
+  three helpers had no caller. The independent amount's test recomputed what the code computes, and now holds
+  figures worked by hand; the kernel had no test that a condition compares a figure.
+
+Each behaviour corrected is said in notes 47 to 49 as "Corrected in review", with a test. Left as they are: a
+table under a trade throws for a row it cannot remove, where the kernel has refused already; the spec's `Status`
+line is free text, as the specs of steps 3 and 4 are; and a row read for a measure carries no PV, as it carries no
+cells.
+
+### Providers
+
+Unchanged: every figure of the pricer and of Rates is simulated, and says so. The legs, the independent amounts
+and the market that converts them are synthetic.
+
+### Known limits
+
+- **No measure reads the legs.** The simulated XVA figures and SA-CCR's replacement cost read an existing trade's
+  official PV; a new trade is taken at market, or at its PV Adj where XVA's PV adjustment is on; spot IM reads
+  sensitivities. A PV overwritten changes the grid's PV and nothing Price answers, and the cell of such a PV says
+  so. What Price freezes carries neither the legs nor the PV. Whether a changed PV should
+  reach a measure is the owner's to decide (ADR-0016 note 49; ADR-0010 and ADR-0013 say what a measure reads).
+- A leg's and an independent amount's fields are typed in a command; no grid shows them until the trade's dialog
+  (5c). An independent amount is read and removed, never made or edited.
+- A PV is converted at the synthetic market's rates of the value date, and a leg's currency is one of the four
+  that market has: no other rate, day or source stands in for one.
+- An FX forward's first leg is worked from the official PV at the value date's rates, so it moves with the value
+  date, and an edit of it is then a conflict to resolve, as any edit of a value the source moved.
+- A leg made under a trade that a later value date no longer has stays in the Changes tab until it is reset.
+- A leg made is numbered after the last of the source's and of those the workspace holds, so each overwrite's
+  leg takes the next number: after `set pv` twice on a swap, its leg is the fourth. A made leg removed by `remove`
+  leaves its number to the next leg made, which holds none of its edits.
+- A PV cell is compared with what it showed as text: the same figure typed again is no write, and the same figure
+  with its currency is one.
+- A figure is no cell of `vary`: a case of another PV is not made.
+
 ## Next
 
-1. Generic commands: delivery step 5 (drafts and the detail dialog; the owner is asked the choices of look and
-   behaviour before it starts), then step 6 (saved sequences of edits).
+1. Generic commands: the rest of delivery step 5 (5b templates and the fields the owner's examples show, 5c drafts
+   and the detail dialog, 5d scenarios as a table and `load trades`), then step 6 (saved sequences of edits).
 2. MVA with SIMM (`docs/12-implementation-plan.md` P2): spot IM from the XVA request's MVA option.
 3. ADR-0010 Delivery step 3 (Advanced: Before-only and After-only edits, the split fill), when the owner asks for it.
 4. The owner's review of ADR-0003 §7 (scopes, carry and conflict), then a synthetic source change that can produce a conflict, and the browser cases still open above (reload, failed case unavailable).

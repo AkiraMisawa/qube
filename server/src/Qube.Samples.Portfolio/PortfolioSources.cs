@@ -93,7 +93,26 @@ public sealed record SourceTrade(
     // The IM CSAs the trade is held under (ADR-0012 §2): IM-R and IM-P. A new trade has none of its own: it takes the
     // counterparty's.
     string? ImR = null,
-    string? ImP = null);
+    string? ImP = null)
+{
+    /// <summary>The trade's PV legs as the books hold them (ADR-0016 note 49); a new trade has none, since no book holds it.</summary>
+    public IReadOnlyList<SourceLeg> Legs { get; init; } = [];
+
+    /// <summary>The independent amounts held on the trade (ADR-0016 note 49).</summary>
+    public IReadOnlyList<SourceAmount> Amounts { get; init; } = [];
+}
+
+/// <summary>
+/// One PV leg of a trade as the books hold it (ADR-0016 note 49): its PV and notional in its own currency. Its id is
+/// its trade's, a slash, and its number: <c>T/1</c>.
+/// </summary>
+public sealed record SourceLeg(string LegId, string TradeId, string Currency, decimal Pv, decimal Notional);
+
+/// <summary>
+/// An independent amount held on a trade (ADR-0016 note 49), in its currency, from its start to its end. Its id is its
+/// trade's, a slash, <c>IA</c> and its number, <c>T/IA1</c>, so that no leg and amount of a trade share an id.
+/// </summary>
+public sealed record SourceAmount(string AmountId, string TradeId, string Currency, DateOnly Start, DateOnly End, decimal Value);
 
 /// <summary>The configured baseline profile: the curve an uncollateralised trade starts on (docs/03 §2.4), and the
 /// currency figures are shown in until the user chooses another (ADR-0010 §1).</summary>
@@ -169,6 +188,8 @@ public sealed class PortfolioSourceVersion : ISourceVersion
 
     readonly int existingCount;
     readonly Dictionary<string, SourceTrade> trades;
+    readonly Dictionary<string, SourceLeg> legs;
+    readonly Dictionary<string, SourceAmount> amounts;
 
     public PortfolioSourceVersion(string registrationKey, DateOnly valueDate, int existingCount)
     {
@@ -180,6 +201,8 @@ public sealed class PortfolioSourceVersion : ISourceVersion
         // Drafts the user loaded belong to no counterparty, so they stay through a counterparty change (D07).
         New = [.. Enumerable.Range(1, 3).Select(i => Generate(Registration, $"DRAFT-{i}", true, valueDate)).OfType<SourceTrade>()];
         trades = Existing.Concat(New).ToDictionary(t => t.TradeId);
+        legs = trades.Values.SelectMany(t => t.Legs).ToDictionary(l => l.LegId);
+        amounts = trades.Values.SelectMany(t => t.Amounts).ToDictionary(a => a.AmountId);
         // Each ABC entity has a single name; XYZ Industries, an unrated corporate, is proxied.
         Cds = Registration.Key switch
         {
@@ -248,6 +271,18 @@ public sealed class PortfolioSourceVersion : ISourceVersion
                     _ when field.Contains('.') => new((JsonNode?)null),
                     _ => null,
                 };
+            // A PV leg and an independent amount (ADR-0016 note 49). Each is in the trade until an edit takes it out.
+            case Entity.Leg when legs.GetValueOrDefault(id) is { } leg:
+                return field switch
+                {
+                    "currency" => new(leg.Currency),
+                    "pv" => new(leg.Pv),
+                    "notional" => new(leg.Notional),
+                    Entity.TakenOut => new(false),
+                    _ => null,
+                };
+            case Entity.Amount when amounts.ContainsKey(id):
+                return field == Entity.TakenOut ? new(false) : null;
             case Entity.Csa when CsaOf(id) is { } csa:
                 return field switch
                 {
@@ -324,9 +359,13 @@ public sealed class PortfolioSourceVersion : ISourceVersion
         {
             // Against JPY, or JPY against USD, at the synthetic FX of the day it was traded.
             var counter = currency == "JPY" ? "USD" : "JPY";
-            var counterNotional = Math.Round(notional * PortfolioMarket.UnitsPerGbp(counter, start) / PortfolioMarket.UnitsPerGbp(currency, start), 0);
+            var counterNotional = Math.Round(PortfolioMarket.Converted(notional, currency, counter, start), 0);
             return new(tradeId, isNew, "FXForward", currency, notional, maturity, null, null, null, csa, officialPv,
-                start, buysOrPays ? "buy" : "sell", counter, counterNotional, imR, imP);
+                start, buysOrPays ? "buy" : "sell", counter, counterNotional, imR, imP)
+            {
+                Legs = officialPv is { } held ? ForwardLegs(tradeId, seed, currency, notional, counter, counterNotional, held, valueDate) : [],
+                Amounts = isNew ? [] : AmountsOf(tradeId, seed, currency, notional, start, maturity),
+            };
         }
         var schedule = random.NextDouble() < 0.5 ? "6M" : "3M";
         var fixedRate = Math.Round((decimal)(0.001 + random.NextDouble() * 0.04), 5);
@@ -336,7 +375,39 @@ public sealed class PortfolioSourceVersion : ISourceVersion
         var fixings = since < 0 ? 0 : since / period + 1;
         decimal? lastFixing = isNew ? null : Math.Round((decimal)(0.001 + new Random(seed ^ fixings).NextDouble() * 0.04), 5);
         return new(tradeId, isNew, "IRS", currency, notional, maturity, fixedRate, schedule, lastFixing, csa, officialPv,
-            start, buysOrPays ? "payFixed" : "receiveFixed", ImR: imR, ImP: imP);
+            start, buysOrPays ? "payFixed" : "receiveFixed", ImR: imR, ImP: imP)
+        {
+            Legs = officialPv is { } pv ? SwapLegs(tradeId, seed, currency, notional, pv) : [],
+            Amounts = isNew ? [] : AmountsOf(tradeId, seed, currency, notional, start, maturity),
+        };
+    }
+
+    // The PV legs (ADR-0016 note 49), each drawn from a generator of its own so the trades' other values stay as they
+    // were before the legs existed. A swap's two legs are in its currency and add up to its official PV.
+    static IReadOnlyList<SourceLeg> SwapLegs(string tradeId, int seed, string currency, decimal notional, decimal officialPv)
+    {
+        var first = Math.Round((decimal)(new Random(seed ^ 0x1b873593).NextDouble() - 0.5) * notional * 0.2m, 0);
+        return [new($"{tradeId}/1", tradeId, currency, first, notional), new($"{tradeId}/2", tradeId, currency, officialPv - first, notional)];
+    }
+
+    // An FX forward has a leg in each currency. The second is a whole amount of its own currency; the first is what is
+    // left of the official PV at the value date's rate, to the cent, so the two add up to it to the unit.
+    static IReadOnlyList<SourceLeg> ForwardLegs(string tradeId, int seed, string currency, decimal notional, string counter, decimal counterNotional, decimal officialPv,
+        DateOnly valueDate)
+    {
+        var second = Math.Round((decimal)(new Random(seed ^ 0x1b873593).NextDouble() - 0.5) * counterNotional * 0.2m, 0);
+        var first = Math.Round(officialPv - PortfolioMarket.Converted(second, counter, currency, valueDate), 2);
+        return [new($"{tradeId}/1", tradeId, currency, first, notional), new($"{tradeId}/2", tradeId, counter, second, counterNotional)];
+    }
+
+    // About one existing trade in three holds an independent amount, a few of them two, in the trade's currency over
+    // its life. Illustrative, as every figure here.
+    static IReadOnlyList<SourceAmount> AmountsOf(string tradeId, int seed, string currency, decimal notional, DateOnly start, DateOnly maturity)
+    {
+        var random = new Random(seed ^ 0x3c6ef372);
+        var count = random.NextDouble() < 0.35 ? random.NextDouble() < 0.3 ? 2 : 1 : 0;
+        return [.. Enumerable.Range(1, count).Select(n =>
+            new SourceAmount($"{tradeId}/IA{n}", tradeId, currency, start, maturity, Math.Round(notional * (decimal)(0.005 + random.NextDouble() * 0.02), 0)))];
     }
 
     static int Seed(string text)
@@ -353,6 +424,13 @@ public static class Entity
 {
     public const string Trade = "trade";
     public const string Csa = "csa";
+    /// <summary>A PV leg of a trade, <c>leg:&lt;trade id&gt;/&lt;n&gt;</c> (ADR-0016 note 49): the source's, or one the workspace made.</summary>
+    public const string Leg = "leg";
+    /// <summary>An independent amount held on a trade, <c>ia:&lt;trade id&gt;/IA&lt;n&gt;</c> (ADR-0016 note 49).</summary>
+    public const string Amount = "ia";
+    /// <summary>The field whose edit takes a leg or an independent amount the source holds out of its trade, so that a
+    /// reset or an undo brings it back.</summary>
+    public const string TakenOut = "out";
     public const string Netting = "netting";
     /// <summary>A trade grid as a whole, <c>grid:new</c> or <c>grid:existing</c>: B or A set for every row by one edit.</summary>
     public const string Grid = "grid";
@@ -378,6 +456,13 @@ public static class Entity
     public static readonly string WorkspaceSettings = Of(Settings, WorkspaceId);
 
     public static string Of(string kind, string id) => $"{kind}:{id}";
+
+    /// <summary>The trade a leg or an independent amount is under: its id up to the last slash.</summary>
+    public static string TradeOf(string id)
+    {
+        var at = id.LastIndexOf('/');
+        return at > 0 ? id[..at] : throw new ArgumentException($"'{id}' names no row under a trade.");
+    }
 
     public static (string Kind, string Id) Split(string entity)
     {
@@ -409,4 +494,7 @@ public static class PortfolioMarket
     }
 
     public static decimal ToGbp(decimal amount, string currency, DateOnly valueDate) => amount / UnitsPerGbp(currency, valueDate);
+
+    /// <summary>An amount of one currency in another, at the value date's synthetic rates.</summary>
+    public static decimal Converted(decimal amount, string from, string to, DateOnly valueDate) => amount * UnitsPerGbp(to, valueDate) / UnitsPerGbp(from, valueDate);
 }

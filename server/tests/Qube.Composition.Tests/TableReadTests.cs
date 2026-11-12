@@ -18,9 +18,9 @@ public class TableReadTests
         public CommandService Commands { get; }
         public string Id { get; }
 
-        public Rig(TableDescriptor? stations = null)
+        public Rig(TableDescriptor? stations = null, bool sensors = false)
         {
-            var tables = new TableService(new TableRegister([new Stations.Catalog(stations)]), Workspaces);
+            var tables = new TableService(new TableRegister([new Stations.Catalog(stations, sensors)]), Workspaces);
             Registry = new CompositionRegistry([new TablesModule(() => tables), new WorkspaceCommandsModule(() => Workspaces)]);
             Commands = new CommandService(Registry, new InMemoryDataStore());
             Id = Stations.Board(Workspaces).WorkspaceId;
@@ -307,5 +307,20 @@ public class TableReadTests
             new Dictionary<string, Binding> { ["rows"] = new OutputBinding("read", "answer") });
 
         Assert.Contains(new CompositionValidator(rig.Registry).Validate(workflow), i => i.Code == "CommandAsStep");
+    }
+
+    [Fact] // ADR-0016 notes 46 and 47: a description says the table a table is under, and of a figure its table, its unit and how a write of it is written
+    public async Task A_description_says_what_a_table_is_under_and_what_a_figure_is_of()
+    {
+        var rig = new Rig(sensors: true);
+
+        var answer = await rig.Done("tables.describe", new JsonObject());
+
+        var sensors = answer["tables"]!.AsArray().Single(t => Text(t!, "table") == Stations.Sensors)!;
+        Assert.Equal(Stations.Sites, Text(sensors, "under"));
+        Assert.Null(answer["tables"]!.AsArray().Single(t => Text(t!, "table") == Stations.Sites)!["under"]);
+        var load = answer["fields"]!.AsArray().Single(f => Text(f!, "table") == Stations.Sites && Text(f!, "name") == "load")!;
+        Assert.Equal((Stations.Sensors, "M3", "a number, alone or followed by what it is in: M3 or GAL"), (Text(load, "figureOf"), Text(load, "unit"), Text(load, "written")));
+        rig.Meets("tables.describe", answer);
     }
 }

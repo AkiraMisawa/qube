@@ -16,7 +16,7 @@ const sideways = (page: Page) => page.evaluate(() => document.documentElement.sc
 
 // The New grid's columns while CVA and spot IM are selected: the assignments, IM-R and IM-P beside the CSA, B and A,
 // XVA's PV01, Margin and PV Adj, then spot IM's scopes (ADR-0010 §6, ADR-0012 §3).
-const COLUMN = { imR: 10, imP: 11, scopes: 17 } as const;
+const COLUMN = { imR: 10, imP: 11, scopes: 18 } as const;
 
 /** Puts the New grid's Focus on a cell of its first row, `right` columns from the first. */
 async function focusCell(page: Page, right: number): Promise<void> {

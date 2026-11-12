@@ -1,5 +1,6 @@
 using System.Text.Json.Nodes;
 using Qube.Composition.Application;
+using Qube.Composition.Application.Products;
 using Qube.Composition.Application.Tables;
 using Qube.Composition.Application.Workspaces;
 
@@ -14,6 +15,7 @@ static class Stations
     public const string Readings = "weather.readings";
     public const string Sites = "weather.stations";
     public const string Settings = "weather.settings";
+    public const string Sensors = "weather.sensors";
 
     static readonly IReadOnlyDictionary<string, string> Station = new Dictionary<string, string> { ["north"] = "NORTH", ["n"] = "NORTH", ["south"] = "SOUTH", ["east"] = "EAST" };
     static readonly IReadOnlyDictionary<string, string> Units = new Dictionary<string, string> { ["m3"] = "M3", ["gal"] = "GAL" };
@@ -52,6 +54,23 @@ static class Stations
         new("backup", "Backup", ["backup"], FieldForm.Id, Editable: true, Optional: true, Table: Sites),
     ], [High, Staffed]);
 
+    // A table under the stations (ADR-0016 note 46): a station's sensors, each keyed by its station and its own number,
+    // and the station's load, a figure of them written with the unit it is in (note 47). Registered only where a test
+    // asks for them (`Catalog(sensors: true)`), so that no other test's sentences list them.
+    public static readonly TableDescriptor SensorsTable = new(Sensors, "1.0", App, "Sensors", ["sensors", "sensor"], "id",
+    [
+        new("id", "Sensor", ["id"], FieldForm.Id),
+        new("station", "Station", ["station"], FieldForm.Id, Table: Sites),
+        new("kind", "Kind", ["kind"], FieldForm.Id, Editable: true),
+        new("load", "Load", ["load"], FieldForm.Number, Editable: true, UnitField: "unit"),
+        new("unit", "Unit", ["unit"], FieldForm.Choice, Editable: true, Choices: Units),
+    ], [], Under: Sites);
+
+    public static readonly TableDescriptor SitesWithSensors = SitesTable with
+    {
+        Fields = [.. SitesTable.Fields, new("load", "Load", ["load"], FieldForm.Number, Editable: true, Unit: "M3", Figure: new(Sensors, new(FieldForm.Money, Choices: Units)))],
+    };
+
     public static readonly TableDescriptor SettingsTable = new(Settings, "1.0", App, "Board settings", ["settings", "board"], "id",
     [
         new("id", "Settings", ["id"], FieldForm.Id),
@@ -83,6 +102,9 @@ static class Stations
             KeyValuePair.Create("station:S1", new JsonObject { ["id"] = "S1", ["subset"] = "manual", ["altitude"] = 15m, ["backup"] = "N1" }),
             // A station that shares its id with a reading, so an id alone cannot say which table it means.
             KeyValuePair.Create("station:X1", new JsonObject { ["id"] = "X1", ["altitude"] = 40m, ["backup"] = null }),
+            KeyValuePair.Create("sensor:N1/1", new JsonObject { ["id"] = "N1/1", ["station"] = "N1", ["kind"] = "rain", ["load"] = 40m, ["unit"] = "M3", ["out"] = false }),
+            KeyValuePair.Create("sensor:N1/2", new JsonObject { ["id"] = "N1/2", ["station"] = "N1", ["kind"] = "wind", ["load"] = 25m, ["unit"] = "M3", ["out"] = false }),
+            KeyValuePair.Create("sensor:S1/1", new JsonObject { ["id"] = "S1/1", ["station"] = "S1", ["kind"] = "rain", ["load"] = 10m, ["unit"] = "GAL", ["out"] = false }),
             KeyValuePair.Create("settings:board", new JsonObject { ["id"] = "board", ["alarm"] = 10_000_000m, ["daylight"] = true }),
             // A whole subset's field, set by one edit: it has no value of its own until one is made.
             KeyValuePair.Create("readings:manual", new JsonObject { ["checked"] = null }),
@@ -106,7 +128,7 @@ static class Stations
 
     public static EditTarget Target(string entity, string field) => new(Scope, entity, field);
 
-    sealed record Row(string Entity, string Key, string? Subset, IReadOnlyDictionary<string, JsonNode?> Values) : ITableRow
+    sealed record Row(string Entity, string Key, string? Subset, IReadOnlyDictionary<string, JsonNode?> Values, string? Under = null) : ITableRow
     {
         public JsonNode? Value(string field) => Values.TryGetValue(field, out var value) ? value : throw new InvalidOperationException($"{Key} has no {field}.");
     }
@@ -122,8 +144,20 @@ static class Stations
             var latest = own is null ? whole : whole is null || own.Seq > whole.Seq ? own : whole;
             return latest is null ? f.Value?.DeepClone() : latest.Value?.DeepClone();
         });
-        return new Row(entity, values["id"]!.GetValue<string>(), subset, values);
+        // A sensor is under its station.
+        return new Row(entity, values["id"]!.GetValue<string>(), subset, values, entity.StartsWith("sensor:", StringComparison.Ordinal) ? values["station"]!.GetValue<string>() : null);
     }
+
+    // A station's sensors as they stand: those sent that no edit took out, and those made on the board.
+    static IReadOnlyList<ITableRow> SensorsOf(WorkspaceState state, string station) =>
+        [.. RowsOf(state, "sensor").Where(r => r.Under == station && !r.Value("out")!.GetValue<bool>())];
+
+    // A sensor's load in cubic metres: the unit a station's load is said in. A gallon here is four of them.
+    static decimal InM3(ITableRow sensor) => sensor.Value("load")!.GetValue<decimal>() * (sensor.Value("unit")!.GetValue<string>() == "GAL" ? 4m : 1m);
+
+    // A station with its load, the figure of its sensors (ADR-0016 note 47).
+    static ITableRow WithLoad(WorkspaceState state, Row station) =>
+        station with { Values = new Dictionary<string, JsonNode?>(station.Values) { ["load"] = SensorsOf(state, station.Key).Sum(InM3) } };
 
     static IReadOnlyList<ITableRow> RowsOf(WorkspaceState state, string kind) =>
     [
@@ -136,7 +170,10 @@ static class Stations
         public string TableId => descriptor.TableId;
         public string App => Stations.App;
         public TableDescriptor Describe(WorkspaceState state) => descriptor;
-        public IReadOnlyList<ITableRow> Rows(WorkspaceState state) => RowsOf(state, kind);
+        public IReadOnlyList<ITableRow> Rows(WorkspaceState state) =>
+            kind == "sensor" ? [.. RowsOf(state, kind).Where(r => !r.Value("out")!.GetValue<bool>())]
+            : descriptor.Fields.Any(f => f.Figure is not null) ? [.. RowsOf(state, kind).Select(r => WithLoad(state, (Row)r))]
+            : RowsOf(state, kind);
 
         // The readings have a reader that pages them in an order, as a grid's does; the other tables have none. Unsorted,
         // the order is the source's and no edit moves it; sorted, any edit may.
@@ -153,8 +190,25 @@ static class Stations
         }
         public DateOnly? AsOf(WorkspaceState state) => DateOnly.ParseExact(state.Context["day"]!.GetValue<string>(), "yyyy-MM-dd");
 
+        // A station's load written (ADR-0016 note 47): the station is left one sensor of that load, in the unit written
+        // or in cubic metres. A station that holds that one sensor alone is left as it is.
+        IReadOnlyList<WorkspaceChange> SetLoad(WorkspaceState state, ITableRow station, JsonNode value)
+        {
+            var (load, unit) = (value["amount"]!.GetValue<decimal>(), value["unit"]?.GetValue<string>() ?? "M3");
+            var held = SensorsOf(state, station.Key);
+            if (held is [var one] && one.Value("load")!.GetValue<decimal>() == load && one.Value("unit")!.GetValue<string>() == unit) return [];
+            var last = Entities.Keys.Concat(state.Created.Keys).Where(e => e.StartsWith($"sensor:{station.Key}/", StringComparison.Ordinal)).Select(e => int.Parse(e[(e.IndexOf('/') + 1)..])).DefaultIfEmpty(0).Max();
+            var id = $"{station.Key}/{last + 1}";
+            return [.. held.Select(s => TakenOut(state, s)),
+                new WorkspaceChange.Create(Scope, $"sensor:{id}", new JsonObject { ["id"] = id, ["station"] = station.Key, ["kind"] = "all", ["load"] = load, ["unit"] = unit, ["out"] = false })];
+        }
+
+        public string? SetSays(WorkspaceState state, ITableRow row, TableField field, JsonNode? value) =>
+            field.Figure is null ? null : $"{TableWords.Counted(SensorsOf(state, row.Key).Count, "sensor")} replaced by 1 sensor, {value!["unit"]?.GetValue<string>() ?? "M3"}";
+
         public IReadOnlyList<WorkspaceChange> Set(WorkspaceState state, ITableRow row, TableField field, JsonNode? value)
         {
+            if (field.Figure is not null) return SetLoad(state, row, value!);
             // The domain's own rule, which no form says: a tank holds so much.
             if (field.Name == "volume" && value!.GetValue<decimal>() > 50_000_000m)
                 throw new WorkspaceRefused("InvalidValue", $"{row.Key} holds at most 50mm.", [Target(((Row)row).Entity, field.Name)]);
@@ -168,20 +222,87 @@ static class Stations
             kind == "reading" && field.Name == "checked" ? [new WorkspaceChange.Set(Target($"readings:{subset.Name}", field.Name), value)] : null;
 
         public IReadOnlyList<WorkspaceChange> Reset(WorkspaceState state, ITableRow row, TableField? field) =>
-            [.. (field is null ? descriptor.Fields : [field]).Select(f => Target(((Row)row).Entity, f.Name)).Where(state.Overrides.ContainsKey).Select(t => new WorkspaceChange.Reset(t))];
+        [
+            .. (field is null ? descriptor.Fields : [field]).Where(f => f.Figure is null).Select(f => Target(((Row)row).Entity, f.Name)).Where(state.Overrides.ContainsKey).Select(t => new WorkspaceChange.Reset(t)),
+            // A station's load reset is its sensors as they were sent: every edit of theirs gone, and those made on the board with them.
+            .. (field is null ? descriptor.Fields : [field]).Where(f => f.Figure is not null).SelectMany(_ => (IEnumerable<WorkspaceChange>)
+            [
+                .. state.Overrides.Keys.Where(t => t.Entity.StartsWith($"sensor:{row.Key}/", StringComparison.Ordinal)).OrderBy(t => t.Entity, StringComparer.Ordinal).ThenBy(t => t.Field, StringComparer.Ordinal)
+                    .Select(t => new WorkspaceChange.Reset(t)),
+                .. state.Created.Keys.Where(e => e.StartsWith($"sensor:{row.Key}/", StringComparison.Ordinal)).Order(StringComparer.Ordinal).Select(e => new WorkspaceChange.Remove(e)),
+            ]),
+        ];
 
         public IReadOnlyList<WorkspaceChange> ResetAll(WorkspaceState state, TableSubset subset, TableField? field) =>
             [.. (field is null ? descriptor.Fields : [field]).Select(f => Target($"readings:{subset.Name}", f.Name)).Where(state.Overrides.ContainsKey).Select(t => new WorkspaceChange.Reset(t))];
 
+        // A sensor made on the board is removed; one that was sent is taken out by an edit of its own, which a reset or
+        // an undo takes back.
+        static WorkspaceChange TakenOut(WorkspaceState state, ITableRow sensor) =>
+            state.Created.ContainsKey(((Row)sensor).Entity) ? new WorkspaceChange.Remove(((Row)sensor).Entity) : new WorkspaceChange.Set(Target(((Row)sensor).Entity, "out"), true);
+
         public IReadOnlyList<WorkspaceChange> Remove(WorkspaceState state, ITableRow row) =>
             state.Created.ContainsKey(((Row)row).Entity) ? [new WorkspaceChange.Remove(((Row)row).Entity)]
+                : kind == "sensor" ? [TakenOut(state, row)]
                 : throw new WorkspaceRefused("NotRemovable", $"{row.Key} is a reading a station sent, and stays; set {row.Key} checked off leaves it out.");
     }
 
-    /// <summary>The three tables; <paramref name="stations"/> describes the stations another way, for a registration that is at fault.</summary>
-    public sealed class Catalog(TableDescriptor? stations = null) : ITableCatalog
+    static readonly IReadOnlyDictionary<string, string> Kinds = new Dictionary<string, string> { ["rain"] = "rain", ["wind"] = "wind", ["all"] = "all" };
+
+    /// <summary>
+    /// A sensor as <c>new</c> makes one (ADR-0016 note 48): a described product whose entities are rows of the sensors,
+    /// each made under the station its term <c>station</c> names.
+    /// </summary>
+    public static readonly ProductDescriptor SensorProduct = new("weather.sensor", "1.0", App, Scope, "sensor", "Sensor",
+    [
+        new("station", "Station", FieldForm.Id, Required: true),
+        new("kind", "Kind", FieldForm.Choice, Required: true, Unnamed: true, Choices: Kinds),
+        new("load", "Load", FieldForm.Number, Required: true, Unnamed: true),
+        new("unit", "Unit", FieldForm.Choice, Required: true, Unnamed: true, Choices: Units),
+    ], Table: Sensors, Under: "station");
+
+    /// <summary>The sensor, or as <paramref name="sensor"/> describes it, for a description that is at fault.</summary>
+    public sealed class Products(ProductDescriptor? sensor = null) : IProductCatalog
     {
-        public IEnumerable<IWorkspaceTable> Tables => [new Table(ReadingsTable, "reading"), new Table(stations ?? SitesTable, "station"), new Table(SettingsTable, "settings")];
+        IEnumerable<ProductDescriptor> IProductCatalog.Products => [sensor ?? SensorProduct];
+    }
+
+    /// <summary>What the sensor's description cannot say: its station is one of the board's, and its number follows the station's last.</summary>
+    public sealed class SensorRules(WorkspaceService service) : IProductRules
+    {
+        public string ProductId => SensorProduct.Id;
+
+        public IReadOnlyDictionary<string, ProductDefault> Defaults(WorkspaceState workspace, IReadOnlyDictionary<string, JsonNode?> given) => new Dictionary<string, ProductDefault>();
+
+        public string WouldCreate(WorkspaceState workspace, IReadOnlyDictionary<string, JsonNode?> terms)
+        {
+            var station = terms["station"]!.GetValue<string>();
+            if (!Entities.ContainsKey($"station:{station}")) throw new ProductTermsRefused([new("UnknownStation", "station", $"No station {station}.")]);
+            var last = Entities.Keys.Concat(workspace.Created.Keys).Where(e => e.StartsWith($"sensor:{station}/", StringComparison.Ordinal)).Select(e => int.Parse(e[(e.IndexOf('/') + 1)..])).DefaultIfEmpty(0).Max();
+            return $"{station}/{last + 1}";
+        }
+
+        public (WorkspaceState State, string Entity) Create(string workspaceId, long? revision, string user, IReadOnlyDictionary<string, JsonNode?> terms, IReadOnlyDictionary<string, string> sources, RunOrigin origin)
+        {
+            var board = service.Find(workspaceId) ?? throw new WorkspaceRefused("UnknownWorkspace", $"No board {workspaceId}.");
+            var id = WouldCreate(board, terms);
+            var fields = new JsonObject { ["id"] = id, ["station"] = terms["station"]!.GetValue<string>(), ["kind"] = terms["kind"]!.GetValue<string>(), ["load"] = FieldForms.Held(terms["load"]!), ["unit"] = terms["unit"]!.GetValue<string>(), ["out"] = false };
+            return (service.Create(workspaceId, revision ?? board.Revision, user, Scope, $"sensor:{id}", fields, origin), id);
+        }
+    }
+
+    /// <summary>
+    /// The three tables; <paramref name="stations"/> describes the stations another way, for a registration that is at
+    /// fault; with <paramref name="sensors"/>, the sensors under the stations too, and each station's load, a figure of
+    /// them, or the sensors as <paramref name="sensorsAs"/> describes them.
+    /// </summary>
+    public sealed class Catalog(TableDescriptor? stations = null, bool sensors = false, TableDescriptor? sensorsAs = null) : ITableCatalog
+    {
+        public IEnumerable<IWorkspaceTable> Tables =>
+        [
+            new Table(ReadingsTable, "reading"), new Table(stations ?? (sensors ? SitesWithSensors : SitesTable), "station"), new Table(SettingsTable, "settings"),
+            .. sensors || sensorsAs is not null ? [new Table(sensorsAs ?? SensorsTable, "sensor")] : Array.Empty<IWorkspaceTable>(),
+        ];
     }
 
     // The board's short forms (ADR-0016 note 29): `tick` marks a grid's readings as checked, the grid typed or the one

@@ -18,9 +18,10 @@ async function focusCell(page: Page, right: number): Promise<void> {
 
 // The CSA's column in the New grid, which has no last fixing (ADR-0010 §6).
 const CSA = 7;
-// XVA's columns in the New grid, after B and A (ADR-0010 §6), by the grid's own 1-based column index: the grid draws
-// the columns in view, so a cell is found by its column, not by how many cells are drawn before it.
-const XVA = { pv01: 12, margin: 13, pvAdj: 14 } as const;
+// XVA's columns in the New grid, after B and A and the trade's PV (ADR-0010 §6, ADR-0016 note 49), by the grid's own
+// 1-based column index: the grid draws the columns in view, so a cell is found by its column, not by how many cells
+// are drawn before it.
+const XVA = { pv01: 13, margin: 14, pvAdj: 15 } as const;
 const cell = (page: Page, id: string, column: number) => trade(page, id).locator(`[aria-colindex="${column}"]`);
 /** What the open line says of its chain (ADR-0016 §9, note 24): the last it draws, a line that ran as `› <line>` and a notice as its sentence. */
 const saidIn = (page: Page) => page.getByTestId('command-said').locator('[data-kind]');
@@ -1165,7 +1166,7 @@ test('ADR-0016 §2, §9, notes 16, 17, 19: the CSA grid is a screen of the CSAs,
   await expect(line).toBeFocused();
   await page.keyboard.type('set threshold 5mm');
   // With no rows on screen `threshold` is no field of theirs: the first word is read as a row, as it always was.
-  await expect(read).toHaveText('No row threshold in trades, csas, netting, credit, cds, workspace or xva.');
+  await expect(read).toHaveText('No row threshold in trades, legs, independent amounts, csas, netting, credit, cds, workspace or xva.');
   await expect(screen).toHaveCount(0);
 });
 
@@ -2544,4 +2545,71 @@ test('ADR-0016 notes 43 and 44: in the CSA grid, whose page holds every CSA, `se
   await expect(line).toBeHidden();
   await expect(notice).toHaveText('Copied 2 rows of csas, 2 fields: csa id, currency, with headers.');
   expect(await page.evaluate(() => navigator.clipboard.readText())).toMatch(/^csa id\tcurrency\r\nCSA-A\t[A-Z]{3}\r\nCSA-B\tUSD$/);
+});
+
+test('ADR-0016 notes 46 to 49: each trade grid shows PV in the display currency, a PV typed in a cell leaves the trade one leg, and the line says the legs it replaces before Enter', async ({ page, problems }) => {
+  await open(page);
+  await newWorkspace(page, 'ABC/LE-01', 5);
+  const header = (grid: string) => page.getByLabel(grid, { exact: true }).getByRole('columnheader', { name: 'PV (JPY) Column menu', exact: true });
+  const line = page.getByRole('combobox', { name: 'Command' });
+  const swap = 'ABC-LE-01-E00004';
+  // CVA and FVA ask for no trade field of their own, so the assignments are the CSA and its curve alone.
+  await taken(page, 'measures', 'cva fva');
+  await settled(page, 'New trades');
+
+  // PV stands after B and A, the New grid's twelfth column, and its header names the display currency. The grid draws
+  // the columns in view, so it is read once the Focus has brought it there.
+  await focusCell(page, 11);
+  await expect(header('New trades')).toBeVisible();
+  // A new trade has no leg, so no PV. Typed with its currency, the PV is one leg's, shown in yen at the synthetic
+  // market's 188.1 yen and 1.1583 euro to the pound.
+  await expect(cell(page, 'DRAFT-1', 12)).toHaveText('');
+  // A PV the server cannot read is not written, and the page says so with the server's sentence.
+  await page.keyboard.type('lots');
+  await page.keyboard.press('Enter');
+  await expect(page.getByTestId('notice')).toHaveText('The PV of DRAFT-1 was not written: DRAFT-1 pv is a number, alone or followed by what it is in: GBP, JPY, USD or EUR; lots is not.');
+  await expect(cell(page, 'DRAFT-1', 12)).toHaveText('');
+  // The browser logs the refused request, and nothing else.
+  expect(problems.splice(0)).toEqual(['error: Failed to load resource: the server responded with a status of 422 (Unprocessable Entity)']);
+  await focusCell(page, 11);
+  await page.keyboard.type('250,000 EUR');
+  await page.keyboard.press('Enter');
+  await expect(cell(page, 'DRAFT-1', 12)).toHaveText('40,598,291');
+
+  // The Existing grid has a last fixing and an official PV, so PV is its fourteenth column. This yen swap's two legs
+  // are in yen and add up to the books' PV.
+  await taken(page, 'go', 'existing');
+  await taken(page, 'find', 'E00004 pv');
+  await expect(page.getByTestId('notice')).toHaveText(`The keyboard is on ${swap} · pv in trades (existing).`);
+  await expect(header('Existing trades')).toBeVisible();
+  await expect(cell(page, swap, 14)).toHaveText('14,286,696');
+  // The cell shows the two legs in one figure. Committed as it stands, it writes nothing: the two legs stay, which the
+  // line's preview below and the count of edits after `undo` both say.
+  await page.keyboard.press('F2');
+  await page.keyboard.press('Enter');
+
+  // The line says what the overwrite does to the legs before Enter (note 47), and the grid shows the one leg's
+  // dollars in yen, at 1.2573 dollars to the pound, red as a negative amount is.
+  await page.keyboard.press('ControlOrMeta+K');
+  await expect(line).toBeFocused();
+  await page.keyboard.type('set E00004 pv -350,000 USD');
+  await expect(page.getByTestId('command-preview')).toContainText('pv: 2 legs replaced by 1 leg, USD');
+  await expect(cell(page, swap, 14)).toHaveText('14,286,696');
+  await page.keyboard.press('Enter');
+  await expect(line).toBeHidden();
+  await expect(page.getByTestId('notice')).toHaveText(`Set ${swap} pv to -350000 USD.`);
+  await expect(cell(page, swap, 14)).toHaveText('-52,362,205');
+  await expect(cell(page, swap, 14)).toHaveClass(/ex-tone-negative/);
+  await expect(cell(page, swap, 14)).toHaveClass(/ex-state-modified/);
+
+  // `undo` brings the two legs back, and with them the PV.
+  await page.keyboard.press('ControlOrMeta+K');
+  await expect(line).toBeFocused();
+  await page.keyboard.type('undo');
+  await page.keyboard.press('Enter');
+  await expect(line).toBeHidden();
+  await expect(cell(page, swap, 14)).toHaveText('14,286,696');
+  await expect(cell(page, swap, 14)).not.toHaveClass(/ex-state-modified/);
+  // One edit is left, the new trade's leg: the swap's cell committed as it stood made none.
+  await expect(page.getByTestId('workspace-summary')).toContainText('1 edit(s)');
 });

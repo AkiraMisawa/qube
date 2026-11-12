@@ -7,6 +7,7 @@ using System.Text;
 using System.Text.Json.Nodes;
 using Qube.Composition.Application;
 using Qube.Composition.Application.Saved;
+using Qube.Composition.Application.Products;
 using Qube.Composition.Application.Tables;
 using Qube.Composition.Application.Settings;
 using Qube.Composition.Application.Workspaces;
@@ -23,11 +24,13 @@ public sealed record ScenarioSetView(string Label, string Name, string Owner, Sa
 public sealed record RowSort(string Column, string Direction);
 
 /// <summary>One page of effective rows, in the shape ExGrid's fetching source takes (ADR-0003 §4).</summary>
+/// <param name="PvCurrency">The currency every row's PV is in, the display currency as the page was read (ADR-0016 note 49): a header that names it
+/// takes it from the page whose rows it stands over, never from another reading of the workspace.</param>
 /// <param name="Of">How many rows the grid has with no conditions, where the page was read under some (ADR-0016 note 41 of step 4); none where it was not.</param>
-public sealed record RowPage(IReadOnlyList<EffectiveTrade> Rows, int Start, int TotalCount, string OrderToken, long Revision, int? Of = null);
+public sealed record RowPage(IReadOnlyList<EffectiveTrade> Rows, int Start, int TotalCount, string OrderToken, long Revision, string PvCurrency, int? Of = null);
 
-/// <summary>What the workspace panel shows beside the grid. <c>Overrides</c> counts the edits to the portfolio's data;
-/// the selection of measures is the page's choice, shown on its own. <c>TradeColumns</c> are the selected modules'
+/// <summary>What the workspace panel shows beside the grid. <c>Overrides</c> counts the edits to the portfolio's data,
+/// a leg made under a trade among them (ADR-0016 note 49); the selection of measures is the page's choice, shown on its own. <c>TradeColumns</c> are the selected modules'
 /// (ADR-0010 §10), as are the shared tabs' <c>Inputs</c> they need, and <c>PendingCells</c> counts their cells on the new trades still waiting for a result, so the page
 /// asks again while any is. <c>DisplayCurrency</c> is the workspace's setting, <c>DisplayCurrencyFrom</c> where it came
 /// from (<c>settings</c>, <c>workspace</c> or <c>profile</c>, ADR-0017 §3), and <c>Simulated</c> names the modules whose
@@ -218,7 +221,7 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
             .Select(r => new RunLink(r.RunId, r.Relations.WorkspaceRevision ?? throw new InvalidOperationException($"Run {r.RunId} names a workspace but no revision.")))
             .ToList();
         return new(state.WorkspaceId, state.Revision, state.Context, source.Version, source.Registration, source.Agreement,
-            register.WithMembership(state, PortfolioMaterialiser.Csas(state)), PortfolioMaterialiser.Credit(state), Rows(state).Count, Rows(state).Count(t => t.IsNew), Rows(state).Count(t => t.Before), Rows(state).Count(t => t.After), state.Overrides.Keys.Count(t => t.Scope != PortfolioEditRules.WorkspaceScope),
+            register.WithMembership(state, PortfolioMaterialiser.Csas(state)), PortfolioMaterialiser.Credit(state), Rows(state).Count, Rows(state).Count(t => t.IsNew), Rows(state).Count(t => t.Before), Rows(state).Count(t => t.After), Edits(state, raw),
             // Every edit held back is the user's to resolve, a case's among them.
             [.. raw.Conflicts.Values.OrderBy(c => c.Override.Seq).Select(c => new HeldEdit(c.Override.Target.Scope, c.Override.Target.Entity, c.Override.Target.Field, c.Override.Value, c.Source, false, CaseIdOf(c.Override.Target)))],
             [.. raw.Lost.Values.OrderBy(l => l.Override.Seq).Select(l => new HeldEdit(l.Override.Target.Scope, l.Override.Target.Entity, l.Override.Target.Field, l.Override.Value, null, l.Acknowledged, CaseIdOf(l.Override.Target)))],
@@ -226,7 +229,7 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
             [.. register.TradeColumns.Where(c => register.Selected(state).Any(m => m.Id == c.Module))], register.Inputs(state),
             register.WithCells(state, [.. Rows(state).Where(t => t.IsNew)]).Sum(t => t.Cells?.Values.Count(c => c.State == TradeCell.Pending) ?? 0),
             PortfolioMaterialiser.DisplayCurrency(state), PortfolioMaterialiser.DisplayCurrencyFrom(state), PortfolioMarket.Currencies, [.. register.Selected(state).Where(m => m.Simulated).Select(m => m.Id)],
-            PortfolioCases.All(raw), DataEdits(raw).Count(), PortfolioScenarios.All(raw), PortfolioScenarios.Rows(raw), register.Settings(state));
+            PortfolioCases.All(raw), DataEdits(raw).Count() + PortfolioLegs.Made(raw).Count, PortfolioScenarios.All(raw), PortfolioScenarios.Rows(raw), register.Settings(state));
     }
 
     /// <summary>
@@ -411,6 +414,13 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
 
     // The edits to the portfolio's data in any layer, as the Changes tab counts them: the selection, the display currency
     // and the scenarios are the page's, shown on their own; a module's settings are inputs and listed (ADR-0010 §8).
+    /// <summary>
+    /// How many edits the workspace holds, as its summary says them: each value written over the source's, and each
+    /// leg made under a trade (ADR-0016 note 49), which is what a PV typed for a trade with no leg leaves.
+    /// </summary>
+    static int Edits(WorkspaceState state, WorkspaceState raw) =>
+        state.Overrides.Keys.Count(t => t.Scope != PortfolioEditRules.WorkspaceScope) + PortfolioLegs.Made(raw).Count;
+
     IEnumerable<Override> DataEdits(WorkspaceState raw) =>
         raw.Overrides.Values.Concat(raw.Conflicts.Values.Select(c => c.Override)).Concat(raw.Lost.Values.Select(l => l.Override))
             .Where(o => o.Target.Scope != PortfolioEditRules.WorkspaceScope || register.SettingsOf(o.Target.Entity) is not null);
@@ -439,6 +449,19 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
                 return new(t.Entity, t.Field, CaseIdOf(t), $"{cell.Row} {cell.Column}", o.Value?.DeepClone(), PortfolioCells.Write(cell, o.Value), was?.DeepClone(), PortfolioCells.Write(cell, was),
                     state, state == "set" && !(t.Layer is { } layer && whole.Contains(layer)));
             }
+            // A leg or an independent amount (ADR-0016 note 49), named as the log names it; one taken out says so. Its
+            // value is typed in a command or in the trade's dialog, never here.
+            if (Entity.Split(t.Entity).Kind is Entity.Leg or Entity.Amount)
+            {
+                var named = PortfolioLegs.Named(t.Entity);
+                var held = raw.SourceOf(t).Read(t.Entity, t.Field)?.Value;
+                // A row the source no longer has holds nothing to say of it; the edit is listed to be removed.
+                if (t.Field == Entity.TakenOut)
+                    return new(t.Entity, t.Field, null, named, o.Value?.DeepClone(), PortfolioLegs.TakenOutSays(o.Value, t.Entity), held?.DeepClone(),
+                        held is null ? "not in the source" : PortfolioLegs.TakenOutSays(held, t.Entity), state, false);
+                var spec = PortfolioFields.Leg.Single(f => f.Name == t.Field).Spec;
+                return new(t.Entity, t.Field, null, $"{named} {t.Field}", o.Value?.DeepClone(), FieldForms.Write(spec, o.Value), held?.DeepClone(), FieldForms.Write(spec, held), state, false);
+            }
             // A whole grid's B or A (ADR-0010 §6): every row of the grid at once, over each row's own.
             if (Entity.Split(t.Entity).Kind == Entity.Grid)
                 return new(t.Entity, t.Field, CaseIdOf(t), $"{(Entity.Split(t.Entity).Id == Entity.NewGrid ? "New" : "Existing")} {(t.Field == "before" ? "B" : "A")} every row",
@@ -449,10 +472,13 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
                 source?.ToJsonString() ?? "empty", state, false);
         }
         var edits = DataEdits(raw).OrderBy(o => o.Seq).ToList();
-        var common = edits.Where(o => o.Target.Layer is null).Select(Item).ToList();
+        // A leg the workspace made is a change too (ADR-0016 note 49), listed where it was made among the edits.
+        var made = PortfolioLegs.Made(raw);
+        var common = edits.Where(o => o.Target.Layer is null).Select(o => (o.Seq, Item: Item(o)))
+            .Concat(made.Select(c => (c.Seq, Item: PortfolioLegs.MadeChange(c)))).OrderBy(x => x.Seq).Select(x => x.Item).ToList();
         var cases = PortfolioCases.All(raw).Skip(1)
             .Select(c => new CaseChanges(c, [.. edits.Where(o => o.Target.Layer == PortfolioCases.Of(c.Id)).Select(Item)])).ToList();
-        return new ChangesList(raw.Revision, common, cases, edits.Count);
+        return new ChangesList(raw.Revision, common, cases, edits.Count + made.Count);
     }
 
     /// <summary>
@@ -587,7 +613,18 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
         }
         // The modules' cells are read for the page alone, each time: a result such as PV01 arrives with no edit.
         var page = start >= all.Count ? [] : register.WithCells(state, [.. all.Skip(start).Take(count)]);
-        return new(page, start, all.Count, token, state.Revision, of);
+        return new([.. page.Select(t => WithPv(state, t))], start, all.Count, token, state.Revision, PortfolioMaterialiser.DisplayCurrency(state), of);
+    }
+
+    // A row's PV is its legs' as the state holds them (ADR-0016 note 49), read for the page alone as the cells are; one
+    // that differs from what the source's legs give is marked with Original's, as any value is (ADR-0010 §2).
+    static EffectiveTrade WithPv(WorkspaceState state, EffectiveTrade trade)
+    {
+        var (pv, original) = (PortfolioLegs.PvOf(state, trade.TradeId), PortfolioLegs.OriginalPvOf(state, trade.TradeId));
+        if (pv == original) return trade with { Pv = pv };
+        var marked = trade.Original is null ? new Dictionary<string, JsonNode?>() : new Dictionary<string, JsonNode?>(trade.Original);
+        marked[PortfolioLegs.Pv] = original;
+        return trade with { Pv = pv, Original = marked };
     }
 
     public WorkspaceState Edit(string workspaceId, long revision, string user, string entity, string field, JsonNode? value)
@@ -892,6 +929,9 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
     public WorkspaceState Resolve(string workspaceId, long revision, string user, string entity, string field, string resolution, string? caseId = null)
     {
         var raw = Owned(workspaceId, user);
+        // A leg the workspace made is a change of the Changes tab (ADR-0016 note 49): reset, it is removed.
+        if (resolution == "reset" && field == "*" && caseId is null && PortfolioLegs.Made(raw).Any(c => c.Entity == entity))
+            return workspaces.Remove(workspaceId, revision, user, entity);
         var target = Held(raw, entity, field, caseId is null ? null : resolution == "reset" ? Changeable(raw, caseId) : CaseOf(raw, caseId));
         return resolution switch
         {
@@ -973,6 +1013,27 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
 
     public void Delete(string workspaceId, string user) => workspaces.Delete(workspaceId, user);
 
+    /// <summary>
+    /// The id of the leg <c>new leg</c> would make under a trade as the workspace stands (ADR-0016 note 49): the trade's,
+    /// a slash, and the number after its last leg's. A trade the workspace has not is refused by its term's name.
+    /// </summary>
+    public static string LegToMake(WorkspaceState raw, string tradeId)
+    {
+        if (Source(raw).Trade(tradeId) is null)
+            throw new ProductTermsRefused([new("UnknownTrade", PortfolioProducts.Trade, $"No trade {tradeId} in this workspace: a leg is made under one of its trades.")]);
+        return $"{tradeId}/{PortfolioLegs.Next(PortfolioCases.Base(raw), tradeId)}";
+    }
+
+    /// <summary>Makes a PV leg under a trade (<c>new leg</c>, ADR-0016 note 49), in the trade's own scope; answers its id.</summary>
+    public (WorkspaceState State, string Leg) NewLeg(string workspaceId, long? revision, string user, string tradeId, string currency, decimal pv, decimal? notional, RunOrigin origin)
+    {
+        var raw = Owned(workspaceId, user);
+        var id = LegToMake(raw, tradeId);
+        var entity = Entity.Of(Entity.Leg, id);
+        return (workspaces.Create(workspaceId, revision ?? raw.Revision, user, PortfolioEditRules.Target(Source(raw), entity, "*").Scope, entity,
+            PortfolioLegs.Fields(tradeId, currency, pv, notional), origin), id);
+    }
+
     IReadOnlyList<EffectiveTrade> Rows(WorkspaceState state) => TradeOrder.Ordered(state, register, null, []);
 
     /// <summary>The user's own workspace of the pricer, as it stands; another's, or none of that id, is refused.</summary>
@@ -1008,7 +1069,7 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
 public static class TradeOrder
 {
     public static readonly IReadOnlyList<string> SortableColumns =
-        ["tradeId", "isNew", "product", "currency", "notional", "maturity", "fixedRate", "schedule", "lastFixing", "officialPv", "csa", "curve", "imR", "imP", "before", "after"];
+        ["tradeId", "isNew", "product", "currency", "notional", "maturity", "fixedRate", "schedule", "lastFixing", "officialPv", PortfolioLegs.Pv, "csa", "curve", "imR", "imP", "before", "after"];
 
     /// <summary>The sort as asked, checked: a column the grids cannot sort by is refused by name, never guessed.</summary>
     public static IReadOnlyList<(string Column, bool Descending)> Keys(IEnumerable<(string Column, bool Descending)> sorts)
@@ -1031,8 +1092,12 @@ public static class TradeOrder
         var orders = Orders.GetOrCreateValue(state);
         IReadOnlyList<EffectiveTrade> Whole() => orders.GetOrAdd((register, ""), _ => register.WithMembership(state, PortfolioMaterialiser.Trades(state)));
         IReadOnlyList<EffectiveTrade> Grid() => grid is null ? Whole() : orders.GetOrAdd((register, grid), _ => Of(Whole(), grid));
-        return keys.Count == 0 ? Grid() : orders.GetOrAdd((register, OrderOf(grid, keys)), _ => Sorted(Grid(), keys));
+        return keys.Count == 0 ? Grid() : orders.GetOrAdd((register, OrderOf(grid, keys)), _ => Sorted(Grid(), keys, PvKeys(state, Grid(), keys)));
     }
+
+    // A trade's PV is its legs', which a row does not hold (ADR-0016 note 49): read once for an order that sorts by it.
+    static IReadOnlyDictionary<string, decimal?>? PvKeys(WorkspaceState state, IReadOnlyList<EffectiveTrade> rows, IReadOnlyList<(string Column, bool Descending)> keys) =>
+        keys.Any(k => k.Column == PortfolioLegs.Pv) ? rows.ToDictionary(t => t.TradeId, t => PortfolioLegs.PvOf(state, t.TradeId), StringComparer.Ordinal) : null;
 
     /// <summary>The rows of one trade grid (<c>new</c> or <c>existing</c>), in the order given; every row where none is named.</summary>
     public static IReadOnlyList<EffectiveTrade> Of(IReadOnlyList<EffectiveTrade> rows, string? grid) => grid switch
@@ -1043,11 +1108,13 @@ public static class TradeOrder
     };
 
     /// <summary>The rows under a sort, stable: rows the sort does not tell apart stay in the order given.</summary>
-    public static IReadOnlyList<EffectiveTrade> Sorted(IReadOnlyList<EffectiveTrade> rows, IReadOnlyList<(string Column, bool Descending)> keys) => keys.Count == 0 ? rows
+    /// <param name="pvs">Each trade's PV, where the sort is by it.</param>
+    public static IReadOnlyList<EffectiveTrade> Sorted(IReadOnlyList<EffectiveTrade> rows, IReadOnlyList<(string Column, bool Descending)> keys,
+        IReadOnlyDictionary<string, decimal?>? pvs = null) => keys.Count == 0 ? rows
         : [.. rows.Order(Comparer<EffectiveTrade>.Create((a, b) =>
         {
             foreach (var (column, descending) in keys)
-                if (Compare(Key(a, column), Key(b, column), descending) is var c && c != 0) return c;
+                if (Compare(Key(a, column, pvs), Key(b, column, pvs), descending) is var c && c != 0) return c;
             return 0;
         }))];
 
@@ -1066,8 +1133,9 @@ public static class TradeOrder
 
     static string OrderOf(string? grid, IReadOnlyList<(string Column, bool Descending)> keys) => $"{grid}|{string.Join(",", keys.Select(k => $"{k.Column}:{k.Descending}"))}";
 
-    static IComparable? Key(EffectiveTrade row, string column) => column switch
+    static IComparable? Key(EffectiveTrade row, string column, IReadOnlyDictionary<string, decimal?>? pvs) => column switch
     {
+        PortfolioLegs.Pv => (pvs ?? throw new InvalidOperationException("A sort by PV is given each trade's PV."))[row.TradeId],
         "tradeId" => row.TradeId,
         "isNew" => row.IsNew,
         "product" => row.Product,

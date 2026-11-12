@@ -344,9 +344,9 @@ public class PricerTableTests
         var oneBad = await rig.SetRefused($"{End(one)}, DRAFT-1", "notional=lots");
         var recovery = await rig.SetRefused("NS-001", "recovery=120%");
 
-        Assert.Equal(("UnknownRow", "No row CSA-Z in trades, csas, netting, credit, cds, workspace or xva."), noRow);
+        Assert.Equal(("UnknownRow", "No row CSA-Z in trades, legs, independent amounts, csas, netting, credit, cds, workspace or xva."), noRow);
         Assert.Equal(("InvalidValue", "CSA-A threshold is an amount of 0 or more; -1mm is not."), negative);
-        Assert.Equal(("NotEditable", "maturity is not a field a command sets; trades takes notional, rate, schedule, csa, curve, im-r, im-p, B, A, margin and pvadj."), readOnly);
+        Assert.Equal(("NotEditable", "maturity is not a field a command sets; trades takes notional, rate, schedule, pv, csa, curve, im-r, im-p, B, A, margin and pvadj."), readOnly);
         Assert.Equal((typed.Code, typed.Message), filled);
         Assert.Equal("UnknownField", unknown.Code);
         Assert.StartsWith("csas has no field colour; its fields are ", unknown.Message);
@@ -384,7 +384,7 @@ public class PricerTableTests
         Assert.Equal(("MixedUnits", $"pvadj is in {first} and {other} here, and an amount is not compared across them; say which, as in where ccy={first} and pvadj>100."), mixed);
         Assert.Equal("Set DRAFT-1 pvadj to -3000.", typed.Said);
         // With no measure of XVA selected the grid shows none of its columns, and a command has none of them as a field.
-        Assert.Equal(("UnknownField", "trades has no field margin; its fields are trade id, product, ccy, notional, maturity, rate, schedule, last fixing, official pv, csa, curve, im-r, im-p, B, A."),
+        Assert.Equal(("UnknownField", "trades has no field margin; its fields are trade id, product, ccy, notional, maturity, rate, schedule, last fixing, official pv, pv, independent amount, csa, curve, im-r, im-p, B, A."),
             hidden);
         // An edit of a column that does not show stays: reset of every field is of the fields the table has now.
         Assert.Equal("Nothing changed: DRAFT-1 has no edit.", reset.Said);

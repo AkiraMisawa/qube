@@ -164,4 +164,46 @@ public class FieldFormTests
         if (value!.GetValueKind() == System.Text.Json.JsonValueKind.Number) Assert.Equal(value.GetValue<decimal>(), back.Value!.GetValue<decimal>());
         else Assert.True(JsonNode.DeepEquals(value, back.Value), $"{json} came back as {back.Value?.ToJsonString()}");
     }
+
+    static readonly FieldSpec Load = new(FieldForm.Money, Choices: new Dictionary<string, string> { ["m3"] = "M3", ["gal"] = "GAL" });
+
+    [Theory] // ADR-0016 note 47: a number followed by what it is in, one of the field's choices in any case, or the number alone
+    [InlineData("-350,000 GAL", "-350000", "GAL")]
+    [InlineData("-350k gal", "-350000", "GAL")]
+    [InlineData("1.5mm   m3", "1500000", "M3")]
+    [InlineData("-350000", "-350000", null)]
+    public void Money_is_a_number_and_what_it_is_in(string text, string amount, string? unit)
+    {
+        var read = FieldForms.Read(Load, text);
+
+        Assert.Equal(FieldForms.Problem.None, read.Problem);
+        Assert.Equal((decimal.Parse(amount), unit), (FieldForms.Held(read.Value!["amount"]!), read.Value["unit"]?.GetValue<string>()));
+        // What is written reads back to the same value.
+        var again = FieldForms.Read(Load, FieldForms.Write(Load, read.Value));
+        Assert.Equal((decimal.Parse(amount), unit), (FieldForms.Held(again.Value!["amount"]!), again.Value["unit"]?.GetValue<string>()));
+    }
+
+    [Theory] // ADR-0016 note 47: a unit that is none of the choices, and words that are no number, are refused with what the field takes
+    [InlineData("350 XYZ")]
+    [InlineData("GAL 350")]
+    [InlineData("350 GAL more")]
+    [InlineData("12%")]
+    public void Money_that_is_not_one_is_refused_with_what_the_field_takes(string text)
+    {
+        var read = FieldForms.Read(Load, text);
+
+        Assert.Equal((FieldForms.Problem.NotOfForm, "a number, alone or followed by what it is in: M3 or GAL"), (read.Problem, read.What));
+    }
+
+    [Fact] // ADR-0016 notes 44 and 47: money is written with every decimal and its unit, on a line and in a cell alike
+    public void Money_is_written_as_its_number_and_its_unit()
+    {
+        var held = new JsonObject { ["amount"] = -350000.5m, ["unit"] = "GAL" };
+
+        Assert.Equal("-350000.5 GAL", FieldForms.Write(Load, held));
+        Assert.Equal("-350000.5 GAL", FieldForms.Cell(Load, held));
+        Assert.Equal("-350000.5", FieldForms.Write(Load, new JsonObject { ["amount"] = -350000.5m }));
+        Assert.True(FieldForms.Same(held, new JsonObject { ["amount"] = -350000.50m, ["unit"] = "GAL" }));
+        Assert.False(FieldForms.Same(held, new JsonObject { ["amount"] = -350000.5m }));
+    }
 }
