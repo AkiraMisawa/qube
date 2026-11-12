@@ -547,7 +547,8 @@ test('ADR-0018 §5: a Run\'s view stands its two grids side by side in a 1440px 
     if (found === null) throw new Error(`The Run's ${title} grid is not drawn.`);
     return found;
   };
-  // The Run alone in a 1440px window: its Lines and its Risk share a row.
+  // The Run alone in a 1440px window, its panel as wide: its Lines and its Risk share a row.
+  await expect(run.locator('.qube-panel-page')).toHaveAttribute('data-panel-width', '1440');
   await expect.poll(async () => { const [a, b] = [await grid('Lines'), await grid('Risk')]; return b.x > a.x && b.y === a.y; }).toBe(true);
   // In its own area of 720px beside the workspace: the panel's width, not the window's, puts one above the other.
   await command(page, 'split panel', 'right');

@@ -374,8 +374,14 @@ test('ADR-0018 §5, ADR-0010 §1: the pricer lays itself out by its area: its Ex
   // again, the one screen.
   await command(page, 'float panel', 'right');
   await expect(floating(page)).toHaveCount(1);
-  // Half the window, less the floating area's edges: from 600 to 767px.
-  await expect(pricerPage).toHaveAttribute('data-panel-width', /^(6\d\d|7[0-5]\d|76[0-7])$/);
+  // Half the window, less the floating area's edges: under 768px, and over 600.
+  const panelWidth = async () => {
+    const width = await pricerPage.getAttribute('data-panel-width');
+    if (width === null) throw new Error('The page has not been told its width.');
+    return Number(width);
+  };
+  await expect.poll(panelWidth).toBeLessThan(768);
+  await expect.poll(panelWidth).toBeGreaterThan(600);
   await expect(sections).toBeVisible();
   await expect(full).toBeHidden();
   await expect.poll(existingHeight).toBeGreaterThan(320);

@@ -3049,7 +3049,8 @@ offered to the agent, and no model has been asked to arrange panels. The XVA pag
 
 ### Known limits
 
-- *(Done by the next pull request, "the pricer by its area" below.)* The pricer's page reads the window, not its area,
+- *(Its width half is done by the next pull request, "the pricer by its area" below; a short area's trade grids still
+  scroll under the result dock, as that section's Known limits say.)* The pricer's page reads the window, not its area,
   until its own pull request, the next one now that ADR-0016's step
   5d has merged (ticket 07): an XVA page in a narrow area is laid out as the window's width says, and in a short one
   (split down at 1440 by 900px) its trade grids scroll under the result dock and their headers draw over it, as they
@@ -3252,15 +3253,18 @@ on the pricer's files (ADR-0018 §11).
   section switch and Full height are shown by them, written in the range syntax (`width < 768px`, `width >= 768px`),
   so a switch and the layout never disagree at a fractional width: `max-width: 767.98px` and `min-width: 768px` both
   missed an area 767.99px wide, a third of a row (argued from the queries; no test reads a width that near 768px).
-  The shell's toolbar rules, which read the window, now also read the panel: inside a panel only the pricer uses them
-  (its context bar and the profile's choice), and its counterparty takes its own row in a narrow area. The header's
-  context bar and a dialog's fields use them too, by the window, as before.
+  The shell's toolbar rules, which read the window, now also read the panel: inside a panel the pricer's parts use
+  them (its context bar, the Credit and Settings tabs' fields, the profile's choice) and the trace's toolbar, and the
+  pricer's counterparty takes its own row in a narrow area. The header's context bar and a dialog's fields use them
+  too, by the window, as before.
 - **The pricer reads its panel's height.** The Existing grid takes what the page's other parts leave of the height the
   shell gives a page (`--qube-panel-room`): in an area the area's height less the gutter, in the strip the window's
   less the header, the strip and the gutter. The page's own number (`TAKEN`) counts its parts alone, 187px where the
   context bar is one row, read once at 1440px, so in one area of 1440 by 900 the page fits and does not scroll (it
-  overflowed by 18px). Maximized, the area's room is the panels' whole space (the grid's height back, tested); floated
-  to the right half, under 768px, the Trades tab's grid reads the floating area's height (tested at 720px wide).
+  overflowed by 18px). Maximized, the area's room is the panels' whole space (the grid's height back, tested). Floated
+  to the right half, under 768px, the pricer is the three tabs and the Trades tab's grid stands above its 20rem floor
+  (tested at a width between 600 and 768px); that floating area is the window's height, so the test does not tell its room from the
+  window's.
 - **The shell's own numbers say themselves once**: the header's offset is Mantine's, read without a default (Mantine
   sets it whenever the shell has a header); the strip page's top gutter is a class the room's formula names; and an
   area's strip and a floating area's title bar take their height from the tab's.
@@ -3285,15 +3289,17 @@ on the pricer's files (ADR-0018 §11).
 | The pricer at 390px (the strip) and at 768, 992 and 1440px (one area), 900px high, dark and light, in Chromium | Looked at: the three tabs at 390px, the one screen from 768px, nothing sideways; the pull request's screens |
 | The SIMM tab's two cards and a Rates Run's two grids, side by side in a wide panel and one above the other in a 720px area of a 1440px window (`simm.spec.ts`, `rates.spec.ts`), `--repeat-each=3` | 6 passed |
 | `areas.spec.ts` whole, three times in a row, after the second review's fixes | 27 passed; its mouse-drag test (step 1's) failed once before that, its drop on an area's edge not taken, and passed 5 of 5 alone |
+| After the third review's fixes: the pricer's, the trace's, the panels' space, the SIMM cards' and the Rates Run's tests, `--repeat-each=3`; `areas.spec.ts` whole | 15 passed; 9 passed |
 
 `areas.spec.ts` holds the pricer in one area at 1440 by 900 (it fits, the grid above the dock), in the top half (the
 grid at its six rows, the area scrolling and not the document), maximized (the grid's height back), in the strip at
 1440 by 480 (too short for the two areas: no switch, the grid at its six rows, the document scrolling), gathered again
-(the grid's height back), floated to the right half (the three tabs, the Trades tab's grid from the floating area's
-height) and docked back, beside the Pricing DB at 605px (the three tabs, no Full height, nothing sideways) and at
+(the grid's height back), floated to the right half (the three tabs, the Trades tab's grid above its 20rem floor) and
+docked back, beside the Pricing DB at 605px (the three tabs, no Full height, nothing sideways) and at
 1080px (the one screen, in the same page), and in the strip at 1440px with the AI pane open beside four areas in a row
-(no switch, the grid above the dock and the document not scrolling: the strip's room). `scrollbars.spec.ts` needs a pricer taller than its room, so that its page scrolls beside a scrollbar: at 992 by
-900 it overflowed its area by the 18px `TAKEN` left out, and now fits, so the test's window is 600px high.
+(no switch, the grid above the dock and the document not scrolling: the strip's room). `scrollbars.spec.ts` needs a
+pricer taller than its room, so that its page scrolls beside a scrollbar: at 992 by 900 it overflowed its area by the
+18px `TAKEN` left out, and now fits, so the test's window is 600px high.
 
 ### Providers
 

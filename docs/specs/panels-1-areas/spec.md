@@ -200,8 +200,8 @@ pull request.
   (it overflowed by 18px before). In an area shorter than its parts need (split down at 1440 by 900) the grid keeps
   its six rows and the page scrolls inside its area, not the document; its trade grids scroll under the result dock
   there and their headers draw over it (ExGrid's header stacks at 4, the dock at 3), as in a window that short. The
-  context bar's fields wrap by the panel too (the shell's toolbar rules read the panel as well as the window; inside a
-  panel only the pricer uses them), and so do a trace's roots (spot IM's cards in the dock) and a declarative view's
+  pricer's context bar's fields wrap by the panel too (the shell's toolbar rules read the panel as well as the window;
+  inside a panel the pricer's parts and the trace's toolbar use them), and so do a trace's roots (spot IM's cards in the dock) and a declarative view's
   columns (the Run panel's), which were Mantine's `SimpleGrid` on the window. A dialog (a row's draft) still reads the
   window: it is drawn over the window, not in the area.
 - **Container queries are written in pixels, in the range syntax.** A container query's `em` is the container's font
