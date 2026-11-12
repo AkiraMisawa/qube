@@ -130,12 +130,14 @@ describe('workspace store', () => {
   });
 
   // The owner's rule of 2026-11-11: no answer stands in for a panel that is not there.
-  it('refuses to close, move or pin a panel that is not open', () => {
+  it('refuses to close, move, pin or show a panel that is not open', () => {
     const store = createWorkspaceStore(valid, contextContract);
     expect(() => store.getState().closePanels('others', 'panel-0')).toThrow('No open panel is panel-0.');
     expect(() => store.getState().closePanel('panel-0')).toThrow('No open panel is panel-0.');
     expect(() => store.getState().movePanel('panel-0', 0)).toThrow('No open panel is panel-0.');
     expect(() => store.getState().pinPanel('panel-0', true)).toThrow('No open panel is panel-0.');
+    expect(() => store.getState().activate('panel-0')).toThrow('No open panel is panel-0.');
+    expect(() => store.getState().setPanelView('panel-0', 'table')).toThrow('No open panel is panel-0.');
   });
 
   it('keeps no more closed panels than it can reopen', () => {

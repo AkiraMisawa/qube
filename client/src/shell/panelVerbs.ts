@@ -1,4 +1,4 @@
-import { CommandRefused, type Command, type CommandArgument } from '../platform/commands/commands';
+import { CommandRefused, given, type Command, type CommandArgument } from '../platform/commands/commands';
 import type { Notify } from '../platform/notices';
 import { namedBy, panelLabel, pinnedCount, type Panel, type PanelsClosed, type WorkspaceState } from '../platform/workspace/workspaceStore';
 
@@ -66,7 +66,7 @@ const reach = (state: PanelState, panel: Panel): readonly [number, number] => {
 
 const MOVES = ['left', 'right', 'first', 'last'] as const;
 type Move = (typeof MOVES)[number];
-const moveOf = (args: Args | undefined): Move | undefined => MOVES.find((m) => m === args?.where?.toLowerCase());
+const moveOf = (where: string | undefined): Move | undefined => MOVES.find((m) => m === where?.toLowerCase());
 /** Where a move puts the panel, or why it cannot. */
 function moved(state: PanelState, panel: Panel, move: Move): { readonly to: number } | { readonly reason: string } {
   const at = indexOf(state, panel);
@@ -159,15 +159,14 @@ export const MOVE: PanelVerb = {
   unavailable: (state, panel, args) => {
     const [first, last] = reach(state, panel);
     if (first === last) return `There is no other ${panel.pinned === true ? 'pinned panel' : 'panel'} to move it past.`;
-    const move = moveOf(args);
+    const move = moveOf(args?.where);
     if (move === undefined) return undefined;
     const to = moved(state, panel, move);
     return 'reason' in to ? to.reason : undefined;
   },
   run: (state, panel, _, args) => {
-    // The line runs no command without an argument it requires: one missing here is a defect, one it cannot read a reason.
-    if (args.where === undefined) throw new Error('The line ran move panel without its where.');
-    const move = moveOf(args);
+    // A where the line could not read is a reason; none at all is a defect (`given`).
+    const move = moveOf(given(args, 'where'));
     if (move === undefined) throw new CommandRefused(`move panel takes where to: ${MOVES.join(', ')}.`);
     const to = moved(state, panel, move);
     if ('reason' in to) throw new CommandRefused(to.reason);
@@ -262,9 +261,7 @@ export function panelCommands(state: PanelState, notify: Notify): Command[] {
       }],
       ...(state.panels.length === 0 ? { unavailable: 'No panel is open.' } : {}),
       run: (a) => {
-        // The line runs no command without an argument it requires: one missing here is a defect.
-        if (a.panel === undefined) throw new Error('The line ran show panel without its panel.');
-        const named = panelTitled(state.panels, a.panel);
+        const named = panelTitled(state.panels, given(a, 'panel'));
         if ('reason' in named) throw new CommandRefused(named.reason);
         state.activate(named.panel.id);
       },

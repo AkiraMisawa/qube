@@ -51,16 +51,18 @@ for (const width of [768, 390]) {
       // The active panel's verbs, each with the words the line takes.
       /^Close.*close panel$/, /^Close others/, /^Close to the right/, /^Close all/, /^Pin/, /^Move left/, /^Move right/, /^Reopen closed panel/,
     ]);
-    // The last panel goes no further right: the menu says so before it is chosen, and the item stays in the keys' reach,
-    // where choosing it says why.
+    // The last panel goes no further right: the item says why under it, where a phone reads it too, and stays in the
+    // arrows' reach; choosing it leaves the list open and the panel where it is.
     const moveRight = list.getByRole('menuitem', { name: /^Move right/ });
-    await expect(moveRight).toBeDisabled();
-    await moveRight.focus();
+    await expect(moveRight).toHaveAttribute('aria-disabled', 'true');
+    await expect(moveRight).toHaveAccessibleDescription('This is the last panel already.');
+    await expect(list.getByText('This is the last panel already.')).toBeVisible();
+    await list.getByRole('menuitem', { name: /^Move left/ }).focus();
+    await page.keyboard.press('ArrowDown');
+    await expect(moveRight).toBeFocused();
     await page.keyboard.press('Enter');
-    await expect(page.getByTestId('notice')).toContainText('move panel: This is the last panel already.');
-    // A refused notice stays until it is closed, and on a phone it lies over the strip's end.
-    await page.getByRole('button', { name: 'Close the notice' }).click();
-    await page.getByRole('button', { name: 'All panels (6)' }).click();
+    await expect(moveRight).toBeFocused();
+    await expect.poll(() => labels(page)).toEqual(['Pricing DB', 'Rates 2026-10-27', 'Rates 2026-10-27 · 2', 'Rates 2026-10-27 · 3', 'Rates 2026-10-27 · 4', 'Rates 2026-10-27 · 5']);
     await list.getByRole('menuitem', { name: 'Pricing DB' }).click();
     await expect(tab(page, 'Pricing DB')).toHaveAttribute('aria-selected', 'true');
     await expect.poll(() => inSight(page, 'Pricing DB')).toBe(true);
@@ -81,6 +83,13 @@ test('ADR-0006 note 7: a tab\'s menu opens by right click and by Shift+F10, and 
   await active.focus();
   const activeMenu = page.getByRole('menu', { name: 'Rates 2026-10-27 · 5', exact: true });
   await page.keyboard.press('Shift+F10');
+  await expect(activeMenu.getByRole('menuitem', { name: /^Close.*close panel$/ })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(active).toBeFocused();
+  // The menu key on Windows sends a contextmenu to the tab as it is let go, which may come before the keyboard has
+  // reached the menu its keydown opened: that menu stays, with the keyboard on its first item.
+  await page.keyboard.press('ContextMenu');
+  await active.dispatchEvent('contextmenu');
   await expect(activeMenu.getByRole('menuitem', { name: /^Close.*close panel$/ })).toBeFocused();
   await page.keyboard.press('Escape');
   await expect(active).toBeFocused();

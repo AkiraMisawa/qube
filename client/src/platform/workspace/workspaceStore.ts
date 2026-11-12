@@ -41,18 +41,17 @@ export const CLOSED_KEPT = 20;
 /** Which panels a close of several takes, beside the one it is given (ADR-0006 note 7). Pinned panels stay. */
 export type PanelsClosed = 'others' | 'right' | 'all';
 
-/** The panels a close of several names beside this one, the pinned among them: the line, the menus and the store read it alike. */
-export function namedBy(panels: readonly Panel[], which: PanelsClosed, panelId: string): readonly Panel[] {
-  const at = panels.findIndex((p) => p.id === panelId);
-  if (at < 0) throw new Error(`No open panel is ${panelId}.`);
-  return panels.filter((p, i) => (which === 'all' || p.id !== panelId) && (which !== 'right' || i > at));
-}
-
 /** The open panel of this id; one that is not open is a defect of the caller, never a panel quietly left alone. */
-function openOne(panels: readonly Panel[], panelId: string): Panel {
+function requireOpen(panels: readonly Panel[], panelId: string): Panel {
   const panel = panels.find((p) => p.id === panelId);
   if (panel === undefined) throw new Error(`No open panel is ${panelId}.`);
   return panel;
+}
+
+/** The panels a close of several names beside this one, the pinned among them: the line, the menus and the store read it alike. */
+export function namedBy(panels: readonly Panel[], which: PanelsClosed, panelId: string): readonly Panel[] {
+  const at = panels.indexOf(requireOpen(panels, panelId));
+  return panels.filter((p, i) => (which === 'all' || p.id !== panelId) && (which !== 'right' || i > at));
 }
 
 /** How many panels are pinned: they stand first, so this is where the others begin. */
@@ -85,6 +84,7 @@ export interface WorkspaceState {
    * asked for, and not opened twice.
    */
   openPanel(panel: PanelDraft): string;
+  /** Shows a Run panel's result in this view. Throws for a panel that is not open. */
   setPanelView(panelId: string, viewKey: string): void;
   closePanel(panelId: string): void;
   /** Closes the panels `which` names beside this one, the pinned left open; answers how many it closed and kept. */
@@ -98,6 +98,7 @@ export interface WorkspaceState {
   movePanel(panelId: string, index: number): void;
   /** Pins a panel at the end of the pinned ones, or unpins it to the start of the others. */
   pinPanel(panelId: string, pinned: boolean): void;
+  /** Shows this panel. Throws for a panel that is not open. */
   activate(panelId: string): void;
   cycle(step: 1 | -1): void;
   openRunDialog(workflowKey: string | undefined): void;
@@ -147,13 +148,14 @@ export function createWorkspaceStore(initialContext: Readonly<Record<string, unk
     },
 
     setPanelView(panelId, viewKey) {
+      requireOpen(get().panels, panelId);
       set((state) => ({
         panels: state.panels.map((p) => (p.id === panelId && p.kind === 'run' ? { ...p, viewKey } : p)),
       }));
     },
 
     closePanel(panelId) {
-      openOne(get().panels, panelId);
+      requireOpen(get().panels, panelId);
       set((state) => withClosed(state, [panelId]));
     },
 
@@ -188,14 +190,14 @@ export function createWorkspaceStore(initialContext: Readonly<Record<string, unk
 
     movePanel(panelId, index) {
       set((state) => {
-        const panel = openOne(state.panels, panelId);
+        const panel = requireOpen(state.panels, panelId);
         return { panels: placed(state.panels.filter((p) => p.id !== panelId), panel, index) };
       });
     },
 
     pinPanel(panelId, pinned) {
       set((state) => {
-        const panel = openOne(state.panels, panelId);
+        const panel = requireOpen(state.panels, panelId);
         if ((panel.pinned === true) === pinned) return {};
         const rest = state.panels.filter((p) => p.id !== panelId);
         const { pinned: _, ...unpinned } = panel;
@@ -205,8 +207,8 @@ export function createWorkspaceStore(initialContext: Readonly<Record<string, unk
     },
 
     activate(panelId) {
-      if (get().panels.some((p) => p.id === panelId))
-        set((state) => ({ activePanelId: panelId, recent: [panelId, ...state.recent.filter((id) => id !== panelId)] }));
+      requireOpen(get().panels, panelId);
+      set((state) => ({ activePanelId: panelId, recent: [panelId, ...state.recent.filter((id) => id !== panelId)] }));
     },
 
     cycle(step) {

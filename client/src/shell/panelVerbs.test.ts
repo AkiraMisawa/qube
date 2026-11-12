@@ -62,6 +62,8 @@ describe('panel verbs', () => {
     expect(command('panel.move').unavailable).toBe('There is no other pinned panel to move it past.');
     store.getState().pinPanel(ids[2]!, false);
     expect(execute(command('panel.move'), { where: 'up' })).toBe('move panel takes where to: left, right, first, last.');
+    // The line runs none without its where: one missing is a defect thrown on, never shown as a reason.
+    expect(() => execute(command('panel.move'))).toThrow('The line ran a command without its where.');
   });
 
   it('`move panel` with a where given says whether the panel can go there, as a menu\'s Move left asks', () => {

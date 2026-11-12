@@ -8,7 +8,9 @@ import { panelLabel, type Panel } from '../platform/workspace/workspaceStore';
 import { AppPanel } from '../apps';
 import { RunPanel } from './RunPanel';
 import { registerGridFocus } from './places';
+import { ICON, STROKE } from './icons';
 import { CLOSE, CLOSE_ALL, CLOSE_OTHERS, CLOSE_RIGHT, MOVE, PIN, REOPEN, runStripVerb, runVerb, UNPIN, type PanelVerb } from './panelVerbs';
+import { UnavailableMenuItem } from './UnavailableMenuItem';
 
 // The panels under their tabs (ADR-0006 note 7 of 2026-11-12). The strip is one row that scrolls sideways, as before,
 // and keeps the active tab in sight; the list at its end names every panel, for the panels the row has no room for and
@@ -91,7 +93,11 @@ export function Panels() {
   };
   const onContextMenu = (panel: Panel) => (event: MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
-    setMenuAt({ panelId: panel.id, x: event.clientX, y: event.clientY, keyboard: false });
+    // The menu key on Windows also sends this as it is let go, after its keydown opened the menu from the keyboard; the
+    // menu that key opened stays, whether or not the keyboard has reached it yet.
+    setMenuAt((open) => (open?.keyboard === true && open.panelId === panel.id
+      ? open
+      : { panelId: panel.id, x: event.clientX, y: event.clientY, keyboard: false }));
   };
   // The middle button closes a tab, as a browser's does; held down it would start the browser's own scrolling.
   const onMouseDown = (event: MouseEvent<HTMLButtonElement>) => { if (event.button === 1) event.preventDefault(); };
@@ -144,7 +150,7 @@ export function Panels() {
                   {...(dropOn === p.id ? { 'data-drop': true } : {})} {...(p.pinned === true ? { 'data-pinned': true } : {})}
                   aria-haspopup="menu" onKeyDown={onKeyDown(p)} onContextMenu={onContextMenu(p)} onMouseDown={onMouseDown}
                   onAuxClick={onAuxClick(p)} onDragStart={onDragStart(p)} onDragOver={onDragOver(p)} onDrop={onDrop(p)} onDragEnd={onDragEnd}
-                  leftSection={p.pinned === true ? <IconPin size={16} stroke={1.75} aria-label="pinned" /> : undefined}
+                  leftSection={p.pinned === true ? <IconPin size={ICON} stroke={STROKE} aria-label="pinned" /> : undefined}
                   rightSection={p.pinned === true ? undefined : (
                     <Tooltip label="Close (close panel)">
                       <CloseButton size="xs" component="span" aria-label={`Close ${label}`} onClick={(e) => { e.stopPropagation(); run(CLOSE, p); }} />
@@ -170,7 +176,7 @@ export function Panels() {
             <div aria-hidden style={{ position: 'fixed', left: menuAt.x, top: menuAt.y, width: 0, height: 0 }} />
           </Menu.Target>
           {/* Named by its label, which says on which panel it acts: its target is a mark of where it opened, with no name. */}
-          {/* The menu key opens the browser's own menu as it is let go (Windows), where the keyboard is in this one. */}
+          {/* The menu key opens the browser's own menu as it is let go (Windows), where the keyboard is already in this one. */}
           <Menu.Dropdown aria-labelledby={menuLabel} onContextMenu={(e) => e.preventDefault()}>
             <Menu.Label id={menuLabel}>{panelLabel(menuPanel)}</Menu.Label>
             <VerbItems panel={menuPanel} run={run} fromKeyboard={menuAt.keyboard} />
@@ -184,26 +190,13 @@ export function Panels() {
   );
 }
 
-/**
- * Marks a menu item `aria-disabled` while it cannot act, and takes the mark off when it can. Mantine's item writes that
- * attribute from its own `disabled` alone, which would also take the item out of the arrows' reach; a new function at
- * each drawing is called with the item each time, so the mark follows the reason.
- */
-const unavailableMark = (why: string | undefined) => (item: HTMLButtonElement | null) => {
-  if (item === null) return;
-  if (why === undefined) item.removeAttribute('aria-disabled');
-  else item.setAttribute('aria-disabled', 'true');
-};
-
 /** Runs a verb on a panel, a refusal said in a notice. */
 type RunVerb = (v: PanelVerb, panel: Panel, args?: Readonly<Record<string, string>>) => void;
 
 /**
  * The verbs of one panel as menu items, each with the words the line takes for it, so the menu teaches the command
- * (docs/design-guidelines.md §5). An item that cannot act now is shown disabled and says why: in its title to the
- * pointer, and in a refused notice when it is chosen. It stays in the keys' reach (WAI-ARIA's menu pattern keeps a
- * disabled item focusable), so the keyboard and a touch screen are told why too, where a disabled Mantine item is
- * skipped by the arrows and has no hover on a phone.
+ * (docs/design-guidelines.md §5). An item that cannot act now is dimmed with why under it, and stays in the arrows'
+ * reach: a phone reads the reason without a hover, and no notice is raised over the strip to say it.
  */
 function VerbItems({ panel, run, fromKeyboard = false }: {
   readonly panel: Panel;
@@ -213,13 +206,12 @@ function VerbItems({ panel, run, fromKeyboard = false }: {
 }) {
   const { store, notify } = useWorkspaceContext();
   const state = store.getState();
-  const item = (key: string, label: string, words: string, why: string | undefined, act: () => void, autofocus = false): ReactNode => (
-    <Menu.Item key={key} ref={unavailableMark(why)} className={why === undefined ? undefined : 'qube-menu-unavailable'}
-      title={why} data-autofocus={autofocus ? true : undefined}
-      rightSection={<Text size="xs" c="dimmed" ff="monospace" ml="md">{words}</Text>} onClick={act}>
-      {label}
-    </Menu.Item>
-  );
+  const item = (key: string, label: string, words: string, why: string | undefined, act: () => void, autofocus = false): ReactNode => {
+    const said = <Text size="xs" c="dimmed" ff="monospace" ml="md">{words}</Text>;
+    return why === undefined
+      ? <Menu.Item key={key} data-autofocus={autofocus ? true : undefined} rightSection={said} onClick={act}>{label}</Menu.Item>
+      : <UnavailableMenuItem key={key} why={why} rightSection={said}>{label}</UnavailableMenuItem>;
+  };
   const onPanel = (v: PanelVerb, label = v.label, args?: Readonly<Record<string, string>>) =>
     item(`${v.id}${args?.where ?? ''}`, label, args?.where === undefined ? v.words : `${v.words} ${args.where}`, v.unavailable(state, panel, args), () => run(v, panel, args), fromKeyboard && v === CLOSE);
   return (
@@ -251,7 +243,7 @@ function PanelList({ panels, activePanelId, run }: { readonly panels: readonly P
         <Tooltip label="All panels (show panel)" disabled={opened}>
           <Menu.Target>
             <Button size="xs" variant="subtle" color="gray" aria-label={`All panels (${panels.length})`}
-              leftSection={<IconLayoutList size={16} stroke={1.75} aria-hidden />}>
+              leftSection={<IconLayoutList size={ICON} stroke={STROKE} aria-hidden />}>
               {panels.length}
             </Button>
           </Menu.Target>
@@ -261,8 +253,8 @@ function PanelList({ panels, activePanelId, run }: { readonly panels: readonly P
           <ScrollArea.Autosize mah="50vh" type="auto">
             {panels.map((p) => (
               <Menu.Item key={p.id} onClick={() => store.getState().activate(p.id)} aria-current={p.id === activePanelId ? 'page' : undefined}
-                leftSection={p.id === activePanelId ? <IconCheck size={14} stroke={1.75} aria-hidden /> : <span className="qube-panel-list-mark" />}
-                rightSection={p.pinned === true ? <IconPin size={16} stroke={1.75} aria-label="pinned" /> : undefined}>
+                leftSection={p.id === activePanelId ? <IconCheck size={ICON} stroke={STROKE} aria-hidden /> : <span style={{ display: 'inline-block', width: ICON }} />}
+                rightSection={p.pinned === true ? <IconPin size={ICON} stroke={STROKE} aria-label="pinned" /> : undefined}>
                 {panelLabel(p)}
               </Menu.Item>
             ))}

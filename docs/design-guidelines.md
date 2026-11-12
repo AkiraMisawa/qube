@@ -237,7 +237,8 @@ Mantine's breakpoints, beside the window classes Android and Material use for th
 - A button says what it does as a verb (`Price`, `Start live`, `Add IRS`); a toggle says what it shows and reports
   its state with `aria-pressed`.
 - A disabled control says why, in its `title` or in text beside it; a busy one shows `loading` on itself, not a
-  spinner elsewhere.
+  spinner elsewhere. A menu item that cannot act is `UnavailableMenuItem` (`client/src/shell/`): dimmed, its reason
+  under it where a phone reads it, and still in the arrows' reach (ADR-0006 note 7).
 - What is simulated says so in the place the figure is shown (`SCRIPTED · NO MODEL`, `MARKET SYNTHETIC`).
 - **A date is written `yyyy-MM-dd`** (ISO 8601) in a field, whatever the browser's locale, as the grids and the
   sentences already write it. A date field is `IsoDateInput` (`client/src/platform/IsoDateInput.tsx`): a text field

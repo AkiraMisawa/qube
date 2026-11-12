@@ -3,7 +3,7 @@ import { Badge, Box, Group, Kbd, Modal, Stack, Text, TextInput, UnstyledButton, 
 import { useHotkeys } from '@mantine/hooks';
 import { IconCheck, IconX } from '@tabler/icons-react';
 import {
-  assertDistinct, CommandRefused, completionsOf, drawn, drawnSections, execute, finish, listed, placeholder, readLine, signature, take,
+  assertDistinct, CommandRefused, completionsOf, drawn, drawnSections, execute, finish, given, listed, placeholder, readLine, signature, take,
   type Command, type CommandDoor, type Completion,
 } from '../platform/commands/commands';
 import { argumentShown, argumentsDrawn, commandDoorOf, lineAsked, previewShown, screenShown, servedCommands, taken } from '../platform/commands/served';
@@ -30,12 +30,6 @@ import { appCommands } from '../apps';
  * dialog, `settings <name> <value>` sets one a line types, completing its choices, and `settings reset <name>` returns
  * one the user set to its registered value. The server reads and checks the value, and what it answered is the notice.
  */
-/** A required argument as the line ran the command with it: the line runs none without it, so one missing is a defect. */
-function given(args: Readonly<Record<string, string | undefined>>, name: string): string {
-  const value = args[name];
-  if (value === undefined) throw new Error(`The line ran a command without its ${name}.`);
-  return value;
-}
 
 export function settingCommands(settings: readonly SettingDescribed[], notify: Notify): Command[] {
   const said = (act: Promise<SettingChanged>) =>

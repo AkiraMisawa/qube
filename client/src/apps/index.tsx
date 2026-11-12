@@ -55,8 +55,7 @@ registerAiContext(RATES_WORKSPACE, (panel) => panel.params.workspaceId === undef
 });
 registerAiEffect('rates.workspace.create', (outputs, { workspace }) => {
   const made = outputs.workspace as { readonly workspaceId: string; readonly valuationDate: string };
-  const panel = workspace.openPanelBehind(RATES_WORKSPACE, `Rates ${made.valuationDate}`, { workspaceId: made.workspaceId });
-  return { panelId: panel.id, title: panelLabel(panel) };
+  return workspace.openPanelBehind(RATES_WORKSPACE, `Rates ${made.valuationDate}`, { workspaceId: made.workspaceId });
 });
 // `entity.create` is the kernel's (ADR-0008 §5); a Rates product's line is fetched again where its workspace is shown,
 // and its workspace opened behind the panel in use when it is not open yet.
@@ -67,8 +66,7 @@ registerAiEffect('entity.create', (outputs, { workspace, queryClient }) => {
   const open = workspace.panels.some((p) => p.kind === 'app' && p.app === RATES_WORKSPACE && p.params.workspaceId === entity.workspaceId);
   if (open) return undefined;
   const valuationDate = queryClient.getQueryData<{ readonly valuationDate: string }>(['rates', entity.workspaceId])?.valuationDate;
-  const panel = workspace.openPanelBehind(RATES_WORKSPACE, valuationDate === undefined ? 'Rates' : `Rates ${valuationDate}`, { workspaceId: entity.workspaceId });
-  return { panelId: panel.id, title: panelLabel(panel) };
+  return workspace.openPanelBehind(RATES_WORKSPACE, valuationDate === undefined ? 'Rates' : `Rates ${valuationDate}`, { workspaceId: entity.workspaceId });
 });
 // What the AI pane knows of XVA (ADR-0010 §9): the workspace open is the one `vary`, `add each` and the kernel's `set`,
 // `reset`, `undo` and `redo` act on (ADR-0016 §3, §11), and what they change is read again where the page shows it. The

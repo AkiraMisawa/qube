@@ -136,10 +136,12 @@ make the good operations commands too"). DEFAULT, decided as recommended and rep
        list are the active panel's verbs, which a touch screen has no right click for.
      - A tab's menu, by a right click or Shift+F10 (or the menu key), runs the verbs on that tab, and names the tab at
        its top. A key opens it on its first item and gives the keyboard back to the tab as it closes, or to the tab
-       shown next where the menu closed its own (the WAI-ARIA tabs pattern). An item that cannot act (Move left on
-       the first tab) is drawn disabled and says why: in its title to the pointer, and in a refused notice when it is
-       chosen. It stays in the arrows' reach, as WAI-ARIA's menu pattern keeps a disabled item, so the keyboard and a
-       touch screen, which has no hover, are told why too.
+       shown next where the menu closed its own (the WAI-ARIA tabs pattern). The menu key's own contextmenu, which
+       Windows sends as the key is let go, leaves the menu that key opened as it is. An item that cannot act (Move
+       left on the first tab) is dimmed with why under it, which a pointer, a key and a touch screen all read. It
+       stays in the arrows' reach, as WAI-ARIA's menu pattern keeps a disabled item; choosing it does nothing and
+       leaves the menu open. A refused notice would say it too, but on a phone it would lie over the list it was
+       chosen from (a third review's finding); the account menu's Sign out is drawn the same way.
      - Delete on a focused tab closes it (Fn+Delete on a Mac laptop, whose delete key is Backspace), and the keyboard
        follows to the tab shown next. The middle button closes a tab. A tab dragged onto another takes its place: the
        drag calls the store's move, as `move panel` does, and reaches any place, where the verb takes a step or an end.
@@ -166,8 +168,8 @@ make the good operations commands too"). DEFAULT, decided as recommended and rep
      `next panel`, `previous panel` and `show panel`. Each is declared once (`client/src/shell/panelVerbs.ts`), and the
      line, a tab's menu, the list and a tab's keys run that declaration. A menu shows each verb's words beside it, so
      the menu teaches the command. A close of several says how many it closed and how many pinned panels it kept,
-     and how to bring one back. A verb that cannot act says why, on the line or, from a menu or a key, in a refused
-     notice.
+     and how to bring one back. A verb that cannot act says why: on the line, under its item in a menu, and from a
+     key in a refused notice.
    - *They are the client's.* They change the screen only: they are not logged, `undo` does not reach them, and the
      AI is not given them (ADR-0016 §3: the AI calls capabilities, never page automation). They are read by the line,
      not by the server: a panel is no table of a workspace. The panels are kept while the page is loaded, as before.
