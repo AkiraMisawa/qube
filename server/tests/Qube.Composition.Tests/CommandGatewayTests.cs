@@ -136,7 +136,7 @@ public class CommandGatewayTests(QubeFactory factory) : IClassFixture<QubeFactor
         var typed = capabilities.Where(c => c!["command"] is not null).ToDictionary(c => c!["capabilityId"]!.GetValue<string>(), c => c!["command"]!.ToJsonString());
 
         Assert.Equal(["draft.apply", "entity.create", "entity.remove", "entity.reset", "entity.set", "rates.frame.capture", "rates.line.add", "rates.live.start", "rates.live.stop",
-            "rates.workspace.price", "workspace.redo", "workspace.undo", "xva.case.remove", "xva.cases.clear", "xva.cds", "xva.measures",
+            "rates.workspace.price", "sequence.run", "sequence.save", "workspace.redo", "workspace.undo", "xva.case.remove", "xva.cases.clear", "xva.cds", "xva.measures",
             "xva.pv01.retry", "xva.refresh", "xva.scenario", "xva.scenario.cross", "xva.scenario.duplicate", "xva.scenario.exclude", "xva.scenario.include",
             "xva.scenario.ladder", "xva.scenario.load", "xva.scenario.remove", "xva.scenario.save", "xva.scenarios.clear", "xva.trades.add", "xva.trades.load", "xva.vary", "xva.workspace.price"],
             typed.Keys.Order(StringComparer.Ordinal));
@@ -157,6 +157,10 @@ public class CommandGatewayTests(QubeFactory factory) : IClassFixture<QubeFactor
         Assert.Equal("""{"words":["reset"],"arguments":[{"name":"rows","kind":"rows","required":false},{"name":"field","kind":"field","required":false}]}""", typed["entity.reset"]);
         Assert.Equal("""{"words":["remove"],"arguments":[{"name":"rows","kind":"rows","required":true}]}""", typed["entity.remove"]);
         Assert.Equal("""{"words":["undo"],"arguments":[]}""", typed["workspace.undo"]);
+        // A saved sequence's two verbs are every application's (ADR-0016 note 63 of step 6).
+        Assert.Equal("""{"words":["sequence save"],"arguments":[{"name":"name","kind":"text","required":true},{"name":"share","kind":"text","required":false},{"name":"lines","kind":"text","required":true}]}""",
+            typed["sequence.save"]);
+        Assert.Equal("""{"words":["sequence run"],"arguments":[{"name":"sequence","kind":"text","required":true}]}""", typed["sequence.run"]);
         // Rates' verbs are typed on a Rates workspace (note 36): two applications each have a `price`; `new` is the kernel's, for every one.
         Assert.Equal("""{"words":["price"],"arguments":[],"app":"rates"}""", typed["rates.workspace.price"]);
         Assert.Equal("""{"words":["add line"],"arguments":[{"name":"product","kind":"text","required":true}],"app":"rates"}""", typed["rates.line.add"]);

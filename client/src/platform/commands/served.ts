@@ -74,6 +74,7 @@ export interface DoorPage {
   /**
    * What the page does with what a command of its own answered, beyond showing the workspace again, such as opening
    * the Run it made (ADR-0016 note 36). Told once the command is done, whether or not the page could read what it left.
+   * A saved sequence's run tells it of each line's command in order, and then of the run (note 64).
    */
   readonly answered?: (capabilityId: string, answer: Told) => void;
 }
@@ -98,6 +99,39 @@ function toldOf(answer: CommandAnswer): Told {
   const told = outputOf<Partial<Told>>(answer, port);
   if (typeof told.revision !== 'number' || typeof told.said !== 'string') throw new Error(`${answer.capabilityId} answered without the revision it left the workspace at and what it did.`);
   return told as Told;
+}
+
+/** The capability that runs a saved sequence (ADR-0016 note 62): its answer holds what each of its lines' commands answered. */
+const SEQUENCE_RUN = 'sequence.run';
+
+/** A line of a sequence that ran: the command it named, and what that command answered. */
+interface LineRan {
+  readonly command: string;
+  readonly answer: Told;
+}
+
+/**
+ * What each line of a sequence's run answered, in order (ADR-0016 note 64): the run carries each command's own answer
+ * whole, as JSON text. A run that says its lines otherwise, or a line's command that says neither where it left the
+ * workspace nor what it did, broke the door's contract: that is said, and nothing is read in its place.
+ */
+function linesRan(run: Told): readonly LineRan[] {
+  const steps = run.steps;
+  if (!Array.isArray(steps)) throw new Error(`${SEQUENCE_RUN} answered without the lines it ran.`);
+  return steps.map((step: unknown, index): LineRan => {
+    const number = index + 1;
+    const { command, answer } = typeof step === 'object' && step !== null ? (step as { readonly command?: unknown; readonly answer?: unknown }) : {};
+    if (typeof command !== 'string' || typeof answer !== 'string') throw new Error(`${SEQUENCE_RUN} answered line ${number} without its command and what that answered.`);
+    let told: Partial<Told>;
+    try {
+      told = JSON.parse(answer) as Partial<Told>;
+    } catch {
+      throw new Error(`${SEQUENCE_RUN} answered what line ${number} (${command}) answered as text that is no JSON.`);
+    }
+    if (typeof told !== 'object' || told === null || typeof told.revision !== 'number' || typeof told.said !== 'string')
+      throw new Error(`${command}, line ${number} of the sequence, answered without the revision it left the workspace at and what it did.`);
+    return { command, answer: told as Told };
+  });
 }
 
 interface Invocation {
@@ -146,12 +180,14 @@ export function commandDoor(page: DoorPage, out: TakenOut = browserOut): Command
     page.turns.after(async (revision): Promise<Ended | LineReason | undefined> => {
       let told: Told;
       let ran: string;
+      let lines: readonly LineRan[];
       try {
         const call = await named(revision);
         // Nothing to invoke: the line cannot be read, or what it asked for is done already.
         if (call === undefined || !('id' in call)) return call;
         told = toldOf(await page.api.command(call.id, call.version, call.inputs, crypto.randomUUID()));
         ran = call.id;
+        lines = ran === SEQUENCE_RUN ? linesRan(told) : [];
       } catch (error) {
         const sentence = describe(error);
         if (!(error instanceof ApiError && error.envelope.code === 'RevisionMoved')) return { sentence };
@@ -160,6 +196,12 @@ export function commandDoor(page: DoorPage, out: TakenOut = browserOut): Command
           (unread: unknown) => ({ sentence: `${sentence} The page could not read the workspace again: ${describe(unread)}` }));
       }
       page.turns.rebase(told.revision);
+      // A sequence's lines are commands of their own (note 64): the page is told what each answered, in order, as if
+      // it had run that command, and then what the run itself answered.
+      const tell = () => {
+        for (const line of lines) page.answered?.(line.command, line.answer);
+        page.answered?.(ran, told);
+      };
       // What a draft held is written: its dialog closes, whatever the page can then read.
       if (ran === DRAFT_APPLY) page.drafts?.close();
       // The command is done whether or not the page can read what it left: the notice then says both, and a caller
@@ -169,10 +211,10 @@ export function commandDoor(page: DoorPage, out: TakenOut = browserOut): Command
       } catch (error) {
         page.notify('refused', `${told.said} The page could not read the workspace again: ${describe(error)}`);
         heard?.(told.said);
-        page.answered?.(ran, told);
+        tell();
         return undefined;
       }
-      page.answered?.(ran, told);
+      tell();
       // What waits for the user's decision does not leave by itself.
       if (heard === undefined) page.notify('done', told.said, ...(told.stays === true ? [{ stays: true }] : []));
       else heard(told.said);

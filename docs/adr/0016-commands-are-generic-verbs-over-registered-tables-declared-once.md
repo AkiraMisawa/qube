@@ -490,7 +490,8 @@ log cannot yet say which entries were one command, or what an entry replaced.
    independent amounts. 5b: templates, the pricer's fields beyond its grids, and the input Price freezes. 5c:
    drafts, a row's dialog and its button in the grid. 5d: the scenarios and their shifts as tables, and
    `load trades <ids>`. Left for the owner: where a row's button stands in a grid (ticket 16).
-6. Saved sequences of edits (§8). §1 and §2 serve them as they are.
+6. Saved sequences of edits (§8). §1 and §2 serve them as they are. **Built 2026-11-12**
+   (`docs/specs/commands-6-saved-sequences`, one pull request); what it settled is notes 60 to 64.
 
 ### Notes of 2026-11-11: what step 1 settles (all DEFAULT)
 
@@ -2483,6 +2484,126 @@ has one button, edit; and `load trades` reads a synthetic store of booked trades
       cast a workspace's source to the pricer's own type would read it without its loaded trades; every reader
       goes through `PortfolioSourceVersion.Of`, and review alone holds that. The store's indices are built in two
       places, and two readers gather a trade's edits from the three places an edit may be held.
+
+### Notes of 2026-11-12: what step 6 settles (all DEFAULT)
+
+Step 6 is one pull request (`docs/specs/commands-6-saved-sequences`). §8 leaves a saved sequence's shape a DEFAULT
+"until its spec is written"; these notes are that shape. The owner asked for the step to be built without a question
+(2026-11-11), so each choice here is reported, and the ones to judge are marked.
+
+60. **What a saved sequence is (§8).** A saved item (C32, ADR-0010 §4), kept by the kernel's store of saved items as
+    a scenario set is: its owner's alone unless shared with the owner's desk or with all, replaced by its owner
+    saving the name again, and named `<name>` or `<name>@<owner>`.
+    - *It holds lines.* Each line is a command as a person types it, kept as written, in order: no row a selector
+      matched, no revision, no workspace and no counterparty, so that it serves another counterparty's workspace
+      (§8). Beside each line it keeps what the line's first words named when it was saved, a command's id or a
+      short form's, and nothing of the command's inputs: the server reads the line again each time it runs (§5).
+    - *It is of one application.* A command is of an application's workspaces (note 27), so a sequence saved on a
+      pricer's workspace is listed and run on the pricer's workspaces alone (its kind is `sequence:<app>`), and
+      the same name may be another application's sequence.
+    - *One to fifty lines.* A sequence runs in one call, so the cap is on what is executed (`TooManyLines`).
+    - *Not built:* taking a saved sequence away (the store of saved items removes nothing, a scenario set
+      neither: saving the name again for oneself alone withdraws it from a desk); values given when it runs
+      (`sequence run usd-only ccy=EUR`); a sequence made from the commands the log holds, or recorded while they
+      are typed; a dialog to write one in. Each is on the status document's list of what may come later.
+    - *Added as built:* a kept sequence that holds no line, or holds its lines otherwise than a save writes
+      them, is a defect of the store and thrown as one: it is not read as a sequence of fewer lines.
+
+61. **What a line of a sequence may be (§8, §9).** One rule, read when the sequence is saved and again as each
+    line is reached when it runs:
+    - its first words name a command of the workspace's application, or a short form (note 29) whose line does;
+    - the command edits the workspace (`EditWorkspace`), or, as the last line alone, starts work on it at the
+      revision the lines before it left (`Execute`: `price`). §8 says a sequence "may end by submitting a
+      workflow at the revision it left", and this reads it as written. *For the owner to judge:* `price` between
+      two edits would make two Runs of one sequence, each of its own revision, and is refused today
+      (`ExecutesBeforeTheEnd`).
+    - Refused by name (`NotInASequence`): a verb of the screen, and `selected` and `shown`, since a sequence has
+      no screen (§9); `undo` and `redo`, which act on whatever command is the log's latest when they run;
+      `apply`, which writes a dialog's draft; a `sequence` verb, so no sequence runs another; and a command that
+      neither edits nor starts work, such as `scenario save` and `live start`.
+    - *A line that names a command and is refused as the workspace stands does not refuse the save.* What it
+      names may be made by a line before it (`new irs …` then `set DRAFT-1 …`), and a sequence is saved on one
+      counterparty to serve another. The save's reading says which lines are refused where it stands and why, and
+      that each is read again when it runs. A line that begins with no command's words, or breaks the rule above,
+      refuses the save, with its number.
+    - *Changed as built:* `selected` and `shown` are refused by the reader's own code (`NoView`), with the
+      line's number before its sentence; the others above are `NotInASequence`. A save of no line is `NoLines`,
+      an empty line `EmptyLine`, and a line that begins with no command's words `NotACommand`.
+    - *Added as built:* a short form is held to the rule by the line it stands for, once that is read. Where its
+      line is refused as the workspace stands it is kept, as any line is, and held to the rule when it runs.
+    - *Added as built:* a line is read with no screen behind it, on the workspace as it is given: the save's
+      reading, as a person types it, reads the lines on the workspace the page shows.
+
+62. **`sequence.run` runs each line as its own command (§8, §11).**
+    - *Each line is read, then invoked through the gateway.* The server's reader reads the line for the caller at
+      the revision the line before it left (the first at the revision the request names), and the command it
+      names is invoked through the command gateway with the inputs that reading gave. So each line is a command
+      of its own in the log, with its own words, and `undo` takes them back one at a time, the last first.
+    - *A workspace another hand moved stops the run.* A line is read at the revision the line before left, and a
+      workspace that is elsewhere refuses the reading (`RevisionMoved`), as it refuses any line read too late.
+    - *Origin.* The lines run with origin `workflow` (§8). `undo` says of such a command "a saved sequence for
+      you", as it says "the AI for you". *A sequence the AI runs keeps origin `ai`* for its lines: the log would
+      otherwise say that no AI wrote what the AI ran. *For the owner to judge.*
+    - *It stops at the first refusal.* A refusal of the first line refuses the command, with that line's code
+      and nothing run. A later one ends the run: the lines before it stay written, and the answer says the line
+      it stopped at, why, the revision the run began at and the one it left the workspace at. That answer is
+      done, not refused: a refusal is the gateway's word for a command that left nothing done, which is what
+      lets it be tried again. It stays on the screen until it is closed (`stays`, note 33). *For the owner to
+      judge:* the notice is drawn as a done one.
+    - *What was read is what runs.* The request names the sequence and the moment it was saved, as its reading
+      read it; a sequence saved again since is refused (`SequenceMoved`). A line whose first words name another
+      command than when it was saved is refused with its number (`LineMoved`): the vocabulary changed under it,
+      and a line run blind is not read as whatever its words mean now.
+    - *Asked again with the same key*, the command answers what it answered (ADR-0005), and each line is invoked
+      with a key of its own made from that key and the line's number.
+    - *A command that answers neither the revision it left nor what it did* cannot be chained: that is the
+      command's defect, thrown as one, as the page's door throws it (note 36).
+    - *Added as built:* the request the line makes names the sequence as `<name>@<owner>` beside the moment it
+      was saved, so that a sequence of that name the caller saves between the reading and the run is not run in
+      its place. A refusal of the first line says that nothing ran before the line's own sentence.
+    - *Added as built:* the answer holds, for each line that ran, the command it named and that command's own
+      answer whole, as JSON text: a contract holds no object in an object (note 12).
+    - *Added as built:* a stopped run says what `undo` reaches: of the lines before the one it stopped at, only
+      those that wrote the workspace, and "wrote nothing" where none did.
+
+63. **The lines that say them (§3, §9).** Two commands of every application, both among the AI's tools as every
+    command is.
+    - `sequence save <name> [desk|all] <line> then <line> …` keeps the lines under the name. The lines are
+      separated by the word `then`, standing alone: `;` is already the scenario verbs' own, between shifts. A line
+      that holds `then` as a word of its own cannot be typed this way; the capability takes its lines as a list.
+      The reading says each line with its number, whom the sequence is for, and whether it replaces the user's
+      own. It changes no workspace and is in no log.
+    - `sequence run <name>` runs one. The line offers the sequences the user can see, each with how many lines
+      it has and whose it is. Its reading says every line, and reads the first on the workspace as it stands:
+      what that line would do is said, and a first line that is refused refuses the reading.
+    - *Added as built:* the word after the name says whom the sequence is for when it is `desk` or `all`, in
+      any case. A typed sequence's first line so cannot begin with either word; no command does today, and the
+      capability's list of lines is not read that way.
+    - *Added as built:* what the line offers. After the name, `desk` and `all`; where a line begins, the words
+      of the commands a sequence may hold; within a line, what that line's own command offers; and the word
+      `then` after a line that reads as the workspace stands and may have another after it. Nothing is offered
+      while the name is typed, nor within a line a sequence may not hold.
+    - *Added as built:* the save's reading reads every line at each keystroke, fifty at most; what that costs is
+      not measured. Its `lines` argument shows the lines as typed, with `then` between two.
+    - *Added as built:* the run's reading. It says no moment: the line shows a reading's moment as a time of
+      day, which says nothing of a sequence saved on another day. It says the first line's own sentence last,
+      since a command's sentence may end without a full stop, and names the owner of a sequence that is
+      another user's. `sequence run` with no name is refused with the names the user can see
+      (`SequenceNotNamed`), and a word after the name is refused (`UnreadWords`).
+    - *§9's "several commands in one line" stands.* It refuses running a line of several commands, because one
+      preview cannot show what the second would read after the first. `sequence save` runs none; and the run's
+      reading therefore says the lines as they are written and reads the first alone, claiming nothing of what
+      a later line would change.
+    - *The words.* `sequence`, as §8 names the thing. *For the owner to judge*, with `then`.
+
+64. **What the page does with a run (§5, note 36).** The door reads the answer as any command's: where the
+    workspace was left and what was done. It also tells its page what each line's command answered, in order, as
+    if the page had run that command: Rates opens the Run a `price` made (note 36) whether `price` was typed or
+    was a sequence's last line. Nothing else of the client knows a sequence: both commands are on the line from
+    the catalog, as every command is.
+    - *Added as built:* a run that stopped tells the page of the lines that ran, then of the run. A run's
+      answer without its lines, or with a line that holds no command and no answer of it, is the server's
+      defect: the door says it by name and tells the page of no line.
 
 ## Rejected
 

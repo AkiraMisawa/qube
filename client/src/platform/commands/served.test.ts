@@ -724,6 +724,64 @@ describe('Enter on a line the server reads, through its page\'s door (ADR-0016 ย
     await refused.door.enter('set R1 checked on', reading(9));
     expect(answered).not.toHaveBeenCalled();
   });
+
+  /** A run of a saved sequence as the server answers it: each line that ran with its command's own answer as JSON text. */
+  const ranSequence = (revision: number, said: string, steps: readonly (readonly [command: string, answer: object | string])[], more: object = {}): CommandAnswer => ({
+    capabilityId: 'sequence.run', version: '1.0.0',
+    outputs: { answer: { workspaceId: 'ws-1', revision, began: 7, said, sequence: 'morning', owner: 'ana', lines: steps.length, ran: steps.length,
+      steps: steps.map(([command, answer], i) => ({ number: i + 1, line: `line ${i + 1}`, command, said: 'said', revision, answer: typeof answer === 'string' ? answer : JSON.stringify(answer) })), ...more } },
+  });
+  const running = (revision: number): LinePreview =>
+    reading(revision, { command: { id: 'sequence.run', version: '1.0.0' }, inputs: { request: { workspaceId: 'ws-1', revision, sequence: 'morning@ana', saved: '2026-11-12T09:00:00.0000000+00:00' } } });
+
+  it('ADR-0016 note 64: a run of a saved sequence tells the page what each line\'s command answered, in order, as if the page had run it, and then the run\'s own', async () => {
+    const answered = vi.fn();
+    const p = page(7, 9, undefined, undefined, answered);
+    const set = { workspaceId: 'ws-1', revision: 8, said: 'Set R1 checked to on.', command: 'c8' };
+    const priced = { workspaceId: 'ws-1', revision: 9, said: 'Survey 1 was started at revision 9.', runId: 'run-1' };
+    const run = ranSequence(9, 'Ran morning: 2 lines, from revision 7 to 9. Survey 1 was started at revision 9.', [['entity.set', set], ['weather.survey', priced]]);
+    p.command.mockResolvedValue(run);
+
+    expect(await p.door.enter('sequence run morning', running(7))).toBeUndefined();
+
+    expect(p.command.mock.calls.map(([id, , inputs]) => [id, inputs])).toEqual([['sequence.run', running(7).inputs]]);
+    expect(answered.mock.calls).toEqual([['entity.set', set], ['weather.survey', priced], ['sequence.run', run.outputs.answer]]);
+    // One notice, the run's: where the workspace was left and what was done.
+    expect(p.notify.mock.calls).toEqual([['done', 'Ran morning: 2 lines, from revision 7 to 9. Survey 1 was started at revision 9.']]);
+    expect(p.turns.revision).toBe(9);
+  });
+
+  it('ADR-0016 notes 62 and 64: a run that stopped is done, its notice stays, and the page is told of the lines that ran', async () => {
+    const answered = vi.fn();
+    const p = page(7, 8, undefined, undefined, answered);
+    const set = { workspaceId: 'ws-1', revision: 8, said: 'Set R1 checked to on.' };
+    const said = 'Stopped at line 2 of morning (`set N9 altitude 5`): No station N9. Line 1 ran, from revision 7 to 8: undo takes it back.';
+    p.command.mockResolvedValue(ranSequence(8, said, [['entity.set', set]], { lines: 2, stopped: 2, stoppedCode: 'UnknownRow', stoppedWhy: 'No station N9.', stays: true }));
+
+    expect(await p.door.enter('sequence run morning', running(7))).toBeUndefined();
+
+    expect(answered.mock.calls.map(([id]) => id)).toEqual(['entity.set', 'sequence.run']);
+    expect(p.notify.mock.calls).toEqual([['done', said, { stays: true }]]);
+  });
+
+  it('ADR-0016 note 64: a run that does not say what its lines answered broke the door\'s contract, which is said, and the page is told of none', async () => {
+    const answered = vi.fn();
+    const bare = page(7, 8, undefined, undefined, answered);
+    bare.command.mockResolvedValue({ capabilityId: 'sequence.run', version: '1.0.0', outputs: { answer: { workspaceId: 'ws-1', revision: 8, said: 'Ran morning.' } } });
+    expect(await bare.door.enter('sequence run morning', running(7))).toEqual({ sentence: 'sequence.run answered without the lines it ran.' });
+
+    const unreadable = page(7, 8, undefined, undefined, answered);
+    unreadable.command.mockResolvedValue(ranSequence(8, 'Ran morning.', [['entity.set', 'not json']]));
+    expect(await unreadable.door.enter('sequence run morning', running(7))).toEqual({ sentence: 'sequence.run answered what line 1 (entity.set) answered as text that is no JSON.' });
+
+    const silent = page(7, 8, undefined, undefined, answered);
+    silent.command.mockResolvedValue(ranSequence(8, 'Ran morning.', [['entity.set', { workspaceId: 'ws-1' }]]));
+    expect(await silent.door.enter('sequence run morning', running(7)))
+      .toEqual({ sentence: 'entity.set, line 1 of the sequence, answered without the revision it left the workspace at and what it did.' });
+
+    expect(answered).not.toHaveBeenCalled();
+    expect(bare.notify).not.toHaveBeenCalled();
+  });
 });
 
 describe('a row\'s dialog and its draft, through the page\'s door (ADR-0016 ยง10, notes 55 to 57 of 2026-11-12)', () => {
