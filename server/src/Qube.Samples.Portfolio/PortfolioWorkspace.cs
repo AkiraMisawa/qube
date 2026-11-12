@@ -267,12 +267,14 @@ public static class PortfolioMaterialiser
     static readonly IReadOnlyDictionary<(string, string), Override> NoEdits = new Dictionary<(string, string), Override>();
     static readonly ILookup<string, string> Nothing = Array.Empty<(string, string)>().ToLookup(x => x.Item1, x => x.Item2);
 
-    /// <summary>The entities Price would read: trades in Before or After, the CSAs they use, the netting set's and
-    /// the counterparty's credit inputs and the selection of measures.</summary>
+    /// <summary>The entities Price would read: trades in Before or After with the legs and the independent amounts
+    /// under them (ADR-0016 note 53), the CSAs they use, the netting set's and the counterparty's credit inputs and the
+    /// selection of measures.</summary>
     public static Func<string, bool> PricedEntities(WorkspaceState state)
     {
         var source = (PortfolioSourceVersion)state.Source;
         var trades = Trades(state).Where(t => t.Before || t.After).ToList();
+        var pricedTrades = trades.Select(t => t.TradeId).ToHashSet();
         var entities = trades.Select(t => Entity.Of(Entity.Trade, t.TradeId))
             .Concat(trades.Select(t => Entity.Of(Entity.Csa, t.Csa)))
             .Append(Entity.Of(Entity.Netting, source.Agreement.NettingSetId))
@@ -284,7 +286,12 @@ public static class PortfolioMaterialiser
             .Append(Entity.WorkspaceSettings)
             .ToHashSet();
         // A module's settings are read by its request whenever one of its measures is priced (ADR-0010 §8).
-        return e => entities.Contains(e) || Entity.Split(e).Kind == Entity.Settings;
+        return e => entities.Contains(e) || Entity.Split(e) switch
+        {
+            (Entity.Settings, _) => true,
+            (Entity.Leg or Entity.Amount, var id) => pricedTrades.Contains(Entity.TradeOf(id)),
+            _ => false,
+        };
     }
 
     /// <summary>The measures Price runs: the user's selection, else every registered measure (ADR-0010 §10).</summary>

@@ -66,6 +66,8 @@ public static partial class SelectorReader
     public const string WhereWord = "where";
     public const string AndWord = "and";
     public const string InWord = "in";
+    /// <summary>The word after which <c>set</c> reads a template (note 50): it ends the rows, as <c>where</c> does, and is no row's id said by itself.</summary>
+    public const string AsWord = "as";
 
     const string HowACondition = "a condition is a field, an operator (=, !=, <, <=, >, >=, ~, in) and a value, and conditions are joined by and.";
 
@@ -142,7 +144,7 @@ public static partial class SelectorReader
         // Where a list of fields follows the rows, its first field ends at a comma, with or without a space.
         var first = fieldsFollow ? BeforeComma(words, at) : null;
         bool FieldFirst(IReadOnlyList<TableField> fields) => first is null ? StartsWithAField(words, at, fields) : StartsWithAField(first, 0, fields);
-        if (!all && screen is null && subset is null && at < words.Length && !Is(words[at], WhereWord) && said is not { SingleRow: true }
+        if (!all && screen is null && subset is null && at < words.Length && !Is(words[at], WhereWord) && !Is(words[at], AsWord) && said is not { SingleRow: true }
             && !(said is null && FieldFirst([.. tables.Where(t => t.SingleRow).SelectMany(t => t.Fields), .. onScreen?.Fields ?? []]))
             && !(fieldsFollow && table is not null && FieldFirst(table.Fields)))
             at = List(words, at, ids);

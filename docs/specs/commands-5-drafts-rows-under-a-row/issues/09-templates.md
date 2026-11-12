@@ -8,10 +8,10 @@
 
 **Blocked by:** the pull request before it.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] `set <rows> as <template> name=value` writes each field, each checked in order, as one command.
-- [ ] A value the template needs and is not given refuses it by name; a template the table has not is refused with
+- [x] `set <rows> as <template> name=value` writes each field, each checked in order, as one command.
+- [x] A value the template needs and is not given refuses it by name; a template the table has not is refused with
       those it has.
-- [ ] After `as` the line offers the templates, then the values one takes.
-- [ ] `tables.describe` answers a table's templates with what each takes.
+- [x] After `as` the line offers the templates, then the values one takes.
+- [x] `tables.describe` answers a table's templates with what each takes.

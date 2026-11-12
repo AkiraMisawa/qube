@@ -1,4 +1,5 @@
 using System.Globalization;
+using Qube.Composition.Application.Products;
 using Qube.Composition.Application.Workspaces;
 using Qube.Composition.Contracts;
 
@@ -145,7 +146,12 @@ static class TableCompletions
                 // each saying what it would act on: the selection or the row the keyboard is on, or, for a verb that
                 // takes the rows the grid shows, those (note 44 of step 4).
                 if (afterRows is not null && view is not null && onScreen is { Descriptor.SingleRow: false } && LeftOut(view, onScreen) is { } rows)
+                {
                     foreach (var field in Fields(onScreen, [], editable: !fieldsFollow)) items.Add(new(TableWords.Word(field), at, rows));
+                    As(onScreen, rows);
+                }
+                // `as` is offered once: for the screen's rows where they take one, else for a table of one row.
+                if (!fieldsFollow) foreach (var table in tables.Where(t => t.Descriptor.SingleRow)) As(table, table.Word);
             }
             // After a table's own word, a verb for which that word alone is every row of it may name fields at once
             // (note 44 of step 4); for any other the word says no rows yet, and a field after it would be refused.
@@ -218,6 +224,12 @@ static class TableCompletions
                 return;
             }
             var said = pending.Select(w => w.Word).ToList();
+            // After `as`, a template of the table and then its terms (note 50).
+            if (afterRows == CommandArgumentKind.Assignments && said.Count > 0 && SelectorReader.Is(said[0], Templates.Word))
+            {
+                Template(table, pending);
+                return;
+            }
             if (afterRows == CommandArgumentKind.Assignments && (typed.Contains('=') || said.Any(w => w.Contains('='))))
             {
                 Signed(table, said);
@@ -231,6 +243,33 @@ static class TableCompletions
             }
             // No word yet, or words that start a field's name or name several: the fields they could be, written from their first word.
             foreach (var field in Fields(table, said, editable: true)) items.Add(new(TableWords.Word(field), pending.Count > 0 ? pending[0].Start : at));
+            // Where the table has a template, `as` may stand where a field would (note 50).
+            if (pending.Count == 0) As(table, "a template");
+        }
+
+        // `as`, where the verb sets values and the table has a template; once, whichever table it is offered for first.
+        void As(BoundTable table, string detail)
+        {
+            if (afterRows == CommandArgumentKind.Assignments && table.Descriptor.Templates is { Count: > 0 } && items.All(i => i.Value != Templates.Word))
+                Keyword(Templates.Word, detail: detail);
+        }
+
+        // After `as`: the table's templates as far as their words are typed, written from the first of them; after a
+        // template, its terms as `new` offers a product's (ADR-0016 note 36). A value after `name=` is the user's to type.
+        void Template(BoundTable table, IReadOnlyList<(string Word, int Start)> pending)
+        {
+            var templates = table.Descriptor.Templates ?? [];
+            IReadOnlyList<string> after = [.. pending.Skip(1).Select(w => w.Word)];
+            if (Templates.Named(templates, after) is var (template, own))
+            {
+                if (typed.Contains('=')) return;
+                foreach (var (value, detail) in ProductReader.Offers(template.Name, template.Takes, string.Join(' ', after.Skip(own)), ProductReader.Written))
+                    if (value.StartsWith(typed, StringComparison.OrdinalIgnoreCase)) items.Add(new(value, at, detail));
+                return;
+            }
+            var start = TableWords.Of(string.Join(' ', after.Append(typed)));
+            foreach (var one in templates.Where(t => TableWords.Names(t).Any(w => w.StartsWith(start, StringComparison.Ordinal))))
+                items.Add(new(one.Name, pending.Count > 1 ? pending[1].Start : at, one.Title));
         }
 
         // Values with their signs: after a sign the field's values, and between pairs the fields not given yet.
@@ -318,7 +357,9 @@ static class TableCompletions
             if (!selector.SaysNoRows) return unsaid is null ? [] : [unsaid];
             // No rows: a table of one row that has the field the words start with, and the screen's table where it has
             // it. A verb that lists fields reads rows left out in the screen's table alone.
-            return tables.Where(t => (t == onScreen || (t.Descriptor.SingleRow && !fieldsFollow)) && Assignments.StartsWithAFieldOf(pending, t));
+            // `as` is meant for each of them that has a template (note 50).
+            return tables.Where(t => (t == onScreen || (t.Descriptor.SingleRow && !fieldsFollow))
+                && (Templates.Leads(pending) ? t.Descriptor.Templates is { Count: > 0 } : Assignments.StartsWithAFieldOf(pending, t)));
         }
     }
 }

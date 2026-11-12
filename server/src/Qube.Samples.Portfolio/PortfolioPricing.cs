@@ -314,9 +314,41 @@ public static class PortfolioInput
                 ["module"] = register.Measures.Single(m => m.Id == id).Module,
                 ["refused"] = refusals.TryGetValue(id, out var refusal) ? new JsonObject { ["code"] = refusal.Code, ["message"] = refusal.Message } : null,
             })]),
-            ["trades"] = JsonSerializer.SerializeToNode(trades, WireJson.Options),
+            ["trades"] = new JsonArray([.. trades.Select(t => Trade(state, t))]),
+            // Every CSA a trade of the case uses, with its terms as the case holds them (ADR-0016 note 53).
+            ["csas"] = Csas(state, trades),
             ["modules"] = modules,
         };
+    }
+
+    // Each CSA a trade of the case is under, in the agreement's order, as the case holds it. A trade under no CSA
+    // carries the agreement's `nocsa_{ma id}` (docs/03 §2): that names no CSA, so it has no entry here. A priced trade
+    // has no issue, so its CSA is one of the two; another id is a defect, and is not passed over.
+    static JsonArray Csas(WorkspaceState reading, IReadOnlyList<EffectiveTrade> trades)
+    {
+        var agreement = ((PortfolioSourceVersion)reading.Source).Agreement;
+        var held = PortfolioMaterialiser.Csas(reading);
+        var used = trades.Select(t => t.Csa).Where(id => id != agreement.NoCsa).ToHashSet();
+        if (used.Except(held.Select(c => c.CsaId)).FirstOrDefault() is { } unknown)
+            throw new InvalidOperationException($"A priced trade is under {unknown}, which is neither a CSA of {agreement.MaId} nor {agreement.NoCsa}.");
+        return new([.. held.Where(c => used.Contains(c.CsaId)).Select(c =>
+        {
+            var row = JsonSerializer.SerializeToNode(c, WireJson.Options)!.AsObject();
+            row.Add("details", PortfolioDetails.Frozen(reading, Entity.Of(Entity.Csa, c.CsaId)));
+            return row;
+        })]);
+    }
+
+    // A trade as the input carries it: its row, and what the workspace holds under it (ADR-0016 note 53). Whatever a
+    // user can set is frozen as set, whether or not a measure reads it yet.
+    static JsonNode Trade(WorkspaceState reading, EffectiveTrade trade)
+    {
+        var row = JsonSerializer.SerializeToNode(trade, WireJson.Options)!.AsObject();
+        var (legs, amounts) = PortfolioLegs.Frozen(reading, trade.TradeId);
+        row.Add("legs", legs);
+        row.Add("independentAmounts", amounts);
+        row.Add("details", PortfolioDetails.Frozen(reading, Entity.Of(Entity.Trade, trade.TradeId)));
+        return row;
     }
 
     /// <summary>
