@@ -10,7 +10,7 @@ import { useColumnWidths } from '../../platform/grid/columnWidths';
 import { GridUndoContext } from '../../platform/grid/gridUndo';
 import { filterGrid, heldRowOf, heldView, menuView, placeFocus, selectRows, sortGrid } from '../../platform/grid/lineView';
 import { GridFilterLine } from '../../platform/grid/GridFilterLine';
-import { useHeldFilter } from '../../platform/grid/heldFilter';
+import { heldInOrder, useHeldFilter } from '../../platform/grid/heldFilter';
 import { keysInOrder, useKeptGrid } from '../../platform/grid/keptGrid';
 import { panelKey, usePanelState } from '../../platform/panelState';
 import { EditQueue } from '../../platform/workspace/editQueue';
@@ -202,7 +202,7 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
   // needs no room for one (ADR-0015 §4).
   const { columns, onColumnWidthChanged } = useColumnWidths('rates/lines', columnsOf(opened), { hideColumnMenu: true });
   // The grid's sort, conditions and Selection, kept by the panel while it is hidden (ADR-0006 note 10).
-  useKeptGrid('rates/lines', source, grid, columns, keysInOrder(lineKey));
+  useKeptGrid('rates/lines', source, grid, columns, heldInOrder(lineKey, filter));
 
   // A double click on a folded column opens what it folds (ADR-0015 §1).
   const onCellDoubleClick = useCallback((cell: CellPosition) => {

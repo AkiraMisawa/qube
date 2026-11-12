@@ -11,7 +11,7 @@ import { Tex } from './Tex';
 import { SIDE_TITLE, sidesHolding } from './words';
 import { toneOf } from '../grid/amounts';
 import { useColumnWidths } from '../grid/columnWidths';
-import { rowsThatNeverChange, useKeptGrid } from '../grid/keptGrid';
+import { fixedRowsBySort, useKeptGrid } from '../grid/keptGrid';
 import { panelKey, usePanelState } from '../panelState';
 
 // The leaf rows of a term (ADR-0011 §5, §6), or of every term below it (ADR-0012 §6's note of 2026-11-08): a grid paged
@@ -51,8 +51,8 @@ export function LeafRows({ api, address, header, path, set, rows }: {
   readonly rows: { readonly below: false; readonly count: Readonly<Partial<Record<Side, number>>> } | { readonly below: true };
 }) {
   const below = rows.below;
-  const kept = JSON.stringify([address, path, set.leafSet, below]);
-  const [side, setSide] = usePanelState<Side>(SIDE, () => lastSide(header), kept);
+  const instance = JSON.stringify([address, path, set.leafSet, below]);
+  const [side, setSide] = usePanelState<Side>(SIDE, () => lastSide(header), instance);
   const [failure, setFailure] = useState<string | undefined>(undefined);
   const [focus, setFocus] = useState<PairedLeafRow | undefined>(undefined);
   // Below a term, the server says how many rows there are once it has read them.
@@ -95,7 +95,7 @@ export function LeafRows({ api, address, header, path, set, rows }: {
   const { columns, onColumnWidthChanged } = useColumnWidths(`trace/rows/${set.leafSet}`, declared, { hideColumnMenu: true });
   // Its sort and Selection, kept likewise.
   const grid = useRef<ExGridApi<PairedLeafRow>>(null);
-  useKeptGrid(`trace/leaves/${kept}`, source, grid, columns, rowsThatNeverChange());
+  useKeptGrid(`trace/leaves/${instance}`, source, grid, columns, fixedRowsBySort());
 
   const rowsRef = useRef(source);
   rowsRef.current = source;

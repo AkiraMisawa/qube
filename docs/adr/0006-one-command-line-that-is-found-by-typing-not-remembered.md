@@ -240,10 +240,15 @@ decided as recommended and reported.
     - *What is kept.* The pricer's layout as the user left it (its part on a phone, the inputs open or folded and their
       height, the dock open or folded, its height and whether it is widened), the input tab and the dock's tab open,
       the case and the market the dock shows, the profile chosen and the series hidden; in a trace, the term selected,
-      the terms open, the pages of children read and the card shown; the Rates page's levels opened (ADR-0015 §7) and
-      the line whose cashflows are open; the Pricing DB's domain; and every grid's sort, conditions (ADR-0016 note 41)
-      and Selection. The widths a user drags are not the panel's: they stay the user's setting (ADR-0017 §5). A Run's
-      view is the panel's already (`viewKey`), and a trace's order and what it shows below a term are kept by the view.
+      the terms open, the pages of children read and the card shown, each by the trace it is of (the Run, case, market
+      and measure), so that the trace of a Run priced since starts as one opened anew; the Rates page's levels opened
+      (ADR-0015 §7) and the line whose cashflows are open; the Pricing DB's domain; and every grid's sort, conditions
+      (ADR-0016 note 41) and Selection, a Run's dataset by its reference. The widths a user drags are not the panel's:
+      they stay the user's setting (ADR-0017 §5). A Run's view is the panel's already (`viewKey`), and a trace's order
+      and what it shows below a term are kept by the view.
+    - *A part drawn again while its panel is shown* (DEFAULT) takes back what it showed the same way: an input tab or a
+      domain chosen again, a line's cashflows opened again. A page's state is its panel's, whichever of its parts is in
+      view.
     - *What is not.* What the user typed and has not committed, a dialog, a notice, a busy state, and the scroll of a
       page or a grid (the Focus placed is revealed). Nothing kept is an input to what is priced: the user's work is
       the server's, and a page shown again reads it afresh (ADR-0003).
@@ -251,16 +256,18 @@ decided as recommended and reported.
       position means a row only in one order (ExGrid ADR-0011), and the rows may have moved while the panel was
       hidden: an edit, a live tick under a sort by a live figure, a Run added to the Pricing DB. So the Selection is
       kept with the order its positions were read in, named by the page (a paged grid by the order token its reader
-      answered, ADR-0016 note 17; a grid whose page holds every row by its rows' keys in turn; rows that never change,
-      a Run's datasets and trace, by the sort), and with the grid's columns by name. Drawn again, the grid takes back
-      its sort and conditions at once; once its first rows are in hand, the Selection is placed where the order and
-      the columns are the ones it was read in, and nowhere otherwise, leaving nothing selected as ExGrid leaves a grid
-      whose order moved. A trace's term is placed by its key, as a term asked for is.
+      answered, ADR-0016 note 17, once every row in hand came in one answer under the conditions the grid holds; a grid
+      whose page holds every row by its rows' keys in turn, once the server has said which rows its conditions leave;
+      rows that never change, a Run's datasets and trace, by the sort), and with the grid's columns by name. Drawn
+      again, the grid takes back its sort and conditions at once; once its first rows are in hand, the Selection is
+      placed where the order and the columns are the ones it was read in, and nowhere otherwise, leaving nothing
+      selected as ExGrid leaves a grid whose order moved. A Selection the user made before that is the user's, and
+      nothing is placed over it. A trace's term is placed by its key, as a term asked for is.
     - *One range.* ExGrid places one range and its Focus from outside a grid (`placeSelection`); a view it reads is
       handed back only to the grid that read it (`showViewWith`, its ADR-0331), and a grid drawn anew is another grid.
       So a Selection of several ranges is not kept, and neither is a grid's scroll.
-    - *How long.* While the panel is open, in this page load, in memory. A panel closed takes it with it, so `reopen
-      panel` brings back a page opened anew (note 7), and a reload restores the panels (ADR-0018 §7), each page opened
+    - *How long.* While the panel is open, in this page load, in memory. A panel closed takes it with it, what its page
+      writes as it goes after the close included, so `reopen panel` brings back a page opened anew (note 7), and a reload restores the panels (ADR-0018 §7), each page opened
       anew. A panel moved to another area keeps its page mounted (ADR-0018 §6) and so loses nothing either way.
     - *How* (`client/src/platform/panelState.ts`, `client/src/platform/grid/keptGrid.ts`). A value a page keeps is
       declared once with its type and a name no other takes, as a verb is; `usePanelState` is React's `useState` kept

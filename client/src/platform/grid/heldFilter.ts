@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState, useSyncExternalStore } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { Api } from '../api';
 import type { FilterSaid } from './GridFilterLine';
+import { keysInOrder, type OrderOf } from './keptGrid';
 import { narrows, whereOf, type Filter } from './lineView';
 
 // A grid filtered from the line (ADR-0016 note 41 of 2026-11-11), as its page shows it. The conditions are kept in the
@@ -101,4 +102,18 @@ export function useHeldFilter<Row>(source: Heard, grid: HeldGrid, rows: readonly
   const heard = where === undefined ? undefined : answered ?? last;
   if (heard !== last) setLast(heard);
   return useMemo(() => leftOf(rows, keyOf, { where, revision, own }, heard), [rows, keyOf, where, revision, own, heard]);
+}
+
+/**
+ * The order of a grid whose page holds every row, filtered from the line (ADR-0006 note 10): its rows' keys in turn, once
+ * the server has said which rows the conditions its source holds leave, and the grid shows those. None while it shows
+ * rows of other conditions, or every row before the first answer, which are in no order a Selection was read among.
+ */
+export function heldInOrder<Row>(keyOf: (row: Row) => string, said: FilterSaid | undefined): OrderOf<Row> {
+  const keys = keysInOrder(keyOf);
+  return (state) => {
+    if (whereOf(state.filter) !== said?.where) return undefined;
+    if (said !== undefined && said.counted === undefined && said.unread === undefined) return undefined;
+    return keys(state);
+  };
 }

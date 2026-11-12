@@ -1,6 +1,7 @@
-import { createContext, useContext, type ReactNode } from 'react';
+import { createContext, useContext, useMemo, type ReactNode } from 'react';
 import { useElementSize } from '@mantine/hooks';
-import { PanelIdProvider } from './panelState';
+import { PanelPlaceProvider } from './panelState';
+import { useWorkspaceContext } from './workspace/WorkspaceProvider';
 
 // A panel's page lays itself out by the panel's width, not the window's (ADR-0018 §5, amending ADR-0010 §1 and
 // docs/design-guidelines.md §9): in an area of 600px a page is a narrow page, as in a window of 600px. The page's box is
@@ -20,11 +21,13 @@ const PanelWidth = createContext<number | undefined>(undefined);
  */
 export function PanelPage({ panelId, children }: { readonly panelId: string; readonly children: ReactNode }) {
   const { ref, width } = useElementSize<HTMLDivElement>();
+  const { screens } = useWorkspaceContext();
+  const place = useMemo(() => ({ panelId, screens }), [panelId, screens]);
   return (
     // The width the page was last told, for what reads the page only once it has been laid out for it (the tests).
     <div ref={ref} className="qube-panel-page" data-panel-width={width > 0 ? width : undefined}>
       <div className="qube-panel-page-body">
-        {width > 0 && <PanelIdProvider value={panelId}><PanelWidth.Provider value={width}>{children}</PanelWidth.Provider></PanelIdProvider>}
+        {width > 0 && <PanelPlaceProvider value={place}><PanelWidth.Provider value={width}>{children}</PanelWidth.Provider></PanelPlaceProvider>}
       </div>
     </div>
   );

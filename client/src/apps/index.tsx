@@ -155,7 +155,7 @@ function TracePanel({ panel }: { readonly panel: Extract<Panel, { kind: 'app' }>
   const registerFocus = useCallback((focus: (() => void) | undefined) => registerGridFocus(panel.id, focus), [panel.id]);
   return (
     <Suspense fallback={<Text size="sm">Reading the trace…</Text>}>
-      <TraceView panelId={panel.id} address={traceAddressOf(panel.params)} api={traceApi} registerFocus={registerFocus} />
+      <TraceView viewId={panel.id} address={traceAddressOf(panel.params)} api={traceApi} registerFocus={registerFocus} />
     </Suspense>
   );
 }

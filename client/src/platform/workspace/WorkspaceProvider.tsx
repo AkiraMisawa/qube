@@ -33,7 +33,7 @@ export function WorkspaceProvider({ api, catalog, initialContext, notify, childr
   if (contract === undefined) throw new Error(`No module registered the ${CONTEXT_CONTRACT} contract; the workbench has no context to bind.`);
   const [store] = useState(() => createWorkspaceStore(initialContext, contract));
   // A page's state is its panel's: a panel closed takes it with it (ADR-0006 note 10).
-  const [screens] = useState(() => new PanelScreens());
+  const [screens] = useState(() => new PanelScreens((panelId) => store.getState().panels.some((p) => p.id === panelId)));
   useEffect(() => store.subscribe((state) => screens.keepOnly(state.panels.map((p) => p.id))), [store, screens]);
   // One value while its parts stand: a notice draws the application again, and a value made anew then would have every
   // page make its command door anew in the middle of the command that said it.

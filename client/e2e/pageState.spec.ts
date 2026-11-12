@@ -17,13 +17,19 @@ async function hideAndShow(page: Page, label: string, other: string): Promise<vo
   await expect(tab(page, label)).toHaveAttribute('aria-selected', 'true');
 }
 
-/** The cell a grid's Focus is on, by its row and column positions and its text; `none` where nothing is selected. */
+/**
+ * The cell a grid's Focus is on, by its row and column positions and its text; `none` where nothing is selected. Read in
+ * one go from the grid in the page, which a page drawn anew replaces, so that the Focus and its cell are one grid's.
+ */
 async function focusOf(grid: Locator): Promise<string> {
-  const id = await grid.getAttribute('data-ex-follow-focus');
-  if (id === null) return 'none';
-  const cell = grid.locator(`[id="${id}"]`);
-  const row = await cell.evaluate((el) => el.closest('[aria-rowindex]')?.getAttribute('aria-rowindex'));
-  return `${String(row)}:${String(await cell.getAttribute('aria-colindex'))}:${await cell.innerText()}`;
+  return grid.evaluate((root) => {
+    const id = root.getAttribute('data-ex-follow-focus');
+    if (id === null) return 'none';
+    const cell = root.querySelector<HTMLElement>(`[id="${CSS.escape(id)}"]`);
+    if (cell === null) return `not painted: ${id}`;
+    const row = cell.closest('[aria-rowindex]')?.getAttribute('aria-rowindex');
+    return `${String(row)}:${String(cell.getAttribute('aria-colindex'))}:${cell.innerText}`;
+  });
 }
 
 /** What the command line says is on screen with the keyboard in a place of the page: the rows selected and the Focus's row, by key. */
@@ -148,6 +154,16 @@ test('ADR-0006 note 10: the Pricing DB shown again has its domain and its Select
   await settled(page, 'Pricing DB');
   await expect(page.getByRole('radio', { name: 'XVA' })).toBeChecked();
   await expect.poll(() => focusOf(grid)).toBe(focus);
+  // The window crossing 768px draws the page anew, in the strip and back in its area (ADR-0018 §5): it is kept there too.
+  const size = page.viewportSize();
+  if (size === null) throw new Error('The test\'s page has no viewport size.');
+  await page.setViewportSize({ width: 700, height: size.height });
+  await settled(page, 'Pricing DB');
+  await expect(page.getByRole('radio', { name: 'XVA' })).toBeChecked();
+  await expect.poll(() => focusOf(grid)).toBe(focus);
+  await page.setViewportSize(size);
+  await settled(page, 'Pricing DB');
+  await expect.poll(() => focusOf(grid)).toBe(focus);
 
   // A Run priced while the list is hidden comes first: the second row is another Run, so nothing is selected.
   await tab(page, 'XVA ABC/LE-01').click();
@@ -158,6 +174,8 @@ test('ADR-0006 note 10: the Pricing DB shown again has its domain and its Select
   await settled(page, 'Pricing DB');
   await expect(page.getByRole('radio', { name: 'XVA' })).toBeChecked();
   await expect(newest).not.toHaveText(priced);
+  // Read once: a Selection is placed, if at all, as the rows come, in the task that hands them to the grid, so the paint
+  // that shows the new Run would show it too.
   expect(await focusOf(grid)).toBe('none');
 });
 
@@ -192,4 +210,34 @@ test('ADR-0006 note 10: a measure\'s trace hidden and shown again has its tab, i
   await expect(tree).toHaveAttribute('data-rows', '4');
   await settled(page, 'Terms');
   await expect.poll(() => focusOf(grid)).toBe(focus);
+});
+
+test('ADR-0006 note 10: the pricer hidden and shown again has its layout back: the inputs folded and the dock\'s height, and on a phone its part', async ({ page }) => {
+  await open(page);
+  await newWorkspace(page, 'ABC/LE-01', 3);
+  await taken(page, 'measures', 'cva fva');
+  await command(page, 'price');
+  await expect(page.getByTestId('xva-result').getByTestId('xva-result-status')).toHaveText('succeeded');
+  await command(page, 'open pricing db');
+  await settled(page, 'Pricing DB');
+  await tab(page, 'XVA ABC/LE-01').click();
+  await page.getByRole('button', { name: 'Hide inputs' }).click();
+  await expect(page.getByRole('button', { name: 'Show inputs' })).toHaveAttribute('aria-expanded', 'false');
+  const dock = page.getByRole('separator', { name: 'Height of the result dock' });
+  const height = Number(await dock.getAttribute('aria-valuenow'));
+  await dock.focus();
+  await page.keyboard.press('ArrowUp');
+  await expect(dock).toHaveAttribute('aria-valuenow', String(height + 24));
+
+  await hideAndShow(page, 'XVA ABC/LE-01', 'Pricing DB');
+  await expect(page.getByRole('button', { name: 'Show inputs' })).toHaveAttribute('aria-expanded', 'false');
+  await expect(dock).toHaveAttribute('aria-valuenow', String(height + 24));
+
+  // On a phone the page is its three parts: the part shown is kept as well.
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByText('Results', { exact: true }).click();
+  await expect(page.getByRole('radio', { name: 'Results' })).toBeChecked();
+  await hideAndShow(page, 'XVA ABC/LE-01', 'Pricing DB');
+  await expect(page.getByRole('radio', { name: 'Results' })).toBeChecked();
+  await expect(page.getByTestId('xva-result').getByRole('table', { name: 'Metrics' })).toBeVisible();
 });

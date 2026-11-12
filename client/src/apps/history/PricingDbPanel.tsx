@@ -7,7 +7,8 @@ import { useQuery } from '@tanstack/react-query';
 import { call } from '../../platform/api';
 import { amountTone, formatAmount } from '../../platform/grid/amounts';
 import { useColumnWidths } from '../../platform/grid/columnWidths';
-import { useKeptGrid } from '../../platform/grid/keptGrid';
+import { answeredInOrder, useKeptGrid } from '../../platform/grid/keptGrid';
+import type { Answered } from '../../platform/grid/lineView';
 import { panelKey, usePanelState } from '../../platform/panelState';
 import type { DatasetColumnType } from '../../platform/contracts';
 import { viewsFor } from '../../platform/views/binding';
@@ -79,16 +80,17 @@ function HistoryGrid({ panelId, domain, columns, notify }: {
   const grid = useRef<ExGridApi<Row>>(null);
   const [failure, setFailure] = useState<string | undefined>(undefined);
   const [total, setTotal] = useState<number | undefined>(undefined);
-  // Each row keeps the order its answer named (ADR-0006 note 10): a position means that row only in that order.
-  const [orders] = useState(() => new WeakMap<Row, string>());
+  // Each row keeps the answer it came in (ADR-0006 note 10): a position means that row only in that answer's order.
+  const [answers] = useState(() => new WeakMap<Row, Answered>());
   const source = useMemo(() => GridSource.fetch<Row>(async (query, signal) => {
     const page = await call<HistoryPage>('/api/history/rows', {
       method: 'POST', body: JSON.stringify({ domain, start: query.range.start, count: query.range.count }), signal,
     });
     setTotal(page.totalCount);
-    for (const row of page.rows) orders.set(row, page.orderToken);
+    const answer: Answered = { sorts: query.sorts, orderToken: page.orderToken };
+    for (const row of page.rows) answers.set(row, answer);
     return page;
-  }, { rowKey: (row) => row.runId as string, onFetchFailed: (e) => setFailure(e.error instanceof Error ? e.error.message : String(e.error)) }), [domain, orders]);
+  }, { rowKey: (row) => row.runId as string, onFetchFailed: (e) => setFailure(e.error instanceof Error ? e.error.message : String(e.error)) }), [domain, answers]);
   useEffect(() => () => source.dispose(), [source]);
   // Runs are added and finish while the page is open: the source reads its Window again, gathered.
   useEffect(() => {
@@ -107,13 +109,7 @@ function HistoryGrid({ panelId, domain, columns, notify }: {
   ], [columns]);
   const widths = useColumnWidths(`history/${domain ?? ALL}`, gridColumns);
   // Its Selection, kept by the panel while it is hidden (ADR-0006 note 10), by the domain it lists.
-  useKeptGrid(`history/${domain ?? ALL}`, source, grid, widths.columns, (state) => {
-    const [first] = state.window;
-    if (first === undefined) return undefined;
-    const order = orders.get(first);
-    if (order === undefined) throw new Error(`Run ${String(first.runId)} is in the Pricing DB's rows and came in no answer of its reader.`);
-    return order;
-  });
+  useKeptGrid(`history/${domain ?? ALL}`, source, grid, widths.columns, answeredInOrder((row) => answers.get(row)));
 
   const onAction = useCallback((event: GridActionEvent<Row>) => {
     const runId = event.row.runId as string;

@@ -2643,7 +2643,7 @@ Unchanged; nothing on the server changed.
 
 - A page's own state (its inner tab, a grid's sort, filter and selection) still goes when its panel is hidden. The
   owner chose that each page keep it by panel and show it again (note 7's last bullet): its own pull request, after
-  ADR-0016's step 5 changes the pricer's page.
+  ADR-0016's step 5 changes the pricer's page. (Built on 2026-11-12: ADR-0006 note 10, below.)
 - The panels, their order and the closed ones are kept while the page is loaded, as before; a reload starts empty.
   (Since ADR-0018 step 1, below, the browser tab keeps them across a reload.)
 - On a Mac laptop Delete is Fn+Delete, and Shift+F10 may need Fn: the menu is reached by a right click (or
@@ -3369,18 +3369,92 @@ Unchanged: every figure is simulated and says so.
 - Where the context bar wraps (an area under about 1,000 to 1,100px, by the measures chosen and the Price button's
   words), the page scrolls by the rows it adds: `TAKEN` is the one-row figure.
 
+## A page keeps what it shows by its panel (ADR-0006 note 10, 2026-11-12)
+
+The owner's choice of 2026-11-11: each page keeps its screen state by panel and shows it again when its panel comes
+back, without keeping hidden pages mounted, and without the scroll. Built after ADR-0016's steps 5 and 6.
+
+### What runs
+
+- **What is kept, by the panel, while it is open**: the pricer's layout (its part on a phone, the inputs open or folded
+  and their height, the dock open or folded, its height and whether it is widened), its input tab and dock tab, the
+  case and the market the dock shows, the profile chosen and its series hidden; a trace's term selected, terms open,
+  pages of children read and card shown, by the trace it is of; the Rates page's levels opened and the line whose
+  cashflows are open; the Pricing DB's domain; and every grid's sort, conditions from the line and Selection. A part of
+  a page drawn again while its panel is shown (an input tab or a domain chosen again) takes back what it showed too.
+- **A grid's Selection comes back only onto the rows it was read among**: kept with the order its positions were read
+  in, as the page names it (a paged grid by its reader's order token, once every row in hand came in one answer under
+  the conditions it holds; a grid whose page holds every row by its rows' keys, once the server said which rows its
+  conditions leave; a Run's datasets and trace by the sort), and with the grid's columns. Placed once the rows are in
+  hand where both are the same, nowhere otherwise, and never over a Selection the user made meanwhile.
+- **How long**: in memory, for the page load. A panel closed takes it with it, so `reopen panel` and a reload bring
+  back pages opened anew.
+- **How**: `usePanelState` (`client/src/platform/panelState.ts`) is React's `useState` kept by the panel under a key
+  declared once (`panelKey`); `useKeptGrid` (`client/src/platform/grid/keptGrid.ts`) keeps a grid's sort, conditions
+  and Selection. `PanelScreens` holds them, and the workspace's store tells it which panels are open.
+
+### Verification performed
+
+| What | Result |
+|---|---|
+| Client: `npm run typecheck`, `npx vitest run`, `npm run build`, after the review's fixes | Clean; 484 passed in 47 files; built |
+| `npx playwright test e2e/pageState.spec.ts` and the SIMM test #37 added, `--repeat-each=3` (Chromium, headless, Linux), after the review's fixes | 18 passed |
+| `npx playwright test` (Chromium, headless, Linux), with #37 merged in, before the review's fixes | 135 passed, 1 failed: #37's SIMM test reopened the trace by its button after the page was drawn anew, where the trace is now kept; corrected to read the kept trace |
+| The same, after the review's fixes | 137 passed |
+
+The unit tests read a value kept by panel, key and instance; nothing kept for a closed panel, whatever its page writes
+as it goes; a component given another instance starting from what that one kept; a Selection kept as one range with
+its order and columns, and none for several ranges or another sequence; placed again on the same rows, nowhere where
+the rows moved or the columns differ; a paged grid's order only where its rows came in one answer under the conditions
+held; a held grid's order only once the server answered for its conditions; a Selection given back and not yet decided
+kept while the page is hidden again before its rows came, under React's Strict Mode; and none placed over the user's.
+The browser tests read, after a panel hidden and shown again: the pricer's CSA tab and its trade grid's sort,
+conditions and two rows selected, and after a close and `reopen panel` none of them; the pricer's inputs folded, its
+dock's height, and on a phone its part; a Rates leg open, its cashflows open and the Focus back; the Pricing DB's
+domain and Focus, through the window crossing 768px too (the strip and back), and no Selection where a Run was priced
+while it was hidden; and a trace's term, terms open and Focus.
+
+### Providers
+
+Unchanged; nothing on the server changed.
+
+### Known limits
+
+- A Selection of several ranges is not kept, nor a grid's scroll: ExGrid places one range from outside a grid, and
+  hands a view it read back only to the grid that read it (its ADR-0331). The Focus placed is revealed.
+- Nothing is kept across a reload, or by a panel closed and reopened (as decided).
+- A Rates grid filtered from the line keeps its Selection only where the server's answer for its conditions comes
+  before the rows are decided on; until it comes the Selection waits, and a page hidden again keeps it.
+- A trace priced again in a panel on screen starts as a trace opened anew, on the term last asked for, as before; no
+  browser test tells that from a trace that kept the last one's term.
+- Not checked on a real phone or tablet; the phone width is Chromium's.
+
+### What the review changed
+
+The two reviews (standards and spec) found, and this pull request corrects: a trace's state was kept by its tab alone,
+so a Run priced since started on the last trace's terms; a Rates or CSA grid filtered from the line decided its
+Selection on every row before the server's answer, and dropped it; a paged grid's order was read from its first row
+alone, where the line's own view asks that every row came in one answer under the conditions held, and both now read
+one function; a dataset grid kept its Selection by the view alone, so another dataset's rows could take it; a closed
+panel's page wrote its state back as it went, after the close; a Selection the user made before the kept one was
+decided could be overwritten by it; a component given another instance kept the last one's value; a key declared again
+by Vite's hot reload threw; the request a trace answered once was written twice; and the tests' names did not carry
+the ADR, and a browser read of the Focus could mix two grids as a page was drawn anew. ADR-0018 §5 said the pages are
+drawn anew between the strip and the areas until this pull request; it now says they take back their state.
+
 ## Next
 
-1. A page keeps its state by panel (ADR-0006 note 7, the owner's choice). The generic commands (ADR-0016) are
-   built through step 6; what each step left for the owner is in its section's "Known limits".
-2. Panels in areas, ADR-0018 steps 2 (other browser windows) and 3 (parts of a page with links), in that order, each
+1. Panels in areas, ADR-0018 steps 2 (other browser windows) and 3 (parts of a page with links), in that order, each
    once the owner has seen the one before.
-3. MVA with SIMM (`docs/12-implementation-plan.md` P2): spot IM from the XVA request's MVA option.
-4. ADR-0010 Delivery step 3 (Advanced: Before-only and After-only edits, the split fill), when the owner asks for it.
-5. The owner's review of ADR-0003 §7 (scopes, carry and conflict), then a synthetic source change that can produce a conflict, and the browser cases still open above (reload, failed case unavailable).
-6. Rates.
-7. ME-ID sign-in through MSAL (C30) and the visibility rules (C31, C32); AI over AG-UI with the company's Copilot behind the adapter port (C34).
-8. Slice 01b: Save and Pin (CO06), and the browser parts of CO03 and CO04.
+2. MVA with SIMM (`docs/12-implementation-plan.md` P2): spot IM from the XVA request's MVA option.
+3. ADR-0010 Delivery step 3 (Advanced: Before-only and After-only edits, the split fill), when the owner asks for it.
+4. The owner's review of ADR-0003 §7 (scopes, carry and conflict), then a synthetic source change that can produce a conflict, and the browser cases still open above (reload, failed case unavailable).
+5. Rates.
+6. ME-ID sign-in through MSAL (C30) and the visibility rules (C31, C32); AI over AG-UI with the company's Copilot behind the adapter port (C34).
+7. Slice 01b: Save and Pin (CO06), and the browser parts of CO03 and CO04.
+
+The generic commands (ADR-0016) are built through step 6, and a page keeps its state by panel (ADR-0006 note 10); what
+each left for the owner is in its section's "Known limits".
 
 ## Later, perhaps
 

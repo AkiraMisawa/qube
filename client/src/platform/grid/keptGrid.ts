@@ -1,17 +1,18 @@
 import { useLayoutEffect, useRef, type RefObject } from 'react';
 import type { CellPosition, GridColumn, GridFilter, GridSource, GridSourceState, GridViewRead, SelectionRange, SortSpec } from '@ex-grid/core';
 import type { ExGridApi } from '@ex-grid/react';
-import { panelKey, usePanelId } from '../panelState';
-import { useWorkspaceContext } from '../workspace/WorkspaceProvider';
+import { panelKey, usePanelPlace } from '../panelState';
+import { answeredOrder, type Answered } from './lineView';
 
 // A grid's view, kept by its panel while the panel is hidden (ADR-0006 note 10): the sort and the filter its source
 // holds, and its Selection. A grid drawn again takes the sort and the filter back at once. Its Selection comes back only
 // onto the rows it was made among: positions mean rows only in one order (ExGrid ADR-0011), so the Selection is placed
 // again where its rows' order is the one it was read in, named by the page (`OrderOf`), and its columns are the ones it
 // was read among. Anything else leaves nothing selected, as ExGrid leaves a grid whose order moved, rather than select
-// other rows. A Selection of several ranges is not kept: ExGrid places one range and its Focus from outside a grid
-// (`placeSelection`), and a view it read is handed back only to the grid that read it (`showViewWith`). The grid's
-// scroll is not kept: the Focus placed is revealed.
+// other rows, and never over a Selection the user made before it was decided. A Selection of several ranges is not
+// kept: ExGrid places one range and its Focus from outside a grid (`placeSelection`), and a view it read is handed back
+// only to the grid that read it (`showViewWith`). The grid's scroll is not kept: the Focus placed is revealed. A grid
+// drawn again while its panel is shown (an input tab chosen again) takes back what it showed the same way.
 
 /** A grid's view as its panel keeps it. */
 interface KeptGrid {
@@ -44,11 +45,20 @@ export function keysInOrder<Row>(keyOf: (row: Row) => string): OrderOf<Row> {
 }
 
 /**
- * The order of rows that never change, such as a Run's trace (retained data is immutable): positions under one sort hold
- * the same rows, so the order is named by the sort alone.
+ * The order of rows that never change, such as a Run's trace (retained data is immutable), named by the sort alone:
+ * positions under one sort hold the same rows. The grid's name says which rows they are (a Run's dataset by its
+ * reference), so that another set of rows is another grid's.
  */
-export function rowsThatNeverChange<Row>(): OrderOf<Row> {
+export function fixedRowsBySort<Row>(): OrderOf<Row> {
   return (state) => (state.window.length === 0 ? undefined : JSON.stringify(state.sorts));
+}
+
+/**
+ * The order of a source the server pages, named by the token its reader answered (ADR-0016 note 17): only once every
+ * row in hand came in one answer, under the conditions the source holds now (`answeredOrder`, as the line reads it).
+ */
+export function answeredInOrder<Row>(answered: (row: Row) => Answered | undefined): OrderOf<Row> {
+  return (state) => answeredOrder(state, answered)?.orderToken;
 }
 
 /**
@@ -62,8 +72,7 @@ export function useKeptGrid<Row>(
   columns: readonly GridColumn<Row>[],
   orderOf: OrderOf<Row>,
 ): void {
-  const panelId = usePanelId();
-  const { screens } = useWorkspaceContext();
+  const { panelId, screens } = usePanelPlace();
   // Read as the grid goes, which may be renders after the effect below last ran.
   const latest = useRef({ columns, orderOf });
   latest.current = { columns, orderOf };
@@ -83,7 +92,8 @@ export function useKeptGrid<Row>(
       undecided.current = undefined;
       waiting?.stop();
       const now = due?.kept ?? readKept(source, grid.current, latest.current.columns, latest.current.orderOf);
-      screens.set(panelId, GRID, waiting === undefined ? now : { ...now, selection: waiting.selection }, name);
+      // A Selection still undecided is kept as it was given, unless the user has since made one that can be kept.
+      screens.set(panelId, GRID, waiting === undefined || now.selection !== undefined ? now : { ...now, selection: waiting.selection }, name);
     };
   }, [screens, panelId, name, source, grid]);
 
@@ -98,11 +108,13 @@ export function useKeptGrid<Row>(
     if (kept.filter !== undefined) due.source.setFilter(kept.filter);
     const selection = kept.selection;
     if (selection === undefined) return;
-    // Decided once, as the first rows are in hand under the sort and filter given back.
+    // Decided once, as the first rows are in hand under the sort and filter given back. A Selection the user made in the
+    // meantime is theirs, and the one kept is not placed over it.
     const decide = (): boolean => {
+      const drawn = grid.current;
+      if (drawn !== null && !drawn.readView().selection.isEmpty) return true;
       const placement = placementOf(selection, due.source.snapshot(), latest.current.columns, latest.current.orderOf);
       if (placement.kind === 'pending') return false;
-      const drawn = grid.current;
       if (placement.kind === 'place' && drawn !== null) drawn.placeSelection(placement.range, placement.focus, placement.rowSequenceVersion);
       return true;
     };

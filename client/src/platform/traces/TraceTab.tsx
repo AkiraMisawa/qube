@@ -1,11 +1,10 @@
-import { useEffect, useMemo } from 'react';
+import { useMemo } from 'react';
 import { Alert, Badge, Group, Stack, Text, UnstyledButton } from '@mantine/core';
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useStore } from 'zustand';
 import { firstPageQuery, readTerm, refusalText as describe, termKey, type TraceApi } from './api';
 import { rootCard, rootOf, type RootCard } from './cards';
 import type { TraceAddress } from './contracts';
-import { requestTerm, termRequests } from './open';
+import { keptTrace, requestTerm, useTermRequestOnce } from './open';
 import { TraceView } from './TraceView';
 import { panelKey, usePanelState } from '../panelState';
 import './trace.css';
@@ -36,17 +35,16 @@ export function TraceTab({ tabId, address, api, registerFocus, caption }: {
     queries: roots.map((id) => ({ queryKey: termKey(address, id, 'formula', 0), queryFn: () => readTerm(api, address, id, 'formula', 0) })),
   });
 
-  const request = useStore(termRequests, (s) => s.requests[tabId]);
-  // The card chosen, kept by the panel while it is hidden (ADR-0006 note 10); a term asked for chooses its card once.
-  const [chosen, setChosen] = usePanelState(CHOSEN, undefined, tabId);
-  const [answered, setAnswered] = usePanelState(ANSWERED, 0, tabId);
-  useEffect(() => {
-    if (request === undefined || request.number === answered) return;
+  // The card chosen, kept by the panel while it is hidden (ADR-0006 note 10), by the trace it is of; a term asked for
+  // chooses its card once.
+  const instance = keptTrace(tabId, address);
+  const [chosen, setChosen] = usePanelState(CHOSEN, undefined, instance);
+  useTermRequestOnce(tabId, ANSWERED, instance, (request) => {
     const under = rootOf(roots, request.path);
-    if (under === undefined) return;
-    setAnswered(request.number);
+    if (under === undefined) return false;
     setChosen(under);
-  }, [request, roots, answered, setAnswered, setChosen]);
+    return true;
+  });
   const root = chosen !== undefined && roots.includes(chosen) ? chosen : roots[0];
 
   if (first.isPending) return <Text size="sm" data-testid="trace-loading">Reading the trace…</Text>;
@@ -69,7 +67,7 @@ export function TraceTab({ tabId, address, api, registerFocus, caption }: {
           })}
         </div>
       )}
-      <TraceView key={root} panelId={tabId} address={address} api={api} registerFocus={registerFocus} root={root} />
+      <TraceView key={root} viewId={tabId} address={address} api={api} registerFocus={registerFocus} root={root} />
     </Stack>
   );
 }

@@ -10,7 +10,7 @@ import { useColumnWidths } from '../../platform/grid/columnWidths';
 import { amountTone, formatAmount } from '../../platform/grid/amounts';
 import { useWorkspaceContext } from '../../platform/workspace/WorkspaceProvider';
 import { panelKey, usePanelState } from '../../platform/panelState';
-import { useKeptGrid, type OrderOf } from '../../platform/grid/keptGrid';
+import { answeredInOrder, useKeptGrid } from '../../platform/grid/keptGrid';
 import { keyOf } from '../../platform/workspace/workspaceStore';
 import { registerPlaces, type Place } from '../../shell/places';
 import type { XvaApi } from './api';
@@ -329,14 +329,8 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
     return {
       ...grids,
       answered: (row: Row) => answered.get(row),
-      // The order of a grid's rows as its reader named it (ADR-0006 note 10): its rows in hand all came in it.
-      orderOf: ((state) => {
-        const [first] = state.window;
-        if (first === undefined) return undefined;
-        const answer = answered.get(first);
-        if (answer === undefined) throw new Error(`Trade ${first.tradeId} is in a grid's rows and came in no answer of its reader.`);
-        return answer.orderToken;
-      }) satisfies OrderOf<Row>,
+      // The order of a grid's rows as its reader named it, for a Selection kept by the panel (ADR-0006 note 10).
+      orderOf: answeredInOrder<Row>((row) => answered.get(row)),
       changed: () => { grids.new.notifyChanged([]); grids.existing.notifyChanged([]); },
       requery: () => { grids.new.requery(); grids.existing.requery(); },
       dispose: () => { grids.new.dispose(); grids.existing.dispose(); },

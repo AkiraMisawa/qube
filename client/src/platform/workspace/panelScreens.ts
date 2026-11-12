@@ -20,7 +20,9 @@ const declared = new Set<string>();
 
 /** Declares a value a page keeps by panel, by a name no other key takes (`xva.inputTab`). */
 export function panelKey<T>(name: string): PanelKey<T> {
-  if (declared.has(name)) throw new Error(`Two values a page keeps by panel are named ${name}.`);
+  // A module Vite's hot reload runs again declares its keys again. Only its development server reloads one; the build
+  // and the tests refuse a name declared twice.
+  if (declared.has(name) && import.meta.env.MODE !== 'development') throw new Error(`Two values a page keeps by panel are named ${name}.`);
   declared.add(name);
   return { name };
 }
@@ -28,6 +30,12 @@ export function panelKey<T>(name: string): PanelKey<T> {
 /** The values of every open panel's page, by panel and by key: one per workspace store, as the panels are. */
 export class PanelScreens {
   readonly #byPanel = new Map<string, Map<string, unknown>>();
+  readonly #isOpen: (panelId: string) => boolean;
+
+  /** `isOpen` says whether a panel is open now, as its store holds it at the moment it is asked. */
+  constructor(isOpen: (panelId: string) => boolean) {
+    this.#isOpen = isOpen;
+  }
 
   /** Whether the panel's page kept a value under this key and instance. */
   has(panelId: string, key: PanelKey<unknown>, instance?: string): boolean {
@@ -43,7 +51,12 @@ export class PanelScreens {
     return values.get(name) as T;
   }
 
+  /**
+   * Keeps a value of the panel's page. A page is unmounted after its panel closed, and writes what it showed as it
+   * goes: a panel closed keeps nothing, so that what it showed goes with it (note 7).
+   */
   set<T>(panelId: string, key: PanelKey<T>, value: T, instance?: string): void {
+    if (!this.#isOpen(panelId)) return;
     let values = this.#byPanel.get(panelId);
     if (values === undefined) {
       values = new Map();

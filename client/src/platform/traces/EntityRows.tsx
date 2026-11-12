@@ -6,7 +6,7 @@ import { compactGridHeight } from '../grid/metrics';
 import { QubeGrid } from '../grid/QubeGrid';
 import { toneOf } from '../grid/amounts';
 import { useColumnWidths } from '../grid/columnWidths';
-import { rowsThatNeverChange, useKeptGrid } from '../grid/keptGrid';
+import { fixedRowsBySort, useKeptGrid } from '../grid/keptGrid';
 import { MAX_PAGE, refusalText, type TraceApi } from './api';
 import type { EntityCheck, EntityRow, LeafSetKind, Side, TraceAddress, TraceHeader } from './contracts';
 import { checkLine, columnLabel } from './entities';
@@ -76,7 +76,7 @@ export function EntityRows({ api, address, header, path, set }: {
   const { columns, onColumnWidthChanged } = useColumnWidths(`trace/entities/${set.leafSet}`, declared, { hideColumnMenu: true });
   // Its Selection, kept by the panel while it is hidden (ADR-0006 note 10), by the term it is of.
   const grid = useRef<ExGridApi<EntityRow>>(null);
-  useKeptGrid(`trace/entities/${JSON.stringify([address, path, set.leafSet])}`, source, grid, columns, rowsThatNeverChange());
+  useKeptGrid(`trace/entities/${JSON.stringify([address, path, set.leafSet])}`, source, grid, columns, fixedRowsBySort());
 
   const line = checks === undefined ? undefined : checkLine(checks, unit);
 
