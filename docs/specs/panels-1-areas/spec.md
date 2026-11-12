@@ -179,7 +179,10 @@ pull request.
 - **The scripted stand-in** reads "side by side" and "beside" for panels the context names by title. It takes the
   whole request (`TakesTheRest`), since a title may hold a date the Rates request would otherwise read.
 - **Ticket 07 in part.** The panel's content is a size container (`inline-size`: in the strip the page grows with its
-  content, which a `size` container would not let it), and the trace view reads it. The pricer's three sections, its
+  content, which a `size` container would not let it), and the trace view reads it. The container is the panel's
+  whole width, reaching across the shell's gutter at each side, and the page is drawn inside the gutter: a page in one
+  area of a 768px window reads 768px, as it read the window before. Measured inside the gutter it read 752px there,
+  and the trace drilled in at widths where it had been a tree. The pricer's three sections, its
   full-height button and `xva.css` still read the window: ADR-0018 §11 changes them last, after the pull requests on
   the pricer's files, and ADR-0016's step 5 (5d, the scenarios table and `load trades`) is still being built on them.
   Until then an XVA page in an area narrower than 768px is laid out as the window's width says, and in an area shorter

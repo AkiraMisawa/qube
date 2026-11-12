@@ -16,4 +16,6 @@ screens.
 synthetic trades: 491 elements in one area (the shown page 280), 1367 in three (the pages 317, 317 and 389); about 65
 elements an area beside its page, none for a panel not shown. A tab's switch, median of ten: 92ms in one area, 89ms in
 three. The figures are in `IMPLEMENTATION_STATUS.md`. README's commands are unchanged: the areas add a spec file
-(`e2e/areas.spec.ts`), which `npx playwright test` already runs, and no command.
+(`e2e/areas.spec.ts`), which `npx playwright test` already runs, and no command. Done with ticket 07 in part: the
+measurement reads the elements and the switch, which the pricer's own layout by its area (07's rest, after ADR-0016's
+step 5d) does not change; the XVA pages measured read the window's width, 1440px, wider than any area here.

@@ -112,7 +112,6 @@ export function dockArrangement(api: DockviewApi): { readonly port: Arrangement;
       p.api.moveTo({ group: p.group, position: 'center', index, skipSetActive: true });
     },
     replace(layout) {
-      kept().keepFloatedFrom({});
       api.fromJSON(layout);
     },
   };

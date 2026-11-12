@@ -309,9 +309,14 @@ export function arrangingOf(workspace: { readonly store: WorkspaceStore; readonl
   };
 }
 
-// What the last `arrange` replaced, for the one `arrange back` (ADR-0018 §8): the arrangement before it, and the pages
-// it opened, which `arrange back` closes.
-let last: { readonly n: number; readonly before: SerializedDockview | undefined; readonly opened: readonly string[] } | undefined;
+// What the last `arrange` replaced, for the one `arrange back` (ADR-0018 §8): the arrangement before it with the area
+// each of its floating panels came from, and the pages it opened, which `arrange back` closes.
+let last: {
+  readonly n: number;
+  readonly before: SerializedDockview | undefined;
+  readonly floatedFrom: Readonly<Record<string, string>>;
+  readonly opened: readonly string[];
+} | undefined;
 
 /** Forgets what `arrange back` would put back: for tests, which start each page anew. */
 export function forgetArranged(): void {
@@ -422,7 +427,7 @@ function firstWindowArea(proposal: Pick<Proposal, 'areas' | 'n'>): string {
 
 /** Makes the arrangement as proposed, the pages it opens opened; answers what is said of it. */
 function applied(on: Arranging, proposal: Proposal, drafts: readonly { readonly place: number; readonly draft: PanelDraft }[]): string {
-  const before = keptArrangement.getState().layout;
+  const { layout: before, floatedFrom } = keptArrangement.getState();
   const activeBefore = on.state().activePanelId;
   const opened: string[] = [];
   const ids = proposal.places.map((place, i) => {
@@ -446,15 +451,26 @@ function applied(on: Arranging, proposal: Proposal, drafts: readonly { readonly 
   if (state.activePanelId !== active) state.activate(active);
   const titles = Object.fromEntries(on.state().panels.map((p) => [p.id, panelLabel(p)]));
   const layout = proposalLayout(proposal, ids, titles, others, on.areas().room(), active);
-  keptArrangement.getState().keep(layout);
   const areas = on.areas();
-  if (areas.strip === undefined) areas.replace(layout);
-  last = { n: proposal.n, before, opened };
+  // A proposal's floating area came from no area of the window: `dock panel` puts it at the right.
+  keepDrawn(areas, layout, {});
+  last = { n: proposal.n, before, floatedFrom, opened };
   const count = proposal.areas.length;
   const unplaced = others.length === 0 ? ''
     : ` ${others.length === 1 ? '1 panel the proposal did not place is' : `${others.length} panels the proposal did not place are`} in the area of ${titles[firstShown]}, the first in reading order.`;
   const openedSaid = opened.length === 0 ? '' : ` Opened ${opened.map((id) => titles[id]).join(', ')}.`;
   return `Arranged as proposal ${proposal.n}: ${count === 1 ? '1 area' : `${count} areas`}.${openedSaid}${unplaced} To put back what it replaced: arrange back.`;
+}
+
+/**
+ * Keeps an arrangement for the browser tab with the area each of its floating panels came from, and draws it where the
+ * panels stand in areas; in the strip it is drawn when the room comes back (ADR-0018 §5, §7).
+ */
+function keepDrawn(areas: Arrangement, layout: SerializedDockview, floatedFrom: Readonly<Record<string, string>>): void {
+  keptArrangement.getState().keep(layout);
+  if (areas.strip === undefined) areas.replace(layout);
+  // After the drawing, which dockview may tell as moves of the panels it draws.
+  keptArrangement.getState().keepFloatedFrom(floatedFrom);
 }
 
 /** Why `arrange back` cannot act now; absent when it can. */
@@ -477,9 +493,9 @@ export function arrangeBack(on: Arranging, notify: Notify): void {
   // What the proposal replaced, with the panels open now; where it was one area, or held none of them, one area.
   const before = was.before === undefined ? undefined : reconciled(was.before, open);
   const layout = before ?? oneArea(open, nextAreaId(), on.areas().room());
-  keptArrangement.getState().keep(layout);
-  const areas = on.areas();
-  if (areas.strip === undefined) areas.replace(layout);
+  const stillOpen = new Set(open.order);
+  const floatedFrom = before === undefined ? {} : Object.fromEntries(Object.entries(was.floatedFrom).filter(([panelId]) => stillOpen.has(panelId)));
+  keepDrawn(on.areas(), layout, floatedFrom);
   last = undefined;
   const put = was.before !== undefined && before === undefined
     ? `None of the panels the arrangement before proposal ${was.n} held is open, so the panels stand in one area.`

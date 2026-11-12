@@ -2898,8 +2898,8 @@ proposes an arrangement, which he applies. ADR-0018 step 1, one pull request (`d
 | What | Result |
 |---|---|
 | `dotnet test server/Qube.slnx` | 1535 passed |
-| Client: `npm run typecheck`, `npm test`, `npm run build` | typecheck clean; 460 tests in 44 files passed; built |
-| `npx playwright test` (Chromium, headless, Linux), against the built client, after main's step 5c was rebased in and after the review's changes | FULL |
+| Client: `npm run typecheck`, `npm test`, `npm run build` | typecheck clean; 461 tests in 44 files passed; built |
+| `npx playwright test` (Chromium, headless, Linux), against the built client, after main's step 5c was rebased in and after both reviews' changes and the width fix | 123 passed (one earlier run: 122, `xva.spec.ts:2459`, below) |
 | `e2e/areas.spec.ts`, which this pull request adds, with `--repeat-each=3` | 24 passed |
 | ADR-0018 §6's measurement: three XVA pages of 10,000 trades at 1440px, in three areas and in one | Passes: the pages shown and one tab per panel; a tab's switch 92ms in one area, 89ms in three (below) |
 | The areas, a tab's menu, a floating area, the AI's card and the strip at 1440 dark and light and 390px | Looked at, in the pull request's screens |
@@ -2945,6 +2945,11 @@ offered to the agent, and no model has been asked to arrange panels. The XVA pag
 - Other browser windows (step 2) and parts of a page with links (step 3) are not built.
 - The finger drag is checked in Chromium with touch emulated, not on a phone or a tablet.
 - dockview 8.9.0 is pinned exactly; its own context menu, overflow list and theme are not used.
+- One of four full browser runs on this branch failed `xva.spec.ts:2459` (ADR-0016 notes 43 and 44, from main): after
+  `select where ccy=USD` and Enter, the line was still open five seconds later. The test passed in the other three
+  runs and six times of six alone. This branch changes when the line builds its list of commands again (as the
+  arrangement changes), not what Enter does. Not explained yet; the host had by then priced three workspaces of 10,000
+  trades for the measurement.
 
 ### What the review changed
 
@@ -2966,6 +2971,23 @@ Two-axis review (standards and spec) of the whole branch:
   not read; `arrange back` says so where none of the earlier arrangement's panels is still open.
 - **The records**: ADR-0018's note and ADR-0010's say the pricer reads its area only from the pull request after
   ADR-0016's step 5d; the spec's "As built" says what the build settled; the touch claim says Chromium's emulation.
+
+A second review, of those fixes alone:
+
+- **`arrange back` puts back where each floating panel came from**, with the arrangement it puts back; `arrange`
+  clears it, since a proposal's floating area came from no area (`proposals.test.ts`).
+- **A kept floating area is read with where it is placed from**: exactly one of left and right, and of top and bottom.
+- **The Shift-press on a strip's empty end** finds the pressed area through dockview, not by reading the DOM's active
+  tab, so nothing unread lets it through.
+- **A floating title bar's grip** takes the same colour under the keyboard's focus as under the pointer (design
+  guidelines §8).
+- **ADR-0018's note** records the whole `dock panel` row and two readings of §4 (no frame with one area; `reopen
+  panel` says where only where there are several areas).
+
+Found by the full browser run that followed: **a page read its width inside the shell's gutter**, 16px less than its
+panel, so in one area of a 768px window the trace drilled in where it had been a tree. `simm.spec.ts` had passed by
+reading the trace before the browser reported the width. The panel's width is now its whole width, the gutter
+included (`PanelPage`), as the window's was.
 
 ## Next
 

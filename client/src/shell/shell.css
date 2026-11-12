@@ -326,7 +326,9 @@
   box-shadow: inset 0 -2px 0 var(--mantine-primary-color-filled);
 }
 
-.dockview-theme-qube .dv-tab:focus-visible {
+.dockview-theme-qube .dv-tab:focus-visible,
+.dockview-theme-qube .dv-floating-titlebar:focus-visible,
+.dockview-theme-qube .dv-sash:focus-visible {
   outline: 2px solid var(--mantine-primary-color-filled);
   outline-offset: -2px;
 }
@@ -345,12 +347,9 @@
   border-radius: var(--mantine-radius-xs);
   background: var(--mantine-color-dimmed);
 }
-.dockview-theme-qube .dv-floating-titlebar:hover::before { background: var(--mantine-color-text); }
-.dockview-theme-qube .dv-floating-titlebar:focus-visible,
-.dockview-theme-qube .dv-sash:focus-visible {
-  outline: 2px solid var(--mantine-primary-color-filled);
-  outline-offset: -2px;
-}
+/* Hover and the keyboard's focus alike (docs/design-guidelines.md §8); the focus's outline is the tab's, above. */
+.dockview-theme-qube .dv-floating-titlebar:hover::before,
+.dockview-theme-qube .dv-floating-titlebar:focus-visible::before { background: var(--mantine-color-text); }
 
 /* To a finger, a splitter and a floating area's edges are at least 24px (docs/design-guidelines.md §8). dockview's own
    rule for a coarse pointer gives a splitter 24px (4px and 10px each side) and an edge only 16px; an edge here is 24px,
@@ -400,11 +399,12 @@
   border: 2px solid var(--mantine-color-signal-filled);
 }
 
-/* An area's page scrolls inside it, with the room note 7's strip gave a page. */
+/* An area's page scrolls inside it, with the room note 7's strip gave a page: the shell's gutter (`.qube-panel-page`
+   reaches across it at each side). */
 .qube-area-page {
   height: 100%;
   overflow: auto;
-  padding: var(--mantine-spacing-sm);
+  padding: var(--app-shell-padding);
 }
 
 /* The list at the end of an area's strip stands on its line, as the strip's does. */
@@ -461,7 +461,13 @@
 }
 
 /* A panel's page is a size container (ADR-0018 §5): its stylesheets' container queries read the panel's width, not the
-   window's. Its width only: in the strip a page is as high as its content. */
+   window's. Its width only: in the strip a page is as high as its content. The container reaches across the shell's
+   gutter, which the strip and an area each give their page, so that it is the panel's whole width, as the window was;
+   the page is drawn inside the gutter again. */
 .qube-panel-page {
   container: qube-panel / inline-size;
+  margin-inline: calc(var(--app-shell-padding) * -1);
+}
+.qube-panel-page-body {
+  padding-inline: var(--app-shell-padding);
 }

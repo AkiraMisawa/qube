@@ -21,8 +21,8 @@ describe('the panels a browser tab keeps (ADR-0018 §7)', () => {
     const stop = keepPanels(before, vi.fn(), USER);
     const a = before.getState().openPanel({ kind: 'app', title: 'Pricing DB', app: 'pricing-db', params: {} });
     before.getState().openPanel({ kind: 'run', title: 'Run R1', runId: 'R1', viewKey: undefined });
-    before.getState().openPanel({ kind: 'app', title: 'Rates', app: 'rates', params: { workspaceId: 'w1' } });
-    before.getState().closePanel(before.getState().activePanelId ?? '');
+    const rates = before.getState().openPanel({ kind: 'app', title: 'Rates', app: 'rates', params: { workspaceId: 'w1' } });
+    before.getState().closePanel(rates);
     before.getState().activate(a);
     const layout = { grid: { root: { type: 'branch', data: [] }, height: 800, width: 1440, orientation: 'HORIZONTAL' }, panels: {} } as never;
     keptArrangement.getState().keep(layout);
@@ -65,6 +65,13 @@ describe('the panels a browser tab keeps (ADR-0018 §7)', () => {
     expect(readKept(grid({ type: 'branch', data: [{ type: 'leaf', data: { id: '1', views: 'panel-1' } }] })))
       .toEqual({ refused: 'layout.grid.root.data[0].data.views is not a list' });
     expect(readKept(grid({ type: 'tree', data: [] }))).toEqual({ refused: 'layout.grid.root.type is not a part of a grid' });
+    const floating = (position: unknown) => JSON.stringify({ version: 1, panels: { panels: [], recent: [], closed: [] },
+      layout: { grid: { root: { type: 'branch', data: [] }, width: 1440, height: 800, orientation: 'HORIZONTAL' }, panels: {},
+        floatingGroups: [{ data: { id: '2', views: ['panel-1'] }, position }] }, floatedFrom: {} });
+    expect(readKept(floating({ right: 0, top: 40, width: 400, height: 300 }))).toMatchObject({ kept: {} });
+    expect(readKept(floating({ top: 40, width: 400, height: 300 })))
+      .toEqual({ refused: 'layout.floatingGroups[0].position is placed from neither or both of left and right' });
+    expect(readKept(floating({ left: 0, top: '40', width: 400, height: 300 }))).toEqual({ refused: 'layout.floatingGroups[0].position.top is not a number' });
     expect('refused' in readKept('not json')).toBe(true);
 
     window.sessionStorage.setItem(keptKey(USER), '{"version":2,"panels":{}}');

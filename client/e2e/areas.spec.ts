@@ -102,7 +102,7 @@ test('ADR-0018 §3: a tab dragged with the mouse onto an area\'s edge splits it 
 
   // Shift with a press on the empty end of the only area's strip would float the whole window's panels: refused.
   await page.locator('.qube-areas .dv-void-container').first().click({ modifiers: ['Shift'] });
-  await expect(notice(page)).toHaveText('float panel: It is the only area docked; floating it would leave none.');
+  await expect(notice(page)).toHaveText('float panel: It is the only area in the window; floating it would leave none docked.');
   await expect(floating(page)).toHaveCount(0);
 
   // Onto the right edge of the area's page: the tab's panel stands in a new area there.

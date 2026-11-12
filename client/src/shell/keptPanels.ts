@@ -85,6 +85,13 @@ function checkPart(value: unknown, path: string): void {
 }
 
 /** Checks a kept arrangement as far as the shell reads it, so that one this version cannot read is never drawn. */
+/** Checks that a floating area is placed from exactly one of an axis's two sides, by a number of pixels. */
+function anchor(position: Readonly<Record<string, unknown>>, one: string, other: string, path: string): void {
+  const [side, ...more] = [one, other].filter((s) => position[s] !== undefined);
+  if (side === undefined || more.length > 0) throw new Unreadable(`${path} is placed from neither or both of ${one} and ${other}`);
+  number(position[side], `${path}.${side}`);
+}
+
 function checkLayout(value: unknown): void {
   const layout = record(value, 'layout');
   const grid = record(layout.grid, 'layout.grid');
@@ -101,6 +108,9 @@ function checkLayout(value: unknown): void {
       const position = record(floating.position, `${at}.position`);
       number(position.width, `${at}.position.width`);
       number(position.height, `${at}.position.height`);
+      // Placed from one side of each axis (dockview's AnchoredBox): the title bar's keys move it from there.
+      anchor(position, 'left', 'right', `${at}.position`);
+      anchor(position, 'top', 'bottom', `${at}.position`);
       if (floating.data !== undefined) checkArea(floating.data, `${at}.data`);
       else checkPart(record(floating.grid, `${at}.grid`).root, `${at}.grid.root`);
     });

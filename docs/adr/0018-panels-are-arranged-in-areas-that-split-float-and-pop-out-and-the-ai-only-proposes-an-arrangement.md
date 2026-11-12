@@ -131,8 +131,10 @@ declaration. The words are settled in step 1's spec:
 request. `float panel` was `float panel [<left|right|top|bottom|centre>]`, its place optional with the middle the
 default: the line takes an optional value only by its name (ADR-0006), so `float panel left` was refused, and the words
 a menu shows beside Float ▸ Left were words the line did not run. Its place is now required, as `split panel`'s side
-is. `dock panel` put the panel "beside the area it came from": that read as a new area beside it, which undoes
-nothing; it now goes back into that area, as one of its tabs, which is where the float took it from.
+is. `dock panel` put the panel "beside the area it came from where that is still there, else at the right": that read
+as a new area beside it, which undoes nothing; it now goes back into that area, as one of its tabs, which is where the
+float took it from. Where that area has gone, it goes into a new area at the right where the room holds one more area
+at §5's minimum, else into the last area, and says which.
 
 Three readings were settled as it was built, also DEFAULTs put to the owner with that pull request. A floating area is
 one area: `split panel` is refused in it, and a drop onto its edge is not offered, so a panel is docked first and split
@@ -141,6 +143,12 @@ dockview's own move, so a float by the pointer or by Shift is docked back as one
 the pricer's part (its section switch, its full-height button and `xva.css` reading its area, ticket 07's rest) is a
 pull request of its own after ADR-0016's step 5d, which changes the same files: until it merges, the pricer reads the
 window, and in a short area its grids scroll under its result dock as they do in a window that short.
+
+Two sentences of §4 are read so, DEFAULTs put to the owner with that pull request too. While the panels stand in one
+area, no area is framed: its selected tab already says which panel the line acts on, as in the strip, and the frame
+comes with a second area. And `reopen panel` says where it put the panel only where there is more than one area: in
+one area, or in the strip, the panel is where it is seen, and a panel closed while the panels were one strip stood in
+no area, so it opens beside the active panel, as any panel does.
 
 - **The pointer.** A tab dragged onto an area's edge splits it there, into another strip joins that area, and with
   Shift held floats. A floating area moves by its title bar (dockview's own, above its tab strip) and is resized by its

@@ -45,7 +45,9 @@ function areas(titles: readonly string[], drawn: readonly Drawn[], active: strin
   let maximized: string | undefined;
   /** Each area's panels, in tab order. */
   const held = new Map(drawn.map((a) => [a.id, a.panels.map(idOf)]));
-  const place = { opensIn: drawn[0]?.id ?? 'area-1' };
+  const first = drawn[0];
+  if (first === undefined) throw new Error('A fake arrangement draws one area at least.');
+  const place = { opensIn: first.id };
   const holding = (panelId: string) => [...held].find(([, panels]) => panels.includes(panelId))?.[0];
   const port: Arrangement = {
     strip: undefined,

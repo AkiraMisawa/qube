@@ -4,7 +4,7 @@ import { createWorkspaceStore, panelLabel, type PanelDraft } from '../platform/w
 import { contextContract } from '../test/catalog';
 import { stripArrangement, type Area, type Arrangement } from './arrangement';
 import { keptArrangement } from './keptPanels';
-import { areasOf, type Size } from './layout';
+import { areasOf, panelState, type Size } from './layout';
 import {
   arrangeCommands, forgetArranged, panelsContext, planOf, proposalLayout, registerPageOpener, takeProposal, type Arranging, type ProposedArea,
   type ProposedPlace,
@@ -81,6 +81,7 @@ const SIDE_BY_SIDE: readonly ProposedArea[] = [{ area: 'left' }, { area: 'right'
 
 beforeEach(() => {
   keptArrangement.getState().keep(undefined);
+  keptArrangement.getState().keepFloatedFrom({});
   forgetArranged();
 });
 
@@ -194,6 +195,31 @@ describe('arrange and arrange back (ADR-0018 §8)', () => {
 
     expect(areasOf(keptArrangement.getState().layout!).map((a) => a.panels)).toEqual([[id(0)], [id(1)]]);
     expect(notify).toHaveBeenCalledWith('done', expect.stringMatching(new RegExp(`^Arranged as proposal ${n}: 2 areas\\.`)));
+  });
+
+  it('puts back, with the arrangement, the area each of its floating panels came from; a proposal\'s floating area came from none', () => {
+    const { id, command } = page(['A', 'B', 'C']);
+    const floating: SerializedDockview = {
+      grid: {
+        root: { type: 'branch', data: [{ type: 'leaf', size: 1440, data: { id: '1', views: [id(0), id(2)], activeView: id(0) } }] },
+        width: 1440, height: 800, orientation: Orientation.HORIZONTAL,
+      },
+      panels: { [id(0)]: panelState(id(0), 'A'), [id(1)]: panelState(id(1), 'B'), [id(2)]: panelState(id(2), 'C') },
+      floatingGroups: [{ data: { id: '2', views: [id(1)], activeView: id(1) }, position: { left: 100, top: 100, width: 400, height: 300 } }],
+    };
+    keptArrangement.getState().keep(floating);
+    keptArrangement.getState().keepFloatedFrom({ [id(1)]: '1' });
+    const { n } = proposed([{ area: 'main' }, { area: 'over', float: 'right' }], [
+      { area: 'main', panel: id(0), title: 'A', shown: true },
+      { area: 'over', panel: id(1), title: 'B', shown: true },
+    ]);
+
+    expect(execute(command('panel.arrange'), { proposal: String(n) })).toBeUndefined();
+    expect(keptArrangement.getState().floatedFrom).toEqual({});
+
+    expect(execute(command('panel.arrangeBack'))).toBeUndefined();
+    expect(keptArrangement.getState().layout?.floatingGroups?.map((g) => g.data?.views)).toEqual([[id(1)]]);
+    expect(keptArrangement.getState().floatedFrom).toEqual({ [id(1)]: '1' });
   });
 });
 

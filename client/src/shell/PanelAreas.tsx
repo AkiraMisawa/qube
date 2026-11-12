@@ -429,12 +429,15 @@ export function PanelAreas({ room }: { readonly room: Size }) {
     // Shift with a press on the empty end of a strip floats its whole area (dockview's gesture too): refused where that
     // area is the only one docked.
     if (event.target.closest('.dv-void-container') === null) return;
+    const dock = dockNow.current;
+    if (dock === undefined) throw new Error('A strip was pressed before dockview drew the areas.');
+    const target = event.target;
+    const pressed = dock.groups.find((g) => g.element.contains(target));
+    if (pressed === undefined) throw new Error('A strip was pressed that is in no area dockview holds.');
     const docked = onNow(store.getState()).areas.areas().filter((a) => !a.floating);
-    const only = docked.length === 1 ? docked[0] : undefined;
-    const shown = event.target.closest('.dv-groupview')?.querySelector('.dv-active-tab [data-panel]')?.getAttribute('data-panel');
-    if (only === undefined || shown === null || shown === undefined || !only.panels.includes(shown)) return;
+    if (docked.length !== 1 || docked[0]?.id !== pressed.id) return;
     event.preventDefault();
-    notify('refused', `${FLOAT.words}: It is the only area docked; floating it would leave none.`);
+    notify('refused', `${FLOAT.words}: It is the only area in the window; floating it would leave none docked.`);
   };
   // The middle button closes a tab, as a browser's does; held down it would start the browser's own scrolling.
   const onMouseDown = (event: MouseEvent<HTMLDivElement>) => {

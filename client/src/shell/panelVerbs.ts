@@ -475,18 +475,19 @@ export const REOPEN: StripVerb = {
     // Back in the area it stood in, where that is still there, else beside the active panel, and the user is told which
     // (ADR-0018 §4), by a panel that stands beside it there. A page open again since it closed is shown where it is.
     if (on.areas.strip !== undefined || last.area === undefined) return;
-    const titleOf = (id: string | undefined): string | undefined => {
+    /** The title of the panel named, where it is another than the one reopened: the panel it now stands beside. */
+    const neighbourTitle = (id: string | undefined): string | undefined => {
       const beside = on.state.panels.find((p) => p.id === id && p.id !== panel.id);
       return beside === undefined ? undefined : panelLabel(beside);
     };
     const now = areaHolding(on.areas, panel.id);
     const there = on.areas.areas().find((a) => a.id === last.area);
     if (there === undefined) {
-      const beside = titleOf(on.state.activePanelId);
+      const beside = neighbourTitle(on.state.activePanelId);
       notify('done', `Reopened ${panelLabel(panel)}${beside === undefined ? '' : ` beside ${beside}`}: the area it stood in has gone.`);
       return;
     }
-    const beside = titleOf(there.shown) ?? titleOf(there.panels.find((id) => id !== panel.id));
+    const beside = neighbourTitle(there.shown) ?? neighbourTitle(there.panels.find((id) => id !== panel.id));
     if (now?.id !== there.id) on.areas.sendTo(panel.id, there.id);
     // In one area there is no other place it could be.
     if (on.areas.areas().length > 1) notify('done', `Reopened ${panelLabel(panel)}${beside === undefined ? '' : ` beside ${beside}`}, in the area it stood in.`);
