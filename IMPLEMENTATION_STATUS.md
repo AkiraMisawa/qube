@@ -2497,6 +2497,8 @@ user set.
   source's value and takes a value typed over it, and an edit is carried when the source is acquired again. A new
   trade's break and model stay with it through a counterparty change. Every field of both tables has a group; B
   and A have none.
+- **The CSA grid's Main column is the field `main` now**, so the line's context names it with the row when the
+  Focus stands there (`CSA-A · main`), as it names any column that is a field.
 - **What Price freezes** (note 53, the owner's of 2026-11-12): each trade of a case with its legs, its independent
   amounts and its fields beyond the grids, and each CSA the case's trades use with its terms and its fields beyond
   the grid, a case's own values in its own input. A leg and an independent amount of a priced trade are priced
