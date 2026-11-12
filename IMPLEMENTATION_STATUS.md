@@ -2241,9 +2241,10 @@ changed by the line, the settings dialog and the AI through the same three comma
   and a setting it changes applies at once on the page.
 - **The line and the account menu**: `settings` opens the settings dialog; `settings <name> <value>` and
   `settings reset <name>` set and reset, with names and values completed. The header's account menu, which took the
-  place of its theme button at the owner's request, opens as the pointer rests on the user's initials (or on a click
-  or a tap): it names the user and their desk (`GET /api/me`), opens Settings, chooses the theme among the three, and
-  says that signing out waits for sign-in. The dialog lists each setting with its value, whether the user set it or
+  place of its theme button at the owner's request, opens as the mouse rests on the user's initials, leaving the
+  keyboard where it was, and is held open by a click, a tap or Enter, with the keyboard in it; a second click closes
+  it. It names the user and their desk (`GET /api/me`), opens Settings, chooses the theme among the three, and says
+  on an item the keyboard and a screen reader reach that signing out waits for sign-in. The dialog lists each setting with its value, whether the user set it or
   the registered value applies, and a reset; on a phone it keeps two columns and says the source and the reset under
   the setting's name.
 - **Preferences** (step 1, step 3): the theme (`dark`, `light`, `auto`, which follows the device), a grid's column
@@ -2268,10 +2269,10 @@ changed by the line, the settings dialog and the AI through the same three comma
 
 | What | Result |
 |---|---|
-| `dotnet test server/Qube.slnx` | 1295 passed |
+| `dotnet test server/Qube.slnx` | 1296 passed |
 | Client: `npm run typecheck`, `npm test`, `npm run build` | Clean; 347 passed in 36 files; built |
-| `npx playwright test` (Chromium, headless, Linux) | 103 passed |
-| `e2e/settings.spec.ts`, which this pull request adds, with `--repeat-each=3` | 30 passed |
+| `npx playwright test` (Chromium, headless, Linux) | 104 passed |
+| `e2e/settings.spec.ts`, which this pull request adds, with `--repeat-each=3` | 33 passed |
 | `python3 tools/validate_handoff.py` | Passed |
 | The settings dialog and the account menu at 390, 768, 992 and 1440px, dark and light; the AI pane at 390 and 1440px | Looked at; no sideways scroll, nothing cut off |
 | The AI pane against a stand-in Copilot host with two models | Looked at: a conversation on the default model, `/model gpt-5.1`, and the next run on it |
@@ -2315,7 +2316,10 @@ settings as a required dependency; a default no longer taken refuses the making 
 rule lives once; `undo` of a Rates default set in the workspace gives the settings' back. Step 3: an unreadable
 preference gives way to its registered value on the page as on the server; the default model is registered from the
 runtime's own models; a conversation's model is held by its thread; the pane offers `/model <id>`; the dialog fits a
-phone.
+phone. The account menu: the menu opens on its own delays instead of Mantine's `click-hover`, whose open delay
+outlived an item's close and opened the menu again over the settings a tap on a phone had just opened; the theme is
+chosen among radio items that say which is checked; Sign out is reached by the arrows and describes why it waits;
+the user who cannot be read is said, never stood in for; a second click closes the menu.
 
 ## Next
 

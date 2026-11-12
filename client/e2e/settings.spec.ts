@@ -104,44 +104,76 @@ test('ADR-0017 §4: the settings dialog lists each setting with where its value 
   await expect(page.locator('html')).toHaveAttribute('data-mantine-color-scheme', 'dark');
 });
 
-test("ADR-0017 §4, design guidelines §9: on a phone the settings dialog fits its width, with each setting's source and reset under its name", async ({ page }) => {
-  await page.setViewportSize({ width: 390, height: 844 });
-  await open(page);
-  await command(page, 'settings');
-  const dialog = page.getByRole('dialog', { name: 'Settings' });
-  const table = dialog.getByRole('table', { name: 'Your settings' });
-  const [room, used] = [await dialog.boundingBox(), await table.boundingBox()];
-  if (room === null || used === null) throw new Error('The settings dialog, or its table, is not on screen.');
-  expect(used.x + used.width).toBeLessThanOrEqual(room.x + room.width);
+test.describe('on a touch screen', () => {
+  test.use({ hasTouch: true });
 
-  const theme = table.getByRole('row').filter({ hasText: 'Theme' });
-  await expect(theme.getByText('registered').filter({ visible: true })).toBeInViewport();
-  await theme.getByRole('combobox', { name: 'Theme' }).click();
-  await page.getByRole('option', { name: 'light' }).click();
-  await expect(theme.getByText('set by you').filter({ visible: true })).toBeInViewport();
-  await theme.getByRole('button', { name: 'Reset theme' }).click();
-  await expect(theme.getByText('registered').filter({ visible: true })).toBeInViewport();
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  test("ADR-0017 §4, design guidelines §9: on a phone a tap on the avatar opens the account menu, and the settings dialog fits its width, with each setting's source and reset under its name", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await open(page);
+    await page.getByRole('button', { name: 'Your account: demo' }).tap();
+    await page.getByRole('menu').getByRole('menuitem', { name: 'Settings' }).tap();
+    const dialog = page.getByRole('dialog', { name: 'Settings' });
+    const table = dialog.getByRole('table', { name: 'Your settings' });
+    const [room, used] = [await dialog.boundingBox(), await table.boundingBox()];
+    if (room === null || used === null) throw new Error('The settings dialog, or its table, is not on screen.');
+    expect(used.x + used.width).toBeLessThanOrEqual(room.x + room.width);
+
+    const theme = table.getByRole('row').filter({ hasText: 'Theme' });
+    await expect(theme.getByText('registered').filter({ visible: true })).toBeInViewport();
+    await theme.getByRole('combobox', { name: 'Theme' }).click();
+    await page.getByRole('option', { name: 'light' }).click();
+    await expect(theme.getByText('set by you').filter({ visible: true })).toBeInViewport();
+    await theme.getByRole('button', { name: 'Reset theme' }).click();
+    await expect(theme.getByText('registered').filter({ visible: true })).toBeInViewport();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  });
 });
 
-test("ADR-0017 §4: the header's account menu names the user, chooses the theme, opens the settings, and says why no one signs out yet", async ({ page }) => {
+test("ADR-0017 §4: the header's account menu names the user, opens on the pointer without taking the keyboard, is held by a click and closed by another, chooses the theme, reaches Sign out from the keyboard with why it waits, and opens the settings", async ({ page }) => {
   await open(page);
   const account = page.getByRole('button', { name: 'Your account: demo' });
   await expect(account).toHaveText('DE');
-  // The pointer resting on it opens the menu.
+  // The pointer resting on it opens the menu, and the keyboard stays where it was.
+  const ai = page.getByRole('button', { name: 'Show the AI pane' });
+  await ai.focus();
   await account.hover();
   const menu = page.getByRole('menu');
   await expect(menu.getByTestId('account-who')).toHaveText('demo');
-  await expect(menu.getByRole('menuitem', { name: 'Dark' })).toHaveAttribute('aria-current', 'true');
-  const signOut = menu.getByRole('menuitem', { name: 'Sign out' });
-  await expect(signOut).toBeDisabled();
-  await expect(signOut).toHaveAccessibleDescription('Sign-in is not set up yet: every browser of this host is demo.');
-
-  await menu.getByRole('menuitem', { name: 'Light' }).click();
+  await expect(ai).toBeFocused();
+  await expect(menu.getByRole('menuitemradio', { name: 'Dark' })).toHaveAttribute('aria-checked', 'true');
+  await menu.getByRole('menuitemradio', { name: 'Light' }).click();
   await expect(page.locator('html')).toHaveAttribute('data-mantine-color-scheme', 'light');
+  await expect(menu.getByRole('menuitemradio', { name: 'Light' })).toHaveAttribute('aria-checked', 'true');
   await expect.poll(async () => (await held(page.request, 'shell.theme')).value).toBe('light');
+  await page.mouse.move(10, 400);
+  await expect(menu).toBeHidden();
 
-  // A click opens it too, as a tap does on a touch screen.
+  // A click on the menu the pointer opened holds it when the pointer goes, and a second click closes it.
+  await account.hover();
+  await expect(menu).toBeVisible();
+  await account.click();
+  await page.mouse.move(10, 400);
+  await expect(menu).toBeVisible();
+  await account.click();
+  await expect(menu).toBeHidden();
+
+  // From the keyboard: Enter opens it with the keyboard in it, and the arrows reach Sign out, which says why it waits.
+  await page.mouse.move(10, 400);
+  await account.focus();
+  await page.keyboard.press('Enter');
+  // Mantine moves the keyboard into the menu on its next task; an arrow pressed before that reaches the avatar.
+  await expect(page.getByRole('menu').locator(':focus')).toHaveCount(1);
+  await page.keyboard.press('ArrowDown');
+  await expect(page.getByRole('menu').getByRole('menuitem', { name: 'Settings' })).toBeFocused();
+  await page.keyboard.press('End');
+  const signOut = page.getByRole('menu').getByRole('menuitem', { name: 'Sign out' });
+  await expect(signOut).toBeFocused();
+  await expect(signOut).toHaveAttribute('aria-disabled', 'true');
+  await expect(signOut).toHaveAccessibleDescription('Sign-in is not set up yet, so every browser of this host is the same user.');
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('menu')).toBeHidden();
+  await expect(account).toBeFocused();
+
   await account.click();
   await page.getByRole('menu').getByRole('menuitem', { name: 'Settings' }).click();
   const dialog = page.getByRole('dialog', { name: 'Settings' });

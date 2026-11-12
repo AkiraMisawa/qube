@@ -2,6 +2,7 @@ import { Button, Divider, Kbd, Title } from '@mantine/core';
 import { IconSparkles, IconTerminal2 } from '@tabler/icons-react';
 import { useAi, useAiContext } from '../ai/AiProvider';
 import { AccountMenu } from './AccountMenu';
+import { ICON, STROKE } from './icons';
 import { openPalette } from './CommandPalette';
 import { ContextBar } from './ContextBar';
 
@@ -12,9 +13,6 @@ import { ContextBar } from './ContextBar';
  * two such rows 8px apart. Each number includes the header's 1px bottom border.
  */
 export const HEADER_HEIGHT = { base: 82, md: 44 } as const;
-
-/** The size of an icon inside a control of Control Height (docs/design-guidelines.md, "Icons"). */
-const ICON = 16;
 
 /**
  * Three zones on one row: what this is and how to command it, the context every run is bound to, and what is the
@@ -30,7 +28,7 @@ export function AppHeader() {
       <div className="qube-header-brand">
         <Title order={1} className="qube-header-title">QUBE</Title>
         <Button size="xs" variant="default" onClick={openPalette} aria-label="Open command line"
-          leftSection={<IconTerminal2 size={ICON} stroke={1.75} aria-hidden />}
+          leftSection={<IconTerminal2 size={ICON} stroke={STROKE} aria-hidden />}
           rightSection={<Kbd size="xs" visibleFrom="sm">Ctrl K</Kbd>}>Commands</Button>
       </div>
       <ContextBar className="qube-header-context" />
@@ -38,7 +36,7 @@ export function AppHeader() {
         <Divider orientation="vertical" visibleFrom="md" className="qube-header-divider" />
         <Button size="xs" variant={aiOpen ? 'light' : 'default'} onClick={() => ai.getState().setOpen(!aiOpen)}
           aria-pressed={aiOpen} aria-label={aiOpen ? 'Hide the AI pane' : 'Show the AI pane'}
-          leftSection={<IconSparkles size={ICON} stroke={1.75} aria-hidden />}>AI</Button>
+          leftSection={<IconSparkles size={ICON} stroke={STROKE} aria-hidden />}>AI</Button>
         <AccountMenu />
       </div>
     </div>

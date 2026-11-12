@@ -34,7 +34,7 @@ Four principles follow, and every rule below is one of them made concrete.
 | Spacing | `xs` 4 · `sm` 8 · `md` 12 · `lg` 16 · `xl` 24 px | Gaps and padding. A 4px grid, the base unit of Fluent and Carbon ([Fluent 2](#references)). |
 | Font size | `xs` 11 · `sm` 12 · `md` 13 · `lg` 15 · `xl` 18 px | `md` is body text, `sm` dense labels and table text, `xs` captions and hints. |
 | Control Height | 30px (Mantine `xs`) in rows; 36px (`sm`) in dialogs | See §3. |
-| Radius | `xs` (2px) | Square enough to tile; nothing in the workbench is a pill except a Badge. |
+| Radius | `xs` (2px) | Square enough to tile; nothing in the workbench is a pill except a Badge, and the account menu's avatar, a circle as a person is drawn everywhere (2026-11-11). |
 | Colour | `signal` (amber, primary), `ink`, `dark` | See §7. |
 
 - **MUST** take spacing, font size, radius and colour from the theme (`gap="sm"`, `c="dimmed"`,
@@ -111,7 +111,8 @@ WCAG's minimum target size (§8). Smaller controls would save little: the grids,
   differ from the text beside it and between platforms.
 - Size 16 with `stroke={1.75}` inside a 30px control; 14 inside a `compact-xs` one.
 - An icon-only control **MUST** have an `aria-label`, and **SHOULD** have a `Tooltip` that names it and, where one
-  exists, the command that does the same. Decorative icons beside text take
+  exists, the command that does the same. The account menu's avatar has none: resting the pointer on it opens the
+  menu, which names it and the `settings` command. Decorative icons beside text take
   `aria-hidden`.
 - An icon beside a word is preferred to an icon alone; only a control whose meaning is conventional (close, the
   account's avatar, the command line) goes without its word.
