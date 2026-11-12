@@ -392,11 +392,14 @@ test('ADR-0016 notes 16, 21, 25 and 34: with two lines selected the line says it
   await expect(cell(page, END)).toHaveText('5y');
 });
 
-test('ADR-0016 note 34: a default is set alone and a new line takes it; a value a default cannot hold is said on the line as the server says it', async ({ page }) => {
+test('ADR-0016 note 34, ADR-0017 §3: a default is set alone and a new line takes it, and the page says only the defaults set; a value a default cannot hold is said on the line as the server says it', async ({ page }) => {
   await open(page);
   await newWorkspace(page);
   const line = page.getByRole('combobox', { name: 'Command' });
   const read = page.getByTestId('command-preview');
+  const defaults = page.getByRole('tabpanel').getByTestId('line-defaults');
+  // A workspace that holds no default says none.
+  await expect(defaults).toHaveCount(0);
 
   // One default named: the others are left as they are, where the old command needed all three.
   await page.keyboard.press('ControlOrMeta+K');
@@ -406,6 +409,8 @@ test('ADR-0016 note 34: a default is set alone and a new line takes it; a value 
   await page.keyboard.press('Enter');
   await expect(line).toBeHidden();
   await expect(notice(page)).toHaveText('Set workspace default currency to JPY.');
+  // The two defaults not set are not said: the server's view leaves them out.
+  await expect(defaults).toHaveText('New lines default to JPY set in this workspace.');
   await taken(page, 'set', 'default notional=500 default direction=rec');
 
   // A value the default cannot hold is refused by the server's own sentence, before Enter and at it: no stack trace.

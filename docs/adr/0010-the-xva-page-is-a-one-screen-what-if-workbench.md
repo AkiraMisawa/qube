@@ -62,7 +62,9 @@ follows `docs/design-guidelines.md`.
 
 *Note of 2026-11-12 (ADR-0018 §5, accepted by the owner with that record):* "below `sm`" is read by the width of the
 area the page is in, not the window's, now that a page can stand in an area beside others. A pricer in a 600px area is
-the three tabs, as it is in a 600px window; the full-height button and the page's heights read its area alike.
+the three tabs, as it is in a 600px window; the full-height button and the page's heights read its area alike. The
+pricer reads its area from the pull request that follows ADR-0016's step 5d (ADR-0018 §11 and its note of 2026-11-12);
+until that merges, it reads the window, as before.
 
 ### 2. Original, Before and After are layers of changes (CONFIRMED, owner 2026-11-06)
 

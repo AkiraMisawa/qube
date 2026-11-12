@@ -84,7 +84,7 @@ beforeEach(() => {
   forgetArranged();
 });
 
-describe('a proposal drawn', () => {
+describe('a proposal drawn (ADR-0018 §8)', () => {
   it('stands each area where its side and share put it, and a floating one at its place', () => {
     const plan = planOf({ areas: [{ area: 'a' }, { area: 'b', beside: 'a', side: 'right', share: 25 }, { area: 'c', beside: 'b', side: 'down', share: 50 }, { area: 'f', float: 'centre' }] });
     expect(plan.map((p) => [p.area, p.left, p.top, p.width, p.height, p.floating])).toEqual([
@@ -112,7 +112,7 @@ describe('a proposal drawn', () => {
   });
 });
 
-describe('arrange', () => {
+describe('arrange and arrange back (ADR-0018 §8)', () => {
   it('applies a proposal whole, says where the panels it did not place went, and keeps it for the tab', () => {
     const { id, command, notify, replaced, store } = page(['A', 'B', 'C']);
     const { n } = proposed(SIDE_BY_SIDE, [{ area: 'left', panel: id(1), title: 'B', shown: true }, { area: 'right', panel: id(2), title: 'C', shown: true }]);
@@ -197,7 +197,7 @@ describe('arrange', () => {
   });
 });
 
-describe('the context of the panels', () => {
+describe('the context of the panels the AI reads (ADR-0018 §8)', () => {
   it('names each open panel by its id and title, what it shows, and the pages a proposal may open', () => {
     registerPageOpener({ app: 'test.page', title: 'Test page', workspace: true, open: () => Promise.reject(new Error('not opened here')) });
     const { store, id } = page(['A', 'B']);

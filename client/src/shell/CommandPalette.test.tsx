@@ -20,7 +20,6 @@ const state = (overrides: Partial<WorkspaceState> = {}) => ({
   reopenPanel: vi.fn(),
   movePanel: vi.fn(),
   pinPanel: vi.fn(),
-  cycle: vi.fn(),
   activate: vi.fn(),
   requestContext: vi.fn(),
   ...overrides,
@@ -165,9 +164,10 @@ describe('a row\'s dialog holds every command a draft does not read (ADR-0016 §
     workspaceId: 'w', app: 'weather', settled: () => Promise.resolve(), view: () => undefined,
     draft: () => (open.draft ? { table: 't.trades', key: 'E00004', revision: 3, lines: ['set notional 5bn'] } : undefined),
     enter: () => Promise.resolve(undefined), invoke: () => Promise.resolve(undefined), redraft: () => Promise.resolve(undefined), keyboard: () => undefined });
-  const panels = (cycle = vi.fn()) => state({
+  // `next panel` shows the next panel in reading order, across the areas (ADR-0018 §3).
+  const panels = (activate = vi.fn()) => state({
     panels: [{ id: 'p', kind: 'app', title: 'XVA ABC/LE-01', app: 'xva.workspace', params: { workspaceId: 'w' } }, { id: 'q', kind: 'app', title: 'Rates', app: 'rates.workspace', params: {} }],
-    activePanelId: 'p', showApp: vi.fn(), openAppDialog: vi.fn(), cycle,
+    activePanelId: 'p', showApp: vi.fn(), openAppDialog: vi.fn(), activate,
   });
 
   it('the line lists the shell\'s commands, the applications\' and the workflows\' as held by the dialog, and the draft\'s own as they were', () => {
@@ -189,22 +189,22 @@ describe('a row\'s dialog holds every command a draft does not read (ADR-0016 §
 
   it('spine 6: a chord pressed over a dialog that opened after the commands were made is held at the press, and the panel does not change under the draft', () => {
     const open = { draft: false };
-    const cycle = vi.fn();
+    const activate = vi.fn();
     page(open);
     try {
-      const next = build(typed, panels(cycle)).find((c) => c.id === 'panel.next')!;
+      const next = build(typed, panels(activate)).find((c) => c.id === 'panel.next')!;
       expect(next.unavailable).toBeUndefined();
       open.draft = true;
 
       expect(runOn('p', next)).toBe(HELD);
-      expect(cycle).not.toHaveBeenCalled();
+      expect(activate).not.toHaveBeenCalled();
 
       // The draft's own command runs, and once the dialog has closed so does the chord.
       const set = build(typed, panels()).find((c) => c.id === 'entity.set')!;
       expect(runOn('p', set)).toBeUndefined();
       open.draft = false;
       expect(runOn('p', next)).toBeUndefined();
-      expect(cycle).toHaveBeenCalledTimes(1);
+      expect(activate).toHaveBeenCalledExactlyOnceWith('q');
     } finally {
       registerCommandDoor('p', undefined);
     }

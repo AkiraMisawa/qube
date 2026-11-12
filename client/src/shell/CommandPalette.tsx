@@ -20,6 +20,7 @@ import { holdKeyboard, keepKeyboard, keyboardAwaited, letGo, releaseKeyboard, re
 import { goTo, placesOf } from './places';
 import { panelCommands, type PanelState } from './panelVerbs';
 import { arrangeCommands, arrangingOf, type Arranging } from './proposals';
+import { useArrangementVersion } from './arrangement';
 import { useStore } from 'zustand';
 import { createStore } from 'zustand/vanilla';
 import { useOptionalAiStore } from '../ai/AiProvider';
@@ -355,6 +356,7 @@ export function CommandPalette() {
 
   // Built when the line opens, at each chained command and as the panels change, so a page that registers its commands
   // after mounting is seen.
+  const arrangementVersion = useArrangementVersion();
   const commands = useMemo(() => {
     const state = workspace.store.getState();
     const ai = aiStore === undefined ? undefined : {
@@ -364,7 +366,9 @@ export function CommandPalette() {
     };
     return buildCommands({ catalog: workspace.catalog, state: { ...state, panels, activePanelId, closed, context }, activeRun, toggleTheme: toggleColorScheme, notify: workspace.notify,
       settings: Object.values(settings), ...(ai === undefined ? {} : { ai }), arranging: arrangingOf(workspace) });
-  }, [workspace, panels, activePanelId, closed, context, activeRun, toggleColorScheme, opened, opening, aiStore, aiOpen, active, settings]);
+    // The panels' verbs act on the arrangement drawn now: built again as it changes, a chord never acts on a port that
+    // the strip or the areas have since replaced.
+  }, [workspace, panels, activePanelId, closed, context, activeRun, toggleColorScheme, opened, opening, aiStore, aiOpen, active, settings, arrangementVersion]);
 
   /** Reads what the page in the active panel shows now, as an opening: at each opening, and at each chained command. */
   const readScreen = useCallback(() => {

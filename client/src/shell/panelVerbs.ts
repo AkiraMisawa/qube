@@ -13,7 +13,7 @@ import { AREA_MIN } from './layout';
 
 /** What the verbs read and change: the workspace store's panels. */
 export type PanelState = Pick<WorkspaceState,
-  'panels' | 'activePanelId' | 'closed' | 'activate' | 'cycle' | 'closePanel' | 'closePanels' | 'reopenPanel' | 'movePanel' | 'pinPanel'>;
+  'panels' | 'activePanelId' | 'closed' | 'activate' | 'closePanel' | 'closePanels' | 'reopenPanel' | 'movePanel' | 'pinPanel'>;
 
 /** What a verb acts on: the store's panels, and the arrangement they stand in. */
 export interface On {
@@ -308,7 +308,7 @@ export const SEND: PanelVerb = {
 /** The areas other than the panel's own, each with the panel it shows: where `send panel to` can send it. */
 export function otherAreas(on: On, panelId: string | undefined): readonly { readonly id: string; readonly shown: string }[] {
   if (on.areas.strip !== undefined) return [];
-  return on.areas.areas().flatMap((a) => (a.shown === undefined || a.panels.includes(panelId ?? '') ? [] : [{ id: a.id, shown: a.shown }]));
+  return on.areas.areas().flatMap((a) => (a.shown === undefined || (panelId !== undefined && a.panels.includes(panelId)) ? [] : [{ id: a.id, shown: a.shown }]));
 }
 
 export const FLOAT: PanelVerb = {
@@ -316,8 +316,10 @@ export const FLOAT: PanelVerb = {
   words: 'float panel',
   title: 'Float the panel over the others, in the middle or over a half',
   label: 'Float',
+  // Required, as `split panel`'s side is: the line takes an optional value only by its name (ADR-0006), and the words
+  // the menu shows beside Float ▸ Left are the words the line runs.
   args: [{
-    name: 'where', required: false, hint: 'centre (the default), left, right, top or bottom',
+    name: 'where', required: true, hint: 'centre, left, right, top or bottom',
     complete: () => FLOAT_PLACES.map((value) => ({ value })),
     check: (value) => (placeOf(value) === undefined ? `one of ${FLOAT_PLACES.join(', ')}` : undefined),
   }],
@@ -328,7 +330,7 @@ export const FLOAT: PanelVerb = {
     return undefined;
   },
   run: (on, panel, _, args) => {
-    const place = args.where === undefined ? 'centre' : placeOf(args.where);
+    const place = placeOf(given(args, 'where'));
     if (place === undefined) throw new CommandRefused(`float panel takes where: ${FLOAT_PLACES.join(', ')}.`);
     const why = FLOAT.unavailable(on, panel, args);
     if (why !== undefined) throw new CommandRefused(why);
@@ -471,12 +473,23 @@ export const REOPEN: StripVerb = {
     const panel = on.state.reopenPanel();
     if (panel === undefined || last === undefined) throw new CommandRefused('No panel has been closed.');
     // Back in the area it stood in, where that is still there, else beside the active panel, and the user is told which
-    // (ADR-0018 §4). A page open again since it closed is shown where it is.
+    // (ADR-0018 §4), by a panel that stands beside it there. A page open again since it closed is shown where it is.
     if (on.areas.strip !== undefined || last.area === undefined) return;
+    const titleOf = (id: string | undefined): string | undefined => {
+      const beside = on.state.panels.find((p) => p.id === id && p.id !== panel.id);
+      return beside === undefined ? undefined : panelLabel(beside);
+    };
     const now = areaHolding(on.areas, panel.id);
     const there = on.areas.areas().find((a) => a.id === last.area);
-    if (there !== undefined && now?.id !== there.id) on.areas.sendTo(panel.id, there.id);
-    if (there === undefined) notify('done', `Reopened ${panelLabel(panel)} in the active panel's area: the area it stood in has gone.`);
+    if (there === undefined) {
+      const beside = titleOf(on.state.activePanelId);
+      notify('done', `Reopened ${panelLabel(panel)}${beside === undefined ? '' : ` beside ${beside}`}: the area it stood in has gone.`);
+      return;
+    }
+    const beside = titleOf(there.shown) ?? titleOf(there.panels.find((id) => id !== panel.id));
+    if (now?.id !== there.id) on.areas.sendTo(panel.id, there.id);
+    // In one area there is no other place it could be.
+    if (on.areas.areas().length > 1) notify('done', `Reopened ${panelLabel(panel)}${beside === undefined ? '' : ` beside ${beside}`}, in the area it stood in.`);
   },
 };
 
@@ -512,7 +525,10 @@ function readingOrder(on: On): readonly string[] {
 function step(on: On, by: 1 | -1): void {
   const order = readingOrder(on);
   if (order.length === 0) return;
-  const at = order.indexOf(on.state.activePanelId ?? '');
+  const active = on.state.activePanelId;
+  // With none active, the first panel is next and the last is previous.
+  const at = active === undefined ? (by === 1 ? -1 : order.length) : order.indexOf(active);
+  if (at === -1 && active !== undefined) throw new Error(`The active panel ${active} is not in the reading order.`);
   const to = order[(at + by + order.length) % order.length];
   if (to === undefined) throw new Error('The reading order has no panel to step to.');
   on.state.activate(to);

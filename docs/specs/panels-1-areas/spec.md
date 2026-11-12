@@ -36,7 +36,7 @@ One pull request (ADR-0018 §11, step 1).
 |---|---|---|
 | `split panel <right\|left\|down\|up>` | Split ▸ Right, Left, Down, Up | the panel is its area's only one; either half would be under 320×240px; areas are not shown |
 | `send panel to <title>` | Send to ▸ one item per other area, named by the panel it shows | there is no other area; the title names a panel of its own area |
-| `float panel [<left\|right\|top\|bottom\|centre>]` | Float ▸ Centre, Left, Right, Top, Bottom | the panel is its area's only one and that area is the only one in the window (nothing would stay docked) |
+| `float panel <centre\|left\|right\|top\|bottom>` | Float ▸ Centre, Left, Right, Top, Bottom | the panel is its area's only one and that area is the only one in the window (nothing would stay docked) |
 | `dock panel` | Dock | the panel is not floating |
 | `size panel <percent>` | Size ▸ 25%, 33%, 50%, 67%, 75% | the panel is floating, or alone in its row or column; the share would put an area under its minimum |
 | `maximize panel` / `unmaximize panel` | Maximize / Restore | the window has one area; nothing is maximized |
@@ -122,3 +122,70 @@ more room. Each is the client's: not logged, not `undo`'s, not the AI's.
 - Other browser windows (ADR-0018 §9, step 2) and parts of a page with links (§10, step 3).
 - Named arrangements across devices (§7's Open item).
 - The per-panel page state (note 7's own pull request).
+
+## As built (2026-11-12)
+
+What the build settled that the sections above leave open, or changed. Each is a DEFAULT, put to the owner with the
+pull request.
+
+- **`float panel` takes its place**, as `split panel` takes its side: the line takes an optional value only by its
+  name (ADR-0006), so the optional place of the table above was refused on the line, and Float ▸ Left showed words the
+  line did not run. **`dock panel`** puts the panel back into the area it came from, as one of its tabs, whether
+  `float panel` or a Shift-drag floated it (the area is read from dockview's own move). Both are in ADR-0018 §3's note
+  of 2026-11-12.
+- **A floating area's title bar shows a grip**, the one the XVA page's height handles show, so that it reads as
+  something to take; the keyboard's focus on it, or on a splitter, is outlined as a tab's is.
+- **A floating area is one area**: `split panel` is refused for a panel in one ("dock it first"). A floating area is
+  drawn inside the panels' space (dockview's `boundedWithinViewport`), and a Shift-drag that would leave no area docked
+  is refused as `float panel` is.
+- **One area has no frame**: the selected tab says which panel the line acts on, as in the strip. From two areas, the
+  active panel's area is framed in `signal`.
+- **An area's tab panel is dockview's content**, named by the tab it shows; the page inside it has no role of its own,
+  so there is never a tab panel inside a tab panel.
+- **The panels' space clips what overhangs it** (`overflow: clip` on `.qube-areas`). dockview follows a narrower window
+  a frame after the browser lays it out, and in that frame its views, still as wide as the window was, widened the
+  page: `simm.spec.ts` read 480px of sideways scroll at 1440px after 1920px.
+- **An area keeps the tab it shows in sight** in its strip, as the strip does: dockview scrolls a tab into view as it
+  becomes active, but before its title is drawn, so a new panel's tab stopped half past the strip's end at 768px.
+- **`next panel` and `previous panel`** go through every panel in reading order, across the areas, and around the
+  ends; the store's own cycling, in the strip's order, is gone.
+- **A splitter's arrow keys drive dockview's own drag** of that splitter (a press, a move of 24px and a release),
+  rather than `size panel`'s arithmetic through the port: dockview's own limits on its views, and the shell's minimum,
+  then hold as they do for the pointer. Each splitter says its place as `aria-valuenow`, the share of its row or column
+  before it.
+- **Floating areas stand under the shell's menus** (dockview's overlay layer at 99, not 999): a tab's menu or a
+  submenu opened from a floating area's tab is drawn above the grids of that area and of the others.
+- **Float ▸ in a floating panel's menu places its area** (the table's "given to a floating panel" row), and Dock is
+  shown beside it there.
+- **A Shift-press on a strip's empty end floats the whole area** in dockview; the shell refuses it, by name, where
+  that area is the only one docked, as `float panel` is refused there.
+- **`reopen panel` says where the panel went**: back into the area it stood in, where there are more areas than one,
+  or beside the active panel where that area has gone.
+- **What the browser tab keeps is read whole before any of it is applied**: the panels, and every part of dockview's
+  layout the arrangement is drawn from (its grid, its areas, its floating areas and where each floating panel came
+  from). A value that does not read so is not applied, and the shell says which part.
+- **What `layout.propose` takes**, as built (`LayoutPropose.cs`): an area after the first names the area it is
+  `beside`, the `side` it is on and its `share` (10 to 90) of the row or column the two make; a floating area names
+  `float` (one of the five places) and none of those. A place names one of: an open `panel` with the `title` the
+  context gave it, a `run`, or an `app` with its `workspace` where the app's page needs one. Each area shows exactly
+  one of its places. The server refuses a malformed proposal by path under `/inputs/request` (`InvalidProposal`), and
+  answers the number of areas and the least panels' space the proposal needs.
+- **What a proposal may open**: a Run, and the pages an application registers an opener for (the Pricing DB; an XVA or
+  a Rates workspace by its id). The context `qube.panels` lists them as `opens`, beside the open panels and their
+  areas.
+- **Applying checks again**: a panel closed or retitled since the proposal, an application no longer registered, or a
+  panels' space now too small is refused by name, and nothing moves. The pages it opens are read first; one that
+  cannot be read refuses the whole proposal.
+- **The scripted stand-in** reads "side by side" and "beside" for panels the context names by title. It takes the
+  whole request (`TakesTheRest`), since a title may hold a date the Rates request would otherwise read.
+- **Ticket 07 in part.** The panel's content is a size container (`inline-size`: in the strip the page grows with its
+  content, which a `size` container would not let it), and the trace view reads it. The pricer's three sections, its
+  full-height button and `xva.css` still read the window: ADR-0018 §11 changes them last, after the pull requests on
+  the pricer's files, and ADR-0016's step 5 (5d, the scenarios table and `load trades`) is still being built on them.
+  Until then an XVA page in an area narrower than 768px is laid out as the window's width says, and in an area shorter
+  than its parts need (a page split down, at 1440 by 900) its trade grids scroll under the result dock and their
+  headers draw over it (ExGrid's header stacks at 4, the dock at 3), as they do in a window that short (seen at 1440 by
+  520px with one area, which lays the page out as the strip does).
+- **A change between the strip and the areas draws the pages anew** (ADR-0018 §5): a page's own state, such as an
+  open trace or an input tab, starts again. The browser tests that cross 768px open again what they read after.
+

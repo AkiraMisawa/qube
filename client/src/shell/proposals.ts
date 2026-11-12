@@ -96,6 +96,9 @@ export function readProposal(outputs: Readonly<Record<string, unknown>>, n: numb
       const value = optional(p, name);
       return value === undefined ? [] : [[name, value]];
     }));
+    const named = ['panel', 'run', 'app'].filter((name) => name in fields);
+    if (named.length !== 1) throw new Error(`layout.propose answered a place naming ${named.length === 0 ? 'no panel, Run or page' : named.join(' and ')}.`);
+    if ('panel' in fields !== 'title' in fields) throw new Error('layout.propose answered a panel without its title, or a title without a panel.');
     return { area: text(p, 'area'), ...fields, ...(p.shown === true ? { shown: true } : {}) };
   });
   return { n, areas, places, needs: { width: whole(answer, 'width'), height: whole(answer, 'height') } };
@@ -317,10 +320,16 @@ export function forgetArranged(): void {
 
 /** How the card and the line name a place: its panel's title, its Run, or its page. */
 export function placeLabel(place: ProposedPlace): string {
-  if (place.panel !== undefined) return place.title ?? place.panel;
+  // `readProposal` holds a place to one of a panel with its title, a Run, or a page.
+  if (place.panel !== undefined) {
+    if (place.title === undefined) throw new Error(`The proposal names panel ${place.panel} without its title.`);
+    return place.title;
+  }
   if (place.run !== undefined) return `Run ${place.run}`;
-  const opener = place.app === undefined ? undefined : openers.get(place.app);
-  const page = opener?.title ?? place.app ?? 'a page';
+  if (place.app === undefined) throw new Error('The proposal has a place that names no panel, Run or page.');
+  // A page no application opens here is named by the word the proposal gave it: applying refuses it by that name.
+  const opener = openers.get(place.app);
+  const page = opener === undefined ? place.app : opener.title;
   return place.workspace === undefined ? page : `${page} ${place.workspace}`;
 }
 
@@ -465,12 +474,17 @@ export function arrangeBack(on: Arranging, notify: Notify): void {
   const titles = closing.map(panelLabel);
   for (const panel of closing) on.state().closePanel(panel.id, (panelId) => areaHolding(on.areas(), panelId)?.id);
   const open = openPanels(on.state());
-  const layout = (was.before === undefined ? undefined : reconciled(was.before, open)) ?? oneArea(open, nextAreaId(), on.areas().room());
+  // What the proposal replaced, with the panels open now; where it was one area, or held none of them, one area.
+  const before = was.before === undefined ? undefined : reconciled(was.before, open);
+  const layout = before ?? oneArea(open, nextAreaId(), on.areas().room());
   keptArrangement.getState().keep(layout);
   const areas = on.areas();
   if (areas.strip === undefined) areas.replace(layout);
   last = undefined;
-  notify('done', `Put back the arrangement proposal ${was.n} replaced.${titles.length === 0 ? '' : ` Closed ${titles.join(', ')}, which it opened: reopen panel brings back the last.`}`);
+  const put = was.before !== undefined && before === undefined
+    ? `None of the panels the arrangement before proposal ${was.n} held is open, so the panels stand in one area.`
+    : `Put back the arrangement proposal ${was.n} replaced.`;
+  notify('done', `${put}${titles.length === 0 ? '' : ` Closed ${titles.join(', ')}, which it opened: reopen panel brings back the last.`}`);
 }
 
 /** The line's `arrange <n>` and `arrange back` (ADR-0018 §3, §8). */

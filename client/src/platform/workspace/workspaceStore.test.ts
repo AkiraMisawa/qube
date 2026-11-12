@@ -14,14 +14,13 @@ describe('workspace store', () => {
   });
 
   // ADR-0006 note 7: closing the active panel shows the one shown before it, as a browser's or an editor's tab does.
-  it('shows the panel shown last when the active panel closes, and cycles around the ends', () => {
+  it('shows the panel shown last when the active panel closes', () => {
     const store = createWorkspaceStore(valid, contextContract);
     const { openPanel } = store.getState();
     const a = openPanel({ kind: 'run', title: 'A', runId: 'r1', viewKey: undefined });
     const b = openPanel({ kind: 'run', title: 'B', runId: 'r2', viewKey: undefined });
     const c = openPanel({ kind: 'run', title: 'C', runId: 'r3', viewKey: undefined });
-    store.getState().cycle(1);
-    expect(store.getState().activePanelId).toBe(a);
+    store.getState().activate(a);
     store.getState().activate(b);
     store.getState().closePanel(b);
     expect(store.getState().activePanelId).toBe(a);
@@ -169,7 +168,7 @@ describe('workspace store', () => {
 
   // ADR-0018 §4: closing the active panel shows what its area showed before; an area left empty gives way to the panel
   // shown before it anywhere. A closed panel is kept with its area, which `reopen panel` puts it back in.
-  it('follows the active panel within its area as it closes, and keeps the area of a panel closed', () => {
+  it('ADR-0018 §4: follows the active panel within its area as it closes, and keeps the area of a panel closed', () => {
     const store = createWorkspaceStore(valid, contextContract);
     const [a, b, c] = ['A', 'B', 'C'].map((t, i) => store.getState().openPanel({ kind: 'run', title: t, runId: `r${i}`, viewKey: undefined })) as [string, string, string];
     const area: Record<string, string> = { [a]: 'left', [b]: 'left', [c]: 'right' };
@@ -194,7 +193,7 @@ describe('workspace store', () => {
   });
 
   // ADR-0018 §1: a close of several within an area names the panels of that area only.
-  it('closes the others of an area, the pinned kept', () => {
+  it('ADR-0018 §1: closes the others of an area, the pinned kept', () => {
     const store = createWorkspaceStore(valid, contextContract);
     const [a, b, c, d] = ['A', 'B', 'C', 'D'].map((t, i) => store.getState().openPanel({ kind: 'run', title: t, runId: `r${i}`, viewKey: undefined })) as [string, string, string, string];
     store.getState().pinPanel(b, true);
@@ -204,7 +203,7 @@ describe('workspace store', () => {
   });
 
   // ADR-0018 §5: while areas are shown, the strip's order is set from their reading order, the pinned first.
-  it('takes an order naming every open panel once, and refuses another', () => {
+  it('ADR-0018 §5: takes an order naming every open panel once, and refuses another', () => {
     const store = createWorkspaceStore(valid, contextContract);
     const [a, b, c] = ['A', 'B', 'C'].map((t, i) => store.getState().openPanel({ kind: 'run', title: t, runId: `r${i}`, viewKey: undefined })) as [string, string, string];
     store.getState().setOrder([c, a, b]);
@@ -214,7 +213,7 @@ describe('workspace store', () => {
   });
 
   // ADR-0018 §7: what a browser tab kept comes back as it was, and a panel opened after it takes a new id.
-  it('takes up the panels a browser tab kept, and numbers the next after them', () => {
+  it('ADR-0018 §7: takes up the panels a browser tab kept, and numbers the next after them', () => {
     const store = createWorkspaceStore(valid, contextContract);
     store.getState().restore({
       panels: [{ id: 'panel-4', kind: 'run', title: 'A', runId: 'r1', viewKey: undefined }, { id: 'panel-7', kind: 'run', title: 'B', runId: 'r2', viewKey: undefined, pinned: true }],

@@ -261,6 +261,7 @@
 .dockview-theme-qube {
   --dv-group-view-background-color: var(--mantine-color-body);
   --dv-tabs-and-actions-container-background-color: var(--mantine-color-body);
+  /* One Control Height and the strip's 1px line under it, which dockview counts in this height. */
   --dv-tabs-and-actions-container-height: 31px;
   --dv-tabs-and-actions-container-font-size: var(--mantine-font-size-sm);
   --dv-tab-font-size: var(--mantine-font-size-sm);
@@ -304,6 +305,13 @@
   --dv-floating-group-dragging-opacity: 0.5;
 }
 
+/* A floating area stands over the docked areas and under every menu, list and dropdown the shell and its pages open
+   (Mantine's portals stand at 200 to 400). dockview's own rule defines this variable by itself, which a browser reads
+   as no value, so its floating areas took 999 and covered a tab's menu opened beside them. */
+.dockview-theme-qube .dv-resize-container {
+  --dv-overlay-z-index: 99;
+}
+
 /* A strip's line under its tabs, as note 7's strip has it; the selected tab stands on it in the primary colour. */
 .dockview-theme-qube .dv-tabs-and-actions-container {
   border-bottom: 1px solid var(--mantine-color-default-border);
@@ -323,10 +331,53 @@
   outline-offset: -2px;
 }
 
+/* A floating area's title bar is its move handle (ADR-0018 §3): it carries the grip of the XVA page's height handles,
+   so that it reads as something to take, and the keyboard's focus on it, or on a splitter, is shown as a tab's is. */
+.dockview-theme-qube .dv-floating-titlebar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.dockview-theme-qube .dv-floating-titlebar::before {
+  content: '';
+  width: 48px;
+  height: 4px;
+  border-radius: var(--mantine-radius-xs);
+  background: var(--mantine-color-dimmed);
+}
+.dockview-theme-qube .dv-floating-titlebar:hover::before { background: var(--mantine-color-text); }
+.dockview-theme-qube .dv-floating-titlebar:focus-visible,
+.dockview-theme-qube .dv-sash:focus-visible {
+  outline: 2px solid var(--mantine-primary-color-filled);
+  outline-offset: -2px;
+}
+
+/* To a finger, a splitter and a floating area's edges are at least 24px (docs/design-guidelines.md §8). dockview's own
+   rule for a coarse pointer gives a splitter 24px (4px and 10px each side) and an edge only 16px; an edge here is 24px,
+   reaching 18px out and 6px in, as far into the title bar as dockview's own. Geometry the theme has no name for. */
+@media (pointer: coarse) {
+  .dockview-theme-qube .dv-resize-container .dv-resize-handle-top,
+  .dockview-theme-qube .dv-resize-container .dv-resize-handle-bottom { height: 24px; }
+  .dockview-theme-qube .dv-resize-container .dv-resize-handle-top { top: -18px; }
+  .dockview-theme-qube .dv-resize-container .dv-resize-handle-bottom { bottom: -18px; }
+  .dockview-theme-qube .dv-resize-container .dv-resize-handle-left,
+  .dockview-theme-qube .dv-resize-container .dv-resize-handle-right { width: 24px; }
+  .dockview-theme-qube .dv-resize-container .dv-resize-handle-left { left: -18px; }
+  .dockview-theme-qube .dv-resize-container .dv-resize-handle-right { right: -18px; }
+  .dockview-theme-qube .dv-resize-container .dv-resize-handle-topleft,
+  .dockview-theme-qube .dv-resize-container .dv-resize-handle-topright,
+  .dockview-theme-qube .dv-resize-container .dv-resize-handle-bottomleft,
+  .dockview-theme-qube .dv-resize-container .dv-resize-handle-bottomright { width: 24px; height: 24px; }
+  .dockview-theme-qube .dv-resize-container .dv-resize-handle-topleft { top: -18px; left: -18px; }
+  .dockview-theme-qube .dv-resize-container .dv-resize-handle-topright { top: -18px; right: -18px; }
+  .dockview-theme-qube .dv-resize-container .dv-resize-handle-bottomleft { bottom: -18px; left: -18px; }
+  .dockview-theme-qube .dv-resize-container .dv-resize-handle-bottomright { bottom: -18px; right: -18px; }
+}
+
 .qube-area-tab {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--mantine-spacing-xs);
   height: 100%;
 }
 
@@ -370,7 +421,7 @@
   max-width: 280px;
   aspect-ratio: 16 / 10;
   border: 1px solid var(--mantine-color-default-border);
-  border-radius: var(--mantine-radius-sm);
+  border-radius: var(--mantine-radius-xs);
   background: var(--mantine-color-body);
 }
 
@@ -380,7 +431,7 @@
   /* The body's colour as a border keeps a gap between two boxes that touch. */
   border: 2px solid var(--mantine-color-body);
   background: var(--mantine-color-default-hover);
-  border-radius: var(--mantine-radius-sm);
+  border-radius: var(--mantine-radius-xs);
   display: flex;
   flex-direction: column;
   align-items: center;

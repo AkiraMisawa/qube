@@ -259,7 +259,8 @@ describe("a workspace's defaults for a new line (ADR-0017 §3)", () => {
       .toBe('New lines default to JPY · 500mm · receive from your settings.');
     expect(defaultsSaid({ currency: 'JPY', notional: 1e9, direction: 'receive', fromSettings: ['currency', 'direction'] }))
       .toBe('New lines default to JPY · receive from your settings; 1bn set in this workspace.');
-    expect(defaultsSaid({ currency: null, notional: 2.5e6, direction: null, fromSettings: [] })).toBe('New lines default to 2.5mm set in this workspace.');
-    expect(defaultsSaid({ currency: null, notional: null, direction: null, fromSettings: [] })).toBeUndefined();
+    // A default not set is absent, as the server's view leaves it out.
+    expect(defaultsSaid({ notional: 2.5e6, fromSettings: [] })).toBe('New lines default to 2.5mm set in this workspace.');
+    expect(defaultsSaid({ fromSettings: [] })).toBeUndefined();
   });
 });

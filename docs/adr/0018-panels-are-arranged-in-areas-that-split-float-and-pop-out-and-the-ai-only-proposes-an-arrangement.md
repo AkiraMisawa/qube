@@ -120,12 +120,27 @@ declaration. The words are settled in step 1's spec:
 |---|---|
 | `split panel <right\|left\|down\|up>` | Moves the panel into a new area on that side of its own. Refused, saying why, where it is the only panel of its area |
 | `send panel to <title>` | Moves the panel into the area of the panel named, after it |
-| `float panel [<left\|right\|top\|bottom\|centre>]` | Moves the panel into a new floating area over that half of the panels' space, or the middle (the default); given to a floating panel, places its area there |
-| `dock panel` | Puts a floating panel (from step 2, a popped-out one) back among the window's areas, beside the area it came from where that is still there, else at the right, and says where |
+| `float panel <centre\|left\|right\|top\|bottom>` | Moves the panel into a new floating area in the middle of the panels' space or over that half of it; given to a floating panel, places its area there |
+| `dock panel` | Puts a floating panel (from step 2, a popped-out one) back among the window's areas: into the area it came from where that is still there, else into a new area at the right where the room holds one, else into the last area, and says where |
 | `size panel <percent>` | Gives the panel's area that share of its row or column, within §5's minimum. Refused for a floating panel, which `float panel <where>` sizes |
 | `maximize panel`, `unmaximize panel` | Gives the panel's area the whole of the panels' space, and back |
 | `gather panels` | Puts every panel back in one area, in reading order: the arrangement of today |
 | `arrange <n>`, `arrange back` | Applies the AI's proposal numbered `n`, and puts back what it replaced (§8) |
+
+*Note of 2026-11-12, as step 1 was built.* Two rows changed, both DEFAULTs put to the owner with step 1's pull
+request. `float panel` was `float panel [<left|right|top|bottom|centre>]`, its place optional with the middle the
+default: the line takes an optional value only by its name (ADR-0006), so `float panel left` was refused, and the words
+a menu shows beside Float ▸ Left were words the line did not run. Its place is now required, as `split panel`'s side
+is. `dock panel` put the panel "beside the area it came from": that read as a new area beside it, which undoes
+nothing; it now goes back into that area, as one of its tabs, which is where the float took it from.
+
+Three readings were settled as it was built, also DEFAULTs put to the owner with that pull request. A floating area is
+one area: `split panel` is refused in it, and a drop onto its edge is not offered, so a panel is docked first and split
+in the window. Where a floating panel came from is kept by the browser tab with the arrangement (§7), and is read from
+dockview's own move, so a float by the pointer or by Shift is docked back as one by the line is. And of §11's step 1,
+the pricer's part (its section switch, its full-height button and `xva.css` reading its area, ticket 07's rest) is a
+pull request of its own after ADR-0016's step 5d, which changes the same files: until it merges, the pricer reads the
+window, and in a short area its grids scroll under its result dock as they do in a window that short.
 
 - **The pointer.** A tab dragged onto an area's edge splits it there, into another strip joins that area, and with
   Shift held floats. A floating area moves by its title bar (dockview's own, above its tab strip) and is resized by its

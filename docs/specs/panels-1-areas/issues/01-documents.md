@@ -1,6 +1,6 @@
 # 01: The documents before the code
 
-Status: ready-for-agent
+Status: done
 
 **What to build:** the notes ADR-0018 names in the decisions it changes, before the code (docs/agents/domain.md):
 ADR-0006 note 8 (note 7's verbs act within an area; the panels are kept by the browser tab), a note on ADR-0007 §7 and
@@ -10,5 +10,5 @@ container queries).
 
 **Blocked by:** none.
 
-- [ ] Each note says what changed and points to ADR-0018.
-- [ ] The guidelines say how a page reads its width in an area.
+- [x] Each note says what changed and points to ADR-0018.
+- [x] The guidelines say how a page reads its width in an area.

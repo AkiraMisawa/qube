@@ -1,4 +1,5 @@
 import { Orientation, type SerializedDockview, type SerializedGridObject } from 'dockview-react';
+import { SM } from '../platform/panelPage';
 import { panelLabel, type WorkspaceState } from '../platform/workspace/workspaceStore';
 
 // The arrangement as dockview serialises it (ADR-0018 §2): what the strip waits with, what the browser tab keeps
@@ -7,8 +8,8 @@ import { panelLabel, type WorkspaceState } from '../platform/workspace/workspace
 /** The smallest an area may be, the narrowest phone a page is laid out for (ADR-0018 §5). */
 export const AREA_MIN = { width: 320, height: 240 } as const;
 
-/** The panels' space from which the panels stand in areas; below it they are one strip (ADR-0018 §5). */
-export const AREAS_FROM = 768;
+/** The panels' space from which the panels stand in areas, the theme's `sm`; below it they are one strip (ADR-0018 §5). */
+export const AREAS_FROM = SM;
 
 /** The component dockview draws a panel's page with, and its tab with: the shell's own (`PanelAreas`). */
 export const PAGE_COMPONENT = 'page';

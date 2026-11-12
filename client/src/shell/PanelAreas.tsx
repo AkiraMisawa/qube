@@ -41,8 +41,9 @@ function Page({ api, params }: IDockviewPanelProps<{ readonly panelId: string }>
   const panel = useWorkspace((s) => s.panels.find((p) => p.id === params.panelId));
   const shown = useShownInArea(api);
   if (panel === undefined || !shown) return null;
-  // The page of the tab its area shows, named as its tab names it, as the strip's tab panel is.
-  return <div className="qube-area-page" role="tabpanel" aria-label={panelLabel(panel)}><PanelContent panel={panel} /></div>;
+  // The page of the tab its area shows. dockview's content holding it is the area's tab panel, named by that tab, as the
+  // strip's tab panel is: one more here would be a tab panel inside a tab panel.
+  return <div className="qube-area-page"><PanelContent panel={panel} /></div>;
 }
 
 /**
@@ -128,8 +129,8 @@ function anchorOf(box: AnchoredBox): AnchoredBox {
 
 /**
  * Whether a drop dockview is about to offer would leave an area under its minimum, no area docked in the window, or a
- * floating area split in two (a floating area is one area: ADR-0018 §3): its overlay is not shown, so the drop is not
- * there to make (ADR-0018 §5).
+ * floating area split in two (a floating area is one area: ADR-0018 §3's note of 2026-11-12): its overlay is not
+ * shown, so the drop is not there to make (ADR-0018 §5).
  */
 function dropRefused(dock: DockviewApi, event: DockviewWillShowOverlayLocationEvent): boolean {
   const data = event.getData();
@@ -163,11 +164,26 @@ const ARROWS: Readonly<Record<string, { readonly dx: number; readonly dy: number
  */
 function keyboardHandles(root: HTMLElement): void {
   for (const sash of root.querySelectorAll<HTMLElement>('.dv-sash')) {
-    const across = sash.closest('.dv-split-view-container')?.classList.contains('dv-horizontal') === true;
+    const split = sash.closest('.dv-split-view-container');
+    const across = split?.classList.contains('dv-horizontal') === true;
     sash.setAttribute('role', 'separator');
     sash.setAttribute('aria-orientation', across ? 'vertical' : 'horizontal');
     sash.setAttribute('aria-label', across ? 'Splitter between areas side by side' : 'Splitter between areas one above the other');
     sash.tabIndex = 0;
+    // A focusable separator says where it stands (WAI-ARIA): the share, in percent, of the row or column before it,
+    // read from the sizes dockview wrote on its views, never from the layout the browser made of them.
+    const views = [...(split?.querySelectorAll<HTMLElement>(':scope > .dv-view-container > .dv-view') ?? [])];
+    const end = (view: HTMLElement | undefined): number => {
+      if (view === undefined) throw new Error('A splitter stands beside no area.');
+      const at = parseFloat(across ? view.style.left : view.style.top);
+      const size = parseFloat(across ? view.style.width : view.style.height);
+      if (!Number.isFinite(at) || !Number.isFinite(size)) throw new Error('dockview drew an area without its size.');
+      return at + size;
+    };
+    const before = sash.parentElement === null ? -1 : [...sash.parentElement.children].indexOf(sash);
+    sash.setAttribute('aria-valuemin', '0');
+    sash.setAttribute('aria-valuemax', '100');
+    sash.setAttribute('aria-valuenow', String(Math.round((100 * end(views[before])) / end(views.at(-1)))));
   }
   for (const bar of root.querySelectorAll<HTMLElement>('.dv-floating-titlebar')) {
     const shown = bar.closest('.dv-resize-container')?.querySelector('.dv-tab.dv-active-tab')?.getAttribute('aria-label');
@@ -244,7 +260,7 @@ export function PanelAreas({ room }: { readonly room: Size }) {
   const onReady = useCallback((event: DockviewReadyEvent) => {
     const dock = event.api;
     dockNow.current = dock;
-    const port = dockArrangement(dock);
+    const { port, stop } = dockArrangement(dock);
     let syncing = false;
     let pending = false;
 
@@ -350,6 +366,7 @@ export function PanelAreas({ room }: { readonly room: Size }) {
     sync();
     if (pending) arranged();
     disposeAll.current = () => {
+      stop();
       unregister();
       unsubscribe();
       watched.forEach((w) => w.dispose());
@@ -398,14 +415,26 @@ export function PanelAreas({ room }: { readonly room: Size }) {
     if (!(event.target instanceof Element)) return;
     // A press on a tab's close button closes it; it does not first show it, as dockview's press on a tab would.
     if (event.target.closest('.qube-area-tab-close') !== null) { event.stopPropagation(); return; }
+    if (!event.shiftKey) return;
     // Shift with a press on a tab floats it (dockview's gesture): refused, as `float panel` is, where it would leave no
     // area docked.
     const tab = tabAt(event.target, store.getState().panels);
-    if (!event.shiftKey || tab === undefined) return;
-    const why = FLOAT.unavailable(onNow(store.getState()), tab.panel);
-    if (why === undefined) return;
+    if (tab !== undefined) {
+      const why = FLOAT.unavailable(onNow(store.getState()), tab.panel);
+      if (why === undefined) return;
+      event.preventDefault();
+      notify('refused', `${FLOAT.words}: ${why}`);
+      return;
+    }
+    // Shift with a press on the empty end of a strip floats its whole area (dockview's gesture too): refused where that
+    // area is the only one docked.
+    if (event.target.closest('.dv-void-container') === null) return;
+    const docked = onNow(store.getState()).areas.areas().filter((a) => !a.floating);
+    const only = docked.length === 1 ? docked[0] : undefined;
+    const shown = event.target.closest('.dv-groupview')?.querySelector('.dv-active-tab [data-panel]')?.getAttribute('data-panel');
+    if (only === undefined || shown === null || shown === undefined || !only.panels.includes(shown)) return;
     event.preventDefault();
-    notify('refused', `${FLOAT.words}: ${why}`);
+    notify('refused', `${FLOAT.words}: It is the only area docked; floating it would leave none.`);
   };
   // The middle button closes a tab, as a browser's does; held down it would start the browser's own scrolling.
   const onMouseDown = (event: MouseEvent<HTMLDivElement>) => {

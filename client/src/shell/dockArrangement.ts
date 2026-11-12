@@ -1,5 +1,6 @@
 import type { DockviewApi, DockviewGroupPanel, IDockviewPanel } from 'dockview-react';
 import type { Area, Arrangement, Box, Side } from './arrangement';
+import { keptArrangement } from './keptPanels';
 import { AREA_MIN, areasOf, lineOf, needs, type Line } from './layout';
 
 // The arrangement's port over dockview's own API (ADR-0018 §2): what `PanelAreas` registers while the panels stand in
@@ -8,10 +9,21 @@ import { AREA_MIN, areasOf, lineOf, needs, type Line } from './layout';
 
 const SIDE = { right: 'right', left: 'left', down: 'bottom', up: 'top' } as const;
 
-/** The port over this dockview. */
-export function dockArrangement(api: DockviewApi): Arrangement {
-  // The area a panel was floated from, so that `dock panel` puts it back there (the spec's DEFAULT reading of §3).
-  const cameFrom = new Map<string, string>();
+/** The port over this dockview, and how to stop what it watches. */
+export function dockArrangement(api: DockviewApi): { readonly port: Arrangement; readonly stop: () => void } {
+  // The area a panel was floated from, so that `dock panel` puts it back there (the spec's DEFAULT reading of §3), kept
+  // by the browser tab with the arrangement. It is read from dockview's own move, so that a panel floated by the
+  // pointer (Shift with a drag) is put back as one floated by `float panel` is; one moved into an area by any means has
+  // none.
+  const kept = keptArrangement.getState;
+  const floatedFrom = (panelId: string, areaId: string | undefined): void => {
+    const { [panelId]: _, ...others } = kept().floatedFrom;
+    kept().keepFloatedFrom(areaId === undefined ? others : { ...others, [panelId]: areaId });
+  };
+  const moves = api.onDidMovePanel(({ panel: moved, from, to }) => {
+    if (to.api.location.type !== 'floating') floatedFrom(moved.id, undefined);
+    else if (from.api.location.type === 'grid') floatedFrom(moved.id, from.id);
+  });
 
   const panel = (id: string): IDockviewPanel => {
     const found = api.getPanel(id);
@@ -28,11 +40,12 @@ export function dockArrangement(api: DockviewApi): Arrangement {
   const titled = (g: DockviewGroupPanel): string => {
     const shown = g.activePanel ?? g.panels[0];
     if (shown === undefined) throw new Error(`The area ${g.id} holds no panel.`);
-    return shown.title ?? shown.id;
+    if (shown.title === undefined) throw new Error(`The panel ${shown.id} was drawn without its title.`);
+    return shown.title;
   };
   const place = (box: Box) => ({ x: box.left, y: box.top, width: box.width, height: box.height });
 
-  return {
+  const port: Arrangement = {
     strip: undefined,
     areas: (): readonly Area[] => areasOf(api.toJSON()).map((a) => {
       const g = group(a.id);
@@ -52,17 +65,14 @@ export function dockArrangement(api: DockviewApi): Arrangement {
     float(panelId: string, box: Box) {
       const p = panel(panelId);
       const from = p.group;
-      if (from.api.location.type === 'floating' && from.panels.length === 1) {
-        api.addFloatingGroup(from, place(box));
-        return;
-      }
-      if (from.api.location.type === 'grid') cameFrom.set(panelId, from.id);
-      api.addFloatingGroup(p, place(box));
+      // A floating panel's area is placed there whole, with every panel it holds (ADR-0018 §3); a docked one leaves its
+      // area for a floating area of its own.
+      api.addFloatingGroup(from.api.location.type === 'floating' ? from : p, place(box));
     },
     dock(panelId: string): string {
       const p = panel(panelId);
-      const from = cameFrom.get(panelId);
-      cameFrom.delete(panelId);
+      const from = kept().floatedFrom[panelId];
+      floatedFrom(panelId, undefined);
       const back = docked().find((g) => g.id === from);
       if (back !== undefined) {
         const where = `back into the area of ${titled(back)}`;
@@ -102,8 +112,9 @@ export function dockArrangement(api: DockviewApi): Arrangement {
       p.api.moveTo({ group: p.group, position: 'center', index, skipSetActive: true });
     },
     replace(layout) {
-      cameFrom.clear();
+      kept().keepFloatedFrom({});
       api.fromJSON(layout);
     },
   };
+  return { port, stop: () => moves.dispose() };
 }

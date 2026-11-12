@@ -33,7 +33,7 @@ export function ProposalPlan({ call }: { readonly outputs: Readonly<Record<strin
     }
   };
   return (
-    <Stack gap={6} data-testid="proposal" data-proposal={n}>
+    <Stack gap="xs" data-testid="proposal" data-proposal={n}>
       <Group justify="space-between" wrap="nowrap" gap="xs">
         <Text size="xs" fw={600}>Proposal {n}</Text>
         <Text size="xs" c="dimmed">{proposal.areas.length === 1 ? '1 area' : `${proposal.areas.length} areas`} · from {Math.max(AREAS_FROM, proposal.needs.width)} × {proposal.needs.height}px</Text>

@@ -75,7 +75,7 @@ export function VerbItems({ panel, run, fromKeyboard = false }: {
     return (
       <Menu.Sub key={v.id}>
         <Menu.Sub.Target>
-          <Menu.Sub.Item rightSection={<Group gap={4} wrap="nowrap">{said(v.words)}<IconChevronRight size={ICON} stroke={STROKE} aria-hidden /></Group>}>
+          <Menu.Sub.Item rightSection={<Group gap="xs" wrap="nowrap">{said(v.words)}<IconChevronRight size={ICON} stroke={STROKE} aria-hidden /></Group>}>
             {v.label}
           </Menu.Sub.Item>
         </Menu.Sub.Target>
@@ -101,7 +101,9 @@ export function VerbItems({ panel, run, fromKeyboard = false }: {
             if (shown === undefined) throw new Error(`The area ${a.id} shows ${a.shown}, which is not open.`);
             return { label: panelLabel(shown), args: { panel: panelLabel(shown) } };
           }))}
-          {floating ? onPanel(DOCK) : choosing(FLOAT, FLOAT_PLACES.map((where) => ({ label: capital(where), args: { where } })))}
+          {/* A floating panel's Float places its area (ADR-0018 §3): the menu holds every verb, as a finger has no drag. */}
+          {choosing(FLOAT, FLOAT_PLACES.map((where) => ({ label: capital(where), args: { where } })))}
+          {floating && onPanel(DOCK)}
           {choosing(SIZE, SHARES.map((percent) => ({ label: percent, args: { percent } })))}
           {on.areas.maximized() === undefined ? onPanel(MAXIMIZE) : onPanel(UNMAXIMIZE, 'Restore')}
           {onPanel(GATHER)}

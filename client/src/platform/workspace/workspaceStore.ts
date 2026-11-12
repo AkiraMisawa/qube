@@ -54,6 +54,9 @@ export interface KeptPanels {
 /** How many closed panels `reopenPanel` can bring back, the last closed first. */
 export const CLOSED_KEPT = 20;
 
+/** A panel's id as this store gives it, `panel-<n>`, with its number. */
+export const PANEL_ID = /^panel-(\d+)$/;
+
 /** Which panels a close of several takes, beside the one it is given (ADR-0006 note 7). Pinned panels stay. */
 export type PanelsClosed = 'others' | 'right' | 'all';
 
@@ -127,7 +130,6 @@ export interface WorkspaceState {
   pinPanel(panelId: string, pinned: boolean): void;
   /** Shows this panel. Throws for a panel that is not open. */
   activate(panelId: string): void;
-  cycle(step: 1 | -1): void;
   openRunDialog(workflowKey: string | undefined): void;
   openAppDialog(dialog: string | undefined): void;
   /** Activates the app panel with these parameters if one is open, else opens it. */
@@ -233,7 +235,7 @@ export function createWorkspaceStore(initialContext: Readonly<Record<string, unk
     restore(kept) {
       if (get().panels.length > 0) throw new Error('Panels kept by the browser tab are taken up only before any is open.');
       for (const p of kept.panels) {
-        const n = /^panel-(\d+)$/.exec(p.id);
+        const n = PANEL_ID.exec(p.id);
         if (n === null) throw new Error(`A kept panel's id ${p.id} is not one this store gives.`);
         next = Math.max(next, Number(n[1]));
       }
@@ -261,14 +263,6 @@ export function createWorkspaceStore(initialContext: Readonly<Record<string, unk
     activate(panelId) {
       requireOpen(get().panels, panelId);
       set((state) => ({ activePanelId: panelId, recent: [panelId, ...state.recent.filter((id) => id !== panelId)] }));
-    },
-
-    cycle(step) {
-      const { panels, activePanelId } = get();
-      if (panels.length === 0) return;
-      const index = panels.findIndex((p) => p.id === activePanelId);
-      const target = panels[(index + step + panels.length) % panels.length];
-      if (target !== undefined) get().activate(target.id);
     },
 
     openRunDialog(workflowKey) {
