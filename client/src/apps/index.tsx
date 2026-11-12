@@ -12,6 +12,7 @@ import { measureNamed, xvaPageOf } from './xva/commands';
 import { XvaWorkspacePanel } from './xva/XvaWorkspacePanel';
 import { registerAiContext, registerAiEffect } from '../ai/effects';
 import { registerGridFocus } from '../shell/places';
+import { registerPageOpener } from '../shell/proposals';
 import { isIsoDate } from '../platform/forms';
 import { IsoDateInput } from '../platform/IsoDateInput';
 import { httpTraceApi, type TraceApi } from '../platform/traces/api';
@@ -109,6 +110,25 @@ for (const capability of ['rates.line.add', 'rates.workspace.price', 'rates.fram
     if (capability !== 'rates.line.add') void queryClient.invalidateQueries({ queryKey: ['history'] });
     return undefined;
   });
+
+// The pages a proposal of the AI may open where they are not open (ADR-0018 §8), each titled as its command titles it.
+registerPageOpener({ app: PRICING_DB, title: 'Pricing DB', workspace: false, open: () => Promise.resolve({ kind: 'app', title: 'Pricing DB', app: PRICING_DB, params: {} }) });
+registerPageOpener({
+  app: XVA_WORKSPACE, title: 'XVA workspace', workspace: true,
+  open: async (workspaceId) => {
+    if (workspaceId === undefined) throw new Error('An XVA workspace is opened by its id.');
+    const view = await xvaApi.view(workspaceId);
+    return { kind: 'app', title: `XVA ${view.registration.key}`, app: XVA_WORKSPACE, params: { workspaceId } };
+  },
+});
+registerPageOpener({
+  app: RATES_WORKSPACE, title: 'Rates workspace', workspace: true,
+  open: async (workspaceId) => {
+    if (workspaceId === undefined) throw new Error('A Rates workspace is opened by its id.');
+    const view = await ratesApi.view(workspaceId);
+    return { kind: 'app', title: `Rates ${view.valuationDate}`, app: RATES_WORKSPACE, params: { workspaceId } };
+  },
+});
 
 export function AppPanel({ panel }: { readonly panel: Extract<Panel, { kind: 'app' }> }): ReactNode {
   switch (panel.app) {

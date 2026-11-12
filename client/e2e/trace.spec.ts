@@ -142,13 +142,20 @@ test('ADR-0011 §6, docs/design-guidelines.md §7, §9: at 390px the trace drill
   await expect(term(page)).toHaveText('Spot CCR capital');
   expect(await sideways(page)).toBe(0);
 
+  // Each change between the phone's one strip and the areas, at 768px, draws the page anew, its trace closed, until
+  // pages keep their screen state (ADR-0018 §5): after one, the trace is opened again.
   for (const scheme of ['dark', 'light'] as const) {
-    if (scheme === 'light') await command(page, 'toggle theme');
+    if (scheme === 'light') {
+      await command(page, 'toggle theme');
+      await page.setViewportSize({ width: 390, height: 844 });
+      await command(page, 'explain', 'ccr.spotCapital');
+    }
     await expect(page.locator('html')).toHaveAttribute('data-mantine-color-scheme', scheme);
     await page.setViewportSize({ width: 390, height: 844 });
     await expect(view(page)).toHaveAttribute('data-layout', 'drill');
     expect(await page.locator('.qube-trace').evaluate(textBelowContrast, 4.5), `${scheme} at 390px: text below 4.5:1`).toEqual([]);
     await page.setViewportSize({ width: 1440, height: 900 });
+    await command(page, 'explain', 'ccr.spotCapital');
     await expect(view(page)).toHaveAttribute('data-layout', 'tree');
     await settled(page, 'Terms');
     expect(await page.locator('.qube-trace').evaluate(textBelowContrast, 4.5), `${scheme} at 1440px: text below 4.5:1`).toEqual([]);

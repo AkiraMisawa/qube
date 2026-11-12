@@ -1,15 +1,25 @@
 import { CommandRefused, given, type Command, type CommandArgument } from '../platform/commands/commands';
 import type { Notify } from '../platform/notices';
 import { namedBy, panelLabel, pinnedCount, type Panel, type PanelsClosed, type WorkspaceState } from '../platform/workspace/workspaceStore';
+import { areaHolding, currentArrangement, FLOAT_PLACES, floatBox, SIDES, type Arrangement, type FloatPlace, type Side } from './arrangement';
+import { AREA_MIN } from './layout';
 
-// The shell's verbs over its panels (ADR-0006 §8 and note 7 of 2026-11-12). Each is declared once here, and the command
-// line, a tab's menu, the strip's list of panels and the keys of a tab all run that declaration: none of them can do
-// what the others cannot (ADR-0006 §1). They act on the screen only, so they are the client's, never logged, never
-// undone by `undo`, and never the AI's (ADR-0016 §3: what the AI calls are capabilities, not page automation).
+// The shell's verbs over its panels (ADR-0006 §8 and note 7 of 2026-11-12; ADR-0018 §3). Each is declared once here,
+// and the command line, a tab's menu, an area's list of panels and the keys of a tab all run that declaration: none of
+// them can do what the others cannot (ADR-0006 §1). They act on the screen only, so they are the client's, never
+// logged, never undone by `undo`, and never the AI's (ADR-0016 §3: what the AI calls are capabilities, not page
+// automation). Where the panels stand in areas, the verbs reach the arrangement through its port (`arrangement.ts`),
+// and note 7's act within the panel's own area (ADR-0006 note 8).
 
 /** What the verbs read and change: the workspace store's panels. */
 export type PanelState = Pick<WorkspaceState,
   'panels' | 'activePanelId' | 'closed' | 'activate' | 'cycle' | 'closePanel' | 'closePanels' | 'reopenPanel' | 'movePanel' | 'pinPanel'>;
+
+/** What a verb acts on: the store's panels, and the arrangement they stand in. */
+export interface On {
+  readonly state: PanelState;
+  readonly areas: Arrangement;
+}
 
 /** How a verb is named: by the line, which lists it, and by a menu. */
 interface VerbNames {
@@ -29,16 +39,18 @@ export interface PanelVerb extends VerbNames {
   /** A shell chord (ADR-0006 §8): only the verbs that had one before note 7. */
   readonly shortcut?: string;
   readonly args?: readonly CommandArgument[];
+  /** Its arguments as the line takes them over these panels, where their completion reads them. */
+  readonly argsOn?: (on: On) => readonly CommandArgument[];
   /** Why it cannot act on this panel now, with these arguments where they are given; absent when it can. */
-  readonly unavailable: (state: PanelState, panel: Panel, args?: Args) => string | undefined;
+  readonly unavailable: (on: On, panel: Panel, args?: Args) => string | undefined;
   /** Does it to this panel. Throws `CommandRefused` with the reason where its arguments say what it cannot do. */
-  readonly run: (state: PanelState, panel: Panel, notify: Notify, args: Args) => void;
+  readonly run: (on: On, panel: Panel, notify: Notify, args: Args) => void;
 }
 
-/** A verb over the strip as a whole, which no one panel is the object of. */
+/** A verb over the panels as a whole, which no one panel is the object of. */
 export interface StripVerb extends VerbNames {
-  readonly unavailable: (state: PanelState) => string | undefined;
-  readonly run: (state: PanelState) => void;
+  readonly unavailable: (on: On) => string | undefined;
+  readonly run: (on: On, notify: Notify) => void;
 }
 
 /**
@@ -57,20 +69,39 @@ export function panelTitled(panels: readonly Panel[], text: string): { readonly 
     : { reason: `${matching.length} panels match "${text.trim()}": ${matching.map(panelLabel).join(', ')}.` };
 }
 
-const indexOf = (state: PanelState, panel: Panel) => state.panels.findIndex((p) => p.id === panel.id);
-/** The first and last place a panel can take: among the pinned, or among the others. */
-const reach = (state: PanelState, panel: Panel): readonly [number, number] => {
-  const pinned = pinnedCount(state.panels);
-  return panel.pinned === true ? [0, pinned - 1] : [pinned, state.panels.length - 1];
+const open = (state: PanelState, id: string): Panel => {
+  const panel = state.panels.find((p) => p.id === id);
+  if (panel === undefined) throw new Error(`The arrangement holds ${id}, which is not open.`);
+  return panel;
+};
+
+/**
+ * The panels of the strip a panel stands in, in its order: its area's where the panels stand in areas, else every
+ * panel (ADR-0006 note 8). A note 7 verb that names "the others" or "to the right" reads these.
+ */
+function stripOf(on: On, panel: Panel): readonly Panel[] {
+  if (on.areas.strip !== undefined) return on.state.panels;
+  const area = areaHolding(on.areas, panel.id);
+  if (area === undefined) throw new Error(`No area holds ${panel.id}.`);
+  return area.panels.map((id) => open(on.state, id));
+}
+
+/** Which area a panel stands in, for the store to follow the active panel in it (ADR-0018 §4). */
+const areaOf = (on: On) => (on.areas.strip !== undefined ? undefined : (id: string) => areaHolding(on.areas, id)?.id);
+
+/** The first and last place a panel can take in its strip: among the pinned, or among the others. */
+const reach = (strip: readonly Panel[], panel: Panel): readonly [number, number] => {
+  const pinned = pinnedCount(strip);
+  return panel.pinned === true ? [0, pinned - 1] : [pinned, strip.length - 1];
 };
 
 const MOVES = ['left', 'right', 'first', 'last'] as const;
 type Move = (typeof MOVES)[number];
 const moveOf = (where: string | undefined): Move | undefined => MOVES.find((m) => m === where?.toLowerCase());
-/** Where a move puts the panel, or why it cannot. */
-function moved(state: PanelState, panel: Panel, move: Move): { readonly to: number } | { readonly reason: string } {
-  const at = indexOf(state, panel);
-  const [first, last] = reach(state, panel);
+/** Where a move puts the panel in its strip, or why it cannot. */
+function moved(strip: readonly Panel[], panel: Panel, move: Move): { readonly to: number } | { readonly reason: string } {
+  const at = strip.findIndex((p) => p.id === panel.id);
+  const [first, last] = reach(strip, panel);
   const kind = panel.pinned === true ? 'pinned panel' : 'panel';
   const edge = move === 'left' || move === 'first' ? first : last;
   if (at === edge) return { reason: `This is the ${move === 'left' || move === 'first' ? 'first' : 'last'} ${kind} already.` };
@@ -83,11 +114,20 @@ function closedSaid(notify: Notify, done: { readonly closed: number; readonly pi
   notify('done', `Closed ${done.closed} ${done.closed === 1 ? 'panel' : 'panels'}.${kept} Bring one back with reopen panel.`);
 }
 
+/** The panels a close of several reads: its strip's for the others and the right, every panel for all. */
+const closing = (on: On, panel: Panel, which: PanelsClosed): readonly Panel[] => (which === 'all' ? on.state.panels : stripOf(on, panel));
+
 /** Why a close of several takes nothing from this panel's strip; absent when it takes one or more. */
-function nothingToClose(state: PanelState, panel: Panel, which: PanelsClosed): string | undefined {
-  const named = namedBy(state.panels, which, panel.id);
-  if (named.length === 0) return which === 'right' ? 'No panel is to the right of this one.' : 'There is no other panel.';
+function nothingToClose(on: On, panel: Panel, which: PanelsClosed): string | undefined {
+  const named = namedBy(closing(on, panel, which), which, panel.id);
+  const where = which === 'all' || on.areas.strip !== undefined ? '' : ' in its area';
+  if (named.length === 0) return which === 'right' ? `No panel is to the right of this one${where}.` : `There is no other panel${where}.`;
   return named.every((p) => p.pinned === true) ? `The ${which === 'right' ? 'panels to the right' : which === 'all' ? 'panels' : 'other panels'} are pinned.` : undefined;
+}
+
+function closeSeveral(on: On, panel: Panel, notify: Notify, which: PanelsClosed): void {
+  const strip = which === 'all' ? undefined : closing(on, panel, which).map((p) => p.id);
+  closedSaid(notify, on.state.closePanels(which, panel.id, strip, areaOf(on)));
 }
 
 export const CLOSE: PanelVerb = {
@@ -97,25 +137,25 @@ export const CLOSE: PanelVerb = {
   label: 'Close',
   shortcut: 'mod+shift+X',
   unavailable: () => undefined,
-  run: (state, panel) => state.closePanel(panel.id),
+  run: (on, panel) => on.state.closePanel(panel.id, areaOf(on)),
 };
 
 export const CLOSE_OTHERS: PanelVerb = {
   id: 'panel.closeOthers',
   words: 'close other panels',
-  title: 'Close every panel but this one and the pinned',
+  title: 'Close every panel of its area but this one and the pinned',
   label: 'Close others',
-  unavailable: (state, panel) => nothingToClose(state, panel, 'others'),
-  run: (state, panel, notify) => closedSaid(notify, state.closePanels('others', panel.id)),
+  unavailable: (on, panel) => nothingToClose(on, panel, 'others'),
+  run: (on, panel, notify) => closeSeveral(on, panel, notify, 'others'),
 };
 
 export const CLOSE_RIGHT: PanelVerb = {
   id: 'panel.closeRight',
   words: 'close panels to the right',
-  title: 'Close the panels to the right of this one, but the pinned',
+  title: 'Close the panels to the right of this one in its area, but the pinned',
   label: 'Close to the right',
-  unavailable: (state, panel) => nothingToClose(state, panel, 'right'),
-  run: (state, panel, notify) => closedSaid(notify, state.closePanels('right', panel.id)),
+  unavailable: (on, panel) => nothingToClose(on, panel, 'right'),
+  run: (on, panel, notify) => closeSeveral(on, panel, notify, 'right'),
 };
 
 export const CLOSE_ALL: PanelVerb = {
@@ -123,17 +163,26 @@ export const CLOSE_ALL: PanelVerb = {
   words: 'close all panels',
   title: 'Close every panel but the pinned',
   label: 'Close all',
-  unavailable: (state, panel) => nothingToClose(state, panel, 'all'),
-  run: (state, panel, notify) => closedSaid(notify, state.closePanels('all', panel.id)),
+  unavailable: (on, panel) => nothingToClose(on, panel, 'all'),
+  run: (on, panel, notify) => closeSeveral(on, panel, notify, 'all'),
 };
+
+/** Pins or unpins, and keeps the panel's area in the same order as the strip: the pinned first (ADR-0006 note 8). */
+function pin(on: On, panel: Panel, pinned: boolean): void {
+  const area = on.areas.strip === undefined ? areaHolding(on.areas, panel.id) : undefined;
+  on.state.pinPanel(panel.id, pinned);
+  if (area === undefined) return;
+  const others = area.panels.filter((id) => id !== panel.id).map((id) => open(on.state, id));
+  on.areas.moveWithin(panel.id, pinnedCount(others));
+}
 
 export const PIN: PanelVerb = {
   id: 'panel.pin',
   words: 'pin panel',
-  title: 'Pin the panel at the start of the strip, where closing several leaves it open',
+  title: 'Pin the panel at the start of its strip, where closing several leaves it open',
   label: 'Pin',
   unavailable: (_, panel) => (panel.pinned === true ? 'This panel is pinned already.' : undefined),
-  run: (state, panel) => state.pinPanel(panel.id, true),
+  run: (on, panel) => pin(on, panel, true),
 };
 
 export const UNPIN: PanelVerb = {
@@ -142,13 +191,13 @@ export const UNPIN: PanelVerb = {
   title: 'Unpin the panel',
   label: 'Unpin',
   unavailable: (_, panel) => (panel.pinned === true ? undefined : 'This panel is not pinned.'),
-  run: (state, panel) => state.pinPanel(panel.id, false),
+  run: (on, panel) => pin(on, panel, false),
 };
 
 export const MOVE: PanelVerb = {
   id: 'panel.move',
   words: 'move panel',
-  title: 'Move the panel along the strip',
+  title: 'Move the panel along its strip',
   label: 'Move',
   args: [{
     name: 'where', required: true, hint: 'left, right, first or last',
@@ -156,26 +205,259 @@ export const MOVE: PanelVerb = {
     check: (value) => (MOVES.some((m) => m === value.toLowerCase()) ? undefined : `one of ${MOVES.join(', ')}`),
   }],
   // With a where given, as a menu's Move left gives one, it says too whether the panel can go there.
-  unavailable: (state, panel, args) => {
-    const [first, last] = reach(state, panel);
+  unavailable: (on, panel, args) => {
+    const strip = stripOf(on, panel);
+    const [first, last] = reach(strip, panel);
     if (first === last) return `There is no other ${panel.pinned === true ? 'pinned panel' : 'panel'} to move it past.`;
     const move = moveOf(args?.where);
     if (move === undefined) return undefined;
-    const to = moved(state, panel, move);
+    const to = moved(strip, panel, move);
     return 'reason' in to ? to.reason : undefined;
   },
-  run: (state, panel, _, args) => {
+  run: (on, panel, _, args) => {
     // A where the line could not read is a reason; none at all is a defect (`given`).
     const move = moveOf(given(args, 'where'));
     if (move === undefined) throw new CommandRefused(`move panel takes where to: ${MOVES.join(', ')}.`);
-    const to = moved(state, panel, move);
+    const to = moved(stripOf(on, panel), panel, move);
     if ('reason' in to) throw new CommandRefused(to.reason);
-    state.movePanel(panel.id, to.to);
+    if (on.areas.strip === undefined) on.areas.moveWithin(panel.id, to.to);
+    else on.state.movePanel(panel.id, to.to);
   },
 };
 
-/** The verbs over one panel, as the line lists them. */
+// ADR-0018 §3: the verbs that arrange. Each is refused in the strip, saying the arrangement comes back with the room.
+
+const sideOf = (text: string | undefined): Side | undefined => SIDES.find((s) => s === text?.trim().toLowerCase());
+const placeOf = (text: string | undefined): FloatPlace | undefined => {
+  const t = text?.trim().toLowerCase();
+  return FLOAT_PLACES.find((p) => p === (t === 'center' ? 'centre' : t));
+};
+
+/** The area of a panel while areas are shown; one a verb is given that no area holds is a defect. */
+function areaFor(on: On, panel: Panel) {
+  const area = areaHolding(on.areas, panel.id);
+  if (area === undefined) throw new Error(`No area holds ${panel.id}.`);
+  return area;
+}
+
+/** The areas of the window, not floating. */
+const docked = (on: On) => on.areas.areas().filter((a) => !a.floating);
+
+export const SPLIT: PanelVerb = {
+  id: 'panel.split',
+  words: 'split panel',
+  title: 'Move the panel into a new area beside its own',
+  label: 'Split',
+  args: [{
+    name: 'side', required: true, hint: 'right, left, down or up',
+    complete: () => SIDES.map((value) => ({ value })),
+    check: (value) => (sideOf(value) === undefined ? `one of ${SIDES.join(', ')}` : undefined),
+  }],
+  unavailable: (on, panel, args) => {
+    if (on.areas.strip !== undefined) return on.areas.strip;
+    const area = areaFor(on, panel);
+    if (area.floating) return 'A floating area is one area: dock it first, or float another panel.';
+    if (area.panels.length === 1) return 'It is the only panel of its area: send it to another area, or float it.';
+    const side = sideOf(args?.side);
+    if (side === undefined) return undefined;
+    const across = side === 'right' || side === 'left';
+    const has = across ? area.width : area.height;
+    const min = across ? AREA_MIN.width : AREA_MIN.height;
+    if (has < 2 * min) return `Two areas ${across ? 'side by side' : 'one above the other'} need ${2 * min}px ${across ? 'wide' : 'high'}; this one is ${Math.floor(has)}px.`;
+    return undefined;
+  },
+  run: (on, panel, _, args) => {
+    const side = sideOf(given(args, 'side'));
+    if (side === undefined) throw new CommandRefused(`split panel takes a side: ${SIDES.join(', ')}.`);
+    const why = SPLIT.unavailable(on, panel, args);
+    if (why !== undefined) throw new CommandRefused(why);
+    on.areas.split(panel.id, side);
+  },
+};
+
+export const SEND: PanelVerb = {
+  id: 'panel.send',
+  words: 'send panel to',
+  title: 'Move the panel into the area of another panel',
+  label: 'Send to',
+  args: [{ name: 'panel', required: true, rest: true, hint: 'the title of a panel in the area, or a part of it' }],
+  // Completed with the other areas, each by the panel it shows, as the menu lists them.
+  argsOn: (on) => [{
+    name: 'panel', required: true, rest: true, hint: 'the title of a panel in the area, or a part of it',
+    complete: () => otherAreas(on, on.state.activePanelId).map((a) => ({ value: panelLabel(open(on.state, a.shown)) })),
+  }],
+  unavailable: (on, panel, args) => {
+    if (on.areas.strip !== undefined) return on.areas.strip;
+    const own = areaFor(on, panel);
+    if (on.areas.areas().length < 2) return 'There is no other area.';
+    if (args?.panel === undefined) return undefined;
+    const named = panelTitled(on.state.panels, args.panel);
+    if ('reason' in named) return named.reason;
+    return own.panels.includes(named.panel.id) ? `${panelLabel(named.panel)} is in this panel's area already.` : undefined;
+  },
+  run: (on, panel, _, args) => {
+    const why = SEND.unavailable(on, panel, args);
+    if (why !== undefined) throw new CommandRefused(why);
+    const named = panelTitled(on.state.panels, given(args, 'panel'));
+    if ('reason' in named) throw new CommandRefused(named.reason);
+    on.areas.sendTo(panel.id, areaFor(on, named.panel).id);
+    on.state.activate(panel.id);
+  },
+};
+
+/** The areas other than the panel's own, each with the panel it shows: where `send panel to` can send it. */
+export function otherAreas(on: On, panelId: string | undefined): readonly { readonly id: string; readonly shown: string }[] {
+  if (on.areas.strip !== undefined) return [];
+  return on.areas.areas().flatMap((a) => (a.shown === undefined || a.panels.includes(panelId ?? '') ? [] : [{ id: a.id, shown: a.shown }]));
+}
+
+export const FLOAT: PanelVerb = {
+  id: 'panel.float',
+  words: 'float panel',
+  title: 'Float the panel over the others, in the middle or over a half',
+  label: 'Float',
+  args: [{
+    name: 'where', required: false, hint: 'centre (the default), left, right, top or bottom',
+    complete: () => FLOAT_PLACES.map((value) => ({ value })),
+    check: (value) => (placeOf(value) === undefined ? `one of ${FLOAT_PLACES.join(', ')}` : undefined),
+  }],
+  unavailable: (on, panel) => {
+    if (on.areas.strip !== undefined) return on.areas.strip;
+    const area = areaFor(on, panel);
+    if (!area.floating && area.panels.length === 1 && docked(on).length === 1) return 'It is the only panel in the window; floating it would leave none docked.';
+    return undefined;
+  },
+  run: (on, panel, _, args) => {
+    const place = args.where === undefined ? 'centre' : placeOf(args.where);
+    if (place === undefined) throw new CommandRefused(`float panel takes where: ${FLOAT_PLACES.join(', ')}.`);
+    const why = FLOAT.unavailable(on, panel, args);
+    if (why !== undefined) throw new CommandRefused(why);
+    on.areas.float(panel.id, floatBox(place, on.areas.room()));
+    on.state.activate(panel.id);
+  },
+};
+
+export const DOCK: PanelVerb = {
+  id: 'panel.dock',
+  words: 'dock panel',
+  title: 'Put a floating panel back among the window\'s areas',
+  label: 'Dock',
+  unavailable: (on, panel) => {
+    if (on.areas.strip !== undefined) return on.areas.strip;
+    return areaFor(on, panel).floating ? undefined : 'This panel is not floating.';
+  },
+  run: (on, panel, notify) => {
+    const why = DOCK.unavailable(on, panel);
+    if (why !== undefined) throw new CommandRefused(why);
+    const where = on.areas.dock(panel.id);
+    on.state.activate(panel.id);
+    notify('done', `Docked ${panelLabel(panel)} ${where}.`);
+  },
+};
+
+const SHARES = ['25', '33', '50', '67', '75'] as const;
+const percentOf = (text: string | undefined): number | undefined => {
+  const m = /^\s*(\d{1,2})\s*%?\s*$/.exec(text ?? '');
+  const n = m === null ? undefined : Number(m[1]);
+  return n !== undefined && n >= 10 && n <= 90 ? n : undefined;
+};
+
+export const SIZE: PanelVerb = {
+  id: 'panel.size',
+  words: 'size panel',
+  title: 'Give the panel\'s area a share of its row or column',
+  label: 'Size',
+  args: [{
+    name: 'percent', required: true, hint: 'its share, from 10 to 90%',
+    complete: () => SHARES.map((value) => ({ value: `${value}%` })),
+    check: (value) => (percentOf(value) === undefined ? 'a whole percent from 10 to 90' : undefined),
+  }],
+  unavailable: (on, panel, args) => {
+    if (on.areas.strip !== undefined) return on.areas.strip;
+    const area = areaFor(on, panel);
+    if (area.floating) return 'A floating area is sized by its edges, or placed with float panel.';
+    const line = on.areas.lineOf(area.id);
+    if (line === undefined) return 'Its area is alone in its row and its column: there is nothing to share.';
+    const percent = percentOf(args?.percent);
+    if (percent === undefined) return undefined;
+    const pixels = Math.round((line.total * percent) / 100);
+    const min = line.axis === 'width' ? AREA_MIN.width : AREA_MIN.height;
+    const word = line.axis === 'width' ? 'wide' : 'high';
+    if (pixels < min) return `${percent}% is ${pixels}px; an area is at least ${min}px ${word}.`;
+    if (line.total - pixels < line.othersNeed) return `${percent}% leaves ${line.total - pixels}px; the others need ${line.othersNeed}px ${word}.`;
+    return undefined;
+  },
+  run: (on, panel, _, args) => {
+    const percent = percentOf(given(args, 'percent'));
+    if (percent === undefined) throw new CommandRefused('size panel takes a whole percent from 10 to 90.');
+    const why = SIZE.unavailable(on, panel, args);
+    if (why !== undefined) throw new CommandRefused(why);
+    const area = areaFor(on, panel);
+    const line = on.areas.lineOf(area.id);
+    if (line === undefined) throw new Error(`The area of ${panel.id} has no row to share.`);
+    on.areas.size(area.id, Math.round((line.total * percent) / 100));
+  },
+};
+
+export const MAXIMIZE: PanelVerb = {
+  id: 'panel.maximize',
+  words: 'maximize panel',
+  title: 'Give the panel\'s area the whole of the panels\' space',
+  label: 'Maximize',
+  unavailable: (on, panel) => {
+    if (on.areas.strip !== undefined) return on.areas.strip;
+    const area = areaFor(on, panel);
+    if (area.floating) return 'A floating area is not maximized; dock it first.';
+    if (on.areas.maximized() === area.id) return 'Its area is maximized already.';
+    if (docked(on).length < 2) return 'Its area is the only one of the window: it has the whole room already.';
+    return undefined;
+  },
+  run: (on, panel) => {
+    const why = MAXIMIZE.unavailable(on, panel);
+    if (why !== undefined) throw new CommandRefused(why);
+    on.areas.maximize(areaFor(on, panel).id);
+  },
+};
+
+export const UNMAXIMIZE: PanelVerb = {
+  id: 'panel.unmaximize',
+  words: 'unmaximize panel',
+  title: 'Show every area again',
+  label: 'Restore the areas',
+  unavailable: (on) => {
+    if (on.areas.strip !== undefined) return on.areas.strip;
+    return on.areas.maximized() === undefined ? 'No area is maximized.' : undefined;
+  },
+  run: (on, panel) => {
+    const why = UNMAXIMIZE.unavailable(on, panel);
+    if (why !== undefined) throw new CommandRefused(why);
+    on.areas.unmaximize();
+  },
+};
+
+export const GATHER: PanelVerb = {
+  id: 'panel.gather',
+  words: 'gather panels',
+  title: 'Put every panel back in one area, the panel\'s own',
+  label: 'Gather all panels here',
+  unavailable: (on) => {
+    if (on.areas.strip !== undefined) return on.areas.strip;
+    return on.areas.areas().length < 2 ? 'The panels are in one area already.' : undefined;
+  },
+  run: (on, panel) => {
+    const why = GATHER.unavailable(on, panel);
+    if (why !== undefined) throw new CommandRefused(why);
+    const pinned = new Set(on.state.panels.filter((p) => p.pinned === true).map((p) => p.id));
+    const read = on.areas.areas().flatMap((a) => a.panels);
+    on.areas.gather(areaFor(on, panel).id, [...read.filter((id) => pinned.has(id)), ...read.filter((id) => !pinned.has(id))]);
+  },
+};
+
+/** Note 7's verbs over one panel, as the line lists them. */
 export const PANEL_VERBS: readonly PanelVerb[] = [CLOSE, CLOSE_OTHERS, CLOSE_RIGHT, CLOSE_ALL, PIN, UNPIN, MOVE];
+
+/** ADR-0018 §3's verbs that arrange, as the line lists them. */
+export const ARRANGE_VERBS: readonly PanelVerb[] = [SPLIT, SEND, FLOAT, DOCK, SIZE, MAXIMIZE, UNMAXIMIZE, GATHER];
 
 /** A verb that acts on no one panel: what the line, the list of panels and a tab's menu offer beside the verbs above. */
 export const REOPEN: StripVerb = {
@@ -183,8 +465,19 @@ export const REOPEN: StripVerb = {
   words: 'reopen panel',
   title: 'Open the panel closed last again, where it stood',
   label: 'Reopen closed panel',
-  unavailable: (state) => (state.closed.length === 0 ? 'No panel has been closed.' : undefined),
-  run: (state) => { if (state.reopenPanel() === undefined) throw new CommandRefused('No panel has been closed.'); },
+  unavailable: (on) => (on.state.closed.length === 0 ? 'No panel has been closed.' : undefined),
+  run: (on, notify) => {
+    const last = on.state.closed.at(-1);
+    const panel = on.state.reopenPanel();
+    if (panel === undefined || last === undefined) throw new CommandRefused('No panel has been closed.');
+    // Back in the area it stood in, where that is still there, else beside the active panel, and the user is told which
+    // (ADR-0018 §4). A page open again since it closed is shown where it is.
+    if (on.areas.strip !== undefined || last.area === undefined) return;
+    const now = areaHolding(on.areas, panel.id);
+    const there = on.areas.areas().find((a) => a.id === last.area);
+    if (there !== undefined && now?.id !== there.id) on.areas.sendTo(panel.id, there.id);
+    if (there === undefined) notify('done', `Reopened ${panelLabel(panel)} in the active panel's area: the area it stood in has gone.`);
+  },
 };
 
 /** Does a verb from a menu or a key: a reason it cannot is a refused notice, as a chord's is (ADR-0006's note 1). */
@@ -198,21 +491,39 @@ function refusedSaid(words: string, why: string | undefined, notify: Notify, act
   }
 }
 
+/** The verbs act on the store's panels as they stand, and the arrangement the drawn panels registered. */
+export const onNow = (state: PanelState, areas: Arrangement = currentArrangement()): On => ({ state, areas });
+
 /** Runs a verb on a panel from a menu or a key. */
-export function runVerb(verb: PanelVerb, state: PanelState, panel: Panel, notify: Notify, args: Args = {}): void {
-  refusedSaid(verb.words, verb.unavailable(state, panel, args), notify, () => verb.run(state, panel, notify, args));
+export function runVerb(verb: PanelVerb, on: On, panel: Panel, notify: Notify, args: Args = {}): void {
+  refusedSaid(verb.words, verb.unavailable(on, panel, args), notify, () => verb.run(on, panel, notify, args));
 }
 
-/** Runs a verb over the strip from a menu. */
-export function runStripVerb(verb: StripVerb, state: PanelState, notify: Notify): void {
-  refusedSaid(verb.words, verb.unavailable(state), notify, () => verb.run(state));
+/** Runs a verb over the panels from a menu. */
+export function runStripVerb(verb: StripVerb, on: On, notify: Notify): void {
+  refusedSaid(verb.words, verb.unavailable(on), notify, () => verb.run(on, notify));
+}
+
+/** The order `next panel` and `previous panel` go through: every panel in reading order (ADR-0018 §3). */
+function readingOrder(on: On): readonly string[] {
+  return on.areas.strip !== undefined ? on.state.panels.map((p) => p.id) : on.areas.areas().flatMap((a) => a.panels);
+}
+
+function step(on: On, by: 1 | -1): void {
+  const order = readingOrder(on);
+  if (order.length === 0) return;
+  const at = order.indexOf(on.state.activePanelId ?? '');
+  const to = order[(at + by + order.length) % order.length];
+  if (to === undefined) throw new Error('The reading order has no panel to step to.');
+  on.state.activate(to);
 }
 
 /** The line's commands over the panels: each verb on the active panel, `reopen panel`, and moving between panels. */
-export function panelCommands(state: PanelState, notify: Notify): Command[] {
+export function panelCommands(state: PanelState, notify: Notify, areas: Arrangement = currentArrangement()): Command[] {
+  const on = onNow(state, areas);
   const active = state.panels.find((p) => p.id === state.activePanelId);
   const unavailableOn = (verb: PanelVerb, panel: Panel) => {
-    const why = verb.unavailable(state, panel);
+    const why = verb.unavailable(on, panel);
     return why === undefined ? {} : { unavailable: why };
   };
   const onActive = (verb: PanelVerb): Command => ({
@@ -221,15 +532,15 @@ export function panelCommands(state: PanelState, notify: Notify): Command[] {
     title: verb.title,
     group: 'Panels',
     ...(verb.shortcut === undefined ? {} : { shortcut: verb.shortcut }),
-    ...(verb.args === undefined ? {} : { args: verb.args }),
+    ...(verb.argsOn !== undefined ? { args: verb.argsOn(on) } : verb.args === undefined ? {} : { args: verb.args }),
     ...(active === undefined ? { unavailable: 'No panel is open.' } : { target: panelLabel(active), ...unavailableOn(verb, active) }),
     run: (args) => {
       // The line's list is made again whenever the panels change, so this is the panel shown as it runs, from a chord too.
       if (active === undefined) throw new CommandRefused('No panel is open.');
-      verb.run(state, active, notify, args);
+      verb.run(on, active, notify, args);
     },
   });
-  const noneClosed = REOPEN.unavailable(state);
+  const noneClosed = REOPEN.unavailable(on);
   return [
     {
       id: 'panel.next',
@@ -238,7 +549,7 @@ export function panelCommands(state: PanelState, notify: Notify): Command[] {
       group: 'Panels',
       shortcut: 'mod+alt+ArrowRight',
       ...(state.panels.length < 2 ? { unavailable: 'There is no other panel.' } : {}),
-      run: () => state.cycle(1),
+      run: () => step(on, 1),
     },
     {
       id: 'panel.previous',
@@ -247,7 +558,7 @@ export function panelCommands(state: PanelState, notify: Notify): Command[] {
       group: 'Panels',
       shortcut: 'mod+alt+ArrowLeft',
       ...(state.panels.length < 2 ? { unavailable: 'There is no other panel.' } : {}),
-      run: () => state.cycle(-1),
+      run: () => step(on, -1),
     },
     {
       id: 'panel.show',
@@ -273,7 +584,8 @@ export function panelCommands(state: PanelState, notify: Notify): Command[] {
       title: REOPEN.title,
       group: 'Panels',
       ...(noneClosed === undefined ? {} : { unavailable: noneClosed }),
-      run: () => REOPEN.run(state),
+      run: () => REOPEN.run(on, notify),
     },
+    ...ARRANGE_VERBS.map(onActive),
   ];
 }

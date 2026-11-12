@@ -362,7 +362,8 @@
               "execute",
               "readWorkspace",
               "readSettings",
-              "editSettings"
+              "editSettings",
+              "propose"
             ]
           },
           "minItems": 0

@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Anchor, Badge, Breadcrumbs, Button, Code, CopyButton, Group, SegmentedControl, Stack, Text, UnstyledButton, em } from '@mantine/core';
-import { useMediaQuery } from '@mantine/hooks';
+import { Alert, Anchor, Badge, Breadcrumbs, Button, Code, CopyButton, Group, SegmentedControl, Stack, Text, UnstyledButton } from '@mantine/core';
 import { useQueries, useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
 import { useStore } from 'zustand';
 import { firstPageQuery, readTerm, refusalText as describe, termKey, TERM_PAGE, type ChildOrder, type TraceApi } from './api';
@@ -14,6 +13,7 @@ import { TermDetail } from './TermDetail';
 import { TraceTree } from './TraceTree';
 import { opened, treeRows, type ChildrenRead, type TreeRow } from './tree';
 import { SIDE_TITLE, governsMark, leadText, providerOf } from './words';
+import { SM, usePanelWidth } from '../panelPage';
 import './trace.css';
 
 // One view draws every trace (ADR-0011 §6): on desktop the tree of every level beside the formula of the selected
@@ -43,8 +43,9 @@ export function TraceView({ panelId, address, api, registerFocus, root }: {
   readonly root?: string | undefined;
 }) {
   const queryClient = useQueryClient();
-  // Which component mounts, not how one is styled (design guidelines §9): a tree beside the formula, or drilling in.
-  const phone = useMediaQuery(`(max-width: ${em(767.98)})`, false, { getInitialValueInEffect: false });
+  // Which component mounts, not how one is styled (design guidelines §9): a tree beside the formula, or drilling in. By
+  // the panel's width, not the window's (ADR-0018 §5): a trace in a narrow area drills in as on a phone.
+  const phone = usePanelWidth() < SM;
   // How it draws, kept per view, which its controls and the trace commands set alike (ADR-0006).
   const settings = useStore(traceViews, (s) => s.views[panelId]) ?? DEFAULT_TRACE_VIEW;
   const { order, below, above } = settings;

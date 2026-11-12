@@ -2,14 +2,15 @@
    the theme, and every state is also said in words. */
 
 /* From `md` the tree and the formula sit side by side; from `sm` to `md` the formula is below the tree. The formula
-   takes what the tree leaves, and a wide formula scrolls inside its part, never the page (§9). */
+   takes what the tree leaves, and a wide formula scrolls inside its part, never the page (§9). The width is the
+   panel's, not the window's (ADR-0018 §5): a trace in a narrow area is laid out as in a narrow window. */
 .qube-trace-body {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: var(--mantine-spacing-sm);
   align-items: start;
 }
-@media (min-width: 62em) {
+@container qube-panel (min-width: 62em) {
   .qube-trace-body { grid-template-columns: minmax(0, 3fr) minmax(20rem, 2fr); }
 }
 .qube-trace-tree-part, .qube-trace-detail-part { min-width: 0; }

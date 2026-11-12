@@ -145,7 +145,13 @@ test('ADR-0012 §3, §7: spot IM shows its columns and IM tab, refuses a wrong I
   await command(page, 'open', 'im');
   await expect(imCsas).toBeVisible();
   for (const scheme of ['dark', 'light'] as const) {
-    if (scheme === 'light') await command(page, 'toggle theme');
+    if (scheme === 'light') {
+      await command(page, 'toggle theme');
+      // Back from the phone's one strip, the areas draw the page anew, on its first tab, until pages keep their screen
+      // state (ADR-0018 §5): the IM tab again.
+      await page.setViewportSize({ width: 1440, height: 900 });
+      await command(page, 'open', 'im');
+    }
     await expect(page.locator('html')).toHaveAttribute('data-mantine-color-scheme', scheme);
     for (const width of [1440, 992, 768]) {
       await page.setViewportSize({ width, height: 900 });
@@ -155,6 +161,8 @@ test('ADR-0012 §3, §7: spot IM shows its columns and IM tab, refuses a wrong I
       expect(await page.locator('.qube-xva').evaluate(textBelowContrast, 4.5), `${scheme} at ${width}px: text below 4.5:1`).toEqual([]);
     }
     await page.setViewportSize({ width: 390, height: 844 });
+    // From the areas to the strip, the same.
+    await command(page, 'open', 'im');
     await page.getByText('Inputs', { exact: true }).click();
     await expect(imCsas).toBeVisible();
     expect(await sideways(page)).toBe(0);
@@ -367,9 +375,19 @@ test('ADR-0012 §6, §7: the SIMM tab shows a card per direction, marks the regi
 
   // Widened again, in both themes and at each width ADR-0009 names, every text reads at 4.5:1 and nothing scrolls the
   // page sideways, the matrices included; on a phone the trace drills in a level at a time.
+  // Each change between the phone's one strip and the areas, at 768px, draws the page anew, its trace closed, until
+  // pages keep their screen state (ADR-0018 §5): after one, the factor's trace is opened again, its parameters shown.
+  const again = async () => {
+    await command(page, 'explain', `simm.spotIm ${factor}`);
+    await command(page, 'trace parameters', 'show');
+  };
   await command(page, 'dock full');
   for (const scheme of ['dark', 'light'] as const) {
-    if (scheme === 'light') await command(page, 'toggle theme');
+    if (scheme === 'light') {
+      await command(page, 'toggle theme');
+      await page.setViewportSize({ width: 1440, height: 900 });
+      await again();
+    }
     await expect(page.locator('html')).toHaveAttribute('data-mantine-color-scheme', scheme);
     for (const width of [1440, 992, 768]) {
       await page.setViewportSize({ width, height: 900 });
@@ -380,6 +398,7 @@ test('ADR-0012 §6, §7: the SIMM tab shows a card per direction, marks the regi
       expect(await page.locator('.qube-xva').evaluate(textBelowContrast, 4.5), `${scheme} at ${width}px: text below 4.5:1`).toEqual([]);
     }
     await page.setViewportSize({ width: 390, height: 844 });
+    await again();
     await page.getByText('Results', { exact: true }).click();
     await expect(page.getByTestId('trace-view')).toHaveAttribute('data-layout', 'drill');
     expect(await sideways(page), `${scheme} at 390px: the page scrolls sideways`).toBe(0);

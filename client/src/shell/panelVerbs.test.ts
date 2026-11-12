@@ -1,17 +1,20 @@
 import { execute } from '../platform/commands/commands';
 import { createWorkspaceStore, panelLabel } from '../platform/workspace/workspaceStore';
 import { contextContract } from '../test/catalog';
-import { CLOSE_RIGHT, MOVE, PANEL_VERBS, REOPEN, panelCommands, runStripVerb, runVerb } from './panelVerbs';
+import { stripArrangement } from './arrangement';
+import { CLOSE_RIGHT, MOVE, PANEL_VERBS, REOPEN, onNow, panelCommands, runStripVerb, runVerb } from './panelVerbs';
 
 // ADR-0006 note 7 of 2026-11-12: the shell's verbs over its panels, one declaration for the line, the menus and the keys.
 
 const valid = { region: 'North', asOf: '2026-10-26' };
+/** The strip's port, as on a phone: no areas. */
+const STRIP = stripArrangement({ width: 390, height: 700 }, 'The panels are one strip below 768px; the arrangement comes back with more room.');
 
 function strip(titles: readonly string[]) {
   const store = createWorkspaceStore(valid, contextContract);
   const ids = titles.map((title, i) => store.getState().openPanel({ kind: 'app', title, app: 'rates', params: { workspaceId: `w${i}` } }));
   const notify = vi.fn();
-  const commands = () => panelCommands(store.getState(), notify);
+  const commands = () => panelCommands(store.getState(), notify, STRIP);
   const command = (id: string) => {
     const found = commands().find((c) => c.id === id);
     if (found === undefined) throw new Error(`No command ${id}`);
@@ -69,10 +72,10 @@ describe('panel verbs', () => {
   it('`move panel` with a where given says whether the panel can go there, as a menu\'s Move left asks', () => {
     const { store } = strip(['A', 'B']);
     const [a, b] = store.getState().panels;
-    expect(MOVE.unavailable(store.getState(), a!, { where: 'left' })).toBe('This is the first panel already.');
-    expect(MOVE.unavailable(store.getState(), a!, { where: 'right' })).toBeUndefined();
-    expect(MOVE.unavailable(store.getState(), b!, { where: 'last' })).toBe('This is the last panel already.');
-    expect(MOVE.unavailable(store.getState(), b!)).toBeUndefined();
+    expect(MOVE.unavailable(onNow(store.getState(), STRIP), a!, { where: 'left' })).toBe('This is the first panel already.');
+    expect(MOVE.unavailable(onNow(store.getState(), STRIP), a!, { where: 'right' })).toBeUndefined();
+    expect(MOVE.unavailable(onNow(store.getState(), STRIP), b!, { where: 'last' })).toBe('This is the last panel already.');
+    expect(MOVE.unavailable(onNow(store.getState(), STRIP), b!)).toBeUndefined();
   });
 
   it('`pin panel` and `unpin panel` are each unavailable where the other applies', () => {
@@ -94,11 +97,11 @@ describe('panel verbs', () => {
   it('a verb run from a menu that cannot act says why in a refused notice and changes nothing', () => {
     const { store, notify, titlesNow } = strip(['A', 'B']);
     const panel = store.getState().panels[0]!;
-    runVerb(MOVE, store.getState(), panel, notify, { where: 'left' });
+    runVerb(MOVE, onNow(store.getState(), STRIP), panel, notify, { where: 'left' });
     expect(notify).toHaveBeenCalledWith('refused', 'move panel: This is the first panel already.');
-    runVerb(CLOSE_RIGHT, store.getState(), store.getState().panels[1]!, notify);
+    runVerb(CLOSE_RIGHT, onNow(store.getState(), STRIP), store.getState().panels[1]!, notify);
     expect(notify).toHaveBeenLastCalledWith('refused', 'close panels to the right: No panel is to the right of this one.');
-    runStripVerb(REOPEN, store.getState(), notify);
+    runStripVerb(REOPEN, onNow(store.getState(), STRIP), notify);
     expect(notify).toHaveBeenLastCalledWith('refused', 'reopen panel: No panel has been closed.');
     expect(titlesNow()).toEqual(['A', 'B']);
   });

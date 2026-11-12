@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Alert, AppShell, Drawer, Group, Loader, Text, em } from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
 import { useQuery } from '@tanstack/react-query';
-import type { Api } from './platform/api';
+import { call, type Api } from './platform/api';
 import type { Notice, Notify } from './platform/notices';
 import { telemetry } from './platform/telemetry';
 import { loadSettings, say, settingsStore } from './platform/settings/settings';
@@ -16,6 +16,7 @@ import { RunDialog } from './shell/RunDialog';
 import { SettingsDialog } from './shell/SettingsDialog';
 import { AppDialogs } from './apps';
 import { Panels } from './shell/Panels';
+import { KeepPanels } from './shell/keptPanels';
 import { AiProvider, useAi, useAiContext } from './ai/AiProvider';
 import { AiPane } from './ai/AiPane';
 import type { AgentTransport } from './ai/agui';
@@ -30,6 +31,8 @@ export function App({ api, initialContext, agent }: {
   // The user's settings (ADR-0017 §2) are read as the page starts, beside the catalog: the widths of the first grid
   // drawn are the user's, not the declared ones for a moment.
   const settings = useQuery({ queryKey: ['settings'], queryFn: async () => { await loadSettings(); return true; }, staleTime: Infinity });
+  // Who the page is for, before the panels are drawn: the browser tab keeps them under the user's id (ADR-0018 §7).
+  const me = useQuery({ queryKey: ['me'], queryFn: () => call<{ readonly id: string }>('/api/me'), staleTime: Infinity });
   const [notice, setNotice] = useState<Notice | undefined>(undefined);
   // A notice is a command's result (ADR-0006's note 2 of 2026-11-11). A refused one is what the user was told went
   // wrong, and the server's log keeps it too (ADR-0014 §4).
@@ -58,9 +61,11 @@ export function App({ api, initialContext, agent }: {
   if (catalog.isPending) return <Group p="xl"><Loader size="sm" /><Text>Loading the capability catalog…</Text></Group>;
   if (catalog.isError) return <Alert m="xl" color="red" title="The catalog could not be loaded">{catalog.error.message}</Alert>;
   if (settings.isPending) return <Group p="xl"><Loader size="sm" /><Text>Loading your settings…</Text></Group>;
+  if (me.isPending) return <Group p="xl"><Loader size="sm" /><Text>Loading who you are…</Text></Group>;
 
   return (
     <WorkspaceProvider api={api} catalog={catalog.data} initialContext={initialContext} notify={notify}>
+      <KeepPanels userId={me.data?.id} {...(me.isError ? { why: me.error.message } : {})} />
       <AiProvider {...(agent === undefined ? {} : { transport: agent })}>
         <Shell notice={notice} clearNotice={clearNotice} />
       </AiProvider>
