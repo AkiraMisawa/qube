@@ -2,6 +2,7 @@ import { createContext, useContext, useState, type ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useStore } from 'zustand';
 import { useWorkspaceContext } from '../platform/workspace/WorkspaceProvider';
+import { panelLabel } from '../platform/workspace/workspaceStore';
 import { httpAgentTransport, type AgentTransport } from './agui';
 import { createAiStore, type AiState, type AiStore } from './aiStore';
 import { aiEffectOf } from './effects';
@@ -17,8 +18,11 @@ const AiContext = createContext<Ai | undefined>(undefined);
 export function AiProvider({ transport = httpAgentTransport, children }: { readonly transport?: AgentTransport; readonly children: ReactNode }) {
   const workspace = useWorkspaceContext();
   const queryClient = useQueryClient();
-  const [store] = useState(() => createAiStore(transport, (outcome) =>
-    aiEffectOf(outcome.capability)?.(outcome.outputs, { workspace: workspace.store.getState(), queryClient })));
+  // A panel a result opened is named on the card as the strip names it (ADR-0006 note 7).
+  const [store] = useState(() => createAiStore(transport, (outcome) => {
+    const opened = aiEffectOf(outcome.capability)?.(outcome.outputs, { workspace: workspace.store.getState(), queryClient });
+    return opened === undefined ? undefined : { panelId: opened.id, title: panelLabel(opened) };
+  }));
   return <AiContext.Provider value={{ store, transport }}>{children}</AiContext.Provider>;
 }
 

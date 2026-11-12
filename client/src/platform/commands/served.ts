@@ -3,6 +3,7 @@ import type { Catalog, CommandForm, DraftAsk, GridAsk, LineArgument, LineComplet
 import type { Notify } from '../notices';
 import type { Command, CommandDoor, Completion, KeyboardMoved, LineReading, LineReason, Screen } from './commands';
 import { browserOut, type TakenOut } from './takenOut';
+import { panelLabel, type Panel } from '../workspace/workspaceStore';
 
 // The commands the catalog says how to type (ADR-0016 §4, §5): the line builds each from the catalog and reads nothing
 // of its line itself. The server reads the line, while it is typed and at Enter; what the line does with the answer is
@@ -275,7 +276,7 @@ export function commandDoorOf(panelId: string | undefined): CommandDoor | undefi
  * commands are listed and say why they cannot run. A command of one application (note 27) is listed on a page of that
  * application alone: elsewhere its words are no command, as the server reads them.
  */
-export function servedCommands(catalog: Pick<Catalog, 'capabilities' | 'viewVerbs' | 'shortForms' | 'draftCommands'>, panel: { readonly title: string } | undefined, door: CommandDoor | undefined, notify: Notify): Command[] {
+export function servedCommands(catalog: Pick<Catalog, 'capabilities' | 'viewVerbs' | 'shortForms' | 'draftCommands'>, panel: Pick<Panel, 'title' | 'copy'> | undefined, door: CommandDoor | undefined, notify: Notify): Command[] {
   // `inDraft`: whether the server reads it while a draft is open (§10, note 55). A short form is read as the line it
   // stands for, so whether that line is the draft's is the server's to say.
   const typed: readonly { readonly id: string; readonly title: string; readonly form: CommandForm; readonly inDraft: boolean }[] = [
@@ -296,7 +297,7 @@ export function servedCommands(catalog: Pick<Catalog, 'capabilities' | 'viewVerb
       group: 'Workspace',
       ...(door === undefined || panel === undefined
         ? { unavailable: 'This panel has no workspace for it to act on.' }
-        : { target: panel.title, page: true, served: { arguments: form.arguments, door, ...(form.app === undefined ? {} : { app: form.app }) } }),
+        : { target: panelLabel(panel), page: true, served: { arguments: form.arguments, door, ...(form.app === undefined ? {} : { app: form.app }) } }),
       // While a dialog is open only its draft's commands are read (§10): the rest are listed, and say why.
       ...(draft === undefined || inDraft ? {} : { unavailable: `The dialog of ${draft.key} is open: apply writes its draft, and cancel discards it.` }),
       // From a key or a button there is no line: the words alone are read, with what is on screen at the press, and a

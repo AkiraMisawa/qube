@@ -12,7 +12,7 @@ export interface AiEffectTarget {
 }
 
 /** What a done command's outputs change on screen. Answers the panel it opened, if any. */
-export type AiEffect = (outputs: Readonly<Record<string, unknown>>, target: AiEffectTarget) => { readonly panelId: string; readonly title: string } | undefined;
+export type AiEffect = (outputs: Readonly<Record<string, unknown>>, target: AiEffectTarget) => Panel | undefined;
 
 const effects = new Map<string, AiEffect>();
 const contexts = new Map<string, (panel: Extract<Panel, { kind: 'app' }>) => Context | undefined>();
