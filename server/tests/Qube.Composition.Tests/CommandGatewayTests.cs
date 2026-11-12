@@ -560,7 +560,7 @@ public class CommandGatewayTests(QubeFactory factory) : IClassFixture<QubeFactor
     {
         var catalog = (await client.GetFromJsonAsync<JsonObject>("/api/catalog"))!;
 
-        Assert.Equal(["cancel", "copy", "draft.apply", "entity.create", "entity.remove", "entity.reset", "entity.set", "export", "filter", "find", "select", "sort"],
+        Assert.Equal(["cancel", "draft.apply", "entity.create", "entity.remove", "entity.reset", "entity.set"],
             catalog["draftCommands"]!.AsArray().Select(c => c!.GetValue<string>()).Order(StringComparer.Ordinal));
     }
 

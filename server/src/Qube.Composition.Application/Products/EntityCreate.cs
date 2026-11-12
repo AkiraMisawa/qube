@@ -12,7 +12,7 @@ namespace Qube.Composition.Application.Products;
 /// missing or unreadable term by name. Its reading of a line fills the product's defaults and says the entity the
 /// terms would make and where each default came from, and writes nothing.
 /// </summary>
-public sealed class EntityCreate(Func<ProductService> products) : ICapabilityHandler, ILineCommand, IDraftLine
+public sealed class EntityCreate(Func<ProductService> products) : ICapabilityHandler, ILineCommand, IDraftLine, IRowMaker
 {
     public const string Id = "entity.create";
     public const string Request = "entity.create-request";
@@ -45,6 +45,16 @@ public sealed class EntityCreate(Func<ProductService> products) : ICapabilityHan
             [new("product", product.Words), .. written.Where(w => !reading.Sources.ContainsKey(w.Field.Name)).Select(w => new LineArgument(w.Field.Name, w.Text))],
             null, $"Makes {entity}: {product.Title}.{(defaulted.Count == 0 ? "" : $" Not typed: {TableWords.List(defaulted)}.")}");
     }
+
+    /// <summary>
+    /// The products that make a row of a table under a row (ADR-0016 notes 48 and 57), each with the terms a page asks
+    /// for: the term that names the row above is left out, since a line typed in that row's draft names none.
+    /// </summary>
+    public IReadOnlyList<DraftTemplate> Makes(WorkspaceState state, string table) =>
+    [
+        .. products().Creatable(state.App).Where(p => p.Table == table && p.Under is not null).Select(p => new DraftTemplate(p.Words, p.Title,
+            [.. p.Fields.Where(f => f.Name != p.Under).Select(f => new DraftTerm(f.Name, f.Title, f.Required, FieldInput.FormOf(f.Form), FieldForms.Takes(f.Spec, choicesBeside: true), FieldInput.Written(f.Spec)))])),
+    ];
 
     /// <summary>What a line of <c>new</c> would write (ADR-0016 note 54): the changes that make the row, for a draft to fold.</summary>
     public LineChanges Changes(LineContext line)

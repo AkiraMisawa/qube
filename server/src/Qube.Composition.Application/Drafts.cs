@@ -45,7 +45,21 @@ public sealed record DraftRow(string Key, IReadOnlyList<string> Written, string?
 }
 
 /// <summary>A table under a draft's row: the word a line says it by, its fields, and the rows under the row.</summary>
-public sealed record DraftTable(string Table, string Title, string Word, IReadOnlyList<FieldInput> Fields, IReadOnlyList<DraftRow> Rows);
+/// <param name="Makes">
+/// What makes a row of it under the row (note 57), each as a template is said: the words after <c>new</c>, its title,
+/// and the terms it takes, the row above left out, since a line typed in the draft names none.
+/// </param>
+public sealed record DraftTable(string Table, string Title, string Word, IReadOnlyList<FieldInput> Fields, IReadOnlyList<DraftRow> Rows, IReadOnlyList<DraftTemplate> Makes);
+
+/// <summary>
+/// A command that makes rows (ADR-0016 note 57), such as <c>new</c>: what it could make under a row, for a draft's form
+/// to offer beside the table the rows are of.
+/// </summary>
+public interface IRowMaker
+{
+    /// <summary>What it makes in <paramref name="table"/> under a row of the table above it, on this workspace.</summary>
+    IReadOnlyList<DraftTemplate> Makes(WorkspaceState state, string table);
+}
 
 /// <summary>A term a template takes (note 50), as a page asks for it before the template is written.</summary>
 public sealed record DraftTerm(string Name, string Title, bool Required, string Form, string Takes, IReadOnlyList<string>? Choices);
@@ -75,8 +89,11 @@ public sealed record DraftForm(string Table, string Word, string Key, long Revis
 /// </summary>
 static class DraftForms
 {
-    public static DraftForm Of(LineDraft draft, IReadOnlyList<BoundTable> tables, WorkspaceState opened, WorkspaceState left, WorkspaceState source, IReadOnlyList<DraftLine> lines)
+    public static DraftForm Of(LineDraft draft, IReadOnlyList<BoundTable> tables, WorkspaceState opened, WorkspaceState left, WorkspaceState source, IReadOnlyList<DraftLine> lines,
+        IReadOnlyList<IRowMaker> makers)
     {
+        DraftTable Under(BoundTable t, string key, WorkspaceState before, WorkspaceState after) =>
+            Rows(t, key, before, after, [.. makers.SelectMany(m => m.Makes(opened, t.Descriptor.TableId))]);
         var table = tables.SingleOrDefault(t => t.Descriptor.TableId == draft.Table) ?? throw new TableRefused("UnknownTable", $"The workspace has no table {draft.Table}.");
         var under = tables.Where(t => t.Descriptor.Under == draft.Table).ToList();
         var fields = table.Descriptor.Fields;
@@ -102,7 +119,7 @@ static class DraftForms
 
     // The rows the draft was opened on in their order, each as the draft leaves it or, removed, as it was; then the rows
     // the draft made. A row made and removed within the draft is in neither state, and is not listed.
-    static DraftTable Under(BoundTable table, string key, WorkspaceState opened, WorkspaceState left)
+    static DraftTable Rows(BoundTable table, string key, WorkspaceState opened, WorkspaceState left, IReadOnlyList<DraftTemplate> makes)
     {
         var fields = table.Descriptor.Fields;
         IReadOnlyList<string> Row(ITableRow row) => [.. fields.Select(f => Written(f, row))];
@@ -113,7 +130,7 @@ static class DraftForms
             .. before.Select(r => !now.TryGetValue(r.Key, out var written) ? new DraftRow(r.Key, was[r.Key], DraftRow.Removed)
                 : new DraftRow(r.Key, written, written.SequenceEqual(was[r.Key]) ? null : DraftRow.Changed)),
             .. after.Where(r => !was.ContainsKey(r.Key)).Select(r => new DraftRow(r.Key, now[r.Key], DraftRow.Made)),
-        ]);
+        ], makes);
 
         List<ITableRow> Rows(WorkspaceState state) => [.. table.Table.Rows(state).Where(r => r.Under == key)];
     }

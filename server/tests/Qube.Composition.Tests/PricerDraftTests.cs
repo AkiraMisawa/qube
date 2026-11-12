@@ -29,6 +29,10 @@ public class PricerDraftTests
         Assert.Equal("5bn", form.Fields.Single(f => f.Field.Name == "notional").Written);
         Assert.Equal(["1 JPY -191258226 removed", "2 JPY 205544922", "3 EUR 250000 made"], Rows(form, PortfolioTables.Legs));
         Assert.Equal(["IA1 JPY 2025-07-18"], Rows(form, PortfolioTables.Amounts));
+        // A leg is made by `new leg`, with the terms a dialog asks for; nothing makes an independent amount (note 57).
+        Assert.Equal(["leg: currency*, pv*, notional"],
+            form.Under.Single(t => t.Table == PortfolioTables.Legs).Makes.Select(m => $"{m.Word}: {string.Join(", ", m.Takes.Select(x => $"{x.Name}{(x.Required ? "*" : "")}"))}"));
+        Assert.Empty(form.Under.Single(t => t.Table == PortfolioTables.Amounts).Makes);
         Assert.Equal([$"Set {Trade} notional to 5bn.", $"Made {Trade}/3: PV leg.", $"Removed {Trade}/1."], form.Lines.Select(l => l.Said ?? l.Refused!.Sentence));
         Assert.Equal(revision, rig.State.Revision);
     }

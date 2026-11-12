@@ -2105,6 +2105,18 @@ has one button, edit; and `load trades` reads a synthetic store of booked trades
       is at and the commands that moved it, so nothing typed before is silently read on other rows.
     - **A draft is of the workspace's own rows**, the layer every grid shows. §10's "a dialog shows one layer" is
       kept by its two tabs (the owner's answer of 2026-11-11): Original, read-only, and Live, the draft.
+    - *Added as built (2026-11-12).* **A field says how it is typed**: with its value the form gives each field the
+      word a line says it by, its form, what it takes in words, its choices, its unit, and whether a command sets it
+      and whether it may be empty, so that a page draws an input for it knowing no table. A template says the terms it
+      takes the same way.
+    - *Added as built.* **A row under the row whose field a line changed is marked `changed`**, beside `made` and
+      `removed`. A row made and then removed within the draft is in neither state and is not listed.
+    - *Added as built.* **Original is the row on the workspace with nothing of the user's on it**: every edit,
+      conflict, lost edit and made row taken out and what is derived worked again. A row the workspace made has no
+      Original, and the form says none.
+    - *Added as built.* **The host's door** is `POST /api/workspaces/{id}/draft`, whose body is the draft. A draft the
+      workspace has left is refused as `RevisionMoved` (409), and a table or a row the workspace has not as
+      `UnknownTable` or `UnknownRow` (404).
 55. **The line acts on a draft (§10; 5c).** The view a preview is asked with carries the draft.
     - **`set`, `reset`, `new` and `remove` are read for the draft's row** on the state its lines leave. `set
       notional 5bn` names no row and means the draft's; `new leg eur 250,000` makes a row under it; `remove leg 1`
@@ -2119,6 +2131,28 @@ has one button, edit; and `load trades` reads a synthetic store of booked trades
       `cancel` ends it; `price` is among them (Price takes committed state only). The verbs of the screen that
       change nothing (`find`, `sort`, `filter`, `select`, `copy`, `export`) stay.
     - **The line says the draft it is on**: the row and how many lines are pending.
+    - *Changed as built (2026-11-12).* **The verbs of a grid are refused in a draft too** (`find`, `sort`, `filter`,
+      `select`, `copy`, `export`), where the bullet above let them stay. A dialog has no grid for them to act on, and
+      `copy` would take out what the draft has yet to write as if the workspace held it. `cancel` is the one verb of
+      the screen a draft reads.
+    - *Added as built.* **With a draft in the view the server reads the line with the draft's row as the screen**,
+      whatever else the view says: the row is the one row selected, on the state the draft's lines leave. A reading is
+      of the revision the draft was opened at.
+    - *Added as built.* **What a reading asks of the page**: a pending line is the ask `draft` (the whole line and its
+      sentence), `cancel` the ask `cancel`, and `open` (note 56) the ask `open` (the table and the row).
+    - *Added as built.* **In a draft a table under the draft's table has the rows under the draft's row alone**, for a
+      line and for what a line offers, so `remove legs 1` is the draft's own leg though another trade has a leg 1. A
+      field named alone is the draft's row's even where a table of one row has the word: nothing is ambiguous.
+    - *Added as built.* **What a draft does not gain** is refused by name: a line of another row (`NotTheDraftsRow`),
+      one that changes nothing (`NothingToAdd`), and one that takes the draft's own row away (`RemovesTheDraftsRow`).
+      Every command that is not the draft's is `DraftOpen`.
+    - *Added as built.* **`apply` is the capability `draft.apply`**, whose request holds the draft whole (its table,
+      row, revision and lines), since the server stores none. The log names it `apply <row> (<n> lines)`. It is
+      refused where the workspace moved (`RevisionMoved`), where a line no longer reads (`DraftUnread`, with the
+      line's number and its refusal) and where no line changes anything (`NothingToApply`); typed with no draft open,
+      `apply` and `cancel` are `NoDraft`.
+    - *Added as built.* **The catalog lists what a draft reads** (`draftCommands`, by id), from the same mark the
+      refusal is made of, so that a line lists every other command as unavailable while a draft is open (§10).
 56. **`open <row>` is read by the server, beside the shell's `open <tab>` (§3, §10; 5c; DEFAULT).** §3 lists
     `open <tab, view or row>` among the verbs of the client, and note 30 gave the shell one command for each tab.
     - **`open <row>` is a verb of the screen that the server reads**, as it reads `find` and `select`: the row is
@@ -2134,6 +2168,34 @@ has one button, edit; and `load trades` reads a synthetic store of booked trades
       (note 55).
     - **A row's button runs the same line** (`open <table> <key>`, ticket 16), so the button, the keys and the
       line are one command (§10).
+57. **The dialog is drawn from the form (§10; 5c; DEFAULT).** The page holds the draft and draws one dialog for it,
+    the same for every table; nothing in it knows a table or a field.
+    - **A modal, the whole screen on a phone.** Its title is the row, and under it the line's own sentence of the
+      draft ("Editing E00003: 2 lines pending."). Tabs Live and Original (the owner's answer of 2026-11-11): Original
+      is read-only, and is not offered for a row the workspace made.
+    - **A group is a section**, in the order the groups first appear among the table's fields; the fields of no group
+      come last, under "Other". A field is drawn by its form: a choice as a select of its choices, a flag as a switch,
+      and every other as text typed as a line types it (`5bn`, `2027-03-31`), with what it takes said under it. A
+      field no command sets is drawn as text.
+    - **An edit is a line.** Leaving a field whose text changed, picking a choice or turning a flag asks the server to
+      read `set <field> <text>` in the draft. Accepted, the draft gains the line the server answered; refused, the
+      field keeps what was typed and says the server's sentence, and the draft gains nothing. An emptied field that
+      may be empty is `set <field> empty`. The dialog has no rule of its own.
+    - **A table under the row is a grid** (ExGrid), its fields the columns. A cell typed into is `set <table> <row>
+      <field> <text>`, a row's Remove button `remove <table> <row>`, and under the grid each product that makes a row
+      there (`new leg`) is a button that asks for its terms, the row above left out: the form lists them, as it lists
+      a template's. A row made, changed or removed is marked, and a removed row has no button.
+    - **A template is a button** that asks for its terms and adds `set as <template> name=value …`.
+    - **The pending lines are listed**, each with the sentence it was accepted with, and each can be taken back. The
+      lines after one taken back are read again on what is left, and one that no longer reads is said with its
+      refusal.
+    - **Save is `apply` and Cancel is `cancel`**, run as the line runs them. Save with nothing pending is not offered.
+      Cancel, Escape and the close button ask before discarding pending lines. While the dialog is open the line is
+      typed over it (Ctrl/⌘+K), and Escape there closes the line alone.
+    - **A draft the workspace has left** is said with the server's sentence, and the dialog offers to read the same
+      lines again on the workspace as it now is, or to cancel. Nothing is read again unasked.
+    - **A page may say one sentence above the form**, such as the pricer's that the simulated measures do not read the
+      legs yet.
 
 ## Rejected
 

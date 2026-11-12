@@ -30,9 +30,6 @@ sealed class OpenVerb(TableRegister register) : IViewVerb
     }
 
     public LineCompletions Complete(LineContext line) => TableCompletions.Of(line.Text, register.Of(line.State), line.State, afterRows: null, line.View);
-
-    // One draft is open at a time (note 56).
-    public bool WithDraft => false;
 }
 
 /// <summary><c>cancel</c> (note 55): the page discards the open draft. Nothing was written, and nothing is.</summary>
@@ -48,4 +45,6 @@ sealed class CancelVerb : IViewVerb
     }
 
     public LineCompletions Complete(LineContext line) => LineCompletions.None;
+
+    public bool WithDraft => true;
 }

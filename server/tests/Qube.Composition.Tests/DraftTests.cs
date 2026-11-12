@@ -126,6 +126,18 @@ public class DraftTests
         Assert.Null(form.Original);
     }
 
+    [Fact] // ADR-0016 note 57: a table under the row says each product that makes a row there, with the terms it takes, the row above left out
+    public void A_table_under_the_row_says_the_products_that_make_its_rows()
+    {
+        var sensors = Assert.Single(Form(new SensorRig(), "S1").Under);
+        var undescribed = Assert.Single(Form(new SensorRig(described: false), "S1").Under);
+
+        Assert.Equal(["sensor (Sensor): kind* choice rain|wind|all, load* number, unit* choice M3|GAL"],
+            sensors.Makes.Select(m => $"{m.Word} ({m.Title}): {string.Join(", ", m.Takes.Select(x => $"{x.Name}{(x.Required ? "*" : "")} {x.Form}{(x.Choices is { } c ? $" {string.Join('|', c)}" : "")}"))}"));
+        // With no product described, a row under the row is made by nothing a dialog could offer.
+        Assert.Empty(undescribed.Makes);
+    }
+
     [Fact] // ADR-0016 note 54: the form carries its table's templates, each with the word a line says it by and the terms it takes
     public void The_form_carries_the_templates_of_its_table()
     {
@@ -223,6 +235,9 @@ public class DraftTests
     [InlineData("set altitude 15", "NothingToAdd", "Nothing would change: S1 already holds altitude 15. The draft of S1 gains nothing.")]
     [InlineData("undo", "DraftOpen", "undo is not read while the draft of S1 is open: apply writes it, and cancel discards it.")]
     [InlineData("open N1", "DraftOpen", "open is not read while the draft of S1 is open: apply writes it, and cancel discards it.")]
+    // A verb of a grid has no grid in a dialog: it is refused as every command that is not the draft's.
+    [InlineData("sort by altitude", "DraftOpen", "sort is not read while the draft of S1 is open: apply writes it, and cancel discards it.")]
+    [InlineData("copy", "DraftOpen", "copy is not read while the draft of S1 is open: apply writes it, and cancel discards it.")]
     public void With_a_draft_open_a_line_that_is_not_of_its_row_is_refused(string line, string code, string sentence)
     {
         var rig = new SensorRig();

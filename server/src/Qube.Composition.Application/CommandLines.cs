@@ -80,9 +80,6 @@ public interface ILineCommand
 
     /// <summary>What could follow the line's last word, or complete it where it is half typed; places count from the start of <see cref="LineContext.Text"/>.</summary>
     LineCompletions Complete(LineContext line);
-
-    /// <summary>Whether it is read while a draft is open (ADR-0016 note 55): a verb that changes nothing of the draft is, and one that opens another is not.</summary>
-    bool WithDraft => true;
 }
 
 public sealed record LineCommand(string Id, string Version);
@@ -167,8 +164,11 @@ public interface IViewVerb
     /// <summary>What could follow the line's last word, or complete it where it is half typed; places count from the start of <see cref="LineContext.Text"/>.</summary>
     LineCompletions Complete(LineContext line);
 
-    /// <summary>Whether it is read while a draft is open (ADR-0016 note 55): a verb that changes nothing of the draft is, and one that opens another is not.</summary>
-    bool WithDraft => true;
+    /// <summary>
+    /// Whether it is read while a draft is open (ADR-0016 note 55). A verb of a grid is not: a dialog has no grid for it to
+    /// act on, and the rows it would name hold what the draft has yet to write. <c>cancel</c>, the draft's own, is.
+    /// </summary>
+    bool WithDraft => false;
 }
 
 /// <summary>
@@ -202,9 +202,6 @@ public interface IShortForm
 
     /// <summary>What could follow the line's last word, or complete it where it is half typed; places count from the start of <see cref="LineContext.Text"/>.</summary>
     LineCompletions Complete(LineContext line);
-
-    /// <summary>Whether it is read while a draft is open (ADR-0016 note 55): a verb that changes nothing of the draft is, and one that opens another is not.</summary>
-    bool WithDraft => true;
 }
 
 /// <summary>A module's short forms, for the applications it serves.</summary>
@@ -288,6 +285,8 @@ public sealed class CommandLines
     readonly WorkspaceService workspaces;
     readonly TableRegister tables;
     readonly IReadOnlyList<Typed> typed;
+    // The commands that make rows (note 57): what each could make under a row is offered by a draft's form.
+    readonly IReadOnlyList<IRowMaker> makers;
 
     /// <summary>The verbs of the screen (ADR-0016 §3, note 21 of step 2), for the catalog to list apart from the capabilities.</summary>
     public IReadOnlyList<ViewVerbDescriptor> ViewVerbs { get; }
@@ -316,6 +315,7 @@ public sealed class CommandLines
             new OpenVerb(tables), new CancelVerb()];
         ViewVerbs = [.. verbs.Select(v => v.Descriptor)];
         var named = new List<Typed>();
+        var making = new List<IRowMaker>();
         foreach (var descriptor in registry.CapabilityDescriptors)
         {
             if (descriptor.Command is not { } form) continue;
@@ -327,6 +327,7 @@ public sealed class CommandLines
                 var read = reader.Read(line);
                 return new(read.Inputs, read.Arguments, read.Rows, read.Would, read.At, null);
             }
+            if (reader is IRowMaker maker) making.Add(maker);
             // A command whose line a draft may hold says its changes too (note 54).
             Func<LineContext, LineChanges>? changes = reader is IDraftLine drafted ? drafted.Changes : null;
             named.AddRange(form.Words.Select(w => new Typed(TableWords.Of(w).Split(' '), TableWords.Of(w), descriptor.CapabilityId, form, command, reader.Complete, Read, Changes: changes,
@@ -352,6 +353,7 @@ public sealed class CommandLines
             throw new InvalidOperationException($"{TableWords.And(shared.Select(n => n.Id))} answer to the same words, {shared.Key}.");
         // The longest words first: `add each` is read before `add`.
         typed = [.. named.OrderByDescending(n => n.Words.Length)];
+        makers = making;
     }
 
     // What a line of the workspace may name (note 27 of step 3): the commands of its application, and those of every one.
@@ -380,7 +382,7 @@ public sealed class CommandLines
     {
         var opened = Opened(workspaceId, caller, draft);
         var (left, read) = Folded(opened, caller, draft, Of(opened).ToList());
-        return DraftForms.Of(draft, tables.Of(left), opened, left, workspaces.Unedited(opened), [.. read.Select(r => r.Line)]);
+        return DraftForms.Of(draft, tables.Of(left), opened, left, workspaces.Unedited(opened), [.. read.Select(r => r.Line)], makers);
     }
 
     // The draft's lines read in order, each on what the ones before it left, and the workspace as they leave it. A
