@@ -37,7 +37,7 @@ public sealed class CommandPreview(Func<CommandLines> lines) : ICapabilityHandle
             // with no screen itself; one that needs none (`export` and a table's word, ADR-0016 note 44) is still
             // nothing this caller can run, and the rows it would take out are this caller's to read.
             if (preview.Command is not { } command)
-                throw new TableRefused("NoView", preview.Asks is GridAsk
+                throw new TableRefused(TableRefused.NoView, preview.Asks is GridAsk
                     ? $"`{line}` is done by a page that shows a grid, and no command runs it."
                     : $"`{line}` is done by a page of the workbench, and no command runs it: tables.read answers the rows of a table.");
             // A command's reading says its inputs, its arguments and what would change: one that does not is a defect.

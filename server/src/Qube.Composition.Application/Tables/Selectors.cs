@@ -380,7 +380,7 @@ public static class Selectors
     {
         var word = SelectorReader.Word(screen);
         if (view is null)
-            throw new TableRefused("NoView", $"{word} means the rows {word} on a screen, and no screen is behind this command: name the rows by their ids, all, a subset or where.", word);
+            throw new TableRefused(TableRefused.NoView, $"{word} means the rows {word} on a screen, and no screen is behind this command: name the rows by their ids, all, a subset or where.", word);
         var table = Views.TableOf(view, tables);
         if (selector.Table is { } said && TableRegister.Find(tables, said) is var other && other.Descriptor.TableId != table.Descriptor.TableId)
             throw new TableRefused("TwoTables", $"The rows on screen are of {table.Word} and the table is said to be {other.Word}.", said);

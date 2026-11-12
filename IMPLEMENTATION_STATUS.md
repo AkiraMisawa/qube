@@ -3119,6 +3119,126 @@ changes the document's box); the test waits for each scrollbar before the next w
 `float panel`'s refusal says "the only panel docked", true with a floating area open; and `reopen panel` in one area
 is checked to say nothing.
 
+## Generic commands, delivery step 6: saved sequences of edits (ADR-0016 §8, notes 60 to 64, 2026-11-12)
+
+The last step of ADR-0016's delivery order, one pull request (`docs/specs/commands-6-saved-sequences`, tickets 01
+to 07). A user keeps an ordered list of command lines under a name and runs it on any workspace of the application;
+each line runs as its own command. With it the generic commands are built.
+
+### What runs
+
+- **`sequence save <name> [desk|all] <line> then <line> …`** (`sequence.save`), on every application. The lines are
+  read apart at the word `then`; the reading says each with its number, whom the sequence is for (the user alone,
+  their desk, every user) and whether it replaces the user's own of that name. It is a saved item (C32) under
+  `sequence:<app>`, kept across a restart, and changes no workspace.
+- **What a line may be** is one rule, read at the save and again as each line is reached: a command of the
+  application that edits the workspace, or as the last line one that starts work on it (`price`). A verb of a page,
+  `selected`, `shown`, `undo`, `redo`, `apply` and a `sequence` verb are refused with the line's number. A line
+  refused only as the workspace stands (a row not there yet) is kept, and the reading says which and why.
+- **`sequence run <name>`** (`sequence.run`). The line offers the sequences the user can see, each with its lines
+  and its owner; its reading says every line and what the first would do on the workspace as it stands. Each line
+  is read by the server's reader at the revision the line before it left and invoked through the command gateway,
+  so each is a command of its own in the log and `undo` takes them back one at a time, the last first.
+- **A run stops at the first refusal.** The first line's refuses the command, and nothing ran. A later one ends the
+  run: the lines before it stay written, and the notice says the line, why, the revisions the run began and ended
+  at, and what `undo` reaches. That notice stays until it is closed. So does a run's whose line said that what it
+  did waits for the user, with that line's sentence.
+- **What was read is what runs.** A sequence saved again since its reading is refused (`SequenceMoved`), a line
+  whose first words name another command than when it was saved stops the run (`LineMoved`), and a workspace
+  another hand moved between two lines stops it (`RevisionMoved`).
+- **Origin.** A run's lines are in the log with origin `workflow`, and `undo` says "a saved sequence for you" of
+  one; lines of a sequence the AI ran keep origin `ai`.
+- **The line as it is typed** offers `desk` and `all` after the name, the commands a sequence may hold where a line
+  begins, what that line's own command offers within it, and `then` after a line that reads.
+- **The page** is told what each line's command answered, in order, as if it had run it: Rates opens the Run a
+  sequence's last line `price` made. Nothing else of the client knows a sequence.
+- **The AI** has both commands among its tools, as every command: it saves a sequence from a list of lines and
+  runs one by name, and the answer holds each line that ran with its command's own answer.
+
+### Verification performed
+
+| What | Result |
+|---|---|
+| `dotnet test server/Qube.slnx` | 1642 passed |
+| Client: `npm run typecheck`, `npm test`, `npm run build` | Clean; 465 passed in 44 files; built |
+| `npx playwright test` (Chromium, headless, Linux) | 127 passed |
+| `python3 tools/validate_handoff.py` | Passed |
+| A save typed with its reading, the offer of a saved sequence, the run's reading, the run with its notice and the Run it priced, `undo` after it, a save that keeps a refused line, a run that stops at its second line, a save that is refused | Looked at in the browser at 1440px, light and dark; the two readings also at 390px in both themes, 768px and 992px |
+
+The kernel's tests drive the two commands over the stations' sensors (`SequenceRig`: an in-memory store of saved
+items, and one command registered for the tests that starts work and edits nothing): what a line's first words
+name, the save and each refusal of it with nothing kept, a line kept though refused where it stands, a run with
+each line at the revision the line before left, `undo` after it, a first line refused, a later line refused and
+what the answer then says, a workspace moved between two lines, a sequence saved again since it was read, a line
+whose words name another command now, a kept line the rule no longer allows, a run asked again with its key, a
+shared sequence run by a colleague and a private one not seen, the AI's origin kept, a command that answers no
+revision thrown as a defect, both lines' readings and completions, and `undo`'s reading. The pricer's
+(`PricerSequenceTests`): a sequence saved on one counterparty and run on another, ending with `price`; the Run has
+origin `workflow`, stands at the revision the second line left, and its accepted input holds After exactly on the
+USD existing trades, as the lines set it. Through the host (`SequenceApiTests`): a Rates sequence that makes a line
+and prices it, a pricer's sequence not seen on a Rates workspace, a sequence kept across a restart, and the AI's
+door. The client's door has three tests of what it tells its page, and one browser test holds what only a browser
+shows: on Rates a sequence is saved from the line and offered by name, its run makes a line and opens the Run, and
+`undo` takes the run's line back.
+
+### Providers
+
+Unchanged: every figure is simulated and says so. Saved sequences are kept by the kernel's store of saved items,
+in the host's SQLite database.
+
+### Known limits
+
+- **For the owner to judge** (ADR-0016 notes 61 to 63): a command that starts work is a sequence's last line or
+  none, so `price` between two edits is refused; a sequence the AI runs keeps origin `ai` for its lines; a run that
+  stopped is drawn as a done notice that stays; the words `sequence` and `then`; both commands are among the AI's
+  tools.
+- **A saved sequence is not taken away.** Its owner saves the name again, for themselves alone to withdraw it from
+  a desk. No command lists the sequences: `sequence run` offers them as it is typed.
+- **No values are given when it runs**, none is made from the log or recorded, and there is no dialog to write one
+  in ("Later, perhaps").
+- **A run is not all or nothing.** The lines before a refused one stay written, and `undo` takes back those it
+  reaches: a line whose command no undo takes back (a `refresh` that took another source version) keeps it from
+  that line and the ones before, and the stopped run's notice says so.
+- **The AI has no list of the saved sequences.** `sequence run` with no name names three and counts the rest.
+- **The run's reading reads the first line alone**: it claims nothing of what a later line would change (§9).
+- **A typed line cannot hold the word `then` standing alone**, and a typed sequence's first line cannot begin with
+  `desk` or `all`; the capability takes its lines as a list.
+- **A line with a mistyped field or row is kept**, with the save's reading saying it is refused where it stands:
+  the server cannot tell it from a line that names what an earlier line makes.
+- **The save's reading reads every line at each keystroke**, fifty at most. Its cost is not measured.
+- **A sequence's lines are not run under a lock of the workspace**: a hand that moves it between two lines stops
+  the run with the lines before written, as any refusal does.
+- **A run asked again with its key after it broke** (a command's defect in the middle) is refused at its first
+  line (`IdempotencyConflict`) and writes nothing; the lines that ran stay, for `undo`.
+
+### What the review changed
+
+Two reviews with fresh context, of the standards and of the spec (ADR-0016 notes 61 to 64 say each outcome).
+
+- **A line a sequence may not hold is not read for what it offers.** `sequence save a sequence save a …` read
+  itself once for each nesting, and a line long enough would have exhausted the server's stack.
+- **A stopped run says what `undo` reaches.** It said undo takes every line back, which is false after a line
+  whose command no undo takes back; it now names that line and the lines after it that undo reaches.
+- **A line's `stays` is carried by the run**: the notice stays and holds that line's sentence with its number.
+- **A run whose answer breaks the door's contract is done all the same**: the page chains on the revision it
+  left, reads the workspace again, and says the defect beside what the run said.
+- **Each line refused where the workspace stands is said with its reason**, not the first alone.
+- **The rule of note 61 is one function** (`Held`), asked by the save, its reading, the offer of `then` and a run;
+  what a short form stands for is named as the reader reads it; the reader's refusal of what reads a screen has
+  one name (`TableRefused.NoView`); a line of a request that is no text is refused by name.
+- **Documents**: the contracts document listed `InvalidShare` and `NoLines` as the command's refusals, which the
+  request's contract refuses first; the spec said the AI reads the line's completions, which it does not.
+- **Checked by breaking the code on purpose** (in a second working tree): of forty-seven breakages the tests
+  caught forty-three. Tests were added that catch three more (a line a sequence may not hold read for what it
+  offers, a short form not held to the rule, and the earlier of two lines no undo takes back taken for the later).
+  The last is caught by none: what a short form's line names, read among the short forms too, differs only where
+  such a line begins with a short form's words, and none does.
+- **Left as they are**: whom a saved item is for is put into words in the kernel's sequences and in the pricer's
+  scenario sets, each in its own sentences, and belongs on the store of saved items once a third kind is saved;
+  `sequence.run` answers through its own few lines beside `TableContracts.Answered`, which is not asynchronous;
+  a refusal's code and sentence travel as a pair; a spec's `Status: built` is not one of the tickets' roles, as
+  the specs before it.
+
 ## Panels in areas, step 1's rest: the pricer by its area (ADR-0018 ticket 07, 2026-11-12)
 
 The pull request after step 1's (`docs/specs/panels-1-areas`, ticket 07's rest), once ADR-0016's step 5d had merged
@@ -3189,8 +3309,8 @@ Unchanged: every figure is simulated and says so.
 
 ## Next
 
-1. Generic commands: step 6 (saved sequences of edits). After step 5's pricer page: a page keeps its state by
-   panel (ADR-0006 note 7, the owner's choice).
+1. A page keeps its state by panel (ADR-0006 note 7, the owner's choice). The generic commands (ADR-0016) are
+   built through step 6; what each step left for the owner is in its section's "Known limits".
 2. Panels in areas, ADR-0018 steps 2 (other browser windows) and 3 (parts of a page with links), in that order, each
    once the owner has seen the one before.
 3. MVA with SIMM (`docs/12-implementation-plan.md` P2): spot IM from the XVA request's MVA option.
@@ -3212,3 +3332,7 @@ when he asks for it.
   (Price freezes one whole revision); every change stays in the log, for undo, the Changes tab and the account of
   it; changes whose order matters are bundled only where the result is that of their order. Measure the slow
   operation first.
+- **More of saved sequences** (ADR-0016 note 60; left out of step 6's build, not asked for by the owner). Taking a
+  saved sequence away; values given when it runs (`sequence run usd-only ccy=EUR`); a sequence made from the
+  commands the log holds, or recorded while they are typed; a dialog to write one in; a command that lists them;
+  a run that writes all of its lines or none.

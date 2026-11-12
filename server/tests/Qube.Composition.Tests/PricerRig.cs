@@ -1,6 +1,7 @@
 using System.Text.Json.Nodes;
 using Qube.Composition.Application;
 using Qube.Composition.Application.Products;
+using Qube.Composition.Application.Saved;
 using Qube.Composition.Application.Tables;
 using Qube.Composition.Application.Workspaces;
 using Qube.Composition.Contracts;
@@ -26,8 +27,8 @@ sealed class PricerRig
     public TableRegister Register { get; }
     public TableService Tables { get; }
     public string Id { get; }
+    public RunService Runs { get; }
     InMemoryDataStore Store { get; }
-    RunService Runs { get; }
 
     public PricerRig(string registration = "ABC/LE-01")
     {
@@ -38,8 +39,9 @@ sealed class PricerRig
         PortfolioWorkspaces? service = null;
         PortfolioWorkspaces Pricer() => service ?? throw new InvalidOperationException("The pricer's service is not built yet.");
         var products = new ProductService([new PortfolioProducts()], [new LegRules(Pricer)], Workspaces, Register);
+        var sequences = new Sequences(() => Lines!, () => Commands!, () => Workspaces, new SavedItems(new InMemorySavedItemStore(), new Desks(new Dictionary<string, string>()), TimeProvider.System));
         var registry = new CompositionRegistry([new PortfolioModule(), new XvaModule(), new CcrModule(), new TablesModule(() => tables), new WorkspaceCommandsModule(() => Workspaces),
-            new ProductsModule(() => products), new PortfolioCommandsModule(Pricer, register), new DraftsModule(() => Lines!)]);
+            new ProductsModule(() => products), new PortfolioCommandsModule(Pricer, register), new DraftsModule(() => Lines!), new SequencesModule(sequences)]);
         var store = Store = new InMemoryDataStore();
         Runs = new RunService(registry, store, TimeProvider.System);
         Service = service = new PortfolioWorkspaces(Workspaces, store, Runs, register, UnsetSettings.Pricer());
@@ -70,11 +72,14 @@ sealed class PricerRig
     }
 
     /// <summary>Prices the workspace as it stands and answers the accepted input its Run keeps.</summary>
-    public async Task<JsonObject> Priced()
+    public Task<JsonObject> Priced() =>
+        Accepted(Assert.IsType<SubmissionResult.Accepted>(Service.Price(Id, State.Revision, "akira", Guid.NewGuid().ToString())).Run.RunId);
+
+    /// <summary>The accepted input a Run keeps, once it has completed.</summary>
+    public async Task<JsonObject> Accepted(string runId)
     {
-        var accepted = Assert.IsType<SubmissionResult.Accepted>(Service.Price(Id, State.Revision, "akira", Guid.NewGuid().ToString()));
-        await Runs.Completion(accepted.Run.RunId);
-        var run = Runs.Find(accepted.Run.RunId)!;
+        await Runs.Completion(runId);
+        var run = Runs.Find(runId)!;
         return Store.ReadRequired(((DataReferenceBinding)run.Workflow.Steps[0].Bindings["acceptedInput"]).Reference).AsObject();
     }
 
