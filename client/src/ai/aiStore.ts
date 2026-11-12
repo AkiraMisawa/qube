@@ -28,8 +28,8 @@ export interface AiState {
 
 export type AiStore = ReturnType<typeof createAiStore>;
 
-/** Called once a tool call is done, to apply its effect; answers the panel it opened, if any. */
-export type OnToolDone = (outcome: Extract<ToolOutcome, { status: 'done' }>) => OpenedPanel | undefined;
+/** Called once a tool call is done, with the call's id, to apply its effect; answers the panel it opened, if any. */
+export type OnToolDone = (outcome: Extract<ToolOutcome, { status: 'done' }>, call: string) => OpenedPanel | undefined;
 
 const id = (prefix: string) => `${prefix}-${crypto.randomUUID()}`;
 
@@ -68,9 +68,10 @@ export function createAiStore(transport: AgentTransport, onToolDone: OnToolDone)
             if (card === undefined) return;
             let next = applyEvent(card, event);
             // A result applies its effect once, as it arrives.
-            const done = next.steps.find((s, i) => s.outcome?.status === 'done' && card.steps[i]?.outcome === undefined)?.outcome;
-            if (done?.status === 'done') {
-              const opened = onToolDone(done);
+            const doneStep = next.steps.find((s, i) => s.outcome?.status === 'done' && card.steps[i]?.outcome === undefined);
+            const done = doneStep?.outcome;
+            if (doneStep !== undefined && done?.status === 'done') {
+              const opened = onToolDone(done, doneStep.toolCallId);
               if (opened !== undefined) next = { ...next, opened: [...next.opened, opened] };
             }
             update(() => next);

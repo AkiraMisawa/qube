@@ -22,9 +22,11 @@ public enum ExecutionKind { RequestResponse, Job, Subscription }
 /// result asked for again (ADR-0016 note 33): it writes no workspace. <c>ReadWorkspace</c> reads its caller's own
 /// workspace, such as rows of one of its tables (ADR-0016 §7, note 38): it writes nothing and starts nothing.
 /// <c>ReadSettings</c> reads its caller's own settings, and <c>EditSettings</c> writes them (ADR-0017 §2): neither
-/// touches a workspace or a Run, so both are commands too.
+/// touches a workspace or a Run, so both are commands too. <c>Propose</c> answers a proposal its caller applies, or not,
+/// such as an arrangement of the panels (ADR-0018 §8): it writes nothing and starts nothing, and is a command so that the
+/// agent is offered it.
 /// </summary>
-public enum CapabilityEffect { ReadData, Compute, PersistAnalysis, EditWorkspace, Subscribe, ReadRun, SaveItem, Execute, ReadWorkspace, ReadSettings, EditSettings }
+public enum CapabilityEffect { ReadData, Compute, PersistAnalysis, EditWorkspace, Subscribe, ReadRun, SaveItem, Execute, ReadWorkspace, ReadSettings, EditSettings, Propose }
 
 public sealed record Port(string Name, string ContractId, string ContractVersion, Cardinality Cardinality);
 

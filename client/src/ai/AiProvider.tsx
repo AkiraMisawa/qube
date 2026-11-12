@@ -19,8 +19,8 @@ export function AiProvider({ transport = httpAgentTransport, children }: { reado
   const workspace = useWorkspaceContext();
   const queryClient = useQueryClient();
   // A panel a result opened is named on the card as the strip names it (ADR-0006 note 7).
-  const [store] = useState(() => createAiStore(transport, (outcome) => {
-    const opened = aiEffectOf(outcome.capability)?.(outcome.outputs, { workspace: workspace.store.getState(), queryClient });
+  const [store] = useState(() => createAiStore(transport, (outcome, call) => {
+    const opened = aiEffectOf(outcome.capability)?.(outcome.outputs, { workspace: workspace.store.getState(), queryClient, call });
     return opened === undefined ? undefined : { panelId: opened.id, title: panelLabel(opened) };
   }));
   return <AiContext.Provider value={{ store, transport }}>{children}</AiContext.Provider>;

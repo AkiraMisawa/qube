@@ -2645,6 +2645,7 @@ Unchanged; nothing on the server changed.
   owner chose that each page keep it by panel and show it again (note 7's last bullet): its own pull request, after
   ADR-0016's step 5 changes the pricer's page.
 - The panels, their order and the closed ones are kept while the page is loaded, as before; a reload starts empty.
+  (Since ADR-0018 step 1, below, the browser tab keeps them across a reload.)
 - On a Mac laptop Delete is Fn+Delete, and Shift+F10 may need Fn: the menu is reached by a right click (or
   Ctrl+click) and the list, and `close panel` has its chord.
 - On a phone a refused notice (from the line or a key) lies over the strip's end, the list's button with it, until it
@@ -2653,7 +2654,8 @@ Unchanged; nothing on the server changed.
 - The menu key is checked on Linux only: its contextmenu as Windows sends it is played in the browser test, not
   pressed on Windows.
 - A drag is checked with a mouse only; on a touch screen it is not checked, and the list's Move left and Move right
-  reach the same move.
+  reach the same move. (Since ADR-0018 step 1, a finger dragging a tab to an area's edge is checked in Chromium with
+  touch emulated; it has not been tried on a touch device, which ADR-0018 §3 asks before saying it works.)
 
 ### What the review changed
 
@@ -2932,7 +2934,7 @@ trades made from their ids); no trade, name or figure of it is a real one.
   are reached by scrolling the grid or by the keyboard. Where a row's buttons stand is ticket 16's question.
 - **No test reaches `ConflictUnresolved`**, the refusal to remove a loaded trade while an edit of it waits as a
   conflict: no editable value of the synthetic store, or of the synthetic source, moves with the value date, so
-  neither makes a conflict yet ("Next", item 4). The refusal is written and read, not run.
+  neither makes a conflict yet ("Next", item 6). The refusal is written and read, not run.
 - **A scenario's key with `_2` follows the scenarios' order**: once the earlier scenario of that key is removed or
   renamed, the later one takes the key without the number. Left for the owner with the key's spelling.
 
@@ -2959,6 +2961,162 @@ Two reviews with fresh context, of the standards and of the spec (ADR-0016 notes
 - **Left as they are**: the key with `_2` (above); the tables of scenarios and shifts overriding most of the
   pricer's `Table`; a reader that cast a workspace's source to the pricer's type would miss its loaded trades, and
   only review holds that every reader goes through `PortfolioSourceVersion.Of`.
+
+## Panels in areas, step 1: split, float and maximize in the window, and the AI's proposal (ADR-0018, 2026-11-12)
+
+The owner asked for panels that float and dock, as Bloomberg's terminal has them, and decided that the AI only
+proposes an arrangement, which he applies. ADR-0018 step 1, one pull request (`docs/specs/panels-1-areas`, tickets
+01 to 08; 07 in part).
+
+### What runs
+
+- **Areas**, drawn by dockview 8.9.0 (`dockview-react`, exact) from a panels' space of 768px, the window less the AI
+  pane: one area at first, holding every panel. Each area's strip is note 7's (its tabs, its list of the area's
+  panels with the shown panel's verbs, a tab's menu, pinned first, Delete, the middle button, a drag along it) with the
+  shell's tabs inside dockview's. The active panel's area is framed in `signal` from two areas on. Only the page each
+  area shows is mounted; a panel moved, floated or docked keeps its page mounted.
+- **The strip where there is no room**: below 768px, or where the arrangement needs more than the panels' space (three
+  areas side by side need 960px; the AI pane takes its 340 to 400px), note 7's one strip is drawn, and the
+  arrangement comes back with the room. Nothing is merged into fewer areas by itself.
+- **The verbs** (`client/src/shell/panelVerbs.ts`), for the line, a tab's menu and the area's list: `split panel
+  <side>`, `send panel to <title>`, `float panel <where>`, `dock panel`, `size panel <percent>`, `maximize panel`,
+  `unmaximize panel`, `gather panels`, each refused by name where it cannot act, and in the strip saying when the
+  arrangement comes back. Note 7's verbs act within the panel's area. `next panel` goes through every panel in
+  reading order. They reach dockview only through a port (`Arrangement`), which the strip implements by refusing.
+- **The pointer**: a tab dragged onto an area's edge splits it there, onto another strip joins that area, and with
+  Shift floats; a finger drags as a mouse does. A floating area moves by its title bar and is resized by its edges.
+- **The keyboard**: a splitter is a focusable separator the arrows move by 24px, held at an area's 320 by 240px; a
+  floating area's title bar is a focusable handle the arrows move by 24px, and Shift with the arrows resizes it.
+- **Kept by the browser tab** (`keptPanels.ts`): the panels, what each shows, the active one, those closed and the
+  arrangement come back on a reload of that tab; another tab starts with its own. A value of another version, or one
+  that does not read whole, is not applied, and the shell says so.
+- **The AI proposes** (`layout.propose`, a kernel capability with the new effect `Propose`: offered to the agent, it
+  writes nothing). The pane's context `qube.panels` names the open panels, their areas, the room and the pages a
+  proposal may open. The card draws the proposal as a plan of boxes with the panels' titles, an Apply button and
+  `arrange <n>`; nothing moves before. Applying checks the proposal again and refuses, by name and moving nothing, a
+  panel closed or retitled since or a space too small; `arrange back` puts back what the last applied replaced and
+  closes the pages it opened. The scripted stand-in reads "put … and … side by side" and "put … beside …".
+- **A page reads its panel's width** (`PanelPage`, a CSS container): the trace view drills in an area under 768px and
+  is a tree in a wider one. The pricer's own sections, its full-height button and `xva.css` still read the window:
+  that is the pull request after this one, now that ADR-0016's step 5d has merged (ADR-0018 §11).
+
+- **Fixed on the way**: a Rates workspace with no default for new lines, or only some, said "New lines default to ·
+  NaNmm ·": the server's view leaves a default that is not set out (`WireJson` writes no null), and the page read it
+  as a null (since #26). The page now reads the view as it is sent, and `rates.spec.ts` checks a workspace with no
+  default and one with a currency alone.
+
+### Verification performed
+
+| What | Result |
+|---|---|
+| `dotnet test server/Qube.slnx`, after main (step 5d, #33) was merged in | 1594 passed |
+| Client: `npm run typecheck`, `npm test`, `npm run build` | typecheck clean; 462 tests in 44 files passed; built |
+| `npx playwright test` (Chromium, headless, Linux), against the built client, after main's step 5c was rebased in and after the four reviews' changes | 124 passed; after main's step 5d (#33) was merged in, 126 passed (an earlier run: 122 of 123, `xva.spec.ts:2459`, below) |
+| `e2e/areas.spec.ts`, which this pull request adds, with `--repeat-each=3` | 24 passed |
+| `e2e/scrollbars.spec.ts`, which this pull request adds (Chromium with its scrollbars shown), with `--repeat-each=3` | 3 passed |
+| ADR-0018 §6's measurement: three XVA pages of 10,000 trades at 1440px, in three areas and in one | Passes: the pages shown and one tab per panel; a tab's switch 92ms in one area, 89ms in three (below) |
+| The areas, a tab's menu, a floating area, the AI's card and the strip at 1440 dark and light and 390px | Looked at, in the pull request's screens |
+
+The verbs' tests (`areaVerbs.test.ts`) read each verb and each refusal of the spec's table over a fake port, note 7's
+verbs within an area, `next panel` across areas and `reopen panel` back into its area. The arrangement's tests read
+what fits, the reading order, a kept arrangement drawn again with the panels opened and closed since, and `size
+panel`'s row. The proposal's tests read a proposal made into a layout and every refusal at apply, and the kept value's
+tests a reload, another user, and a value of another version. The server's tests take a well-formed proposal, refuse
+each malformed one by path, and run the stand-in's two requests. The browser tests read what only a browser shows:
+where dockview draws each verb, a drag with the mouse, with Shift and with a finger, the keys of a splitter and a title
+bar, the panels' space at 390, 768, 992 and 1440px with the AI pane shut and open in both schemes, a reload and a
+second tab, the AI's proposal applied and put back, and the trace by its area's width.
+
+### Measurements (ADR-0018 §6)
+
+Four panels open (the Pricing DB and three XVA workspaces of 10,000 synthetic trades each) at 1440 by 900px, dark,
+the AI pane shut. A tab's switch is from the click to the grid of the page it shows saying it has settled, in the
+page's own clock, ten times over two tabs of one area.
+
+| | Elements in the document | Of the pages shown | Outside them | Tabs in the areas' strips | A tab's switch, median (range) |
+|---|---|---|---|---|---|
+| One area, showing one XVA page | 491 | 280 | 211 (the area's strip 45) | 4 | 92ms (84 to 107) |
+| Three areas, each showing an XVA page | 1367 | 317, 317 and 389 | 344 (the strips 31, 24 and 24) | 4 | 89ms (78 to 124) |
+
+§6 passes: the elements are the pages shown and one tab per open panel, in both; a panel not shown mounts nothing,
+and what the areas add (about 65 elements an area) grows with the areas in view, not with the panels open or the
+trades. A switch takes as long in three areas as in one. No console message or exception in either.
+
+### Providers
+
+The AI's proposals in the tests and the screens come from the scripted stand-in, not a model: `layout.propose` is
+offered to the agent, and no model has been asked to arrange panels. The XVA pages measured are the synthetic pricer's.
+
+### Known limits
+
+- The pricer's page reads the window, not its area, until its own pull request, the next one now that ADR-0016's step
+  5d has merged (ticket 07): an XVA page in a narrow area is laid out as the window's width says, and in a short one
+  (split down at 1440 by 900px) its trade grids scroll under the result dock and their headers draw over it, as they
+  do in a window that short.
+- A change between the strip and the areas, at 768px or as the AI pane opens beside many areas, draws the pages anew:
+  a page's own state (an open trace, an input tab, a grid's sort) starts again, as it does when its tab is hidden,
+  until pages keep their state by panel (note 7's pull request).
+- Other browser windows (step 2) and parts of a page with links (step 3) are not built.
+- The finger drag is checked in Chromium with touch emulated, not on a phone or a tablet.
+- dockview 8.9.0 is pinned exactly; its own context menu, overflow list and theme are not used.
+- One of seven full browser runs on this branch failed `xva.spec.ts:2459` (ADR-0016 notes 43 and 44, from main): after
+  `select where ccy=USD` and Enter, the line was still open five seconds later. The test passed in the other six
+  runs and six times of six alone. This branch changes when the line builds its list of commands again (as the
+  arrangement changes), not what Enter does. Not explained yet; the host had by then priced three workspaces of 10,000
+  trades for the measurement.
+
+### What the review changed
+
+Two-axis review (standards and spec) of the whole branch:
+
+- **`dock panel` after any float.** Where a floating panel came from was noted only by `float panel`, so a panel
+  floated by Shift-drag docked into the last area. It is now read from dockview's own move, kept by the browser tab
+  with the arrangement, and the browser test docks a Shift-dragged panel and one floated before a reload.
+- **The menus over a floating area.** dockview's floating areas stood at 999 (a CSS variable that names itself), above
+  the shell's menus: a submenu opened from a floating area's tab was drawn under its grid's header. They stand at 99,
+  and the browser test now floats, sends to, docks and places an area through the menus.
+- **Float ▸ in a floating panel's menu** places its area, as the ADR's table says, with Dock beside it.
+- **A Shift-press on a strip's empty end**, which floats the whole area in dockview, is refused by name where that area
+  is the only one docked.
+- **What the tab keeps is read whole**: every part of dockview's layout, not only its version and panels.
+- **`reopen panel` says where the panel went**, and `next panel` with no active panel goes to the first.
+- **A splitter says its place** (`aria-valuenow`); the page inside an area is no second tab panel.
+- **A proposal's place** names exactly one of a panel, a Run or a page, and a label never stands in for one it could
+  not read; `arrange back` says so where none of the earlier arrangement's panels is still open.
+- **The records**: ADR-0018's note and ADR-0010's say the pricer reads its area only from a pull request of its own
+  after ADR-0016's step 5d; the spec's "As built" says what the build settled; the touch claim says Chromium's
+  emulation.
+
+A second review, of those fixes alone:
+
+- **`arrange back` puts back where each floating panel came from**, with the arrangement it puts back; `arrange`
+  clears it, since a proposal's floating area came from no area (`proposals.test.ts`).
+- **A kept floating area is read with where it is placed from**: exactly one of left and right, and of top and bottom.
+- **The Shift-press on a strip's empty end** finds the pressed area through dockview, not by reading the DOM's active
+  tab, so nothing unread lets it through.
+- **A floating title bar's grip** takes the same colour under the keyboard's focus as under the pointer (design
+  guidelines §8).
+- **ADR-0018's note** records the whole `dock panel` row and two readings of §4 (no frame with one area; `reopen
+  panel` says where only where there are several areas).
+
+Found by the full browser run that followed: **a page read its width inside the shell's gutter**, 16px less than its
+panel, so in one area of a 768px window the trace drilled in where it had been a tree. `simm.spec.ts` had passed by
+reading the trace before the browser reported the width; it now waits for the page to be told its width
+(`data-panel-width`). The panel's width is now its whole width, the gutter included (`PanelPage`), as the window's was.
+
+A third review, of that fix, found with scrollbars that take room (Windows, Linux; checked in Chromium with its
+scrollbars shown): an area's scrollbar took 15px from the width its page read, and a window from 768 to 782px stayed
+areas or strip by whichever it was drawn in first, since the strip's document scrollbar narrowed the panels' space.
+An area's page now scrolls inside the panel's page, and the panels' space counts the document's scrollbar, read with
+the panels' width in one callback (read apart, the two added up for a render to a width neither layout had, and at
+760px the strip and the areas were drawn by turns). `e2e/scrollbars.spec.ts` launches Chromium with its scrollbars
+shown and crosses 768px both ways: each width is the same mode whichever it came from, and the page reads its panel's
+width. The same review: `reopen panel`'s notices are as ADR-0018's note now says, the Shift-press refusal says "the
+only area docked", and the kept floating area's check is named and typed as the others. A fourth review, of those:
+the panels' space is read only in the observer's callback, after the browser's layout (a window's change of width
+changes the document's box); the test waits for each scrollbar before the next width, and fails without the fix;
+`float panel`'s refusal says "the only panel docked", true with a floating area open; and `reopen panel` in one area
+is checked to say nothing.
 
 ## Generic commands, delivery step 6: saved sequences of edits (ADR-0016 §8, notes 60 to 64, 2026-11-12)
 
@@ -3000,9 +3158,9 @@ each line runs as its own command. With it the generic commands are built.
 
 | What | Result |
 |---|---|
-| `dotnet test server/Qube.slnx` | 1616 passed |
-| Client: `npm run typecheck`, `npm test`, `npm run build` | Clean; 427 passed in 40 files; built |
-| `npx playwright test` (Chromium, headless, Linux) | 118 passed |
+| `dotnet test server/Qube.slnx` | 1642 passed |
+| Client: `npm run typecheck`, `npm test`, `npm run build` | Clean; 465 passed in 44 files; built |
+| `npx playwright test` (Chromium, headless, Linux) | 127 passed |
 | `python3 tools/validate_handoff.py` | Passed |
 | A save typed with its reading, the offer of a saved sequence, the run's reading, the run with its notice and the Run it priced, `undo` after it, a save that keeps a refused line, a run that stops at its second line, a save that is refused | Looked at in the browser at 1440px, light and dark; the two readings also at 390px in both themes, 768px and 992px |
 
@@ -3082,14 +3240,18 @@ Two reviews with fresh context, of the standards and of the spec (ADR-0016 notes
 
 ## Next
 
-1. A page keeps its state by panel (ADR-0006 note 7, the owner's choice). The generic commands (ADR-0016) are
+1. Panels in areas: the pricer reads its area's width and height (ADR-0018 ticket 07's rest), the pull request after
+   step 1's, now that step 5d has merged.
+2. A page keeps its state by panel (ADR-0006 note 7, the owner's choice). The generic commands (ADR-0016) are
    built through step 6; what each step left for the owner is in its section's "Known limits".
-2. MVA with SIMM (`docs/12-implementation-plan.md` P2): spot IM from the XVA request's MVA option.
-3. ADR-0010 Delivery step 3 (Advanced: Before-only and After-only edits, the split fill), when the owner asks for it.
-4. The owner's review of ADR-0003 §7 (scopes, carry and conflict), then a synthetic source change that can produce a conflict, and the browser cases still open above (reload, failed case unavailable).
-5. Rates.
-6. ME-ID sign-in through MSAL (C30) and the visibility rules (C31, C32); AI over AG-UI with the company's Copilot behind the adapter port (C34).
-7. Slice 01b: Save and Pin (CO06), and the browser parts of CO03 and CO04.
+3. Panels in areas, ADR-0018 steps 2 (other browser windows) and 3 (parts of a page with links), in that order, each
+   once the owner has seen the one before.
+4. MVA with SIMM (`docs/12-implementation-plan.md` P2): spot IM from the XVA request's MVA option.
+5. ADR-0010 Delivery step 3 (Advanced: Before-only and After-only edits, the split fill), when the owner asks for it.
+6. The owner's review of ADR-0003 §7 (scopes, carry and conflict), then a synthetic source change that can produce a conflict, and the browser cases still open above (reload, failed case unavailable).
+7. Rates.
+8. ME-ID sign-in through MSAL (C30) and the visibility rules (C31, C32); AI over AG-UI with the company's Copilot behind the adapter port (C34).
+9. Slice 01b: Save and Pin (CO06), and the browser parts of CO03 and CO04.
 
 ## Later, perhaps
 

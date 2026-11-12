@@ -19,6 +19,8 @@ import { keyOf, panelLabel, type Panel, type WorkspaceState } from '../platform/
 import { holdKeyboard, keepKeyboard, keyboardAwaited, letGo, releaseKeyboard, rememberKeyboard, returnKeyboard } from './keyboard';
 import { goTo, placesOf } from './places';
 import { panelCommands, type PanelState } from './panelVerbs';
+import { arrangeCommands, arrangingOf, type Arranging } from './proposals';
+import { useArrangementVersion } from './arrangement';
 import { useStore } from 'zustand';
 import { createStore } from 'zustand/vanilla';
 import { useOptionalAiStore } from '../ai/AiProvider';
@@ -76,6 +78,8 @@ export function buildCommands(args: {
   readonly settings?: readonly SettingDescribed[];
   /** The AI pane, where one is mounted: `ai <request>` hands the request to it (ADR-0006 §7, ADR-0007 §7). */
   readonly ai?: { readonly ask: (request: string) => string | undefined; readonly open: boolean; readonly setOpen: (open: boolean) => void };
+  /** What `arrange <n>` and `arrange back` act on (ADR-0018 §8), where the page's panels are drawn. */
+  readonly arranging?: Arranging;
 }): Command[] {
   const { catalog, state, activeRun } = args;
   const active: Panel | undefined = state.panels.find((p) => p.id === state.activePanelId);
@@ -203,6 +207,7 @@ export function buildCommands(args: {
     },
     // The shell's verbs over its panels (ADR-0006 note 7), declared once with the strip's menus and keys.
     ...panelCommands(state, args.notify),
+    ...(args.arranging === undefined ? [] : arrangeCommands(args.arranging, args.notify)),
     {
       id: 'theme.toggle',
       words: 'toggle theme',
@@ -351,6 +356,7 @@ export function CommandPalette() {
 
   // Built when the line opens, at each chained command and as the panels change, so a page that registers its commands
   // after mounting is seen.
+  const arrangementVersion = useArrangementVersion();
   const commands = useMemo(() => {
     const state = workspace.store.getState();
     const ai = aiStore === undefined ? undefined : {
@@ -359,8 +365,10 @@ export function CommandPalette() {
       ask: (request: string) => aiStore.getState().ask(request, aiContextOf(active)),
     };
     return buildCommands({ catalog: workspace.catalog, state: { ...state, panels, activePanelId, closed, context }, activeRun, toggleTheme: toggleColorScheme, notify: workspace.notify,
-      settings: Object.values(settings), ...(ai === undefined ? {} : { ai }) });
-  }, [workspace, panels, activePanelId, closed, context, activeRun, toggleColorScheme, opened, opening, aiStore, aiOpen, active, settings]);
+      settings: Object.values(settings), ...(ai === undefined ? {} : { ai }), arranging: arrangingOf(workspace) });
+    // The panels' verbs act on the arrangement drawn now: built again as it changes, a chord never acts on a port that
+    // the strip or the areas have since replaced.
+  }, [workspace, panels, activePanelId, closed, context, activeRun, toggleColorScheme, opened, opening, aiStore, aiOpen, active, settings, arrangementVersion]);
 
   /** Reads what the page in the active panel shows now, as an opening: at each opening, and at each chained command. */
   const readScreen = useCallback(() => {

@@ -184,6 +184,25 @@ make the good operations commands too"). DEFAULT, decided as recommended and rep
      page would watch its live frames, so live would run on unseen while the panel is open (docs/07 §6 stops it once
      nobody watches). Built in its own pull request, after ADR-0016's step 5 changes the pricer's page.
 
+## Notes of 2026-11-12: areas (ADR-0018)
+
+8. **Note 7's strip is each area's** (ADR-0018 §1, accepted by the owner on 2026-11-12). From a panels' space of
+   768px the panels stand in areas, split, floating and maximised, each under a strip of note 7's. What changes here:
+   - *Within its area.* `close other panels`, `close panels to the right`, `move panel` and a tab dragged along a strip
+     act on the panel's own area. `close all panels` still closes every panel but the pinned, in every area, and
+     `next panel` and `previous panel` go through every panel in reading order (ADR-0018 §1). Pinned panels stand first
+     in their area.
+   - *The list* at an area's end lists that area's panels and the shown panel's verbs; `show panel` reaches any.
+   - *Where a panel opens and what closing shows* (ADR-0018 §4): beside the active panel in its area; closing shows the
+     panel that area showed before, and an area left empty goes.
+   - *Below 768px, or where the arrangement does not fit,* the strip is this note's one strip, of every panel, the
+     pinned first and the rest in reading order.
+   - *Kept by the browser tab* (ADR-0018 §7): "the panels are kept while the page is loaded" (note 7) becomes "kept by
+     the browser tab across a reload", with the arrangement. Two tabs keep their own.
+   - *The new verbs* (`split panel`, `send panel to`, `float panel`, `dock panel`, `size panel`, `maximize panel`,
+     `unmaximize panel`, `gather panels`, `arrange`) are declared in `panelVerbs.ts` as note 7's are, and are the
+     client's in the same way. Their words are settled in `docs/specs/panels-1-areas/spec.md`.
+
 ## Changed from the proposal
 
 The owner's corrections, 2026-10-27: the command line and the AI chat's slash commands are separate, and `/` opens

@@ -7,7 +7,7 @@ import type { Panel } from '../platform/workspace/workspaceStore';
 import { useAi, useAiContext } from './AiProvider';
 import { answering, conversationModel } from './aiStore';
 import type { AiCard, AiStep } from './cards';
-import { aiContextOf } from './effects';
+import { aiAnswerOf, aiContextOf } from './effects';
 
 // The AI pane (ADR-0007 §7): one card per request, newest last, and the chat input. `/` at the start of the input
 // opens the chat's own commands, which are about the conversation, never the command line's (ADR-0006 §2).
@@ -221,6 +221,8 @@ function StatusBadge({ status }: { readonly status: AiCard['status'] }) {
 function Step({ step }: { readonly step: AiStep }) {
   const outcome = step.outcome;
   const name = outcome?.capability ?? step.tool;
+  // An answer its module draws, such as a proposal's plan (ADR-0018 §8), is drawn so in place of its JSON.
+  const Answer = outcome?.status === 'done' ? aiAnswerOf(outcome.capability) : undefined;
   return (
     <Stack gap={2} data-testid="ai-step" data-tool={step.tool} data-outcome={outcome?.status ?? 'calling'}>
       <Group gap={6} wrap="nowrap">
@@ -233,7 +235,8 @@ function Step({ step }: { readonly step: AiStep }) {
           {outcome.issues.map((i, n) => <Text key={n} size="xs" c="dimmed">{i.path === '' ? i.message : `${i.path}: ${i.message}`}</Text>)}
         </Stack>
       )}
-      {outcome?.status === 'done' && (
+      {outcome?.status === 'done' && Answer !== undefined && <Answer outputs={outcome.outputs} call={step.toolCallId} />}
+      {outcome?.status === 'done' && Answer === undefined && (
         // An answer may be a page of rows (ADR-0016 note 38): it scrolls in its own block, and the card stays a card.
         // 30vh is geometry the theme has no name for: the most of the window one answer takes, so the conversation
         // under it stays in reach at every height.

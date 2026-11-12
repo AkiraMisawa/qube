@@ -3,9 +3,10 @@ import { command, expect, open, settled, test } from './fixtures';
 
 // ADR-0006 note 7 of 2026-11-12: managing the panels' tabs. What only a browser shows: whether a tab is in sight in a
 // strip too narrow for them all, the keys and the pointer buttons a tab takes, and a drag. What each verb does to the
-// strip is the store's and the verbs' (Vitest).
+// strip is the store's and the verbs' (Vitest). From 768px the panels stand in areas, each area's strip note 7's
+// (ADR-0018 §1), so these run on one area's strip at 768px and the default 1280px, and on the phone's one strip at 390px.
 
-const strip = (page: Page) => page.locator('.qube-panel-strip');
+const strip = (page: Page) => page.locator('.qube-panels');
 /** The tab labelled so, by its title alone: a tab's name holds its close button's too, and one label begins another's. */
 const tab = (page: Page, label: string) =>
   strip(page).getByRole('tab').filter({ has: page.locator('.qube-panel-tab-title').getByText(label, { exact: true }) });
@@ -23,8 +24,9 @@ async function newRates(page: Page, label: string): Promise<void> {
 
 /** Whether the tab is wholly inside the strip's scrolling part, as the user sees it. */
 const inSight = (page: Page, label: string) => tab(page, label).evaluate((t) => {
-  const viewport = t.closest('.mantine-ScrollArea-viewport');
-  if (viewport === null) throw new Error('The tab is not in the strip.');
+  // The phone's strip scrolls in Mantine's viewport; an area's in dockview's list of tabs, the tab's parent.
+  const viewport = t.closest('.mantine-ScrollArea-viewport') ?? (t.closest('.dv-tabs-and-actions-container') === null ? null : t.parentElement);
+  if (viewport === null) throw new Error('The tab is not in a strip.');
   const [a, v] = [t.getBoundingClientRect(), viewport.getBoundingClientRect()];
   return a.left >= v.left - 0.5 && a.right <= v.right + 0.5;
 });
@@ -49,7 +51,10 @@ for (const width of [768, 390]) {
     await expect(list.getByRole('menuitem')).toHaveText([
       'Pricing DB', 'Rates 2026-10-27', 'Rates 2026-10-27 · 2', 'Rates 2026-10-27 · 3', 'Rates 2026-10-27 · 4', 'Rates 2026-10-27 · 5',
       // The active panel's verbs, each with the words the line takes.
-      /^Close.*close panel$/, /^Close others/, /^Close to the right/, /^Close all/, /^Pin/, /^Move left/, /^Move right/, /^Reopen closed panel/,
+      /^Close.*close panel$/, /^Close others/, /^Close to the right/, /^Close all/, /^Pin/, /^Move left/, /^Move right/,
+      // In an area, the verbs that arrange (ADR-0018 §3); the phone's one strip has no areas to arrange.
+      ...(width === 390 ? [] : [/^Split/, /^Send to/, /^Float/, /^Size/, /^Maximize/, /^Gather all panels here/]),
+      /^Reopen closed panel/,
     ]);
     // The last panel goes no further right: the item says why under it, where a phone reads it too, and stays in the
     // arrows' reach; choosing it leaves the list open and the panel where it is.
@@ -76,7 +81,7 @@ test('ADR-0006 note 7: a tab\'s menu opens by right click and by Shift+F10, and 
   const menu = page.getByRole('menu', { name: 'Pricing DB', exact: true });
   await menu.getByRole('menuitem', { name: /^Pin/ }).click();
   await expect(menu).toBeHidden();
-  await expect(tab(page, 'Pricing DB')).toHaveAttribute('data-pinned', 'true');
+  await expect(tab(page, 'Pricing DB').getByLabel('pinned', { exact: true })).toBeVisible();
 
   // From the keyboard the menu takes it on its first item, and gives it back to the tab when it closes.
   const active = tab(page, 'Rates 2026-10-27 · 5');

@@ -175,7 +175,8 @@ test('docs/07 §3, ADR-0016 note 36: the Price button prices on the market the p
   await page.getByRole('button', { name: 'Price' }).click();
   await expect(notice(page)).toHaveText(/^Price was accepted as Run \S+\.$/);
   // The Run's panel is titled by the market it priced on: the one the page showed.
-  await expect(page.getByRole('tab', { name: new RegExp(`^Rates ${shown.slice(shown.lastIndexOf(':') + 1)} `) })).toHaveAttribute('aria-selected', 'true');
+  // A strip's tab is named by its title and its close button, an area's by its title alone (ADR-0018 §1).
+  await expect(page.getByRole('tab', { name: new RegExp(`^Rates ${shown.slice(shown.lastIndexOf(':') + 1)}(?: |$)`) })).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByTestId('run-status')).toHaveText('succeeded');
 
   await page.getByRole('tab', { name: 'Rates 2026-10-27' }).click();
@@ -391,11 +392,14 @@ test('ADR-0016 notes 16, 21, 25 and 34: with two lines selected the line says it
   await expect(cell(page, END)).toHaveText('5y');
 });
 
-test('ADR-0016 note 34: a default is set alone and a new line takes it; a value a default cannot hold is said on the line as the server says it', async ({ page }) => {
+test('ADR-0016 note 34, ADR-0017 §3: a default is set alone and a new line takes it, and the page says only the defaults set; a value a default cannot hold is said on the line as the server says it', async ({ page }) => {
   await open(page);
   await newWorkspace(page);
   const line = page.getByRole('combobox', { name: 'Command' });
   const read = page.getByTestId('command-preview');
+  const defaults = page.getByRole('tabpanel').getByTestId('line-defaults');
+  // A workspace that holds no default says none.
+  await expect(defaults).toHaveCount(0);
 
   // One default named: the others are left as they are, where the old command needed all three.
   await page.keyboard.press('ControlOrMeta+K');
@@ -405,6 +409,8 @@ test('ADR-0016 note 34: a default is set alone and a new line takes it; a value 
   await page.keyboard.press('Enter');
   await expect(line).toBeHidden();
   await expect(notice(page)).toHaveText('Set workspace default currency to JPY.');
+  // The two defaults not set are not said: the server's view leaves them out.
+  await expect(defaults).toHaveText('New lines default to JPY set in this workspace.');
   await taken(page, 'set', 'default notional=500 default direction=rec');
 
   // A value the default cannot hold is refused by the server's own sentence, before Enter and at it: no stack trace.
@@ -452,8 +458,13 @@ test('ExGrid ADR-0016, ADR-0017 §5: a column dragged wider by its header grip k
   await settled(page, 'Lines');
   await expect.poll(width).toBe(Math.round(before.width) + 100);
 
-  // The width is the user's (ADR-0017 §5): a reload and another workspace find it as it was released.
-  await open(page);
+  // The width is the user's (ADR-0017 §5): a reload, which brings the panels back (ADR-0018 §7), and another workspace
+  // find it as it was released.
+  await page.reload();
+  await settled(page, 'Lines');
+  await expect.poll(width).toBe(Math.round(before.width) + 100);
+  await command(page, 'close all panels');
+  await expect(page.getByText('Nothing open yet.')).toBeVisible();
   await newWorkspace(page);
   await settled(page, 'Lines');
   await expect.poll(width).toBe(Math.round(before.width) + 100);

@@ -154,6 +154,20 @@ The shell is the header, the panels under their tabs, and the AI pane (ADR-0007 
   that shows a tab, a drag that moves one to any place) call the same action of the store the verb does.
 - **The AI pane** is an aside beside the panels from `sm` up, and a drawer over them on a phone; neither takes the
   keyboard when it opens (ADR-0007).
+- **Areas** (ADR-0018). From a panels' space of 768px (the window less the AI pane), the panels stand in areas, each
+  under a strip of note 7's, drawn by dockview with the shell's tabs, menus and list (`client/src/shell/PanelAreas.tsx`).
+  - An area is at least 320 by 240px. A split, a size or a proposal that would make one smaller is refused, saying
+    the room it needs; where the space cannot hold the arrangement, the panels show as one strip until it can.
+  - The active panel's area is framed in `signal`, 2px; the others in the default border, 1px. The frame is the only
+    signal of which panel the line acts on besides the selected tab, so it is never dropped for looks. One area alone
+    has no frame: its selected tab says it, as the strip's does.
+  - A floating area has a title bar above its strip, one Control Height high, which moves it; its edges resize it. The
+    title bar carries the grip of a part's height handle, so that it reads as something to take. The title bar and
+    the splitters take the keyboard (arrows by 24px; Shift with the arrows resizes a floating area), show its focus
+    as a tab does, and are at least 24px to a finger (§8).
+  - The areas use the panels' space edge to edge: the shell's padding is the strip's, not the areas'.
+  - dockview's own colours, borders and sizes are set from the theme's tokens in `client/src/shell/shell.css`, in both
+    schemes; dockview's own context menu, overflow list and theme are not used.
 
 ## 7. Colour and themes
 
@@ -228,6 +242,16 @@ Mantine's breakpoints, beside the window classes Android and Material use for th
   or drawer), not for styling.
 - CSS variables do not work inside a media query, so a breakpoint in CSS is written in `em` and matches the table
   above (`max-width: 61.99em` is "below `md`").
+- **A page responds to its panel, not the window** (ADR-0018 §5). A panel's content is a CSS size container of its
+  width (`container: qube-panel / inline-size`, `PanelPage` in `client/src/platform/panelPage.tsx`), in an area and in
+  the strip alike: not of its height too, since in the strip a page grows with its content, which a `size` container
+  would not let it. A page's breakpoint is a container query on it, written with the table's widths
+  (`@container qube-panel (max-width: 47.99em)` is "below `sm`" for the page), and a height that filled the window
+  fills its area's page (`.qube-panel-page-body` in an area, its area's height, which scrolls the page). The width is
+  the panel's whole width, the shell's gutter included, and a scrollbar beside the page takes nothing from it: a page
+  in one area of a 768px window reads 768px, as it read the window. A hook that chooses what mounts reads the panel's
+  width as the browser reports it when it changes (`usePanelWidth`), never the window's. The shell itself (the header,
+  the AI pane, areas or a strip) still reads the window.
 - **MUST NOT** scroll the page sideways. A grid scrolls inside itself; a toolbar wraps.
 - **MUST** look at a layout change at 390, 768, 992 and 1440px wide, in both themes, before it is reviewed: those are
   the widths where this shell changes shape.

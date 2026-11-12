@@ -14,14 +14,13 @@ describe('workspace store', () => {
   });
 
   // ADR-0006 note 7: closing the active panel shows the one shown before it, as a browser's or an editor's tab does.
-  it('shows the panel shown last when the active panel closes, and cycles around the ends', () => {
+  it('shows the panel shown last when the active panel closes', () => {
     const store = createWorkspaceStore(valid, contextContract);
     const { openPanel } = store.getState();
     const a = openPanel({ kind: 'run', title: 'A', runId: 'r1', viewKey: undefined });
     const b = openPanel({ kind: 'run', title: 'B', runId: 'r2', viewKey: undefined });
     const c = openPanel({ kind: 'run', title: 'C', runId: 'r3', viewKey: undefined });
-    store.getState().cycle(1);
-    expect(store.getState().activePanelId).toBe(a);
+    store.getState().activate(a);
     store.getState().activate(b);
     store.getState().closePanel(b);
     expect(store.getState().activePanelId).toBe(a);
@@ -86,12 +85,12 @@ describe('workspace store', () => {
     store.getState().closePanel(b);
     store.getState().closePanel(a);
     expect(store.getState().closed.map((p) => p.page.title)).toEqual(['B', 'A']);
-    const again = store.getState().reopenPanel();
+    const again = store.getState().reopenPanel()?.id;
     expect(store.getState().panels.map((p) => p.title)).toEqual(['A', 'C']);
     expect(store.getState().activePanelId).toBe(again);
-    const back = store.getState().reopenPanel()!;
+    const back = store.getState().reopenPanel()!.id;
     expect(store.getState().panels.map((p) => p.title)).toEqual(['A', 'B', 'C']);
-    expect(store.getState().reopenPanel()).toBeUndefined();
+    expect(store.getState().reopenPanel()?.id).toBeUndefined();
     expect(c).not.toBe(back);
   });
 
@@ -105,9 +104,9 @@ describe('workspace store', () => {
     store.getState().closePanel(db);
     store.getState().showApp('pricing-db', 'Pricing DB', {});
     expect(store.getState().closed).toHaveLength(2);
-    expect(store.getState().reopenPanel()).not.toBe(db);
+    expect(store.getState().reopenPanel()?.id).not.toBe(db);
     expect(store.getState().panels.map(panelLabel)).toEqual(['A', 'Pricing DB']);
-    expect(store.getState().reopenPanel()).toBe(again);
+    expect(store.getState().reopenPanel()?.id).toBe(again);
     expect(store.getState().activePanelId).toBe(again);
     expect(store.getState().panels.map(panelLabel)).toEqual(['A', 'Pricing DB']);
     expect(store.getState().closed).toHaveLength(0);
@@ -165,5 +164,66 @@ describe('workspace store', () => {
     expect(store.getState().panels.some((p) => p.pinned === true)).toBe(false);
     store.getState().movePanel(b, 2);
     expect(order()).toBe('ACB');
+  });
+
+  // ADR-0018 §4: closing the active panel shows what its area showed before; an area left empty gives way to the panel
+  // shown before it anywhere. A closed panel is kept with its area, which `reopen panel` puts it back in.
+  it('ADR-0018 §4: follows the active panel within its area as it closes, and keeps the area of a panel closed', () => {
+    const store = createWorkspaceStore(valid, contextContract);
+    const [a, b, c] = ['A', 'B', 'C'].map((t, i) => store.getState().openPanel({ kind: 'run', title: t, runId: `r${i}`, viewKey: undefined })) as [string, string, string];
+    const area: Record<string, string> = { [a]: 'left', [b]: 'left', [c]: 'right' };
+    const areaOf = (id: string) => area[id];
+    store.getState().activate(b);
+    store.getState().activate(c);
+    store.getState().activate(a);
+    store.getState().closePanel(a, areaOf);
+    expect(store.getState().activePanelId).toBe(b);
+    expect(store.getState().closed.at(-1)).toMatchObject({ area: 'left' });
+    store.getState().closePanel(b, areaOf);
+    expect(store.getState().activePanelId).toBe(c);
+    // Without areas, the panel shown last anywhere follows, as note 7 has it.
+    const strip = createWorkspaceStore(valid, contextContract);
+    const [x, y, z] = ['X', 'Y', 'Z'].map((t, i) => strip.getState().openPanel({ kind: 'run', title: t, runId: `s${i}`, viewKey: undefined })) as [string, string, string];
+    strip.getState().activate(y);
+    strip.getState().activate(x);
+    strip.getState().closePanel(x);
+    expect(strip.getState().activePanelId).toBe(y);
+    expect(strip.getState().closed.at(-1)?.area).toBeUndefined();
+    expect(z).toBeDefined();
+  });
+
+  // ADR-0018 §1: a close of several within an area names the panels of that area only.
+  it('ADR-0018 §1: closes the others of an area, the pinned kept', () => {
+    const store = createWorkspaceStore(valid, contextContract);
+    const [a, b, c, d] = ['A', 'B', 'C', 'D'].map((t, i) => store.getState().openPanel({ kind: 'run', title: t, runId: `r${i}`, viewKey: undefined })) as [string, string, string, string];
+    store.getState().pinPanel(b, true);
+    expect(store.getState().closePanels('others', c, [a, b, c])).toEqual({ closed: 1, pinned: 1 });
+    expect(store.getState().panels.map((p) => p.title)).toEqual(['B', 'C', 'D']);
+    expect(d).toBeDefined();
+  });
+
+  // ADR-0018 §5: while areas are shown, the strip's order is set from their reading order, the pinned first.
+  it('ADR-0018 §5: takes an order naming every open panel once, and refuses another', () => {
+    const store = createWorkspaceStore(valid, contextContract);
+    const [a, b, c] = ['A', 'B', 'C'].map((t, i) => store.getState().openPanel({ kind: 'run', title: t, runId: `r${i}`, viewKey: undefined })) as [string, string, string];
+    store.getState().setOrder([c, a, b]);
+    expect(store.getState().panels.map((p) => p.title)).toEqual(['C', 'A', 'B']);
+    expect(() => store.getState().setOrder([c, a])).toThrow();
+    expect(() => store.getState().setOrder([c, a, a])).toThrow();
+  });
+
+  // ADR-0018 §7: what a browser tab kept comes back as it was, and a panel opened after it takes a new id.
+  it('ADR-0018 §7: takes up the panels a browser tab kept, and numbers the next after them', () => {
+    const store = createWorkspaceStore(valid, contextContract);
+    store.getState().restore({
+      panels: [{ id: 'panel-4', kind: 'run', title: 'A', runId: 'r1', viewKey: undefined }, { id: 'panel-7', kind: 'run', title: 'B', runId: 'r2', viewKey: undefined, pinned: true }],
+      activePanelId: 'panel-7',
+      recent: ['panel-7', 'panel-gone', 'panel-4'],
+      closed: [],
+    });
+    expect(store.getState().activePanelId).toBe('panel-7');
+    expect(store.getState().recent).toEqual(['panel-7', 'panel-4']);
+    expect(store.getState().openPanel({ kind: 'run', title: 'C', runId: 'r3', viewKey: undefined })).toBe('panel-8');
+    expect(() => store.getState().restore({ panels: [], activePanelId: undefined, recent: [], closed: [] })).toThrow();
   });
 });

@@ -217,8 +217,12 @@ test("ADR-0017 §5: a column dragged in the pricer's existing trades keeps its w
   await expect.poll(width).toBe(Math.round(before.width) + 60);
   await expect.poll(async () => (await held(page.request, 'grid.widths.xva/trades/existing')).set).toBe(true);
 
-  // A reload, and another workspace: the width is the user's for that grid.
-  await open(page);
+  // A reload, which brings the panels back (ADR-0018 §7), and another workspace: the width is the user's for that grid.
+  await page.reload();
+  await settled(page, 'Existing trades');
+  await expect.poll(width).toBe(Math.round(before.width) + 60);
+  await command(page, 'close all panels');
+  await expect(page.getByText('Nothing open yet.')).toBeVisible();
   await newWorkspace(page, 'ABC/LE-01', 2);
   await expect.poll(width).toBe(Math.round(before.width) + 60);
 
