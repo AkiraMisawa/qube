@@ -69,6 +69,15 @@ idempotency keys through the application executor, and a scripted transcript lab
    and valuation date) as AG-UI `context`. The agent may use it as the default target (ADR-0006 §5); the command still
    checks that the caller owns the target.
 
+*Note of 2026-11-12 on §7 and §8 (ADR-0018 §8, accepted by the owner that day):* the AI proposes an arrangement of the
+panels and never makes one. A kernel capability, `layout.propose`, answers a proposal and changes nothing; the card of
+a request that proposed one draws it as a small plan with an **Apply** button and the line's words for it,
+`arrange <n>`, and applying it is the user's one step, which `arrange back` undoes. The context the pane sends gains the
+open panels (each one's id, title and what it shows) and the areas holding them, as a description, so the agent can
+name them; it stays a description, not authority (§8), and what a proposal names is checked in the browser as it is
+applied. The pane's other rule stands: a panel the AI opens is opened behind the active one, and the AI never
+activates a panel or moves the focus (§7).
+
 ## Consequences
 
 - A new project `Qube.Agent` holds the AG-UI events, threads, the loop, the tool gateway, the runtime port and the

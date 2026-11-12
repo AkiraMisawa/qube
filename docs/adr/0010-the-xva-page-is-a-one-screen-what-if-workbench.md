@@ -60,6 +60,10 @@ From top to bottom:
 Below `sm` (768px) the screen is three tabs, Inputs, Trades and Results, with the context bar above them. Everything
 follows `docs/design-guidelines.md`.
 
+*Note of 2026-11-12 (ADR-0018 §5, accepted by the owner with that record):* "below `sm`" is read by the width of the
+area the page is in, not the window's, now that a page can stand in an area beside others. A pricer in a 600px area is
+the three tabs, as it is in a 600px window; the full-height button and the page's heights read its area alike.
+
 ### 2. Original, Before and After are layers of changes (CONFIRMED, owner 2026-11-06)
 
 - **Original** is what the sources gave for this context: immutable, read-only on screen.
