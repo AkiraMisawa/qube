@@ -15,13 +15,14 @@ sealed class SensorRig
     public static readonly Caller Ana = new("ana", RunOrigin.Pricer);
 
     public WorkspaceService Workspaces { get; } = Stations.Service();
-    public TableRegister Register { get; } = new([new Stations.Catalog(sensors: true)]);
+    public TableRegister Register { get; }
     public CommandService Commands { get; }
     public CommandLines Lines { get; }
     public string Id { get; }
 
-    public SensorRig(bool described = true, ProductDescriptor? sensor = null)
+    public SensorRig(bool described = true, ProductDescriptor? sensor = null, TableDescriptor? readings = null)
     {
+        Register = new([new Stations.Catalog(sensors: true, readings: readings)]);
         var tables = new TableService(Register, Workspaces);
         var products = described
             ? new ProductService([new Stations.Products(sensor)], [new Stations.SensorRules(Workspaces)], Workspaces, Register)

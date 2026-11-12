@@ -16,7 +16,7 @@ public class DraftTests
 
     // A field of the form as its name, its value as written and, where the draft changed it, a mark.
     static string[] Fields(DraftForm form, params string[] names) =>
-        [.. form.Fields.Where(f => names.Contains(f.Name)).Select(f => $"{f.Name} {f.Written}{(f.Changed ? " *" : "")}")];
+        [.. form.Fields.Where(f => names.Contains(f.Field.Name)).Select(f => $"{f.Field.Name} {f.Written}{(f.Changed ? " *" : "")}")];
 
     [Fact] // ADR-0016 note 54: the form of a draft with no line is the row as the workspace has it, with the rows under it
     public void The_form_of_a_row_with_no_line_is_the_row_as_the_workspace_has_it()
@@ -26,9 +26,12 @@ public class DraftTests
         var form = Form(rig, "S1");
 
         Assert.Equal(["id S1", "altitude 15", "backup N1"], Fields(form, "id", "altitude", "backup"));
-        Assert.Equal([false, true, true], form.Fields.Where(f => f.Name is "id" or "altitude" or "backup").Select(f => f.Editable));
+        // What a page draws each input from: the word a line says the field by, whether it is written, its form and its choices.
+        Assert.Equal(["id id False", "altitude number True", "backup id True"],
+            form.Fields.Select(f => f.Field).Where(f => f.Name is "id" or "altitude" or "backup").Select(f => $"{f.Word} {f.Form} {f.Editable}"));
+        Assert.Equal("stations", form.Word);
         var sensors = Assert.Single(form.Under);
-        Assert.Equal((Stations.Sensors, "Sensors"), (sensors.Table, sensors.Title));
+        Assert.Equal((Stations.Sensors, "Sensors", "sensors"), (sensors.Table, sensors.Title, sensors.Word));
         Assert.Equal(["S1/1"], sensors.Rows.Select(r => r.Key));
         Assert.All(sensors.Rows, r => Assert.Null(r.Mark));
         Assert.Empty(form.Lines);
@@ -77,7 +80,7 @@ public class DraftTests
         // The removed row stays where it stood, as it was; a row made and removed within the draft was never the workspace's.
         var sensors = Assert.Single(form.Under);
         Assert.Equal(["N1/1 rain removed", "N1/2 gust changed", "N1/3 wind made"], sensors.Rows.Select(r => $"{r.Key} {r.Written[2]} {r.Mark}"));
-        Assert.Equal(["Sensor", "Station", "Kind", "Load", "Unit"], sensors.Fields);
+        Assert.Equal(["Sensor", "Station", "Kind", "Load", "Unit"], sensors.Fields.Select(f => f.Title));
     }
 
     [Fact] // ADR-0016 note 54: a draft carries its revision, and one the workspace has left is refused, saying the revision it is at and the commands that moved it
@@ -92,6 +95,48 @@ public class DraftTests
 
         Assert.Equal(("RevisionMoved", $"The draft of S1 was opened at revision {draft.Revision} and the workspace is at {rig.Board.Revision}, after set stations N1 altitude 130 and set stations S1 backup none."),
             (refused.Code, refused.Message));
+    }
+
+    [Fact] // ADR-0016 note 54: Original is the row as the source alone gives it, whatever the workspace and the draft changed
+    public async Task Original_is_the_row_as_the_source_alone_gives_it()
+    {
+        var rig = new SensorRig();
+        await rig.Run("set stations S1 altitude 18");
+        await rig.Run("new sensor S1 wind 2 m3");
+        await rig.Run("remove sensors S1/1");
+
+        var form = Form(rig, "S1", "set stations S1 altitude 20");
+
+        Assert.Equal(["altitude 20 *"], Fields(form, "altitude"));
+        Assert.Equal(["S1/2"], Assert.Single(form.Under).Rows.Select(r => r.Key));
+        var original = form.Original!;
+        Assert.Equal(["S1", "15", "N1"], form.Fields.Zip(original.Written).Where(f => f.First.Field.Name is "id" or "altitude" or "backup").Select(f => f.Second));
+        Assert.Equal(["S1/1 rain "], Assert.Single(original.Under).Rows.Select(r => $"{r.Key} {r.Written[2]} {r.Mark}"));
+    }
+
+    [Fact] // ADR-0016 note 54: a row the workspace made has no Original
+    public async Task A_row_the_workspace_made_has_no_Original()
+    {
+        var rig = new SensorRig();
+        await rig.Run("new sensor S1 wind 2 m3");
+
+        var form = rig.Lines.Draft(rig.Id, SensorRig.Ana, new(Stations.Sensors, "S1/2", rig.Board.Revision, []));
+
+        Assert.Equal("wind", form.Fields.Single(f => f.Field.Name == "kind").Written);
+        Assert.Null(form.Original);
+    }
+
+    [Fact] // ADR-0016 note 54: the form carries its table's templates, each with the word a line says it by and the terms it takes
+    public void The_form_carries_the_templates_of_its_table()
+    {
+        var rig = new SensorRig(readings: Stations.ReadingsWithTemplates);
+
+        var form = rig.Lines.Draft(rig.Id, SensorRig.Ana, new(Stations.Readings, "R1", rig.Board.Revision, ["set readings R1 as gauged gal"]));
+
+        Assert.Equal(["gauged (Gauged by hand): unit* choice M3|GAL, drift rate", "calm (Calm): "],
+            form.Templates.Select(t => $"{t.Word} ({t.Title}): {string.Join(", ", t.Takes.Select(x => $"{x.Name}{(x.Required ? "*" : "")} {x.Form}{(x.Choices is { } c ? $" {string.Join('|', c)}" : "")}"))}"));
+        Assert.Equal(["unit GAL *"], Fields(form, "unit"));
+        Assert.Empty(Form(new SensorRig(), "S1").Templates);
     }
 
     [Theory] // ADR-0016 note 54: a draft holds the lines that edit a row, and no other command's
