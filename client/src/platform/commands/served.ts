@@ -205,6 +205,9 @@ export function commandDoor(page: DoorPage, out: TakenOut = browserOut): Command
       const kept = shown !== undefined && view === given && (shown.asks === undefined || shown.revision === revision) ? shown : undefined;
       const reading = kept ?? await page.api.preview(line, page.workspaceId, { revision, ...(view === undefined ? {} : { view }) });
       if (reading.refused !== undefined) return reading.refused;
+      // A reading is of the draft it was asked with: one the user has changed since, as by taking a pending line
+      // back, is another draft, and nothing is done with a reading of the first.
+      if (draft !== undefined && page.drafts?.current() !== draft) return { sentence: 'The draft changed while this line was read, so nothing was done: Enter reads it again.' };
       const { asks } = reading;
       if (asks?.kind === 'copy' || asks?.kind === 'export') {
         // Cells to take out (note 44): the server reads the line again at the reading's revision and answers them,

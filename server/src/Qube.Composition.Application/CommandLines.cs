@@ -433,10 +433,16 @@ public sealed class CommandLines
     // draft's dialog as the screen behind it, which is the draft's table with its row selected.
     LinePreview Drafted(string line, string workspaceId, Caller caller, LineDraft draft)
     {
-        var opened = Opened(workspaceId, caller, draft);
-        var named = Of(opened).ToList();
-        var (left, read) = Folded(opened, caller, draft, named);
         var editing = $"Editing {draft.Key}: {(draft.Lines.Count == 0 ? "nothing" : TableWords.Counted(draft.Lines.Count, "line"))} pending.";
+        // A verb of the screen that a draft reads, which is `cancel`, writes nothing and reads nothing of the draft's
+        // lines: a draft the workspace has left, or one a line of which no longer reads, is still discarded by it.
+        var stands = WorkspaceCommands.Owned(workspaces, workspaceId, caller);
+        var typedOn = Of(stands).ToList();
+        if (Named(typedOn, LineWords.Of(line)) is { Command: null, Changes: null, WithDraft: true })
+            return Read(line, stands, caller, new LineView(draft.Table, Keys: [draft.Key], Draft: draft), typedOn) with { Revision = draft.Revision, View = editing };
+        var opened = At(stands, draft);
+        var named = typedOn;
+        var (left, read) = Folded(opened, caller, draft, named);
         if (read.Count > 0 && read[^1].Line.Refused is { } unread)
             return new(draft.Revision, null, null, null, null, null, null,
                 new("DraftUnread", $"Line {read.Count} of the draft of {draft.Key} no longer reads: {unread.Sentence}", null, null, null, []), [], 0, View: editing);
@@ -467,13 +473,11 @@ public sealed class CommandLines
 
     // The caller's workspace at the revision the draft was opened at. One it has left is refused with what moved it
     // (note 54): the draft's lines were accepted on other rows than the workspace now has.
-    WorkspaceState Opened(string workspaceId, Caller caller, LineDraft draft)
-    {
-        var state = WorkspaceCommands.Owned(workspaces, workspaceId, caller);
-        if (state.Revision == draft.Revision) return state;
-        throw new WorkspaceRefused("RevisionMoved",
+    WorkspaceState Opened(string workspaceId, Caller caller, LineDraft draft) => At(WorkspaceCommands.Owned(workspaces, workspaceId, caller), draft);
+
+    WorkspaceState At(WorkspaceState state, LineDraft draft) => state.Revision == draft.Revision ? state
+        : throw new WorkspaceRefused("RevisionMoved",
             $"The draft of {draft.Key} was opened at revision {draft.Revision} and the workspace is at {state.Revision}, after {TableWords.Some(workspaces.Since(state, draft.Revision))}.");
-    }
 
     // What a whole line would write on a state: its command's changes, where the command's line may be a draft's.
     static LineChanges Changes(string line, WorkspaceState state, Caller caller, IReadOnlyList<Typed> named)

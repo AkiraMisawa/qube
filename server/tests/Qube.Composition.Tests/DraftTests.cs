@@ -299,6 +299,24 @@ public class DraftTests
         Assert.Equal(revision, rig.Board.Revision);
     }
 
+    [Fact] // ADR-0016 note 55: cancel needs nothing of the workspace or of the draft's lines: a draft the workspace has left, or one a line of which no longer reads, is still discarded
+    public async Task Cancel_is_read_though_the_workspace_has_left_the_draft_or_a_line_of_it_no_longer_reads()
+    {
+        var rig = new SensorRig();
+        var unread = rig.Preview("cancel", Dialog(rig, "S1", "set stations S1 altitude 15"));
+        var other = rig.Preview("set altitude 20", Dialog(rig, "S1", "set stations S1 altitude 15"));
+        var stale = Dialog(rig, "S1", "set stations S1 altitude 20");
+        await rig.Run("set stations N1 altitude 130");
+
+        var left = rig.Preview("cancel", stale);
+
+        Assert.Equal(new LineCancel("Discarded the draft of S1."), unread.Asks);
+        Assert.Equal("DraftUnread", other.Refused?.Code);
+        Assert.Equal((new LineCancel("Discarded the draft of S1."), null), (left.Asks, left.Refused));
+        // Every other line of a draft the workspace has left is refused, as its form is.
+        Assert.Equal("RevisionMoved", Assert.Throws<WorkspaceRefused>(() => rig.Preview("set altitude 25", stale)).Code);
+    }
+
     [Fact] // ADR-0016 note 55: cancel is a verb of the screen: the page discards the draft, and nothing is invoked
     public void Cancel_asks_the_page_to_discard_the_draft()
     {

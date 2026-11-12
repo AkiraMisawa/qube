@@ -804,6 +804,19 @@ describe('a row\'s dialog and its draft, through the page\'s door (ADR-0016 §10
     expect(p.preview).not.toHaveBeenCalled();
   });
 
+  it('spine 6: a draft that changed while its line was being read, as when a pending line is taken back, gains nothing and writes nothing: the reading was of another draft', async () => {
+    const open = drafted('S1', 7, 'set stations S1 altitude 20');
+    const p = page(7, open);
+    // The reading answers after the user has taken the pending line back.
+    p.preview.mockImplementation(() => { p.state.draft = drafted('S1', 7); return Promise.resolve(applying(open)); });
+
+    const ended = await p.door.enter('apply', undefined, p.door.view());
+
+    expect(ended).toEqual({ sentence: 'The draft changed while this line was read, so nothing was done: Enter reads it again.' });
+    expect(p.command).not.toHaveBeenCalled();
+    expect(p.state.draft).toEqual(drafted('S1', 7));
+  });
+
   it('a line the server refuses in a draft keeps the draft as it was, with the reason', async () => {
     const p = page(7, drafted('S1', 7));
     p.preview.mockResolvedValue({ revision: 7, refused: { code: 'NothingToAdd', sentence: 'Nothing would change: S1 already holds altitude 15. The draft of S1 gains nothing.', candidates: [] }, complete: [], more: 0 });
