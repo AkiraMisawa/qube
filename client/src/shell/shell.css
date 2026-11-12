@@ -168,3 +168,51 @@
   align-items: center;
   height: calc(var(--mantine-font-size-xs) * var(--mantine-line-height-xs));
 }
+
+/* The panels' strip (ADR-0006 note 7): one row of tabs that scrolls sideways, and the list of every panel at its end,
+   on the strip's line. A tab and the list's button are each one Control Height (docs/design-guidelines.md §3) and
+   stand on the strip's bottom edge, where the tabs' line is; the list draws that line under itself. */
+.qube-panel-strip {
+  display: flex;
+  align-items: flex-end;
+  min-width: 0;
+}
+
+.qube-panel-strip-scroll {
+  flex: 1;
+  min-width: 0;
+}
+
+.qube-panel-list {
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  padding-inline-start: var(--mantine-spacing-xs);
+  border-bottom: 1px solid var(--tab-border-color);
+}
+
+/* A long title is cut with an ellipsis; the list of panels and the tab's own title say it whole. 16rem is about 32
+   characters at the tab's size, room for a workspace's or a Run's title. */
+.qube-panel-tab-title {
+  display: block;
+  max-width: 16rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A tab is one Control Height (§3), as the list's button beside it is: Mantine's tab has no size to say it by. */
+.qube-panel-tab {
+  height: 30px;
+}
+
+/* Where a dragged tab will go: the edge of the tab it takes the place of. */
+.qube-panel-tab[data-drop] {
+  box-shadow: inset 2px 0 0 var(--mantine-primary-color-filled);
+}
+
+/* The list's mark beside the panels that are not shown, as wide as the tick beside the one that is. */
+.qube-panel-list-mark {
+  display: inline-block;
+  width: 14px;
+}

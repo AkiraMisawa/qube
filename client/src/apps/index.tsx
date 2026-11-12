@@ -3,7 +3,7 @@ import { Button, Group, Modal, NumberInput, Select, Stack, Text } from '@mantine
 import { useQuery } from '@tanstack/react-query';
 import { CommandRefused, type Command } from '../platform/commands/commands';
 import { useWorkspace, useWorkspaceContext } from '../platform/workspace/WorkspaceProvider';
-import type { Panel, WorkspaceState } from '../platform/workspace/workspaceStore';
+import { panelLabel, type Panel, type WorkspaceState } from '../platform/workspace/workspaceStore';
 import { PricingDbPanel } from './history/PricingDbPanel';
 import { httpRatesApi, type RatesApi } from './rates/api';
 import { RatesWorkspacePanel } from './rates/RatesWorkspacePanel';
@@ -151,7 +151,7 @@ function oneOf<T extends string>(value: string | undefined, options: readonly T[
 
 /** What a command of the page in this panel says of itself: what it acts on, and that the empty line lists it first
  * (ADR-0006's note 3 of 2026-11-11). */
-const onPage = (panel: Panel): Pick<Command, 'target' | 'page'> => ({ target: panel.title, page: true });
+const onPage = (panel: Panel): Pick<Command, 'target' | 'page'> => ({ target: panelLabel(panel), page: true });
 
 export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDialog' | 'panels' | 'activePanelId'>): Command[] {
   const active = state.panels.find((p) => p.id === state.activePanelId);

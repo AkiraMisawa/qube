@@ -137,6 +137,12 @@ The shell is the header, the panels under their tabs, and the AI pane (ADR-0007 
   area, so a one-screen page does not move under it. It is `done` (teal, a tick, gone after six seconds unless the
   pointer or the keyboard is on it) or `refused` (red, a cross, there until closed or replaced). The kind is said by
   the caller, the icon and the colour, never read from the text.
+- **The panels' tabs are one row** that scrolls sideways, never wraps, and keeps the active tab in sight; the button
+  at its end lists every panel and the active panel's verbs, which is how a phone reaches them (ADR-0006 note 7). A
+  tab's menu (right click, Shift+F10) shows each verb with the words the command line takes for it. A tab is one
+  Control Height, as the button is (§3). A new item of a menu or key of a tab is a verb of
+  `client/src/shell/panelVerbs.ts`, so the line, the menus and the keys stay one; the pointer's own gestures (a click
+  that shows a tab, a drag that moves one to any place) call the same action of the store the verb does.
 - **The AI pane** is an aside beside the panels from `sm` up, and a drawer over them on a phone; neither takes the
   keyboard when it opens (ADR-0007).
 
