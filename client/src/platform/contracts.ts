@@ -448,6 +448,8 @@ export interface FieldInput {
   readonly choices?: readonly string[];
   readonly unit?: string;
   readonly figureOf?: string;
+  /** Whether the field holds a number, which a grid draws against the right edge: the server's to say, by the form. */
+  readonly number: boolean;
 }
 
 /** A term a template or a product takes, as a dialog asks for it. */

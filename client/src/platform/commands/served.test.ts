@@ -1,7 +1,7 @@
 import { ApiError, type Api, type CommandAnswer } from '../api';
 import type { CapabilityDescriptor, LineCopy, LineDraft, LineExport, LineFilter, LinePlace, LinePreview, LineSelect, LineSort, LineView, ShortFormDescriptor, ViewVerbDescriptor } from '../contracts';
 import { readLine, signature, type Command, type CommandDoor } from './commands';
-import { argumentShown, argumentsDrawn, commandDoor, lineAsked, previewShown, screenShown, servedCommands, tableMenu, taken, type DoorPage, type Drafts } from './served';
+import { argumentsDrawn, argumentShown, commandDoor, heldByDraft, lineAsked, previewShown, screenShown, servedCommands, tableMenu, taken, type DoorPage, type Drafts } from './served';
 
 // ADR-0016 §4, §5 and its note 15 of 2026-11-11: the line builds a command the catalog says how to type from the
 // catalog, and reads nothing of its line itself. What it does with the server's answer is held here; the names are made up.
@@ -31,7 +31,7 @@ const catalog = {
 const onScreen: LineView = { table: 'w.readings', subset: 'manual', keys: ['R1', 'R3'], focus: { field: 'note', key: 'R1' } };
 
 const door = (enter: CommandDoor['enter'] = () => Promise.resolve(undefined), view: CommandDoor['view'] = () => undefined, draft?: LineDraft): CommandDoor =>
-  ({ workspaceId: 'ws-1', app: 'weather', settled: () => Promise.resolve(), view, draft: () => draft, enter, invoke: () => Promise.resolve(undefined), redraft: () => Promise.resolve(undefined) });
+  ({ workspaceId: 'ws-1', app: 'weather', settled: () => Promise.resolve(), view, draft: () => draft, enter, invoke: () => Promise.resolve(undefined), redraft: () => Promise.resolve(undefined), keyboard: () => undefined });
 const panel = { id: 'p', title: 'Board 2026-11-11' };
 
 describe('a command the catalog says how to type (ADR-0016 §4)', () => {
@@ -268,6 +268,7 @@ describe('Enter on a line the server reads, through its page\'s door (ADR-0016 �
     readonly sort?: (asked: LineSort, view: LineView) => string | undefined;
     readonly filter?: (asked: LineFilter, view: LineView) => string | undefined;
     readonly select?: (asked: LineSelect, view: LineView) => string | undefined;
+    readonly keyboard?: (view: LineView, from?: Element) => void;
   }
 
   /** A page that holds its workspace at `held`, with nothing of its own waiting, and reads it again at `stands`. */
@@ -294,6 +295,7 @@ describe('Enter on a line the server reads, through its page\'s door (ADR-0016 �
         sort: (asked: LineSort) => (takes.sort === undefined ? 'This grid takes no sort.' : takes.sort(asked, seen)),
         filter: (asked: LineFilter) => (takes.filter === undefined ? 'This grid takes no filter.' : takes.filter(asked, seen)),
         select: (asked: LineSelect) => (takes.select === undefined ? 'This grid takes no selection.' : takes.select(asked, seen)),
+        keyboard: (from?: Element) => takes.keyboard?.(seen, from),
       };
     };
     return { turns, notify, preview, command, content, out, reread, door: commandDoor({ workspaceId: 'ws-1', app: 'weather', catalog, api: { preview, command, content }, turns, reread, notify,
@@ -619,6 +621,17 @@ describe('Enter on a line the server reads, through its page\'s door (ADR-0016 �
     expect(p.out.copy).not.toHaveBeenCalled();
   });
 
+  it('ADR-0016 §10: the keyboard is given back to the grid the page has on screen, and a page with no grid on screen does nothing', () => {
+    const keyboard = vi.fn();
+    const going = document.createElement('div');
+    page(7, 7, () => onScreen, { keyboard }).door.keyboard(going);
+    expect(keyboard.mock.calls).toEqual([[onScreen, going]]);
+    // No grid on screen, and a page that says nothing of its screen: nothing has the keyboard to take back.
+    page(7, 7, () => undefined, { keyboard }).door.keyboard();
+    page(7).door.keyboard();
+    expect(keyboard).toHaveBeenCalledTimes(1);
+  });
+
   it('a command by its id, from a key or a button, runs in the same turn at the catalog\'s version and the page\'s revision', async () => {
     const p = page(7, 8);
     p.command.mockResolvedValue({ capabilityId: 'workspace.undo', version: '1.0.0', outputs: { answer: { workspaceId: 'ws-1', revision: 8, said: 'Took back: set R1 checked on. redo puts it back.' } } });
@@ -802,6 +815,44 @@ describe('a row\'s dialog and its draft, through the page\'s door (ADR-0016 §10
 
     expect(ended).toEqual({ sentence: 'The dialog this line was typed for has closed: nothing was added.' });
     expect(p.preview).not.toHaveBeenCalled();
+
+    // Nor is it another row's line, where that row's dialog is the one open by then.
+    const other = page(7, drafted('S2', 7));
+    expect(await other.door.enter('set altitude 20', undefined, opened)).toEqual({ sentence: 'The dialog this line was typed for has closed: nothing was added.' });
+    expect(other.preview).not.toHaveBeenCalled();
+    expect(other.state.draft).toEqual(drafted('S2', 7));
+  });
+
+  it('spine 6: a line taken on the page before a dialog opened over it runs nothing once that dialog is open, and asking for the dialog that is open is done already', async () => {
+    const open = drafted('S1', 7, 'set altitude 20');
+    const p = page(7, open);
+    const held = { sentence: 'The dialog of S1 is open: apply writes its draft, and cancel discards it.' };
+    p.preview.mockResolvedValue({ revision: 7, command: { id: 'entity.set', version: '1.0.0' }, inputs: { request: { workspaceId: 'ws-1', revision: 7 } }, complete: [], more: 0 });
+
+    // Read with the grid's view it was taken on, it is an ordinary command: it is not the draft's, and is not run.
+    expect(await p.door.enter('set S2 altitude 5', undefined, onScreen)).toEqual(held);
+    expect(await p.door.enter('set S2 altitude 5')).toEqual(held);
+    expect(p.command).not.toHaveBeenCalled();
+
+    // A second press of the row's button asks for the dialog that is open: nothing is left to do, and nothing is said.
+    p.preview.mockResolvedValue(asked(7, { kind: 'open', table: 'w.stations', key: 'S1', said: 'Opened S1.' }));
+    expect(await p.door.enter('open S1', undefined, onScreen)).toEqual({ moved: true });
+    // Another row's dialog would take this one's lines with it.
+    p.preview.mockResolvedValue(asked(7, { kind: 'open', table: 'w.stations', key: 'S2', said: 'Opened S2.' }));
+    expect(await p.door.enter('open S2', undefined, onScreen)).toEqual(held);
+
+    expect(p.state.draft).toBe(open);
+    expect(p.notify).not.toHaveBeenCalled();
+  });
+
+  it('note 57: a command by its id is held while a dialog is open, as a grid\'s undo key pressed under it is: nothing runs, and the draft stays', async () => {
+    const open = drafted('S1', 7, 'set altitude 20');
+    const p = page(7, open);
+
+    expect(await p.door.invoke('workspace.undo', {})).toEqual({ sentence: 'The dialog of S1 is open: apply writes its draft, and cancel discards it.' });
+
+    expect(p.command).not.toHaveBeenCalled();
+    expect(p.state.draft).toBe(open);
   });
 
   it('spine 6: a draft that changed while its line was being read, as when a pending line is taken back, gains nothing and writes nothing: the reading was of another draft', async () => {
@@ -881,6 +932,12 @@ describe('a row\'s dialog and its draft, through the page\'s door (ADR-0016 §10
     expect(p.turns.revision).toBe(9);
     // With no dialog open there is nothing to read again, and that is said.
     expect(await page(7).door.redraft()).toEqual({ sentence: 'No dialog is open to read again.' });
+    // A dialog closed while the workspace was read has no draft to keep: the page stands where it read, and none is made.
+    const closing = page(7, drafted('S1', 7), 9);
+    closing.reread.mockImplementation(() => { closing.state.draft = undefined; return Promise.resolve(9); });
+    expect(await closing.door.redraft()).toBeUndefined();
+    expect(closing.state.draft).toBeUndefined();
+    expect(closing.turns.revision).toBe(9);
   });
 
   it('a page that opens no dialogs and is asked for one says so, and nothing is said done', async () => {
@@ -906,6 +963,14 @@ describe('a row\'s dialog and its draft, through the page\'s door (ADR-0016 §10
       ['find', 'The dialog of S1 is open: apply writes its draft, and cancel discards it.'],
       ['cancel', undefined],
     ]);
+    // A command says itself whether a draft reads it, for a key pressed after the list was made (note 57): the shell
+    // asks the same question of its own commands, none of which a draft reads.
+    const open = door(undefined, undefined, drafted('S1', 7));
+    expect(commands.map((c) => heldByDraft(c, open))).toEqual([undefined, 'The dialog of S1 is open: apply writes its draft, and cancel discards it.',
+      'The dialog of S1 is open: apply writes its draft, and cancel discards it.', undefined]);
+    expect(heldByDraft({}, open)).toBe('The dialog of S1 is open: apply writes its draft, and cancel discards it.');
+    expect(heldByDraft({}, door())).toBeUndefined();
+    expect(heldByDraft({}, undefined)).toBeUndefined();
     // With no draft open every one is as it was.
     expect(servedCommands(listed, panel, door(), vi.fn()).map((c) => c.unavailable)).toEqual([undefined, undefined, undefined, undefined]);
   });

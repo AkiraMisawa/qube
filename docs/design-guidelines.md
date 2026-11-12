@@ -68,6 +68,9 @@ Four principles follow, and every rule below is one of them made concrete.
   `sm`. Its fields stand in one column, two from `xs` and three from `md`, a switch on the line of the inputs beside
   it. Cancel and Save stay in view under the form as it scrolls. A table under the row is a compact `QubeGrid` as
   high as its rows, up to eight, with no column menus. What a field takes is its placeholder, never a line under it.
+  Escape and the close button ask as Cancel does, in every state of the dialog; a grid of the dialog hands on the
+  Escape it has nothing left to dismiss with (`onLeave`). The keyboard never falls to the page: it stays in the
+  dialog while it is open, and goes back to the grid behind it when it closes (`returnKeyboard`).
 - **A row's button** (ADR-0016 note 57): a grid whose rows have a dialog has one Action Column beside the row's key,
   64px wide with no header, holding the one button `Edit`. A second button on a row is a decision, not a habit.
 - **Inside content** (a resolution line under a grid, a card in the AI pane): `compact-xs` buttons (22px) are allowed

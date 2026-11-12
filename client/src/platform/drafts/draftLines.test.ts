@@ -5,7 +5,7 @@ import { cellLine, fieldLine, makeLine, removeLine, sectionsOf, shownOf, templat
 // field, a cell, a row and a template is held here; the names are made up.
 
 const field = (name: string, more: Partial<FieldInput> = {}): FieldInput =>
-  ({ name, title: name, word: name, editable: true, optional: false, form: 'text', takes: 'text', ...more });
+  ({ name, title: name, word: name, editable: true, optional: false, form: 'text', takes: 'text', number: false, ...more });
 const sensors: DraftTable = { table: 'w.sensors', title: 'Sensors', word: 'sensors', fields: [field('kind')], rows: [], makes: [] };
 const gauged: DraftTemplate = { word: 'gauged', title: 'Gauged by hand', takes: [
   { name: 'unit', title: 'Unit', required: true, form: 'choice', takes: 'one of M3, GAL', choices: ['M3', 'GAL'] },

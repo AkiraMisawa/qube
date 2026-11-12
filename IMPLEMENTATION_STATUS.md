@@ -2707,6 +2707,11 @@ draft: lines the page holds and the server reads, written by `apply` as one comm
   (`Applied 2 lines to E00004.`); `cancel` discards. Every other command, and the verbs of a grid, are refused while
   a draft is open, and the catalog says which are read (`draftCommands`), so the line lists the rest as
   unavailable.
+- **Nothing else runs on the page while a dialog is open.** The shell's own commands (the theme, the panels, a
+  workflow) are held with the page's, in the palette and at their chords, and say why: `The dialog of E00004 is
+  open: apply writes its draft, and cancel discards it.` A command run by its id (the grid's undo key) is refused
+  the same way, and so is a line typed for a dialog that has since closed or is another row's. A second press of
+  the row's button opens nothing new.
 - **`open <row>`** is read by the server and answers the page the one row whose dialog to open; the shell's `open
   <tab>` commands stay, and the line lists them while what is typed could still be one.
 - **The dialog** (`client/src/platform/drafts`: `DraftDialog`, `useDraft`, `draftLines`): a modal, the whole screen
@@ -2716,6 +2721,15 @@ draft: lines the page holds and the server reads, written by `apply` as one comm
   change is a line sent through the page's door and read on the server; a refusal is said where it was typed. The
   pending lines are listed and can be taken back one by one. Save is `apply`; Cancel, Escape and the close button
   discard, asking first where lines are pending. The line is typed over the dialog (Ctrl/⌘+K).
+- **What the dialog holds to.** A control sends a text once, and what is typed while a line is read is kept. Save
+  waits for the lines still being read and writes nothing where one of them was refused; while Save is read the form
+  takes nothing. The question before discarding is of one draft: it drops when the draft changes, and it is asked
+  in every state of the dialog, the form that failed to load included, which offers "Try again". A line is taken
+  back only from the list of the draft as it is. The form says which fields hold numbers (`number`), and a table
+  under the row draws those against the right edge, as every grid does; a width dragged there is kept by the table.
+- **The keyboard.** It stays in the dialog while it is open. Escape in a grid of the dialog, with nothing of the
+  grid's left to dismiss, is the dialog's (ex-grid's `onLeave`). Closed, the dialog gives the keyboard back to the
+  grid the page has on screen (`returnKeyboard`), at the Focus it had.
 - **A row's button**: the pricer's trade grids and its CSA grid have one button, Edit, beside the row's key. It runs
   `open <key>` through the page's door, as Space on its cell does.
 - **The pricer's page** holds the draft (`useDraft`) and says one sentence above the form: the simulated measures
@@ -2726,12 +2740,13 @@ draft: lines the page holds and the server reads, written by `apply` as one comm
 
 | What | Result |
 |---|---|
-| `dotnet test server/Qube.slnx` | 1506 passed |
-| Client: `npm run typecheck`, `npm test`, `npm run build` | Clean; 390 passed in 39 files; built |
-| `npx playwright test` (Chromium, headless, Linux), on the host rebuilt after the review's changes | 108 passed |
+| `dotnet test server/Qube.slnx` | 1509 passed |
+| Client: `npm run typecheck`, `npm test`, `npm run build` | Clean; 424 passed in 40 files; built |
+| `npx playwright test` (Chromium, headless, Linux), on the host rebuilt after the review's changes | 115 passed |
 | `python3 tools/validate_handoff.py` | Passed |
 | The dialog of a trade and of a CSA, the line typed over it, and the Edit column | Looked at, at 390, 768, 992 and 1440px, light and dark |
 | The Edit button by mouse, by touch (390px, a touch context) and by the keyboard (Space on its cell, Escape back to the grid) | Each opened the dialog |
+| After the review: the button pressed twice, Keep editing and Escape, the grid's undo key and a chord of the shell under the dialog, a leg's cell and Remove, a line taken back, the keyboard after the dialog closed | Looked at in the browser, each as the notes say |
 
 The kernel's tests read sensors under a station of the stations' readings (`SensorRig`): the form of a row with no
 line, each line read on what the lines before it left, a refused line, the marks of a row made, changed or removed
@@ -2741,12 +2756,23 @@ takes back and its refusals, and `cancel` in a draft that no longer reads. The p
 makes and removes legs, a CSA's draft with a template, a line that names no row, and `apply` of a trade's draft. The
 host's read the catalog's `draftCommands`, a draft in a preview's view with `apply` invoked as any command, and the
 form through its door. The client's read the lines a change makes (`draftLines`), the door with a draft open
-(`served`), the dialog with the door stood in (`DraftDialog.test.tsx`: a field by its form, a refusal where it was
-typed, a line sent once, a cell and a Remove button of a table under the row, a product's and a template's terms,
-the pending lines taken back, Save, Cancel asking first, the form the workspace has left, Original read-only), and
-the row's button. One browser flow (`e2e/drafts.spec.ts`) goes through the built client and the host: the Edit
-button, a field changed, a value refused, a leg typed on the line over the dialog, Cancel asking, Save, and one
-`undo`. It ran three times in a row before it went in.
+(`served`: a line for a dialog that has closed, a command by its id, a second `open` of the same row, the form read
+again after the dialog closed), the dialog with the door stood in (`DraftDialog.test.tsx`: a field by its form, a
+refusal where it was typed, a line sent once and the same text from another press, text typed while a line is
+read, a product's and a template's terms, the pending lines taken back and where the keyboard goes then, Save
+waiting for a line in flight, the form disabled while Save is read, Cancel, Escape and the close button asking
+first, the question dropped with its draft, the form the workspace has left, "Try again", Original read-only), the
+palette with a dialog open (`CommandPalette.test.tsx`: a shell command held in the list and at its chord), and the
+row's button.
+
+Three browser flows (`e2e/drafts.spec.ts`) go through the built client and the host. The first: the Edit button, a
+field changed, a value refused, a leg typed on the line over the dialog, Cancel asking, Save, and one `undo`. The
+second, by the keyboard: Space on the row's button, a leg's cell typed into and a leg removed in the dialog's grid
+(a table under the row is ExGrid, which jsdom does not draw, so these two are held here and not in the client's
+tests), the server's refusal of a second Remove, the grid's undo key and a chord of the shell held, Escape asking,
+Save, and the keyboard back in the grid behind, also after a dialog the line opened. The third, on a touch screen
+at 390px: a tap opens the dialog over the whole screen with Cancel and Save in view, and Cancel asks. The three ran
+five times in a row before they went in.
 
 The Edit column moved every later column of the trade grids and of the CSA grid one to the right. The pricer's
 browser tests that count columns were moved with it (`e2e/xva.spec.ts`), and one of them reads the CSA grid's
@@ -2754,6 +2780,42 @@ threshold once the Focus has brought it into view, since at the tests' 1280px it
 
 The test that a line is sent once passed without its guard at first, since the door stood in answered at once;
 the rig holds an answer back now, and the test fails with the guard taken out (two lines sent).
+
+### What the review changed
+
+The two reviews of the step (Standards and Spec, each with a fresh context) found defects that every test had
+passed over. Each is fixed with a test that fails without the fix, and ADR-0016 notes 54 to 57 say what was
+decided ("in review").
+
+- **A line taken back was taken from the draft as it then was**, not the one the list was drawn from, so a press
+  on a list a line had just changed could take back another line. `drop` takes the draft the list was drawn from
+  and refuses where it is no longer the page's.
+- **The question before discarding outlived its draft**, the form that failed to load discarded without asking,
+  and it offered nothing to try again with.
+- **A control could send its text twice** (Enter, then the blur), text typed while a line was read was written
+  over by the answer, and the fields stayed live while Save was read, so a line could be sent into a draft being
+  written.
+- **The shell's own commands and their chords ran under an open dialog**, and so did a command run by its id: the
+  grid's undo key took back a command of the workspace under the draft.
+- **`apply` of a draft whose line no longer read** answered the line's refusal as its own; it says `DraftUnread`
+  now, and a draft of no line is `NothingToApply`.
+- **The keyboard fell to the page** when a line was taken back or the dialog closed, and Escape in a grid of the
+  dialog was swallowed by the grid.
+- Smaller: a flag read by two readers, one of which took any text for off; a value outside its choices drawn as
+  blank; the fields that hold numbers named a second time on the client; the column widths of a table under the
+  row not kept; a test of the row's button that compared a constant with itself.
+
+Left as they are, with the reason:
+
+- **Comment lines longer than 120 characters** (59 of the lines the step adds). No document of the repository
+  limits a comment's width, and one comment line in eight on `main` is as long; a one-line doc comment is the form
+  the code around them uses.
+- **The door's two `catch` blocks that say an error alike**: they catch two kinds of error with no base of their
+  own.
+- **The dialog's own reading of the phone width** beside the shell's: the shell's is in `App.tsx`, which the
+  panels' work is changing.
+- **The older browser tests that find a cell by its number**; the new ones find it by the column's header.
+- **The Edit column's place** is the owner's (ticket 16, `ready-for-human`).
 
 ### Providers
 
@@ -2769,7 +2831,12 @@ synthetic source and the workspace's edits; every name and value is made up.
   view until the grid is scrolled.
 - **Only the pricer's trade grids and its CSA grid have the button.** A leg and an independent amount are reached
   in their trade's dialog.
-- **A draft is the page's.** A reload discards it without asking, as any view state.
+- **A draft is the page's.** A reload discards it without asking, as any view state. While its dialog is open the
+  shell's commands are held too, so the theme or the panel is changed after Save or Cancel.
+- **The keyboard goes back to the grid, not always to the row.** A dialog opened from the row's button with the
+  keyboard in the grid closes with the Focus on that row. One the line opened for another row closes with the Focus
+  where it was: moving it to the row asks the server for a place, and is not built. A dialog opened by a press with
+  the keyboard on nothing leaves it on nothing.
 - **Dates are typed as text** (`yyyy-MM-dd`); the dialog has no date picker.
 - **A removed row keeps its Remove button** under the row; pressing it again shows the server's refusal.
 - **Cancel, Escape and the close button discard on the page** and ask the server nothing; `cancel` typed is read

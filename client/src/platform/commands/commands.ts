@@ -57,6 +57,11 @@ export interface Command {
   /** Why the command cannot run now; absent when it can. */
   readonly unavailable?: string;
   /**
+   * A draft reads it (ADR-0016 §10, note 55 of 2026-11-12): it stays available while the page's row dialog is open.
+   * Every other command is held until the dialog closes, the shell's own among them.
+   */
+  readonly inDraft?: boolean;
+  /**
    * Does it. It reads its arguments before it does anything, and throws `CommandRefused` with the reason when it cannot
    * read them, so that a refusal has changed nothing and the line can stay open with what was typed (ADR-0006's note 1
    * of 2026-11-11).
@@ -84,6 +89,13 @@ export interface Screen {
   readonly sort: (asked: LineSort) => string | undefined;
   readonly filter: (asked: LineFilter) => string | undefined;
   readonly select: (asked: LineSelect) => string | undefined;
+  /**
+   * Gives the grid the keyboard back from something of the page's that held it over the grid and has gone, such as a
+   * row's dialog (ADR-0016 §10; ex-grid ADR-0070). The grid takes it only while nothing else has, or while `from`,
+   * the frame that is going, still has it: a control the user moved to keeps it. Neither the Focus nor the Selection
+   * moves.
+   */
+  readonly keyboard: (from?: Element) => void;
 }
 
 /** A line that ended with its command having put the keyboard somewhere itself (`find`; ADR-0016 note 21 of 2026-11-11): the line gives none back. */
@@ -146,6 +158,12 @@ export interface CommandDoor {
    * Never done unasked. Resolves with why where nothing was read.
    */
   redraft(): Promise<LineReason | undefined>;
+  /**
+   * Gives the keyboard back to the grid the page has on screen, once a dialog that stood over it has closed (ADR-0016
+   * §10: the dialog "returns to the row"). `from` is the dialog, where it is still drawn and may hold the keyboard as
+   * it goes. A page with no grid on screen does nothing.
+   */
+  keyboard(from?: Element): void;
 }
 
 /** What a served command is typed with and run through: its arguments as the catalog names them, and its page's door. */

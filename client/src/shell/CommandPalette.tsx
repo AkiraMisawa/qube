@@ -6,7 +6,7 @@ import {
   assertDistinct, CommandRefused, completionsOf, drawn, drawnSections, execute, finish, given, listed, placeholder, readLine, signature, take,
   type Command, type CommandDoor, type Completion,
 } from '../platform/commands/commands';
-import { argumentShown, argumentsDrawn, commandDoorOf, lineAsked, previewShown, screenShown, servedCommands, taken } from '../platform/commands/served';
+import { argumentShown, argumentsDrawn, commandDoorOf, heldByDraft, lineAsked, previewShown, screenShown, servedCommands, taken } from '../platform/commands/served';
 import { recordUse, usageScore } from '../platform/commands/usage';
 import { resetSetting, setSetting, useSettings, type SettingChanged, type SettingDescribed } from '../platform/settings/settings';
 import { openSettings } from './SettingsDialog';
@@ -235,7 +235,23 @@ export function buildCommands(args: {
     },
   );
   assertDistinct(commands);
-  return commands;
+  // While the page in the active panel has a row's dialog open, the line is its draft's (ADR-0016 §10, note 57): every
+  // command a draft does not read is listed and says whose dialog holds it, the shell's own as much as the page's. A
+  // command that could not run anyway keeps its own reason.
+  const door = commandDoorOf(active?.id);
+  return commands.map((command) => {
+    const held = command.unavailable === undefined ? heldByDraft(command, door) : undefined;
+    return held === undefined ? command : { ...command, unavailable: held };
+  });
+}
+
+/**
+ * Runs a command as the line or a chord asks, and answers why when nothing ran. A dialog opened over the page since
+ * the commands were made still holds them (ADR-0016 §10, note 57): what holds a command is asked at the press, never
+ * read from the list as it was made (spine 6), so a chord cannot change the panel under a draft.
+ */
+export function runOn(activePanelId: string | undefined, command: Command, args: Readonly<Record<string, string>> = {}): string | undefined {
+  return heldByDraft(command, commandDoorOf(activePanelId)) ?? execute(command, args);
 }
 
 /** A title as the words a command is typed with: lower case, single spaces, no punctuation. */
@@ -380,7 +396,7 @@ export function CommandPalette() {
 
   /** Runs a command, and answers why when nothing ran: it cannot run now, or it could not read its arguments. */
   const run = (command: Command, args: Readonly<Record<string, string>> = {}): string | undefined => {
-    const reason = execute(command, args);
+    const reason = runOn(workspace.store.getState().activePanelId, command, args);
     if (reason === undefined) recordUse(command.id);
     return reason;
   };

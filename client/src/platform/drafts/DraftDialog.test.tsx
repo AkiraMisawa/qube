@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, renderHook, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderUi } from '../../test/ui';
 import { ApiError } from '../api';
@@ -16,11 +16,11 @@ const TABLE = 't.stations';
 const KEY = 'S1';
 
 const field = (name: string, title: string, over: Partial<FieldInput> = {}): FieldInput =>
-  ({ name, title, word: name, editable: true, optional: false, form: 'text', takes: 'a text', ...over });
+  ({ name, title, word: name, editable: true, optional: false, form: 'text', takes: 'a text', number: false, ...over });
 
 const FIELDS: readonly FieldInput[] = [
   field('name', 'Name', { group: 'Site' }),
-  field('altitude', 'Altitude', { group: 'Site', form: 'number', takes: 'a number', unit: 'm' }),
+  field('altitude', 'Altitude', { group: 'Site', form: 'number', takes: 'a number', unit: 'm', number: true }),
   field('kind', 'Kind', { group: 'Sensors', form: 'choice', takes: 'rain or wind', choices: ['rain', 'wind'] }),
   field('open', 'Open', { group: 'Sensors', form: 'flag', takes: 'on or off' }),
   field('note', 'Note', { optional: true }),
@@ -31,8 +31,8 @@ const COASTAL: DraftTemplate = { word: 'coastal', title: 'Coastal station', take
 const SENSOR: DraftTemplate = { word: 'sensor', title: 'Sensor', takes: [{ name: 'load', title: 'Load', required: true, form: 'number', takes: 'a number' }] };
 const SENSORS = { table: 't.sensors', title: 'Sensors of the station', word: 'sensors', fields: [field('load', 'Load')], rows: [], makes: [SENSOR] };
 
-const formOf = (draft: LineDraft, made: boolean): DraftForm => {
-  const written = { ...SOURCE };
+const formOf = (draft: LineDraft, made: boolean, held: Readonly<Record<string, string>>): DraftForm => {
+  const written = { ...SOURCE, ...held };
   const changed = new Set<string>();
   const lines = draft.lines.map((line) => {
     const set = /^set (\w+) (.+)$/.exec(line);
@@ -59,7 +59,13 @@ class Rig {
   left = false;
   /** True where the workspace made the row. */
   made = false;
+  /** Why the server cannot answer a form, while it cannot. */
+  down: string | undefined;
+  /** What the row holds beyond the source's values. */
+  held: Readonly<Record<string, string>> = {};
   redrafts = 0;
+  /** How often the dialog gave the keyboard back to the page. */
+  keyboards = 0;
   drafts: Drafts | undefined;
 
   /** The server's answers that wait for `release`; none while it answers at once. */
@@ -70,27 +76,37 @@ class Rig {
 
   release() { const waiting = this.waiting; this.waiting = undefined; waiting?.forEach((answer) => answer()); }
 
+  /** The door's answers that wait for `releaseDoor`; none while it answers at once. */
+  private doorWaiting: (() => void)[] | undefined;
+
+  /** From here the door's turns wait: a line entered is being read until they are released. */
+  holdDoor() { this.doorWaiting = []; }
+
+  releaseDoor() { const waiting = this.doorWaiting; this.doorWaiting = undefined; waiting?.forEach((answer) => answer()); }
+
   readonly api = {
     draft: async (_workspace: string, draft: LineDraft): Promise<DraftForm> => {
       const waiting = this.waiting;
       if (waiting !== undefined) await new Promise<void>((answer) => { waiting.push(answer); });
       if (this.left) throw new ApiError(409, { code: 'RevisionMoved', message: `The workspace is at revision 8 and the draft of ${draft.key} was opened at 7.`, issues: [] });
-      return formOf(draft, this.made);
+      if (this.down !== undefined) throw new Error(this.down);
+      return formOf(draft, this.made, this.held);
     },
   };
 
-  door(drafts: Drafts): Pick<CommandDoor, 'enter' | 'view' | 'redraft'> {
-    const view = (): LineView | undefined => { const draft = drafts.current(); return draft === undefined ? undefined : { table: draft.table, draft }; };
+  door(drafts: Drafts): Pick<CommandDoor, 'enter' | 'redraft' | 'keyboard'> {
     return {
-      view,
-      enter: (line, _shown, given) => {
+      keyboard: () => { this.keyboards += 1; },
+      enter: async (line, _shown, given) => {
         this.entered.push({ line, view: given });
+        const waiting = this.doorWaiting;
+        if (waiting !== undefined) await new Promise<void>((answer) => { waiting.push(answer); });
         const sentence = this.refused.get(line);
-        if (sentence !== undefined) return Promise.resolve({ sentence });
+        if (sentence !== undefined) return { sentence };
         // As the page's door does: `apply` written closes the draft, and any other line read is one the draft gains.
         if (line === 'apply') drafts.close();
         else drafts.gain(line);
-        return Promise.resolve(undefined);
+        return undefined;
       },
       redraft: () => { this.redrafts += 1; this.left = false; drafts.moved(8); return Promise.resolve(undefined); },
     };
@@ -164,6 +180,47 @@ describe('a row\'s dialog, drawn from the form the server answers (ADR-0016 note
     expect(lines(rig)).toEqual(['set altitude 150']);
   });
 
+  it('note 57: the same line from another press is a line of its own, though the form of the first is not drawn yet', async () => {
+    const { rig, user } = await opened();
+    rig.hold();
+    const add = async () => {
+      await user.click(screen.getByRole('button', { name: 'Add Sensor…' }));
+      await user.type(within(screen.getByRole('group', { name: 'Sensor' })).getByRole('textbox', { name: /Load/ }), '40{Enter}');
+      await waitFor(() => expect(screen.queryByRole('group', { name: 'Sensor' })).not.toBeInTheDocument());
+    };
+    await add();
+    await add();
+    expect(lines(rig)).toEqual(['new sensor load=40', 'new sensor load=40']);
+    expect(pending()).toBe('2 pending');
+  });
+
+  it('note 57: a text typed while the field\'s line is being read is a line of its own, sent after it', async () => {
+    const { rig, user } = await opened();
+    rig.holdDoor();
+    await typed(user, /Altitude/, '150');
+    await typed(user, /Altitude/, '160');
+    expect(lines(rig)).toEqual(['set altitude 150', 'set altitude 160']);
+    rig.releaseDoor();
+    await waitFor(() => expect(pending()).toBe('2 pending'));
+    await waitFor(() => expect(screen.getByRole('textbox', { name: /Altitude/ })).toHaveAccessibleName(/changed/));
+    expect(screen.getByRole('textbox', { name: /Altitude/ })).toHaveValue('160');
+  });
+
+  it('note 57: a switch pressed twice is two lines, the second of what the first left', async () => {
+    const { rig, user } = await opened();
+    rig.hold();
+    await user.click(screen.getByRole('switch', { name: /Open/ }));
+    await user.click(screen.getByRole('switch', { name: /Open/ }));
+    expect(lines(rig)).toEqual(['set open off', 'set open on']);
+  });
+
+  it('note 57: a choice the form does not list is still drawn as what the row holds', async () => {
+    const rig = new Rig();
+    rig.held = { kind: 'snow' };
+    await opened(rig);
+    expect(screen.getByRole('combobox', { name: /Kind/ })).toHaveValue('snow');
+  });
+
   it('note 57: a flag is a switch and a choice a list, and an emptied field is sent as empty', async () => {
     const { rig, user } = await opened();
     await user.click(screen.getByRole('switch', { name: /Open/ }));
@@ -191,6 +248,8 @@ describe('a row\'s dialog, drawn from the form the server answers (ADR-0016 note
     await user.click(screen.getByRole('button', { name: 'Save' }));
     expect(rig.entered.at(-1)).toEqual({ line: 'apply', view: { table: TABLE, draft: { table: TABLE, key: KEY, revision: 7, lines: ['set altitude 150'] } } });
     await waitFor(() => expect(screen.queryByTestId('draft-pending')).not.toBeInTheDocument());
+    // §10: written, the dialog gives the keyboard back to the page, for the grid it stood over.
+    expect(rig.keyboards).toBe(1);
   });
 
   it('note 57: apply refused is said in the dialog, which stays open with its lines', async () => {
@@ -202,6 +261,64 @@ describe('a row\'s dialog, drawn from the form the server answers (ADR-0016 note
     await user.click(screen.getByRole('button', { name: 'Save' }));
     expect(await screen.findByTestId('draft-refused')).toHaveTextContent('The workspace moved to revision 8: read the draft again.');
     expect(pending()).toBe('1 pending');
+  });
+
+  it('note 57: Save waits for a line still being read, and writes nothing where that line was refused', async () => {
+    const rig = new Rig();
+    rig.refused.set('set altitude high', 'Altitude takes a number, and high is not one.');
+    const { user } = await opened(rig);
+    await typed(user, /Name/, 'North two');
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled());
+    rig.holdDoor();
+    const altitude = screen.getByRole('textbox', { name: /Altitude/ });
+    await user.clear(altitude);
+    await user.type(altitude, 'high');
+    // Leaving the field for Save sends its line, and Save is pressed while that line is read.
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    rig.releaseDoor();
+    expect(await screen.findByTestId('draft-refused')).toHaveTextContent('nothing was saved');
+    expect(lines(rig)).toEqual(['set name North two', 'set altitude high']);
+    expect(pending()).toBe('1 pending');
+    expect(screen.getByText('Altitude takes a number, and high is not one.')).toBeInTheDocument();
+  });
+
+  it('note 57: while Save is being read the form takes nothing, so no line is lost behind it', async () => {
+    const { rig, user } = await opened();
+    await typed(user, /Altitude/, '150');
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled());
+    rig.holdDoor();
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    expect(screen.getByRole('textbox', { name: /Name/ })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Take back: set altitude 150' })).toHaveAttribute('aria-disabled', 'true');
+    await user.click(screen.getByRole('button', { name: 'Take back: set altitude 150' }));
+    expect(pending()).toBe('1 pending');
+    rig.releaseDoor();
+    await waitFor(() => expect(screen.queryByTestId('draft-pending')).not.toBeInTheDocument());
+    expect(lines(rig)).toEqual(['set altitude 150', 'apply']);
+  });
+
+  it('note 57: the question is of the draft it was asked of: Escape and the close button ask it, and the next dialog opens without it', async () => {
+    const { rig, user } = await opened();
+    await typed(user, /Altitude/, '150');
+    await waitFor(() => expect(pending()).toBe('1 pending'));
+    await user.keyboard('{Escape}');
+    expect(screen.getByRole('alertdialog', { name: 'Discard the draft' })).toHaveAccessibleDescription('Discard the pending line?');
+    // Escape again keeps the draft, and the keyboard stays in the dialog, where the next Escape is heard.
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(screen.getByRole('dialog')).toContainElement(document.activeElement as HTMLElement);
+    await user.keyboard('{Escape}');
+    await user.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Keep editing' }));
+    expect(screen.getByRole('button', { name: 'Cancel' })).toHaveFocus();
+    await user.click(screen.getByRole('button', { name: 'Close the dialog' }));
+    await user.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Discard' }));
+    await waitFor(() => expect(screen.queryByTestId('draft-pending')).not.toBeInTheDocument());
+
+    await user.click(screen.getByRole('button', { name: 'Open S1' }));
+    await screen.findByRole('group', { name: 'Site' });
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(pending()).toBe('nothing pending');
+    expect(lines(rig)).toEqual(['set altitude 150']);
   });
 
   it('note 57: Cancel with nothing pending closes at once; with a line pending it asks first, and the server is asked nothing', async () => {
@@ -220,11 +337,14 @@ describe('a row\'s dialog, drawn from the form the server answers (ADR-0016 note
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
     expect(pending()).toBe('1 pending');
 
+    // Each time the dialog closed, and at no other time, the page was given the keyboard back for its grid.
+    expect(rig.keyboards).toBe(1);
     await user.click(screen.getByRole('button', { name: 'Cancel' }));
     await user.click(screen.getByRole('button', { name: 'Discard' }));
     await waitFor(() => expect(screen.queryByTestId('draft-pending')).not.toBeInTheDocument());
     expect(rig.drafts?.current()).toBeUndefined();
     expect(lines(rig)).toEqual(['set altitude 150']);
+    expect(rig.keyboards).toBe(2);
   });
 
   it('note 57: Original is the source\'s row, read-only, with no template and nothing to add', async () => {
@@ -268,9 +388,38 @@ describe('a row\'s dialog, drawn from the form the server answers (ADR-0016 note
     const user = userEvent.setup();
     renderUi(<Page rig={rig} />);
     await user.click(screen.getByRole('button', { name: 'Open S1' }));
-    await user.click(await screen.findByRole('button', { name: 'Discard' }));
+    await screen.findByRole('alert');
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
     await waitFor(() => expect(screen.queryByTestId('draft-pending')).not.toBeInTheDocument());
     expect(rig.entered).toEqual([]);
+  });
+
+  it('note 57: a draft the workspace has left asks before its pending lines are discarded', async () => {
+    const { rig, user } = await opened();
+    rig.left = true;
+    await typed(user, /Altitude/, '150');
+    expect(await screen.findByRole('alert')).toHaveTextContent('The workspace is at revision 8 and the draft of S1 was opened at 7.');
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+    const asked = within(screen.getByRole('alertdialog', { name: 'Discard the draft' }));
+    expect(asked.getByText('Discard the pending line?')).toBeInTheDocument();
+    await user.click(asked.getByRole('button', { name: 'Keep editing' }));
+    expect(pending()).toBe('1 pending');
+    expect(screen.getByRole('button', { name: 'Read the line again' })).toBeInTheDocument();
+    // Nothing is written of a draft that could not be read.
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+  });
+
+  it('note 57: a dialog the server could not answer says why, and is asked for again when the user says', async () => {
+    const rig = new Rig();
+    rig.down = 'The server did not answer.';
+    const user = userEvent.setup();
+    renderUi(<Page rig={rig} />);
+    await user.click(screen.getByRole('button', { name: 'Open S1' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('The server did not answer.');
+    rig.down = undefined;
+    await user.click(screen.getByRole('button', { name: 'Try again' }));
+    await screen.findByRole('group', { name: 'Site' });
+    expect(rig.redrafts).toBe(0);
   });
 
   it('note 57: the page\'s sentence is said above the form of its table', async () => {
@@ -312,5 +461,45 @@ describe('a row\'s dialog, drawn from the form the server answers (ADR-0016 note
     await waitFor(() => expect(pending()).toBe('1 pending'));
     expect(rig.drafts?.current()?.lines).toEqual(['set name North two']);
     await waitFor(() => expect(screen.getByRole('textbox', { name: /Altitude/ })).toHaveValue('120'));
+    // The keyboard is on the line that took the place of the one taken back, and once none is left, on Cancel.
+    expect(screen.getByRole('button', { name: 'Take back: set name North two' })).toHaveFocus();
+    await user.keyboard('{Enter}');
+    await waitFor(() => expect(pending()).toBe('nothing pending'));
+    expect(screen.getByRole('button', { name: 'Cancel' })).toHaveFocus();
+  });
+
+  it('note 57: nothing is taken back from a list drawn of an earlier draft', async () => {
+    const { rig, user } = await opened();
+    await typed(user, /Altitude/, '150');
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Take back: set altitude 150' })).not.toHaveAttribute('aria-disabled'));
+    rig.hold();
+    await typed(user, /Name/, 'North two');
+    await waitFor(() => expect(pending()).toBe('2 pending'));
+    // The list is still the one of the draft before: a press in it is of a line that may not be where it is drawn.
+    await user.click(screen.getByRole('button', { name: 'Take back: set altitude 150' }));
+    expect(pending()).toBe('2 pending');
+    rig.release();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Take back: set name North two' })).not.toHaveAttribute('aria-disabled'));
+    expect(rig.drafts?.current()?.lines).toEqual(['set altitude 150', 'set name North two']);
+  });
+});
+
+describe('the draft a page holds (ADR-0016 note 54)', () => {
+  it('note 57: a line is taken back from the draft the press was made on, and not from one that has changed since', () => {
+    const { result } = renderHook(() => useDraft());
+    act(() => result.current.drafts.open(TABLE, KEY, 7));
+    act(() => result.current.drafts.gain('set altitude 150'));
+    const seen = result.current.draft;
+    if (seen === undefined) throw new Error('The draft was opened and is not held.');
+    act(() => result.current.drafts.gain('set name North two'));
+    let taken: boolean | undefined;
+    act(() => { taken = result.current.drop(seen, 0); });
+    expect(taken).toBe(false);
+    expect(result.current.draft?.lines).toEqual(['set altitude 150', 'set name North two']);
+    const now = result.current.draft;
+    if (now === undefined) throw new Error('The draft is open and is not held.');
+    act(() => { taken = result.current.drop(now, 0); });
+    expect(taken).toBe(true);
+    expect(result.current.draft?.lines).toEqual(['set name North two']);
   });
 });

@@ -329,6 +329,7 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
       sort: (asked) => sortGrid(named, source, asked),
       filter: (asked) => filterGrid(source, asked),
       select: (asked) => selectRows(named, shown, read, asked, rowOf),
+      keyboard: (from) => shown.returnKeyboard(from),
     };
   }, [declared, source]);
 

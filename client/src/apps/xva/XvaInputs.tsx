@@ -394,6 +394,7 @@ function CsaGrid({ workspaceId, revision, csas, columns: declared, push, height,
       sort: (asked) => sortGrid(declared, source, asked),
       filter: (asked) => filterGrid(source, asked),
       select: (asked) => selectRows(declared, grid, read, asked, rowOf),
+      keyboard: (from) => grid.returnKeyboard(from),
     };
   }, [gridRef, source]);
   const filterOff = useCallback(() => { filterGrid(source, {}); }, [source]);

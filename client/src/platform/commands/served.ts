@@ -40,6 +40,19 @@ export interface Drafts {
 /** The capability that writes a draft (ADR-0016 note 55): once it has run, the draft it wrote is closed. */
 const DRAFT_APPLY = 'draft.apply';
 
+/** Why nothing but a draft's own commands is read while its dialog is open (ADR-0016 §10): whose it is, and how it ends. */
+const dialogOpen = (draft: LineDraft): string => `The dialog of ${draft.key} is open: apply writes its draft, and cancel discards it.`;
+
+/**
+ * Why a command is held while the page of `door` has a row's dialog open (ADR-0016 §10, note 57 of 2026-11-12): the
+ * commands a draft reads say so themselves, and every other one waits for the dialog to close, the shell's own among
+ * them. Asked as a list is made and again at a key's press, which may come after a dialog opened over the list.
+ */
+export function heldByDraft(command: Pick<Command, 'inDraft'>, door: Pick<CommandDoor, 'draft'> | undefined): string | undefined {
+  const draft = door?.draft();
+  return draft === undefined || command.inDraft === true ? undefined : dialogOpen(draft);
+}
+
 /** What a page has for its door: its workspace, its turns, and how it shows the workspace once a command has moved it. */
 export interface DoorPage {
   readonly workspaceId: string;
@@ -196,15 +209,25 @@ export function commandDoor(page: DoorPage, out: TakenOut = browserOut): Command
     draft: () => page.drafts?.current(),
     enter: (line, shown, given, heard) => run<LineReason | KeyboardMoved>(async (revision) => {
       const say = heard ?? ((said: string) => page.notify('done', said));
+      const open = page.drafts?.current();
       // A line typed for a draft is read on the draft as its turn finds it (spine 6): the lines the dialog sent before
-      // it are in it by now, and a reading of the draft as it was is not this turn's.
-      const draft = given?.draft === undefined ? undefined : page.drafts?.current();
-      if (given?.draft !== undefined && draft === undefined) return { sentence: 'The dialog this line was typed for has closed: nothing was added.' };
+      // it are in it by now, and a reading of the draft as it was is not this turn's. It is that dialog's line alone:
+      // once the dialog has closed it is nobody's, whatever row's dialog is open by then.
+      const draft = given?.draft === undefined ? undefined : open;
+      if (given?.draft !== undefined && (draft === undefined || draft.table !== given.draft.table || draft.key !== given.draft.key))
+        return { sentence: 'The dialog this line was typed for has closed: nothing was added.' };
       const view = draft === undefined ? given : draft === given?.draft ? given : { table: draft.table, draft };
       // What a view verb asks is of the workspace as it stood when it was read, and no write will refuse one that has
       // moved since: a reading of another revision than the page now holds is asked for again.
       const kept = shown !== undefined && view === given && (shown.asks === undefined || shown.revision === revision) ? shown : undefined;
       const reading = kept ?? await page.api.preview(line, page.workspaceId, { revision, ...(view === undefined ? {} : { view }) });
+      if (open !== undefined && given?.draft === undefined) {
+        // A line taken on the page before a dialog opened over it (spine 6), as a second press of a row's button is.
+        // Read with the view it was taken on it is no line of the draft, and nothing else is read while a dialog is
+        // open (§10). Where it asks for the dialog that is open, there is nothing left to do.
+        const again = reading.asks?.kind === 'open' && reading.asks.table === open.table && reading.asks.key === open.key;
+        return again ? { moved: true } : { sentence: dialogOpen(open) };
+      }
       if (reading.refused !== undefined) return reading.refused;
       // A reading is of the draft it was asked with: one the user has changed since, as by taking a pending line
       // back, is another draft, and nothing is done with a reading of the first.
@@ -242,6 +265,10 @@ export function commandDoor(page: DoorPage, out: TakenOut = browserOut): Command
       return { ...reading.command, inputs: reading.inputs };
     }, heard),
     invoke: (capabilityId, request, heard) => run<LineReason>(async (revision) => {
+      // A command by its id is no line of a draft: while a dialog is open it is held as every such command is (§10),
+      // a grid's undo key pressed in the dialog among them. Asked in its turn, where what is open is settled.
+      const open = page.drafts?.current();
+      if (open !== undefined) return { sentence: dialogOpen(open) };
       const capability = page.catalog.capabilities.find((c) => c.capabilityId === capabilityId);
       if (capability === undefined) throw new Error(`This server has no command ${capabilityId}.`);
       // A request made of what the page shows (note 37) is made here, in the turn, of the revision it is sent at.
@@ -249,12 +276,15 @@ export function commandDoor(page: DoorPage, out: TakenOut = browserOut): Command
       return { id: capabilityId, version: capability.version, inputs: { request: { ...made, workspaceId: page.workspaceId, revision } } };
     }, heard),
     redraft: () => page.turns.after(async (): Promise<LineReason | undefined> => {
-      if (page.drafts?.current() === undefined) return { sentence: 'No dialog is open to read again.' };
+      const drafts = page.drafts;
+      if (drafts?.current() === undefined) return { sentence: 'No dialog is open to read again.' };
       const stands = await page.reread();
       page.turns.rebase(stands);
-      page.drafts.moved(stands);
+      // The dialog may have closed while the workspace was read: there is then no draft to keep, and nobody to tell.
+      if (drafts.current() !== undefined) drafts.moved(stands);
       return undefined;
     }).catch((error: unknown) => ({ sentence: describe(error) })),
+    keyboard: (from) => page.screen?.()?.keyboard(from),
   };
 }
 
@@ -286,7 +316,7 @@ export function servedCommands(catalog: Pick<Catalog, 'capabilities' | 'viewVerb
     // Nor is a short form (note 29): the server reads it as the line it stands for, and that line's command runs.
     ...catalog.shortForms.map((f) => ({ id: `short.${f.formId}`, title: f.title, form: f.command, inDraft: true })),
   ];
-  const draft = door?.draft();
+  const held = heldByDraft({}, door);
   return typed.filter(({ form }) => form.app === undefined || form.app === door?.app).flatMap(({ id, title, form, inDraft }) => form.words.map((word, index): Command => {
     const words = word.toLowerCase();
     return {
@@ -299,7 +329,8 @@ export function servedCommands(catalog: Pick<Catalog, 'capabilities' | 'viewVerb
         ? { unavailable: 'This panel has no workspace for it to act on.' }
         : { target: panelLabel(panel), page: true, served: { arguments: form.arguments, door, ...(form.app === undefined ? {} : { app: form.app }) } }),
       // While a dialog is open only its draft's commands are read (§10): the rest are listed, and say why.
-      ...(draft === undefined || inDraft ? {} : { unavailable: `The dialog of ${draft.key} is open: apply writes its draft, and cancel discards it.` }),
+      ...(inDraft ? { inDraft } : {}),
+      ...(held === undefined || inDraft ? {} : { unavailable: held }),
       // From a key or a button there is no line: the words alone are read, with what is on screen at the press, and a
       // refusal is a notice.
       run: () => {

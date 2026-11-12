@@ -8,8 +8,12 @@ export interface DraftHeld {
   readonly draft: LineDraft | undefined;
   /** The same draft as the page's door reads and changes it. */
   readonly drafts: Drafts;
-  /** Takes a pending line back: the lines after it are read again on what is left. */
-  readonly drop: (index: number) => void;
+  /**
+   * Takes a pending line back from `seen`, the draft the press was made on: the lines after it are read again on what
+   * is left. Answers false, and takes nothing, where the draft has changed since: the line pressed may not be the one
+   * at its place any more (spine 6).
+   */
+  readonly drop: (seen: LineDraft, index: number) => boolean;
 }
 
 /**
@@ -35,7 +39,12 @@ export function useDraft(): DraftHeld {
       moved: (revision) => hold({ ...open(), revision }),
       close: () => hold(undefined),
     };
-    return { drafts, drop: (index: number) => hold({ ...open(), lines: open().lines.filter((_, at) => at !== index) }) };
+    const drop = (seen: LineDraft, index: number): boolean => {
+      if (held.current !== seen) return false;
+      hold({ ...seen, lines: seen.lines.filter((_, at) => at !== index) });
+      return true;
+    };
+    return { drafts, drop };
   }, []);
   return { draft, ...changes };
 }

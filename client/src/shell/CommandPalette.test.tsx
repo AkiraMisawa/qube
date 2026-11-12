@@ -1,4 +1,4 @@
-import { buildCommands } from './CommandPalette';
+import { buildCommands, runOn } from './CommandPalette';
 import { catalog, view, workflow } from '../test/catalog';
 import type { RunRecord } from '../platform/contracts';
 import type { WorkspaceState } from '../platform/workspace/workspaceStore';
@@ -98,7 +98,7 @@ describe('the page\'s commands (ADR-0006 note 3 of 2026-11-11)', () => {
 
     expect(served(typed).unavailable).toBe('This panel has no workspace for it to act on.');
 
-    registerCommandDoor('p', { workspaceId: 'w', app: 'weather', settled: () => Promise.resolve(), view: () => undefined, draft: () => undefined, enter: () => Promise.resolve(undefined), invoke: () => Promise.resolve(undefined), redraft: () => Promise.resolve(undefined) });
+    registerCommandDoor('p', { workspaceId: 'w', app: 'weather', settled: () => Promise.resolve(), view: () => undefined, draft: () => undefined, enter: () => Promise.resolve(undefined), invoke: () => Promise.resolve(undefined), redraft: () => Promise.resolve(undefined), keyboard: () => undefined });
     try {
       const set = served(typed);
       expect([set.words, set.group, set.target, set.page, set.unavailable, set.served?.door.workspaceId]).toEqual(['set', 'Workspace', 'XVA ABC/LE-01', true, undefined, 'w']);
@@ -113,7 +113,7 @@ describe('the page\'s commands (ADR-0006 note 3 of 2026-11-11)', () => {
       command: { words: [words], arguments: [], ...(app === undefined ? {} : { app }) },
     });
     const typed = { ...catalog([], []), capabilities: [served('entity.set', 'set'), served('weather.price', 'price', 'weather'), served('weather.vary', 'vary', 'weather'), served('tide.ebb', 'ebb', 'tide')] };
-    registerCommandDoor('p', { workspaceId: 'w', app: 'weather', settled: () => Promise.resolve(), view: () => undefined, draft: () => undefined, enter: () => Promise.resolve(undefined), invoke: () => Promise.resolve(undefined), redraft: () => Promise.resolve(undefined) });
+    registerCommandDoor('p', { workspaceId: 'w', app: 'weather', settled: () => Promise.resolve(), view: () => undefined, draft: () => undefined, enter: () => Promise.resolve(undefined), invoke: () => Promise.resolve(undefined), redraft: () => Promise.resolve(undefined), keyboard: () => undefined });
     try {
       const page = build(typed, s).filter((c) => c.page === true).map((c) => c.id);
       // Of the page's application first; another application's is no command here (note 27).
@@ -151,6 +151,63 @@ describe('the page\'s commands (ADR-0006 note 3 of 2026-11-11)', () => {
     const at = (id: string) => commands.findIndex((c) => c.id === id);
     expect(at('xva.new')).toBeLessThan(commands.findIndex((c) => c.group === 'Workflows'));
     expect(at('history.open')).toBeLessThan(at('panel.close'));
+  });
+});
+
+describe('a row\'s dialog holds every command a draft does not read (ADR-0016 §10, note 57 of 2026-11-12)', () => {
+  const HELD = 'The dialog of E00004 is open: apply writes its draft, and cancel discards it.';
+  const typed = { ...catalog([workflow('w.a', 'Station summary', ['s'])], []), draftCommands: ['entity.set'], capabilities: [{
+    capabilityId: 'entity.set', version: '1.0.0', title: 'Set fields of rows', inputPorts: [], outputPorts: [], executionKind: 'requestResponse' as const, effects: ['editWorkspace'],
+    command: { words: ['set'], arguments: [{ name: 'set', kind: 'assignments' as const, required: true }] },
+  }] };
+  /** A page whose dialog is open while `open` says so. */
+  const page = (open: { draft: boolean }) => registerCommandDoor('p', {
+    workspaceId: 'w', app: 'weather', settled: () => Promise.resolve(), view: () => undefined,
+    draft: () => (open.draft ? { table: 't.trades', key: 'E00004', revision: 3, lines: ['set notional 5bn'] } : undefined),
+    enter: () => Promise.resolve(undefined), invoke: () => Promise.resolve(undefined), redraft: () => Promise.resolve(undefined), keyboard: () => undefined });
+  const panels = (cycle = vi.fn()) => state({
+    panels: [{ id: 'p', kind: 'app', title: 'XVA ABC/LE-01', app: 'xva.workspace', params: { workspaceId: 'w' } }, { id: 'q', kind: 'app', title: 'Rates', app: 'rates.workspace', params: {} }],
+    activePanelId: 'p', showApp: vi.fn(), openAppDialog: vi.fn(), cycle,
+  });
+
+  it('the line lists the shell\'s commands, the applications\' and the workflows\' as held by the dialog, and the draft\'s own as they were', () => {
+    const open = { draft: true };
+    page(open);
+    try {
+      const commands = build(typed, panels());
+      const of = (id: string) => commands.find((c) => c.id === id)!;
+      expect(of('entity.set').unavailable).toBeUndefined();
+      expect(['panel.next', 'panel.close', 'theme.toggle', 'rates.new'].map((id) => of(id).unavailable)).toEqual([HELD, HELD, HELD, HELD]);
+      expect(commands.filter((c) => c.id.startsWith('workflow.run:')).map((c) => c.unavailable)).toEqual([HELD]);
+      // With no dialog open none of them is held.
+      open.draft = false;
+      expect(build(typed, panels()).filter((c) => c.unavailable === HELD)).toEqual([]);
+    } finally {
+      registerCommandDoor('p', undefined);
+    }
+  });
+
+  it('spine 6: a chord pressed over a dialog that opened after the commands were made is held at the press, and the panel does not change under the draft', () => {
+    const open = { draft: false };
+    const cycle = vi.fn();
+    page(open);
+    try {
+      const next = build(typed, panels(cycle)).find((c) => c.id === 'panel.next')!;
+      expect(next.unavailable).toBeUndefined();
+      open.draft = true;
+
+      expect(runOn('p', next)).toBe(HELD);
+      expect(cycle).not.toHaveBeenCalled();
+
+      // The draft's own command runs, and once the dialog has closed so does the chord.
+      const set = build(typed, panels()).find((c) => c.id === 'entity.set')!;
+      expect(runOn('p', set)).toBeUndefined();
+      open.draft = false;
+      expect(runOn('p', next)).toBeUndefined();
+      expect(cycle).toHaveBeenCalledTimes(1);
+    } finally {
+      registerCommandDoor('p', undefined);
+    }
   });
 });
 

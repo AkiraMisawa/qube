@@ -1,5 +1,5 @@
 import type { LineView } from '../contracts';
-import { EDIT_ROW, ROW_ACTIONS, editColumn, openRow } from './rowButton';
+import { editColumn, openRow } from './rowButton';
 
 // ADR-0016 note 57 of 2026-11-12: a grid's row has one button, edit, and it runs what `open <row>` typed would.
 
@@ -14,9 +14,9 @@ const door = (ended?: { sentence: string }) => {
 describe('a row\'s edit button (ADR-0016 note 57)', () => {
   it('is one action, Edit, in a column with no header', () => {
     const column = editColumn<{ id: string }>();
-    expect(column.name).toBe(ROW_ACTIONS);
+    expect(column.name).toBe('Actions');
     expect(column.header).toBe('');
-    expect(column.actions?.map((a) => `${a.name}:${a.label}`)).toEqual([`${EDIT_ROW}:Edit`]);
+    expect(column.actions?.map((a) => `${a.name}:${a.label}`)).toEqual(['edit:Edit']);
   });
 
   it('runs open on the row through the door, in the view of its table, and raises no notice of the dialog it opened', async () => {

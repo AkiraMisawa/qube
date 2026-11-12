@@ -938,6 +938,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
         filter: (asked) => filterGrid(sources[grid], asked),
         // The server said the run by its first position in the order this view was read in (note 43).
         select: (asked) => selectRows(declared, shown, read, asked),
+        keyboard: (from) => shown.returnKeyboard(from),
       };
     };
     return { new: of('new', newGrid), existing: of('existing', existingGrid) };
