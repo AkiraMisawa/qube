@@ -80,6 +80,11 @@ function proposed(areas: readonly ProposedArea[], places: readonly ProposedPlace
 
 const SIDE_BY_SIDE: readonly ProposedArea[] = [{ area: 'left' }, { area: 'right', beside: 'left', side: 'right', share: 50 }];
 
+/** An area in another window, as dockview keeps it: its one panel, and the area of the main window it left. */
+function inAWindow(area: string, panel: string, left: string): NonNullable<SerializedDockview['popoutGroups']>[number] {
+  return { data: { id: area, views: [panel], activeView: panel }, gridReferenceGroup: left, position: null };
+}
+
 beforeEach(() => {
   keptArrangement.getState().keep(undefined);
   keptArrangement.getState().keepFloatedFrom({});
@@ -236,17 +241,14 @@ describe('arrange and arrange back (ADR-0018 §8)', () => {
     // A in the main window, B and C each in a window of its own; drawn once the panels are open, by their ids.
     const withWindows = (ids: readonly string[]): SerializedDockview => {
       const [a, b, c] = ids;
-      if (a === undefined || b === undefined || c === undefined) throw new Error('Three panels are open.');
+      if (a === undefined || b === undefined || c === undefined) throw new Error('Fewer than three panels are open.');
       return {
         grid: {
           root: { type: 'branch', data: [{ type: 'leaf', size: 1440, data: { id: '1', views: [a], activeView: a } }] },
           width: 1440, height: 800, orientation: Orientation.HORIZONTAL,
         },
-        panels: {},
-        popoutGroups: [
-          { data: { id: '2', views: [b], activeView: b }, gridReferenceGroup: '1', position: null },
-          { data: { id: '3', views: [c], activeView: c }, gridReferenceGroup: '1', position: null },
-        ],
+        panels: { [a]: panelState(a, 'A'), [b]: panelState(b, 'B'), [c]: panelState(c, 'C') },
+        popoutGroups: [inAWindow('2', b, '1'), inAWindow('3', c, '1')],
       };
     };
     const { id, command, notify } = page(['A', 'B', 'C'], (store) => fakeAreas(WIDE, withWindows(store.getState().panels.map((p) => p.id))).port);
@@ -277,7 +279,7 @@ describe('arrange and arrange back (ADR-0018 §8)', () => {
         width: 1440, height: 800, orientation: Orientation.HORIZONTAL,
       },
       panels: { [id(0)]: panelState(id(0), 'A'), [id(1)]: panelState(id(1), 'B'), [id(2)]: panelState(id(2), 'C') },
-      popoutGroups: [{ data: { id: '3', views: [id(1)], activeView: id(1) }, gridReferenceGroup: '2', position: null }],
+      popoutGroups: [inAWindow('3', id(1), '2')],
     };
     keptArrangement.getState().keep(withWindow);
     const { n } = proposed(SIDE_BY_SIDE, [{ area: 'left', panel: id(0), title: 'A', shown: true }, { area: 'right', panel: id(1), title: 'B', shown: true }]);
