@@ -3519,17 +3519,17 @@ Unchanged; nothing on the server changed. The AI's answer in the test is the scr
 - **The Device Pixel in another window** waits for ExGrid `v0.3.0-rc.1` on npm (the owner's tag, ex-grid #569): until
   then a grid in a window on a display of another scale than the main window's draws its lines at the main window's
   device pixel. The bump to `0.3.0-rc.1`, all seven packages at one version, and the test going green are this pull
-  request's last commit, or the next one's; in the next, this spec and its tickets 04 and 06 stay in progress until
-  then.
+  request's last commit, or the next one's; if the bump goes to the next pull request, this spec and its tickets 04
+  and 06 stay in progress until it lands.
 - A reload does not open the windows again (a browser opens a window only on a key or a press, §9), nor does `arrange
   back`, which follows the reload; the panels come back into the main window, said so.
 - Checked in Chromium only: Safari's and Firefox's pop-up rules, touch in a window and a real second monitor are not.
 - An area is not split inside another window (one area per window, as a floating area is).
 - `edit context` (the chord that focuses the header's context bar) typed in another window focuses the field in the main
   window, which the browser does not bring to the front.
-- Step 1's test of a tab dragged with the mouse (`areas.spec.ts`) failed once in the full run on the product code
-  unchanged since the fifth review's fixes, its tab left in one area, and passed in every run after it (above): a red
-  that passes on a re-run, open. It is step 1's test, and failed once before this step's code too (#37's runs, under
+- Step 1's test of a tab dragged with the mouse (`areas.spec.ts`) failed once in the run with 147 passed, the first of
+  the two full runs on the product code unchanged since the fifth review's fixes, its tab left in one area, and passed
+  in every run after it (above): a red that passes on a re-run, open. It is step 1's test, and failed once before this step's code too (#37's runs, under
   "step 1's rest: the pricer by its area" above); the cause is not found.
 
 ### What the review changed
