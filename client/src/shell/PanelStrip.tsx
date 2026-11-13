@@ -10,6 +10,7 @@ import type { Size } from './layout';
 import { CLOSE } from './panelVerbs';
 import { PanelContent, PanelList, renameOnLine, TabMenu, useRunVerb, type MenuAt } from './panelMenus';
 import { lineIsOpen } from './CommandPalette';
+import { isElement } from '../platform/elements';
 
 // The panels under one strip of tabs (ADR-0006 note 7 of 2026-11-12): what a phone shows, and what a wider window shows
 // where its arrangement of areas has no room (ADR-0018 §5). The strip is one row that scrolls sideways and keeps the
@@ -93,7 +94,7 @@ export function PanelStrip({ room, why }: {
   };
   // A double click on a tab renames it, as a sheet's tab is renamed (ADR-0006 note 9); not one on its close button.
   const onDoubleClick = (panel: Panel) => (event: MouseEvent<HTMLButtonElement>) => {
-    if (event.target instanceof Element && event.target.closest('.qube-panel-tab-close') !== null) return;
+    if (isElement(event.target) && event.target.closest('.qube-panel-tab-close') !== null) return;
     renameOnLine(store.getState(), panel);
   };
   // The middle button closes a tab, as a browser's does; held down it would start the browser's own scrolling.

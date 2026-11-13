@@ -40,12 +40,14 @@ import { DraftDialog } from '../../platform/drafts/DraftDialog';
 import { useDraft } from '../../platform/drafts/useDraft';
 import { EDIT_ROW, editColumn, openRow } from '../../platform/drafts/rowButton';
 import { tradeLeftOut } from './iterations';
-import { compactGridHeight, GRID_FRAME, pixels, Resizer } from './layout';
+import { compactGridHeight, GRID_FRAME, Resizer } from './layout';
+import { pixels } from '../../platform/themeLength';
 import { declaring, measureOfField, membershipColumn, scopesOf } from './membership';
 import { priceLabel, pricedMeasures } from './metrics';
 import { differs, originalMessage } from './original';
 import { copyRich, downloadRun } from '../../platform/runs';
 import { cellMessage as moduleCellMessage, cellRefusal, cellState as moduleCellState, failed, moduleColumns, parseCellNumber, pvMessage, pvRequest, type PvRequest } from './cells';
+import { isElement } from '../../platform/elements';
 
 // The trace tab draws with the trace view and KaTeX, read once a tab is opened (as the trace panel is).
 const TraceTab = lazy(() => import('../../platform/traces/TraceTab').then((m) => ({ default: m.TraceTab })));
@@ -995,7 +997,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   const page = (
     <Stack gap="sm" className="qube-xva" data-section={section} data-dock={full ? 'full' : 'part'} style={{ ['--qube-xva-taken' as string]: `${taken}px` }}
       // A grid entered is the screen only where it says so below, after this: a grid of no table leaves the line none.
-      onFocusCapture={(event) => { if (event.target instanceof Element && event.target.closest('.ex-grid') !== null) screen.current = undefined; }}>
+      onFocusCapture={(event) => { if (isElement(event.target) && event.target.closest('.ex-grid') !== null) screen.current = undefined; }}>
       {/* The context bar (ADR-0010 §1; docs/design-guidelines.md §3, §4): one 30px Control Height, each label beside its input. */}
       <div className="qube-toolbar" role="toolbar" aria-label="Workspace">
         <ValueDate value={ws.context.valueDate} disabled={!notBusy}

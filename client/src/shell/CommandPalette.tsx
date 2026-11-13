@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { Badge, Box, Group, Kbd, Modal, Stack, Text, TextInput, UnstyledButton, useMantineColorScheme } from '@mantine/core';
-import { useHotkeys } from '@mantine/hooks';
+import { getHotkeyHandler, type HotkeyItem } from '@mantine/hooks';
 import { IconCheck, IconX } from '@tabler/icons-react';
 import {
   assertDistinct, CommandRefused, completionsOf, drawn, drawnSections, execute, finish, given, listed, placeholder, readLine, signature, take,
@@ -21,11 +21,13 @@ import { goTo, placesOf } from './places';
 import { panelCommands, type PanelState } from './panelVerbs';
 import { arrangeCommands, arrangingOf, type Arranging } from './proposals';
 import { useArrangementVersion } from './arrangement';
+import { useOtherWindows, usedWindow, windowInUse } from './windows';
 import { useStore } from 'zustand';
 import { createStore } from 'zustand/vanilla';
 import { useOptionalAiStore } from '../ai/AiProvider';
 import { aiContextOf } from '../ai/effects';
 import { appCommands } from '../apps';
+import { isElement, isHTMLElement } from '../platform/elements';
 
 /**
  * The commands of the user's settings (ADR-0017 §4), on every page, with or without a workspace: `settings` shows the
@@ -317,10 +319,43 @@ export function openPalette(): void {
  * where that is not where it is now.
  */
 export function openLineWith(typed: string, { selected, returnTo }: { readonly selected?: LineRange; readonly returnTo?: HTMLElement } = {}): void {
-  if (document.activeElement?.closest('.qube-palette') != null) return;
+  // The line opens in the window in use (ADR-0018 §9): the keyboard is that window's.
+  if (windowInUse().document.activeElement?.closest('.qube-palette') != null) return;
   rememberKeyboard(returnTo);
   letGo();
   openLine?.(typed, selected);
+}
+
+/**
+ * Hears the shell's keys in one window's document (ADR-0018 §9): Ctrl+K and the chords, as Mantine's `useHotkeys` hears
+ * them on the main document alone, and `/` where it would not be typed into something: not in a text field, not in a
+ * grid, where it starts editing a cell, and not in the AI chat, whose slash commands are its own (ADR-0006 §2). A key
+ * heard makes its window the window in use, where the line opens. Answers what stops hearing.
+ */
+function hearShellKeys(win: Window, hotkeys: () => readonly HotkeyItem[]): () => void {
+  const doc = win.document;
+  const onKey = (event: globalThis.KeyboardEvent) => {
+    // As `useHotkeys` with no tag ignored hears them: anywhere but in an element whose own text is edited.
+    if (isHTMLElement(event.target) && event.target.isContentEditable) return;
+    getHotkeyHandler(hotkeys().map(([key, handler, options]): HotkeyItem => {
+      const heard = (e: globalThis.KeyboardEvent) => { usedWindow(win); handler(e); };
+      return options === undefined ? [key, heard] : [key, heard, options];
+    }))(event);
+  };
+  const onSlash = (event: globalThis.KeyboardEvent) => {
+    if (event.key !== '/' || event.ctrlKey || event.metaKey || event.altKey || event.defaultPrevented) return;
+    const at = isElement(event.target) ? event.target : null;
+    if (at?.closest('input, textarea, select, [contenteditable=""], [contenteditable="true"], .ex-grid, [data-ai-chat]') != null) return;
+    event.preventDefault();
+    usedWindow(win);
+    openPalette();
+  };
+  doc.documentElement.addEventListener('keydown', onKey);
+  doc.addEventListener('keydown', onSlash);
+  return () => {
+    doc.documentElement.removeEventListener('keydown', onKey);
+    doc.removeEventListener('keydown', onSlash);
+  };
 }
 
 export function CommandPalette() {
@@ -383,7 +418,12 @@ export function CommandPalette() {
     const ai = aiStore === undefined ? undefined : {
       open: aiOpen,
       setOpen: (open: boolean) => aiStore.getState().setOpen(open),
-      ask: (request: string) => aiStore.getState().ask(request, aiContextOf(active)),
+      ask: (request: string) => {
+        const refused = aiStore.getState().ask(request, aiContextOf(active));
+        // The AI pane stays in the main window (ADR-0018 §9): asked from another, that window says where the answer is.
+        if (refused === undefined && windowInUse() !== window) workspace.notify('done', 'Asked the AI: its answer is in the AI pane of the main window.');
+        return refused;
+      },
     };
     return buildCommands({ catalog: workspace.catalog, state: { ...state, panels, activePanelId, closed, context }, activeRun, toggleTheme: toggleColorScheme, notify: workspace.notify,
       settings: Object.values(settings), ...(ai === undefined ? {} : { ai }), arranging: arrangingOf(workspace) });
@@ -437,24 +477,18 @@ export function CommandPalette() {
     if (reason !== undefined) workspace.notify('refused', `${command.words}: ${reason}`);
   };
 
-  useHotkeys([
+  // The shell's keys, heard in the main window and in each other window a panel was popped out into (ADR-0018 §9). They
+  // are read as a key comes, so a chord acts on the commands of now.
+  const hotkeys = useRef<readonly HotkeyItem[]>([]);
+  hotkeys.current = [
     ['mod+K', openPalette],
-    ...commands.filter((c) => c.shortcut !== undefined).map((c): [string, () => void] => [c.shortcut!, () => chord(c)]),
-  ], []);
-
-  // `/` opens the line wherever it would not be typed into something: not in a text field, not in a grid, where it
-  // starts editing a cell, and not in the AI chat, whose slash commands are its own (ADR-0006 §2).
+    ...commands.filter((c) => c.shortcut !== undefined).map((c): HotkeyItem => [c.shortcut!, () => chord(c)]),
+  ];
+  const others = useOtherWindows();
   useEffect(() => {
-    const onKey = (event: globalThis.KeyboardEvent) => {
-      if (event.key !== '/' || event.ctrlKey || event.metaKey || event.altKey || event.defaultPrevented) return;
-      const at = event.target instanceof Element ? event.target : null;
-      if (at?.closest('input, textarea, select, [contenteditable=""], [contenteditable="true"], .ex-grid, [data-ai-chat]') != null) return;
-      event.preventDefault();
-      openPalette();
-    };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, []);
+    const stops = [window, ...others.map((o) => o.window)].map((win) => hearShellKeys(win, () => hotkeys.current));
+    return () => stops.forEach((stop) => stop());
+  }, [others]);
 
   const reading = readLine(text, commands);
   // While a command is chosen the list has sections (ADR-0006's note 3 of 2026-11-11); a slot's values have none.
@@ -563,7 +597,8 @@ export function CommandPalette() {
   };
   /** The line closed on a command that ran: one that opened a surface leaves the keyboard to it; any other gives it back. */
   const keyboardToWhatRan = () => {
-    if (workspace.store.getState().runDialog === undefined && document.activeElement === document.body) returnKeyboard();
+    const doc = windowInUse().document;
+    if (workspace.store.getState().runDialog === undefined && doc.activeElement === doc.body) returnKeyboard();
     else keepKeyboard();
   };
   /** Whether a line may run now. While a chained line has yet to end, none may, and the line says so. */

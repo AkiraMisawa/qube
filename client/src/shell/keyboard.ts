@@ -2,6 +2,10 @@
 // has mounted and taken the keyboard, keys go to nothing: opening the line and running a command first let go of the
 // focused element, so a key typed at machine speed is dropped, never delivered to the grid behind the line or to a line
 // that is closing. The keyboard goes back where it was when the line closes, unless what ran put it somewhere itself.
+// The line is in the window in use (ADR-0018 §9), and so is the keyboard it remembers, lets go of and holds.
+
+import { windowInUse } from './windows';
+import { isHTMLElement } from '../platform/elements';
 
 let before: HTMLElement | null = null;
 
@@ -11,12 +15,14 @@ let before: HTMLElement | null = null;
  */
 export function rememberKeyboard(place?: HTMLElement): void {
   if (before !== null) return;
-  const at = place ?? document.activeElement;
-  if (at instanceof HTMLElement && at !== document.body) before = at;
+  const doc = windowInUse().document;
+  const at = place ?? doc.activeElement;
+  if (isHTMLElement(at) && at !== doc.body) before = at;
 }
 
 export function letGo(): void {
-  if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+  const at = windowInUse().document.activeElement;
+  if (isHTMLElement(at)) at.blur();
 }
 
 /**
@@ -60,11 +66,12 @@ export interface KeyboardHeld {
   lost(): void;
 }
 
-let held: { readonly line: HTMLElement; readonly on: KeyboardHeld; arrived: boolean; kept: boolean } | undefined;
+/** The line holding the keyboard, and the document its focus is heard in: the line's own. */
+let held: { readonly line: HTMLElement; readonly on: KeyboardHeld; readonly heardIn: Document; arrived: boolean; kept: boolean } | undefined;
 
 const onFocusIn = (event: FocusEvent): void => {
   const to = event.target;
-  if (held === undefined || !(to instanceof HTMLElement) || to.closest('.qube-palette') !== null) return;
+  if (held === undefined || !isHTMLElement(to) || to.closest('.qube-palette') !== null) return;
   if (to.closest('[role="dialog"]') !== null) {
     const { on } = held;
     releaseKeyboard();
@@ -83,8 +90,14 @@ const onFocusIn = (event: FocusEvent): void => {
  * counts that command's own: whether it said the keyboard is a place's, and whether the place has taken it.
  */
 export function holdKeyboard(line: HTMLElement, on: KeyboardHeld): void {
-  if (held === undefined) document.addEventListener('focusin', onFocusIn);
-  held = { line, on, arrived: false, kept: false };
+  // Heard in the line's own document, which is the window in use's: the window in use does not change while the line
+  // is open, but a line drawn anew in another document moves the listener with it.
+  const heardIn = line.ownerDocument;
+  if (held?.heardIn !== heardIn) {
+    held?.heardIn.removeEventListener('focusin', onFocusIn);
+    heardIn.addEventListener('focusin', onFocusIn);
+  }
+  held = { line, on, heardIn, arrived: false, kept: false };
 }
 
 /**
@@ -93,7 +106,8 @@ export function holdKeyboard(line: HTMLElement, on: KeyboardHeld): void {
  */
 export function releaseKeyboard(): boolean {
   if (held === undefined) return false;
+  const { heardIn } = held;
   held = undefined;
-  document.removeEventListener('focusin', onFocusIn);
+  heardIn.removeEventListener('focusin', onFocusIn);
   return true;
 }

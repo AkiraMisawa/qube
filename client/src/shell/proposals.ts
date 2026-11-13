@@ -8,7 +8,8 @@ import type { Api } from '../platform/api';
 import { panelLabel, type Panel, type PanelDraft, type WorkspaceState, type WorkspaceStore } from '../platform/workspace/workspaceStore';
 import { areaHolding, currentArrangement, FLOAT_PLACES, floatBox, nextAreaId, SIDES, type Arrangement, type FloatPlace, type Side } from './arrangement';
 import { keptArrangement, type FloatedFrom } from './keptPanels';
-import { AREA_MIN, AREAS_FROM, oneArea, openPanels, panelState, reconciled, type Size } from './layout';
+import { AREA_MIN, AREAS_FROM, asDrawnNow, oneArea, openPanels, panelState, type Size } from './layout';
+import { backInThisWindow, titlesOf } from './panelSentences';
 
 // The AI's proposals of an arrangement (ADR-0018 §8, CONFIRMED by the owner: the AI proposes, the user applies). The
 // kernel's `layout.propose` checks a proposal's shape and answers it; here it is numbered for the page's life, drawn as
@@ -452,6 +453,8 @@ function applied(on: Arranging, proposal: Proposal, drafts: readonly { readonly 
   const titles = Object.fromEntries(on.state().panels.map((p) => [p.id, panelLabel(p)]));
   const layout = proposalLayout(proposal, ids, titles, others, on.areas().room(), active);
   const areas = on.areas();
+  // The other windows close as the arrangement is drawn: a proposal arranges the main window (§8, §9).
+  const away = areas.areas().filter((a) => a.where === 'window');
   // A proposal's floating area came from no area of the window: `dock panel` puts it at the right.
   keepDrawn(areas, layout, {});
   last = { n: proposal.n, before, floatedFrom, opened };
@@ -459,7 +462,9 @@ function applied(on: Arranging, proposal: Proposal, drafts: readonly { readonly 
   const unplaced = others.length === 0 ? ''
     : ` ${others.length === 1 ? '1 panel the proposal did not place is' : `${others.length} panels the proposal did not place are`} in the area of ${titles[firstShown]}, the first in reading order.`;
   const openedSaid = opened.length === 0 ? '' : ` Opened ${opened.map((id) => titles[id]).join(', ')}.`;
-  return `Arranged as proposal ${proposal.n}: ${count === 1 ? '1 area' : `${count} areas`}.${openedSaid}${unplaced} To put back what it replaced: arrange back.`;
+  const closedSaid = away.length === 0 ? ''
+    : ` Closed the other window${away.length === 1 ? '' : 's'}, of ${titlesOf(on.state(), away.flatMap((a) => a.panels))}: a proposal arranges this window.`;
+  return `Arranged as proposal ${proposal.n}: ${count === 1 ? '1 area' : `${count} areas`}.${openedSaid}${unplaced}${closedSaid} To put back what it replaced: arrange back.`;
 }
 
 /**
@@ -490,8 +495,10 @@ export function arrangeBack(on: Arranging, notify: Notify): void {
   const titles = closing.map(panelLabel);
   for (const panel of closing) on.state().closePanel(panel.id, (panelId) => areaHolding(on.areas(), panelId)?.id);
   const open = openPanels(on.state());
-  // What the proposal replaced, with the panels open now; where it was one area, or held none of them, one area.
-  const before = was.before === undefined ? undefined : reconciled(was.before, open);
+  // What the proposal replaced, with the panels open now; where it was one area, or held none of them, one area. The
+  // panels it had in other windows come back into this one, as after a reload (§9): `arrange` closed those windows.
+  const now = was.before === undefined ? undefined : asDrawnNow(was.before, open);
+  const before = now?.layout;
   const layout = before ?? oneArea(open, nextAreaId(), on.areas().room());
   const stillOpen = new Set(open.order);
   const floatedFrom = before === undefined ? {} : Object.fromEntries(Object.entries(was.floatedFrom).filter(([panelId]) => stillOpen.has(panelId)));
@@ -500,7 +507,9 @@ export function arrangeBack(on: Arranging, notify: Notify): void {
   const put = was.before !== undefined && before === undefined
     ? `None of the panels the arrangement before proposal ${was.n} held is open, so the panels stand in one area.`
     : `Put back the arrangement proposal ${was.n} replaced.`;
-  notify('done', `${put}${titles.length === 0 ? '' : ` Closed ${titles.join(', ')}, which it opened: reopen panel brings back the last.`}`);
+  const back = now === undefined ? undefined : backInThisWindow(now.returned, on.state(), layout);
+  const backSaid = back === undefined ? '' : ` ${back}`;
+  notify('done', `${put}${backSaid}${titles.length === 0 ? '' : ` Closed ${titles.join(', ')}, which it opened: reopen panel brings back the last.`}`);
 }
 
 /** The line's `arrange <n>` and `arrange back` (ADR-0018 §3, §8). */
@@ -549,8 +558,9 @@ function shows(panel: Panel): Readonly<Record<string, string>> {
 
 /**
  * The context every request carries of the panels (ADR-0018 §8, ADR-0007 §8): each open panel by its id and title,
- * what it shows and the area it stands in; the areas and the panels' space; and the pages a proposal may open. It is a
- * description, so that the agent can name panels in `layout.propose`; the agent moves none.
+ * what it shows and the area it stands in; the areas, each docked, floating or in another window (§9), and the panels'
+ * space; and the pages a proposal may open. It is a description, so that the agent can name panels in `layout.propose`;
+ * the agent moves none.
  */
 export function panelsContext(state: Pick<WorkspaceState, 'panels' | 'activePanelId'>, areas: Arrangement = currentArrangement()): Context {
   const drawn = areas.strip === undefined ? areas.areas() : [];
@@ -563,7 +573,7 @@ export function panelsContext(state: Pick<WorkspaceState, 'panels' | 'activePane
         const area = drawn.find((a) => a.panels.includes(p.id));
         return { panel: p.id, title: panelLabel(p), ...shows(p), ...(area === undefined ? {} : { area: area.id, shown: area.shown === p.id }), ...(p.id === state.activePanelId ? { active: true } : {}) };
       }),
-      areas: drawn.map((a) => ({ area: a.id, floating: a.floating, width: Math.round(a.width), height: Math.round(a.height) })),
+      areas: drawn.map((a) => ({ area: a.id, where: a.where, width: Math.round(a.width), height: Math.round(a.height) })),
       ...(areas.strip === undefined ? {} : { strip: areas.strip }),
       room: { width: Math.round(room.width), height: Math.round(room.height) },
       minimum: AREA_MIN,

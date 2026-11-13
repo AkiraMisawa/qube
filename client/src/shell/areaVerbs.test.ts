@@ -2,7 +2,7 @@ import { execute } from '../platform/commands/commands';
 import { createWorkspaceStore, panelLabel } from '../platform/workspace/workspaceStore';
 import { contextContract } from '../test/catalog';
 import { floatBox, stripArrangement, type Area, type Arrangement, type Box, type Side } from './arrangement';
-import type { Line, Size } from './layout';
+import type { AreaWhere, Line, Size } from './layout';
 import { panelCommands } from './panelVerbs';
 
 // ADR-0018 §3 and §4: the verbs that arrange, and note 7's verbs within an area, over a fake port. What dockview draws
@@ -16,7 +16,8 @@ interface Drawn {
   readonly id: string;
   readonly panels: readonly string[];
   readonly shown?: string;
-  readonly floating?: boolean;
+  /** Docked where it is not said: floating, or in another window of the browser (ADR-0018 §9). */
+  readonly where?: AreaWhere;
   readonly width?: number;
   readonly height?: number;
 }
@@ -60,8 +61,8 @@ function areas(titles: readonly string[], drawn: readonly Drawn[], active: strin
         if (panels.length === 0) return [];
         const shown = a.shown === undefined ? undefined : idOf(a.shown);
         return [{
-          id: a.id, panels, shown: shown !== undefined && panels.includes(shown) ? shown : panels[0], floating: a.floating === true,
-          width: a.width ?? ROOM.width, height: a.height ?? ROOM.height,
+          id: a.id, panels, shown: shown !== undefined && panels.includes(shown) ? shown : panels[0],
+          where: a.where ?? 'docked', width: a.width ?? ROOM.width, height: a.height ?? ROOM.height,
         }];
       });
     },
@@ -75,6 +76,7 @@ function areas(titles: readonly string[], drawn: readonly Drawn[], active: strin
       held.set(areaId, [...(held.get(areaId) ?? []), panelId]);
     },
     float: (panelId: string, box: Box) => { asked.push(`float ${titleOf(panelId)} at ${box.left},${box.top} ${box.width}×${box.height}`); },
+    popOut: (panelId: string) => { asked.push(`pop out ${titleOf(panelId)}`); },
     dock: (panelId: string) => { asked.push(`dock ${titleOf(panelId)}`); return 'beside the area of B'; },
     size: (areaId: string, pixels: number) => { asked.push(`size ${areaId} ${pixels}px`); },
     maximize: (areaId: string) => { maximized = areaId; asked.push(`maximize ${areaId}`); },
@@ -110,8 +112,8 @@ describe('the verbs that arrange (ADR-0018 §3)', () => {
     const why = 'The panels are one strip below 768px; the arrangement comes back with more room.';
     const commands = panelCommands(store.getState(), vi.fn(), stripArrangement({ width: 390, height: 700 }, why));
     const of = (id: string) => commands.find((c) => c.id === id)?.unavailable;
-    expect(['panel.split', 'panel.send', 'panel.float', 'panel.dock', 'panel.size', 'panel.maximize', 'panel.unmaximize', 'panel.gather'].map(of))
-      .toEqual(Array(8).fill(why));
+    expect(['panel.split', 'panel.send', 'panel.float', 'panel.popOut', 'panel.dock', 'panel.size', 'panel.maximize', 'panel.unmaximize', 'panel.gather'].map(of))
+      .toEqual(Array(9).fill(why));
     expect(['panel.close', 'panel.closeOthers', 'panel.move'].map(of)).toEqual([undefined, undefined, undefined]);
   });
 
@@ -126,7 +128,7 @@ describe('the verbs that arrange (ADR-0018 §3)', () => {
     expect(execute(narrow.command('panel.split'), { side: 'below' })).toBe('split panel takes a side: right, left, down, up.');
     narrow.store.getState().activate(narrow.idOf('C'));
     expect(narrow.command('panel.split').unavailable).toBe('It is the only panel of its area: send it to another area, or float it.');
-    const floating = areas(['A', 'B', 'C'], [{ id: 'area-1', panels: ['A'] }, { id: 'area-2', panels: ['B', 'C'], floating: true }], 'C');
+    const floating = areas(['A', 'B', 'C'], [{ id: 'area-1', panels: ['A'] }, { id: 'area-2', panels: ['B', 'C'], where: 'floating' }], 'C');
     expect(floating.command('panel.split').unavailable).toBe('A floating area is one area: dock it first, or float another panel.');
     expect(narrow.asked).toEqual(['split A up']);
   });
@@ -155,7 +157,7 @@ describe('the verbs that arrange (ADR-0018 §3)', () => {
     expect(asked).toEqual([
       'float D at 288,160 864×480', 'float D at 288,160 864×480', `float D at ${right.left},${right.top} ${right.width}×${right.height}`,
     ]);
-    const alone = areas(['A', 'B'], [{ id: 'area-1', panels: ['A'] }, { id: 'area-2', panels: ['B'], floating: true }], 'A');
+    const alone = areas(['A', 'B'], [{ id: 'area-1', panels: ['A'] }, { id: 'area-2', panels: ['B'], where: 'floating' }], 'A');
     expect(alone.command('panel.float').unavailable).toBe('It is the only panel docked in the window; floating it would leave none docked.');
     // A floating panel alone in its area is placed again.
     alone.store.getState().activate(alone.idOf('B'));
@@ -163,13 +165,51 @@ describe('the verbs that arrange (ADR-0018 §3)', () => {
     expect(alone.asked).toEqual(['float B at 0,0 720×800']);
   });
 
-  it('`dock panel` puts a floating panel back and says where; a docked panel is refused', () => {
-    const { asked, command, notify, store, idOf } = areas(['A', 'B'], [{ id: 'area-1', panels: ['A'] }, { id: 'area-2', panels: ['B'], floating: true }], 'B');
+  it('`dock panel` puts a floating panel, or one in another window, back and says where; a docked panel is refused', () => {
+    const { asked, command, notify, store, idOf } = areas(['A', 'B', 'C'], [
+      { id: 'area-1', panels: ['A'] }, { id: 'area-2', panels: ['B'], where: 'floating' }, { id: 'area-3', panels: ['C'], where: 'window' },
+    ], 'B');
     expect(execute(command('panel.dock'))).toBeUndefined();
-    expect(asked).toEqual(['dock B']);
+    store.getState().activate(idOf('C'));
+    expect(execute(command('panel.dock'))).toBeUndefined();
+    expect(asked).toEqual(['dock B', 'dock C']);
     expect(notify).toHaveBeenCalledWith('done', 'Docked B beside the area of B.');
     store.getState().activate(idOf('A'));
-    expect(command('panel.dock').unavailable).toBe('This panel is not floating.');
+    expect(command('panel.dock').unavailable).toBe('This panel is neither floating nor in another window.');
+  });
+
+  it('`pop out panel` asks for a window of the panel\'s own, and never leaves none docked in the main window (§9)', () => {
+    const { asked, command } = twoAreas();
+    expect(execute(command('panel.popOut'))).toBeUndefined();
+    expect(asked).toEqual(['pop out D']);
+    // The main window keeps one docked panel at least, as `float panel` does.
+    const alone = areas(['A', 'B'], [{ id: 'area-1', panels: ['A'] }, { id: 'area-2', panels: ['B'], where: 'window' }], 'A');
+    expect(alone.command('panel.popOut').unavailable).toBe('It is the only panel docked in the window; popping it out would leave none docked.');
+    // Alone in a window, it is there already; beside another panel there, it takes a window of its own.
+    alone.store.getState().activate(alone.idOf('B'));
+    expect(alone.command('panel.popOut').unavailable).toBe('It is in a window of its own already.');
+    const shared = areas(['A', 'B', 'C'], [{ id: 'area-1', panels: ['A'] }, { id: 'area-2', panels: ['B', 'C'], where: 'window' }], 'C');
+    expect(execute(shared.command('panel.popOut'))).toBeUndefined();
+    // A floating panel goes out too, the docked ones staying.
+    const floating = areas(['A', 'B'], [{ id: 'area-1', panels: ['A'] }, { id: 'area-2', panels: ['B'], where: 'floating' }], 'B');
+    expect(execute(floating.command('panel.popOut'))).toBeUndefined();
+    expect([...shared.asked, ...floating.asked]).toEqual(['pop out C', 'pop out B']);
+  });
+
+  it('a panel in another window is one area there: the verbs that arrange the main window\'s areas say to dock it first (§9)', () => {
+    const { command } = areas(['A', 'B', 'C'], [
+      { id: 'area-1', panels: ['A'] }, { id: 'area-2', panels: ['B'] }, { id: 'area-3', panels: ['C'], where: 'window' },
+    ], 'C', { 'area-3': { axis: 'width', total: 1440, othersNeed: 320 } });
+    const dockFirst = 'It is in a window of its own, which is one area: dock it first.';
+    expect(['panel.split', 'panel.float', 'panel.maximize'].map((id) => command(id).unavailable)).toEqual([dockFirst, dockFirst, dockFirst]);
+    expect(command('panel.size').unavailable).toBe('A panel in a window of its own is sized by that window.');
+    expect(command('panel.gather').unavailable).toBe('It is in a window of its own: gather the panels from an area of the main window.');
+    // `send panel to` moves it between the windows, either way, never leaving the main window none docked.
+    expect(execute(command('panel.send'), { panel: 'A' })).toBeUndefined();
+    const last = areas(['A', 'B'], [{ id: 'area-1', panels: ['A'] }, { id: 'area-2', panels: ['B'], where: 'window' }], 'A');
+    expect(execute(last.command('panel.send'), { panel: 'B' })).toBe('It is the only panel docked in the window; sending it there would leave none docked.');
+    const floatingToo = areas(['A', 'B'], [{ id: 'area-1', panels: ['A'] }, { id: 'area-2', panels: ['B'], where: 'floating' }], 'A');
+    expect(execute(floatingToo.command('panel.send'), { panel: 'B' })).toBe('It is the only panel docked in the window; sending it there would leave none docked.');
   });
 
   it('`size panel` gives the area its share of its row in pixels, within the minimums, and refuses a floating or a lone area', () => {
@@ -181,7 +221,7 @@ describe('the verbs that arrange (ADR-0018 §3)', () => {
     expect(asked).toEqual(['size area-2 360px']);
     const lone = areas(['A', 'B'], [{ id: 'area-1', panels: ['A', 'B'] }], 'A');
     expect(lone.command('panel.size').unavailable).toBe('Its area is alone in its row and its column: there is nothing to share.');
-    const floating = areas(['A', 'B'], [{ id: 'area-1', panels: ['A'] }, { id: 'area-2', panels: ['B'], floating: true }], 'B');
+    const floating = areas(['A', 'B'], [{ id: 'area-1', panels: ['A'] }, { id: 'area-2', panels: ['B'], where: 'floating' }], 'B');
     expect(floating.command('panel.size').unavailable).toBe('A floating area is sized by its edges, or placed with float panel.');
   });
 

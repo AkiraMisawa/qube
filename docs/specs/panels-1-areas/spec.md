@@ -1,6 +1,6 @@
 # Panels in areas, step 1: split, float and maximize inside the window, and the AI's proposal
 
-Status: ready-for-agent (2026-11-12)
+Status: done (2026-11-12, #34 and #37)
 
 The decisions are [ADR-0018](../../adr/0018-panels-are-arranged-in-areas-that-split-float-and-pop-out-and-the-ai-only-proposes-an-arrangement.md),
 accepted by the owner on 2026-11-12, and the decisions it builds on: ADR-0006 note 7 (the panels' tabs and their verbs),
