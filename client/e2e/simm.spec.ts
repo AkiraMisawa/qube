@@ -464,10 +464,9 @@ test('ADR-0018 §5 with ADR-0012 §7: the SIMM tab\'s two cards stand side by si
   await command(page, 'split panel', 'right');
   await page.locator('.qube-panel-tab-title', { hasText: 'XVA ABC/LE-01' }).click();
   await expect(page.locator('.qube-panel-page').filter({ has: result })).toHaveAttribute('data-panel-width', '720');
-  // The page was drawn anew as the Pricing DB took its area's view (a page keeps no state of its own yet), so the trace
-  // is opened again, from the Results part.
+  // The page was drawn anew as the Pricing DB took its area's view, and its panel kept the trace open (ADR-0006 note
+  // 10): under 768px it is in the Results part.
   await page.getByText('Results', { exact: true }).click();
-  await result.getByRole('button', { name: /^IM-R After .+: open its trace$/ }).click();
   await expect(cards).toHaveCount(2);
   await expect.poll(async () => { const [a, b] = [await card(0), await card(1)]; return b.y > a.y && b.x === a.x; }).toBe(true);
   expect(await sideways(page)).toBe(0);

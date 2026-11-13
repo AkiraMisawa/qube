@@ -232,7 +232,7 @@ export function TabMenu({ at, panel, run, onClose }: {
 
 /** A panel's page: a Run, an app's page, or a view of data, laid out by the panel's width (ADR-0018 §5). */
 export function PanelContent({ panel }: { readonly panel: Panel }) {
-  return <PanelPage><PageOf panel={panel} /></PanelPage>;
+  return <PanelPage panelId={panel.id}><PageOf panel={panel} /></PanelPage>;
 }
 
 function PageOf({ panel }: { readonly panel: Panel }) {

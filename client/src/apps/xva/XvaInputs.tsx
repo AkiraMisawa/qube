@@ -6,7 +6,7 @@ import type { ExGridApi } from '@ex-grid/react';
 import { QubeGrid } from '../../platform/grid/QubeGrid';
 import { filterGrid, heldRowOf, heldView, menuView, placeFocus, selectRows, sortGrid } from '../../platform/grid/lineView';
 import { GridFilterLine } from '../../platform/grid/GridFilterLine';
-import { useHeldFilter } from '../../platform/grid/heldFilter';
+import { heldInOrder, useHeldFilter } from '../../platform/grid/heldFilter';
 import { useWorkspaceContext } from '../../platform/workspace/WorkspaceProvider';
 import type { TableMenu } from '../../platform/commands/served';
 import { EDIT_ROW, editColumn } from '../../platform/drafts/rowButton';
@@ -25,6 +25,7 @@ import { compactGridHeight, GRID_FRAME, partHeight, pixels } from './layout';
 import { declaring, membershipColumn } from './membership';
 import { changes, differs, originalMessage } from './original';
 import { useColumnWidths } from '../../platform/grid/columnWidths';
+import { useKeptGrid } from '../../platform/grid/keptGrid';
 
 // The shared input tabs (ADR-0010 §1, §8): Netting and CSA. The server holds every term and every rule; these send what
 // the user changed and show what the server answers. What a measure adds to them is its registration's (§10): a field
@@ -346,6 +347,8 @@ function CsaGrid({ workspaceId, revision, csas, columns: declared, push, height,
   const heldGrid = useMemo(() => ({ api, workspaceId, table: CSAS_TABLE, revision }), [api, workspaceId, revision]);
   // Filtered from the line (ADR-0016 note 41), the grid shows the CSAs the server says its conditions leave.
   const { rows: shown, said: filter } = useHeldFilter(source, heldGrid, csas, csaKey);
+  // Its sort, conditions and Selection, kept by the panel while the tab or the panel is hidden (ADR-0006 note 10).
+  useKeptGrid('xva/csas', source, gridRef, columns, heldInOrder(csaKey, filter));
   useEffect(() => { source.replaceAll(shown); }, [shown, source]);
 
   const onEdit = useCallback((intent: GridEditIntent<CsaRow>) => {

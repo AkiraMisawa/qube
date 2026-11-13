@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
-import { actionColumn, type GridActionEvent, type GridColumn } from '@ex-grid/core';
+import { actionColumn, GridSource, type GridActionEvent, type GridColumn } from '@ex-grid/core';
 import type { ExGridApi } from '@ex-grid/react';
 import { QubeGrid } from './QubeGrid';
 import type { Dataset, ViewAction, ViewColumn } from '../contracts';
 import { amountTone, formatAmount } from './amounts';
 import { useColumnWidths } from './columnWidths';
+import { fixedRowsBySort, useKeptGrid } from './keptGrid';
 
 // The adapter between a declarative grid component and ExGrid (ADR-0003 §3). ExGrid draws, scrolls,
 // selects and copies; it decides nothing. Rows keep their identity, so the grid compares them cheaply.
@@ -54,6 +55,12 @@ export function DatasetGrid({ grid: gridKey, dataset, columns, actions, onAction
       : [...mapped, actionColumn<Row>(ACTIONS_COLUMN, actions.map((a) => ({ name: a.actionId, label: a.label })), { width: 260 })];
   }, [columns, actions, dataset]);
   const widths = useColumnWidths(`view/${gridKey}`, gridColumns);
+  // A dataset is retained data, which never changes (ADR-0003): its grid's sort, filter and Selection are kept by the
+  // panel while it is hidden (ADR-0006 note 10), by the dataset it shows, so that another dataset's rows are not taken
+  // for these.
+  const source = useMemo(() => GridSource.from<Row>(dataset.rows), [dataset.rows]);
+  const { dataId, revision } = dataset.reference;
+  useKeptGrid(`view/${JSON.stringify([gridKey, dataId, revision])}`, source, grid, widths.columns, fixedRowsBySort());
 
   const handleAction = useCallback((event: GridActionEvent<Row>) => {
     const action = actions.find((a) => a.actionId === event.action);
@@ -74,7 +81,7 @@ export function DatasetGrid({ grid: gridKey, dataset, columns, actions, onAction
         ref={grid}
         columns={widths.columns}
         onColumnWidthChanged={widths.onColumnWidthChanged}
-        rows={dataset.rows}
+        source={source}
         onAction={handleAction}
         density="compact"
         viewportWidth="stretch"

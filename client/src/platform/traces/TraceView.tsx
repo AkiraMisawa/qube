@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { Alert, Anchor, Badge, Breadcrumbs, Button, Code, CopyButton, Group, SegmentedControl, Stack, Text, UnstyledButton } from '@mantine/core';
 import { useQueries, useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
 import { useStore } from 'zustand';
@@ -8,12 +8,13 @@ import { operandTargets, stateText } from './formula';
 import { EntityRows } from './EntityRows';
 import { belowViews, entitySetOf, splits } from './entities';
 import { LeafRows } from './LeafRows';
-import { DEFAULT_TRACE_VIEW, explainLine, setTraceView, termRequests, traceViews } from './open';
+import { DEFAULT_TRACE_VIEW, explainLine, keptTrace, setTraceView, traceViews, useTermRequestOnce } from './open';
 import { TermDetail } from './TermDetail';
 import { TraceTree } from './TraceTree';
 import { opened, treeRows, type ChildrenRead, type TreeRow } from './tree';
 import { SIDE_TITLE, governsMark, leadText, providerOf } from './words';
 import { SM, usePanelWidth } from '../panelPage';
+import { panelKey, useKeptBefore, usePanelState } from '../panelState';
 import './trace.css';
 
 // One view draws every trace (ADR-0011 §6): on desktop the tree of every level beside the formula of the selected
@@ -22,6 +23,13 @@ import './trace.css';
 // opened. A case priced on one side is shown on that side alone, said once (§4).
 
 const ROOT = '\u0000root';
+
+// What a trace view shows, kept by its panel (ADR-0006 note 10), by the view it is of.
+const SELECTED = panelKey<string | undefined>('trace.selected');
+const OPEN = panelKey<ReadonlySet<string>>('trace.open');
+const PAGES_ASKED = panelKey<Readonly<Record<string, number>>>('trace.pagesAsked');
+const PLACE = panelKey<number>('trace.place');
+const ANSWERED = panelKey<number>('trace.answered');
 
 /** Keeps a row object while nothing it draws changed, so the grid paints only what did (ADR-0003). */
 function stable(next: readonly TreeRow[], previous: ReadonlyMap<string, TreeRow>): readonly TreeRow[] {
@@ -32,9 +40,9 @@ function stable(next: readonly TreeRow[], previous: ReadonlyMap<string, TreeRow>
   });
 }
 
-export function TraceView({ panelId, address, api, registerFocus, root }: {
+export function TraceView({ viewId, address, api, registerFocus, root }: {
   /** Whose term requests and view settings the view answers (`termRequests`, `traceViews`): a trace panel's, or a page's trace tab's. */
-  readonly panelId: string;
+  readonly viewId: string;
   readonly address: TraceAddress;
   readonly api: TraceApi;
   /** Gives the panel's "focus grid" command the tree's keyboard, while the tree is drawn. */
@@ -47,27 +55,38 @@ export function TraceView({ panelId, address, api, registerFocus, root }: {
   // the panel's width, not the window's (ADR-0018 §5): a trace in a narrow area drills in as on a phone.
   const phone = usePanelWidth() < SM;
   // How it draws, kept per view, which its controls and the trace commands set alike (ADR-0006).
-  const settings = useStore(traceViews, (s) => s.views[panelId]) ?? DEFAULT_TRACE_VIEW;
+  const settings = useStore(traceViews, (s) => s.views[viewId]) ?? DEFAULT_TRACE_VIEW;
   const { order, below, above } = settings;
-  const [selected, setSelected] = useState<string | undefined>(undefined);
-  const [open, setOpen] = useState<ReadonlySet<string>>(() => new Set());
-  const [pagesAsked, setPagesAsked] = useState<Readonly<Record<string, number>>>({});
-  const [place, setPlace] = useState(0);
-  // The term asked for by a Metrics cell or `explain`: it opens as well as the terms above it, once it is read.
-  const reveal = useRef<string | undefined>(ROOT);
+  // The term selected, the terms open and the pages of children read, kept by the panel while it is hidden (ADR-0006
+  // note 10), each by the view, the trace it draws and its root (`keptTrace`); and the asks of the grid's Focus, so that
+  // a tree drawn again puts it back on the term selected.
+  const instance = keptTrace(viewId, address, root);
+  const [selected, setSelected] = usePanelState(SELECTED, undefined, instance);
+  const [open, setOpen] = usePanelState<ReadonlySet<string>>(OPEN, () => new Set(), instance);
+  const [pagesAsked, setPagesAsked] = usePanelState<Readonly<Record<string, number>>>(PAGES_ASKED, {}, instance);
+  const [place, setPlace] = usePanelState(PLACE, 0, instance);
+  // The term asked for by a Metrics cell or `explain`: it opens as well as the terms above it, once it is read. A view
+  // drawn again keeps the terms it had open, the root closed if the user closed it.
+  const drawnAgain = useKeptBefore(OPEN, instance);
+  const reveal = useRef<string | undefined>(drawnAgain ? undefined : ROOT);
 
-  const request = useStore(termRequests, (s) => s.requests[panelId]);
-  useEffect(() => {
-    if (request === undefined) return;
+  // A term asked for is shown once: a view drawn again does not take back the term it was last asked for.
+  useTermRequestOnce(viewId, ANSWERED, instance, (request) => {
     setSelected(request.path);
     reveal.current = request.path ?? ROOT;
     setPlace((p) => p + 1);
-  }, [request]);
+    return true;
+  });
 
   const key = useCallback((path: string | undefined, offset: number) => termKey(address, path, order, offset), [address, order]);
   const read = useCallback((path: string | undefined, offset: number) => readTerm(api, address, path, order, offset), [api, address, order]);
-  // Another order reads the children afresh, from their first page.
-  useEffect(() => setPagesAsked({}), [order]);
+  // Another order reads the children afresh, from their first page; a view drawn again under the order it had keeps them.
+  const pagesOrder = useRef(order);
+  useEffect(() => {
+    if (pagesOrder.current === order) return;
+    pagesOrder.current = order;
+    setPagesAsked({});
+  }, [order, setPagesAsked]);
 
   // The trace's header and its first root; the root's page is the same answer, so it is not read twice.
   const first = useQuery(firstPageQuery(queryClient, api, address, order));
@@ -151,7 +170,7 @@ export function TraceView({ panelId, address, api, registerFocus, root }: {
     select(id);
   };
   const more = (id: string) => setPagesAsked((p) => ({ ...p, [id]: (p[id] ?? 1) + 1 }));
-  const reorder = (next: ChildOrder) => setTraceView(panelId, { order: next });
+  const reorder = (next: ChildOrder) => setTraceView(viewId, { order: next });
 
   if (first.isPending) return <Text size="sm" data-testid="trace-loading">Reading the trace…</Text>;
   if (first.isError) return <Alert color="red" variant="light" title="The trace could not be read" data-testid="trace-refused">{describe(first.error)}</Alert>;
@@ -166,7 +185,7 @@ export function TraceView({ panelId, address, api, registerFocus, root }: {
       : selectedPage === undefined || catalog.data === undefined
         ? <Text size="sm">Reading the term…</Text>
         : <TermDetail header={trace} page={selectedPage} kinds={kinds} operand={operand} onSelect={select}
-          above={above} onAbove={(next) => setTraceView(panelId, { above: next })} />;
+          above={above} onAbove={(next) => setTraceView(viewId, { above: next })} />;
   // At a term with a share to split, its entities by default, or every row at any depth below it; elsewhere its own
   // rows (ADR-0012 §6 with its note of 2026-11-08). Rows a term names in a leaf set the catalogue does not register are
   // said to be unreadable, never left out.
@@ -192,7 +211,7 @@ export function TraceView({ panelId, address, api, registerFocus, root }: {
   const leafRows = shownBelow === undefined ? undefined : (
     <Stack gap="xs" data-testid="trace-below">
       {views.length > 1 && view !== undefined && (
-        <SegmentedControl size="xs" value={view.value} onChange={(v) => setTraceView(panelId, { below: v === 'rows' ? 'rows' : 'entities' })} aria-label="Rows below the term"
+        <SegmentedControl size="xs" value={view.value} onChange={(v) => setTraceView(viewId, { below: v === 'rows' ? 'rows' : 'entities' })} aria-label="Rows below the term"
           data-testid="trace-below-view" data={views.map((v) => ({ value: v.value, label: v.label }))} />
       )}
       {shownBelow}

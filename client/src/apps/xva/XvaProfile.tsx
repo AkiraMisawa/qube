@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useMemo, useRef } from 'react';
 import '@ex-grid/chart/styles.css';
 import '@ex-grid/chart-mantine/styles.css';
 import { Alert, NativeSelect, Stack, Table, Text } from '@mantine/core';
@@ -10,6 +10,7 @@ import type { RegisteredMeasure } from './contracts';
 import { chartSeries, profilesOf, profileTable, type ProfileTable, type ProfileValue } from './profiles';
 import { useRequestRows } from './requestRows';
 import { formatAmount, isLoss } from '../../platform/grid/amounts';
+import { panelKey, usePanelState } from '../../platform/panelState';
 
 // The Profile tab (the owner's Profile of 2026-11-08): the profiles the Run returned
 // for the case and the market in view, chosen one at a time, as a table of its dates and a chart of the same points,
@@ -18,6 +19,10 @@ import { formatAmount, isLoss } from '../../platform/grid/amounts';
 
 const years = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 });
 const CHART_HEIGHT = 280;
+
+// The profile chosen and the series hidden from the legend, kept by the panel while it is hidden (ADR-0006 note 10).
+const PICKED = panelKey<string | undefined>('xva.profile.picked');
+const HIDDEN = panelKey<readonly string[]>('xva.profile.hidden');
 
 export function XvaProfile({ runId, measures, register, caseId, scenario }: {
   readonly runId: string;
@@ -28,7 +33,7 @@ export function XvaProfile({ runId, measures, register, caseId, scenario }: {
   readonly scenario: string;
 }) {
   const read = useRequestRows(runId, measures, register, 'profiles', 'profiles');
-  const [picked, setPicked] = useState<string | undefined>(undefined);
+  const [picked, setPicked] = usePanelState(PICKED, undefined);
   if (read.kind === 'pending') return <Text size="sm">Reading the profiles…</Text>;
   if (read.kind === 'none') return <Text size="sm" data-testid="xva-profile-none">{read.reason}</Text>;
   const profiles = profilesOf(read.rows, caseId, scenario);
@@ -106,7 +111,7 @@ function ProfileGrid({ table }: { readonly table: ProfileTable }) {
  */
 function ProfileChart({ table }: { readonly table: ProfileTable }) {
   const { ref, width } = useElementSize();
-  const [hidden, setHidden] = useState<readonly string[]>([]);
+  const [hidden, setHidden] = usePanelState(HIDDEN, []);
   // The definition is made again only when the points change: every render hands ExChart the same one (ADR-0252).
   const series = chartSeries(table);
   const pointsKey = JSON.stringify(series);

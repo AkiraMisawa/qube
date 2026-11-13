@@ -9,6 +9,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useColumnWidths } from '../../platform/grid/columnWidths';
 import { amountTone, formatAmount } from '../../platform/grid/amounts';
 import { useWorkspaceContext } from '../../platform/workspace/WorkspaceProvider';
+import { panelKey, usePanelState } from '../../platform/panelState';
+import { answeredInOrder, useKeptGrid } from '../../platform/grid/keptGrid';
 import { keyOf } from '../../platform/workspace/workspaceStore';
 import { registerPlaces, type Place } from '../../shell/places';
 import type { XvaApi } from './api';
@@ -174,6 +176,19 @@ const inputsFit = (tab: InputTab, ws: XvaWorkspaceView, gap: number, catalogueRe
 /** The page's parts, which below its panel's `sm` are three tabs (ADR-0010 §1, ADR-0018 §5). */
 type Section = 'inputs' | 'trades' | 'results';
 
+// What the page shows, kept by its panel while the panel is hidden (ADR-0006 note 10): the layout of ADR-0010 §1 as the
+// user left it, the tabs open, and the case and market the dock shows.
+const SECTION = panelKey<Section>('xva.section');
+const INPUT_TAB = panelKey<InputTab>('xva.inputTab');
+const INPUTS_OPEN = panelKey<boolean>('xva.inputsOpen');
+const INPUTS_DRAGGED = panelKey<number | undefined>('xva.inputsDragged');
+const DOCK_OPEN = panelKey<boolean>('xva.dockOpen');
+const DOCK_HEIGHT_KEPT = panelKey<number>('xva.dockHeight');
+const RESULT_TAB = panelKey<string>('xva.resultTab');
+const TRACE_CASE = panelKey<string>('xva.traceCase');
+const SCENARIO_PICK = panelKey<{ readonly runId: string | undefined; readonly scenario: string }>('xva.scenarioPick');
+const DOCK_FULL = panelKey<boolean>('xva.dockFull');
+
 // A value that differs from Original is marked (ADR-0010 §2), by value and not by edit: one a rule moved is marked, one
 // edited back is not. ExGrid's `modified` mark stands in for the Before and After fills until its Split Fill ships.
 function cellState(row: Row, col: GridColumn<Row>): CellState {
@@ -314,6 +329,8 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
     return {
       ...grids,
       answered: (row: Row) => answered.get(row),
+      // The order of a grid's rows as its reader named it, for a Selection kept by the panel (ADR-0006 note 10).
+      orderOf: answeredInOrder<Row>((row) => answered.get(row)),
       changed: () => { grids.new.notifyChanged([]); grids.existing.notifyChanged([]); },
       requery: () => { grids.new.requery(); grids.existing.requery(); },
       dispose: () => { grids.new.dispose(); grids.existing.dispose(); },
@@ -386,23 +403,26 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   // Each grid's columns at the widths the user dragged them to, the user's for that grid in every workspace (ADR-0017 §5).
   const newWidths = useColumnWidths('xva/trades/new', newColumns);
   const existingWidths = useColumnWidths('xva/trades/existing', existingColumns);
+  // Each grid's sort, conditions and Selection, kept by the panel while it is hidden (ADR-0006 note 10).
+  useKeptGrid('xva/trades/new', sources.new, newGrid, newWidths.columns, sources.orderOf);
+  useKeptGrid('xva/trades/existing', sources.existing, existingGrid, existingWidths.columns, sources.orderOf);
 
   // The layout (ADR-0010 §1): the input tabs open, or collapsed to their row, at a height the user drags; the dock the
   // same at the bottom; and below the panel's `sm` the part in view.
-  const [section, setSection] = useState<Section>('trades');
-  const [inputTab, setInputTab] = useState<InputTab>('netting');
-  const [inputsOpen, setInputsOpen] = useState(true);
+  const [section, setSection] = usePanelState(SECTION, 'trades');
+  const [inputTab, setInputTab] = usePanelState<InputTab>(INPUT_TAB, 'netting');
+  const [inputsOpen, setInputsOpen] = usePanelState(INPUTS_OPEN, true);
   // The input tabs are as high as the open tab's content until the handle is dragged; from then on, as high as it set.
-  const [inputsDragged, setInputsDragged] = useState<number | undefined>(undefined);
-  const [dockOpen, setDockOpen] = useState(true);
-  const [dockHeight, setDockHeight] = useState(DOCK_HEIGHT);
+  const [inputsDragged, setInputsDragged] = usePanelState<number | undefined>(INPUTS_DRAGGED, undefined);
+  const [dockOpen, setDockOpen] = usePanelState(DOCK_OPEN, true);
+  const [dockHeight, setDockHeight] = usePanelState(DOCK_HEIGHT_KEPT, DOCK_HEIGHT);
   // The dock's tab, Metrics or a measure's own (ADR-0010 §7), the case its trace is of, and whether the dock is widened
   // over the input tabs and the trade grids, as opening a measure's tab does (owner, 2026-11-08).
-  const [resultTab, setResultTab] = useState<string>(METRICS_TAB.id);
-  const [traceCase, setTraceCase] = useState(BASE_CASE);
+  const [resultTab, setResultTab] = usePanelState(RESULT_TAB, METRICS_TAB.id);
+  const [traceCase, setTraceCase] = usePanelState(TRACE_CASE, BASE_CASE);
   // The market the dock shows (ADR-0010 §4): the base market, or a scenario the Run priced, picked in that Run.
-  const [scenarioPick, setScenarioPick] = useState<{ readonly runId: string | undefined; readonly scenario: string }>({ runId: undefined, scenario: BASE_SCENARIO });
-  const [dockFull, setDockFull] = useState(false);
+  const [scenarioPick, setScenarioPick] = usePanelState(SCENARIO_PICK, { runId: undefined, scenario: BASE_SCENARIO });
+  const [dockFull, setDockFull] = usePanelState(DOCK_FULL, false);
   const [focusRequest, setFocusRequest] = useState(0);
   /** `go csa`, `open netting`: the tab open and in view, with the keyboard in it (ADR-0010 §9), so a dock widened over
    * the tabs is put back. A measure's own tab opens while the measure is selected; otherwise nothing moves, and the

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, type Ref } from 'react';
 import { NativeSelect, Select, Stack, Text } from '@mantine/core';
 import { GridSource, type CellState, type GridColumn, type GridContextMenuContext, type GridEditIntent } from '@ex-grid/core';
+import type { ExGridApi } from '@ex-grid/react';
 import { QubeGrid } from '../../platform/grid/QubeGrid';
 import type { EffectiveCds, EffectiveCredit } from './contracts';
 import { bpFigure, bpText, catalogueOf, catalogueRefused, inBp, spreadTyped, type CatalogueRead } from './credit';
@@ -10,6 +11,7 @@ import { compactGridHeight } from './layout';
 import { differs, originalMessage } from './original';
 import { VARY_COMMAND, type VaryTarget } from './VaryDialog';
 import { useColumnWidths } from '../../platform/grid/columnWidths';
+import { keysInOrder, useKeptGrid } from '../../platform/grid/keptGrid';
 
 // XVA's Credit tab (ADR-0010 §8's note of 2026-11-09), shown while CVA is selected: the counterparty's CDS, a single name
 // found by its reference or a proxy by sector, region and rating, or none; and the chosen curve as one row, its spreads
@@ -150,6 +152,9 @@ function CurveGrid({ curve, tenors, setText, onVary, commandLabel }: {
   const tenorsKey = tenors.join('|');
   const declared = useMemo(() => curveColumnsOf(tenorsKey.split('|')), [tenorsKey]);
   const { columns, onColumnWidthChanged } = useColumnWidths('xva/credit/curve', declared);
+  // Its Selection, kept by the panel while the tab or the panel is hidden (ADR-0006 note 10).
+  const grid = useRef<ExGridApi<Row>>(null);
+  useKeptGrid('xva/credit/curve', source, grid, columns, keysInOrder((r) => r.curveId));
 
   // The server reads the spread and checks it; one it refuses keeps the editor open with its reason (ExGrid ADR-0380),
   // unless the user has cancelled the commit meanwhile.
@@ -169,7 +174,7 @@ function CurveGrid({ curve, tenors, setText, onVary, commandLabel }: {
 
   return (
     <div aria-label="CDS curve">
-      <QubeGrid<Row> columns={columns} onColumnWidthChanged={onColumnWidthChanged} source={source} onEdit={onEdit} cellState={curveCellState} cellMessage={curveCellMessage}
+      <QubeGrid<Row> ref={grid} columns={columns} onColumnWidthChanged={onColumnWidthChanged} source={source} onEdit={onEdit} cellState={curveCellState} cellMessage={curveCellMessage}
         contextCommands={contextCommands} commandLabel={commandLabel}
         density="compact" viewportWidth="stretch" viewportHeight={compactGridHeight(1)} pinnedColumnCount={2}
         showSelectionSummary={false} locale="en-US" />

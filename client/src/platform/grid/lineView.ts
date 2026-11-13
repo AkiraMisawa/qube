@@ -89,9 +89,7 @@ export function pagedView<Row>(
   answered: (row: Row) => Answered | undefined,
 ): LineView {
   const where = whereOf(source.filter);
-  const first = source.window.length === 0 ? undefined : answered(source.window[0]!);
-  const drawn = first !== undefined && first.where === where && read.rowSequenceVersion === source.rowSequenceVersion
-    && source.window.every((row) => { const of = answered(row); return of !== undefined && sameOrder(of, first); }) ? first : undefined;
+  const drawn = read.rowSequenceVersion === source.rowSequenceVersion ? answeredOrder(source, answered) : undefined;
   const { ranges, focus } = read.selection;
   return {
     ...named(grid),
@@ -101,6 +99,21 @@ export function pagedView<Row>(
     ...(ranges.length === 0 ? {} : { ranges: ranges.map((r) => ({ start: r.topRow, count: r.rowCount })) }),
     ...(focus === undefined ? {} : { focus: { field: fieldAt(grid, focus.column), position: focus.row } }),
   };
+}
+
+/**
+ * The one answer of a paged grid's reader that every row in hand came in, under the conditions the source holds now:
+ * the order a position among those rows means a row in. None where no row is in hand, where a row came in no answer or
+ * in another order, or where the rows came under other conditions.
+ */
+export function answeredOrder<Row>(
+  source: { readonly window: readonly Row[]; readonly filter: Filter | undefined },
+  answered: (row: Row) => Answered | undefined,
+): Answered | undefined {
+  const [head] = source.window;
+  const first = head === undefined ? undefined : answered(head);
+  if (first === undefined || first.where !== whereOf(source.filter)) return undefined;
+  return source.window.every((row) => { const of = answered(row); return of !== undefined && sameOrder(of, first); }) ? first : undefined;
 }
 
 /**

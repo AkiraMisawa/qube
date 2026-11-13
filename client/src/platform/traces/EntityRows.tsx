@@ -1,10 +1,12 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Group, Stack, Text } from '@mantine/core';
 import { GridSource, type GridColumn } from '@ex-grid/core';
+import type { ExGridApi } from '@ex-grid/react';
 import { compactGridHeight } from '../grid/metrics';
 import { QubeGrid } from '../grid/QubeGrid';
 import { toneOf } from '../grid/amounts';
 import { useColumnWidths } from '../grid/columnWidths';
+import { fixedRowsBySort, useKeptGrid } from '../grid/keptGrid';
 import { MAX_PAGE, refusalText, type TraceApi } from './api';
 import type { EntityCheck, EntityRow, LeafSetKind, Side, TraceAddress, TraceHeader } from './contracts';
 import { checkLine, columnLabel } from './entities';
@@ -72,13 +74,16 @@ export function EntityRows({ api, address, header, path, set }: {
     return out;
   }, [set, header, both, currency, unit]);
   const { columns, onColumnWidthChanged } = useColumnWidths(`trace/entities/${set.leafSet}`, declared, { hideColumnMenu: true });
+  // Its Selection, kept by the panel while it is hidden (ADR-0006 note 10), by the term it is of.
+  const grid = useRef<ExGridApi<EntityRow>>(null);
+  useKeptGrid(`trace/entities/${JSON.stringify([address, path, set.leafSet])}`, source, grid, columns, fixedRowsBySort());
 
   const line = checks === undefined ? undefined : checkLine(checks, unit);
 
   return (
     <Stack gap="xs" data-testid="trace-entities" aria-label="Entities below the term">
       {failure !== undefined && <Alert color="red" variant="light" withCloseButton onClose={() => setFailure(undefined)} title="The entities could not be read">{failure}</Alert>}
-      <QubeGrid<EntityRow> columns={columns} onColumnWidthChanged={onColumnWidthChanged} source={source} density="compact" viewportWidth="stretch"
+      <QubeGrid<EntityRow> ref={grid} columns={columns} onColumnWidthChanged={onColumnWidthChanged} source={source} density="compact" viewportWidth="stretch"
         viewportHeight={compactGridHeight(Math.min(total === undefined ? 1 : Math.max(total, 1), 8))} pinnedColumnCount={1} locale="en-US" hideColumnMenu />
       {line !== undefined && (
         <Group gap="xs" wrap="wrap">
