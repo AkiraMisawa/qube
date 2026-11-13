@@ -11,7 +11,10 @@ import { PANEL_ID, readName, type KeptPanels, type WorkspaceStore } from '../pla
 // tabs keep their own and a new tab starts with none. A value this version cannot read is not applied, and the shell
 // says so.
 
-/** The area each floating panel was floated from: the area's id, by the panel's id. */
+/**
+ * The area each floating panel was floated from, and each panel in another window left (ADR-0018 §9): the area's id,
+ * by the panel's id. Kept under the name it had before step 2, so that what a tab kept then is read as it was.
+ */
 export type FloatedFrom = Readonly<Record<string, string>>;
 
 interface KeptArrangement {
@@ -116,6 +119,17 @@ function checkLayout(value: unknown): void {
       checkAnchor(position, ['top', 'bottom'], `${at}.position`);
       if (floating.data !== undefined) checkArea(floating.data, `${at}.data`);
       else checkPart(record(floating.grid, `${at}.grid`).root, `${at}.grid.root`);
+    });
+  }
+  // The areas of other windows (ADR-0018 §9): their panels, and the area they came from, which is all that is read of
+  // them, since they come back into the main window as the arrangement is drawn (`withWindowsDocked`).
+  if (layout.popoutGroups !== undefined) {
+    list(layout.popoutGroups, 'layout.popoutGroups').forEach((p, i) => {
+      const at = `layout.popoutGroups[${i}]`;
+      const window = record(p, at);
+      if (window.gridReferenceGroup !== undefined) text(window.gridReferenceGroup, `${at}.gridReferenceGroup`);
+      if (window.data !== undefined) checkArea(window.data, `${at}.data`);
+      else checkPart(record(window.grid, `${at}.grid`).root, `${at}.grid.root`);
     });
   }
 }

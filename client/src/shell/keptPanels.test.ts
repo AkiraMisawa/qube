@@ -101,6 +101,14 @@ describe('the panels a browser tab keeps (ADR-0018 §7)', () => {
     expect(readKept(floating({ top: 40, width: 400, height: 300 })))
       .toEqual({ refused: 'layout.floatingGroups[0].position is placed from neither or both of left and right' });
     expect(readKept(floating({ left: 0, top: '40', width: 400, height: 300 }))).toEqual({ refused: 'layout.floatingGroups[0].position.top is not a number' });
+    // ADR-0018 §9: another window's area and the area it came from are read; they come back docked as it is drawn.
+    const windows = (popout: unknown) => JSON.stringify({ version: 1, panels: { panels: [], recent: [], closed: [] },
+      layout: { grid: { root: { type: 'branch', data: [] }, width: 1440, height: 800, orientation: 'HORIZONTAL' }, panels: {},
+        popoutGroups: [popout] }, floatedFrom: {} });
+    expect(readKept(windows({ data: { id: '3', views: ['panel-1'] }, gridReferenceGroup: '1', position: null }))).toMatchObject({ kept: {} });
+    expect(readKept(windows({ data: { id: '3', views: ['panel-1'] }, gridReferenceGroup: 1, position: null })))
+      .toEqual({ refused: 'layout.popoutGroups[0].gridReferenceGroup is not text' });
+    expect(readKept(windows({ position: null }))).toEqual({ refused: 'layout.popoutGroups[0].grid is not an object' });
     expect('refused' in readKept('not json')).toBe(true);
 
     window.sessionStorage.setItem(keptKey(USER), '{"version":2,"panels":{}}');

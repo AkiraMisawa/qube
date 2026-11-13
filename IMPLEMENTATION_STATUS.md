@@ -3442,10 +3442,75 @@ by Vite's hot reload threw; the request a trace answered once was written twice;
 the ADR, and a browser read of the Focus could mix two grids as a page was drawn anew. ADR-0018 §5 said the pages are
 drawn anew between the strip and the areas until this pull request; it now says they take back their state.
 
+## Panels in areas, step 2: a panel in another window of the browser (ADR-0018 §9, 2026-11-13)
+
+The owner said to start step 2 on 2026-11-13 ("前者は始めていいよ"). One pull request
+(`docs/specs/panels-2-windows`, tickets 01 to 06); what it settles beyond §9 is DEFAULT, in ADR-0018 §9's note of
+2026-11-13.
+
+### What runs
+
+- **`pop out panel`** (the line, a tab's menu, the area's list) moves the panel into an area of its own in a new
+  browser window, opened by dockview 8.9.0 (`addPopoutGroup`) on `client/public/popout.html` over where its area
+  stood and at its size. An area's only panel takes the whole area out, so that its place is kept. Refused in the
+  strip, for a panel alone in a window already, and for the only panel docked in the main window.
+- **The window is the main one's** (`client/src/shell/WindowShell.tsx`): it follows the main `<html>`'s attributes
+  (the colour scheme among them) and the stylesheets the main head gains after it opened; it is titled
+  `<panel> · Qube`; a menu, a select, a tooltip or a popover opened from its page opens in it (Mantine's `Portal` is
+  pointed at the window's own node); a press outside its popovers closes them, and Escape closes a dialog there.
+- **The window in use** (`client/src/shell/windows.ts`): the window last pressed in, focused, or typed a shell key in,
+  or the one just popped out into, changed only while no dialog is open. The command line, the Run dialog, the
+  applications' dialogs and the settings open there; the shell's notices are said there; the active panel is the one
+  it shows. Ctrl+K, `/` and the shell's chords are attached to every window's document. `ai` from another window asks
+  with its panel, and says that the answer is in the AI pane of the main window.
+- **A page drawn anew in its window**: an area's page is keyed by its window, so a move into a window or back mounts
+  it there, and it takes back what its panel kept (ADR-0006 note 10: a Rates leg open, a grid's Focus). ExGrid 0.2.0
+  works there (presses, arrows, menus), but reads the main window's Device Pixel (below).
+- **Back where it was**: `dock panel` in a window puts its panel back into the area it came from, or where that area
+  stood, or, where it has gone, a new area on the right where there is room and else the last area; `send panel to <title>` moves a panel either way. A window the user closes
+  puts its panels back (into the area they came from, floating where they floated, or an area of their own) and the
+  shell says which. A window the browser blocks is said as a refusal, and the panel stays. A reload brings the windows'
+  panels into the main window (`withWindowsDocked`) and says where each went; so does the main window showing the one
+  strip, which closes the other windows. The verbs that act within the main window's areas (`split`, `float`, `size`,
+  `maximize`) are refused for a panel in a window, saying to dock it first; `gather panels` is refused in a window.
+
+### Verification performed
+
+| What | Result |
+|---|---|
+| Client: `npm run typecheck`, `npx vitest run`, `npm run build` | Clean; 489 passed in 47 files; built |
+| `npx playwright test e2e/windows.spec.ts`, which this pull request adds, `--repeat-each=3`, without the Device Pixel test (Chromium, headless, Linux) | 27 passed (nine tests, three times each) |
+| The Device Pixel test (a window at 2x beside a main window at 1x) | Fails on ExGrid 0.2.0, as it should: the grid in the window draws 1px lines where its window's device pixel is 0.5px. It waits for `v0.3.0-rc.1` (ex-grid #566, ADR-0090 there) on npm |
+| `npx playwright test` (Chromium, headless, Linux), without the Device Pixel test | 145 passed, 1 failed: `panels.spec.ts`'s list of the active panel's verbs, which now holds Pop out; corrected, and with `--repeat-each=3` it passes at 768 and 390px |
+| The window, its menus, the command line in it and the notices, in both schemes | Looked at, in the pull request's screens |
+
+The unit tests read `pop out panel` and its refusals, the verbs refused in a window, `send panel to` into a window and
+back and its new refusal, and `dock panel` from a window, over the fake port; the arrangement's reading order and room
+with windows and the hidden place a whole area left; `withWindowsDocked`; and a kept value with `popoutGroups`, read
+and refused. The browser tests read what only a browser shows: the window opened by the line and by the menu, its
+title, its page's state and a grid driven in it; a whole area popped out and its window closed by the user; the scheme
+followed, a tooltip, a menu closed by a press outside it and a select in the window; Ctrl+K and `/` there, a verb and a
+dialog run from there with Tab and Escape; `send panel to` both ways; `ai` from the window; a blocked window; a reload;
+and the strip closing the windows.
+
+### Providers
+
+Unchanged; nothing on the server changed. The AI's answer in the test is the scripted stand-in's.
+
+### Known limits
+
+- **The Device Pixel in another window** waits for ExGrid `v0.3.0-rc.1` on npm (the owner's tag, ex-grid #569): until
+  then a grid in a window on a display of another scale than the main window's draws its lines at the main window's
+  device pixel. The bump to `0.3.0-rc.1`, all seven packages at one version, and the test going green are this pull
+  request's last commit, or the next one's.
+- A reload does not open the windows again (a browser opens a window only on a key or a press, §9); the panels come back
+  into the main window, said so.
+- Checked in Chromium only: Safari's and Firefox's pop-up rules, touch in a window and a real second monitor are not.
+- An area is not split inside another window (one area per window, as a floating area is).
+
 ## Next
 
-1. Panels in areas, ADR-0018 steps 2 (other browser windows) and 3 (parts of a page with links), in that order, each
-   once the owner has seen the one before.
+1. Panels in areas, ADR-0018 step 3 (parts of a page with links), once the owner has seen step 2.
 2. MVA with SIMM (`docs/12-implementation-plan.md` P2): spot IM from the XVA request's MVA option.
 3. ADR-0010 Delivery step 3 (Advanced: Before-only and After-only edits, the split fill), when the owner asks for it.
 4. The owner's review of ADR-0003 §7 (scopes, carry and conflict), then a synthetic source change that can produce a conflict, and the browser cases still open above (reload, failed case unavailable).

@@ -29,6 +29,7 @@ function fakeAreas(room: Size, first: SerializedDockview | undefined) {
     split: () => { throw new Error('not drawn here'); },
     sendTo: () => { throw new Error('not drawn here'); },
     float: () => { throw new Error('not drawn here'); },
+    popOut: () => { throw new Error('not drawn here'); },
     dock: () => { throw new Error('not drawn here'); },
     size: () => { throw new Error('not drawn here'); },
     maximize: () => { throw new Error('not drawn here'); },

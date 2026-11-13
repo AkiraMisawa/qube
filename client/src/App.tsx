@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, AppShell, Drawer, Group, Loader, Text, em } from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
 import { useQuery } from '@tanstack/react-query';
@@ -11,7 +11,9 @@ import { WorkspaceProvider, useWorkspaceContext } from './platform/workspace/Wor
 import { AppHeader, HEADER_HEIGHT } from './shell/AppHeader';
 import { CommandPalette } from './shell/CommandPalette';
 import { ContextIssues } from './shell/ContextBar';
-import { NoticeStrip } from './shell/Notice';
+import { NoticeContext, NoticeStrip } from './shell/Notice';
+import { InUseWindowPortals } from './shell/WindowShell';
+import { useWindowInUse } from './shell/windows';
 import { RunDialog } from './shell/RunDialog';
 import { SettingsDialog } from './shell/SettingsDialog';
 import { AppDialogs } from './apps';
@@ -80,27 +82,35 @@ function Shell({ notice, clearNotice }: { readonly notice: Notice | undefined; r
   // The AI pane is beside the panels (ADR-0007 §7). On a phone, where there is no room beside, it is a drawer over
   // them that does not take the keyboard when it opens.
   const phone = useMediaQuery(`(max-width: ${em(767.98)})`, false, { getInitialValueInEffect: false });
+  // A notice is said in the window in use: this one, or another window a panel was popped out into (ADR-0018 §9).
+  const said = useMemo(() => ({ notice, clearNotice }), [notice, clearNotice]);
+  const inUse = useWindowInUse() === window;
   return (
-    <AppShell header={{ height: HEADER_HEIGHT }} padding="sm"
-      aside={{ width: { sm: 340, lg: 400 }, breakpoint: 'sm', collapsed: { mobile: true, desktop: !aiOpen || phone } }}>
-      <AppShell.Header>
-        <AppHeader />
-      </AppShell.Header>
-      <AppShell.Main>
-        <NoticeStrip notice={notice} onClose={clearNotice} />
-        <ContextIssues />
-        <Panels />
-      </AppShell.Main>
-      <AppShell.Aside>{aiOpen && !phone && <AiPane />}</AppShell.Aside>
-      <Drawer opened={aiOpen && phone} onClose={() => ai.getState().setOpen(false)} position="right" size="100%" withCloseButton={false}
-        trapFocus={false} returnFocus={false} padding={0} transitionProps={{ duration: 0 }} aria-label="AI"
-        styles={{ content: { display: 'flex', flexDirection: 'column' }, body: { flex: 1, minHeight: 0 } }}>
-        {aiOpen && phone && <AiPane />}
-      </Drawer>
-      <CommandPalette />
-      <RunDialog />
-      <AppDialogs />
-      <SettingsDialog notify={workspace.notify} />
-    </AppShell>
+    <NoticeContext.Provider value={said}>
+      <AppShell header={{ height: HEADER_HEIGHT }} padding="sm"
+        aside={{ width: { sm: 340, lg: 400 }, breakpoint: 'sm', collapsed: { mobile: true, desktop: !aiOpen || phone } }}>
+        <AppShell.Header>
+          <AppHeader />
+        </AppShell.Header>
+        <AppShell.Main>
+          {inUse && <NoticeStrip notice={notice} onClose={clearNotice} />}
+          <ContextIssues />
+          <Panels />
+        </AppShell.Main>
+        <AppShell.Aside>{aiOpen && !phone && <AiPane />}</AppShell.Aside>
+        <Drawer opened={aiOpen && phone} onClose={() => ai.getState().setOpen(false)} position="right" size="100%" withCloseButton={false}
+          trapFocus={false} returnFocus={false} padding={0} transitionProps={{ duration: 0 }} aria-label="AI"
+          styles={{ content: { display: 'flex', flexDirection: 'column' }, body: { flex: 1, minHeight: 0 } }}>
+          {aiOpen && phone && <AiPane />}
+        </Drawer>
+        {/* The shell's dialogs open in the window in use (ADR-0018 §9). */}
+        <InUseWindowPortals>
+          <CommandPalette />
+          <RunDialog />
+          <AppDialogs />
+          <SettingsDialog notify={workspace.notify} />
+        </InUseWindowPortals>
+      </AppShell>
+    </NoticeContext.Provider>
   );
 }

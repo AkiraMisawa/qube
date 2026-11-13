@@ -52,8 +52,8 @@ for (const width of [768, 390]) {
       'Pricing DB', 'Rates 2026-10-27', 'Rates 2026-10-27 · 2', 'Rates 2026-10-27 · 3', 'Rates 2026-10-27 · 4', 'Rates 2026-10-27 · 5',
       // The active panel's verbs, each with the words the line takes.
       /^Close.*close panel$/, /^Close others/, /^Close to the right/, /^Close all/, /^Pin/, /^Move left/, /^Move right/, /^Rename…rename panel$/,
-      // In an area, the verbs that arrange (ADR-0018 §3); the phone's one strip has no areas to arrange.
-      ...(width === 390 ? [] : [/^Split/, /^Send to/, /^Float/, /^Size/, /^Maximize/, /^Gather all panels here/]),
+      // In an area, the verbs that arrange (ADR-0018 §3, and §9 from step 2); the phone's one strip has no areas to arrange.
+      ...(width === 390 ? [] : [/^Split/, /^Send to/, /^Float/, /^Pop out/, /^Size/, /^Maximize/, /^Gather all panels here/]),
       /^Reopen closed panel/,
     ]);
     // The last panel goes no further right: the item says why under it, where a phone reads it too, and stays in the

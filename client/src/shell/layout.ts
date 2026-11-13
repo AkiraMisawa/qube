@@ -21,20 +21,31 @@ export interface Size {
   readonly height: number;
 }
 
-/** An area as the verbs and the strip read it: its panels in tab order, the one it shows, and whether it floats. */
+/**
+ * An area as the verbs and the strip read it: its panels in tab order, the one it shows, whether it floats, and whether
+ * it is in another window of the browser (ADR-0018 §9).
+ */
 export interface AreaOf {
   readonly id: string;
   readonly panels: readonly string[];
   readonly shown: string | undefined;
   readonly floating: boolean;
+  readonly window: boolean;
 }
 
 type Floating = NonNullable<SerializedDockview['floatingGroups']>[number];
+type Popout = NonNullable<SerializedDockview['popoutGroups']>[number];
 /** One area as dockview writes it: its id, its panels in tab order and the one it shows. */
 type GroupPanelViewState = NonNullable<Floating['data']>;
 type Node = SerializedGridObject<GroupPanelViewState>;
 
 const isLeaf = (node: Node): node is Node & { readonly data: GroupPanelViewState } => node.type === 'leaf';
+/**
+ * The place dockview keeps in the window for a whole area that left it for another window: hidden, holding no panel,
+ * so that the area comes back where it stood. It is no area: it holds nothing, takes no room and is not listed. (An
+ * area hidden by a maximize holds its panels, and is one.)
+ */
+const isPlaceKept = (node: Node): boolean => isLeaf(node) && node.visible === false && node.data.views.length === 0;
 const children = (node: Node): readonly Node[] => (isLeaf(node) ? [] : (node.data as Node[]));
 const flip = (o: Orientation): Orientation => (o === Orientation.HORIZONTAL ? Orientation.VERTICAL : Orientation.HORIZONTAL);
 
@@ -76,7 +87,7 @@ export interface Line {
 export function lineOf(layout: SerializedDockview, areaId: string): Line | undefined {
   const holds = (node: Node): boolean => (isLeaf(node) ? node.data.id === areaId : children(node).some(holds));
   const find = (node: Node, o: Orientation): Line | undefined => {
-    const parts = children(node);
+    const parts = children(node).filter((p) => !isPlaceKept(p));
     const at = parts.findIndex(holds);
     const inner = at < 0 ? undefined : parts[at];
     if (inner === undefined) return undefined;
@@ -110,29 +121,80 @@ export function fits(layout: SerializedDockview | undefined, room: Size): boolea
 
 /**
  * The areas in reading order (ADR-0018 §1): the window's areas in the order of their splits, the left or upper part
- * first and all of it before the other part, then the floating areas in the order they were floated.
+ * first and all of it before the other part, then the floating areas in the order they were floated, then the areas of
+ * other windows in the order they were opened.
  */
 export function areasOf(layout: SerializedDockview): readonly AreaOf[] {
   const grid: AreaOf[] = [];
   const walk = (node: Node) => {
-    if (isLeaf(node)) grid.push(area(node.data, false));
+    if (isLeaf(node)) { if (!isPlaceKept(node)) grid.push(area(node.data, 'grid')); }
     else children(node).forEach(walk);
   };
   walk(layout.grid.root);
-  return [...grid, ...(layout.floatingGroups ?? []).flatMap((f) => floatingGroups(f).map((g) => area(g, true)))];
+  return [
+    ...grid,
+    ...(layout.floatingGroups ?? []).flatMap((f) => groupsOf(f).map((g) => area(g, 'floating'))),
+    ...(layout.popoutGroups ?? []).flatMap((p) => groupsOf(p).map((g) => area(g, 'window'))),
+  ];
 }
 
-function area(group: GroupPanelViewState, floating: boolean): AreaOf {
-  return { id: group.id, panels: [...group.views], shown: group.activeView, floating };
+function area(group: GroupPanelViewState, where: 'grid' | 'floating' | 'window'): AreaOf {
+  return { id: group.id, panels: [...group.views], shown: group.activeView, floating: where === 'floating', window: where === 'window' };
 }
 
-function floatingGroups(f: Floating): readonly GroupPanelViewState[] {
+/** The areas a floating area or another window holds: one, or a tree of them. */
+function groupsOf(f: Floating | Popout): readonly GroupPanelViewState[] {
   if (f.data !== undefined) return [f.data];
   if (f.grid === undefined) return [];
   const groups: GroupPanelViewState[] = [];
   const walk = (node: Node) => { if (isLeaf(node)) groups.push(node.data); else children(node).forEach(walk); };
   walk(f.grid.root);
   return groups;
+}
+
+/** Panels of another window put back into the main window: which, and into which area. */
+export interface Returned {
+  readonly panels: readonly string[];
+  readonly into: string;
+  /** Whether that area is the one they came from. */
+  readonly cameFrom: boolean;
+}
+
+/**
+ * The arrangement with its other windows folded into the main window (ADR-0018 §9's note of 2026-11-13): a browser
+ * opens a window only on a key or a press, so one kept across a reload, or past the strip, is not opened again. Each
+ * window's panels go back into the area they came from where it is there, hidden or shown, else into the last area of
+ * the main window, after its own panels; that area shows the panel it showed. Answers what went where, to be said.
+ */
+export function withWindowsDocked(layout: SerializedDockview): { readonly layout: SerializedDockview; readonly returned: readonly Returned[] } {
+  const windows = layout.popoutGroups ?? [];
+  const { popoutGroups: _, ...rest } = layout;
+  if (windows.length === 0) return { layout: rest, returned: [] };
+  const joining = new Map<string, string[]>();
+  const returned: Returned[] = [];
+  const leaves: (Node & { readonly data: GroupPanelViewState })[] = [];
+  const collect = (node: Node) => { if (isLeaf(node)) leaves.push(node); else children(node).forEach(collect); };
+  collect(layout.grid.root);
+  const last = leaves.filter((l) => !isPlaceKept(l)).at(-1) ?? leaves.at(-1);
+  for (const w of windows) {
+    const panels = groupsOf(w).flatMap((g) => g.views);
+    if (panels.length === 0) continue;
+    const from = w.gridReferenceGroup === undefined ? undefined : leaves.find((l) => l.data.id === w.gridReferenceGroup);
+    const to = from ?? last;
+    if (to === undefined) throw new Error('The arrangement has no area in the main window to put another window\'s panels into.');
+    joining.set(to.data.id, [...(joining.get(to.data.id) ?? []), ...panels]);
+    returned.push({ panels, into: to.data.id, cameFrom: from !== undefined });
+  }
+  const nodeOf = (node: Node): Node => {
+    if (!isLeaf(node)) return { ...node, data: children(node).map(nodeOf) };
+    const more = joining.get(node.data.id);
+    if (more === undefined) return node;
+    const views = [...node.data.views, ...more];
+    const { visible: _hidden, ...shown } = node;
+    const activeView = node.data.activeView ?? views[0];
+    return { ...shown, data: { ...node.data, views, ...(activeView === undefined ? {} : { activeView }) } };
+  };
+  return { layout: { ...rest, grid: { ...layout.grid, root: nodeOf(layout.grid.root) } }, returned };
 }
 
 /** Every panel of the arrangement in reading order: `next panel` goes through them so (ADR-0018 §3). */

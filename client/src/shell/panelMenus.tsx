@@ -10,7 +10,7 @@ import { registerGridFocus } from './places';
 import { ICON, STROKE } from './icons';
 import { FLOAT_PLACES, SIDES, useArrangementVersion } from './arrangement';
 import {
-  CLOSE, CLOSE_ALL, CLOSE_OTHERS, CLOSE_RIGHT, DOCK, FLOAT, GATHER, MAXIMIZE, MOVE, onNow, otherAreas, PIN, RENAME, REOPEN, runStripVerb,
+  CLOSE, CLOSE_ALL, CLOSE_OTHERS, CLOSE_RIGHT, DOCK, FLOAT, GATHER, MAXIMIZE, MOVE, onNow, otherAreas, PIN, POP_OUT, RENAME, REOPEN, runStripVerb,
   runVerb, SEND, SIZE, SPLIT, UNMAXIMIZE, UNPIN, type On, type PanelVerb,
 } from './panelVerbs';
 import { openLineWith } from './CommandPalette';
@@ -110,7 +110,7 @@ export function VerbItems({ panel, run, fromKeyboard = false }: {
     );
   };
   const arranging = on.areas.strip === undefined;
-  const floating = arranging && on.areas.areas().some((a) => a.floating && a.panels.includes(panel.id));
+  const away = arranging && on.areas.areas().some((a) => (a.floating || a.window) && a.panels.includes(panel.id));
   return (
     <>
       {[CLOSE, CLOSE_OTHERS, CLOSE_RIGHT, CLOSE_ALL].map((v) => onPanel(v))}
@@ -131,7 +131,8 @@ export function VerbItems({ panel, run, fromKeyboard = false }: {
           }))}
           {/* A floating panel's Float places its area (ADR-0018 §3): the menu holds every verb, as a finger has no drag. */}
           {choosing(FLOAT, FLOAT_PLACES.map((where) => ({ label: capital(where), args: { where } })))}
-          {floating && onPanel(DOCK)}
+          {onPanel(POP_OUT)}
+          {away && onPanel(DOCK)}
           {choosing(SIZE, SHARES.map((percent) => ({ label: percent, args: { percent } })))}
           {on.areas.maximized() === undefined ? onPanel(MAXIMIZE) : onPanel(UNMAXIMIZE, 'Restore')}
           {onPanel(GATHER)}
