@@ -157,12 +157,13 @@ function tabAt(target: EventTarget | null, panels: readonly Panel[]): { readonly
 
 /**
  * Another window's shell, titled by the panel its area shows. As the shell closes a window itself (`arrange`, `dock
- * panel`), dockview lets go of its area a few steps before it lets go of the window, which then goes from the windows
- * open: a window without its area is closing, and draws nothing.
+ * panel`), dockview lets go of its area a step before the window goes from the windows open, but within one call, which
+ * React does not draw in the middle of: a window drawn with no area is a defect.
  */
 function OtherWindowShell({ dock, other, panels }: { readonly dock: DockviewApi; readonly other: OtherWindow; readonly panels: readonly Panel[] }) {
   const area = dock.getPopouts().find((p) => p.window === other.window)?.group;
-  return area === undefined ? null : <AreaWindowShell area={area} other={other} panels={panels} />;
+  if (area === undefined) throw new Error('A window is drawn that dockview holds no area for.');
+  return <AreaWindowShell area={area} other={other} panels={panels} />;
 }
 
 /**

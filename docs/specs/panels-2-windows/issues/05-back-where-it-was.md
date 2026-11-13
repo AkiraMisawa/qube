@@ -10,5 +10,5 @@ where their areas stood, said in the reload's words (added after the second revi
 
 **Blocked by:** 02.
 
-- [x] Each case leaves every panel in the main window and says where: where it was, or, for `arrange`, where the
-  proposal puts it, saying that the proposal closed the windows.
+- [x] Each case leaves every panel in the main window, or in the strip, and says where it went; `arrange` says that
+  it closed the windows.
