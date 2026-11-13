@@ -6,6 +6,7 @@ import { px } from '@mantine/core';
  */
 export function pixels(length: string): number {
   const n = px(length);
-  if (typeof n !== 'number') throw new Error(`The theme length ${length} is not one in pixels.`);
+  // Mantine answers a length it cannot read in pixels as it was given, or as NaN.
+  if (typeof n !== 'number' || !Number.isFinite(n)) throw new Error(`The theme length ${length} is not one in pixels.`);
   return n;
 }

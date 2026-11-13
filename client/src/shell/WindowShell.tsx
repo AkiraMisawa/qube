@@ -92,9 +92,9 @@ const TAB_STOPS = 'a[href], input, select, textarea, button, object, summary, if
  * Tells the main document what Mantine listens for there, from another window (ADR-0018 §9's note of 2026-11-13): a
  * press outside that window's popovers, which closes an open menu or select as a press outside it does in the main
  * window, and Escape, which a dialog's close listens for. Each is told as a copy of the event on the main document's
- * body; a copy of a key or a mouse press whose default was prevented prevents the original's. A touch is heard as a
- * browser makes a touch listener on a document, passive, so that it never holds up a scroll: what it begins is the
- * browser's, whatever its copy asked. Tab is kept inside a dialog open in the window here: the focus trap that would
+ * body; a copy of a key or a mouse press whose default was prevented prevents the original's. A touch is heard
+ * passively, as a browser hears one on a document by default, so that it never holds up a scroll: what it begins is
+ * the browser's, and its copy cannot be prevented. Tab is kept inside a dialog open in the window here: the focus trap that would
  * keep it hears the main document, and walks up from what it traps to the main body, which a dialog in another window
  * is not under. Answers what stops it.
  */
@@ -133,14 +133,15 @@ function tellMain(win: Window, portal: HTMLElement): () => void {
   const onPress = (event: Event) => {
     const path = event.composedPath();
     if (path.includes(portal) || path.some((n) => isElement(n) && n.getAttribute('aria-expanded') === 'true')) return;
-    const copy = event.type === 'mousedown' ? new MouseEvent('mousedown', { bubbles: true, cancelable: true }) : new Event(event.type, { bubbles: true, cancelable: true });
+    // A touch's copy cannot be prevented: the touch is heard passively (below).
+    const copy = event.type === 'mousedown' ? new MouseEvent('mousedown', { bubbles: true, cancelable: true }) : new Event(event.type, { bubbles: true });
     document.body.dispatchEvent(copy);
     if (copy.defaultPrevented) event.preventDefault();
   };
   doc.addEventListener('keydown', onEscape, true);
   doc.addEventListener('keydown', onTab);
   doc.addEventListener('mousedown', onPress, true);
-  doc.addEventListener('touchstart', onPress, true);
+  doc.addEventListener('touchstart', onPress, { capture: true, passive: true });
   return () => {
     doc.removeEventListener('keydown', onEscape, true);
     doc.removeEventListener('keydown', onTab);

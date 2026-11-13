@@ -88,6 +88,9 @@ export function sawAreas(ids: readonly string[]): void {
   }
 }
 
+/** The areas docked in the main window: neither floating nor in another window (ADR-0018 §9). */
+export const dockedAreas = (areas: Arrangement): readonly Area[] => areas.areas().filter((a) => a.where === 'docked');
+
 /** The area holding this panel, if areas are shown and one does. */
 export function areaHolding(areas: Arrangement, panelId: string): Area | undefined {
   return areas.areas().find((a) => a.panels.includes(panelId));

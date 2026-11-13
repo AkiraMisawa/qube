@@ -57,7 +57,9 @@ async function popOut(page: Page, title: string, problems: string[]): Promise<Pa
 
 /**
  * Runs a command from the line of another window that closes that window as it runs: the window closes on Enter's down,
- * so its up, which would go to a window that is gone, is never sent. A window closes in a task after the key's own.
+ * so its up, which would go to a window that is gone, is never sent. The window can be gone before the browser has
+ * answered that the key went down, so the key's own answer is read only where the window is still open: what the test
+ * waits for is the window closing.
  */
 async function closingWith(other: Page, words: string): Promise<void> {
   await other.keyboard.press('ControlOrMeta+K');
@@ -65,7 +67,9 @@ async function closingWith(other: Page, words: string): Promise<void> {
   await other.keyboard.type(words);
   await expect(other.getByTestId('command-pending')).toContainText(words);
   const closing = other.waitForEvent('close');
-  await other.keyboard.down('Enter');
+  await other.keyboard.down('Enter').catch((error: unknown) => {
+    if (!other.isClosed()) throw error;
+  });
   await closing;
 }
 
@@ -335,7 +339,7 @@ test('ADR-0018 §8 and §9: arrange closes the other windows and places their pa
 
   // What it replaced comes back with the window's panel in the main window, where it stood.
   await command(page, 'arrange back');
-  await expect(notice(page)).toHaveText(`Put back the arrangement proposal 1 replaced. ${RATES} is back in this window, as a browser opens a window only on a key or a press: pop out panel sends a panel out again.`);
+  await expect(notice(page)).toHaveText(`Put back the arrangement proposal 1 replaced. Back in this window from the windows proposal 1 closed: ${RATES} where it was. pop out panel sends a panel out again.`);
   await expect(areasRoot(page)).toHaveAttribute('data-areas', '1');
   await expect(tab(page, RATES)).toBeVisible();
 });

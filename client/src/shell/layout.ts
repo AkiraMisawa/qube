@@ -199,6 +199,16 @@ export function withWindowsDocked(layout: SerializedDockview): { readonly layout
   return { layout: { ...rest, grid: { ...layout.grid, root: nodeOf(layout.grid.root) } }, returned };
 }
 
+/**
+ * A kept arrangement as the main window draws it now (ADR-0018 §7, §9): its other windows' panels docked
+ * (`withWindowsDocked`), then made to agree with the panels open (`reconciled`). Answers what came back from the
+ * windows, to be said; the layout is undefined where no area of the window is left.
+ */
+export function asDrawnNow(kept: SerializedDockview, open: OpenPanels): { readonly layout: SerializedDockview | undefined; readonly returned: readonly Returned[] } {
+  const docked = withWindowsDocked(kept);
+  return { layout: reconciled(docked.layout, open), returned: docked.returned };
+}
+
 /** Every panel of the arrangement in reading order: `next panel` goes through them so (ADR-0018 §3). */
 export function readingOrder(layout: SerializedDockview): readonly string[] {
   return areasOf(layout).flatMap((a) => a.panels);

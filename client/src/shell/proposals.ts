@@ -8,7 +8,8 @@ import type { Api } from '../platform/api';
 import { panelLabel, type Panel, type PanelDraft, type WorkspaceState, type WorkspaceStore } from '../platform/workspace/workspaceStore';
 import { areaHolding, currentArrangement, FLOAT_PLACES, floatBox, nextAreaId, SIDES, type Arrangement, type FloatPlace, type Side } from './arrangement';
 import { keptArrangement, type FloatedFrom } from './keptPanels';
-import { AREA_MIN, AREAS_FROM, oneArea, openPanels, panelState, reconciled, withWindowsDocked, type Size } from './layout';
+import { AREA_MIN, AREAS_FROM, asDrawnNow, oneArea, openPanels, panelState, type Size } from './layout';
+import { whereReturned } from './said';
 
 // The AI's proposals of an arrangement (ADR-0018 §8, CONFIRMED by the owner: the AI proposes, the user applies). The
 // kernel's `layout.propose` checks a proposal's shape and answers it; here it is numbered for the page's life, drawn as
@@ -492,8 +493,8 @@ export function arrangeBack(on: Arranging, notify: Notify): void {
   const open = openPanels(on.state());
   // What the proposal replaced, with the panels open now; where it was one area, or held none of them, one area. The
   // panels it had in other windows come back into this one, as after a reload (§9): `arrange` closed those windows.
-  const docked = was.before === undefined ? undefined : withWindowsDocked(was.before);
-  const before = docked === undefined ? undefined : reconciled(docked.layout, open);
+  const now = was.before === undefined ? undefined : asDrawnNow(was.before, open);
+  const before = now?.layout;
   const layout = before ?? oneArea(open, nextAreaId(), on.areas().room());
   const stillOpen = new Set(open.order);
   const floatedFrom = before === undefined ? {} : Object.fromEntries(Object.entries(was.floatedFrom).filter(([panelId]) => stillOpen.has(panelId)));
@@ -502,10 +503,8 @@ export function arrangeBack(on: Arranging, notify: Notify): void {
   const put = was.before !== undefined && before === undefined
     ? `None of the panels the arrangement before proposal ${was.n} held is open, so the panels stand in one area.`
     : `Put back the arrangement proposal ${was.n} replaced.`;
-  const fromWindows = new Set(docked?.returned.flatMap((r) => r.panels));
-  const back = on.state().panels.filter((p) => fromWindows.has(p.id)).map(panelLabel);
-  const backSaid = back.length === 0 ? ''
-    : ` ${back.join(', ')} ${back.length === 1 ? 'is' : 'are'} back in this window, as a browser opens a window only on a key or a press: pop out panel sends a panel out again.`;
+  const back = now === undefined ? undefined : whereReturned(now.returned, on.state(), layout);
+  const backSaid = back === undefined ? '' : ` Back in this window from the windows proposal ${was.n} closed: ${back}. pop out panel sends a panel out again.`;
   notify('done', `${put}${backSaid}${titles.length === 0 ? '' : ` Closed ${titles.join(', ')}, which it opened: reopen panel brings back the last.`}`);
 }
 

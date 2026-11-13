@@ -8,9 +8,6 @@ const STEP = 24;
 /** What a `QubeGrid` adds outside its viewport: its paper's 1px border above and below. */
 export const GRID_FRAME = 2;
 
-// A theme length in pixels is the platform's, as what a grid's height in pixels leaves for it.
-export { pixels } from '../../platform/themeLength';
-
 // A compact grid's height is the platform's, from ExGrid's Grid Metrics.
 export { compactGridHeight } from '../../platform/grid/metrics';
 

@@ -256,9 +256,10 @@ describe('arrange and arrange back (ADR-0018 §8)', () => {
     expect(execute(command('panel.arrangeBack'))).toBeUndefined();
 
     const back = keptArrangement.getState().layout;
-    expect(back?.popoutGroups).toBeUndefined();
-    expect(areasOf(back!).map((a) => [a.id, a.panels])).toEqual([['1', [id(0), id(2)]], ['2', [id(1)]]]);
-    expect(notify).toHaveBeenLastCalledWith('done', `Put back the arrangement proposal ${n} replaced. B is back in this window, as a browser opens a window only on a key or a press: pop out panel sends a panel out again.`);
+    if (back === undefined) throw new Error('arrange back kept no arrangement.');
+    expect(back.popoutGroups).toBeUndefined();
+    expect(areasOf(back).map((a) => [a.id, a.panels])).toEqual([['1', [id(0), id(2)]], ['2', [id(1)]]]);
+    expect(notify).toHaveBeenLastCalledWith('done', `Put back the arrangement proposal ${n} replaced. Back in this window from the windows proposal ${n} closed: B where it was. pop out panel sends a panel out again.`);
   });
 });
 
@@ -275,5 +276,25 @@ describe('the context of the panels the AI reads (ADR-0018 §8)', () => {
     ]);
     expect(value.strip).toBe('One strip below 768px.');
     expect(value.opens).toContainEqual({ app: 'test.page', title: 'Test page', workspace: true });
+  });
+
+  it('says of each area where it stands: docked, floating or in another window (§9)', () => {
+    const { store, id } = page(['A', 'B', 'C']);
+    const drawn: SerializedDockview = {
+      grid: {
+        root: { type: 'branch', data: [{ type: 'leaf', size: 1440, data: { id: '1', views: [id(0)], activeView: id(0) } }] },
+        width: 1440, height: 800, orientation: Orientation.HORIZONTAL,
+      },
+      panels: { [id(0)]: panelState(id(0), 'A'), [id(1)]: panelState(id(1), 'B'), [id(2)]: panelState(id(2), 'C') },
+      floatingGroups: [{ data: { id: '2', views: [id(1)], activeView: id(1) }, position: { left: 100, top: 100, width: 400, height: 300 } }],
+      popoutGroups: [{ data: { id: '3', views: [id(2)], activeView: id(2) }, gridReferenceGroup: '1', position: null }],
+    };
+    const value = JSON.parse(panelsContext(store.getState(), fakeAreas(WIDE, drawn).port).value) as Record<string, unknown>;
+
+    expect(value.areas).toEqual([
+      { area: '1', where: 'docked', width: WIDE.width, height: WIDE.height },
+      { area: '2', where: 'floating', width: WIDE.width, height: WIDE.height },
+      { area: '3', where: 'window', width: WIDE.width, height: WIDE.height },
+    ]);
   });
 });

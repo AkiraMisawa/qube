@@ -110,7 +110,8 @@ refused. When the last panel leaves a window, by
 - **`arrange` and `arrange back` with other windows open.** A proposal arranges the main window (ADR-0018 §8):
   applying one draws the whole arrangement anew, which closes the other windows, and their panels are placed as the
   proposal says, or join its first area as any panel it does not place. `arrange back` puts back what it replaced with
-  those windows' panels in the main window, where their areas stood, and says so, as after a reload. The AI's context
+  those windows' panels in the main window, where their areas stood (else in its last area), and says where each
+  went, as after a reload. The AI's context
   says of each area where it stands (`where`), so an area in another window does not read as docked.
 - **`ai` from another window** asks with that window's active panel, as from the main one; the AI pane stays in the
   main window (§9), and the shell says in the other window that the answer is there.

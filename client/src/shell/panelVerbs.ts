@@ -1,7 +1,7 @@
 import { CommandRefused, given, type Command, type CommandArgument } from '../platform/commands/commands';
 import type { Notify } from '../platform/notices';
 import { namedBy, panelLabel, pinnedCount, readName, type Panel, type PanelsClosed, type WorkspaceState } from '../platform/workspace/workspaceStore';
-import { areaHolding, currentArrangement, FLOAT_PLACES, floatBox, SIDES, type Arrangement, type FloatPlace, type Side } from './arrangement';
+import { areaHolding, currentArrangement, dockedAreas, FLOAT_PLACES, floatBox, SIDES, type Arrangement, type FloatPlace, type Side } from './arrangement';
 import { AREA_MIN, type AreaOf } from './layout';
 
 // The shell's verbs over its panels (ADR-0006 §8 and note 7 of 2026-11-12; ADR-0018 §3). Each is declared once here,
@@ -271,10 +271,6 @@ function areaFor(on: On, panel: Panel) {
   if (area === undefined) throw new Error(`No area holds ${panel.id}.`);
   return area;
 }
-
-/** The areas of the main window, neither floating nor in another window. */
-/** The areas docked in the main window: neither floating nor in another window. */
-export const dockedAreas = (areas: Arrangement) => areas.areas().filter((a) => a.where === 'docked');
 
 /** What is said of a move that would leave the main window with no area docked (§5, §9). */
 export const leavesNoneDocked = (what: 'panel' | 'area', doing: string) =>

@@ -10,11 +10,12 @@ import type { Notify } from '../platform/notices';
 import { useWorkspace, useWorkspaceContext } from '../platform/workspace/WorkspaceProvider';
 import { panelLabel, type Panel, type WorkspaceState } from '../platform/workspace/workspaceStore';
 import { ICON, STROKE } from './icons';
-import { arrangementChanged, currentArrangement, nextAreaId, registerArrangement, sawAreas, useArrangementVersion } from './arrangement';
+import { arrangementChanged, currentArrangement, dockedAreas, nextAreaId, registerArrangement, sawAreas, useArrangementVersion } from './arrangement';
 import { dockArrangement } from './dockArrangement';
 import { keptArrangement } from './keptPanels';
-import { AREA_MIN, areasOf, fits, needs, oneArea, openPanels, PAGE_COMPONENT, reconciled, stripOrder, TAB_COMPONENT, withWindowsDocked, type Returned, type Size } from './layout';
-import { CLOSE, dockedAreas, FLOAT, leavesNoneDocked, onNow } from './panelVerbs';
+import { AREA_MIN, areasOf, asDrawnNow, fits, needs, oneArea, openPanels, PAGE_COMPONENT, stripOrder, TAB_COMPONENT, type Size } from './layout';
+import { pronouns, titlesOf, whereReturned } from './said';
+import { CLOSE, FLOAT, leavesNoneDocked, onNow } from './panelVerbs';
 import { PanelContent, PanelList, renameOnLine, TabMenu, useRunVerb, type MenuAt } from './panelMenus';
 import { lineIsOpen } from './CommandPalette';
 import { WindowPortals, WindowShell } from './WindowShell';
@@ -154,35 +155,21 @@ function tabAt(target: EventTarget | null, panels: readonly Panel[]): { readonly
   return element === null || panel === undefined ? undefined : { element, panel };
 }
 
-/** These panels' titles as a sentence says them: "A", "A and B", "A, B and C". */
-function titlesOf(state: Pick<WorkspaceState, 'panels'>, ids: readonly string[]): string {
-  const titles = ids.map((id) => {
-    const panel = state.panels.find((p) => p.id === id);
-    if (panel === undefined) throw new Error(`No panel ${id} is open.`);
-    return panelLabel(panel);
-  });
-  const last = titles.at(-1);
-  return titles.length < 2 || last === undefined ? titles.join('') : `${titles.slice(0, -1).join(', ')} and ${last}`;
-}
-
-/** The words a sentence says panels by, each keyed by its plural: one panel is "it", more are "they". */
-const ONE = { they: 'it', their: 'its', are: 'is', were: 'was' } as const;
-const MANY = { they: 'they', their: 'their', are: 'are', were: 'were' } as const;
-const pronouns = (count: number) => (count === 1 ? ONE : MANY);
 
 /**
  * Another window's shell, titled by the panel its area shows: drawn again as that area shows another panel, by a tab
  * chosen in the window or a panel sent to it or closed there, as well as when the panels' names change.
  */
 function OtherWindowShell({ dock, other, panels }: { readonly dock: DockviewApi; readonly other: OtherWindow; readonly panels: readonly Panel[] }) {
-  // The area dockview opened the window for, which is the window's for as long as it is open.
+  // The area dockview opened the window for, which is the window's for as long as it is open: a window is added as
+  // dockview has opened it for its area, and taken away as dockview lets go of it, before that area goes.
   const area = dock.getPopouts().find((p) => p.window === other.window)?.group;
+  if (area === undefined) throw new Error('A window is drawn that dockview opened for no area.');
   const hearShown = useCallback((changed: () => void) => {
-    if (area === undefined) return () => undefined;
     const heard = area.api.onDidActivePanelChange(changed);
     return () => heard.dispose();
   }, [area]);
-  const shownId = useSyncExternalStore(hearShown, () => area?.activePanel?.id);
+  const shownId = useSyncExternalStore(hearShown, () => area.activePanel?.id);
   const panel = panels.find((p) => p.id === shownId);
   return <WindowShell other={other} title={panel === undefined ? undefined : panelLabel(panel)} />;
 }
@@ -247,10 +234,10 @@ function hearWindows(dock: DockviewApi, notify: Notify, store: { readonly getSta
       queueMicrotask(() => {
         const group = dock.getPanel(first)?.group;
         if (group === undefined) throw new Error(`The panel ${first} of a window closed is in no area.`);
-        const they = pronouns(panels.length);
-        const where = group.api.location.type === 'floating' ? `floating where ${they.they} ${they.were}`
-          : group.id === from ? `back where ${they.they} ${they.were}` : `in an area of ${they.their} own`;
-        notify('done', `The window of ${said} closed: ${they.they} ${they.are} ${where}.`);
+        const say = pronouns(panels.length);
+        const where = group.api.location.type === 'floating' ? `floating where ${say.they} ${say.were}`
+          : group.id === from ? `back where ${say.they} ${say.were}` : `in an area of ${say.their} own`;
+        notify('done', `The window of ${said} closed: ${say.they} ${say.are} ${where}.`);
       });
     }),
     // The areas going take the windows with them: none is the window in use any more.
@@ -258,21 +245,6 @@ function hearWindows(dock: DockviewApi, notify: Notify, store: { readonly getSta
   ];
 }
 
-/**
- * Says where the panels of the windows a kept arrangement held came back to (ADR-0018 §9): a browser opens a window only
- * on a key or a press, so they are in the main window, and `pop out panel` sends one out again.
- */
-function sayReturned(returned: readonly Returned[], state: WorkspaceState, dock: DockviewApi, notify: Notify): void {
-  const open = (ids: readonly string[]) => ids.filter((id) => state.panels.some((p) => p.id === id));
-  const parts = returned.filter((r) => open(r.panels).length > 0).map((r) => {
-    const titles = titlesOf(state, open(r.panels));
-    const they = pronouns(open(r.panels).length);
-    if (r.cameFrom) return `${titles} where ${they.they} ${they.were}`;
-    const area = dock.groups.find((g) => g.id === r.into)?.panels.find((p) => !r.panels.includes(p.id));
-    return area === undefined ? `${titles} in an area of ${they.their} own` : `${titles} in the area of ${titlesOf(state, [area.id])}`;
-  });
-  if (parts.length > 0) notify('done', `Back in this window, as a browser opens a window only on a key or a press: ${parts.join('; ')}. pop out panel sends a panel out again.`);
-}
 
 /** Where a floating area is anchored, from its box as dockview writes it. */
 function anchorOf(box: AnchoredBox): AnchoredBox {
@@ -535,13 +507,14 @@ export function PanelAreas({ room }: { readonly room: Size }) {
 
     // Drawn first from the kept arrangement, made to agree with the panels open, or every panel in one area. The panels
     // of other windows it kept are back in the main window: a browser opens a window only on a key or a press (§9).
-    let returned: readonly Returned[] = [];
+    let back: string | undefined;
     quietly(() => {
       const open = openPanels(store.getState());
       const kept = keptArrangement.getState().layout;
-      const docked = kept === undefined ? undefined : withWindowsDocked(kept);
-      returned = docked?.returned ?? [];
-      dock.fromJSON((docked === undefined ? undefined : reconciled(docked.layout, open)) ?? oneArea(open, nextAreaId(), roomNow.current));
+      const now = kept === undefined ? undefined : asDrawnNow(kept, open);
+      const drawn = now?.layout ?? oneArea(open, nextAreaId(), roomNow.current);
+      back = now === undefined ? undefined : whereReturned(now.returned, store.getState(), drawn);
+      dock.fromJSON(drawn);
       dock.groups.forEach(constrain);
       // An arrangement kept across a reload holds ids from before it: a new area takes none of them.
       sawAreas(dock.groups.map((g) => g.id));
@@ -560,7 +533,7 @@ export function PanelAreas({ room }: { readonly room: Size }) {
     });
     sync();
     if (pending) arranged();
-    sayReturned(returned, store.getState(), dock, notify);
+    if (back !== undefined) notify('done', `Back in this window, as a browser opens a window only on a key or a press: ${back}. pop out panel sends a panel out again.`);
     disposeAll.current = () => {
       // The areas go as the main window shows the one strip (ADR-0018 §5), dockview with them: the other windows close,
       // and their panels join the strip.

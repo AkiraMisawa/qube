@@ -325,8 +325,9 @@ with step 2's pull request:
 - **`arrange` and `arrange back`** act on the main window (§8). Applying a proposal draws the arrangement anew, which
   closes the other windows; their panels are placed as the proposal says, or join its first area as a panel it does
   not place does. `arrange back` puts back what it replaced with those windows' panels in the main window, where their
-  areas stood, and says so, as a reload does: a window is opened again by `pop out panel`. The AI's context of the
-  panels says of each area whether it is docked, floating or in another window.
+  areas stood (else in its last area), and says where each went, as a reload does; it does not open the windows
+  again, and `pop out panel` sends a panel out. The AI's context of the panels says of each area whether it is docked,
+  floating or in another window.
 - **ExGrid** reads a grid's window once, as the grid is created (ex-grid ADR-0090, #565, in 0.3.0-rc.1), so a page
   moved into another window, or back, is drawn anew there and takes back its panel's screen state (ADR-0006 note 10).
 
