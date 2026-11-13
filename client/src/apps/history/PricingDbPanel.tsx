@@ -7,6 +7,9 @@ import { useQuery } from '@tanstack/react-query';
 import { call } from '../../platform/api';
 import { amountTone, formatAmount } from '../../platform/grid/amounts';
 import { useColumnWidths } from '../../platform/grid/columnWidths';
+import { answeredInOrder, useKeptGrid } from '../../platform/grid/keptGrid';
+import type { Answered } from '../../platform/grid/lineView';
+import { panelKey, usePanelState } from '../../platform/panelState';
 import type { DatasetColumnType } from '../../platform/contracts';
 import { viewsFor } from '../../platform/views/binding';
 import { useWorkspaceContext } from '../../platform/workspace/WorkspaceProvider';
@@ -19,6 +22,9 @@ import type { Notify } from '../../platform/notices';
 // that domain is active. The server pages it; the grid shows it and neither sorts nor filters it.
 
 type Row = Readonly<Record<string, unknown>>;
+// The domain listed, kept by the panel while it is hidden (ADR-0006 note 10).
+const DOMAIN = panelKey<string>('history.domain');
+
 interface Column { readonly field: string; readonly type: DatasetColumnType; readonly nullable: boolean }
 interface HistoryCatalog { readonly columns: readonly Column[]; readonly domains: readonly { readonly domain: string; readonly title: string; readonly columns: readonly Column[] }[] }
 interface HistoryPage { readonly rows: readonly Row[]; readonly start: number; readonly totalCount: number; readonly orderToken: string }
@@ -48,7 +54,7 @@ function gridColumn(column: Column): GridColumn<Row> {
 export function PricingDbPanel({ panelId }: { readonly panelId: string }) {
   const workspace = useWorkspaceContext();
   const catalog = useQuery({ queryKey: ['history', 'catalog'], queryFn: () => call<HistoryCatalog>('/api/history/catalog'), staleTime: Infinity });
-  const [domain, setDomain] = useState(ALL);
+  const [domain, setDomain] = usePanelState(DOMAIN, ALL);
   if (catalog.isPending) return <Text c="dimmed">Loading the Pricing DB…</Text>;
   if (catalog.isError) return <Alert color="red" title="Pricing DB">{catalog.error.message}</Alert>;
   const columns = domain === ALL ? catalog.data.columns : catalog.data.domains.find((d) => d.domain === domain)?.columns ?? catalog.data.columns;
@@ -74,13 +80,17 @@ function HistoryGrid({ panelId, domain, columns, notify }: {
   const grid = useRef<ExGridApi<Row>>(null);
   const [failure, setFailure] = useState<string | undefined>(undefined);
   const [total, setTotal] = useState<number | undefined>(undefined);
+  // Each row keeps the answer it came in (ADR-0006 note 10): a position means that row only in that answer's order.
+  const [answers] = useState(() => new WeakMap<Row, Answered>());
   const source = useMemo(() => GridSource.fetch<Row>(async (query, signal) => {
     const page = await call<HistoryPage>('/api/history/rows', {
       method: 'POST', body: JSON.stringify({ domain, start: query.range.start, count: query.range.count }), signal,
     });
     setTotal(page.totalCount);
+    const answer: Answered = { sorts: query.sorts, orderToken: page.orderToken };
+    for (const row of page.rows) answers.set(row, answer);
     return page;
-  }, { rowKey: (row) => row.runId as string, onFetchFailed: (e) => setFailure(e.error instanceof Error ? e.error.message : String(e.error)) }), [domain]);
+  }, { rowKey: (row) => row.runId as string, onFetchFailed: (e) => setFailure(e.error instanceof Error ? e.error.message : String(e.error)) }), [domain, answers]);
   useEffect(() => () => source.dispose(), [source]);
   // Runs are added and finish while the page is open: the source reads its Window again, gathered.
   useEffect(() => {
@@ -98,6 +108,8 @@ function HistoryGrid({ panelId, domain, columns, notify }: {
     ...columns.map(gridColumn),
   ], [columns]);
   const widths = useColumnWidths(`history/${domain ?? ALL}`, gridColumns);
+  // Its Selection, kept by the panel while it is hidden (ADR-0006 note 10), by the domain it lists.
+  useKeptGrid(`history/${domain ?? ALL}`, source, grid, widths.columns, answeredInOrder((row) => answers.get(row)));
 
   const onAction = useCallback((event: GridActionEvent<Row>) => {
     const runId = event.row.runId as string;

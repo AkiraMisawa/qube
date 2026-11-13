@@ -1,4 +1,7 @@
+import { useEffect, useRef } from 'react';
+import { useStore } from 'zustand';
 import { createStore } from 'zustand/vanilla';
+import { usePanelState, type PanelKey } from '../panelState';
 import type { WorkspaceState } from '../workspace/workspaceStore';
 import type { ChildOrder } from './api';
 import type { TraceAddress } from './contracts';
@@ -34,6 +37,30 @@ let asked = 0;
 export function requestTerm(panelId: string, path: string | undefined): void {
   termRequests.setState((s) => ({ requests: { ...s.requests, [panelId]: { path, number: ++asked } } }));
 }
+
+/**
+ * Takes each term asked of a trace view once (ADR-0006 note 10): the number of the last one taken is kept by the panel,
+ * so that a view drawn again after its panel was hidden does not take the last term asked for again. `take` says
+ * whether it took the term; one it could not take yet (its card's root not read) is offered again as the view draws.
+ */
+export function useTermRequestOnce(viewId: string, key: PanelKey<number>, instance: string, take: (request: TermRequest) => boolean): void {
+  const request = useStore(termRequests, (s) => s.requests[viewId]);
+  const [answered, setAnswered] = usePanelState(key, 0, instance);
+  const latest = useRef(take);
+  latest.current = take;
+  useEffect(() => {
+    if (request === undefined || request.number === answered) return;
+    if (latest.current(request)) setAnswered(request.number);
+  });
+}
+
+/**
+ * The instance a trace view keeps what it shows under, by its panel (ADR-0006 note 10): the view, the trace it draws
+ * and the root it draws, so that the trace of another Run, case, market or measure, or another root's, starts as one
+ * opened anew rather than on a term of another trace.
+ */
+export const keptTrace = (viewId: string, address: TraceAddress, root?: string): string =>
+  JSON.stringify([viewId, address.runId, address.case, address.scenario, address.measure, root ?? null]);
 
 /**
  * How a trace view is drawn, which its controls and the trace commands set alike (ADR-0006): kept per view, so that a

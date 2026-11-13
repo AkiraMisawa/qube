@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Group, SegmentedControl, Stack, Text } from '@mantine/core';
 import { GridSource, type GridColumn, type GridSelection } from '@ex-grid/core';
+import type { ExGridApi } from '@ex-grid/react';
 import { compactGridHeight } from '../grid/metrics';
 import { QubeGrid } from '../grid/QubeGrid';
 import { MAX_PAGE, refusalText, type TraceApi } from './api';
@@ -10,10 +11,15 @@ import { Tex } from './Tex';
 import { SIDE_TITLE, sidesHolding } from './words';
 import { toneOf } from '../grid/amounts';
 import { useColumnWidths } from '../grid/columnWidths';
+import { fixedRowsBySort, useKeptGrid } from '../grid/keptGrid';
+import { panelKey, usePanelState } from '../panelState';
 
 // The leaf rows of a term (ADR-0011 §5, §6), or of every term below it (ADR-0012 §6's note of 2026-11-08): a grid paged
 // and sorted by the server, one side's columns at a time, each row saying which sides hold it and where a computed
 // column does not equal its formula. The row at the Focus has its leaf set's column formulas typeset with its values.
+
+// The side the rows show, kept by the panel while it is hidden (ADR-0006 note 10), by the rows it is of.
+const SIDE = panelKey<Side>('trace.leaves.side');
 
 const rowKey = (r: PairedLeafRow) => `${r.entity}\u0000${r.component ?? ''}`;
 
@@ -44,12 +50,13 @@ export function LeafRows({ api, address, header, path, set, rows }: {
   /** The term's own rows, with how many each side wrote for the caption; or those of every term below it. */
   readonly rows: { readonly below: false; readonly count: Readonly<Partial<Record<Side, number>>> } | { readonly below: true };
 }) {
-  const [side, setSide] = useState<Side>(lastSide(header));
+  const below = rows.below;
+  const instance = JSON.stringify([address, path, set.leafSet, below]);
+  const [side, setSide] = usePanelState<Side>(SIDE, () => lastSide(header), instance);
   const [failure, setFailure] = useState<string | undefined>(undefined);
   const [focus, setFocus] = useState<PairedLeafRow | undefined>(undefined);
   // Below a term, the server says how many rows there are once it has read them.
   const [read, setRead] = useState<number | undefined>(undefined);
-  const below = rows.below;
 
   const source = useMemo(() => GridSource.fetch<PairedLeafRow>(async (query, signal) => {
     // The server pages and sorts by one column; a filter or a second sort is refused, never ignored.
@@ -86,6 +93,9 @@ export function LeafRows({ api, address, header, path, set, rows }: {
     { name: 'mismatch', header: 'Reconciliation', type: 'text', width: { auto: true, minPx: 120, maxPx: 360 }, queryable: false, value: (r) => mismatchText(r, side, set) },
   ], [set, side, header.sides]);
   const { columns, onColumnWidthChanged } = useColumnWidths(`trace/rows/${set.leafSet}`, declared, { hideColumnMenu: true });
+  // Its sort and Selection, kept likewise.
+  const grid = useRef<ExGridApi<PairedLeafRow>>(null);
+  useKeptGrid(`trace/leaves/${instance}`, source, grid, columns, fixedRowsBySort());
 
   const rowsRef = useRef(source);
   rowsRef.current = source;
@@ -113,7 +123,7 @@ export function LeafRows({ api, address, header, path, set, rows }: {
         )}
       </Group>
       {failure !== undefined && <Alert color="red" variant="light" withCloseButton onClose={() => setFailure(undefined)} title="The rows could not be read">{failure}</Alert>}
-      <QubeGrid<PairedLeafRow> columns={columns} onColumnWidthChanged={onColumnWidthChanged} source={source} density="compact" viewportWidth="stretch"
+      <QubeGrid<PairedLeafRow> ref={grid} columns={columns} onColumnWidthChanged={onColumnWidthChanged} source={source} density="compact" viewportWidth="stretch"
         viewportHeight={compactGridHeight(Math.min(total === undefined ? 1 : Math.max(total, 1), 8))} pinnedColumnCount={1} locale="en-US" hideColumnMenu
         onSelectionChanged={onSelectionChanged} />
       {focus !== undefined && focusRow !== undefined && focusRow !== null && computed.length > 0 && (

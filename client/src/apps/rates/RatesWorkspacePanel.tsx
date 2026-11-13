@@ -10,7 +10,9 @@ import { useColumnWidths } from '../../platform/grid/columnWidths';
 import { GridUndoContext } from '../../platform/grid/gridUndo';
 import { filterGrid, heldRowOf, heldView, menuView, placeFocus, selectRows, sortGrid } from '../../platform/grid/lineView';
 import { GridFilterLine } from '../../platform/grid/GridFilterLine';
-import { useHeldFilter } from '../../platform/grid/heldFilter';
+import { heldInOrder, useHeldFilter } from '../../platform/grid/heldFilter';
+import { keysInOrder, useKeptGrid } from '../../platform/grid/keptGrid';
+import { panelKey, usePanelState } from '../../platform/panelState';
 import { EditQueue } from '../../platform/workspace/editQueue';
 import { useWorkspaceContext } from '../../platform/workspace/WorkspaceProvider';
 import { keyOf } from '../../platform/workspace/workspaceStore';
@@ -75,8 +77,10 @@ function groupsOf(layout: LineLayout, hides: HiddenEdits) {
   return groups;
 }
 
-/** What each page opened, kept while the application runs, so a page left and come back to is as it was (ADR-0015 §7). */
-const openedByPanel = new Map<string, LineLayout>();
+// What the page shows, kept by its panel while the panel is hidden (ADR-0015 §7, ADR-0006 note 10): the levels opened,
+// so a page left and come back to is as it was, and the line whose cashflows are open.
+const OPENED = panelKey<LineLayout>('rates.opened');
+const DETAIL = panelKey<string | undefined>('rates.detail');
 
 /** A market snapshot as a Run's panel is titled by it: what follows its last colon. */
 const snapshotTail = (snapshotId: string) => snapshotId.slice(snapshotId.lastIndexOf(':') + 1);
@@ -95,11 +99,10 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
   const market = useQuery({ queryKey: ['rates', 'market'], queryFn: () => api.market(), refetchInterval: 2000 });
   const grid = useRef<ExGridApi<LineRow>>(null);
   const flowsGrid = useRef<ExGridApi<PeriodView>>(null);
-  const [opened, setOpened] = useState<LineLayout>(() => openedByPanel.get(panelId) ?? FOLDED);
-  useEffect(() => { openedByPanel.set(panelId, opened); }, [panelId, opened]);
+  const [opened, setOpened] = usePanelState(OPENED, FOLDED);
   const [frame, setFrame] = useState<LiveFrame | undefined>(undefined);
   const [subscription, setSubscription] = useState<string | undefined>(undefined);
-  const [detail, setDetail] = useState<string | undefined>(undefined);
+  const [detail, setDetail] = usePanelState(DETAIL, undefined);
   const [busy, setBusy] = useState<string | undefined>(undefined);
 
   const show = useCallback((next: RatesWorkspaceView) => queryClient.setQueryData(['rates', workspaceId], next), [queryClient, workspaceId]);
@@ -198,6 +201,8 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
   // The columns at the widths the user dragged them to, the user's for this grid (ADR-0017 §5); the line grid hides its column menu, so a header
   // needs no room for one (ADR-0015 §4).
   const { columns, onColumnWidthChanged } = useColumnWidths('rates/lines', columnsOf(opened), { hideColumnMenu: true });
+  // The grid's sort, conditions and Selection, kept by the panel while it is hidden (ADR-0006 note 10).
+  useKeptGrid('rates/lines', source, grid, columns, heldInOrder(lineKey, filter));
 
   // A double click on a folded column opens what it folds (ADR-0015 §1).
   const onCellDoubleClick = useCallback((cell: CellPosition) => {
@@ -482,6 +487,8 @@ function Cashflows({ panelId, workspaceId, line, revision, api, gridRef, edit, o
   const source = useMemo(() => GridSource.from<PeriodView>([], { rowKey: (p) => p.entity }), []);
   useEffect(() => { if (flows.data !== undefined) source.replaceAll(flows.data.periods); }, [flows.data, source]);
   const widths = useColumnWidths('rates/cashflows', periodColumns);
+  // Its sort and Selection, kept by the panel while it is hidden (ADR-0006 note 10), by the line it is of.
+  useKeptGrid(`rates/cashflows/${line}`, source, gridRef, widths.columns, keysInOrder((p) => p.entity));
 
   const onEdit = useCallback((intent: GridEditIntent<PeriodView>) => {
     const parse = periodParserOf(intent.column);

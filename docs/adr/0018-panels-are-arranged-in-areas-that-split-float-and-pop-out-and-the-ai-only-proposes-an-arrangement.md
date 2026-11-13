@@ -25,7 +25,8 @@ below not marked CONFIRMED or OPEN is DEFAULT.
 its end, has a menu per tab, pins, moves and reopens, and each of these is a client verb the line runs too
 (`client/src/shell/panelVerbs.ts`). Only the active panel's page is mounted, so the screen's cost does not grow with
 the panels open. The owner chose on 2026-11-11 that each page keeps its own screen state by panel and shows it again,
-in a pull request after ADR-0016's step 5; until then a page hidden and shown again is drawn anew. Which panels are open
+in a pull request after ADR-0016's step 5; until then a page hidden and shown again is drawn anew (built on
+2026-11-12: ADR-0006 note 10). Which panels are open
 is the browser's, not a setting (ADR-0017 §1). Today the panels go when the page is reloaded.
 
 **What was asked.** To see two panels at once (an XVA page beside its Run, two Rates workspaces), to float one over the
@@ -198,7 +199,8 @@ These read the **panels' space**, the window less the AI pane while it is open.
 - **A panels' space too small for the arrangement** (its areas narrower than their minimum, as when the AI pane opens
   on a laptop beside three areas) shows the one strip, and the arrangement as it was when there is room again. Nothing
   is merged into fewer areas by itself: that would rearrange what the user arranged. Each change between the strip and
-  the areas draws the pages in view anew, until the pages keep their screen state (note 7's pull request).
+  the areas draws the pages in view anew, and each page takes back the screen state its panel kept (ADR-0006 note 10,
+  since 2026-11-12).
 - **A page lays itself out by its area's width, not the window's** (amends ADR-0010 §1 and docs/design-guidelines.md
   §9, above). The pricer's three sections, its full-height button, the trace view's narrow layout and every rule that
   reads `sm`, `md` or `lg` read the width of the panel they are in: a CSS container query, and for a hook the panel's

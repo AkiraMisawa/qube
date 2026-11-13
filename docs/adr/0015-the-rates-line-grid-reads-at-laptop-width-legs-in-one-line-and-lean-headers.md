@@ -48,7 +48,8 @@ guidelines protect (docs/design-guidelines.md §1, familiarity).
 6. **The result follows the inputs**, as on 2026-11-04: PV, its currency and `Par %` (a par rate on a fixed leg, a par
    spread on a floating one; the cell's message says which), then Status and Issues.
 7. **The levels a user opened are kept for the page** while the application runs, so leaving the tab and coming back
-   does not fold them again.
+   does not fold them again. (Since 2026-11-12 they are kept by the page's panel, with the rest of what a page shows,
+   and go when the panel closes: ADR-0006 note 10.)
 
 With five lines the grid is **1,644px** wide, and at 1280px every column up to `Par %` is in view with 27px to spare.
 
