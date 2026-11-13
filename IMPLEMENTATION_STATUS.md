@@ -3492,7 +3492,7 @@ The owner said to start step 2 on 2026-11-13 ("前者は始めていいよ"). On
 | The same, after the third review's fixes | 148 passed |
 | The same, after the fourth review's fixes | 148 passed |
 | `e2e/windows.spec.ts` and `e2e/areas.spec.ts`, `--repeat-each=3`, after the fifth review's fixes | 60 passed |
-| `npx playwright test` (Chromium, headless, Linux), on the client's product code as it stands (unchanged since the fifth review's fixes) | 147 passed, 1 failed: `areas.spec.ts`'s tab dragged with the mouse (step 1's test) stayed in one area. Run alone it then passed 8 times, and in all 64 runs of `panels.spec.ts` and `areas.spec.ts` (16 tests, four times each). It failed once before this step's code, in #37's runs (`areas.spec.ts` three times in a row, above: its drop on an area's edge not taken). Not fixed here: a red that passes on a re-run, open (Known limits) |
+| `npx playwright test` (Chromium, headless, Linux), on the client's product code as it stands (unchanged since the fifth review's fixes) | 147 passed, 1 failed: `areas.spec.ts`'s tab dragged with the mouse (step 1's test) stayed in one area. Run alone it then passed 8 times, and in all 64 runs of `panels.spec.ts` and `areas.spec.ts` (16 tests, four times each). It failed once before this step's code too, in #37's runs ("step 1's rest: the pricer by its area" above, its `areas.spec.ts` row: once before the three runs in a row, its drop on an area's edge not taken). Not fixed here: a red that passes on a re-run, open (Known limits) |
 | The same, after the eighth review's fixes (the product code unchanged) | 148 passed |
 | `arrange back` with a panel in another window, its unit test without the fix and with it | Without it, the panel was in no area (drawn nowhere, still open); with it, back where its area stood |
 | A tab's menu in a window 480px high, without the fix and with it | 700px tall and cut off without it; inside the window and scrolling to its last item with it |
@@ -3526,9 +3526,10 @@ Unchanged; nothing on the server changed. The AI's answer in the test is the scr
 - An area is not split inside another window (one area per window, as a floating area is).
 - `edit context` (the chord that focuses the header's context bar) typed in another window focuses the field in the main
   window, which the browser does not bring to the front.
-- Step 1's test of a tab dragged with the mouse (`areas.spec.ts`) failed once in the last full run, its tab left in one
-  area, and passed in every run after it (above): a red that passes on a re-run, open. It is step 1's test, and failed
-  once before this step's code too (#37's runs, above); the cause is not found.
+- Step 1's test of a tab dragged with the mouse (`areas.spec.ts`) failed once in a full run, the one before the last,
+  its tab left in one area, and passed in every run after it (above): a red that passes on a re-run, open. It is step
+  1's test, and failed once before this step's code too (#37's runs, under "step 1's rest" above); the cause is not
+  found.
 
 ### What the review changed
 
@@ -3579,12 +3580,14 @@ corrected: that test checked only part of the notice, its fixture marked values 
 checks, and this paragraph's account of the rounds was not exact. An eighth, of the seventh's, found that test's guard
 saying the opposite of what failed and its fixture holding no panels, the last full run's row not naming its browser
 nor its round, step 1's flake left out of the Known limits, and ticket 06 ticking a full run that had failed; all are
-corrected, and the windows' entries in the tests come from one helper. A ninth, of the eighth's, found ticket 06
+corrected, and the windows' entries in `proposals.test.ts` come from one helper. A ninth, of the eighth's, found ticket 06
 calling the code final, the spec's and ticket 06's status lines leaving out the flake, the flake's earlier record
 missed, one window's entry still written by hand, and this paragraph leaving out what the eighth changed; all are
 corrected. A full run after the eighth's fixes passed, 148, so ticket 06's box is ticked again, the failure before it
-noted. The client's product code has not changed since the fifth round's fixes: the sixth to ninth changed the
-unit tests, the spec's status, ticket 06 and this file.
+noted. A tenth, of the ninth's, found the Known limits calling the failed run the last, #37's record cited so that it
+could not be found and as the wrong run, the one helper claimed for every test file, and ticket 06 left with no open
+box for the run after the bump; all are corrected. The client's product code has not changed since the fifth round's
+fixes: the sixth to tenth changed the unit tests, the spec's status, ticket 06 and this file.
 
 ## Next
 
