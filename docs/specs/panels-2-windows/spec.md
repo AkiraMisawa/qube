@@ -108,8 +108,8 @@ refused. When the last panel leaves a window, by
   leaves: the menu of every verb is taller than a short window, which another window often is. This changes step 1's
   menus in the main window too, where it was short of room only on a short screen.
 - **`arrange` and `arrange back` with other windows open.** A proposal arranges the main window (ADR-0018 §8):
-  applying one draws the whole arrangement anew, which closes the other windows, and their panels are placed as the
-  proposal says, or join its first area as any panel it does not place. `arrange back` puts back what it replaced with
+  applying one draws the whole arrangement anew, which closes the other windows, said, and their panels are placed as
+  the proposal says, or join its first area as any panel it does not place. `arrange back` puts back what it replaced with
   those windows' panels in the main window, where their areas stood (else in its last area), and says where each
   went, as after a reload. The AI's context
   says of each area where it stands (`where`), so an area in another window does not read as docked.

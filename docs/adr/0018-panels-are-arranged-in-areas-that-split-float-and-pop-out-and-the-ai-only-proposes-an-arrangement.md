@@ -323,8 +323,8 @@ with step 2's pull request:
   trap walks up from the dialog to the main document's body, which a dialog in another window is not under. The
   shell's own keys are attached to every window, so no other key of another window reaches the main document.
 - **`arrange` and `arrange back`** act on the main window (§8). Applying a proposal draws the arrangement anew, which
-  closes the other windows; their panels are placed as the proposal says, or join its first area as a panel it does
-  not place does. `arrange back` puts back what it replaced with those windows' panels in the main window, where their
+  closes the other windows, said; their panels are placed as the proposal says, or join its first area as a panel it
+  does not place does. `arrange back` puts back what it replaced with those windows' panels in the main window, where their
   areas stood (else in its last area), and says where each went, as a reload does; it does not open the windows
   again, and `pop out panel` sends a panel out. The AI's context of the panels says of each area whether it is docked,
   floating or in another window.

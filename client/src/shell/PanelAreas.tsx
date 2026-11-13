@@ -14,7 +14,7 @@ import { arrangementChanged, currentArrangement, dockedAreas, nextAreaId, regist
 import { dockArrangement } from './dockArrangement';
 import { keptArrangement } from './keptPanels';
 import { AREA_MIN, areasOf, asDrawnNow, fits, needs, oneArea, openPanels, PAGE_COMPONENT, stripOrder, TAB_COMPONENT, type Size } from './layout';
-import { pronouns, titlesOf, whereReturned } from './said';
+import { backInThisWindow, pronouns, titlesOf } from './panelSentences';
 import { CLOSE, FLOAT, leavesNoneDocked, onNow } from './panelVerbs';
 import { PanelContent, PanelList, renameOnLine, TabMenu, useRunVerb, type MenuAt } from './panelMenus';
 import { lineIsOpen } from './CommandPalette';
@@ -155,16 +155,21 @@ function tabAt(target: EventTarget | null, panels: readonly Panel[]): { readonly
   return element === null || panel === undefined ? undefined : { element, panel };
 }
 
-
 /**
- * Another window's shell, titled by the panel its area shows: drawn again as that area shows another panel, by a tab
- * chosen in the window or a panel sent to it or closed there, as well as when the panels' names change.
+ * Another window's shell, titled by the panel its area shows. As the shell closes a window itself (`arrange`, `dock
+ * panel`), dockview lets go of its area a few steps before it lets go of the window, which then goes from the windows
+ * open: a window without its area is closing, and draws nothing.
  */
 function OtherWindowShell({ dock, other, panels }: { readonly dock: DockviewApi; readonly other: OtherWindow; readonly panels: readonly Panel[] }) {
-  // The area dockview opened the window for, which is the window's for as long as it is open: a window is added as
-  // dockview has opened it for its area, and taken away as dockview lets go of it, before that area goes.
   const area = dock.getPopouts().find((p) => p.window === other.window)?.group;
-  if (area === undefined) throw new Error('A window is drawn that dockview opened for no area.');
+  return area === undefined ? null : <AreaWindowShell area={area} other={other} panels={panels} />;
+}
+
+/**
+ * The shell of a window with its area: drawn again as that area shows another panel, by a tab chosen in the window or
+ * a panel sent to it or closed there, as well as when the panels' names change.
+ */
+function AreaWindowShell({ area, other, panels }: { readonly area: DockviewGroupPanel; readonly other: OtherWindow; readonly panels: readonly Panel[] }) {
   const hearShown = useCallback((changed: () => void) => {
     const heard = area.api.onDidActivePanelChange(changed);
     return () => heard.dispose();
@@ -234,17 +239,16 @@ function hearWindows(dock: DockviewApi, notify: Notify, store: { readonly getSta
       queueMicrotask(() => {
         const group = dock.getPanel(first)?.group;
         if (group === undefined) throw new Error(`The panel ${first} of a window closed is in no area.`);
-        const say = pronouns(panels.length);
-        const where = group.api.location.type === 'floating' ? `floating where ${say.they} ${say.were}`
-          : group.id === from ? `back where ${say.they} ${say.were}` : `in an area of ${say.their} own`;
-        notify('done', `The window of ${said} closed: ${say.they} ${say.are} ${where}.`);
+        const pronoun = pronouns(panels.length);
+        const where = group.api.location.type === 'floating' ? `floating where ${pronoun.they} ${pronoun.were}`
+          : group.id === from ? `back where ${pronoun.they} ${pronoun.were}` : `in an area of ${pronoun.their} own`;
+        notify('done', `The window of ${said} closed: ${pronoun.they} ${pronoun.are} ${where}.`);
       });
     }),
     // The areas going take the windows with them: none is the window in use any more.
     { dispose: () => [...removers.keys()].forEach(remove) },
   ];
 }
-
 
 /** Where a floating area is anchored, from its box as dockview writes it. */
 function anchorOf(box: AnchoredBox): AnchoredBox {
@@ -513,7 +517,7 @@ export function PanelAreas({ room }: { readonly room: Size }) {
       const kept = keptArrangement.getState().layout;
       const now = kept === undefined ? undefined : asDrawnNow(kept, open);
       const drawn = now?.layout ?? oneArea(open, nextAreaId(), roomNow.current);
-      back = now === undefined ? undefined : whereReturned(now.returned, store.getState(), drawn);
+      back = now === undefined ? undefined : backInThisWindow(now.returned, store.getState(), drawn, 'as a browser opens a window only on a key or a press');
       dock.fromJSON(drawn);
       dock.groups.forEach(constrain);
       // An arrangement kept across a reload holds ids from before it: a new area takes none of them.
@@ -533,7 +537,7 @@ export function PanelAreas({ room }: { readonly room: Size }) {
     });
     sync();
     if (pending) arranged();
-    if (back !== undefined) notify('done', `Back in this window, as a browser opens a window only on a key or a press: ${back}. pop out panel sends a panel out again.`);
+    if (back !== undefined) notify('done', back);
     disposeAll.current = () => {
       // The areas go as the main window shows the one strip (ADR-0018 §5), dockview with them: the other windows close,
       // and their panels join the strip.

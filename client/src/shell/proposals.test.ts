@@ -259,7 +259,7 @@ describe('arrange and arrange back (ADR-0018 §8)', () => {
     if (back === undefined) throw new Error('arrange back kept no arrangement.');
     expect(back.popoutGroups).toBeUndefined();
     expect(areasOf(back).map((a) => [a.id, a.panels])).toEqual([['1', [id(0), id(2)]], ['2', [id(1)]]]);
-    expect(notify).toHaveBeenLastCalledWith('done', `Put back the arrangement proposal ${n} replaced. Back in this window from the windows proposal ${n} closed: B where it was. pop out panel sends a panel out again.`);
+    expect(notify).toHaveBeenLastCalledWith('done', `Put back the arrangement proposal ${n} replaced. Back in this window: B where it was. pop out panel sends a panel out again.`);
   });
 });
 
@@ -291,10 +291,9 @@ describe('the context of the panels the AI reads (ADR-0018 §8)', () => {
     };
     const value = JSON.parse(panelsContext(store.getState(), fakeAreas(WIDE, drawn).port).value) as Record<string, unknown>;
 
-    expect(value.areas).toEqual([
-      { area: '1', where: 'docked', width: WIDE.width, height: WIDE.height },
-      { area: '2', where: 'floating', width: WIDE.width, height: WIDE.height },
-      { area: '3', where: 'window', width: WIDE.width, height: WIDE.height },
+    // The fake gives every area the room's size: only where each stands is read here.
+    expect((value.areas as readonly { readonly area: string; readonly where: string }[]).map((a) => [a.area, a.where])).toEqual([
+      ['1', 'docked'], ['2', 'floating'], ['3', 'window'],
     ]);
   });
 });

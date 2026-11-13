@@ -9,7 +9,7 @@ import { panelLabel, type Panel, type PanelDraft, type WorkspaceState, type Work
 import { areaHolding, currentArrangement, FLOAT_PLACES, floatBox, nextAreaId, SIDES, type Arrangement, type FloatPlace, type Side } from './arrangement';
 import { keptArrangement, type FloatedFrom } from './keptPanels';
 import { AREA_MIN, AREAS_FROM, asDrawnNow, oneArea, openPanels, panelState, type Size } from './layout';
-import { whereReturned } from './said';
+import { backInThisWindow, titlesOf } from './panelSentences';
 
 // The AI's proposals of an arrangement (ADR-0018 §8, CONFIRMED by the owner: the AI proposes, the user applies). The
 // kernel's `layout.propose` checks a proposal's shape and answers it; here it is numbered for the page's life, drawn as
@@ -453,6 +453,8 @@ function applied(on: Arranging, proposal: Proposal, drafts: readonly { readonly 
   const titles = Object.fromEntries(on.state().panels.map((p) => [p.id, panelLabel(p)]));
   const layout = proposalLayout(proposal, ids, titles, others, on.areas().room(), active);
   const areas = on.areas();
+  // The other windows close as the arrangement is drawn: a proposal arranges the main window (§8, §9).
+  const away = areas.areas().filter((a) => a.where === 'window');
   // A proposal's floating area came from no area of the window: `dock panel` puts it at the right.
   keepDrawn(areas, layout, {});
   last = { n: proposal.n, before, floatedFrom, opened };
@@ -460,7 +462,9 @@ function applied(on: Arranging, proposal: Proposal, drafts: readonly { readonly 
   const unplaced = others.length === 0 ? ''
     : ` ${others.length === 1 ? '1 panel the proposal did not place is' : `${others.length} panels the proposal did not place are`} in the area of ${titles[firstShown]}, the first in reading order.`;
   const openedSaid = opened.length === 0 ? '' : ` Opened ${opened.map((id) => titles[id]).join(', ')}.`;
-  return `Arranged as proposal ${proposal.n}: ${count === 1 ? '1 area' : `${count} areas`}.${openedSaid}${unplaced} To put back what it replaced: arrange back.`;
+  const closedSaid = away.length === 0 ? ''
+    : ` Closed the other window${away.length === 1 ? '' : 's'}, of ${titlesOf(on.state(), away.flatMap((a) => a.panels))}: a proposal arranges this window.`;
+  return `Arranged as proposal ${proposal.n}: ${count === 1 ? '1 area' : `${count} areas`}.${openedSaid}${unplaced}${closedSaid} To put back what it replaced: arrange back.`;
 }
 
 /**
@@ -503,8 +507,8 @@ export function arrangeBack(on: Arranging, notify: Notify): void {
   const put = was.before !== undefined && before === undefined
     ? `None of the panels the arrangement before proposal ${was.n} held is open, so the panels stand in one area.`
     : `Put back the arrangement proposal ${was.n} replaced.`;
-  const back = now === undefined ? undefined : whereReturned(now.returned, on.state(), layout);
-  const backSaid = back === undefined ? '' : ` Back in this window from the windows proposal ${was.n} closed: ${back}. pop out panel sends a panel out again.`;
+  const back = now === undefined ? undefined : backInThisWindow(now.returned, on.state(), layout);
+  const backSaid = back === undefined ? '' : ` ${back}`;
   notify('done', `${put}${backSaid}${titles.length === 0 ? '' : ` Closed ${titles.join(', ')}, which it opened: reopen panel brings back the last.`}`);
 }
 

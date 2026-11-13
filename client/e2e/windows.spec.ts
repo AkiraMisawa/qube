@@ -334,12 +334,12 @@ test('ADR-0018 §8 and §9: arrange closes the other windows and places their pa
   const closing = other.waitForEvent('close');
   await page.getByTestId('proposal').getByRole('button', { name: 'Apply' }).click();
   await closing;
-  await expect(notice(page)).toHaveText(`Arranged as proposal 1: 2 areas. 1 panel the proposal did not place is in the area of ${RATES} · 2, the first in reading order. To put back what it replaced: arrange back.`);
+  await expect(notice(page)).toHaveText(`Arranged as proposal 1: 2 areas. 1 panel the proposal did not place is in the area of ${RATES} · 2, the first in reading order. Closed the other window, of ${RATES}: a proposal arranges this window. To put back what it replaced: arrange back.`);
   await expect(areasRoot(page)).toHaveAttribute('data-areas', '2');
 
   // What it replaced comes back with the window's panel in the main window, where it stood.
   await command(page, 'arrange back');
-  await expect(notice(page)).toHaveText(`Put back the arrangement proposal 1 replaced. Back in this window from the windows proposal 1 closed: ${RATES} where it was. pop out panel sends a panel out again.`);
+  await expect(notice(page)).toHaveText(`Put back the arrangement proposal 1 replaced. Back in this window: ${RATES} where it was. pop out panel sends a panel out again.`);
   await expect(areasRoot(page)).toHaveAttribute('data-areas', '1');
   await expect(tab(page, RATES)).toBeVisible();
 });

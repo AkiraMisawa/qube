@@ -3483,13 +3483,14 @@ The owner said to start step 2 on 2026-11-13 ("前者は始めていいよ"). On
 
 | What | Result |
 |---|---|
-| Client: `npm run typecheck`, `npx vitest run`, `npm run build`, after the third review's fixes | Clean; 491 passed in 47 files; built |
-| `npx playwright test e2e/windows.spec.ts`, which this pull request adds, `--repeat-each=3` (Chromium, headless, Linux), after the second review's fixes and again after the third's | 33 passed: eleven tests three times, the Device Pixel test among them as failing, which Playwright counts as passing (below) |
+| Client: `npm run typecheck`, `npx vitest run`, `npm run build`, after the fourth review's fixes | Clean; 493 passed in 48 files; built |
+| `npx playwright test e2e/windows.spec.ts`, which this pull request adds, `--repeat-each=3` (Chromium, headless, Linux), after the second review's fixes, and again after the third's and the fourth's | 33 passed: eleven tests three times, the Device Pixel test among them as failing, which Playwright counts as passing (below) |
 | The Device Pixel test (a window at 2x beside a main window at 1x) | Fails on ExGrid 0.2.0, as it should: the grid in the window is told 1px where its window's device pixel is 0.5px. Marked `test.fail` while the workbench takes 0.2.0, so it must pass once it takes `0.3.0-rc.1` (ex-grid #565, fixed by #566; ADR-0090 there) |
 | `npx playwright test` (Chromium, headless, Linux), before the review | 145 passed, 1 failed: `panels.spec.ts`'s list of the active panel's verbs, which now holds Pop out; corrected |
 | The same, after the first review's fixes | 147 passed |
 | The same, after the second review's fixes | 147 passed, 1 failed: `closingWith` in `windows.spec.ts` read the answer to a key sent to a window that the key had closed already; the helper now waits for the window closing, which is what it checks |
-| The same, after the third review's fixes | FULLRUN |
+| The same, after the third review's fixes | 148 passed |
+| The same, after the fourth review's fixes | FULLRUN |
 | `arrange back` with a panel in another window, its unit test without the fix and with it | Without it, the panel was in no area (drawn nowhere, still open); with it, back where its area stood |
 | A tab's menu in a window 480px high, without the fix and with it | 700px tall and cut off without it; inside the window and scrolling to its last item with it |
 | The window, its menus, the command line in it and the notices, in both schemes | Looked at, in the pull request's screens |
@@ -3556,8 +3557,14 @@ does not hold for a command run from a key (it now says where each went in the r
 `whereReturned`, and that the proposal closed the windows); a touch pressed in another window could still try to
 prevent the original's default (the touch is heard passively, declared so, and its copy cannot be prevented); the AI's
 context had no test with areas (one now holds a docked, a floating and a window's area); a window shell with no area
-of dockview's under it would have drawn the main window's title (it is now a defect, thrown); and a theme length that
-Mantine reads as NaN passed as pixels.
+of dockview's under it would have drawn the main window's title; and a theme length that Mantine reads as NaN passed
+as pixels.
+
+A fourth round found, and this pull request corrects: `arrange` did not say that it closed the other windows (it now
+does, naming their panels); `arrange back` named the proposal as what closed the windows, which the strip may have
+done instead (it now says where the panels are, with no reason); the sentence was still written in two places (it is
+now one, `backInThisWindow`, tested on each of its branches); and a window whose area dockview had let go of, a few
+steps before the window itself goes, would have thrown as it was drawn (it now draws nothing: it is closing).
 
 ## Next
 
