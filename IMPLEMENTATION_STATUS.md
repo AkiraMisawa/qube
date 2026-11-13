@@ -3483,7 +3483,7 @@ The owner said to start step 2 on 2026-11-13 ("前者は始めていいよ"). On
 
 | What | Result |
 |---|---|
-| Client: `npm run typecheck`, `npx vitest run`, `npm run build`, after the fifth review's fixes | Clean; 494 passed in 48 files; built |
+| Client: `npm run typecheck`, `npx vitest run`, `npm run build`, after the last round | Clean; 494 passed in 48 files; built |
 | `npx playwright test e2e/windows.spec.ts`, which this pull request adds, `--repeat-each=3` (Chromium, headless, Linux), after the second review's fixes, and again after each later round | 33 passed: eleven tests three times, the Device Pixel test among them as failing, which Playwright counts as passing (below) |
 | The Device Pixel test (a window at 2x beside a main window at 1x) | Fails on ExGrid 0.2.0, as it should: the grid in the window is told 1px where its window's device pixel is 0.5px. Marked `test.fail` while the workbench takes 0.2.0, so it must pass once it takes `0.3.0-rc.1` (ex-grid #565, fixed by #566; ADR-0090 there) |
 | `npx playwright test` (Chromium, headless, Linux), before the review | 145 passed, 1 failed: `panels.spec.ts`'s list of the active panel's verbs, which now holds Pop out; corrected |
@@ -3492,7 +3492,7 @@ The owner said to start step 2 on 2026-11-13 ("前者は始めていいよ"). On
 | The same, after the third review's fixes | 148 passed |
 | The same, after the fourth review's fixes | 148 passed |
 | `e2e/windows.spec.ts` and `e2e/areas.spec.ts`, `--repeat-each=3`, after the fifth review's fixes | 60 passed |
-| `npx playwright test`, the code as it stands | FULLRUN |
+| `npx playwright test`, the code as it stands | 147 passed, 1 failed: `areas.spec.ts`'s tab dragged with the mouse (step 1's test) stayed in one area. Step 1 met this once in about thirty runs too; it passed 8 times alone, then in all 64 of `panels.spec.ts` and `areas.spec.ts` four times over. Not fixed here: a flake of dockview's drag under Playwright, open |
 | `arrange back` with a panel in another window, its unit test without the fix and with it | Without it, the panel was in no area (drawn nowhere, still open); with it, back where its area stood |
 | A tab's menu in a window 480px high, without the fix and with it | 700px tall and cut off without it; inside the window and scrolling to its last item with it |
 | The window, its menus, the command line in it and the notices, in both schemes | Looked at, in the pull request's screens |
@@ -3559,8 +3559,8 @@ does not hold for a command run from a key (it now says where each went in the r
 `whereReturned`, and that the proposal closed the windows); a touch pressed in another window could still try to
 prevent the original's default (the touch is heard passively, declared so, and its copy cannot be prevented); the AI's
 context had no test with areas (one now holds a docked, a floating and a window's area); a window shell with no area
-of dockview's under it would have drawn the main window's title; and a theme length that Mantine reads as NaN passed
-as pixels.
+of dockview's under it would have drawn the main window's title (it was made a defect, thrown); and a theme length
+that Mantine reads as NaN passed as pixels.
 
 A fourth round found, and this pull request corrects: `arrange` did not say that it closed the other windows (it now
 does, naming their panels); `arrange back` named the proposal as what closed the windows, which the strip may have
@@ -3569,8 +3569,10 @@ now one, `backInThisWindow`, tested on each of its branches); and the comment on
 dockview's had dockview's order of letting go backwards. That round first made such a window draw nothing; a fifth
 round found that this hid a defect, and it is thrown again, its comment now true (dockview lets go of the area a step
 before the window, within one call that React does not draw in the middle of). The fifth round also asked for a test
-of `arrange` closing two windows, where it places their panels, and for ticket 05's check to fit all its cases; both
-are in.
+of `arrange` closing two windows and for ticket 05's check to fit all its cases, and a sixth for that test to check
+where `arrange` places those windows' panels; all are in. A seventh, of the sixth's fixes, found that test checking
+only part of the notice, its fixture's non-null marks, its name, and this paragraph's account of the rounds; all are
+corrected. The client's code has not changed since the fifth round's fixes.
 
 ## Next
 

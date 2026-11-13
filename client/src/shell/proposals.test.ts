@@ -232,25 +232,29 @@ describe('arrange and arrange back (ADR-0018 §8)', () => {
     expect(keptArrangement.getState().floatedFrom).toEqual({ [id(1)]: '1' });
   });
 
-  it('says which windows it closed, a proposal arranging this window (§9)', () => {
+  it('places the other windows\' panels as the proposal says, or in its first area, and says that it closed the windows (§9)', () => {
     // A in the main window, B and C each in a window of its own; drawn once the panels are open, by their ids.
-    const withWindows = (ids: readonly string[]): SerializedDockview => ({
-      grid: {
-        root: { type: 'branch', data: [{ type: 'leaf', size: 1440, data: { id: '1', views: [ids[0]!], activeView: ids[0]! } }] },
-        width: 1440, height: 800, orientation: Orientation.HORIZONTAL,
-      },
-      panels: {},
-      popoutGroups: [
-        { data: { id: '2', views: [ids[1]!], activeView: ids[1]! }, gridReferenceGroup: '1', position: null },
-        { data: { id: '3', views: [ids[2]!], activeView: ids[2]! }, gridReferenceGroup: '1', position: null },
-      ],
-    });
+    const withWindows = (ids: readonly string[]): SerializedDockview => {
+      const [a, b, c] = ids;
+      if (a === undefined || b === undefined || c === undefined) throw new Error('Three panels are open.');
+      return {
+        grid: {
+          root: { type: 'branch', data: [{ type: 'leaf', size: 1440, data: { id: '1', views: [a], activeView: a } }] },
+          width: 1440, height: 800, orientation: Orientation.HORIZONTAL,
+        },
+        panels: {},
+        popoutGroups: [
+          { data: { id: '2', views: [b], activeView: b }, gridReferenceGroup: '1', position: null },
+          { data: { id: '3', views: [c], activeView: c }, gridReferenceGroup: '1', position: null },
+        ],
+      };
+    };
     const { id, command, notify } = page(['A', 'B', 'C'], (store) => fakeAreas(WIDE, withWindows(store.getState().panels.map((p) => p.id))).port);
     const { n } = proposed(SIDE_BY_SIDE, [{ area: 'left', panel: id(0), title: 'A', shown: true }, { area: 'right', panel: id(1), title: 'B', shown: true }]);
 
     expect(execute(command('panel.arrange'), { proposal: String(n) })).toBeUndefined();
 
-    expect(notify).toHaveBeenLastCalledWith('done', expect.stringContaining(' Closed the other windows, of B and C: a proposal arranges this window. '));
+    expect(notify).toHaveBeenLastCalledWith('done', `Arranged as proposal ${n}: 2 areas. 1 panel the proposal did not place is in the area of A, the first in reading order. Closed the other windows, of B and C: a proposal arranges this window. To put back what it replaced: arrange back.`);
     // B where the proposal puts it; C, which it does not place, in its first area.
     const drawn = keptArrangement.getState().layout;
     if (drawn === undefined) throw new Error('arrange kept no arrangement.');
