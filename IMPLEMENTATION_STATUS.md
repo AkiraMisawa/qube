@@ -3492,6 +3492,7 @@ The owner said to start step 2 on 2026-11-13 ("前者は始めていいよ"). On
 | The same, after the third review's fixes | 148 passed |
 | The same, after the fourth review's fixes | 148 passed |
 | `e2e/windows.spec.ts` and `e2e/areas.spec.ts`, `--repeat-each=3`, after the fifth review's fixes | 60 passed |
+| `npx playwright test`, the code as it stands | FULLRUN |
 | `arrange back` with a panel in another window, its unit test without the fix and with it | Without it, the panel was in no area (drawn nowhere, still open); with it, back where its area stood |
 | A tab's menu in a window 480px high, without the fix and with it | 700px tall and cut off without it; inside the window and scrolling to its last item with it |
 | The window, its menus, the command line in it and the notices, in both schemes | Looked at, in the pull request's screens |
@@ -3565,9 +3566,11 @@ A fourth round found, and this pull request corrects: `arrange` did not say that
 does, naming their panels); `arrange back` named the proposal as what closed the windows, which the strip may have
 done instead (it now says where the panels are, with no reason); the sentence was still written in two places (it is
 now one, `backInThisWindow`, tested on each of its branches); and the comment on a window drawn with no area of
-dockview's had dockview's order of letting go backwards (it lets go of the area a step before the window, within one
-call that React does not draw in the middle of; such a window stays a defect, thrown). A fifth round asked for a test
-of `arrange` closing more than one window, and for ticket 05's check to fit all its cases; both are in.
+dockview's had dockview's order of letting go backwards. That round first made such a window draw nothing; a fifth
+round found that this hid a defect, and it is thrown again, its comment now true (dockview lets go of the area a step
+before the window, within one call that React does not draw in the middle of). The fifth round also asked for a test
+of `arrange` closing two windows, where it places their panels, and for ticket 05's check to fit all its cases; both
+are in.
 
 ## Next
 

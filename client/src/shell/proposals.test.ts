@@ -233,24 +233,29 @@ describe('arrange and arrange back (ADR-0018 §8)', () => {
   });
 
   it('says which windows it closed, a proposal arranging this window (§9)', () => {
-    const withWindows: SerializedDockview = {
+    // A in the main window, B and C each in a window of its own; drawn once the panels are open, by their ids.
+    const withWindows = (ids: readonly string[]): SerializedDockview => ({
       grid: {
-        root: { type: 'branch', data: [{ type: 'leaf', size: 1440, data: { id: '1', views: ['panel-1'], activeView: 'panel-1' } }] },
+        root: { type: 'branch', data: [{ type: 'leaf', size: 1440, data: { id: '1', views: [ids[0]!], activeView: ids[0]! } }] },
         width: 1440, height: 800, orientation: Orientation.HORIZONTAL,
       },
       panels: {},
       popoutGroups: [
-        { data: { id: '2', views: ['panel-2'], activeView: 'panel-2' }, gridReferenceGroup: '1', position: null },
-        { data: { id: '3', views: ['panel-3'], activeView: 'panel-3' }, gridReferenceGroup: '1', position: null },
+        { data: { id: '2', views: [ids[1]!], activeView: ids[1]! }, gridReferenceGroup: '1', position: null },
+        { data: { id: '3', views: [ids[2]!], activeView: ids[2]! }, gridReferenceGroup: '1', position: null },
       ],
-    };
-    const { id, command, notify } = page(['A', 'B', 'C'], () => fakeAreas(WIDE, withWindows).port);
-    expect([id(0), id(1), id(2)]).toEqual(['panel-1', 'panel-2', 'panel-3']);
+    });
+    const { id, command, notify } = page(['A', 'B', 'C'], (store) => fakeAreas(WIDE, withWindows(store.getState().panels.map((p) => p.id))).port);
     const { n } = proposed(SIDE_BY_SIDE, [{ area: 'left', panel: id(0), title: 'A', shown: true }, { area: 'right', panel: id(1), title: 'B', shown: true }]);
 
     expect(execute(command('panel.arrange'), { proposal: String(n) })).toBeUndefined();
 
-    expect(notify).toHaveBeenLastCalledWith('done', `Arranged as proposal ${n}: 2 areas. 1 panel the proposal did not place is in the area of A, the first in reading order. Closed the other windows, of B and C: a proposal arranges this window. To put back what it replaced: arrange back.`);
+    expect(notify).toHaveBeenLastCalledWith('done', expect.stringContaining(' Closed the other windows, of B and C: a proposal arranges this window. '));
+    // B where the proposal puts it; C, which it does not place, in its first area.
+    const drawn = keptArrangement.getState().layout;
+    if (drawn === undefined) throw new Error('arrange kept no arrangement.');
+    expect(drawn.popoutGroups).toBeUndefined();
+    expect(areasOf(drawn).map((a) => a.panels)).toEqual([[id(0), id(2)], [id(1)]]);
   });
 
   it('puts a panel the arrangement had in another window back into this one, where its area stood, and says so (§9)', () => {
