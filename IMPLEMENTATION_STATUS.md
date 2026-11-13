@@ -3587,10 +3587,11 @@ missed, one window's entry still written by hand, and this paragraph leaving out
 corrected. A full run after the eighth's fixes passed, 148, so ticket 06's box is ticked again, the failure before it
 noted. A tenth, of the ninth's, found the Known limits calling the failed run the last, #37's record cited so that it
 could not be found and as the wrong run, the one helper claimed for every test file, and ticket 06 left with no open
-box for the run after the bump; all are corrected. An eleventh, of the tenth's, found the failed run named by its
-place among the runs, #37's section named two ways, the unit tests claimed for one file, and what merging before the
-bump leaves in progress unsaid; all are corrected. The client's product code has not changed since the fifth round's
-fixes: the sixth to eleventh changed `proposals.test.ts`, the spec's status, ticket 06 and this file.
+box for the run after the bump; all are corrected. The eleventh and twelfth found only words of this section to
+correct (which full run failed, #37's section named two ways, one test file claimed as the unit tests, what stays in
+progress if the bump goes to the next pull request); they are corrected. The client's product code has not changed
+since the fifth round's fixes: the sixth to twelfth changed `proposals.test.ts`, the spec's status, ticket 06 and this
+file.
 
 ## Next
 
