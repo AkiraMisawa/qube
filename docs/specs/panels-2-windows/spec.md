@@ -1,7 +1,8 @@
 # Panels in areas, step 2: a panel in another window of the browser
 
-Status: in progress (2026-11-13): all but the ExGrid bump, which waits for `v0.3.0-rc.1` on npm. Step 1's test of a tab
-dragged with the mouse failed once in a full run and passed in the next: a flake, open (ticket 06)
+Status: in progress (2026-11-13): all but the ExGrid bump, which waits for `v0.3.0-rc.1` on npm, and a full run on it
+(tickets 04 and 06). Step 1's test of a tab dragged with the mouse failed once in a full run and passed in the next: a
+flake, open (`IMPLEMENTATION_STATUS.md`, step 2's Known limits)
 
 The decision is [ADR-0018](../../adr/0018-panels-are-arranged-in-areas-that-split-float-and-pop-out-and-the-ai-only-proposes-an-arrangement.md)
 §9, with §1 (reading order, the active panel), §3 (`dock panel` from step 2) and §7 (the arrangement kept by the

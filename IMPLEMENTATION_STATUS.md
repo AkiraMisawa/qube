@@ -3519,8 +3519,8 @@ Unchanged; nothing on the server changed. The AI's answer in the test is the scr
 - **The Device Pixel in another window** waits for ExGrid `v0.3.0-rc.1` on npm (the owner's tag, ex-grid #569): until
   then a grid in a window on a display of another scale than the main window's draws its lines at the main window's
   device pixel. The bump to `0.3.0-rc.1`, all seven packages at one version, and the test going green are this pull
-  request's last commit, or the next one's. If it goes to the next, ticket 04 stays in progress until the bump lands,
-  and ticket 06 and this spec until a full run passes on it; the flake below is step 1's, not held to them.
+  request's last commit, or the next one's. If it goes to the next, ticket 04 stays in progress until the bump lands
+  and the Device Pixel test is green, and ticket 06 and this spec until a full run passes on it, step 1's specs in it.
 - A reload does not open the windows again (a browser opens a window only on a key or a press, §9), nor does `arrange
   back`, which follows the reload; the panels come back into the main window, said so.
 - Checked in Chromium only: Safari's and Firefox's pop-up rules, touch in a window and a real second monitor are not.
