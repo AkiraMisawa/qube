@@ -20,6 +20,7 @@ import { registerPlaces, type Place } from '../../shell/places';
 import { CommittedDateInput } from '../../platform/IsoDateInput';
 import type { FrameStream, RatesApi } from './api';
 import type { CashflowsView, HeldEdit, LiveFrame, PeriodView, RatesWorkspaceView, Resolution } from './contracts';
+import { isElement } from '../../platform/elements';
 import {
   FOLDED, PINNED_COLUMNS, defaultsSaid, headerTiers, lineCellMessage, lineResult, lineCellState, lineColumns, hiddenEdits, lineHeaderGroups, lineRows, openedAt, parserOf, periodCellState,
   lineFieldTitle, periodColumns, periodFieldTitle, periodParserOf, toggled, type HiddenEdits, type LineLayout, type LineRow,
@@ -387,7 +388,7 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
 
   const page = (
     // A grid entered is the screen only where it says so below, after this: a grid of no table leaves the line none.
-    <Stack gap="sm" onFocusCapture={(event) => { if (event.target instanceof Element && event.target.closest('.ex-grid') !== null) screen.current = undefined; }}>
+    <Stack gap="sm" onFocusCapture={(event) => { if (isElement(event.target) && event.target.closest('.ex-grid') !== null) screen.current = undefined; }}>
       <Group gap="sm" wrap="wrap" align="flex-end">
         <CommittedDateInput label="Valuation date" what="valuation date" size="xs" w={150} value={ws.valuationDate} disabled={busy !== undefined}
           onCommit={(d) => void changeValuationDate(d)} onRefused={(sentence) => workspace.notify('refused', sentence)} />

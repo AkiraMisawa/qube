@@ -16,6 +16,7 @@ import {
 import { openLineWith } from './CommandPalette';
 import { UnavailableMenuItem } from './UnavailableMenuItem';
 import { PanelPage } from '../platform/panelPage';
+import { otherWindows } from './windows';
 
 // What the strip and the areas share (ADR-0006 note 7, ADR-0018 §3): a panel's page, the verbs of a panel as menu
 // items, the list of a strip's panels, and a tab's menu. Each item runs a verb of `panelVerbs`, so a menu can do no
@@ -46,7 +47,10 @@ export interface MenuAt {
  * reached from a tab, or from the list of the panel an area or the strip shows, so its tab is drawn.
  */
 function tabOf(panelId: string): HTMLElement {
-  const tab = document.querySelector(`[data-panel="${CSS.escape(panelId)}"]`)?.closest<HTMLElement>('[role="tab"]');
+  // A tab in another window is in that window's document (ADR-0018 §9).
+  const tab = [window, ...otherWindows().map((o) => o.window)]
+    .map((w) => w.document.querySelector(`[data-panel="${CSS.escape(panelId)}"]`)?.closest<HTMLElement>('[role="tab"]'))
+    .find((t) => t !== null && t !== undefined);
   if (tab === null || tab === undefined) throw new Error(`The tab of ${panelId} is not drawn.`);
   return tab;
 }
@@ -67,6 +71,14 @@ export function renameOnLine(state: Pick<WorkspaceState, 'activate'>, panel: Pan
 }
 
 const SHARES = ['25%', '33%', '50%', '67%', '75%'] as const;
+
+/**
+ * A panel's menu is held to the height its window has below or above where it opens, and scrolls inside it: the menu
+ * of every verb is taller than a short window, which another window of the browser often is (ADR-0018 §9), and its last
+ * items were out of reach there.
+ */
+const WITHIN_THE_WINDOW = { flip: true, shift: true, size: { padding: 8 } } as const;
+const SCROLLS = { overflowY: 'auto' } as const;
 const capital = (word: string) => `${word.charAt(0).toUpperCase()}${word.slice(1)}`;
 
 /**
@@ -110,7 +122,7 @@ export function VerbItems({ panel, run, fromKeyboard = false }: {
     );
   };
   const arranging = on.areas.strip === undefined;
-  const away = arranging && on.areas.areas().some((a) => (a.floating || a.window) && a.panels.includes(panel.id));
+  const away = arranging && on.areas.areas().some((a) => a.where !== 'docked' && a.panels.includes(panel.id));
   return (
     <>
       {[CLOSE, CLOSE_OTHERS, CLOSE_RIGHT, CLOSE_ALL].map((v) => onPanel(v))}
@@ -166,7 +178,7 @@ export function PanelList({ panels, shown, run, name }: {
         Closed, it gives the keyboard back to its button, 10ms on, where nothing has taken it meanwhile: the line its
         Rename opens has, as its field takes the keyboard at once (Mantine's focus trap, on the next turn).
       */}
-      <Menu opened={opened} onChange={setOpened} position="bottom-end" shadow="md" withinPortal>
+      <Menu opened={opened} onChange={setOpened} position="bottom-end" shadow="md" withinPortal middlewares={WITHIN_THE_WINDOW}>
         <Tooltip label={`${name} (show panel)`} disabled={opened}>
           <Menu.Target>
             <Button size="xs" variant="subtle" color="gray" aria-label={`${name} (${panels.length})`}
@@ -175,7 +187,7 @@ export function PanelList({ panels, shown, run, name }: {
             </Button>
           </Menu.Target>
         </Tooltip>
-        <Menu.Dropdown>
+        <Menu.Dropdown style={SCROLLS}>
           <Menu.Label>Panels</Menu.Label>
           <ScrollArea.Autosize mah="50vh" type="auto">
             {panels.map((p) => (
@@ -216,14 +228,14 @@ export function TabMenu({ at, panel, run, onClose }: {
 }) {
   const label = useId();
   return (
-    <Menu opened onClose={onClose} position="bottom-start" shadow="md" withinPortal hideDetached={false}
+    <Menu opened onClose={onClose} position="bottom-start" shadow="md" withinPortal hideDetached={false} middlewares={WITHIN_THE_WINDOW}
       returnFocus={false} trapFocus withInitialFocusPlaceholder={!at.keyboard} clickOutsideEvents={['mousedown', 'touchstart']}>
       <Menu.Target>
         <div aria-hidden style={{ position: 'fixed', left: at.x, top: at.y, width: 0, height: 0 }} />
       </Menu.Target>
       {/* Named by its label, which says on which panel it acts: its target is a mark of where it opened, with no name. */}
       {/* The menu key opens the browser's own menu as it is let go (Windows), where the keyboard is already in this one. */}
-      <Menu.Dropdown aria-labelledby={label} onContextMenu={(e) => e.preventDefault()}>
+      <Menu.Dropdown aria-labelledby={label} onContextMenu={(e) => e.preventDefault()} style={SCROLLS}>
         <Menu.Label id={label}>{panelLabel(panel)}</Menu.Label>
         <VerbItems panel={panel} run={run} fromKeyboard={at.keyboard} />
       </Menu.Dropdown>

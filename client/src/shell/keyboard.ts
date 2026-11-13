@@ -4,7 +4,8 @@
 // that is closing. The keyboard goes back where it was when the line closes, unless what ran put it somewhere itself.
 // The line is in the window in use (ADR-0018 §9), and so is the keyboard it remembers, lets go of and holds.
 
-import { isHTMLElement, windowInUse } from './windows';
+import { windowInUse } from './windows';
+import { isHTMLElement } from '../platform/elements';
 
 let before: HTMLElement | null = null;
 
@@ -65,7 +66,8 @@ export interface KeyboardHeld {
   lost(): void;
 }
 
-let held: { readonly line: HTMLElement; readonly on: KeyboardHeld; arrived: boolean; kept: boolean } | undefined;
+/** The line holding the keyboard, and the document its focus is heard in: the first line's, until it lets go. */
+let held: { readonly line: HTMLElement; readonly on: KeyboardHeld; readonly heardIn: Document; arrived: boolean; kept: boolean } | undefined;
 
 const onFocusIn = (event: FocusEvent): void => {
   const to = event.target;
@@ -89,8 +91,9 @@ const onFocusIn = (event: FocusEvent): void => {
  */
 export function holdKeyboard(line: HTMLElement, on: KeyboardHeld): void {
   // Heard in the line's own document, which is the window in use's.
-  if (held === undefined) line.ownerDocument.addEventListener('focusin', onFocusIn);
-  held = { line, on, arrived: false, kept: false };
+  const heardIn = held === undefined ? line.ownerDocument : held.heardIn;
+  if (held === undefined) heardIn.addEventListener('focusin', onFocusIn);
+  held = { line, on, heardIn, arrived: false, kept: false };
 }
 
 /**
@@ -99,8 +102,8 @@ export function holdKeyboard(line: HTMLElement, on: KeyboardHeld): void {
  */
 export function releaseKeyboard(): boolean {
   if (held === undefined) return false;
-  const { line } = held;
+  const { heardIn } = held;
   held = undefined;
-  line.ownerDocument.removeEventListener('focusin', onFocusIn);
+  heardIn.removeEventListener('focusin', onFocusIn);
   return true;
 }

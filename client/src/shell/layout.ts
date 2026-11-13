@@ -22,15 +22,17 @@ export interface Size {
 }
 
 /**
- * An area as the verbs and the strip read it: its panels in tab order, the one it shows, whether it floats, and whether
- * it is in another window of the browser (ADR-0018 §9).
+ * Where an area stands: docked among the main window's areas, floating over them, or in another window of the browser
+ * (ADR-0018 §9).
  */
+export type AreaWhere = 'docked' | 'floating' | 'window';
+
+/** An area as the verbs and the strip read it: its panels in tab order, the one it shows, and where it stands. */
 export interface AreaOf {
   readonly id: string;
   readonly panels: readonly string[];
   readonly shown: string | undefined;
-  readonly floating: boolean;
-  readonly window: boolean;
+  readonly where: AreaWhere;
 }
 
 type Floating = NonNullable<SerializedDockview['floatingGroups']>[number];
@@ -127,7 +129,7 @@ export function fits(layout: SerializedDockview | undefined, room: Size): boolea
 export function areasOf(layout: SerializedDockview): readonly AreaOf[] {
   const grid: AreaOf[] = [];
   const walk = (node: Node) => {
-    if (isLeaf(node)) { if (!isPlaceKept(node)) grid.push(area(node.data, 'grid')); }
+    if (isLeaf(node)) { if (!isPlaceKept(node)) grid.push(area(node.data, 'docked')); }
     else children(node).forEach(walk);
   };
   walk(layout.grid.root);
@@ -138,8 +140,8 @@ export function areasOf(layout: SerializedDockview): readonly AreaOf[] {
   ];
 }
 
-function area(group: GroupPanelViewState, where: 'grid' | 'floating' | 'window'): AreaOf {
-  return { id: group.id, panels: [...group.views], shown: group.activeView, floating: where === 'floating', window: where === 'window' };
+function area(group: GroupPanelViewState, where: AreaWhere): AreaOf {
+  return { id: group.id, panels: [...group.views], shown: group.activeView, where };
 }
 
 /** The areas a floating area or another window holds: one, or a tree of them. */
@@ -175,7 +177,7 @@ export function withWindowsDocked(layout: SerializedDockview): { readonly layout
   const leaves: (Node & { readonly data: GroupPanelViewState })[] = [];
   const collect = (node: Node) => { if (isLeaf(node)) leaves.push(node); else children(node).forEach(collect); };
   collect(layout.grid.root);
-  const last = leaves.filter((l) => !isPlaceKept(l)).at(-1) ?? leaves.at(-1);
+  const last = leaves.filter((l) => !isPlaceKept(l)).at(-1);
   for (const w of windows) {
     const panels = groupsOf(w).flatMap((g) => g.views);
     if (panels.length === 0) continue;
@@ -266,7 +268,7 @@ export function reconciled(layout: SerializedDockview, open: OpenPanels): Serial
   const areas = areasOf(layout);
   const kept = new Set(areas.flatMap((a) => a.panels).filter((id) => at.has(id)));
   const areaOfPanel = new Map(areas.flatMap((a) => a.panels.map((p) => [p, a.id] as const)));
-  const firstArea = areas.find((a) => !a.floating && a.panels.some((p) => kept.has(p)))?.id;
+  const firstArea = areas.find((a) => a.where !== 'floating' && a.panels.some((p) => kept.has(p)))?.id;
   // Where each new panel goes: the area of the nearest panel before it in the strip that the arrangement keeps.
   const joining = new Map<string, string[]>();
   open.order.forEach((id, i) => {

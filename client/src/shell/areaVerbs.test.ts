@@ -62,8 +62,8 @@ function areas(titles: readonly string[], drawn: readonly Drawn[], active: strin
         if (panels.length === 0) return [];
         const shown = a.shown === undefined ? undefined : idOf(a.shown);
         return [{
-          id: a.id, panels, shown: shown !== undefined && panels.includes(shown) ? shown : panels[0], floating: a.floating === true,
-          window: a.window === true, width: a.width ?? ROOM.width, height: a.height ?? ROOM.height,
+          id: a.id, panels, shown: shown !== undefined && panels.includes(shown) ? shown : panels[0],
+          where: a.floating === true ? 'floating' : a.window === true ? 'window' : 'docked', width: a.width ?? ROOM.width, height: a.height ?? ROOM.height,
         }];
       });
     },

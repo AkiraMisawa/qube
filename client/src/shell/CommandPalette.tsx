@@ -21,12 +21,13 @@ import { goTo, placesOf } from './places';
 import { panelCommands, type PanelState } from './panelVerbs';
 import { arrangeCommands, arrangingOf, type Arranging } from './proposals';
 import { useArrangementVersion } from './arrangement';
-import { isElement, isHTMLElement, useOtherWindows, usedWindow, windowInUse } from './windows';
+import { useOtherWindows, usedWindow, windowInUse } from './windows';
 import { useStore } from 'zustand';
 import { createStore } from 'zustand/vanilla';
 import { useOptionalAiStore } from '../ai/AiProvider';
 import { aiContextOf } from '../ai/effects';
 import { appCommands } from '../apps';
+import { isElement, isHTMLElement } from '../platform/elements';
 
 /**
  * The commands of the user's settings (ADR-0017 §4), on every page, with or without a workspace: `settings` shows the

@@ -1,5 +1,9 @@
 import type { Locator, Page } from '@playwright/test';
 import { command, expect, newWorkspace, open, settled, taken, test } from './fixtures';
+import client from '../package.json' with { type: 'json' };
+
+/** The ExGrid the workbench takes, every `@ex-grid/*` package at one version (ADR-0001). */
+const EX_GRID = client.dependencies['@ex-grid/core'];
 
 // ADR-0018 step 2 (docs/specs/panels-2-windows): a panel in another window of the browser. What only a browser shows:
 // the window opened and closed, its look kept the main window's, its menus, selects, tooltips and dialogs opened in it,
@@ -65,6 +69,13 @@ async function closingWith(other: Page, words: string): Promise<void> {
   await closing;
 }
 
+/** Where an element's left edge is in its window, in CSS pixels. */
+async function xOf(element: Locator): Promise<number> {
+  const box = await element.boundingBox();
+  if (box === null) throw new Error(`${element.toString()} is not drawn.`);
+  return box.x;
+}
+
 /** What ExGrid says one Device Pixel is, in CSS pixels, on a grid's root (ex-grid ADR-0090). */
 const devicePixelOf = (grid: Locator) => grid.evaluate((root) => /--ex-dp:\s*([^;]+)/.exec(root.getAttribute('style') ?? '')?.[1]);
 
@@ -107,21 +118,31 @@ test('ADR-0018 §9: a whole area popped out from its tab\'s menu keeps its place
   await twoPanels(page);
   await command(page, 'split panel', 'right');
   await expect(areasRoot(page)).toHaveAttribute('data-areas', '2');
-  const left = await tab(page, 'Pricing DB').boundingBox();
-  await tab(page, RATES).click({ button: 'right' });
-  const opening = page.waitForEvent('popup');
-  await page.getByRole('menu', { name: RATES, exact: true }).getByRole('menuitem', { name: /^Pop out/ }).click();
-  const other = await windowOf(opening, RATES, problems);
-  // Its area's place is kept, hidden: Pricing DB's area has the room.
-  await expect(areasRoot(page)).toHaveAttribute('data-areas', '1');
-  expect((await tab(page, 'Pricing DB').boundingBox())?.x).toBe(left?.x);
+  const left = await xOf(tab(page, 'Pricing DB'));
+  const popOutByMenu = async () => {
+    await tab(page, RATES).click({ button: 'right' });
+    const opening = page.waitForEvent('popup');
+    await page.getByRole('menu', { name: RATES, exact: true }).getByRole('menuitem', { name: /^Pop out/ }).click();
+    const other = await windowOf(opening, RATES, problems);
+    // Its area's place is kept, hidden: Pricing DB's area has the room.
+    await expect(areasRoot(page)).toHaveAttribute('data-areas', '1');
+    expect(await xOf(tab(page, 'Pricing DB'))).toBe(left);
+    return other;
+  };
+  const backOnTheRight = async () => {
+    await expect(areasRoot(page)).toHaveAttribute('data-areas', '2');
+    expect(await xOf(tab(page, RATES))).toBeGreaterThan(left + 320);
+  };
 
   // Closed as a user closes it, the page told it is going.
-  await other.close({ runBeforeUnload: true });
+  await (await popOutByMenu()).close({ runBeforeUnload: true });
   await expect(notice(page)).toHaveText(`The window of ${RATES} closed: it is back where it was.`);
-  await expect(areasRoot(page)).toHaveAttribute('data-areas', '2');
-  const back = await tab(page, RATES).boundingBox();
-  expect(back?.x).toBeGreaterThan((left?.x ?? 0) + 320);
+  await backOnTheRight();
+
+  // `dock panel` from that window puts it back in the place kept, too.
+  await closingWith(await popOutByMenu(), 'dock panel');
+  await expect(notice(page)).toHaveText(`Docked ${RATES} back where its area stood.`);
+  await backOnTheRight();
 });
 
 test('ADR-0018 §9: the other window takes the main one\'s look and follows its scheme, and its menus, tooltips and selects open in it', async ({ page, problems }) => {
@@ -154,9 +175,22 @@ test('ADR-0018 §9: the other window takes the main one\'s look and follows its 
   await expect(page.getByRole('listbox')).toHaveCount(0);
   await other.keyboard.press('Escape');
   await expect(other.getByRole('listbox')).toHaveCount(0);
+
+  // A window shorter than the menu of every verb: the menu keeps inside the window and scrolls to its last item.
+  await other.setViewportSize({ width: 880, height: 480 });
+  await tab(other, 'XVA ABC/LE-01').click({ button: 'right' });
+  const verbs = other.getByRole('menu', { name: 'XVA ABC/LE-01', exact: true });
+  const box = await verbs.boundingBox();
+  if (box === null) throw new Error('The tab\'s menu is not drawn.');
+  expect(box.y + box.height).toBeLessThanOrEqual(480);
+  const last = verbs.getByRole('menuitem', { name: /^Reopen closed panel/ });
+  await last.scrollIntoViewIfNeeded();
+  await expect(last).toBeInViewport();
+  await other.keyboard.press('Escape');
+  await expect(verbs).toBeHidden();
 });
 
-test('ADR-0018 §9: Ctrl+K and / open the line in the other window, on its panel; a dialog opened from there opens there, and Escape and Tab work in it', async ({ page, problems }) => {
+test('ADR-0018 §9: Ctrl+K, / and a tab\'s Rename open the line in the other window, on its panel; a dialog opened from there opens there, with its Escape and Tab; a press in the main window takes the line back there', async ({ page, problems }) => {
   await twoPanels(page);
   const other = await popOut(page, RATES, problems);
   await other.keyboard.press('ControlOrMeta+K');
@@ -166,11 +200,18 @@ test('ADR-0018 §9: Ctrl+K and / open the line in the other window, on its panel
   await other.keyboard.press('Escape');
   await expect(line).toBeHidden();
 
-  // `/` where nothing is typed into: the line acts on the window's panel.
+  // `/` where nothing is typed into opens it too.
   await other.getByText('Select a line to see its result here.').click();
   await other.keyboard.press('/');
   await expect(line).toBeFocused();
-  await other.keyboard.type('rename panel Hedges');
+  await other.keyboard.press('Escape');
+  await expect(line).toBeHidden();
+
+  // The tab's Rename opens it on the panel's name, there, and the window takes the new name as its title.
+  await tab(other, RATES).click({ button: 'right' });
+  await other.getByRole('menu', { name: RATES, exact: true }).getByRole('menuitem', { name: /^Rename/ }).click();
+  await expect(line).toBeFocused();
+  await other.keyboard.type('Hedges');
   await expect(other.getByTestId('command-pending')).toContainText('rename panel');
   await other.keyboard.press('Enter');
   await expect(tab(other, 'Hedges')).toBeVisible();
@@ -186,9 +227,14 @@ test('ADR-0018 §9: Ctrl+K and / open the line in the other window, on its panel
   expect(await dialog.evaluate((d) => d.contains(d.ownerDocument.activeElement))).toBe(true);
   await other.keyboard.press('Escape');
   await expect(dialog).toBeHidden();
+
+  // A press in the main window makes it the window in use again: its header's Commands opens the line there.
+  await page.getByRole('button', { name: 'Open command line' }).click();
+  await expect(page.getByRole('combobox', { name: 'Command' })).toBeFocused();
+  await expect(line).toHaveCount(0);
 });
 
-test('ADR-0018 §9: send panel to moves a panel into the other window and back, and the window closes as its last panel leaves', async ({ page, problems }) => {
+test('ADR-0018 §9: send panel to moves a panel into the other window and back, the window is titled by the panel it shows, and it closes as its last panel leaves', async ({ page, problems }) => {
   await twoPanels(page);
   const other = await popOut(page, RATES, problems);
   await newRates(page, `${RATES} · 2`);
@@ -197,14 +243,22 @@ test('ADR-0018 §9: send panel to moves a panel into the other window and back, 
   await expect(tab(other, 'Pricing DB')).toHaveAttribute('aria-selected', 'true');
   await expect(tab(other, RATES)).toBeVisible();
   await expect(tab(page, 'Pricing DB')).toHaveCount(0);
+  // The window is titled by the panel it shows, as a tab is chosen there.
+  await expect(other).toHaveTitle('Pricing DB · Qube');
+  await tab(other, RATES).click();
+  await expect(other).toHaveTitle(`${RATES} · Qube`);
 
-  // Docked from there, each goes back where it came from; the window closes with the last.
-  await command(other, 'dock panel');
-  await expect(tab(page, 'Pricing DB')).toBeVisible();
-  await closingWith(other, 'dock panel');
-  await expect(tab(page, RATES)).toBeVisible();
+  // Sent from there into an area of the main window; the window keeps its other panel.
+  await tab(other, 'Pricing DB').click();
+  await command(other, 'send panel to', `${RATES} · 2`);
+  await expect(tab(page, 'Pricing DB')).toHaveAttribute('aria-selected', 'true');
+  await expect(tab(other, 'Pricing DB')).toHaveCount(0);
+  await expect(other).toHaveTitle(`${RATES} · Qube`);
+  // Its last panel closed there, the window closes.
+  await closingWith(other, 'close panel');
+  await expect(tab(page, RATES)).toHaveCount(0);
   await expect(areasRoot(page)).toHaveAttribute('data-areas', '1');
-  await expect(page.getByRole('tab')).toHaveCount(3);
+  await expect(page.getByRole('tab')).toHaveCount(2);
 });
 
 test('ADR-0018 §9: ai from the other window asks with its panel, and says the answer is in the main window', async ({ page, problems }) => {
@@ -256,6 +310,9 @@ test('ADR-0018 §5 and §9: the strip closes the other windows and their panels 
 });
 
 test('ADR-0018 §9, ex-grid ADR-0090: a grid in the other window is told that window\'s Device Pixel, not the main one\'s', async ({ page, context, problems }) => {
+  // ExGrid 0.2.0 reads the main window's Device Pixel; 0.3.0-rc.1 reads its own window's (ex-grid #566). Until the
+  // workbench takes it this test fails, as it should, and is marked so: it passes, and must, once it does.
+  test.fail(EX_GRID === '0.2.0', 'ExGrid 0.2.0 reads the main window\'s Device Pixel (ex-grid #565).');
   await twoPanels(page);
   const other = await popOut(page, RATES, problems);
   const grid = other.getByLabel('Lines', { exact: true }).locator('.ex-grid');

@@ -13,7 +13,7 @@ import { CommandPalette } from './shell/CommandPalette';
 import { ContextIssues } from './shell/ContextBar';
 import { NoticeContext, NoticeStrip } from './shell/Notice';
 import { InUseWindowPortals } from './shell/WindowShell';
-import { useWindowInUse } from './shell/windows';
+import { hearUse, useWindowInUse } from './shell/windows';
 import { RunDialog } from './shell/RunDialog';
 import { SettingsDialog } from './shell/SettingsDialog';
 import { AppDialogs } from './apps';
@@ -85,6 +85,8 @@ function Shell({ notice, clearNotice }: { readonly notice: Notice | undefined; r
   // A notice is said in the window in use: this one, or another window a panel was popped out into (ADR-0018 §9).
   const said = useMemo(() => ({ notice, clearNotice }), [notice, clearNotice]);
   const inUse = useWindowInUse() === window;
+  // A press in this window, or this window taking the keyboard back, makes it the window in use again.
+  useEffect(() => hearUse(window), []);
   return (
     <NoticeContext.Provider value={said}>
       <AppShell header={{ height: HEADER_HEIGHT }} padding="sm"

@@ -22,7 +22,6 @@ export const hearWindowsChange = (listener: () => void): (() => void) => {
   listeners.add(listener);
   return () => { listeners.delete(listener); };
 };
-const subscribe = hearWindowsChange;
 
 /** The other windows open now, in the order they were opened. */
 export function otherWindows(): readonly OtherWindow[] {
@@ -30,7 +29,7 @@ export function otherWindows(): readonly OtherWindow[] {
 }
 
 export function useOtherWindows(): readonly OtherWindow[] {
-  return useSyncExternalStore(subscribe, otherWindows);
+  return useSyncExternalStore(hearWindowsChange, otherWindows);
 }
 
 /** Adds a window as it opens; answers what takes it away as it closes. */
@@ -50,7 +49,7 @@ export function windowInUse(): Window {
 }
 
 export function useWindowInUse(): Window {
-  return useSyncExternalStore(subscribe, windowInUse);
+  return useSyncExternalStore(hearWindowsChange, windowInUse);
 }
 
 const keys = new WeakMap<Window, string>();
@@ -70,27 +69,17 @@ export function windowKey(win: Window): string {
   return key;
 }
 
-/**
- * Whether a target is an element, of whichever window made it. An element a page made in another window is of that
- * window's `Element`, so `instanceof Element` holds only for the main window's.
- */
-export function isElement(target: unknown): target is Element {
-  return typeof target === 'object' && target !== null && 'nodeType' in target && target.nodeType === 1;
-}
-
-/** Whether a target is an HTML element, of whichever window made it (see `isElement`). */
-export function isHTMLElement(target: unknown): target is HTMLElement {
-  return isElement(target) && target.namespaceURI === 'http://www.w3.org/1999/xhtml';
-}
-
 /** The node an other window's portals draw into; undefined for the main window, whose are Mantine's own. */
 export function portalOf(win: Window): HTMLElement | undefined {
   return others.find((o) => o.window === win)?.portal;
 }
 
+/** A dialog that holds the keyboard while it is open: the shell's, a page's, or the command line. */
+export const MODAL_DIALOG = '[role="dialog"][aria-modal="true"]';
+
 /** Whether a dialog, or the command line, is open in any window: the window in use does not change while one is. */
 function aDialogIsOpen(): boolean {
-  return [window, ...others.map((o) => o.window)].some((w) => w.document.querySelector('[role="dialog"][aria-modal="true"]') !== null);
+  return [window, ...others.map((o) => o.window)].some((w) => w.document.querySelector(MODAL_DIALOG) !== null);
 }
 
 /**
@@ -110,13 +99,17 @@ export function usedWindow(win: Window): void {
  */
 export function hearUse(win: Window): () => void {
   const used = () => usedWindow(win);
+  // In the main window a focus moved inside it is the shell's own as often as the user's (the command line giving the
+  // keyboard back as it closes, after `pop out panel` was run from it), and would take the window in use back from the
+  // window just opened: there a press and the window's own focus say it.
+  const focusIn = win !== window;
   win.document.addEventListener('pointerdown', used, true);
-  win.document.addEventListener('focusin', used, true);
+  if (focusIn) win.document.addEventListener('focusin', used, true);
   // The window itself taking the keyboard back (Alt+Tab, a press on its title bar) is a use of it too.
   win.addEventListener('focus', used);
   return () => {
     win.document.removeEventListener('pointerdown', used, true);
-    win.document.removeEventListener('focusin', used, true);
+    if (focusIn) win.document.removeEventListener('focusin', used, true);
     win.removeEventListener('focus', used);
   };
 }

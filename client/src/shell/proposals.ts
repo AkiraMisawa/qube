@@ -563,7 +563,7 @@ export function panelsContext(state: Pick<WorkspaceState, 'panels' | 'activePane
         const area = drawn.find((a) => a.panels.includes(p.id));
         return { panel: p.id, title: panelLabel(p), ...shows(p), ...(area === undefined ? {} : { area: area.id, shown: area.shown === p.id }), ...(p.id === state.activePanelId ? { active: true } : {}) };
       }),
-      areas: drawn.map((a) => ({ area: a.id, floating: a.floating, width: Math.round(a.width), height: Math.round(a.height) })),
+      areas: drawn.map((a) => ({ area: a.id, floating: a.where === 'floating', width: Math.round(a.width), height: Math.round(a.height) })),
       ...(areas.strip === undefined ? {} : { strip: areas.strip }),
       room: { width: Math.round(room.width), height: Math.round(room.height) },
       minimum: AREA_MIN,

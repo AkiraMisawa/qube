@@ -3456,10 +3456,13 @@ The owner said to start step 2 on 2026-11-13 ("前者は始めていいよ"). On
   strip, for a panel alone in a window already, and for the only panel docked in the main window.
 - **The window is the main one's** (`client/src/shell/WindowShell.tsx`): it follows the main `<html>`'s attributes
   (the colour scheme among them) and the stylesheets the main head gains after it opened; it is titled
-  `<panel> · Qube`; a menu, a select, a tooltip or a popover opened from its page opens in it (Mantine's `Portal` is
-  pointed at the window's own node); a press outside its popovers closes them, and Escape closes a dialog there.
+  `<panel> · Qube`, following the tab chosen there; a menu, a select, a tooltip or a popover opened from its page
+  opens in it (Mantine's `Portal` is pointed at the window's own node); a press outside its popovers closes them, and
+  Escape closes a dialog there. A panel's menus keep inside the window and scroll there, in the main window too (a
+  short window cut off the menu of every verb, found while the screens were taken).
 - **The window in use** (`client/src/shell/windows.ts`): the window last pressed in, focused, or typed a shell key in,
-  or the one just popped out into, changed only while no dialog is open. The command line, the Run dialog, the
+  or the one just popped out into, changed only while no dialog is open (in the main window a press or the window's own
+  focus, since the shell moves the keyboard there itself). The command line, the Run dialog, the
   applications' dialogs and the settings open there; the shell's notices are said there; the active panel is the one
   it shows. Ctrl+K, `/` and the shell's chords are attached to every window's document. `ai` from another window asks
   with its panel, and says that the answer is in the AI pane of the main window.
@@ -3467,21 +3470,25 @@ The owner said to start step 2 on 2026-11-13 ("前者は始めていいよ"). On
   it there, and it takes back what its panel kept (ADR-0006 note 10: a Rates leg open, a grid's Focus). ExGrid 0.2.0
   works there (presses, arrows, menus), but reads the main window's Device Pixel (below).
 - **Back where it was**: `dock panel` in a window puts its panel back into the area it came from, or where that area
-  stood, or, where it has gone, a new area on the right where there is room and else the last area; `send panel to <title>` moves a panel either way. A window the user closes
-  puts its panels back (into the area they came from, floating where they floated, or an area of their own) and the
-  shell says which. A window the browser blocks is said as a refusal, and the panel stays. A reload brings the windows'
+  stood, or, where it has gone, a new area on the right where there is room and else the last area; `send panel to
+  <title>` moves a panel either way, and `close panel` on a window's last panel closes the window. A window the user
+  closes puts its panels back (into the area they came from, floating where they floated, or an area of their own) and
+  the shell says which. A window the browser blocks is said as a refusal, and the panel stays. A reload brings the windows'
   panels into the main window (`withWindowsDocked`) and says where each went; so does the main window showing the one
   strip, which closes the other windows. The verbs that act within the main window's areas (`split`, `float`, `size`,
-  `maximize`) are refused for a panel in a window, saying to dock it first; `gather panels` is refused in a window.
+  `maximize`) are refused for a panel in a window, saying to dock it first (`size`: the window sizes it); `gather
+  panels` is refused in a window.
 
 ### Verification performed
 
 | What | Result |
 |---|---|
-| Client: `npm run typecheck`, `npx vitest run`, `npm run build` | Clean; 489 passed in 47 files; built |
-| `npx playwright test e2e/windows.spec.ts`, which this pull request adds, `--repeat-each=3`, without the Device Pixel test (Chromium, headless, Linux) | 27 passed (nine tests, three times each) |
-| The Device Pixel test (a window at 2x beside a main window at 1x) | Fails on ExGrid 0.2.0, as it should: the grid in the window draws 1px lines where its window's device pixel is 0.5px. It waits for `v0.3.0-rc.1` (ex-grid #566, ADR-0090 there) on npm |
-| `npx playwright test` (Chromium, headless, Linux), without the Device Pixel test | 145 passed, 1 failed: `panels.spec.ts`'s list of the active panel's verbs, which now holds Pop out; corrected, and with `--repeat-each=3` it passes at 768 and 390px |
+| Client: `npm run typecheck`, `npx vitest run`, `npm run build`, after the review's fixes | Clean; 489 passed in 47 files; built |
+| `npx playwright test e2e/windows.spec.ts`, which this pull request adds, `--repeat-each=3` (Chromium, headless, Linux), after the review's fixes | 30 passed: ten tests three times, the Device Pixel test among them as failing, which Playwright counts as passing (below) |
+| The Device Pixel test (a window at 2x beside a main window at 1x) | Fails on ExGrid 0.2.0, as it should: the grid in the window is told 1px where its window's device pixel is 0.5px. Marked `test.fail` while the workbench takes 0.2.0, so it must pass once it takes `0.3.0-rc.1` (ex-grid #566, ADR-0090 there) |
+| `npx playwright test` (Chromium, headless, Linux), before the review | 145 passed, 1 failed: `panels.spec.ts`'s list of the active panel's verbs, which now holds Pop out; corrected |
+| The same, after the review's fixes | 147 passed |
+| A tab's menu in a window 480px high, without the fix and with it | 700px tall and cut off without it; inside the window and scrolling to its last item with it |
 | The window, its menus, the command line in it and the notices, in both schemes | Looked at, in the pull request's screens |
 
 The unit tests read `pop out panel` and its refusals, the verbs refused in a window, `send panel to` into a window and
@@ -3490,8 +3497,10 @@ with windows and the hidden place a whole area left; `withWindowsDocked`; and a 
 and refused. The browser tests read what only a browser shows: the window opened by the line and by the menu, its
 title, its page's state and a grid driven in it; a whole area popped out and its window closed by the user; the scheme
 followed, a tooltip, a menu closed by a press outside it and a select in the window; Ctrl+K and `/` there, a verb and a
-dialog run from there with Tab and Escape; `send panel to` both ways; `ai` from the window; a blocked window; a reload;
-and the strip closing the windows.
+dialog run from there with Tab and Escape, and a tab's Rename there; the main window taken back by a press; `send panel
+to` both ways and the window's title following its tab; `close panel` closing a window; `dock panel` into the area a
+panel came from and into the place its whole area left; `ai` from the window; a blocked window; a reload; a tab's menu in
+a short window; and the strip closing the windows.
 
 ### Providers
 
@@ -3507,6 +3516,25 @@ Unchanged; nothing on the server changed. The AI's answer in the test is the scr
   into the main window, said so.
 - Checked in Chromium only: Safari's and Firefox's pop-up rules, touch in a window and a real second monitor are not.
 - An area is not split inside another window (one area per window, as a floating area is).
+- `edit context` (the chord that focuses the header's context bar) typed in another window focuses the field in the main
+  window, which the browser does not bring to the front.
+
+### What the review changed
+
+The two reviews (standards and spec) found, and this pull request corrects: a press in the main window did not make it
+the window in use again, so after another window had been used the header's Commands, or a dialog opened by a press,
+opened in that window; three `instanceof Element` checks the first pass missed (the pricer's and the Rates page's
+screen state, a row's draft dialog's Escape), and the draft dialog's focus read the main document, all false in another
+window; a tab's Rename looked for its tab in the main document alone and threw for a panel in a window; the window's
+title did not follow a tab chosen in it; a window that closed before it had loaded was read as one with no panels, and
+the window of a tab's menu and the area a reload folds into had defaults standing in for what was not found; the focus
+listener of the line could be taken from another document than it was added to; the areas kept a copy of the windows'
+registry by hand; a pressed copy could not prevent the original; and an area was `floating` and `window` at once in its
+type. The tests the spec asked for and the first pass left out, written now, found that `dock panel` did not put a
+window's last panel back where its whole area stood (dockview removed the place before the panel arrived, and the
+places were tidied while a window was still opening): the window's area now comes in beside its place. `send panel to`
+from a window, `close panel` closing one, the window's title and the main window taken back by a press are tested too.
+A tab's menu cut off in a short window, found while the screens were taken, now keeps inside it and scrolls.
 
 ## Next
 

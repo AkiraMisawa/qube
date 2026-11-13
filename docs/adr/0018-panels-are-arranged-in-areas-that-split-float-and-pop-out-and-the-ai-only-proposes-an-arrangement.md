@@ -289,15 +289,18 @@ The AI pane stays in the main window.
 [panels-2-windows](../specs/panels-2-windows/spec.md)). How the points above are read, each a DEFAULT put to the owner
 with step 2's pull request:
 
-- **A window of its own is one area**, as a floating area is (§3's note of 2026-11-12): `split panel`, `float panel`,
-  `size panel` and `maximize panel` are refused for a panel in it, saying to dock it first. `send panel to` moves a
+- **A window of its own is one area**, as a floating area is (§3's note of 2026-11-12): `split panel`, `float panel`
+  and `maximize panel` are refused for a panel in it, saying to dock it first, and `size panel` saying that the window
+  sizes it. `send panel to` moves a
   panel between windows either way, `gather panels` run from the main window brings every panel into that area (and is
   refused in another window), and a window whose last panel leaves it closes. `pop out panel`, and `send panel to` into
   another window or a floating area, are refused where they would leave no area docked in the main window, as
   `float panel` is. An area's only panel takes its whole area out, and dockview keeps the area's place, hidden, for it
   to come back to; a panel beside others leaves them its area.
 - **Back where it was.** `dock panel` puts a panel back into the area it came from (kept with the area a floating
-  panel came from), else by `dock panel`'s rule of §3. A window the user closes has its panels put back by dockview:
+  panel came from), or into the place a whole area left, else by `dock panel`'s rule of §3. (A window's last panel
+  goes back into that place with its window's area: dockview takes an emptied window's place with it as the window
+  goes, before a panel moved out of it arrives.) A window the user closes has its panels put back by dockview:
   into the area they came from where it is there, else into an area of their own, and the shell says which. A reload
   brings them back into that area where it is there, else into the last area of the main window, and says which: the
   window's own place is not reopened, since only a key or a press opens one.
@@ -308,8 +311,10 @@ with step 2's pull request:
 - **"Opens in that window"** is read for what a page draws (its menus, selects, tooltips and popovers, by Mantine's
   portal target for that page) and for the shell's dialogs and the command line, which open in the **window in use**:
   the one the user last pressed in, focused or typed a key of the shell's in, or the one a panel was just popped out
-  into, kept while a dialog is open. The notices are said in the window in use too, one at a time as in the main
-  window. The active panel is one the window in use shows (there, the one it shows; in the main window, the one active
+  into, kept while a dialog is open; in the main window a press and the window's own focus say it, since the shell
+  moves the keyboard inside it itself. The notices are said in the window in use too, one at a time as in the main
+  window. A panel's menus keep inside the window they open in and scroll there, since another window is often shorter
+  than the menu of every verb. The active panel is one the window in use shows (there, the one it shows; in the main window, the one active
   there last), so the line, `/`, the chords and `ai` act on a panel of the window they are typed in.
 - **What Mantine hears on the main document only** (a press outside a popover, a dialog's Escape) is told to it from
   the other windows as a copy of the event. A dialog's Tab is kept inside it in its own window instead: Mantine's focus

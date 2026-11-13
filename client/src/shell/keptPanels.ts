@@ -126,10 +126,10 @@ function checkLayout(value: unknown): void {
   if (layout.popoutGroups !== undefined) {
     list(layout.popoutGroups, 'layout.popoutGroups').forEach((p, i) => {
       const at = `layout.popoutGroups[${i}]`;
-      const window = record(p, at);
-      if (window.gridReferenceGroup !== undefined) text(window.gridReferenceGroup, `${at}.gridReferenceGroup`);
-      if (window.data !== undefined) checkArea(window.data, `${at}.data`);
-      else checkPart(record(window.grid, `${at}.grid`).root, `${at}.grid.root`);
+      const popout = record(p, at);
+      if (popout.gridReferenceGroup !== undefined) text(popout.gridReferenceGroup, `${at}.gridReferenceGroup`);
+      if (popout.data !== undefined) checkArea(popout.data, `${at}.data`);
+      else checkPart(record(popout.grid, `${at}.grid`).root, `${at}.grid.root`);
     });
   }
 }

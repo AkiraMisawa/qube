@@ -2,8 +2,9 @@
 
 Status: done
 
-**What to build:** what is said when the browser refuses a window; a closed window's panels put back, by `dock
-panel`'s rule where their area has gone; the strip closing the other windows, said.
+**What to build:** what is said when the browser refuses a window; a closed window's panels, which dockview puts back
+into the area they came from, or into an area of their own where it has gone, and the shell says which; the strip
+closing the other windows, said.
 
 **Blocked by:** 02.
 

@@ -2,7 +2,7 @@ import { CommandRefused, given, type Command, type CommandArgument } from '../pl
 import type { Notify } from '../platform/notices';
 import { namedBy, panelLabel, pinnedCount, readName, type Panel, type PanelsClosed, type WorkspaceState } from '../platform/workspace/workspaceStore';
 import { areaHolding, currentArrangement, FLOAT_PLACES, floatBox, SIDES, type Arrangement, type FloatPlace, type Side } from './arrangement';
-import { AREA_MIN } from './layout';
+import { AREA_MIN, type AreaOf } from './layout';
 
 // The shell's verbs over its panels (ADR-0006 §8 and note 7 of 2026-11-12; ADR-0018 §3). Each is declared once here,
 // and the command line, a tab's menu, an area's list of panels and the keys of a tab all run that declaration: none of
@@ -273,7 +273,16 @@ function areaFor(on: On, panel: Panel) {
 }
 
 /** The areas of the main window, neither floating nor in another window. */
-const docked = (on: On) => on.areas.areas().filter((a) => !a.floating && !a.window);
+const docked = (on: On) => on.areas.areas().filter((a) => a.where === 'docked');
+
+/**
+ * What a verb that takes a panel out of the main window's areas says of the last panel docked there (§5, §9): the window
+ * would be left with none docked. Undefined where the panel is not that one.
+ */
+function lastDocked(on: On, area: AreaOf, doing: string): string | undefined {
+  return area.where === 'docked' && area.panels.length === 1 && docked(on).length === 1
+    ? `It is the only panel docked in the window; ${doing} would leave none docked.` : undefined;
+}
 
 /** What a verb that arranges inside the main window says of a panel in another window, which is one area there. */
 const IN_A_WINDOW = 'It is in a window of its own, which is one area: dock it first.';
@@ -291,8 +300,8 @@ export const SPLIT: PanelVerb = {
   unavailable: (on, panel, args) => {
     if (on.areas.strip !== undefined) return on.areas.strip;
     const area = areaFor(on, panel);
-    if (area.floating) return 'A floating area is one area: dock it first, or float another panel.';
-    if (area.window) return IN_A_WINDOW;
+    if (area.where === 'floating') return 'A floating area is one area: dock it first, or float another panel.';
+    if (area.where === 'window') return IN_A_WINDOW;
     if (area.panels.length === 1) return 'It is the only panel of its area: send it to another area, or float it.';
     const side = sideOf(args?.side);
     if (side === undefined) return undefined;
@@ -331,11 +340,7 @@ export const SEND: PanelVerb = {
     if ('reason' in named) return named.reason;
     if (own.panels.includes(named.panel.id)) return `${panelLabel(named.panel)} is in this panel's area already.`;
     // Into a floating area or another window, the main window's last docked panel would leave none docked (§5, §9).
-    const to = areaFor(on, named.panel);
-    if ((to.floating || to.window) && !own.floating && !own.window && own.panels.length === 1 && docked(on).length === 1) {
-      return 'It is the only panel docked in the window; sending it there would leave none docked.';
-    }
-    return undefined;
+    return areaFor(on, named.panel).where === 'docked' ? undefined : lastDocked(on, own, 'sending it there');
   },
   run: (on, panel, _, args) => {
     const why = SEND.unavailable(on, panel, args);
@@ -368,9 +373,8 @@ export const FLOAT: PanelVerb = {
   unavailable: (on, panel) => {
     if (on.areas.strip !== undefined) return on.areas.strip;
     const area = areaFor(on, panel);
-    if (area.window) return IN_A_WINDOW;
-    if (!area.floating && area.panels.length === 1 && docked(on).length === 1) return 'It is the only panel docked in the window; floating it would leave none docked.';
-    return undefined;
+    if (area.where === 'window') return IN_A_WINDOW;
+    return lastDocked(on, area, 'floating it');
   },
   run: (on, panel, _, args) => {
     const place = placeOf(given(args, 'where'));
@@ -390,7 +394,7 @@ export const DOCK: PanelVerb = {
   unavailable: (on, panel) => {
     if (on.areas.strip !== undefined) return on.areas.strip;
     const area = areaFor(on, panel);
-    return area.floating || area.window ? undefined : 'This panel is neither floating nor in another window.';
+    return area.where === 'docked' ? 'This panel is neither floating nor in another window.' : undefined;
   },
   run: (on, panel, notify) => {
     const why = DOCK.unavailable(on, panel);
@@ -421,8 +425,8 @@ export const SIZE: PanelVerb = {
   unavailable: (on, panel, args) => {
     if (on.areas.strip !== undefined) return on.areas.strip;
     const area = areaFor(on, panel);
-    if (area.floating) return 'A floating area is sized by its edges, or placed with float panel.';
-    if (area.window) return 'A panel in a window of its own is sized by that window.';
+    if (area.where === 'floating') return 'A floating area is sized by its edges, or placed with float panel.';
+    if (area.where === 'window') return 'A panel in a window of its own is sized by that window.';
     const line = on.areas.lineOf(area.id);
     if (line === undefined) return 'Its area is alone in its row and its column: there is nothing to share.';
     const percent = percentOf(args?.percent);
@@ -454,8 +458,8 @@ export const MAXIMIZE: PanelVerb = {
   unavailable: (on, panel) => {
     if (on.areas.strip !== undefined) return on.areas.strip;
     const area = areaFor(on, panel);
-    if (area.floating) return 'A floating area is not maximized; dock it first.';
-    if (area.window) return IN_A_WINDOW;
+    if (area.where === 'floating') return 'A floating area is not maximized; dock it first.';
+    if (area.where === 'window') return IN_A_WINDOW;
     if (on.areas.maximized() === area.id) return 'Its area is maximized already.';
     if (docked(on).length < 2) return 'Its area is the only one of the window: it has the whole room already.';
     return undefined;
@@ -492,7 +496,7 @@ export const GATHER: PanelVerb = {
     if (on.areas.strip !== undefined) return on.areas.strip;
     if (on.areas.areas().length < 2) return 'The panels are in one area already.';
     // Into the panel's own area, which is the main window's: every other window closes as its panels leave it.
-    return areaFor(on, panel).window ? 'It is in a window of its own: gather the panels from an area of the main window.' : undefined;
+    return areaFor(on, panel).where === 'window' ? 'It is in a window of its own: gather the panels from an area of the main window.' : undefined;
   },
   run: (on, panel) => {
     const why = GATHER.unavailable(on, panel);
@@ -519,9 +523,8 @@ export const POP_OUT: PanelVerb = {
   unavailable: (on, panel) => {
     if (on.areas.strip !== undefined) return on.areas.strip;
     const area = areaFor(on, panel);
-    if (area.window && area.panels.length === 1) return 'It is in a window of its own already.';
-    if (!area.floating && !area.window && area.panels.length === 1 && docked(on).length === 1) return 'It is the only panel docked in the window; popping it out would leave none docked.';
-    return undefined;
+    if (area.where === 'window' && area.panels.length === 1) return 'It is in a window of its own already.';
+    return lastDocked(on, area, 'popping it out');
   },
   run: (on, panel) => {
     const why = POP_OUT.unavailable(on, panel);

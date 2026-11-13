@@ -43,8 +43,8 @@ One pull request (ADR-0018 §11, step 2).
 | `dock panel` | Dock | the panel is neither floating nor in another window |
 
 A panel in another window is in an area of its own window, which is one area, as a floating area is (ADR-0018 §3's note
-of 2026-11-12): `split panel`, `float panel`, `size panel` and `maximize panel` are refused for it, saying to dock it
-first. `send panel to <title>` moves a panel between the main window and another, either way. `gather panels`, run from an
+of 2026-11-12): `split panel`, `float panel` and `maximize panel` are refused for it, saying to dock it first, and
+`size panel` saying that the window sizes it. `send panel to <title>` moves a panel between the main window and another, either way. `gather panels`, run from an
 area of the main window, brings every panel into that area, and the other windows close; in another window it is
 refused. When the last panel leaves a window, by
 `send panel to`, `dock panel` or `close panel`, the window closes.
@@ -120,9 +120,12 @@ refused. When the last panel leaves a window, by
 - Playwright (`e2e/windows.spec.ts`, new; Chromium, which opens windows a test asks for): pop out by the line and by
   the menu; the window's scheme, followed; a Select, a menu and a tooltip in the window; Ctrl+K and `/` there, and a
   verb run there; a dialog opened from there; the window closed by the user; a window refused (`window.open` answering
-  nothing); a reload; `send panel to` both ways and `dock panel`; the strip closing the windows; a grid in the window
-  told that window's Device Pixel when the window's scale differs (Chromium's device metrics on the window alone).
-  Step 1's specs keep passing.
+  nothing); a reload; `send panel to` both ways, `dock panel` (into the area it came from and into the place a whole
+  area left) and `close panel` closing the window; the window's title following the tab chosen there; a press in the
+  main window making it the window in use again; a tab's menu in a short window keeping inside it; the strip closing
+  the windows; a grid in the window told that window's Device Pixel when the window's scale differs (Chromium's device
+  metrics on the window alone), marked as failing until the workbench takes ExGrid 0.3.0-rc.1. Step 1's specs keep
+  passing.
 
 ## Out of Scope
 

@@ -40,7 +40,7 @@ describe('an arrangement', () => {
   });
 
   it('ADR-0018 §1: reads its areas in the order of their splits, the left or upper part first, then the floating ones', () => {
-    expect(areasOf(arranged).map((a) => [a.id, a.shown, a.floating])).toEqual([['ab', 'b', false], ['c', 'c', false], ['right', 'r1', false], ['float', 'd', true]]);
+    expect(areasOf(arranged).map((a) => [a.id, a.shown, a.where])).toEqual([['ab', 'b', 'docked'], ['c', 'c', 'docked'], ['right', 'r1', 'docked'], ['float', 'd', 'floating']]);
     expect(readingOrder(arranged)).toEqual(['a', 'b', 'c', 'r1', 'r2', 'd']);
     expect(stripOrder(arranged, (id) => id === 'r2' || id === 'c')).toEqual(['c', 'r2', 'a', 'b', 'r1', 'd']);
   });
@@ -64,8 +64,8 @@ const withWindows: SerializedDockview = {
 
 describe('an arrangement with other windows (ADR-0018 §9)', () => {
   it('reads their areas after the floating ones, in the order they were opened, and the place an area left is no area', () => {
-    expect(areasOf(withWindows).map((a) => [a.id, a.floating, a.window])).toEqual([
-      ['ab', false, false], ['right', false, false], ['float', true, false], ['c-out', false, true], ['r2-out', false, true],
+    expect(areasOf(withWindows).map((a) => [a.id, a.where])).toEqual([
+      ['ab', 'docked'], ['right', 'docked'], ['float', 'floating'], ['c-out', 'window'], ['r2-out', 'window'],
     ]);
     expect(readingOrder(withWindows)).toEqual(['a', 'b', 'r1', 'd', 'c', 'r2']);
     // The main window's areas alone take its room: A and B's area has its column to itself.

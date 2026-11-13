@@ -2,7 +2,8 @@ import { useEffect, useMemo, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { MantineThemeProvider, type MantineThemeOverride } from '@mantine/core';
 import { NoticeStrip, useNotice } from './Notice';
-import { hearUse, isElement, isHTMLElement, portalOf, useOtherWindows, useWindowInUse, type OtherWindow } from './windows';
+import { hearUse, MODAL_DIALOG, portalOf, useOtherWindows, useWindowInUse, type OtherWindow } from './windows';
+import { isElement, isHTMLElement } from '../platform/elements';
 
 // ADR-0018 §9: another window of the browser is the main one's. Its shell is drawn by the areas into its document
 // while it is open: it takes the main window's look and keeps it, is titled by the panel it shows, says the shell's
@@ -115,7 +116,7 @@ function tellMain(win: Window, portal: HTMLElement): () => void {
   const onTab = (event: KeyboardEvent) => {
     if (event.key !== 'Tab' || event.defaultPrevented) return;
     const at = doc.activeElement;
-    const dialog = [...doc.querySelectorAll('[role="dialog"][aria-modal="true"]')].find((d) => d.contains(at));
+    const dialog = [...doc.querySelectorAll(MODAL_DIALOG)].find((d) => d.contains(at));
     if (dialog === undefined || !isHTMLElement(at)) return;
     const stops = [...dialog.querySelectorAll(TAB_STOPS)].filter(isHTMLElement)
       .filter((e) => e.tabIndex >= 0 && !e.matches(':disabled') && e.checkVisibility());
@@ -130,7 +131,9 @@ function tellMain(win: Window, portal: HTMLElement): () => void {
   const onPress = (event: Event) => {
     const path = event.composedPath();
     if (path.includes(portal) || path.some((n) => isElement(n) && n.getAttribute('aria-expanded') === 'true')) return;
-    document.body.dispatchEvent(event.type === 'mousedown' ? new MouseEvent('mousedown', { bubbles: true }) : new Event(event.type, { bubbles: true }));
+    const copy = event.type === 'mousedown' ? new MouseEvent('mousedown', { bubbles: true, cancelable: true }) : new Event(event.type, { bubbles: true, cancelable: true });
+    document.body.dispatchEvent(copy);
+    if (copy.defaultPrevented) event.preventDefault();
   };
   doc.addEventListener('keydown', onEscape, true);
   doc.addEventListener('keydown', onTab);
