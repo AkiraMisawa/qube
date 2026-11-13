@@ -66,7 +66,7 @@ export interface KeyboardHeld {
   lost(): void;
 }
 
-/** The line holding the keyboard, and the document its focus is heard in: the first line's, until it lets go. */
+/** The line holding the keyboard, and the document its focus is heard in: the line's own. */
 let held: { readonly line: HTMLElement; readonly on: KeyboardHeld; readonly heardIn: Document; arrived: boolean; kept: boolean } | undefined;
 
 const onFocusIn = (event: FocusEvent): void => {
@@ -90,9 +90,13 @@ const onFocusIn = (event: FocusEvent): void => {
  * counts that command's own: whether it said the keyboard is a place's, and whether the place has taken it.
  */
 export function holdKeyboard(line: HTMLElement, on: KeyboardHeld): void {
-  // Heard in the line's own document, which is the window in use's.
-  const heardIn = held === undefined ? line.ownerDocument : held.heardIn;
-  if (held === undefined) heardIn.addEventListener('focusin', onFocusIn);
+  // Heard in the line's own document, which is the window in use's: the window in use does not change while the line
+  // is open, but a line drawn anew in another document moves the listener with it.
+  const heardIn = line.ownerDocument;
+  if (held?.heardIn !== heardIn) {
+    held?.heardIn.removeEventListener('focusin', onFocusIn);
+    heardIn.addEventListener('focusin', onFocusIn);
+  }
   held = { line, on, heardIn, arrived: false, kept: false };
 }
 

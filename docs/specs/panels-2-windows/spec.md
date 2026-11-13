@@ -72,8 +72,9 @@ refused. When the last panel leaves a window, by
   a panel was floated from (`floatedFrom`, read from dockview's own move), so `dock panel` puts it back there. An area's
   only panel takes its whole area out (`addPopoutGroup` of the area), so that its place is kept.
 - **The port** gains `popOut(panelId)`, which answers whether the window opened, and `dock` handles a panel in another
-  window as it does a floating one. `Area` gains `window` (true for an area in another window). A verb is tested over
-  the fake port, as step 1's are.
+  window as it does a floating one. `Area` says where it stands, `where`: `docked`, `floating` or `window` (in another
+  window), in place of step 1's `floating`, so an area is never two of them at once. A verb is tested over the fake
+  port, as step 1's are.
 - **Coming back.** Before the kept arrangement is drawn (a reload, or the areas drawn again after the strip), its other
   windows are folded into the main window (`withWindowsDocked`, a pure function): each window's panels go back into the
   area they came from where it is there, else into the last area of the main window, and the shell says where. A
@@ -94,13 +95,23 @@ refused. When the last panel leaves a window, by
 - **What Mantine listens for on the main document** is told from the other windows: a press (`mousedown`,
   `touchstart`) outside that window's popovers, which closes an open menu or select as a press outside it does in the
   main window, and Escape, which a dialog's close listens for. Each is told as a copy of the event on the main
-  document's body, and a copy whose default was prevented prevents the original's. Tab is kept inside a dialog open in
-  that window by its shell, as Mantine's focus trap keeps it in the main one: the trap, told the key, walks up from the
+  document's body, and a copy of a key or a mouse press whose default was prevented prevents the original's (a touch is
+  heard passively, as a browser hears one on a document, so that it never holds up a scroll). Tab is kept inside a
+  dialog open in that window by its shell, as Mantine's focus trap keeps it in the main one: the trap, told the key, walks up from the
   dialog to the main body and fails on another document. No other key is told: the shell's own keys are attached to
   each window's document.
 - **The shell's keys** (Ctrl+K, `/`, the chords) are attached to the main document and to each other window's, by one
   function, in place of Mantine's `useHotkeys`, which listens on the main document only. The command line opens in the
   window the key was pressed in. `keyboard.ts` reads the focused element and focus changes of the line's own document.
+- **A panel's menus keep inside their window.** The tab's menu and the area's list are placed by Mantine's popover
+  with `flip`, `shift` and `size` (the theme's `sm` short of the window's edge), and scroll inside the height that
+  leaves: the menu of every verb is taller than a short window, which another window often is. This changes step 1's
+  menus in the main window too, where it was short of room only on a short screen.
+- **`arrange` and `arrange back` with other windows open.** A proposal arranges the main window (ADR-0018 §8):
+  applying one draws the whole arrangement anew, which closes the other windows, and their panels are placed as the
+  proposal says, or join its first area as any panel it does not place. `arrange back` puts back what it replaced with
+  those windows' panels in the main window, where their areas stood, and says so, as after a reload. The AI's context
+  says of each area where it stands (`where`), so an area in another window does not read as docked.
 - **`ai` from another window** asks with that window's active panel, as from the main one; the AI pane stays in the
   main window (§9), and the shell says in the other window that the answer is there.
 - **A page drawn anew in its window.** An area's page is keyed by the window its area is in, so a move into another
@@ -116,12 +127,13 @@ refused. When the last panel leaves a window, by
 
 - Vitest: `areasOf`, `needs` and reading order with other windows and a hidden area; `withWindowsDocked`; the kept
   value with `popoutGroups` read and refused; `pop out panel` and `dock panel` over the fake port, and the verbs refused
-  for a panel in another window.
+  for a panel in another window; `arrange back` bringing a window's panel back into the main window.
 - Playwright (`e2e/windows.spec.ts`, new; Chromium, which opens windows a test asks for): pop out by the line and by
   the menu; the window's scheme, followed; a Select, a menu and a tooltip in the window; Ctrl+K and `/` there, and a
   verb run there; a dialog opened from there; the window closed by the user; a window refused (`window.open` answering
   nothing); a reload; `send panel to` both ways, `dock panel` (into the area it came from and into the place a whole
-  area left) and `close panel` closing the window; the window's title following the tab chosen there; a press in the
+  area left, as wide as it stood) and `close panel` closing the window; the window's title following the tab chosen
+  there; `arrange` closing the window and `arrange back` drawing its panel in the main window; a press in the
   main window making it the window in use again; a tab's menu in a short window keeping inside it; the strip closing
   the windows; a grid in the window told that window's Device Pixel when the window's scale differs (Chromium's device
   metrics on the window alone), marked as failing until the workbench takes ExGrid 0.3.0-rc.1. Step 1's specs keep

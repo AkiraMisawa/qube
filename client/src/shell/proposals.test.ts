@@ -231,6 +231,35 @@ describe('arrange and arrange back (ADR-0018 §8)', () => {
     expect(keptArrangement.getState().layout?.floatingGroups?.map((g) => g.data?.views)).toEqual([[id(1)]]);
     expect(keptArrangement.getState().floatedFrom).toEqual({ [id(1)]: '1' });
   });
+
+  it('puts a panel the arrangement had in another window back into this one, where its area stood, and says so (§9)', () => {
+    const { id, command, notify } = page(['A', 'B', 'C']);
+    // B's whole area went out to a window, leaving its place hidden beside A and C's.
+    const withWindow: SerializedDockview = {
+      grid: {
+        root: {
+          type: 'branch',
+          data: [
+            { type: 'leaf', size: 720, data: { id: '1', views: [id(0), id(2)], activeView: id(0) } },
+            { type: 'leaf', size: 720, visible: false, data: { id: '2', views: [] } },
+          ],
+        },
+        width: 1440, height: 800, orientation: Orientation.HORIZONTAL,
+      },
+      panels: { [id(0)]: panelState(id(0), 'A'), [id(1)]: panelState(id(1), 'B'), [id(2)]: panelState(id(2), 'C') },
+      popoutGroups: [{ data: { id: '3', views: [id(1)], activeView: id(1) }, gridReferenceGroup: '2', position: null }],
+    };
+    keptArrangement.getState().keep(withWindow);
+    const { n } = proposed(SIDE_BY_SIDE, [{ area: 'left', panel: id(0), title: 'A', shown: true }, { area: 'right', panel: id(1), title: 'B', shown: true }]);
+    expect(execute(command('panel.arrange'), { proposal: String(n) })).toBeUndefined();
+
+    expect(execute(command('panel.arrangeBack'))).toBeUndefined();
+
+    const back = keptArrangement.getState().layout;
+    expect(back?.popoutGroups).toBeUndefined();
+    expect(areasOf(back!).map((a) => [a.id, a.panels])).toEqual([['1', [id(0), id(2)]], ['2', [id(1)]]]);
+    expect(notify).toHaveBeenLastCalledWith('done', `Put back the arrangement proposal ${n} replaced. B is back in this window, as a browser opens a window only on a key or a press: pop out panel sends a panel out again.`);
+  });
 });
 
 describe('the context of the panels the AI reads (ADR-0018 §8)', () => {

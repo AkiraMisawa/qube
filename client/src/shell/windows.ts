@@ -32,6 +32,11 @@ export function useOtherWindows(): readonly OtherWindow[] {
   return useSyncExternalStore(hearWindowsChange, otherWindows);
 }
 
+/** Every window the panels stand in: the main one, then the others in the order they were opened. */
+export function allWindows(): readonly Window[] {
+  return [window, ...others.map((o) => o.window)];
+}
+
 /** Adds a window as it opens; answers what takes it away as it closes. */
 export function addWindow(other: OtherWindow): () => void {
   others = [...others, other];
@@ -79,7 +84,7 @@ export const MODAL_DIALOG = '[role="dialog"][aria-modal="true"]';
 
 /** Whether a dialog, or the command line, is open in any window: the window in use does not change while one is. */
 function aDialogIsOpen(): boolean {
-  return [window, ...others.map((o) => o.window)].some((w) => w.document.querySelector(MODAL_DIALOG) !== null);
+  return allWindows().some((w) => w.document.querySelector(MODAL_DIALOG) !== null);
 }
 
 /**
@@ -94,8 +99,9 @@ export function usedWindow(win: Window): void {
 }
 
 /**
- * Hears where the user presses and focuses in a window, for the window in use: in the capture phase, before anything
- * under the press opens a dialog. Answers what stops hearing.
+ * Hears the user use a window, for the window in use: a press in it, in the capture phase before anything under the
+ * press opens a dialog, and the window taking the keyboard; in another window, a focus moved inside it too. Answers
+ * what stops hearing.
  */
 export function hearUse(win: Window): () => void {
   const used = () => usedWindow(win);

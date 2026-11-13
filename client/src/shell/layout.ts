@@ -256,9 +256,11 @@ const titleOf = (open: OpenPanels, id: string): string => {
  * The kept arrangement made to agree with the panels open now (ADR-0018 §5, spec "The kept arrangement"): a panel
  * closed since is taken out, and an area left empty goes; a panel opened since joins the area of the panel before it
  * in the strip, else the first area of the window; each area's panels follow the strip's order. Undefined where no
- * area of the window is left, so the panels start again in one area.
+ * area of the window is left, so the panels start again in one area. It takes no other window's areas: their panels
+ * are docked first (`withWindowsDocked`), or they would stand nowhere.
  */
 export function reconciled(layout: SerializedDockview, open: OpenPanels): SerializedDockview | undefined {
+  if (layout.popoutGroups !== undefined && layout.popoutGroups.length > 0) throw new Error('An arrangement with other windows is reconciled once their panels are docked.');
   const at = new Map(open.order.map((id, i) => [id, i]));
   const place = (id: string): number => {
     const i = at.get(id);

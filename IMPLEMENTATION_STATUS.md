@@ -3483,24 +3483,27 @@ The owner said to start step 2 on 2026-11-13 ("前者は始めていいよ"). On
 
 | What | Result |
 |---|---|
-| Client: `npm run typecheck`, `npx vitest run`, `npm run build`, after the review's fixes | Clean; 489 passed in 47 files; built |
-| `npx playwright test e2e/windows.spec.ts`, which this pull request adds, `--repeat-each=3` (Chromium, headless, Linux), after the review's fixes | 30 passed: ten tests three times, the Device Pixel test among them as failing, which Playwright counts as passing (below) |
-| The Device Pixel test (a window at 2x beside a main window at 1x) | Fails on ExGrid 0.2.0, as it should: the grid in the window is told 1px where its window's device pixel is 0.5px. Marked `test.fail` while the workbench takes 0.2.0, so it must pass once it takes `0.3.0-rc.1` (ex-grid #566, ADR-0090 there) |
+| Client: `npm run typecheck`, `npx vitest run`, `npm run build`, after the second review's fixes | Clean; 490 passed in 47 files; built |
+| `npx playwright test e2e/windows.spec.ts`, which this pull request adds, `--repeat-each=3` (Chromium, headless, Linux), after the second review's fixes | 33 passed: eleven tests three times, the Device Pixel test among them as failing, which Playwright counts as passing (below) |
+| The Device Pixel test (a window at 2x beside a main window at 1x) | Fails on ExGrid 0.2.0, as it should: the grid in the window is told 1px where its window's device pixel is 0.5px. Marked `test.fail` while the workbench takes 0.2.0, so it must pass once it takes `0.3.0-rc.1` (ex-grid #565, fixed by #566; ADR-0090 there) |
 | `npx playwright test` (Chromium, headless, Linux), before the review | 145 passed, 1 failed: `panels.spec.ts`'s list of the active panel's verbs, which now holds Pop out; corrected |
-| The same, after the review's fixes | 147 passed |
+| The same, after the first review's fixes | 147 passed |
+| The same, after the second review's fixes | FULLRUN |
+| `arrange back` with a panel in another window, its unit test without the fix and with it | Without it, the panel was in no area (drawn nowhere, still open); with it, back where its area stood |
 | A tab's menu in a window 480px high, without the fix and with it | 700px tall and cut off without it; inside the window and scrolling to its last item with it |
 | The window, its menus, the command line in it and the notices, in both schemes | Looked at, in the pull request's screens |
 
 The unit tests read `pop out panel` and its refusals, the verbs refused in a window, `send panel to` into a window and
 back and its new refusal, and `dock panel` from a window, over the fake port; the arrangement's reading order and room
-with windows and the hidden place a whole area left; `withWindowsDocked`; and a kept value with `popoutGroups`, read
-and refused. The browser tests read what only a browser shows: the window opened by the line and by the menu, its
+with windows and the hidden place a whole area left; `withWindowsDocked`; a kept value with `popoutGroups`, read
+and refused; and `arrange back` bringing a window's panel back into the main window. The browser tests read what only a browser shows: the window opened by the line and by the menu, its
 title, its page's state and a grid driven in it; a whole area popped out and its window closed by the user; the scheme
 followed, a tooltip, a menu closed by a press outside it and a select in the window; Ctrl+K and `/` there, a verb and a
 dialog run from there with Tab and Escape, and a tab's Rename there; the main window taken back by a press; `send panel
 to` both ways and the window's title following its tab; `close panel` closing a window; `dock panel` into the area a
-panel came from and into the place its whole area left; `ai` from the window; a blocked window; a reload; a tab's menu in
-a short window; and the strip closing the windows.
+panel came from and into the place its whole area left, as wide as it stood; `ai` from the window; a blocked window; a
+reload; a tab's menu in a short window; the strip closing the windows; and `arrange` closing them, with `arrange back`
+drawing their panels in the main window.
 
 ### Providers
 
@@ -3512,8 +3515,8 @@ Unchanged; nothing on the server changed. The AI's answer in the test is the scr
   then a grid in a window on a display of another scale than the main window's draws its lines at the main window's
   device pixel. The bump to `0.3.0-rc.1`, all seven packages at one version, and the test going green are this pull
   request's last commit, or the next one's.
-- A reload does not open the windows again (a browser opens a window only on a key or a press, §9); the panels come back
-  into the main window, said so.
+- A reload does not open the windows again (a browser opens a window only on a key or a press, §9), nor does `arrange
+  back`, which follows the reload; the panels come back into the main window, said so.
 - Checked in Chromium only: Safari's and Firefox's pop-up rules, touch in a window and a real second monitor are not.
 - An area is not split inside another window (one area per window, as a floating area is).
 - `edit context` (the chord that focuses the header's context bar) typed in another window focuses the field in the main
@@ -3523,18 +3526,29 @@ Unchanged; nothing on the server changed. The AI's answer in the test is the scr
 
 The two reviews (standards and spec) found, and this pull request corrects: a press in the main window did not make it
 the window in use again, so after another window had been used the header's Commands, or a dialog opened by a press,
-opened in that window; three `instanceof Element` checks the first pass missed (the pricer's and the Rates page's
-screen state, a row's draft dialog's Escape), and the draft dialog's focus read the main document, all false in another
-window; a tab's Rename looked for its tab in the main document alone and threw for a panel in a window; the window's
+opened in that window; four `instanceof Element` checks the first pass missed (the pricer's and the Rates page's
+screen state, a row's draft dialog's Escape, and the strip's tab, which was harmless), and the draft dialog's focus read
+the main document, all false in another window; a tab's Rename looked for its tab in the main document alone and threw for a panel in a window; the window's
 title did not follow a tab chosen in it; a window that closed before it had loaded was read as one with no panels, and
 the window of a tab's menu and the area a reload folds into had defaults standing in for what was not found; the focus
 listener of the line could be taken from another document than it was added to; the areas kept a copy of the windows'
-registry by hand; a pressed copy could not prevent the original; and an area was `floating` and `window` at once in its
-type. The tests the spec asked for and the first pass left out, written now, found that `dock panel` did not put a
+registry by hand; a copied mouse press could not prevent the original (a touch is heard passively, and the code and
+the spec now say so); and an area was `floating` and `window` at once in its type. The spec's and the ADR note's words
+for `size panel` in a window, and tickets 03 and 05, were corrected in the documents to what the code says, with the
+reason in the note. The tests the spec asked for and the first pass left out, written now, found that `dock panel` did not put a
 window's last panel back where its whole area stood (dockview removed the place before the panel arrived, and the
 places were tidied while a window was still opening): the window's area now comes in beside its place. `send panel to`
 from a window, `close panel` closing one, the window's title and the main window taken back by a press are tested too.
 A tab's menu cut off in a short window, found while the screens were taken, now keeps inside it and scrolls.
+
+A second round of both reviews found, and this pull request corrects: `arrange back` drew nothing of a panel the
+arrangement before had in another window (`reconciled` dropped the windows; it now refuses an arrangement with them,
+and `arrange back` docks their panels first, as a reload does, and says so); the AI's context described an area in a
+window as docked (it now says `where` each area stands); the window's title heard the active panel of the whole page,
+so a panel sent to a window or closed there without becoming active left it stale (it now hears the window's own
+area); the menus' margin was a literal (now the theme's `sm`); and the line's focus listener stayed in the first
+document a chained line held it in. The spec now says `Area`'s `where`, the menus' placement and what `arrange` does
+with windows open, and test 2 checks that a window's area comes back as wide as it stood.
 
 ## Next
 

@@ -291,12 +291,13 @@ with step 2's pull request:
 
 - **A window of its own is one area**, as a floating area is (§3's note of 2026-11-12): `split panel`, `float panel`
   and `maximize panel` are refused for a panel in it, saying to dock it first, and `size panel` saying that the window
-  sizes it. `send panel to` moves a
-  panel between windows either way, `gather panels` run from the main window brings every panel into that area (and is
-  refused in another window), and a window whose last panel leaves it closes. `pop out panel`, and `send panel to` into
-  another window or a floating area, are refused where they would leave no area docked in the main window, as
-  `float panel` is. An area's only panel takes its whole area out, and dockview keeps the area's place, hidden, for it
-  to come back to; a panel beside others leaves them its area.
+  sizes it (not §3's words for a floating area, which point to `float panel <where>`: no verb sizes another window, the
+  user does, as any window). `send panel to` moves a panel between windows either way, `gather panels` run from the
+  main window brings every panel into that area (and is refused in another window), and a window whose last panel
+  leaves it closes. `pop out panel`, and `send panel to` into another window or a floating area, are refused where
+  they would leave no area docked in the main window, as `float panel` is. An area's only panel takes its whole area
+  out, and dockview keeps the area's place, hidden, for it to come back to; a panel beside others leaves them its
+  area.
 - **Back where it was.** `dock panel` puts a panel back into the area it came from (kept with the area a floating
   panel came from), or into the place a whole area left, else by `dock panel`'s rule of §3. (A window's last panel
   goes back into that place with its window's area: dockview takes an emptied window's place with it as the window
@@ -314,12 +315,18 @@ with step 2's pull request:
   into, kept while a dialog is open; in the main window a press and the window's own focus say it, since the shell
   moves the keyboard inside it itself. The notices are said in the window in use too, one at a time as in the main
   window. A panel's menus keep inside the window they open in and scroll there, since another window is often shorter
-  than the menu of every verb. The active panel is one the window in use shows (there, the one it shows; in the main window, the one active
-  there last), so the line, `/`, the chords and `ai` act on a panel of the window they are typed in.
+  than the menu of every verb. The active panel is one the window in use shows (there, the one it shows; in the main
+  window, the one active there last), so the line, `/`, the chords and `ai` act on a panel of the window they are
+  typed in.
 - **What Mantine hears on the main document only** (a press outside a popover, a dialog's Escape) is told to it from
   the other windows as a copy of the event. A dialog's Tab is kept inside it in its own window instead: Mantine's focus
   trap walks up from the dialog to the main document's body, which a dialog in another window is not under. The
   shell's own keys are attached to every window, so no other key of another window reaches the main document.
+- **`arrange` and `arrange back`** act on the main window (§8). Applying a proposal draws the arrangement anew, which
+  closes the other windows; their panels are placed as the proposal says, or join its first area as a panel it does
+  not place does. `arrange back` puts back what it replaced with those windows' panels in the main window, where their
+  areas stood, and says so, as a reload does: a window is opened again by `pop out panel`. The AI's context of the
+  panels says of each area whether it is docked, floating or in another window.
 - **ExGrid** reads a grid's window once, as the grid is created (ex-grid ADR-0090, #565, in 0.3.0-rc.1), so a page
   moved into another window, or back, is drawn anew there and takes back its panel's screen state (ADR-0006 note 10).
 

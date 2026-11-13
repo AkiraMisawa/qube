@@ -69,12 +69,16 @@ async function closingWith(other: Page, words: string): Promise<void> {
   await closing;
 }
 
-/** Where an element's left edge is in its window, in CSS pixels. */
-async function xOf(element: Locator): Promise<number> {
+/** Where an element is drawn in its window, in CSS pixels. */
+async function boxOf(element: Locator): Promise<{ x: number; y: number; width: number; height: number }> {
   const box = await element.boundingBox();
   if (box === null) throw new Error(`${element.toString()} is not drawn.`);
-  return box.x;
+  return box;
 }
+
+/** The area that shows the panel of this title, in this window. */
+const areaOf = (page: Page, title: string) =>
+  page.locator('.dv-groupview').filter({ has: page.getByRole('tabpanel', { name: title, exact: true }) });
 
 /** What ExGrid says one Device Pixel is, in CSS pixels, on a grid's root (ex-grid ADR-0090). */
 const devicePixelOf = (grid: Locator) => grid.evaluate((root) => /--ex-dp:\s*([^;]+)/.exec(root.getAttribute('style') ?? '')?.[1]);
@@ -118,7 +122,8 @@ test('ADR-0018 §9: a whole area popped out from its tab\'s menu keeps its place
   await twoPanels(page);
   await command(page, 'split panel', 'right');
   await expect(areasRoot(page)).toHaveAttribute('data-areas', '2');
-  const left = await xOf(tab(page, 'Pricing DB'));
+  const left = (await boxOf(tab(page, 'Pricing DB'))).x;
+  const stood = await boxOf(areaOf(page, RATES));
   const popOutByMenu = async () => {
     await tab(page, RATES).click({ button: 'right' });
     const opening = page.waitForEvent('popup');
@@ -126,23 +131,26 @@ test('ADR-0018 §9: a whole area popped out from its tab\'s menu keeps its place
     const other = await windowOf(opening, RATES, problems);
     // Its area's place is kept, hidden: Pricing DB's area has the room.
     await expect(areasRoot(page)).toHaveAttribute('data-areas', '1');
-    expect(await xOf(tab(page, 'Pricing DB'))).toBe(left);
+    expect((await boxOf(tab(page, 'Pricing DB'))).x).toBe(left);
     return other;
   };
-  const backOnTheRight = async () => {
+  // Back where its area stood, as wide as it was.
+  const backWhereItStood = async () => {
     await expect(areasRoot(page)).toHaveAttribute('data-areas', '2');
-    expect(await xOf(tab(page, RATES))).toBeGreaterThan(left + 320);
+    const back = await boxOf(areaOf(page, RATES));
+    expect(back.x).toBeCloseTo(stood.x, 0);
+    expect(back.width).toBeCloseTo(stood.width, 0);
   };
 
   // Closed as a user closes it, the page told it is going.
   await (await popOutByMenu()).close({ runBeforeUnload: true });
   await expect(notice(page)).toHaveText(`The window of ${RATES} closed: it is back where it was.`);
-  await backOnTheRight();
+  await backWhereItStood();
 
   // `dock panel` from that window puts it back in the place kept, too.
   await closingWith(await popOutByMenu(), 'dock panel');
   await expect(notice(page)).toHaveText(`Docked ${RATES} back where its area stood.`);
-  await backOnTheRight();
+  await backWhereItStood();
 });
 
 test('ADR-0018 §9: the other window takes the main one\'s look and follows its scheme, and its menus, tooltips and selects open in it', async ({ page, problems }) => {
@@ -180,8 +188,7 @@ test('ADR-0018 §9: the other window takes the main one\'s look and follows its 
   await other.setViewportSize({ width: 880, height: 480 });
   await tab(other, 'XVA ABC/LE-01').click({ button: 'right' });
   const verbs = other.getByRole('menu', { name: 'XVA ABC/LE-01', exact: true });
-  const box = await verbs.boundingBox();
-  if (box === null) throw new Error('The tab\'s menu is not drawn.');
+  const box = await boxOf(verbs);
   expect(box.y + box.height).toBeLessThanOrEqual(480);
   const last = verbs.getByRole('menuitem', { name: /^Reopen closed panel/ });
   await last.scrollIntoViewIfNeeded();
@@ -309,9 +316,34 @@ test('ADR-0018 §5 and §9: the strip closes the other windows and their panels 
   await expect(tab(page, RATES)).toBeVisible();
 });
 
+test('ADR-0018 §8 and §9: arrange closes the other windows and places their panels in the main one; arrange back draws them there, said', async ({ page, problems }) => {
+  await twoPanels(page);
+  await newRates(page, `${RATES} · 2`);
+  await tab(page, RATES).click();
+  const other = await popOut(page, RATES, problems);
+  await page.getByRole('button', { name: 'Show the AI pane' }).click();
+  await page.getByRole('textbox', { name: 'Ask the AI' }).fill(`put ${RATES} · 2 and Pricing DB side by side`);
+  await page.keyboard.press('Enter');
+
+  // The proposal arranges the main window: the arrangement drawn anew closes the window, and its panel joins the first
+  // area as a panel the proposal does not place.
+  const closing = other.waitForEvent('close');
+  await page.getByTestId('proposal').getByRole('button', { name: 'Apply' }).click();
+  await closing;
+  await expect(notice(page)).toHaveText(`Arranged as proposal 1: 2 areas. 1 panel the proposal did not place is in the area of ${RATES} · 2, the first in reading order. To put back what it replaced: arrange back.`);
+  await expect(areasRoot(page)).toHaveAttribute('data-areas', '2');
+
+  // What it replaced comes back with the window's panel in the main window, where it stood.
+  await command(page, 'arrange back');
+  await expect(notice(page)).toHaveText(`Put back the arrangement proposal 1 replaced. ${RATES} is back in this window, as a browser opens a window only on a key or a press: pop out panel sends a panel out again.`);
+  await expect(areasRoot(page)).toHaveAttribute('data-areas', '1');
+  await expect(tab(page, RATES)).toBeVisible();
+});
+
 test('ADR-0018 §9, ex-grid ADR-0090: a grid in the other window is told that window\'s Device Pixel, not the main one\'s', async ({ page, context, problems }) => {
-  // ExGrid 0.2.0 reads the main window's Device Pixel; 0.3.0-rc.1 reads its own window's (ex-grid #566). Until the
-  // workbench takes it this test fails, as it should, and is marked so: it passes, and must, once it does.
+  // ExGrid 0.2.0 reads the main window's Device Pixel; 0.3.0-rc.1 reads its own window's (ex-grid #565, fixed by
+  // #566). Until the workbench takes it this test fails, as it should, and is marked so: it passes, and must, once it
+  // does.
   test.fail(EX_GRID === '0.2.0', 'ExGrid 0.2.0 reads the main window\'s Device Pixel (ex-grid #565).');
   await twoPanels(page);
   const other = await popOut(page, RATES, problems);

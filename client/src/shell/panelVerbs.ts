@@ -273,15 +273,19 @@ function areaFor(on: On, panel: Panel) {
 }
 
 /** The areas of the main window, neither floating nor in another window. */
-const docked = (on: On) => on.areas.areas().filter((a) => a.where === 'docked');
+/** The areas docked in the main window: neither floating nor in another window. */
+export const dockedAreas = (areas: Arrangement) => areas.areas().filter((a) => a.where === 'docked');
+
+/** What is said of a move that would leave the main window with no area docked (§5, §9). */
+export const leavesNoneDocked = (what: 'panel' | 'area', doing: string) =>
+  `It is the only ${what} docked in the window; ${doing} would leave none docked.`;
 
 /**
  * What a verb that takes a panel out of the main window's areas says of the last panel docked there (§5, §9): the window
  * would be left with none docked. Undefined where the panel is not that one.
  */
 function lastDocked(on: On, area: AreaOf, doing: string): string | undefined {
-  return area.where === 'docked' && area.panels.length === 1 && docked(on).length === 1
-    ? `It is the only panel docked in the window; ${doing} would leave none docked.` : undefined;
+  return area.where === 'docked' && area.panels.length === 1 && dockedAreas(on.areas).length === 1 ? leavesNoneDocked('panel', doing) : undefined;
 }
 
 /** What a verb that arranges inside the main window says of a panel in another window, which is one area there. */
@@ -461,7 +465,7 @@ export const MAXIMIZE: PanelVerb = {
     if (area.where === 'floating') return 'A floating area is not maximized; dock it first.';
     if (area.where === 'window') return IN_A_WINDOW;
     if (on.areas.maximized() === area.id) return 'Its area is maximized already.';
-    if (docked(on).length < 2) return 'Its area is the only one of the window: it has the whole room already.';
+    if (dockedAreas(on.areas).length < 2) return 'Its area is the only one of the window: it has the whole room already.';
     return undefined;
   },
   run: (on, panel) => {
