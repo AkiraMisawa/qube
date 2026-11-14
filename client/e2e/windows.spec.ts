@@ -241,6 +241,25 @@ test('ADR-0018 §9: Ctrl+K, / and a tab\'s Rename open the line in the other win
   await expect(line).toHaveCount(0);
 });
 
+test('ADR-0006 note 11, ADR-0018 §9: Ctrl+U deletes in the other window\'s line too, the line reads what is left, and its undo takes the deletion back', async ({ page, problems }) => {
+  await twoPanels(page);
+  const other = await popOut(page, RATES, problems);
+  await other.keyboard.press('ControlOrMeta+K');
+  const line = other.getByRole('combobox', { name: 'Command' });
+  await expect(line).toBeFocused();
+  await other.keyboard.type('pricing dbxyz');
+  const nothing = other.getByText('No command matches.');
+  await expect(nothing).toBeVisible();
+  // Ctrl+U is the line's on every platform, and every deletion of the line's keys is made as this one is: an edit of
+  // that window's own field, which the line hears as typing.
+  await other.keyboard.press('Control+u');
+  await expect(line).toHaveValue('');
+  await expect(nothing).toBeHidden();
+  await other.keyboard.press('ControlOrMeta+z');
+  await expect(line).toHaveValue('pricing dbxyz');
+  await expect(nothing).toBeVisible();
+});
+
 test('ADR-0018 §9: send panel to moves a panel into the other window and back, the window is titled by the panel it shows, and it closes as its last panel leaves', async ({ page, problems }) => {
   await twoPanels(page);
   const other = await popOut(page, RATES, problems);

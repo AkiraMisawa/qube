@@ -3700,6 +3700,77 @@ Unchanged: every source and every measure is simulated, and every value is synth
   Rates grid shows before it has lines, whether docs/03 §5's line on a package is rewritten as served by `add each`,
   and where the row's Edit column stands (ticket 16).
 
+## The command line's Emacs keys (ADR-0006 note 11, 2026-11-14)
+
+The owner asked for Emacs's editing keys in the command line, chosen per platform first. The set was proposed per
+platform; the owner chose that Ctrl+A and Ctrl+Y stay select all and redo on Windows and Linux.
+
+### What runs
+
+- **Windows and Linux**: Ctrl+E to the end of the line, Ctrl+F / Ctrl+B a character right / left, Ctrl+D / Ctrl+H
+  delete the character after / before the caret, Ctrl+K / Ctrl+U delete to the end / start, Alt+F / Alt+B a word right
+  / left and Alt+D to the end of the next word. Ctrl+A stays select all and Ctrl+Y redo; Home goes to the start.
+- **Mac**: Ctrl+A, E, F, B, D, H, K, T and Y are the text field's own and are left to it. The chord that opens the
+  line took Ctrl+K in the line too (Mantine's `mod` is Ctrl as well as ⌘), and no longer does, so Ctrl+K reaches a
+  Mac's field (checked with the page told it is on a Mac; a Mac's kill and yank themselves were not run). Ctrl+U is
+  added; Option's letters type characters as before. A Mac is told by `navigator.platform`; an iPad's Safari says the
+  same, so an iPad is taken as one.
+- A deletion is the browser's own edit, so Ctrl+Z takes it back and the line reads the text again. It is asked of the
+  field's own document (`execCommand('delete')`), so the line open in another window of the browser deletes there
+  too. A character is a grapheme, a word Unicode's (`Intl.Segmenter`). A key is its letter on a Latin layout and its
+  place on another script's (`code`), as the browser's shortcuts read it. Only while the line has the keyboard, never
+  while an IME composes; every key the line answers is kept from the shell's chords.
+- `client/src/shell/lineKeys.ts`: `editFor` (pure: a key, the text and selection, the platform → a move, a deletion,
+  a key left to the field, or nothing) and `applyEdit`, which the line's key handler calls; `letterWith` reads a
+  key's letter for these and for the list's Ctrl+N and Ctrl+P alike.
+
+### Verification performed
+
+| What | Result |
+|---|---|
+| Client: `npm run typecheck`, `npx vitest run`, `npm run build`, after the review's fixes | Clean; 501 passed in 48 files (17 in the new `lineKeys.test.ts`); built |
+| `npx playwright test e2e/workbench.spec.ts --grep "note 11" --repeat-each=3` (Chromium, headless, Linux), after the review's fixes | 6 passed |
+| The Mac test with the line leaving its keys to the shell's chords again (the defect) | Failed as it should: Ctrl+K was prevented |
+| `npx playwright test` (Chromium, headless, Linux), with Ctrl+A to the start of the line as first built | 139 passed |
+| The same, with Ctrl+A select all and the review's fixes | 139 passed |
+| With main merged (ADR-0018 step 2's windows): `npx playwright test e2e/windows.spec.ts --grep "note 11"` (Chromium, headless, Linux), before the fix | Failed: the deletion was asked of the main window's document, which refused it |
+| The same, after the fix and the review's, `--repeat-each=3` | 3 passed |
+| Client, with main merged (ExGrid 0.3.0): `npm ci`, `npm run typecheck`, `npx vitest run`, `npm run build` | Clean; 512 passed in 49 files; built |
+| `npx playwright test` (Chromium, headless, Linux), with main merged and the review's fixes | 152 passed |
+
+The unit tests read every key on both platforms, Ctrl's and Alt's moves and deletions with a selection, an emoji
+never split, `CSA-A` as two words and `1mm`, `1.5mm` and `nocsa_MA1` as one, a Russian and a Dvorak layout, the keys
+left alone (Ctrl+A, Y, N, P, W, T, Shift and AltGr with a letter), and a Mac's Option letters. The browser tests drive
+the line on Linux with a move and a deletion of each modifier, read its caret and text, see Ctrl+A still select all,
+the list follow a deletion and Ctrl+Z bring it back; and with the page told it is on a Mac, see Ctrl+E and Ctrl+K
+reach the field unprevented and the text untouched, and Ctrl+U delete. In a panel popped out into another window,
+Ctrl+U deletes in that window's line, the list follows, and Ctrl+Z brings the text back.
+
+### Providers
+
+Unchanged; nothing on the server changed.
+
+### Known limits
+
+- What the browser keeps before a page sees a key (Ctrl+N, W and T on Windows and Linux) and a Mac's own editing keys
+  cannot be driven from Playwright, whose keys reach the page directly: they were not checked in a browser here. The
+  Mac path was checked only with the page told it is on a Mac, in Linux's Chromium.
+- Not checked on Windows, on a Mac, on an iPad, in Edge, Firefox or Safari, nor with a real IME. The browser test of
+  the keys of Windows and Linux is skipped when the suite runs on a Mac, where Chromium has no Ctrl+A select all and
+  Playwright sends a Mac's editing commands with the Ctrl keys.
+
+### What the review changed
+
+The two reviews (standards and spec) found, and this pull request corrects: Alt+F and Alt+B with a selection were
+described as collapsing it, where they move a word on from its end and back from its start (the ADR now says what is
+built, and the unit tests read it); a layout of another script (Russian) left every key to the browser, and a key is now
+read by its place there, through one reader the list's Ctrl+N and Ctrl+P share; an iPad was named as a Mac without being
+checked, and is now said to be taken as one by what its Safari reports; the status claimed a Mac's kill and yank work,
+where only Ctrl+K reaching the field was checked; the browser test of the keys of Windows and Linux could not pass when
+the suite runs on a Mac, and checked every key's caret where the unit tests already do; and the names (`editFor`,
+`applyEdit`, `textOf`, `macKeyboard`) now say what each does. Left as it was: the notes' "extends 4", which names the
+decision as the earlier notes do.
+
 ## Next
 
 1. Panels in areas, ADR-0018 step 3 (parts of a page with links), once the owner has seen step 2.
