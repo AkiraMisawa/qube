@@ -3770,6 +3770,7 @@ where only Ctrl+K reaching the field was checked; the browser test of the keys o
 the suite runs on a Mac, and checked every key's caret where the unit tests already do; and the names (`editFor`,
 `applyEdit`, `textOf`, `macKeyboard`) now say what each does. Left as it was: the notes' "extends 4", which names the
 decision as the earlier notes do.
+
 ## The analytics request's official PV by leg (ADR-0016 note 69, 2026-11-14)
 
 The owner answered which PV the analytics reads with the request's own file: `/deals/official_pv.csv`, a row for
@@ -3777,21 +3778,27 @@ each leg (`id,ccy,pv,notional`, the id `{trade id}_{leg id}`, the leg id an inte
 
 ### What runs
 
-- `XvaRequestFiles.OfficialPv` (`server/src/Qube.Samples.Xva`) writes that file from the trades of one request as
-  the accepted input carries them: a row for each leg, numbered from 0 under its trade in the order the trade holds
-  its legs. An overwritten PV is its trade's one leg, numbered 0, and a new trade with no leg has no row.
+- `XvaRequestFiles.OfficialPv` (`server/src/Qube.Samples.Xva`) writes that file from a case of the accepted input
+  for one of its sides, Before or After: a row for each leg of each trade the side holds, numbered from 0 under its
+  trade in the order the trade holds its legs.
+- It refuses what it could only write wrongly, each with the trade or the leg it is said of where the input names
+  one. Note 69 is their list.
 - Nothing calls it outside its tests: no engine is written to, and no screen shows the file.
 
 ### Verification performed
 
 | Check | Result |
 |---|---|
-| `nix develop -c dotnet test server/Qube.slnx` | 1662 passed |
-| `cd client && npm run typecheck && npm test` | typecheck clean; 495 passed in 48 files (no client file changes) |
-| `cd client && npx playwright test` (Chromium, the built client served by the host) | 149 passed |
+| `nix develop -c dotnet test server/Qube.slnx` | 1671 passed |
+| `cd client && npm run typecheck && npm test` | typecheck clean; 512 passed in 49 files (no client file changes) |
+| `cd client && npx playwright test` (Chromium, the built client served by the host) | 152 passed |
 
-The three new tests were seen to fail with the numbering broken (from 1) and to pass with it put back. One of
-them prices a workspace with an overwritten PV and a leg made, and reads the file from the input its Run keeps.
+The file's twelve test cases were seen to fail with the writer broken and to pass with it put back: eleven with
+the numbering from 1, and the other three ways (no refusal of a trade held twice, both sides written, a figure in
+the server's own culture) each failed the test that holds it. One test prices a workspace with an overwritten PV,
+a leg made and a source's leg removed, and reads the file from the input its Run keeps. Reviewed on two axes
+(standards, and note 69 as the specification); the findings are fixed in the commit that follows the first.
+All of it is on the branch with main's 3ac4e82 (the command line's Emacs keys) merged in.
 
 ### Providers
 
@@ -3800,15 +3807,20 @@ was compared with it.
 
 ### Known limits, and what waits for the owner
 
-- **The defaults of note 69 wait for his word**: a leg is numbered by its place under its trade (an overwritten
-  PV's leg is 0), a leg with no notional leaves the field empty, and `ccy` is the leg's currency.
-- **The workspace's own keys of a leg stay `<trade>/<n>` from 1**, so the screen's `E00004/1` is the file's
-  `E00004_0`. Numbering the keys from 0 would move every edit of a leg that a kept workspace holds onto another
-  leg without saying so (the synthetic source's version does not change with its generator), so it is not done
-  without his word.
+- **Every DEFAULT of note 69 waits for his word**, and the note is their one list. The one most likely to matter:
+  a leg is numbered by its place under its trade at Price, so the leg an overwritten PV leaves is 0, and where a
+  source's leg was removed the ones left close up (`<trade>/2` is written as `<trade>_0` once `<trade>/1` is gone).
+- **Three things are OPEN and asked of him** (note 69): whether this file is `docs/08-provider-boundaries.md` §7's
+  `/deals/trade_official_pv_table.csv` under another name, whether a new trade's PV Adj goes into it (a new trade
+  with no leg has no row today), and what a scenario's request carries for a PV.
+- **The workspace's own keys of a leg stay `<trade>/<n>` from 1**, so an untouched trade's `<trade>/1` on screen
+  is the file's `<trade>_0`. Numbering the keys from 0 would move every edit of a leg that a kept workspace holds onto
+  another leg without saying so (the synthetic source's version does not change with its generator), so it is not
+  done without his word.
 - **The simulated measures still read `officialPv`** (note 53), so an overwritten PV changes the file and no
   figure.
-- **The request's other files are not known yet.**
+- **The next gap is the request's other files and a caller.** Only this file is known, and it is returned as text:
+  no request holds it until an engine's adapter exists to take one (`docs/08-provider-boundaries.md`).
 
 ## Next
 
@@ -3819,6 +3831,8 @@ was compared with it.
 5. Rates.
 6. ME-ID sign-in through MSAL (C30) and the visibility rules (C31, C32); AI over AG-UI with the company's Copilot behind the adapter port (C34).
 7. Slice 01b: Save and Pin (CO06), and the browser parts of CO03 and CO04.
+8. The analytics request's other files as the owner gives them (ADR-0016 note 69), and what writes a request to an
+   engine.
 
 The generic commands (ADR-0016) are built through step 6, and a page keeps its state by panel (ADR-0006 note 10); what
 each left for the owner is in its section's "Known limits".
