@@ -3715,9 +3715,9 @@ platform; the owner chose that Ctrl+A and Ctrl+Y stay select all and redo on Win
   Mac's field (checked with the page told it is on a Mac; a Mac's kill and yank themselves were not run). Ctrl+U is
   added; Option's letters type characters as before. A Mac is told by `navigator.platform`; an iPad's Safari says the
   same, so an iPad is taken as one.
-- A deletion is the browser's own edit (`execCommand('delete')` of the field's own document, so the line open in
-  another window of the browser deletes there too), so Ctrl+Z takes it back and the line reads the text
-  again. A character is a grapheme, a word Unicode's (`Intl.Segmenter`). A key is its letter on a Latin layout and its
+- A deletion is the browser's own edit, so Ctrl+Z takes it back and the line reads the text again. It is asked of the
+  field's own document (`execCommand('delete')`), so the line open in another window of the browser deletes there
+  too. A character is a grapheme, a word Unicode's (`Intl.Segmenter`). A key is its letter on a Latin layout and its
   place on another script's (`code`), as the browser's shortcuts read it. Only while the line has the keyboard, never
   while an IME composes; every key the line answers is kept from the shell's chords.
 - `client/src/shell/lineKeys.ts`: `editFor` (pure: a key, the text and selection, the platform → a move, a deletion,
@@ -3733,15 +3733,18 @@ platform; the owner chose that Ctrl+A and Ctrl+Y stay select all and redo on Win
 | The Mac test with the line leaving its keys to the shell's chords again (the defect) | Failed as it should: Ctrl+K was prevented |
 | `npx playwright test` (Chromium, headless, Linux), with Ctrl+A to the start of the line as first built | 139 passed |
 | The same, with Ctrl+A select all and the review's fixes | 139 passed |
-| With main merged (ADR-0018 step 2's windows): the new test of the keys in another window, before the fix | Failed: the deletion was asked of the main window's document, which refused it |
-| The same test after the fix, `--repeat-each=3` | 3 passed |
+| With main merged (ADR-0018 step 2's windows): `npx playwright test e2e/windows.spec.ts --grep "note 11"` (Chromium, headless, Linux), before the fix | Failed: the deletion was asked of the main window's document, which refused it |
+| The same, after the fix and the review's, `--repeat-each=3` | 3 passed |
+| Client, with main merged (ExGrid 0.3.0): `npm ci`, `npm run typecheck`, `npx vitest run`, `npm run build` | Clean; 512 passed in 49 files; built |
+| `npx playwright test` (Chromium, headless, Linux), with main merged and the review's fixes | 152 passed |
 
 The unit tests read every key on both platforms, Ctrl's and Alt's moves and deletions with a selection, an emoji
 never split, `CSA-A` as two words and `1mm`, `1.5mm` and `nocsa_MA1` as one, a Russian and a Dvorak layout, the keys
 left alone (Ctrl+A, Y, N, P, W, T, Shift and AltGr with a letter), and a Mac's Option letters. The browser tests drive
 the line on Linux with a move and a deletion of each modifier, read its caret and text, see Ctrl+A still select all,
 the list follow a deletion and Ctrl+Z bring it back; and with the page told it is on a Mac, see Ctrl+E and Ctrl+K
-reach the field unprevented and the text untouched, and Ctrl+U delete.
+reach the field unprevented and the text untouched, and Ctrl+U delete. In a panel popped out into another window,
+Ctrl+U deletes in that window's line, the list follows, and Ctrl+Z brings the text back.
 
 ### Providers
 

@@ -309,9 +309,9 @@ sent, DEFAULT.
     - *Ctrl+N and Ctrl+P* choose in the list, as before. Chrome and Edge keep Ctrl+N on Windows and Linux for a new
       window and Ctrl+W and Ctrl+T for the tab, so the page never sees them: ↓ chooses there, and Ctrl+Backspace deletes
       a word back, as in any field.
-    - *What a key deletes is taken back by Ctrl+Z* (⌘Z): it is the browser's own edit (`execCommand` of the field's own
-      document, so in another window of the browser too, ADR-0018 §9), so the field's undo records it and the line reads
-      the text again, as it reads typing. Nothing goes to the clipboard, and on
+    - *What a key deletes is taken back by Ctrl+Z* (⌘Z): it is the browser's own edit, which the field's undo records
+      and the line reads again as it reads typing. It is asked of the field's own document (`execCommand`), which is
+      another window's where the line is open there (ADR-0018 §9). Nothing goes to the clipboard, and on
       Windows and Linux Ctrl+Y stays the field's redo, with no yank.
     - *A character is what the reader sees as one* (an emoji, a letter and its mark), and a word is Unicode's
       (`Intl.Segmenter`): `CSA-A` is two words, `1mm`, `1.5mm` and `nocsa_MA1` one.
