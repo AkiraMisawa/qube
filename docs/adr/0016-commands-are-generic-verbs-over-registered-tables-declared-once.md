@@ -491,7 +491,8 @@ log cannot yet say which entries were one command, or what an entry replaced.
    independent amounts. 5b: templates, the pricer's fields beyond its grids, and the input Price freezes. 5c:
    drafts, a row's dialog and its button in the grid. 5d: the scenarios and their shifts as tables, and
    `load trades <ids>`. Left for the owner: where a row's button stands in a grid (ticket 16).
-   *Closed 2026-11-14 (note 57's mark of that day): the button keeps its name and its place beside the key.*
+   *Closed 2026-11-14 (note 57's mark of that day): the button keeps its name (owner) and its place beside the key
+   (DEFAULT).*
 6. Saved sequences of edits (§8). §1 and §2 serve them as they are. **Built 2026-11-12**
    (`docs/specs/commands-6-saved-sequences`, one pull request); what it settled is notes 60 to 64.
 
@@ -2310,12 +2311,15 @@ has one button, edit; and `load trades` reads a synthetic store of booked trades
       the second, beside the pinned key, and scrolls away with the others. It is in the first view at every width. At
       1280px it also moves the counterparty threshold out of the CSA grid's first view. Ticket 16's criterion ("costs no
       needed column at 390px") is so not met as written, and the ticket is left for the owner.
-    - *Answered 2026-11-14 (owner).* **The button stays `Edit`, beside the row's key.** Asked of the column (item 5
-      of the summary of decisions), he first asked why a row needs a button when its cells are edited in the grid:
-      it opens the row's dialog, where the fields with no column and the rows under the row are. He then weighed a
-      name for what it opens and kept the one it has: "the button can be Edit". He named no other place for the
-      column, so it stays beside the key, a DEFAULT that is his to change, and ticket 16 is closed with its
-      criterion still not met as written. Nothing of the code changed.
+    - *Answered 2026-11-14 (owner), and closed by default.* **The button's name stays `Edit`** (his word), **and its
+      column stays beside the row's key** (DEFAULT). The summary of decisions (the notes of 2026-11-14 below) put
+      the column's place to him. His four lines on it that day, in order: whether it is better to put Edit on the
+      left; why a row needs a button at all when the grid is edited directly (he was told: it opens the row's
+      dialog, where the fields with no column and the rows under the row are); that it "feels more like a
+      Detailer than Edit"; and last, "the button can be Edit". So the label is his. He named no place, so the
+      column stays where it was built, beside the key at the grid's left, read here as the left he asked about:
+      a DEFAULT, his to change. Ticket 16 is closed on that, its criterion still not met as written. Nothing was
+      renamed and no code changed; whether anything else should carry the name Detailer was not said.
     - *Left as they are in review.* The two `catch` blocks of the door that say an error alike (two kinds of error with
       no base of their own); the dialog's own reading of the phone width beside the shell's (the shell's is in
       `App.tsx`, which the panels' work is changing); and the older browser tests that find a cell by its number, which
@@ -2390,8 +2394,9 @@ has one button, edit; and `load trades` reads a synthetic store of booked trades
       - *A scenario opens as any row does* (notes 56, 57): `open up` draws its fields and its shifts under it, and a
         shift's cell typed there is a line of the draft. With nine fields the grid of shifts is wider than the
         dialog, so its Draft mark and its Remove are reached by scrolling the grid or by the keyboard. Where a
-        row's buttons stand is ticket 16's question, which is the owner's. *Closed 2026-11-14 (note 57's mark of
-        that day), with nothing said of a grid in a dialog: its buttons stay where they are.*
+        row's buttons stand is ticket 16's question, which is the owner's. *Ticket 16 was closed 2026-11-14 (note
+        57's mark of that day) with nothing asked or said of a grid in a dialog: its buttons stay where they are,
+        a DEFAULT.*
     - *Corrected in review (2026-11-12).*
       - *An id as written is read before the end of one, above as here.* A scenario may be named with digits alone
         (`4`), and a shift's key ends with digits (`up/4`). `shifts 4` was read as the shift whose key ends with
@@ -2660,6 +2665,10 @@ The choices made for the owner through steps 0 to 6 were put to him in one summa
 his word. He answered on 2026-11-14. These notes record the three he decided. What he asked about, or left for a
 later answer, is written when he answers.
 
+*Added later on 2026-11-14.* Two more of his answers are marks on the notes they answer, and need no note of their
+own: the row's Edit button on note 57, and the request's official PV file being the table of `docs/08` §7 on note
+69's open items.
+
 66. **A CSA's `exchange` and `one-way` are what who posts says (owner, 2026-11-14; amends notes 51 and 52).** Note 51
     carried who posts beside `one-way` and `exchange`, where an edit by hand could leave them saying different
     things, and put to the owner whether `one-way` should become what the two flags say. His answer: it should be
@@ -2761,9 +2770,10 @@ later answer, is written when he answers.
         `/deals/trade_official_pv_table.csv` (owner, 2026-10-27), its layout not specified then. Whether that
         and `/deals/official_pv.csv` are one file is not known. Nothing is written under the older name.
         *Answered 2026-11-14 (owner): they are the same file.* The table of `docs/08` §7 so has the layout above.
-        The writer keeps the name he gave with the layout, `/deals/official_pv.csv`, and writes nothing under the
-        older one (DEFAULT: he said the files are one, not which name the company's provider reads, and the
-        adapter that will say so does not exist yet).
+        Both names are his, the older for the table the company's provider carries (2026-10-27) and the later for
+        the request's file, given with its layout; he said they are one file, not which name is written. The
+        writer keeps the later, `/deals/official_pv.csv`, and writes nothing under the older (DEFAULT, his to
+        correct).
       - *A new trade's PV Adj.* `docs/03-xva-domain.md` §2.5 says the official-PV table is the engine's intake
         for the PV an adjustment aligns to, and the simulated engine takes a new trade's PV Adj as its PV. A new
         trade with a PV Adj and no leg has no row here. Whether its PV Adj goes in as a leg is his to say.

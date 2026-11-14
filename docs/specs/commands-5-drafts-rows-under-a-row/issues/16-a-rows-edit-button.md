@@ -17,7 +17,10 @@
       1280px the CSA grid's counterparty threshold, which was in its first view, is reached by scrolling too. Put at
       the end of the grid the column would cost nothing and be out of view at every width. For the owner to judge.
 
-*Closed 2026-11-14 (owner; ADR-0016 note 57's mark of that day).* Asked of the column, he kept the button's name,
-`Edit`, after weighing a name for the dialog it opens, and named no other place for it. The column stays beside the
-row's key: a DEFAULT, his to change. The second criterion stays unchecked, not met as written and accepted for a
-button in the first view at every width.
+## Comments
+
+2026-11-14, closed by default after the owner's answers (ADR-0016 note 57's mark of that day). Asked of the column, he
+kept the button's name: "the button can be Edit", after saying it felt more like a Detailer. He asked whether the
+left is the better place and named no place himself, so the column stays beside the row's key: a DEFAULT, his to
+change. The second criterion stays unchecked: not met as written, and accepted by default, not by his word. What it
+leaves "for the owner to judge" was put to him, and the place is still his to move.
