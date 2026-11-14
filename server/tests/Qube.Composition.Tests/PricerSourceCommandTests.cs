@@ -129,10 +129,10 @@ public class PricerSourceCommandTests
         var rig = new PricerRig();
         string[] Offered(string line) => [.. rig.Preview(line).Complete.Select(c => $"{c.Value} {c.Detail}")];
 
-        Assert.Equal(["DUMMY/LE-00 Dummy counterparty (synthetic): nothing is booked with it", "ABC/LE-02 ABC Securities (synthetic)", "XYZ/LE-03 XYZ Industries (synthetic)"],
+        Assert.Equal(["DUMMY/LE-00 Dummy (synthetic): nothing is booked with it", "ABC/LE-02 ABC Securities (synthetic)", "XYZ/LE-03 XYZ Industries (synthetic)"],
             Offered("cpty "));
         Assert.Equal(["ABC/LE-02 ABC Securities (synthetic)"], Offered("counterparty ab"));
-        Assert.Equal(["DUMMY/LE-00 Dummy counterparty (synthetic): nothing is booked with it"], Offered("cpty dum"));
+        Assert.Equal(["DUMMY/LE-00 Dummy (synthetic): nothing is booked with it"], Offered("cpty dum"));
         Assert.Equal(["XYZ/LE-03 XYZ Industries (synthetic)"], Offered("cpty indus"));
         Assert.Empty(Offered("cpty"));
         Assert.Equal("cpty ".Length, rig.Preview("cpty ab").Complete.Single().Start);
@@ -155,7 +155,7 @@ public class PricerSourceCommandTests
         var view = rig.Service.View(rig.Id, "akira");
 
         Assert.True(view.Registration.Dummy);
-        Assert.Equal(("Dummy counterparty (synthetic)", "MA-000", "NS-000", true, 0), (view.Registration.Name, view.Agreement.MaId, view.Agreement.NettingSetId, view.Agreement.Enforceable, view.Csas.Count));
+        Assert.Equal(("Dummy (synthetic)", "MA-000", "NS-000", true, 0), (view.Registration.Name, view.Agreement.MaId, view.Agreement.NettingSetId, view.Agreement.Enforceable, view.Csas.Count));
         Assert.Equal(view.NewTrades, view.Trades);
         // A new trade with it is uncollateralised: the agreement's sentinel and the configured curve (docs/03 §2.4).
         Assert.All(PortfolioMaterialiser.Trades(rig.State), t => Assert.Equal(("nocsa_MA-000", "jpy_ois"), (t.Csa, t.Curve)));

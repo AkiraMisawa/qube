@@ -180,7 +180,7 @@ public static class PortfolioCatalog
 
     public static readonly IReadOnlyList<Registration> Registrations =
     [
-        new("DUMMY", "LE-00", "Dummy counterparty (synthetic)") { Dummy = true },
+        new("DUMMY", "LE-00", "Dummy (synthetic)") { Dummy = true },
         new("ABC", "LE-01", "ABC Holdings (synthetic)"),
         new("ABC", "LE-02", "ABC Securities (synthetic)"),
         new("XYZ", "LE-03", "XYZ Industries (synthetic)"),

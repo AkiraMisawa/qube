@@ -121,7 +121,7 @@ test('ADR-0010 §1, ADR-0016 note 69: a workspace opened with no counterparty ch
   await expect(chosen).toBeFocused();
   // Nothing is put in the field: the placeholder says what the workspace is on while it is empty.
   await expect(chosen).toHaveValue('');
-  await expect(chosen).toHaveAttribute('placeholder', 'DUMMY/LE-00 · Dummy counterparty (synthetic)');
+  await expect(chosen).toHaveAttribute('placeholder', 'DUMMY/LE-00 · Dummy (synthetic)');
   await page.keyboard.press('Enter');
   await expect(page.getByRole('tab', { name: 'XVA DUMMY/LE-00' })).toHaveAttribute('aria-selected', 'true');
   await settled(page, 'New trades');

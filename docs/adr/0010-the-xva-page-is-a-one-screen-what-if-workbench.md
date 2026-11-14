@@ -71,8 +71,8 @@ counterparty chosen is on the dummy counterparty.** The owner asked for it ("if 
 XVA workspace is opened, select a dummy"). It is a default that stands in for a choice the user did not make, so under
 the rule against quiet fallbacks (CLAUDE.md, owner 2026-11-11) it is recorded here as his approval, and it is never
 quiet:
-- **What the dummy is.** One registration of the synthetic catalogue, `DUMMY/LE-00`, *Dummy counterparty
-  (synthetic)*, flagged as the dummy where the registrations are listed (`dummy`). It is a prospect, as docs/03 §2.4
+- **What the dummy is.** One registration of the synthetic catalogue, `DUMMY/LE-00`, *Dummy (synthetic)*, flagged
+  as the dummy where the registrations are listed (`dummy`). It is a prospect, as docs/03 §2.4
   describes one: nothing is booked with it, so the workspace holds only the trades the user adds; its agreement
   `MA-000` has netting set `NS-000`, enforceable, and no CSA, so a new trade's CSA is `nocsa_MA-000`; it has no IM CSA,
   no CDS (CVA is refused until one is chosen on the Credit tab, §8) and no CVA recovery of its own (CVA uses the
