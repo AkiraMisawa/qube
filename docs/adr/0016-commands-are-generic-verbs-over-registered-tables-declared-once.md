@@ -2693,6 +2693,54 @@ later answer, is written when he answers.
     §3 left open how a line would spell the trades an iteration adds together and the ones it takes out. His
     answer: as it is now. The lists are made from the grids' selections in the page (note 37) and by the AI
     through the typed value, and `add each` on the line takes none. A spelling is designed when one is asked for.
+69. **The analytics request carries the official PV by leg (owner, 2026-11-14; answers which PV the analytics
+    reads).** This is one of the answers the lines above note 66 leave to be written when he gives them. The
+    accepted input carries a trade's `officialPv` and its legs (note 53), and the summary of decisions asked which
+    of the two the analytics' request reads. His answer is the request's own file: it holds
+    `/deals/official_pv.csv`, `id,ccy,pv,notional`, a row for each leg, whose id is `{trade id}_{leg id}` with the
+    leg id an integer from 0. That is all he said. What follows is this note's reading of it, for him to confirm.
+    - **The writer.** `XvaRequestFiles.OfficialPv` writes the file from a case of the accepted input for one of its
+      sides: Before and After are requests of their own (CLAUDE.md), so it writes the trades the side holds and no
+      other, and a case that holds a trade twice is refused. Nothing calls it yet but its tests: no engine is
+      written to. It is the XVA sample's and not the kernel's, because the file is the analytics' format.
+      `docs/08-provider-boundaries.md` §7 gives the request's files to the company's adapter, and no such project
+      exists yet: the writer moves there when one does (DEFAULT).
+    - **DEFAULT, each for the owner to confirm.**
+      - *The file's legs are the workspace's.* A row is a leg the trade holds at Price (notes 49 and 53), so a PV
+        overwritten in the workspace reaches the analytics as the one leg it leaves. `officialPv` stays on the
+        trade's row as the source's figure, which the simulated measures still read (note 53).
+      - *A leg's id* is its place under its trade at Price, from 0, in the order the trade holds its legs: the
+        source's first, then the ones made. An untouched trade's legs so keep the source's order. The one leg an
+        overwritten PV leaves is leg 0, where its key in the workspace is the next number after the source's
+        (note 49). Where a source's leg was removed, the ones left close up: with `<trade>/1` removed,
+        `<trade>/2` is leg 0. If the analytics reads a leg's id as which leg of the trade it is, that is wrong,
+        and it is his to say.
+      - *The workspace's keys* stay as they are, `<trade>/<n>` from 1.
+      - *`ccy`* is the leg's currency, and `pv` and `notional` are in it, written as the input holds them: no
+        grouping, no exponent, the decimals the input holds.
+      - *A leg with no notional* leaves that field empty: nothing stands in for it (CLAUDE.md, no fallback).
+        Such are the leg an overwritten PV leaves, a leg made without a notional, and a source's leg whose
+        notional was cleared.
+      - *A trade with no leg* has no row, such as a new trade nobody gave a PV. A side none of whose trades holds
+        a leg so gets the header alone. Price prices no side without a trade (ADR-0010 §3), so no request is
+        made for one.
+      - *The text.* A line ends in a line feed, the last one too. A trade's id is written as it is, an
+        underscore of its own included.
+      - *What is refused, not written*, each with the trade or the leg it is said of where the input names one,
+        a leg by its id in the file, which is its place: a row that a comma, a quote or a line break would
+        break; a case, a trade of the side or a leg without a field the file is written from; such a field of
+        another form, a currency or a trade id that is empty or spaces alone among them; and a trade the case
+        holds twice.
+    - **OPEN, asked of the owner.**
+      - *The file's name.* `docs/08-provider-boundaries.md` §7 names the table a trade's PV is carried in as
+        `/deals/trade_official_pv_table.csv` (owner, 2026-10-27), its layout not specified then. Whether that
+        and `/deals/official_pv.csv` are one file is not known. Nothing is written under the older name.
+      - *A new trade's PV Adj.* `docs/03-xva-domain.md` §2.5 says the official-PV table is the engine's intake
+        for the PV an adjustment aligns to, and the simulated engine takes a new trade's PV Adj as its PV. A new
+        trade with a PV Adj and no leg has no row here. Whether its PV Adj goes in as a leg is his to say.
+      - *Cases and scenarios.* Each case has its Before and its After, so the writer is given a case as it is
+        given the base. The input holds a leg's PV on the base market only: what a scenario's request carries
+        for the PV is settled when the engine is connected.
 
 ## Rejected
 
