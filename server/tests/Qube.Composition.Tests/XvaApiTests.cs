@@ -76,8 +76,11 @@ public class XvaApiTests(QubeFactory factory) : IClassFixture<QubeFactory>
         var preview = (await client.GetFromJsonAsync<JsonObject>($"/api/xva/workspaces/{Id(ws)}/counterparty-change"))!;
         Assert.Equal(1, preview["count"]!.GetValue<int>());
         Assert.Equal(1, preview["byKind"]!["xva.assignment"]!.GetValue<int>());
-        // The toolbar invokes the command the line types (ADR-0016 note 69): the plain endpoint is gone.
-        Assert.False((await Post(ws, "counterparty", new { revision = Revision(ws), registration = "ABC/LE-02", confirmedCount = 1 })).IsSuccessStatusCode);
+        // Counted at the revision the toolbar's change is then asked at (ADR-0016 note 69).
+        Assert.Equal(Revision(ws), preview["revision"]!.GetValue<long>());
+        // The toolbar invokes the command the line types (ADR-0016 note 69): the plain endpoint is gone, and the path
+        // answers only the reading of what a change drops.
+        Assert.Equal(HttpStatusCode.MethodNotAllowed, (await Post(ws, "counterparty", new { revision = Revision(ws), registration = "ABC/LE-02", confirmedCount = 1 })).StatusCode);
         Task<HttpResponseMessage> Change(int drops) => client.PostAsJsonAsync("/api/commands/xva.counterparty.change/1.0.0", new
         {
             inputs = new JsonObject { ["request"] = new JsonObject { ["workspaceId"] = Id(ws), ["revision"] = Revision(ws), ["registration"] = "ABC/LE-02", ["drops"] = drops } },

@@ -101,6 +101,9 @@ function toldOf(answer: CommandAnswer): Told {
   return told as Told;
 }
 
+/** The effect of a command that discards edits the user made (ADR-0016 note 69), as leaving a counterparty does. */
+const DROP_EDITS = 'dropEdits';
+
 /** The capability that runs a saved sequence (ADR-0016 note 62): its answer holds what each of its lines' commands answered. */
 const SEQUENCE_RUN = 'sequence.run';
 
@@ -319,6 +322,11 @@ export function commandDoor(page: DoorPage, out: TakenOut = browserOut): Command
         return grid.moves ? { moved: true } : undefined;
       }
       if (reading.command === undefined || reading.inputs === undefined) throw new Error('The server read the line and named no command to run.');
+      // A command that drops edits the user made runs only a reading the line showed (ADR-0016 note 69, ADR-0003 §6):
+      // Enter pressed before it arrived was pressed on no count of what drops. The line stays, and shows the reading.
+      const named = reading.command.id;
+      if (kept === undefined && page.catalog.capabilities.find((c) => c.capabilityId === named)?.effects.includes(DROP_EDITS) === true)
+        return { sentence: 'This command drops edits, so Enter runs it only once the line shows what it drops: read it, then press Enter again.' };
       return { ...reading.command, inputs: reading.inputs };
     }, heard),
     invoke: (capabilityId, request, heard) => run<LineReason>(async (revision) => {
@@ -328,9 +336,11 @@ export function commandDoor(page: DoorPage, out: TakenOut = browserOut): Command
       if (open !== undefined) return { sentence: dialogOpen(open) };
       const capability = page.catalog.capabilities.find((c) => c.capabilityId === capabilityId);
       if (capability === undefined) throw new Error(`This server has no command ${capabilityId}.`);
-      // A request made of what the page shows (note 37) is made here, in the turn, of the revision it is sent at.
+      // A request made of what the page shows (note 37) is made here, in the turn, of the revision it is sent at. One that
+      // names the revision it was made against, such as a counterparty change of the drop a dialog showed (note 69), is
+      // sent at that one, so a workspace moved since refuses it (spine 6).
       const made = typeof request === 'function' ? request(revision) : request;
-      return { id: capabilityId, version: capability.version, inputs: { request: { ...made, workspaceId: page.workspaceId, revision } } };
+      return { id: capabilityId, version: capability.version, inputs: { request: { revision, ...made, workspaceId: page.workspaceId } } };
     }, heard),
     redraft: () => page.turns.after(async (): Promise<LineReason | undefined> => {
       const drafts = page.drafts;

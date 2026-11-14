@@ -2714,21 +2714,34 @@ the line nor the AI could change them.
       them.` A counterparty is its code and its legal entity: a code alone is refused with the entities it could
       mean, an unknown one with the list, and the one the workspace is on says so. Tab offers the others, by key or
       by a word of the name; the dummy's says that nothing is booked with it.
-    - **What it drops is the count the reading showed.** The reading puts the count in the request (`drops`), and
-      the command is refused (`ConfirmationStale`) where the workspace holds another count by its turn, so an edit
-      made after the reading is never dropped unseen (spine 6). The toolbar sends the count its dialog showed, or 0
-      without a dialog where nothing drops.
+    - **What it drops is what the user was shown (ADR-0003 §6, spine 6).** The reading puts the count in the request
+      (`drops`) beside the revision it was read at, so a workspace moved since refuses the line (§5), and a count that
+      is not the workspace's is refused (`ConfirmationStale`). The toolbar reads what would drop in the edit queue's
+      turn, after the edits already sent, and asks the change at the revision that was counted at, with the count its
+      dialog showed, or 0 without a dialog where nothing drops. The door sends a request that names the revision it was
+      made against at that revision, where it otherwise stamps the turn's (amends note 37).
     - **A new effect, `dropEdits`**, stands beside `editWorkspace` on the counterparty's command: a command that
-      discards edits the user made. A saved sequence (note 61) refuses a line of it (`… drops the edits its reading
-      counts, and a sequence runs a line without showing its reading`). `value date` carries the edits, and a
-      sequence holds it as it holds `refresh`.
+      discards edits the user made. Three things follow from it, each because the user would otherwise not see the
+      count before it drops:
+      - Enter runs such a command only from a reading the line shows. Pressed before the reading arrived, it runs
+        nothing, and the line stays to show it: `This command drops edits, so Enter runs it only once the line shows
+        what it drops: read it, then press Enter again.` What Enter does is what the screen showed when it was
+        pressed, so the outcome is that of the gesture, never of how fast the server read.
+      - A saved sequence (note 61) refuses a line of it (`… drops the edits its reading counts, and a sequence runs a
+        line without showing its reading`). `value date` carries the edits, and a sequence holds it as it holds
+        `refresh`.
+      - The AI is offered the command but is shown no dialog: it moves a workspace only where nothing drops, and is
+        refused otherwise (`UserConfirms: Moving to ABC/LE-02 drops 1 edit, which the user confirms: they move the
+        counterparty themselves, from the toolbar or the line.`). A count it gives that is not the workspace's is
+        refused as anyone's is, so it cannot drop an edit by saying 0.
     - **The answer is the server's sentence**, as `refresh`'s is: `Value date moved to 2026-10-27: 0 edit(s)
       carried, 0 in conflict, 0 lost.` and `Counterparty changed to XYZ/LE-03: 1 edit(s) dropped; 0 carried, 0 in
       conflict, 0 lost.` It stays while an edit is held. The log names each by its words (`value date 2026-10-27`,
       `counterparty XYZ/LE-03`). `undo` takes back neither (§11): the first read another source version, and the
       second left a scope with its edits.
     - **The page's endpoints that wrote them are gone** (`POST …/value-date`, `POST …/counterparty`). The toolbar
-      still reads what a change of counterparty would drop (`GET …/counterparty-change`) for its dialog. The panel is
+      still reads what a change of counterparty would drop (`GET …/counterparty-change`, which now says the revision
+      it counted at) for its dialog. The panel is
       titled by the counterparty it shows (`XVA XYZ/LE-03`), so a move by the line or the AI retitles it; a name the
       user gave the panel stays (ADR-0006 note 9).
 

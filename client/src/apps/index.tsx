@@ -347,8 +347,14 @@ export function AppDialogs() {
   );
 }
 
-/** The counterparties a workspace is opened for, read once: the dialog lists them, and the toolbar's control. */
-const REGISTRATIONS = { queryKey: ['xva', 'registrations'], queryFn: () => xvaApi.registrations(), staleTime: Infinity } as const;
+/** How the counterparties a workspace is opened for are read, once: the dialog lists them, as the toolbar's control does. */
+const REGISTRATIONS_QUERY = { queryKey: ['xva', 'registrations'], queryFn: () => xvaApi.registrations(), staleTime: Infinity } as const;
+
+/** The one dummy counterparty of the list, or none where it holds none or several. */
+const soleDummy = (registrations: readonly Registration[]): Registration | undefined => {
+  const dummies = registrations.filter((r) => r.dummy);
+  return dummies.length === 1 ? dummies[0] : undefined;
+};
 
 /**
  * The dummy counterparty, which a workspace opened with none chosen is on (ADR-0010 §1's note of 2026-11-14, asked for
@@ -356,15 +362,15 @@ const REGISTRATIONS = { queryKey: ['xva', 'registrations'], queryFn: () => xvaAp
  * its place.
  */
 function dummyOf(registrations: readonly Registration[]): Registration {
-  const dummies = registrations.filter((r) => r.dummy);
-  if (dummies.length !== 1) throw new Error(`The server lists ${dummies.length} dummy counterparties, and a workspace opened with none chosen is on its one: choose a counterparty.`);
-  return dummies[0]!;
+  const dummy = soleDummy(registrations);
+  if (dummy === undefined) throw new Error(`The server lists ${registrations.filter((r) => r.dummy).length} dummy counterparties, and a workspace opened with none chosen is on its one: choose a counterparty.`);
+  return dummy;
 }
 
 function NewXvaWorkspace({ onDone }: { readonly onDone: () => void }) {
   const workspace = useWorkspaceContext();
   const queryClient = useQueryClient();
-  const registrations = useQuery(REGISTRATIONS);
+  const registrations = useQuery(REGISTRATIONS_QUERY);
   // What the user chose, and nothing until they do: the dummy is what the placeholder says the workspace is on then,
   // never a value put in the field, which a list that arrives as the user types would write over what was typed.
   const [registration, setRegistration] = useState<string | null>(null);
@@ -380,7 +386,7 @@ function NewXvaWorkspace({ onDone }: { readonly onDone: () => void }) {
     setBusy(true);
     try {
       // Read here where the list has not arrived yet, so that an Enter pressed as the dialog opens is on the dummy too.
-      const chosen = registration ?? dummyOf(await queryClient.fetchQuery(REGISTRATIONS)).key;
+      const chosen = registration ?? dummyOf(await queryClient.fetchQuery(REGISTRATIONS_QUERY)).key;
       const created = await xvaApi.create(chosen, valueDate, size);
       workspace.store.getState().showApp(XVA_WORKSPACE, `XVA ${created.registration.key}`, { workspaceId: created.workspaceId });
       onDone();
@@ -392,8 +398,7 @@ function NewXvaWorkspace({ onDone }: { readonly onDone: () => void }) {
   };
 
   // The placeholder names the dummy once the list is read; a list without its one says so when the dialog is submitted.
-  const dummies = (registrations.data ?? []).filter((r) => r.dummy);
-  const dummy = dummies.length === 1 ? dummies[0] : undefined;
+  const dummy = registrations.data === undefined ? undefined : soleDummy(registrations.data);
 
   return (
     <form onSubmit={(e) => { e.preventDefault(); void submit(); }}>

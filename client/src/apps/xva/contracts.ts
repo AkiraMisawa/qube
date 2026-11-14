@@ -432,6 +432,7 @@ export interface RowPage {
 
 export interface CarrySummary { readonly carried: number; readonly conflicted: number; readonly lost: number }
 
-export interface ScopeDrop { readonly scope: string; readonly count: number; readonly byKind: Readonly<Record<string, number>> }
+/** What a counterparty change would drop, by kind, and the revision it was counted at (ADR-0016 note 69). */
+export interface ScopeDrop { readonly scope: string; readonly count: number; readonly byKind: Readonly<Record<string, number>>; readonly revision: number }
 
 export type Resolution = 'reset' | 'keep' | 'takeSource' | 'acknowledge';

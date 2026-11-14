@@ -309,23 +309,16 @@ export function createWorkspaceStore(initialContext: Readonly<Record<string, unk
       const read = readName(panel.title, typed);
       if ('refused' in read) throw new Error(read.refused);
       if (read.name === panel.name) return;
-      const { name: _, copy: __, ...titled } = panel;
+      const { name: _, ...titled } = panel;
       const renamed: Panel = { ...titled, ...(read.name === undefined ? {} : { name: read.name }) };
-      set((state) => {
-        const copy = freeCopy(state.panels.filter((p) => p.id !== panelId), panelName(renamed));
-        return { panels: state.panels.map((p) => (p.id === panelId ? { ...renamed, ...(copy === 1 ? {} : { copy }) } : p)) };
-      });
+      set((state) => ({ panels: state.panels.map((p) => (p.id === panelId ? numbered(state.panels, renamed) : p)) }));
     },
 
     retitlePanel(panelId, title) {
       const panel = requireOpen(get().panels, panelId);
       if (panel.title === title) return;
-      set((state) => {
-        if (panel.name !== undefined) return { panels: state.panels.map((p) => (p.id === panelId ? { ...p, title } : p)) };
-        const { copy: _, ...uncounted } = panel;
-        const copy = freeCopy(state.panels.filter((p) => p.id !== panelId), title);
-        return { panels: state.panels.map((p) => (p.id === panelId ? { ...uncounted, title, ...(copy === 1 ? {} : { copy }) } : p)) };
-      });
+      // A name the user gave it is what it is called by, and numbered by: that does not change.
+      set((state) => ({ panels: state.panels.map((p) => (p.id !== panelId ? p : panel.name === undefined ? numbered(state.panels, { ...p, title }) : { ...p, title })) }));
     },
 
     activate(panelId) {
@@ -374,6 +367,13 @@ function freeCopy(panels: readonly Panel[], name: string, had?: number): number 
   let copy = had !== undefined && !taken.has(had) ? had : 1;
   while (taken.has(copy)) copy += 1;
   return copy;
+}
+
+/** A panel numbered anew among the other open panels of its name, as it is when renamed or retitled (ADR-0006 note 7). */
+function numbered(panels: readonly Panel[], panel: Panel): Panel {
+  const { copy: _, ...uncounted } = panel;
+  const copy = freeCopy(panels.filter((p) => p.id !== panel.id), panelName(panel));
+  return copy === 1 ? uncounted : { ...uncounted, copy };
 }
 
 /**

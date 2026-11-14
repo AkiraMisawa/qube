@@ -132,8 +132,11 @@ public sealed record PortfolioOptions(int CaseCap = PortfolioCases.DefaultCap);
 /// <summary>A Run this workspace submitted (its latest twenty, newest first).</summary>
 public sealed record RunLink(string RunId, long Revision);
 
-/// <summary>How many edits a counterparty change would drop, by module edit kind, for the user to confirm.</summary>
-public sealed record ScopeDrop(string Scope, int Count, IReadOnlyDictionary<string, int> ByKind);
+/// <summary>
+/// How many edits a counterparty change would drop, by module edit kind, for the user to confirm, and the revision they
+/// were counted at: the change confirmed is asked at that revision, so a workspace moved since refuses it (ADR-0016 note 69).
+/// </summary>
+public sealed record ScopeDrop(string Scope, int Count, IReadOnlyDictionary<string, int> ByKind, long Revision);
 
 /// <summary>
 /// The portfolio workspace application service (ADR-0010 §10), shared by the measures that price it: what the
@@ -1005,7 +1008,7 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
     public static ScopeDrop DropOf(WorkspaceState state)
     {
         var dropped = Dropped(state);
-        return new(ScopeOf(state), dropped.Count, dropped.GroupBy(new PortfolioEditRules().KindOf).ToDictionary(g => g.Key, g => g.Count()));
+        return new(ScopeOf(state), dropped.Count, dropped.GroupBy(new PortfolioEditRules().KindOf).ToDictionary(g => g.Key, g => g.Count()), state.Revision);
     }
 
     /// <summary>What a change of counterparty would drop, each in the page's words (<c>CSA-A threshold</c>, <c>the case …</c>), in the order they were made.</summary>

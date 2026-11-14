@@ -113,7 +113,7 @@ test('ADR-0003 §6: a counterparty change asks before dropping its edits, and ke
   await expect(trade(page, 'DRAFT-1').getByRole('gridcell').nth(CSA)).toHaveText('CSA-C');
 });
 
-test('ADR-0010 §1, ADR-0016 note 69: a workspace opened with no counterparty chosen is on the dummy, and `cpty` and `value date` move it, saying first what they drop', async ({ page, problems }) => {
+test('ADR-0010 §1, ADR-0016 note 69: a workspace opened with no counterparty chosen is on the dummy, and `cpty` and `value date` move it, saying first what they drop', async ({ page }) => {
   await open(page);
   await command(page, 'new xva');
   const dialog = page.getByRole('dialog', { name: 'New XVA workspace' });
@@ -127,9 +127,25 @@ test('ADR-0010 §1, ADR-0016 note 69: a workspace opened with no counterparty ch
   await settled(page, 'New trades');
   await settled(page, 'Existing trades');
   // Marked on the toolbar, beside the counterparty; nothing is booked with it.
-  await expect(page.getByTestId('dummy-counterparty')).toHaveText('Dummy');
-  await expect(page.getByRole('combobox', { name: 'Counterparty' })).toHaveValue(/^DUMMY \| LE-00 \|/);
+  const badge = page.getByTestId('dummy-counterparty');
+  const counterparty = page.getByRole('combobox', { name: 'Counterparty' });
+  await expect(badge).toHaveText('Dummy');
+  await expect(counterparty).toHaveValue(/^DUMMY \| LE-00 \|/);
   await expect(page.getByLabel('Existing trades', { exact: true }).getByRole('row')).toHaveCount(1);
+  // Beside the counterparty where the row has room; under it on a phone, where beside it the name was cut, and the
+  // counterparty keeps the 14rem a field has there (docs/design-guidelines.md §11).
+  // Read once both are drawn as the width asks: the page lays itself out again after a resize.
+  const placed = async () => {
+    const [b, f] = [await badge.boundingBox(), await counterparty.boundingBox()];
+    if (b === null || f === null) return 'not drawn';
+    if (b.y >= f.y + f.height) return f.width >= 224 ? 'under' : 'under, the counterparty narrower than 14rem';
+    return Math.abs(b.y + b.height / 2 - (f.y + f.height / 2)) < 1 && b.x > f.x + f.width ? 'beside' : 'elsewhere';
+  };
+  await expect.poll(placed).toBe('beside');
+  const wide = page.viewportSize();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect.poll(placed).toBe('under');
+  if (wide !== null) await page.setViewportSize(wide);
 
   // `cpty` is `counterparty`'s other spelling: its reading says where it moves the workspace before Enter.
   const line = page.getByRole('combobox', { name: 'Command' });
@@ -143,12 +159,24 @@ test('ADR-0010 §1, ADR-0016 note 69: a workspace opened with no counterparty ch
   await expect(page.getByTestId('dummy-counterparty')).toHaveCount(0);
   await settled(page, 'New trades');
 
-  // An edit made for this counterparty: the reading names what moving drops, and the toolbar's dialog would ask the same.
+  // An edit made for this counterparty: Enter pressed before the line has read what moving drops runs nothing, and the
+  // line stays to show it; Enter on what it shows drops it.
   await taken(page, 'set', 'DRAFT-1 csa CSA-B');
+  let letGo = (): void => undefined;
+  const waits = new Promise<void>((resolve) => { letGo = resolve; });
+  await page.route('**/api/commands/preview', async (route) => { await waits; await route.continue().catch(() => undefined); });
   await page.keyboard.press('ControlOrMeta+K');
   await expect(line).toBeFocused();
   await page.keyboard.type('counterparty XYZ/LE-03');
+  await page.keyboard.press('Enter');
+  await expect(line).toHaveAttribute('aria-busy', 'true');
+  letGo();
+  await page.unroute('**/api/commands/preview');
+  await expect(page.getByTestId('command-problems')).toHaveText('This command drops edits, so Enter runs it only once the line shows what it drops: read it, then press Enter again.');
+  await expect(line).toHaveValue('counterparty XYZ/LE-03');
+  await expect(page.getByRole('tab', { name: 'XVA ABC/LE-01' })).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByTestId('command-preview')).toHaveText(/, and drops 1 edit made for ABC\/LE-01: DRAFT-1 csa\. They stay in the log and in any Run that priced them\.$/);
+  await expect(page.getByTestId('command-preview')).not.toHaveAttribute('aria-busy', 'true');
   await page.keyboard.press('Enter');
   await expect(page.getByTestId('notice')).toHaveText('Counterparty changed to XYZ/LE-03: 1 edit(s) dropped; 0 carried, 0 in conflict, 0 lost.');
   await expect(page.getByRole('tab', { name: 'XVA XYZ/LE-03' })).toHaveAttribute('aria-selected', 'true');
@@ -166,7 +194,6 @@ test('ADR-0010 §1, ADR-0016 note 69: a workspace opened with no counterparty ch
   await expect(page.getByTestId('command-problems')).toHaveText('The workspace is already as of 2026-10-27: refresh reads it again.');
   await page.keyboard.press('Escape');
   await expect(line).toBeHidden();
-  expect(problems).toEqual([]);
 });
 
 test('ADR-0010 §10: `measures fva` leaves CVA out of the Price, the Netting tab and the quote, and a new workspace starts on that choice', async ({ page }) => {

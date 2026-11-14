@@ -541,50 +541,39 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   }, [panelId]);
 
   /**
-   * The toolbar's value date invokes `value date`, the command the line types (ADR-0016 note 69), so the two cannot
-   * differ: the notice is the server's count of what carried, and stays while an edit is held. The door reads the grids
-   * from their first row again, since the source moved (ExGrid ADR-0011).
+   * The toolbar's counterparty invokes `counterparty` (ADR-0016 note 69) with what it drops as read in the edit queue's
+   * turn, after the edits already sent (spine 6): where that is anything, the dialog lists it by kind first (ADR-0003
+   * §6). The change is asked at the revision the drop was counted at, so a workspace moved since refuses it, and
+   * nothing the dialog did not show is dropped.
    */
-  const moveValueDate = async (valueDate: string) => {
-    setBusy('Value date moved');
-    try {
-      await invoked('xva.value-date.change', { valueDate }, 'The value date was not moved');
-    } finally {
-      setBusy(undefined);
-    }
-  };
-
-  /**
-   * The toolbar's counterparty invokes `counterparty` (ADR-0016 note 69) with the count of edits it drops, as the line's
-   * reading shows it before Enter: where it drops any, the dialog lists them by kind first (ADR-0003 §6). The server
-   * refuses the change where the workspace holds another count by its turn, so nothing the dialog did not show is dropped.
-   */
-  const changeCounterparty = async (registration: string, drops: number) => {
-    setBusy('Counterparty changed');
-    try {
-      await invoked('xva.counterparty.change', { registration, drops }, 'The counterparty was not changed');
-    } finally {
-      setBusy(undefined);
-    }
-  };
-
   const chooseCounterparty = async (registration: string | null) => {
     if (registration === null || view.data === undefined || registration === view.data.registration.key) return;
     let drop: ScopeDrop;
     try {
-      drop = await api.previewCounterpartyChange(workspaceId);
+      drop = await queue.after(() => api.previewCounterpartyChange(workspaceId));
     } catch (error) {
       workspace.notify('refused', `The counterparty was not changed: ${describe(error)}`);
       return;
     }
-    if (drop.count === 0) await changeCounterparty(registration, 0);
+    if (drop.count === 0) await changeCounterparty(registration, drop);
     else setConfirm({ registration, drop });
   };
+  const changeCounterparty = (registration: string, drop: ScopeDrop) =>
+    invokedBusy('Counterparty changed', 'xva.counterparty.change', { registration, drops: drop.count, revision: drop.revision }, 'The counterparty was not changed');
 
   /** A control's command through the door (ADR-0016 §5): a refusal is a notice that opens with what was not done. */
   const invoked = async (capability: string, request: CommandRequest, notDone: string) => {
     const reason = await door.invoke(capability, request);
     if (reason !== undefined) workspace.notify('refused', `${notDone}: ${reason.sentence}`);
+  };
+  /** A toolbar button's command, the toolbar held while it runs: its button turns, and the others wait. */
+  const invokedBusy = async (label: string, capability: string, request: CommandRequest, notDone: string) => {
+    setBusy(label);
+    try {
+      await invoked(capability, request, notDone);
+    } finally {
+      setBusy(undefined);
+    }
   };
   /**
    * The Price button invokes `price`, the command the line types (ADR-0016 note 33), so the two cannot differ: one Run
@@ -592,14 +581,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
    * in that turn, and the dock shows its latest Run, which is the one just accepted; the figures stay on the page
    * (XvaResult), and the Run itself opens in a panel only when asked.
    */
-  const price = async () => {
-    setBusy('Pricing');
-    try {
-      await invoked('xva.workspace.price', {}, 'Price was refused');
-    } finally {
-      setBusy(undefined);
-    }
-  };
+  const price = () => invokedBusy('Pricing', 'xva.workspace.price', {}, 'Price was refused');
 
   const openRun = (runId: string) => {
     const resultView = workspace.catalog.views.find((v) => v.definitionId === XVA_RESULT_VIEW);
@@ -725,14 +707,13 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
    * count of what carried, and stays while an edit is held. The door reads the grids from their first row again where
    * the source moved.
    */
-  const refresh = async () => {
-    setBusy('Refreshed');
-    try {
-      await invoked('xva.refresh', {}, 'Refresh was refused');
-    } finally {
-      setBusy(undefined);
-    }
-  };
+  const refresh = () => invokedBusy('Refreshed', 'xva.refresh', {}, 'Refresh was refused');
+  /**
+   * The toolbar's value date invokes `value date`, the command the line types (ADR-0016 note 69), so the two cannot
+   * differ: the notice is the server's count of what carried, and stays while an edit is held. The door reads the grids
+   * from their first row again, since the source moved (ExGrid ADR-0011).
+   */
+  const moveValueDate = (valueDate: string) => invokedBusy('Value date moved', 'xva.value-date.change', { valueDate }, 'The value date was not moved');
 
   // The Changes tab's list (ADR-0010 §3's note of 2026-11-08), read while the tab is open, at the revision on screen.
   const changesOpen = inputsOpen && view.data !== undefined && shownTab(view.data, inputTab) === CHANGES_TAB;
@@ -1159,7 +1140,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
               <Button data-autofocus color="red" onClick={() => {
                 const { registration, drop } = confirm;
                 setConfirm(undefined);
-                void changeCounterparty(registration, drop.count);
+                void changeCounterparty(registration, drop);
               }}>Drop {confirm.drop.count} and change</Button>
             </Group>
           </Stack>

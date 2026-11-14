@@ -290,9 +290,8 @@ public sealed class PortfolioSourceVersion : ISourceVersion
         booked = new(() => BookedTrades.On(valueDate));
         // Each ABC entity has a single name; XYZ Industries, an unrated corporate, is proxied. The dummy has none: a
         // prospect's credit is the user's to choose, so CVA is refused until a CDS is (`cds`, the Credit tab).
-        Cds = Registration.Key switch
+        Cds = Registration.Dummy ? new CdsChoice(null, null, null, null, null) : Registration.Key switch
         {
-            PortfolioCatalog.DummyKey => new CdsChoice(null, null, null, null, null),
             "ABC/LE-01" => new CdsChoice(CdsCatalog.SingleName, "ABCH.SNRFOR.USD.XR14", null, null, null),
             "ABC/LE-02" => new CdsChoice(CdsCatalog.SingleName, "ABCS.SNRFOR.USD.XR14", null, null, null),
             _ => new CdsChoice(CdsCatalog.Proxy, null, "industrials", "asia", "BBB"),

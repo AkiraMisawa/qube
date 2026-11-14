@@ -269,9 +269,10 @@ public sealed class PortfolioCounterparty(Func<PortfolioWorkspaces> workspaces) 
         var source = PortfolioSourceVersion.Of(state);
         var dropped = workspaces().DroppedTitles(line.State);
         var to = $"{named.Key} ({named.Name}{(named.Dummy ? ": nothing is booked with it" : "")}) as of {source.ValueDate:yyyy-MM-dd}";
-        var drops = dropped.Count == 0 ? $"; nothing made for {source.Registration.Key} is dropped."
+        var dropping = dropped.Count == 0 ? $"; nothing made for {source.Registration.Key} is dropped."
             : $", and drops {TableWords.Counted(dropped.Count, "edit")} made for {source.Registration.Key}: {TableWords.Some(dropped)}. They stay in the log and in any Run that priced them.";
-        var read = PortfolioCommand.Read(line, new JsonObject { ["registration"] = named.Key }, $"Moves the workspace to {to}{drops}");
+        var read = PortfolioCommand.Read(line, new JsonObject { ["registration"] = named.Key }, $"Moves the workspace to {to}{dropping}");
+        // The count is the request's as the registration is, but a number: the read takes only the words typed.
         ((JsonObject)read.Inputs["request"]!)["drops"] = dropped.Count;
         return read;
     }
@@ -297,6 +298,12 @@ public sealed class PortfolioCounterparty(Func<PortfolioWorkspaces> workspaces) 
         PortfolioCommand.Asked(invocation, workspaces, (service, request, caller, revision) =>
         {
             var drops = request["drops"]?.GetValue<int>() ?? throw new CapabilityFailure("InvalidInput", "counterparty takes drops, the count of edits its reading said it drops.");
+            // The user confirms what a change drops (ADR-0003 §6), on the page; the AI is shown no dialog, so it moves a
+            // workspace only where nothing drops, and a count it gives that is not the workspace's is refused below as
+            // anyone's is (ADR-0016 note 69).
+            if (caller.Origin == RunOrigin.Ai && drops > 0)
+                throw new WorkspaceRefused("UserConfirms", $"Moving to {CommandRequests.Text(request, "registration")} drops {TableWords.Counted(drops, "edit")}, which the user confirms: "
+                    + "they move the counterparty themselves, from the toolbar or the line.");
             var (state, carried) = service.ChangeCounterparty(CommandRequests.Text(request, "workspaceId"), revision, caller.UserId,
                 CommandRequests.Text(request, "registration"), drops, caller.Origin);
             var registration = PortfolioSourceVersion.Of(state).Registration.Key;

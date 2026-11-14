@@ -91,20 +91,40 @@ public class PricerSourceCommandTests
         Assert.StartsWith("CannotUndo: The latest command left a scope with its edits", rig.Read("undo"));
     }
 
-    [Fact] // ADR-0003 §6, spine 6: a change asked with another count than the workspace holds drops nothing, whoever asks
+    [Fact] // ADR-0003 §6, spine 6: a change asked with another count than the workspace holds drops nothing
     public async Task A_counterparty_change_with_another_count_drops_nothing()
     {
         var rig = new PricerRig();
         await rig.Run("set CSA-A threshold 5mm");
         var before = rig.State.Revision;
 
-        var stale = await Invoke(rig, "xva.counterparty.change", new JsonObject { ["registration"] = "ABC/LE-02", ["drops"] = 0 }, RunOrigin.Ai);
+        var stale = await Invoke(rig, "xva.counterparty.change", new JsonObject { ["registration"] = "ABC/LE-02", ["drops"] = 0 });
 
         Assert.StartsWith("ConfirmationStale: ", stale["refused"]!.GetValue<string>());
         Assert.Equal((before, "ABC/LE-01"), (rig.State.Revision, PortfolioSourceVersion.Of(rig.State).Registration.Key));
-        var moved = await Invoke(rig, "xva.counterparty.change", new JsonObject { ["registration"] = "ABC/LE-02", ["drops"] = 1 }, RunOrigin.Ai);
+        var moved = await Invoke(rig, "xva.counterparty.change", new JsonObject { ["registration"] = "ABC/LE-02", ["drops"] = 1 });
         Assert.Equal((1, 1), (moved["dropped"]!.GetValue<int>(), rig.State.Log.Count(e => e.Kind == EditKind.DropScope)));
-        Assert.Equal(RunOrigin.Ai, rig.State.Log.Single(e => e.Kind == EditKind.DropScope).Origin);
+    }
+
+    [Fact] // ADR-0003 §6, ADR-0016 note 69: the AI is shown no dialog, so it moves a workspace only where nothing drops
+    public async Task The_ai_drops_no_edit_by_changing_counterparty()
+    {
+        var rig = new PricerRig();
+        await rig.Run("set CSA-A threshold 5mm");
+        var before = rig.State.Revision;
+
+        // Its count right or wrong, nothing it would drop is dropped.
+        Assert.Equal("UserConfirms: Moving to ABC/LE-02 drops 1 edit, which the user confirms: they move the counterparty themselves, from the toolbar or the line.",
+            (await Invoke(rig, "xva.counterparty.change", new JsonObject { ["registration"] = "ABC/LE-02", ["drops"] = 1 }, RunOrigin.Ai))["refused"]!.GetValue<string>());
+        Assert.StartsWith("ConfirmationStale: ",
+            (await Invoke(rig, "xva.counterparty.change", new JsonObject { ["registration"] = "ABC/LE-02", ["drops"] = 0 }, RunOrigin.Ai))["refused"]!.GetValue<string>());
+        Assert.Equal(before, rig.State.Revision);
+
+        // Where nothing drops, it moves the workspace as the user would, and the log says it did.
+        await rig.Run("reset CSA-A threshold");
+        var moved = await Invoke(rig, "xva.counterparty.change", new JsonObject { ["registration"] = "ABC/LE-02", ["drops"] = 0 }, RunOrigin.Ai);
+        Assert.Equal("Counterparty changed to ABC/LE-02: 0 edit(s) dropped; 0 carried, 0 in conflict, 0 lost.", moved["said"]!.GetValue<string>());
+        Assert.Equal(RunOrigin.Ai, rig.State.Log[^1].Origin);
     }
 
     [Fact] // ADR-0016 note 69, CLAUDE.md: a counterparty is its code and its legal entity; a code alone, a key none has, and the workspace's own are refused by name

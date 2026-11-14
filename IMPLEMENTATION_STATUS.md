@@ -3771,6 +3771,71 @@ the suite runs on a Mac, and checked every key's caret where the unit tests alre
 `applyEdit`, `textOf`, `macKeyboard`) now say what each does. Left as it was: the notes' "extends 4", which names the
 decision as the earlier notes do.
 
+## The dummy counterparty, and the value date and the counterparty by command (ADR-0016 note 69, 2026-11-14)
+
+The owner asked for a workspace opened with no counterparty chosen to be on a dummy one, and for commands that change
+the value date and the counterparty, `cpty` spelling the second (2026-11-14). Recorded as ADR-0016 note 69 and
+ADR-0010 §1's and §9's notes of the same day; the dummy stands as his approval of a default (CLAUDE.md, "No
+fallback").
+
+### What runs
+
+- **The dummy counterparty, `DUMMY/LE-00`**, first in the synthetic catalogue and flagged `dummy` where the
+  registrations are listed. A prospect (docs/03 §2.4): nothing is booked with it; netting set `NS-000`, enforceable,
+  with no CSA (a new trade's CSA is `nocsa_MA-000`) and no IM CSA; no CDS, so CVA is refused until one is chosen; no
+  CVA recovery of its own. The size asked for is kept for a later move to a booked counterparty.
+- **The New XVA workspace dialog** leaves Counterparty empty, names the dummy in its placeholder and says under it
+  that left empty the workspace is on the dummy. The dialog sends the dummy's key itself, read from the list at
+  submit, so an Enter as the dialog opens is on the dummy too; the field is never filled in for the user. A list
+  with no dummy, or several, is said as a defect.
+- **A `Dummy` badge** beside the toolbar's counterparty while the workspace is on it, at every width; on a phone it
+  goes under the counterparty, which beside it was cut.
+- **`value date <yyyy-MM-dd>`** (`xva.value-date.change`) and **`counterparty <code/entity>`**, spelled `cpty` too
+  (`xva.counterparty.change`). The line says before Enter where each moves the workspace and, for a counterparty,
+  each edit it drops by row and field; Tab offers the other counterparties. A code alone, an unknown counterparty, an
+  unreadable date and the date or counterparty the workspace is on already are refused on the line. The answer is
+  the server's count of what dropped, carried, conflicted and was lost, and stays while an edit is held.
+- **What a counterparty change drops is the count its reading showed**: the request carries it (`drops`), and the
+  server refuses the change (`ConfirmationStale`) where the workspace holds another count by its turn.
+- **A new effect, `dropEdits`**, on the counterparty's command: a saved sequence refuses a line of it. `value date`
+  may stand in a sequence, as `refresh` does.
+- **The toolbar invokes the same commands** through the door. The endpoints `POST …/value-date` and
+  `POST …/counterparty` are gone; `GET …/counterparty-change` stays for the toolbar's dialog. The AI is offered both
+  commands, and the page reads the workspace again after either.
+- **The panel is titled by the counterparty it shows** (`XVA ABC/LE-01`), whoever moved it; a name the user gave it
+  stays (the store's `retitlePanel`).
+
+### Verification performed
+
+| Check | Result |
+|---|---|
+| `nix develop -c dotnet test server/Qube.slnx` | RESULT_SERVER |
+| `cd client && npm run typecheck && npm test` | RESULT_CLIENT |
+| `cd client && npm run build && npx playwright test` (Chromium, headless, Linux, the built client served by the host) | RESULT_E2E |
+| The new browser test and the changed counterparty test alone, `--repeat-each=3` | 6 passed |
+
+The server's tests (`PricerSourceCommandTests`, `XvaApiTests`) read both commands' readings and refusals, the count
+a stale reading is refused for (asked as the AI), the completions, a sequence that holds a value date and refuses a
+counterparty change, `undo` refused after each, and the dummy's terms and a move from it. The browser test opens a
+workspace with Enter on the empty dialog, sees the badge and an empty Existing grid, reads and runs `cpty ABC/LE-01`
+(the panel retitled, the badge gone), reads the drop of `counterparty XYZ/LE-03` after an edit and runs it, then reads
+and runs `value date 2026-10-27` and sees the same date refused. The toolbar's counterparty test now reads the
+server's sentence and the retitled panel.
+
+By hand, in the built client served by the host: pictures of the dialog (1440px and 390px), the dummy workspace
+(1440px light and dark, 390px), the readings of `cpty` and `value date`, and a GIF of the flow. Looked at each.
+
+### Providers
+
+Unchanged: every source and every measure is simulated, and every value is synthetic.
+
+### Known limits
+
+- **A dummy counterparty's Project name** (ADR-0010 §1's first line) is not built: nothing holds or asks for one
+  yet. It waits for the owner to say what it is for.
+- **The toolbar's dialog lists what drops by kind**, and the line's reading by row and field, as before this change;
+  the dialog was not changed.
+
 ## Next
 
 1. Panels in areas, ADR-0018 step 3 (parts of a page with links), once the owner has seen step 2.
