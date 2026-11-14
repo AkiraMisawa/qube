@@ -166,6 +166,12 @@ export interface WorkspaceState {
    * for a panel that is not open.
    */
   renamePanel(panelId: string, typed: string): void;
+  /**
+   * Gives a panel's page another title, as a page whose subject moved does: the XVA page on another counterparty
+   * (ADR-0016 note 69). A name the user gave it stays; a panel called by its title is numbered anew among those of its
+   * new one. Throws for a panel that is not open.
+   */
+  retitlePanel(panelId: string, title: string): void;
   /** Shows this panel. Throws for a panel that is not open. */
   activate(panelId: string): void;
   openRunDialog(workflowKey: string | undefined): void;
@@ -308,6 +314,17 @@ export function createWorkspaceStore(initialContext: Readonly<Record<string, unk
       set((state) => {
         const copy = freeCopy(state.panels.filter((p) => p.id !== panelId), panelName(renamed));
         return { panels: state.panels.map((p) => (p.id === panelId ? { ...renamed, ...(copy === 1 ? {} : { copy }) } : p)) };
+      });
+    },
+
+    retitlePanel(panelId, title) {
+      const panel = requireOpen(get().panels, panelId);
+      if (panel.title === title) return;
+      set((state) => {
+        if (panel.name !== undefined) return { panels: state.panels.map((p) => (p.id === panelId ? { ...p, title } : p)) };
+        const { copy: _, ...uncounted } = panel;
+        const copy = freeCopy(state.panels.filter((p) => p.id !== panelId), title);
+        return { panels: state.panels.map((p) => (p.id === panelId ? { ...uncounted, title, ...(copy === 1 ? {} : { copy }) } : p)) };
       });
     },
 

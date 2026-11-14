@@ -963,9 +963,24 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
         };
     }
 
-    /// <summary>Moves the value date: a new version of the same counterparty's trades; edits carry or are held.</summary>
-    public (WorkspaceState State, CarrySummary Summary) ChangeValueDate(string workspaceId, long revision, string user, DateOnly valueDate) =>
-        Reacquired(workspaceId, revision, user, valueDate, null, null);
+    /// <summary>
+    /// Moves the value date (<c>value date</c>, ADR-0016 note 69): a new version of the same counterparty's trades; edits
+    /// carry or are held. The date the workspace is on already is refused: <c>refresh</c> reads that again.
+    /// </summary>
+    public (WorkspaceState State, CarrySummary Summary) ChangeValueDate(string workspaceId, long revision, string user, DateOnly valueDate, RunOrigin? origin = null)
+    {
+        SameValueDate(Owned(workspaceId, user), valueDate);
+        return Reacquired(workspaceId, revision, user, valueDate, origin, $"value date {Day(valueDate)}");
+    }
+
+    /// <summary>Refuses a value date the workspace is on already (<c>SameValueDate</c>).</summary>
+    public static void SameValueDate(WorkspaceState state, DateOnly valueDate)
+    {
+        if (Source(state).ValueDate == valueDate)
+            throw new WorkspaceRefused("SameValueDate", $"The workspace is already as of {Day(valueDate)}: refresh reads it again.", word: Day(valueDate));
+    }
+
+    static string Day(DateOnly date) => date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
 
     (WorkspaceState State, CarrySummary Summary) Reacquired(string workspaceId, long revision, string user, DateOnly valueDate, RunOrigin? origin, string? said)
     {
@@ -981,25 +996,72 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
         (moved.State, moved.Summary with { Carried = moved.Summary.Carried - moved.State.Overrides.Keys.Count(t => t.Scope == PortfolioEditRules.WorkspaceScope) });
 
     /// <summary>What leaving the current counterparty would drop, for the confirmation (ADR-0003 §6).</summary>
-    public ScopeDrop PreviewCounterpartyChange(string workspaceId, string user)
+    public ScopeDrop PreviewCounterpartyChange(string workspaceId, string user) => DropOf(Owned(workspaceId, user));
+
+    /// <summary>
+    /// What leaving the counterparty a workspace is on would drop, as it stands: its edits, and what was made for it (a
+    /// case goes with the counterparty it was made on, with every change it holds, ADR-0010 §3), counted by kind.
+    /// </summary>
+    public static ScopeDrop DropOf(WorkspaceState state)
     {
-        var state = Owned(workspaceId, user);
-        var scope = $"cp:{Source(state).Registration.Key}";
-        var rules = new PortfolioEditRules();
-        // A case goes with the counterparty it was made on, with every change it holds (ADR-0010 §3), and is counted.
-        var held = state.InScope(scope).Keys.Concat(state.Created.Values.Where(c => c.Scope == scope).Select(c => new EditTarget(scope, c.Entity, "*"))).ToList();
-        return new(scope, held.Count, held.GroupBy(rules.KindOf).ToDictionary(g => g.Key, g => g.Count()));
+        var dropped = Dropped(state);
+        return new(ScopeOf(state), dropped.Count, dropped.GroupBy(new PortfolioEditRules().KindOf).ToDictionary(g => g.Key, g => g.Count()));
     }
 
-    /// <summary>Changes the counterparty: the confirmed edits of the previous one are dropped, a new trade's own edits stay.</summary>
-    public (WorkspaceState State, CarrySummary Summary) ChangeCounterparty(string workspaceId, long revision, string user, string registration, int confirmedCount)
+    /// <summary>What a change of counterparty would drop, each in the page's words (<c>CSA-A threshold</c>, <c>the case …</c>), in the order they were made.</summary>
+    public IReadOnlyList<string> DroppedTitles(WorkspaceState state)
     {
-        var source = Source(Owned(workspaceId, user));
-        if (source.Registration.Key == registration)
-            throw new WorkspaceRefused("SameCounterparty", $"The workspace is already on {registration}.");
-        var next = new PortfolioSourceVersion(registration, source.ValueDate, source.Descriptor["existingCount"]!.GetValue<int>());
-        return DataEdits(workspaces.ChangeScope(workspaceId, revision, user, $"cp:{source.Registration.Key}", confirmedCount,
-            Context(registration, source.ValueDate, source.Descriptor["existingCount"]!.GetValue<int>()), next));
+        var rules = new PortfolioEditRules(register);
+        return [.. Dropped(state).Select(t => rules.TitleOf(state, t))];
+    }
+
+    static string ScopeOf(WorkspaceState state) => $"cp:{Source(state).Registration.Key}";
+
+    // In the order they were made, so that a reading says them alike each time it is asked.
+    static IReadOnlyList<EditTarget> Dropped(WorkspaceState state)
+    {
+        var scope = ScopeOf(state);
+        return [.. state.InScope(scope).Values.Select(o => (o.Target, o.Seq))
+            .Concat(state.Created.Values.Where(c => c.Scope == scope).Select(c => (Target: new EditTarget(scope, c.Entity, "*"), c.Seq)))
+            .OrderBy(t => t.Seq).Select(t => t.Target)];
+    }
+
+    /// <summary>
+    /// The counterparty a key names (<c>counterparty</c>, ADR-0016 note 69), whatever the case of its letters. A code alone
+    /// names no counterparty, since the legal entity is part of one's identity, and is refused with the keys it could
+    /// be; so is a key no counterparty has, with every key there is. The one the workspace is on is refused too.
+    /// </summary>
+    public static Registration CounterpartyNamed(WorkspaceState state, string typed)
+    {
+        var keys = PortfolioCatalog.Registrations.Select(r => r.Key).ToList();
+        if (typed.Length == 0)
+            throw new WorkspaceRefused("NoCounterparty", $"counterparty takes a counterparty's code and legal entity, such as {keys[^1]}: {TableWords.Or(keys)}.", candidates: keys);
+        var named = PortfolioCatalog.Registrations.SingleOrDefault(r => r.Key.Equals(typed, StringComparison.OrdinalIgnoreCase));
+        if (named is null)
+        {
+            var coded = PortfolioCatalog.Registrations.Where(r => r.Code.Equals(typed, StringComparison.OrdinalIgnoreCase)).Select(r => r.Key).ToList();
+            throw coded.Count > 0
+                ? new WorkspaceRefused("CodeAlone", $"{typed} is a code, and a counterparty is its code and its legal entity: {TableWords.Or(coded)}.", word: typed, candidates: coded)
+                : new WorkspaceRefused("UnknownCounterparty", $"No counterparty {typed}: the counterparties are {TableWords.And(keys)}.", word: typed, candidates: keys);
+        }
+        if (named.Key == Source(state).Registration.Key)
+            throw new WorkspaceRefused("SameCounterparty", $"The workspace is already on {named.Key}.", word: typed);
+        return named;
+    }
+
+    /// <summary>
+    /// Changes the counterparty (<c>counterparty</c>, ADR-0003 §6, ADR-0016 note 69): the confirmed edits of the previous
+    /// one are dropped, a new trade's own edits stay. Refused where the workspace holds another count to drop by now
+    /// (<c>ConfirmationStale</c>), so nothing is dropped unseen.
+    /// </summary>
+    public (WorkspaceState State, CarrySummary Summary) ChangeCounterparty(string workspaceId, long revision, string user, string registration, int confirmedCount, RunOrigin? origin = null)
+    {
+        var state = Owned(workspaceId, user);
+        var source = Source(state);
+        var named = CounterpartyNamed(state, registration);
+        var size = source.Descriptor["existingCount"]!.GetValue<int>();
+        return DataEdits(workspaces.ChangeScope(workspaceId, revision, user, ScopeOf(state), confirmedCount,
+            Context(named.Key, source.ValueDate, size), new PortfolioSourceVersion(named.Key, source.ValueDate, size), origin, $"counterparty {named.Key}"));
     }
 
     /// <summary>Price: freezes the revision the user saw and submits one Run for it.</summary>

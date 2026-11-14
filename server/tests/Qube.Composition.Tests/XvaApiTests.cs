@@ -67,7 +67,7 @@ public class XvaApiTests(QubeFactory factory) : IClassFixture<QubeFactory>
         Assert.Equal("RevisionMoved", (await stale.Content.ReadFromJsonAsync<JsonObject>())!["code"]!.GetValue<string>());
     }
 
-    [Fact] // ADR-0003 §6: changing counterparty drops the confirmed edits and keeps a new trade's own content
+    [Fact] // ADR-0003 §6, ADR-0016 note 69: changing counterparty drops the confirmed edits and keeps a new trade's own content
     public async Task A_counterparty_change_needs_the_confirmed_count_and_keeps_draft_content()
     {
         var ws = await Create();
@@ -76,17 +76,39 @@ public class XvaApiTests(QubeFactory factory) : IClassFixture<QubeFactory>
         var preview = (await client.GetFromJsonAsync<JsonObject>($"/api/xva/workspaces/{Id(ws)}/counterparty-change"))!;
         Assert.Equal(1, preview["count"]!.GetValue<int>());
         Assert.Equal(1, preview["byKind"]!["xva.assignment"]!.GetValue<int>());
+        // The toolbar invokes the command the line types (ADR-0016 note 69): the plain endpoint is gone.
+        Assert.False((await Post(ws, "counterparty", new { revision = Revision(ws), registration = "ABC/LE-02", confirmedCount = 1 })).IsSuccessStatusCode);
+        Task<HttpResponseMessage> Change(int drops) => client.PostAsJsonAsync("/api/commands/xva.counterparty.change/1.0.0", new
+        {
+            inputs = new JsonObject { ["request"] = new JsonObject { ["workspaceId"] = Id(ws), ["revision"] = Revision(ws), ["registration"] = "ABC/LE-02", ["drops"] = drops } },
+            idempotencyKey = Guid.NewGuid().ToString(),
+        });
 
-        var stale = await Post(ws, "counterparty", new { revision = Revision(ws), registration = "ABC/LE-02", confirmedCount = 0 });
-        Assert.Equal(HttpStatusCode.Conflict, stale.StatusCode);
-        var moved = await Post(ws, "counterparty", new { revision = Revision(ws), registration = "ABC/LE-02", confirmedCount = 1 });
+        var stale = await Change(0);
+        Assert.False(stale.IsSuccessStatusCode);
+        Assert.Equal("ConfirmationStale", (await stale.Content.ReadFromJsonAsync<JsonObject>())!["code"]!.GetValue<string>());
+        var moved = await Change(1);
 
         Assert.Equal(HttpStatusCode.OK, moved.StatusCode);
-        var result = (await moved.Content.ReadFromJsonAsync<JsonObject>())!;
-        Assert.Equal("ABC/LE-02", result["workspace"]!["registration"]!["key"]!.GetValue<string>());
-        Assert.Equal(1, result["carried"]!["carried"]!.GetValue<int>());
-        var draft = (await Page(result["workspace"]!.AsObject(), 0, 2000))["rows"]!.AsArray().Single(r => r!["tradeId"]!.GetValue<string>() == "DRAFT-1")!;
+        var answer = (await moved.Content.ReadFromJsonAsync<JsonObject>())!["outputs"]!["answer"]!;
+        Assert.Equal(("Counterparty changed to ABC/LE-02: 1 edit(s) dropped; 1 carried, 0 in conflict, 0 lost.", 1), (answer["said"]!.GetValue<string>(), answer["carried"]!.GetValue<int>()));
+        var view = (await client.GetFromJsonAsync<JsonObject>($"/api/xva/workspaces/{Id(ws)}"))!;
+        Assert.Equal("ABC/LE-02", view["registration"]!["key"]!.GetValue<string>());
+        var draft = (await Page(view, 0, 2000))["rows"]!.AsArray().Single(r => r!["tradeId"]!.GetValue<string>() == "DRAFT-1")!;
         Assert.Equal((7_000_000m, "CSA-C"), (draft["notional"]!.GetValue<decimal>(), draft["csa"]!.GetValue<string>()));
+    }
+
+    [Fact] // ADR-0010 §1, ADR-0016 note 69: the counterparties a workspace is made on say which is the dummy, which a new workspace takes where none is chosen
+    public async Task The_registrations_say_which_is_the_dummy()
+    {
+        var registrations = (await client.GetFromJsonAsync<JsonArray>("/api/xva/registrations"))!;
+
+        Assert.Equal(["DUMMY/LE-00"], registrations.Where(r => r!["dummy"]!.GetValue<bool>()).Select(r => r!["key"]!.GetValue<string>()));
+        Assert.Equal(4, registrations.Count);
+        var dummy = await Create("DUMMY/LE-00");
+        Assert.True(dummy["registration"]!["dummy"]!.GetValue<bool>());
+        // Nothing is booked with it: its trades are the new ones alone, whatever size was asked for.
+        Assert.Equal(dummy["newTrades"]!.GetValue<int>(), dummy["trades"]!.GetValue<int>());
     }
 
     [Fact] // ADR-0003 §6: Price freezes the revision and its Run computes simulated CVA and FVA

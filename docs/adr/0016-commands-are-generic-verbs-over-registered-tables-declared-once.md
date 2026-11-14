@@ -2694,6 +2694,44 @@ later answer, is written when he answers.
     answer: as it is now. The lists are made from the grids' selections in the page (note 37) and by the AI
     through the typed value, and `add each` on the line takes none. A spelling is designed when one is asked for.
 
+### Note of 2026-11-14: the value date and the counterparty are commands
+
+The owner asked (2026-11-14) for commands that change an XVA workspace's value date and its counterparty, with `cpty`
+as a second spelling, and for a workspace opened with no counterparty chosen to be on a dummy one (ADR-0010 §1's note
+of the same day). Until then both were changed from the toolbar alone, through endpoints of the page's own, so neither
+the line nor the AI could change them.
+
+69. **`value date <date>` and `counterparty <code/entity>` (`cpty`) are command capabilities (owner, 2026-11-14; their
+    forms DEFAULT).** `xva.value-date.change` and `xva.counterparty.change` take what the toolbar took, and the
+    toolbar invokes them through the door (§5), so the line, the toolbar and the AI cannot differ.
+    - **The line says what each would do before Enter.** `value date 2026-10-27` names the date it moves from and
+      to: `Moves the value date from 2026-10-26 to 2026-10-27: reads ABC/LE-01 as of it, and carries your edits onto
+      what it reads.` A date not written `yyyy-MM-dd`, more than one word, or the date the workspace is on already
+      is refused; the last says `refresh reads it again`, since reading the same date again is `refresh`'s (note 33).
+      `cpty XYZ/LE-03` names where it moves the workspace and what it drops, by row and field, which the toolbar's
+      dialog lists by kind (ADR-0003 §6): `Moves the workspace to XYZ/LE-03 (XYZ Industries (synthetic)) as of
+      2026-10-26, and drops 1 edit made for ABC/LE-01: DRAFT-1 csa. They stay in the log and in any Run that priced
+      them.` A counterparty is its code and its legal entity: a code alone is refused with the entities it could
+      mean, an unknown one with the list, and the one the workspace is on says so. Tab offers the others, by key or
+      by a word of the name; the dummy's says that nothing is booked with it.
+    - **What it drops is the count the reading showed.** The reading puts the count in the request (`drops`), and
+      the command is refused (`ConfirmationStale`) where the workspace holds another count by its turn, so an edit
+      made after the reading is never dropped unseen (spine 6). The toolbar sends the count its dialog showed, or 0
+      without a dialog where nothing drops.
+    - **A new effect, `dropEdits`**, stands beside `editWorkspace` on the counterparty's command: a command that
+      discards edits the user made. A saved sequence (note 61) refuses a line of it (`… drops the edits its reading
+      counts, and a sequence runs a line without showing its reading`). `value date` carries the edits, and a
+      sequence holds it as it holds `refresh`.
+    - **The answer is the server's sentence**, as `refresh`'s is: `Value date moved to 2026-10-27: 0 edit(s)
+      carried, 0 in conflict, 0 lost.` and `Counterparty changed to XYZ/LE-03: 1 edit(s) dropped; 0 carried, 0 in
+      conflict, 0 lost.` It stays while an edit is held. The log names each by its words (`value date 2026-10-27`,
+      `counterparty XYZ/LE-03`). `undo` takes back neither (§11): the first read another source version, and the
+      second left a scope with its edits.
+    - **The page's endpoints that wrote them are gone** (`POST …/value-date`, `POST …/counterparty`). The toolbar
+      still reads what a change of counterparty would drop (`GET …/counterparty-change`) for its dialog. The panel is
+      titled by the counterparty it shows (`XVA XYZ/LE-03`), so a move by the line or the AI retitles it; a name the
+      user gave the panel stays (ADR-0006 note 9).
+
 ## Rejected
 
 - **A range syntax of the pricer's own** (`after off where ccy=USD`, the review's R6). A second grammar per domain,

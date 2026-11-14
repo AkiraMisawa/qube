@@ -136,9 +136,10 @@ public class CommandGatewayTests(QubeFactory factory) : IClassFixture<QubeFactor
         var typed = capabilities.Where(c => c!["command"] is not null).ToDictionary(c => c!["capabilityId"]!.GetValue<string>(), c => c!["command"]!.ToJsonString());
 
         Assert.Equal(["draft.apply", "entity.create", "entity.remove", "entity.reset", "entity.set", "rates.frame.capture", "rates.line.add", "rates.live.start", "rates.live.stop",
-            "rates.workspace.price", "sequence.run", "sequence.save", "workspace.redo", "workspace.undo", "xva.case.remove", "xva.cases.clear", "xva.cds", "xva.measures",
-            "xva.pv01.retry", "xva.refresh", "xva.scenario", "xva.scenario.cross", "xva.scenario.duplicate", "xva.scenario.exclude", "xva.scenario.include",
-            "xva.scenario.ladder", "xva.scenario.load", "xva.scenario.remove", "xva.scenario.save", "xva.scenarios.clear", "xva.trades.add", "xva.trades.load", "xva.vary", "xva.workspace.price"],
+            "rates.workspace.price", "sequence.run", "sequence.save", "workspace.redo", "workspace.undo", "xva.case.remove", "xva.cases.clear", "xva.cds", "xva.counterparty.change",
+            "xva.measures", "xva.pv01.retry", "xva.refresh", "xva.scenario", "xva.scenario.cross", "xva.scenario.duplicate", "xva.scenario.exclude", "xva.scenario.include",
+            "xva.scenario.ladder", "xva.scenario.load", "xva.scenario.remove", "xva.scenario.save", "xva.scenarios.clear", "xva.trades.add", "xva.trades.load", "xva.value-date.change",
+            "xva.vary", "xva.workspace.price"],
             typed.Keys.Order(StringComparer.Ordinal));
         // The catalog lists a module's commands in the order it registers them, which the line keeps (note 33): Price first.
         Assert.Equal("xva.workspace.price", capabilities.Select(c => c!["capabilityId"]!.GetValue<string>()).First(id => id.StartsWith("xva.", StringComparison.Ordinal) && typed.ContainsKey(id)));
@@ -149,6 +150,11 @@ public class CommandGatewayTests(QubeFactory factory) : IClassFixture<QubeFactor
         Assert.Equal("""{"words":["vary"],"arguments":[{"name":"cell","kind":"text","required":true},{"name":"values","kind":"text","required":true}],"app":"xva"}""", typed["xva.vary"]);
         Assert.Equal("""{"words":["add each"],"arguments":[],"app":"xva"}""", typed["xva.trades.add"]);
         Assert.Equal("""{"words":["load trades"],"arguments":[{"name":"trades","kind":"text","required":true}],"app":"xva"}""", typed["xva.trades.load"]);
+        // A command has a spelling per word it is typed by (ADR-0016 note 69): `counterparty` and `cpty`, and a
+        // command that drops edits says so by its effect.
+        Assert.Equal("""{"words":["counterparty","cpty"],"arguments":[{"name":"registration","kind":"text","required":true}],"app":"xva"}""", typed["xva.counterparty.change"]);
+        Assert.Equal("""["editWorkspace","dropEdits"]""", capabilities.Single(c => c!["capabilityId"]!.GetValue<string>() == "xva.counterparty.change")!["effects"]!.ToJsonString());
+        Assert.Equal("""{"words":["value date"],"arguments":[{"name":"valueDate","kind":"text","required":true}],"app":"xva"}""", typed["xva.value-date.change"]);
         // The short forms are listed apart (note 29): what runs is the kernel command each stands for.
         Assert.Equal(["xva.before", "xva.after", "xva.currency"], catalog["shortForms"]!.AsArray().Select(f => f!["formId"]!.GetValue<string>()));
         Assert.Equal("""{"formId":"xva.currency","title":"Show the figures in a currency, such as USD","command":{"words":["currency"],"arguments":[{"name":"currency","kind":"text","required":true}],"app":"xva"}}""",

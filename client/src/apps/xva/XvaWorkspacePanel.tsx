@@ -378,6 +378,13 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
     ownRevision.current = shownRevision;
     ownSource.current = shownSource;
   }, [shownRevision, shownSource, sources]);
+  // The panel is titled by the counterparty it shows, as it opened (`XVA <key>`): moved to another by `counterparty`,
+  // from the toolbar, the line or the AI, it is titled by that one, so the strip never names one the page has left
+  // (ADR-0016 note 69).
+  const shownKey = view.data?.registration.key;
+  useEffect(() => {
+    if (shownKey !== undefined) workspace.store.getState().retitlePanel(panelId, `XVA ${shownKey}`);
+  }, [shownKey, panelId, workspace]);
 
   // The selected modules' trade columns (ADR-0010 §10), made again only when they change (ExGrid ADR-0003).
   const tradeColumns = view.data?.tradeColumns;
@@ -533,26 +540,29 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
     return () => registerPlaces(panelId, undefined);
   }, [panelId]);
 
-  /** A command that re-reads the source: the order may move, so the grid starts over (ExGrid ADR-0011). */
-  const reacquire = async (label: string, run: (revision: number) => Promise<{ readonly workspace: XvaWorkspaceView; readonly carried: { readonly carried: number; readonly conflicted: number; readonly lost: number } }>) => {
-    setBusy(label);
+  /**
+   * The toolbar's value date invokes `value date`, the command the line types (ADR-0016 note 69), so the two cannot
+   * differ: the notice is the server's count of what carried, and stays while an edit is held. The door reads the grids
+   * from their first row again, since the source moved (ExGrid ADR-0011).
+   */
+  const moveValueDate = async (valueDate: string) => {
+    setBusy('Value date moved');
     try {
-      // After the edits already sent, so that what they changed carries (spine 6).
-      const { workspace: next, carried } = await queue.after(async (revision) => {
-        const answer = await run(revision);
-        queue.rebase(answer.workspace.revision);
-        return answer;
-      });
-      show(next);
-      sources.requery();
-      // Edits in conflict or lost wait for the user's decision: the notice that counts them does not leave by itself.
-      workspace.notify('done', `${label}: ${carried.carried} edit(s) carried, ${carried.conflicted} in conflict, ${carried.lost} lost.`,
-        { stays: carried.conflicted + carried.lost > 0 });
-    } catch (error) {
-      workspace.notify('refused', `${label} failed: ${describe(error)}`);
-      const fresh = await api.view(workspaceId);
-      queue.rebase(fresh.revision);
-      show(fresh);
+      await invoked('xva.value-date.change', { valueDate }, 'The value date was not moved');
+    } finally {
+      setBusy(undefined);
+    }
+  };
+
+  /**
+   * The toolbar's counterparty invokes `counterparty` (ADR-0016 note 69) with the count of edits it drops, as the line's
+   * reading shows it before Enter: where it drops any, the dialog lists them by kind first (ADR-0003 §6). The server
+   * refuses the change where the workspace holds another count by its turn, so nothing the dialog did not show is dropped.
+   */
+  const changeCounterparty = async (registration: string, drops: number) => {
+    setBusy('Counterparty changed');
+    try {
+      await invoked('xva.counterparty.change', { registration, drops }, 'The counterparty was not changed');
     } finally {
       setBusy(undefined);
     }
@@ -560,13 +570,19 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
 
   const chooseCounterparty = async (registration: string | null) => {
     if (registration === null || view.data === undefined || registration === view.data.registration.key) return;
-    const drop = await api.previewCounterpartyChange(workspaceId);
-    if (drop.count === 0) await reacquire('Counterparty changed', (revision) => api.changeCounterparty(workspaceId, revision, registration, 0));
+    let drop: ScopeDrop;
+    try {
+      drop = await api.previewCounterpartyChange(workspaceId);
+    } catch (error) {
+      workspace.notify('refused', `The counterparty was not changed: ${describe(error)}`);
+      return;
+    }
+    if (drop.count === 0) await changeCounterparty(registration, 0);
     else setConfirm({ registration, drop });
   };
 
   /** A control's command through the door (ADR-0016 §5): a refusal is a notice that opens with what was not done. */
-  const invoked = async (capability: string, request: Readonly<Record<string, string>>, notDone: string) => {
+  const invoked = async (capability: string, request: CommandRequest, notDone: string) => {
     const reason = await door.invoke(capability, request);
     if (reason !== undefined) workspace.notify('refused', `${notDone}: ${reason.sentence}`);
   };
@@ -1001,13 +1017,21 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
       {/* The context bar (ADR-0010 §1; docs/design-guidelines.md §3, §4): one 30px Control Height, each label beside its input. */}
       <div className="qube-toolbar" role="toolbar" aria-label="Workspace">
         <ValueDate value={ws.context.valueDate} disabled={!notBusy}
-          onCommit={(date) => void reacquire('Value date moved', (revision) => api.changeValueDate(workspaceId, revision, date))}
+          onCommit={(date) => void moveValueDate(date)}
           onRefused={(sentence) => workspace.notify('refused', sentence)} />
         <ToolbarField label="Counterparty" wide>
           {(id) => (
-            <Select id={id} size="xs" className="qube-toolbar-input qube-toolbar-input--wide" allowDeselect={false} searchable value={ws.registration.key}
-              data={(registrations.data ?? [ws.registration]).map((r) => ({ value: r.key, label: `${r.code} | ${r.legalEntity} | ${r.name}` }))}
-              onChange={(value) => void chooseCounterparty(value)} disabled={!notBusy} comboboxProps={{ withinPortal: true }} />
+            <>
+              <Select id={id} size="xs" className="qube-toolbar-input qube-toolbar-input--wide" allowDeselect={false} searchable value={ws.registration.key}
+                data={(registrations.data ?? [ws.registration]).map((r) => ({ value: r.key, label: `${r.code} | ${r.legalEntity} | ${r.name}` }))}
+                onChange={(value) => void chooseCounterparty(value)} disabled={!notBusy} comboboxProps={{ withinPortal: true }} />
+              {/* A workspace opened with no counterparty chosen is on the dummy (ADR-0010 §1's note of 2026-11-14): said
+                  beside it on every width, so no figure reads as a booked counterparty's. */}
+              {ws.registration.dummy && (
+                <Badge variant="light" color="yellow" size="lg" radius="sm" data-testid="dummy-counterparty"
+                  title="A dummy counterparty: nothing is booked with it, and it has no CDS curve until one is chosen on the Credit tab.">Dummy</Badge>
+              )}
+            </>
           )}
         </ToolbarField>
         <div className="qube-toolbar-field" data-testid="netting-set">
@@ -1135,7 +1159,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
               <Button data-autofocus color="red" onClick={() => {
                 const { registration, drop } = confirm;
                 setConfirm(undefined);
-                void reacquire('Counterparty changed', (revision) => api.changeCounterparty(workspaceId, revision, registration, drop.count));
+                void changeCounterparty(registration, drop.count);
               }}>Drop {confirm.drop.count} and change</Button>
             </Group>
           </Stack>

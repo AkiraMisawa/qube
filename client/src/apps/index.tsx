@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useState, type ReactNode } from 'react';
 import { Button, Group, Modal, NumberInput, Select, Stack, Text } from '@mantine/core';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { CommandRefused, type Command } from '../platform/commands/commands';
 import { useWorkspace, useWorkspaceContext } from '../platform/workspace/WorkspaceProvider';
 import { panelLabel, type Panel, type WorkspaceState } from '../platform/workspace/workspaceStore';
@@ -8,6 +8,7 @@ import { PricingDbPanel } from './history/PricingDbPanel';
 import { httpRatesApi, type RatesApi } from './rates/api';
 import { RatesWorkspacePanel } from './rates/RatesWorkspacePanel';
 import { httpXvaApi, type XvaApi } from './xva/api';
+import type { Registration } from './xva/contracts';
 import { measureNamed, xvaPageOf } from './xva/commands';
 import { XvaWorkspacePanel } from './xva/XvaWorkspacePanel';
 import { registerAiContext, registerAiEffect } from '../ai/effects';
@@ -77,10 +78,11 @@ registerAiContext(XVA_WORKSPACE, (panel) => panel.params.workspaceId === undefin
   value: JSON.stringify({ kind: 'xva.workspace', workspaceId: panel.params.workspaceId }),
 });
 // The scenario commands (ADR-0010 §4) likewise, and `price`, `refresh` and `pv01 retry` (ADR-0016 note 33): the page
-// shows the Run the AI priced, and reads its grids again from the first row where a refresh moved the source.
+// shows the Run the AI priced, and reads its grids again from the first row where a refresh moved the source. So too
+// `value date` and `counterparty` (note 69), after which the panel is titled by the counterparty it then shows.
 const XVA_EDITS = ['xva.vary', 'xva.trades.add', 'xva.cds', 'xva.measures', 'xva.case.remove', 'xva.cases.clear', 'xva.scenario',
   'xva.scenario.include', 'xva.scenario.exclude', 'xva.scenario.remove', 'xva.scenario.duplicate', 'xva.scenarios.clear', 'xva.scenario.ladder',
-  'xva.scenario.cross', 'xva.scenario.load', 'xva.workspace.price', 'xva.refresh', 'xva.pv01.retry'];
+  'xva.scenario.cross', 'xva.scenario.load', 'xva.workspace.price', 'xva.refresh', 'xva.pv01.retry', 'xva.value-date.change', 'xva.counterparty.change'];
 for (const capability of XVA_EDITS)
   registerAiEffect(capability, (outputs, { queryClient }) => {
     const answer = outputs.answer as { readonly workspaceId: string };
@@ -345,9 +347,26 @@ export function AppDialogs() {
   );
 }
 
+/** The counterparties a workspace is opened for, read once: the dialog lists them, and the toolbar's control. */
+const REGISTRATIONS = { queryKey: ['xva', 'registrations'], queryFn: () => xvaApi.registrations(), staleTime: Infinity } as const;
+
+/**
+ * The dummy counterparty, which a workspace opened with none chosen is on (ADR-0010 §1's note of 2026-11-14, asked for
+ * by the owner that day). A list with none, or with several, is a defect said as one: no other counterparty is taken in
+ * its place.
+ */
+function dummyOf(registrations: readonly Registration[]): Registration {
+  const dummies = registrations.filter((r) => r.dummy);
+  if (dummies.length !== 1) throw new Error(`The server lists ${dummies.length} dummy counterparties, and a workspace opened with none chosen is on its one: choose a counterparty.`);
+  return dummies[0]!;
+}
+
 function NewXvaWorkspace({ onDone }: { readonly onDone: () => void }) {
   const workspace = useWorkspaceContext();
-  const registrations = useQuery({ queryKey: ['xva', 'registrations'], queryFn: () => xvaApi.registrations(), staleTime: Infinity });
+  const queryClient = useQueryClient();
+  const registrations = useQuery(REGISTRATIONS);
+  // What the user chose, and nothing until they do: the dummy is what the placeholder says the workspace is on then,
+  // never a value put in the field, which a list that arrives as the user types would write over what was typed.
   const [registration, setRegistration] = useState<string | null>(null);
   const [valueDate, setValueDate] = useState('2026-10-26');
   const [valueDateError, setValueDateError] = useState<string | undefined>(undefined);
@@ -356,12 +375,13 @@ function NewXvaWorkspace({ onDone }: { readonly onDone: () => void }) {
   const [error, setError] = useState<string | undefined>(undefined);
 
   const submit = async () => {
-    if (registration === null) { setError('Choose a counterparty.'); return; }
     if (!isIsoDate(valueDate)) { setValueDateError('A date as yyyy-MM-dd is required.'); return; }
     if (typeof size !== 'number' || !Number.isInteger(size) || size < 0) { setError('The portfolio size is a whole number.'); return; }
     setBusy(true);
     try {
-      const created = await xvaApi.create(registration, valueDate, size);
+      // Read here where the list has not arrived yet, so that an Enter pressed as the dialog opens is on the dummy too.
+      const chosen = registration ?? dummyOf(await queryClient.fetchQuery(REGISTRATIONS)).key;
+      const created = await xvaApi.create(chosen, valueDate, size);
       workspace.store.getState().showApp(XVA_WORKSPACE, `XVA ${created.registration.key}`, { workspaceId: created.workspaceId });
       onDone();
     } catch (e) {
@@ -371,10 +391,16 @@ function NewXvaWorkspace({ onDone }: { readonly onDone: () => void }) {
     }
   };
 
+  // The placeholder names the dummy once the list is read; a list without its one says so when the dialog is submitted.
+  const dummies = (registrations.data ?? []).filter((r) => r.dummy);
+  const dummy = dummies.length === 1 ? dummies[0] : undefined;
+
   return (
     <form onSubmit={(e) => { e.preventDefault(); void submit(); }}>
       <Stack gap="sm">
-        <Select label="Counterparty" data-autofocus searchable value={registration} onChange={setRegistration} error={error}
+        <Select label="Counterparty" data-autofocus searchable clearable value={registration} onChange={setRegistration} error={error}
+          placeholder={dummy === undefined ? 'The dummy counterparty' : `${dummy.key} · ${dummy.name}`}
+          description="Left empty, the workspace is on the dummy counterparty: nothing is booked with it."
           data={(registrations.data ?? []).map((r) => ({ value: r.key, label: `${r.key} · ${r.name}` }))} />
         <IsoDateInput label="Value date" value={valueDate} error={valueDateError}
           onChange={(text) => { setValueDate(text); setValueDateError(undefined); }} />

@@ -363,7 +363,8 @@
               "readWorkspace",
               "readSettings",
               "editSettings",
-              "propose"
+              "propose",
+              "dropEdits"
             ]
           },
           "minItems": 0

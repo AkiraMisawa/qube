@@ -77,7 +77,14 @@ export interface Membership { readonly in: boolean; readonly reason: string; rea
 /** One scope of a membership, such as `collect/JFSA`, titled as the page shows it (`IM-R JFSA`). */
 export interface MembershipScope { readonly id: string; readonly title: string; readonly in: boolean; readonly reason: string }
 
-export interface Registration { readonly key: string; readonly code: string; readonly legalEntity: string; readonly name: string }
+export interface Registration {
+  readonly key: string;
+  readonly code: string;
+  readonly legalEntity: string;
+  readonly name: string;
+  /** A prospect's stand-in, with nothing booked, no CSA and no CDS (ADR-0010 §1): the page says so wherever it names it. */
+  readonly dummy: boolean;
+}
 
 export interface Agreement {
   readonly maId: string;

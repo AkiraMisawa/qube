@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json.Nodes;
 using Qube.Composition.Application;
 using Qube.Composition.Application.Tables;
@@ -7,7 +8,8 @@ using Qube.Composition.Contracts;
 namespace Qube.Samples.Portfolio;
 
 // The pricer's commands that start work or read the source again (ADR-0010 §1, §6, §9, ADR-0016 note 33 of step 3):
-// `price`, `refresh` and `pv01 retry`. Each says how it is typed and reads its own line, as the commands that edit do,
+// `price`, `refresh` and `pv01 retry`, and `value date` and `counterparty` (`cpty`), which read it on another date or
+// for another counterparty (note 69). Each says how it is typed and reads its own line, as the commands that edit do,
 // but none is tried: a Run submitted, a source read again and a result asked for again cannot be done and not done.
 // A reading says what would start, and refuses what the command would refuse before it started anything.
 
@@ -18,6 +20,9 @@ public static class PortfolioPriceContracts
     public const string RefreshRequest = "xva.refresh-request";
     public const string Refreshed = "xva.refreshed";
     public const string RetryRequest = "xva.pv01-retry-request";
+    public const string ValueDateRequest = "xva.value-date-request";
+    public const string CounterpartyRequest = "xva.counterparty-request";
+    public const string Moved = "xva.source-moved";
 
     /// <summary>
     /// What a reading of <c>price</c> says Price would price: the measures, the cases, the markets where a scenario is
@@ -35,6 +40,21 @@ public static class PortfolioPriceContracts
 
     /// <summary>What <c>refresh</c> says back: the edits to the portfolio's data that carried, and those held for the user.</summary>
     public static string Carried(CarrySummary carried) => $"Refreshed: {carried.Carried} edit(s) carried, {carried.Conflicted} in conflict, {carried.Lost} lost.";
+
+    /// <summary>What <c>value date</c> says back: the date moved to, and what carried and what is held.</summary>
+    public static string ValueDateMoved(DateOnly valueDate, CarrySummary carried) =>
+        $"Value date moved to {valueDate:yyyy-MM-dd}: {carried.Carried} edit(s) carried, {carried.Conflicted} in conflict, {carried.Lost} lost.";
+
+    /// <summary>What <c>counterparty</c> says back: the counterparty moved to, what was dropped, and what carried and what is held.</summary>
+    public static string CounterpartyChanged(string registration, int dropped, CarrySummary carried) =>
+        $"Counterparty changed to {registration}: {dropped} edit(s) dropped; {carried.Carried} carried, {carried.Conflicted} in conflict, {carried.Lost} lost.";
+
+    /// <summary>The answer of <c>value date</c> and <c>counterparty</c>: where the workspace was left, and what was dropped, carried and held.</summary>
+    public static JsonObject MovedAnswer(WorkspaceState state, string said, int dropped, CarrySummary carried) => new()
+    {
+        ["workspaceId"] = state.WorkspaceId, ["revision"] = state.Revision, ["said"] = said, ["dropped"] = dropped,
+        ["carried"] = carried.Carried, ["conflicted"] = carried.Conflicted, ["lost"] = carried.Lost, ["stays"] = carried.Conflicted + carried.Lost > 0,
+    };
 
     /// <summary>What <c>pv01 retry</c> says back.</summary>
     public static string Retried(int asked) => asked == 0 ? "No result had failed, so nothing was asked again." : $"Asked again for {asked} result(s).";
@@ -73,6 +93,42 @@ public static class PortfolioPriceContracts
                 ["description"] = "True where an edit is in conflict or lost: what was said waits for the user's decision, and a page keeps it in view.",
             },
         }, "workspaceId", "revision", "said", "carried", "conflicted", "lost", "stays");
+        Contract(ValueDateRequest, "Move the value date", new JsonObject
+        {
+            ["workspaceId"] = PortfolioCommand.WorkspaceField(),
+            ["revision"] = CommandRequests.RevisionField(),
+            ["valueDate"] = new JsonObject { ["type"] = "string", ["format"] = "date", ["title"] = "Value date", ["description"] = "The date to read the counterparty's trades and CSAs as of, yyyy-MM-dd: another than the workspace's." },
+        }, "workspaceId", "valueDate");
+        Contract(CounterpartyRequest, "Change the counterparty", new JsonObject
+        {
+            ["workspaceId"] = PortfolioCommand.WorkspaceField(),
+            ["revision"] = CommandRequests.RevisionField(),
+            ["registration"] = new JsonObject
+            {
+                ["type"] = "string", ["minLength"] = 1, ["title"] = "Counterparty",
+                ["description"] = "Its code and its legal entity, such as ABC/LE-02; DUMMY/LE-00 is the dummy counterparty. A code alone names none.",
+            },
+            ["drops"] = new JsonObject
+            {
+                ["type"] = "integer", ["minimum"] = 0, ["title"] = "Edits dropped",
+                ["description"] = "How many edits made for the counterparty the workspace is on the change drops, as its reading says: a workspace that holds another count by then is refused, so nothing is dropped unseen.",
+            },
+        }, "workspaceId", "registration", "drops");
+        Contract(Moved, "Workspace moved", new JsonObject
+        {
+            ["workspaceId"] = new JsonObject { ["type"] = "string", ["title"] = "Workspace" },
+            ["revision"] = Integer("Revision"),
+            ["said"] = new JsonObject { ["type"] = "string", ["title"] = "What moved, what was dropped and what carried, as the command line says it" },
+            ["dropped"] = Integer("Edits dropped"),
+            ["carried"] = Integer("Edits carried"),
+            ["conflicted"] = Integer("Edits in conflict"),
+            ["lost"] = Integer("Edits lost"),
+            ["stays"] = new JsonObject
+            {
+                ["type"] = "boolean", ["title"] = "Waits for the user",
+                ["description"] = "True where an edit is in conflict or lost: what was said waits for the user's decision, and a page keeps it in view.",
+            },
+        }, "workspaceId", "revision", "said", "dropped", "carried", "conflicted", "lost", "stays");
         Contract(RetryRequest, "Ask again for failed results", new JsonObject
         {
             ["workspaceId"] = PortfolioCommand.WorkspaceField(),
@@ -142,6 +198,109 @@ public sealed class PortfolioRefresh(Func<PortfolioWorkspaces> workspaces) : ICa
                 ["workspaceId"] = state.WorkspaceId, ["revision"] = state.Revision, ["said"] = PortfolioPriceContracts.Carried(carried),
                 ["carried"] = carried.Carried, ["conflicted"] = carried.Conflicted, ["lost"] = carried.Lost, ["stays"] = carried.Conflicted + carried.Lost > 0,
             };
+        });
+}
+
+/// <summary>
+/// <c>xva.value-date.change</c>, typed <c>value date 2026-10-31</c> (ADR-0003 §6, ADR-0016 note 69): the counterparty's
+/// trades and CSAs read as of another date, the edits carried onto them or held, as the toolbar's Value date does,
+/// which invokes it. Its reading reads no source, as <c>refresh</c>'s does not: it says the date it would move from
+/// and to, and refuses a date that is none and the date the workspace is on.
+/// </summary>
+public sealed class PortfolioValueDate(Func<PortfolioWorkspaces> workspaces) : ICapabilityHandler, ILineCommand
+{
+    public CapabilityDescriptor Descriptor { get; } = new("xva.value-date.change", PortfolioContracts.Version,
+        "Move an XVA workspace to another value date: its counterparty's trades and CSAs are read as of it, and its edits carry onto them or are held",
+        [new("request", PortfolioPriceContracts.ValueDateRequest, PortfolioContracts.Version, Cardinality.One)],
+        [new("answer", PortfolioPriceContracts.Moved, PortfolioContracts.Version, Cardinality.One)],
+        ExecutionKind.RequestResponse, [CapabilityEffect.EditWorkspace],
+        new(["value date"], [new("valueDate", CommandArgumentKind.Text, Required: true)], PortfolioEditRules.App));
+
+    public LineRead Read(LineContext line)
+    {
+        var source = PortfolioSourceVersion.Of(PortfolioCases.Base(line.State));
+        var words = LineWords.Of(line.Text);
+        var now = $"{source.ValueDate:yyyy-MM-dd}";
+        if (words.Count == 0)
+            throw new TableRefused("NoValueDate", $"value date takes a date as yyyy-MM-dd, such as 2026-10-31: the workspace is as of {now}.", null);
+        if (words.Count > 1) throw new TableRefused("UnreadWords", $"value date takes one date: {words[1].Word} is not read.", words[1].Word);
+        var typed = words[0].Word;
+        if (!DateOnly.TryParseExact(typed, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var date))
+            throw new TableRefused("InvalidDate", $"{typed} is not a date as yyyy-MM-dd, such as 2026-10-31.", typed);
+        PortfolioWorkspaces.SameValueDate(line.State, date);
+        return PortfolioCommand.Read(line, new JsonObject { ["valueDate"] = $"{date:yyyy-MM-dd}" },
+            $"Moves the value date from {now} to {date:yyyy-MM-dd}: reads {source.Registration.Key} as of it, and carries your edits onto what it reads.");
+    }
+
+    public LineCompletions Complete(LineContext line) => LineCompletions.None;
+
+    public Task<IReadOnlyDictionary<string, JsonNode?>> InvokeAsync(CapabilityInvocation invocation, CancellationToken cancellationToken) =>
+        PortfolioCommand.Asked(invocation, workspaces, (service, request, caller, revision) =>
+        {
+            var date = DateOnly.ParseExact(CommandRequests.Text(request, "valueDate"), "yyyy-MM-dd", CultureInfo.InvariantCulture);
+            var (state, carried) = service.ChangeValueDate(CommandRequests.Text(request, "workspaceId"), revision, caller.UserId, date, caller.Origin);
+            return PortfolioPriceContracts.MovedAnswer(state, PortfolioPriceContracts.ValueDateMoved(date, carried), 0, carried);
+        });
+}
+
+/// <summary>
+/// <c>xva.counterparty.change</c>, typed <c>counterparty ABC/LE-02</c> or <c>cpty ABC/LE-02</c> (ADR-0003 §6, ADR-0016
+/// note 69): the workspace moves to another counterparty on the same value date. The edits made for the one it leaves
+/// are dropped, and a new trade's own carry, as the toolbar's Counterparty does, which invokes it. Its reading reads no
+/// source: it says what would be dropped, each edit by the page's words, and the request it gives carries that count,
+/// so that a workspace holding another by the time it runs is refused and nothing is dropped unseen. The reading is
+/// the line's confirmation, as the toolbar's dialog is the select's.
+/// </summary>
+public sealed class PortfolioCounterparty(Func<PortfolioWorkspaces> workspaces) : ICapabilityHandler, ILineCommand
+{
+    public CapabilityDescriptor Descriptor { get; } = new("xva.counterparty.change", PortfolioContracts.Version,
+        "Change the counterparty of an XVA workspace, by its code and legal entity: the edits made for the one it leaves are dropped, a new trade's own carry",
+        [new("request", PortfolioPriceContracts.CounterpartyRequest, PortfolioContracts.Version, Cardinality.One)],
+        [new("answer", PortfolioPriceContracts.Moved, PortfolioContracts.Version, Cardinality.One)],
+        ExecutionKind.RequestResponse, [CapabilityEffect.EditWorkspace, CapabilityEffect.DropEdits],
+        new(["counterparty", "cpty"], [new("registration", CommandArgumentKind.Text, Required: true)], PortfolioEditRules.App));
+
+    public LineRead Read(LineContext line)
+    {
+        var state = PortfolioCases.Base(line.State);
+        var words = LineWords.Of(line.Text);
+        if (words.Count > 1) throw new TableRefused("UnreadWords", $"counterparty takes one counterparty: {words[1].Word} is not read.", words[1].Word);
+        var named = PortfolioWorkspaces.CounterpartyNamed(line.State, words.Count == 0 ? "" : words[0].Word);
+        var source = PortfolioSourceVersion.Of(state);
+        var dropped = workspaces().DroppedTitles(line.State);
+        var to = $"{named.Key} ({named.Name}{(named.Dummy ? ": nothing is booked with it" : "")}) as of {source.ValueDate:yyyy-MM-dd}";
+        var drops = dropped.Count == 0 ? $"; nothing made for {source.Registration.Key} is dropped."
+            : $", and drops {TableWords.Counted(dropped.Count, "edit")} made for {source.Registration.Key}: {TableWords.Some(dropped)}. They stay in the log and in any Run that priced them.";
+        var read = PortfolioCommand.Read(line, new JsonObject { ["registration"] = named.Key }, $"Moves the workspace to {to}{drops}");
+        ((JsonObject)read.Inputs["request"]!)["drops"] = dropped.Count;
+        return read;
+    }
+
+    /// <summary>
+    /// The counterparties a word begins, by its key or its code or a word of its name, with what each is; the one the
+    /// workspace is on is not offered, since a move to it is refused.
+    /// </summary>
+    public LineCompletions Complete(LineContext line)
+    {
+        // No space after the command's own word: it is still being typed, and nothing follows yet.
+        if (line.Text.Length == 0) return LineCompletions.None;
+        var (done, typing, start) = LineWords.Typing(line.Text);
+        if (done.Count > 0) return LineCompletions.None;
+        var on = PortfolioSourceVersion.Of(line.State).Registration.Key;
+        static bool Begins(string text, string typing) => text.StartsWith(typing, StringComparison.OrdinalIgnoreCase);
+        return new([.. PortfolioCatalog.Registrations
+            .Where(r => r.Key != on && (Begins(r.Key, typing) || r.Name.Split(' ').Any(w => Begins(w, typing))))
+            .Select(r => new LineCompletion(r.Key, start, r.Dummy ? $"{r.Name}: nothing is booked with it" : r.Name))]);
+    }
+
+    public Task<IReadOnlyDictionary<string, JsonNode?>> InvokeAsync(CapabilityInvocation invocation, CancellationToken cancellationToken) =>
+        PortfolioCommand.Asked(invocation, workspaces, (service, request, caller, revision) =>
+        {
+            var drops = request["drops"]?.GetValue<int>() ?? throw new CapabilityFailure("InvalidInput", "counterparty takes drops, the count of edits its reading said it drops.");
+            var (state, carried) = service.ChangeCounterparty(CommandRequests.Text(request, "workspaceId"), revision, caller.UserId,
+                CommandRequests.Text(request, "registration"), drops, caller.Origin);
+            var registration = PortfolioSourceVersion.Of(state).Registration.Key;
+            return PortfolioPriceContracts.MovedAnswer(state, PortfolioPriceContracts.CounterpartyChanged(registration, drops, carried), drops, carried);
         });
 }
 

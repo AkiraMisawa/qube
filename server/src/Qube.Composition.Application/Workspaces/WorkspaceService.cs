@@ -359,15 +359,17 @@ public sealed class WorkspaceService(IReadOnlyDictionary<string, IEditRules> rul
     /// then re-acquires for the new context, checking what remains (a new trade's own edits) as any refresh
     /// does. Either both happen or neither.
     /// </summary>
+    /// <param name="origin">Who asked for it, which its log entries keep, as any command's do (ADR-0016 §5).</param>
+    /// <param name="said">The words that would type it, by which the log names it (ADR-0016 note 28).</param>
     public (WorkspaceState State, CarrySummary Summary) ChangeScope(string workspaceId, long expectedRevision, string user,
-        string leaving, int confirmedCount, JsonObject context, ISourceVersion source)
+        string leaving, int confirmedCount, JsonObject context, ISourceVersion source, RunOrigin? origin = null, string? said = null)
     {
         CarrySummary summary = new(0, 0, 0);
         var state = Apply(workspaceId, expectedRevision, state =>
         {
-            (var next, summary) = ReacquireOn(DropOn(state, user, leaving, confirmedCount), user, context, source);
+            (var next, summary) = ReacquireOn(DropOn(state, user, leaving, confirmedCount, origin), user, context, source, origin);
             return next;
-        });
+        }, said);
         return (state, summary);
     }
 
@@ -446,7 +448,7 @@ public sealed class WorkspaceService(IReadOnlyDictionary<string, IEditRules> rul
         return next with { Rederived = total };
     }
 
-    WorkspaceState DropOn(WorkspaceState state, string user, string scope, int confirmedCount)
+    WorkspaceState DropOn(WorkspaceState state, string user, string scope, int confirmedCount, RunOrigin? origin = null)
     {
         // Entities the user created in the scope go with it, and count as edits the user confirmed (ADR-0004).
         var dropped = state.InScope(scope);
@@ -460,7 +462,7 @@ public sealed class WorkspaceService(IReadOnlyDictionary<string, IEditRules> rul
             Overrides = state.Overrides.RemoveRange(dropped.Keys),
             Conflicts = state.Conflicts.RemoveRange(dropped.Keys),
             Lost = state.Lost.RemoveRange(dropped.Keys),
-            Log = state.Log.Add(Entry(state, seq, user, EditKind.DropScope, null, JsonValue.Create(scope), $"{dropped.Count + created.Count} edits")),
+            Log = state.Log.Add(Entry(state, seq, user, EditKind.DropScope, null, JsonValue.Create(scope), $"{dropped.Count + created.Count} edits", origin: origin)),
         };
     }
 

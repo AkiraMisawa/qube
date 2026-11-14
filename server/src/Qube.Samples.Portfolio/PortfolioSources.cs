@@ -14,6 +14,13 @@ namespace Qube.Samples.Portfolio;
 public sealed record Registration(string Code, string LegalEntity, string Name)
 {
     public string Key => $"{Code}/{LegalEntity}";
+
+    /// <summary>
+    /// Whether it stands for a prospect rather than a counterparty the bank trades with (docs/03 §2.4, ADR-0010 §1): no
+    /// trade is booked with it, it has no CSA and no CDS until the user gives it one, and the page says it is a dummy
+    /// wherever it names it. A workspace opened with no counterparty chosen is on it (owner, 2026-11-14).
+    /// </summary>
+    public bool Dummy { get; init; }
 }
 
 /// <summary>A master agreement with its netting set and CSAs. An uncollateralised one has none, only its sentinel.
@@ -168,8 +175,12 @@ public sealed record BaselineProfile(string ProfileVersion, string Uncollaterali
 
 public static class PortfolioCatalog
 {
+    /// <summary>The dummy counterparty's key: the one a workspace opened with no counterparty chosen is on (owner, 2026-11-14).</summary>
+    public const string DummyKey = "DUMMY/LE-00";
+
     public static readonly IReadOnlyList<Registration> Registrations =
     [
+        new("DUMMY", "LE-00", "Dummy counterparty (synthetic)") { Dummy = true },
         new("ABC", "LE-01", "ABC Holdings (synthetic)"),
         new("ABC", "LE-02", "ABC Securities (synthetic)"),
         new("XYZ", "LE-03", "XYZ Industries (synthetic)"),
@@ -182,9 +193,11 @@ public static class PortfolioCatalog
     // CSA-A is perfectly collateralised; CSA-B's counterparty threshold puts it past FVA's 1mm GBP; CSA-C margins daily
     // with small amounts, until a threshold is raised (ADR-0010 §5). ABC/LE-01 exchanges IM under JFSA and, from dates
     // that leave some of its trades out, CFTC and EMIR; ABC/LE-02 came into JFSA's scope after most of its trades; XYZ
-    // exchanges none (ADR-0012 §2). The dates are illustrative.
+    // exchanges none (ADR-0012 §2). The dates are illustrative. The dummy counterparty is a prospect's: an enforceable
+    // netting set with no CSA, so a trade with it is uncollateralised (`nocsa_MA-000`, docs/03 §2.4), and no IM CSA.
     public static readonly IReadOnlyList<Agreement> Agreements =
     [
+        new("MA-000", "NS-000", DummyKey, [], null),
         new("MA-001", "NS-001", "ABC/LE-01",
             [new("CSA-A", "VM", "JPY", "jpy_ois", "jpy_funding", "daily", 0m, 50_000_000m, "JPY", 0m, 50_000_000m, "JPY",
                  AgreementName: "ABC-LE01-VM-JPY", UserDefined: null,
@@ -264,7 +277,10 @@ public sealed class PortfolioSourceVersion : ISourceVersion
         Registration = PortfolioCatalog.Find(registrationKey);
         Agreement = PortfolioCatalog.AgreementOf(registrationKey);
         ValueDate = valueDate;
-        Existing = [.. Enumerable.Range(1, existingCount).Select(i => Generate(Agreement, $"{Registration.Code}-{Registration.LegalEntity}-E{i:D5}", false, valueDate)).OfType<SourceTrade>()];
+        // Nothing is booked with a dummy counterparty, whatever size was asked for: the size is kept, and is what a
+        // move to a booked counterparty reads (DEFAULT, ADR-0010 §1's note of 2026-11-14).
+        Existing = Registration.Dummy ? []
+            : [.. Enumerable.Range(1, existingCount).Select(i => Generate(Agreement, $"{Registration.Code}-{Registration.LegalEntity}-E{i:D5}", false, valueDate)).OfType<SourceTrade>()];
         this.existingCount = existingCount;
         // Drafts the user loaded belong to no counterparty, so they stay through a counterparty change (D07).
         New = [.. Enumerable.Range(1, 3).Select(i => Generate(Agreement, $"DRAFT-{i}", true, valueDate)).OfType<SourceTrade>()];
@@ -272,15 +288,18 @@ public sealed class PortfolioSourceVersion : ISourceVersion
         legs = trades.Values.SelectMany(t => t.Legs).ToDictionary(l => l.LegId);
         amounts = trades.Values.SelectMany(t => t.Amounts).ToDictionary(a => a.AmountId);
         booked = new(() => BookedTrades.On(valueDate));
-        // Each ABC entity has a single name; XYZ Industries, an unrated corporate, is proxied.
+        // Each ABC entity has a single name; XYZ Industries, an unrated corporate, is proxied. The dummy has none: a
+        // prospect's credit is the user's to choose, so CVA is refused until a CDS is (`cds`, the Credit tab).
         Cds = Registration.Key switch
         {
+            PortfolioCatalog.DummyKey => new CdsChoice(null, null, null, null, null),
             "ABC/LE-01" => new CdsChoice(CdsCatalog.SingleName, "ABCH.SNRFOR.USD.XR14", null, null, null),
             "ABC/LE-02" => new CdsChoice(CdsCatalog.SingleName, "ABCS.SNRFOR.USD.XR14", null, null, null),
             _ => new CdsChoice(CdsCatalog.Proxy, null, "industrials", "asia", "BBB"),
         };
-        // One registration has an explicit empty CVA recovery: analytics then uses the CDS recovery (docs/03).
-        CvaRecovery = Registration.LegalEntity == "LE-01" ? null : 0.35m;
+        // One registration has an explicit empty CVA recovery: analytics then uses the CDS recovery (docs/03). So has
+        // the dummy, which has no recovery of its own to give.
+        CvaRecovery = Registration.LegalEntity == "LE-01" || Registration.Dummy ? null : 0.35m;
         Version = RowsVersion = $"{registrationKey}@{valueDate:yyyy-MM-dd}#{existingCount}";
     }
 
