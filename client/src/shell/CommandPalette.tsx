@@ -17,6 +17,7 @@ import { viewsFor } from '../platform/views/binding';
 import { CONTEXT_CONTRACT, useWorkspace, useWorkspaceContext } from '../platform/workspace/WorkspaceProvider';
 import { keyOf, panelLabel, type Panel, type WorkspaceState } from '../platform/workspace/workspaceStore';
 import { holdKeyboard, keepKeyboard, keyboardAwaited, letGo, releaseKeyboard, rememberKeyboard, returnKeyboard } from './keyboard';
+import { appleKeyboard, editLine, lineEdit, lineText } from './lineKeys';
 import { goTo, placesOf } from './places';
 import { panelCommands, type PanelState } from './panelVerbs';
 import { arrangeCommands, arrangingOf, type Arranging } from './proposals';
@@ -712,6 +713,10 @@ export function CommandPalette() {
     // composition runs nothing, and its arrows and Tab choose among the IME's candidates. 229 is what a browser that
     // has already ended the composition still says of the key that ended it.
     if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+    // The Emacs keys that edit the line (ADR-0006 note 11): done by the line on Windows and Linux, left to the text
+    // field on a Mac, and on either kept from the shell's chords.
+    const edit = lineEdit(event, lineText(event.currentTarget), appleKeyboard());
+    if (edit !== undefined) { editLine(event.currentTarget, edit, event); return; }
     // Ctrl+N and Ctrl+P move as the arrows do (owner, 2026-10-28): literal Ctrl, so not Cmd on a Mac.
     const emacs = event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey;
     const key = event.key.toLowerCase();

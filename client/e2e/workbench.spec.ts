@@ -165,6 +165,88 @@ test('ADR-0006: Ctrl+N and Ctrl+P move through the command line\'s list as the a
   await expect(page.getByRole('tab', { name: 'Pricing DB' })).toHaveAttribute('aria-selected', 'true');
 });
 
+test('ADR-0006 note 11: on Windows and Linux the line edits with Emacs keys, its list follows, and Ctrl+Z takes a deletion back', async ({ page }) => {
+  await open(page);
+  await page.keyboard.press('ControlOrMeta+K');
+  const line = page.getByRole('combobox', { name: 'Command' });
+  await expect(line).toBeFocused();
+  // A query no command matches until the line's keys take its end off.
+  await page.keyboard.type('pricing dbxyz');
+  await expect(page.getByText('No command matches.')).toBeVisible();
+  const caret = async (at: number) => {
+    await expect(line).toHaveJSProperty('selectionStart', at);
+    await expect(line).toHaveJSProperty('selectionEnd', at);
+  };
+
+  await page.keyboard.press('Control+a');
+  await caret(0);
+  await page.keyboard.press('Control+f');
+  await caret(1);
+  await page.keyboard.press('Control+e');
+  await caret(13);
+  await page.keyboard.press('Control+b');
+  await page.keyboard.press('Control+b');
+  await page.keyboard.press('Control+b');
+  await caret(10);
+  // Ctrl+K is the line's here, not the chord that opens the line: it deletes to the end, and the list reads what is left.
+  await page.keyboard.press('Control+k');
+  await expect(line).toHaveValue('pricing db');
+  await expect(page.getByRole('listbox', { name: 'Commands' }).getByRole('option', { selected: true })).toContainText('Pricing DB');
+  // The deletion was the browser's own edit, so its undo brings the text back, and the line reads it again.
+  await page.keyboard.press('Control+z');
+  await expect(line).toHaveValue('pricing dbxyz');
+  await expect(page.getByText('No command matches.')).toBeVisible();
+
+  await page.keyboard.press('Control+e');
+  await page.keyboard.press('Alt+b');
+  await caret(8);
+  await page.keyboard.press('Alt+d');
+  await expect(line).toHaveValue('pricing ');
+  await page.keyboard.press('Control+h');
+  await expect(line).toHaveValue('pricing');
+  await page.keyboard.press('Alt+b');
+  await page.keyboard.press('Control+d');
+  await expect(line).toHaveValue('ricing');
+  await caret(0);
+  await page.keyboard.press('Alt+f');
+  await caret(6);
+  await page.keyboard.press('Control+b');
+  await page.keyboard.press('Control+u');
+  await expect(line).toHaveValue('g');
+  await caret(0);
+  // The keys were the line's alone: it is still open and still has the keyboard.
+  await expect(line).toBeFocused();
+});
+
+test('ADR-0006 note 11: on a Mac the Ctrl keys are the text field\'s own, and the chord that opens the line no longer takes Ctrl+K', async ({ page }) => {
+  // A Mac's keyboard, as the page reads it; the browser underneath is still Linux's, whose Ctrl+A selects everything.
+  await page.addInitScript(() => Object.defineProperty(Navigator.prototype, 'platform', { get: () => 'MacIntel' }));
+  await open(page);
+  await page.keyboard.press('ControlOrMeta+K');
+  const line = page.getByRole('combobox', { name: 'Command' });
+  await expect(line).toBeFocused();
+  await page.keyboard.type('open pricing db');
+  // Whether a key's default was prevented, read once every listener has had it.
+  await page.evaluate(() => {
+    const seen: string[] = [];
+    (window as unknown as { seen: string[] }).seen = seen;
+    window.addEventListener('keydown', (e) => { if (e.ctrlKey && e.key.length === 1) setTimeout(() => seen.push(`${e.key}:${e.defaultPrevented}`)); }, { capture: true });
+  });
+
+  await page.keyboard.press('Control+a');
+  // The line did not take Ctrl+A: the field's own default ran.
+  await expect(line).toHaveJSProperty('selectionStart', 0);
+  await expect(line).toHaveJSProperty('selectionEnd', 15);
+  await page.keyboard.press('End');
+  await page.keyboard.press('Control+k');
+  await expect.poll(() => page.evaluate(() => (window as unknown as { seen: string[] }).seen)).toEqual(['a:false', 'k:false']);
+  await expect(line).toHaveValue('open pricing db');
+  // Ctrl+U, which a Mac's field lacks, is the line's there too.
+  await page.keyboard.press('Control+u');
+  await expect(line).toHaveValue('');
+  await expect(line).toBeFocused();
+});
+
 // ADR-0009: what only a browser shows. A header control a few pixels off its neighbours, or a header taller than the
 // space AppShell keeps for it, still passes every other test; both were on screen before ADR-0009.
 for (const width of [1440, 992, 768, 390]) {

@@ -926,7 +926,9 @@ test('ADR-0016 §5: while the server reads the line, nothing is taken from its r
 
   // Enter while the server is slow, and the line closed before it answers: the reason has no line left to stay on.
   waits = new Promise<void>((resolve) => { letGo = resolve; });
-  await page.keyboard.press('ControlOrMeta+A');
+  // The line's Ctrl+A goes to its start (ADR-0006 note 11): the whole line is selected from its end.
+  await page.keyboard.press('End');
+  await page.keyboard.press('Shift+Home');
   await page.keyboard.type('set DRAFT-2 colour red');
   await page.keyboard.press('Enter');
   await expect(line).toHaveAttribute('aria-busy', 'true');
@@ -1482,8 +1484,9 @@ test('ADR-0016 §9, note 24: Ctrl+Enter runs the line and keeps it open, saying 
   await expect(summary).toContainText('0 edit(s)');
 
   // A chained `go` puts the keyboard in its place and the line takes it back: the next line's screen is that grid.
-  // The line draws the last of what it said, and counts the rest.
-  await page.keyboard.press('ControlOrMeta+A');
+  // The line draws the last of what it said, and counts the rest. The whole line is selected from its end (ADR-0006 note 11).
+  await page.keyboard.press('End');
+  await page.keyboard.press('Shift+Home');
   await page.keyboard.type('go existing');
   await page.keyboard.press('ControlOrMeta+Enter');
   await expect(said).toHaveText([...undone, '› go existing', 'The keyboard is in Existing trades.']);
