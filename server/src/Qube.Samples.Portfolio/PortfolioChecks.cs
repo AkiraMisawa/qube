@@ -141,23 +141,3 @@ public sealed class PortfolioChecks(MeasureRegister register)
     static string? OneOf(JsonNode? value, IReadOnlyList<string> allowed, string what) =>
         value is null || value is JsonValue v && v.TryGetValue<string>(out var text) && allowed.Contains(text) ? null : $"{what} is one of {string.Join(", ", allowed)}, or empty.";
 }
-
-/// <summary>
-/// A workspace's project name (ADR-0010 §1's note of 2026-11-14): the name its Runs are listed under in the Pricing DB,
-/// which tells apart the Runs made on the dummy counterparty, where the counterparty says nothing of what was priced.
-/// A workspace on the dummy needs one before it is made and before it prices.
-/// </summary>
-public static class ProjectNames
-{
-    public const int MostCharacters = 80;
-
-    public const string Rule = "A project name is 1 to 80 characters on one line, with no space at either end, or empty for none.";
-
-    /// <summary>Whether a name is one: not empty, on one line, no longer than <see cref="MostCharacters"/>, and as typed with nothing trimmed off.</summary>
-    public static bool Holds(string name) =>
-        name.Length is > 0 and <= MostCharacters && name == name.Trim() && !name.Any(char.IsControl);
-
-    /// <summary>The refusal of a workspace on the dummy that has no project name, at its making or at Price, of the field it names.</summary>
-    public static WorkspaceRefused Required(string doing, EditTarget field) =>
-        new("ProjectRequired", $"A workspace on the dummy counterparty is listed in the Pricing DB by its project, since the counterparty says nothing of what was priced: name the project {doing}.", [field]);
-}

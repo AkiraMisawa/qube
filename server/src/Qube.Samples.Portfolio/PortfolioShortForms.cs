@@ -96,7 +96,7 @@ public sealed class PortfolioShortForms : IShortFormCatalog
         {
             var typed = line.Text.Trim();
             return typed.Length > 0 ? $"set {Entity.WorkspaceId} project {typed}"
-                : throw new TableRefused("NoProject", $"project takes the project's name, such as project Alpha bid; reset {Entity.WorkspaceId} project clears it.", null);
+                : throw new TableRefused("NoProject", $"project takes the project's name, such as `project Alpha bid`; `reset {Entity.WorkspaceId} project` clears it.", null);
         }
 
         public LineCompletions Complete(LineContext line) => LineCompletions.None;

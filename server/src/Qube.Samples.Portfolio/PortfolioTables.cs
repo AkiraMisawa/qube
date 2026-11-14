@@ -326,8 +326,9 @@ public sealed class PortfolioTables(MeasureRegister register) : ITableCatalog
             return new Row(reading, Entity.WorkspaceSettings, Entity.WorkspaceId, null, f => f switch
             {
                 PortfolioFields.Row => Entity.WorkspaceId,
+                Entity.DisplayCurrency => currency,
                 Entity.Project => project,
-                _ => currency,
+                _ => throw new InvalidOperationException($"The Workspace row has no field {f}."),
             });
         }),
         // A module's settings, the table and its row named by the module's id (ADR-0010 §8): `set xva cost of capital 12%`.

@@ -248,7 +248,7 @@ public static class PortfolioInput
         // A Run on the dummy is told apart by its project alone (ADR-0010 §1's note of 2026-11-14), so none is made without one.
         var project = PortfolioMaterialiser.Project(state);
         if (source.Registration.Dummy && project is null)
-            throw ProjectNames.Required("beside the counterparty, or with `project <name>`, to price", PortfolioEditRules.Target(source, Entity.WorkspaceSettings, Entity.Project));
+            throw ProjectNames.MissingAtPrice();
         var selected = PortfolioMaterialiser.SelectedMeasures(state, register);
         var loaded = BookedTrades.LoadedBy(raw).Where(id => source.Trade(id) is not null).ToList();
         return new JsonObject

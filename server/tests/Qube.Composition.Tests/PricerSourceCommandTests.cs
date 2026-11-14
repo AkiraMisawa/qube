@@ -193,7 +193,6 @@ public class PricerSourceCommandTests
         Assert.True(moved.Trades > moved.NewTrades);
     }
 
-
     [Fact] // ADR-0010 §1's note of 2026-11-14 (owner): a workspace on the dummy is made and priced only under a project, which its Run, its Pricing DB row and its quote carry
     public async Task A_workspace_on_the_dummy_is_made_and_priced_under_a_project_its_run_carries()
     {
@@ -228,12 +227,13 @@ public class PricerSourceCommandTests
         Assert.Equal("Beta deal", rig.Service.View(rig.Id, "akira").Project);
     }
 
-    [Fact] // ADR-0010 §1's note of 2026-11-14: a booked counterparty's workspace needs no project, and its Run names none
+    [Fact] // ADR-0010 §1's note of 2026-11-14: a booked counterparty's workspace needs no project, and its Run names none; a move onto the dummy says it will
     public async Task A_booked_counterpartys_workspace_prices_with_no_project()
     {
         var rig = new PricerRig();
 
         Assert.Null(rig.Service.View(rig.Id, "akira").Project);
+        Assert.EndsWith("; nothing made for ABC/LE-01 is dropped. On it the workspace prices only under a project: name one with `project <name>`.", rig.Read("cpty DUMMY/LE-00"));
         var runId = Assert.IsType<SubmissionResult.Accepted>(rig.Service.Price(rig.Id, rig.State.Revision, "akira", Guid.NewGuid().ToString())).Run.RunId;
         var input = await rig.Accepted(runId);
         var run = rig.Runs.Find(runId)!;

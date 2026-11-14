@@ -167,7 +167,7 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
         // Each refusal names the field, so that the dialog says it under the project.
         var named = PortfolioEditRules.Target(source, Entity.WorkspaceSettings, Entity.Project);
         if (project is not null && !ProjectNames.Holds(project)) throw new WorkspaceRefused("InvalidValue", ProjectNames.Rule, [named]);
-        if (source.Registration.Dummy && project is null) throw ProjectNames.Required("as the workspace is made", named);
+        if (source.Registration.Dummy && project is null) throw ProjectNames.MissingAtMaking(named);
         // Each is part of the workspace's making, so `undo` never takes it back (ADR-0016 §11, note 2), and the page
         // says the display currency came from the user's setting (ADR-0017 §3).
         var made = new List<WorkspaceChange.Set>();

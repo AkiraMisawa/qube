@@ -93,15 +93,21 @@ quiet:
   - It is a setting of the workspace's, `project` on the Workspace table, beside the display currency: set with
     `project <name>` (a short form of `set workspace project <name>`, ADR-0016 note 29) or in the context bar, and
     cleared with `reset workspace project`. As a setting it is the workspace's whichever counterparty it is on, so a
-    move to a booked counterparty keeps it. A name is 1 to 80 characters on one line, with no space at either end.
+    move to a booked counterparty keeps it, and that counterparty's Runs carry it too: a prospect priced under a
+    project and then booked stays listed under it. A name is 1 to 80 characters on one line, with no space at either
+    end. It is typed as an identifier is (`FieldForm.Id`, the text as written), since the kernel has no form of its
+    own for free text and needs none for this.
   - **A workspace on the dummy is made and priced only under one.** The dialog shows a required Project field while
     its Counterparty is empty or the dummy, and Create with none is refused there, with the keyboard put on it; the
     server refuses a dummy's making with none (`ProjectRequired`), and Price, and the line's reading of `price`, on
-    the dummy with none, cleared since. A booked counterparty's workspace needs none: the counterparty says what was
-    priced.
+    the dummy with none, cleared since. A move onto the dummy with none is not refused, as nothing is priced by it,
+    but its reading says that the workspace then prices only under a project. A booked counterparty's workspace needs
+    none: the counterparty says what was priced.
   - **The Run carries it.** The accepted input holds `project` (none where there is none), the Run's context names it
-    where there is one, the Pricing DB's XVA view lists it in a `Project` column, and the quote's header says
-    `Project <name>` after the counterparty.
+    where there is one, the Pricing DB's XVA view lists it in a `Project` column beside the counterparty, and the
+    quote's header says `Project <name>` after the counterparty. The list it tells Runs apart in is the XVA view, the
+    one that names a Run's counterparty (docs/05 §7): the All Runs view names neither, and a project there would be a
+    label every domain's Run has, a decision of the kernel's of its own.
   - **It is in sight wherever it is held:** in the context bar beside the counterparty while the workspace is on the
     dummy or holds one, and in the panel's title on the dummy, which alone tells two such panels apart.
 

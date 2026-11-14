@@ -11,7 +11,7 @@ import { httpXvaApi, type XvaApi } from './xva/api';
 import type { Registration } from './xva/contracts';
 import { measureNamed, xvaPageOf } from './xva/commands';
 import { XvaWorkspacePanel, xvaPanelTitle } from './xva/XvaWorkspacePanel';
-import { PROJECT_FIELD, SETTINGS_ENTITY } from './xva/editing';
+import { PROJECT_FIELD, SETTINGS_ENTITY, projectNamed } from './xva/editing';
 import { ApiError } from '../platform/api';
 import { registerAiContext, registerAiEffect } from '../ai/effects';
 import { registerGridFocus } from '../shell/places';
@@ -122,7 +122,7 @@ registerPageOpener({
   open: async (workspaceId) => {
     if (workspaceId === undefined) throw new Error('An XVA workspace is opened by its id.');
     const view = await xvaApi.view(workspaceId);
-    return { kind: 'app', title: `XVA ${view.registration.key}`, app: XVA_WORKSPACE, params: { workspaceId } };
+    return { kind: 'app', title: xvaPanelTitle(view), app: XVA_WORKSPACE, params: { workspaceId } };
   },
 });
 registerPageOpener({
@@ -394,8 +394,8 @@ function NewXvaWorkspace({ onDone }: { readonly onDone: () => void }) {
   const submit = async () => {
     if (!isIsoDate(valueDate)) { setValueDateError('A date as yyyy-MM-dd is required.'); return; }
     if (typeof size !== 'number' || !Number.isInteger(size) || size < 0) { setError('The portfolio size is a whole number.'); return; }
-    const named = project.trim();
-    if (onDummy && named === '') {
+    const named = projectNamed(project);
+    if (onDummy && named === null) {
       setProjectError('Name the project: a workspace on the dummy is listed in the Pricing DB under it.');
       projectInput.current?.focus();
       return;
@@ -409,7 +409,7 @@ function NewXvaWorkspace({ onDone }: { readonly onDone: () => void }) {
       onDone();
     } catch (e) {
       // A refusal of the project is said under it; any other under the counterparty.
-      if (e instanceof ApiError && e.envelope.issues.some((i) => i.path === `/${SETTINGS_ENTITY}/${PROJECT_FIELD}`)) setProjectError(e.message);
+      if (e instanceof ApiError && e.names(SETTINGS_ENTITY, PROJECT_FIELD)) setProjectError(e.message);
       else setError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);

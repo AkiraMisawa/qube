@@ -230,10 +230,6 @@ const describe = (error: unknown) => (error instanceof Error ? error.message : S
 const sourceOf = (view: XvaWorkspaceView) => `${view.registration.key} ${view.context.valueDate} ${view.sourceVersion}`;
 
 /**
- * Where the display currency came from, in words (ADR-0017 §3): the user's setting, copied in as the workspace was made;
- * a choice in this workspace; or the company profile's. A workspace keeps its own whatever the setting says later.
- */
-/**
  * What an XVA panel is titled: `XVA <counterparty>`, and on the dummy its project after it (`XVA DUMMY/LE-00 · Alpha
  * bid`), which alone tells two such panels apart (ADR-0010 §1's note of 2026-11-14, ADR-0016 note 100).
  */
@@ -241,6 +237,10 @@ export function xvaPanelTitle(ws: Pick<XvaWorkspaceView, 'registration' | 'proje
   return ws.registration.dummy && ws.project !== null ? `XVA ${ws.registration.key} · ${ws.project}` : `XVA ${ws.registration.key}`;
 }
 
+/**
+ * Where the display currency came from, in words (ADR-0017 §3): the user's setting, copied in as the workspace was made;
+ * a choice in this workspace; or the company profile's. A workspace keeps its own whatever the setting says later.
+ */
 function currencyFrom(currency: string, from: XvaWorkspaceView['displayCurrencyFrom']): string {
   switch (from) {
     case 'settings': return `Display currency ${currency}, from your settings as this workspace was made.`;
@@ -1030,7 +1030,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
         {/* The project, beside the dummy it is needed for (ADR-0010 §1 and its note of 2026-11-14), and wherever one is
             held, so a project the Runs carry is never out of sight. */}
         {(ws.registration.dummy || ws.project !== null) && (
-          <CommitField label="Project" value={ws.project ?? ''} placeholder={ws.registration.dummy ? 'Needed to price' : 'None'} parse={projectNamed}
+          <CommitField label="Project" value={ws.project ?? ''} placeholder={ws.registration.dummy ? 'Needed to price' : 'None'} parse={(text) => ({ ok: true, value: projectNamed(text) })}
             onCommit={setProject} onIssue={setIssue} />
         )}
         <div className="qube-toolbar-field" data-testid="netting-set">

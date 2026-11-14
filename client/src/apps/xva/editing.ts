@@ -110,12 +110,12 @@ export const PROJECT_FIELD = 'project';
 export const PROJECT_TITLE = 'The project name';
 
 /**
- * A project name as typed in the toolbar: the text with the spaces at its ends taken off, or none where nothing is left,
- * which clears it. What a name may be is the server's to check, and a refusal says so.
+ * A project name as typed: the text with the spaces at its ends taken off, or none where nothing is left, which the
+ * toolbar sends as clearing it. What a name may be is the server's to check, and a refusal says so.
  */
-export function projectNamed(text: string): Parsed<string | null> {
+export function projectNamed(text: string): string | null {
   const name = text.trim();
-  return { ok: true, value: name === '' ? null : name };
+  return name === '' ? null : name;
 }
 
 /** The application the server names the pricer's workspaces by (ADR-0016 note 27 of 2026-11-11): its commands are listed on this page. */

@@ -271,7 +271,9 @@ public sealed class PortfolioCounterparty(Func<PortfolioWorkspaces> workspaces) 
         var to = $"{named.Key} ({named.Name}{(named.Dummy ? ": nothing is booked with it" : "")}) as of {source.ValueDate:yyyy-MM-dd}";
         var dropping = dropped.Count == 0 ? $"; nothing made for {source.Registration.Key} is dropped."
             : $", and drops {TableWords.Counted(dropped.Count, "edit")} made for {source.Registration.Key}: {TableWords.Some(dropped)}. They stay in the log and in any Run that priced them.";
-        var read = PortfolioCommand.Read(line, new JsonObject { ["registration"] = named.Key }, $"Moves the workspace to {to}{dropping}");
+        // On the dummy it prices only under a project (ADR-0010 §1's note of 2026-11-14): said before Enter where it has none.
+        var unnamed = named.Dummy && PortfolioMaterialiser.Project(state) is null ? $" {ProjectNames.NeededOnTheDummy}" : "";
+        var read = PortfolioCommand.Read(line, new JsonObject { ["registration"] = named.Key }, $"Moves the workspace to {to}{dropping}{unnamed}");
         // The count is the request's as the registration is, but a number: the read takes only the words typed.
         ((JsonObject)read.Inputs["request"]!)["drops"] = dropped.Count;
         return read;

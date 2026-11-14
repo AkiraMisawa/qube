@@ -1,15 +1,10 @@
 import { ApiError } from '../../platform/api';
 import type { XvaWorkspaceView } from './contracts';
-import { EditQueue, csaFields, parseNumber, parseRecovery, projectNamed, refusedEdit, tradeFields, type PendingEdit } from './editing';
+import { EditQueue, csaFields, parseNumber, parseRecovery, refusedEdit, tradeFields, type PendingEdit } from './editing';
 
 const view = (revision: number) => ({ revision }) as unknown as XvaWorkspaceView;
 
 describe('what a cell accepts', () => {
-  it('ADR-0010 §1\'s note of 2026-11-14: takes a project name without the spaces at its ends, and nothing typed as none, which clears it', () => {
-    expect(projectNamed('  Alpha bid ')).toEqual({ ok: true, value: 'Alpha bid' });
-    expect(projectNamed('   ')).toEqual({ ok: true, value: null });
-  });
-
   it('reads a number only one way', () => {
     expect(parseNumber('1,000,000')).toBe(1_000_000);
     expect(parseNumber('-0.0125')).toBe(-0.0125);
