@@ -307,17 +307,14 @@ A UI change is not done when it compiles (CLAUDE.md, "Completion reporting"):
 
 ## 12. Known gaps
 
-Seen while writing this, and not fixed by ADR-0009's change:
+Seen while writing this, and not fixed by ADR-0009's change. (Changed 2026-11-14: two gaps of ExGrid's Mantine Wrapper,
+the Action Column's buttons in the browser's grey (ex-grid#553) and a disabled column-menu item drawn as a grey block
+(ex-grid#552), are gone with ExGrid 0.3.0, which carries 0.2.1's fixes.)
 
 - On a phone, the Rates toolbar wraps to several rows; a phone may want its secondary actions in a menu.
-- A grid's Action Column buttons (Rates' `Flows`) are drawn by ExGrid's core, not by the Wrapper, and read
-  as the browser's own grey buttons in both themes. Seen after the switch to `@ex-grid/mantine`; still so in 0.2.0,
-  ex-grid#553.
 - A required context field's message repeats its name (`As of: asOf is required.`), because `validate` names the
   field and the message is shown without its label.
 - Touch sizes have not been checked on an iPhone (UX02).
-- In a grid's column menu, `@ex-grid/mantine` (0.2.0-beta.3, still so in 0.2.0) draws a disabled item as a filled grey
-  block, where Mantine's own Menu only dims the text. That is the Wrapper's, ex-grid#552, not patched here.
 
 ## References
 

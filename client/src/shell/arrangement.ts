@@ -46,7 +46,15 @@ export interface Arrangement {
   sendTo(panelId: string, areaId: string): void;
   /** Moves the panel into a new floating area at that place; a floating panel's area is placed there. */
   float(panelId: string, box: Box): void;
-  /** Puts a floating panel back among the window's areas, and answers where, as the user is told. */
+  /**
+   * Moves the panel into an area of its own in a new window of the browser (ADR-0018 §9). The window opens a moment
+   * later; one the browser does not open leaves the panel where it stood, and the areas say so.
+   */
+  popOut(panelId: string): void;
+  /**
+   * Puts a floating panel, or one in another window, back among the main window's areas, and answers where, as the user
+   * is told.
+   */
   dock(panelId: string): string;
   /** Gives the area this many pixels of its row or column. */
   size(areaId: string, pixels: number): void;
@@ -80,6 +88,9 @@ export function sawAreas(ids: readonly string[]): void {
   }
 }
 
+/** The areas docked in the main window: neither floating nor in another window (ADR-0018 §9). */
+export const dockedAreas = (areas: Arrangement): readonly Area[] => areas.areas().filter((a) => a.where === 'docked');
+
 /** The area holding this panel, if areas are shown and one does. */
 export function areaHolding(areas: Arrangement, panelId: string): Area | undefined {
   return areas.areas().find((a) => a.panels.includes(panelId));
@@ -107,6 +118,7 @@ export function stripArrangement(room: Size, why: string): Arrangement {
     split: none,
     sendTo: none,
     float: none,
+    popOut: none,
     dock: none,
     size: none,
     maximize: none,

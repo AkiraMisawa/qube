@@ -65,7 +65,7 @@ installed for another Playwright version, name it with `PLAYWRIGHT_CHROMIUM=/pat
 `QUBE_PORT` moves the host to another port. Each browser run starts the host on a database file of its own in the
 temporary directory (`QUBE_DB` names one instead).
 
-ExGrid comes from npm at one exact version, 0.2.0 (`@ex-grid/core`, `data`, `react`, `mantine`, `chart`, `chart-react` and `chart-mantine` in `client/package.json`). To move it, set all seven to the same new version and run `npm install` in `client/`; the packages must move together.
+ExGrid comes from npm at one exact version, 0.3.0 (`@ex-grid/core`, `data`, `react`, `mantine`, `chart`, `chart-react` and `chart-mantine` in `client/package.json`). To move it, set all seven to the same new version and run `npm install` in `client/`; the packages must move together.
 
 ## Coming from before the rename
 
