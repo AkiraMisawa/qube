@@ -1239,7 +1239,7 @@ each is built.
     - *`live start` and `live stop`* are `rates.live.start` and `rates.live.stop`, which now say how they are
       typed. Their answer names the subscription as before, and says the revision and a sentence.
     - *`add line <product>`* is `rates.line.add`: an empty line of the product to fill in the grid, named by the
-      revision that makes it.
+      revision that makes it. *Changed 2026-11-14 (note 65):* named `L1`, `L2`, `L3` in the order lines are made.
     - *`new <product> <terms>` is the kernel's.* `entity.create` says how it is typed (§3): the first word names a
       product of the workspace's application, the rest are its terms. Its reading fills the defaults and says the
       entity the terms would make, each term, and where each default came from; it refuses a missing or unreadable
@@ -1322,7 +1322,7 @@ each is built.
       change (`set default currency`) writes two as well. `new irs 5y` on a workspace with no defaults says six
       terms are missing, the index and the frequencies among them, though typing a currency alone would give those
       from its profile: the reading does not know which missing terms a profile would supply once another is
-      typed.
+      typed. *Changed 2026-11-14 (note 65):* a line's name is now its order of making, `L1`, `L2`, `L3`.
 37. **`add each` takes its iterations as a list (§3; 3d).** §3 decides the value and its rules. What is left to
     settle is how a contract says a list, what is made of the value, how a case names its trades, and how a page
     with two grids gives the lists without the line.
@@ -2629,8 +2629,9 @@ Step 6 is one pull request (`docs/specs/commands-6-saved-sequences`). §8 leaves
     so a workspace's first line was `L3`, the next `L5`, and one made after a few edits `L34` (note 36, "Found,
     and left"). A line is now `L1`, `L2`, `L3` in the order the workspace makes them, by `new`, `add line` or
     the AI's `entity.create` alike: one more than the highest number any line of the workspace was made with,
-    read from its log. A number is never given twice, though its line was removed or its making taken back, so
-    the log, `undo`, `redo`, a Run and a saved sequence that name a line still mean that line. The reading
+    read from its log. A number is never given twice in a workspace, though its line was removed or its making
+    taken back, so its log, `undo`, `redo` and a Run of it that name a line still mean that line. (A saved
+    sequence runs on any workspace, and a line it names is that workspace's line of that name, as before.) The reading
     names the line Enter makes as before (`Makes L2: …`), and a refusal for a revision that moved keeps it true.
     A workspace whose lines were named by their revision keeps those names and goes on from its highest number.
     - *Considered, and left:* a row number beside the name, which would give one line two names, and a name the

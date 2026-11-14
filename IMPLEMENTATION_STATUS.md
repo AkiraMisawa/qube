@@ -3444,6 +3444,46 @@ by Vite's hot reload threw; the request a trace answered once was written twice;
 the ADR, and a browser read of the Focus could mix two grids as a page was drawn anew. ADR-0018 §5 said the pages are
 drawn anew between the strip and the areas until this pull request; it now says they take back their state.
 
+## Rates lines named in order (ADR-0016 note 65, 2026-11-14)
+
+The owner asked for the lines' numbers to be easier to follow.
+
+### What runs
+
+- **A line is `L1`, `L2`, `L3` in the order its workspace makes them**, by `new`, `add line` (and the Add IRS and
+  Add CCS buttons) or the AI's `entity.create` alike: one more than the highest number any line of the workspace was
+  made with, read from its log (`RatesWorkspaces.NextLine`). The reading names the line Enter makes (`Makes L2: …`,
+  `Adds L4, …`).
+- **No number is given twice in a workspace.** A line removed, or one whose making `undo` took back, keeps its
+  number, so the workspace's log, `undo`, `redo` and its Runs that name a line still mean that line; `redo` puts a
+  line back under its own name.
+- **A workspace made before** keeps its lines' names (`L3`, `L5`) and goes on from its highest number.
+
+### Verification performed
+
+| What | Result |
+|---|---|
+| `dotnet test server/Qube.slnx` | 1644 passed |
+| The two new tests (`RatesLineCommandTests`: order, removal, undo and redo; a workspace named by revision) without the change | Both failed, as they should |
+| `npx playwright test e2e/rates.spec.ts e2e/ai.spec.ts e2e/pageState.spec.ts` (Chromium, headless, Linux) | 23 passed |
+| Three lines made from the line, before and after, then the second removed, at 1440px dark | Before: `L3 L5 L7`, next `L9`; after: `L1 L2 L3`, next `L4`, and `L4` again after `remove L2` |
+
+### Known limits
+
+- The number says the order the lines were made in, not where a line stands in the grid: a gap is a line removed or
+  taken back.
+- A line has no name of its own the user gives it.
+- A saved sequence that names a line (`set L2 risk on`) means the line of that name in the workspace it runs on.
+- That a workspace stored before goes on from its highest number is held by a test of the workspace in memory; the
+  store reads the whole log back, as every command already needs.
+
+### What the review changed
+
+Two reviews with fresh context, of the standards and of the spec. Note 36's two sentences of the old rule are marked
+as changed by note 65; this section was added; the test now shows that `add line` made the line its reading named and
+that `redo` puts a line back under its own name; note 65 no longer claims that a saved sequence's line means the same
+line in every workspace; and the reader of a line's number is named for what it does (`LineNumberOf`).
+
 ## Next
 
 1. Panels in areas, ADR-0018 steps 2 (other browser windows) and 3 (parts of a page with links), in that order, each

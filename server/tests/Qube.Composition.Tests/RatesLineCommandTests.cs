@@ -284,15 +284,20 @@ public class RatesLineCommandTests
         var added = await rig.Enter("add line ccs");
         await rig.Enter($"remove {second}");
         var afterRemove = rig.Preview("add line irs").Would;
-        await rig.Enter("add line irs");
+        var fourth = await rig.Enter("add line irs");
+        await rig.Enter("undo");
+        await rig.Enter("redo");
+        var putBack = rig.View.Lines.Select(l => l.Line).ToList();
         await rig.Enter("undo");
         var afterUndo = rig.Irs();
 
         Assert.Equal(("L1", "L2"), (first, second));
         Assert.StartsWith("Makes L2: Interest rate swap.", read);
         Assert.Equal("Added L3, an empty ccs line.", added);
-        // L2 was removed and L4's making taken back: neither number is given to another line.
-        Assert.Equal("Adds L4, an empty irs line to fill in the grid.", afterRemove);
+        // L2 was removed, so the next is L4 and not L2 again; redo puts L4 back under its own name.
+        Assert.Equal(("Adds L4, an empty irs line to fill in the grid.", "Added L4, an empty irs line."), (afterRemove, fourth));
+        Assert.Equal(["L1", "L3", "L4"], putBack);
+        // L4's making was taken back: its number is not given to the next line either.
         Assert.Equal("L5", afterUndo);
         Assert.Equal(["L1", "L3", "L5"], rig.View.Lines.Select(l => l.Line));
     }

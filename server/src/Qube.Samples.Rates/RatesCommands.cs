@@ -210,8 +210,9 @@ public sealed class RatesFrameCapture(Func<RatesWorkspaces> workspaces) : ICapab
 }
 
 /// <summary>
-/// <c>rates.line.add</c>, typed <c>add line &lt;product&gt;</c> (ADR-0016 note 36): an empty line of the product, to
-/// fill in the grid, named as the workspace's next line (L1, L2, …). A line with its terms typed is the kernel's <c>new</c>.
+/// <c>rates.line.add</c>, typed <c>add line &lt;product&gt;</c> (ADR-0016 notes 36 and 65): an empty line of the product,
+/// to fill in the grid, named as the workspace's next line (<c>L1</c>, <c>L2</c>, …). A line with its terms typed is the
+/// kernel's <c>new</c>.
 /// </summary>
 public sealed class RatesLineAdd(Func<RatesWorkspaces> workspaces) : ICapabilityHandler, ILineCommand
 {
