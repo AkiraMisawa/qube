@@ -1647,7 +1647,9 @@ and notes 42 to 44 are 4c's.
       ranges is made with the pointer and the keys alone (asked for as ex-grid issue #561). Rows that are not
       next to one another in the grid's order are therefore refused (`SeveralRuns`), with how many runs they are
       in and the way on: filter or sort the grid so that they are, then `select shown`. Selecting the first run
-      and saying nothing would be a Selection that looks like the answer and is not.
+      and saying nothing would be a Selection that looks like the answer and is not. *(2026-11-14: ExGrid 0.3.0,
+      which the workbench takes, places a Selection of several ranges (#561). `select` still refuses rows in
+      several runs; taking it up changes this note, and is left until the owner asks.)*
     - *Who says whether they are one run.* Where the server pages the grid, the server does, in the view's order
       (refused as moved where that is no longer the table's, as a position is), and answers the first position
       and how many. Where the page holds every row, the grid orders them itself: the server answers the rows'
@@ -1659,8 +1661,8 @@ and notes 42 to 44 are 4c's.
       next line reads the view again, so `select where ccy=USD` then `set notional 5mm`, or `copy`, acts on the
       rows just selected (note 18).
     - It completes as rows are said (note 15). Not the AI's, not logged, not undone: it changes no workspace.
-    - *Left for later.* Several ranges, when ExGrid places them. Taking the Selection off (`select off`): ExGrid
-      places a range and has no call that leaves none.
+    - *Left for later.* Several ranges, which ExGrid has placed since 0.3.0, when the owner asks. Taking the
+      Selection off (`select off`): ExGrid places ranges and has no call that leaves none.
 
 44. **`copy` and `export` take rows out of the workbench (§3, amending its spelling; 4c).**
     `copy [<rows>] [<fields>] [with headers]` puts cells on the clipboard, and

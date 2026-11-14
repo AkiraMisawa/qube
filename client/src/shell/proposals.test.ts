@@ -1,4 +1,4 @@
-import { Orientation, type SerializedDockview } from 'dockview-react';
+import { Orientation, type SerializedDockview, type SerializedPopoutGroup } from 'dockview-react';
 import { execute } from '../platform/commands/commands';
 import { createWorkspaceStore, panelLabel, type PanelDraft } from '../platform/workspace/workspaceStore';
 import { contextContract } from '../test/catalog';
@@ -29,6 +29,7 @@ function fakeAreas(room: Size, first: SerializedDockview | undefined) {
     split: () => { throw new Error('not drawn here'); },
     sendTo: () => { throw new Error('not drawn here'); },
     float: () => { throw new Error('not drawn here'); },
+    popOut: () => { throw new Error('not drawn here'); },
     dock: () => { throw new Error('not drawn here'); },
     size: () => { throw new Error('not drawn here'); },
     maximize: () => { throw new Error('not drawn here'); },
@@ -78,6 +79,11 @@ function proposed(areas: readonly ProposedArea[], places: readonly ProposedPlace
 }
 
 const SIDE_BY_SIDE: readonly ProposedArea[] = [{ area: 'left' }, { area: 'right', beside: 'left', side: 'right', share: 50 }];
+
+/** An area in another window, as dockview keeps it: its one panel, and the area of the main window it came from. */
+function inAWindow(area: string, panel: string, cameFrom: string): SerializedPopoutGroup {
+  return { data: { id: area, views: [panel], activeView: panel }, gridReferenceGroup: cameFrom, position: null };
+}
 
 beforeEach(() => {
   keptArrangement.getState().keep(undefined);
@@ -230,6 +236,63 @@ describe('arrange and arrange back (ADR-0018 §8)', () => {
     expect(keptArrangement.getState().layout?.floatingGroups?.map((g) => g.data?.views)).toEqual([[id(1)]]);
     expect(keptArrangement.getState().floatedFrom).toEqual({ [id(1)]: '1' });
   });
+
+  it('places the other windows\' panels as the proposal says, or in its first area, and says that it closed the windows (§9)', () => {
+    // A in the main window, B and C each in a window of its own; drawn once the panels are open, by their ids.
+    const withWindows = (ids: readonly string[]): SerializedDockview => {
+      const [a, b, c] = ids;
+      if (a === undefined || b === undefined || c === undefined) throw new Error('Fewer than three panels are open.');
+      return {
+        grid: {
+          root: { type: 'branch', data: [{ type: 'leaf', size: 1440, data: { id: '1', views: [a], activeView: a } }] },
+          width: 1440, height: 800, orientation: Orientation.HORIZONTAL,
+        },
+        panels: { [a]: panelState(a, 'A'), [b]: panelState(b, 'B'), [c]: panelState(c, 'C') },
+        popoutGroups: [inAWindow('2', b, '1'), inAWindow('3', c, '1')],
+      };
+    };
+    const { id, command, notify } = page(['A', 'B', 'C'], (store) => fakeAreas(WIDE, withWindows(store.getState().panels.map((p) => p.id))).port);
+    const { n } = proposed(SIDE_BY_SIDE, [{ area: 'left', panel: id(0), title: 'A', shown: true }, { area: 'right', panel: id(1), title: 'B', shown: true }]);
+
+    expect(execute(command('panel.arrange'), { proposal: String(n) })).toBeUndefined();
+
+    expect(notify).toHaveBeenLastCalledWith('done', `Arranged as proposal ${n}: 2 areas. 1 panel the proposal did not place is in the area of A, the first in reading order. Closed the other windows, of B and C: a proposal arranges this window. To put back what it replaced: arrange back.`);
+    // B where the proposal puts it; C, which it does not place, in its first area.
+    const drawn = keptArrangement.getState().layout;
+    if (drawn === undefined) throw new Error('arrange kept no arrangement.');
+    expect(drawn.popoutGroups).toBeUndefined();
+    expect(areasOf(drawn).map((a) => a.panels)).toEqual([[id(0), id(2)], [id(1)]]);
+  });
+
+  it('puts a panel the arrangement had in another window back into this one, where its area stood, and says so (§9)', () => {
+    const { id, command, notify } = page(['A', 'B', 'C']);
+    // B's whole area went out to a window, leaving its place hidden beside A and C's.
+    const withWindow: SerializedDockview = {
+      grid: {
+        root: {
+          type: 'branch',
+          data: [
+            { type: 'leaf', size: 720, data: { id: '1', views: [id(0), id(2)], activeView: id(0) } },
+            { type: 'leaf', size: 720, visible: false, data: { id: '2', views: [] } },
+          ],
+        },
+        width: 1440, height: 800, orientation: Orientation.HORIZONTAL,
+      },
+      panels: { [id(0)]: panelState(id(0), 'A'), [id(1)]: panelState(id(1), 'B'), [id(2)]: panelState(id(2), 'C') },
+      popoutGroups: [inAWindow('3', id(1), '2')],
+    };
+    keptArrangement.getState().keep(withWindow);
+    const { n } = proposed(SIDE_BY_SIDE, [{ area: 'left', panel: id(0), title: 'A', shown: true }, { area: 'right', panel: id(1), title: 'B', shown: true }]);
+    expect(execute(command('panel.arrange'), { proposal: String(n) })).toBeUndefined();
+
+    expect(execute(command('panel.arrangeBack'))).toBeUndefined();
+
+    const back = keptArrangement.getState().layout;
+    if (back === undefined) throw new Error('arrange back kept no arrangement.');
+    expect(back.popoutGroups).toBeUndefined();
+    expect(areasOf(back).map((a) => [a.id, a.panels])).toEqual([['1', [id(0), id(2)]], ['2', [id(1)]]]);
+    expect(notify).toHaveBeenLastCalledWith('done', `Put back the arrangement proposal ${n} replaced. Back in this window: B where it was. pop out panel sends a panel out again.`);
+  });
 });
 
 describe('the context of the panels the AI reads (ADR-0018 §8)', () => {
@@ -245,5 +308,24 @@ describe('the context of the panels the AI reads (ADR-0018 §8)', () => {
     ]);
     expect(value.strip).toBe('One strip below 768px.');
     expect(value.opens).toContainEqual({ app: 'test.page', title: 'Test page', workspace: true });
+  });
+
+  it('says of each area where it stands: docked, floating or in another window (§9)', () => {
+    const { store, id } = page(['A', 'B', 'C']);
+    const drawn: SerializedDockview = {
+      grid: {
+        root: { type: 'branch', data: [{ type: 'leaf', size: 1440, data: { id: '1', views: [id(0)], activeView: id(0) } }] },
+        width: 1440, height: 800, orientation: Orientation.HORIZONTAL,
+      },
+      panels: { [id(0)]: panelState(id(0), 'A'), [id(1)]: panelState(id(1), 'B'), [id(2)]: panelState(id(2), 'C') },
+      floatingGroups: [{ data: { id: '2', views: [id(1)], activeView: id(1) }, position: { left: 100, top: 100, width: 400, height: 300 } }],
+      popoutGroups: [inAWindow('3', id(2), '1')],
+    };
+    const value = JSON.parse(panelsContext(store.getState(), fakeAreas(WIDE, drawn).port).value) as Record<string, unknown>;
+
+    // The fake gives every area the room's size: only where each stands is read here.
+    expect((value.areas as readonly { readonly area: string; readonly where: string }[]).map((a) => [a.area, a.where])).toEqual([
+      ['1', 'docked'], ['2', 'floating'], ['3', 'window'],
+    ]);
   });
 });

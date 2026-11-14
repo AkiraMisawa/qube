@@ -50,6 +50,8 @@ it names client technology; the behaviour it describes is unchanged.
   copied `ex-grid.min.css` from a pinned ex-grid commit into `vendor/ex-grid/`; both are removed.)*
   *(Changed 2026-11-10: ex-grid released `0.2.0`, its first version on npm that is not a prerelease, and
   this project moved to it; the rule said "one exact prerelease version" only because none was released.)*
+  *(Changed 2026-11-14: ex-grid released `0.3.0`, 0.3.0-rc.1's code, and this project moved to it with ADR-0018
+  step 2, whose grid in another window needs its own window's Device Pixel (ex-grid #565). The rule is unchanged.)*
 - **Theming ExGrid.** Every grid is drawn by ExGrid's Mantine Wrapper, `@ex-grid/mantine`, at the
   family's version, through one component of this repository (`client/src/platform/grid/QubeGrid.tsx`),
   with its stylesheet `@ex-grid/mantine/styles.css` loaded after Mantine's and the core's. The Wrapper
