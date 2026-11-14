@@ -3445,21 +3445,25 @@ drawn anew between the strip and the areas until this pull request; it now says 
 ## The command line's Emacs keys (ADR-0006 note 11, 2026-11-14)
 
 The owner asked for Emacs's editing keys in the command line, chosen per platform first. The set was proposed per
-platform and built as recommended; Ctrl+A and Ctrl+Y on Windows and Linux were put to the owner as a choice.
+platform; the owner chose that Ctrl+A and Ctrl+Y stay select all and redo on Windows and Linux.
 
 ### What runs
 
-- **Windows and Linux**: Ctrl+A / Ctrl+E to the start / end of the line, Ctrl+F / Ctrl+B a character right / left,
-  Ctrl+D / Ctrl+H delete the character after / before the caret, Ctrl+K / Ctrl+U delete to the end / start, Alt+F /
-  Alt+B a word right / left and Alt+D to the end of the next word. Ctrl+Y stays the field's redo.
-- **Mac**: Ctrl+A, E, F, B, D, H, K, T and Y are the text field's own and are left to it; the chord that opens the line
-  took Ctrl+K in the line too (Mantine's `mod` is Ctrl as well as ⌘), and no longer does, so the Mac's kill and yank
-  work there. Ctrl+U is added; Option's letters type characters as before.
+- **Windows and Linux**: Ctrl+E to the end of the line, Ctrl+F / Ctrl+B a character right / left, Ctrl+D / Ctrl+H
+  delete the character after / before the caret, Ctrl+K / Ctrl+U delete to the end / start, Alt+F / Alt+B a word right
+  / left and Alt+D to the end of the next word. Ctrl+A stays select all and Ctrl+Y redo; Home goes to the start.
+- **Mac**: Ctrl+A, E, F, B, D, H, K, T and Y are the text field's own and are left to it. The chord that opens the
+  line took Ctrl+K in the line too (Mantine's `mod` is Ctrl as well as ⌘), and no longer does, so Ctrl+K reaches a
+  Mac's field (checked with the page told it is on a Mac; a Mac's kill and yank themselves were not run). Ctrl+U is
+  added; Option's letters type characters as before. A Mac is told by `navigator.platform`; an iPad's Safari says the
+  same, so an iPad is taken as one.
 - A deletion is the browser's own edit (`execCommand('delete')`), so Ctrl+Z takes it back and the line reads the text
-  again. A character is a grapheme, a word Unicode's (`Intl.Segmenter`). Only while the line has the keyboard, never
+  again. A character is a grapheme, a word Unicode's (`Intl.Segmenter`). A key is its letter on a Latin layout and its
+  place on another script's (`code`), as the browser's shortcuts read it. Only while the line has the keyboard, never
   while an IME composes; every key the line answers is kept from the shell's chords.
-- `client/src/shell/lineKeys.ts`: `lineEdit` (pure: a key, the text and selection, the platform → a move, a deletion,
-  a key left to the field, or nothing) and `editLine`, which the line's key handler calls.
+- `client/src/shell/lineKeys.ts`: `editFor` (pure: a key, the text and selection, the platform → a move, a deletion,
+  a key left to the field, or nothing) and `applyEdit`, which the line's key handler calls; `letterWith` reads a
+  key's letter for these and for the list's Ctrl+N and Ctrl+P alike.
 
 ### Verification performed
 
@@ -3468,13 +3472,13 @@ platform and built as recommended; Ctrl+A and Ctrl+Y on Windows and Linux were p
 | Client: `npm run typecheck`, `npx vitest run`, `npm run build` | Clean; 498 passed in 48 files (14 new in `lineKeys.test.ts`); built |
 | `npx playwright test e2e/workbench.spec.ts --grep "note 11" --repeat-each=3` (Chromium, headless, Linux) | 6 passed |
 | The Mac test with the line leaving its keys to the shell's chords again (the defect) | Failed as it should: Ctrl+K was prevented |
-| `npx playwright test e2e/xva.spec.ts`, the two tests that replaced the line with Ctrl+A, rewritten, `--repeat-each=3` | 6 passed |
 
-The unit tests read every key on both platforms, a selection's side, an emoji never split, `CSA-A` as two words and
-`1mm`, `1.5mm` and `nocsa_MA1` as one, the keys left alone (Ctrl+Y, N, P, W, T, Shift and AltGr with a letter), and a
-Mac's Option letters. The browser tests drive the line on Linux through every key, read its caret and text, see the
-list follow a deletion and Ctrl+Z bring it back; and with the page told it is on a Mac, see Ctrl+A and Ctrl+K reach the
-field unprevented and Ctrl+U delete.
+The unit tests read every key on both platforms, Ctrl's and Alt's moves and deletions with a selection, an emoji
+never split, `CSA-A` as two words and `1mm`, `1.5mm` and `nocsa_MA1` as one, a Russian and a Dvorak layout, the keys
+left alone (Ctrl+A, Y, N, P, W, T, Shift and AltGr with a letter), and a Mac's Option letters. The browser tests drive
+the line on Linux with a move and a deletion of each modifier, read its caret and text, see Ctrl+A still select all,
+the list follow a deletion and Ctrl+Z bring it back; and with the page told it is on a Mac, see Ctrl+E and Ctrl+K
+reach the field unprevented and the text untouched, and Ctrl+U delete.
 
 ### Providers
 
@@ -3485,9 +3489,9 @@ Unchanged; nothing on the server changed.
 - What the browser keeps before a page sees a key (Ctrl+N, W and T on Windows and Linux) and a Mac's own editing keys
   cannot be driven from Playwright, whose keys reach the page directly: they were not checked in a browser here. The
   Mac path was checked only with the page told it is on a Mac, in Linux's Chromium.
-- Not checked on Windows, on a Mac, in Edge, Firefox or Safari, nor with a real IME.
-- Two layer-3 tests replaced the line's text with Ctrl+A and typing; they now select it with End and Shift+Home. A
-  script that drives the line the old way gets its text added before the line's.
+- Not checked on Windows, on a Mac, on an iPad, in Edge, Firefox or Safari, nor with a real IME. The browser test of
+  the keys of Windows and Linux is skipped when the suite runs on a Mac, where Chromium has no Ctrl+A select all and
+  Playwright sends a Mac's editing commands with the Ctrl keys.
 
 ## Next
 

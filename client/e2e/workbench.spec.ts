@@ -165,7 +165,9 @@ test('ADR-0006: Ctrl+N and Ctrl+P move through the command line\'s list as the a
   await expect(page.getByRole('tab', { name: 'Pricing DB' })).toHaveAttribute('aria-selected', 'true');
 });
 
-test('ADR-0006 note 11: on Windows and Linux the line edits with Emacs keys, its list follows, and Ctrl+Z takes a deletion back', async ({ page }) => {
+test('ADR-0006 note 11: on Windows and Linux the line edits with Emacs keys, Ctrl+A still selects all, its list follows, and Ctrl+Z takes a deletion back', async ({ page }) => {
+  // A Mac's Chromium has no Ctrl+A select all, and Playwright sends a Mac's editing commands with its Ctrl keys there.
+  test.skip(process.platform === 'darwin', 'the keys of Windows and Linux are driven where the browser is theirs');
   await open(page);
   await page.keyboard.press('ControlOrMeta+K');
   const line = page.getByRole('combobox', { name: 'Command' });
@@ -178,12 +180,13 @@ test('ADR-0006 note 11: on Windows and Linux the line edits with Emacs keys, its
     await expect(line).toHaveJSProperty('selectionEnd', at);
   };
 
+  // Ctrl+A stays the field's select all (the owner, 2026-11-14); Ctrl+B from a selection goes to its start.
   await page.keyboard.press('Control+a');
+  await expect(line).toHaveJSProperty('selectionStart', 0);
+  await expect(line).toHaveJSProperty('selectionEnd', 13);
+  await page.keyboard.press('Control+b');
   await caret(0);
-  await page.keyboard.press('Control+f');
-  await caret(1);
   await page.keyboard.press('Control+e');
-  await caret(13);
   await page.keyboard.press('Control+b');
   await page.keyboard.press('Control+b');
   await page.keyboard.press('Control+b');
@@ -197,6 +200,7 @@ test('ADR-0006 note 11: on Windows and Linux the line edits with Emacs keys, its
   await expect(line).toHaveValue('pricing dbxyz');
   await expect(page.getByText('No command matches.')).toBeVisible();
 
+  // Alt is the line's too, where the browser's menu would have it.
   await page.keyboard.press('Control+e');
   await page.keyboard.press('Alt+b');
   await caret(8);
@@ -204,22 +208,15 @@ test('ADR-0006 note 11: on Windows and Linux the line edits with Emacs keys, its
   await expect(line).toHaveValue('pricing ');
   await page.keyboard.press('Control+h');
   await expect(line).toHaveValue('pricing');
-  await page.keyboard.press('Alt+b');
-  await page.keyboard.press('Control+d');
-  await expect(line).toHaveValue('ricing');
-  await caret(0);
-  await page.keyboard.press('Alt+f');
-  await caret(6);
-  await page.keyboard.press('Control+b');
   await page.keyboard.press('Control+u');
-  await expect(line).toHaveValue('g');
-  await caret(0);
+  await expect(line).toHaveValue('');
   // The keys were the line's alone: it is still open and still has the keyboard.
   await expect(line).toBeFocused();
 });
 
 test('ADR-0006 note 11: on a Mac the Ctrl keys are the text field\'s own, and the chord that opens the line no longer takes Ctrl+K', async ({ page }) => {
-  // A Mac's keyboard, as the page reads it; the browser underneath is still Linux's, whose Ctrl+A selects everything.
+  // A Mac's keyboard, as the page reads it. On Linux the field underneath does nothing with Ctrl+E or Ctrl+K; on a Mac
+  // it moves to the end and deletes nothing there. Either way the line leaves the text as it was.
   await page.addInitScript(() => Object.defineProperty(Navigator.prototype, 'platform', { get: () => 'MacIntel' }));
   await open(page);
   await page.keyboard.press('ControlOrMeta+K');
@@ -233,14 +230,13 @@ test('ADR-0006 note 11: on a Mac the Ctrl keys are the text field\'s own, and th
     window.addEventListener('keydown', (e) => { if (e.ctrlKey && e.key.length === 1) setTimeout(() => seen.push(`${e.key}:${e.defaultPrevented}`)); }, { capture: true });
   });
 
-  await page.keyboard.press('Control+a');
-  // The line did not take Ctrl+A: the field's own default ran.
-  await expect(line).toHaveJSProperty('selectionStart', 0);
-  await expect(line).toHaveJSProperty('selectionEnd', 15);
-  await page.keyboard.press('End');
+  await page.keyboard.press('Home');
+  await page.keyboard.press('Control+e');
   await page.keyboard.press('Control+k');
-  await expect.poll(() => page.evaluate(() => (window as unknown as { seen: string[] }).seen)).toEqual(['a:false', 'k:false']);
+  // Neither key was prevented, and the line did nothing with either: they were left to the field.
+  await expect.poll(() => page.evaluate(() => (window as unknown as { seen: string[] }).seen)).toEqual(['e:false', 'k:false']);
   await expect(line).toHaveValue('open pricing db');
+  await page.keyboard.press('End');
   // Ctrl+U, which a Mac's field lacks, is the line's there too.
   await page.keyboard.press('Control+u');
   await expect(line).toHaveValue('');

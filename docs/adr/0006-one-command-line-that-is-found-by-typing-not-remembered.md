@@ -280,24 +280,29 @@ decided as recommended and reported.
 ## Notes of 2026-11-14: the line's editing keys
 
 Raised by the owner on 2026-11-14: Emacs's editing keys while a command is typed would be handy, "chosen
-appropriately". The set below was proposed to the owner per platform the same day, with the two keys that meet a
-convention of Windows and Linux, Ctrl+A (select all) and Ctrl+Y (redo), put to the owner as a choice. DEFAULT until
-the owner answers.
+appropriately". The set below was proposed to the owner per platform the same day, and built once the owner had
+chosen the two keys that meet a convention of Windows and Linux: Ctrl+A stays select all and Ctrl+Y stays redo there
+(the owner, 2026-11-14, choosing over the proposal's Ctrl+A to the start of the line). The rest is the proposal as
+sent, DEFAULT.
 
 11. **The line edits with the Emacs keys that cost it nothing a user relies on there** (extends 4).
     - *Where.* Only while the line has the keyboard, and never while an IME composes (note 6). A grid's keys stay
-      ExGrid's (8), and a dialog's fields and the AI chat keep their own.
-    - *On Windows and Linux* the line does them itself: Ctrl+A and Ctrl+E go to the start and the end of the line,
-      Ctrl+F and Ctrl+B a character right and left, Ctrl+D and Ctrl+H delete the character after and before the caret,
-      Ctrl+K deletes to the end and Ctrl+U to the start, and Alt+F, Alt+B and Alt+D move a word right and left and delete
-      to the end of the next word. What they replace there is the browser's, and only while the line has the keyboard:
-      find in page (Ctrl+F), the address bar's search (Ctrl+E, Ctrl+K), bookmark (Ctrl+D), history (Ctrl+H), the page's
-      source (Ctrl+U), the browser's menu (Alt+F, Alt+D), and Ctrl+A's select all.
-    - *On a Mac* (and an iPad with a keyboard) the text field already edits with Ctrl+A, E, F, B, D, H, K, T and Y, its
+      ExGrid's (decision 8), and a dialog's fields and the AI chat keep their own.
+    - *On Windows and Linux* the line does them itself: Ctrl+E goes to the end of the line, Ctrl+F and Ctrl+B a
+      character right and left, Ctrl+D and Ctrl+H delete the character after and before the caret, Ctrl+K deletes to
+      the end and Ctrl+U to the start, and Alt+F, Alt+B and Alt+D move a word right and left and delete to the end of
+      the next word. What they replace there is the browser's, and only while the line has the keyboard: find in page
+      (Ctrl+F), the address bar's search (Ctrl+E, Ctrl+K), bookmark (Ctrl+D), history (Ctrl+H), the page's source
+      (Ctrl+U) and the browser's menu (Alt+F, Alt+D).
+    - *Ctrl+A stays select all on Windows and Linux* (the owner's choice): a user, and a script driving the line, still
+      replace its text with Ctrl+A and typing, as in every field there. Home goes to the start of the line.
+    - *On a Mac* the text field already edits with Ctrl+A, E, F, B, D, H, K, T and Y, its
       Ctrl+K feeding the system's kill buffer that Ctrl+Y yanks from. Those are left to it. Before this note the chord
       that opens the line took Ctrl+K in it too (Mantine's `mod` is Ctrl as well as ⌘), so a Mac's kill did nothing
       there. The line adds Ctrl+U, which the field lacks; what it deletes is not in the kill buffer. Option+F, B and D
-      type characters (ƒ, ∫, ∂) and are not taken: Option with the arrows and Option+⌫ move and delete by words.
+      type characters (ƒ, ∫, ∂) and are not taken: Option with the arrows and Option+⌫ move and delete by words. A Mac
+      is told by `navigator.platform`, which says `MacIntel` there in every browser; an iPad's Safari says the same by
+      default, so an iPad with a keyboard is taken as a Mac (not checked on one).
     - *Ctrl+N and Ctrl+P* choose in the list, as before. Chrome and Edge keep Ctrl+N on Windows and Linux for a new
       window and Ctrl+W and Ctrl+T for the tab, so the page never sees them: ↓ chooses there, and Ctrl+Backspace deletes
       a word back, as in any field.
@@ -306,8 +311,11 @@ the owner answers.
       Windows and Linux Ctrl+Y stays the field's redo, with no yank.
     - *A character is what the reader sees as one* (an emoji, a letter and its mark), and a word is Unicode's
       (`Intl.Segmenter`): `CSA-A` is two words, `1mm`, `1.5mm` and `nocsa_MA1` one.
-    - *With a selection* a key acts as the arrows and Delete do: Ctrl+F and Alt+F go to its end, Ctrl+B and Alt+B to its
-      start, Ctrl+D and Ctrl+H delete it, and Ctrl+K, Ctrl+U and Alt+D delete it with what they reach beyond it.
+    - *A key is its letter on a Latin layout* (Dvorak's Ctrl with the key at F is Ctrl+U), *and its place on a layout of
+      another script*, as the browser's own shortcuts are read: Ctrl with the key at E on a Russian layout is Ctrl+E.
+    - *With a selection* Ctrl+F and Ctrl+B collapse it to its end and its start, as the arrows do; Alt+F moves a word on
+      from its end and Alt+B a word back from its start; Ctrl+D and Ctrl+H delete it, and Ctrl+K, Ctrl+U and Alt+D
+      delete it with what they reach beyond it.
     - *Not taken.* Ctrl+G (Esc closes the line), Ctrl+Space (an IME's switch on many systems), Ctrl+R (the line keeps no
       history of lines), Ctrl+S's search and Ctrl+V's paging (Ctrl+V pastes), and the keys that extend a selection (Shift
       with Home and End does).
