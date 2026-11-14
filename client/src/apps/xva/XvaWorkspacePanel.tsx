@@ -20,7 +20,7 @@ import { commandDoor, registerCommandDoor, tableMenu, type TableMenu } from '../
 import { filterGrid, menuView, pagedView, placeFocus, selectRows, sortGrid, whereOf, type Answered, type ScreenGrid } from '../../platform/grid/lineView';
 import { GridFilterLine, type FilterSaid } from '../../platform/grid/GridFilterLine';
 import { useWhere, type Heard } from '../../platform/grid/heldFilter';
-import type { Screen } from '../../platform/commands/commands';
+import type { CommandRequest, Screen } from '../../platform/commands/commands';
 import type { LineView } from '../../platform/contracts';
 import { XvaResult } from './XvaResult';
 import { BASE_CASE, BASE_SCENARIO, openTrace, requestTerm } from '../../platform/traces/open';
