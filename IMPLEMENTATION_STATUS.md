@@ -3932,6 +3932,120 @@ after main was merged in twice, found the resolutions right; it added this secti
 merged tree and the marker on step 3c's limit, named the maker of a line's name for what it gives (`NextLineName`),
 and made the test of a workspace named by revision run its `add line`.
 
+## The dummy counterparty, and the value date and the counterparty by command (ADR-0016 note 100, 2026-11-14)
+
+The owner asked for a workspace opened with no counterparty chosen to be on a dummy one, and for commands that change
+the value date and the counterparty, `cpty` spelling the second (2026-11-14); then said what the dummy's Project name
+is for (below). Recorded as ADR-0016 note 100 and
+ADR-0010 §1's and §9's notes of the same day (first written as note 69, which main's official PV by leg took
+first); the dummy stands as his approval of a default (CLAUDE.md, "No fallback").
+
+### What runs
+
+- **The dummy counterparty, `DUMMY/LE-00`**, first in the synthetic catalogue and flagged `dummy` where the
+  registrations are listed. A prospect (docs/03 §2.4): nothing is booked with it; netting set `NS-000`, enforceable,
+  with no CSA (a new trade's CSA is `nocsa_MA-000`) and no IM CSA; no CDS, so CVA is refused until one is chosen; no
+  CVA recovery of its own. The size asked for is kept for a later move to a booked counterparty.
+- **The New XVA workspace dialog** leaves Counterparty empty, names the dummy in its placeholder and says under it
+  that left empty the workspace is on the dummy. The dialog sends the dummy's key itself, read from the list at
+  submit, so an Enter as the dialog opens is on the dummy too; the field is never filled in for the user. A list
+  with no dummy, or several, is said as a defect.
+- **The dummy's Project name.** The owner said what it is for (2026-11-14): when the list of what users priced is
+  read, it tells which project a pricing on the dummy came from, which nothing else does. It is a setting of the
+  workspace's (`project` on the Workspace table, beside the display currency), set by `project <name>` (a short form
+  of `set workspace project <name>`) or in the context bar, cleared by `reset workspace project`, and kept by a move
+  to a booked counterparty. The dialog asks for it, required, while the counterparty is empty or the dummy, and Enter
+  with none says so under the field and puts the keyboard there; the server refuses a dummy made with none and a
+  Price on the dummy with none (`ProjectRequired`). The accepted input and the Run's context carry it, the Pricing
+  DB's XVA view has a `Project` column, the quote's header names it, and the panel on the dummy is titled
+  `XVA DUMMY/LE-00 · <project>`.
+- **A `Dummy` badge** beside the toolbar's counterparty while the workspace is on it, at every width; on a phone it
+  goes under the counterparty, which beside it was cut.
+- **`value date <yyyy-MM-dd>`** (`xva.value-date.change`) and **`counterparty <code/entity>`**, spelled `cpty` too
+  (`xva.counterparty.change`). The line says before Enter where each moves the workspace and, for a counterparty,
+  each edit it drops by row and field; Tab offers the other counterparties. A code alone, an unknown counterparty, an
+  unreadable date and the date or counterparty the workspace is on already are refused on the line. The answer is
+  the server's count of what dropped, carried, conflicted and was lost, and stays while an edit is held.
+- **What a counterparty change drops is what the user was shown.** The request carries the count (`drops`) and
+  the revision it was read at; a moved workspace or another count is refused (`ConfirmationStale`). The toolbar
+  reads the drop in the edit queue's turn and asks the change at the revision it counted at (the door now sends a
+  request that names its revision at that revision).
+- **A new effect, `dropEdits`**, on the counterparty's command. Enter runs it only from a reading the line shows
+  (pressed before the reading arrived, the line stays and shows it); a saved sequence refuses a line of it; and the
+  AI moves a workspace only where nothing drops (`UserConfirms` otherwise). `value date` may stand in a sequence, as
+  `refresh` does.
+- **The toolbar invokes the same commands** through the door. The endpoints `POST …/value-date` and
+  `POST …/counterparty` are gone; `GET …/counterparty-change` stays for the toolbar's dialog. The AI is offered both
+  commands, and the page reads the workspace again after either.
+- **The panel is titled by the counterparty it shows** (`XVA ABC/LE-01`), whoever moved it; a name the user gave it
+  stays (the store's `retitlePanel`).
+
+### What the review changed
+
+The two reviews (standards and spec) found three ways an edit could be dropped without the user seeing the count
+(ADR-0003 §6), and this change closes each: the AI was offered the command with no dialog (it now moves only where
+nothing drops); Enter pressed before the reading arrived ran a reading read in the turn (it now runs nothing and
+shows the reading); and the toolbar's dialog counted outside the edit queue's turn and was guarded by the count
+alone, which an edit reset and another made could keep (it now counts in the turn and asks at that revision). Also:
+the dummy is told by its flag everywhere, the toolbar's four commands share one busy helper, rename and retitle share
+one renumbering, the badge's narrow layout has a browser test of its place, the removed endpoint is checked by its
+405, and names (`REGISTRATIONS_QUERY`, `dropping`) say what they hold. Left as they were: the description under the
+dialog's field (it says what an empty field means, which the placeholder alone does not), the sentence ending each
+carry answer written three times (each names its own action), and the dates formatted as the rest of the module
+formats them.
+
+The Project name had a review of its own (standards and spec, 2026-11-14). It changed: a move onto the dummy with no
+project now says in its reading that Price needs one; one function titles an XVA panel, used by the dialog and the
+panel alike; the rule a name holds to (1 to 80 characters on one line, no space at either end) is in a file of its
+own, `PortfolioProject.cs`, with the sentences that refuse it. Taking the pictures then found a defect neither review
+had: the wire leaves a null out, so a workspace with no project carried no `project` at all, and the client, comparing
+with `null`, titled a cleared panel `XVA DUMMY/LE-00 · undefined` and showed a Project field on every booked
+counterparty's toolbar. The contract now says the field may be absent, as the view's other such fields do, and the
+browser test clears the project and looks at a booked counterparty's toolbar; that fix was reviewed too, and found
+right.
+
+### Verification performed
+
+| Check | Result |
+|---|---|
+| `nix develop -c dotnet test server/Qube.slnx` | 1669 passed; 1682 with main's f6395ed merged in |
+| `cd client && npm run typecheck && npm test` | Typecheck clean; 514 passed in 49 files |
+| `cd client && npm run build && npx playwright test` (Chromium, headless, Linux, the built client served by the host) | 153 passed |
+| The new browser test and the changed counterparty test alone, `--repeat-each=3`, after the review's fixes | 6 passed |
+| With the Project name: `dotnet test server/Qube.slnx` | 1684 passed; 1686 with main a856df9 merged in |
+| With the Project name: `npm run typecheck && npm test` | Typecheck clean; 514 passed in 49 files |
+| With the Project name: `npm run build && npx playwright test`, then the Pricing DB test fixed for its new column alone, `--repeat-each=3` | 152 passed and the one fixed; 3 passed |
+| After the absent-project fix: the dummy's browser test and the toolbar's counterparty test alone, `--repeat-each=3` | 6 passed |
+| On main a856df9 merged in: `npm run typecheck && npm test`, then `npx playwright test e2e/rates.spec.ts e2e/xva.spec.ts` | Typecheck clean; 514 passed; 70 passed |
+
+The server's tests (`PricerSourceCommandTests`, `XvaApiTests`) read both commands' readings and refusals, the count
+a stale reading is refused for (asked as the AI), the completions, a sequence that holds a value date and refuses a
+counterparty change, `undo` refused after each, the AI refused a change that drops and taken where nothing drops, and
+the dummy's terms and a move from it. The door's unit tests read a drop command refused without a shown reading and
+run with one, and a request sent at the revision it names. The browser test opens a workspace with Enter on the empty
+dialog, sees the badge beside the counterparty and, at 390px, under it with the counterparty at least 14rem wide, and
+an empty Existing grid; reads and runs `cpty ABC/LE-01` (the panel retitled, the badge gone); presses Enter on
+`counterparty XYZ/LE-03` while its reading is held back and sees nothing run, then reads the drop and runs it; then
+reads and runs `value date 2026-10-27` and sees the same date refused. The toolbar's counterparty test now reads the
+server's sentence and the retitled panel.
+
+By hand, in the built client served by the host: pictures of the dialog (1440px light and dark, 390px), the dummy
+workspace (1440px light and dark, 390px), the toolbar at 390, 768 and 992px in both themes, the readings of `cpty` and
+`value date` and what each did, and a GIF of the flow. Looked at each. For the Project name: the dialog refusing an
+Enter with none (1440px light and dark, 390px), the dummy workspace under a project (1440px light and dark), the
+toolbar at 390, 768 and 992px in both themes, `price` refused on the line once the project was cleared, the reading of
+`project Beta deal`, the Pricing DB's XVA view listing two Runs on the dummy by their projects, and a GIF of the flow.
+Looked at each; the pictures are what found the absent-project defect above.
+
+### Providers
+
+Unchanged: every source and every measure is simulated, and every value is synthetic.
+
+### Known limits
+
+- **The toolbar's dialog lists what drops by kind**, and the line's reading by row and field, as before this change;
+  the dialog was not changed.
+
 ## Next
 
 1. The owner's answer on one package a row or several (ADR-0016 note 90).

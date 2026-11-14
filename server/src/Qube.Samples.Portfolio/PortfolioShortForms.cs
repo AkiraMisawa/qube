@@ -8,10 +8,13 @@ namespace Qube.Samples.Portfolio;
 // line it stands for, and the kernel reads that line: what runs, what the log names and what `undo` takes back is
 // `set`. None has behaviour of its own.
 
-/// <summary>The pricer's short forms: <c>before</c> and <c>after</c> for a whole grid's B and A, and <c>currency</c> for the display currency.</summary>
+/// <summary>
+/// The pricer's short forms: <c>before</c> and <c>after</c> for a whole grid's B and A, <c>currency</c> for the display
+/// currency and <c>project</c> for the project name.
+/// </summary>
 public sealed class PortfolioShortForms : IShortFormCatalog
 {
-    public IEnumerable<IShortForm> ShortForms { get; } = [new Side("before"), new Side("after"), new Currency()];
+    public IEnumerable<IShortForm> ShortForms { get; } = [new Side("before"), new Side("after"), new Currency(), new Project()];
 
     static readonly char[] Space = [' ', '\t'];
 
@@ -78,5 +81,24 @@ public sealed class PortfolioShortForms : IShortFormCatalog
             var (before, typing, start) = LineWords.Typing(line.Text);
             return before.Count == 0 ? Offer(PortfolioMarket.Currencies.Select(c => (c, (string?)null)), typing, start) : LineCompletions.None;
         }
+    }
+
+    /// <summary>
+    /// <c>project Alpha bid</c>: the project the workspace's Runs are listed under (ADR-0010 §1's note of 2026-11-14),
+    /// <c>set workspace project Alpha bid</c>; the rest of the line is the name, as typed.
+    /// </summary>
+    sealed class Project : IShortForm
+    {
+        public ShortFormDescriptor Descriptor { get; } = new("xva.project", "Name the project the workspace's Runs are listed under",
+            new(["project"], [new("name", CommandArgumentKind.Text, Required: true)], PortfolioEditRules.App));
+
+        public string Expand(LineContext line)
+        {
+            var typed = line.Text.Trim();
+            return typed.Length > 0 ? $"set {Entity.WorkspaceId} project {typed}"
+                : throw new TableRefused("NoProject", $"project takes the project's name, such as `project Alpha bid`; `reset {Entity.WorkspaceId} project` clears it.", null);
+        }
+
+        public LineCompletions Complete(LineContext line) => LineCompletions.None;
     }
 }

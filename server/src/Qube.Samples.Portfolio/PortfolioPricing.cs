@@ -245,6 +245,10 @@ public static class PortfolioInput
         }
         var state = PortfolioCases.Base(raw);
         var source = PortfolioSourceVersion.Of(state);
+        // A Run on the dummy is told apart by its project alone (ADR-0010 §1's note of 2026-11-14), so none is made without one.
+        var project = PortfolioMaterialiser.Project(state);
+        if (source.Registration.Dummy && project is null)
+            throw ProjectNames.MissingAtPrice();
         var selected = PortfolioMaterialiser.SelectedMeasures(state, register);
         var loaded = BookedTrades.LoadedBy(raw).Where(id => source.Trade(id) is not null).ToList();
         return new JsonObject
@@ -257,6 +261,8 @@ public static class PortfolioInput
             // The currency every measure reports in (ADR-0010 §1, §7), frozen with the rest.
             ["displayCurrency"] = PortfolioMaterialiser.DisplayCurrency(state),
             ["registration"] = source.Registration.Key,
+            // The project the Run is listed under, or none (ADR-0010 §1's note of 2026-11-14).
+            ["project"] = project,
             ["agreement"] = source.Agreement.MaId,
             ["nettingSet"] = source.Agreement.NettingSetId,
             // The booked trades the workspace loaded that are among its trades on this value date (ADR-0016 note 59), and
@@ -427,8 +433,11 @@ public static class PortfolioPrice
         var input = PortfolioInput.Build(freeze, register, caseCap);
         var reference = store.Put($"portfolio-input-{freeze.WorkspaceId}-r{freeze.Revision}", PortfolioContracts.AcceptedInput, PortfolioContracts.Version, input);
         var selected = PortfolioMaterialiser.SelectedMeasures(PortfolioCases.Base(freeze.State), register);
-        // The Run's input says what was asked, so the page and the Pricing DB read it from the Run, not from the screen.
-        return new RunSubmission(Workflow(register, reference, selected), freeze.Context,
+        // The Run's input says what was asked, so the page and the Pricing DB read it from the Run, not from the screen. Its
+        // context names the project it is listed under, where the workspace has one (ADR-0010 §1's note of 2026-11-14).
+        var context = freeze.Context.DeepClone().AsObject();
+        if (input["project"] is JsonValue project) context["project"] = project.DeepClone();
+        return new RunSubmission(Workflow(register, reference, selected), context,
             new JsonObject { ["workspaceId"] = freeze.WorkspaceId, ["revision"] = freeze.Revision, ["measures"] = string.Join(' ', selected) },
             idempotencyKey, owner, origin,
             (relations ?? RunRelations.None) with { WorkspaceId = freeze.WorkspaceId, WorkspaceRevision = freeze.Revision },

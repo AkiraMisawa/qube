@@ -1,6 +1,6 @@
-import { lazy, Suspense, useCallback, useState, type ReactNode } from 'react';
-import { Button, Group, Modal, NumberInput, Select, Stack, Text } from '@mantine/core';
-import { useQuery } from '@tanstack/react-query';
+import { lazy, Suspense, useCallback, useRef, useState, type ReactNode } from 'react';
+import { Button, Group, Modal, NumberInput, Select, Stack, Text, TextInput } from '@mantine/core';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { CommandRefused, type Command } from '../platform/commands/commands';
 import { useWorkspace, useWorkspaceContext } from '../platform/workspace/WorkspaceProvider';
 import { panelLabel, type Panel, type WorkspaceState } from '../platform/workspace/workspaceStore';
@@ -8,8 +8,11 @@ import { PricingDbPanel } from './history/PricingDbPanel';
 import { httpRatesApi, type RatesApi } from './rates/api';
 import { RatesWorkspacePanel } from './rates/RatesWorkspacePanel';
 import { httpXvaApi, type XvaApi } from './xva/api';
+import type { Registration } from './xva/contracts';
 import { measureNamed, xvaPageOf } from './xva/commands';
-import { XvaWorkspacePanel } from './xva/XvaWorkspacePanel';
+import { XvaWorkspacePanel, xvaPanelTitle } from './xva/XvaWorkspacePanel';
+import { PROJECT_FIELD, SETTINGS_ENTITY, projectNamed } from './xva/editing';
+import { ApiError } from '../platform/api';
 import { registerAiContext, registerAiEffect } from '../ai/effects';
 import { registerGridFocus } from '../shell/places';
 import { registerPageOpener } from '../shell/proposals';
@@ -77,10 +80,11 @@ registerAiContext(XVA_WORKSPACE, (panel) => panel.params.workspaceId === undefin
   value: JSON.stringify({ kind: 'xva.workspace', workspaceId: panel.params.workspaceId }),
 });
 // The scenario commands (ADR-0010 §4) likewise, and `price`, `refresh` and `pv01 retry` (ADR-0016 note 33): the page
-// shows the Run the AI priced, and reads its grids again from the first row where a refresh moved the source.
+// shows the Run the AI priced, and reads its grids again from the first row where a refresh moved the source. So too
+// `value date` and `counterparty` (note 100), after which the panel is titled by the counterparty it then shows.
 const XVA_EDITS = ['xva.vary', 'xva.trades.add', 'xva.cds', 'xva.measures', 'xva.case.remove', 'xva.cases.clear', 'xva.scenario',
   'xva.scenario.include', 'xva.scenario.exclude', 'xva.scenario.remove', 'xva.scenario.duplicate', 'xva.scenarios.clear', 'xva.scenario.ladder',
-  'xva.scenario.cross', 'xva.scenario.load', 'xva.workspace.price', 'xva.refresh', 'xva.pv01.retry'];
+  'xva.scenario.cross', 'xva.scenario.load', 'xva.workspace.price', 'xva.refresh', 'xva.pv01.retry', 'xva.value-date.change', 'xva.counterparty.change'];
 for (const capability of XVA_EDITS)
   registerAiEffect(capability, (outputs, { queryClient }) => {
     const answer = outputs.answer as { readonly workspaceId: string };
@@ -118,7 +122,7 @@ registerPageOpener({
   open: async (workspaceId) => {
     if (workspaceId === undefined) throw new Error('An XVA workspace is opened by its id.');
     const view = await xvaApi.view(workspaceId);
-    return { kind: 'app', title: `XVA ${view.registration.key}`, app: XVA_WORKSPACE, params: { workspaceId } };
+    return { kind: 'app', title: xvaPanelTitle(view), app: XVA_WORKSPACE, params: { workspaceId } };
   },
 });
 registerPageOpener({
@@ -345,27 +349,68 @@ export function AppDialogs() {
   );
 }
 
+/** How the counterparties a workspace is opened for are read, once: the dialog lists them, as the toolbar's control does. */
+const REGISTRATIONS_QUERY = { queryKey: ['xva', 'registrations'], queryFn: () => xvaApi.registrations(), staleTime: Infinity } as const;
+
+/** The one dummy counterparty of the list, or none where it holds none or several. */
+const soleDummy = (registrations: readonly Registration[]): Registration | undefined => {
+  const dummies = registrations.filter((r) => r.dummy);
+  return dummies.length === 1 ? dummies[0] : undefined;
+};
+
+/**
+ * The dummy counterparty, which a workspace opened with none chosen is on (ADR-0010 §1's note of 2026-11-14, asked for
+ * by the owner that day). A list with none, or with several, is a defect said as one: no other counterparty is taken in
+ * its place.
+ */
+function dummyOf(registrations: readonly Registration[]): Registration {
+  const dummy = soleDummy(registrations);
+  if (dummy === undefined) throw new Error(`The server lists ${registrations.filter((r) => r.dummy).length} dummy counterparties, and a workspace opened with none chosen is on its one: choose a counterparty.`);
+  return dummy;
+}
+
 function NewXvaWorkspace({ onDone }: { readonly onDone: () => void }) {
   const workspace = useWorkspaceContext();
-  const registrations = useQuery({ queryKey: ['xva', 'registrations'], queryFn: () => xvaApi.registrations(), staleTime: Infinity });
+  const queryClient = useQueryClient();
+  const registrations = useQuery(REGISTRATIONS_QUERY);
+  // What the user chose, and nothing until they do: the dummy is what the placeholder says the workspace is on then,
+  // never a value put in the field, which a list that arrives as the user types would write over what was typed.
   const [registration, setRegistration] = useState<string | null>(null);
   const [valueDate, setValueDate] = useState('2026-10-26');
   const [valueDateError, setValueDateError] = useState<string | undefined>(undefined);
   const [size, setSize] = useState<number | string>(1000);
+  // The project a workspace on the dummy is listed under (ADR-0010 §1 and its note of 2026-11-14), asked for beside it.
+  const [project, setProject] = useState('');
+  const [projectError, setProjectError] = useState<string | undefined>(undefined);
+  const projectInput = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | undefined>(undefined);
 
+  // The placeholder names the dummy once the list is read; a list without its one says so when the dialog is submitted.
+  const dummy = registrations.data === undefined ? undefined : soleDummy(registrations.data);
+  // Left empty, or the dummy chosen: the project is asked for. Another counterparty says what was priced, and needs none.
+  const onDummy = registration === null || registration === dummy?.key;
+
   const submit = async () => {
-    if (registration === null) { setError('Choose a counterparty.'); return; }
     if (!isIsoDate(valueDate)) { setValueDateError('A date as yyyy-MM-dd is required.'); return; }
     if (typeof size !== 'number' || !Number.isInteger(size) || size < 0) { setError('The portfolio size is a whole number.'); return; }
+    const named = projectNamed(project);
+    if (onDummy && named === null) {
+      setProjectError('Name the project: a workspace on the dummy is listed in the Pricing DB under it.');
+      projectInput.current?.focus();
+      return;
+    }
     setBusy(true);
     try {
-      const created = await xvaApi.create(registration, valueDate, size);
-      workspace.store.getState().showApp(XVA_WORKSPACE, `XVA ${created.registration.key}`, { workspaceId: created.workspaceId });
+      // Read here where the list has not arrived yet, so that an Enter pressed as the dialog opens is on the dummy too.
+      const chosen = registration ?? dummyOf(await queryClient.fetchQuery(REGISTRATIONS_QUERY)).key;
+      const created = await xvaApi.create(chosen, valueDate, size, onDummy ? named : null);
+      workspace.store.getState().showApp(XVA_WORKSPACE, xvaPanelTitle(created), { workspaceId: created.workspaceId });
       onDone();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      // A refusal of the project is said under it; any other under the counterparty.
+      if (e instanceof ApiError && e.names(SETTINGS_ENTITY, PROJECT_FIELD)) setProjectError(e.message);
+      else setError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
     }
@@ -374,8 +419,15 @@ function NewXvaWorkspace({ onDone }: { readonly onDone: () => void }) {
   return (
     <form onSubmit={(e) => { e.preventDefault(); void submit(); }}>
       <Stack gap="sm">
-        <Select label="Counterparty" data-autofocus searchable value={registration} onChange={setRegistration} error={error}
+        <Select label="Counterparty" data-autofocus searchable clearable value={registration} onChange={setRegistration} error={error}
+          placeholder={dummy === undefined ? 'The dummy counterparty' : `${dummy.key} · ${dummy.name}`}
+          description="Left empty, the workspace is on the dummy counterparty: nothing is booked with it."
           data={(registrations.data ?? []).map((r) => ({ value: r.key, label: `${r.key} · ${r.name}` }))} />
+        {onDummy && (
+          <TextInput ref={projectInput} label="Project" withAsterisk value={project} error={projectError}
+            description="The Runs of a workspace on the dummy are listed in the Pricing DB under its project."
+            onChange={(e) => { setProject(e.currentTarget.value); setProjectError(undefined); }} />
+        )}
         <IsoDateInput label="Value date" value={valueDate} error={valueDateError}
           onChange={(text) => { setValueDate(text); setValueDateError(undefined); }} />
         <NumberInput label="Existing trades (synthetic)" min={0} max={100000} allowDecimal={false} value={size} onChange={setSize} />

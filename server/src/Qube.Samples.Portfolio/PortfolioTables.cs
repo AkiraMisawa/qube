@@ -77,11 +77,15 @@ public static partial class PortfolioFields
     /// <summary>The chosen CDS curve's spreads, a field a tenor.</summary>
     public static IReadOnlyList<TableField> Cds { get; } = [OneRow, .. CdsCatalog.Tenors.Select(t => new TableField(t, t, [t], FieldForm.Spread, Editable: true))];
 
-    /// <summary>The workspace's own settings (ADR-0010 §1): the currency its figures are shown in.</summary>
+    /// <summary>
+    /// The workspace's own settings (ADR-0010 §1): the currency its figures are shown in, and the project its Runs are
+    /// listed under, which a workspace on the dummy counterparty needs before it prices (§1's note of 2026-11-14).
+    /// </summary>
     public static IReadOnlyList<TableField> Workspace { get; } =
     [
         OneRow,
         new(Entity.DisplayCurrency, "Display currency", ["currency", "ccy", "display currency"], FieldForm.Choice, Editable: true, Choices: Currencies),
+        new(Entity.Project, "Project", ["project", "project name"], FieldForm.Id, Editable: true, Optional: true),
     ];
 
     /// <summary>A module's settings (ADR-0010 §8), named by their titles' words and their own names.</summary>
@@ -321,7 +325,14 @@ public sealed class PortfolioTables(MeasureRegister register) : ITableCatalog
         OneRow(checks, Described(Workspace, "Workspace", [Entity.WorkspaceId], PortfolioFields.Row, PortfolioFields.Workspace, one: true), reading =>
         {
             var currency = PortfolioMaterialiser.DisplayCurrency(reading);
-            return new Row(reading, Entity.WorkspaceSettings, Entity.WorkspaceId, null, f => f == PortfolioFields.Row ? Entity.WorkspaceId : currency);
+            var project = PortfolioMaterialiser.Project(reading);
+            return new Row(reading, Entity.WorkspaceSettings, Entity.WorkspaceId, null, f => f switch
+            {
+                PortfolioFields.Row => Entity.WorkspaceId,
+                Entity.DisplayCurrency => currency,
+                Entity.Project => project,
+                _ => throw new InvalidOperationException($"The Workspace row has no field {f}."),
+            });
         }),
         // A module's settings, the table and its row named by the module's id (ADR-0010 §8): `set xva cost of capital 12%`.
         .. register.Modules.Where(m => m.Settings.Count > 0).Select(m =>
