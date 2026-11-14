@@ -10,8 +10,9 @@ import { answeredOrder, type Answered } from './lineView';
 // again where its rows' order is the one it was read in, named by the page (`OrderOf`), and its columns are the ones it
 // was read among. Anything else leaves nothing selected, as ExGrid leaves a grid whose order moved, rather than select
 // other rows, and never over a Selection the user made before it was decided. A Selection of several ranges is not
-// kept: ExGrid places one range and its Focus from outside a grid (`placeSelection`), and a view it read is handed back
-// only to the grid that read it (`showViewWith`). The grid's scroll is not kept: the Focus placed is revealed. A grid
+// kept, though ExGrid places several from outside a grid since 0.3.0 (`placeSelection`): keeping them is left until
+// the owner asks (ADR-0006 note 10). The grid's scroll is not kept: a view it read is handed back only to the grid
+// that read it (`showViewWith`), and a grid drawn anew is another grid, so the Focus placed is revealed instead. A grid
 // drawn again while its panel is shown (an input tab chosen again) takes back what it showed the same way.
 
 /** A grid's view as its panel keeps it. */

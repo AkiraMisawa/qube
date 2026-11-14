@@ -196,11 +196,12 @@ public class CcrPricerTests
         var (service, runs, store) = Priced();
         var ws = service.Create("akira", "ABC/LE-01", Day1, 20);
         Assert.Contains(service.Page(ws.WorkspaceId, "akira", 0, 100, []).Rows, t => t.Csa == "CSA-B");
-        ws = service.Edit(ws.WorkspaceId, ws.Revision, "akira", "csa:CSA-B", "oneWay", true);
+        // One-way is what who posts says (ADR-0016 note 66): we stop posting, and the counterparty posts alone.
+        ws = service.Edit(ws.WorkspaceId, ws.Revision, "akira", "csa:CSA-B", "selfPosts", false);
 
         var priced = await Price(runs, store, service, ws);
 
-        const string why = "CSA-B is one-way, and its terms do not say which party posts, so its margined exposure cannot be decided.";
+        const string why = "CSA-B is one-way, and this measure does not yet read which party posts, so its margined exposure cannot be decided.";
         Assert.All(priced.Rows.Where(r => r["measure"]!.GetValue<string>() == "ccr.spotCapital"),
             r => Assert.Equal(("refused", why), (r["afterStatus"]!.GetValue<string>(), r["reason"]!.GetValue<string>())));
         Assert.Equal(("refused", $"KVA reads spot CCR capital: {why}"), (Row(priced.Rows, "kva", "kva")["afterStatus"]!.GetValue<string>(), Row(priced.Rows, "kva", "kva")["reason"]!.GetValue<string>()));

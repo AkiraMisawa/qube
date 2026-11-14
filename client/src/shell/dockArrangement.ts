@@ -9,19 +9,36 @@ import { AREA_MIN, areasOf, lineOf, needs, type Line } from './layout';
 
 const SIDE = { right: 'right', left: 'left', down: 'bottom', up: 'top' } as const;
 
-/** The port over this dockview, and how to stop what it watches. */
-export function dockArrangement(api: DockviewApi): { readonly port: Arrangement; readonly stop: () => void } {
-  // The area a panel was floated from, so that `dock panel` puts it back there (the spec's DEFAULT reading of §3), kept
-  // by the browser tab with the arrangement. It is read from dockview's own move, so that a panel floated by the
-  // pointer (Shift with a drag) is put back as one floated by `float panel` is; one moved into an area by any means has
-  // none.
+/** The page another window opens on: the client's own, same-origin and blank (ADR-0018 §9). */
+export const POPOUT_URL = '/popout.html';
+
+/**
+ * The port over this dockview, how to stop what it watches, whether a window it was asked for is still opening, and
+ * whether `dock panel` is closing one. dockview hides the place a whole area leaves before it records the window that
+ * will come back to it, in one turn once the window has loaded, so until the window has opened or failed that place is
+ * awaited, not left. A window `dock panel` empties closes as the verb runs, and the verb says where its panel went.
+ */
+export function dockArrangement(api: DockviewApi): {
+  readonly port: Arrangement;
+  readonly stop: () => void;
+  readonly opening: () => boolean;
+  readonly docking: () => boolean;
+} {
+  let windowsOpening = 0;
+  let docking = false;
+  // The area a panel was floated from, or left for another window (§9), so that `dock panel` puts it back there (the
+  // spec's DEFAULT reading of §3), kept by the browser tab with the arrangement. It is read from dockview's own move,
+  // so that a panel floated by the pointer (Shift with a drag) is put back as one floated by `float panel` is; one moved
+  // into an area of the main window by any means has none. A whole area popped out is told as a move of each of its
+  // panels from it, so its place, which dockview keeps hidden, is where they go back.
   const kept = keptArrangement.getState;
   const floatedFrom = (panelId: string, areaId: string | undefined): void => {
     const { [panelId]: _, ...others } = kept().floatedFrom;
     kept().keepFloatedFrom(areaId === undefined ? others : { ...others, [panelId]: areaId });
   };
+  const away = (g: DockviewGroupPanel): boolean => g.api.location.type === 'floating' || g.api.location.type === 'popout';
   const moves = api.onDidMovePanel(({ panel: moved, from, to }) => {
-    if (to.api.location.type !== 'floating') floatedFrom(moved.id, undefined);
+    if (!away(to)) floatedFrom(moved.id, undefined);
     else if (from.api.location.type === 'grid') floatedFrom(moved.id, from.id);
   });
 
@@ -35,7 +52,9 @@ export function dockArrangement(api: DockviewApi): { readonly port: Arrangement;
     if (found === undefined) throw new Error(`There is no area ${id}.`);
     return found;
   };
-  const docked = (): readonly DockviewGroupPanel[] => api.groups.filter((g) => g.api.location.type === 'grid');
+  // The areas of the main window. The place dockview keeps hidden for a whole area that left for another window holds
+  // no panel and is none of them, though a panel docked back goes into it (below).
+  const docked = (): readonly DockviewGroupPanel[] => api.groups.filter((g) => g.api.location.type === 'grid' && g.panels.length > 0);
   const line = (areaId: string): Line | undefined => lineOf(api.toJSON(), areaId);
   const titled = (g: DockviewGroupPanel): string => {
     const shown = g.activePanel ?? g.panels[0];
@@ -69,6 +88,17 @@ export function dockArrangement(api: DockviewApi): { readonly port: Arrangement;
       // area for a floating area of its own.
       api.addFloatingGroup(from.api.location.type === 'floating' ? from : p, place(box));
     },
+    popOut(panelId: string) {
+      // dockview opens the window on the client's own blank page, over where the panel's area stands and at its size.
+      // What it answers is told by its own events, which the areas hear: a window refused, or one opened. An area's only
+      // panel takes its whole area out, and dockview keeps the area's place hidden for it to come back to; a panel
+      // beside others leaves them its area.
+      const p = panel(panelId);
+      windowsOpening += 1;
+      // Its outcome is told by dockview's events (above); here only that it has settled, either way.
+      void api.addPopoutGroup(p.group.panels.length === 1 ? p.group : p, { popoutUrl: POPOUT_URL })
+        .finally(() => { windowsOpening -= 1; });
+    },
     dock(panelId: string): string {
       const p = panel(panelId);
       const from = kept().floatedFrom[panelId];
@@ -78,6 +108,29 @@ export function dockArrangement(api: DockviewApi): { readonly port: Arrangement;
         const where = `back into the area of ${titled(back)}`;
         p.api.moveTo({ group: back, position: 'center', index: back.panels.length });
         return where;
+      }
+      // The place a whole area left for another window: shown again, with the panel back in it, where it stood.
+      const place = api.groups.find((g) => g.id === from && g.api.location.type === 'grid' && g.panels.length === 0);
+      if (place !== undefined) {
+        place.api.setVisible(true);
+        if (p.group.panels.length > 1) {
+          p.api.moveTo({ group: place, position: 'center' });
+          return 'back where its area stood';
+        }
+        // The window's last panel: dockview takes an emptied window's place with it as the window goes, before a panel
+        // moved out arrives there. So the window's area itself comes in beside its place, shown, which then gives it
+        // its room and goes.
+        const { width, height } = place;
+        const area = p.group;
+        docking = true;
+        try {
+          area.api.moveTo({ group: place, position: 'left' });
+          api.removeGroup(place);
+        } finally {
+          docking = false;
+        }
+        area.api.setSize({ width, height });
+        return 'back where its area stood';
       }
       // Where it came from has gone: a new area on the right where the room holds one, else the last area.
       if (api.width >= needs(api.toJSON()).width + AREA_MIN.width) {
@@ -115,5 +168,5 @@ export function dockArrangement(api: DockviewApi): { readonly port: Arrangement;
       api.fromJSON(layout);
     },
   };
-  return { port, stop: () => moves.dispose() };
+  return { port, stop: () => moves.dispose(), opening: () => windowsOpening > 0, docking: () => docking };
 }

@@ -216,7 +216,8 @@ taken out stays in Before and the difference is the whole change; its case names
 - **A trade taken out is one the Base has in After**; any other is refused by name. An iteration adds one candidate
   at least: a case that only takes a trade out is `vary E00003 A off`, which the code makes and prices today.
 
-**How the line spells the lists is open.** One spelling, not decided:
+**How the line spells the lists is open.** *Closed 2026-11-14 (note 68): the owner keeps the line without one.*
+One spelling, not decided:
 `add each DRAFT-1+DRAFT-2 without E00003, DRAFT-3`, where `+` joins the candidates of one iteration, `without` names
 what it takes out and a comma starts the next. Whatever is chosen, no bare sign means "take out", because an id may
 hold a hyphen (`DRAFT-1`).
@@ -1121,6 +1122,7 @@ each is built.
       and still makes no second Run. Invoked with no key, `price` is refused.
     - *A refusal is a sentence.* A line and a notice show a sentence alone, so a refusal that names the edits it
       waits on, or the issues the Run service found, says them in its sentence.
+      *Amended 2026-11-14 (note 66): a target that more than one layer holds is said once.*
     - *`refresh`* reads the counterparty's trades and CSAs again on the value date the workspace holds. Its reading
       reads no source: it says what would be read again. It is written as one command named `refresh`, with its
       caller's origin, and `undo` takes it back where the source's version is still the one it replaced. Its
@@ -1647,7 +1649,9 @@ and notes 42 to 44 are 4c's.
       ranges is made with the pointer and the keys alone (asked for as ex-grid issue #561). Rows that are not
       next to one another in the grid's order are therefore refused (`SeveralRuns`), with how many runs they are
       in and the way on: filter or sort the grid so that they are, then `select shown`. Selecting the first run
-      and saying nothing would be a Selection that looks like the answer and is not.
+      and saying nothing would be a Selection that looks like the answer and is not. *(2026-11-14: ExGrid 0.3.0,
+      which the workbench takes, places a Selection of several ranges (#561). `select` still refuses rows in
+      several runs; taking it up changes this note, and is left until the owner asks.)*
     - *Who says whether they are one run.* Where the server pages the grid, the server does, in the view's order
       (refused as moved where that is no longer the table's, as a position is), and answers the first position
       and how many. Where the page holds every row, the grid orders them itself: the server answers the rows'
@@ -1659,8 +1663,8 @@ and notes 42 to 44 are 4c's.
       next line reads the view again, so `select where ccy=USD` then `set notional 5mm`, or `copy`, acts on the
       rows just selected (note 18).
     - It completes as rows are said (note 15). Not the AI's, not logged, not undone: it changes no workspace.
-    - *Left for later.* Several ranges, when ExGrid places them. Taking the Selection off (`select off`): ExGrid
-      places a range and has no call that leaves none.
+    - *Left for later.* Several ranges, which ExGrid has placed since 0.3.0, when the owner asks. Taking the
+      Selection off (`select off`): ExGrid places ranges and has no call that leaves none.
 
 44. **`copy` and `export` take rows out of the workbench (§3, amending its spelling; 4c).**
     `copy [<rows>] [<fields>] [with headers]` puts cells on the clipboard, and
@@ -1695,7 +1699,8 @@ and notes 42 to 44 are 4c's.
     - *What it does not do.* A text is written as it is. A spreadsheet reads one that begins with `=`, `+`, `-`
       or `@` as a formula, and may drop the leading zeros of an id made of digits: writing an apostrophe before
       it would put a value in the file that the workspace does not hold, which needs the owner's word (the
-      fallback rule), so it is **put to the owner** and until then nothing is altered. An amount copied does not
+      fallback rule), so it is **put to the owner** and until then nothing is altered. *Decided 2026-11-14
+      (note 67):* the owner keeps it as it is. An amount copied does not
       read back as an amount typed here: a bare number is millions (ADR-0008), so one of a million or more is
       refused and a smaller one would be read a million times too large. That is the reader's rule for every
       bare number, and `copy` is for a spreadsheet.
@@ -2024,7 +2029,8 @@ has one button, edit; and `load trades` reads a synthetic store of booked trades
       posts is carried beside `one-way` and `exchange`, not in their place: a template writes them together, an
       edit by hand can leave them saying different things, and no simulated measure reads the side's flag.
       Whether `one-way` should become what the two flags say is put to the owner with the summary of decisions
-      made for him.
+      made for him. *Changed 2026-11-14 (note 66):* the owner answered that it should, and `one-way` and
+      `exchange` now follow the two flags; no edit sets either.
     - *Added as built.*
       - A word the two sides share (`posts`, `vm cap`, `rounding`) names neither alone: it is refused with the two
         it could be. `threshold` and `mta` alone stay the counterparty's, as the grid's first columns are.
@@ -2059,7 +2065,8 @@ has one button, edit; and `load trades` reads a synthetic store of booked trades
     frequency, VM caps, independent amounts and rounding stay as they are and are changed with `set`: the market
     has no curve for every currency a CSA may be in, and none is guessed. The owner's examples give the four
     templates and that each takes a currency; what each writes beyond who posts is the sample's own.
-    *Added as built:* `exchange` is on where either side posts and `one-way` where exactly one does. A template
+    *Added as built:* `exchange` is on where either side posts and `one-way` where exactly one does. *Changed
+    2026-11-14 (note 66):* a template writes who posts alone, and `exchange` and `one-way` follow. A template
     also answers to its words: `two-way`, `one-way self`, `one-way cpty` or `one-way counterparty`, `no
     collateral`.
 53. **The accepted input carries what the user set (owner, 2026-11-12; 5b).** The owner, the same day he put off
@@ -2637,6 +2644,71 @@ Step 6 is one pull request (`docs/specs/commands-6-saved-sequences`). §8 leaves
     - *Considered, and left:* a row number beside the name, which would give one line two names, and a name the
       user gives a line, which is a field to add if it is wanted.
 
+### Notes of 2026-11-14: the owner's answers to the summary of decisions
+
+The choices made for the owner through steps 0 to 6 were put to him in one summary (2026-11-12), eight of them for
+his word. He answered on 2026-11-14. These notes record the three he decided. What he asked about, or left for a
+later answer, is written when he answers.
+
+66. **A CSA's `exchange` and `one-way` are what who posts says (owner, 2026-11-14; amends notes 51 and 52).** Note 51
+    carried who posts beside `one-way` and `exchange`, where an edit by hand could leave them saying different
+    things, and put to the owner whether `one-way` should become what the two flags say. His answer: it should be
+    defined by which party posts.
+    - **What is held is each side's `posts`** (`counterpartyPosts`, `selfPosts`): the source's, or the user's edit.
+      `exchange` is on where either side posts and `one-way` where exactly one does, worked out wherever a CSA is
+      read: the grid's row, a condition (`csas where one-way=on`), the dialog, each case's reading, and the input
+      Price freezes, which carries the two beside the flags under `details` (note 53). There is one value to edit,
+      so the two cannot disagree.
+    - **No command and no edit sets `exchange` or `one-way`.** A line that sets one is refused with the fields to
+      set: `one-way is not a field a command sets: it follows counterparty posts and self posts. Set those.` An
+      edit that arrives as a value (the API, a cell) is refused in the same way, and so is a case's `vary` of
+      one, which is no cell, named by its words on a line or by its field (a page, the AI). The direction is
+      changed by a side's `posts` (`set CSA-B self posts off`, the dialog's switch) or by a template (note 52),
+      which writes who posts and no longer `exchange` or `one-way`.
+      A `reset` of one finds no edit of its own, though its cell may be marked, and names the fields it is reset
+      through: `CSA-B has no edit of one-way: it follows counterparty posts and self posts, and is reset through
+      those.`
+    - **The source's record of a CSA holds neither**: a second copy could only disagree with the flags. The
+      view's agreement, which is written from that record, loses the two names; the page's rows (`csas`) keep
+      them.
+    - **The page (DEFAULT).** The CSA grid's Exchange and One-way cells are read and take no typing. One whose
+      value differs from what the source's two flags say is marked with the source's value (ADR-0010 §2), as an
+      edited cell is. The row's dialog draws both read-only, says under each which fields it follows, and moves
+      them as a side's Posts is switched, before Save. The sentence is drawn and not a hover's, which a touch has
+      not (design guidelines §8). The grid gains no column for who posts: it is wide already, and the owner was
+      told he may ask for them.
+    - **A field that follows others is the kernel's to say (§1).** A table's field names the fields of its row it
+      follows (`TableField.From`). Such a field is set by no command: a table that says it is, that names a field
+      it has not, or that names none fails when the tables are read. `tables.describe` gives the names (`from`),
+      a draft's form gives the words a line says them by (`follows`), and the refusal names them in place of
+      every field a command sets.
+    - **An edit of `exchange` or `one-way` held from before this note is read by nothing.** It is not passed
+      over in silence (the fallback rule), and it is not translated: `one-way on` never said which side. The
+      Changes tab lists it as lost, with its Remove, and a whole row's `reset` takes it with the row's other
+      edits. Price is refused while the workspace holds one, in the Common layer or a case's, on a priced CSA or
+      another (`UnresolvedEdits`: `Remove in Changes the edit nothing reads in this version: csa:CSA-B
+      exchange.`): it would otherwise be kept among the Run's edits and change nothing of its input. A case that
+      holds one is named in the refusal, to be removed whole (`Remove in Changes the case CSA-B one-way on, which
+      holds an edit nothing reads in this version`): with the edit alone removed, a case made of it keeps the
+      title it was made with and is priced as the Base, as a case is when any change of it is removed by hand
+      (ADR-0010 §3). The edits and the cases are said in the order they were made. A refusal's sentence names a
+      target once however many layers hold it, here and in every refusal that names its edits (note 33): the same
+      words twice told nobody which layers. A refresh holds it back as lost, as it does an edit whose row is gone
+      (ADR-0003 §7). The row shows what who posts says throughout. The check is the pricer's, and is of any field its
+      source reads no more.
+    - **The measures.** FVA's rule reads `one-way` as before, which is now what the flags say. SA-CCR still
+      refuses a one-way CSA: its request carries `oneWay` and not which side posts, and its reason now says that
+      the measure does not read that yet (ADR-0013's note of the same day). Reading the side is for when the
+      analytics is connected (owner, 2026-11-12).
+67. **`copy` and `export` write a text as it is (owner, 2026-11-14; closes note 44's question).** Note 44 put to
+    the owner whether a text a spreadsheet would read as a formula (one that begins with `=`, `+`, `-` or `@`), or
+    as a number (an id of digits with leading zeros), should be written with an apostrophe before it. His answer:
+    as it is now. Nothing is altered, and the file holds what the workspace holds.
+68. **An `add each` iteration's lists have no spelling on the line (owner, 2026-11-14; closes §3's open spelling).**
+    §3 left open how a line would spell the trades an iteration adds together and the ones it takes out. His
+    answer: as it is now. The lists are made from the grids' selections in the page (note 37) and by the AI
+    through the typed value, and `add each` on the line takes none. A spelling is designed when one is asked for.
+
 ## Rejected
 
 - **A range syntax of the pricer's own** (`after off where ccy=USD`, the review's R6). A second grammar per domain,
@@ -2659,3 +2731,4 @@ Step 6 is one pull request (`docs/specs/commands-6-saved-sequences`). §8 leaves
   named option (`layer=after`) reads without ambiguity. Decided when ADR-0010's Advanced step is built.
 - How the line spells the lists of an `add each` iteration (§3): the trades added together, the trades taken out,
   and where the next iteration starts. Left aside by the owner (2026-11-11); the typed value does not wait for it.
+  *Closed 2026-11-14 (note 68): the owner keeps the line without a spelling.*

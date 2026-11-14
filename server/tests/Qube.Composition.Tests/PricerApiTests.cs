@@ -65,14 +65,14 @@ public class PricerApiTests(QubeFactory factory) : IClassFixture<QubeFactory>
         return (run, rows);
     }
 
-    [Fact] // ADR-0016 note 51: the page's row contracts are unchanged: the view's agreement carries each CSA's terms as before, and no field beyond the grid
+    [Fact] // ADR-0016 notes 51, 66: the view's agreement carries each CSA's terms the source holds, no field beyond the grid, and neither exchange nor one-way, which follow who posts
     public async Task The_views_agreement_carries_no_field_beyond_the_grid()
     {
         var ws = await Create();
 
         var csa = ws["agreement"]!["csas"]!.AsArray().Single(c => c!["csaId"]!.GetValue<string>() == "CSA-B")!.AsObject();
 
-        Assert.Equal(["csaId", "type", "currency", "curve", "fvaCurve", "frequency", "exchange", "oneWay", "counterpartyThreshold", "counterpartyMta", "counterpartyCurrency",
+        Assert.Equal(["csaId", "type", "currency", "curve", "fvaCurve", "frequency", "counterpartyThreshold", "counterpartyMta", "counterpartyCurrency",
             "selfThreshold", "selfMta", "selfCurrency", "disputes", "illiquidCollateral"], csa.Select(p => p.Key));
     }
 

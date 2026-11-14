@@ -209,7 +209,7 @@ public class PricerTests
     [InlineData("frequency", "\"hourly\"")]
     [InlineData("counterpartyThreshold", "-1")]
     [InlineData("selfCurrency", "\"CHF\"")]
-    [InlineData("oneWay", "\"yes\"")]
+    [InlineData("selfPosts", "\"yes\"")]
     [InlineData("type", "\"IM\"")]
     public void A_csa_term_that_does_not_read_is_refused(string field, string json)
     {

@@ -193,6 +193,8 @@ public class PricerLineTests
     [InlineData("vary", "NothingToVary: vary takes a cell, its row and its column, then the values separated by commas, such as vary CSA-A threshold 10mm, 5mm, 0.")]
     [InlineData("vary CSA-A threshold", "NothingToVary: vary takes a cell, its row and its column, then the values separated by commas, such as vary CSA-A threshold 10mm, 5mm, 0.")]
     [InlineData("vary CSA-Z threshold 5mm", "UnknownCell: No row CSA-Z: a row is a CSA (CSA-A, CSA-B), the netting set (NS-001), credit, cds, a trade's id, or xva for XVA's settings.")]
+    // ADR-0016 note 66: a column that follows others is no cell, and the line is told which to name in its place.
+    [InlineData("vary CSA-B one-way on, off", "NotEditable: one-way is not a field a command sets: it follows counterparty posts and self posts. Set those.")]
     [InlineData("vary CSA-A threshold 5mm, lots", "InvalidValue: CSA-A threshold is an amount: 5mm, 250k, 1bn, or a bare number of millions; lots is not.")]
     [InlineData("vary CSA-A threshold 10,000k", "NothingToVary: 10,000k could be one value or two: a comma separates values here, so write an amount without separators, such as 10000k or 10mm.")]
     [InlineData("vary CSA-A threshold 5mm,, 1mm", "NothingToVary: vary takes one value or more for CSA-A threshold, separated by commas, none of them empty.")]
@@ -212,7 +214,7 @@ public class PricerLineTests
 
     [Theory] // ADR-0016 note 45: where one of the pricer's verbs refuses a word of its line, the refusal names it, where it stands, and what it could have been
     [InlineData("vary CSA-Z threshold 5mm", "UnknownCell: CSA-Z@5-10 | CSA-A, CSA-B, NS-001, credit, cds, xva")]
-    [InlineData("vary CSA-A colour 5mm", "UnknownCell: colour@11-17 | threshold, mta, counterparty currency, self threshold, self mta, self currency, currency, curve, fva curve, frequency, exchange, one-way, "
+    [InlineData("vary CSA-A colour 5mm", "UnknownCell: colour@11-17 | threshold, mta, counterparty currency, self threshold, self mta, self currency, currency, curve, fva curve, frequency, "
         + "counterparty posts, counterparty vm cap, counterparty vm cap currency, counterparty independent amount, counterparty rounding, counterparty delivery rounding, counterparty return rounding, self posts, self vm cap, self vm cap currency, self independent amount, self rounding, self delivery rounding, self return rounding")]
     // A column of several words is named whole.
     [InlineData("vary DRAFT-1 fixed colour 1%", "UnknownCell: fixed colour@13-25 | notional, rate, schedule, csa, curve, im-r, im-p, B, A, margin, pvadj, "
@@ -278,7 +280,7 @@ public class PricerLineTests
     // A row is found by how its id starts or ends, as set finds one.
     [InlineData("vary e00003", "ABC-LE-01-E00003 (a trade)@5")]
     // A row's columns, by the word that names each.
-    [InlineData("vary CSA-A ", "threshold | mta | counterparty currency | self threshold | self mta | self currency | currency | curve | fva curve | frequency | exchange | one-way | "
+    [InlineData("vary CSA-A ", "threshold | mta | counterparty currency | self threshold | self mta | self currency | currency | curve | fva curve | frequency | "
         + "counterparty posts | counterparty vm cap | counterparty vm cap currency | counterparty independent amount | counterparty rounding | counterparty delivery rounding | counterparty return rounding | self posts | self vm cap | self vm cap currency | self independent amount | self rounding | self delivery rounding | self return rounding")]
     [InlineData("vary NS-001 ", "recovery")]
     // A column of several words is written from its first word, and one typed by another of its names is offered by the word that names it.
@@ -286,7 +288,7 @@ public class PricerLineTests
     [InlineData("vary CSA-A self c", "self currency@11")]
     [InlineData("vary DRAFT-1 fixed", "rate@13")]
     // A flag's two words and a choice's values, as a line writes them.
-    [InlineData("vary CSA-A exchange ", "on | off")]
+    [InlineData("vary CSA-A self posts ", "on | off")]
     [InlineData("vary DRAFT-1 A o", "on@15 | off@15")]
     [InlineData("vary CSA-A frequency w", "weekly@21")]
     // After a comma, the values not listed yet.

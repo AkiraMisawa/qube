@@ -9,8 +9,9 @@ import type { DraftForm, DraftRow, DraftTable, DraftTemplate, DraftTerm, FieldIn
 import { readFlag } from '../flags';
 import { useColumnWidths } from '../grid/columnWidths';
 import { QubeGrid } from '../grid/QubeGrid';
-import { cellLine, fieldLine, makeLine, removeLine, sectionsOf, shownOf, templateLine } from './draftLines';
+import { cellLine, fieldLine, followsNote, makeLine, removeLine, sectionsOf, shownOf, templateLine } from './draftLines';
 import { compactGridHeight } from '../grid/metrics';
+import { isElement } from '../elements';
 
 // A row's dialog (ADR-0016 §10, note 57 of 2026-11-12), the same for every table: it is drawn from the form the
 // server answers for the page's draft, and every change made in it is a line the server reads in that draft. It has
@@ -70,7 +71,12 @@ function FieldBox({ field, written, changed, sending }: {
   }
   const label = labelOf(field, changed);
   if (sending === undefined || !field.editable) {
-    return <TextInput size="sm" label={label} value={shown} readOnly variant="filled" {...(sending !== undefined ? { title: 'No command sets this field.' } : {})} />;
+    // What it follows is said under it, as a refusal is, on Live and on Original alike.
+    const follows = followsNote(field);
+    return (
+      <TextInput size="sm" label={label} value={shown} readOnly variant="filled" {...(sending !== undefined ? { title: 'No command sets this field.' } : {})}
+        {...(follows === undefined ? {} : { description: follows, inputWrapperOrder: ['label', 'input', 'description', 'error'] as const })} />
+    );
   }
   const commit = async (next: string) => {
     const typed = next.trim();
@@ -306,7 +312,7 @@ export function DraftDialog({ draft, ...rest }: DraftDialogProps) {
   // marks it, and a grid of the form its own too, handing on the one that has nothing of the grid's left to dismiss.
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key !== 'Escape' || event.defaultPrevented || event.nativeEvent.isComposing) return;
-    if (event.target instanceof Element && event.target.getAttribute('data-mantine-stop-propagation') === 'true') return;
+    if (isElement(event.target) && event.target.getAttribute('data-mantine-stop-propagation') === 'true') return;
     event.stopPropagation();
     escape();
   };
@@ -419,7 +425,8 @@ function DraftBody({ draft, workspaceId, revision, api, door, drop, discard, not
   useEffect(() => {
     const here = root.current;
     if (here === null) return;
-    if (document.activeElement === document.body) {
+    // In the window the dialog is drawn in, which is its page's (ADR-0018 §9).
+    if (here.ownerDocument.activeElement === here.ownerDocument.body) {
       const backs = here.querySelectorAll<HTMLElement>('[data-take-back]');
       const to = took.current ? backs[backs.length - 1] ?? cancel.current : here.closest<HTMLElement>('[role="dialog"]');
       to?.focus();

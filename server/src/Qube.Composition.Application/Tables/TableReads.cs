@@ -164,6 +164,7 @@ public sealed class TablesDescribe(Func<TableService> tables) : ICapabilityHandl
         if (field.UnitField is { } unitField) described["unitField"] = unitField;
         if (field.Unit is { } unit) described["unit"] = unit;
         if (field.Figure is { } figure) described["figureOf"] = figure.Of;
+        if (field.From is { } from) described["from"] = List(from);
         if (field.Table is { } pointsTo) described["pointsTo"] = pointsTo;
         if (field.Group is { } group) described["group"] = group;
         return described;
@@ -260,6 +261,7 @@ public static class TableReadContracts
                 ["unitField"] = Text("The field of the same row that holds its unit"),
                 ["unit"] = Text("Its unit, where the table fixes one for the workspace"),
                 ["figureOf"] = Text("The id of the table under its row whose rows it is worked out from; what a write of it does to them is the table's rule"),
+                ["from"] = Texts("The fields of the same row it follows, by name, where it is what they say: no command sets it, and those are set in its place"),
                 ["pointsTo"] = Text("The id of the table whose row its value names"),
                 ["group"] = Text("The group it is drawn under"),
             }, "table", "name", "title", "words", "form", "written", "editable", "optional"),

@@ -190,11 +190,13 @@ public static class SpotCapitalPricing
     }
 
     /// <summary>
-    /// Why a CSA's margining cannot be read as SA-CCR's, or null when it can. One-way, or without collateral exchanged,
-    /// the CSA's terms do not say which party's threshold governs, and the figure is refused rather than assumed.
+    /// Why a CSA's margining cannot be read as SA-CCR's, or null when it can. One-way, the request does not say which
+    /// party posts, and so whose threshold governs: the CSA's terms hold it since ADR-0016 note 66, and this measure
+    /// reads it when the analytics is connected. Without collateral exchanged it is no margin agreement. The figure is
+    /// refused rather than assumed.
     /// </summary>
     public static string? MarginingProblem(CapitalCsa csa) =>
-        csa.OneWay ? $"{csa.CsaId} is one-way, and its terms do not say which party posts, so its margined exposure cannot be decided."
+        csa.OneWay ? $"{csa.CsaId} is one-way, and this measure does not yet read which party posts, so its margined exposure cannot be decided."
         : !csa.Exchange ? $"{csa.CsaId} exchanges no collateral, so it is not a margin agreement SA-CCR can read."
         : RemarginingDays(csa.Frequency) is null ? $"{csa.CsaId} margins {csa.Frequency}, which is not a remargining period SA-CCR knows (daily, weekly, monthly)."
         : null;

@@ -56,7 +56,9 @@ public sealed record EffectiveTrade(
 
 /// <summary>
 /// A CSA of the agreement with its effective terms (ADR-0010 §8): the source's, or the user's where <c>Overridden</c>
-/// names the field. <c>Membership</c> is each measure rule's standing on it, such as FVA's Imperfect (§5).
+/// names the field. <c>Exchange</c> and <c>OneWay</c> are what the two sides' posts say as the reading holds them
+/// (ADR-0016 note 66), and no edit of their own. <c>Membership</c> is each measure rule's standing on it, such as FVA's
+/// Imperfect (§5).
 /// </summary>
 public sealed record EffectiveCsa(
     string CsaId, string Type, string Currency, string Curve, Ownership CurveOwner, string FvaCurve, string Frequency, bool Exchange, bool OneWay,
@@ -143,6 +145,13 @@ public sealed class PortfolioEditRules(MeasureRegister? register = null) : IEdit
     public static string ScopeOf(string newTrade) => $"new:{newTrade}";
 
     /// <summary>
+    /// Whether an edit the workspace holds is of a field its source reads no more (ADR-0016 note 66): one held from
+    /// before the field followed others. A refresh holds such an edit back as lost; until one, Changes says it is lost
+    /// and Price is refused with it as the refusal's target, so that it is never passed over in silence.
+    /// </summary>
+    public static bool ReadNoMore(WorkspaceState raw, EditTarget target) => raw.SourceOf(target).Read(target.Entity, target.Field) is null;
+
+    /// <summary>
     /// The scope of an edit, decided here and never taken from the client: a new trade's own content belongs to
     /// that trade and survives a counterparty change; everything else belongs to the counterparty registration.
     /// </summary>
@@ -177,9 +186,12 @@ public static class PortfolioMaterialiser
 {
     public static IReadOnlyList<string> EditableFields { get; } = ["notional", "fixedRate", "schedule", "csa", "curve", "imR", "imP", "before", "after"];
 
-    /// <summary>The CSA terms the user may set (ADR-0010 §8). Its type is the source's.</summary>
+    /// <summary>
+    /// The CSA terms the user may set (ADR-0010 §8). Its type is the source's, and exchange and one-way follow who
+    /// posts (ADR-0016 note 66), which is set among the fields beyond the grid.
+    /// </summary>
     public static IReadOnlyList<string> CsaFields { get; } =
-        ["currency", "curve", "fvaCurve", "frequency", "exchange", "oneWay",
+        ["currency", "curve", "fvaCurve", "frequency",
          "counterpartyThreshold", "counterpartyMta", "counterpartyCurrency", "selfThreshold", "selfMta", "selfCurrency"];
 
     // A state never changes, so what it reads as is worked out once and shared by all who read that state: the page's
@@ -333,14 +345,20 @@ public static class PortfolioMaterialiser
             var entity = Entity.Of(Entity.Csa, c.CsaId);
             var set = EditsOf(state, entity).ToDictionary(o => o.Target.Field, o => o.Value);
             T Term<T>(string field, T value) => set.TryGetValue(field, out var v) ? v!.GetValue<T>() : value;
+            // Exchange and one-way are what who posts says, as this reading holds it (ADR-0016 note 66).
+            var posting = new CsaPosting(Term(CsaPosting.CounterpartyField, c.Counterparty.Posts), Term(CsaPosting.SelfField, c.Self.Posts));
             var effective = new EffectiveCsa(c.CsaId, c.Type, Term("currency", c.Currency), Term("curve", c.Curve), set.ContainsKey("curve") ? Ownership.User : Ownership.Source,
-                Term("fvaCurve", c.FvaCurve), Term("frequency", c.Frequency), Term("exchange", c.Exchange), Term("oneWay", c.OneWay),
+                Term("fvaCurve", c.FvaCurve), Term("frequency", c.Frequency), posting.Exchange, posting.OneWay,
                 Term("counterpartyThreshold", c.CounterpartyThreshold), Term("counterpartyMta", c.CounterpartyMta), Term("counterpartyCurrency", c.CounterpartyCurrency),
                 Term("selfThreshold", c.SelfThreshold), Term("selfMta", c.SelfMta), Term("selfCurrency", c.SelfCurrency),
                 [.. CsaFields.Where(set.ContainsKey)]);
             // Original is the source's term; a term set back to it is not marked (ADR-0010 §2).
             var differs = CsaFields.Where(f => set.ContainsKey(f) && !Same(set[f], source.Read(entity, f)!.Value))
                 .ToDictionary(f => f, f => source.Read(entity, f)!.Value);
+            // What follows who posts differs where the source's two flags say another thing.
+            var sourcePosting = new CsaPosting(c.Counterparty.Posts, c.Self.Posts);
+            if (posting.Exchange != sourcePosting.Exchange) differs[CsaPosting.ExchangeField] = sourcePosting.Exchange;
+            if (posting.OneWay != sourcePosting.OneWay) differs[CsaPosting.OneWayField] = sourcePosting.OneWay;
             return differs.Count == 0 ? effective : effective with { Original = differs };
         })];
     }

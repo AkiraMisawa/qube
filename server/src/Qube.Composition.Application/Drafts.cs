@@ -20,11 +20,15 @@ public sealed record LineDraft(string Table, string Key, long Revision, IReadOnl
 /// <param name="Takes">What a value of it looks like, in words, as the table's description says it.</param>
 /// <param name="FigureOf">The table under its own whose rows it is a figure of (note 47), where it is one.</param>
 /// <param name="Number">Whether its values are numbers, which a page draws against the right edge as a grid does.</param>
+/// <param name="Follows">The fields of its row it follows (note 66), each by the word a line says it by, where it follows some.</param>
 public sealed record FieldInput(string Name, string Title, string Word, string? Group, bool Editable, bool Optional, string Form, string Takes, IReadOnlyList<string>? Choices,
-    string? Unit, string? FigureOf, bool Number)
+    string? Unit, string? FigureOf, bool Number, IReadOnlyList<string>? Follows = null)
 {
-    public static FieldInput Of(TableField field) => new(field.Name, field.Title, TableWords.Word(field), field.Group, field.Editable, field.Optional, FormOf(field.Form),
-        FieldForms.Takes(field.Written, choicesBeside: true), Written(field.Spec), field.Unit, field.Figure?.Of, FieldForms.IsNumber(field.Form));
+    /// <param name="field">The field.</param>
+    /// <param name="beside">The fields of its table, among which the ones it follows are found.</param>
+    public static FieldInput Of(TableField field, IReadOnlyList<TableField> beside) => new(field.Name, field.Title, TableWords.Word(field), field.Group, field.Editable, field.Optional,
+        FormOf(field.Form), FieldForms.Takes(field.Written, choicesBeside: true), Written(field.Spec), field.Unit, field.Figure?.Of, FieldForms.IsNumber(field.Form),
+        field.From is { } from ? TableWords.WordsFollowed(from, beside) : null);
 
     public static string FormOf(FieldForm form) => JsonNamingPolicy.CamelCase.ConvertName(form.ToString());
 
@@ -109,7 +113,7 @@ static class DraftForms
         var fields = table.Descriptor.Fields;
         var (before, after) = (Row(table, opened, draft.Key), Row(table, left, draft.Key));
         return new(draft.Table, table.Word, draft.Key, draft.Revision,
-            [.. fields.Select(f => new DraftField(FieldInput.Of(f), Written(f, after), Written(f, after) != Written(f, before)))],
+            [.. fields.Select(f => new DraftField(FieldInput.Of(f, fields), Written(f, after), Written(f, after) != Written(f, before)))],
             [.. under.Select(t => Under(t, draft.Key, opened, left))],
             [.. (table.Descriptor.Templates ?? []).Select(Template)],
             lines,
@@ -138,7 +142,7 @@ static class DraftForms
         IReadOnlyList<string> Row(ITableRow row) => [.. fields.Select(f => Written(f, row))];
         var (before, after) = (Rows(opened), Rows(left));
         var (was, now) = (before.ToDictionary(r => r.Key, Row), after.ToDictionary(r => r.Key, Row));
-        return new(table.Descriptor.TableId, table.Descriptor.Title, table.Word, [.. fields.Select(FieldInput.Of)],
+        return new(table.Descriptor.TableId, table.Descriptor.Title, table.Word, [.. fields.Select(f => FieldInput.Of(f, table.Descriptor.Fields))],
         [
             .. before.Select(r => !now.TryGetValue(r.Key, out var written) ? new DraftRow(r.Key, was[r.Key], DraftRow.Removed)
                 : new DraftRow(r.Key, written, written.SequenceEqual(was[r.Key]) ? null : DraftRow.Changed)),

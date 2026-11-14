@@ -43,6 +43,17 @@ export const templateLine = (template: DraftTemplate, values: Readonly<Record<st
 /** A row made under the draft's row by a product: the row above is the draft's, and is not named. */
 export const makeLine = (product: DraftTemplate, values: Readonly<Record<string, string>>): string => [`new ${product.word}`, ...termsOf(product.takes, values)].join(' ');
 
+/** A few words as a sentence lists them, as the server's sentences do: `a`, `a and b`, `a, b and c`. */
+const listed = new Intl.ListFormat('en-GB', { type: 'conjunction' });
+
+/**
+ * What a field that follows others says under itself (ADR-0016 note 66), so that who reads it knows which to set in
+ * its place; nothing for a field that follows none. It is drawn under the field, never left to a hover, which a touch
+ * has not (design guidelines §8).
+ */
+export const followsNote = (field: Pick<FieldInput, 'follows'>): string | undefined =>
+  field.follows === undefined ? undefined : `Follows ${listed.format(field.follows)}.`;
+
 /** A section of a dialog: a group of the table's fields, each with its place among the form's fields. */
 export interface Section {
   /** The group's name; `Other` for the fields of no group beside grouped ones; none where the table groups nothing. */

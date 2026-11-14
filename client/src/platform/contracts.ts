@@ -450,6 +450,8 @@ export interface FieldInput {
   readonly figureOf?: string;
   /** Whether the field holds a number, which a grid draws against the right edge: the server's to say, by the form. */
   readonly number: boolean;
+  /** The fields of its row it follows (ADR-0016 note 66), each by the word a line says it by; no command sets it. */
+  readonly follows?: readonly string[];
 }
 
 /** A term a template or a product takes, as a dialog asks for it. */

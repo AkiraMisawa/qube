@@ -223,8 +223,9 @@ public static class PortfolioDetails
 
 /// <summary>
 /// The CSA's four templates (ADR-0016 note 52): who posts. Each takes a currency and writes the CSA's currency and each
-/// side's, whether collateral is exchanged and one-way, who posts, and both sides' threshold and MTA as 0. Curves,
-/// frequency, VM caps, independent amounts and rounding stay as they are: no curve is guessed for a currency.
+/// side's, who posts, and both sides' threshold and MTA as 0. Whether collateral is exchanged and one-way follows who
+/// posts (note 66) and is no cell a template writes. Curves, frequency, VM caps, independent amounts and rounding stay
+/// as they are: no curve is guessed for a currency.
 /// </summary>
 public static class CsaTemplates
 {
@@ -232,16 +233,14 @@ public static class CsaTemplates
         [new("currency", "Currency", FieldForm.Choice, Required: true, Unnamed: true, Choices: FieldChoices.Currencies, Aliases: ["ccy"])];
 
     // Each cell a template writes, in the order written, and its value for the currency given and for who posts: the
-    // counterparty, and we. Collateral is exchanged where either posts, and one-way where exactly one does.
+    // counterparty, and we.
     static readonly IReadOnlyList<(string Field, Func<string, bool, bool, JsonNode?> Value)> Cells =
     [
         ("currency", (currency, _, _) => currency),
         ("counterpartyCurrency", (currency, _, _) => currency),
         ("selfCurrency", (currency, _, _) => currency),
-        ("exchange", (_, counterparty, self) => counterparty || self),
-        ("oneWay", (_, counterparty, self) => counterparty != self),
-        ("counterpartyPosts", (_, counterparty, _) => counterparty),
-        ("selfPosts", (_, _, self) => self),
+        (CsaPosting.CounterpartyField, (_, counterparty, _) => counterparty),
+        (CsaPosting.SelfField, (_, _, self) => self),
         ("counterpartyThreshold", (_, _, _) => 0m),
         ("counterpartyMta", (_, _, _) => 0m),
         ("selfThreshold", (_, _, _) => 0m),
