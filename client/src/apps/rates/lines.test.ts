@@ -1,8 +1,8 @@
 import type { LineView, LiveFrame } from './contracts';
 import { gridHeaderRequiredPx } from '@ex-grid/core';
 import {
-  FOLDED, defaultsSaid, hiddenEdits, legOverrides, legSummary, lineCellState, lineColumns, lineFieldTitle, lineHeaderGroups, lineResult, lineRows, openedAt, parserOf, periodFieldTitle,
-  toggled,
+  FOLDED, blankRows, defaultsSaid, hiddenEdits, isBlank, legOverrides, legSummary, lineCellMessage, lineCellState, lineColumns, lineFieldTitle,
+  lineHeaderGroups, lineResult, lineRows, linesIn, linesOnly, madeLinesCame, openedAt, parserOf, periodFieldTitle, rowKey, rowsPx, toggled, typedInBlankRow,
   type LineLayout,
 } from './lines';
 
@@ -262,5 +262,112 @@ describe("a workspace's defaults for a new line (ADR-0017 §3)", () => {
     // A default not set is absent, as the server's view leaves it out.
     expect(defaultsSaid({ notional: 2.5e6, fromSettings: [] })).toBe('New lines default to 2.5mm set in this workspace.');
     expect(defaultsSaid({ fromSettings: [] })).toBeUndefined();
+  });
+});
+
+describe('rows to type in from the start (ADR-0015 note of 2026-11-14)', () => {
+  // Every column the grid can show: folded, each leg at its first level (with its Overrides column), and all open.
+  const LAYOUTS: readonly LineLayout[] = [FOLDED, { trade: true, leg1: 'basic', leg2: 'basic' }, { trade: true, leg1: 'conventions', leg2: 'conventions' }];
+  const REFUSED = { ok: false, message: 'This row holds no line yet: type IRS or CCS under Product to make one.' };
+
+  it('stands blank rows below the lines so the grid shows eight rows, and never fewer than two after the last line', () => {
+    expect([0, 3, 6, 7, 8, 40].map((lines) => blankRows(lines, false).length)).toEqual([8, 5, 2, 2, 2, 2]);
+  });
+
+  it('shows no blank row while conditions filter the grid', () => {
+    expect(blankRows(0, true)).toEqual([]);
+    expect(blankRows(3, true)).toEqual([]);
+  });
+
+  it('holds no blank row before the workspace\'s lines are read, so a kept Selection is decided among the lines (ADR-0006 note 10)', () => {
+    expect(blankRows(undefined, false)).toEqual([]);
+    expect(blankRows(undefined, true)).toEqual([]);
+  });
+
+  it('is as tall as its lines and blank rows up to the height it scrolls beyond, whatever a filter leaves', () => {
+    // Eight rows of 28px from the start, a row more for each line from the seventh, and 356px at most.
+    expect([0, 3, 6, 7, 8, 9, 11, 40].map(rowsPx)).toEqual([224, 224, 224, 252, 280, 308, 356, 356]);
+  });
+
+  it('keys a blank row by its place in the grid, so it is the row it was while a line is made above it', () => {
+    const none = blankRows(0, false);
+    expect(none.every(isBlank)).toBe(true);
+    // The made line takes the first blank row's place, and every blank row below is the same row, to the grid too.
+    const one = blankRows(1, false);
+    expect(one).toHaveLength(7);
+    one.forEach((row, at) => expect(row).toBe(none[at + 1]));
+    // Beyond the rows from the start a blank row is added below, and the one above it stays.
+    expect(blankRows(7, false)[0]).toBe(none[7]);
+    // No two rows share a key, and none is a line's name, which is one word.
+    const keys = [...none, ...blankRows(8, false)].map(rowKey);
+    expect(new Set(keys).size).toBe(keys.length);
+    expect(keys.filter((key) => !/\s/.test(key))).toEqual([]);
+  });
+
+  it('names the lines among the grid\'s rows, and no blank row', () => {
+    const rows = lineRows([line('L1'), line('L2')], 1, undefined, new Map());
+    expect(linesIn([...rows, ...blankRows(2, false)])).toEqual(['L1', 'L2']);
+    expect(linesIn(blankRows(0, false))).toEqual([]);
+  });
+
+  it('shows nothing in any cell of a blank row, its key included, and marks none', () => {
+    const [blank] = blankRows(0, false);
+    for (const layout of LAYOUTS) {
+      for (const column of lineColumns(layout)) {
+        expect([column.name, column.value(blank!)]).toEqual([column.name, undefined]);
+        expect([column.name, lineCellState(blank!, column)]).toEqual([column.name, 'normal']);
+      }
+    }
+  });
+
+  it('says under Product what to type, and nothing in the other cells', () => {
+    const [blank] = blankRows(0, false);
+    for (const layout of LAYOUTS) {
+      const said = Object.fromEntries(lineColumns(layout).map((c) => [c.name, lineCellMessage(blank!, c)]).filter(([, message]) => message !== undefined));
+      expect(said).toEqual({ product: 'Type IRS or CCS here to make a line.' });
+    }
+  });
+
+  it('reads one word typed under Product as the line the Add buttons run, and leaves what it is to the server', () => {
+    expect(typedInBlankRow('product', 'irs')).toEqual({ ok: true, line: 'add line irs' });
+    expect(typedInBlankRow('product', ' CCS ')).toEqual({ ok: true, line: 'add line ccs' });
+    expect(typedInBlankRow('product', 'swaption')).toEqual({ ok: true, line: 'add line swaption' });
+  });
+
+  it('runs no other line from a cell: what is not one word under Product is refused, and so is every other column', () => {
+    for (const text of ['', '  ', 'irs 10y', 'irs; remove L1', '10y', 'irs\nremove lines']) expect([text, typedInBlankRow('product', text)]).toEqual([text, REFUSED]);
+    for (const [column, text] of [['end', '10y'], ['end', 'irs'], ['leg1.notional', '10mm'], ['line', 'irs']] as const) expect([column, typedInBlankRow(column, text)]).toEqual([column, REFUSED]);
+  });
+
+  it('knows the lines this page made as they come: the lines shown and, after them, its own and no other', () => {
+    const made = new Set(['L3']);
+    expect(madeLinesCame(['L1', 'L2'], ['L1', 'L2', 'L3'], made)).toEqual({ came: true, awaited: new Set() });
+    expect(madeLinesCame([], ['L3'], made)).toEqual({ came: true, awaited: new Set() });
+    // A tick replaces the rows with the same lines: the line is still to come.
+    expect(madeLinesCame(['L1', 'L2'], ['L1', 'L2'], made)).toEqual({ came: false, awaited: new Set(['L3']) });
+    // Two made: one after the other, or both in one reading.
+    const two = new Set(['L3', 'L4']);
+    expect(madeLinesCame(['L1', 'L2'], ['L1', 'L2', 'L3'], two)).toEqual({ came: true, awaited: new Set(['L4']) });
+    expect(madeLinesCame(['L1', 'L2'], ['L1', 'L2', 'L3', 'L4'], two)).toEqual({ came: true, awaited: new Set() });
+  });
+
+  it('takes no line from elsewhere for its own, and keeps no name once the lines moved another way', () => {
+    const made = new Set(['L4']);
+    // Another's line came first, or with its own: a position may now name that line.
+    expect(madeLinesCame(['L1', 'L2'], ['L1', 'L2', 'L3'], made)).toEqual({ came: false, awaited: new Set() });
+    expect(madeLinesCame(['L1', 'L2'], ['L1', 'L2', 'L3', 'L4'], made)).toEqual({ came: false, awaited: new Set() });
+    // A line gone, with or without its own after, and another order.
+    expect(madeLinesCame(['L1', 'L2'], ['L1'], made)).toEqual({ came: false, awaited: new Set() });
+    expect(madeLinesCame(['L1', 'L2'], ['L1', 'L4'], made)).toEqual({ came: false, awaited: new Set() });
+    expect(madeLinesCame(['L1', 'L2'], ['L2', 'L1', 'L4'], made)).toEqual({ came: false, awaited: new Set() });
+  });
+
+  it('tells the command line of lines only: a Selection or a Focus on a blank row names nothing', () => {
+    const [first, second, third] = blankRows(0, false).map(rowKey) as [string, string, string];
+    const held = [...lineRows([line('L1'), line('L2')], 1, undefined, new Map()), ...blankRows(2, false)];
+    expect(linesOnly({ table: 'rates.lines', keys: ['L1', first, 'L2', second], focus: { field: 'end', key: first }, shown: ['L1', first], where: 'end 5y' }, held))
+      .toEqual({ table: 'rates.lines', keys: ['L1', 'L2'], shown: ['L1'], where: 'end 5y' });
+    expect(linesOnly({ table: 'rates.lines', keys: [third], focus: { field: 'end', key: 'L2' } }, held)).toEqual({ table: 'rates.lines', focus: { field: 'end', key: 'L2' } });
+    expect(linesOnly({ table: 'rates.lines' }, held)).toEqual({ table: 'rates.lines' });
   });
 });

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { Alert, Badge, Button, Group, Stack, Table, Text } from '@mantine/core';
-import { GridSource, type CellPosition, type GridActionEvent, type GridColumn, type GridContextMenuContext, type GridEditIntent, type GridSelection, type HeaderGroupToggle } from '@ex-grid/core';
+import { GridSource, type CellPosition, type GridActionEvent, type GridColumn, type GridContextMenuContext, type GridEditIntent, type GridRefusal, type GridSelection, type HeaderGroupToggle } from '@ex-grid/core';
 import type { ExGridApi } from '@ex-grid/react';
 import { QubeGrid } from '../../platform/grid/QubeGrid';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -12,6 +12,7 @@ import { filterGrid, heldRowOf, heldView, menuView, placeFocus, selectRows, sort
 import { GridFilterLine } from '../../platform/grid/GridFilterLine';
 import { heldInOrder, useHeldFilter } from '../../platform/grid/heldFilter';
 import { keysInOrder, useKeptGrid } from '../../platform/grid/keptGrid';
+import { compactHeaderPx } from '../../platform/grid/metrics';
 import { panelKey, usePanelState } from '../../platform/panelState';
 import { EditQueue } from '../../platform/workspace/editQueue';
 import { useWorkspaceContext } from '../../platform/workspace/WorkspaceProvider';
@@ -24,6 +25,7 @@ import { isElement } from '../../platform/elements';
 import {
   FOLDED, PINNED_COLUMNS, defaultsSaid, headerTiers, lineCellMessage, lineResult, lineCellState, lineColumns, hiddenEdits, lineHeaderGroups, lineRows, openedAt, parserOf, periodCellState,
   lineFieldTitle, periodColumns, periodFieldTitle, periodParserOf, toggled, type HiddenEdits, type LineLayout, type LineRow,
+  ADDED_PRODUCTS, NO_LINE_YET, ROW_LEFT, blankRows, isBlank, linesIn, linesOnly, madeLinesCame, rowKey, rowsPx, typedInBlankRow, type LineGridRow,
 } from './lines';
 
 // The fixed Rates line pricer (docs/07, C37 to C43): one line per trade in ExGrid, its terms sparse, its
@@ -36,10 +38,10 @@ export const RATES_RESULT_VIEW = 'view.rates.result';
 /** The application as the server names it, and the table its line grid is bound to (ADR-0016 note 34). */
 const RATES_APP = 'rates';
 const LINES_TABLE = 'rates.lines';
-const lineKey = (row: LineRow) => row.line;
 /** The two commands that make a Run, which the page opens from their answer (note 36). */
 const PRICE = 'rates.workspace.price';
 const CAPTURE = 'rates.frame.capture';
+const ADD_LINE = 'rates.line.add';
 
 /** What the grids send as they are typed in. Everything else the page does is a command through its door. */
 type Edit =
@@ -98,7 +100,7 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
   const queryClient = useQueryClient();
   const view = useQuery({ queryKey: ['rates', workspaceId], queryFn: () => api.view(workspaceId) });
   const market = useQuery({ queryKey: ['rates', 'market'], queryFn: () => api.market(), refetchInterval: 2000 });
-  const grid = useRef<ExGridApi<LineRow>>(null);
+  const grid = useRef<ExGridApi<LineGridRow>>(null);
   const flowsGrid = useRef<ExGridApi<PeriodView>>(null);
   const [opened, setOpened] = usePanelState(OPENED, FOLDED);
   const [frame, setFrame] = useState<LiveFrame | undefined>(undefined);
@@ -127,9 +129,10 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
   useEffect(() => { if (shownRevision !== undefined) queue.shown(shownRevision); }, [shownRevision, queue]);
 
   // The rows live in a source keyed by line, so a tick replaces only the rows whose figures moved.
-  const source = useMemo(() => GridSource.from<LineRow>([], { rowKey: lineKey }), []);
+  const source = useMemo(() => GridSource.from<LineGridRow>([], { rowKey }), []);
   const rowsByLine = useRef<ReadonlyMap<string, LineRow>>(new Map());
-  const [shownRows, setShownRows] = useState<ReadonlyMap<string, LineRow>>(new Map());
+  // Undefined until the workspace's lines are read: the grid holds no row then, and not its blank rows alone.
+  const [shownRows, setShownRows] = useState<ReadonlyMap<string, LineRow> | undefined>(undefined);
   useEffect(() => {
     if (view.data === undefined) return;
     const rows = lineRows(view.data.lines, view.data.revision, frame, rowsByLine.current);
@@ -137,10 +140,36 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
     setShownRows(rowsByLine.current);
   }, [view.data, frame]);
   // The grid shows every line, or, filtered from the line, those the server says its conditions leave (ADR-0016 note 41).
-  const everyRow = useMemo(() => [...shownRows.values()], [shownRows]);
+  const everyRow = useMemo(() => (shownRows === undefined ? [] : [...shownRows.values()]), [shownRows]);
   const heldGrid = useMemo(() => ({ api: workspace.api, workspaceId, table: LINES_TABLE, revision: shownRevision }), [workspace, workspaceId, shownRevision]);
-  const { rows: gridRows, said: filter } = useHeldFilter(source, heldGrid, everyRow, lineKey);
-  useEffect(() => { source.replaceAll(gridRows); }, [gridRows, source]);
+  const { rows: gridRows, said: filter } = useHeldFilter(source, heldGrid, everyRow, rowKey);
+  // Below the lines, rows to type a line into (ADR-0015's note of 2026-11-14): the page's own, and none while conditions filter the grid.
+  const lineCount = shownRows?.size;
+  const blanks = useMemo(() => blankRows(lineCount, filter !== undefined), [lineCount, filter]);
+  // The lines this page's own commands made and the grid does not show yet, by the name `add line` answered.
+  const madeHere = useRef<ReadonlySet<string>>(new Set());
+  useEffect(() => {
+    const rows = [...gridRows, ...blanks];
+    if (madeHere.current.size === 0) { source.replaceAll(rows); return; }
+    // The grid drops a Selection as its rows' order moves (ExGrid ADR-0011). When the lines gained are this page's
+    // own and no other, every row keeps its place but the blank rows they take the place of, so the Selection is put
+    // back where the key that committed the product left it: Tab from the first blank row is on the line's Start,
+    // and Enter on the blank row below the line (ADR-0015's note of 2026-11-14, point 8). The source gathers a live
+    // change within its interval (ExGrid ADR-0141): what it gathered is put out before the rows shown and the
+    // Selection are read, and the page's own line at once, so the outcome is the same however soon after a tick the
+    // line comes. An open edit is left alone: placing a Selection would commit it half typed, and the grid keeps it
+    // and the Focus with its row (ExGrid ADR-0011).
+    source.publishGathered();
+    const { came, awaited } = madeLinesCame(linesIn(source.snapshot().window), linesIn(gridRows), madeHere.current);
+    madeHere.current = awaited;
+    const before = came && grid.current?.readEditText() === undefined ? grid.current?.readView() : undefined;
+    const version = source.snapshot().rowSequenceVersion;
+    source.replaceAll(rows);
+    if (!came) return;
+    source.publishGathered();
+    if (before === undefined || before.selection.isEmpty || before.selection.focus === undefined || before.rowSequenceVersion !== version) return;
+    grid.current?.placeSelection(before.selection.ranges, before.selection.focus, source.snapshot().rowSequenceVersion);
+  }, [gridRows, blanks, source]);
   const filterOff = useCallback(() => { filterGrid(source, {}); }, [source]);
 
   // The line the grid's Focus is on, by its key, so its result shows above the grid wherever the grid has scrolled.
@@ -148,7 +177,9 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
   const onSelectionChanged = useCallback((selection: GridSelection) => {
     if (selection.focus === undefined) { setFocusLine(undefined); return; }
     const state = source.snapshot();
-    setFocusLine(state.window[selection.focus.row - state.windowStart]?.line);
+    const focused = state.window[selection.focus.row - state.windowStart];
+    // A blank row holds no line: the Focus on one is the Focus on no line, and the strip shows what it shows then.
+    setFocusLine(focused === undefined || isBlank(focused) ? undefined : focused.line);
   }, [source]);
 
   // Live (owner, 2026-10-27): the workspace's one subscription runs on the server; this page attaches to it
@@ -186,15 +217,6 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
   }, [liveStatus, attach, detach]);
   useEffect(() => () => { stream.current?.frames.close(); stream.current = undefined; }, []);
 
-  const onEdit = useCallback((intent: GridEditIntent<LineRow>) => {
-    const parse = parserOf(intent.column);
-    if (parse === undefined) { intent.refuse('This column is not editable.'); return; }
-    if (intent.seenText !== intent.replacedText) { intent.refuse('The value changed while you were editing. Look at it again.'); return; }
-    const parsed = parse(intent.value);
-    if (!parsed.ok) { intent.refuse(parsed.message); return; }
-    void queue.push({ kind: 'line', line: intent.row.line, field: intent.column, value: parsed.value });
-  }, [queue]);
-
   // The trade's and each leg's Header Group draw ExGrid's toggle; the page holds what is open and answers with the
   // columns (ExGrid ADR-0400, ADR-0015 §2).
   const onGroupToggled = useCallback((toggle: HeaderGroupToggle) => setOpened((layout) => toggled(layout, toggle)), []);
@@ -203,7 +225,7 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
   // needs no room for one (ADR-0015 §4).
   const { columns, onColumnWidthChanged } = useColumnWidths('rates/lines', columnsOf(opened), { hideColumnMenu: true });
   // The grid's sort, conditions and Selection, kept by the panel while it is hidden (ADR-0006 note 10).
-  useKeptGrid('rates/lines', source, grid, columns, heldInOrder(lineKey, filter));
+  useKeptGrid('rates/lines', source, grid, columns, heldInOrder(rowKey, filter));
 
   // A double click on a folded column opens what it folds (ADR-0015 §1).
   const onCellDoubleClick = useCallback((cell: CellPosition) => {
@@ -212,10 +234,20 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
     setOpened((layout) => openedAt(layout, column.name) ?? layout);
   }, [columns]);
 
-  const onAction = useCallback((event: GridActionEvent<LineRow>) => {
-    if (event.action === 'cashflows') setDetail(event.row.line);
-    else throw new Error(`The grid reported an action it was not given: ${event.action}.`);
-  }, []);
+  const onAction = useCallback((event: GridActionEvent<LineGridRow>) => {
+    if (event.action !== 'cashflows') throw new Error(`The grid reported an action it was not given: ${event.action}.`);
+    // ExGrid paints an Action Column's button on every row, a blank one too, which has no cashflows to open.
+    if (isBlank(event.row)) workspace.notify('refused', NO_LINE_YET);
+    else setDetail(event.row.line);
+  }, [workspace]);
+
+  // The grid refuses a commit whose row is not among its rows now (ExGrid ADR-0142) and keeps the editor open with
+  // what was typed: a term or a product half typed in a blank row as a line took its place, an edit of a line removed
+  // elsewhere, or of one a filter from the line no longer shows. It says so to a screen reader; the page says it to
+  // the eye, since an editor that stays open on Enter with no word looks stuck (ADR-0015's note of 2026-11-14).
+  const onRefused = useCallback((refusal: GridRefusal<LineGridRow>) => {
+    if (refusal.kind === 'commit' && refusal.reason === 'rowLeftTheWindow') workspace.notify('refused', ROW_LEFT);
+  }, [workspace]);
 
   // A Run a command of this page made (`price`, `capture`) opens in a panel of its own.
   const openRun = useCallback((runId: string, title: string) => {
@@ -247,6 +279,14 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
     },
     notify: workspace.notify,
     answered: (capabilityId: string, answer: Told) => {
+      if (capabilityId === ADD_LINE) {
+        // The line made, by name: the grid knows it as its own when it comes (ADR-0015's note of 2026-11-14, point 8).
+        // The door tells the answer once the workspace is read again and before the page draws it. A line the page
+        // already drew, from a reading that came first, went to the grid as a line from elsewhere: its name is not kept.
+        if (typeof answer.line !== 'string') throw new Error(`${ADD_LINE} answered without the line it made.`);
+        if (!rowsByLine.current.has(answer.line)) madeHere.current = new Set([...madeHere.current, answer.line]);
+        return;
+      }
       if (capabilityId !== PRICE && capabilityId !== CAPTURE) return;
       const { runId, marketSnapshotId } = answer;
       if (typeof runId !== 'string' || typeof marketSnapshotId !== 'string') throw new Error(`${capabilityId} answered without its Run and the market it is of.`);
@@ -259,6 +299,8 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
     const ended = await door.enter(line);
     if (ended !== undefined && 'sentence' in ended) workspace.notify('refused', `${line}: ${ended.sentence}`);
   };
+  const enterNow = useRef(enter);
+  enterNow.current = enter;
   /** Price prices on the market this page shows, named, as Capture names the frame it drew (docs/07 §3); typed, `price` says the market it read. */
   const price = async () => {
     const snapshot = market.data?.snapshotId;
@@ -316,8 +358,29 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
   const declared = useCallback(() => ({
     table: LINES_TABLE, columns: columnsNow.current.map((c) => c.name), unsorted: columnsNow.current.filter((c) => c.queryable === false).map((c) => c.name),
   }), []);
-  const contextCommands = useCallback((context: GridContextMenuContext<LineRow>) =>
-    [...menuNow.current.commands(menuView((read) => heldView(declared(), read, source.snapshot(), lineKey), context, context.row.line))], [declared, source]);
+  const onEdit = useCallback((intent: GridEditIntent<LineGridRow>) => {
+    // A blank row takes a product under Product, which runs the line a button runs, and nothing else (ADR-0015's note
+    // of 2026-11-14).
+    if (isBlank(intent.row)) {
+      const typed = typedInBlankRow(intent.column, intent.value);
+      if (typed.ok) void enterNow.current(typed.line);
+      else intent.refuse(typed.message);
+      return;
+    }
+    const parse = parserOf(intent.column);
+    if (parse === undefined) { intent.refuse('This column is not editable.'); return; }
+    if (intent.seenText !== intent.replacedText) { intent.refuse('The value changed while you were editing. Look at it again.'); return; }
+    const parsed = parse(intent.value);
+    if (!parsed.ok) { intent.refuse(parsed.message); return; }
+    void queue.push({ kind: 'line', line: intent.row.line, field: intent.column, value: parsed.value });
+  }, [queue]);
+
+  // A blank row is no row of the table: the menu has no command of it, and no view of the grid names one.
+  const contextCommands = useCallback((context: GridContextMenuContext<LineGridRow>) => isBlank(context.row) ? []
+    : [...menuNow.current.commands(menuView((read) => {
+      const held = source.snapshot();
+      return linesOnly(heldView(declared(), read, held, rowKey), held.window);
+    }, context, context.row.line))], [declared, source]);
   const commandLabel = useCallback((id: string) => menuNow.current.label(id), []);
   // A place read for that view (note 21) is the row of its key among the rows the grid then held, and so are the rows
   // a line selects (note 43): whether they are next to one another is said of the order the grid held them in.
@@ -327,9 +390,9 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
     const named = declared();
     const read = shown.readView();
     const held = source.snapshot();
-    const rowOf = heldRowOf(held, lineKey);
+    const rowOf = heldRowOf(held, rowKey);
     return {
-      view: heldView(named, read, held, lineKey),
+      view: linesOnly(heldView(named, read, held, rowKey), held.window),
       put: (place) => placeFocus(named, shown, read, place, rowOf) ?? focused(grid, 'The lines'),
       // Which lines conditions leave is the server's to say (note 41); a sort is refused by the column's name (note 40).
       sort: (asked) => sortGrid(named, source, asked),
@@ -381,10 +444,11 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
   const ws = view.data;
   const defaults = defaultsSaid(ws.defaults);
   const groups = groupsOf(opened, hiddenEdits(ws.lines));
-  // The rows under a header of its tiers and the column headings, each a row high, so an open leg's extra tier takes no
-  // row from view (ADR-0015 §2).
-  const header = (headerTiers(opened) + 1) * 28;
-  const height = 8 + header + Math.min(Math.max(ws.lines.length, 3) * 28, 356);
+  // The rows under a header of its tiers and the column headings, each a header row high, so an open leg's extra tier
+  // takes no row from view (ADR-0015 §2).
+  const header = (headerTiers(opened) + 1) * compactHeaderPx;
+  // As tall as its lines and the blank rows below them, whatever the source holds yet (ADR-0015's note of 2026-11-14).
+  const height = 8 + header + rowsPx(ws.lines.length);
 
   const page = (
     // A grid entered is the screen only where it says so below, after this: a grid of no table leaves the line none.
@@ -393,8 +457,9 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
         <CommittedDateInput label="Valuation date" what="valuation date" size="xs" w={150} value={ws.valuationDate} disabled={busy !== undefined}
           onCommit={(d) => void changeValuationDate(d)} onRefused={(sentence) => workspace.notify('refused', sentence)} />
         {/* Each button runs the line a user types (ADR-0016 note 36), so the two cannot differ. */}
-        <Button size="xs" variant="default" onClick={() => void enter('add line irs')}>Add IRS</Button>
-        <Button size="xs" variant="default" onClick={() => void enter('add line ccs')}>Add CCS</Button>
+        {ADDED_PRODUCTS.map((product) => (
+          <Button key={product} size="xs" variant="default" onClick={() => void enter(`add line ${product}`)}>Add {product.toUpperCase()}</Button>
+        ))}
         <Button size="xs" onClick={() => void price()} loading={busy === 'Pricing'} disabled={busy !== undefined && busy !== 'Pricing'}>Price</Button>
         <Button size="xs" color={subscription === undefined ? 'teal' : 'red'} variant="light" data-testid="live-toggle"
           onClick={() => void enter(subscription === undefined ? 'live start' : 'live stop')}>
@@ -424,11 +489,11 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
         {defaults !== undefined && <Text size="xs" c="dimmed" data-testid="line-defaults">{defaults}</Text>}
       </Group>
       <HeldEdits conflicts={ws.conflicts} lost={ws.lost} resolve={(held, resolution) => void queue.push({ kind: 'resolve', held, resolution })} />
-      <ResultStrip row={(focusLine === undefined ? undefined : shownRows.get(focusLine)) ?? (shownRows.size === 1 ? [...shownRows.values()][0] : undefined)} />
+      <ResultStrip row={(focusLine === undefined ? undefined : shownRows?.get(focusLine)) ?? (everyRow.length === 1 ? everyRow[0] : undefined)} />
       <GridFilterLine said={filter} grid="the lines" onOff={filterOff} />
       <div aria-label="Lines" onFocusCapture={() => { screen.current = lineScreen; }}>
-        <QubeGrid<LineRow> ref={grid} columns={columns} onColumnWidthChanged={onColumnWidthChanged} headerGroups={groups} source={source}
-          onEdit={onEdit} onAction={onAction}
+        <QubeGrid<LineGridRow> ref={grid} columns={columns} onColumnWidthChanged={onColumnWidthChanged} headerGroups={groups} source={source}
+          onEdit={onEdit} onAction={onAction} onRefused={onRefused}
           cellState={lineCellState} cellMessage={lineCellMessage} density="compact" viewportWidth="stretch" viewportHeight={height}
           pinnedColumnCount={PINNED_COLUMNS} locale="en-US" onHeaderGroupToggled={onGroupToggled} onSelectionChanged={onSelectionChanged}
           hideColumnMenu onCellDoubleClick={onCellDoubleClick} contextCommands={contextCommands} commandLabel={commandLabel} />
