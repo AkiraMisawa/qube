@@ -491,6 +491,7 @@ log cannot yet say which entries were one command, or what an entry replaced.
    independent amounts. 5b: templates, the pricer's fields beyond its grids, and the input Price freezes. 5c:
    drafts, a row's dialog and its button in the grid. 5d: the scenarios and their shifts as tables, and
    `load trades <ids>`. Left for the owner: where a row's button stands in a grid (ticket 16).
+   *Closed 2026-11-14 (note 57's mark of that day): the button keeps its name and its place beside the key.*
 6. Saved sequences of edits (§8). §1 and §2 serve them as they are. **Built 2026-11-12**
    (`docs/specs/commands-6-saved-sequences`, one pull request); what it settled is notes 60 to 64.
 
@@ -2309,6 +2310,12 @@ has one button, edit; and `load trades` reads a synthetic store of booked trades
       the second, beside the pinned key, and scrolls away with the others. It is in the first view at every width. At
       1280px it also moves the counterparty threshold out of the CSA grid's first view. Ticket 16's criterion ("costs no
       needed column at 390px") is so not met as written, and the ticket is left for the owner.
+    - *Answered 2026-11-14 (owner).* **The button stays `Edit`, beside the row's key.** Asked of the column (item 5
+      of the summary of decisions), he first asked why a row needs a button when its cells are edited in the grid:
+      it opens the row's dialog, where the fields with no column and the rows under the row are. He then weighed a
+      name for what it opens and kept the one it has: "the button can be Edit". He named no other place for the
+      column, so it stays beside the key, a DEFAULT that is his to change, and ticket 16 is closed with its
+      criterion still not met as written. Nothing of the code changed.
     - *Left as they are in review.* The two `catch` blocks of the door that say an error alike (two kinds of error with
       no base of their own); the dialog's own reading of the phone width beside the shell's (the shell's is in
       `App.tsx`, which the panels' work is changing); and the older browser tests that find a cell by its number, which
@@ -2383,7 +2390,8 @@ has one button, edit; and `load trades` reads a synthetic store of booked trades
       - *A scenario opens as any row does* (notes 56, 57): `open up` draws its fields and its shifts under it, and a
         shift's cell typed there is a line of the draft. With nine fields the grid of shifts is wider than the
         dialog, so its Draft mark and its Remove are reached by scrolling the grid or by the keyboard. Where a
-        row's buttons stand is ticket 16's question, which is the owner's.
+        row's buttons stand is ticket 16's question, which is the owner's. *Closed 2026-11-14 (note 57's mark of
+        that day), with nothing said of a grid in a dialog: its buttons stay where they are.*
     - *Corrected in review (2026-11-12).*
       - *An id as written is read before the end of one, above as here.* A scenario may be named with digits alone
         (`4`), and a shift's key ends with digits (`up/4`). `shifts 4` was read as the shift whose key ends with
@@ -2752,9 +2760,16 @@ later answer, is written when he answers.
       - *The file's name.* `docs/08-provider-boundaries.md` §7 names the table a trade's PV is carried in as
         `/deals/trade_official_pv_table.csv` (owner, 2026-10-27), its layout not specified then. Whether that
         and `/deals/official_pv.csv` are one file is not known. Nothing is written under the older name.
+        *Answered 2026-11-14 (owner): they are the same file.* The table of `docs/08` §7 so has the layout above.
+        The writer keeps the name he gave with the layout, `/deals/official_pv.csv`, and writes nothing under the
+        older one (DEFAULT: he said the files are one, not which name the company's provider reads, and the
+        adapter that will say so does not exist yet).
       - *A new trade's PV Adj.* `docs/03-xva-domain.md` §2.5 says the official-PV table is the engine's intake
         for the PV an adjustment aligns to, and the simulated engine takes a new trade's PV Adj as its PV. A new
         trade with a PV Adj and no leg has no row here. Whether its PV Adj goes in as a leg is his to say.
+        *Still open 2026-11-14.* With the two names one file, `docs/08` §7's "any supplied PV, official or model,
+        is written there" reads on this file, so a new trade's PV Adj would be rows of it. That is a reading and
+        not his word, and how one figure of a trade becomes rows by leg is not said: nothing is written for it.
       - *Cases and scenarios.* Each case has its Before and its After, so the writer is given a case as it is
         given the base. The input holds a leg's PV on the base market only: what a scenario's request carries
         for the PV is settled when the engine is connected.

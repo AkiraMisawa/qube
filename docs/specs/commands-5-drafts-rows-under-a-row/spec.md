@@ -1,6 +1,6 @@
 # Generic commands, delivery step 5: rows under a row, templates, and drafts
 
-Status: built (5a, 5b, 5c and 5d; ticket 16's place of a row's button is left for the owner)
+Status: built (5a, 5b, 5c and 5d; ticket 16 closed 2026-11-14: a row's button keeps its name and its place by default)
 
 The decisions are ADR-0016 §1 (a table under a row, a figure, templates) and §10 (a dialog is a draft), with its
 notes of 2026-11-11 for step 5 (46 onward). This spec orders ADR-0016's Delivery order, step 5, and names the seams
