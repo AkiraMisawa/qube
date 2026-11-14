@@ -157,6 +157,10 @@ test('ADR-0010 §1, ADR-0016 note 100: a workspace opened with no counterparty c
   await page.setViewportSize({ width: 390, height: 844 });
   await expect.poll(placed).toBe('under');
   if (wide !== null) await page.setViewportSize(wide);
+  // Widened, the panels are areas again once the browser reports the width, which draws the page anew (ADR-0018 §5):
+  // a field typed in before that is the strip's, and what was typed there is not kept (ADR-0006 note 10).
+  await expect(page.locator('.qube-panels')).toHaveAttribute('data-mode', 'areas');
+  await expect.poll(placed).toBe('beside');
 
   // The project beside it is the toolbar's to change, and titles the panel with it.
   const project = page.getByRole('toolbar', { name: 'Workspace' }).getByRole('textbox', { name: 'Project' });
@@ -194,8 +198,9 @@ test('ADR-0010 §1, ADR-0016 note 100: a workspace opened with no counterparty c
   await page.keyboard.type('counterparty XYZ/LE-03');
   await page.keyboard.press('Enter');
   await expect(line).toHaveAttribute('aria-busy', 'true');
+  // Let go, the route passes every reading on at once; it stays until the page closes, since a reading it holds when
+  // it is taken away may never be answered.
   letGo();
-  await page.unroute('**/api/commands/preview');
   await expect(page.getByTestId('command-problems')).toHaveText('This command drops edits, so Enter runs it only once the line shows what it drops: read it, then press Enter again.');
   await expect(line).toHaveValue('counterparty XYZ/LE-03');
   await expect(page.getByRole('tab', { name: 'XVA ABC/LE-01' })).toHaveAttribute('aria-selected', 'true');

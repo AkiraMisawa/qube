@@ -3995,6 +3995,17 @@ Unchanged: every source and every measure is simulated, and every value is synth
 - **The toolbar's dialog lists what drops by kind**, and the line's reading by row and field, as before this change;
   the dialog was not changed.
 
+### The browser test's two races (2026-11-14, after the merge)
+
+The dummy's browser test failed once in a full run, the toolbar's Project still `Alpha bid` after it was cleared. The
+test widened the window and typed at once, while the panels were still the strip: the browser reports the width a
+moment later, the panels become areas again and draw the page anew (ADR-0018 §5), and what was typed in the strip's
+field is not kept (ADR-0006 note 10). It now waits for the areas, and for the badge beside the counterparty, before
+it types. Under load (three busy processes on four cores) the test also failed at the held reading of `counterparty
+XYZ/LE-03` (3 of 20 runs): it let the held readings go and took the route away at once, so a reading the route still
+held could be left unanswered, and the line kept reading. The route now stays until the page closes. With both, 20 of
+20 passed under the same load, and 10 of 10 without it. Nothing in the product changed.
+
 ## The Rates line grid shows rows to type in from the start (ADR-0015's note of 2026-11-14)
 
 The owner, asked what the line grid shows before it has lines: cells from the start, "five to ten blank rows, and
