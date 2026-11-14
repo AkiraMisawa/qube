@@ -2823,6 +2823,7 @@ Left as they are, with the reason:
   panels' work is changing.
 - **The older browser tests that find a cell by its number**; the new ones find it by the column's header.
 - **The Edit column's place** is the owner's (ticket 16, `ready-for-human`).
+  *Closed 2026-11-14: he kept the button's name and named no other place, so it stays beside the key (DEFAULT).*
 
 ### Providers
 
@@ -2836,6 +2837,8 @@ synthetic source and the workspace's edits; every name and value is made up.
   counterparty threshold is. Ticket 16's criterion "costs no needed column at 390px" is not met as written and the
   ticket is left for the owner (`ready-for-human`). The other place is last, which costs nothing and is out of
   view until the grid is scrolled.
+  *Closed 2026-11-14 (ADR-0016 note 57's mark of that day): asked, the owner kept the button as it is, `Edit`, and
+  named no other place. The cost above stands, accepted by default; the place is his to change.*
 - **Only the pricer's trade grids and its CSA grid have the button.** A leg and an independent amount are reached
   in their trade's dialog.
 - **A draft is the page's.** A reload discards it without asking, as any view state. While its dialog is open the
@@ -2937,6 +2940,8 @@ trades made from their ids); no trade, name or figure of it is a real one.
   not act on it, and it has no Edit button; a scenario's dialog is opened by `open <key>`.
 - **In a scenario's dialog the grid of shifts is wider than the dialog** (nine fields): its Draft mark and Remove
   are reached by scrolling the grid or by the keyboard. Where a row's buttons stand is ticket 16's question.
+  *Ticket 16 was closed 2026-11-14 with nothing said of a grid in a dialog: its buttons stay where they are
+  (DEFAULT).*
 - **No test reaches `ConflictUnresolved`**, the refusal to remove a loaded trade while an edit of it waits as a
   conflict: no editable value of the synthetic store, or of the synthetic source, moves with the value date, so
   neither makes a conflict yet ("Next", item 5). The refusal is written and read, not run.
@@ -3703,6 +3708,7 @@ Unchanged: every source and every measure is simulated, and every value is synth
   Rates grid shows before it has lines, whether docs/03 §5's line on a package is rewritten as served by `add each`,
   and where the row's Edit column stands (ticket 16).
   *Since, 2026-11-14: the Rates grid shows rows to type in from the start (ADR-0015's note of that day).*
+  *Since, 2026-11-14: the Edit column keeps its name (owner) and its place (DEFAULT), and ticket 16 is closed.*
 
 ## The command line's Emacs keys (ADR-0006 note 11, 2026-11-14)
 
@@ -3817,6 +3823,8 @@ was compared with it.
 - **Three things are OPEN and asked of him** (note 69): whether this file is `docs/08-provider-boundaries.md` §7's
   `/deals/trade_official_pv_table.csv` under another name, whether a new trade's PV Adj goes into it (a new trade
   with no leg has no row today), and what a scenario's request carries for a PV.
+  *Answered 2026-11-14: the same file (note 69's mark). The writer keeps the later name (DEFAULT). The other two
+  stay open, and every DEFAULT of the note still waits for his word.*
 - **The workspace's own keys of a leg stay `<trade>/<n>` from 1**, so an untouched trade's `<trade>/1` on screen
   is the file's `<trade>_0`. Numbering the keys from 0 would move every edit of a leg that a kept workspace holds onto
   another leg without saying so (the synthetic source's version does not change with its generator), so it is not
