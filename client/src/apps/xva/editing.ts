@@ -63,6 +63,8 @@ export const tradeFields: Readonly<Record<string, (text: string) => Parsed>> = {
   curve: (text) => (text.trim() === '' ? fail('Type a curve identifier.') : { ok: true, value: text.trim() }),
   before: parseFlag,
   after: parseFlag,
+  // A package's name, or empty for none (ADR-0016 note 90). Whether it is one a cell may hold is the server's to say.
+  package: (text) => ({ ok: true, value: text.trim() === '' ? null : text.trim() }),
 };
 
 const amountOf = (text: string): Parsed => {

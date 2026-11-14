@@ -36,6 +36,11 @@ export interface EffectiveTrade {
   readonly imPOwner: Ownership;
   readonly before: boolean;
   readonly after: boolean;
+  /**
+   * The one package of iterative addition the trade is in (ADR-0016 note 90); left out where it is in none. The New
+   * rows of a package are added together in its case, and its existing rows taken out of After there.
+   */
+  readonly package?: string | null;
   /** Why this row cannot be priced as it stands; Price is refused while any priced row has one. */
   readonly issues: readonly string[];
   /** Edits held back on this row, as `field: conflict` or `field: lost`. */
@@ -239,12 +244,21 @@ export interface HeldEdit {
 }
 
 /**
- * One case of `add each` (ADR-0016 note 37 of 2026-11-11): the new trades it adds together, and the existing trades it
- * takes out of After.
+ * One case of `add each` (ADR-0016 notes 37 and 90): the package it is of, where it is one, the new trades it adds
+ * together, and the existing trades it takes out of After.
  */
 export interface Iteration {
+  /** Left out for a new trade alone, and for a case made before packages were cells. */
+  readonly package?: string;
   readonly add: readonly string[];
   readonly without: readonly string[];
+}
+
+/** A package as the trades' Package cells write it (ADR-0016 note 90): the new trades it adds and those it takes out. */
+export interface PackageView {
+  readonly name: string;
+  readonly adds: readonly string[];
+  readonly takesOut: readonly string[];
 }
 
 /**
@@ -258,7 +272,8 @@ export interface CaseView {
   readonly kind: 'base' | 'vary' | 'add';
   readonly changes: number;
   // A field the server has no value for is left out of its answer, as every empty field of the wire is.
-  /** What a case of `add each` adds together and takes out of After (ADR-0016 note 37); none on any other case. */
+  /** What a case of `add each` adds together and takes out of After, and its package (ADR-0016 notes 37 and 90); none
+   * on any other case. */
   readonly iteration?: Iteration;
   /** The common change to the existing trades a case of `add each` carries, said with it (docs/03 §5). */
   readonly note?: string;
@@ -408,6 +423,8 @@ export interface XvaWorkspaceView {
   readonly shifts: readonly ShiftRow[];
   /** The selected modules' settings a selected measure needs, a section a module (ADR-0010 §8); none hides the tab. */
   readonly settings: readonly ModuleSettings[];
+  /** The packages the trades' Package cells write, in the order of their first trade, the New rows' first (ADR-0016 note 90). */
+  readonly packages: readonly PackageView[];
 }
 
 export interface RowPage {

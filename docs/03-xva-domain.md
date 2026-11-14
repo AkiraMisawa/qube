@@ -138,16 +138,17 @@ The two membership flags do not by themselves define whether an edit changes Bef
 
 ## 5. Individual-addition iterative pricing
 
-**CONFIRMED:** The initial iterative mode prices each selected new trade individually. It is not a cumulative sequence. A future 'two trades form one package' feature is out of the initial scope.
+**CONFIRMED:** Iterative mode is not a cumulative sequence: every case is compared with the same Before, and adds its own new trades alone. Each selected new trade is priced individually unless it is in a package: several new trades may form one package, added together in one case, and that case may also take named existing trades out of After (owner, 2026-11-14, rewriting this line; the initial scope priced each new trade alone and left a package out).
 
-**Designed in [ADR-0016](adr/0016-commands-are-generic-verbs-over-registered-tables-declared-once.md) §3 (2026-11-10, raised by the owner), built 2026-11-11 (its note 37):** an iteration may add several new trades as one package, and take existing trades out of After in the same case. This is the 'two trades form one package' feature that the line above left out of the initial scope: the owner raised it on 2026-11-10, and that line stays as the record of the initial scope. The rules of this section hold for it: no iteration is cumulative, and the candidates are exactly the eligible New rows with After checked. A case names its iteration (the trades it adds and the trades it takes out), and Price refuses a set whose candidates are no longer exactly those rows, or that takes out a trade After no longer holds.
+**Built 2026-11-14 ([ADR-0016](adr/0016-commands-are-generic-verbs-over-registered-tables-declared-once.md) notes 90 to 94, DEFAULT):** a trade's **Package** cell names the one package it is in. The New rows that share a name are added together in one case, and the existing rows with that name are taken out of After in that case alone; a package of existing rows alone is a case that only takes them out. A New row with After checked in no package is a case alone. `add each` makes the set from the cells, and Price refuses a set that is no longer what the cells and After say, or packages that no case prices. A package is never mended for the user: a New row of a package with After clear, a new trade in Before, or an existing trade of a package not in After is refused by name. One package a row (DEFAULT, put to the owner). The earlier design, iterations given as lists from the grids' selections (ADR-0016 §3, built 2026-11-11 as its note 37), is replaced by the cells.
 
 Define the visible selection explicitly:
 
 - `B`: the fixed Before portfolio.
 - `E`: the existing-trade selection for After.
-- `T_i`: each eligible new trade selected for After.
-- Case `i`: compare `B` with `E + T_i` under the frozen configuration.
+- `T_p`: the eligible new trades of package `p` selected for After, or one such trade alone where it is in no package.
+- `X_p`: the existing trades package `p` takes out of After, none for a trade alone.
+- Case `p`: compare `B` with `E - X_p + T_p` under the frozen configuration.
 
 `candidateTradeInstanceIds` is a derived consistency projection of the frozen grid state: it must contain exactly the eligible New rows with After checked, with no duplicates. It is not a second independently editable selection that can omit checked rows. Require at least one candidate for individual-addition mode and reject a mismatch instead of silently selecting a different trade set.
 
@@ -155,7 +156,7 @@ If the existing After selection differs from Before because the user removed exi
 
 **DEFAULT PROPOSAL:** In initial iterative mode, require participating new trades to be excluded from Before. If new-trade Before checkboxes create an ambiguous baseline, return a targeted validation issue; never silently uncheck or omit a submitted row. Normal mode continues to support all four B/A combinations.
 
-One Price press creates one `AnalysisRun`, containing one `Case` per new trade. Bound case concurrency and expose per-case progress, failure, and cancellation status. A failed case is not a zero-valued result.
+One Price press creates one `AnalysisRun`, containing one `Case` per package and per new trade in none. Bound case concurrency and expose per-case progress, failure, and cancellation status. A failed case is not a zero-valued result.
 
 ### 5.1 Independent engine requests
 
