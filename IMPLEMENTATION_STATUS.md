@@ -3854,9 +3854,9 @@ it; docs/03 §5's CONFIRMED line is rewritten to say packages are in scope (owne
 
 | Check | Result |
 |---|---|
-| `nix develop -c dotnet test server/Qube.slnx` | 1675 passed, on main's f6395ed |
+| `nix develop -c dotnet test server/Qube.slnx` | 1675 passed, on main's f6395ed; 1677 with main's a856df9 merged in |
 | `cd client && npm run typecheck && npm test` | typecheck clean; 510 passed in 49 files |
-| `cd client && npm run build && npx playwright test` (Chromium, headless, Linux, the built client served by the host) | 152 passed, on main's f6395ed, before the second review's fixes |
+| `cd client && npm run build && npx playwright test` (Chromium, headless, Linux, the built client served by the host) | 152 passed, on main's f6395ed, before the second review's fixes; 152 passed again with them and main's a856df9 merged in |
 | The new and changed browser tests, `--repeat-each=3` | 9 passed; the package test's 3 again after the second review's fixes |
 
 The Context Menu test (note 25) failed once in a repeated run, reading the box of a row the grid had just drawn again
