@@ -3995,16 +3995,26 @@ Unchanged: every source and every measure is simulated, and every value is synth
 - **The toolbar's dialog lists what drops by kind**, and the line's reading by row and field, as before this change;
   the dialog was not changed.
 
-### The browser test's two races (2026-11-14, after the merge)
+### The browser test's race on a resize (2026-11-14, after the merge)
 
-The dummy's browser test failed once in a full run, the toolbar's Project still `Alpha bid` after it was cleared. The
-test widened the window and typed at once, while the panels were still the strip: the browser reports the width a
-moment later, the panels become areas again and draw the page anew (ADR-0018 §5), and what was typed in the strip's
-field is not kept (ADR-0006 note 10). It now waits for the areas, and for the badge beside the counterparty, before
-it types. Under load (three busy processes on four cores) the test also failed at the held reading of `counterparty
-XYZ/LE-03` (3 of 20 runs): it let the held readings go and took the route away at once, so a reading the route still
-held could be left unanswered, and the line kept reading. The route now stays until the page closes. With both, 20 of
-20 passed under the same load, and 10 of 10 without it. Nothing in the product changed.
+The dummy's browser test failed once in a full run: the toolbar's Project still read `Alpha bid` after it was cleared.
+The test widened the window and typed at once, while the panels were still the strip. The browser reports the width a
+moment later (a `ResizeObserver`, `Panels.tsx`), the panels become areas again and draw the page anew (ADR-0018 §5),
+and what was typed in the strip's field is not kept (ADR-0006 note 10). A probe saw the panels still `strip` right
+after the window was widened, and a draft typed at 1440px gone once the panels were the strip. The test now waits for
+the panels to be the strip after narrowing and the areas after widening, each before it reads or types. Nothing in the
+product changed; whether a field should keep what was typed across the change is put to the owner.
+
+| Check | Result |
+|---|---|
+| `npx playwright test e2e/xva.spec.ts --grep "on the dummy under a project" --repeat-each=10` (Chromium, headless, Linux) | 10 passed |
+| The same, `--repeat-each=20`, with three busy processes on four cores (`sh -c 'while :; do :; done'`) | 20 passed |
+
+- **Open, not explained:** under that load the test before this change also failed now and then (5 of 112 runs, before the
+  resize waits and with them, none in the last 52) at the held reading of `counterparty XYZ/LE-03`: the reading was drawn
+  whole but the line still said `Reading the line…` after 5 seconds. No trace of a failing run was caught (none failed
+  with tracing on), so whether a reading was left unanswered or the line asked again is not known. It was never seen
+  without the added load.
 
 ## The Rates line grid shows rows to type in from the start (ADR-0015's note of 2026-11-14)
 
