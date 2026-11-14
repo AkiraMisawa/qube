@@ -4016,9 +4016,9 @@ more as they fill". That is all he said: every rule below is a DEFAULT the note 
 
 | Check | Result |
 |---|---|
-| `nix develop -c dotnet test server/Qube.slnx` | 1674 passed (no server file changes) |
-| `cd client && npm run typecheck && npm test` | typecheck clean; 525 passed in 49 files |
-| `cd client && npx playwright test` (Chromium, the built client served by the host) | 154 passed |
+| `nix develop -c dotnet test server/Qube.slnx` | 1686 passed with main's ad2ba4f merged in (no server file changes) |
+| `cd client && npm run typecheck && npm test` | typecheck clean; 527 passed in 49 files |
+| `cd client && npx playwright test` (Chromium, the built client served by the host) | 155 passed |
 
 Each rule was broken in turn and a test seen to fail, then pass with it put back:
 
