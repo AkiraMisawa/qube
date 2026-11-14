@@ -704,29 +704,33 @@ test('ADR-0015 note of 2026-11-14: the line grid shows rows to type in from the 
   await expect(rows).toHaveCount(8);
 
   // More as they fill: from the seventh line the grid grows a row a line, so two blank rows always stand below.
-  for (let made = 1; made <= 8; made++) {
+  for (let made = 1; made <= 7; made++) {
     await page.getByRole('button', { name: 'Add IRS' }).click();
     await expect(summary(page)).toContainText(`${made} line(s)`);
     await expect(lineRows(page)).toHaveCount(made);
     // The keyboard is put on the first line's End once the grid shows it, to be found there after seven more lines.
     if (made === 1) await goTo(page, END);
   }
+  await taken(page, 'add line', 'ccs');
+  await expect(lineRows(page)).toHaveCount(8);
   await settled(page, 'Lines');
   await expect(rows).toHaveCount(10);
-  // A button's line is this page's own too: the Selection is where it was, and a command reads it.
+  // A button's line and the command line's are this page's own too: the Selection is where it was, and a command reads it.
   await page.keyboard.press('ControlOrMeta+K');
   await expect(line).toBeFocused();
   await expect(page.getByTestId('command-context')).toHaveText(/^On screen: lines, 1 selected, L\d+ · end$/);
   await page.keyboard.press('Escape');
 });
 
-/** Holds the answer of `add line` until the function it answers is called, so a key is typed before the line comes. */
-async function holdAddLine(page: Page): Promise<() => Promise<void>> {
-  const added = '**/api/commands/rates.line.add/**';
+/**
+ * Holds `add line` from the server until the function this answers is called, so a key is typed before the line comes.
+ * Once called, every `add line` goes straight through; a later hold stands before an earlier one.
+ */
+async function holdAddLine(page: Page): Promise<() => void> {
   let release = (): void => undefined;
   const held = new Promise<void>((resolve) => { release = resolve; });
-  await page.route(added, async (route) => { await held; await route.continue(); });
-  return async () => { release(); await page.unroute(added); };
+  await page.route('**/api/commands/rates.line.add/**', async (route) => { await held; await route.continue(); });
+  return release;
 }
 
 // ADR-0015's note of 2026-11-14, point 8. The grid drops a Selection as its rows' order moves, and its source gathers
@@ -764,7 +768,7 @@ test('ADR-0015 note of 2026-11-14: a line made in a blank row keeps the keyboard
   await page.keyboard.type('irs');
   await page.keyboard.press('Enter');
   await page.keyboard.type('cc');
-  await comes();
+  comes();
   await expect(summary(page)).toContainText('3 line(s)');
   await expect(rows.nth(2)).toHaveAccessibleName(/^L\d+ Flows IRS /);
   await page.keyboard.type('s');
@@ -786,13 +790,13 @@ test('ADR-0015 note of 2026-11-14: a line made in a blank row keeps the keyboard
   await page.keyboard.press('Tab');
   await page.keyboard.press('Tab');
   await page.keyboard.type('5');
-  await comes();
+  comes();
   await expect(summary(page)).toContainText('5 line(s)');
   await expect(rows.nth(4)).toHaveAccessibleName(/^L\d+ Flows IRS /);
   await page.keyboard.type('y');
   await page.keyboard.press('Enter');
   await expect(notice(page)).toHaveAttribute('data-kind', 'refused');
-  await expect(notice(page)).toHaveText('Nothing was written: the row this was typed in is no longer in the grid. Press Escape, and type it in the row that holds the line.');
+  await expect(notice(page)).toHaveText('Nothing was written: the row this was typed in is no longer in the grid, a line took its place or the line is gone. Press Escape, and type it again where it belongs now.');
   await page.keyboard.press('Escape');
   await expect(end(4)).toHaveText('');
 });

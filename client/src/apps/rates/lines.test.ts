@@ -364,9 +364,10 @@ describe('rows to type in from the start (ADR-0015 note of 2026-11-14)', () => {
 
   it('tells the command line of lines only: a Selection or a Focus on a blank row names nothing', () => {
     const [first, second, third] = blankRows(0, false).map(rowKey) as [string, string, string];
-    expect(linesOnly({ table: 'rates.lines', keys: ['L1', first, 'L2', second], focus: { field: 'end', key: first }, shown: ['L1', first], where: 'end 5y' }))
+    const isLine = (key: string) => key === 'L1' || key === 'L2';
+    expect(linesOnly({ table: 'rates.lines', keys: ['L1', first, 'L2', second], focus: { field: 'end', key: first }, shown: ['L1', first], where: 'end 5y' }, isLine))
       .toEqual({ table: 'rates.lines', keys: ['L1', 'L2'], shown: ['L1'], where: 'end 5y' });
-    expect(linesOnly({ table: 'rates.lines', keys: [third], focus: { field: 'end', key: 'L2' } })).toEqual({ table: 'rates.lines', focus: { field: 'end', key: 'L2' } });
-    expect(linesOnly({ table: 'rates.lines' })).toEqual({ table: 'rates.lines' });
+    expect(linesOnly({ table: 'rates.lines', keys: [third], focus: { field: 'end', key: 'L2' } }, isLine)).toEqual({ table: 'rates.lines', focus: { field: 'end', key: 'L2' } });
+    expect(linesOnly({ table: 'rates.lines' }, isLine)).toEqual({ table: 'rates.lines' });
   });
 });

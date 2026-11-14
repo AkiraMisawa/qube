@@ -3896,7 +3896,7 @@ more as they fill". That is all he said: every rule below is a DEFAULT the note 
   Copy items are all it has), the count of lines does not hold it, and a filter from the line hides it. The
   result above the grid shows what it shows with no Focus on a line: the only line's result, or none.
 - A commit the grid refused because its row is no longer in it is said in a notice ("Nothing was written: ...").
-- The Add buttons stay.
+- The Add buttons stay. A line they or `add line` on the command line made keeps the grid's Selection too.
 
 ### Verification performed
 
@@ -3916,9 +3916,12 @@ Each rule was broken in turn and a test seen to fail, then pass with it put back
 - **Browser tests, four ways:** the made line not put out before the Selection is placed (the gathering defect
   below); an open edit committed by the put-back; the Selection not put back; a refused commit not said.
 
-The two new browser tests, and the two existing ones changed most (the filter from the line, a Rates page hidden
-and shown again), ran three times each. The second new test types at machine speed and, where a key must come
-before a line, holds the answer of `add line` until the key is typed.
+The two new browser tests ran ten times each, and the two existing ones changed most (the filter from the line, a
+Rates page hidden and shown again) three times. The second new test types at machine speed and, where a key must
+come before a line, holds `add line` from the server until the key is typed.
+
+Not held by a browser test: a line from elsewhere dropping the Selection (a second page or the AI would have to
+make it; the unit test of `madeLinesCame` holds the rule), and the limits below that only say what is refused.
 
 Three defects were found on the way, and each is held by a browser test now:
 
@@ -3933,7 +3936,7 @@ Three defects were found on the way, and each is held by a browser test now:
   back committed the open edit, so `cc` ran and was refused, and `s` ran after it. An open edit is now left alone,
   and a blank row is keyed by its place in the grid, so the edit stays in the row it was typed in (point 8).
 
-Code review (the `code-review` skill, Standards and Spec, REVIEW_ROUNDS rounds) is recorded in the pull request.
+Code review (the `code-review` skill, Standards and Spec, three rounds) is recorded in the pull request.
 
 Looked at in the built client with synthetic data at 390, 768, 992 and 1440px, in both themes; no console message.
 
@@ -3961,8 +3964,12 @@ Unchanged: the Rates market, its conventions' development profiles and every fig
   comes, so Enter from its last row has no row to go to until then. Each product still makes its line.
 - **A line the Add buttons or `add line` on the command line made keeps the grid's Selection too**, since the page
   knows it as its own by name. It dropped it before this change. Only a line from another page or the AI drops it.
+- **A reading from elsewhere that shows the page's own line before its answer is told drops the Selection** (the
+  AI's turn ending or the live stream ending in the few milliseconds between): the grid then takes the line for
+  one from elsewhere. Nothing typed goes to another line for it.
 - **Eight rows, two blank rows at least, and the product as the one cell a blank row takes, are DEFAULTs** (the
-  note) for the owner to change. He said five to ten rows.
+  note) for the owner to change. He said five to ten blank rows: eight stand from the start, and fewer than five
+  from the fourth line, so that the grid does not grow before it holds seven lines.
 - **A limit of step 3c no longer holds.** The line grid's Context Menu is bounded by the grid's box (ExGrid
   ADR-0040) and showed three of its four items in a grid three rows high. At eight rows it shows the four at once
   (seen in the built client).

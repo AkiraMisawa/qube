@@ -83,8 +83,9 @@ That is all he said. Every point below is how it was built, a DEFAULT for him to
 
 1. **Blank rows stand below the lines**, enough that the grid shows eight rows, and never fewer than two after the
    last line: eight with no line, two with six lines or more. Two, so that Enter from a blank row lands on a blank
-   row and line after line is typed down the grid. The grid is as tall as its rows up to the height it had (356px
-   of rows), and scrolls beyond.
+   row and line after line is typed down the grid. He said five to ten blank rows: the grid starts with eight, and
+   from the fourth line fewer than five stand, so that it does not grow before it holds seven lines. The grid is
+   as tall as its rows up to the height it had (356px of rows), and scrolls beyond.
 2. **A blank row is the page's and no line of the workspace.** Nothing is saved for it. The count of lines and the
    rows a command reads from the grid (its selection, its Focus, the rows shown) do not hold it. Its context menu
    holds no command of the table, since there is no line to remove: the grid's own Copy items are all it has. The
@@ -115,18 +116,27 @@ That is all he said. Every point below is how it was built, a DEFAULT for him to
    - Enter is on the blank row below, where the next product is typed.
    - From a later blank row the Selection stays on the blank row the key left it on, and the line stands above.
    - An edit open as the line comes is left open in its row, with what was typed: placing a Selection would commit
-     it half typed. A product half typed as the line before it comes runs as the whole word.
+     it half typed. A product half typed in the row below, as the line before it comes, runs as the whole word.
+     An edit open in the row whose place the line takes is point 9's.
    - A line that came from elsewhere (another page, the AI), alone or with this page's own, drops the Selection,
      as before: a position kept through it could name another's line.
+   - Products typed faster than their lines come stop at the grid's last row, since the grid grows a row only as
+     a line comes: Enter there has no row to go to, and the Focus ends on a made line's Product, where a product
+     typed is refused in words. Each product typed in a blank row still makes its line.
 
-   The outcome does not depend on when the line comes. ExGrid's source gathers live changes within an interval
-   (ExGrid ADR-0141), so the page has it put out what it gathered before the Selection is read, and the line
-   before the Selection is placed.
+   The outcome does not depend on how soon after another change the line comes. ExGrid's source gathers live
+   changes within an interval (ExGrid ADR-0141), so the page has it put out what it gathered before the Selection
+   is read, and its own line at once. One order matters, and fails to the safe side: the page learns the name as
+   the command's answer is told, which the door does once the workspace is read again and before the page draws
+   it. A reading from elsewhere that shows the line first (the AI's turn ending, the live stream ending) brings it
+   to the grid as a line from elsewhere, and the Selection is dropped.
 9. **A commit the grid refused because its row left is said in words.** A term half typed in the first blank row
    as the line takes its place cannot be written: the row it was typed in is gone, and the grid refuses the commit
    and keeps the editor open (ExGrid ADR-0142), saying so to a screen reader alone. The page raises a notice
-   ("Nothing was written: ..."), so an editor that stays open on Enter does not look stuck. The term is typed
-   again in the line's cell.
+   ("Nothing was written: ..."), so an editor that stays open on Enter does not look stuck. The same notice
+   answers a product half typed in the first blank row as another line takes its place, and an edit of a line
+   removed elsewhere, so it says only that the row is gone and that what was typed goes where it belongs now:
+   the line's cell for a term, the first blank row for a product.
 
 Three limits of ExGrid 0.3.0 bear on a blank row, each filed there:
 
@@ -143,6 +153,7 @@ Three limits of ExGrid 0.3.0 bear on a blank row, each filed there:
   ([ex-grid#574](https://github.com/AkiraMisawa/ex-grid/issues/574)). So the commit is answered at once, and
   points 8 and 9 say what becomes of the keys typed before the line comes.
 
-The DEFAULTs most his to weigh: eight rows from the start and two blank rows at least; the product as the one
-cell a blank row takes; the line standing first among the blank rows and not in the row typed in; the Flows
-button left on blank rows until ExGrid lets a row withhold it.
+The DEFAULTs most his to weigh: eight rows from the start and two blank rows at least, fewer than his five from
+the fourth line; the product as the one cell a blank row takes; the line standing first among the blank rows and
+not in the row typed in; a line an Add button or `add line` on the command line made keeping the Selection too,
+which it dropped before; the Flows button left on blank rows until ExGrid lets a row withhold it.

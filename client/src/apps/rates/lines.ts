@@ -3,6 +3,7 @@ import { actionColumn, gridHeaderRequiredPx } from '@ex-grid/core';
 import { readFlag } from '../../platform/flags';
 import { parseFlag, parseNumber, type Parsed } from '../xva/editing';
 import { amountTone, formatAmount } from '../../platform/grid/amounts';
+import { compactRowPx } from '../../platform/grid/metrics';
 import type { LineView as CommandLineView } from '../../platform/contracts';
 import type { LineView, LiveFrame, PeriodView, RatesWorkspaceView } from './contracts';
 
@@ -54,15 +55,14 @@ export const rowKey = (row: LineGridRow): string => (isBlank(row) ? row.blank : 
 /** The lines among a grid's rows, by name, in their order. */
 export const linesIn = (rows: readonly LineGridRow[]): readonly string[] => rows.flatMap((row) => (isBlank(row) ? [] : [row.line]));
 
-/** The rows the grid shows from the start (owner, 2026-11-14: five to ten). */
+/** The rows the grid shows from the start, all blank then (owner, 2026-11-14: five to ten blank rows). */
 const ROWS_FROM_THE_START = 8;
 /** The blank rows that stand after the last line however many lines there are: Enter from one lands on the other. */
 const BLANK_ROWS_AT_LEAST = 2;
 
-/** The rows of a grid of `lines` lines, its blank rows among them. */
-const rowsOf = (lines: number): number => Math.max(ROWS_FROM_THE_START, lines + BLANK_ROWS_AT_LEAST);
+/** How many rows a grid of `lines` lines shows, its blank rows among them. */
+const rowCount = (lines: number): number => Math.max(ROWS_FROM_THE_START, lines + BLANK_ROWS_AT_LEAST);
 
-const BLANK_KEY = /^\(row \d+\)$/;
 // The same object for a place every time, so the grid paints a blank row once (ExGrid ADR-0003).
 const blanksByPlace: BlankRow[] = [];
 function blankAt(place: number): BlankRow {
@@ -80,11 +80,9 @@ function blankAt(place: number): BlankRow {
  * its blank rows alone until its lines came would be in an order no Selection kept for it was read in (ADR-0006 note 10).
  */
 export function blankRows(lines: number | undefined, filtered: boolean): readonly BlankRow[] {
-  return lines === undefined || filtered ? [] : Array.from({ length: rowsOf(lines) - lines }, (_, at) => blankAt(lines + at));
+  return lines === undefined || filtered ? [] : Array.from({ length: rowCount(lines) - lines }, (_, at) => blankAt(lines + at));
 }
 
-/** A row's height in the grid's compact density (ADR-0015). */
-export const ROW_PX = 28;
 /** The height of rows the grid scrolls beyond (ADR-0015). */
 const MOST_ROWS_PX = 356;
 
@@ -94,34 +92,39 @@ const MOST_ROWS_PX = 356;
  * page below the grid does not move as a filter goes on or off (ADR-0015's note of 2026-11-14).
  */
 export function rowsPx(lines: number): number {
-  return Math.min(rowsOf(lines) * ROW_PX, MOST_ROWS_PX);
+  return Math.min(rowCount(lines) * compactRowPx, MOST_ROWS_PX);
 }
 
 /**
  * A view of the line grid as the command line is told of it (ADR-0016 §9), holding lines only: a blank row is no row
  * of the table, so a Selection or a Focus on one names nothing to the server (ADR-0015's note of 2026-11-14).
+ * `isLine` says whether a key is a line's, as the page that holds the lines knows it.
  */
-export function linesOnly(view: CommandLineView): CommandLineView {
+export function linesOnly(view: CommandLineView, isLine: (key: string) => boolean): CommandLineView {
   const { keys, shown, focus, ...rest } = view;
-  const lines = (among: readonly string[]) => among.filter((key) => !BLANK_KEY.test(key));
+  const lines = (among: readonly string[]) => among.filter(isLine);
   const selected = keys === undefined ? [] : lines(keys);
   return {
     ...rest,
     ...(selected.length === 0 ? {} : { keys: selected }),
     ...(shown === undefined ? {} : { shown: lines(shown) }),
-    ...(focus === undefined || (focus.key !== undefined && BLANK_KEY.test(focus.key)) ? {} : { focus }),
+    ...(focus === undefined || (focus.key !== undefined && !isLine(focus.key)) ? {} : { focus }),
   };
 }
 
 /** The products the page's Add buttons add a line for. What a product is stays the server's to say. */
 export const ADDED_PRODUCTS = ['irs', 'ccs'] as const;
-const PRODUCTS = ADDED_PRODUCTS.map((product) => product.toUpperCase()).join(' or ');
+const PRODUCTS_SAID = ADDED_PRODUCTS.map((product) => product.toUpperCase()).join(' or ');
 
 /** What a blank row says of what is typed in it and makes no line: no product is guessed for it (CLAUDE.md). */
-export const NO_LINE_YET = `This row holds no line yet: type ${PRODUCTS} under Product to make one.`;
+export const NO_LINE_YET = `This row holds no line yet: type ${PRODUCTS_SAID} under Product to make one.`;
 
-/** What the page says of a commit the grid refused because its row is no longer in the grid: nothing was written. */
-export const ROW_LEFT = 'Nothing was written: the row this was typed in is no longer in the grid. Press Escape, and type it in the row that holds the line.';
+/**
+ * What the page says of a commit the grid refused because the row it was typed in is no longer in the grid: a blank
+ * row a line took the place of, or a line removed elsewhere. Nothing was written, and where to type it again is the
+ * user's to see: the line's cell for a term, the first blank row for a product, nowhere for a line that is gone.
+ */
+export const ROW_GONE = 'Nothing was written: the row this was typed in is no longer in the grid, a line took its place or the line is gone. Press Escape, and type it again where it belongs now.';
 
 /**
  * What a text typed in a blank row does (ADR-0015's note of 2026-11-14). One word under Product runs `add line` and
@@ -634,7 +637,7 @@ function foldedTerms(column: string): readonly string[] | undefined {
 }
 
 export function lineCellMessage(row: LineGridRow, column: GridColumn<LineGridRow>): string | undefined {
-  if (isBlank(row)) return column.name === 'product' ? `Type ${PRODUCTS} here to make a line.` : undefined;
+  if (isBlank(row)) return column.name === 'product' ? `Type ${PRODUCTS_SAID} here to make a line.` : undefined;
   if (RESULT.has(column.name) && row.figures !== undefined) {
     const f = row.figures;
     const when = `revision ${f.inputRevision}, market ${f.snapshotId}, ${f.mode}`;
