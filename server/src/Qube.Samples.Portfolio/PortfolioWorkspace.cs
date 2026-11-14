@@ -126,6 +126,7 @@ public sealed class PortfolioEditRules(MeasureRegister? register = null) : IEdit
             (Entity.Grid, _) => $"{(target.Field == "before" ? "Before" : "After")} on the {(id == Entity.NewGrid ? "new" : "existing")} trades",
             (Entity.Selection, _) => "the measures",
             (Entity.Settings, Entity.DisplayCurrency) when id == Entity.WorkspaceId => "the display currency",
+            (Entity.Settings, Entity.Project) when id == Entity.WorkspaceId => "the project name",
             (Entity.Case, _) => state.Created.TryGetValue(target.Entity, out var made) ? $"the case {PortfolioCases.Title(made)}" : "a case",
             (PortfolioScenarios.ShiftKind, _) => "a scenario's shift",
             (PortfolioScenarios.ScenariosKind, _) => "the scenarios priced",
@@ -323,6 +324,10 @@ public static class PortfolioMaterialiser
         EditsOf(state, Entity.WorkspaceSettings).SingleOrDefault(o => o.Target.Field == Entity.DisplayCurrency) is { Value: { } chosen }
             ? chosen.GetValue<string>()
             : PortfolioCatalog.Profile.DisplayCurrency;
+
+    /// <summary>The project the workspace's Runs are listed under (ADR-0010 §1's note of 2026-11-14), or none.</summary>
+    public static string? Project(WorkspaceState state) =>
+        EditsOf(state, Entity.WorkspaceSettings).SingleOrDefault(o => o.Target.Field == Entity.Project) is { Value: JsonValue name } ? name.GetValue<string>() : null;
 
     /// <summary>
     /// Where the display currency came from (ADR-0017 §3), as a Rates default's source is named: <c>settings</c>, the

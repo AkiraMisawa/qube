@@ -66,6 +66,51 @@ the three tabs, as it is in a 600px window; the full-height button and the page'
 pricer reads its area from a pull request of its own, after ADR-0016's step 5d and ADR-0018's step 1 (ADR-0018 §11 and
 its note of 2026-11-12); before that pull request, it read the window.
 
+*Note of 2026-11-14 (the owner's request that day; the dummy's data DEFAULT):* **a workspace opened with no
+counterparty chosen is on the dummy counterparty.** The owner asked for it ("if no counterparty is specified when an
+XVA workspace is opened, select a dummy"). It is a default that stands in for a choice the user did not make, so under
+the rule against quiet fallbacks (CLAUDE.md, owner 2026-11-11) it is recorded here as his approval, and it is never
+quiet:
+- **What the dummy is.** One registration of the synthetic catalogue, `DUMMY/LE-00`, *Dummy (synthetic)*, flagged
+  as the dummy where the registrations are listed (`dummy`). It is a prospect, as docs/03 §2.4
+  describes one: nothing is booked with it, so the workspace holds only the trades the user adds; its agreement
+  `MA-000` has netting set `NS-000`, enforceable, and no CSA, so a new trade's CSA is `nocsa_MA-000`; it has no IM CSA,
+  no CDS (CVA is refused until one is chosen on the Credit tab, §8) and no CVA recovery of its own (CVA uses the
+  CDS's, docs/03). The portfolio size asked for is kept, so a move to a booked counterparty reads that many trades.
+- **Where it is chosen.** The New XVA workspace dialog leaves its Counterparty empty, its placeholder names the dummy,
+  and the field says under it that left empty, the workspace is on the dummy, with nothing booked. The dialog sends
+  the dummy's key itself; the server takes no counterparty in place of none, and refuses a create that names none. A
+  list that holds no dummy, or several, is said as a defect, and no other counterparty is taken in its place. The
+  field is never filled in for the user: a list that arrived as they typed would write over what they typed.
+- **How it is seen.** The context bar shows a `Dummy` badge beside the counterparty while the workspace is on it, on
+  every width, with what that means in its title, and the panel is titled `XVA DUMMY/LE-00 · <project>`.
+  `cpty <code/entity>` or the toolbar moves it to a booked counterparty (ADR-0016 note 100), dropping what was made for
+  the dummy as any counterparty change does (ADR-0003 §6).
+- **The Project name (the owner, 2026-11-14, on what it is for; where it is held and asked DEFAULT).** This section's
+  first line gives a dummy counterparty "a required Project name beside it". The owner said what it is for: "so that,
+  when looking at the list of what users priced, it is clear which project a pricing on the dummy came from; without
+  it they cannot be told apart". So:
+  - It is a setting of the workspace's, `project` on the Workspace table, beside the display currency: set with
+    `project <name>` (a short form of `set workspace project <name>`, ADR-0016 note 29) or in the context bar, and
+    cleared with `reset workspace project`. As a setting it is the workspace's whichever counterparty it is on, so a
+    move to a booked counterparty keeps it, and that counterparty's Runs carry it too: a prospect priced under a
+    project and then booked stays listed under it. A name is 1 to 80 characters on one line, with no space at either
+    end. It is typed as an identifier is (`FieldForm.Id`, the text as written), since the kernel has no form of its
+    own for free text and needs none for this.
+  - **A workspace on the dummy is made and priced only under one.** The dialog shows a required Project field while
+    its Counterparty is empty or the dummy, and Create with none is refused there, with the keyboard put on it; the
+    server refuses a dummy's making with none (`ProjectRequired`), and Price, and the line's reading of `price`, on
+    the dummy with none, cleared since. A move onto the dummy with none is not refused, as nothing is priced by it,
+    but its reading says that the workspace then prices only under a project. A booked counterparty's workspace needs
+    none: the counterparty says what was priced.
+  - **The Run carries it.** The accepted input holds `project` (none where there is none), the Run's context names it
+    where there is one, the Pricing DB's XVA view lists it in a `Project` column beside the counterparty, and the
+    quote's header says `Project <name>` after the counterparty. The list it tells Runs apart in is the XVA view, the
+    one that names a Run's counterparty (docs/05 §7): the All Runs view names neither, and a project there would be a
+    label every domain's Run has, a decision of the kernel's of its own.
+  - **It is in sight wherever it is held:** in the context bar beside the counterparty while the workspace is on the
+    dummy or holds one, and in the panel's title on the dummy, which alone tells two such panels apart.
+
 ### 2. Original, Before and After are layers of changes (CONFIRMED, owner 2026-11-06)
 
 - **Original** is what the sources gave for this context: immutable, read-only on screen.
@@ -446,6 +491,12 @@ and `pv01 retry` have an effect of their own, `execute`, a fifth beside those §
 buttons and a failed cell's *Ask again* invoke them, and the page's `/price`, `/refresh` and `/retry` endpoints are
 gone. The line says what Price would price, and refuses what Price would refuse, before Enter. The dock shows the
 workspace's latest Run, whoever priced it.
+
+*Note of 2026-11-14 (ADR-0016 note 100, the owner's request):* `value date <date>` and `counterparty <code/entity>`,
+spelled `cpty` too, are command capabilities (`xva.value-date.change`, `xva.counterparty.change`). The toolbar's
+value date and counterparty invoke them, and the page's endpoints that wrote them are gone. The line says before Enter
+what each would do, the edits a counterparty change drops among it, and the change is refused where the workspace
+holds other edits to drop by its turn.
 
 ### 10. Measures register into the page (CONFIRMED, owner 2026-11-07: one page, a Price that selects the measures, each measure with its own trade scope, input tabs and results; the rest DEFAULT)
 

@@ -24,9 +24,11 @@ public enum ExecutionKind { RequestResponse, Job, Subscription }
 /// <c>ReadSettings</c> reads its caller's own settings, and <c>EditSettings</c> writes them (ADR-0017 §2): neither
 /// touches a workspace or a Run, so both are commands too. <c>Propose</c> answers a proposal its caller applies, or not,
 /// such as an arrangement of the panels (ADR-0018 §8): it writes nothing and starts nothing, and is a command so that the
-/// agent is offered it.
+/// agent is offered it. <c>DropEdits</c> stands beside <c>EditWorkspace</c> on a command that discards edits the user
+/// made, as leaving a counterparty drops those made for it (ADR-0003 §6): its request carries the count its reading
+/// showed, it is refused where the workspace holds another by then, and no saved sequence holds it (ADR-0016 note 100).
 /// </summary>
-public enum CapabilityEffect { ReadData, Compute, PersistAnalysis, EditWorkspace, Subscribe, ReadRun, SaveItem, Execute, ReadWorkspace, ReadSettings, EditSettings, Propose }
+public enum CapabilityEffect { ReadData, Compute, PersistAnalysis, EditWorkspace, Subscribe, ReadRun, SaveItem, Execute, ReadWorkspace, ReadSettings, EditSettings, Propose, DropEdits }
 
 public sealed record Port(string Name, string ContractId, string ContractVersion, Cardinality Cardinality);
 

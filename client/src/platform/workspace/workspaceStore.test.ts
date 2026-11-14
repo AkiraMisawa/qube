@@ -260,6 +260,28 @@ describe('workspace store', () => {
     expect(readName('A', '📈'.repeat(NAME_LONGEST))).toEqual({ name: '📈'.repeat(NAME_LONGEST) });
   });
 
+  // ADR-0016 note 100: the XVA page moved to another counterparty is titled by it; a name the user gave stays.
+  it('ADR-0016 note 100: retitles a panel, numbered among its new title, and keeps a name the user gave', () => {
+    const store = createWorkspaceStore(valid, contextContract);
+    const open = (title: string) => store.getState().openPanel({ kind: 'app', title, app: 'xva', params: { workspaceId: crypto.randomUUID() } });
+    const [dummy, , named] = [open('XVA DUMMY/LE-00'), open('XVA ABC/LE-02'), open('XVA DUMMY/LE-00')];
+    store.getState().renamePanel(named, 'Hedge desk');
+    const labels = () => store.getState().panels.map(panelLabel);
+    expect(labels()).toEqual(['XVA DUMMY/LE-00', 'XVA ABC/LE-02', 'Hedge desk']);
+    store.getState().retitlePanel(dummy, 'XVA ABC/LE-02');
+    expect(labels()).toEqual(['XVA ABC/LE-02 · 2', 'XVA ABC/LE-02', 'Hedge desk']);
+    store.getState().retitlePanel(named, 'XVA XYZ/LE-03');
+    expect(labels()).toEqual(['XVA ABC/LE-02 · 2', 'XVA ABC/LE-02', 'Hedge desk']);
+    expect(store.getState().panels[2]).toMatchObject({ title: 'XVA XYZ/LE-03', name: 'Hedge desk' });
+    // Its name taken back, it is called by its new title.
+    store.getState().renamePanel(named, '');
+    expect(labels()).toEqual(['XVA ABC/LE-02 · 2', 'XVA ABC/LE-02', 'XVA XYZ/LE-03']);
+    // Moved off a title, a numbered panel loses its number where its new title is free.
+    store.getState().retitlePanel(dummy, 'XVA DUMMY/LE-00');
+    expect(labels()).toEqual(['XVA DUMMY/LE-00', 'XVA ABC/LE-02', 'XVA XYZ/LE-03']);
+    expect(() => store.getState().retitlePanel('panel-0', 'XVA')).toThrow('No open panel is panel-0.');
+  });
+
   // ADR-0006 note 9: a panel closed keeps its name, and comes back with it and its number, where that is free.
   it('ADR-0006 note 9: reopens a named panel with its name', () => {
     const store = createWorkspaceStore(valid, contextContract);

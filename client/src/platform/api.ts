@@ -6,6 +6,11 @@ export class ApiError extends Error {
   constructor(readonly status: number, readonly envelope: ErrorEnvelope) {
     super(envelope.message);
   }
+
+  /** Whether the refusal names this field of this entity among its issues, as the server writes a target (`/<entity>/<field>`). */
+  names(entity: string, field: string): boolean {
+    return this.envelope.issues.some((issue) => issue.path === `/${entity}/${field}`);
+  }
 }
 
 /**

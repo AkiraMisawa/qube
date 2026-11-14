@@ -77,7 +77,14 @@ export interface Membership { readonly in: boolean; readonly reason: string; rea
 /** One scope of a membership, such as `collect/JFSA`, titled as the page shows it (`IM-R JFSA`). */
 export interface MembershipScope { readonly id: string; readonly title: string; readonly in: boolean; readonly reason: string }
 
-export interface Registration { readonly key: string; readonly code: string; readonly legalEntity: string; readonly name: string }
+export interface Registration {
+  readonly key: string;
+  readonly code: string;
+  readonly legalEntity: string;
+  readonly name: string;
+  /** A prospect's stand-in, with nothing booked, no CSA and no CDS (ADR-0010 §1): the page says so wherever it names it. */
+  readonly dummy: boolean;
+}
 
 export interface Agreement {
   readonly maId: string;
@@ -395,6 +402,12 @@ export interface XvaWorkspaceView {
    * choice in this workspace since; or the company profile's, where neither is.
    */
   readonly displayCurrencyFrom: 'settings' | 'workspace' | 'profile';
+  /**
+   * The project the workspace's Runs are listed under in the Pricing DB, or none (ADR-0010 §1's note of 2026-11-14): a
+   * workspace on the dummy counterparty is made and priced only under one, since the counterparty says nothing then.
+   * Absent where there is none: the server leaves nulls out.
+   */
+  readonly project?: string | null;
   readonly currencies: readonly string[];
   /** The selected modules whose figures come from a simulated provider: the page says `SIMULATED` while any is. */
   readonly simulated: readonly string[];
@@ -425,6 +438,7 @@ export interface RowPage {
 
 export interface CarrySummary { readonly carried: number; readonly conflicted: number; readonly lost: number }
 
-export interface ScopeDrop { readonly scope: string; readonly count: number; readonly byKind: Readonly<Record<string, number>> }
+/** What a counterparty change would drop, by kind, and the revision it was counted at (ADR-0016 note 100). */
+export interface ScopeDrop { readonly scope: string; readonly count: number; readonly byKind: Readonly<Record<string, number>>; readonly revision: number }
 
 export type Resolution = 'reset' | 'keep' | 'takeSource' | 'acknowledge';

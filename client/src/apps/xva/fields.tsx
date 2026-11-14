@@ -19,15 +19,15 @@ export function ToolbarField({ label, wide, children }: { readonly label: string
  * A toolbar field that sends its value on Enter or when left, and only when it changed and reads correctly. A value
  * it cannot read marks the input invalid and is said once below the toolbars, so the row keeps its height.
  */
-export function CommitField({ label, value, placeholder, modified, description, parse, onCommit, onIssue, inputRef }: {
+export function CommitField<T>({ label, value, placeholder, modified, description, parse, onCommit, onIssue, inputRef }: {
   readonly label: string;
   readonly value: string;
   readonly placeholder?: string;
   readonly modified?: boolean;
   /** What a modified value differs from, in words (ADR-0010 §2). */
   readonly description?: string | undefined;
-  readonly parse: (text: string) => Parsed;
-  readonly onCommit: (value: unknown) => void;
+  readonly parse: (text: string) => Parsed<T>;
+  readonly onCommit: (value: T) => void;
   readonly onIssue: (message: string | undefined) => void;
   /** The input, for a command that puts the keyboard on it. */
   readonly inputRef?: Ref<HTMLInputElement>;
