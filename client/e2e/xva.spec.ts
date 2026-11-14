@@ -76,13 +76,15 @@ test('docs/03, ADR-0003: a new trade takes the main CSA, a CSA typed in moves it
   await expect(page.getByRole('radio', { name: 'XVA' })).toBeChecked();
   await settled(page, 'Pricing DB');
   const row = page.getByLabel('Pricing DB').getByRole('row', { name: new RegExp(`${runId}`) });
-  // The domain's figures follow the Run's own columns: value date, registration, trades Before and After.
+  // The domain's figures follow the Run's own columns: value date, registration, project (none on a booked
+  // counterparty, ADR-0010 §1's note of 2026-11-14), trades Before and After.
   await expect(row.getByRole('gridcell').nth(5)).toHaveText('2026-10-26');
   await expect(row.getByRole('gridcell').nth(6)).toHaveText('ABC/LE-01');
-  await expect(row.getByRole('gridcell').nth(7)).toHaveText('0');
-  // Trades After is right of the view once every header reads whole: the Focus brings it in, and its column names it.
-  await focusCell(page, 8);
-  await expect(row.locator('[aria-colindex="9"]')).toHaveText('3');
+  await expect(row.getByRole('gridcell').nth(7)).toHaveText('');
+  // The trades are right of the view once every header reads whole: the Focus brings them in, and their columns name them.
+  await focusCell(page, 9);
+  await expect(row.locator('[aria-colindex="9"]')).toHaveText('0');
+  await expect(row.locator('[aria-colindex="10"]')).toHaveText('3');
 });
 
 test('ADR-0003 §6: a counterparty change asks before dropping its edits, and keeps a new trade\'s own', async ({ page }) => {
