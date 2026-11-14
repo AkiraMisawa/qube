@@ -108,7 +108,10 @@ test('ADR-0016 note 66: a CSA\'s One-way follows who posts: a side\'s Posts swit
   await expect(oneWay).toHaveAttribute('title', 'No command sets this field: it follows counterparty posts and self posts.');
 
   // We stop posting: the counterparty posts alone, and One-way says so before anything is written.
-  await dialog.getByRole('group', { name: 'Self' }).getByRole('switch', { name: /^Posts/ }).click({ force: true });
+  const selfPosts = dialog.getByRole('group', { name: 'Self' }).getByRole('switch', { name: /^Posts/ });
+  await expect(selfPosts).toBeChecked();
+  await selfPosts.click();
+  await expect(selfPosts).not.toBeChecked();
   await expect(pending).toHaveText('1 pending');
   await expect(page.getByTestId('draft-lines')).toContainText('set csas CSA-B self posts off');
   await expect(oneWay).toHaveValue('on');

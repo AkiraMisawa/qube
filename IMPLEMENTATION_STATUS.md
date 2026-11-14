@@ -3488,6 +3488,9 @@ Unchanged: every source and every measure is simulated, and every value is synth
   template. The owner was told he may ask for the columns.
 - **An edit of a field nothing reads is found for a priced entity at Price, and for every entity in Changes.** One
   on a CSA no priced trade is under does not refuse Price; it changes nothing of the input either.
+- **The message of a cell in the CSA grid's last row is cut by the inputs band's lower edge**, as before this change:
+  the grid draws the box under the cell, and the band (`qube-xva-inputs-body`, the page's own) is as tall as its
+  rows. Seen on the marked One-way cell; the band's height is the page's to settle, not ExGrid's.
 - **Waiting for the owner's answer**: whether an empty Float of a Rates leg becomes an issue on its row, what the
   Rates grid shows before it has lines, whether docs/03 §5's line on a package is rewritten as served by `add each`,
   and where the row's Edit column stands (ticket 16).
