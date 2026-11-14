@@ -560,6 +560,8 @@ public class PricerCaseTests
             Refused(w => Set(w, "trade:DRAFT-2", "before", true), w => Set(w, "trade:DRAFT-2", "before", false)));
         Assert.Equal($"NotInAfter: {existing} is in the package P2 and not in After in the Base, so no case takes it out. Tick A on it, or clear its Package.",
             Refused(w => Package(service, Set(w, $"trade:{existing}", "after", false), "P2", existing), w => Package(service, Set(w, $"trade:{existing}", "after", true), null, existing)));
+        Assert.Equal($"NotInBefore: {existing} is in the package P2 and not in Before in the Base, and a package takes out only a trade Before and After both hold. Tick B on it, or clear its Package.",
+            Refused(w => Package(service, Set(w, $"trade:{existing}", "before", false), "P2", existing), w => Package(service, Set(w, $"trade:{existing}", "before", true), null, existing)));
         Assert.Equal("PackageNamesDiffer: The packages P1 and p1 differ only in the case of their letters, and whether they are one is not guessed. Write one name on all of their trades.",
             Refused(w => Package(service, w, "p1", "DRAFT-3"), w => Package(service, w, null, "DRAFT-3")));
         var packaged = at;

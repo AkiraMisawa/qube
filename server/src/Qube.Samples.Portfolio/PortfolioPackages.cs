@@ -45,7 +45,8 @@ public static class PortfolioPackages
     /// per package and one per New row with A ticked that is in none, in the order of the rows, the New grid's first.
     /// Never cumulative: each case adds its own new trades alone. Refused by the trades' names, with nothing made: two
     /// packages whose names differ only in case, a New row of a package with A clear, a new trade to add that is in
-    /// Before, and an existing trade of a package that the Base does not have in After; and a set of no case.
+    /// Before, and an existing trade of a package that the Base does not have in both Before and After; and a set of no
+    /// case.
     /// </summary>
     public static IReadOnlyList<Iteration> AdditionSet(IReadOnlyList<EffectiveTrade> trades) =>
         AdditionSetOrNone(trades) is { Count: > 0 } set ? set
@@ -83,6 +84,14 @@ public static class PortfolioPackages
             var (them, their) = outside.Count == 1 ? ("it", "its") : ("them", "their");
             throw new WorkspaceRefused("NotInAfter",
                 $"{InPackages(outside)} and not in After in the Base, so no case takes {them} out. Tick A on {them}, or clear {their} Package.");
+        }
+        // A trade After holds and Before does not would be in neither side of its case: that is not adding it, which no
+        // case of a package says, rather than taking it out (ADR-0016 note 91's combinations, put to the owner).
+        if (existing.Where(t => t.Package is not null && !t.Before).ToList() is { Count: > 0 } afterOnly)
+        {
+            var (them, their) = afterOnly.Count == 1 ? ("it", "its") : ("them", "their");
+            throw new WorkspaceRefused("NotInBefore",
+                $"{InPackages(afterOnly)} and not in Before in the Base, and a package takes out only a trade Before and After both hold. Tick B on {them}, or clear {their} Package.");
         }
         var set = new List<Iteration>();
         var made = new HashSet<string>(StringComparer.Ordinal);

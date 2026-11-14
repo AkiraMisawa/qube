@@ -2778,7 +2778,8 @@ note 37, and rewrite docs/03 §5's CONFIRMED line on a package (owner, the same 
     optional, drawn as the **Package** column right of A on both trade grids. A trade's cell names the one package it
     is in, or none.
     - *What a package is.* The New rows that share a name are added together in one case. The existing rows with that
-      name are taken out of After in that case alone, and stay in Before. A New row with A ticked and no package is a
+      name are taken out of After in that case alone, and stay in Before, so a package holds only existing rows that
+      Before and After both hold (note 91). A New row with A ticked and no package is a
       case alone, as before. A package of existing rows alone is a case that only takes them out (an unwind), which
       §3 left to `vary E00003 A off`: it is made here because the user named it.
     - *Why a cell, and not the selections.* Note 37 made the lists from the grids' selections at a press, held them in
@@ -2805,8 +2806,32 @@ note 37, and rewrite docs/03 §5's CONFIRMED line on a package (owner, the same 
     other candidate and on the trades it takes out.
     - *Refused by name, with nothing made:* two packages whose names differ only in case; a New row of a package with
       A clear (`CandidateNotTicked`); a new trade to add that is in Before (`CandidateInBefore`, as before); an
-      existing trade of a package that the Base has not in After (`NotInAfter`); and a set of no case
-      (`NothingToAdd`). Nothing is ticked, cleared or taken out of a package for the user.
+      existing trade of a package that the Base has not in After (`NotInAfter`), or has in After and not in Before
+      (`NotInBefore`); and a set of no case (`NothingToAdd`). Nothing is ticked, cleared or taken out of a package for
+      the user.
+    - *Every combination of a row's B, A and package (asked by the owner, 2026-11-14 22:32Z: "the combinations of new
+      and existing, ticked and not, must be settled too").* The Base, and every case of `vary`, hold each row as its
+      B and A say, whatever its package; a package changes only the cases of `add each`. In those:
+
+      | Row | B | A | Package | In the cases of `add each` |
+      |---|---|---|---|---|
+      | New | off | on | none | A case of its own (`add DRAFT-3`); A off in every other case |
+      | New | off | off | none | In no case |
+      | New | on | on | none | Refused (`CandidateInBefore`) |
+      | New | on | off | none | In Before in every case, as the Base has it (B and A are free, as before this note) |
+      | New | off | on | P1 | Added with P1's other new trades in P1's case; A off in every other case |
+      | New | off or on | off | P1 | Refused (`CandidateNotTicked`) |
+      | New | on | on | P1 | Refused (`CandidateInBefore`) |
+      | Existing | on | on | none | In Before and After in every case |
+      | Existing | on | off | none | Out of After in every case: a common change |
+      | Existing | off | on | none | In After alone in every case: a common change |
+      | Existing | off | off | none | In no case |
+      | Existing | on | on | P1 | Out of After in P1's case alone, and in Before; as the Base in every other case |
+      | Existing | on or off | off | P1 | Refused (`NotInAfter`) |
+      | Existing | off | on | P1 | Refused (`NotInBefore`, DEFAULT put to the owner the same day: in P1's case it would be in neither side, which is not adding it rather than taking it out) |
+
+      *Make package…* writes the package on the rows the two selections name and nothing else, and a row it would
+      write that the table refuses refuses the whole command, with nothing written.
     - *As before:* the set made before is replaced whole, the cases of `vary` stay, and the cap is Price's
       (`TooManyCases`, which now says to put new trades together in packages).
     - *A case's title:* `add DRAFT-3` for a trade alone, `P1: add DRAFT-1 + DRAFT-2 without E00003` for a package,

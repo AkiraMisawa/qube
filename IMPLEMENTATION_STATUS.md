@@ -3838,7 +3838,9 @@ it; docs/03 §5's CONFIRMED line is rewritten to say packages are in scope (owne
   existing trades out of After in that case alone, and a case per New row with A ticked in none. A package of
   existing trades alone is a case that only takes them out. Never cumulative. Titles: `P1: add DRAFT-1 + DRAFT-2
   without E00003`, `U1: take out E00007`, `add DRAFT-3`. Refused by name, with nothing made: names that differ only
-  in case, a packaged New row with A clear, a new trade in Before, a packaged existing trade not in the Base's After.
+  in case, a packaged New row with A clear, a new trade in Before, a packaged existing trade the Base does not hold
+  in both Before and After. Every combination of a row's B, A and package is a table in note 91 (the owner asked for
+  it settled, 2026-11-14).
 - **Price checks the set against the cells**: packages written with no case made (`PackagesNotMade`), or a set that
   is no longer what the cells and A say (`AdditionSetChanged`, with what is missing and what is out of date, and to
   remove the cases where the cells make none now). The input Price freezes carries each trade's package and each
@@ -3884,6 +3886,8 @@ Unchanged: every source and every measure is simulated, and every value is synth
 - **A case made by note 37's lists before this change** has no package. One of a trade alone still prices; one that
   added several together or took a trade out is out of date at Price until `add each` again.
 - **The line has no spelling of a package's lists** (note 68): it writes cells with `set`, then `add each`.
+- **An existing trade in After and not in Before is refused in a package** (`NotInBefore`), DEFAULT put to the owner
+  2026-11-14 with the combinations table: allowed, its case would hold it in neither side.
 
 ## Rates lines named in order (ADR-0016 note 65, 2026-11-14)
 
