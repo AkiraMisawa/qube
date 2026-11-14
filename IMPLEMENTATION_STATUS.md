@@ -3700,6 +3700,46 @@ Unchanged: every source and every measure is simulated, and every value is synth
   Rates grid shows before it has lines, whether docs/03 §5's line on a package is rewritten as served by `add each`,
   and where the row's Edit column stands (ticket 16).
 
+## The analytics request's official PV by leg (ADR-0016 note 69, 2026-11-14)
+
+The owner answered which PV the analytics reads with the request's own file: `/deals/official_pv.csv`, a row for
+each leg (`id,ccy,pv,notional`, the id `{trade id}_{leg id}`, the leg id an integer from 0).
+
+### What runs
+
+- `XvaRequestFiles.OfficialPv` (`server/src/Qube.Samples.Xva`) writes that file from the trades of one request as
+  the accepted input carries them: a row for each leg, numbered from 0 under its trade in the order the trade holds
+  its legs. An overwritten PV is its trade's one leg, numbered 0, and a new trade with no leg has no row.
+- Nothing calls it outside its tests: no engine is written to, and no screen shows the file.
+
+### Verification performed
+
+| Check | Result |
+|---|---|
+| `nix develop -c dotnet test server/Qube.slnx` | 1662 passed |
+| `cd client && npm run typecheck && npm test` | typecheck clean; 495 passed in 48 files (no client file changes) |
+| `cd client && npx playwright test` (Chromium, the built client served by the host) | 149 passed |
+
+The three new tests were seen to fail with the numbering broken (from 1) and to pass with it put back. One of
+them prices a workspace with an overwritten PV and a leg made, and reads the file from the input its Run keeps.
+
+### Providers
+
+Every source and measure is simulated. The file's layout is the owner's word of the real request: no real request
+was compared with it.
+
+### Known limits, and what waits for the owner
+
+- **The defaults of note 69 wait for his word**: a leg is numbered by its place under its trade (an overwritten
+  PV's leg is 0), a leg with no notional leaves the field empty, and `ccy` is the leg's currency.
+- **The workspace's own keys of a leg stay `<trade>/<n>` from 1**, so the screen's `E00004/1` is the file's
+  `E00004_0`. Numbering the keys from 0 would move every edit of a leg that a kept workspace holds onto another
+  leg without saying so (the synthetic source's version does not change with its generator), so it is not done
+  without his word.
+- **The simulated measures still read `officialPv`** (note 53), so an overwritten PV changes the file and no
+  figure.
+- **The request's other files are not known yet.**
+
 ## Next
 
 1. Panels in areas, ADR-0018 step 3 (parts of a page with links), once the owner has seen step 2.

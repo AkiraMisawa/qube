@@ -2693,6 +2693,24 @@ later answer, is written when he answers.
     §3 left open how a line would spell the trades an iteration adds together and the ones it takes out. His
     answer: as it is now. The lists are made from the grids' selections in the page (note 37) and by the AI
     through the typed value, and `add each` on the line takes none. A spelling is designed when one is asked for.
+69. **The analytics request carries the official PV by leg (owner, 2026-11-14; answers which PV the analytics
+    reads).** The accepted input carries a trade's `officialPv` and its legs (note 53), and the summary of decisions
+    asked which of the two the analytics' request reads. His answer is the request's own file: it holds
+    `/deals/official_pv.csv`, `id,ccy,pv,notional`, a row for each leg, whose id is `{trade id}_{leg id}` with the
+    leg id an integer from 0. So the request reads the legs, and a PV overwritten in the workspace reaches the
+    analytics as the one leg it leaves (note 49). `officialPv` stays on the trade's row as the source's figure,
+    which the simulated measures still read (note 53): they read the legs when the analytics is connected.
+    - **The writer.** `XvaRequestFiles.OfficialPv` writes the file from the trades of one request as the accepted
+      input carries them. Before and After are requests of their own (CLAUDE.md), each with its trades. It is the
+      XVA sample's and not the kernel's: the file is the analytics' format. No engine is written to yet.
+    - **DEFAULT, each for the owner to confirm.** A leg's id in the file is its place under its trade at Price,
+      from 0, in the order the trade holds its legs: the source's first, then the ones made. An untouched trade's
+      legs so keep the source's order, and the one leg an overwritten PV leaves is leg 0, where its key in the
+      workspace is the next number after the source's (note 49). The workspace's keys stay as they are,
+      `<trade>/<n>` from 1. `ccy` is the leg's currency, and `pv` and `notional` are in it, written as the input
+      holds them. A leg with no notional, as the one an overwritten PV leaves has none, leaves that field empty:
+      nothing stands in for it (CLAUDE.md, no fallback). A trade with no leg, such as a new trade nobody gave a
+      PV, has no row. A row that a comma, a quote or a line break would break is refused, not written.
 
 ## Rejected
 
