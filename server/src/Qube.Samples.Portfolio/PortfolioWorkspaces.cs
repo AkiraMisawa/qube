@@ -35,7 +35,7 @@ public sealed record RowPage(IReadOnlyList<EffectiveTrade> Rows, int Start, int 
 /// asks again while any is. <c>DisplayCurrency</c> is the workspace's setting, <c>DisplayCurrencyFrom</c> where it came
 /// from (<c>settings</c>, <c>workspace</c> or <c>profile</c>, ADR-0017 §3), and <c>Simulated</c> names the modules whose
 /// figures come from a simulated provider, which the page says (ADR-0010 §1). <c>Packages</c> are those the trades'
-/// Package cells write (ADR-0016 note 90).</summary>
+/// Package cells write, and <c>NextPackage</c> the name a package is given where none is (ADR-0016 notes 90 and 93).</summary>
 public sealed record PortfolioWorkspaceView(
     string WorkspaceId,
     long Revision,
@@ -67,7 +67,8 @@ public sealed record PortfolioWorkspaceView(
     IReadOnlyList<ScenarioView> Scenarios,
     IReadOnlyList<ShiftRow> Shifts,
     IReadOnlyList<ModuleSettings> Settings,
-    IReadOnlyList<PackageView> Packages);
+    IReadOnlyList<PackageView> Packages,
+    string NextPackage);
 
 /// <summary>
 /// One change as the Changes tab lists it (ADR-0010 §3's note of 2026-11-08): its entity and field, the case it is a
@@ -240,8 +241,9 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
             register.WithCells(state, [.. Rows(state).Where(t => t.IsNew)]).Sum(t => t.Cells?.Values.Count(c => c.State == TradeCell.Pending) ?? 0),
             PortfolioMaterialiser.DisplayCurrency(state), PortfolioMaterialiser.DisplayCurrencyFrom(state), PortfolioMarket.Currencies, [.. register.Selected(state).Where(m => m.Simulated).Select(m => m.Id)],
             PortfolioCases.All(raw), DataEdits(raw).Count() + PortfolioLegs.Made(raw).Count + BookedTrades.LoadedBy(raw).Count, PortfolioScenarios.All(raw), PortfolioScenarios.Rows(raw), register.Settings(state),
-            // The packages the Package cells write (ADR-0016 note 90), for a page to name the next and say what a trade leaves.
-            PortfolioPackages.Written(Rows(state)));
+            // The packages the Package cells write, and the name the next is given where none is (ADR-0016 notes 90 and 93):
+            // what *Make package…* offers, and where each trade it lists is now.
+            PortfolioPackages.Named(Rows(state)), PortfolioPackages.NextFree(Rows(state)));
     }
 
     /// <summary>
@@ -828,7 +830,7 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
             var ids = named.Select(t => t.TradeId).ToHashSet(StringComparer.Ordinal);
             trades = [.. trades.Select(t => ids.Contains(t.TradeId) ? t with { Package = name } : t)];
         }
-        var make = PortfolioPackages.Set(trades);
+        var make = PortfolioPackages.AdditionSet(trades);
         var replaced = PortfolioCases.Made(raw).Where(c => PortfolioCases.KindOf(c) == PortfolioCases.Add).ToList();
         // The cap counts the Base (ADR-0010 §3's note): a set Price would refuse is not written n² edits deep first.
         var count = PortfolioCases.All(raw).Count - replaced.Count + make.Count;

@@ -18,16 +18,17 @@ public static class PortfolioPackages
     /// <summary>The field of a trade that names its package.</summary>
     public const string Field = "package";
 
-    /// <summary>Why a value is not a package's name, or none where it is one: a name as written, with no comma; or empty for none.</summary>
-    public static string? Problem(string? name) =>
-        name is null || name.Length > 0 && name == name.Trim() && !name.Contains(',') ? null
-            : "A package is a name with no comma, such as P1, or empty for none.";
+    /// <summary>What a Package cell may hold, as a refusal says it.</summary>
+    public const string Rule = "A package is a name with no comma, such as P1, or empty for none.";
 
-    /// <summary>The packages the cells write, in the order of their first trade: the New rows first, then the existing.</summary>
-    public static IReadOnlyList<PackageView> Written(IReadOnlyList<EffectiveTrade> trades)
+    /// <summary>Why a text is not a package's name, or none where it is one: a name as written, with no space at either end and no comma.</summary>
+    public static string? Problem(string name) => name.Length > 0 && name == name.Trim() && !name.Contains(',') ? null : Rule;
+
+    /// <summary>The packages the cells name, in the order of their first trade: the New rows first, then the existing.</summary>
+    public static IReadOnlyList<PackageView> Named(IReadOnlyList<EffectiveTrade> trades)
     {
-        var ordered = trades.Where(t => t.IsNew).Concat(trades.Where(t => !t.IsNew)).Where(t => t.Package is not null).ToList();
-        return [.. ordered.Select(t => t.Package!).Distinct(StringComparer.Ordinal).Select(name => new PackageView(name,
+        var ordered = trades.Where(t => t.IsNew).Concat(trades.Where(t => !t.IsNew)).ToList();
+        return [.. ordered.Select(t => t.Package).OfType<string>().Distinct(StringComparer.Ordinal).Select(name => new PackageView(name,
             [.. ordered.Where(t => t.IsNew && t.Package == name).Select(t => t.TradeId)],
             [.. ordered.Where(t => !t.IsNew && t.Package == name).Select(t => t.TradeId)]))];
     }
@@ -46,13 +47,20 @@ public static class PortfolioPackages
     /// packages whose names differ only in case, a New row of a package with A clear, a new trade to add that is in
     /// Before, and an existing trade of a package that the Base does not have in After; and a set of no case.
     /// </summary>
-    public static IReadOnlyList<Iteration> Set(IReadOnlyList<EffectiveTrade> trades)
+    public static IReadOnlyList<Iteration> AdditionSet(IReadOnlyList<EffectiveTrade> trades) =>
+        Wanted(trades) is { Count: > 0 } set ? set
+            : throw new WorkspaceRefused("NothingToAdd", "add each makes a case per package and per New row with A ticked, and no trade is in a package and no New row has A ticked.");
+
+    /// <summary>
+    /// The set the cells say, as <see cref="AdditionSet"/> makes it and refuses what no case can be made of; none where
+    /// they say no case, which Price reads beside the cases made (ADR-0016 note 92).
+    /// </summary>
+    public static IReadOnlyList<Iteration> Wanted(IReadOnlyList<EffectiveTrade> trades)
     {
         var news = trades.Where(t => t.IsNew).ToList();
         var existing = trades.Where(t => !t.IsNew).ToList();
-        var packaged = news.Concat(existing).Where(t => t.Package is not null).ToList();
-        if (packaged.GroupBy(t => t.Package!, StringComparer.OrdinalIgnoreCase).Select(g => g.Select(t => t.Package!).Distinct(StringComparer.Ordinal).ToList())
-            .FirstOrDefault(names => names.Count > 1) is { } clash)
+        if (news.Concat(existing).Select(t => t.Package).OfType<string>().Distinct(StringComparer.Ordinal).GroupBy(name => name, StringComparer.OrdinalIgnoreCase)
+            .Select(g => g.ToList()).FirstOrDefault(names => names.Count > 1) is { } clash)
             throw new WorkspaceRefused("PackageNamesDiffer",
                 $"The packages {TableWords.And(clash)} differ only in the case of their letters, and whether they are one is not guessed. Write one name on all of their trades.");
         if (news.Where(t => t.Package is not null && !t.After).ToList() is { Count: > 0 } clear)
@@ -87,8 +95,7 @@ public static class PortfolioPackages
             }
             else if (t.IsNew && t.After) set.Add(new([t.TradeId], []));
         }
-        return set.Count > 0 ? set
-            : throw new WorkspaceRefused("NothingToAdd", "add each makes a case per package and per New row with A ticked, and no trade is in a package and no New row has A ticked.");
+        return set;
     }
 
     // The trades a refusal names and where they are: `DRAFT-3 is in the package P1`, or `DRAFT-3 (P1) and DRAFT-4 (P2)

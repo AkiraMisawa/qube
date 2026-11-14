@@ -423,6 +423,43 @@ public class PricerLineTests
         Assert.Equal(("add DRAFT-2", "add", "DRAFT-2", 0), (stored.Title, stored.Kind, string.Join(", ", stored.Iteration!.Add), stored.Iteration.Without.Count));
     }
 
+    [Fact] // ADR-0016 note 90, docs/03 §5: a case stored before packages, which took a trade out with no package, is not what the cells say, and Price says it is out of date
+    public async Task A_case_stored_before_packages_that_took_a_trade_out_is_out_of_date()
+    {
+        var rig = new Rig();
+        var taken = rig.Service.Page(rig.Id, "akira", 0, 1, [], "existing").Rows[0].TradeId;
+        await rig.Run(rig.Preview("after none new"));
+        await rig.Run(rig.Preview("set DRAFT-1 after on"));
+        rig.Workspaces.Batch(rig.Id, rig.State.Revision, "akira",
+            [new WorkspaceChange.Create("cp:ABC/LE-01", PortfolioCases.Of("c900"), new JsonObject
+            {
+                ["title"] = $"add DRAFT-1, take out {taken}", ["kind"] = PortfolioCases.Add, ["add"] = new JsonArray("DRAFT-1"), ["without"] = new JsonArray(taken),
+            })]);
+
+        var refused = Assert.Throws<WorkspaceRefused>(() => rig.Service.Price(rig.Id, rig.State.Revision, "akira", Guid.NewGuid().ToString()));
+
+        Assert.Equal(("AdditionSetChanged", $"add each's cases are not what the Package column and A say. Missing: add DRAFT-1. Out of date: add DRAFT-1 without {taken}. "
+            + "Run add each again to make the set anew."), (refused.Code, refused.Message));
+    }
+
+    [Fact] // ADR-0016 note 90: reset all package clears the Package column of every trade, new and existing, as Price's refusal of packages no case prices says
+    public async Task Reset_all_package_clears_the_column_as_the_refusal_of_packages_no_case_prices_says()
+    {
+        var rig = new Rig();
+        var taken = rig.Service.Page(rig.Id, "akira", 0, 1, [], "existing").Rows[0].TradeId;
+        await rig.Run(rig.Preview("set DRAFT-1 package P1"));
+        await rig.Run(rig.Preview($"set {taken} package U1"));
+        var named = rig.View.Packages.Select(p => p.Name).ToList();
+
+        var said = await rig.Run(rig.Preview("reset all package"));
+
+        Assert.Equal(["P1", "U1"], named);
+        // Every trade is read, new and existing, and those with no package are counted, not reset.
+        Assert.Equal($"Reset package on {taken} and DRAFT-1; 30 had no edit.", said);
+        Assert.Empty(rig.View.Packages);
+        Assert.IsType<SubmissionResult.Accepted>(rig.Service.Price(rig.Id, rig.State.Revision, "akira", Guid.NewGuid().ToString()));
+    }
+
     [Fact] // ADR-0016 note 28, docs/03 §5: what add each cannot do is refused in the preview by the command's own code and sentence
     public async Task Add_each_is_refused_in_the_preview_as_the_command_would_refuse_it()
     {

@@ -3822,16 +3822,71 @@ was compared with it.
 - **The next gap is the request's other files and a caller.** Only this file is known, and it is returned as text:
   no request holds it until an engine's adapter exists to take one (`docs/08-provider-boundaries.md`).
 
+## Packages of iterative addition (ADR-0016 notes 90 to 94, 2026-11-14)
+
+The owner asked (2026-11-14, item 8 of his answers to the summary) for case creation to treat several trades as one
+package and to name the trades a case takes out, designed afresh. The design was proposed the same day and built on
+it; docs/03 §5's CONFIRMED line is rewritten to say packages are in scope (owner, the same day).
+
+### What runs
+
+- **A trade's Package cell** (`package`, the Package column right of A on both trade grids) names the one package it
+  is in. It is typed as any cell, set by `set <trades> package <name>`, cleared by `reset`, and listed in Changes.
+  A name with a comma is refused; `vary` of it is refused.
+- **`add each` makes the set from the cells**: a case per package, adding its new trades together and taking its
+  existing trades out of After in that case alone, and a case per New row with A ticked in none. A package of
+  existing trades alone is a case that only takes them out. Never cumulative. Titles: `P1: add DRAFT-1 + DRAFT-2
+  without E00003`, `U1: take out E00007`, `add DRAFT-3`. Refused by name, with nothing made: names that differ only
+  in case, a packaged New row with A clear, a new trade in Before, a packaged existing trade not in the Base's After.
+- **Price checks the set against the cells**: packages written with no case made (`PackagesNotMade`), or a set that
+  is no longer what the cells and A say (`AdditionSetChanged`, with what is missing and what is out of date, and to
+  remove the cases where the cells make none now). The input Price freezes carries each trade's package and each
+  case's package and lists.
+- **`xva.trades.add` writes a package first**: `package` and `trades` in its request write the name on those trades
+  and remake the set in one command (one `undo`). Its `iterations` and `keep` (note 37) are retired.
+- **The page**: *Make package…* in the New grid's caption and *Make package from the selection…* on both trade grids'
+  Context Menus open a dialog of what the two selections name, with the next free name, each trade a press to leave
+  it out and a trade in another package marked `from P1`. The Changes tab shows each case's package and its trades,
+  read only; the buttons that left one trade out of a case are gone.
+
+### Verification performed
+
+| Check | Result |
+|---|---|
+| `nix develop -c dotnet test server/Qube.slnx` | 1661 passed |
+| `cd client && npm run typecheck && npm test` | typecheck clean; 510 passed in 49 files |
+| `cd client && npx playwright test` (Chromium, the built client served by the host) | VERIFY_E2E |
+| The new and changed browser tests, `--repeat-each=3` | 9 passed |
+
+The Context Menu test (note 25) failed once in a repeated run, reading the box of a row the grid had just drawn again
+(`boundingBox()` answered none); it now reads the place once the element is drawn, and passed in the runs after.
+
+By hand, in the built client served by the host: the trade grids with the Package column, the dialog, the answer,
+the Changes tab and a priced Run's cases, at 1440px in both themes, and the dialog at 390px light.
+
+### Providers
+
+Unchanged: every source and every measure is simulated, and every value is synthetic.
+
+### Known limits
+
+- **One package a row** (DEFAULT, put to the owner): two alternatives cannot take out the same existing trade, or
+  add the same new one. A comma is refused in a name, kept for several packages a row if he asks.
+- **A case made by note 37's lists before this change** has no package; Price says it is out of date until `add each`
+  again.
+- **The line has no spelling of a package's lists** (note 68): it writes cells with `set`, then `add each`.
+
 ## Next
 
-1. Panels in areas, ADR-0018 step 3 (parts of a page with links), once the owner has seen step 2.
-2. MVA with SIMM (`docs/12-implementation-plan.md` P2): spot IM from the XVA request's MVA option.
-3. ADR-0010 Delivery step 3 (Advanced: Before-only and After-only edits, the split fill), when the owner asks for it.
-4. The owner's review of ADR-0003 §7 (scopes, carry and conflict), then a synthetic source change that can produce a conflict, and the browser cases still open above (reload, failed case unavailable).
-5. Rates.
-6. ME-ID sign-in through MSAL (C30) and the visibility rules (C31, C32); AI over AG-UI with the company's Copilot behind the adapter port (C34).
-7. Slice 01b: Save and Pin (CO06), and the browser parts of CO03 and CO04.
-8. The analytics request's other files as the owner gives them (ADR-0016 note 69), and what writes a request to an
+1. The owner's answer on one package a row or several (ADR-0016 note 90).
+2. Panels in areas, ADR-0018 step 3 (parts of a page with links), once the owner has seen step 2.
+3. MVA with SIMM (`docs/12-implementation-plan.md` P2): spot IM from the XVA request's MVA option.
+4. ADR-0010 Delivery step 3 (Advanced: Before-only and After-only edits, the split fill), when the owner asks for it.
+5. The owner's review of ADR-0003 §7 (scopes, carry and conflict), then a synthetic source change that can produce a conflict, and the browser cases still open above (reload, failed case unavailable).
+6. Rates.
+7. ME-ID sign-in through MSAL (C30) and the visibility rules (C31, C32); AI over AG-UI with the company's Copilot behind the adapter port (C34).
+8. Slice 01b: Save and Pin (CO06), and the browser parts of CO03 and CO04.
+9. The analytics request's other files as the owner gives them (ADR-0016 note 69), and what writes a request to an
    engine.
 
 The generic commands (ADR-0016) are built through step 6, and a page keeps its state by panel (ADR-0006 note 10); what

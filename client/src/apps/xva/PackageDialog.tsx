@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Button, Group, Modal, Stack, Text, TextInput } from '@mantine/core';
 import type { Iteration, PackageView } from './contracts';
-import { nextPackage, packageOf } from './packages';
+import { packageOf } from './packages';
 
 // *Make package from the selection…* (ADR-0010 §3, ADR-0016 note 94 of 2026-11-14): writes one package on the trades
 // the two grids' selections name, the new trades it adds together and the existing trades it takes out of After, and
@@ -16,11 +16,13 @@ export const PACKAGE_COMMAND = 'xva.package.selection';
 /** What the two trade grids' selections name, as the server read them: the New grid's, and the Existing grid's. */
 export type Selected = Pick<Iteration, 'add' | 'without'>;
 
-export function PackageDialog({ selection, packages, make, onClose }: {
+export function PackageDialog({ selection, packages, next, make, onClose }: {
   /** What the two selections name; none while the dialog is closed. */
   readonly selection: Selected | undefined;
-  /** The packages the Package cells write now, for the name offered and where each trade listed is. */
+  /** The packages the Package cells write now, for where each trade listed is. */
   readonly packages: readonly PackageView[];
+  /** The name the server gives a package where none is, which the dialog offers. */
+  readonly next: string;
   /** Writes the package on the trades and makes the cases. Refused, it answers the server's reason, and nothing was written. */
   readonly make: (name: string, trades: readonly string[]) => Promise<string | undefined>;
   readonly onClose: () => void;
@@ -28,18 +30,19 @@ export function PackageDialog({ selection, packages, make, onClose }: {
   return (
     <Modal opened={selection !== undefined} onClose={onClose} title="Make package from the selection" size="md">
       {/* Made anew each time the dialog opens, so it opens with the next free name, no trade left out and nothing refused. */}
-      {selection !== undefined && <PackageForm selection={selection} packages={packages} make={make} onClose={onClose} />}
+      {selection !== undefined && <PackageForm selection={selection} packages={packages} next={next} make={make} onClose={onClose} />}
     </Modal>
   );
 }
 
-function PackageForm({ selection, packages, make, onClose }: {
+function PackageForm({ selection, packages, next, make, onClose }: {
   readonly selection: Selected;
   readonly packages: readonly PackageView[];
+  readonly next: string;
   readonly make: (name: string, trades: readonly string[]) => Promise<string | undefined>;
   readonly onClose: () => void;
 }) {
-  const [name, setName] = useState(() => nextPackage(packages));
+  const [name, setName] = useState(next);
   // The trades left out of the package, of either list.
   const [out, setOut] = useState<ReadonlySet<string>>(new Set());
   const [refused, setRefused] = useState<string | undefined>(undefined);
@@ -85,7 +88,7 @@ function PackageForm({ selection, packages, make, onClose }: {
                 <Button key={trade} size="sm" variant={on ? 'light' : 'default'} aria-pressed={on} disabled={busy}
                   title={says(trade, on) + (was === undefined ? '' : ` It is in ${was} now, and moves.`)} onClick={() => toggle(trade)}>
                   {/* The button lays its label out as a row, where a space draws nothing: the margin is the gap, the space the name's. */}
-                  {trade}{was !== undefined && <>{' '}<Text span size="xs" fw={400} ml={6}>{`from ${was}`}</Text></>}
+                  {trade}{was !== undefined && <>{' '}<Text span size="xs" fw={400} ml="sm">{`from ${was}`}</Text></>}
                 </Button>
               );
             })}

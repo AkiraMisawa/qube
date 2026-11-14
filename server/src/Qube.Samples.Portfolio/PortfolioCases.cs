@@ -143,7 +143,7 @@ public static class PortfolioCases
     {
         var made = Iterations(raw);
         var trades = PortfolioMaterialiser.Trades(Base(raw));
-        var written = PortfolioPackages.Written(trades);
+        var written = PortfolioPackages.Named(trades);
         if (made.Count == 0)
         {
             if (written.Count == 0) return;
@@ -151,12 +151,18 @@ public static class PortfolioCases
             throw new WorkspaceRefused("PackagesNotMade", $"The Package column names {TableWords.Some(names)}, and no case of add each prices {(names.Count == 1 ? "it" : "them")}. "
                 + "Run add each to make the cases, or clear the column with reset all package to price without them.");
         }
-        var wanted = PortfolioPackages.Set(trades);
+        var wanted = PortfolioPackages.Wanted(trades);
         var missing = wanted.Where(w => !made.Any(w.Same)).Select(w => w.Title()).ToList();
         var stale = made.Where(m => !wanted.Any(m.Same)).Select(m => m.Title()).ToList();
         if (missing.Count == 0 && stale.Count == 0) return;
         // Titles are told apart by commas, as add each's answer lists them: `and` would read as one case's trades.
         static string Titles(List<string> titles) => string.Join(", ", titles.Take(3)) + (titles.Count > 3 ? $" and {titles.Count - 3} more" : "");
+        // Where the cells now make no case, add each again would refuse: the way out is to remove the cases, or to
+        // write what a case is made of.
+        if (wanted.Count == 0)
+            throw new WorkspaceRefused("AdditionSetChanged",
+                $"add each's cases are not what the Package column and A say, which make no case now. Out of date: {Titles(stale)}. "
+                + "Remove them in Changes, or tick A on a new trade or write a package, then run add each again.");
         var problems = new List<string>();
         if (missing.Count > 0) problems.Add($"Missing: {Titles(missing)}.");
         if (stale.Count > 0) problems.Add($"Out of date: {Titles(stale)}.");

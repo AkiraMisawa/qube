@@ -594,13 +594,33 @@ public class PricerCaseTests
             Refused(grown));
         // What the cells say that no set could be made of is refused as add each refuses it.
         var unticked = Set(Package(service, grown, null, "DRAFT-3"), "trade:DRAFT-2", "after", false);
-        Assert.Equal("CandidateNotTicked", Refused(unticked).Split(':')[0]);
-        // With no case of add each and the column cleared, Price prices the Base: no package is priced by a guess.
-        var cleared = service.ClearCases(ws.WorkspaceId, Set(unticked, "trade:DRAFT-2", "after", true).Revision, "akira").State;
-        Assert.Equal("PackagesNotMade", Refused(cleared).Split(':')[0]);
-        cleared = service.Resolve(ws.WorkspaceId, cleared.Revision, "akira", "trade:DRAFT-1", "package", "reset");
-        cleared = service.Resolve(ws.WorkspaceId, cleared.Revision, "akira", "trade:DRAFT-2", "package", "reset");
+        Assert.Equal("CandidateNotTicked: DRAFT-2 is in the package P1 and has A clear, and a package adds New rows with A ticked. Tick A on it, or clear its Package.",
+            Refused(unticked));
+        // Where the cells now make no case, add each again would refuse too: the sentence says to remove the cases instead.
+        var none = Set(Package(service, Set(unticked, "trade:DRAFT-2", "after", true), null, "DRAFT-1", "DRAFT-2"), "grid:new", "after", false);
+        Assert.Equal("AdditionSetChanged: add each's cases are not what the Package column and A say, which make no case now. "
+            + "Out of date: P1: add DRAFT-1 + DRAFT-2, add DRAFT-3. Remove them in Changes, or tick A on a new trade or write a package, then run add each again.",
+            Refused(none));
+        // With no case of add each and the column clear, Price prices the Base: no package is priced by a guess.
+        var cleared = service.ClearCases(ws.WorkspaceId, none.Revision, "akira").State;
         Assert.IsType<SubmissionResult.Accepted>(service.Price(ws.WorkspaceId, cleared.Revision, "akira", Guid.NewGuid().ToString()));
+    }
+
+    [Fact] // ADR-0010 §3's note of 2026-11-08 with ADR-0016 note 90: add each over the cap of cases is refused by how much, and packages are the way under it
+    public void Add_each_over_the_cap_of_cases_is_refused_by_how_much_and_a_package_brings_it_under()
+    {
+        var (service, _, _) = Priced(new PortfolioOptions(CaseCap: 2));
+        var ws = service.Create("akira", "ABC/LE-01", Day1, 40);
+
+        var over = Assert.Throws<WorkspaceRefused>(() => service.AddTrades(ws.WorkspaceId, ws.Revision, "akira"));
+        var packaged = Package(service, ws, "P1", "DRAFT-1", "DRAFT-2", "DRAFT-3");
+        var under = service.AddTrades(ws.WorkspaceId, packaged.Revision, "akira");
+
+        Assert.Equal(("TooManyCases", "add each would make 3 case(s), and Price prices 2 at most, the Base among them: 2 over. "
+            + "Put new trades together in packages, or clear A on new trades in none."), (over.Code, over.Message));
+        Assert.Equal(["Base"], service.View(ws.WorkspaceId, "akira").Cases.Take(1).Select(c => c.Title));
+        Assert.Equal(["P1: add DRAFT-1 + DRAFT-2 + DRAFT-3"], under.Made);
+        Assert.IsType<SubmissionResult.Accepted>(service.Price(ws.WorkspaceId, under.State.Revision, "akira", Guid.NewGuid().ToString()));
     }
 
     [Fact] // ADR-0016 note 90: Make package writes the package on the trades it names and makes the set anew in one command, naming a package the next free name and saying what a trade leaves
@@ -621,6 +641,8 @@ public class PricerCaseTests
         Assert.Equal([$"P1: add DRAFT-1 without {taken}", "P2: add DRAFT-2 + DRAFT-3"], second.Made);
         Assert.Equal([new PackageView("P1", ["DRAFT-1"], [taken]), new PackageView("P2", ["DRAFT-2", "DRAFT-3"], [])],
             service.View(ws.WorkspaceId, "akira").Packages, new PackageViewComparer());
+        // The view names the package a name left out would be: what Make package… offers.
+        Assert.Equal("P3", service.View(ws.WorkspaceId, "akira").NextPackage);
         Assert.Equal(["P1", "P2", "P2"], service.Page(ws.WorkspaceId, "akira", 0, 3, [], "new").Rows.Select(r => r.Package));
         Assert.Equal($"Wrote P2 on DRAFT-2 (from P1) and DRAFT-3; made 2 case(s): P1: add DRAFT-1 without {taken}, P2: add DRAFT-2 + DRAFT-3; replaced P1: add DRAFT-1 + DRAFT-2 without {taken}, add DRAFT-3.",
             PortfolioCommandContracts.Added(second));

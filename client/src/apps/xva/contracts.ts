@@ -425,6 +425,8 @@ export interface XvaWorkspaceView {
   readonly settings: readonly ModuleSettings[];
   /** The packages the trades' Package cells write, in the order of their first trade, the New rows' first (ADR-0016 note 90). */
   readonly packages: readonly PackageView[];
+  /** The name a package is given where none is: the first of P1, P2, … no package is (ADR-0016 note 93). */
+  readonly nextPackage: string;
 }
 
 export interface RowPage {

@@ -1040,7 +1040,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
           tab={inputTab} onTab={(tab) => { setInputTab(tab); setInputsOpen(true); }} open={inputsOpen} onOpen={setInputsOpen} height={inputsHeight} focusRequest={focusRequest}
           changeList={changeList.data} changeActions={changeActions} scenarioActions={scenarioActions} onVary={setVarying} commandLabel={commandLabel} csaMenu={menus} onEditRow={editRow} />
         <VaryDialog target={varying} vary={varyCell} onClose={() => setVarying(undefined)} />
-        <PackageDialog selection={packaging} packages={ws.packages} make={makePackage} onClose={() => setPackaging(undefined)} />
+        <PackageDialog selection={packaging} packages={ws.packages} next={ws.nextPackage} make={makePackage} onClose={() => setPackaging(undefined)} />
         <DraftDialog draft={draft} workspaceId={workspaceId} revision={ws.revision} api={workspace.api} door={door} drop={drop} discard={drafts.close} note={draftNote} />
         {inputsOpen && <Resizer label="Height of the input tabs" value={inputsHeight} min={48} max={640} grows="down" onChange={setInputsDragged} />}
       </div>

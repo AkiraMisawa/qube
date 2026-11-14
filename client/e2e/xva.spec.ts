@@ -1850,7 +1850,7 @@ test('docs/03 §5, ADR-0010 §3, ADR-0016 note 28: `add each` says the cases it 
   await expect(result.getByRole('table', { name: 'Metrics' }).getByRole('rowheader')).toHaveText(['Base', 'add DRAFT-1', 'add DRAFT-2', 'add DRAFT-3']);
 });
 
-test('ADR-0016 notes 90 to 94, ADR-0010 §3: a package typed in the Package column is one case that adds its new trades together and takes its existing trade out, Price refuses the column until Add each makes it, Make package… writes one of the two selections with a trade moving from its package, and the Changes tab lists each case\'s package and trades', async ({ page, problems }) => {
+test('ADR-0016 notes 90 to 94, ADR-0010 §3: a package typed in the Package column is one case that adds its new trades together and takes its existing trade out, Price refuses the column until Add each makes it, Make package… writes one of the two selections, any trade left out by its press, with a trade moving from its package, and the Changes tab lists each case\'s package and trades', async ({ page, problems }) => {
   const refused = 'error: Failed to load resource: the server responded with a status of 422 (Unprocessable Entity)';
   await open(page);
   await newWorkspace(page, 'ABC/LE-01', 5);
@@ -1906,6 +1906,18 @@ test('ADR-0016 notes 90 to 94, ADR-0010 §3: a package typed in the Package colu
   await expect(takesOut).toHaveText([`${out} from P1`]);
   await expect(dialog.getByRole('textbox', { name: 'Package' })).toHaveValue('P2');
   await expect(dialog.getByRole('button', { name: 'Make package' })).toBeFocused();
+  // Each trade is left out by its own press, and pressed again is back; with none kept, Make package says why it waits.
+  await adds.first().click();
+  await expect(adds.first()).toHaveAttribute('aria-pressed', 'false');
+  await takesOut.first().click();
+  await expect(takesOut.first()).toHaveAttribute('aria-pressed', 'false');
+  await expect(dialog.getByRole('button', { name: 'Make package' })).toBeDisabled();
+  await expect(dialog.getByRole('button', { name: 'Make package' })).toHaveAttribute('title', 'A package takes one trade at least: keep one.');
+  await expect(dialog.getByTestId('package-refused')).toHaveText('A package takes one trade at least: keep one.');
+  await adds.first().click();
+  await takesOut.first().click();
+  await expect(adds.first()).toHaveAttribute('aria-pressed', 'true');
+  await expect(dialog.getByRole('button', { name: 'Make package' })).toBeEnabled();
   // A name a cell cannot hold is the server's to refuse: the dialog says so and stays, and nothing was written.
   await dialog.getByRole('textbox', { name: 'Package' }).fill('P2, P3');
   await dialog.getByRole('button', { name: 'Make package' }).click();

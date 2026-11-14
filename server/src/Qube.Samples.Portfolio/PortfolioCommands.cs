@@ -169,13 +169,12 @@ public sealed class PortfolioTradesAdd(Func<PortfolioWorkspaces> workspaces) : I
         });
 
     // The package a request gives, as its contract shapes it: trades to write it on, and the name where one is given. A
-    // name with no trades writes nothing, and is refused rather than passed over. The contract was checked before the
-    // command ran, so trades that are no list here is a defect.
+    // name with no trades is a package of none, which the service refuses rather than passes over. The contract was
+    // checked before the command ran, so trades that are no list here is a defect.
     static PackageGiven? Package(JsonNode request)
     {
         var name = request["package"]?.GetValue<string>();
-        if (request["trades"] is null)
-            return name is null ? null : throw new WorkspaceRefused("NothingGiven", $"A package takes one trade at least, and none is given for {name}.");
+        if (request["trades"] is null) return name is null ? null : new(name, []);
         return new(name, Iteration.Ids(request["trades"]) ?? throw new InvalidOperationException("trades passed its contract and is no list."));
     }
 }
