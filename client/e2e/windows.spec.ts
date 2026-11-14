@@ -1,9 +1,5 @@
 import type { Locator, Page } from '@playwright/test';
 import { command, expect, newWorkspace, open, settled, taken, test } from './fixtures';
-import client from '../package.json' with { type: 'json' };
-
-/** The ExGrid the workbench takes, every `@ex-grid/*` package at one version (ADR-0001). */
-const EX_GRID = client.dependencies['@ex-grid/core'];
 
 // ADR-0018 step 2 (docs/specs/panels-2-windows): a panel in another window of the browser. What only a browser shows:
 // the window opened and closed, its look kept the main window's, its menus, selects, tooltips and dialogs opened in it,
@@ -345,10 +341,7 @@ test('ADR-0018 §8 and §9: arrange closes the other windows and places their pa
 });
 
 test('ADR-0018 §9, ex-grid ADR-0090: a grid in the other window is told that window\'s Device Pixel, not the main one\'s', async ({ page, context, problems }) => {
-  // ExGrid 0.2.0 reads the main window's Device Pixel; 0.3.0-rc.1 reads its own window's (ex-grid #565, fixed by
-  // #566). Until the workbench takes it this test fails, as it should, and is marked so: it passes, and must, once it
-  // does.
-  test.fail(EX_GRID === '0.2.0', 'ExGrid 0.2.0 reads the main window\'s Device Pixel (ex-grid #565).');
+  // ExGrid 0.2.0 read the main window's Device Pixel; 0.3.0 reads its own window's (ex-grid #565, fixed by #566).
   await twoPanels(page);
   const other = await popOut(page, RATES, problems);
   const grid = other.getByLabel('Lines', { exact: true }).locator('.ex-grid');

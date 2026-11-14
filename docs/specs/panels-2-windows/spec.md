@@ -1,8 +1,7 @@
 # Panels in areas, step 2: a panel in another window of the browser
 
-Status: in progress (2026-11-13): all but the ExGrid bump, which waits for `v0.3.0-rc.1` on npm, and a full run on it
-(tickets 04 and 06). Step 1's test of a tab dragged with the mouse failed once in a full run and passed in the next: a
-flake, open (`IMPLEMENTATION_STATUS.md`, step 2's Known limits)
+Status: built (2026-11-14, one pull request, #39, with ExGrid 0.3.0). Step 1's test of a tab dragged with the mouse
+failed once in a full run and passed in the next: a flake, open (`IMPLEMENTATION_STATUS.md`, step 2's Known limits)
 
 The decision is [ADR-0018](../../adr/0018-panels-are-arranged-in-areas-that-split-float-and-pop-out-and-the-ai-only-proposes-an-arrangement.md)
 §9, with §1 (reading order, the active panel), §3 (`dock panel` from step 2) and §7 (the arrangement kept by the
@@ -30,7 +29,7 @@ One pull request (ADR-0018 §11, step 2).
   dialog opened from it opens in it; the command line, `/`, the shell's chords and `ai` work from it, on its panels; the
   shell's notices are said in it while it is the window in use.
 - **ExGrid reads the window it is in.** A page moved into another window, or back, is drawn anew there: ExGrid reads
-  its window's Device Pixel as a grid is created (ADR-0090 in ex-grid, released in 0.3.0-rc.1), and the page takes back
+  its window's Device Pixel as a grid is created (ADR-0090 in ex-grid, released in 0.3.0-rc.1 and 0.3.0), and the page takes back
   the screen state its panel kept (ADR-0006 note 10).
 - **Back where it was.** `dock panel` puts a popped-out panel back into the area it came from. A window the user
   closes puts its panels back there too; a window the browser blocks leaves the panel where it stood. A reload, or the
@@ -119,7 +118,9 @@ refused. When the last panel leaves a window, by
   main window (§9), and the shell says in the other window that the answer is there.
 - **A page drawn anew in its window.** An area's page is keyed by the window its area is in, so a move into another
   window or back mounts it anew there, after dockview has moved its element. The workbench takes `@ex-grid/*`
-  `0.3.0-rc.1`, all seven packages at one exact version (ADR-0001).
+  `0.3.0`, all seven packages at one exact version (ADR-0001). (Changed 2026-11-14: the spec named `0.3.0-rc.1`; the
+  owner released `0.3.0`, the same code, signed off against the Definition of Done, before the bump was made, and the
+  workbench takes the release.)
 - **Blocked or failed.** dockview's `onDidOpenPopoutWindowFail` is said as a refusal: the browser did not open the
   window, and the panel is where it was.
 - **The strip closes the other windows.** The areas, dockview with them, are not drawn while the main window shows the
@@ -139,7 +140,7 @@ refused. When the last panel leaves a window, by
   there; `arrange` closing the window and `arrange back` drawing its panel in the main window; a press in the
   main window making it the window in use again; a tab's menu in a short window keeping inside it; the strip closing
   the windows; a grid in the window told that window's Device Pixel when the window's scale differs (Chromium's device
-  metrics on the window alone), marked as failing until the workbench takes ExGrid 0.3.0-rc.1. Step 1's specs keep
+  metrics on the window alone), marked as failing until the workbench takes ExGrid 0.3.0. Step 1's specs keep
   passing.
 
 ## Out of Scope

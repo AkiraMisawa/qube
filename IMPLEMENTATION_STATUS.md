@@ -3467,8 +3467,9 @@ The owner said to start step 2 on 2026-11-13 ("前者は始めていいよ"). On
   it shows. Ctrl+K, `/` and the shell's chords are attached to every window's document. `ai` from another window asks
   with its panel, and says that the answer is in the AI pane of the main window.
 - **A page drawn anew in its window**: an area's page is keyed by its window, so a move into a window or back mounts
-  it there, and it takes back what its panel kept (ADR-0006 note 10: a Rates leg open, a grid's Focus). ExGrid 0.2.0
-  works there (presses, arrows, menus), but reads the main window's Device Pixel (below).
+  it there, and it takes back what its panel kept (ADR-0006 note 10: a Rates leg open, a grid's Focus). ExGrid 0.3.0
+  works there (presses, arrows, menus) and reads that window's Device Pixel (ex-grid #565; 0.2.0 read the main
+  window's, below).
 - **Back where it was**: `dock panel` in a window puts its panel back into the area it came from, or where that area
   stood, or, where it has gone, a new area on the right where there is room and else the last area; `send panel to
   <title>` moves a panel either way, and `close panel` on a window's last panel closes the window. A window the user
@@ -3485,7 +3486,9 @@ The owner said to start step 2 on 2026-11-13 ("前者は始めていいよ"). On
 |---|---|
 | Client: `npm run typecheck`, `npx vitest run`, `npm run build`, after the ninth round's fixes | Clean; 494 passed in 48 files; built |
 | `npx playwright test e2e/windows.spec.ts`, which this pull request adds, `--repeat-each=3` (Chromium, headless, Linux), after the second review's fixes, and again after each later round that changed the client's product code (to the fifth) | 33 passed: eleven tests three times, the Device Pixel test among them as failing, which Playwright counts as passing (below) |
-| The Device Pixel test (a window at 2x beside a main window at 1x) | Fails on ExGrid 0.2.0, as it should: the grid in the window is told 1px where its window's device pixel is 0.5px. Marked `test.fail` while the workbench takes 0.2.0, so it must pass once it takes `0.3.0-rc.1` (ex-grid #565, fixed by #566; ADR-0090 there) |
+| The Device Pixel test (a window at 2x beside a main window at 1x) | Failed on ExGrid 0.2.0, as it should: the grid in the window was told 1px where its window's device pixel is 0.5px. It was marked `test.fail` while the workbench took 0.2.0; on 0.3.0 it passes, unmarked (ex-grid #565, fixed by #566; ADR-0090 there) |
+| `e2e/windows.spec.ts`, `--repeat-each=3`, on ExGrid 0.3.0 | 33 passed, the Device Pixel test among them, passing |
+| `npx playwright test` (Chromium, headless, Linux), on ExGrid 0.3.0 | 148 passed, before `theme.css`'s override was removed; after it, below (ExGrid 0.3.0) |
 | `npx playwright test` (Chromium, headless, Linux), before the review | 145 passed, 1 failed: `panels.spec.ts`'s list of the active panel's verbs, which now holds Pop out; corrected |
 | The same, after the first review's fixes | 147 passed |
 | The same, after the second review's fixes | 147 passed, 1 failed: `closingWith` in `windows.spec.ts` read the answer to a key sent to a window that the key had closed already; the helper now waits for the window closing, which is what it checks |
@@ -3516,11 +3519,6 @@ Unchanged; nothing on the server changed. The AI's answer in the test is the scr
 
 ### Known limits
 
-- **The Device Pixel in another window** waits for ExGrid `v0.3.0-rc.1` on npm (the owner's tag, ex-grid #569): until
-  then a grid in a window on a display of another scale than the main window's draws its lines at the main window's
-  device pixel. The bump to `0.3.0-rc.1`, all seven packages at one version, and the test going green are this pull
-  request's last commit, or the next one's. If it goes to the next, ticket 04 stays in progress until the bump lands
-  and the Device Pixel test is green, and ticket 06 and this spec until a full run passes on it, step 1's specs in it.
 - A reload does not open the windows again (a browser opens a window only on a key or a press, §9), nor does `arrange
   back`, which follows the reload; the panels come back into the main window, said so.
 - Checked in Chromium only: Safari's and Firefox's pop-up rules, touch in a window and a real second monitor are not.
@@ -3592,6 +3590,40 @@ ticket 06 and the spec's status to correct (which full run failed, #37's section
 as the unit tests, what keeps the spec and its tickets in progress); they are corrected. The client's product code has
 not changed since the fifth round's fixes: the sixth to fourteenth changed `proposals.test.ts`, the spec's status, ticket 06 and this
 file.
+
+## ExGrid 0.3.0 (2026-11-14, with ADR-0018 step 2)
+
+### What runs
+
+- The seven `@ex-grid/*` packages move from `0.2.0` to `0.3.0`, which the owner released on 2026-11-14 (0.3.0-rc.1's
+  code, signed off against ex-grid's Definition of Done). From 0.2.0 the public surface only adds (`headerDisplay` and
+  `GridHeaderDisplay`, a header's `filtered`, `placeSelection` of several ranges, `GridMetrics.headerBoxRoomPx`), so no
+  call changed. 0.3.0-rc.1 and 0.3.0 have no behaviour change; 0.2.1's are in its notes.
+- A grid in another window is told that window's Device Pixel (ex-grid #565, ADR-0090 there): step 2's Device Pixel
+  test passes, no longer marked failing.
+- What 0.2.1 fixed is no longer worked around nor listed. The Wrapper now holds the Focus outline and a marked
+  heading's line to 3:1 (ex-grid #556), so the light scheme's override of the line in `theme.css` is removed; the
+  Action Column's buttons take the theme (#553) and a disabled column-menu command is dimmed (#552), which
+  `docs/design-guidelines.md` §12 no longer lists.
+- 0.2.1's funnel on a filtered column does not show on a grid filtered by `filter where`, whose conditions the
+  caption says, as before (seen on Existing trades filtered by `ccy=USD`).
+
+### Verification performed
+
+| What | Result |
+|---|---|
+| Release notes 0.2.1-rc.1 to 0.3.0, and `packages/*/etc/*.api.md` diffed between the tags `v0.2.0` and `v0.3.0` | No breaking change; `core.api.md` alone changed, by additions and `placeSelection` taking a range or an array of them |
+| `npm run typecheck`, `npx vitest run`, `npm run build` | Clean; 494 passed in 48 files; built |
+| `npx playwright test` (Chromium, headless, Linux), after `theme.css`'s override was removed | 148 passed |
+| Contrast in Chromium at 1280 × 800, the Rates Lines' marked heading (the Focus on Start), without the override | light: the line 4.33:1 on the marked heading's shade and 5.25:1 on the body, the Focus outline 5.25:1 (2.70:1 on 0.2.0); dark: the line 5.90:1 and 8.69:1 |
+| Seen in Chromium, both schemes | The Rates line's `Flows` button in the theme's colours; the Pricing DB's column menu, every command disabled on an empty grid, dimmed |
+
+`dotnet test` was not run for this change: nothing under `server/` moved.
+
+### Known limits
+
+- `select` still refuses rows that are not one run (ADR-0016 note 43, asked of ExGrid as #561). 0.3.0 can place a
+  Selection of several ranges; taking it up changes note 43 and is left until the owner asks.
 
 ## Next
 
