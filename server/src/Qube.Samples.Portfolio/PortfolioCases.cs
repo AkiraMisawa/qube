@@ -90,9 +90,14 @@ public static class PortfolioCases
     {
         var made = Made(state);
         // Every case of iterative addition says the common change it carries (docs/03 §5), read from the Base now.
-        var common = made.Any(c => KindOf(c) == Add) ? CommonChange(Base(state)) : null;
-        return [new(BaseId, BaseTitle, "base", 0), .. made.Select(c => new CaseView(Entity.Split(c.Entity).Id, Title(c), KindOf(c),
-            state.Overrides.Keys.Count(t => t.Layer == c.Entity), KindOf(c) == Add ? IterationOf(c) : null, KindOf(c) == Add ? common : null))];
+        var moved = made.Any(c => KindOf(c) == Add) ? Moved(Base(state)) : [];
+        CaseView View(CreatedEntity c)
+        {
+            var iteration = KindOf(c) == Add ? IterationOf(c) : null;
+            return new(Entity.Split(c.Entity).Id, Title(c), KindOf(c), state.Overrides.Keys.Count(t => t.Layer == c.Entity),
+                iteration, iteration is null ? null : CommonChange(moved, iteration.Without));
+        }
+        return [new(BaseId, BaseTitle, "base", 0), .. made.Select(View)];
     }
 
     /// <summary>A case's title, as it was made.</summary>
@@ -117,13 +122,18 @@ public static class PortfolioCases
     /// <summary>The iterations of iterative addition, one per case, in the order their cases were made.</summary>
     public static IReadOnlyList<Iteration> Iterations(WorkspaceState state) => [.. Made(state).Where(c => KindOf(c) == Add).Select(IterationOf)];
 
+    // The existing trades whose After the Base holds otherwise than their Before: the common change of docs/03 §5.
+    static IReadOnlyList<EffectiveTrade> Moved(WorkspaceState baseline) =>
+        [.. PortfolioMaterialiser.Trades(baseline).Where(t => !t.IsNew && t.Before != t.After)];
+
     /// <summary>
-    /// The common change every case of iterative addition carries (docs/03 §5): the existing trades whose After the Base
-    /// holds otherwise than their Before. Null where it holds none, so no case says a change it does not carry.
+    /// The common change a case of iterative addition carries (docs/03 §5): the existing trades the Base moves, but for
+    /// those the case takes out of After, which it does not carry (an existing trade in After alone may be in a
+    /// package, ADR-0016 note 91). Null where it carries none, so no case says a change it does not carry.
     /// </summary>
-    public static string? CommonChange(WorkspaceState baseline)
+    static string? CommonChange(IReadOnlyList<EffectiveTrade> movedInBase, IReadOnlyList<string> takenOut)
     {
-        var moved = PortfolioMaterialiser.Trades(baseline).Where(t => !t.IsNew && t.Before != t.After).ToList();
+        var moved = movedInBase.Where(t => !takenOut.Contains(t.TradeId)).ToList();
         if (moved.Count == 0) return null;
         static string Named(List<EffectiveTrade> trades) =>
             trades.Count <= 3 ? $"existing {string.Join(", ", trades.Select(t => t.TradeId))}" : $"{trades.Count} existing trades";

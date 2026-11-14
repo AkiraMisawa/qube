@@ -45,8 +45,8 @@ public static class PortfolioPackages
     /// per package and one per New row with A ticked that is in none, in the order of the rows, the New grid's first.
     /// Never cumulative: each case adds its own new trades alone. Refused by the trades' names, with nothing made: two
     /// packages whose names differ only in case, a New row of a package with A clear, a new trade to add that is in
-    /// Before, and an existing trade of a package that the Base does not have in both Before and After; and a set of no
-    /// case.
+    /// Before, and an existing trade of a package that the Base does not have in After; and a set of no case. An
+    /// existing trade of a package in After alone is taken out too, so its case holds it in neither (ADR-0016 note 91).
     /// </summary>
     public static IReadOnlyList<Iteration> AdditionSet(IReadOnlyList<EffectiveTrade> trades) =>
         AdditionSetOrNone(trades) is { Count: > 0 } set ? set

@@ -3839,8 +3839,10 @@ it; docs/03 §5's CONFIRMED line is rewritten to say packages are in scope (owne
   existing trades alone is a case that only takes them out. Never cumulative. Titles: `P1: add DRAFT-1 + DRAFT-2
   without E00003`, `U1: take out E00007`, `add DRAFT-3`. Refused by name, with nothing made: names that differ only
   in case, a packaged New row with A clear, a new trade in Before, a packaged existing trade the Base does not hold
-  in both Before and After. Every combination of a row's B, A and package is a table in note 91 (the owner asked for
-  it settled, 2026-11-14).
+  in After. Every combination of a row's B, A and package is a table in note 91 (the owner asked for it settled,
+  2026-11-14), and a test reads it row by row. An existing trade in After alone may be in a package (the owner's
+  choice, 2026-11-14, over refusing it): its case holds it in neither Before nor After, as if it had not been added,
+  and its title leaves it out of the common change the other cases name.
 - **Price checks the set against the cells**: packages written with no case made (`PackagesNotMade`), or a set that
   is no longer what the cells and A say (`AdditionSetChanged`, with what is missing and what is out of date, and to
   remove the cases where the cells make none now). The input Price freezes carries each trade's package and each
@@ -3856,16 +3858,18 @@ it; docs/03 §5's CONFIRMED line is rewritten to say packages are in scope (owne
 
 | Check | Result |
 |---|---|
-| `nix develop -c dotnet test server/Qube.slnx` | 1675 passed, on main's f6395ed; 1677 with main's a856df9 merged in |
-| `cd client && npm run typecheck && npm test` | typecheck clean; 510 passed in 49 files |
+| `nix develop -c dotnet test server/Qube.slnx` | 1675 passed, on main's f6395ed; 1677 with main's a856df9 merged in; 1690 with main's ad2ba4f (#43) merged in and the combinations of note 91 |
+| `cd client && npm run typecheck && npm test` | typecheck clean; 510 passed in 49 files; 512 with ad2ba4f merged in |
 | `cd client && npm run build && npx playwright test` (Chromium, headless, Linux, the built client served by the host) | 152 passed, on main's f6395ed, before the second review's fixes; 152 passed again with them and main's a856df9 merged in |
 | The new and changed browser tests, `--repeat-each=3` | 9 passed; the package test's 3 again after the second review's fixes |
+| The same suite with ad2ba4f merged in, then the two `add each` tests after the owner's choice on note 91 | 152 of 153: #43's dummy counterparty test lost a cleared Project once (the panel kept `Alpha bid`) and passed 3 of 3 alone; then 2 passed |
 
 The Context Menu test (note 25) failed once in a repeated run, reading the box of a row the grid had just drawn again
 (`boundingBox()` answered none); it now reads the place once the element is drawn, and passed in the runs after.
 
 By hand, in the built client served by the host: the trade grids with the Package column, the dialog, the answer,
-the Changes tab and a priced Run's cases, at 1440px in both themes, and the dialog at 390px light.
+the Changes tab and a priced Run's cases, at 1440px in both themes, and the dialog at 390px light; then an existing
+trade in After alone in a package, made and priced, in both themes.
 
 Reviewed with the `code-review` skill twice, on two axes (standards, and notes 90 to 94 as the specification). What
 they changed: the next free name is the server's (`nextPackage`), tested whatever the case of its letters; a name
@@ -3886,9 +3890,6 @@ Unchanged: every source and every measure is simulated, and every value is synth
 - **A case made by note 37's lists before this change** has no package. One of a trade alone still prices; one that
   added several together or took a trade out is out of date at Price until `add each` again.
 - **The line has no spelling of a package's lists** (note 68): it writes cells with `set`, then `add each`.
-- **An existing trade in After and not in Before may be in a package** (the owner's choice, 2026-11-14, over refusing
-  it): its case holds it in neither Before nor After, as if it had not been added, and the case's title names it both
-  as taken out and, with every case, as in After only.
 
 ## Rates lines named in order (ADR-0016 note 65, 2026-11-14)
 
