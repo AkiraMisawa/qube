@@ -4,7 +4,7 @@ import type { Resolution } from './contracts';
 // From what the user typed in a grid cell to the value the server is sent. Only the form is checked here;
 // what a value means (an eligible CSA, an available curve) is the server's, and shows on the row.
 
-export type Parsed = { readonly ok: true; readonly value: unknown } | { readonly ok: false; readonly message: string };
+export type Parsed<T = unknown> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly message: string };
 
 /**
  * A value sent as written (`12%`, `60bp`, `empty`), for the server to read and check as its cell reads it, with the
@@ -102,8 +102,21 @@ export function parseRecovery(text: string): Parsed {
   return n === undefined || n < 0 || n >= 1 ? fail('Type a recovery from 0 up to 1, or leave it empty.') : { ok: true, value: n };
 }
 
-/** The workspace's settings, as an edit names them: its display currency (ADR-0010 §1). */
+/** The workspace's settings, as an edit names them: its display currency and its project (ADR-0010 §1). */
 export const SETTINGS_ENTITY = 'settings:workspace';
+
+/** The project the workspace's Runs are listed under, a field of its settings (ADR-0010 §1's note of 2026-11-14). */
+export const PROJECT_FIELD = 'project';
+export const PROJECT_TITLE = 'The project name';
+
+/**
+ * A project name as typed: the text with the spaces at its ends taken off, or none where nothing is left, which the
+ * toolbar sends as clearing it. What a name may be is the server's to check, and a refusal says so.
+ */
+export function projectNamed(text: string): string | null {
+  const name = text.trim();
+  return name === '' ? null : name;
+}
 
 /** The application the server names the pricer's workspaces by (ADR-0016 note 27 of 2026-11-11): its commands are listed on this page. */
 export const XVA_APP = 'xva';

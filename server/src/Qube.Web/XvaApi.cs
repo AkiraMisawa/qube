@@ -9,7 +9,7 @@ namespace Qube.Web;
 /// <summary>Thin HTTP endpoints over the XVA workspace service. No rule lives here.</summary>
 public static class XvaApi
 {
-    public sealed record CreateRequest(string Registration, DateOnly ValueDate, int PortfolioSize);
+    public sealed record CreateRequest(string Registration, DateOnly ValueDate, int PortfolioSize, string? Project = null);
     /// <summary>A page of trades; <c>Grid</c> names the New or Existing grid (ADR-0010 §6), or all when absent.</summary>
     /// <param name="Where">The grid's conditions as typed (ADR-0016 note 41 of step 4), where it is filtered from the line.</param>
     public sealed record PageRequest(int Start, int Count, IReadOnlyList<RowSort> Sorts, string? Grid = null, string? Where = null);
@@ -26,9 +26,6 @@ public static class XvaApi
     /// where the grid shows it, and its cells as typed, by column.</summary>
     public sealed record ShiftsRequest(long Revision, IReadOnlyList<ShiftRowRequest> Rows);
     public sealed record ShiftRowRequest(string? Id, int Row, Dictionary<string, string?> Cells);
-    public sealed record ValueDateRequest(long Revision, DateOnly ValueDate);
-    public sealed record CounterpartyRequest(long Revision, string Registration, int ConfirmedCount);
-    public sealed record Reacquired(PortfolioWorkspaceView Workspace, CarrySummary Carried);
     public sealed record WorkspaceSummary(string WorkspaceId, long Revision, JsonObject Context);
 
     /// <summary>The largest page a request may ask for; ExGrid asks for its Window plus read-ahead.</summary>
@@ -40,7 +37,7 @@ public static class XvaApi
 
         api.MapGet("/registrations", () => PortfolioCatalog.Registrations.Select(r => new
         {
-            r.Key, r.Code, r.LegalEntity, r.Name, Agreement = PortfolioCatalog.AgreementOf(r.Key),
+            r.Key, r.Code, r.LegalEntity, r.Name, r.Dummy, Agreement = PortfolioCatalog.AgreementOf(r.Key),
         }));
 
         // Copy quote (ADR-0010 §7, §11): read from the Run's retained input and result, never from a screen.
@@ -62,7 +59,7 @@ public static class XvaApi
         ws.MapPost("/", (CreateRequest request, CurrentUser user, PortfolioWorkspaces service) => Guard(() =>
         {
             if (request.PortfolioSize is < 0 or > 100_000) throw new WorkspaceRefused("InvalidValue", "The portfolio size is from 0 to 100,000.");
-            var created = service.Create(user.Id, request.Registration, request.ValueDate, request.PortfolioSize);
+            var created = service.Create(user.Id, request.Registration, request.ValueDate, request.PortfolioSize, request.Project);
             return Results.Created($"/api/xva/workspaces/{created.WorkspaceId}", service.View(created.WorkspaceId, user.Id));
         }));
 
@@ -104,20 +101,11 @@ public static class XvaApi
             return Results.Ok(service.View(id, user.Id));
         }));
 
-        ws.MapPost("/{id}/value-date", (string id, ValueDateRequest request, CurrentUser user, PortfolioWorkspaces service) => Guard(() =>
-        {
-            var (_, carried) = service.ChangeValueDate(id, request.Revision, user.Id, request.ValueDate);
-            return Results.Ok(new Reacquired(service.View(id, user.Id), carried));
-        }));
-
+        // What a change of counterparty would drop, which the toolbar's confirmation lists by kind before it invokes
+        // `counterparty` (ADR-0003 §6). The value date and the counterparty are changed by their commands, which the
+        // toolbar invokes as the line does (ADR-0016 note 100).
         ws.MapGet("/{id}/counterparty-change", (string id, CurrentUser user, PortfolioWorkspaces service) =>
             Guard(() => Results.Ok(service.PreviewCounterpartyChange(id, user.Id))));
-
-        ws.MapPost("/{id}/counterparty", (string id, CounterpartyRequest request, CurrentUser user, PortfolioWorkspaces service) => Guard(() =>
-        {
-            var (_, carried) = service.ChangeCounterparty(id, request.Revision, user.Id, request.Registration, request.ConfirmedCount);
-            return Results.Ok(new Reacquired(service.View(id, user.Id), carried));
-        }));
 
         ws.MapDelete("/{id}", (string id, CurrentUser user, PortfolioWorkspaces service) => Guard(() =>
         {

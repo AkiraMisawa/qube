@@ -482,6 +482,8 @@ public sealed class PortfolioCommandsModule(Func<PortfolioWorkspaces> workspaces
         builder.AddCapability(new PortfolioCasesClear(workspaces));
         PortfolioScenarioCommands.Register(builder, workspaces);
         builder.AddCapability(new PortfolioRefresh(workspaces));
+        builder.AddCapability(new PortfolioValueDate(workspaces));
+        builder.AddCapability(new PortfolioCounterparty(workspaces));
         builder.AddCapability(new PortfolioPv01Retry(workspaces));
         PortfolioPriceContracts.Register(builder);
         JsonObject Text(string title, string description) => new() { ["type"] = "string", ["minLength"] = 1, ["title"] = title, ["description"] = description };

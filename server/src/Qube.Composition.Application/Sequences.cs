@@ -321,6 +321,8 @@ public sealed class Sequences(Func<CommandLines> lines, Func<CommandService> com
             WorkspaceTakeBack.Undo or WorkspaceTakeBack.Redo => "acts on whatever command is the log's latest when it runs",
             DraftApply.Id => "writes the draft of an open dialog, and a sequence has none",
             SequenceSave.Id or SequenceRun.Id => "is a sequence's own verb, and a sequence holds no other",
+            // Its reading is its confirmation, and a run reads its lines after the first without showing them (note 100).
+            _ when command.Effects.Contains(CapabilityEffect.DropEdits) => "drops the edits its reading counts, and a sequence runs a line without showing its reading",
             _ when !command.Effects.Any(e => e is CapabilityEffect.EditWorkspace or CapabilityEffect.Execute) => "neither edits the workspace nor starts work on it",
             _ => null,
         };

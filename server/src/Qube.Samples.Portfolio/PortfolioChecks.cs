@@ -87,8 +87,8 @@ public sealed class PortfolioChecks(MeasureRegister register)
         (Entity.Cds, var f) => CdsCatalog.Find(Entity.Split(entity).Id) is not null && CdsCatalog.Tenors.Contains(f),
         // B or A for every row of a grid at once (ADR-0010 §6).
         (Entity.Grid, "before" or "after") => Entity.Split(entity).Id is Entity.NewGrid or Entity.ExistingGrid,
-        // The workspace's display currency (ADR-0010 §1).
-        (Entity.Settings, Entity.DisplayCurrency) => entity == Entity.WorkspaceSettings,
+        // The workspace's display currency and its project name (ADR-0010 §1).
+        (Entity.Settings, Entity.DisplayCurrency or Entity.Project) => entity == Entity.WorkspaceSettings,
         _ => false,
     };
 
@@ -127,6 +127,7 @@ public sealed class PortfolioChecks(MeasureRegister register)
                 ? null : $"A CDS type is {CdsCatalog.SingleName}, {CdsCatalog.Proxy}, or empty for none.",
             "cdsReference" => value is null || value is JsonValue cr && cr.TryGetValue<string>(out var reference) && CdsCatalog.Find(reference) is { Type: CdsCatalog.SingleName }
                 ? null : $"A CDS reference is a single name of the catalogue: {string.Join(", ", CdsCatalog.SingleNames.Select(c => c.Id))}.",
+            Entity.Project => value is null || value is JsonValue pj && pj.TryGetValue<string>(out var name) && ProjectNames.Holds(name) ? null : ProjectNames.Rule,
             "proxySector" => OneOf(value, CdsCatalog.Sectors, "A proxy's sector"),
             "proxyRegion" => OneOf(value, CdsCatalog.Regions, "A proxy's region"),
             "proxyRating" => OneOf(value, CdsCatalog.Ratings, "A proxy's rating"),

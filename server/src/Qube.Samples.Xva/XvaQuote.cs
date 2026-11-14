@@ -55,6 +55,8 @@ public static class XvaQuote
         string[] parts =
         [
             $"Counterparty {input["registration"]!.GetValue<string>()}",
+            // The project, where the Run has one: on the dummy, the counterparty says nothing of what was quoted.
+            .. (input["project"] is JsonValue project ? [$"Project {project.GetValue<string>()}"] : Array.Empty<string>()),
             $"Netting set {input["nettingSet"]!.GetValue<string>()}",
             $"Value date {run.Context["valueDate"]!.GetValue<string>()}",
             $"Revision {input["revision"]!.GetValue<long>()}",

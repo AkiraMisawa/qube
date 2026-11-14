@@ -27,8 +27,8 @@ import { BASE_CASE, BASE_SCENARIO, openTrace, requestTerm } from '../../platform
 import type { TraceApi } from '../../platform/traces/api';
 import type { RunRecord } from '../../platform/contracts';
 import { dockTabs, METRICS_TAB, type DockTab, type MeasureTab } from './dock';
-import { CSAS_TABLE, EditQueue, SETTINGS_ENTITY, TRADES_TABLE, XVA_APP, refusedEdit, tradeFields, type PendingEdit, type SetText } from './editing';
-import { ToolbarField } from './fields';
+import { CSAS_TABLE, EditQueue, PROJECT_FIELD, PROJECT_TITLE, SETTINGS_ENTITY, TRADES_TABLE, XVA_APP, projectNamed, refusedEdit, tradeFields, type PendingEdit, type SetText } from './editing';
+import { CommitField, ToolbarField } from './fields';
 import { CommittedDateInput } from '../../platform/IsoDateInput';
 import { CHANGES_TAB, CREDIT_TAB, SCENARIOS_TAB, SETTINGS_TAB, shownTab, TAB_TITLES, tabShown, XvaInputs, type InputTab } from './XvaInputs';
 import { XvaRisks } from './XvaRisks';
@@ -230,6 +230,14 @@ const describe = (error: unknown) => (error instanceof Error ? error.message : S
 const sourceOf = (view: XvaWorkspaceView) => `${view.registration.key} ${view.context.valueDate} ${view.sourceVersion}`;
 
 /**
+ * What an XVA panel is titled: `XVA <counterparty>`, and on the dummy its project after it (`XVA DUMMY/LE-00 · Alpha
+ * bid`), which alone tells two such panels apart (ADR-0010 §1's note of 2026-11-14, ADR-0016 note 100).
+ */
+export function xvaPanelTitle(ws: Pick<XvaWorkspaceView, 'registration' | 'project'>): string {
+  return ws.registration.dummy && ws.project != null ? `XVA ${ws.registration.key} · ${ws.project}` : `XVA ${ws.registration.key}`;
+}
+
+/**
  * Where the display currency came from, in words (ADR-0017 §3): the user's setting, copied in as the workspace was made;
  * a choice in this workspace; or the company profile's. A workspace keeps its own whatever the setting says later.
  */
@@ -378,6 +386,13 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
     ownRevision.current = shownRevision;
     ownSource.current = shownSource;
   }, [shownRevision, shownSource, sources]);
+  // The panel is titled by the counterparty it shows, as it opened (`XVA <key>`): moved to another by `counterparty`,
+  // from the toolbar, the line or the AI, it is titled by that one, so the strip never names one the page has left
+  // (ADR-0016 note 100). On the dummy it is titled by its project too, which alone tells two such panels apart.
+  const shownTitle = view.data === undefined ? undefined : xvaPanelTitle(view.data);
+  useEffect(() => {
+    if (shownTitle !== undefined) workspace.store.getState().retitlePanel(panelId, shownTitle);
+  }, [shownTitle, panelId, workspace]);
 
   // The selected modules' trade columns (ADR-0010 §10), made again only when they change (ExGrid ADR-0003).
   const tradeColumns = view.data?.tradeColumns;
@@ -533,42 +548,40 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
     return () => registerPlaces(panelId, undefined);
   }, [panelId]);
 
-  /** A command that re-reads the source: the order may move, so the grid starts over (ExGrid ADR-0011). */
-  const reacquire = async (label: string, run: (revision: number) => Promise<{ readonly workspace: XvaWorkspaceView; readonly carried: { readonly carried: number; readonly conflicted: number; readonly lost: number } }>) => {
+  /**
+   * The toolbar's counterparty invokes `counterparty` (ADR-0016 note 100) with what it drops as read in the edit queue's
+   * turn, after the edits already sent (spine 6): where that is anything, the dialog lists it by kind first (ADR-0003
+   * §6). The change is asked at the revision the drop was counted at, so a workspace moved since refuses it, and
+   * nothing the dialog did not show is dropped.
+   */
+  const chooseCounterparty = async (registration: string | null) => {
+    if (registration === null || view.data === undefined || registration === view.data.registration.key) return;
+    let drop: ScopeDrop;
+    try {
+      drop = await queue.after(() => api.previewCounterpartyChange(workspaceId));
+    } catch (error) {
+      workspace.notify('refused', `The counterparty was not changed: ${describe(error)}`);
+      return;
+    }
+    if (drop.count === 0) await changeCounterparty(registration, drop);
+    else setConfirm({ registration, drop });
+  };
+  const changeCounterparty = (registration: string, drop: ScopeDrop) =>
+    invokedBusy('Counterparty changed', 'xva.counterparty.change', { registration, drops: drop.count, revision: drop.revision }, 'The counterparty was not changed');
+
+  /** A control's command through the door (ADR-0016 §5): a refusal is a notice that opens with what was not done. */
+  const invoked = async (capability: string, request: CommandRequest, notDone: string) => {
+    const reason = await door.invoke(capability, request);
+    if (reason !== undefined) workspace.notify('refused', `${notDone}: ${reason.sentence}`);
+  };
+  /** A toolbar button's command, the toolbar held while it runs: its button turns, and the others wait. */
+  const invokedBusy = async (label: string, capability: string, request: CommandRequest, notDone: string) => {
     setBusy(label);
     try {
-      // After the edits already sent, so that what they changed carries (spine 6).
-      const { workspace: next, carried } = await queue.after(async (revision) => {
-        const answer = await run(revision);
-        queue.rebase(answer.workspace.revision);
-        return answer;
-      });
-      show(next);
-      sources.requery();
-      // Edits in conflict or lost wait for the user's decision: the notice that counts them does not leave by itself.
-      workspace.notify('done', `${label}: ${carried.carried} edit(s) carried, ${carried.conflicted} in conflict, ${carried.lost} lost.`,
-        { stays: carried.conflicted + carried.lost > 0 });
-    } catch (error) {
-      workspace.notify('refused', `${label} failed: ${describe(error)}`);
-      const fresh = await api.view(workspaceId);
-      queue.rebase(fresh.revision);
-      show(fresh);
+      await invoked(capability, request, notDone);
     } finally {
       setBusy(undefined);
     }
-  };
-
-  const chooseCounterparty = async (registration: string | null) => {
-    if (registration === null || view.data === undefined || registration === view.data.registration.key) return;
-    const drop = await api.previewCounterpartyChange(workspaceId);
-    if (drop.count === 0) await reacquire('Counterparty changed', (revision) => api.changeCounterparty(workspaceId, revision, registration, 0));
-    else setConfirm({ registration, drop });
-  };
-
-  /** A control's command through the door (ADR-0016 §5): a refusal is a notice that opens with what was not done. */
-  const invoked = async (capability: string, request: Readonly<Record<string, string>>, notDone: string) => {
-    const reason = await door.invoke(capability, request);
-    if (reason !== undefined) workspace.notify('refused', `${notDone}: ${reason.sentence}`);
   };
   /**
    * The Price button invokes `price`, the command the line types (ADR-0016 note 33), so the two cannot differ: one Run
@@ -576,14 +589,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
    * in that turn, and the dock shows its latest Run, which is the one just accepted; the figures stay on the page
    * (XvaResult), and the Run itself opens in a panel only when asked.
    */
-  const price = async () => {
-    setBusy('Pricing');
-    try {
-      await invoked('xva.workspace.price', {}, 'Price was refused');
-    } finally {
-      setBusy(undefined);
-    }
-  };
+  const price = () => invokedBusy('Pricing', 'xva.workspace.price', {}, 'Price was refused');
 
   const openRun = (runId: string) => {
     const resultView = workspace.catalog.views.find((v) => v.definitionId === XVA_RESULT_VIEW);
@@ -709,14 +715,13 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
    * count of what carried, and stays while an edit is held. The door reads the grids from their first row again where
    * the source moved.
    */
-  const refresh = async () => {
-    setBusy('Refreshed');
-    try {
-      await invoked('xva.refresh', {}, 'Refresh was refused');
-    } finally {
-      setBusy(undefined);
-    }
-  };
+  const refresh = () => invokedBusy('Refreshed', 'xva.refresh', {}, 'Refresh was refused');
+  /**
+   * The toolbar's value date invokes `value date`, the command the line types (ADR-0016 note 100), so the two cannot
+   * differ: the notice is the server's count of what carried, and stays while an edit is held. The door reads the grids
+   * from their first row again, since the source moved (ExGrid ADR-0011).
+   */
+  const moveValueDate = (valueDate: string) => invokedBusy('Value date moved', 'xva.value-date.change', { valueDate }, 'The value date was not moved');
 
   // The Changes tab's list (ADR-0010 §3's note of 2026-11-08), read while the tab is open, at the revision on screen.
   const changesOpen = inputsOpen && view.data !== undefined && shownTab(view.data, inputTab) === CHANGES_TAB;
@@ -925,6 +930,10 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   // *Vary values…* (ADR-0010 §3): the cell whose Context Menu opened the dialog, while it is open.
   const [varying, setVarying] = useState<VaryTarget | undefined>(undefined);
   const setCurrency = (currency: string) => void queue.push({ entity: SETTINGS_ENTITY, field: 'displayCurrency', value: currency, title: 'The display currency' });
+  // The project as `project <name>` sets it, and cleared as `reset workspace project` clears it (ADR-0010 §1's note of 2026-11-14).
+  const setProject = (name: string | null) => void queue.push(name === null
+    ? { entity: SETTINGS_ENTITY, field: PROJECT_FIELD, resolution: 'reset', title: PROJECT_TITLE }
+    : { entity: SETTINGS_ENTITY, field: PROJECT_FIELD, value: name, title: PROJECT_TITLE });
 
   // The commands run what the page's own controls run, as the page stands when they run (ADR-0010 §9).
   const pageCommands = { takeBack, retry, openCase, copyQuote, download, explain, openResult, setDockFull, resultTabs, traceInView, measures: () => view.data?.measures ?? [] };
@@ -1001,15 +1010,29 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
       {/* The context bar (ADR-0010 §1; docs/design-guidelines.md §3, §4): one 30px Control Height, each label beside its input. */}
       <div className="qube-toolbar" role="toolbar" aria-label="Workspace">
         <ValueDate value={ws.context.valueDate} disabled={!notBusy}
-          onCommit={(date) => void reacquire('Value date moved', (revision) => api.changeValueDate(workspaceId, revision, date))}
+          onCommit={(date) => void moveValueDate(date)}
           onRefused={(sentence) => workspace.notify('refused', sentence)} />
         <ToolbarField label="Counterparty" wide>
           {(id) => (
-            <Select id={id} size="xs" className="qube-toolbar-input qube-toolbar-input--wide" allowDeselect={false} searchable value={ws.registration.key}
-              data={(registrations.data ?? [ws.registration]).map((r) => ({ value: r.key, label: `${r.code} | ${r.legalEntity} | ${r.name}` }))}
-              onChange={(value) => void chooseCounterparty(value)} disabled={!notBusy} comboboxProps={{ withinPortal: true }} />
+            <>
+              <Select id={id} size="xs" className="qube-toolbar-input qube-toolbar-input--wide" allowDeselect={false} searchable value={ws.registration.key}
+                data={(registrations.data ?? [ws.registration]).map((r) => ({ value: r.key, label: `${r.code} | ${r.legalEntity} | ${r.name}` }))}
+                onChange={(value) => void chooseCounterparty(value)} disabled={!notBusy} comboboxProps={{ withinPortal: true }} />
+              {/* A workspace opened with no counterparty chosen is on the dummy (ADR-0010 §1's note of 2026-11-14): said
+                  beside it on every width, so no figure reads as a booked counterparty's. */}
+              {ws.registration.dummy && (
+                <Badge variant="light" color="yellow" size="lg" radius="sm" data-testid="dummy-counterparty"
+                  title="A dummy counterparty: nothing is booked with it, and it has no CDS curve until one is chosen on the Credit tab.">Dummy</Badge>
+              )}
+            </>
           )}
         </ToolbarField>
+        {/* The project, beside the dummy it is needed for (ADR-0010 §1 and its note of 2026-11-14), and wherever one is
+            held, so a project the Runs carry is never out of sight. */}
+        {(ws.registration.dummy || ws.project != null) && (
+          <CommitField label="Project" value={ws.project ?? ''} placeholder={ws.registration.dummy ? 'Needed to price' : 'None'} parse={(text) => ({ ok: true, value: projectNamed(text) })}
+            onCommit={setProject} onIssue={setIssue} />
+        )}
         <div className="qube-toolbar-field" data-testid="netting-set">
           <Text size="xs" c="dimmed" className="qube-toolbar-label">Netting set</Text>
           <Badge variant="light" color={ws.agreement.enforceable ? 'gray' : 'yellow'} size="lg" radius="sm"
@@ -1135,7 +1158,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
               <Button data-autofocus color="red" onClick={() => {
                 const { registration, drop } = confirm;
                 setConfirm(undefined);
-                void reacquire('Counterparty changed', (revision) => api.changeCounterparty(workspaceId, revision, registration, drop.count));
+                void changeCounterparty(registration, drop);
               }}>Drop {confirm.drop.count} and change</Button>
             </Group>
           </Stack>
