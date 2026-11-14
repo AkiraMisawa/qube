@@ -3882,31 +3882,45 @@ more as they fill".
 - The line grid stands blank rows below its lines: eight rows in all from the start, and one blank row after the
   last line once it holds eight lines or more. A new Rates workspace shows a grid of eight rows where it showed an
   empty box three rows high.
-- `IRS` or `CCS` typed under Product in a blank row, in either case, makes the line: the cell runs `add line
-  <product>`, the line the Add buttons run, and the server says what it does not know (`swaption is no product a
-  line is added for: irs or ccs.`). The line made is empty, as a button's is, and its terms are typed in its cells.
+- A product typed under Product in a blank row makes the line: one word there, in either case, runs `add line
+  <word>`, the line the Add buttons run, and the server says what a product is (`swaption is no product a line is
+  added for: irs or ccs.`). The line made is empty, as a button's is, and its terms are typed in its cells.
+- The keyboard stays where the committing key left it once the line comes. Typed in the first blank row and left
+  with Tab, the Focus is on the line's Start, and its terms are typed on from there; left with Enter, it is on the
+  blank row below. Products typed one after another before a line came each keep it.
 - Anything else typed in a blank row is refused where it was typed ("This row holds no line yet: type IRS or CCS
   under Product to make one.") and makes nothing: no product is guessed for it.
 - A blank row is the page's. Nothing is saved for it, no command reads it (the Selection, the Focus and the rows
-  shown that the line is told of hold lines only), it has no context menu, the count of lines and the result above
-  the grid do not hold it, and a filter from the line hides it.
+  shown that the line is told of hold lines only), its context menu holds no command of the table (the grid's own
+  Copy items are all it has), the count of lines does not hold it, and a filter from the line hides it. The
+  result above the grid shows what it shows with no Focus on a line: the only line's result, or none.
 - The Add buttons stay.
 
 ### Verification performed
 
 | Check | Result |
 |---|---|
-| `nix develop -c dotnet test server/Qube.slnx` | 1672 passed (no server file changes) |
-| `cd client && npm run typecheck && npm test` | typecheck clean; 521 passed in 49 files |
-| `cd client && npx playwright test` (Chromium, the built client served by the host) | 153 passed |
+| `nix develop -c dotnet test server/Qube.slnx` | 1674 passed (no server file changes) |
+| `cd client && npm run typecheck && npm test` | typecheck clean; 524 passed in 49 files |
+| `cd client && npx playwright test` (Chromium, the built client served by the host) | PW_COUNT passed |
 
-The new unit tests were seen to fail with the rule broken three ways (no blank row after the last line, blank rows
-under a filter, any text read as a product) and to pass with it put back. The new browser test, and the two it
-changed most (the filter from the line, a Rates page hidden and shown again), ran three times each.
+The new unit tests were seen to fail with the rule broken nine ways (more lines gained than products sent, the
+lines' order not read, a refused product still counted, the lines held read again at a second product, no blank
+row after the last line, blank rows under a filter, any text read as a product, a product under another column,
+the height not capped) and to pass with it put back. The new browser test, and the two it changed most (the
+filter from the line, a Rates page hidden and shown again), ran three times each.
 
-That last test failed on the first build of this change, and is what holds point 7 of the note: the grid held its
-blank rows before its lines came, so a Selection kept while the page was hidden was decided among rows it was not
-read among, and was dropped. The blank rows now come to the grid with the lines.
+Two defects were found on the way, each by a browser test, and each is held by one now:
+
+- **A Rates page hidden and shown again lost its Selection** on the first build: the grid held its blank rows
+  before its lines came, so a Selection kept while the page was hidden was decided among rows it was not read
+  among. The blank rows now come to the grid with the lines (point 7 of the note).
+- **A line made soon after another lost the keyboard's place.** ExGrid's source gathers a live change that comes
+  within 250ms of the one before (its ADR-0141), so the Selection was placed under a version the made line was not
+  yet shown under, and was refused. The page now has the source put out what it gathered before the Selection is
+  read, and the line after (point 8).
+
+Code review (the `code-review` skill, Standards and Spec, two rounds) is recorded in the pull request.
 
 Looked at in the built client with synthetic data at 390, 768, 992 and 1440px, in both themes; no console message.
 
@@ -3923,8 +3937,14 @@ Unchanged: the Rates market, its conventions' development profiles and every fig
 - **A blank row's other cells open the editor and refuse at the commit**, since a column's `editable` is one answer
   for every row ([ex-grid#573](https://github.com/AkiraMisawa/ex-grid/issues/573)). The editor stays open on what
   was typed, with the refusal under it, until Escape.
+- **A term typed before the line has come is refused**, as in any blank row: the commit of the product does not
+  wait for the line. ExGrid's pending commit, which would hold the keys, was tried and replayed them into an error
+  ([ex-grid#574](https://github.com/AkiraMisawa/ex-grid/issues/574)). On this machine the line comes in some tens
+  of milliseconds; over a slow link a fast typist may meet the refusal and type the term again.
 - **The line made stands first among the blank rows**, not in the row its product was typed in: the lines are in
-  the workspace's order.
+  the workspace's order. Typed in a later blank row, the keyboard stays on a blank row and the line is above it.
+- **A line added by a button or from the command line still drops the grid's Selection**, as before: only a line
+  a blank row's product made keeps it.
 - **Eight rows, and the product as the one cell a blank row takes, are DEFAULTs** (the note) for the owner to
   change. He said five to ten rows.
 - **A limit of step 3c no longer holds.** The line grid's Context Menu is bounded by the grid's box (ExGrid

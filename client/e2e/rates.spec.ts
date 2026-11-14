@@ -645,8 +645,25 @@ test('ADR-0015 note of 2026-11-14: the line grid shows rows to type in from the 
   await expect(rows.first()).toHaveAccessibleName(/^L\d+ /);
   await expect(lines(page).getByRole('row', { name: /^L\d+ / })).toHaveCount(1);
 
+  // Typed in the first blank row and left with Tab, the line is made in that row's place and the keyboard is on it,
+  // under Start: its terms are typed on from there, with no going back to the row.
+  await goTo(page, PRODUCT);
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.type('ccs');
+  await page.keyboard.press('Tab');
+  await expect(summary(page)).toContainText('2 line(s)');
+  const typedOn = lines(page).getByRole('row', { name: /^L\d+ Flows CCS / });
+  await expect(typedOn).toHaveCount(1);
+  // The grid is given the line and the Selection together, so the row once drawn is the row the keyboard is on.
+  await page.keyboard.press('Tab');
+  await page.keyboard.type('7y');
+  await page.keyboard.press('Enter');
+  await expect(typedOn.locator(`[role=gridcell][aria-colindex="${END + 1}"]`)).toHaveText('7y');
+  await expect(rows).toHaveCount(8);
+
   // Anything else typed in a blank row is refused where it was typed, and makes nothing.
   await goTo(page, END);
+  await page.keyboard.press('ArrowDown');
   await page.keyboard.press('ArrowDown');
   await page.keyboard.type('10y');
   await page.keyboard.press('Enter');
@@ -654,10 +671,16 @@ test('ADR-0015 note of 2026-11-14: the line grid shows rows to type in from the 
   await expect(page.getByText(refusal).first()).toBeVisible();
   await expect(page.getByRole('tabpanel').getByRole('status')).toHaveText(refusal);
   await page.keyboard.press('Escape');
-  await expect(summary(page)).toContainText('1 line(s)');
+  await expect(summary(page)).toContainText('2 line(s)');
+
+  // A blank row's menu holds the grid's own items and no command of the table: there is no line to remove.
+  await page.keyboard.press('Shift+F10');
+  await expect(page.getByRole('menuitem')).toHaveText(['Copy', 'Copy with headers']);
+  await page.keyboard.press('Escape');
 
   // What a product is stays the server's to say: the notice is its sentence, after the line the cell ran.
   await goTo(page, PRODUCT);
+  await page.keyboard.press('ArrowDown');
   await page.keyboard.press('ArrowDown');
   await page.keyboard.type('swaption');
   await page.keyboard.press('Enter');
@@ -669,18 +692,18 @@ test('ADR-0015 note of 2026-11-14: the line grid shows rows to type in from the 
   await expect(notice(page)).toHaveText(refusal);
   await expect(page.getByTestId('cashflows')).toHaveCount(0);
 
-  // A blank row is no row of the table: every row selected, a command on the selection reads the one line.
+  // A blank row is no row of the table: every row selected, a command on the selection reads the two lines.
   await goTo(page, PRODUCT);
   await page.keyboard.press('ControlOrMeta+A');
   const line = page.getByRole('combobox', { name: 'Command' });
   await page.keyboard.press('ControlOrMeta+K');
   await expect(line).toBeFocused();
-  await expect(page.getByTestId('command-context')).toHaveText(/^On screen: lines, 1 selected, L\d+ · product$/);
+  await expect(page.getByTestId('command-context')).toHaveText(/^On screen: lines, 2 selected, L\d+ · product$/);
   await page.keyboard.type('remove lines selected');
   await expect(page.getByTestId('command-preview')).toContainText(/L\d+/);
   await page.keyboard.press('Enter');
   await expect(line).toBeHidden();
-  await expect(notice(page)).toHaveText(/^Removed L\d+\.$/);
+  await expect(notice(page)).toHaveText(/^Removed L\d+ and L\d+\.$/);
   await expect(summary(page)).toContainText('0 line(s)');
   await expect(rows).toHaveCount(8);
 

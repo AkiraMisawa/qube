@@ -1,8 +1,8 @@
 import type { LineView, LiveFrame } from './contracts';
 import { gridHeaderRequiredPx } from '@ex-grid/core';
 import {
-  FOLDED, NO_LINE_YET, ROWS_FROM_THE_START, blankRows, defaultsSaid, hiddenEdits, isBlank, legOverrides, legSummary, lineCellMessage, lineCellState, lineColumns, lineFieldTitle,
-  lineHeaderGroups, lineOfProduct, lineResult, lineRows, linesOnly, openedAt, parserOf, periodFieldTitle, toggled,
+  FOLDED, blankRows, defaultsSaid, hiddenEdits, isBlank, legOverrides, legSummary, lineCellMessage, lineCellState, lineColumns, lineFieldTitle,
+  lineHeaderGroups, lineResult, lineRows, linesCame, linesOnly, oneRefused, oneSent, openedAt, parserOf, periodFieldTitle, rowKey, rowsPx, toggled, typedInBlankRow,
   type LineLayout,
 } from './lines';
 
@@ -266,10 +266,11 @@ describe("a workspace's defaults for a new line (ADR-0017 §3)", () => {
 });
 
 describe('rows to type in from the start (ADR-0015 note of 2026-11-14)', () => {
-  const OPEN: LineLayout = { trade: true, leg1: 'conventions', leg2: 'conventions' };
+  // Every column the grid can show: folded, each leg at its first level (with its Overrides column), and all open.
+  const LAYOUTS: readonly LineLayout[] = [FOLDED, { trade: true, leg1: 'basic', leg2: 'basic' }, { trade: true, leg1: 'conventions', leg2: 'conventions' }];
+  const REFUSED = { ok: false, message: 'This row holds no line yet: type IRS or CCS under Product to make one.' };
 
   it('stands blank rows below the lines so the grid shows eight rows, and always one after the last line', () => {
-    expect(ROWS_FROM_THE_START).toBe(8);
     expect(blankRows(0, false)).toHaveLength(8);
     expect(blankRows(3, false)).toHaveLength(5);
     expect(blankRows(7, false)).toHaveLength(1);
@@ -287,40 +288,75 @@ describe('rows to type in from the start (ADR-0015 note of 2026-11-14)', () => {
     expect(blankRows(undefined, true)).toEqual([]);
   });
 
+  it('is as tall as its lines and blank rows up to the height it scrolls beyond, whatever a filter leaves', () => {
+    // Eight rows of 28px from the start, a row more for each line from the eighth, and 356px at most.
+    expect([0, 3, 7, 8, 9, 12, 40].map(rowsPx)).toEqual([224, 224, 224, 252, 280, 356, 356]);
+  });
+
   it('keys a blank row by its place, which is no line\'s name, and hands the grid the same rows every time', () => {
     const rows = blankRows(0, false);
-    expect(rows.map((r) => r.line)).toEqual(['(blank 1)', '(blank 2)', '(blank 3)', '(blank 4)', '(blank 5)', '(blank 6)', '(blank 7)', '(blank 8)']);
+    expect(rows.map(rowKey)).toEqual(['(blank 1)', '(blank 2)', '(blank 3)', '(blank 4)', '(blank 5)', '(blank 6)', '(blank 7)', '(blank 8)']);
     expect(rows.every(isBlank)).toBe(true);
     blankRows(6, false).forEach((row, at) => expect(row).toBe(rows[at]));
   });
 
   it('shows nothing in any cell of a blank row, its key included, and marks none', () => {
     const [blank] = blankRows(0, false);
-    for (const layout of [FOLDED, OPEN]) {
-      for (const column of lineColumns(layout).filter((c) => c.value !== undefined)) {
-        expect([column.name, column.value!(blank!)]).toEqual([column.name, undefined]);
-        expect(lineCellState(blank!, column)).toBe('normal');
+    for (const layout of LAYOUTS) {
+      for (const column of lineColumns(layout)) {
+        expect([column.name, column.value(blank!)]).toEqual([column.name, undefined]);
+        expect([column.name, lineCellState(blank!, column)]).toEqual([column.name, 'normal']);
       }
     }
   });
 
   it('says under Product what to type, and nothing in the other cells', () => {
     const [blank] = blankRows(0, false);
-    const said = Object.fromEntries(lineColumns(FOLDED).map((c) => [c.name, lineCellMessage(blank!, c)]).filter(([, message]) => message !== undefined));
-    expect(said).toEqual({ product: 'Type IRS or CCS here to make a line.' });
-  });
-
-  it('reads a product typed in a blank row as the line the Add buttons run, and leaves what it is to the server', () => {
-    expect(lineOfProduct('irs')).toEqual({ ok: true, line: 'add line irs' });
-    expect(lineOfProduct(' CCS ')).toEqual({ ok: true, line: 'add line ccs' });
-    expect(lineOfProduct('swaption')).toEqual({ ok: true, line: 'add line swaption' });
-  });
-
-  it('reads nothing but one word as a product, so no other line is run from a cell', () => {
-    for (const text of ['', '  ', 'irs 10y', 'irs; remove L1', '10y', 'irs\nremove lines']) {
-      expect([text, lineOfProduct(text)]).toEqual([text, { ok: false, message: 'Type a product, IRS or CCS, to make a line in this row.' }]);
+    for (const layout of LAYOUTS) {
+      const said = Object.fromEntries(lineColumns(layout).map((c) => [c.name, lineCellMessage(blank!, c)]).filter(([, message]) => message !== undefined));
+      expect(said).toEqual({ product: 'Type IRS or CCS here to make a line.' });
     }
-    expect(NO_LINE_YET).toBe('This row holds no line yet: type IRS or CCS under Product to make one.');
+  });
+
+  it('reads one word typed under Product as the line the Add buttons run, and leaves what it is to the server', () => {
+    expect(typedInBlankRow('product', 'irs')).toEqual({ ok: true, line: 'add line irs' });
+    expect(typedInBlankRow('product', ' CCS ')).toEqual({ ok: true, line: 'add line ccs' });
+    expect(typedInBlankRow('product', 'swaption')).toEqual({ ok: true, line: 'add line swaption' });
+  });
+
+  it('runs no other line from a cell: what is not one word under Product is refused, and so is every other column', () => {
+    for (const text of ['', '  ', 'irs 10y', 'irs; remove L1', '10y', 'irs\nremove lines']) expect([text, typedInBlankRow('product', text)]).toEqual([text, REFUSED]);
+    for (const [column, text] of [['end', '10y'], ['end', 'irs'], ['leg1.notional', '10mm'], ['line', 'irs']] as const) expect([column, typedInBlankRow(column, text)]).toEqual([column, REFUSED]);
+  });
+
+  it('knows the lines that products typed in blank rows made: the lines held and no more after them than were sent', () => {
+    const one = oneSent(undefined, ['L1', 'L2']);
+    expect(one).toEqual({ held: ['L1', 'L2'], out: 1 });
+    expect(linesCame(one, ['L1', 'L2', 'L3'])).toEqual({ came: true, making: undefined });
+    expect(linesCame(oneSent(undefined, []), ['L1'])).toEqual({ came: true, making: undefined });
+    // A tick replaces the rows with the same lines: the line is still out.
+    expect(linesCame(one, ['L1', 'L2'])).toEqual({ came: false, making: one });
+    // A line gone, more gained than were sent, or another order: a position may name another line, and nothing is out.
+    expect(linesCame(one, ['L2', 'L3'])).toEqual({ came: false, making: undefined });
+    expect(linesCame(one, ['L1'])).toEqual({ came: false, making: undefined });
+    expect(linesCame(one, ['L1', 'L2', 'L3', 'L4'])).toEqual({ came: false, making: undefined });
+    expect(linesCame(one, ['L2', 'L1', 'L3'])).toEqual({ came: false, making: undefined });
+  });
+
+  it('counts the products out, typed one after another before a line came, and those refused', () => {
+    // The lines held are those before the first product out, whatever the grid holds as the second is sent.
+    const two = oneSent(oneSent(undefined, ['L1']), ['L1', 'L9']);
+    expect(two).toEqual({ held: ['L1'], out: 2 });
+    // One line comes, then the other: the second is known after the lines the first left.
+    expect(linesCame(two, ['L1', 'L2'])).toEqual({ came: true, making: { held: ['L1', 'L2'], out: 1 } });
+    expect(linesCame({ held: ['L1', 'L2'], out: 1 }, ['L1', 'L2', 'L3'])).toEqual({ came: true, making: undefined });
+    // Both in one reading.
+    expect(linesCame(two, ['L1', 'L2', 'L3'])).toEqual({ came: true, making: undefined });
+    // A refused product makes no line, so one fewer is out, and none once the last is refused.
+    expect(oneRefused(two)).toEqual({ held: ['L1'], out: 1 });
+    expect(oneRefused(oneRefused(two))).toBeUndefined();
+    expect(oneRefused(undefined)).toBeUndefined();
+    expect(linesCame({ held: ['L1'], out: 1 }, ['L1', 'L2', 'L3'])).toEqual({ came: false, making: undefined });
   });
 
   it('tells the command line of lines only: a Selection or a Focus on a blank row names nothing', () => {
