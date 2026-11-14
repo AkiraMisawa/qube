@@ -315,7 +315,7 @@ the Action Column's buttons in the browser's grey (ex-grid#553) and a disabled c
 - A required context field's message repeats its name (`As of: asOf is required.`), because `validate` names the
   field and the message is shown without its label.
 - Touch sizes have not been checked on an iPhone (UX02).
-- On the Rates line grid a blank row shows a Flows button that opens nothing, and its cells open an editor that
+- On the Rates line grid a blank row shows a Flows button that opens nothing, and its other cells open an editor that
   refuses at the commit: ExGrid declares an Action Column's actions, and a column's `editable`, for every row
   (ex-grid#572, ex-grid#573; ADR-0015's note of 2026-11-14). Both refuse in words.
 

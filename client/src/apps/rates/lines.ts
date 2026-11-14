@@ -98,10 +98,13 @@ export function rowsPx(lines: number): number {
 /**
  * A view of the line grid as the command line is told of it (ADR-0016 §9), holding lines only: a blank row is no row
  * of the table, so a Selection or a Focus on one names nothing to the server (ADR-0015's note of 2026-11-14).
- * `isLine` says whether a key is a line's, as the page that holds the lines knows it.
+ * `held` is the rows the grid held when the view was read, so a key is judged among the rows it was read among: a
+ * line the grid still holds reaches the server by name, whatever the page has read since.
  */
-export function linesOnly(view: CommandLineView, isLine: (key: string) => boolean): CommandLineView {
+export function linesOnly(view: CommandLineView, held: readonly LineGridRow[]): CommandLineView {
   const { keys, shown, focus, ...rest } = view;
+  const heldLines = new Set(linesIn(held));
+  const isLine = (key: string) => heldLines.has(key);
   const lines = (among: readonly string[]) => among.filter(isLine);
   const selected = keys === undefined ? [] : lines(keys);
   return {
@@ -120,11 +123,13 @@ const PRODUCTS_SAID = ADDED_PRODUCTS.map((product) => product.toUpperCase()).joi
 export const NO_LINE_YET = `This row holds no line yet: type ${PRODUCTS_SAID} under Product to make one.`;
 
 /**
- * What the page says of a commit the grid refused because the row it was typed in is no longer in the grid: a blank
- * row a line took the place of, or a line removed elsewhere. Nothing was written, and where to type it again is the
- * user's to see: the line's cell for a term, the first blank row for a product, nowhere for a line that is gone.
+ * What the page says of a commit the grid refused because the row it was typed in is not among its rows now (ExGrid
+ * ADR-0142): a blank row a line took the place of, a line removed elsewhere, or a line a filter from the line no
+ * longer shows. The grid tells no cause, so the words name none and say what holds in each: nothing was written,
+ * the edit stays open, and Escape leaves it without writing. A commit made once the row is back lands by the grid's
+ * own rule, which the words do not promise: a row a line took the place of does not come back.
  */
-export const ROW_GONE = 'Nothing was written: the row this was typed in is no longer in the grid, a line took its place or the line is gone. Press Escape, and type it again where it belongs now.';
+export const ROW_LEFT = 'Nothing was written: the row this was typed in is not in the grid now. The edit stays open: press Escape to leave it without writing.';
 
 /**
  * What a text typed in a blank row does (ADR-0015's note of 2026-11-14). One word under Product runs `add line` and

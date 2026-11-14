@@ -12,7 +12,7 @@ import { filterGrid, heldRowOf, heldView, menuView, placeFocus, selectRows, sort
 import { GridFilterLine } from '../../platform/grid/GridFilterLine';
 import { heldInOrder, useHeldFilter } from '../../platform/grid/heldFilter';
 import { keysInOrder, useKeptGrid } from '../../platform/grid/keptGrid';
-import { compactRowPx } from '../../platform/grid/metrics';
+import { compactHeaderPx } from '../../platform/grid/metrics';
 import { panelKey, usePanelState } from '../../platform/panelState';
 import { EditQueue } from '../../platform/workspace/editQueue';
 import { useWorkspaceContext } from '../../platform/workspace/WorkspaceProvider';
@@ -25,7 +25,7 @@ import { isElement } from '../../platform/elements';
 import {
   FOLDED, PINNED_COLUMNS, defaultsSaid, headerTiers, lineCellMessage, lineResult, lineCellState, lineColumns, hiddenEdits, lineHeaderGroups, lineRows, openedAt, parserOf, periodCellState,
   lineFieldTitle, periodColumns, periodFieldTitle, periodParserOf, toggled, type HiddenEdits, type LineLayout, type LineRow,
-  ADDED_PRODUCTS, NO_LINE_YET, ROW_GONE, blankRows, isBlank, linesIn, linesOnly, madeLinesCame, rowKey, rowsPx, typedInBlankRow, type LineGridRow,
+  ADDED_PRODUCTS, NO_LINE_YET, ROW_LEFT, blankRows, isBlank, linesIn, linesOnly, madeLinesCame, rowKey, rowsPx, typedInBlankRow, type LineGridRow,
 } from './lines';
 
 // The fixed Rates line pricer (docs/07, C37 to C43): one line per trade in ExGrid, its terms sparse, its
@@ -131,8 +131,6 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
   // The rows live in a source keyed by line, so a tick replaces only the rows whose figures moved.
   const source = useMemo(() => GridSource.from<LineGridRow>([], { rowKey }), []);
   const rowsByLine = useRef<ReadonlyMap<string, LineRow>>(new Map());
-  /** Whether a key of the grid is a line's: a blank row's is not. */
-  const isLine = useCallback((key: string) => rowsByLine.current.has(key), []);
   // Undefined until the workspace's lines are read: the grid holds no row then, and not its blank rows alone.
   const [shownRows, setShownRows] = useState<ReadonlyMap<string, LineRow> | undefined>(undefined);
   useEffect(() => {
@@ -243,11 +241,12 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
     else setDetail(event.row.line);
   }, [workspace]);
 
-  // The grid refuses a commit whose row left it (ExGrid ADR-0142) and keeps the editor open with what was typed: a
-  // term half typed in a blank row as a line was made in its place. It says so to a screen reader; the page says it
-  // to the eye, since an editor that stays open on Enter with no word looks stuck (ADR-0015's note of 2026-11-14).
+  // The grid refuses a commit whose row is not among its rows now (ExGrid ADR-0142) and keeps the editor open with
+  // what was typed: a term or a product half typed in a blank row as a line took its place, an edit of a line removed
+  // elsewhere, or of one a filter from the line no longer shows. It says so to a screen reader; the page says it to
+  // the eye, since an editor that stays open on Enter with no word looks stuck (ADR-0015's note of 2026-11-14).
   const onRefused = useCallback((refusal: GridRefusal<LineGridRow>) => {
-    if (refusal.kind === 'commit' && refusal.reason === 'rowLeftTheWindow') workspace.notify('refused', ROW_GONE);
+    if (refusal.kind === 'commit' && refusal.reason === 'rowLeftTheWindow') workspace.notify('refused', ROW_LEFT);
   }, [workspace]);
 
   // A Run a command of this page made (`price`, `capture`) opens in a panel of its own.
@@ -378,7 +377,10 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
 
   // A blank row is no row of the table: the menu has no command of it, and no view of the grid names one.
   const contextCommands = useCallback((context: GridContextMenuContext<LineGridRow>) => isBlank(context.row) ? []
-    : [...menuNow.current.commands(menuView((read) => linesOnly(heldView(declared(), read, source.snapshot(), rowKey), isLine), context, context.row.line))], [declared, source]);
+    : [...menuNow.current.commands(menuView((read) => {
+      const held = source.snapshot();
+      return linesOnly(heldView(declared(), read, held, rowKey), held.window);
+    }, context, context.row.line))], [declared, source]);
   const commandLabel = useCallback((id: string) => menuNow.current.label(id), []);
   // A place read for that view (note 21) is the row of its key among the rows the grid then held, and so are the rows
   // a line selects (note 43): whether they are next to one another is said of the order the grid held them in.
@@ -390,7 +392,7 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
     const held = source.snapshot();
     const rowOf = heldRowOf(held, rowKey);
     return {
-      view: linesOnly(heldView(named, read, held, rowKey), isLine),
+      view: linesOnly(heldView(named, read, held, rowKey), held.window),
       put: (place) => placeFocus(named, shown, read, place, rowOf) ?? focused(grid, 'The lines'),
       // Which lines conditions leave is the server's to say (note 41); a sort is refused by the column's name (note 40).
       sort: (asked) => sortGrid(named, source, asked),
@@ -442,9 +444,9 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
   const ws = view.data;
   const defaults = defaultsSaid(ws.defaults);
   const groups = groupsOf(opened, hiddenEdits(ws.lines));
-  // The rows under a header of its tiers and the column headings, each a row high, so an open leg's extra tier takes no
-  // row from view (ADR-0015 §2).
-  const header = (headerTiers(opened) + 1) * compactRowPx;
+  // The rows under a header of its tiers and the column headings, each a header row high, so an open leg's extra tier
+  // takes no row from view (ADR-0015 §2).
+  const header = (headerTiers(opened) + 1) * compactHeaderPx;
   // As tall as its lines and the blank rows below them, whatever the source holds yet (ADR-0015's note of 2026-11-14).
   const height = 8 + header + rowsPx(ws.lines.length);
 

@@ -3702,6 +3702,7 @@ Unchanged: every source and every measure is simulated, and every value is synth
 - **Waiting for the owner's answer**: whether an empty Float of a Rates leg becomes an issue on its row, what the
   Rates grid shows before it has lines, whether docs/03 §5's line on a package is rewritten as served by `add each`,
   and where the row's Edit column stands (ticket 16).
+  *Since, 2026-11-14: the Rates grid shows rows to type in from the start (ADR-0015's note of that day).*
 
 ## The command line's Emacs keys (ADR-0006 note 11, 2026-11-14)
 
@@ -4050,7 +4051,7 @@ Three defects were found on the way, and each is held by a browser test now:
   back committed the open edit, so `cc` ran and was refused, and `s` ran after it. An open edit is now left alone,
   and a blank row is keyed by its place in the grid, so the edit stays in the row it was typed in (point 8).
 
-Code review (the `code-review` skill, Standards and Spec, three rounds) is recorded in the pull request.
+Code review (the `code-review` skill, Standards and Spec, four rounds) is recorded in the pull request.
 
 Looked at in the built client with synthetic data at 390, 768, 992 and 1440px, in both themes; no console message.
 
@@ -4075,9 +4076,11 @@ Unchanged: the Rates market, its conventions' development profiles and every fig
 - **The line made stands first among the blank rows**, not in the row its product was typed in: the lines are in
   the workspace's order. Typed in a later blank row, the keyboard stays on a blank row and the line is above it.
 - **Products typed faster than their lines come stop at the grid's last row.** The grid grows a row as a line
-  comes, so Enter from its last row has no row to go to until then. Each product still makes its line.
+  comes, so Enter from its last row has no row to go to until then. Each product typed in a blank row still makes
+  its line; one typed once the Focus has ended on a made line's Product is refused in words (point 8).
 - **A line the Add buttons or `add line` on the command line made keeps the grid's Selection too**, since the page
-  knows it as its own by name. It dropped it before this change. Only a line from another page or the AI drops it.
+  knows it as its own by name. It dropped it before this change. A line from another page or the AI drops it, and
+  so does the page's own in the one order of the next bullet.
 - **A reading from elsewhere that shows the page's own line before its answer is told drops the Selection** (the
   AI's turn ending or the live stream ending in the few milliseconds between): the grid then takes the line for
   one from elsewhere. Nothing typed goes to another line for it.

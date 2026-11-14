@@ -736,7 +736,7 @@ async function holdAddLine(page: Page): Promise<() => void> {
 // ADR-0015's note of 2026-11-14, point 8. The grid drops a Selection as its rows' order moves, and its source gathers
 // a change that comes within 250ms of the one before, so where the keyboard is after a line is made is a browser's to
 // show: by the keys typed next, at machine speed, and with the line's answer held where a key must come before it.
-test('ADR-0015 note of 2026-11-14: a line made in a blank row keeps the keyboard where its key left it, whenever the line comes', async ({ page }) => {
+test('ADR-0015 note of 2026-11-14: a line made in a blank row keeps the keyboard where its key left it, whether the line comes before the next key or after it', async ({ page }) => {
   await open(page);
   await newWorkspace(page);
   const rows = gridRows(page);
@@ -796,7 +796,7 @@ test('ADR-0015 note of 2026-11-14: a line made in a blank row keeps the keyboard
   await page.keyboard.type('y');
   await page.keyboard.press('Enter');
   await expect(notice(page)).toHaveAttribute('data-kind', 'refused');
-  await expect(notice(page)).toHaveText('Nothing was written: the row this was typed in is no longer in the grid, a line took its place or the line is gone. Press Escape, and type it again where it belongs now.');
+  await expect(notice(page)).toHaveText('Nothing was written: the row this was typed in is not in the grid now. The edit stays open: press Escape to leave it without writing.');
   await page.keyboard.press('Escape');
   await expect(end(4)).toHaveText('');
 });

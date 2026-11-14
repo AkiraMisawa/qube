@@ -131,12 +131,14 @@ That is all he said. Every point below is how it was built, a DEFAULT for him to
    it. A reading from elsewhere that shows the line first (the AI's turn ending, the live stream ending) brings it
    to the grid as a line from elsewhere, and the Selection is dropped.
 9. **A commit the grid refused because its row left is said in words.** A term half typed in the first blank row
-   as the line takes its place cannot be written: the row it was typed in is gone, and the grid refuses the commit
-   and keeps the editor open (ExGrid ADR-0142), saying so to a screen reader alone. The page raises a notice
-   ("Nothing was written: ..."), so an editor that stays open on Enter does not look stuck. The same notice
-   answers a product half typed in the first blank row as another line takes its place, and an edit of a line
-   removed elsewhere, so it says only that the row is gone and that what was typed goes where it belongs now:
-   the line's cell for a term, the first blank row for a product.
+   as the line takes its place cannot be written: the row it was typed in is not among the grid's rows, and the
+   grid refuses the commit and keeps the editor open (ExGrid ADR-0142), saying so to a screen reader alone. The
+   page raises a notice ("Nothing was written: ..."), so an editor that stays open on Enter does not look stuck.
+   The same refusal answers a product half typed in the first blank row as another line takes its place, an edit
+   of a line removed elsewhere, and an edit of a line that a filter from the line stopped showing, and the grid
+   tells no cause. The notice so names none and says what holds in each: nothing was written, the edit stays
+   open, and Escape leaves it without writing. By the grid's own rule a commit made once the row is back lands;
+   the notice does not promise it, since a row a line took the place of does not come back.
 
 Three limits of ExGrid 0.3.0 bear on a blank row, each filed there:
 
