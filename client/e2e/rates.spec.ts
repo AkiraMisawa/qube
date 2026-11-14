@@ -478,7 +478,8 @@ test('ADR-0016 notes 39 to 41: the line grid shows the lines the server says a f
     await expect(summary(page)).toContainText(`${i + 1} line(s)`);
   }
   await settled(page, 'Lines');
-  const ids = () => lines(page).locator('[role=row] [role=gridcell][aria-colindex="1"]');
+  // The names of the lines: the blank rows below them hold none (ADR-0015 note of 2026-11-14).
+  const ids = () => lines(page).getByRole('row', { name: /^L\d+ / }).locator('[role=gridcell][aria-colindex="1"]');
   await expect(ids()).toHaveCount(2);
   const [FIRST, SECOND] = await ids().allInnerTexts() as [string, string];
   const filtered = page.getByTestId('grid-filter');
@@ -489,10 +490,15 @@ test('ADR-0016 notes 39 to 41: the line grid shows the lines the server says a f
   await expect(notice(page)).toHaveText('Showing 1 of 2 rows of lines where currency = USD.');
   await expect(filtered.getByRole('status')).toHaveText('Filter: ccy=USD · 1 of 2');
   await expect(ids()).toHaveText([SECOND]);
+  // ADR-0015 note of 2026-11-14: a filtered grid shows the lines the conditions leave and no blank row, and the blank
+  // rows are back once the filter is off.
+  const rows = lines(page).locator('[role=row]:has([role=gridcell])');
+  await expect(rows).toHaveCount(1);
 
   await page.getByRole('button', { name: 'Take the filter off the lines' }).click();
   await expect(filtered).toHaveCount(0);
   await expect(ids()).toHaveText([FIRST, SECOND]);
+  await expect(rows).toHaveCount(8);
 
   // The line grid shows a term as typed and sorts by none: the server reads the sort, and the page says why it is not
   // done, on the line.
@@ -510,7 +516,8 @@ test('ADR-0016 notes 43 and 44: the line grid takes a Selection from the line, a
     await expect(summary(page)).toContainText(`${i + 1} line(s)`);
   }
   await settled(page, 'Lines');
-  const ids = () => lines(page).locator('[role=row] [role=gridcell][aria-colindex="1"]');
+  // The names of the lines: the blank rows below them hold none (ADR-0015 note of 2026-11-14).
+  const ids = () => lines(page).getByRole('row', { name: /^L\d+ / }).locator('[role=gridcell][aria-colindex="1"]');
   // Both lines are drawn before their ids are read.
   await expect(ids()).toHaveCount(2);
   const [FIRST, SECOND] = await ids().allInnerTexts() as [string, string];
@@ -609,4 +616,80 @@ test('ADR-0016 §8, notes 60 to 64: a sequence is saved from the line and offere
   await expect(line).toBeHidden();
   await expect(notice(page)).toHaveText(/^Took back: /);
   await expect(summary(page)).toContainText('0 line(s)');
+});
+
+// ADR-0015's note of 2026-11-14 (owner: five to ten blank rows from the start, and more as they fill). Only a browser
+// shows the rows the grid draws, and that a line typed into one goes through the grid's editor and the page's door.
+test('ADR-0015 note of 2026-11-14: the line grid shows rows to type in from the start, and a product typed in one makes the line', async ({ page }) => {
+  await open(page);
+  await newWorkspace(page);
+  const rows = lines(page).locator('[role=row]:has([role=gridcell])');
+  const refusal = 'This row holds no line yet: type IRS or CCS under Product to make one.';
+  const PRODUCT = 2;
+
+  // No line yet, and eight rows to type in.
+  await expect(summary(page)).toContainText('0 line(s)');
+  await expect(rows).toHaveCount(8);
+  await expect(firstLine(page)).toHaveCount(0);
+
+  // A product typed under Product in a blank row, the third here, makes the line: it stands first, and seven stay blank.
+  await goTo(page, PRODUCT);
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.type('IRS');
+  await page.keyboard.press('Enter');
+  await expect(notice(page)).toHaveText(/^Added L\d+, an empty irs line\.$/);
+  await expect(summary(page)).toContainText('1 line(s)');
+  await settled(page, 'Lines');
+  await expect(rows).toHaveCount(8);
+  await expect(rows.first()).toHaveAccessibleName(/^L\d+ /);
+  await expect(lines(page).getByRole('row', { name: /^L\d+ / })).toHaveCount(1);
+
+  // Anything else typed in a blank row is refused where it was typed, and makes nothing.
+  await goTo(page, END);
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.type('10y');
+  await page.keyboard.press('Enter');
+  // Said beside the editor, which stays open on what was typed, and to a screen reader.
+  await expect(page.getByText(refusal).first()).toBeVisible();
+  await expect(page.getByRole('tabpanel').getByRole('status')).toHaveText(refusal);
+  await page.keyboard.press('Escape');
+  await expect(summary(page)).toContainText('1 line(s)');
+
+  // What a product is stays the server's to say: the notice is its sentence, after the line the cell ran.
+  await goTo(page, PRODUCT);
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.type('swaption');
+  await page.keyboard.press('Enter');
+  await expect(notice(page)).toHaveAttribute('data-kind', 'refused');
+  await expect(notice(page)).toHaveText('add line swaption: swaption is no product a line is added for: irs or ccs.');
+
+  // A blank row has no cashflows: its button says so and opens none.
+  await rows.nth(3).getByRole('button', { name: 'Flows' }).click();
+  await expect(notice(page)).toHaveText(refusal);
+  await expect(page.getByTestId('cashflows')).toHaveCount(0);
+
+  // A blank row is no row of the table: every row selected, a command on the selection reads the one line.
+  await goTo(page, PRODUCT);
+  await page.keyboard.press('ControlOrMeta+A');
+  const line = page.getByRole('combobox', { name: 'Command' });
+  await page.keyboard.press('ControlOrMeta+K');
+  await expect(line).toBeFocused();
+  await expect(page.getByTestId('command-context')).toHaveText(/^On screen: lines, 1 selected, L\d+ · product$/);
+  await page.keyboard.type('remove lines selected');
+  await expect(page.getByTestId('command-preview')).toContainText(/L\d+/);
+  await page.keyboard.press('Enter');
+  await expect(line).toBeHidden();
+  await expect(notice(page)).toHaveText(/^Removed L\d+\.$/);
+  await expect(summary(page)).toContainText('0 line(s)');
+  await expect(rows).toHaveCount(8);
+
+  // More as they fill: with eight lines one blank row still stands below them.
+  for (let made = 1; made <= 8; made++) {
+    await page.getByRole('button', { name: 'Add IRS' }).click();
+    await expect(summary(page)).toContainText(`${made} line(s)`);
+  }
+  await settled(page, 'Lines');
+  await expect(lines(page).getByRole('row', { name: /^L\d+ / })).toHaveCount(8);
+  await expect(rows).toHaveCount(9);
 });

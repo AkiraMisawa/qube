@@ -1,8 +1,8 @@
 import type { LineView, LiveFrame } from './contracts';
 import { gridHeaderRequiredPx } from '@ex-grid/core';
 import {
-  FOLDED, defaultsSaid, hiddenEdits, legOverrides, legSummary, lineCellState, lineColumns, lineFieldTitle, lineHeaderGroups, lineResult, lineRows, openedAt, parserOf, periodFieldTitle,
-  toggled,
+  FOLDED, NO_LINE_YET, ROWS_FROM_THE_START, blankRows, defaultsSaid, hiddenEdits, isBlank, legOverrides, legSummary, lineCellMessage, lineCellState, lineColumns, lineFieldTitle,
+  lineHeaderGroups, lineOfProduct, lineResult, lineRows, linesOnly, openedAt, parserOf, periodFieldTitle, toggled,
   type LineLayout,
 } from './lines';
 
@@ -262,5 +262,71 @@ describe("a workspace's defaults for a new line (ADR-0017 §3)", () => {
     // A default not set is absent, as the server's view leaves it out.
     expect(defaultsSaid({ notional: 2.5e6, fromSettings: [] })).toBe('New lines default to 2.5mm set in this workspace.');
     expect(defaultsSaid({ fromSettings: [] })).toBeUndefined();
+  });
+});
+
+describe('rows to type in from the start (ADR-0015 note of 2026-11-14)', () => {
+  const OPEN: LineLayout = { trade: true, leg1: 'conventions', leg2: 'conventions' };
+
+  it('stands blank rows below the lines so the grid shows eight rows, and always one after the last line', () => {
+    expect(ROWS_FROM_THE_START).toBe(8);
+    expect(blankRows(0, false)).toHaveLength(8);
+    expect(blankRows(3, false)).toHaveLength(5);
+    expect(blankRows(7, false)).toHaveLength(1);
+    expect(blankRows(8, false)).toHaveLength(1);
+    expect(blankRows(40, false)).toHaveLength(1);
+  });
+
+  it('shows no blank row while conditions filter the grid', () => {
+    expect(blankRows(0, true)).toEqual([]);
+    expect(blankRows(3, true)).toEqual([]);
+  });
+
+  it('holds no blank row before the workspace\'s lines are read, so a kept Selection is decided among the lines (ADR-0006 note 10)', () => {
+    expect(blankRows(undefined, false)).toEqual([]);
+    expect(blankRows(undefined, true)).toEqual([]);
+  });
+
+  it('keys a blank row by its place, which is no line\'s name, and hands the grid the same rows every time', () => {
+    const rows = blankRows(0, false);
+    expect(rows.map((r) => r.line)).toEqual(['(blank 1)', '(blank 2)', '(blank 3)', '(blank 4)', '(blank 5)', '(blank 6)', '(blank 7)', '(blank 8)']);
+    expect(rows.every(isBlank)).toBe(true);
+    blankRows(6, false).forEach((row, at) => expect(row).toBe(rows[at]));
+  });
+
+  it('shows nothing in any cell of a blank row, its key included, and marks none', () => {
+    const [blank] = blankRows(0, false);
+    for (const layout of [FOLDED, OPEN]) {
+      for (const column of lineColumns(layout).filter((c) => c.value !== undefined)) {
+        expect([column.name, column.value!(blank!)]).toEqual([column.name, undefined]);
+        expect(lineCellState(blank!, column)).toBe('normal');
+      }
+    }
+  });
+
+  it('says under Product what to type, and nothing in the other cells', () => {
+    const [blank] = blankRows(0, false);
+    const said = Object.fromEntries(lineColumns(FOLDED).map((c) => [c.name, lineCellMessage(blank!, c)]).filter(([, message]) => message !== undefined));
+    expect(said).toEqual({ product: 'Type IRS or CCS here to make a line.' });
+  });
+
+  it('reads a product typed in a blank row as the line the Add buttons run, and leaves what it is to the server', () => {
+    expect(lineOfProduct('irs')).toEqual({ ok: true, line: 'add line irs' });
+    expect(lineOfProduct(' CCS ')).toEqual({ ok: true, line: 'add line ccs' });
+    expect(lineOfProduct('swaption')).toEqual({ ok: true, line: 'add line swaption' });
+  });
+
+  it('reads nothing but one word as a product, so no other line is run from a cell', () => {
+    for (const text of ['', '  ', 'irs 10y', 'irs; remove L1', '10y', 'irs\nremove lines']) {
+      expect([text, lineOfProduct(text)]).toEqual([text, { ok: false, message: 'Type a product, IRS or CCS, to make a line in this row.' }]);
+    }
+    expect(NO_LINE_YET).toBe('This row holds no line yet: type IRS or CCS under Product to make one.');
+  });
+
+  it('tells the command line of lines only: a Selection or a Focus on a blank row names nothing', () => {
+    expect(linesOnly({ table: 'rates.lines', keys: ['L1', '(blank 1)', 'L2', '(blank 2)'], focus: { field: 'end', key: '(blank 1)' }, shown: ['L1', '(blank 1)'], where: 'end 5y' }))
+      .toEqual({ table: 'rates.lines', keys: ['L1', 'L2'], shown: ['L1'], where: 'end 5y' });
+    expect(linesOnly({ table: 'rates.lines', keys: ['(blank 3)'], focus: { field: 'end', key: 'L2' } })).toEqual({ table: 'rates.lines', focus: { field: 'end', key: 'L2' } });
+    expect(linesOnly({ table: 'rates.lines' })).toEqual({ table: 'rates.lines' });
   });
 });

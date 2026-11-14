@@ -3822,6 +3822,65 @@ was compared with it.
 - **The next gap is the request's other files and a caller.** Only this file is known, and it is returned as text:
   no request holds it until an engine's adapter exists to take one (`docs/08-provider-boundaries.md`).
 
+## The Rates line grid shows rows to type in from the start (ADR-0015's note of 2026-11-14)
+
+The owner, asked what the line grid shows before it has lines: cells from the start, "five to ten blank rows, and
+more as they fill".
+
+### What runs
+
+- The line grid stands blank rows below its lines: eight rows in all from the start, and one blank row after the
+  last line once it holds eight lines or more. A new Rates workspace shows a grid of eight rows where it showed an
+  empty box three rows high.
+- `IRS` or `CCS` typed under Product in a blank row, in either case, makes the line: the cell runs `add line
+  <product>`, the line the Add buttons run, and the server says what it does not know (`swaption is no product a
+  line is added for: irs or ccs.`). The line made is empty, as a button's is, and its terms are typed in its cells.
+- Anything else typed in a blank row is refused where it was typed ("This row holds no line yet: type IRS or CCS
+  under Product to make one.") and makes nothing: no product is guessed for it.
+- A blank row is the page's. Nothing is saved for it, no command reads it (the Selection, the Focus and the rows
+  shown that the line is told of hold lines only), it has no context menu, the count of lines and the result above
+  the grid do not hold it, and a filter from the line hides it.
+- The Add buttons stay.
+
+### Verification performed
+
+| Check | Result |
+|---|---|
+| `nix develop -c dotnet test server/Qube.slnx` | 1672 passed (no server file changes) |
+| `cd client && npm run typecheck && npm test` | typecheck clean; 521 passed in 49 files |
+| `cd client && npx playwright test` (Chromium, the built client served by the host) | 153 passed |
+
+The new unit tests were seen to fail with the rule broken three ways (no blank row after the last line, blank rows
+under a filter, any text read as a product) and to pass with it put back. The new browser test, and the two it
+changed most (the filter from the line, a Rates page hidden and shown again), ran three times each.
+
+That last test failed on the first build of this change, and is what holds point 7 of the note: the grid held its
+blank rows before its lines came, so a Selection kept while the page was hidden was decided among rows it was not
+read among, and was dropped. The blank rows now come to the grid with the lines.
+
+Looked at in the built client with synthetic data at 390, 768, 992 and 1440px, in both themes; no console message.
+
+### Providers
+
+Unchanged: the Rates market, its conventions' development profiles and every figure are simulated, and say so.
+
+### Known limits, and what waits for the owner
+
+- **A blank row has a Flows button**, which opens nothing and refuses with the same words. ExGrid's Action Column
+  declares its actions for every row ([ex-grid#572](https://github.com/AkiraMisawa/ex-grid/issues/572)). Drawing
+  the button as a Template Column would take it off blank rows and make its key Space twice on every line; it was
+  not taken, and is the owner's to ask for.
+- **A blank row's other cells open the editor and refuse at the commit**, since a column's `editable` is one answer
+  for every row ([ex-grid#573](https://github.com/AkiraMisawa/ex-grid/issues/573)). The editor stays open on what
+  was typed, with the refusal under it, until Escape.
+- **The line made stands first among the blank rows**, not in the row its product was typed in: the lines are in
+  the workspace's order.
+- **Eight rows, and the product as the one cell a blank row takes, are DEFAULTs** (the note) for the owner to
+  change. He said five to ten rows.
+- **A limit of step 3c no longer holds.** The line grid's Context Menu is bounded by the grid's box (ExGrid
+  ADR-0040) and showed three of its four items in a grid three rows high. At eight rows it shows the four at once
+  (seen in the built client).
+
 ## Next
 
 1. Panels in areas, ADR-0018 step 3 (parts of a page with links), once the owner has seen step 2.

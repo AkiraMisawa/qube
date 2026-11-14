@@ -72,3 +72,42 @@ With five lines the grid is **1,644px** wide, and at 1280px every column up to `
   place to edit the same value and the most work. Left for later; it composes with this decision.
 - **The result pinned at the left**: ExGrid pins on the left only, so the result would stand before the inputs, which
   2026-11-04 decided against.
+
+## Note of 2026-11-14: rows to type in from the start (owner)
+
+The grid was as tall as its lines, three rows at least, and showed no cell until a line was added by a button or
+from the command line. The owner, asked what the grid shows before it has lines: cells could be shown from the
+start, "five to ten blank rows, and more as they fill" (2026-11-14).
+
+1. **Blank rows stand below the lines**, enough that the grid shows eight rows, and always one after the last line:
+   eight with no line, one with eight lines or more. The grid is as tall as its rows up to the height it had (356px
+   of rows), and scrolls beyond.
+2. **A blank row is the page's and no line of the workspace.** Nothing is saved for it. The count of lines, the
+   result above the grid, a line's context menu and the rows a command reads from the grid (its selection, its
+   Focus, the rows shown) do not hold it.
+3. **A product typed under Product in a blank row makes the line**: `irs` or `ccs`, in either case, runs the line
+   `add line <product>` that the Add buttons run (ADR-0016 note 36), and the server says what it does not know.
+   The line made stands first among the blank rows, wherever among them it was typed: the lines are in the
+   workspace's order. A line's own Product is not edited, as before.
+4. **Anything else typed in a blank row is refused** with what to do instead (type the product first). No product
+   is guessed for it (CLAUDE.md, no fallback).
+5. **While the line's conditions filter the grid, it shows no blank row**: the rows are then what the conditions
+   leave. The grid keeps the height of its unfiltered rows, as it did, so the page below it does not move as a
+   filter goes on or off.
+6. **The Add buttons stay**: they are the touch's and the mouse's way to the same line.
+7. **The grid holds no blank row before the workspace's lines are read.** A grid that held its blank rows alone
+   until its lines came would be in an order no Selection kept for it was read in, and a page shown again would
+   lose its Selection (ADR-0006 note 10). The lines and the blank rows below them come to the grid together.
+
+Two limits of ExGrid 0.3.0 show on a blank row, each filed there:
+
+- **A blank row has a Flows button.** An Action Column declares its actions for every row
+  ([ex-grid#572](https://github.com/AkiraMisawa/ex-grid/issues/572)). Its press on a blank row opens nothing and
+  is refused with the words of point 4. Drawing the button as a Template Column was not taken: its key would
+  become Space to enter the cell and a second key to press.
+- **A blank row's other cells open the editor and refuse at the commit.** A column's `editable` is one answer for
+  every row ([ex-grid#573](https://github.com/AkiraMisawa/ex-grid/issues/573)), as it already was for a line's
+  Product. A blank row's Product cell says in its message what it takes.
+
+DEFAULT, for the owner to change: eight rows; the product as the one cell a blank row takes; the Flows button left
+on blank rows until ExGrid lets a row withhold it.

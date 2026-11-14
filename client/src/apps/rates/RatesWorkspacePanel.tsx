@@ -24,6 +24,7 @@ import { isElement } from '../../platform/elements';
 import {
   FOLDED, PINNED_COLUMNS, defaultsSaid, headerTiers, lineCellMessage, lineResult, lineCellState, lineColumns, hiddenEdits, lineHeaderGroups, lineRows, openedAt, parserOf, periodCellState,
   lineFieldTitle, periodColumns, periodFieldTitle, periodParserOf, toggled, type HiddenEdits, type LineLayout, type LineRow,
+  NO_LINE_YET, blankRows, isBlank, lineOfProduct, linesOnly, type HeldLine,
 } from './lines';
 
 // The fixed Rates line pricer (docs/07, C37 to C43): one line per trade in ExGrid, its terms sparse, its
@@ -128,8 +129,9 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
 
   // The rows live in a source keyed by line, so a tick replaces only the rows whose figures moved.
   const source = useMemo(() => GridSource.from<LineRow>([], { rowKey: lineKey }), []);
-  const rowsByLine = useRef<ReadonlyMap<string, LineRow>>(new Map());
-  const [shownRows, setShownRows] = useState<ReadonlyMap<string, LineRow>>(new Map());
+  const rowsByLine = useRef<ReadonlyMap<string, HeldLine>>(new Map());
+  // Undefined until the workspace's lines are read: the grid holds no row then, and not its blank rows alone.
+  const [shownRows, setShownRows] = useState<ReadonlyMap<string, HeldLine> | undefined>(undefined);
   useEffect(() => {
     if (view.data === undefined) return;
     const rows = lineRows(view.data.lines, view.data.revision, frame, rowsByLine.current);
@@ -137,10 +139,13 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
     setShownRows(rowsByLine.current);
   }, [view.data, frame]);
   // The grid shows every line, or, filtered from the line, those the server says its conditions leave (ADR-0016 note 41).
-  const everyRow = useMemo(() => [...shownRows.values()], [shownRows]);
+  const everyRow = useMemo(() => (shownRows === undefined ? [] : [...shownRows.values()]), [shownRows]);
   const heldGrid = useMemo(() => ({ api: workspace.api, workspaceId, table: LINES_TABLE, revision: shownRevision }), [workspace, workspaceId, shownRevision]);
   const { rows: gridRows, said: filter } = useHeldFilter(source, heldGrid, everyRow, lineKey);
-  useEffect(() => { source.replaceAll(gridRows); }, [gridRows, source]);
+  // Below the lines, rows to type a line into (ADR-0015's note of 2026-11-14): the page's own, and none while conditions filter the grid.
+  const lineCount = shownRows?.size;
+  const blanks = useMemo(() => blankRows(lineCount, filter !== undefined), [lineCount, filter]);
+  useEffect(() => { source.replaceAll([...gridRows, ...blanks]); }, [gridRows, blanks, source]);
   const filterOff = useCallback(() => { filterGrid(source, {}); }, [source]);
 
   // The line the grid's Focus is on, by its key, so its result shows above the grid wherever the grid has scrolled.
@@ -148,7 +153,9 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
   const onSelectionChanged = useCallback((selection: GridSelection) => {
     if (selection.focus === undefined) { setFocusLine(undefined); return; }
     const state = source.snapshot();
-    setFocusLine(state.window[selection.focus.row - state.windowStart]?.line);
+    const focused = state.window[selection.focus.row - state.windowStart];
+    // A blank row holds no line, so no result is a line's while the Focus is on one.
+    setFocusLine(focused === undefined || isBlank(focused) ? undefined : focused.line);
   }, [source]);
 
   // Live (owner, 2026-10-27): the workspace's one subscription runs on the server; this page attaches to it
@@ -186,7 +193,16 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
   }, [liveStatus, attach, detach]);
   useEffect(() => () => { stream.current?.frames.close(); stream.current = undefined; }, []);
 
+  // A line run as a button runs one, by a callback made before the door is (`enter`, below).
+  const runLine = useRef<(line: string) => void>(() => { throw new Error('A line was run from the grid before the page had its door.'); });
   const onEdit = useCallback((intent: GridEditIntent<LineRow>) => {
+    // A blank row takes a product under Product, which makes the line, and nothing else (ADR-0015's note of 2026-11-14).
+    if (isBlank(intent.row)) {
+      const made = intent.column === 'product' ? lineOfProduct(intent.value) : { ok: false as const, message: NO_LINE_YET };
+      if (made.ok) runLine.current(made.line);
+      else intent.refuse(made.message);
+      return;
+    }
     const parse = parserOf(intent.column);
     if (parse === undefined) { intent.refuse('This column is not editable.'); return; }
     if (intent.seenText !== intent.replacedText) { intent.refuse('The value changed while you were editing. Look at it again.'); return; }
@@ -213,9 +229,11 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
   }, [columns]);
 
   const onAction = useCallback((event: GridActionEvent<LineRow>) => {
-    if (event.action === 'cashflows') setDetail(event.row.line);
-    else throw new Error(`The grid reported an action it was not given: ${event.action}.`);
-  }, []);
+    if (event.action !== 'cashflows') throw new Error(`The grid reported an action it was not given: ${event.action}.`);
+    // ExGrid paints an Action Column's button on every row, a blank one too, which has no cashflows to open.
+    if (isBlank(event.row)) workspace.notify('refused', NO_LINE_YET);
+    else setDetail(event.row.line);
+  }, [workspace]);
 
   // A Run a command of this page made (`price`, `capture`) opens in a panel of its own.
   const openRun = useCallback((runId: string, title: string) => {
@@ -259,6 +277,7 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
     const ended = await door.enter(line);
     if (ended !== undefined && 'sentence' in ended) workspace.notify('refused', `${line}: ${ended.sentence}`);
   };
+  runLine.current = (line) => void enter(line);
   /** Price prices on the market this page shows, named, as Capture names the frame it drew (docs/07 §3); typed, `price` says the market it read. */
   const price = async () => {
     const snapshot = market.data?.snapshotId;
@@ -316,8 +335,9 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
   const declared = useCallback(() => ({
     table: LINES_TABLE, columns: columnsNow.current.map((c) => c.name), unsorted: columnsNow.current.filter((c) => c.queryable === false).map((c) => c.name),
   }), []);
-  const contextCommands = useCallback((context: GridContextMenuContext<LineRow>) =>
-    [...menuNow.current.commands(menuView((read) => heldView(declared(), read, source.snapshot(), lineKey), context, context.row.line))], [declared, source]);
+  // A blank row is no row of the table: the menu has no command of it, and no view of the grid names one.
+  const contextCommands = useCallback((context: GridContextMenuContext<LineRow>) => isBlank(context.row) ? []
+    : [...menuNow.current.commands(menuView((read) => linesOnly(heldView(declared(), read, source.snapshot(), lineKey)), context, context.row.line))], [declared, source]);
   const commandLabel = useCallback((id: string) => menuNow.current.label(id), []);
   // A place read for that view (note 21) is the row of its key among the rows the grid then held, and so are the rows
   // a line selects (note 43): whether they are next to one another is said of the order the grid held them in.
@@ -329,7 +349,7 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
     const held = source.snapshot();
     const rowOf = heldRowOf(held, lineKey);
     return {
-      view: heldView(named, read, held, lineKey),
+      view: linesOnly(heldView(named, read, held, lineKey)),
       put: (place) => placeFocus(named, shown, read, place, rowOf) ?? focused(grid, 'The lines'),
       // Which lines conditions leave is the server's to say (note 41); a sort is refused by the column's name (note 40).
       sort: (asked) => sortGrid(named, source, asked),
@@ -384,7 +404,10 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
   // The rows under a header of its tiers and the column headings, each a row high, so an open leg's extra tier takes no
   // row from view (ADR-0015 §2).
   const header = (headerTiers(opened) + 1) * 28;
-  const height = 8 + header + Math.min(Math.max(ws.lines.length, 3) * 28, 356);
+  // As tall as the rows it holds unfiltered, the blank ones too, up to the height it scrolls beyond (ADR-0015's note of
+  // 2026-11-14): by the workspace's lines and not by what a filter leaves or the source holds yet, so the page below
+  // the grid does not move as the lines come or a filter goes on.
+  const height = 8 + header + Math.min((ws.lines.length + blankRows(ws.lines.length, false).length) * 28, 356);
 
   const page = (
     // A grid entered is the screen only where it says so below, after this: a grid of no table leaves the line none.
@@ -424,7 +447,7 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
         {defaults !== undefined && <Text size="xs" c="dimmed" data-testid="line-defaults">{defaults}</Text>}
       </Group>
       <HeldEdits conflicts={ws.conflicts} lost={ws.lost} resolve={(held, resolution) => void queue.push({ kind: 'resolve', held, resolution })} />
-      <ResultStrip row={(focusLine === undefined ? undefined : shownRows.get(focusLine)) ?? (shownRows.size === 1 ? [...shownRows.values()][0] : undefined)} />
+      <ResultStrip row={(focusLine === undefined ? undefined : shownRows?.get(focusLine)) ?? (everyRow.length === 1 ? everyRow[0] : undefined)} />
       <GridFilterLine said={filter} grid="the lines" onOff={filterOff} />
       <div aria-label="Lines" onFocusCapture={() => { screen.current = lineScreen; }}>
         <QubeGrid<LineRow> ref={grid} columns={columns} onColumnWidthChanged={onColumnWidthChanged} headerGroups={groups} source={source}
@@ -448,7 +471,7 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
  * screen while a leg is open or the AI pane narrows the grid (ADR-0015), so what was calculated for the line in hand is
  * shown here whatever the grid scrolled to.
  */
-function ResultStrip({ row }: { readonly row: LineRow | undefined }) {
+function ResultStrip({ row }: { readonly row: HeldLine | undefined }) {
   if (row === undefined) return <Text size="xs" c="dimmed" data-testid="line-result">Select a line to see its result here.</Text>;
   const r = lineResult(row);
   const color = r.status === 'priced' ? (r.stale ? 'yellow' : 'teal') : r.status === 'none' ? 'gray' : 'red';

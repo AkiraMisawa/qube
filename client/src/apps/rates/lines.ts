@@ -3,6 +3,7 @@ import { actionColumn, gridHeaderRequiredPx } from '@ex-grid/core';
 import { readFlag } from '../../platform/flags';
 import { parseFlag, parseNumber, type Parsed } from '../xva/editing';
 import { amountTone, formatAmount } from '../../platform/grid/amounts';
+import type { LineView as GridView } from '../../platform/contracts';
 import type { LineView, LiveFrame, PeriodView, RatesWorkspaceView } from './contracts';
 
 // The line grid's model (C40, C43): a line's flat fields as columns, the second level of each leg shown on
@@ -24,13 +25,73 @@ export interface LineFigures {
   readonly mode: string;
 }
 
-/** One row of the line grid: the line, and its figures if a frame has any. */
-export interface LineRow {
+/** A row of the line grid that holds a line: the line, and its figures if a frame has any. */
+export interface HeldLine {
   readonly line: string;
   readonly view: LineView;
   readonly figures: LineFigures | undefined;
   /** Whether the figures were calculated on an older revision than the row shows. */
   readonly figuresStale: boolean;
+}
+
+/**
+ * A row to type a line into (ADR-0015's note of 2026-11-14): the page's own, and no line of the workspace. `line` is
+ * its key in the grid, its place among the blank rows, which is no line's name and is never shown.
+ */
+export interface BlankLine {
+  readonly line: string;
+  readonly blank: true;
+}
+
+/** One row of the line grid: a line, or a blank row below the lines. */
+export type LineRow = HeldLine | BlankLine;
+
+export const isBlank = (row: LineRow): row is BlankLine => 'blank' in row;
+
+/** The rows the grid shows from the start (owner, 2026-11-14: five to ten). */
+export const ROWS_FROM_THE_START = 8;
+
+// The same objects every time, so the grid paints a blank row once (ExGrid ADR-0003). A line's name is one word.
+const BLANKS: readonly BlankLine[] = Array.from({ length: ROWS_FROM_THE_START }, (_, at) => ({ line: `(blank ${at + 1})`, blank: true }));
+
+/**
+ * The blank rows below a grid of `lines` lines (ADR-0015's note of 2026-11-14): enough that it shows its rows from the
+ * start, and always one after the last line. None while the line's conditions filter the grid, whose rows are then
+ * what the conditions leave, and none before the workspace's lines are read (`undefined`): a grid that held its blank
+ * rows alone until its lines came would be in an order no Selection kept for it was read in (ADR-0006 note 10).
+ */
+export function blankRows(lines: number | undefined, filtered: boolean): readonly BlankLine[] {
+  return lines === undefined || filtered ? [] : BLANKS.slice(0, Math.max(ROWS_FROM_THE_START - lines, 1));
+}
+
+const BLANK_KEYS: ReadonlySet<string> = new Set(BLANKS.map((b) => b.line));
+
+/**
+ * A view of the line grid as the command line is told of it (ADR-0016 §9), holding lines only: a blank row is no row
+ * of the table, so a Selection or a Focus on one names nothing to the server (ADR-0015's note of 2026-11-14).
+ */
+export function linesOnly(view: GridView): GridView {
+  const { keys, shown, focus, ...rest } = view;
+  const lines = (among: readonly string[]) => among.filter((key) => !BLANK_KEYS.has(key));
+  const selected = keys === undefined ? [] : lines(keys);
+  return {
+    ...rest,
+    ...(selected.length === 0 ? {} : { keys: selected }),
+    ...(shown === undefined ? {} : { shown: lines(shown) }),
+    ...(focus === undefined || (focus.key !== undefined && BLANK_KEYS.has(focus.key)) ? {} : { focus }),
+  };
+}
+
+/** What a blank row answers to anything but a product typed under Product: no product is guessed for it. */
+export const NO_LINE_YET = 'This row holds no line yet: type IRS or CCS under Product to make one.';
+
+/**
+ * The line a text typed under Product in a blank row runs (ADR-0015's note of 2026-11-14): `add line` and the word,
+ * which the server reads as a product or refuses in its own words. Text that is not one word is no product.
+ */
+export function lineOfProduct(text: string): { readonly ok: true; readonly line: string } | { readonly ok: false; readonly message: string } {
+  const word = text.trim().toLowerCase();
+  return /^[a-z][a-z0-9]*$/.test(word) ? { ok: true, line: `add line ${word}` } : { ok: false, message: 'Type a product, IRS or CCS, to make a line in this row.' };
 }
 
 const fail = (message: string): Parsed => ({ ok: false, message });
@@ -193,7 +254,7 @@ const fitted = (header: string, values: number) =>
   Math.max(values, gridHeaderRequiredPx(header, { density: 'compact', menuButton: false, sortable: false }));
 
 const field = (name: string, header: string, type: GridColumn<LineRow>['type'], width: number, format?: (v: unknown) => string): GridColumn<LineRow> => ({
-  name, header, type, width: fitted(header, width), editable: true, queryable: false, value: (row) => row.view.fields[name] ?? undefined, format: format ?? plain,
+  name, header, type, width: fitted(header, width), editable: true, queryable: false, value: (row) => (isBlank(row) ? undefined : row.view.fields[name] ?? undefined), format: format ?? plain,
 });
 
 const legHeaders: Readonly<Record<string, readonly [string, GridColumn<LineRow>['type'], number, ((v: unknown) => string)?]>> = {
@@ -309,8 +370,8 @@ export function legOverrides(fields: Readonly<Record<string, unknown>>, leg: 1 |
   return set.length === 0 ? 'Profile' : set.join(', ');
 }
 
-const folded = (name: string, header: string, read: (row: LineRow) => string, maxPx: number): GridColumn<LineRow> => ({
-  name, header, type: 'text', width: { auto: true, minPx: fitted(header, 0), maxPx }, queryable: false, value: read, format: plain,
+const folded = (name: string, header: string, read: (row: HeldLine) => string, maxPx: number): GridColumn<LineRow> => ({
+  name, header, type: 'text', width: { auto: true, minPx: fitted(header, 0), maxPx }, queryable: false, value: (row) => (isBlank(row) ? undefined : read(row)), format: plain,
 });
 
 function legColumns(leg: 1 | 2, level: LegLevel): GridColumn<LineRow>[] {
@@ -324,7 +385,7 @@ function legColumns(leg: 1 | 2, level: LegLevel): GridColumn<LineRow>[] {
 
 const figure = (name: string, header: string, type: GridColumn<LineRow>['type'], width: number, read: (f: LineFigures) => unknown, format: (v: unknown) => string,
   tone?: GridColumn<LineRow>['tone']): GridColumn<LineRow> => ({
-  name, header, type, width: fitted(header, width), queryable: false, value: (row) => (row.figures === undefined ? undefined : read(row.figures) ?? undefined), format,
+  name, header, type, width: fitted(header, width), queryable: false, value: (row) => (isBlank(row) || row.figures === undefined ? undefined : read(row.figures) ?? undefined), format,
   ...(tone === undefined ? {} : { tone }),
 });
 
@@ -338,7 +399,7 @@ export function lineColumns(layout: LineLayout): readonly GridColumn<LineRow>[] 
   return [
     // Pinned: which line, and its cashflows, stay in view however far the terms scroll. Both sized to their content.
     // Removing a line is in its context menu (ADR-0015 §5).
-    { name: 'line', header: 'Line', type: 'text', width: { auto: true, minPx: 40, maxPx: 72 }, queryable: false, value: (row) => row.line, format: plain },
+    { name: 'line', header: 'Line', type: 'text', width: { auto: true, minPx: 40, maxPx: 72 }, queryable: false, value: (row) => (isBlank(row) ? undefined : row.line), format: plain },
     actionColumn<LineRow>(ACTIONS, [{ name: 'cashflows', label: 'Flows' }], { header: '', width: { auto: true, minPx: 40, maxPx: 120 } }),
     // The inputs, left to right as a trade is read: the trade, then each leg.
     field('product', 'Product', 'text', 64, (v) => String(v).toUpperCase()),
@@ -353,7 +414,7 @@ export function lineColumns(layout: LineLayout): readonly GridColumn<LineRow>[] 
     figure('pvCurrency', 'Ccy', 'text', 44, (f) => f.pvCurrency, plain),
     figure('par', 'Par %', 'number', 84, (f) => f.par, (v) => pct.format(v as number)),
     figure('status', 'Status', 'text', 82, (f) => f.status, plain),
-    { name: 'message', header: 'Issues', type: 'text', width: 320, queryable: false, value: (row) => message(row), format: plain },
+    { name: 'message', header: 'Issues', type: 'text', width: 320, queryable: false, value: (row) => (isBlank(row) ? undefined : message(row)), format: plain },
   ];
 }
 
@@ -446,7 +507,7 @@ export function lineHeaderGroups(layout: LineLayout, hidden: HiddenEdits = NONE_
   ];
 }
 
-function message(row: LineRow): string | undefined {
+function message(row: HeldLine): string | undefined {
   const parts = [...row.view.issues, ...row.view.held];
   if (row.figures?.message !== undefined) parts.push(row.figures.message);
   return parts.length === 0 ? undefined : parts.join(' · ');
@@ -468,7 +529,7 @@ export interface LineResult {
   readonly issues?: string;
 }
 
-export function lineResult(row: LineRow): LineResult {
+export function lineResult(row: HeldLine): LineResult {
   const f = row.figures;
   const issues = message(row);
   return {
@@ -483,6 +544,7 @@ export function lineResult(row: LineRow): LineResult {
 
 /** A cell's state: the user's edits, held edits, a line that cannot be priced, and figures of an older revision. */
 export function lineCellState(row: LineRow, column: GridColumn<LineRow>): CellState {
+  if (isBlank(row)) return 'normal';
   if (RESULT.has(column.name)) {
     if (row.figures === undefined) return 'normal';
     if (row.figuresStale) return 'stale';
@@ -504,6 +566,7 @@ function foldedTerms(column: string): readonly string[] | undefined {
 }
 
 export function lineCellMessage(row: LineRow, column: GridColumn<LineRow>): string | undefined {
+  if (isBlank(row)) return column.name === 'product' ? 'Type IRS or CCS here to make a line.' : undefined;
   if (RESULT.has(column.name) && row.figures !== undefined) {
     const f = row.figures;
     const when = `revision ${f.inputRevision}, market ${f.snapshotId}, ${f.mode}`;
@@ -559,7 +622,7 @@ export function figuresOf(frame: LiveFrame): ReadonlyMap<string, LineFigures> {
  * The rows: one per line, with the newest frame's figures. A line whose figures were calculated on an older
  * revision keeps them, marked stale, until a frame of its revision arrives; never shown as current.
  */
-export function lineRows(lines: readonly LineView[], revision: number, frame: LiveFrame | undefined, previous: ReadonlyMap<string, LineRow>): LineRow[] {
+export function lineRows(lines: readonly LineView[], revision: number, frame: LiveFrame | undefined, previous: ReadonlyMap<string, HeldLine>): HeldLine[] {
   const figures = frame === undefined ? undefined : figuresOf(frame);
   return lines.map((view) => {
     const f = figures?.get(view.line);
