@@ -236,7 +236,7 @@ public sealed class RatesLineAdd(Func<RatesWorkspaces> workspaces) : ICapability
             throw new TableRefused("UnknownProduct", $"{words[0].Word} is no product a line is added for: {TableWords.Or(Products.Keys)}.", words[0].Word, [.. Products.Keys]);
         if (words.Count > 1) throw new TableRefused("UnreadWords", $"add line takes a product and nothing after it: {words[1].Word} is not read.", words[1].Word);
         return RatesCommand.Read(line, new JsonObject { ["product"] = product }, [new("product", product)],
-            $"Adds {RatesWorkspaces.NextLine(line.State)}, an empty {product} line to fill in the grid.");
+            $"Adds {RatesWorkspaces.NextLineName(line.State)}, an empty {product} line to fill in the grid.");
     }
 
     public LineCompletions Complete(LineContext line)

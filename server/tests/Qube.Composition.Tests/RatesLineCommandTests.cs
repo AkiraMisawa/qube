@@ -303,12 +303,15 @@ public class RatesLineCommandTests
     }
 
     [Fact] // ADR-0016 note 65: a workspace whose lines were named by the revision that made them goes on from its highest number
-    public void A_workspace_of_lines_named_by_their_revision_goes_on_from_its_highest()
+    public async Task A_workspace_of_lines_named_by_their_revision_goes_on_from_its_highest()
     {
         var rig = new Rig();
         rig.Workspaces.Create(rig.Id, rig.State.Revision, "akira", RatesEditRules.LinesScope, "L5", LineFields.Template(RatesProduct.Irs));
 
-        Assert.Equal("Adds L6, an empty irs line to fill in the grid.", rig.Preview("add line irs").Would);
+        var reading = rig.Preview("add line irs").Would;
+        var added = await rig.Enter("add line irs");
+
+        Assert.Equal(("Adds L6, an empty irs line to fill in the grid.", "Added L6, an empty irs line."), (reading, added));
     }
 
     [Fact] // ADR-0016 note 34: a value is checked for its form, as a typed cell is; what the terms then lack shows on the row
