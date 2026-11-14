@@ -1661,8 +1661,8 @@ and notes 42 to 44 are 4c's.
       next line reads the view again, so `select where ccy=USD` then `set notional 5mm`, or `copy`, acts on the
       rows just selected (note 18).
     - It completes as rows are said (note 15). Not the AI's, not logged, not undone: it changes no workspace.
-    - *Left for later.* Several ranges, when ExGrid places them. Taking the Selection off (`select off`): ExGrid
-      places a range and has no call that leaves none.
+    - *Left for later.* Several ranges, which ExGrid places since 0.3.0, when the owner asks. Taking the
+      Selection off (`select off`): ExGrid places a range and has no call that leaves none.
 
 44. **`copy` and `export` take rows out of the workbench (§3, amending its spelling; 4c).**
     `copy [<rows>] [<fields>] [with headers]` puts cells on the clipboard, and

@@ -3606,9 +3606,10 @@ file.
   Action Column's buttons take the theme (#553) and a disabled column-menu command is dimmed (#552), which
   `docs/design-guidelines.md` §12 no longer lists.
 - 0.2.1's funnel on a filtered column, and its button's name `Column menu, filtered`, reach no page here: no grid's
-  column menu offers a filter of its own (it holds `Clear filter` alone), and a grid filtered by `filter where`
-  shows no funnel, its caption saying the conditions as before (seen on Existing trades filtered by `ccy=USD`).
-- Step 2's pull request's screens are taken again on 0.3.0, with three more of what 0.2.1 changed.
+  column menu offers a filter of its own (its only filter command is `Clear filter`), and a grid filtered by `filter
+  where` shows no funnel, its caption saying the conditions as before (seen on Existing trades filtered by `ccy=USD`).
+- Step 2's pull request's screens are taken again on 0.3.0, with four more of what 0.2.1 changed: a marked heading in
+  the light scheme, the `Flows` button in the dark, and a column menu's disabled commands in both.
 
 ### Verification performed
 
@@ -3618,7 +3619,8 @@ file.
 | `npm run typecheck`, `npx vitest run`, `npm run build` | Clean; 494 passed in 48 files; built |
 | `npx playwright test` (Chromium, headless, Linux), after `theme.css`'s override was removed | 148 passed |
 | Contrast in Chromium at 1280 × 800, the Rates Lines' marked heading (the Focus on Start), without the override | One token draws the line and the corner's triangle. light: the line 4.33:1 on the marked heading's shade and 5.25:1 on the body, the Focus outline 5.25:1 (2.70:1 on 0.2.0); dark: the line 5.90:1 and 8.69:1 |
-| Seen in Chromium, both schemes | The Rates line's `Flows` button in the theme's colours; the Pricing DB's column menu, every command disabled on an empty grid, dimmed; Existing trades' column menu, which holds no filter of its own |
+| Seen in Chromium, both schemes | The Rates line's `Flows` button in the theme's colours; the Pricing DB's column menu, every command disabled on an empty grid, dimmed |
+| Seen in Chromium, dark scheme | Existing trades' column menu, whose only filter command is `Clear filter`; its Ccy header, filtered by `filter where ccy=USD`, with no funnel |
 
 `dotnet test` was not run for this change: nothing under `server/` moved.
 
