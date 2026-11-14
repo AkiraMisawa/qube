@@ -2833,8 +2833,11 @@ note 37, and rewrite docs/03 §5's CONFIRMED line on a package (owner, the same 
       **CONFIRMED (owner, 2026-11-14 22:52Z):** an existing row in After alone may be in a package. P1's case is then
       the Base as if that trade had not been added, which keeps the comparison "this package instead of that trade".
       Put to him with refusing it (`NotInBefore`, recommended for a plainer reading, and built while he chose); he
-      chose to allow it. P1's title says it takes the trade out (`P1: add DRAFT-1 without E00004`), and leaves it out
-      of the common change it names, which it does not carry; every other case's title names it there.
+      chose to allow it.
+
+      *P1's title (DEFAULT, built with his choice):* it says P1 takes the trade out (`P1: add DRAFT-1 without
+      E00004`), and leaves the trade out of the common change it names, which P1's case does not carry; every other
+      case's title names it there (docs/03 §5). As first written, before review, the title named it both ways.
 
       *Make package…* writes the package on the rows the two selections name and nothing else. It makes the set from
       every row, as `add each` does, so a row the table refuses, written by it or not, refuses the whole command, with

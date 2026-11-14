@@ -90,12 +90,12 @@ public static class PortfolioCases
     {
         var made = Made(state);
         // Every case of iterative addition says the common change it carries (docs/03 §5), read from the Base now.
-        var moved = made.Any(c => KindOf(c) == Add) ? Moved(Base(state)) : [];
+        var changed = made.Any(c => KindOf(c) == Add) ? ChangedInBase(Base(state)) : [];
         CaseView View(CreatedEntity c)
         {
             var iteration = KindOf(c) == Add ? IterationOf(c) : null;
             return new(Entity.Split(c.Entity).Id, Title(c), KindOf(c), state.Overrides.Keys.Count(t => t.Layer == c.Entity),
-                iteration, iteration is null ? null : CommonChange(moved, iteration.Without));
+                iteration, iteration is null ? null : CommonChange(changed, iteration.Without));
         }
         return [new(BaseId, BaseTitle, "base", 0), .. made.Select(View)];
     }
@@ -123,7 +123,7 @@ public static class PortfolioCases
     public static IReadOnlyList<Iteration> Iterations(WorkspaceState state) => [.. Made(state).Where(c => KindOf(c) == Add).Select(IterationOf)];
 
     // The existing trades whose After the Base holds otherwise than their Before: the common change of docs/03 §5.
-    static IReadOnlyList<EffectiveTrade> Moved(WorkspaceState baseline) =>
+    static IReadOnlyList<EffectiveTrade> ChangedInBase(WorkspaceState baseline) =>
         [.. PortfolioMaterialiser.Trades(baseline).Where(t => !t.IsNew && t.Before != t.After)];
 
     /// <summary>
@@ -131,9 +131,9 @@ public static class PortfolioCases
     /// those the case takes out of After, which it does not carry (an existing trade in After alone may be in a
     /// package, ADR-0016 note 91). Null where it carries none, so no case says a change it does not carry.
     /// </summary>
-    static string? CommonChange(IReadOnlyList<EffectiveTrade> movedInBase, IReadOnlyList<string> takenOut)
+    static string? CommonChange(IReadOnlyList<EffectiveTrade> changedInBase, IReadOnlyList<string> takenOut)
     {
-        var moved = movedInBase.Where(t => !takenOut.Contains(t.TradeId)).ToList();
+        var moved = changedInBase.Where(t => !takenOut.Contains(t.TradeId)).ToList();
         if (moved.Count == 0) return null;
         static string Named(List<EffectiveTrade> trades) =>
             trades.Count <= 3 ? $"existing {string.Join(", ", trades.Select(t => t.TradeId))}" : $"{trades.Count} existing trades";

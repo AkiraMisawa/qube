@@ -590,14 +590,19 @@ public class PricerCaseTests
         ws = Package(service, ws, "P1", "DRAFT-1", e[0], e[1]);
 
         var answer = service.AddTrades(ws.WorkspaceId, ws.Revision, "akira");
-        var (input, _, _) = await Price(runs, store, service, answer.State);
+        // A case of vary beside them holds every row as the Base does: a package changes only add each's cases.
+        var varied = service.Vary(ws.WorkspaceId, answer.State.Revision, "akira", "NS-001 recovery", ["25%"]);
+        var (input, _, _) = await Price(runs, store, service, varied.State);
 
         Assert.Equal([$"P1: add DRAFT-1 without {e[0]} + {e[1]}", "add DRAFT-2"], answer.Made);
         // Where a case holds the trade, in Before and in After; a trade in neither is not in the case's input at all.
         (bool Before, bool After)? In(PricedCase c, string id) =>
             c.Input["trades"]!.AsArray().SingleOrDefault(t => t!["tradeId"]!.GetValue<string>() == id) is { } trade
                 ? (trade["before"]!.GetValue<bool>(), trade["after"]!.GetValue<bool>()) : null;
-        var cases = PortfolioInput.Cases(input);
+        var all = PortfolioInput.Cases(input);
+        Assert.Equal(["base", "add", "add", "vary"], all.Select(c => c.Kind));
+        Assert.All(new[] { "DRAFT-1", "DRAFT-2", "DRAFT-3" }.Concat(e), id => Assert.Equal(In(all[0], id), In(all[3], id)));
+        var cases = all.Take(3).ToList();
         // e1, e4 and e5 are the change the Base makes, which each case's title says it carries (docs/03 §5); P1's case
         // takes e1 out, and does not say it.
         Assert.Equal(["Base", $"P1: add DRAFT-1 without {e[0]} + {e[1]} · with existing {e[4]} out of After and existing {e[5]} in After only",
@@ -614,7 +619,7 @@ public class PricerCaseTests
 
         // The refused rows, each written and taken back: add each, and Make package however few rows it writes, say the
         // row, and nothing is written.
-        var at = answer.State;
+        var at = varied.State;
         string Refused(Func<WorkspaceState, WorkspaceState> change, Func<WorkspaceState, AddAnswer> run, Func<WorkspaceState, WorkspaceState> back)
         {
             var changed = change(at);
@@ -624,12 +629,12 @@ public class PricerCaseTests
             return $"{refused.Code}: {refused.Message}";
         }
         AddAnswer AddEach(WorkspaceState w) => service.AddTrades(w.WorkspaceId, w.Revision, "akira");
+        const string notTicked = "CandidateNotTicked: DRAFT-3 is in the package P2 and has A clear, and a package adds New rows with A ticked. Tick A on it, or clear its Package.";
         Assert.Equal("CandidateInBefore: DRAFT-2 is in Before, and a new trade is priced alone only out of Before. Clear B on it, or A to leave it out, then add each again.",
             Refused(w => Flag(w, "DRAFT-2", "before", true), AddEach, w => Flag(w, "DRAFT-2", "before", false)));
         Assert.Equal("CandidateInBefore: DRAFT-1 is in Before, and add each adds a new trade only out of Before. Clear B on it, then add each again.",
             Refused(w => Flag(w, "DRAFT-1", "before", true), AddEach, w => Flag(w, "DRAFT-1", "before", false)));
-        Assert.Equal("CandidateNotTicked: DRAFT-3 is in the package P2 and has A clear, and a package adds New rows with A ticked. Tick A on it, or clear its Package.",
-            Refused(w => Package(service, w, "P2", "DRAFT-3"), AddEach, w => Package(service, w, null, "DRAFT-3")));
+        Assert.Equal(notTicked, Refused(w => Package(service, w, "P2", "DRAFT-3"), AddEach, w => Package(service, w, null, "DRAFT-3")));
         Assert.Equal($"NotInAfter: {e[2]} is in the package P2 and not in After in the Base, so no case takes it out. Tick A on it, or clear its Package.",
             Refused(w => Package(service, w, "P2", e[2]), AddEach, w => Package(service, w, null, e[2])));
         Assert.Equal($"NotInAfter: {e[4]} is in the package P3 and not in After in the Base, so no case takes it out. Tick A on it, or clear its Package.",
@@ -637,8 +642,7 @@ public class PricerCaseTests
 
         // A New row with B and A clear is in no case, and refused in a package as one with B ticked is.
         at = Flag(at, "DRAFT-3", "before", false);
-        Assert.Equal("CandidateNotTicked: DRAFT-3 is in the package P2 and has A clear, and a package adds New rows with A ticked. Tick A on it, or clear its Package.",
-            Refused(w => Package(service, w, "P2", "DRAFT-3"), AddEach, w => Package(service, w, null, "DRAFT-3")));
+        Assert.Equal(notTicked, Refused(w => Package(service, w, "P2", "DRAFT-3"), AddEach, w => Package(service, w, null, "DRAFT-3")));
         var again = AddEach(at);
         var (cleared, _, _) = await Price(runs, store, service, again.State);
         Assert.Equal(answer.Made, again.Made);
