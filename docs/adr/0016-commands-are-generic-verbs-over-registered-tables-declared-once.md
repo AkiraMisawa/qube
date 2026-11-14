@@ -2721,13 +2721,16 @@ later answer, is written when he answers.
       - *A leg with no notional* leaves that field empty: nothing stands in for it (CLAUDE.md, no fallback).
         Such are the leg an overwritten PV leaves, a leg made without a notional, and a source's leg whose
         notional was cleared.
-      - *A trade with no leg* has no row, such as a new trade nobody gave a PV.
+      - *A trade with no leg* has no row, such as a new trade nobody gave a PV. A side none of whose trades holds
+        a leg so gets the header alone. Price prices no side without a trade (ADR-0010 §3), so no request is
+        made for one.
       - *The text.* A line ends in a line feed, the last one too. A trade's id is written as it is, an
         underscore of its own included.
-      - *What is refused, not written*, each with the trade or the leg it is said of where the input names one:
-        a row that a comma, a quote or a line break would break; a case, a trade or a leg without a field the
-        input carries for every one; a value of another form, an empty currency or trade id among them; and a
-        trade the case holds twice.
+      - *What is refused, not written*, each with the trade or the leg it is said of where the input names one,
+        a leg by its id in the file, which is its place: a row that a comma, a quote or a line break would
+        break; a case, a trade of the side or a leg without a field the file is written from; such a field of
+        another form, a currency or a trade id that is empty or spaces alone among them; and a trade the case
+        holds twice.
     - **OPEN, asked of the owner.**
       - *The file's name.* `docs/08-provider-boundaries.md` §7 names the table a trade's PV is carried in as
         `/deals/trade_official_pv_table.csv` (owner, 2026-10-27), its layout not specified then. Whether that

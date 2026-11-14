@@ -33,16 +33,21 @@ public static class XvaRequestFiles
     /// and the leg's place under its trade from 0; its PV and notional are in its currency, written as the input
     /// holds them. A trade with no leg has no row, and a leg whose notional the input says is empty leaves that field
     /// empty: nothing stands in for it. A line ends in a line feed, the last one too. Refused, each with the trade or
-    /// the leg it is said of where the input names one: a case, a trade or a leg without a field the input carries
-    /// for every one, a value of another form or an empty text, a row that a comma, a quote or a line break would
-    /// break, and a trade the case holds twice.
+    /// the leg it is said of where the input names one, a leg by its id in the file: a case, a trade of the side or a
+    /// leg without a field the file is written from, such a field of another form or an empty text, a row that a
+    /// comma, a quote or a line break would break, and a trade the case holds twice.
     /// </summary>
     /// <param name="case">A case of the accepted input, whose trades each say whether Before holds them, and After.</param>
     /// <param name="side">The side the request prices: its trades are written, and no other.</param>
     public static string OfficialPv(JsonNode @case, XvaRequestSide side)
     {
         var trades = Required(@case, "trades", ACase) as JsonArray ?? throw Refused($"{ACase} holds trades that are no list.");
-        var held = side == XvaRequestSide.Before ? "before" : "after";
+        var sideFlag = side switch
+        {
+            XvaRequestSide.Before => "before",
+            XvaRequestSide.After => "after",
+            _ => throw new ArgumentOutOfRangeException(nameof(side), side, "A request prices Before or After."),
+        };
         var file = new StringBuilder("id,ccy,pv,notional\n");
         var given = new HashSet<string>(StringComparer.Ordinal);
         foreach (var trade in trades)
@@ -50,7 +55,7 @@ public static class XvaRequestFiles
             var tradeId = Text(trade ?? throw Refused($"{ACase} holds nothing in a trade's place."), "tradeId", ATrade);
             if (!given.Add(tradeId))
                 throw Refused($"{OfficialPvPath} cannot hold trade {tradeId} twice: a case holds a trade once.");
-            if (!Flag(trade, held, $"Trade {tradeId}")) continue;
+            if (!Flag(trade, sideFlag, $"Trade {tradeId}")) continue;
             var legs = Required(trade, "legs", $"Trade {tradeId}") as JsonArray ?? throw Refused($"Trade {tradeId}'s legs are no list.");
             for (var at = 0; at < legs.Count; at++)
             {
@@ -68,8 +73,8 @@ public static class XvaRequestFiles
 
     static CapabilityFailure Refused(string message) => new("InvalidInput", message);
 
-    // What a case, a trade or a leg holds under a name the accepted input carries for every one. The name not being
-    // there is said, with what it is missing from; the value may be empty.
+    // What a case, a trade or a leg holds under a name the file is written from, which the accepted input carries
+    // for every one. The name not being there is said, with what it is missing from; the value may be empty.
     static JsonNode? Held(JsonNode row, string field, string of) =>
         row is JsonObject fields && fields.TryGetPropertyValue(field, out var value) ? value : throw Missing(field, of);
 

@@ -72,6 +72,10 @@ public class XvaRequestFilesTests
     public void A_trade_id_that_would_break_its_row_is_refused(string id) =>
         Assert.Equal($"{File} cannot hold {id}_0: a comma, a quote or a line break would break its row.", Refusal(Case(Trade(id, ("GBP", 1m, 1m)))));
 
+    [Fact] // CLAUDE.md, no fallback: a request prices Before or After, and a side that is neither is not taken for one of them
+    public void A_side_that_is_neither_Before_nor_After_is_refused() =>
+        Assert.Throws<ArgumentOutOfRangeException>(() => XvaRequestFiles.OfficialPv(Case(Trade("T-1", ("GBP", 1m, 1m))), (XvaRequestSide)7));
+
     [Fact] // ADR-0016 note 69: a case holds a trade once, so one it holds twice is refused with its name, on the other side too
     public void A_trade_a_case_holds_twice_is_refused()
     {
@@ -116,6 +120,7 @@ public class XvaRequestFilesTests
         Assert.Equal("Trade T-1's after is neither true nor false.", Refusal(Case(With("after", "yes"))));
         Assert.Equal($"A trade of the accepted input carries no tradeId, which {File} is written from.", Refusal(Case(With("tradeId", null))));
         Assert.Equal("A trade of the accepted input carries a tradeId that is no text.", Refusal(Case(With("tradeId", 7))));
+        Assert.Equal("A trade of the accepted input carries an empty tradeId.", Refusal(Case(With("tradeId", ""))));
         Assert.Equal("A case of the accepted input holds nothing in a trade's place.", Refusal(Case([null])));
         Assert.Equal($"A case of the accepted input carries no trades, which {File} is written from.", Refusal(new JsonObject()));
         Assert.Equal("A case of the accepted input holds trades that are no list.", Refusal(new JsonObject { ["trades"] = "none" }));
@@ -126,7 +131,7 @@ public class XvaRequestFilesTests
     {
         var rig = new PricerRig();
         await rig.Run("set E00004 pv -350,000 USD");
-        await rig.Run("new leg E00013 eur 250,000");
+        await rig.Run("new leg E00013 eur 250,000.50");
         await rig.Run("remove legs E00013/1");
         var @case = (await rig.Priced())["cases"]![0]!;
 
@@ -136,8 +141,8 @@ public class XvaRequestFilesTests
         // The swap's two legs were taken out by the overwrite, and the leg made in their place is the trade's first.
         Assert.Equal([$"{Swap}_0,USD,-350000,"], rows.Where(r => r.StartsWith(Swap)));
         // The source's first leg (`/1` in the workspace) was removed: its second (`/2`) is the trade's first then, and
-        // the leg made is its second.
-        Assert.Equal([$"{UsdSwap}_0,USD,-313247,81000000", $"{UsdSwap}_1,EUR,250000,"], rows.Where(r => r.StartsWith(UsdSwap)));
+        // the leg made is its second, its fraction as the input the Run keeps holds it (the line's 250,000.50 is 250000.5 there).
+        Assert.Equal([$"{UsdSwap}_0,USD,-313247,81000000", $"{UsdSwap}_1,EUR,250000.5,"], rows.Where(r => r.StartsWith(UsdSwap)));
         // An untouched trade's legs keep the source's order.
         Assert.Equal([$"{Forward}_0,JPY", $"{Forward}_1,USD"], rows.Where(r => r.StartsWith(Forward)).Select(r => r[..(Forward.Length + 6)]));
         // A new trade no leg was made for is in After and has no row: no book holds a PV for it.

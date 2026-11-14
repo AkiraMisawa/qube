@@ -3789,15 +3789,15 @@ each leg (`id,ccy,pv,notional`, the id `{trade id}_{leg id}`, the leg id an inte
 
 | Check | Result |
 |---|---|
-| `nix develop -c dotnet test server/Qube.slnx` | 1671 passed |
+| `nix develop -c dotnet test server/Qube.slnx` | 1672 passed |
 | `cd client && npm run typecheck && npm test` | typecheck clean; 512 passed in 49 files (no client file changes) |
 | `cd client && npx playwright test` (Chromium, the built client served by the host) | 152 passed |
 
-The file's twelve test cases were seen to fail with the writer broken and to pass with it put back: eleven with
+The file's first twelve test cases were seen to fail with the writer broken and to pass with it put back: eleven with
 the numbering from 1, and the other three ways (no refusal of a trade held twice, both sides written, a figure in
 the server's own culture) each failed the test that holds it. One test prices a workspace with an overwritten PV,
 a leg made and a source's leg removed, and reads the file from the input its Run keeps. Reviewed on two axes
-(standards, and note 69 as the specification); the findings are fixed in the commit that follows the first.
+(standards, and note 69 as the specification), three times; the findings are fixed in the commits after the first.
 All of it is on the branch with main's 3ac4e82 (the command line's Emacs keys) merged in.
 
 ### Providers
