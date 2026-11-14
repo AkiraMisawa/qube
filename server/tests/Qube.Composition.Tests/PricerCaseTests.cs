@@ -599,7 +599,7 @@ public class PricerCaseTests
         // Where the cells now make no case, add each again would refuse too: the sentence says to remove the cases instead.
         var none = Set(Package(service, Set(unticked, "trade:DRAFT-2", "after", true), null, "DRAFT-1", "DRAFT-2"), "grid:new", "after", false);
         Assert.Equal("AdditionSetChanged: add each's cases are not what the Package column and A say, which make no case now. "
-            + "Out of date: P1: add DRAFT-1 + DRAFT-2, add DRAFT-3. Remove them in Changes, or tick A on a new trade or write a package, then run add each again.",
+            + "Out of date: P1: add DRAFT-1 + DRAFT-2, add DRAFT-3. Remove them with case remove or in Changes, or tick A on a new trade or write a package and run add each again.",
             Refused(none));
         // With no case of add each and the column clear, Price prices the Base: no package is priced by a guess.
         var cleared = service.ClearCases(ws.WorkspaceId, none.Revision, "akira").State;
@@ -613,12 +613,13 @@ public class PricerCaseTests
         var ws = service.Create("akira", "ABC/LE-01", Day1, 40);
 
         var over = Assert.Throws<WorkspaceRefused>(() => service.AddTrades(ws.WorkspaceId, ws.Revision, "akira"));
+        var made = service.View(ws.WorkspaceId, "akira").Cases.Select(c => c.Title).ToList();
         var packaged = Package(service, ws, "P1", "DRAFT-1", "DRAFT-2", "DRAFT-3");
         var under = service.AddTrades(ws.WorkspaceId, packaged.Revision, "akira");
 
         Assert.Equal(("TooManyCases", "add each would make 3 case(s), and Price prices 2 at most, the Base among them: 2 over. "
             + "Put new trades together in packages, or clear A on new trades in none."), (over.Code, over.Message));
-        Assert.Equal(["Base"], service.View(ws.WorkspaceId, "akira").Cases.Take(1).Select(c => c.Title));
+        Assert.Equal(["Base"], made);
         Assert.Equal(["P1: add DRAFT-1 + DRAFT-2 + DRAFT-3"], under.Made);
         Assert.IsType<SubmissionResult.Accepted>(service.Price(ws.WorkspaceId, under.State.Revision, "akira", Guid.NewGuid().ToString()));
     }
@@ -638,6 +639,7 @@ public class PricerCaseTests
         Assert.Equal([$"P1: add DRAFT-1 + DRAFT-2 without {taken}", "add DRAFT-3"], first.Made);
         Assert.Equal($"add each: package P1 on DRAFT-1, DRAFT-2 and {taken}", first.State.Log[^1].Command?.Said);
         Assert.Equal("P2 on DRAFT-2 (from P1) and DRAFT-3", second.Wrote);
+        Assert.Equal("add each: package P2 on DRAFT-2 (from P1) and DRAFT-3", second.State.Log[^1].Command?.Said);
         Assert.Equal([$"P1: add DRAFT-1 without {taken}", "P2: add DRAFT-2 + DRAFT-3"], second.Made);
         Assert.Equal([new PackageView("P1", ["DRAFT-1"], [taken]), new PackageView("P2", ["DRAFT-2", "DRAFT-3"], [])],
             service.View(ws.WorkspaceId, "akira").Packages, new PackageViewComparer());
@@ -663,6 +665,22 @@ public class PricerCaseTests
     {
         public bool Equals(PackageView? x, PackageView? y) => x is not null && y is not null && x.Name == y.Name && x.Adds.SequenceEqual(y.Adds) && x.TakesOut.SequenceEqual(y.TakesOut);
         public int GetHashCode(PackageView obj) => obj.Name.GetHashCode(StringComparison.Ordinal);
+    }
+
+    [Fact] // ADR-0016 notes 93 and 94: the next free name is the first of P1, P2… that no trade's package is, whatever the case of its letters, and a package given no name is given it
+    public void The_next_free_name_skips_every_name_written_whatever_the_case_of_its_letters()
+    {
+        var (service, _, _) = Priced();
+        var ws = service.Create("akira", "ABC/LE-01", Day1, 40);
+        ws = Package(service, Package(service, ws, "p1", "DRAFT-1"), "P3", "DRAFT-2");
+
+        var offered = service.View(ws.WorkspaceId, "akira").NextPackage;
+        var given = service.AddTrades(ws.WorkspaceId, ws.Revision, "akira", new(null, ["DRAFT-3"]));
+
+        Assert.Equal("P2", offered);
+        Assert.Equal("P2 on DRAFT-3", given.Wrote);
+        Assert.Equal(["p1: add DRAFT-1", "P3: add DRAFT-2", "P2: add DRAFT-3"], given.Made);
+        Assert.Equal("P4", service.View(ws.WorkspaceId, "akira").NextPackage);
     }
 
     [Fact] // ADR-0010 §7 with §3: Copy quote holds a line per case of the Run, each named, with its CVA Charge and PV

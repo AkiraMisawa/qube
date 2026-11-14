@@ -56,7 +56,7 @@ function PackageForm({ selection, packages, next, make, onClose }: {
   const said = none ?? refused;
   const toggle = (trade: string) => {
     setRefused(undefined);
-    setOut((before) => { const next = new Set(before); if (!next.delete(trade)) next.add(trade); return next; });
+    setOut((before) => { const left = new Set(before); if (!left.delete(trade)) left.add(trade); return left; });
   };
   const submit = async () => {
     if (none !== undefined || busy) return;

@@ -433,7 +433,7 @@ public class PricerLineTests
         rig.Workspaces.Batch(rig.Id, rig.State.Revision, "akira",
             [new WorkspaceChange.Create("cp:ABC/LE-01", PortfolioCases.Of("c900"), new JsonObject
             {
-                ["title"] = $"add DRAFT-1, take out {taken}", ["kind"] = PortfolioCases.Add, ["add"] = new JsonArray("DRAFT-1"), ["without"] = new JsonArray(taken),
+                ["title"] = $"add DRAFT-1 without {taken}", ["kind"] = PortfolioCases.Add, ["add"] = new JsonArray("DRAFT-1"), ["without"] = new JsonArray(taken),
             })]);
 
         var refused = Assert.Throws<WorkspaceRefused>(() => rig.Service.Price(rig.Id, rig.State.Revision, "akira", Guid.NewGuid().ToString()));

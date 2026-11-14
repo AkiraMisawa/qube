@@ -2771,8 +2771,9 @@ note 37, and rewrite docs/03 §5's CONFIRMED line on a package (owner, the same 
       stays where the trades are, and nothing of the set is held anywhere else.
     - *A name is read as written.* It is a text with no space at either end and no comma, or empty for none
       (`InvalidValue: A package is a name with no comma, such as P1, or empty for none.`). The page's cell and its
-      dialog drop the spaces at either end of what was typed, as an identifier's cell does (a CSA's, a curve's), and
-      send an empty one as none; the AI's request is held to the rule as written. The comma is kept for a row in
+      dialog drop the spaces at either end of what was typed, as an identifier's cell does (a CSA's, a curve's); the
+      cell sends an empty one as none, and the dialog asks for a name. The AI's request is held to the rule as
+      written. The comma is kept for a row in
       several packages, below. Two names that differ only in the case of their letters are refused by `add each`
       (`PackageNamesDiffer`), never taken as one or as two.
     - *What kind of field.* It is a field of membership, as B and A are (`xva.membership`), kept in the
@@ -2797,7 +2798,9 @@ note 37, and rewrite docs/03 §5's CONFIRMED line on a package (owner, the same 
       answer lists the cases by commas, and `P1: add DRAFT-1, take out E00003, add DRAFT-3` read as one case.
     - *A case names its package.* A case of kind `add` holds its `iteration`: `package`, `add` and `without`, in the
       workspace's view and in the input Price freezes, beside each trade's own `package`. A case stored before this
-      note has no package, is read as it was made, and is out of date at Price (note 92) until `add each` again.
+      note has no package and is read as it was made. One of a trade alone is what `add each` makes now; one that
+      added several together or took trades out has no package to say so, and is out of date at Price (note 92) until
+      `add each` again.
 92. **Price checks the set against the cells (amends note 37's check of the set).** Where packages are written and no
     case of `add each` is made, Price is refused (`PackagesNotMade: The Package column names P1, and no case of add
     each prices it. Run add each to make the cases, or clear the column with reset all package to price without
@@ -2809,8 +2812,8 @@ note 37, and rewrite docs/03 §5's CONFIRMED line on a package (owner, the same 
     trade of the set ticked in Before, say), Price is refused by `add each`'s own code and sentence, which says what
     to change in the cells. Where they now make no case at all, `add each` again would be refused for that, so the
     sentence says to remove the cases instead (`AdditionSetChanged: add each's cases are not what the Package column
-    and A say, which make no case now. Out of date: add DRAFT-3. Remove them in Changes, or tick A on a new trade or
-    write a package, then run add each again.`). Note 37's check of each case holds: its After holds its own new
+    and A say, which make no case now. Out of date: add DRAFT-3. Remove them with case remove or in Changes, or tick
+    A on a new trade or write a package and run add each again.`). Note 37's check of each case holds: its After holds its own new
     trades and no other, and none of the trades it takes out.
 93. **`xva.trades.add` writes a package first (§4; retires note 37's `iterations` and `keep`).** Its request may
     hold `package`, a name, and `trades`, the ids of the trades to write it on, new and existing, one at least. The
@@ -2835,7 +2838,7 @@ note 37, and rewrite docs/03 §5's CONFIRMED line on a package (owner, the same 
       workspace's view says (`nextPackage`, the server's rule and not the page's), and a name already written adds
       the trades to that package. *Make package* invokes `xva.trades.add` with `package`
       and `trades`: the cells are written and the set made anew in one command, and the notice is the server's
-      sentence. It is disabled, and says why, while no trade is kept.
+      sentence. It is disabled, and says why, while no trade is kept or no name is typed.
     - *The Changes tab* shows each case's package and its two lists, read only. Note 37's buttons that left one trade
       out of a case are removed: a trade leaves a package by its cell, then `add each`. Its known limit (a stale case
       refusing such a press) goes with them.

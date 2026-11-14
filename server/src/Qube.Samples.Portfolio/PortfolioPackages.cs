@@ -48,14 +48,14 @@ public static class PortfolioPackages
     /// Before, and an existing trade of a package that the Base does not have in After; and a set of no case.
     /// </summary>
     public static IReadOnlyList<Iteration> AdditionSet(IReadOnlyList<EffectiveTrade> trades) =>
-        Wanted(trades) is { Count: > 0 } set ? set
+        AdditionSetOrNone(trades) is { Count: > 0 } set ? set
             : throw new WorkspaceRefused("NothingToAdd", "add each makes a case per package and per New row with A ticked, and no trade is in a package and no New row has A ticked.");
 
     /// <summary>
-    /// The set the cells say, as <see cref="AdditionSet"/> makes it and refuses what no case can be made of; none where
-    /// they say no case, which Price reads beside the cases made (ADR-0016 note 92).
+    /// The set the cells say, as <see cref="AdditionSet"/> makes it, refusing what it refuses, but empty where the
+    /// cells say no case rather than refused: Price compares it with the cases made (ADR-0016 note 92).
     /// </summary>
-    public static IReadOnlyList<Iteration> Wanted(IReadOnlyList<EffectiveTrade> trades)
+    public static IReadOnlyList<Iteration> AdditionSetOrNone(IReadOnlyList<EffectiveTrade> trades)
     {
         var news = trades.Where(t => t.IsNew).ToList();
         var existing = trades.Where(t => !t.IsNew).ToList();

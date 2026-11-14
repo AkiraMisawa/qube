@@ -3853,16 +3853,24 @@ it; docs/03 §5's CONFIRMED line is rewritten to say packages are in scope (owne
 
 | Check | Result |
 |---|---|
-| `nix develop -c dotnet test server/Qube.slnx` | 1661 passed |
+| `nix develop -c dotnet test server/Qube.slnx` | 1675 passed, on main's f6395ed |
 | `cd client && npm run typecheck && npm test` | typecheck clean; 510 passed in 49 files |
-| `cd client && npx playwright test` (Chromium, the built client served by the host) | VERIFY_E2E |
-| The new and changed browser tests, `--repeat-each=3` | 9 passed |
+| `cd client && npm run build && npx playwright test` (Chromium, headless, Linux, the built client served by the host) | 152 passed, on main's f6395ed, before the second review's fixes |
+| The new and changed browser tests, `--repeat-each=3` | 9 passed; the package test's 3 again after the second review's fixes |
 
 The Context Menu test (note 25) failed once in a repeated run, reading the box of a row the grid had just drawn again
 (`boundingBox()` answered none); it now reads the place once the element is drawn, and passed in the runs after.
 
 By hand, in the built client served by the host: the trade grids with the Package column, the dialog, the answer,
 the Changes tab and a priced Run's cases, at 1440px in both themes, and the dialog at 390px light.
+
+Reviewed with the `code-review` skill twice, on two axes (standards, and notes 90 to 94 as the specification). What
+they changed: the next free name is the server's (`nextPackage`), tested whatever the case of its letters; a name
+given with no trades is refused in one place; Price's refusal where the cells now make no case says to remove the
+cases (`case remove`, or Changes), since `add each` again would refuse; tests were added for the cap, a case stored
+before packages, `reset all package`, a moved trade's log entry and a package made with a trade left out; and notes
+90 to 94 now say what the cell and the dialog do with an empty or spaced name, what each refusal says, and which
+stored cases are out of date.
 
 ### Providers
 
@@ -3872,8 +3880,8 @@ Unchanged: every source and every measure is simulated, and every value is synth
 
 - **One package a row** (DEFAULT, put to the owner): two alternatives cannot take out the same existing trade, or
   add the same new one. A comma is refused in a name, kept for several packages a row if he asks.
-- **A case made by note 37's lists before this change** has no package; Price says it is out of date until `add each`
-  again.
+- **A case made by note 37's lists before this change** has no package. One of a trade alone still prices; one that
+  added several together or took a trade out is out of date at Price until `add each` again.
 - **The line has no spelling of a package's lists** (note 68): it writes cells with `set`, then `add each`.
 
 ## Next
