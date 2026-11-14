@@ -1647,7 +1647,9 @@ and notes 42 to 44 are 4c's.
       ranges is made with the pointer and the keys alone (asked for as ex-grid issue #561). Rows that are not
       next to one another in the grid's order are therefore refused (`SeveralRuns`), with how many runs they are
       in and the way on: filter or sort the grid so that they are, then `select shown`. Selecting the first run
-      and saying nothing would be a Selection that looks like the answer and is not.
+      and saying nothing would be a Selection that looks like the answer and is not. *(2026-11-14: ExGrid 0.3.0,
+      which the workbench takes, places a Selection of several ranges (#561). `select` still refuses rows in
+      several runs; taking it up changes this note, and is left until the owner asks.)*
     - *Who says whether they are one run.* Where the server pages the grid, the server does, in the view's order
       (refused as moved where that is no longer the table's, as a position is), and answers the first position
       and how many. Where the page holds every row, the grid orders them itself: the server answers the rows'

@@ -29,8 +29,8 @@ One pull request (ADR-0018 §11, step 2).
   dialog opened from it opens in it; the command line, `/`, the shell's chords and `ai` work from it, on its panels; the
   shell's notices are said in it while it is the window in use.
 - **ExGrid reads the window it is in.** A page moved into another window, or back, is drawn anew there: ExGrid reads
-  its window's Device Pixel as a grid is created (ADR-0090 in ex-grid, released in 0.3.0-rc.1 and 0.3.0), and the page takes back
-  the screen state its panel kept (ADR-0006 note 10).
+  its window's Device Pixel as a grid is created (ADR-0090 in ex-grid, released in 0.3.0-rc.1 and 0.3.0), and the page
+  takes back the screen state its panel kept (ADR-0006 note 10).
 - **Back where it was.** `dock panel` puts a popped-out panel back into the area it came from. A window the user
   closes puts its panels back there too; a window the browser blocks leaves the panel where it stood. A reload, or the
   main window showing one strip, brings the other windows' panels back into the main window. Each is said.
@@ -140,7 +140,7 @@ refused. When the last panel leaves a window, by
   there; `arrange` closing the window and `arrange back` drawing its panel in the main window; a press in the
   main window making it the window in use again; a tab's menu in a short window keeping inside it; the strip closing
   the windows; a grid in the window told that window's Device Pixel when the window's scale differs (Chromium's device
-  metrics on the window alone), marked as failing until the workbench takes ExGrid 0.3.0. Step 1's specs keep
+  metrics on the window alone), marked as failing while the workbench took ExGrid 0.2.0, and passing, unmarked, on 0.3.0. Step 1's specs keep
   passing.
 
 ## Out of Scope

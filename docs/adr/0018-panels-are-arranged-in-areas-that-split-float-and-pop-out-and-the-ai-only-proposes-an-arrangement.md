@@ -328,8 +328,9 @@ with step 2's pull request:
   areas stood (else in its last area), and says where each went, as a reload does; it does not open the windows
   again, and `pop out panel` sends a panel out. The AI's context of the panels says of each area whether it is docked,
   floating or in another window.
-- **ExGrid** reads a grid's window once, as the grid is created (ex-grid ADR-0090, #565, in 0.3.0-rc.1 and 0.3.0, which the workbench takes), so a page
-  moved into another window, or back, is drawn anew there and takes back its panel's screen state (ADR-0006 note 10).
+- **ExGrid** reads a grid's window once, as the grid is created (ex-grid ADR-0090, #565, in 0.3.0-rc.1 and 0.3.0,
+  which the workbench takes), so a page moved into another window, or back, is drawn anew there and takes back its
+  panel's screen state (ADR-0006 note 10).
 
 ### 10. Step 3: parts of a page, and links (OPEN in its details)
 
