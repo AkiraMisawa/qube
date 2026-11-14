@@ -210,9 +210,6 @@ public class PricerTests
     [InlineData("counterpartyThreshold", "-1")]
     [InlineData("selfCurrency", "\"CHF\"")]
     [InlineData("selfPosts", "\"yes\"")]
-    // One-way and exchange follow who posts (ADR-0016 note 66): no edit sets either, though the value reads.
-    [InlineData("oneWay", "true")]
-    [InlineData("exchange", "false")]
     [InlineData("type", "\"IM\"")]
     public void A_csa_term_that_does_not_read_is_refused(string field, string json)
     {

@@ -179,7 +179,7 @@ public class PricerDetailTests
         Assert.Equal((false, false, "exchange=true"), (Row().Exchange, Row().OneWay, string.Join(" ", Row().Original!.Select(o => $"{o.Key}={o.Value!.ToJsonString()}"))));
         Assert.Equal("NotEditable: one-way is not a field a command sets: it follows counterparty posts and self posts. Set those.", rig.Read("set CSA-B one-way on"));
         Assert.Equal("NotEditable: exchange is not a field a command sets: it follows counterparty posts and self posts. Set those.", rig.Read("set CSA-B exchange on"));
-        // Written as a value (the API, a cell), it is refused in the same words.
+        // Written as a value (the API, a cell), it is refused too, with the fields to set by their names.
         var refused = Assert.Throws<WorkspaceRefused>(() => rig.Service.Edit(rig.Id, rig.State.Revision, "akira", "csa:CSA-B", "oneWay", true));
         Assert.Equal(("NotEditable", "csa:CSA-B.oneWay is not a field an edit sets: it follows counterpartyPosts and selfPosts. Set those."), (refused.Code, refused.Message));
     }
@@ -199,33 +199,78 @@ public class PricerDetailTests
         Assert.Equal("exchange false oneWay false counterpartyPosts false selfPosts false", Csa(1));
     }
 
-    [Fact] // ADR-0016 note 66: an edit of exchange a workspace held before the note is read by nothing: Changes says it is lost, Price is refused by its name, and removing it frees Price
-    public async Task An_edit_of_exchange_held_from_before_is_lost_and_refuses_Price()
+    // A workspace as one saved before note 66 holds it: an edit of a field that now follows who posts, in the Common
+    // layer or in a case's. No edit makes it now, so it is written where the workspace is kept, and opened again.
+    static PricerRig Holding(PricerRig made, InMemoryWorkspaceStore store, string field, bool value, string? layer = null)
     {
-        var store = new InMemoryWorkspaceStore();
-        var made = new PricerRig(store: store);
         var held = made.State;
-        var target = PortfolioEditRules.Target(PortfolioSourceVersion.Of(held), "csa:CSA-B", "exchange");
-        // As a workspace saved before the note holds it: no edit makes it now, so it is written where the workspace is kept.
+        var target = PortfolioEditRules.Target(PortfolioSourceVersion.Of(PortfolioCases.Base(held)), "csa:CSA-B", field) with { Layer = layer };
         var seq = held.Revision + 1;
         store.Commit(held, held with
         {
-            Overrides = held.Overrides.SetItem(target, new Override(target, false, new Dictionary<string, JsonNode?> { ["exchange"] = true }, held.Source.Version, seq)),
-            Log = held.Log.Add(held.Log[^1] with { Seq = seq, Kind = EditKind.Set, Target = target, Value = false, Note = null, Command = null, Replaced = null }),
+            Overrides = held.Overrides.SetItem(target, new Override(target, value, new Dictionary<string, JsonNode?> { [field] = !value }, held.Source.Version, seq)),
+            Log = held.Log.Add(held.Log[^1] with { Seq = seq, Kind = EditKind.Set, Target = target, Value = value, Note = null, Command = null, Replaced = null }),
         }, DateTimeOffset.UtcNow);
-        var rig = new PricerRig(store: store, open: made.Id);
+        return new PricerRig(store: store, open: made.Id);
+    }
+
+    [Theory] // ADR-0016 note 66: an edit of exchange or one-way held from before the note is read by nothing: Changes says it is lost, Price is refused with its name, and removing it frees Price
+    [InlineData("exchange", false)]
+    [InlineData("oneWay", true)]
+    public async Task An_edit_held_from_before_of_a_field_that_follows_is_lost_and_refuses_Price(string field, bool value)
+    {
+        var store = new InMemoryWorkspaceStore();
+        var rig = Holding(new PricerRig(store: store), store, field, value);
 
         // The row reads who posts, never the edit.
         Assert.Equal("on off", rig.Written(PortfolioTables.Csas, "CSA-B", "exchange", "oneWay"));
         var change = rig.Service.Changes(rig.Id, "akira").Common.Single();
-        Assert.Equal(("csa:CSA-B exchange", "lost", false), (change.Title, change.State, change.Editable));
+        Assert.Equal(($"csa:CSA-B {field}", "lost", false), (change.Title, change.State, change.Editable));
         var refused = Assert.Throws<WorkspaceRefused>(() => rig.Service.Price(rig.Id, rig.State.Revision, "akira", Guid.NewGuid().ToString()));
-        Assert.Equal(("UnresolvedEdits", "csa:CSA-B exchange holds an edit that nothing reads in this version. Remove it in Changes."), (refused.Code, refused.Message));
+        Assert.Equal(("UnresolvedEdits", "Remove in Changes the edit nothing reads in this version.", $"csa:CSA-B {field}"),
+            (refused.Code, refused.Message, string.Join(", ", refused.Targets.Select(t => $"{t.Entity} {t.Field}"))));
+        // A line says the edit in its sentence, once.
+        Assert.Equal($"UnresolvedEdits: Remove in Changes the edit nothing reads in this version: csa:CSA-B {field}.", rig.Read("price"));
 
-        rig.Service.Resolve(rig.Id, rig.State.Revision, "akira", "csa:CSA-B", "exchange", "reset");
+        rig.Service.Resolve(rig.Id, rig.State.Revision, "akira", "csa:CSA-B", field, "reset");
 
         Assert.Empty(rig.Service.Changes(rig.Id, "akira").Common);
         await rig.Priced();
+    }
+
+    [Fact] // ADR-0016 note 66: such an edit in a case's layer refuses Price too, where the case would be named as one thing and priced as the Base
+    public async Task An_edit_of_one_way_held_in_a_case_refuses_Price()
+    {
+        var store = new InMemoryWorkspaceStore();
+        var made = new PricerRig(store: store);
+        await made.Run("vary CSA-B self vm cap 10mm");
+        var layer = made.State.Overrides.Keys.Select(k => k.Layer).OfType<string>().Distinct().Single();
+        var rig = Holding(made, store, "oneWay", true, layer);
+
+        var ofCase = rig.Service.Changes(rig.Id, "akira").Cases.Single().Changes.Single(c => c.State == "lost");
+        Assert.Equal("csa:CSA-B oneWay", ofCase.Title);
+        Assert.Equal("UnresolvedEdits: Remove in Changes the edit nothing reads in this version: csa:CSA-B oneWay.", rig.Read("price"));
+    }
+
+    [Fact] // ADR-0016 note 66: a whole row's reset takes such an edit with it, and a refresh holds one back as lost: neither passes it over
+    public async Task An_edit_held_from_before_goes_with_its_rows_reset_and_is_lost_at_a_refresh()
+    {
+        var store = new InMemoryWorkspaceStore();
+        var rig = Holding(new PricerRig(store: store), store, "exchange", false);
+
+        var (_, carried) = rig.Service.Refresh(rig.Id, rig.State.Revision, "akira");
+
+        Assert.Equal((0, 0, 1), (carried.Carried, carried.Conflicted, carried.Lost));
+        Assert.Equal(("csa:CSA-B", "exchange"), rig.State.Lost.Keys.Select(t => (t.Entity, t.Field)).Single());
+
+        var other = new InMemoryWorkspaceStore();
+        var reset = Holding(new PricerRig(store: other), other, "exchange", false);
+
+        Assert.Equal("Reset CSA-B.", await reset.Run("reset CSA-B"));
+        Assert.Empty(reset.Service.Changes(reset.Id, "akira").Common);
+        // A marked cell that follows who posts holds no edit of its own, and says whose it shows.
+        await reset.Run("set CSA-B self posts off");
+        Assert.Equal("Nothing would change: CSA-B has no edit of one-way: it follows counterparty posts and self posts. Reset those.", reset.Read("reset CSA-B one-way"));
     }
 
     [Fact] // ADR-0016 note 53 (owner, 2026-11-12): each CSA Price freezes carries every field beyond the grid as the case holds it, an empty one as empty

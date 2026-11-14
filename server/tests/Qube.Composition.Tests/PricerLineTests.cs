@@ -193,6 +193,8 @@ public class PricerLineTests
     [InlineData("vary", "NothingToVary: vary takes a cell, its row and its column, then the values separated by commas, such as vary CSA-A threshold 10mm, 5mm, 0.")]
     [InlineData("vary CSA-A threshold", "NothingToVary: vary takes a cell, its row and its column, then the values separated by commas, such as vary CSA-A threshold 10mm, 5mm, 0.")]
     [InlineData("vary CSA-Z threshold 5mm", "UnknownCell: No row CSA-Z: a row is a CSA (CSA-A, CSA-B), the netting set (NS-001), credit, cds, a trade's id, or xva for XVA's settings.")]
+    // ADR-0016 note 66: a column that follows others is no cell, and the line is told which to name in its place.
+    [InlineData("vary CSA-B one-way on, off", "NotEditable: one-way is not a field a command sets: it follows counterparty posts and self posts. Set those.")]
     [InlineData("vary CSA-A threshold 5mm, lots", "InvalidValue: CSA-A threshold is an amount: 5mm, 250k, 1bn, or a bare number of millions; lots is not.")]
     [InlineData("vary CSA-A threshold 10,000k", "NothingToVary: 10,000k could be one value or two: a comma separates values here, so write an amount without separators, such as 10000k or 10mm.")]
     [InlineData("vary CSA-A threshold 5mm,, 1mm", "NothingToVary: vary takes one value or more for CSA-A threshold, separated by commas, none of them empty.")]

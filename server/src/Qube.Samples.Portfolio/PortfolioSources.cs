@@ -83,20 +83,25 @@ public sealed record Csa(
     int Disputes = 0, bool IlliquidCollateral = false);
 
 /// <summary>
-/// What who posts says of a CSA (ADR-0016 note 66; owner, 2026-11-14): collateral is exchanged where either party posts,
-/// and the CSA is one-way where exactly one does. Said here once, for every reader of a CSA.
+/// Who posts under a CSA, and what that says of it (ADR-0016 note 66; owner, 2026-11-14): collateral is exchanged where
+/// either party posts, and the CSA is one-way where exactly one does. Said here once, for every reader of a CSA.
 /// </summary>
-public static class CsaPosting
+/// <param name="Counterparty">Whether the counterparty posts.</param>
+/// <param name="Self">Whether we post.</param>
+public readonly record struct CsaPosting(bool Counterparty, bool Self)
 {
     /// <summary>The fields that hold who posts: the counterparty's, and ours.</summary>
-    public const string Counterparty = "counterpartyPosts", Self = "selfPosts";
+    public const string CounterpartyField = "counterpartyPosts", SelfField = "selfPosts";
 
     /// <summary>The fields that follow them.</summary>
     public const string ExchangeField = "exchange", OneWayField = "oneWay";
 
-    public static bool Exchange(bool counterpartyPosts, bool selfPosts) => counterpartyPosts || selfPosts;
+    /// <summary>The two fields that hold who posts, as a field that follows them names them.</summary>
+    public static readonly IReadOnlyList<string> Fields = [CounterpartyField, SelfField];
 
-    public static bool OneWay(bool counterpartyPosts, bool selfPosts) => counterpartyPosts != selfPosts;
+    public bool Exchange => Counterparty || Self;
+
+    public bool OneWay => Counterparty != Self;
 }
 
 /// <summary>

@@ -226,11 +226,10 @@ public static class PortfolioInput
                 : $"Price prices {caseCap} pairs of a case and a market at most: {cases.Count} case(s) × {scenarios.Count} markets (the base market and {scenarios.Count - 1} scenario(s)) are {pairs}, {pairs - caseCap} over. Remove a case or exclude a scenario to price.");
         PortfolioCases.CheckAdditionSet(raw);
         // An edit of a field nothing reads (ADR-0016 note 66) would be kept among the Run's edits and change nothing
-        // of its input: Price is refused by its name, as it is for an edit a refresh held back.
-        var priced = PortfolioCases.PricedEntities(raw);
-        if (raw.Overrides.Keys.Where(t => priced(t.Entity) && PortfolioEditRules.Unread(raw, t)).ToList() is { Count: > 0 } unread)
-            throw new WorkspaceRefused("UnresolvedEdits", $"{string.Join(", ", unread.Select(t => $"{t.Entity} {t.Field}"))} {(unread.Count == 1 ? "holds an edit" : "hold edits")} that nothing reads "
-                + $"in this version. Remove {(unread.Count == 1 ? "it" : "them")} in Changes.", unread);
+        // of its input, in the Common layer or a case's, on a priced row or another: Price is refused with it as its
+        // target, which a line says in its sentence (note 33).
+        if (raw.Overrides.Keys.Where(t => PortfolioEditRules.ReadNoMore(raw, t)).ToList() is { Count: > 0 } stale)
+            throw new WorkspaceRefused("UnresolvedEdits", $"Remove in Changes the {(stale.Count == 1 ? "edit" : "edits")} nothing reads in this version.", stale);
         var state = PortfolioCases.Base(raw);
         var source = PortfolioSourceVersion.Of(state);
         var selected = PortfolioMaterialiser.SelectedMeasures(state, register);

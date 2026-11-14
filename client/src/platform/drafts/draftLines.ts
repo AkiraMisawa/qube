@@ -43,17 +43,18 @@ export const templateLine = (template: DraftTemplate, values: Readonly<Record<st
 /** A row made under the draft's row by a product: the row above is the draft's, and is not named. */
 export const makeLine = (product: DraftTemplate, values: Readonly<Record<string, string>>): string => [`new ${product.word}`, ...termsOf(product.takes, values)].join(' ');
 
-/** A section of a dialog: a group of the table's fields, each with its place among the form's fields. */
-/** A few words as a sentence lists them: `a`, `a and b`, `a, b and c`. */
-const listed = (words: readonly string[]): string => (words.length < 2 ? words.join('') : `${words.slice(0, -1).join(', ')} and ${words[words.length - 1]}`);
+/** A few words as a sentence lists them, as the server's sentences do: `a`, `a and b`, `a, b and c`. */
+const listed = new Intl.ListFormat('en-GB', { type: 'conjunction' });
 
 /**
- * What a field no command sets says of itself: that, and the fields it follows where it follows some (ADR-0016
- * note 66), so that who reads it knows which to set in its place.
+ * What a field that follows others says under itself (ADR-0016 note 66), so that who reads it knows which to set in
+ * its place; nothing for a field that follows none. It is drawn under the field, never left to a hover, which a touch
+ * has not (design guidelines §8).
  */
-export const readOnlyNote = (field: Pick<FieldInput, 'follows'>): string =>
-  field.follows === undefined ? 'No command sets this field.' : `No command sets this field: it follows ${listed(field.follows)}.`;
+export const followsNote = (field: Pick<FieldInput, 'follows'>): string | undefined =>
+  field.follows === undefined ? undefined : `Follows ${listed.format(field.follows)}.`;
 
+/** A section of a dialog: a group of the table's fields, each with its place among the form's fields. */
 export interface Section {
   /** The group's name; `Other` for the fields of no group beside grouped ones; none where the table groups nothing. */
   readonly title: string | undefined;

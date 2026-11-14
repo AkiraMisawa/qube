@@ -149,7 +149,7 @@ public sealed class PortfolioEditRules(MeasureRegister? register = null) : IEdit
     /// before the field followed others. A refresh holds such an edit back as lost; until one, Changes says it is lost
     /// and Price is refused by its name, so that it is never passed over in silence.
     /// </summary>
-    public static bool Unread(WorkspaceState raw, EditTarget target) => raw.SourceOf(target).Read(target.Entity, target.Field) is null;
+    public static bool ReadNoMore(WorkspaceState raw, EditTarget target) => raw.SourceOf(target).Read(target.Entity, target.Field) is null;
 
     /// <summary>
     /// The scope of an edit, decided here and never taken from the client: a new trade's own content belongs to
@@ -346,10 +346,9 @@ public static class PortfolioMaterialiser
             var set = EditsOf(state, entity).ToDictionary(o => o.Target.Field, o => o.Value);
             T Term<T>(string field, T value) => set.TryGetValue(field, out var v) ? v!.GetValue<T>() : value;
             // Exchange and one-way are what who posts says, as this reading holds it (ADR-0016 note 66).
-            var (counterpartyPosts, selfPosts) = (Term(CsaPosting.Counterparty, c.Counterparty.Posts), Term(CsaPosting.Self, c.Self.Posts));
-            var (exchange, oneWay) = (CsaPosting.Exchange(counterpartyPosts, selfPosts), CsaPosting.OneWay(counterpartyPosts, selfPosts));
+            var posting = new CsaPosting(Term(CsaPosting.CounterpartyField, c.Counterparty.Posts), Term(CsaPosting.SelfField, c.Self.Posts));
             var effective = new EffectiveCsa(c.CsaId, c.Type, Term("currency", c.Currency), Term("curve", c.Curve), set.ContainsKey("curve") ? Ownership.User : Ownership.Source,
-                Term("fvaCurve", c.FvaCurve), Term("frequency", c.Frequency), exchange, oneWay,
+                Term("fvaCurve", c.FvaCurve), Term("frequency", c.Frequency), posting.Exchange, posting.OneWay,
                 Term("counterpartyThreshold", c.CounterpartyThreshold), Term("counterpartyMta", c.CounterpartyMta), Term("counterpartyCurrency", c.CounterpartyCurrency),
                 Term("selfThreshold", c.SelfThreshold), Term("selfMta", c.SelfMta), Term("selfCurrency", c.SelfCurrency),
                 [.. CsaFields.Where(set.ContainsKey)]);
@@ -357,9 +356,9 @@ public static class PortfolioMaterialiser
             var differs = CsaFields.Where(f => set.ContainsKey(f) && !Same(set[f], source.Read(entity, f)!.Value))
                 .ToDictionary(f => f, f => source.Read(entity, f)!.Value);
             // What follows who posts differs where the source's two flags say another thing.
-            var (sourceExchange, sourceOneWay) = (CsaPosting.Exchange(c.Counterparty.Posts, c.Self.Posts), CsaPosting.OneWay(c.Counterparty.Posts, c.Self.Posts));
-            if (exchange != sourceExchange) differs[CsaPosting.ExchangeField] = sourceExchange;
-            if (oneWay != sourceOneWay) differs[CsaPosting.OneWayField] = sourceOneWay;
+            var sourcePosting = new CsaPosting(c.Counterparty.Posts, c.Self.Posts);
+            if (posting.Exchange != sourcePosting.Exchange) differs[CsaPosting.ExchangeField] = sourcePosting.Exchange;
+            if (posting.OneWay != sourcePosting.OneWay) differs[CsaPosting.OneWayField] = sourcePosting.OneWay;
             return differs.Count == 0 ? effective : effective with { Original = differs };
         })];
     }

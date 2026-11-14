@@ -248,7 +248,13 @@ public sealed partial class TableService(TableRegister register, WorkspaceServic
         var touched = resolved.Rows.Where(changed.Contains).ToList();
         var held = resolved.Rows.Count - touched.Count;
         if (touched.Count == 0)
-            return Unchanged(state, resolved, $"{Rows(bound, resolved.Rows, all: true)} {(resolved.Rows.Count == 1 ? "has" : "have")} no edit{of}", words, keyed) with { Context = cell, TableFromScreen = fromScreen, Rest = fieldSaid };
+        {
+            // A field that follows others (note 66) holds no edit of its own, though its cell may be marked: the answer
+            // names the fields whose edits it shows.
+            var follows = named?.From is { } from ? $": {TableWords.Follows(TableWords.Followed(from, bound.Descriptor.Fields), "Reset")}" : "";
+            return Unchanged(state, resolved, $"{Rows(bound, resolved.Rows, all: true)} {(resolved.Rows.Count == 1 ? "has" : "have")} no edit{of}{follows}", words, keyed)
+                with { Context = cell, TableFromScreen = fromScreen, Rest = fieldSaid };
+        }
         var without = held == 0 ? "" : $"; {held} had no edit";
         var done = touched.Count == 1 ? $"Reset {touched[0].Key}{(named is null ? "" : $" {TableWords.Word(named)}")}{without}."
             : named is null ? $"Reset {Rows(bound, touched)}{without}." : $"Reset {TableWords.Word(named)} on {Rows(bound, touched)}{without}.";
@@ -479,9 +485,8 @@ public sealed partial class TableService(TableRegister register, WorkspaceServic
 
     static TableRefused Follows(BoundTable table, TableField field, IReadOnlyList<string> from)
     {
-        IReadOnlyList<string> followed = [.. from.Select(name => TableWords.Word(table.Descriptor.Fields.Single(f => f.Name == name)))];
-        return new("NotEditable", $"{TableWords.Word(field)} is not a field a command sets: it follows {TableWords.And(followed)}. Set {(followed.Count == 1 ? "that" : "those")}.",
-            TableWords.Word(field), followed);
+        var followed = TableWords.Followed(from, table.Descriptor.Fields);
+        return new("NotEditable", $"{TableWords.Word(field)} is not a field a command sets: {TableWords.Follows(followed)}.", TableWords.Word(field), followed);
     }
 
     // A few rows by their keys, more by their number and the table's word.

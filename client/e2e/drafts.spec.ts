@@ -101,11 +101,13 @@ test('ADR-0016 note 66: a CSA\'s One-way follows who posts: a side\'s Posts swit
   const pending = page.getByTestId('draft-pending');
   await expect(pending).toHaveText('nothing pending');
   const dialog = page.getByRole('dialog').filter({ has: pending });
-  // One-way is read in the dialog, and says which fields to set in its place.
+  // One-way is read in the dialog, and says under itself which fields to set in its place: drawn, not a hover's.
   const oneWay = dialog.getByRole('textbox', { name: /^One-way/ });
   await expect(oneWay).toHaveValue('off');
   await expect(oneWay).toHaveAttribute('readonly', '');
-  await expect(oneWay).toHaveAttribute('title', 'No command sets this field: it follows counterparty posts and self posts.');
+  await expect(oneWay).toHaveAccessibleDescription('Follows counterparty posts and self posts.');
+  await expect(dialog.getByText('Follows counterparty posts and self posts.')).toHaveCount(2);
+  await expect(dialog.getByText('Follows counterparty posts and self posts.').last()).toBeVisible();
 
   // We stop posting: the counterparty posts alone, and One-way says so before anything is written.
   const selfPosts = dialog.getByRole('group', { name: 'Self' }).getByRole('switch', { name: /^Posts/ });

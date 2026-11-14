@@ -231,6 +231,15 @@ public static class PortfolioCells
     static IReadOnlyList<Column> Columns(IEnumerable<TableField> fields) =>
         [.. fields.Where(f => f.Editable && f.Figure is null).Select(f => new Column(f.Name, f.Spec, [.. f.Words]))];
 
+    // A column that follows others (ADR-0016 note 66) is no cell either: a case varies the columns it follows. It is
+    // kept by its names, so that a line that names it is told which those are.
+    sealed record Follower(IReadOnlyList<string> Names, IReadOnlyList<string> Followed);
+
+    static IReadOnlyList<Follower> Followers(IReadOnlyList<TableField> fields) =>
+        [.. fields.Where(f => f.From is not null).Select(f => new Follower([.. f.Words], TableWords.Followed(f.From!, fields)))];
+
+    static readonly IReadOnlyList<Follower> CsaFollowers = Followers(PortfolioFields.Csa);
+
     static readonly IReadOnlyList<Column> CsaColumns = Columns(PortfolioFields.Csa), NettingColumns = Columns(PortfolioFields.Netting),
         // The counterparty's CDS choice, row `credit`, and the chosen curve's spreads, row `cds` (ADR-0010 §8's note of 2026-11-09).
         CreditColumns = Columns(PortfolioFields.Credit), SpreadColumns = Columns(PortfolioFields.Cds);
@@ -243,7 +252,11 @@ public static class PortfolioCells
 
     // A row a cell is named on: its id as a line says it, its entity, its columns, what it is in a word or two, and
     // whether it is a trade, of which there may be ten thousand.
-    sealed record Row(string Id, string Entity, IReadOnlyList<Column> Columns, string What, bool IsTrade = false);
+    sealed record Row(string Id, string Entity, IReadOnlyList<Column> Columns, string What, bool IsTrade = false)
+    {
+        /// <summary>The columns of the row that follow others; none on most rows.</summary>
+        public IReadOnlyList<Follower> Followers { get; init; } = [];
+    }
 
     // The rows a cell is named on, as the state stands: each CSA, the netting set, the credit, the chosen curve where
     // there is one, each trade by its id, and a module's settings by the module's id (ADR-0010 §8: `set xva cost of
@@ -254,7 +267,7 @@ public static class PortfolioCells
         var trade = Trade(register);
         return
         [
-            .. source.Agreement.Csas.Select(c => new Row(c.CsaId, Entity.Of(Entity.Csa, c.CsaId), CsaColumns, "a CSA")),
+            .. source.Agreement.Csas.Select(c => new Row(c.CsaId, Entity.Of(Entity.Csa, c.CsaId), CsaColumns, "a CSA") { Followers = CsaFollowers }),
             new(source.Agreement.NettingSetId, Entity.Of(Entity.Netting, source.Agreement.NettingSetId), NettingColumns, "the netting set"),
             new(CreditRow, Entity.Of(Entity.Credit, source.Registration.Key), CreditColumns, "the counterparty's CDS choice"),
             .. PortfolioMaterialiser.Credit(state).Cds is { } cds ? new[] { new Row(CdsRow, Entity.Of(Entity.Cds, cds.CurveId), SpreadColumns, "the chosen curve's spreads") } : [],
@@ -288,6 +301,9 @@ public static class PortfolioCells
         var (id, entity, columns) = (rows[0].Id, rows[0].Entity, rows[0].Columns);
         var name = Words(column);
         var found = columns.Where(c => c.Names.Any(n => string.Equals(n, name, StringComparison.OrdinalIgnoreCase))).ToList();
+        if (found.Count == 0 && rows[0].Followers.FirstOrDefault(f => f.Names.Any(n => string.Equals(n, name, StringComparison.OrdinalIgnoreCase))) is { } follower)
+            throw new WorkspaceRefused("NotEditable", $"{follower.Names[0]} is not a field a command sets: {TableWords.Follows(follower.Followed)}.",
+                word: column.Trim(), candidates: follower.Followed);
         if (found.Count == 0)
             throw new WorkspaceRefused("UnknownCell", $"{id} has no column {column.Trim()}; its columns are {string.Join(", ", columns.Select(c => c.Names[0]))}.",
                 word: column.Trim(), candidates: [.. columns.Select(c => c.Names[0])]);

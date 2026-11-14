@@ -447,7 +447,7 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
         {
             var t = o.Target;
             // An edit of a field the source reads no more (ADR-0016 note 66) is lost as one a refresh held back is.
-            var state = raw.Conflicts.ContainsKey(t) ? "conflict" : raw.Lost.ContainsKey(t) || PortfolioEditRules.Unread(raw, t) ? "lost" : "set";
+            var state = raw.Conflicts.ContainsKey(t) ? "conflict" : raw.Lost.ContainsKey(t) || PortfolioEditRules.ReadNoMore(raw, t) ? "lost" : "set";
             if (PortfolioCells.Find(raw, register, t.Entity, t.Field) is { } cell)
             {
                 var was = PortfolioCells.Current(original, register, cell);

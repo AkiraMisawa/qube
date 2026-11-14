@@ -1,5 +1,5 @@
 import type { DraftForm, DraftTable, DraftTemplate, FieldInput } from '../contracts';
-import { cellLine, fieldLine, makeLine, readOnlyNote, removeLine, sectionsOf, shownOf, templateLine } from './draftLines';
+import { cellLine, fieldLine, followsNote, makeLine, removeLine, sectionsOf, shownOf, templateLine } from './draftLines';
 
 // ADR-0016 note 57 of 2026-11-12: every change a dialog makes is a line the server reads. What the dialog writes of a
 // field, a cell, a row and a template is held here; the names are made up.
@@ -45,11 +45,11 @@ describe('the lines a dialog writes (ADR-0016 note 57)', () => {
     expect(makeLine({ word: 'sensor', title: 'Sensor', takes: gauged.takes }, { unit: 'M3' })).toBe('new sensor unit=M3');
   });
 
-  it('ADR-0016 note 66: a field no command sets says so, and names the fields it follows where it follows some', () => {
-    expect(readOnlyNote({})).toBe('No command sets this field.');
-    expect(readOnlyNote({ follows: ['note'] })).toBe('No command sets this field: it follows note.');
-    expect(readOnlyNote({ follows: ['counterparty posts', 'self posts'] })).toBe('No command sets this field: it follows counterparty posts and self posts.');
-    expect(readOnlyNote({ follows: ['a', 'b', 'c'] })).toBe('No command sets this field: it follows a, b and c.');
+  it('ADR-0016 note 66: a field that follows others names them as a sentence does, and one that follows none says nothing', () => {
+    expect(followsNote({})).toBeUndefined();
+    expect(followsNote({ follows: ['note'] })).toBe('Follows note.');
+    expect(followsNote({ follows: ['wind speed', 'wind direction'] })).toBe('Follows wind speed and wind direction.');
+    expect(followsNote({ follows: ['wind speed', 'wind direction', 'note'] })).toBe('Follows wind speed, wind direction and note.');
   });
 
   it('a group is a section, in the order the groups first appear; the fields of no group come last, under Other', () => {

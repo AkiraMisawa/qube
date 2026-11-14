@@ -31,7 +31,7 @@ public sealed class PortfolioChecks(MeasureRegister register)
         {
             if (!Editable(entity, field))
                 throw new WorkspaceRefused("NotEditable", Follows(entity, field) is { } followed
-                    ? $"{entity}.{field} is not a field an edit sets: it follows {TableWords.And(followed)}. Set {(followed.Count == 1 ? "that" : "those")}."
+                    ? $"{entity}.{field} is not a field an edit sets: {TableWords.Follows(followed)}."
                     : $"{entity}.{field} is not editable in this workspace.");
             Validate(reading, entity, field, value);
         }

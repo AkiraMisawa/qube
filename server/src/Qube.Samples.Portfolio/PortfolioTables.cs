@@ -50,8 +50,8 @@ public static partial class PortfolioFields
         new("fvaCurve", "FVA discount curve", ["fva curve", "fva discount curve", "fva discount"], FieldForm.Id, Editable: true, Group: Terms),
         new("frequency", "Frequency", ["frequency"], FieldForm.Choice, Editable: true, Choices: Frequencies, Group: Terms),
         // What who posts says (ADR-0016 note 66; owner, 2026-11-14): read, and set through the two sides' posts.
-        new(CsaPosting.ExchangeField, "Exchange", ["exchange"], FieldForm.Flag, Group: Terms, From: [CsaPosting.Counterparty, CsaPosting.Self]),
-        new(CsaPosting.OneWayField, "One-way", ["one-way", "one way", "oneway"], FieldForm.Flag, Group: Terms, From: [CsaPosting.Counterparty, CsaPosting.Self]),
+        new(CsaPosting.ExchangeField, "Exchange", ["exchange"], FieldForm.Flag, Group: Terms, From: CsaPosting.Fields),
+        new(CsaPosting.OneWayField, "One-way", ["one-way", "one way", "oneway"], FieldForm.Flag, Group: Terms, From: CsaPosting.Fields),
         // The fields beyond the grid (ADR-0016 note 51): the general terms and what each side posts.
         .. PortfolioDetails.CsaFields,
     ];
@@ -396,8 +396,10 @@ public sealed class PortfolioTables(MeasureRegister register) : ITableCatalog
 
         public virtual string? SetSays(WorkspaceState state, ITableRow row, TableField field, JsonNode? value) => null;
 
+        // A whole row's reset takes the edit of a field that follows others with it (ADR-0016 note 66): one is held only
+        // from before the field followed, and is not passed over while Changes lists it.
         public virtual IReadOnlyList<WorkspaceChange> Reset(WorkspaceState state, ITableRow row, TableField? field) =>
-            Resets(state, ((Row)row).EntityId, field is null ? Describe(state).Fields.Where(f => f.Editable).Select(f => f.Name) : [field.Name]);
+            Resets(state, ((Row)row).EntityId, field is null ? Describe(state).Fields.Where(f => f.Editable || f.From is not null).Select(f => f.Name) : [field.Name]);
 
         public virtual IReadOnlyList<WorkspaceChange> ResetAll(WorkspaceState state, TableSubset subset, TableField? field) => [];
 

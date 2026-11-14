@@ -34,7 +34,7 @@ public class FollowingFieldTests
             Id = Stations.Board(Workspaces).WorkspaceId;
         }
 
-        public string Read(string line) => Lines.Preview(line, Id, null, Ana, null) is { Refused: { } refused } ? $"{refused.Code}: {refused.Sentence}" : "read";
+        public string Read(string line) => Lines.Preview(line, Id, null, Ana, null) is var preview && preview.Refused is { } refused ? $"{refused.Code}: {refused.Sentence}" : preview.Would!;
     }
 
     [Theory] // ADR-0016 note 66: a field that follows others is refused with the fields to set in its place, one or several
@@ -47,6 +47,16 @@ public class FollowingFieldTests
         Assert.Equal(refusal, rig.Read("set R1 window 3M"));
         // A field that follows nothing is refused as before, with every field a command sets.
         Assert.StartsWith("NotEditable: station is not a field a command sets; readings takes volume,", rig.Read("set R1 station south"));
+    }
+
+    [Fact] // ADR-0016 note 66: a reset of a field that follows others, which holds no edit of its own, names the fields whose edits it shows
+    public void A_reset_of_a_field_that_follows_others_names_the_fields_to_reset()
+    {
+        var rig = new Rig(Readings("window", "windSpeed", "windDirection"));
+
+        Assert.Equal("Nothing would change: R1 has no edit of window: it follows wind speed and wind direction. Reset those.", rig.Read("reset R1 window"));
+        // A field that follows nothing is answered as before.
+        Assert.Equal("Nothing would change: R1 has no edit of volume.", rig.Read("reset R1 volume"));
     }
 
     [Fact] // ADR-0016 note 66, §7: tables.describe says which fields a field follows, and nothing of one that follows none

@@ -2643,17 +2643,20 @@ later answer, is written when he answers.
       so the two cannot disagree.
     - **No command and no edit sets `exchange` or `one-way`.** A line that sets one is refused with the fields to
       set: `one-way is not a field a command sets: it follows counterparty posts and self posts. Set those.` An
-      edit that arrives as a value (the API, a cell) is refused in the same way. The direction is changed by a
-      side's `posts` (`set CSA-B self posts off`, the dialog's switch) or by a template (note 52), which writes who
-      posts and no longer `exchange` or `one-way`.
+      edit that arrives as a value (the API, a cell) is refused in the same way, and so is a case's `vary` of
+      one, which is no cell. The direction is changed by a side's `posts` (`set CSA-B self posts off`, the
+      dialog's switch) or by a template (note 52), which writes who posts and no longer `exchange` or `one-way`.
+      A `reset` of one finds no edit of its own, though its cell may be marked, and says whose edits it shows:
+      `CSA-B has no edit of one-way: it follows counterparty posts and self posts. Reset those.`
     - **The source's record of a CSA holds neither**: a second copy could only disagree with the flags. The
       view's agreement, which is written from that record, loses the two names; the page's rows (`csas`) keep
       them.
     - **The page (DEFAULT).** The CSA grid's Exchange and One-way cells are read and take no typing. One whose
       value differs from what the source's two flags say is marked with the source's value (ADR-0010 §2), as an
-      edited cell is. The row's dialog draws both read-only, says which fields each follows, and moves them as a
-      side's Posts is switched, before Save. The grid gains no column for who posts: it is wide already, and the
-      owner was told he may ask for them.
+      edited cell is. The row's dialog draws both read-only, says under each which fields it follows, and moves
+      them as a side's Posts is switched, before Save. The sentence is drawn and not a hover's, which a touch has
+      not (design guidelines §8). The grid gains no column for who posts: it is wide already, and the owner was
+      told he may ask for them.
     - **A field that follows others is the kernel's to say (§1).** A table's field names the fields of its row it
       follows (`TableField.From`). Such a field is set by no command: a table that says it is, that names a field
       it has not, or that names none fails when the tables are read. `tables.describe` gives the names (`from`),
@@ -2661,11 +2664,13 @@ later answer, is written when he answers.
       every field a command sets.
     - **An edit of `exchange` or `one-way` held from before this note is read by nothing.** It is not passed
       over in silence (the fallback rule), and it is not translated: `one-way on` never said which side. The
-      Changes tab lists it as lost, with its Remove. Price is refused by its name while a priced CSA holds one
-      (`UnresolvedEdits`: `csa:CSA-B exchange holds an edit that nothing reads in this version. Remove it in
-      Changes.`). A refresh holds it back as lost, as it does an edit whose row is gone (ADR-0003 §7). The row
-      shows what who posts says throughout. The check is the pricer's, and is of any field its source reads no
-      more.
+      Changes tab lists it as lost, with its Remove, and a whole row's `reset` takes it with the row's other
+      edits. Price is refused while the workspace holds one, in the Common layer or a case's, on a priced CSA or
+      another (`UnresolvedEdits`: `Remove in Changes the edit nothing reads in this version: csa:CSA-B
+      exchange.`): it would otherwise be kept among the Run's edits and change nothing of its input, and a case
+      made by it would be named as one thing and priced as the Base. A refresh holds it back as lost, as it does
+      an edit whose row is gone (ADR-0003 §7). The row shows what who posts says throughout. The check is the
+      pricer's, and is of any field its source reads no more.
     - **The measures.** FVA's rule reads `one-way` as before, which is now what the flags say. SA-CCR still
       refuses a one-way CSA: its request carries `oneWay` and not which side posts, and its reason now says that
       the measure does not read that yet (ADR-0013's note of the same day). Reading the side is for when the

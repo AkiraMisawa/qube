@@ -362,6 +362,15 @@ public static class TableWords
     /// <summary>Items as a sentence joins them: <c>a, b and c</c>.</summary>
     public static string And(IEnumerable<string> items) => Joined(items, "and");
 
+    /// <summary>The fields a field follows (note 66), each by the word a line says, in the order the field names them.</summary>
+    public static IReadOnlyList<string> Followed(IReadOnlyList<string> from, IReadOnlyList<TableField> beside) => [.. from.Select(name => Word(beside.Single(f => f.Name == name)))];
+
+    /// <summary>
+    /// What is said of a field that follows others (note 66): which they are, and what to do with them in its place, to
+    /// set them or to reset them. The end of a sentence, without its full stop.
+    /// </summary>
+    public static string Follows(IReadOnlyList<string> followed, string verb = "Set") => $"it follows {And(followed)}. {verb} {(followed.Count == 1 ? "that" : "those")}";
+
     /// <summary>Items as a sentence offers them: <c>a, b or c</c>.</summary>
     public static string Or(IEnumerable<string> items) => Joined(items, "or");
 

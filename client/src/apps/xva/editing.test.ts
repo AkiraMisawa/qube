@@ -43,10 +43,6 @@ describe('what a CSA term accepts (ADR-0010 §8)', () => {
     expect(csaFields.frequency!('hourly').ok).toBe(false);
   });
 
-  it('ADR-0016 note 66: has no field for exchange or one-way, which follow who posts', () => {
-    expect([csaFields.exchange, csaFields.oneWay]).toEqual([undefined, undefined]);
-  });
-
   it('has no field for the type, which is the source\'s', () => {
     expect(csaFields.type).toBeUndefined();
   });
