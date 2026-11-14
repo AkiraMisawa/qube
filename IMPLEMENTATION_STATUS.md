@@ -3469,9 +3469,11 @@ platform; the owner chose that Ctrl+A and Ctrl+Y stay select all and redo on Win
 
 | What | Result |
 |---|---|
-| Client: `npm run typecheck`, `npx vitest run`, `npm run build` | Clean; 498 passed in 48 files (14 new in `lineKeys.test.ts`); built |
-| `npx playwright test e2e/workbench.spec.ts --grep "note 11" --repeat-each=3` (Chromium, headless, Linux) | 6 passed |
+| Client: `npm run typecheck`, `npx vitest run`, `npm run build`, after the review's fixes | Clean; 501 passed in 48 files (17 in the new `lineKeys.test.ts`); built |
+| `npx playwright test e2e/workbench.spec.ts --grep "note 11" --repeat-each=3` (Chromium, headless, Linux), after the review's fixes | 6 passed |
 | The Mac test with the line leaving its keys to the shell's chords again (the defect) | Failed as it should: Ctrl+K was prevented |
+| `npx playwright test` (Chromium, headless, Linux), with Ctrl+A to the start of the line as first built | 139 passed |
+| The same, with Ctrl+A select all and the review's fixes | 139 passed |
 
 The unit tests read every key on both platforms, Ctrl's and Alt's moves and deletions with a selection, an emoji
 never split, `CSA-A` as two words and `1mm`, `1.5mm` and `nocsa_MA1` as one, a Russian and a Dvorak layout, the keys
@@ -3492,6 +3494,18 @@ Unchanged; nothing on the server changed.
 - Not checked on Windows, on a Mac, on an iPad, in Edge, Firefox or Safari, nor with a real IME. The browser test of
   the keys of Windows and Linux is skipped when the suite runs on a Mac, where Chromium has no Ctrl+A select all and
   Playwright sends a Mac's editing commands with the Ctrl keys.
+
+### What the review changed
+
+The two reviews (standards and spec) found, and this pull request corrects: Alt+F and Alt+B with a selection were
+described as collapsing it, where they move a word on from its end and back from its start (the ADR now says what is
+built, and the unit tests read it); a layout of another script (Russian) left every key to the browser, and a key is now
+read by its place there, through one reader the list's Ctrl+N and Ctrl+P share; an iPad was named as a Mac without being
+checked, and is now said to be taken as one by what its Safari reports; the status claimed a Mac's kill and yank work,
+where only Ctrl+K reaching the field was checked; the browser test of the keys of Windows and Linux could not pass when
+the suite runs on a Mac, and checked every key's caret where the unit tests already do; and the names (`editFor`,
+`applyEdit`, `textOf`, `macKeyboard`) now say what each does. Left as it was: the notes' "extends 4", which names the
+decision as the earlier notes do.
 
 ## Next
 

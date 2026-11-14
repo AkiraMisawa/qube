@@ -41,8 +41,7 @@ export function letterWith(modifier: 'ctrl' | 'alt', press: LineKeyPress): strin
   const held = { ctrl: press.ctrlKey, alt: press.altKey };
   if (!held[modifier] || held[modifier === 'ctrl' ? 'alt' : 'ctrl'] || press.metaKey || press.shiftKey) return undefined;
   if (/^[a-z]$/i.test(press.key)) return press.key.toLowerCase();
-  const place = /^Key([A-Z])$/.exec(press.code);
-  return place === null ? undefined : place[1]!.toLowerCase();
+  return /^Key[A-Z]$/.test(press.code) ? press.code.slice(3).toLowerCase() : undefined;
 }
 
 /** The Ctrl keys a Mac's text field already edits with (ADR-0006 note 11). */
