@@ -3772,6 +3772,57 @@ the suite runs on a Mac, and checked every key's caret where the unit tests alre
 `applyEdit`, `textOf`, `macKeyboard`) now say what each does. Left as it was: the notes' "extends 4", which names the
 decision as the earlier notes do.
 
+## The analytics request's official PV by leg (ADR-0016 note 69, 2026-11-14)
+
+The owner answered which PV the analytics reads with the request's own file: `/deals/official_pv.csv`, a row for
+each leg (`id,ccy,pv,notional`, the id `{trade id}_{leg id}`, the leg id an integer from 0).
+
+### What runs
+
+- `XvaRequestFiles.OfficialPv` (`server/src/Qube.Samples.Xva`) writes that file from a case of the accepted input
+  for one of its sides, Before or After: a row for each leg of each trade the side holds, numbered from 0 under its
+  trade in the order the trade holds its legs.
+- It refuses what it could only write wrongly, each with the trade or the leg it is said of where the input names
+  one. Note 69 is their list.
+- Nothing calls it outside its tests: no engine is written to, and no screen shows the file.
+
+### Verification performed
+
+| Check | Result |
+|---|---|
+| `nix develop -c dotnet test server/Qube.slnx` | 1672 passed |
+| `cd client && npm run typecheck && npm test` | typecheck clean; 512 passed in 49 files (no client file changes) |
+| `cd client && npx playwright test` (Chromium, the built client served by the host) | 152 passed |
+
+The file's first twelve test cases were seen to fail with the writer broken and to pass with it put back: eleven with
+the numbering from 1, and the other three ways (no refusal of a trade held twice, both sides written, a figure in
+the server's own culture) each failed the test that holds it. One test prices a workspace with an overwritten PV,
+a leg made and a source's leg removed, and reads the file from the input its Run keeps. Reviewed on two axes
+(standards, and note 69 as the specification), three times; the findings are fixed in the commits after the first.
+All of it is on the branch with main's 3ac4e82 (the command line's Emacs keys) merged in.
+
+### Providers
+
+Every source and measure is simulated. The file's layout is the owner's word of the real request: no real request
+was compared with it.
+
+### Known limits, and what waits for the owner
+
+- **Every DEFAULT of note 69 waits for his word**, and the note is their one list. The one most likely to matter:
+  a leg is numbered by its place under its trade at Price, so the leg an overwritten PV leaves is 0, and where a
+  source's leg was removed the ones left close up (`<trade>/2` is written as `<trade>_0` once `<trade>/1` is gone).
+- **Three things are OPEN and asked of him** (note 69): whether this file is `docs/08-provider-boundaries.md` §7's
+  `/deals/trade_official_pv_table.csv` under another name, whether a new trade's PV Adj goes into it (a new trade
+  with no leg has no row today), and what a scenario's request carries for a PV.
+- **The workspace's own keys of a leg stay `<trade>/<n>` from 1**, so an untouched trade's `<trade>/1` on screen
+  is the file's `<trade>_0`. Numbering the keys from 0 would move every edit of a leg that a kept workspace holds onto
+  another leg without saying so (the synthetic source's version does not change with its generator), so it is not
+  done without his word.
+- **The simulated measures still read `officialPv`** (note 53), so an overwritten PV changes the file and no
+  figure.
+- **The next gap is the request's other files and a caller.** Only this file is known, and it is returned as text:
+  no request holds it until an engine's adapter exists to take one (`docs/08-provider-boundaries.md`).
+
 ## Rates lines named in order (ADR-0016 note 65, 2026-11-14)
 
 The owner asked for the lines' numbers to be easier to follow.
@@ -3791,9 +3842,9 @@ The owner asked for the lines' numbers to be easier to follow.
 
 | What | Result |
 |---|---|
-| `dotnet test server/Qube.slnx` | 1644 passed; 1661 passed on main 3ac4e82 merged in, after the second review |
+| `dotnet test server/Qube.slnx` | 1644 passed; 1661 passed on main 3ac4e82 merged in, after the second review; 1674 passed on main f6395ed merged in |
 | The two new tests (`RatesLineCommandTests`: order, removal, undo and redo; a workspace named by revision) without the change | Both failed, as they should |
-| `npx playwright test e2e/rates.spec.ts e2e/ai.spec.ts e2e/pageState.spec.ts` (Chromium, headless, Linux) | 23 passed; 23 passed again on main 3ac4e82 merged in |
+| `npx playwright test e2e/rates.spec.ts e2e/ai.spec.ts e2e/pageState.spec.ts` (Chromium, headless, Linux) | 23 passed; 23 passed again on main 3ac4e82 merged in, and on main f6395ed |
 | Three lines made from the line, before and after, then the second removed, at 1440px dark | Before: `L3 L5 L7`, next `L9`; after: `L1 L2 L3`, next `L4`, and `L4` again after `remove L2` |
 
 ### Providers
@@ -3828,6 +3879,8 @@ and made the test of a workspace named by revision run its `add line`.
 5. Rates.
 6. ME-ID sign-in through MSAL (C30) and the visibility rules (C31, C32); AI over AG-UI with the company's Copilot behind the adapter port (C34).
 7. Slice 01b: Save and Pin (CO06), and the browser parts of CO03 and CO04.
+8. The analytics request's other files as the owner gives them (ADR-0016 note 69), and what writes a request to an
+   engine.
 
 The generic commands (ADR-0016) are built through step 6, and a page keeps its state by panel (ADR-0006 note 10); what
 each left for the owner is in its section's "Known limits".
