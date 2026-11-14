@@ -472,9 +472,17 @@ public sealed partial class TableService(TableRegister register, WorkspaceServic
         return $"{TableWords.Word(field)}: {string.Join(", ", parts)}";
     }
 
-    static TableRefused NotEditable(BoundTable table, TableField field) =>
+    // A field that follows others (note 66) is refused with the fields to set in its place.
+    static TableRefused NotEditable(BoundTable table, TableField field) => field.From is { } from ? Follows(table, field, from) :
         new("NotEditable", $"{TableWords.Word(field)} is not a field a command sets; {table.Word} takes {TableWords.And(table.Descriptor.Fields.Where(f => f.Editable).Select(TableWords.Word))}.",
             TableWords.Word(field), [.. table.Descriptor.Fields.Where(f => f.Editable).Select(TableWords.Word)]);
+
+    static TableRefused Follows(BoundTable table, TableField field, IReadOnlyList<string> from)
+    {
+        IReadOnlyList<string> followed = [.. from.Select(name => TableWords.Word(table.Descriptor.Fields.Single(f => f.Name == name)))];
+        return new("NotEditable", $"{TableWords.Word(field)} is not a field a command sets: it follows {TableWords.And(followed)}. Set {(followed.Count == 1 ? "that" : "those")}.",
+            TableWords.Word(field), followed);
+    }
 
     // A few rows by their keys, more by their number and the table's word.
     static string Rows(BoundTable table, IReadOnlyList<ITableRow> rows, bool all = false) =>

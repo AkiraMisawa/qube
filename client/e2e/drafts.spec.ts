@@ -16,7 +16,7 @@ const legs = (page: Page) => page.getByTestId('under-xva.legs');
 const leg = (page: Page, n: number) => legs(page).getByRole('row', { name: new RegExp(`^${TRADE}/${n} `) });
 
 /** A row's cell under the column so headed: the grid numbers its columns, and the header says which is which. */
-async function under(grid: Locator, row: Locator, header: string): Promise<Locator> {
+async function under(grid: Locator, row: Locator, header: string | RegExp): Promise<Locator> {
   const column = await grid.getByRole('columnheader', { name: header, exact: true }).getAttribute('aria-colindex');
   if (column === null) throw new Error(`The grid has no column headed ${header}.`);
   return row.locator(`[aria-colindex="${column}"]`);
@@ -82,6 +82,59 @@ test('ADR-0016 note 57: a row\'s edit button opens its dialog; fields and a leg 
   await taken(page, 'undo');
   await expect(summary).toContainText('0 edit(s)');
   await expect(row).toContainText('3,600,000,000');
+});
+
+test('ADR-0016 note 66: a CSA\'s One-way follows who posts: a side\'s Posts switched off in the dialog moves One-way there, and Save moves the grid\'s cell, which is marked and takes no typing', async ({ page }) => {
+  await open(page);
+  await newWorkspace(page, 'ABC/LE-01', 5);
+  await command(page, 'open csa');
+  await settled(page, 'CSA terms');
+  const terms = page.getByLabel('CSA terms');
+  const csaB = terms.getByRole('row', { name: /^No CSA-B / });
+  // A header of the page's grid is named with its menu's button after its title.
+  const ONE_WAY = /^One-way /;
+  // The grid draws the columns in view: the line brings One-way there, with Exchange beside it.
+  await taken(page, 'find', 'CSA-B one-way');
+  await expect(await under(terms, csaB, ONE_WAY)).toHaveText('False');
+
+  await csaB.getByRole('button', { name: 'Edit' }).click({ force: true });
+  const pending = page.getByTestId('draft-pending');
+  await expect(pending).toHaveText('nothing pending');
+  const dialog = page.getByRole('dialog').filter({ has: pending });
+  // One-way is read in the dialog, and says which fields to set in its place.
+  const oneWay = dialog.getByRole('textbox', { name: /^One-way/ });
+  await expect(oneWay).toHaveValue('off');
+  await expect(oneWay).toHaveAttribute('readonly', '');
+  await expect(oneWay).toHaveAttribute('title', 'No command sets this field: it follows counterparty posts and self posts.');
+
+  // We stop posting: the counterparty posts alone, and One-way says so before anything is written.
+  await dialog.getByRole('group', { name: 'Self' }).getByRole('switch', { name: /^Posts/ }).click({ force: true });
+  await expect(pending).toHaveText('1 pending');
+  await expect(page.getByTestId('draft-lines')).toContainText('set csas CSA-B self posts off');
+  await expect(oneWay).toHaveValue('on');
+  await expect(oneWay).toHaveAccessibleName(/changed/);
+  await expect(dialog.getByRole('textbox', { name: /^Exchange/ })).toHaveValue('on');
+  await expect(await under(terms, csaB, ONE_WAY)).toHaveText('False');
+
+  // Saved, the grid's cell follows, marked as a value that differs from the source's.
+  await dialog.getByRole('button', { name: 'Save' }).click();
+  await expect(pending).toBeHidden();
+  const cell = await under(terms, csaB, ONE_WAY);
+  await expect(cell).toHaveText('True');
+  await expect(cell).toHaveClass(/ex-state-modified/);
+  await expect(await under(terms, csaB, /^Exchange /)).not.toHaveClass(/ex-state-modified/);
+
+  // The cell takes no typing: nothing is written, and a line that tries is told why and what to set.
+  const summary = page.getByTestId('workspace-summary');
+  await expect(summary).toContainText('1 edit(s)');
+  await press(cell);
+  await page.keyboard.type('off');
+  await page.keyboard.press('Enter');
+  await command(page, 'set', 'CSA-B one-way off');
+  await expect(page.getByTestId('command-problems')).toHaveText('one-way is not a field a command sets: it follows counterparty posts and self posts. Set those.');
+  await page.keyboard.press('Escape');
+  await expect(await under(terms, csaB, ONE_WAY)).toHaveText('True');
+  await expect(summary).toContainText('1 edit(s)');
 });
 
 test('ADR-0016 notes 55 to 57: Space on a row\'s button opens its dialog; a cell typed and a row removed in its grid are lines of the draft; the undo key and the shell\'s chords are held while it is open; Save gives the keyboard back to the grid', async ({ page }) => {

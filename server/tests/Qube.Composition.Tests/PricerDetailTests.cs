@@ -124,7 +124,7 @@ public class PricerDetailTests
     static readonly string[] Posting =
         ["currency", "counterpartyCurrency", "selfCurrency", "exchange", "oneWay", "counterpartyPosts", "selfPosts", "counterpartyThreshold", "counterpartyMta", "selfThreshold", "selfMta"];
 
-    [Theory] // ADR-0016 note 52: each of the CSA's four templates writes who posts for the currency given, and thresholds and MTAs of 0
+    [Theory] // ADR-0016 notes 52, 66: each of the CSA's four templates writes who posts for the currency given, and thresholds and MTAs of 0; exchange and one-way follow
     [InlineData("2way", "EUR EUR EUR on off on on 0 0 0 0")]
     [InlineData("1way-self", "EUR EUR EUR on on off on 0 0 0 0")]
     [InlineData("1way-cpty", "EUR EUR EUR on on on off 0 0 0 0")]
@@ -136,6 +136,8 @@ public class PricerDetailTests
         Assert.Equal($"Set CSA-B as {template} currency=EUR.", await rig.Run($"set CSA-B as {template} eur"));
 
         Assert.Equal(written, rig.Written(PortfolioTables.Csas, "CSA-B", Posting));
+        // Exchange and one-way are no edit of their own (note 66): the template writes who posts, and they follow.
+        Assert.DoesNotContain(rig.State.Overrides.Keys, t => t.Field is "exchange" or "oneWay");
         // What a template does not write stays as it was: curves, frequency, VM caps, independent amounts and rounding.
         Assert.Equal("usd_sofr usd_funding daily 25mm USD 2mm 10k up down",
             rig.Written(PortfolioTables.Csas, "CSA-B", ["curve", "fvaCurve", "frequency", .. CounterpartySide[1..]]));
@@ -148,13 +150,82 @@ public class PricerDetailTests
     {
         var rig = new PricerRig();
 
-        Assert.Equal("currency: USD to JPY; counterparty currency: USD to JPY; self currency: USD to JPY; one-way: off to on; self posts: on to off; threshold: 1mm to 0; "
-            + "mta: 500k to 0; self mta: 250k to 0; 3 values already held", rig.Read("set CSA-B as 1way-cpty jpy"));
+        Assert.Equal("currency: USD to JPY; counterparty currency: USD to JPY; self currency: USD to JPY; self posts: on to off; threshold: 1mm to 0; "
+            + "mta: 500k to 0; self mta: 250k to 0; 2 values already held", rig.Read("set CSA-B as 1way-cpty jpy"));
         Assert.Equal("Set CSA-A and CSA-B as none currency=USD.", await rig.Run("set csas all as no collateral ccy=usd"));
         Assert.Equal("MissingTerm: 2way still needs currency: type it after it.", rig.Read("set CSA-B as 2way"));
         Assert.StartsWith("UnknownTemplate: csas has no template 3way; its templates are 2way, 1way-self, 1way-cpty and none.", rig.Read("set CSA-B as 3way usd"));
         // A trade has no template: `as` is refused there by name.
         Assert.StartsWith("NoTemplates: trades has no template", rig.Read("set DRAFT-1 as 2way usd"));
+    }
+
+    [Fact] // ADR-0016 note 66 (owner, 2026-11-14): exchange and one-way are what the two sides' posts say, wherever a row is read, and no command sets them
+    public async Task Exchange_and_one_way_follow_who_posts()
+    {
+        var rig = new PricerRig();
+        EffectiveCsa Row() => rig.Service.View(rig.Id, "akira").Csas.Single(c => c.CsaId == "CSA-B");
+        Assert.Equal("on off", rig.Written(PortfolioTables.Csas, "CSA-B", "exchange", "oneWay"));
+
+        await rig.Run("set CSA-B self posts off");
+
+        Assert.Equal("on on", rig.Written(PortfolioTables.Csas, "CSA-B", "exchange", "oneWay"));
+        Assert.Equal(["CSA-B"], rig.Keys("csas where one-way=on"));
+        // The page's row says the same, and marks the cell that differs from the source's with the source's value.
+        Assert.Equal((true, true, "oneWay=false"), (Row().Exchange, Row().OneWay, string.Join(" ", Row().Original!.Select(o => $"{o.Key}={o.Value!.ToJsonString()}"))));
+
+        await rig.Run("set CSA-B cpty posts off");
+
+        Assert.Equal("off off", rig.Written(PortfolioTables.Csas, "CSA-B", "exchange", "oneWay"));
+        Assert.Equal((false, false, "exchange=true"), (Row().Exchange, Row().OneWay, string.Join(" ", Row().Original!.Select(o => $"{o.Key}={o.Value!.ToJsonString()}"))));
+        Assert.Equal("NotEditable: one-way is not a field a command sets: it follows counterparty posts and self posts. Set those.", rig.Read("set CSA-B one-way on"));
+        Assert.Equal("NotEditable: exchange is not a field a command sets: it follows counterparty posts and self posts. Set those.", rig.Read("set CSA-B exchange on"));
+        // Written as a value (the API, a cell), it is refused in the same words.
+        var refused = Assert.Throws<WorkspaceRefused>(() => rig.Service.Edit(rig.Id, rig.State.Revision, "akira", "csa:CSA-B", "oneWay", true));
+        Assert.Equal(("NotEditable", "csa:CSA-B.oneWay is not a field an edit sets: it follows counterpartyPosts and selfPosts. Set those."), (refused.Code, refused.Message));
+    }
+
+    [Fact] // ADR-0016 notes 53, 66: Price freezes exchange and one-way as who posts says them in each case, beside the two flags
+    public async Task The_accepted_input_carries_exchange_and_one_way_as_who_posts_says()
+    {
+        var rig = new PricerRig();
+        await rig.Run("set CSA-B cpty posts off");
+        await rig.Run("vary CSA-B self posts off");
+
+        var input = await rig.Priced();
+
+        string Csa(int @case) => input["cases"]![@case]!["csas"]!.AsArray().Single(c => c!["csaId"]!.GetValue<string>() == "CSA-B") is { } csa
+            ? $"exchange {csa["exchange"]} oneWay {csa["oneWay"]} counterpartyPosts {csa["details"]!["counterpartyPosts"]} selfPosts {csa["details"]!["selfPosts"]}" : "";
+        Assert.Equal("exchange true oneWay true counterpartyPosts false selfPosts true", Csa(0));
+        Assert.Equal("exchange false oneWay false counterpartyPosts false selfPosts false", Csa(1));
+    }
+
+    [Fact] // ADR-0016 note 66: an edit of exchange a workspace held before the note is read by nothing: Changes says it is lost, Price is refused by its name, and removing it frees Price
+    public async Task An_edit_of_exchange_held_from_before_is_lost_and_refuses_Price()
+    {
+        var store = new InMemoryWorkspaceStore();
+        var made = new PricerRig(store: store);
+        var held = made.State;
+        var target = PortfolioEditRules.Target(PortfolioSourceVersion.Of(held), "csa:CSA-B", "exchange");
+        // As a workspace saved before the note holds it: no edit makes it now, so it is written where the workspace is kept.
+        var seq = held.Revision + 1;
+        store.Commit(held, held with
+        {
+            Overrides = held.Overrides.SetItem(target, new Override(target, false, new Dictionary<string, JsonNode?> { ["exchange"] = true }, held.Source.Version, seq)),
+            Log = held.Log.Add(held.Log[^1] with { Seq = seq, Kind = EditKind.Set, Target = target, Value = false, Note = null, Command = null, Replaced = null }),
+        }, DateTimeOffset.UtcNow);
+        var rig = new PricerRig(store: store, open: made.Id);
+
+        // The row reads who posts, never the edit.
+        Assert.Equal("on off", rig.Written(PortfolioTables.Csas, "CSA-B", "exchange", "oneWay"));
+        var change = rig.Service.Changes(rig.Id, "akira").Common.Single();
+        Assert.Equal(("csa:CSA-B exchange", "lost", false), (change.Title, change.State, change.Editable));
+        var refused = Assert.Throws<WorkspaceRefused>(() => rig.Service.Price(rig.Id, rig.State.Revision, "akira", Guid.NewGuid().ToString()));
+        Assert.Equal(("UnresolvedEdits", "csa:CSA-B exchange holds an edit that nothing reads in this version. Remove it in Changes."), (refused.Code, refused.Message));
+
+        rig.Service.Resolve(rig.Id, rig.State.Revision, "akira", "csa:CSA-B", "exchange", "reset");
+
+        Assert.Empty(rig.Service.Changes(rig.Id, "akira").Common);
+        await rig.Priced();
     }
 
     [Fact] // ADR-0016 note 53 (owner, 2026-11-12): each CSA Price freezes carries every field beyond the grid as the case holds it, an empty one as empty

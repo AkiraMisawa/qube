@@ -18,6 +18,10 @@ public sealed record TableSubset(string Name, string Title, IReadOnlyList<string
 /// <param name="Group">The group it is drawn under, where the table has groups.</param>
 /// <param name="Unit">Its unit where the table as the workspace has it fixes one, and no field of the row carries it (note 47).</param>
 /// <param name="Figure">Where it is a figure of the rows under its row (note 47): their table, and how a write of it is written.</param>
+/// <param name="From">
+/// Where it is what other fields of its row say (note 66): their names. No command sets it, and one that tries is told
+/// which fields to set.
+/// </param>
 public sealed record TableField(
     string Name,
     string Title,
@@ -30,7 +34,8 @@ public sealed record TableField(
     string? UnitField = null,
     string? Group = null,
     string? Unit = null,
-    TableFigure? Figure = null)
+    TableFigure? Figure = null,
+    IReadOnlyList<string>? From = null)
 {
     /// <summary>How its values are written and read.</summary>
     public FieldSpec Spec => new(Form, Optional, Choices);
@@ -257,6 +262,15 @@ public sealed class TableRegister
             // A figure is of a table under its own (note 47).
             if (table.Descriptor.Fields.FirstOrDefault(f => f.Figure is { } figure && bound.All(t => t.Descriptor.TableId != figure.Of || t.Descriptor.Under != table.Descriptor.TableId)) is { } astray)
                 throw new InvalidOperationException($"Table {table.Descriptor.TableId}'s field {astray.Name} is a figure of {astray.Figure!.Of}, which is not under it.");
+            // A field that follows others (note 66) follows fields of its table, and is set through them alone.
+            foreach (var following in table.Descriptor.Fields.Where(f => f.From is not null))
+            {
+                var of = $"Table {table.Descriptor.TableId}'s field {following.Name} follows";
+                if (following.From!.Count == 0) throw new InvalidOperationException($"{of} no field.");
+                if (following.From.FirstOrDefault(name => table.Descriptor.Fields.All(f => f.Name != name)) is { } unknown)
+                    throw new InvalidOperationException($"{of} {unknown}, which the table has not.");
+                if (following.Editable) throw new InvalidOperationException($"{of} {string.Join(", ", following.From)} and is set by a command: it is set through them alone.");
+            }
             // A template is said by one of its words alone, and writes fields a command sets, each once (note 50).
             if (table.Descriptor.Templates is { Count: > 0 } templates)
             {

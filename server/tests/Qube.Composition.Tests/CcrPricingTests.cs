@@ -168,7 +168,7 @@ public class CcrPricingTests
     {
         var oneWay = SpotCapitalPricing.Price(Portfolio(csas: [CsaA, CsaB with { OneWay = true }]), SpotCapitalPricing.After, "run-1/xva", Simulated);
         Assert.Equal((4, null), (oneWay.Trades, oneWay.Capital));
-        Assert.Equal("CSA-B is one-way, and its terms do not say which party posts, so its margined exposure cannot be decided.", oneWay.Refused);
+        Assert.Equal("CSA-B is one-way, and this measure does not yet read which party posts, so its margined exposure cannot be decided.", oneWay.Refused);
         Assert.Contains("CSA-A exchanges no collateral", SpotCapitalPricing.MarginingProblem(CsaA with { Exchange = false }));
         Assert.Contains("CSA-A margins quarterly", SpotCapitalPricing.MarginingProblem(CsaA with { Frequency = "quarterly" }));
         Assert.Null(SpotCapitalPricing.MarginingProblem(CsaA with { Frequency = "weekly" }));

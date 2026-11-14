@@ -2570,7 +2570,7 @@ worked by the synthetic source from what it holds; every name and value is made 
   the XVA analytics. FVA's rule and SA-CCR keep reading `one-way`, `exchange`, the thresholds and the MTAs.
 - **Who posts and `one-way` are two things a user can set apart.** A template writes them together; an edit by
   hand can leave `one-way` on with both sides posting. Whether `one-way` should be what the two flags say is the
-  owner's to decide.
+  owner's to decide. *Changed 2026-11-14 (ADR-0016 note 66): he decided that it is, and no edit sets it.*
 - The input holds an existing trade's official PV and its legs. Which the real request reads is not decided.
 - No dialog shows the new fields until 5c, and no grid but the CSA grid's Main column, which was there: they
   are typed in a command and read by `tables_read`.
@@ -3441,6 +3441,56 @@ decided could be overwritten by it; a component given another instance kept the 
 by Vite's hot reload threw; the request a trace answered once was written twice; and the tests' names did not carry
 the ADR, and a browser read of the Focus could mix two grids as a page was drawn anew. ADR-0018 §5 said the pages are
 drawn anew between the strip and the areas until this pull request; it now says they take back their state.
+
+## A CSA's `exchange` and `one-way` follow who posts (ADR-0016 notes 66 to 68, 2026-11-14)
+
+The owner answered the summary of decisions made for him (2026-11-14). Three answers are decisions, recorded as
+ADR-0016 notes 66 to 68; this change builds the one that changes the product (note 66).
+
+### What runs
+
+- **Each side's `posts` is what a CSA holds**, and `exchange` (either side posts) and `one-way` (exactly one does)
+  are worked out from them wherever a CSA is read: the grid's row, a condition, the row's dialog, each case, and the
+  input Price freezes. No command and no edit sets either: `set CSA-B one-way on` is refused with the fields to set
+  (`counterparty posts`, `self posts`), and so is an edit that arrives as a value.
+- **The four templates write who posts**, and no longer `exchange` or `one-way`.
+- **The CSA grid's Exchange and One-way cells are read, not typed**, and one that differs from what the source's
+  flags say is marked. The dialog draws both read-only, says which fields each follows, and moves them as a side's
+  Posts is switched, before Save.
+- **A table's field can say which fields of its row it follows** (the kernel's `TableField.From`): no command sets
+  it, `tables.describe` says `from`, a draft's form says `follows`, and the refusal names the fields to set.
+- **An edit of `exchange` or `one-way` held from before the change** is listed in Changes as lost, refuses Price by
+  name while a priced CSA holds it, and is removed there; a refresh holds it back as lost.
+- **Recorded, with no change to the code** (notes 67 and 68): `copy` and `export` write a text as it is, and an
+  `add each` iteration's lists have no spelling on the line.
+
+### Verification performed
+
+| Check | Result |
+|---|---|
+| `nix develop -c dotnet test server/Qube.slnx` | SERVER_COUNT |
+| `cd client && npm run typecheck && npm test` | CLIENT_COUNT |
+| `cd client && npx playwright test` (Chromium, the built client served by the host) | BROWSER_COUNT |
+| The new browser test alone, `--repeat-each=3` | 3 passed |
+
+By hand, in the built client served by the host: the CSA grid and the row's dialog at 1440px in both themes, and
+the dialog at 390px.
+
+### Providers
+
+Unchanged: every source and every measure is simulated, and every value is synthetic.
+
+### Known limits
+
+- **SA-CCR does not read which side posts.** A one-way CSA is refused as before; its reason now says the measure
+  does not read that yet. FVA's rule reads `one-way`, which is now what the flags say.
+- **The grid shows no column for who posts.** The direction is changed in the row's dialog, by a line or by a
+  template. The owner was told he may ask for the columns.
+- **An edit of a field nothing reads is found for a priced entity at Price, and for every entity in Changes.** One
+  on a CSA no priced trade is under does not refuse Price; it changes nothing of the input either.
+- **Waiting for the owner's answer**: whether an empty Float of a Rates leg becomes an issue on its row, what the
+  Rates grid shows before it has lines, whether docs/03 §5's line on a package is rewritten as served by `add each`,
+  and where the row's Edit column stands (ticket 16).
 
 ## Next
 

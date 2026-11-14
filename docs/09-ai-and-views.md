@@ -71,6 +71,10 @@ narrows with `where` and asks the fields it needs, and the answer says the count
 the description names, never a column's title. The agent drives no grid: the rows and the verbs of a screen
 (`selected`, `shown`, `find`) are refused to it by name.
 
+Since ADR-0016 note 66 (2026-11-14) the description says, of a field that follows other fields of its row, their
+names (`from`): no command sets such a field, and those are set in its place. The pricer's CSA says so of `exchange`
+and `one-way`, which follow `counterpartyPosts` and `selfPosts`.
+
 Since step 5a (ADR-0016 notes 46 to 49) the description says a table under another's rows (`under`), and of a field
 that is a figure of the rows under its row the table it is a figure of (`figureOf`), what it is in (`unit`) and how
 it is written (`written`), which may differ from how it reads: the pricer's legs and independent amounts are under

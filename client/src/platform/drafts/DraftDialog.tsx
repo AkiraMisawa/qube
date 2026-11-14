@@ -9,7 +9,7 @@ import type { DraftForm, DraftRow, DraftTable, DraftTemplate, DraftTerm, FieldIn
 import { readFlag } from '../flags';
 import { useColumnWidths } from '../grid/columnWidths';
 import { QubeGrid } from '../grid/QubeGrid';
-import { cellLine, fieldLine, makeLine, removeLine, sectionsOf, shownOf, templateLine } from './draftLines';
+import { cellLine, fieldLine, makeLine, readOnlyNote, removeLine, sectionsOf, shownOf, templateLine } from './draftLines';
 import { compactGridHeight } from '../grid/metrics';
 
 // A row's dialog (ADR-0016 §10, note 57 of 2026-11-12), the same for every table: it is drawn from the form the
@@ -70,7 +70,7 @@ function FieldBox({ field, written, changed, sending }: {
   }
   const label = labelOf(field, changed);
   if (sending === undefined || !field.editable) {
-    return <TextInput size="sm" label={label} value={shown} readOnly variant="filled" {...(sending !== undefined ? { title: 'No command sets this field.' } : {})} />;
+    return <TextInput size="sm" label={label} value={shown} readOnly variant="filled" {...(sending !== undefined ? { title: readOnlyNote(field) } : {})} />;
   }
   const commit = async (next: string) => {
     const typed = next.trim();

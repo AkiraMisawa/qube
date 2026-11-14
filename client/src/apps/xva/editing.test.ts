@@ -28,7 +28,7 @@ describe('what a cell accepts', () => {
   it('ADR-0006 note 4 (2026-11-11): reads a flag as `set` reads it, in a cell too, and refuses a word that is none', () => {
     for (const on of ['on', 'yes', 'true', 'y', 'ON', 'Yes', 'TRUE']) expect(tradeFields.before!(on), on).toEqual({ ok: true, value: true });
     for (const off of ['off', 'no', 'false', 'n', 'OFF', 'No', 'FALSE']) expect(tradeFields.after!(off), off).toEqual({ ok: true, value: false });
-    expect(csaFields.oneWay!(' off ')).toEqual({ ok: true, value: false });
+    expect(tradeFields.before!(' off ')).toEqual({ ok: true, value: false });
     for (const none of ['maybe', '1', '0', '', 'onn']) expect(tradeFields.before!(none), none).toEqual({ ok: false, message: 'Type on or off.' });
   });
 });
@@ -41,7 +41,10 @@ describe('what a CSA term accepts (ADR-0010 §8)', () => {
     expect(csaFields.counterpartyCurrency!('pounds').ok).toBe(false);
     expect(csaFields.frequency!('Weekly')).toEqual({ ok: true, value: 'weekly' });
     expect(csaFields.frequency!('hourly').ok).toBe(false);
-    expect(csaFields.oneWay!('TRUE')).toEqual({ ok: true, value: true });
+  });
+
+  it('ADR-0016 note 66: has no field for exchange or one-way, which follow who posts', () => {
+    expect([csaFields.exchange, csaFields.oneWay]).toEqual([undefined, undefined]);
   });
 
   it('has no field for the type, which is the source\'s', () => {

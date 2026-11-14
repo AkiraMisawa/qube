@@ -42,6 +42,18 @@ public class PricerDraftTests
         Assert.Equal(revision, rig.State.Revision);
     }
 
+    [Fact] // ADR-0016 note 66: a CSA's dialog says which fields one-way follows, by the words a line says them, and moves it as a side's posts is set
+    public void A_CSAs_draft_says_what_one_way_follows_and_moves_it_with_who_posts()
+    {
+        var rig = new PricerRig();
+
+        var form = Form(rig, PortfolioTables.Csas, "CSA-B", "set csas CSA-B self posts off");
+
+        var oneWay = form.Fields.Single(f => f.Field.Name == "oneWay");
+        Assert.Equal((false, "counterparty posts, self posts", "on", true), (oneWay.Field.Editable, string.Join(", ", oneWay.Field.Follows!), oneWay.Written, oneWay.Changed));
+        Assert.Null(form.Fields.Single(f => f.Field.Name == "currency").Field.Follows);
+    }
+
     [Fact] // ADR-0016 note 54: a CSA's draft takes a template as one line and marks what it wrote, and Original keeps the source's terms
     public void A_CSAs_draft_takes_a_template_and_Original_keeps_the_sources_terms()
     {
