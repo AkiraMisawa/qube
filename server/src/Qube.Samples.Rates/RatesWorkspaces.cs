@@ -221,16 +221,36 @@ public sealed class RatesWorkspaces(WorkspaceService workspaces, IDataStore stor
             [.. effective.Legs.SelectMany((leg, i) => leg.Exchanges.Select(e => new ExchangeView(i + 1, e.Kind, e.PaymentDate, e.Amount, leg.Terms.Currency)))]);
     }
 
-    /// <summary>Adds a line of a product with every field empty but its kind, named by the revision that creates it.</summary>
+    /// <summary>Adds a line of a product with every field empty but its kind, named as the workspace's next line.</summary>
     public (WorkspaceState State, string Line) AddLine(string workspaceId, long revision, string user, RatesProduct product, RunOrigin origin = RunOrigin.Pricer)
     {
-        Owned(workspaceId, user);
-        var line = LineAt(revision);
+        var line = NextLineName(Owned(workspaceId, user));
         return (workspaces.Create(workspaceId, revision, user, RatesEditRules.LinesScope, line, LineFields.Template(product), origin), line);
     }
 
-    /// <summary>The line a command at a revision makes: named by the revision that makes it, so no two are named alike.</summary>
-    public static string LineAt(long revision) => $"L{revision + 1}";
+    /// <summary>
+    /// The name the next line of a workspace takes (owner, 2026-11-14; ADR-0016 note 65): <c>L1</c>, <c>L2</c>, <c>L3</c>
+    /// in the order lines are made, one more than the highest number any line of the workspace was ever made with. A
+    /// number a line held is never given again in the workspace, though the line was removed or its making taken back,
+    /// so its log, an <c>undo</c>, a <c>redo</c> and a Run of it that name the line still mean that line. Lines were
+    /// named by the revision that made them before (<c>L3</c>, <c>L5</c>); a workspace that holds such names goes on
+    /// from its highest.
+    /// </summary>
+    public static string NextLineName(WorkspaceState state)
+    {
+        var highest = 0L;
+        foreach (var entry in state.Log)
+            // Only a line named L and a number can share a name with one made here: any other name cannot be given again.
+            if (entry is { Kind: EditKind.Create, Target: { Scope: RatesEditRules.LinesScope, Entity: var made } } && LineNumberOf(made) is { } n && n > highest)
+                highest = n;
+        return $"{LinePrefix}{highest + 1}";
+    }
+
+    const char LinePrefix = 'L';
+
+    /// <summary>The number of a line named <c>L</c> and a number, or none for a name of another form.</summary>
+    static long? LineNumberOf(string line) =>
+        line.Length > 1 && line[0] == LinePrefix && long.TryParse(line.AsSpan(1), NumberStyles.None, CultureInfo.InvariantCulture, out var n) ? n : null;
 
     /// <summary>
     /// The line <see cref="CreateLine"/> would make of the terms on a workspace as it stands, once they are checked as
@@ -239,7 +259,7 @@ public sealed class RatesWorkspaces(WorkspaceService workspaces, IDataStore stor
     public string WouldCreateLine(WorkspaceState state, JsonObject terms)
     {
         LineFrom(terms, RatesEditRules.ValuationDate(state));
-        return LineAt(state.Revision);
+        return NextLineName(state);
     }
 
     /// <summary>
@@ -254,7 +274,7 @@ public sealed class RatesWorkspaces(WorkspaceService workspaces, IDataStore stor
         var state = Owned(workspaceId, user);
         // The page names the revision it saw, as every page edit does; a command acts on the current one.
         var revision = expectedRevision ?? state.Revision;
-        var line = LineAt(revision);
+        var line = NextLineName(state);
         var fields = LineFrom(terms, RatesEditRules.ValuationDate(state));
         return (workspaces.Create(workspaceId, revision, user, RatesEditRules.LinesScope, line, fields, origin, sources), line);
     }

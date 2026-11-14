@@ -273,6 +273,47 @@ public class RatesLineCommandTests
         Assert.Equal("receive", Text(rig.Line(line), "direction"));
     }
 
+    [Fact] // ADR-0016 note 65 (owner, 2026-11-14): lines are named L1, L2, L3 in the order they are made, and a number a removed line or a making taken back held is never given again
+    public async Task Lines_are_numbered_in_the_order_they_are_made_and_no_number_is_given_twice()
+    {
+        var rig = new Rig();
+
+        var first = rig.Irs();
+        var read = rig.Preview("new irs 7y tst 10 rec").Would;
+        var second = rig.Irs("7y tst 10 rec");
+        var added = await rig.Enter("add line ccs");
+        await rig.Enter($"remove {second}");
+        var afterRemove = rig.Preview("add line irs").Would;
+        var fourth = await rig.Enter("add line irs");
+        await rig.Enter("undo");
+        await rig.Enter("redo");
+        var putBack = rig.View.Lines.Select(l => l.Line).ToList();
+        await rig.Enter("undo");
+        var afterUndo = rig.Irs();
+
+        Assert.Equal(("L1", "L2"), (first, second));
+        Assert.StartsWith("Makes L2: Interest rate swap.", read);
+        Assert.Equal("Added L3, an empty ccs line.", added);
+        // L2 was removed, so the next is L4 and not L2 again; redo puts L4 back under its own name.
+        Assert.Equal(("Adds L4, an empty irs line to fill in the grid.", "Added L4, an empty irs line."), (afterRemove, fourth));
+        Assert.Equal(["L1", "L3", "L4"], putBack);
+        // L4's making was taken back: its number is not given to the next line either.
+        Assert.Equal("L5", afterUndo);
+        Assert.Equal(["L1", "L3", "L5"], rig.View.Lines.Select(l => l.Line));
+    }
+
+    [Fact] // ADR-0016 note 65: a workspace whose lines were named by the revision that made them goes on from its highest number
+    public async Task A_workspace_of_lines_named_by_their_revision_goes_on_from_its_highest()
+    {
+        var rig = new Rig();
+        rig.Workspaces.Create(rig.Id, rig.State.Revision, "akira", RatesEditRules.LinesScope, "L5", LineFields.Template(RatesProduct.Irs));
+
+        var reading = rig.Preview("add line irs").Would;
+        var added = await rig.Enter("add line irs");
+
+        Assert.Equal(("Adds L6, an empty irs line to fill in the grid.", "Added L6, an empty irs line."), (reading, added));
+    }
+
     [Fact] // ADR-0016 note 34: a value is checked for its form, as a typed cell is; what the terms then lack shows on the row
     public async Task A_set_is_checked_for_its_form_and_the_row_says_what_the_terms_lack()
     {

@@ -210,8 +210,9 @@ public sealed class RatesFrameCapture(Func<RatesWorkspaces> workspaces) : ICapab
 }
 
 /// <summary>
-/// <c>rates.line.add</c>, typed <c>add line &lt;product&gt;</c> (ADR-0016 note 36): an empty line of the product, to
-/// fill in the grid, named by the revision that makes it. A line with its terms typed is the kernel's <c>new</c>.
+/// <c>rates.line.add</c>, typed <c>add line &lt;product&gt;</c> (ADR-0016 notes 36 and 65): an empty line of the product,
+/// to fill in the grid, named as the workspace's next line (<c>L1</c>, <c>L2</c>, …). A line with its terms typed is the
+/// kernel's <c>new</c>.
 /// </summary>
 public sealed class RatesLineAdd(Func<RatesWorkspaces> workspaces) : ICapabilityHandler, ILineCommand
 {
@@ -235,7 +236,7 @@ public sealed class RatesLineAdd(Func<RatesWorkspaces> workspaces) : ICapability
             throw new TableRefused("UnknownProduct", $"{words[0].Word} is no product a line is added for: {TableWords.Or(Products.Keys)}.", words[0].Word, [.. Products.Keys]);
         if (words.Count > 1) throw new TableRefused("UnreadWords", $"add line takes a product and nothing after it: {words[1].Word} is not read.", words[1].Word);
         return RatesCommand.Read(line, new JsonObject { ["product"] = product }, [new("product", product)],
-            $"Adds {RatesWorkspaces.LineAt(line.State.Revision)}, an empty {product} line to fill in the grid.");
+            $"Adds {RatesWorkspaces.NextLineName(line.State)}, an empty {product} line to fill in the grid.");
     }
 
     public LineCompletions Complete(LineContext line)
