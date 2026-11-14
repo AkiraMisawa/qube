@@ -79,8 +79,11 @@ The grid was as tall as its lines, three rows at least, and showed no cell until
 from the command line. The owner, asked what the grid shows before it has lines: cells could be shown from the
 start, "five to ten blank rows, and more as they fill" (2026-11-14).
 
-1. **Blank rows stand below the lines**, enough that the grid shows eight rows, and always one after the last line:
-   eight with no line, one with eight lines or more. The grid is as tall as its rows up to the height it had (356px
+That is all he said. Every point below is how it was built, a DEFAULT for him to change.
+
+1. **Blank rows stand below the lines**, enough that the grid shows eight rows, and never fewer than two after the
+   last line: eight with no line, two with six lines or more. Two, so that Enter from a blank row lands on a blank
+   row and line after line is typed down the grid. The grid is as tall as its rows up to the height it had (356px
    of rows), and scrolls beyond.
 2. **A blank row is the page's and no line of the workspace.** Nothing is saved for it. The count of lines and the
    rows a command reads from the grid (its selection, its Focus, the rows shown) do not hold it. Its context menu
@@ -92,9 +95,10 @@ start, "five to ten blank rows, and more as they fill" (2026-11-14).
    line: what is not one word (a letter, then letters or digits) is refused as in point 4. The line made stands
    first among the blank rows, wherever among them it was typed: the lines are in the workspace's order. A line's
    own Product is not edited, as before.
-4. **Anything else typed in a blank row is refused** with what to do instead (type the product first). No product
-   is guessed for it (CLAUDE.md, no fallback). A term typed in a blank row before its line has come is refused the
-   same way: the row is still blank.
+4. **Anything else typed in a blank row's cells is refused** with what to do instead (type the product first). No
+   product is guessed for it (CLAUDE.md, no fallback). A term typed in a blank row before its line has come is
+   refused the same way: the row is still blank. The cells no row is typed in (the line's name, a folded leg's
+   summary, the result) take no typing in a blank row either, as in a line.
 5. **While the line's conditions filter the grid, it shows no blank row**: the rows are then what the conditions
    leave. The grid keeps the height of its unfiltered rows, as it did, so the page below it does not move as a
    filter goes on or off.
@@ -102,17 +106,27 @@ start, "five to ten blank rows, and more as they fill" (2026-11-14).
 7. **The grid holds no blank row before the workspace's lines are read.** A grid that held its blank rows alone
    until its lines came would be in an order no Selection kept for it was read in, and a page shown again would
    lose its Selection (ADR-0006 note 10). The lines and the blank rows below them come to the grid together.
+8. **A line this page made keeps the keyboard where it was.** ExGrid drops a Selection as its rows' order moves
+   (ExGrid ADR-0011). A blank row is keyed by its place in the grid, so when a line is made every row keeps its
+   place but the first blank row, whose place the line takes. The page knows the line it made by the name `add
+   line` answers, whether a blank row's product, an Add button or the command line ran it, and puts the Selection
+   back as it gives the grid that line:
+   - Tab from the first blank row's Product is on the line's Start, and its terms are typed on from there.
+   - Enter is on the blank row below, where the next product is typed.
+   - From a later blank row the Selection stays on the blank row the key left it on, and the line stands above.
+   - An edit open as the line comes is left open in its row, with what was typed: placing a Selection would commit
+     it half typed. A product half typed as the line before it comes runs as the whole word.
+   - A line that came from elsewhere (another page, the AI), alone or with this page's own, drops the Selection,
+     as before: a position kept through it could name another's line.
 
-8. **The keyboard stays where the committing key left it once the line comes.** ExGrid drops a Selection as its
-   rows' order moves (ExGrid ADR-0011). Here every position names what it named, a line, a blank row, or the line
-   made in the first blank row's place, so the page puts the Selection back as it gives the grid the line. Tab
-   from the first blank row's Product is on the line's Start, and its terms are typed on from there; Enter is on
-   the blank row below it. From a later blank row the Selection stays on the blank row the key left it on, and
-   the line stands above. Products typed one after another before a line came are counted, and each line that
-   comes keeps the Selection. A line that comes otherwise (a button, the command line, another page) drops it, as
-   before. The outcome does not depend on when the line comes: ExGrid's source gathers live changes within an
-   interval (ExGrid ADR-0141), so the page has it put out what it gathered before the Selection is read, and the
-   line after.
+   The outcome does not depend on when the line comes. ExGrid's source gathers live changes within an interval
+   (ExGrid ADR-0141), so the page has it put out what it gathered before the Selection is read, and the line
+   before the Selection is placed.
+9. **A commit the grid refused because its row left is said in words.** A term half typed in the first blank row
+   as the line takes its place cannot be written: the row it was typed in is gone, and the grid refuses the commit
+   and keeps the editor open (ExGrid ADR-0142), saying so to a screen reader alone. The page raises a notice
+   ("Nothing was written: ..."), so an editor that stays open on Enter does not look stuck. The term is typed
+   again in the line's cell.
 
 Three limits of ExGrid 0.3.0 bear on a blank row, each filed there:
 
@@ -122,13 +136,13 @@ Three limits of ExGrid 0.3.0 bear on a blank row, each filed there:
   become Space to enter the cell and a second key to press.
 - **A blank row's other cells open the editor and refuse at the commit.** A column's `editable` is one answer for
   every row ([ex-grid#573](https://github.com/AkiraMisawa/ex-grid/issues/573)), as it already was for a line's
-  Product. A blank row's Product cell says in its message what it takes.
-
+  Product. A blank row's Product cell says in its message, shown with the Focus on it, what it takes.
 - **The commit does not wait for the line.** ExGrid's pending commit (its ADR-0380) would hold the keys typed
   until the line came. Tried, it answers the committing key from the edited blank row's new place and not from
   the line, and keys typed meanwhile were replayed into an error
   ([ex-grid#574](https://github.com/AkiraMisawa/ex-grid/issues/574)). So the commit is answered at once, and
-  point 8 puts the Selection back.
+  points 8 and 9 say what becomes of the keys typed before the line comes.
 
-DEFAULT, for the owner to change: eight rows; the product as the one cell a blank row takes; the Flows button left
-on blank rows until ExGrid lets a row withhold it.
+The DEFAULTs most his to weigh: eight rows from the start and two blank rows at least; the product as the one
+cell a blank row takes; the line standing first among the blank rows and not in the row typed in; the Flows
+button left on blank rows until ExGrid lets a row withhold it.

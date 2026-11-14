@@ -36,7 +36,8 @@ export interface LineRow {
 
 /**
  * A row to type a line into (ADR-0015's note of 2026-11-14): the page's own, and no line of the workspace. `blank` is
- * its key in the grid, its place among the blank rows. A line's name is one word, so no line's name is such a key.
+ * its key in the grid, its place among the grid's rows: a blank row keeps its key, and an edit open in it its place,
+ * while a line is made above it. A line's name is one word, so no line's name is such a key.
  */
 export interface BlankRow {
   readonly blank: string;
@@ -50,24 +51,42 @@ export const isBlank = (row: LineGridRow): row is BlankRow => 'blank' in row;
 /** A row's key in the grid: a line's name, or a blank row's place. */
 export const rowKey = (row: LineGridRow): string => (isBlank(row) ? row.blank : row.line);
 
+/** The lines among a grid's rows, by name, in their order. */
+export const linesIn = (rows: readonly LineGridRow[]): readonly string[] => rows.flatMap((row) => (isBlank(row) ? [] : [row.line]));
+
 /** The rows the grid shows from the start (owner, 2026-11-14: five to ten). */
 const ROWS_FROM_THE_START = 8;
+/** The blank rows that stand after the last line however many lines there are: Enter from one lands on the other. */
+const BLANK_ROWS_AT_LEAST = 2;
 
-// The same objects every time, so the grid paints a blank row once (ExGrid ADR-0003).
-const BLANKS: readonly BlankRow[] = Array.from({ length: ROWS_FROM_THE_START }, (_, at) => ({ blank: `(blank ${at + 1})` }));
+/** The rows of a grid of `lines` lines, its blank rows among them. */
+const rowsOf = (lines: number): number => Math.max(ROWS_FROM_THE_START, lines + BLANK_ROWS_AT_LEAST);
+
+const BLANK_KEY = /^\(row \d+\)$/;
+// The same object for a place every time, so the grid paints a blank row once (ExGrid ADR-0003).
+const blanksByPlace: BlankRow[] = [];
+function blankAt(place: number): BlankRow {
+  const held = blanksByPlace[place];
+  if (held !== undefined) return held;
+  const row = { blank: `(row ${place + 1})` };
+  blanksByPlace[place] = row;
+  return row;
+}
 
 /**
  * The blank rows below a grid of `lines` lines (ADR-0015's note of 2026-11-14): enough that it shows its rows from the
- * start, and always one after the last line. None while the line's conditions filter the grid, whose rows are then
- * what the conditions leave, and none before the workspace's lines are read (`undefined`): a grid that held its blank
- * rows alone until its lines came would be in an order no Selection kept for it was read in (ADR-0006 note 10).
+ * start, and never fewer than two after the last line. None while the line's conditions filter the grid, whose rows
+ * are then what the conditions leave, and none before the workspace's lines are read (`undefined`): a grid that held
+ * its blank rows alone until its lines came would be in an order no Selection kept for it was read in (ADR-0006 note 10).
  */
 export function blankRows(lines: number | undefined, filtered: boolean): readonly BlankRow[] {
-  return lines === undefined || filtered ? [] : BLANKS.slice(0, Math.max(ROWS_FROM_THE_START - lines, 1));
+  return lines === undefined || filtered ? [] : Array.from({ length: rowsOf(lines) - lines }, (_, at) => blankAt(lines + at));
 }
 
-/** A row's height in the grid's compact density, and the height of rows the grid scrolls beyond (ADR-0015). */
-const ROW_PX = 28, MOST_ROWS_PX = 356;
+/** A row's height in the grid's compact density (ADR-0015). */
+export const ROW_PX = 28;
+/** The height of rows the grid scrolls beyond (ADR-0015). */
+const MOST_ROWS_PX = 356;
 
 /**
  * The height of the grid's rows in pixels for a workspace of `lines` lines: its lines and the blank rows below them
@@ -75,10 +94,8 @@ const ROW_PX = 28, MOST_ROWS_PX = 356;
  * page below the grid does not move as a filter goes on or off (ADR-0015's note of 2026-11-14).
  */
 export function rowsPx(lines: number): number {
-  return Math.min((lines + blankRows(lines, false).length) * ROW_PX, MOST_ROWS_PX);
+  return Math.min(rowsOf(lines) * ROW_PX, MOST_ROWS_PX);
 }
-
-const BLANK_KEYS: ReadonlySet<string> = new Set(BLANKS.map((b) => b.blank));
 
 /**
  * A view of the line grid as the command line is told of it (ADR-0016 §9), holding lines only: a blank row is no row
@@ -86,21 +103,25 @@ const BLANK_KEYS: ReadonlySet<string> = new Set(BLANKS.map((b) => b.blank));
  */
 export function linesOnly(view: CommandLineView): CommandLineView {
   const { keys, shown, focus, ...rest } = view;
-  const lines = (among: readonly string[]) => among.filter((key) => !BLANK_KEYS.has(key));
+  const lines = (among: readonly string[]) => among.filter((key) => !BLANK_KEY.test(key));
   const selected = keys === undefined ? [] : lines(keys);
   return {
     ...rest,
     ...(selected.length === 0 ? {} : { keys: selected }),
     ...(shown === undefined ? {} : { shown: lines(shown) }),
-    ...(focus === undefined || (focus.key !== undefined && BLANK_KEYS.has(focus.key)) ? {} : { focus }),
+    ...(focus === undefined || (focus.key !== undefined && BLANK_KEY.test(focus.key)) ? {} : { focus }),
   };
 }
 
-// The products a line is added for, as the Add buttons name them. What a product is stays the server's to say.
-const PRODUCTS = 'IRS or CCS';
+/** The products the page's Add buttons add a line for. What a product is stays the server's to say. */
+export const ADDED_PRODUCTS = ['irs', 'ccs'] as const;
+const PRODUCTS = ADDED_PRODUCTS.map((product) => product.toUpperCase()).join(' or ');
 
 /** What a blank row says of what is typed in it and makes no line: no product is guessed for it (CLAUDE.md). */
 export const NO_LINE_YET = `This row holds no line yet: type ${PRODUCTS} under Product to make one.`;
+
+/** What the page says of a commit the grid refused because its row is no longer in the grid: nothing was written. */
+export const ROW_LEFT = 'Nothing was written: the row this was typed in is no longer in the grid. Press Escape, and type it in the row that holds the line.';
 
 /**
  * What a text typed in a blank row does (ADR-0015's note of 2026-11-14). One word under Product runs `add line` and
@@ -113,36 +134,21 @@ export function typedInBlankRow(column: string, text: string): { readonly ok: tr
 }
 
 /**
- * The lines that products typed in blank rows are making (ADR-0015's note of 2026-11-14): how many are out, and the
- * lines the grid held, in their order, before the first of them.
+ * What the lines a grid is given (`now`, in their order) say of the lines this page made and the grid does not show
+ * yet (`made`, by name), beside the lines it shows (`shown`). ADR-0015's note of 2026-11-14, point 8.
+ *
+ * `came`: the lines shown and, after them, lines this page made and no other. Every row of the grid then keeps its
+ * place but the blank rows the made lines take the place of, so a Selection means what it meant. `awaited` is what
+ * this page made and is still to come: the same while the lines are the same, as a tick leaves them, and nothing
+ * once the lines moved another way (a line gone, another order, a line from elsewhere among those gained), since a
+ * name kept past that could be met by another's line.
  */
-export interface LinesBeingMade {
-  readonly held: readonly string[];
-  readonly out: number;
-}
-
-/** One more product was sent. `held` is the lines the grid holds as it is, kept for the first product out only. */
-export function oneSent(making: LinesBeingMade | undefined, held: readonly string[]): LinesBeingMade {
-  return making === undefined ? { held, out: 1 } : { held: making.held, out: making.out + 1 };
-}
-
-/** A product sent made no line: it was refused. */
-export function oneRefused(making: LinesBeingMade | undefined): LinesBeingMade | undefined {
-  return making === undefined || making.out === 1 ? undefined : { held: making.held, out: making.out - 1 };
-}
-
-/**
- * What the lines a grid is given (`now`, in their order) say of the lines being made, and what is still out after
- * them. `came`: the lines held and, after them, lines made, one at least and no more than are out, so every position
- * of the grid names what it named or a line made in a blank row's place. Not `came` with the same lines out: the
- * lines held and no other, as a tick leaves them. Not `came` with none out: anything else, a line gone or more
- * gained than were sent, under which a position may name another line.
- */
-export function linesCame(making: LinesBeingMade, now: readonly string[]): { readonly came: boolean; readonly making: LinesBeingMade | undefined } {
-  const gained = now.length - making.held.length;
-  if (gained < 0 || gained > making.out || making.held.some((line, at) => now[at] !== line)) return { came: false, making: undefined };
-  if (gained === 0) return { came: false, making };
-  return { came: true, making: gained === making.out ? undefined : { held: now, out: making.out - gained } };
+export function madeLinesCame(shown: readonly string[], now: readonly string[], made: ReadonlySet<string>): { readonly came: boolean; readonly awaited: ReadonlySet<string> } {
+  const kept = shown.length <= now.length && shown.every((line, at) => now[at] === line);
+  if (kept && now.length === shown.length) return { came: false, awaited: made };
+  const gained = now.slice(shown.length);
+  if (!kept || !gained.every((line) => made.has(line))) return { came: false, awaited: new Set() };
+  return { came: true, awaited: new Set([...made].filter((line) => !gained.includes(line))) };
 }
 
 const fail = (message: string): Parsed => ({ ok: false, message });
