@@ -1787,7 +1787,9 @@ Unchanged: the Rates market, its conventions' development profiles and every fig
 - `new irs 5y` on a workspace with no defaults says six terms are missing, the index and the frequencies among
   them, though a currency alone would bring those from its profile: the reading does not know which missing terms
   a profile would supply once another is typed (ADR-0016 note 36).
-- A line is named by the revision that makes it, so a workspace's first line is `L3` and its next `L5`.
+- A line is named by the revision that makes it, so a workspace's first line is `L3` and its next `L5`. *Changed
+  2026-11-14 (ADR-0016 note 65): lines are `L1`, `L2`, `L3` in the order they are made, and no number is given
+  twice.*
 - The valuation date is not a field: it stays the page's control, and `undo` takes its change back.
 - The cashflows are a grid of no table: `set` and `find` do not reach a period, and with the keyboard there the
   line is told of no screen. A cashflow's edit and a held edit's resolution stay the page's own writes.

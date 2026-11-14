@@ -2622,6 +2622,20 @@ Step 6 is one pull request (`docs/specs/commands-6-saved-sequences`). §8 leaves
       the page at the revision before it; it now chains on the revision the run left, reads the workspace
       again, and says the defect in a refused notice beside what the run said.
 
+### Note of 2026-11-14: a Rates line's name (DEFAULT, on the owner's request)
+
+65. **A Rates line is named in the order lines are made (note 36).** The owner asked, on 2026-11-14, for the
+    numbers of the lines to be easier to follow: a line was named by the revision that made it (`L{revision+1}`),
+    so a workspace's first line was `L3`, the next `L5`, and one made after a few edits `L34` (note 36, "Found,
+    and left"). A line is now `L1`, `L2`, `L3` in the order the workspace makes them, by `new`, `add line` or
+    the AI's `entity.create` alike: one more than the highest number any line of the workspace was made with,
+    read from its log. A number is never given twice, though its line was removed or its making taken back, so
+    the log, `undo`, `redo`, a Run and a saved sequence that name a line still mean that line. The reading
+    names the line Enter makes as before (`Makes L2: …`), and a refusal for a revision that moved keeps it true.
+    A workspace whose lines were named by their revision keeps those names and goes on from its highest number.
+    - *Considered, and left:* a row number beside the name, which would give one line two names, and a name the
+      user gives a line, which is a field to add if it is wanted.
+
 ## Rejected
 
 - **A range syntax of the pricer's own** (`after off where ccy=USD`, the review's R6). A second grammar per domain,
