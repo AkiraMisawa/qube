@@ -234,7 +234,7 @@ const sourceOf = (view: XvaWorkspaceView) => `${view.registration.key} ${view.co
  * bid`), which alone tells two such panels apart (ADR-0010 §1's note of 2026-11-14, ADR-0016 note 100).
  */
 export function xvaPanelTitle(ws: Pick<XvaWorkspaceView, 'registration' | 'project'>): string {
-  return ws.registration.dummy && ws.project !== null ? `XVA ${ws.registration.key} · ${ws.project}` : `XVA ${ws.registration.key}`;
+  return ws.registration.dummy && ws.project != null ? `XVA ${ws.registration.key} · ${ws.project}` : `XVA ${ws.registration.key}`;
 }
 
 /**
@@ -1029,7 +1029,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
         </ToolbarField>
         {/* The project, beside the dummy it is needed for (ADR-0010 §1 and its note of 2026-11-14), and wherever one is
             held, so a project the Runs carry is never out of sight. */}
-        {(ws.registration.dummy || ws.project !== null) && (
+        {(ws.registration.dummy || ws.project != null) && (
           <CommitField label="Project" value={ws.project ?? ''} placeholder={ws.registration.dummy ? 'Needed to price' : 'None'} parse={(text) => ({ ok: true, value: projectNamed(text) })}
             onCommit={setProject} onIssue={setIssue} />
         )}

@@ -98,6 +98,8 @@ test('ADR-0003 §6: a counterparty change asks before dropping its edits, and ke
   await page.keyboard.type('CSA-B');
   await page.keyboard.press('Enter');
   await expect(page.getByTestId('workspace-summary')).toContainText('2 edit(s)');
+  // A booked counterparty's workspace holds no project, and shows no field for one (ADR-0010 §1's note of 2026-11-14).
+  await expect(page.getByRole('toolbar', { name: 'Workspace' }).getByRole('textbox', { name: 'Project' })).toHaveCount(0);
 
   await page.getByRole('combobox', { name: 'Counterparty' }).click();
   await page.getByRole('option', { name: /^ABC \| LE-02 \|/ }).click();
@@ -159,6 +161,10 @@ test('ADR-0010 §1, ADR-0016 note 100: a workspace opened with no counterparty c
   // The project beside it is the toolbar's to change, and titles the panel with it.
   const project = page.getByRole('toolbar', { name: 'Workspace' }).getByRole('textbox', { name: 'Project' });
   await expect(project).toHaveValue('Alpha bid');
+  // Cleared, the panel is titled by the counterparty alone (the wire leaves an empty project out).
+  await project.fill('');
+  await project.press('Enter');
+  await expect(page.getByRole('tab', { name: 'XVA DUMMY/LE-00', exact: true })).toHaveAttribute('aria-selected', 'true');
   await project.fill('Beta deal');
   await project.press('Enter');
   await expect(page.getByRole('tab', { name: 'XVA DUMMY/LE-00 · Beta deal' })).toHaveAttribute('aria-selected', 'true');

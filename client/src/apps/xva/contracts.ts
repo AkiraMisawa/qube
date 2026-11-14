@@ -406,7 +406,7 @@ export interface XvaWorkspaceView {
    * The project the workspace's Runs are listed under in the Pricing DB, or none (ADR-0010 §1's note of 2026-11-14): a
    * workspace on the dummy counterparty is made and priced only under one, since the counterparty says nothing then.
    */
-  readonly project: string | null;
+  readonly project?: string | null;
   readonly currencies: readonly string[];
   /** The selected modules whose figures come from a simulated provider: the page says `SIMULATED` while any is. */
   readonly simulated: readonly string[];
