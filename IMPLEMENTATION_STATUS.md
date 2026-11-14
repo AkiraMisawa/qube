@@ -1787,7 +1787,8 @@ Unchanged: the Rates market, its conventions' development profiles and every fig
 - `new irs 5y` on a workspace with no defaults says six terms are missing, the index and the frequencies among
   them, though a currency alone would bring those from its profile: the reading does not know which missing terms
   a profile would supply once another is typed (ADR-0016 note 36).
-- A line is named by the revision that makes it, so a workspace's first line is `L3` and its next `L5`.
+- A line is named by the revision that makes it, so a workspace's first line is `L3` and its next `L5`. *Changed
+  2026-11-14 (ADR-0016 note 65): a line is `L1`, `L2`, `L3` in the order its workspace makes them.*
 - The valuation date is not a field: it stays the page's control, and `undo` takes its change back.
 - The cashflows are a grid of no table: `set` and `find` do not reach a period, and with the keyboard there the
   line is told of no screen. A cashflow's edit and a held edit's resolution stay the page's own writes.
@@ -3883,6 +3884,53 @@ Unchanged: every source and every measure is simulated, and every value is synth
 - **A case made by note 37's lists before this change** has no package. One of a trade alone still prices; one that
   added several together or took a trade out is out of date at Price until `add each` again.
 - **The line has no spelling of a package's lists** (note 68): it writes cells with `set`, then `add each`.
+
+## Rates lines named in order (ADR-0016 note 65, 2026-11-14)
+
+The owner asked for the lines' numbers to be easier to follow.
+
+### What runs
+
+- **A line is `L1`, `L2`, `L3` in the order its workspace makes them**, by `new`, `add line` (and the Add IRS and
+  Add CCS buttons) or the AI's `entity.create` alike: one more than the highest number any line of the workspace was
+  made with, read from its log (`RatesWorkspaces.NextLineName`). The reading names the line Enter makes (`Makes L2: …`,
+  `Adds L4, …`).
+- **No number is given twice in a workspace.** A line removed, or one whose making `undo` took back, keeps its
+  number, so the workspace's log, `undo`, `redo` and its Runs that name a line still mean that line; `redo` puts a
+  line back under its own name.
+- **A workspace made before** keeps its lines' names (`L3`, `L5`) and goes on from its highest number.
+
+### Verification performed
+
+| What | Result |
+|---|---|
+| `dotnet test server/Qube.slnx` | 1644 passed; 1661 passed on main 3ac4e82 merged in, after the second review; 1674 passed on main f6395ed merged in |
+| The two new tests (`RatesLineCommandTests`: order, removal, undo and redo; a workspace named by revision) without the change | Both failed, as they should |
+| `npx playwright test e2e/rates.spec.ts e2e/ai.spec.ts e2e/pageState.spec.ts` (Chromium, headless, Linux) | 23 passed; 23 passed again on main 3ac4e82 merged in, and on main f6395ed |
+| Three lines made from the line, before and after, then the second removed, at 1440px dark | Before: `L3 L5 L7`, next `L9`; after: `L1 L2 L3`, next `L4`, and `L4` again after `remove L2` |
+
+### Providers
+
+Unchanged: the Rates provider is the fake one, and it marks every figure simulated.
+
+### Known limits
+
+- The number says the order the lines were made in, not where a line stands in the grid: a gap is a line removed or
+  taken back.
+- A line has no name of its own the user gives it.
+- A saved sequence that names a line (`set L2 risk on`) means the line of that name in the workspace it runs on.
+- That a workspace stored before goes on from its highest number is held by a test of the workspace in memory; the
+  store reads the whole log back, as every command already needs.
+
+### What the review changed
+
+Two reviews with fresh context, of the standards and of the spec. Note 36's two sentences of the old rule are marked
+as changed by note 65; this section was added; the test now shows that `add line` made the line its reading named and
+that `redo` puts a line back under its own name; note 65 no longer claims that a saved sequence's line means the same
+line in every workspace; and the reader of a line's number is named for what it does (`LineNumberOf`). The second,
+after main was merged in twice, found the resolutions right; it added this section's providers, the figures on the
+merged tree and the marker on step 3c's limit, named the maker of a line's name for what it gives (`NextLineName`),
+and made the test of a workspace named by revision run its `add line`.
 
 ## Next
 
