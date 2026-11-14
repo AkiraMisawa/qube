@@ -147,7 +147,7 @@ public sealed class PortfolioEditRules(MeasureRegister? register = null) : IEdit
     /// <summary>
     /// Whether an edit the workspace holds is of a field its source reads no more (ADR-0016 note 66): one held from
     /// before the field followed others. A refresh holds such an edit back as lost; until one, Changes says it is lost
-    /// and Price is refused by its name, so that it is never passed over in silence.
+    /// and Price is refused with it as the refusal's target, so that it is never passed over in silence.
     /// </summary>
     public static bool ReadNoMore(WorkspaceState raw, EditTarget target) => raw.SourceOf(target).Read(target.Entity, target.Field) is null;
 

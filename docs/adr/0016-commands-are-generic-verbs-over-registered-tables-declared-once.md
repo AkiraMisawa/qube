@@ -2644,10 +2644,12 @@ later answer, is written when he answers.
     - **No command and no edit sets `exchange` or `one-way`.** A line that sets one is refused with the fields to
       set: `one-way is not a field a command sets: it follows counterparty posts and self posts. Set those.` An
       edit that arrives as a value (the API, a cell) is refused in the same way, and so is a case's `vary` of
-      one, which is no cell. The direction is changed by a side's `posts` (`set CSA-B self posts off`, the
-      dialog's switch) or by a template (note 52), which writes who posts and no longer `exchange` or `one-way`.
-      A `reset` of one finds no edit of its own, though its cell may be marked, and says whose edits it shows:
-      `CSA-B has no edit of one-way: it follows counterparty posts and self posts. Reset those.`
+      one, which is no cell, named by its words on a line or by its field (a page, the AI). The direction is
+      changed by a side's `posts` (`set CSA-B self posts off`, the dialog's switch) or by a template (note 52),
+      which writes who posts and no longer `exchange` or `one-way`.
+      A `reset` of one finds no edit of its own, though its cell may be marked, and names the fields it is reset
+      through: `CSA-B has no edit of one-way: it follows counterparty posts and self posts, and is reset through
+      those.`
     - **The source's record of a CSA holds neither**: a second copy could only disagree with the flags. The
       view's agreement, which is written from that record, loses the two names; the page's rows (`csas`) keep
       them.
@@ -2667,10 +2669,13 @@ later answer, is written when he answers.
       Changes tab lists it as lost, with its Remove, and a whole row's `reset` takes it with the row's other
       edits. Price is refused while the workspace holds one, in the Common layer or a case's, on a priced CSA or
       another (`UnresolvedEdits`: `Remove in Changes the edit nothing reads in this version: csa:CSA-B
-      exchange.`): it would otherwise be kept among the Run's edits and change nothing of its input, and a case
-      made by it would be named as one thing and priced as the Base. A refresh holds it back as lost, as it does
-      an edit whose row is gone (ADR-0003 §7). The row shows what who posts says throughout. The check is the
-      pricer's, and is of any field its source reads no more.
+      exchange.`): it would otherwise be kept among the Run's edits and change nothing of its input. A case that
+      holds one is named in the refusal, to be removed whole (`Remove in Changes the case CSA-B one-way on, which
+      holds an edit nothing reads in this version`): with the edit alone removed, a case made of it keeps the
+      title it was made with and is priced as the Base, as a case is when any change of it is removed by hand
+      (ADR-0010 §3). A refresh holds it back as lost, as it does an edit whose row is gone (ADR-0003 §7). The row
+      shows what who posts says throughout. The check is the pricer's, and is of any field its source reads no
+      more.
     - **The measures.** FVA's rule reads `one-way` as before, which is now what the flags say. SA-CCR still
       refuses a one-way CSA: its request carries `oneWay` and not which side posts, and its reason now says that
       the measure does not read that yet (ADR-0013's note of the same day). Reading the side is for when the

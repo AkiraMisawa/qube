@@ -54,7 +54,7 @@ public class FollowingFieldTests
     {
         var rig = new Rig(Readings("window", "windSpeed", "windDirection"));
 
-        Assert.Equal("Nothing would change: R1 has no edit of window: it follows wind speed and wind direction. Reset those.", rig.Read("reset R1 window"));
+        Assert.Equal("Nothing would change: R1 has no edit of window: it follows wind speed and wind direction, and is reset through those.", rig.Read("reset R1 window"));
         // A field that follows nothing is answered as before.
         Assert.Equal("Nothing would change: R1 has no edit of volume.", rig.Read("reset R1 volume"));
     }

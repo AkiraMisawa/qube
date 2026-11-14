@@ -3455,7 +3455,7 @@ ADR-0016 notes 66 to 68; this change builds the one that changes the product (no
   are worked out from them wherever a CSA is read: the grid's row, a condition, the row's dialog, each case, and the
   input Price freezes. No command and no edit sets either: `set CSA-B one-way on` is refused with the fields to set
   (`counterparty posts`, `self posts`), and so are an edit that arrives as a value and a case's `vary` of one. A
-  `reset` of one that holds no edit says which fields' edits its cell shows.
+  `reset` of one that holds no edit names the fields it is reset through.
 - **The four templates write who posts**, and no longer `exchange` or `one-way`.
 - **The CSA grid's Exchange and One-way cells are read, not typed**, and one that differs from what the source's
   flags say is marked. The dialog draws both read-only, says under each which fields it follows (drawn, so a
@@ -3464,7 +3464,8 @@ ADR-0016 notes 66 to 68; this change builds the one that changes the product (no
   it, `tables.describe` says `from`, a draft's form says `follows`, and the refusal names the fields to set.
 - **An edit of `exchange` or `one-way` held from before the change** is listed in Changes as lost and removed
   there or by its row's `reset`. Price is refused with its name while the workspace holds one, in the Common layer
-  or a case's; a refresh holds it back as lost.
+  or a case's, on a priced CSA or another, and a case that holds one is named to be removed whole; a refresh holds
+  it back as lost.
 - **Recorded, with no change to the code** (notes 67 and 68): `copy` and `export` write a text as it is, and an
   `add each` iteration's lists have no spelling on the line.
 
@@ -3472,14 +3473,15 @@ ADR-0016 notes 66 to 68; this change builds the one that changes the product (no
 
 | Check | Result |
 |---|---|
-| `nix develop -c dotnet test server/Qube.slnx` | 1657 passed |
+| `nix develop -c dotnet test server/Qube.slnx` | 1658 passed |
 | `cd client && npm run typecheck && npm test` | typecheck clean; 485 passed in 47 files |
 | `cd client && npx playwright test` (Chromium, the built client served by the host) | 138 passed |
 | The new browser test alone, `--repeat-each=3` | 3 passed |
 
 By hand, in the built client served by the host: pictures of the CSA grid and of the row's dialog at 390, 768, 992
-and 1440px in both themes (design guidelines §11). Looked at: the dialog at each width (light at 390, 992 and 1440,
-dark at 390 and 768) and the grid at each width (light at 390, 768 and 1440, dark at 992 and 1440).
+and 1440px in both themes (design guidelines §9, §11). Looked at: the dialog, whose layout gains the line under a
+field, at each of the four widths in both themes; the grid, whose layout does not change, light at 390, 768 and
+1440 and dark at 992 and 1440.
 
 ### Providers
 
@@ -3491,6 +3493,12 @@ Unchanged: every source and every measure is simulated, and every value is synth
   does not read that yet. FVA's rule reads `one-way`, which is now what the flags say.
 - **The grid shows no column for who posts.** The direction is changed in the row's dialog, by a line or by a
   template. The owner was told he may ask for the columns.
+- **A case made before the change by varying `one-way` or `exchange` is not made anew.** Price names it to be
+  removed whole. With its edit alone removed in Changes it keeps the title it was made with and is priced as the
+  Base, as any case is whose change is removed by hand.
+- **Changes lists no edit of the workspace's own scope** (a setting, the display currency). None of those can be
+  an edit nothing reads today: only the CSA's two fields stopped being read. One that did would refuse Price with
+  no Remove in Changes.
 - **The message of a cell in the CSA grid's last row is cut by the inputs band's lower edge**, as before this change:
   the grid draws the box under the cell, and the band (`qube-xva-inputs-body`, the page's own) is as tall as its
   rows. Seen on the marked One-way cell; the band's height is the page's to settle, not ExGrid's.

@@ -249,9 +249,10 @@ public sealed partial class TableService(TableRegister register, WorkspaceServic
         var held = resolved.Rows.Count - touched.Count;
         if (touched.Count == 0)
         {
-            // A field that follows others (note 66) holds no edit of its own, though its cell may be marked: the answer
-            // names the fields whose edits it shows.
-            var follows = named?.From is { } from ? $": {TableWords.Follows(TableWords.Followed(from, bound.Descriptor.Fields), "Reset")}" : "";
+            // A field that follows others (note 66) may be marked with no edit of its own: the answer names the fields
+            // it is reset through, whether they hold an edit or not.
+            var followed = named?.From is { } from ? TableWords.WordsFollowed(from, bound.Descriptor.Fields) : null;
+            var follows = followed is null ? "" : $": {TableWords.Follows(followed)}, and is reset through {TableWords.Those(followed)}";
             return Unchanged(state, resolved, $"{Rows(bound, resolved.Rows, all: true)} {(resolved.Rows.Count == 1 ? "has" : "have")} no edit{of}{follows}", words, keyed)
                 with { Context = cell, TableFromScreen = fromScreen, Rest = fieldSaid };
         }
@@ -479,14 +480,16 @@ public sealed partial class TableService(TableRegister register, WorkspaceServic
     }
 
     // A field that follows others (note 66) is refused with the fields to set in its place.
-    static TableRefused NotEditable(BoundTable table, TableField field) => field.From is { } from ? Follows(table, field, from) :
-        new("NotEditable", $"{TableWords.Word(field)} is not a field a command sets; {table.Word} takes {TableWords.And(table.Descriptor.Fields.Where(f => f.Editable).Select(TableWords.Word))}.",
-            TableWords.Word(field), [.. table.Descriptor.Fields.Where(f => f.Editable).Select(TableWords.Word)]);
-
-    static TableRefused Follows(BoundTable table, TableField field, IReadOnlyList<string> from)
+    static TableRefused NotEditable(BoundTable table, TableField field)
     {
-        var followed = TableWords.Followed(from, table.Descriptor.Fields);
-        return new("NotEditable", $"{TableWords.Word(field)} is not a field a command sets: {TableWords.Follows(followed)}.", TableWords.Word(field), followed);
+        var word = TableWords.Word(field);
+        if (field.From is { } from)
+        {
+            var followed = TableWords.WordsFollowed(from, table.Descriptor.Fields);
+            return new("NotEditable", TableWords.NotSet(word, followed), word, followed);
+        }
+        IReadOnlyList<string> set = [.. table.Descriptor.Fields.Where(f => f.Editable).Select(TableWords.Word)];
+        return new("NotEditable", $"{word} is not a field a command sets; {table.Word} takes {TableWords.And(set)}.", word, set);
     }
 
     // A few rows by their keys, more by their number and the table's word.

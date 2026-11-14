@@ -70,8 +70,8 @@ function FieldBox({ field, written, changed, sending }: {
   }
   const label = labelOf(field, changed);
   if (sending === undefined || !field.editable) {
-    // What it follows is said under it, as a refusal is: a field of Original says nothing, since nothing there is typed.
-    const follows = sending === undefined ? undefined : followsNote(field);
+    // What it follows is said under it, as a refusal is, on Live and on Original alike.
+    const follows = followsNote(field);
     return (
       <TextInput size="sm" label={label} value={shown} readOnly variant="filled" {...(sending !== undefined ? { title: 'No command sets this field.' } : {})}
         {...(follows === undefined ? {} : { description: follows, inputWrapperOrder: ['label', 'input', 'description', 'error'] as const })} />

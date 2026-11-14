@@ -363,13 +363,16 @@ public static class TableWords
     public static string And(IEnumerable<string> items) => Joined(items, "and");
 
     /// <summary>The fields a field follows (note 66), each by the word a line says, in the order the field names them.</summary>
-    public static IReadOnlyList<string> Followed(IReadOnlyList<string> from, IReadOnlyList<TableField> beside) => [.. from.Select(name => Word(beside.Single(f => f.Name == name)))];
+    public static IReadOnlyList<string> WordsFollowed(IReadOnlyList<string> from, IReadOnlyList<TableField> beside) => [.. from.Select(name => Word(beside.Single(f => f.Name == name)))];
 
-    /// <summary>
-    /// What is said of a field that follows others (note 66): which they are, and what to do with them in its place, to
-    /// set them or to reset them. The end of a sentence, without its full stop.
-    /// </summary>
-    public static string Follows(IReadOnlyList<string> followed, string verb = "Set") => $"it follows {And(followed)}. {verb} {(followed.Count == 1 ? "that" : "those")}";
+    /// <summary>What is said of a field that follows others (note 66), after a colon: which they are.</summary>
+    public static string Follows(IReadOnlyList<string> followed) => $"it follows {And(followed)}";
+
+    /// <summary>The fields followed as the words after them point back: <c>that</c> for one, <c>those</c> for more.</summary>
+    public static string Those(IReadOnlyList<string> followed) => followed.Count == 1 ? "that" : "those";
+
+    /// <summary>The sentence that refuses to set a field that follows others (note 66), with the fields to set in its place.</summary>
+    public static string NotSet(string word, IReadOnlyList<string> followed) => $"{word} is not a field a command sets: {Follows(followed)}. Set {Those(followed)}.";
 
     /// <summary>Items as a sentence offers them: <c>a, b or c</c>.</summary>
     public static string Or(IEnumerable<string> items) => Joined(items, "or");

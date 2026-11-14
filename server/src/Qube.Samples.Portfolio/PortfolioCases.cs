@@ -225,24 +225,26 @@ public static class PortfolioCells
 {
     sealed record Column(string Field, FieldSpec Spec, params string[] Names);
 
+    // A column that follows others (ADR-0016 note 66) is no cell either: a case varies the columns it follows. It is
+    // kept by its field and its names, so that whoever names it, a line or a page, is told which those are.
+    sealed record Follower(string Field, IReadOnlyList<string> Names, IReadOnlyList<string> Followed)
+    {
+        public WorkspaceRefused NotSet(string? word = null) => new("NotEditable", TableWords.NotSet(Names[0], Followed), word: word, candidates: Followed);
+    }
+
+    // The columns of a kind of row, from the one list of its table's fields: the cells, and the ones that follow others.
+    sealed record ColumnSet(IReadOnlyList<Column> Cells, IReadOnlyList<Follower> Followers);
+
     // A cell is a field the registered tables say a command may set (ADR-0016 §1), named by that field's words and
     // read and written by its form. A figure of the rows under a row is no cell: it holds no value of its own for a
     // case to vary, and is written as those rows (ADR-0016 note 47).
-    static IReadOnlyList<Column> Columns(IEnumerable<TableField> fields) =>
-        [.. fields.Where(f => f.Editable && f.Figure is null).Select(f => new Column(f.Name, f.Spec, [.. f.Words]))];
+    static ColumnSet ColumnsIn(IReadOnlyList<TableField> fields) => new(
+        [.. fields.Where(f => f.Editable && f.Figure is null).Select(f => new Column(f.Name, f.Spec, [.. f.Words]))],
+        [.. fields.Where(f => f.From is not null).Select(f => new Follower(f.Name, [.. f.Words], TableWords.WordsFollowed(f.From!, fields)))]);
 
-    // A column that follows others (ADR-0016 note 66) is no cell either: a case varies the columns it follows. It is
-    // kept by its names, so that a line that names it is told which those are.
-    sealed record Follower(IReadOnlyList<string> Names, IReadOnlyList<string> Followed);
-
-    static IReadOnlyList<Follower> Followers(IReadOnlyList<TableField> fields) =>
-        [.. fields.Where(f => f.From is not null).Select(f => new Follower([.. f.Words], TableWords.Followed(f.From!, fields)))];
-
-    static readonly IReadOnlyList<Follower> CsaFollowers = Followers(PortfolioFields.Csa);
-
-    static readonly IReadOnlyList<Column> CsaColumns = Columns(PortfolioFields.Csa), NettingColumns = Columns(PortfolioFields.Netting),
+    static readonly ColumnSet CsaColumns = ColumnsIn(PortfolioFields.Csa), NettingColumns = ColumnsIn(PortfolioFields.Netting),
         // The counterparty's CDS choice, row `credit`, and the chosen curve's spreads, row `cds` (ADR-0010 §8's note of 2026-11-09).
-        CreditColumns = Columns(PortfolioFields.Credit), SpreadColumns = Columns(PortfolioFields.Cds);
+        CreditColumns = ColumnsIn(PortfolioFields.Credit), SpreadColumns = ColumnsIn(PortfolioFields.Cds);
 
     /// <summary>The row that names the counterparty's CDS choice.</summary>
     public const string CreditRow = "credit";
@@ -252,10 +254,10 @@ public static class PortfolioCells
 
     // A row a cell is named on: its id as a line says it, its entity, its columns, what it is in a word or two, and
     // whether it is a trade, of which there may be ten thousand.
-    sealed record Row(string Id, string Entity, IReadOnlyList<Column> Columns, string What, bool IsTrade = false)
+    sealed record Row(string Id, string Entity, ColumnSet Set, string What, bool IsTrade = false)
     {
-        /// <summary>The columns of the row that follow others; none on most rows.</summary>
-        public IReadOnlyList<Follower> Followers { get; init; } = [];
+        /// <summary>The row's cells: the columns a command sets.</summary>
+        public IReadOnlyList<Column> Columns => Set.Cells;
     }
 
     // The rows a cell is named on, as the state stands: each CSA, the netting set, the credit, the chosen curve where
@@ -267,7 +269,7 @@ public static class PortfolioCells
         var trade = Trade(register);
         return
         [
-            .. source.Agreement.Csas.Select(c => new Row(c.CsaId, Entity.Of(Entity.Csa, c.CsaId), CsaColumns, "a CSA") { Followers = CsaFollowers }),
+            .. source.Agreement.Csas.Select(c => new Row(c.CsaId, Entity.Of(Entity.Csa, c.CsaId), CsaColumns, "a CSA")),
             new(source.Agreement.NettingSetId, Entity.Of(Entity.Netting, source.Agreement.NettingSetId), NettingColumns, "the netting set"),
             new(CreditRow, Entity.Of(Entity.Credit, source.Registration.Key), CreditColumns, "the counterparty's CDS choice"),
             .. PortfolioMaterialiser.Credit(state).Cds is { } cds ? new[] { new Row(CdsRow, Entity.Of(Entity.Cds, cds.CurveId), SpreadColumns, "the chosen curve's spreads") } : [],
@@ -300,10 +302,10 @@ public static class PortfolioCells
         if (rows.Count > 1) throw new WorkspaceRefused("AmbiguousCell", $"{row.Trim()} names {string.Join(" and ", rows.Select(r => r.Entity))}.", word: row.Trim());
         var (id, entity, columns) = (rows[0].Id, rows[0].Entity, rows[0].Columns);
         var name = Words(column);
-        var found = columns.Where(c => c.Names.Any(n => string.Equals(n, name, StringComparison.OrdinalIgnoreCase))).ToList();
-        if (found.Count == 0 && rows[0].Followers.FirstOrDefault(f => f.Names.Any(n => string.Equals(n, name, StringComparison.OrdinalIgnoreCase))) is { } follower)
-            throw new WorkspaceRefused("NotEditable", $"{follower.Names[0]} is not a field a command sets: {TableWords.Follows(follower.Followed)}.",
-                word: column.Trim(), candidates: follower.Followed);
+        bool Named(IReadOnlyList<string> names) => names.Any(n => string.Equals(n, name, StringComparison.OrdinalIgnoreCase));
+        var found = columns.Where(c => Named(c.Names)).ToList();
+        // A column that follows others is no cell: the line is told which to name in its place, as `set` is (ADR-0016 note 66).
+        if (found.Count == 0 && rows[0].Set.Followers.FirstOrDefault(f => Named(f.Names)) is { } follower) throw follower.NotSet(column.Trim());
         if (found.Count == 0)
             throw new WorkspaceRefused("UnknownCell", $"{id} has no column {column.Trim()}; its columns are {string.Join(", ", columns.Select(c => c.Names[0]))}.",
                 word: column.Trim(), candidates: [.. columns.Select(c => c.Names[0])]);
@@ -388,8 +390,11 @@ public static class PortfolioCells
     public static CellName Of(WorkspaceState state, MeasureRegister register, string entity, string field)
     {
         var (kind, id) = Entity.Split(entity);
-        var columns = ColumnsOf(entity, register)
+        var set = ColumnsOf(entity, register)
             ?? throw new WorkspaceRefused("UnknownCell", $"{entity} is not a row a cell is named on: a row is a CSA, the netting set, the credit, the CDS, a trade or a module's settings.");
+        // A field that follows others is no cell by its name either (ADR-0016 note 66): the page and the AI are told as a line is.
+        if (set.Followers.FirstOrDefault(f => f.Field == field) is { } follower) throw follower.NotSet();
+        var columns = set.Cells;
         var column = columns.FirstOrDefault(c => c.Field == field)
             ?? throw new WorkspaceRefused("UnknownCell", $"{id} has no column {field}; its columns are {string.Join(", ", columns.Select(c => c.Names[0]))}.");
         // A curve's spread is a cell of its own row whether or not it is the curve chosen now (the Changes tab sets it).
@@ -417,7 +422,7 @@ public static class PortfolioCells
             Entity.Settings => register.SettingsOf(entity) is not null,
             _ => false,
         };
-        var column = exists ? ColumnsOf(entity, register)?.FirstOrDefault(c => c.Field == field) : null;
+        var column = exists ? ColumnsOf(entity, register)?.Cells.FirstOrDefault(c => c.Field == field) : null;
         return column is null ? null : new CellName(entity, field, RowOf(state, entity), column.Names[0], column.Spec);
     }
 
@@ -434,7 +439,7 @@ public static class PortfolioCells
         };
     }
 
-    static IReadOnlyList<Column>? ColumnsOf(string entity, MeasureRegister register) => Entity.Split(entity).Kind switch
+    static ColumnSet? ColumnsOf(string entity, MeasureRegister register) => Entity.Split(entity).Kind switch
     {
         Entity.Csa => CsaColumns,
         Entity.Netting => NettingColumns,
@@ -446,7 +451,7 @@ public static class PortfolioCells
     };
 
     // A module's settings are named by their titles' words and their own names (ADR-0010 §8).
-    static IReadOnlyList<Column> Settings(IMeasureModule module) => Columns(PortfolioFields.Settings(module));
+    static ColumnSet Settings(IMeasureModule module) => ColumnsIn(PortfolioFields.Settings(module));
 
     /// <summary>
     /// A value as the Changes tab and a case's title write it, in the form <see cref="Read"/> reads back to the same value
@@ -455,7 +460,7 @@ public static class PortfolioCells
     public static string Write(CellName cell, JsonNode? value) => FieldForms.Write(cell.Spec, value);
 
     // A trade's own cells, then each module's typed column (ADR-0010 §10).
-    static IReadOnlyList<Column> Trade(MeasureRegister register) => Columns(PortfolioFields.Trade(register));
+    static ColumnSet Trade(MeasureRegister register) => ColumnsIn(PortfolioFields.Trade(register));
 
     static string Words(string text) => string.Join(' ', text.Trim().ToLowerInvariant().Split(' ', StringSplitOptions.RemoveEmptyEntries));
 

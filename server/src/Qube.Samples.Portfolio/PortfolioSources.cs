@@ -97,7 +97,7 @@ public readonly record struct CsaPosting(bool Counterparty, bool Self)
     public const string ExchangeField = "exchange", OneWayField = "oneWay";
 
     /// <summary>The two fields that hold who posts, as a field that follows them names them.</summary>
-    public static readonly IReadOnlyList<string> Fields = [CounterpartyField, SelfField];
+    public static readonly IReadOnlyList<string> PostsFields = [CounterpartyField, SelfField];
 
     public bool Exchange => Counterparty || Self;
 

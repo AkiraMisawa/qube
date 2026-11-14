@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Qube.Composition.Application;
+using Qube.Composition.Application.Tables;
 using Qube.Composition.Application.Workspaces;
 using Qube.Composition.Contracts;
 
@@ -227,9 +228,17 @@ public static class PortfolioInput
         PortfolioCases.CheckAdditionSet(raw);
         // An edit of a field nothing reads (ADR-0016 note 66) would be kept among the Run's edits and change nothing
         // of its input, in the Common layer or a case's, on a priced row or another: Price is refused with it as its
-        // target, which a line says in its sentence (note 33).
+        // target, which a line says in its sentence (note 33). A case that holds one is named, to be removed whole:
+        // with the edit alone gone, a case made of it would keep its title and be priced as the Base.
         if (raw.Overrides.Keys.Where(t => PortfolioEditRules.ReadNoMore(raw, t)).ToList() is { Count: > 0 } stale)
-            throw new WorkspaceRefused("UnresolvedEdits", $"Remove in Changes the {(stale.Count == 1 ? "edit" : "edits")} nothing reads in this version.", stale);
+        {
+            var common = stale.Count(t => t.Layer is null);
+            var holders = stale.Select(t => t.Layer).OfType<string>().Distinct().Select(layer => PortfolioCases.Title(raw.Created[layer])).ToList();
+            var edits = common == 0 ? null : $"the {(common == 1 ? "edit" : "edits")} nothing reads in this version";
+            var holding = holders.Count == 0 ? null : $"the {(holders.Count == 1 ? "case" : "cases")} {TableWords.And(holders)}, which {(holders.Count == 1 ? "holds" : "hold")} "
+                + (edits is null ? "an edit nothing reads in this version" : "one");
+            throw new WorkspaceRefused("UnresolvedEdits", $"Remove in Changes {TableWords.And(new[] { edits, holding }.OfType<string>())}.", stale);
+        }
         var state = PortfolioCases.Base(raw);
         var source = PortfolioSourceVersion.Of(state);
         var selected = PortfolioMaterialiser.SelectedMeasures(state, register);

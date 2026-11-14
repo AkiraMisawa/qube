@@ -28,7 +28,7 @@ public sealed record FieldInput(string Name, string Title, string Word, string? 
     /// <param name="beside">The fields of its table, among which the ones it follows are found.</param>
     public static FieldInput Of(TableField field, IReadOnlyList<TableField> beside) => new(field.Name, field.Title, TableWords.Word(field), field.Group, field.Editable, field.Optional,
         FormOf(field.Form), FieldForms.Takes(field.Written, choicesBeside: true), Written(field.Spec), field.Unit, field.Figure?.Of, FieldForms.IsNumber(field.Form),
-        field.From is { } from ? TableWords.Followed(from, beside) : null);
+        field.From is { } from ? TableWords.WordsFollowed(from, beside) : null);
 
     public static string FormOf(FieldForm form) => JsonNamingPolicy.CamelCase.ConvertName(form.ToString());
 

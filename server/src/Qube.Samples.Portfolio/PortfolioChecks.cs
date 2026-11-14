@@ -30,8 +30,8 @@ public sealed class PortfolioChecks(MeasureRegister register)
         else
         {
             if (!Editable(entity, field))
-                throw new WorkspaceRefused("NotEditable", Follows(entity, field) is { } followed
-                    ? $"{entity}.{field} is not a field an edit sets: {TableWords.Follows(followed)}."
+                throw new WorkspaceRefused("NotEditable", FollowedBy(entity, field) is { } followed
+                    ? $"{entity}.{field} is not a field an edit sets: {TableWords.Follows(followed)}. Set {TableWords.Those(followed)}."
                     : $"{entity}.{field} is not editable in this workspace.");
             Validate(reading, entity, field, value);
         }
@@ -69,7 +69,7 @@ public sealed class PortfolioChecks(MeasureRegister register)
     }
 
     // The fields a CSA's field follows (ADR-0016 note 66), where its table says it follows some.
-    static IReadOnlyList<string>? Follows(string entity, string field) =>
+    static IReadOnlyList<string>? FollowedBy(string entity, string field) =>
         Entity.Split(entity).Kind == Entity.Csa ? PortfolioFields.Csa.FirstOrDefault(f => f.Name == field)?.From : null;
 
     static bool Editable(string entity, string field) => (Entity.Split(entity).Kind, field) switch

@@ -50,8 +50,8 @@ public static partial class PortfolioFields
         new("fvaCurve", "FVA discount curve", ["fva curve", "fva discount curve", "fva discount"], FieldForm.Id, Editable: true, Group: Terms),
         new("frequency", "Frequency", ["frequency"], FieldForm.Choice, Editable: true, Choices: Frequencies, Group: Terms),
         // What who posts says (ADR-0016 note 66; owner, 2026-11-14): read, and set through the two sides' posts.
-        new(CsaPosting.ExchangeField, "Exchange", ["exchange"], FieldForm.Flag, Group: Terms, From: CsaPosting.Fields),
-        new(CsaPosting.OneWayField, "One-way", ["one-way", "one way", "oneway"], FieldForm.Flag, Group: Terms, From: CsaPosting.Fields),
+        new(CsaPosting.ExchangeField, "Exchange", ["exchange"], FieldForm.Flag, Group: Terms, From: CsaPosting.PostsFields),
+        new(CsaPosting.OneWayField, "One-way", ["one-way", "one way", "oneway"], FieldForm.Flag, Group: Terms, From: CsaPosting.PostsFields),
         // The fields beyond the grid (ADR-0016 note 51): the general terms and what each side posts.
         .. PortfolioDetails.CsaFields,
     ];
