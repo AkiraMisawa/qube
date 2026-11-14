@@ -3,6 +3,8 @@ import { actionColumn, gridHeaderRequiredPx } from '@ex-grid/core';
 import { readFlag } from '../../platform/flags';
 import { parseFlag, parseNumber, type Parsed } from '../xva/editing';
 import { amountTone, formatAmount } from '../../platform/grid/amounts';
+import { compactRowPx } from '../../platform/grid/metrics';
+import type { LineView as CommandLineView } from '../../platform/contracts';
 import type { LineView, LiveFrame, PeriodView, RatesWorkspaceView } from './contracts';
 
 // The line grid's model (C40, C43): a line's flat fields as columns, the second level of each leg shown on
@@ -24,13 +26,137 @@ export interface LineFigures {
   readonly mode: string;
 }
 
-/** One row of the line grid: the line, and its figures if a frame has any. */
+/** A row of the line grid that is a line: the line, and its figures if a frame has any. */
 export interface LineRow {
   readonly line: string;
   readonly view: LineView;
   readonly figures: LineFigures | undefined;
   /** Whether the figures were calculated on an older revision than the row shows. */
   readonly figuresStale: boolean;
+}
+
+/**
+ * A row to type a line into (ADR-0015's note of 2026-11-14): the page's own, and no line of the workspace. `blank` is
+ * its key in the grid, its place among the grid's rows: a blank row keeps its key, and an edit open in it its place,
+ * while a line is made above it. A line's name is one word, so no line's name is such a key.
+ */
+export interface BlankRow {
+  readonly blank: string;
+}
+
+/** A row of the line grid: a line, or a blank row below the lines. */
+export type LineGridRow = LineRow | BlankRow;
+
+export const isBlank = (row: LineGridRow): row is BlankRow => 'blank' in row;
+
+/** A row's key in the grid: a line's name, or a blank row's place. */
+export const rowKey = (row: LineGridRow): string => (isBlank(row) ? row.blank : row.line);
+
+/** The lines among a grid's rows, by name, in their order. */
+export const linesIn = (rows: readonly LineGridRow[]): readonly string[] => rows.flatMap((row) => (isBlank(row) ? [] : [row.line]));
+
+/** The rows the grid shows from the start, all blank then (owner, 2026-11-14: five to ten blank rows). */
+const ROWS_FROM_THE_START = 8;
+/** The blank rows that stand after the last line however many lines there are: Enter from one lands on the other. */
+const BLANK_ROWS_AT_LEAST = 2;
+
+/** How many rows a grid of `lines` lines shows, its blank rows among them. */
+const rowCount = (lines: number): number => Math.max(ROWS_FROM_THE_START, lines + BLANK_ROWS_AT_LEAST);
+
+// The same object for a place every time, so the grid paints a blank row once (ExGrid ADR-0003).
+const blanksByPlace: BlankRow[] = [];
+function blankAt(place: number): BlankRow {
+  const held = blanksByPlace[place];
+  if (held !== undefined) return held;
+  const row = { blank: `(row ${place + 1})` };
+  blanksByPlace[place] = row;
+  return row;
+}
+
+/**
+ * The blank rows below a grid of `lines` lines (ADR-0015's note of 2026-11-14): enough that it shows its rows from the
+ * start, and never fewer than two after the last line. None while the line's conditions filter the grid, whose rows
+ * are then what the conditions leave, and none before the workspace's lines are read (`undefined`): a grid that held
+ * its blank rows alone until its lines came would be in an order no Selection kept for it was read in (ADR-0006 note 10).
+ */
+export function blankRows(lines: number | undefined, filtered: boolean): readonly BlankRow[] {
+  return lines === undefined || filtered ? [] : Array.from({ length: rowCount(lines) - lines }, (_, at) => blankAt(lines + at));
+}
+
+/** The height of rows the grid scrolls beyond (ADR-0015). */
+const MOST_ROWS_PX = 356;
+
+/**
+ * The height of the grid's rows in pixels for a workspace of `lines` lines: its lines and the blank rows below them
+ * unfiltered, up to the height it scrolls beyond. By the workspace's lines and not by what a filter leaves, so the
+ * page below the grid does not move as a filter goes on or off (ADR-0015's note of 2026-11-14).
+ */
+export function rowsPx(lines: number): number {
+  return Math.min(rowCount(lines) * compactRowPx, MOST_ROWS_PX);
+}
+
+/**
+ * A view of the line grid as the command line is told of it (ADR-0016 §9), holding lines only: a blank row is no row
+ * of the table, so a Selection or a Focus on one names nothing to the server (ADR-0015's note of 2026-11-14).
+ * `held` is the rows the grid held when the view was read, so a key is judged among the rows it was read among: a
+ * line the grid still holds reaches the server by name, whatever the page has read since.
+ */
+export function linesOnly(view: CommandLineView, held: readonly LineGridRow[]): CommandLineView {
+  const { keys, shown, focus, ...rest } = view;
+  const heldLines = new Set(linesIn(held));
+  const isLine = (key: string) => heldLines.has(key);
+  const lines = (among: readonly string[]) => among.filter(isLine);
+  const selected = keys === undefined ? [] : lines(keys);
+  return {
+    ...rest,
+    ...(selected.length === 0 ? {} : { keys: selected }),
+    ...(shown === undefined ? {} : { shown: lines(shown) }),
+    ...(focus === undefined || (focus.key !== undefined && !isLine(focus.key)) ? {} : { focus }),
+  };
+}
+
+/** The products the page's Add buttons add a line for. What a product is stays the server's to say. */
+export const ADDED_PRODUCTS = ['irs', 'ccs'] as const;
+const PRODUCTS_SAID = ADDED_PRODUCTS.map((product) => product.toUpperCase()).join(' or ');
+
+/** What a blank row says of what is typed in it and makes no line: no product is guessed for it (CLAUDE.md). */
+export const NO_LINE_YET = `This row holds no line yet: type ${PRODUCTS_SAID} under Product to make one.`;
+
+/**
+ * What the page says of a commit the grid refused because the row it was typed in is not among its rows now (ExGrid
+ * ADR-0142): a blank row a line took the place of, a line removed elsewhere, or a line a filter from the line no
+ * longer shows. The grid tells no cause, so the words name none and say what holds in each: nothing was written,
+ * the edit stays open, and Escape leaves it without writing. A commit made once the row is back lands by the grid's
+ * own rule, which the words do not promise: a row a line took the place of does not come back.
+ */
+export const ROW_LEFT = 'Nothing was written: the row this was typed in is not in the grid now. The edit stays open: press Escape to leave it without writing.';
+
+/**
+ * What a text typed in a blank row does (ADR-0015's note of 2026-11-14). One word under Product runs `add line` and
+ * the word, which the server reads as a product or refuses in its own words. Anything else makes nothing and is
+ * refused here: a cell runs no line but that one, whatever is typed in it.
+ */
+export function typedInBlankRow(column: string, text: string): { readonly ok: true; readonly line: string } | { readonly ok: false; readonly message: string } {
+  const word = text.trim().toLowerCase();
+  return column === 'product' && /^[a-z][a-z0-9]*$/.test(word) ? { ok: true, line: `add line ${word}` } : { ok: false, message: NO_LINE_YET };
+}
+
+/**
+ * What the lines a grid is given (`now`, in their order) say of the lines this page made and the grid does not show
+ * yet (`made`, by name), beside the lines it shows (`shown`). ADR-0015's note of 2026-11-14, point 8.
+ *
+ * `came`: the lines shown and, after them, lines this page made and no other. Every row of the grid then keeps its
+ * place but the blank rows the made lines take the place of, so a Selection means what it meant. `awaited` is what
+ * this page made and is still to come: the same while the lines are the same, as a tick leaves them, and nothing
+ * once the lines moved another way (a line gone, another order, a line from elsewhere among those gained), since a
+ * name kept past that could be met by another's line.
+ */
+export function madeLinesCame(shown: readonly string[], now: readonly string[], made: ReadonlySet<string>): { readonly came: boolean; readonly awaited: ReadonlySet<string> } {
+  const kept = shown.length <= now.length && shown.every((line, at) => now[at] === line);
+  if (kept && now.length === shown.length) return { came: false, awaited: made };
+  const gained = now.slice(shown.length);
+  if (!kept || !gained.every((line) => made.has(line))) return { came: false, awaited: new Set() };
+  return { came: true, awaited: new Set([...made].filter((line) => !gained.includes(line))) };
 }
 
 const fail = (message: string): Parsed => ({ ok: false, message });
@@ -333,8 +459,19 @@ export const ACTIONS = 'Actions';
 /** The trade's second terms, behind the Trade group's toggle (ADR-0015 §3). */
 const TRADE_MORE = ['collateral', 'mandatoryBreak', 'risk'] as const;
 
+// A column of lines as the grid's column: a blank row has no value under it (ADR-0015's note of 2026-11-14).
+const overBlankRows = ({ value, validate, template, ...column }: GridColumn<LineRow>): GridColumn<LineGridRow> => {
+  // A column that judged or painted a row itself would have to say what it does of a blank one.
+  if (validate !== undefined || template !== undefined) throw new Error(`Column ${column.name} of the line grid reads its rows itself, and says nothing of a blank row.`);
+  return { ...column, value: (row) => (isBlank(row) ? undefined : value(row)) };
+};
+
 /** The line grid's columns for a layout. Made once per layout (ExGrid ADR-0003). */
-export function lineColumns(layout: LineLayout): readonly GridColumn<LineRow>[] {
+export function lineColumns(layout: LineLayout): readonly GridColumn<LineGridRow>[] {
+  return columnsOfLines(layout).map(overBlankRows);
+}
+
+function columnsOfLines(layout: LineLayout): readonly GridColumn<LineRow>[] {
   return [
     // Pinned: which line, and its cashflows, stay in view however far the terms scroll. Both sized to their content.
     // Removing a line is in its context menu (ADR-0015 §5).
@@ -482,7 +619,8 @@ export function lineResult(row: LineRow): LineResult {
 }
 
 /** A cell's state: the user's edits, held edits, a line that cannot be priced, and figures of an older revision. */
-export function lineCellState(row: LineRow, column: GridColumn<LineRow>): CellState {
+export function lineCellState(row: LineGridRow, column: GridColumn<LineGridRow>): CellState {
+  if (isBlank(row)) return 'normal';
   if (RESULT.has(column.name)) {
     if (row.figures === undefined) return 'normal';
     if (row.figuresStale) return 'stale';
@@ -503,7 +641,8 @@ function foldedTerms(column: string): readonly string[] | undefined {
   return (m[2] === 'summary' ? [...SUMMARIZED] : legDetail).map((t) => `leg${m[1]}.${t}`);
 }
 
-export function lineCellMessage(row: LineRow, column: GridColumn<LineRow>): string | undefined {
+export function lineCellMessage(row: LineGridRow, column: GridColumn<LineGridRow>): string | undefined {
+  if (isBlank(row)) return column.name === 'product' ? `Type ${PRODUCTS_SAID} here to make a line.` : undefined;
   if (RESULT.has(column.name) && row.figures !== undefined) {
     const f = row.figures;
     const when = `revision ${f.inputRevision}, market ${f.snapshotId}, ${f.mode}`;

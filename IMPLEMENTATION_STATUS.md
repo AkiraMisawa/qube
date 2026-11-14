@@ -1780,6 +1780,8 @@ Unchanged: the Rates market, its conventions' development profiles and every fig
 - The line grid's Context Menu is bounded by the grid's own box, as ExGrid places it (its ADR-0040). The grid shows
   three rows at least, so on a workspace of up to three lines the menu shows three of its four items at once and
   scrolls to `Remove line`. A taller grid would show all four and move the cashflows down (ADR-0015's layout).
+  *Changed 2026-11-14 (ADR-0015's note of that day): the grid shows eight rows at least, and the menu its four
+  items at once.*
 - A leg whose `Float` cell is empty is priced as fixed, and its summary says `Fixed`: the resolver's reading from
   before this step, and a default of the kind CLAUDE.md now asks the owner to approve. A command does not use it (a
   term that depends on the flag is refused until the flag is said); whether the row should say the flag is missing
@@ -3700,6 +3702,7 @@ Unchanged: every source and every measure is simulated, and every value is synth
 - **Waiting for the owner's answer**: whether an empty Float of a Rates leg becomes an issue on its row, what the
   Rates grid shows before it has lines, whether docs/03 §5's line on a package is rewritten as served by `add each`,
   and where the row's Edit column stands (ticket 16).
+  *Since, 2026-11-14: the Rates grid shows rows to type in from the start (ADR-0015's note of that day).*
 
 ## The command line's Emacs keys (ADR-0006 note 11, 2026-11-14)
 
@@ -3983,6 +3986,110 @@ Unchanged: every source and every measure is simulated, and every value is synth
 
 - **The toolbar's dialog lists what drops by kind**, and the line's reading by row and field, as before this change;
   the dialog was not changed.
+
+## The Rates line grid shows rows to type in from the start (ADR-0015's note of 2026-11-14)
+
+The owner, asked what the line grid shows before it has lines: cells from the start, "five to ten blank rows, and
+more as they fill". That is all he said: every rule below is a DEFAULT the note records for him to change.
+
+### What runs
+
+- The line grid stands blank rows below its lines: eight rows in all from the start, and two blank rows after the
+  last line once it holds six lines or more. A new Rates workspace shows a grid of eight rows where it showed an
+  empty box three rows high.
+- A product typed under Product in a blank row makes the line: one word there, in either case, runs `add line
+  <word>`, the line the Add buttons run, and the server says what a product is (`swaption is no product a line is
+  added for: irs or ccs.`). The line made is empty, as a button's is, and its terms are typed in its cells.
+- A line this page made keeps the keyboard where it was. Typed in the first blank row and left with Tab, the Focus
+  is on the line's Start, and its terms are typed on from there; left with Enter, it is on the blank row below,
+  where the next product is typed. An edit open as the line comes stays open in its row. A line from elsewhere
+  drops the Selection, as before.
+- Anything else typed in a blank row's cells is refused where it was typed ("This row holds no line yet: type IRS
+  or CCS under Product to make one.") and makes nothing: no product is guessed for it.
+- A blank row is the page's. Nothing is saved for it, no command reads it (the Selection, the Focus and the rows
+  shown that the line is told of hold lines only), its context menu holds no command of the table (the grid's own
+  Copy items are all it has), the count of lines does not hold it, and a filter from the line hides it. The
+  result above the grid shows what it shows with no Focus on a line: the only line's result, or none.
+- A commit the grid refused because its row is no longer in it is said in a notice ("Nothing was written: ...").
+- The Add buttons stay. A line they or `add line` on the command line made keeps the grid's Selection too.
+
+### Verification performed
+
+| Check | Result |
+|---|---|
+| `nix develop -c dotnet test server/Qube.slnx` | 1686 passed with main's ad2ba4f merged in (no server file changes) |
+| `cd client && npm run typecheck && npm test` | typecheck clean; 527 passed in 49 files |
+| `cd client && npx playwright test` (Chromium, the built client served by the host) | 155 passed |
+
+Each rule was broken in turn and a test seen to fail, then pass with it put back:
+
+- **Unit tests, thirteen ways:** a line from elsewhere taken for the page's own, the lines' order not read, a made
+  name kept past another move of the lines, forgotten at a tick, or still awaited once come; one blank row after
+  the last line; a blank row keyed by its place among the blank rows; blank rows under a filter, or before the
+  lines are read; any text read as a product, or a product under another column; the height not capped; a blank
+  row told to the command line.
+- **Browser tests, four ways:** the made line not put out before the Selection is placed (the gathering defect
+  below); an open edit committed by the put-back; the Selection not put back; a refused commit not said.
+
+The two new browser tests ran ten times each, and the two existing ones changed most (the filter from the line, a
+Rates page hidden and shown again) three times. The second new test types at machine speed and, where a key must
+come before a line, holds `add line` from the server until the key is typed.
+
+Not held by a browser test: a line from elsewhere dropping the Selection (a second page or the AI would have to
+make it; the unit test of `madeLinesCame` holds the rule), and the limits below that only say what is refused.
+
+Three defects were found on the way, and each is held by a browser test now:
+
+- **A Rates page hidden and shown again lost its Selection** on the first build: the grid held its blank rows
+  before its lines came, so a Selection kept while the page was hidden was decided among rows it was not read
+  among. The blank rows now come to the grid with the lines (point 7 of the note).
+- **A line made soon after another lost the keyboard's place.** ExGrid's source gathers a live change that comes
+  within 250ms of the one before (its ADR-0141), so the Selection was placed under a version the made line was not
+  yet shown under, and was refused. The page now has the source put out what it gathered before the Selection is
+  read, and the line before the Selection is placed (point 8).
+- **A product half typed as the line before it came was cut in two** (found in review): putting the Selection
+  back committed the open edit, so `cc` ran and was refused, and `s` ran after it. An open edit is now left alone,
+  and a blank row is keyed by its place in the grid, so the edit stays in the row it was typed in (point 8).
+
+Code review (the `code-review` skill, Standards and Spec, four rounds) is recorded in the pull request.
+
+Looked at in the built client with synthetic data at 390, 768, 992 and 1440px, in both themes; no console message.
+
+### Providers
+
+Unchanged: the Rates market, its conventions' development profiles and every figure are simulated, and say so.
+
+### Known limits, and what waits for the owner
+
+- **A blank row has a Flows button**, which opens nothing and refuses with the same words. ExGrid's Action Column
+  declares its actions for every row ([ex-grid#572](https://github.com/AkiraMisawa/ex-grid/issues/572)). Drawing
+  the button as a Template Column would take it off blank rows and make its key Space twice on every line; it was
+  not taken, and is the owner's to ask for.
+- **A blank row's other cells open the editor and refuse at the commit**, since a column's `editable` is one answer
+  for every row ([ex-grid#573](https://github.com/AkiraMisawa/ex-grid/issues/573)). The editor stays open on what
+  was typed, with the refusal under it, until Escape.
+- **A term typed before the line has come is refused, and typed again.** Committed before the line, it is refused
+  as in any blank row; half typed as the line comes, its commit is refused by the grid and said in a notice. The
+  commit of the product does not wait for the line: ExGrid's pending commit, which would hold the keys, was tried
+  and replayed them into an error ([ex-grid#574](https://github.com/AkiraMisawa/ex-grid/issues/574)). On this
+  machine the line comes in some tens of milliseconds; over a slow link a fast typist may meet the refusal.
+- **The line made stands first among the blank rows**, not in the row its product was typed in: the lines are in
+  the workspace's order. Typed in a later blank row, the keyboard stays on a blank row and the line is above it.
+- **Products typed faster than their lines come stop at the grid's last row.** The grid grows a row as a line
+  comes, so Enter from its last row has no row to go to until then. Each product typed in a blank row still makes
+  its line; one typed once the Focus has ended on a made line's Product is refused in words (point 8).
+- **A line the Add buttons or `add line` on the command line made keeps the grid's Selection too**, since the page
+  knows it as its own by name. It dropped it before this change. A line from another page or the AI drops it, and
+  so does the page's own in the one order of the next bullet.
+- **A reading from elsewhere that shows the page's own line before its answer is told drops the Selection** (the
+  AI's turn ending or the live stream ending in the few milliseconds between): the grid then takes the line for
+  one from elsewhere. Nothing typed goes to another line for it.
+- **Eight rows, two blank rows at least, and the product as the one cell a blank row takes, are DEFAULTs** (the
+  note) for the owner to change. He said five to ten blank rows: eight stand from the start, and fewer than five
+  from the fourth line, so that the grid does not grow before it holds seven lines.
+- **A limit of step 3c no longer holds.** The line grid's Context Menu is bounded by the grid's box (ExGrid
+  ADR-0040) and showed three of its four items in a grid three rows high. At eight rows it shows the four at once
+  (seen in the built client).
 
 ## Next
 

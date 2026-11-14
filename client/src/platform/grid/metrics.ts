@@ -3,6 +3,10 @@ import { GridMetrics } from '@ex-grid/core';
 // A compact grid's rows and header come from ExGrid's own Grid Metrics (ExGrid ADR-0028), so a grid as high as its rows
 // follows them if the preset moves.
 const compact = GridMetrics.resolve({ density: 'compact' });
+/** The height in pixels of a row of a compact grid. */
+export const compactRowPx: number = compact.rowHeightPx;
+/** The height in pixels of a header row of a compact grid: a tier of header groups, or the column headings. */
+export const compactHeaderPx: number = compact.headerHeightPx;
 /** ExGrid's own horizontal scrollbar, a strip the viewport holds under the rows (12px by default, ExGrid ADR-0029). */
 const SCROLLBAR = 12;
 

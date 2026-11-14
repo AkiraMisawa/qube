@@ -1258,7 +1258,9 @@ each is built.
       Enter on `new rates` opens the dialog and is not read as a product named `rates`.
     - *The page.* The Rates page has a door, the view of its line grid (the lines, the selection and the cell the
       keyboard is on) and two places, `lines` and `flows`. Add IRS, Add CCS, Price, the live toggle and Capture
-      invoke their commands through the door; a typed cell stays the page's own edit.
+      invoke their commands through the door; a typed cell stays the page's own edit. *Changed 2026-11-14
+      (ADR-0015's note of that day):* one cell runs a line, a product typed under Product in a blank row of the
+      line grid, which runs `add line <product>` through the door as the Add buttons do.
     - *Gone with this:* the client's hand-written `set defaults`, `add line`, `live start`, `live stop`, `capture`,
       `price` and `new <product>`, the client's own reading of a product's terms, and the page's endpoints whose
       writes moved (`lines`, `lines/new`, `lines/{line}/remove`, `defaults`, `price`, `live`, `live/{id}`,

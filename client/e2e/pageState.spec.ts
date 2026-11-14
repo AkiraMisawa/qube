@@ -103,7 +103,8 @@ test('ADR-0006 note 10, ADR-0015 §7: a Rates page hidden and shown again has it
   await settled(page, 'Lines');
   await page.getByRole('button', { name: 'Add CCS' }).click();
   await settled(page, 'Lines');
-  await expect(lines.getByRole('grid')).toHaveAttribute('aria-rowcount', '3');
+  // Both lines are drawn: the grid's own count of rows holds its blank rows too (ADR-0015 note of 2026-11-14).
+  await expect(lines.getByRole('row', { name: /^L\d+ / })).toHaveCount(2);
   await lines.getByRole('button', { name: 'Expand Leg 1' }).click();
   await settled(page, 'Lines');
   await expect(lines.getByRole('button', { name: 'Collapse Leg 1' })).toHaveAttribute('aria-expanded', 'true');
