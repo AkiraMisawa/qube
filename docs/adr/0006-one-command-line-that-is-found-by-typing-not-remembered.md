@@ -265,7 +265,10 @@ decided as recommended and reported.
       nothing is placed over it. A trace's term is placed by its key, as a term asked for is.
     - *One range.* ExGrid places one range and its Focus from outside a grid (`placeSelection`); a view it reads is
       handed back only to the grid that read it (`showViewWith`, its ADR-0331), and a grid drawn anew is another grid.
-      So a Selection of several ranges is not kept, and neither is a grid's scroll.
+      So a Selection of several ranges is not kept, and neither is a grid's scroll. *(2026-11-14: ExGrid 0.3.0,
+      which the workbench takes, places several ranges from outside a grid too (`placeSelection`, ex-grid issue
+      #561), so only the scroll still has this reason. A page still keeps one range; keeping several is left until
+      the owner asks, as `select`'s several runs are, ADR-0016 note 43.)*
     - *How long.* While the panel is open, in this page load, in memory. A panel closed takes it with it, what its page
       writes as it goes after the close included, so `reopen panel` brings back a page opened anew (note 7), and a reload restores the panels (ADR-0018 §7), each page opened
       anew. A panel moved to another area keeps its page mounted (ADR-0018 §6) and so loses nothing either way.

@@ -130,6 +130,13 @@
   align-items: flex-start;
   pointer-events: none;
 }
+/* In another window of the browser (ADR-0018 §9) there is no header: the strip lies over the top of its area. */
+.qube-notice-strip.qube-window-notice {
+  position: fixed;
+  top: var(--mantine-spacing-xs);
+  left: 0;
+  right: 0;
+}
 
 .qube-notice {
   pointer-events: auto;

@@ -1,5 +1,5 @@
 import { Orientation, type SerializedDockview } from 'dockview-react';
-import { AREA_MIN, areasOf, fits, needs, oneArea, readingOrder, reconciled, stripOrder, type OpenPanels } from './layout';
+import { AREA_MIN, areasOf, fits, lineOf, needs, oneArea, readingOrder, reconciled, stripOrder, withWindowsDocked, type OpenPanels } from './layout';
 
 // ADR-0018 §1, §5 and §7: what an arrangement needs of the panels' space, its reading order, and a kept arrangement
 // made to agree with the panels open when it is drawn again.
@@ -40,9 +40,56 @@ describe('an arrangement', () => {
   });
 
   it('ADR-0018 §1: reads its areas in the order of their splits, the left or upper part first, then the floating ones', () => {
-    expect(areasOf(arranged).map((a) => [a.id, a.shown, a.floating])).toEqual([['ab', 'b', false], ['c', 'c', false], ['right', 'r1', false], ['float', 'd', true]]);
+    expect(areasOf(arranged).map((a) => [a.id, a.shown, a.where])).toEqual([['ab', 'b', 'docked'], ['c', 'c', 'docked'], ['right', 'r1', 'docked'], ['float', 'd', 'floating']]);
     expect(readingOrder(arranged)).toEqual(['a', 'b', 'c', 'r1', 'r2', 'd']);
     expect(stripOrder(arranged, (id) => id === 'r2' || id === 'c')).toEqual(['c', 'r2', 'a', 'b', 'r1', 'd']);
+  });
+});
+
+/**
+ * The arrangement above with two other windows (ADR-0018 §9): `c`'s whole area went out, leaving its place hidden in
+ * the main window; `r2` went out of the right area alone; D still floats.
+ */
+const withWindows: SerializedDockview = {
+  ...arranged,
+  grid: {
+    ...arranged.grid,
+    root: branch(800, branch(600, leaf('ab', ['a', 'b'], 'b'), { ...leaf('c', []), visible: false }), leaf('right', ['r1'], 'r1')),
+  },
+  popoutGroups: [
+    { data: { id: 'c-out', views: ['c'], activeView: 'c' }, gridReferenceGroup: 'c', position: { left: 0, top: 0, width: 500, height: 400 } },
+    { data: { id: 'r2-out', views: ['r2'], activeView: 'r2' }, gridReferenceGroup: 'right', position: null },
+  ],
+};
+
+describe('an arrangement with other windows (ADR-0018 §9)', () => {
+  it('reads their areas after the floating ones, in the order they were opened, and the place an area left is no area', () => {
+    expect(areasOf(withWindows).map((a) => [a.id, a.where])).toEqual([
+      ['ab', 'docked'], ['right', 'docked'], ['float', 'floating'], ['c-out', 'window'], ['r2-out', 'window'],
+    ]);
+    expect(readingOrder(withWindows)).toEqual(['a', 'b', 'r1', 'd', 'c', 'r2']);
+    // The main window's areas alone take its room: A and B's area has its column to itself.
+    expect(needs(withWindows)).toEqual({ width: 2 * AREA_MIN.width, height: AREA_MIN.height });
+    expect(lineOf(withWindows, 'ab')).toEqual({ axis: 'width', total: 1100, othersNeed: AREA_MIN.width });
+  });
+
+  it('folds each window\'s panels back into the area they came from, shown again where it was hidden, and says so', () => {
+    const { layout, returned } = withWindowsDocked(withWindows);
+    expect(layout.popoutGroups).toBeUndefined();
+    expect(areasOf(layout).map((a) => [a.id, a.panels, a.shown])).toEqual([['ab', ['a', 'b'], 'b'], ['c', ['c'], 'c'], ['right', ['r1', 'r2'], 'r1'], ['float', ['d'], 'd']]);
+    expect(returned).toEqual([{ panels: ['c'], into: 'c', cameFrom: true }, { panels: ['r2'], into: 'right', cameFrom: true }]);
+    expect(needs(layout)).toEqual(needs(arranged));
+  });
+
+  it('folds a window whose area has gone into the main window\'s last area, after its panels, and says where', () => {
+    const gone: SerializedDockview = { ...withWindows, popoutGroups: [{ ...withWindows.popoutGroups![1]!, gridReferenceGroup: 'gone' }] };
+    const { layout, returned } = withWindowsDocked(gone);
+    expect(areasOf(layout).find((a) => a.id === 'right')?.panels).toEqual(['r1', 'r2']);
+    expect(returned).toEqual([{ panels: ['r2'], into: 'right', cameFrom: false }]);
+    // The place `c` left stays empty, and goes with its split when the panels open are drawn.
+    const made = reconciled(layout, open(['a', 'b', 'r1', 'r2', 'd'], 'r2'))!;
+    expect(areasOf(made).map((a) => [a.id, a.panels])).toEqual([['ab', ['a', 'b']], ['right', ['r1', 'r2']], ['float', ['d']]]);
+    expect(withWindowsDocked(arranged)).toEqual({ layout: arranged, returned: [] });
   });
 });
 

@@ -21,7 +21,8 @@ import type { ShiftGridRow } from './scenarios';
 import { VARY_COMMAND, type VaryTarget } from './VaryDialog';
 import { CSAS_TABLE, csaFields, parseRecovery, type PushEdit, type SetText } from './editing';
 import { CommitField } from './fields';
-import { compactGridHeight, GRID_FRAME, partHeight, pixels } from './layout';
+import { compactGridHeight, GRID_FRAME, partHeight } from './layout';
+import { pixels } from '../../platform/themeLength';
 import { declaring, membershipColumn } from './membership';
 import { changes, differs, originalMessage } from './original';
 import { useColumnWidths } from '../../platform/grid/columnWidths';
@@ -50,8 +51,9 @@ const csaTerms: readonly GridColumn<CsaRow>[] = [
   term('curve', 'Curve', 'text', 104, { editable: true }),
   term('fvaCurve', 'FVA curve', 'text', 112, { editable: true }),
   term('frequency', 'Frequency', 'text', 124, { editable: true }),
-  term('exchange', 'Exchange', 'boolean', 116, { editable: true }),
-  term('oneWay', 'One-way', 'boolean', 108, { editable: true }),
+  // What who posts says (ADR-0016 note 66): read here, and set through each side's Posts in the row's dialog or a line.
+  term('exchange', 'Exchange', 'boolean', 116),
+  term('oneWay', 'One-way', 'boolean', 108),
   term('counterpartyThreshold', 'Cpty threshold', 'number', 156, { editable: true, format: money }),
   term('counterpartyMta', 'Cpty MTA', 'number', 128, { editable: true, format: money }),
   term('counterpartyCurrency', 'Cpty ccy', 'text', 112, { editable: true }),

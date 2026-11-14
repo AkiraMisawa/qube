@@ -12,15 +12,6 @@
 .qube-grid.mantine-ex-grid {
   --ex-header-group-toggle-color: var(--mantine-primary-color-filled);
 }
-/* A marked heading's line is drawn in the Focus outline's colour, which the Wrapper takes in the light scheme from the
-   primary's filled shade as it is: the amber read 2.04:1 on the marked heading's grey and 2.70:1 on the body, where a
-   focus indicator needs 3:1 (docs/design-guidelines.md §7; measured on ExGrid 0.2.0, 2026-11-10, ex-grid#556). In the
-   light scheme the mark is the primary's text colour, which reads 5.78:1 and 7.62:1 there. The marked heading's words
-   have had their own token since 0.2.0, which the Wrapper maps to 4.5:1 (ex-grid#550), so this colours the line and
-   the corner's triangle only. The dark scheme holds. */
-[data-mantine-color-scheme='light'] .qube-grid.mantine-ex-grid {
-  --ex-heading-mark: var(--mantine-primary-color-light-color);
-}
 /* A negative amount (C48) is painted in the Wrapper's tone colour, the theme's error red, which read at 3.86:1 on the
    dark grid (2026-11-09). A figure needs 4.5:1 (docs/design-guidelines.md §7), so the tone takes red's text colour: the
    theme darkens it in the light scheme, and Mantine lightens it in the dark. */

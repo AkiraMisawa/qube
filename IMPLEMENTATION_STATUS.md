@@ -2124,7 +2124,8 @@ Unchanged: every figure of the pricer and of Rates is simulated, and says so.
 - The door cannot hear whether the browser saved a file: it says the server's sentence once the file is handed
   over. The clipboard does answer.
 - A text is written as it is: a spreadsheet reads one that begins with `=`, `+`, `-` or `@` as a formula, and may
-  drop the leading zeros of an id made of digits. What to do about it is put to the owner (note 44).
+  drop the leading zeros of an id made of digits. What to do about it is put to the owner (note 44). *Decided
+  2026-11-14 (note 67): the owner keeps it as it is.*
 - An amount copied does not read back as an amount typed here: a bare number is millions (ADR-0008).
 - The clipboard was exercised in Chromium alone. A browser gives it only over https or on localhost, and one that
   wants it written inside the key press itself may refuse it after the server's answer: `copy` then says the
@@ -2487,7 +2488,8 @@ user set.
   the sides share is refused alone with the two it could be.
 - **The CSA's four templates**: `2way`, `1way-self`, `1way-cpty` and `none`, each taking a currency. They write
   the CSA's currency and each side's, `exchange`, `one-way`, who posts, and both sides' threshold and MTA as 0;
-  curves, frequency, VM caps, independent amounts and rounding stay.
+  curves, frequency, VM caps, independent amounts and rounding stay. *Changed 2026-11-14 (note 66): a template
+  writes who posts and no longer `exchange` or `one-way`, which follow it.*
 - **The trade's fields beyond the grids**: its identity (requested id, trade type, the source's product type, SIMM
   product class, user-defined) and its agreement (master agreement, netting set), which no command sets, and its
   break (date, mandatory) and model (model, pricer and interpolation ids, domestic currency, IR model and basis,
@@ -2570,7 +2572,7 @@ worked by the synthetic source from what it holds; every name and value is made 
   the XVA analytics. FVA's rule and SA-CCR keep reading `one-way`, `exchange`, the thresholds and the MTAs.
 - **Who posts and `one-way` are two things a user can set apart.** A template writes them together; an edit by
   hand can leave `one-way` on with both sides posting. Whether `one-way` should be what the two flags say is the
-  owner's to decide.
+  owner's to decide. *Changed 2026-11-14 (ADR-0016 note 66): he decided that it is, and no edit sets it.*
 - The input holds an existing trade's official PV and its legs. Which the real request reads is not decided.
 - No dialog shows the new fields until 5c, and no grid but the CSA grid's Main column, which was there: they
   are typed in a command and read by `tables_read`.
@@ -3442,6 +3444,262 @@ by Vite's hot reload threw; the request a trace answered once was written twice;
 the ADR, and a browser read of the Focus could mix two grids as a page was drawn anew. ADR-0018 §5 said the pages are
 drawn anew between the strip and the areas until this pull request; it now says they take back their state.
 
+## Panels in areas, step 2: a panel in another window of the browser (ADR-0018 §9, 2026-11-13)
+
+The owner said to start step 2 on 2026-11-13 ("前者は始めていいよ"). One pull request
+(`docs/specs/panels-2-windows`, tickets 01 to 06); what it settles beyond §9 is DEFAULT, in ADR-0018 §9's note of
+2026-11-13.
+
+### What runs
+
+- **`pop out panel`** (the line, a tab's menu, the area's list) moves the panel into an area of its own in a new
+  browser window, opened by dockview 8.9.0 (`addPopoutGroup`) on `client/public/popout.html` over where its area
+  stood and at its size. An area's only panel takes the whole area out, so that its place is kept. Refused in the
+  strip, for a panel alone in a window already, and for the only panel docked in the main window.
+- **The window is the main one's** (`client/src/shell/WindowShell.tsx`): it follows the main `<html>`'s attributes
+  (the colour scheme among them) and the stylesheets the main head gains after it opened; it is titled
+  `<panel> · Qube`, following the tab chosen there; a menu, a select, a tooltip or a popover opened from its page
+  opens in it (Mantine's `Portal` is pointed at the window's own node); a press outside its popovers closes them, and
+  Escape closes a dialog there. A panel's menus keep inside the window and scroll there, in the main window too (a
+  short window cut off the menu of every verb, found while the screens were taken).
+- **The window in use** (`client/src/shell/windows.ts`): the window last pressed in, focused, or typed a shell key in,
+  or the one just popped out into, changed only while no dialog is open (in the main window a press or the window's own
+  focus, since the shell moves the keyboard there itself). The command line, the Run dialog, the
+  applications' dialogs and the settings open there; the shell's notices are said there; the active panel is the one
+  it shows. Ctrl+K, `/` and the shell's chords are attached to every window's document. `ai` from another window asks
+  with its panel, and says that the answer is in the AI pane of the main window.
+- **A page drawn anew in its window**: an area's page is keyed by its window, so a move into a window or back mounts
+  it there, and it takes back what its panel kept (ADR-0006 note 10: a Rates leg open, a grid's Focus). ExGrid 0.3.0
+  works there (presses, arrows, menus) and reads that window's Device Pixel (ex-grid #565; 0.2.0 read the main
+  window's, below).
+- **Back where it was**: `dock panel` in a window puts its panel back into the area it came from, or where that area
+  stood, or, where it has gone, a new area on the right where there is room and else the last area; `send panel to
+  <title>` moves a panel either way, and `close panel` on a window's last panel closes the window. A window the user
+  closes puts its panels back (into the area they came from, floating where they floated, or an area of their own) and
+  the shell says which. A window the browser blocks is said as a refusal, and the panel stays. A reload brings the windows'
+  panels into the main window (`withWindowsDocked`) and says where each went; so does the main window showing the one
+  strip, which closes the other windows. The verbs that act within the main window's areas (`split`, `float`, `size`,
+  `maximize`) are refused for a panel in a window, saying to dock it first (`size`: the window sizes it); `gather
+  panels` is refused in a window.
+
+### Verification performed
+
+| What | Result |
+|---|---|
+| Client: `npm run typecheck`, `npx vitest run`, `npm run build`, after the ninth round's fixes | Clean; 494 passed in 48 files; built |
+| `npx playwright test e2e/windows.spec.ts`, which this pull request adds, `--repeat-each=3` (Chromium, headless, Linux), after the second review's fixes, and again after each later round that changed the client's product code (to the fifth) | 33 passed: eleven tests three times, the Device Pixel test among them as failing, which Playwright counts as passing (below) |
+| The Device Pixel test (a window at 2x beside a main window at 1x) | Failed on ExGrid 0.2.0, as it should: the grid in the window was told 1px where its window's device pixel is 0.5px. It was marked `test.fail` while the workbench took 0.2.0; on 0.3.0 it passes, unmarked (ex-grid #565, fixed by #566; ADR-0090 there) |
+| `e2e/windows.spec.ts`, `--repeat-each=3`, on ExGrid 0.3.0 | 33 passed, the Device Pixel test among them, passing |
+| `npx playwright test` (Chromium, headless, Linux), on ExGrid 0.3.0 | 148 passed, before `theme.css`'s override was removed; after it, below (ExGrid 0.3.0) |
+| `npx playwright test` (Chromium, headless, Linux), before the review | 145 passed, 1 failed: `panels.spec.ts`'s list of the active panel's verbs, which now holds Pop out; corrected |
+| The same, after the first review's fixes | 147 passed |
+| The same, after the second review's fixes | 147 passed, 1 failed: `closingWith` in `windows.spec.ts` read the answer to a key sent to a window that the key had closed already; the helper now waits for the window closing, which is what it checks |
+| The same, after the third review's fixes | 148 passed |
+| The same, after the fourth review's fixes | 148 passed |
+| `e2e/windows.spec.ts` and `e2e/areas.spec.ts`, `--repeat-each=3`, after the fifth review's fixes | 60 passed |
+| `npx playwright test` (Chromium, headless, Linux), on the client's product code as it stands (unchanged since the fifth review's fixes) | 147 passed, 1 failed: `areas.spec.ts`'s tab dragged with the mouse (step 1's test) stayed in one area. Run alone it then passed 8 times, and in all 64 runs of `panels.spec.ts` and `areas.spec.ts` (16 tests, four times each). It failed once before this step's code too, in #37's runs ("step 1's rest: the pricer by its area" above, its `areas.spec.ts` row: once before the three runs in a row, its drop on an area's edge not taken). Not fixed here: a red that passes on a re-run, open (Known limits) |
+| The same, after the eighth review's fixes (the product code unchanged) | 148 passed |
+| `arrange back` with a panel in another window, its unit test without the fix and with it | Without it, the panel was in no area (drawn nowhere, still open); with it, back where its area stood |
+| A tab's menu in a window 480px high, without the fix and with it | 700px tall and cut off without it; inside the window and scrolling to its last item with it |
+| The window, its menus, the command line in it and the notices, in both schemes | Looked at, in the pull request's screens |
+
+The unit tests read `pop out panel` and its refusals, the verbs refused in a window, `send panel to` into a window and
+back and its new refusal, and `dock panel` from a window, over the fake port; the arrangement's reading order and room
+with windows and the hidden place a whole area left; `withWindowsDocked`; a kept value with `popoutGroups`, read
+and refused; and `arrange back` bringing a window's panel back into the main window. The browser tests read what only a browser shows: the window opened by the line and by the menu, its
+title, its page's state and a grid driven in it; a whole area popped out and its window closed by the user; the scheme
+followed, a tooltip, a menu closed by a press outside it and a select in the window; Ctrl+K and `/` there, a verb and a
+dialog run from there with Tab and Escape, and a tab's Rename there; the main window taken back by a press; `send panel
+to` both ways and the window's title following its tab; `close panel` closing a window; `dock panel` into the area a
+panel came from and into the place its whole area left, as wide as it stood; `ai` from the window; a blocked window; a
+reload; a tab's menu in a short window; the strip closing the windows; and `arrange` closing them, with `arrange back`
+drawing their panels in the main window.
+
+### Providers
+
+Unchanged; nothing on the server changed. The AI's answer in the test is the scripted stand-in's.
+
+### Known limits
+
+- A reload does not open the windows again (a browser opens a window only on a key or a press, §9), nor does `arrange
+  back`, which follows the reload; the panels come back into the main window, said so.
+- Checked in Chromium only: Safari's and Firefox's pop-up rules, touch in a window and a real second monitor are not.
+- An area is not split inside another window (one area per window, as a floating area is).
+- `edit context` (the chord that focuses the header's context bar) typed in another window focuses the field in the main
+  window, which the browser does not bring to the front.
+- Step 1's test of a tab dragged with the mouse (`areas.spec.ts`) failed once in the run with 147 passed, the first of
+  the two full runs on the product code unchanged since the fifth review's fixes, its tab left in one area, and passed
+  in every run after it (above): a red that passes on a re-run, open. It is step 1's test, and failed once before this step's code too (#37's runs, under
+  "step 1's rest: the pricer by its area" above); the cause is not found.
+
+### What the review changed
+
+The two reviews (standards and spec) found, and this pull request corrects: a press in the main window did not make it
+the window in use again, so after another window had been used the header's Commands, or a dialog opened by a press,
+opened in that window; four `instanceof Element` checks the first pass missed (the pricer's and the Rates page's
+screen state, a row's draft dialog's Escape, and the strip's tab, which was harmless), and the draft dialog's focus read
+the main document, all false in another window; a tab's Rename looked for its tab in the main document alone and threw for a panel in a window; the window's
+title did not follow a tab chosen in it; a window that closed before it had loaded was read as one with no panels, and
+the window of a tab's menu and the area a reload folds into had defaults standing in for what was not found; the focus
+listener of the line could be taken from another document than it was added to; the areas kept a copy of the windows'
+registry by hand; a copied mouse press could not prevent the original (a touch is heard passively, and the code and
+the spec now say so); and an area was `floating` and `window` at once in its type. The spec's and the ADR note's words
+for `size panel` in a window, and tickets 03 and 05, were corrected in the documents to what the code says, with the
+reason in the note. The tests the spec asked for and the first pass left out, written now, found that `dock panel` did not put a
+window's last panel back where its whole area stood (dockview removed the place before the panel arrived, and the
+places were tidied while a window was still opening): the window's area now comes in beside its place. `send panel to`
+from a window, `close panel` closing one, the window's title and the main window taken back by a press are tested too.
+A tab's menu cut off in a short window, found while the screens were taken, now keeps inside it and scrolls.
+
+A second round of both reviews found, and this pull request corrects: `arrange back` drew nothing of a panel the
+arrangement before had in another window (`reconciled` dropped the windows; it now refuses an arrangement with them,
+and `arrange back` docks their panels first, as a reload does, and says so); the AI's context described an area in a
+window as docked (it now says `where` each area stands); the window's title heard the active panel of the whole page,
+so a panel sent to a window or closed there without becoming active left it stale (it now hears the window's own
+area); the menus' margin was a literal (now the theme's `sm`); and the line's focus listener stayed in the first
+document a chained line held it in. The spec now says `Area`'s `where`, the menus' placement and what `arrange` does
+with windows open, and test 2 checks that a window's area comes back as wide as it stood.
+
+A third round found, and this pull request corrects: `arrange back` said only that a panel was back, with a reason that
+does not hold for a command run from a key (it now says where each went in the reload's words, from one function,
+`whereReturned`, and that the proposal closed the windows); a touch pressed in another window could still try to
+prevent the original's default (the touch is heard passively, declared so, and its copy cannot be prevented); the AI's
+context had no test with areas (one now holds a docked, a floating and a window's area); a window shell with no area
+of dockview's under it would have drawn the main window's title (it was made a defect, thrown); and a theme length
+that Mantine reads as NaN passed as pixels.
+
+A fourth round found, and this pull request corrects: `arrange` did not say that it closed the other windows (it now
+does, naming their panels); `arrange back` named the proposal as what closed the windows, which the strip may have
+done instead (it now says where the panels are, with no reason); the sentence was still written in two places (it is
+now one, `backInThisWindow`, tested on each of its branches); and the comment on a window drawn with no area of
+dockview's had dockview's order of letting go backwards. That round first made such a window draw nothing; a fifth
+round found that this hid a defect, and it is thrown again, its comment now true (dockview lets go of the area a step
+before the window, within one call that React does not draw in the middle of). The fifth round also asked for a test
+of `arrange` closing two windows and for ticket 05's check to fit all its cases, and a sixth for that test to check
+where `arrange` places those windows' panels; all are in. A seventh, of the sixth's fixes, found four things, all
+corrected: that test checked only part of the notice, its fixture marked values non-null, its name did not say what it
+checks, and this paragraph's account of the rounds was not exact. An eighth, of the seventh's, found that test's guard
+saying the opposite of what failed and its fixture holding no panels, the last full run's row not naming its browser
+nor its round, step 1's flake left out of the Known limits, and ticket 06 ticking a full run that had failed; all are
+corrected, and the windows' entries in `proposals.test.ts` come from one helper. A ninth, of the eighth's, found ticket 06
+calling the code final, the spec's and ticket 06's status lines leaving out the flake, the flake's earlier record
+missed, one window's entry still written by hand, and this paragraph leaving out what the eighth changed; all are
+corrected. A full run after the eighth's fixes passed, 148, so ticket 06's box is ticked again, the failure before it
+noted. A tenth, of the ninth's, found the Known limits calling the failed run the last, #37's record cited so that it
+could not be found and as the wrong run, the one helper claimed for every test file, and ticket 06 left with no open
+box for the run after the bump; all are corrected. The eleventh to fourteenth found only words of this section,
+ticket 06 and the spec's status to correct (which full run failed, #37's section named two ways, one test file claimed
+as the unit tests, what keeps the spec and its tickets in progress); they are corrected. The client's product code has
+not changed since the fifth round's fixes: the sixth to fourteenth changed `proposals.test.ts`, the spec's status, ticket 06 and this
+file.
+
+## ExGrid 0.3.0 (2026-11-14, with ADR-0018 step 2)
+
+### What runs
+
+- The seven `@ex-grid/*` packages move from `0.2.0` to `0.3.0`, which the owner released on 2026-11-14 (0.3.0-rc.1's
+  code, signed off against ex-grid's Definition of Done). From 0.2.0 the public surface only adds (`headerDisplay` and
+  `GridHeaderDisplay`, a header's `filtered`, `placeSelection` of several ranges, `GridMetrics.headerBoxRoomPx`), so no
+  call changed. 0.3.0-rc.1 and 0.3.0 have no behaviour change; 0.2.1's are in its notes.
+- A grid in another window is told that window's Device Pixel (ex-grid #565, ADR-0090 there): step 2's Device Pixel
+  test passes, no longer marked failing.
+- What 0.2.1 fixed is no longer worked around nor listed. The Wrapper now holds the Focus outline and a marked
+  heading's line to 3:1 (ex-grid #556), so the light scheme's override of the line in `theme.css` is removed; the
+  Action Column's buttons take the theme (#553) and a disabled column-menu command is dimmed (#552), which
+  `docs/design-guidelines.md` §12 no longer lists.
+- 0.2.1's funnel on a filtered column, and its button's name `Column menu, filtered`, reach no page here: no grid's
+  column menu offers a filter of its own (its only filter command is `Clear filter`), and a grid filtered by `filter
+  where` shows no funnel, its caption saying the conditions as before (seen on Existing trades filtered by `ccy=USD`).
+- Step 2's pull request's screens are taken again on 0.3.0, with four more of what 0.2.1 changed: a marked heading in
+  the light scheme, the `Flows` button in the dark, and a column menu's disabled commands in both.
+
+### Verification performed
+
+| What | Result |
+|---|---|
+| Release notes 0.2.1-rc.1 to 0.3.0, and `packages/*/etc/*.api.md` diffed between the tags `v0.2.0` and `v0.3.0` | No breaking change; `core.api.md` alone changed, by additions and `placeSelection` taking a range or an array of them |
+| `npm run typecheck`, `npx vitest run`, `npm run build` | Clean; 494 passed in 48 files; built |
+| `npx playwright test` (Chromium, headless, Linux), after `theme.css`'s override was removed | 148 passed |
+| Contrast in Chromium at 1280 × 800, the Rates Lines' marked heading (the Focus on Start), without the override | One token draws the line and the corner's triangle. light: the line 4.33:1 on the marked heading's shade and 5.25:1 on the body, the Focus outline 5.25:1 (2.70:1 on 0.2.0); dark: the line 5.90:1 and 8.69:1 |
+| Seen in Chromium, both schemes | The Rates line's `Flows` button in the theme's colours; the Pricing DB's column menu, every command disabled on an empty grid, dimmed |
+| Seen in Chromium, dark scheme | Existing trades' column menu, whose only filter command is `Clear filter`; the grid filtered by `filter where ccy=USD`, its Ccy header with no funnel |
+
+`dotnet test` was not run for this change: nothing under `server/` moved.
+
+### Known limits
+
+- `select` still refuses rows that are not one run (ADR-0016 note 43, asked of ExGrid as #561). 0.3.0 can place a
+  Selection of several ranges; taking it up changes note 43 and is left until the owner asks.
+- A page's grid still keeps a Selection of one range only (ADR-0006 note 10), though 0.3.0 can place several; keeping
+  several is left until the owner asks, as `select`'s several runs are.
+
+## A CSA's `exchange` and `one-way` follow who posts (ADR-0016 notes 66 to 68, 2026-11-14)
+
+The owner answered the summary of decisions made for him (2026-11-14). Three answers are decisions, recorded as
+ADR-0016 notes 66 to 68; this change builds the one that changes the product (note 66).
+
+### What runs
+
+- **Each side's `posts` is what a CSA holds**, and `exchange` (either side posts) and `one-way` (exactly one does)
+  are worked out from them wherever a CSA is read: the grid's row, a condition, the row's dialog, each case, and the
+  input Price freezes. No command and no edit sets either: `set CSA-B one-way on` is refused with the fields to set
+  (`counterparty posts`, `self posts`), and so are an edit that arrives as a value and a case's `vary` of one. A
+  `reset` of one that holds no edit names the fields it is reset through.
+- **The four templates write who posts**, and no longer `exchange` or `one-way`.
+- **The CSA grid's Exchange and One-way cells are read, not typed**, and one that differs from what the source's
+  flags say is marked. The dialog draws both read-only, says under each which fields it follows (drawn, so a
+  touch reads it too), and moves them as a side's Posts is switched, before Save.
+- **A table's field can say which fields of its row it follows** (the kernel's `TableField.From`): no command sets
+  it, `tables.describe` says `from`, a draft's form says `follows`, and the refusal names the fields to set.
+- **An edit of `exchange` or `one-way` held from before the change** is listed in Changes as lost and removed
+  there or by its row's `reset`. Price is refused with its name while the workspace holds one, in the Common layer
+  or a case's, on a priced CSA or another, and a case that holds one is named to be removed whole; a refresh holds
+  it back as lost.
+- **Recorded, with no change to the code** (notes 67 and 68): `copy` and `export` write a text as it is, and an
+  `add each` iteration's lists have no spelling on the line.
+
+### Verification performed
+
+| Check | Result |
+|---|---|
+| `nix develop -c dotnet test server/Qube.slnx` | 1659 passed |
+| `cd client && npm run typecheck && npm test` | typecheck clean; 495 passed in 48 files |
+| `cd client && npx playwright test` (Chromium, the built client served by the host) | 149 passed |
+| The new browser test alone, `--repeat-each=3` | 3 passed |
+
+All with main's step 2 of the panels (ExGrid 0.3.0) merged in. An earlier whole browser run on the merged code, made
+while two review agents were working on the same machine, failed one test of another feature (a phone's new
+workspace did not open within its five seconds); that test then passed three times alone, and in the run above.
+
+By hand, in the built client served by the host: pictures of the CSA grid and of the row's dialog at 390, 768, 992
+and 1440px in both themes (design guidelines §9, §11). Looked at: the dialog, whose layout gains the line under a
+field, at each of the four widths in both themes, and its Original tab light at 390 and 1440; the grid, whose
+layout does not change, light at 390, 768 and 1440 and dark at 992 and 1440. Taken and looked at again on ExGrid
+0.3.0, after main was merged in.
+
+### Providers
+
+Unchanged: every source and every measure is simulated, and every value is synthetic.
+
+### Known limits
+
+- **SA-CCR does not read which side posts.** A one-way CSA is refused as before; its reason now says the measure
+  does not read that yet. FVA's rule reads `one-way`, which is now what the flags say.
+- **The grid shows no column for who posts.** The direction is changed in the row's dialog, by a line or by a
+  template. The owner was told he may ask for the columns.
+- **A case made before the change by varying `one-way` or `exchange` is not made anew.** Price names it to be
+  removed whole. With its edit alone removed in Changes it keeps the title it was made with and is priced as the
+  Base, as any case is whose change is removed by hand.
+- **Changes lists no edit of the workspace's own scope but a module's setting** (the display currency, for one,
+  is not listed). None of those can be an edit nothing reads today: only the CSA's two fields stopped being read. One
+  that did would refuse Price with no Remove in Changes.
+- **The message of a cell in the CSA grid's last row is cut by the inputs band's lower edge**, as before this change:
+  the grid draws the box under the cell, and the band (`qube-xva-inputs-body`, the page's own) is as tall as its
+  rows. Seen on the marked One-way cell; the band's height is the page's to settle, not ExGrid's.
+- **Waiting for the owner's answer**: whether an empty Float of a Rates leg becomes an issue on its row, what the
+  Rates grid shows before it has lines, whether docs/03 §5's line on a package is rewritten as served by `add each`,
+  and where the row's Edit column stands (ticket 16).
+
 ## The command line's Emacs keys (ADR-0006 note 11, 2026-11-14)
 
 The owner asked for Emacs's editing keys in the command line, chosen per platform first. The set was proposed per
@@ -3509,8 +3767,7 @@ decision as the earlier notes do.
 
 ## Next
 
-1. Panels in areas, ADR-0018 steps 2 (other browser windows) and 3 (parts of a page with links), in that order, each
-   once the owner has seen the one before.
+1. Panels in areas, ADR-0018 step 3 (parts of a page with links), once the owner has seen step 2.
 2. MVA with SIMM (`docs/12-implementation-plan.md` P2): spot IM from the XVA request's MVA option.
 3. ADR-0010 Delivery step 3 (Advanced: Before-only and After-only edits, the split fill), when the owner asks for it.
 4. The owner's review of ADR-0003 §7 (scopes, carry and conflict), then a synthetic source change that can produce a conflict, and the browser cases still open above (reload, failed case unavailable).

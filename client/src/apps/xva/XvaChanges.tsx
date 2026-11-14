@@ -102,7 +102,7 @@ function caseNote(common: string | undefined, changes: number): string | undefin
   return notes.length === 0 ? undefined : notes.join(' · ');
 }
 
-const HELD = { conflict: 'held: its source moved, resolve it above the grids', lost: 'lost: its row is not in this version' } as const;
+const HELD = { conflict: 'held: its source moved, resolve it above the grids', lost: 'lost: its row or its field is not in this version' } as const;
 
 /**
  * A change: its value typed again where it is a cell's and set, or said with why it is held. A case of `add each` is

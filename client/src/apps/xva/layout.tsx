@@ -1,5 +1,4 @@
 import { useRef, type CSSProperties, type KeyboardEvent, type PointerEvent } from 'react';
-import { px } from '@mantine/core';
 
 // The page's own layout controls (ADR-0010 §1): a handle that sets a part's height by drag or by keys. The page is told
 // where the pointer is by the browser's events; nothing here reads a layout.
@@ -8,13 +7,6 @@ const STEP = 24;
 
 /** What a `QubeGrid` adds outside its viewport: its paper's 1px border above and below. */
 export const GRID_FRAME = 2;
-
-/** A theme length, such as `theme.spacing.xs`, in pixels: what a grid's height in pixels leaves for it. */
-export function pixels(length: string): number {
-  const n = px(length);
-  if (typeof n !== 'number') throw new Error(`The theme length ${length} is not one in pixels.`);
-  return n;
-}
 
 // A compact grid's height is the platform's, from ExGrid's Grid Metrics.
 export { compactGridHeight } from '../../platform/grid/metrics';
