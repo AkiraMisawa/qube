@@ -146,5 +146,6 @@ export function applyEdit(field: HTMLInputElement, edit: LineEdit, event: { prev
   if (edit.from >= edit.to || field.readOnly) return;
   field.setSelectionRange(edit.from, edit.to);
   // `execCommand` is the one way a page edits a field that the field's own undo records; every target browser has it.
-  if (!document.execCommand('delete')) throw new Error('The browser did not delete in the command line.');
+  // It is the field's own document's: the line may be open in another window of the browser (ADR-0018 §9).
+  if (!field.ownerDocument.execCommand('delete')) throw new Error('The browser did not delete in the command line.');
 }
