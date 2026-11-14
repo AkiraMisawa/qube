@@ -171,7 +171,7 @@ public class PricerSourceCommandTests
     [Fact] // ADR-0010 §1, docs/03 §2.4, owner 2026-11-14: the dummy counterparty is a prospect's: no booked trade, no CSA, no CDS and no recovery of its own
     public async Task The_dummy_counterparty_has_nothing_booked_and_no_credit_of_its_own()
     {
-        var rig = new PricerRig(PortfolioCatalog.DummyKey);
+        var rig = new PricerRig(PortfolioCatalog.DummyKey, project: "Alpha bid");
         var view = rig.Service.View(rig.Id, "akira");
 
         Assert.True(view.Registration.Dummy);
@@ -191,5 +191,53 @@ public class PricerSourceCommandTests
         var made = booked.Service.View(booked.Id, "akira");
         Assert.Equal((false, made.Trades - made.NewTrades), (moved.Registration.Dummy, moved.Trades - moved.NewTrades));
         Assert.True(moved.Trades > moved.NewTrades);
+    }
+
+
+    [Fact] // ADR-0010 §1's note of 2026-11-14 (owner): a workspace on the dummy is made and priced only under a project, which its Run, its Pricing DB row and its quote carry
+    public async Task A_workspace_on_the_dummy_is_made_and_priced_under_a_project_its_run_carries()
+    {
+        var none = Assert.Throws<WorkspaceRefused>(() => new PricerRig(PortfolioCatalog.DummyKey));
+        Assert.Equal(("ProjectRequired", "A workspace on the dummy counterparty is listed in the Pricing DB by its project, since the counterparty says "
+            + "nothing of what was priced: name the project as the workspace is made."), (none.Code, none.Message));
+        var untrimmed = Assert.Throws<WorkspaceRefused>(() => new PricerRig(PortfolioCatalog.DummyKey, project: " Alpha"));
+        Assert.Equal(("InvalidValue", ProjectNames.Rule), (untrimmed.Code, untrimmed.Message));
+
+        var rig = new PricerRig(PortfolioCatalog.DummyKey, project: "Alpha bid");
+        Assert.Equal("Alpha bid", rig.Service.View(rig.Id, "akira").Project);
+        Assert.Equal("project: Alpha bid to Beta deal", rig.Read("project Beta deal"));
+        await rig.Run("project Beta deal");
+        Assert.Equal("Beta deal", rig.Service.View(rig.Id, "akira").Project);
+        Assert.StartsWith("InvalidValue: " + ProjectNames.Rule, rig.Read($"project {new string('x', ProjectNames.MostCharacters + 1)}"));
+        // Cleared, the dummy's workspace is not priced: its Run would be listed under nothing.
+        await rig.Run("reset workspace project");
+        Assert.Equal("ProjectRequired: A workspace on the dummy counterparty is listed in the Pricing DB by its project, since the counterparty says nothing "
+            + "of what was priced: name the project beside the counterparty, or with `project <name>`, to price.", rig.Read("price"));
+
+        await rig.Run("project Beta deal");
+        await rig.Run("cds HIJK.SNRFOR.USD.XR14");
+        var runId = Assert.IsType<SubmissionResult.Accepted>(rig.Service.Price(rig.Id, rig.State.Revision, "akira", Guid.NewGuid().ToString())).Run.RunId;
+        var input = await rig.Accepted(runId);
+        var run = rig.Runs.Find(runId)!;
+        Assert.Equal(("Beta deal", "Beta deal"), (input["project"]!.GetValue<string>(), run.Context["project"]!.GetValue<string>()));
+        Assert.Equal("Beta deal", new Qube.Samples.Xva.XvaHistoryProjection().Project(run, rig.Store)["project"]!.GetValue<string>());
+        Assert.Contains("Counterparty DUMMY/LE-00 · Project Beta deal · Netting set NS-000", Qube.Samples.Xva.XvaQuote.Of(run, rig.Store).Text);
+
+        // The project is the workspace's, as its display currency is: a move to a booked counterparty keeps it.
+        await rig.Run("cpty ABC/LE-01");
+        Assert.Equal("Beta deal", rig.Service.View(rig.Id, "akira").Project);
+    }
+
+    [Fact] // ADR-0010 §1's note of 2026-11-14: a booked counterparty's workspace needs no project, and its Run names none
+    public async Task A_booked_counterpartys_workspace_prices_with_no_project()
+    {
+        var rig = new PricerRig();
+
+        Assert.Null(rig.Service.View(rig.Id, "akira").Project);
+        var runId = Assert.IsType<SubmissionResult.Accepted>(rig.Service.Price(rig.Id, rig.State.Revision, "akira", Guid.NewGuid().ToString())).Run.RunId;
+        var input = await rig.Accepted(runId);
+        var run = rig.Runs.Find(runId)!;
+        Assert.Equal((true, false), (input.ContainsKey("project") && input["project"] is null, run.Context.ContainsKey("project")));
+        Assert.DoesNotContain("Project", Qube.Samples.Xva.XvaQuote.Of(run, rig.Store).Text);
     }
 }

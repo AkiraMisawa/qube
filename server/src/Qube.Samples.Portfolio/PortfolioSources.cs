@@ -462,9 +462,15 @@ public sealed class PortfolioSourceVersion : ISourceVersion
             // The measures Price runs (ADR-0010 §10). The source has no choice of its own: empty means every measure registered.
             case Entity.Selection when id == Entity.MeasuresId:
                 return field == Entity.MeasuresField ? new((JsonNode?)null) : null;
-            // The workspace's own settings (ADR-0010 §1): the display currency starts as the profile's.
+            // The workspace's own settings (ADR-0010 §1): the display currency starts as the profile's, and no source
+            // names a project (§1's note of 2026-11-14).
             case Entity.Settings when id == Entity.WorkspaceId:
-                return field == Entity.DisplayCurrency ? new(PortfolioCatalog.Profile.DisplayCurrency) : null;
+                return field switch
+                {
+                    Entity.DisplayCurrency => new(PortfolioCatalog.Profile.DisplayCurrency),
+                    Entity.Project => new((JsonNode?)null),
+                    _ => null,
+                };
             // A module's settings (ADR-0010 §8): the source holds none, so each starts at the module's default.
             case Entity.Settings when id.Length > 0:
                 return new((JsonNode?)null);
@@ -674,9 +680,10 @@ public static class Entity
     public const string MeasuresField = "measures";
     public static readonly string Measures = Of(Selection, MeasuresId);
 
-    /// <summary>The workspace's settings, <c>settings:workspace</c>: its display currency (ADR-0010 §1).</summary>
+    /// <summary>The workspace's settings, <c>settings:workspace</c>: its display currency and its project name (ADR-0010 §1).</summary>
     public const string WorkspaceId = "workspace";
     public const string DisplayCurrency = "displayCurrency";
+    public const string Project = "project";
     public static readonly string WorkspaceSettings = Of(Settings, WorkspaceId);
 
     public static string Of(string kind, string id) => $"{kind}:{id}";

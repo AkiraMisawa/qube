@@ -1,5 +1,5 @@
-import { lazy, Suspense, useCallback, useState, type ReactNode } from 'react';
-import { Button, Group, Modal, NumberInput, Select, Stack, Text } from '@mantine/core';
+import { lazy, Suspense, useCallback, useRef, useState, type ReactNode } from 'react';
+import { Button, Group, Modal, NumberInput, Select, Stack, Text, TextInput } from '@mantine/core';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { CommandRefused, type Command } from '../platform/commands/commands';
 import { useWorkspace, useWorkspaceContext } from '../platform/workspace/WorkspaceProvider';
@@ -10,7 +10,9 @@ import { RatesWorkspacePanel } from './rates/RatesWorkspacePanel';
 import { httpXvaApi, type XvaApi } from './xva/api';
 import type { Registration } from './xva/contracts';
 import { measureNamed, xvaPageOf } from './xva/commands';
-import { XvaWorkspacePanel } from './xva/XvaWorkspacePanel';
+import { XvaWorkspacePanel, xvaPanelTitle } from './xva/XvaWorkspacePanel';
+import { PROJECT_FIELD, SETTINGS_ENTITY } from './xva/editing';
+import { ApiError } from '../platform/api';
 import { registerAiContext, registerAiEffect } from '../ai/effects';
 import { registerGridFocus } from '../shell/places';
 import { registerPageOpener } from '../shell/proposals';
@@ -377,28 +379,42 @@ function NewXvaWorkspace({ onDone }: { readonly onDone: () => void }) {
   const [valueDate, setValueDate] = useState('2026-10-26');
   const [valueDateError, setValueDateError] = useState<string | undefined>(undefined);
   const [size, setSize] = useState<number | string>(1000);
+  // The project a workspace on the dummy is listed under (ADR-0010 §1 and its note of 2026-11-14), asked for beside it.
+  const [project, setProject] = useState('');
+  const [projectError, setProjectError] = useState<string | undefined>(undefined);
+  const projectInput = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | undefined>(undefined);
+
+  // The placeholder names the dummy once the list is read; a list without its one says so when the dialog is submitted.
+  const dummy = registrations.data === undefined ? undefined : soleDummy(registrations.data);
+  // Left empty, or the dummy chosen: the project is asked for. Another counterparty says what was priced, and needs none.
+  const onDummy = registration === null || registration === dummy?.key;
 
   const submit = async () => {
     if (!isIsoDate(valueDate)) { setValueDateError('A date as yyyy-MM-dd is required.'); return; }
     if (typeof size !== 'number' || !Number.isInteger(size) || size < 0) { setError('The portfolio size is a whole number.'); return; }
+    const named = project.trim();
+    if (onDummy && named === '') {
+      setProjectError('Name the project: a workspace on the dummy is listed in the Pricing DB under it.');
+      projectInput.current?.focus();
+      return;
+    }
     setBusy(true);
     try {
       // Read here where the list has not arrived yet, so that an Enter pressed as the dialog opens is on the dummy too.
       const chosen = registration ?? dummyOf(await queryClient.fetchQuery(REGISTRATIONS_QUERY)).key;
-      const created = await xvaApi.create(chosen, valueDate, size);
-      workspace.store.getState().showApp(XVA_WORKSPACE, `XVA ${created.registration.key}`, { workspaceId: created.workspaceId });
+      const created = await xvaApi.create(chosen, valueDate, size, onDummy ? named : null);
+      workspace.store.getState().showApp(XVA_WORKSPACE, xvaPanelTitle(created), { workspaceId: created.workspaceId });
       onDone();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      // A refusal of the project is said under it; any other under the counterparty.
+      if (e instanceof ApiError && e.envelope.issues.some((i) => i.path === `/${SETTINGS_ENTITY}/${PROJECT_FIELD}`)) setProjectError(e.message);
+      else setError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
     }
   };
-
-  // The placeholder names the dummy once the list is read; a list without its one says so when the dialog is submitted.
-  const dummy = registrations.data === undefined ? undefined : soleDummy(registrations.data);
 
   return (
     <form onSubmit={(e) => { e.preventDefault(); void submit(); }}>
@@ -407,6 +423,11 @@ function NewXvaWorkspace({ onDone }: { readonly onDone: () => void }) {
           placeholder={dummy === undefined ? 'The dummy counterparty' : `${dummy.key} · ${dummy.name}`}
           description="Left empty, the workspace is on the dummy counterparty: nothing is booked with it."
           data={(registrations.data ?? []).map((r) => ({ value: r.key, label: `${r.key} · ${r.name}` }))} />
+        {onDummy && (
+          <TextInput ref={projectInput} label="Project" withAsterisk value={project} error={projectError}
+            description="The Runs of a workspace on the dummy are listed in the Pricing DB under its project."
+            onChange={(e) => { setProject(e.currentTarget.value); setProjectError(undefined); }} />
+        )}
         <IsoDateInput label="Value date" value={valueDate} error={valueDateError}
           onChange={(text) => { setValueDate(text); setValueDateError(undefined); }} />
         <NumberInput label="Existing trades (synthetic)" min={0} max={100000} allowDecimal={false} value={size} onChange={setSize} />

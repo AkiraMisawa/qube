@@ -7,9 +7,9 @@ using Qube.Samples.Portfolio;
 namespace Qube.Samples.Xva;
 
 /// <summary>
-/// XVA's view of the Pricing DB (docs/05 §7): one row per Run, with its value date, counterparty registration
-/// and the CVA and FVA figures of its result. One Run prices one counterparty as one case today; a row per
-/// case follows when a Run carries several.
+/// XVA's view of the Pricing DB (docs/05 §7): one row per Run, with its value date, counterparty registration, the
+/// project it is listed under (ADR-0010 §1's note of 2026-11-14) and the CVA and FVA figures of its result. One Run
+/// prices one counterparty as one case today; a row per case follows when a Run carries several.
 /// </summary>
 public sealed class XvaHistoryProjection : IHistoryProjection
 {
@@ -25,6 +25,7 @@ public sealed class XvaHistoryProjection : IHistoryProjection
     [
         new("valueDate", DatasetColumnType.String, true),
         new("registration", DatasetColumnType.String, true),
+        new("project", DatasetColumnType.String, true),
         new("tradesBefore", DatasetColumnType.Integer, true),
         new("tradesAfter", DatasetColumnType.Integer, true),
         .. Measures.SelectMany(m => Sides.Select(s => new DatasetColumn(Field(m, s), DatasetColumnType.Number, true))),
@@ -37,6 +38,7 @@ public sealed class XvaHistoryProjection : IHistoryProjection
         {
             ["valueDate"] = run.Context["valueDate"]?.DeepClone(),
             ["registration"] = run.Context["registration"]?.DeepClone(),
+            ["project"] = run.Context["project"]?.DeepClone(),
         };
         foreach (var reference in run.Outputs.Values)
         {

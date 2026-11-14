@@ -9,9 +9,9 @@ public class XvaApiTests(QubeFactory factory) : IClassFixture<QubeFactory>
 {
     readonly HttpClient client = factory.CreateClient();
 
-    async Task<JsonObject> Create(string registration = "ABC/LE-01", int size = 200)
+    async Task<JsonObject> Create(string registration = "ABC/LE-01", int size = 200, string? project = null)
     {
-        var response = await client.PostAsJsonAsync("/api/xva/workspaces", new { registration, valueDate = "2026-10-26", portfolioSize = size });
+        var response = await client.PostAsJsonAsync("/api/xva/workspaces", new { registration, valueDate = "2026-10-26", portfolioSize = size, project });
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         return (await response.Content.ReadFromJsonAsync<JsonObject>())!;
     }
@@ -101,15 +101,19 @@ public class XvaApiTests(QubeFactory factory) : IClassFixture<QubeFactory>
         Assert.Equal((7_000_000m, "CSA-C"), (draft["notional"]!.GetValue<decimal>(), draft["csa"]!.GetValue<string>()));
     }
 
-    [Fact] // ADR-0010 §1, ADR-0016 note 100: the counterparties a workspace is made on say which is the dummy, which a new workspace takes where none is chosen
+    [Fact] // ADR-0010 §1 and its note of 2026-11-14, ADR-0016 note 100: the counterparties a workspace is made on say which is the dummy, which a new workspace takes where none is chosen, under a project
     public async Task The_registrations_say_which_is_the_dummy()
     {
         var registrations = (await client.GetFromJsonAsync<JsonArray>("/api/xva/registrations"))!;
 
         Assert.Equal(["DUMMY/LE-00"], registrations.Where(r => r!["dummy"]!.GetValue<bool>()).Select(r => r!["key"]!.GetValue<string>()));
         Assert.Equal(4, registrations.Count);
-        var dummy = await Create("DUMMY/LE-00");
+        var unnamed = await client.PostAsJsonAsync("/api/xva/workspaces", new { registration = "DUMMY/LE-00", valueDate = "2026-10-26", portfolioSize = 200 });
+        Assert.Equal((HttpStatusCode.UnprocessableEntity, "ProjectRequired"),
+            (unnamed.StatusCode, (await unnamed.Content.ReadFromJsonAsync<JsonObject>())!["code"]!.GetValue<string>()));
+        var dummy = await Create("DUMMY/LE-00", project: "Alpha bid");
         Assert.True(dummy["registration"]!["dummy"]!.GetValue<bool>());
+        Assert.Equal("Alpha bid", dummy["project"]!.GetValue<string>());
         // Nothing is booked with it: its trades are the new ones alone, whatever size was asked for.
         Assert.Equal(dummy["newTrades"]!.GetValue<int>(), dummy["trades"]!.GetValue<int>());
     }
@@ -172,6 +176,9 @@ public class XvaApiTests(QubeFactory factory) : IClassFixture<QubeFactory>
         Assert.Equal((Id(ws), "ABC/LE-01", "simulated"), (row["workspaceId"]!.GetValue<string>(), row["registration"]!.GetValue<string>(), row["executionMode"]!.GetValue<string>()));
         Assert.Equal(row["cvaAfter"]!.GetValue<decimal>() - row["cvaBefore"]!.GetValue<decimal>(), row["cvaIncremental"]!.GetValue<decimal>());
         Assert.Contains(xva["columns"]!.AsArray(), c => c!["field"]!.GetValue<string>() == "fvaIncremental");
+        // A booked counterparty's Run is listed under no project (ADR-0010 §1's note of 2026-11-14).
+        Assert.Contains(xva["columns"]!.AsArray(), c => c!["field"]!.GetValue<string>() == "project");
+        Assert.Null(row["project"]);
     }
 
     [Fact] // Spine 1: a domain nobody registered is refused rather than shown as an empty history

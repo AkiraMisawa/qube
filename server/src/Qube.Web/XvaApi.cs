@@ -9,7 +9,7 @@ namespace Qube.Web;
 /// <summary>Thin HTTP endpoints over the XVA workspace service. No rule lives here.</summary>
 public static class XvaApi
 {
-    public sealed record CreateRequest(string Registration, DateOnly ValueDate, int PortfolioSize);
+    public sealed record CreateRequest(string Registration, DateOnly ValueDate, int PortfolioSize, string? Project = null);
     /// <summary>A page of trades; <c>Grid</c> names the New or Existing grid (ADR-0010 §6), or all when absent.</summary>
     /// <param name="Where">The grid's conditions as typed (ADR-0016 note 41 of step 4), where it is filtered from the line.</param>
     public sealed record PageRequest(int Start, int Count, IReadOnlyList<RowSort> Sorts, string? Grid = null, string? Where = null);
@@ -59,7 +59,7 @@ public static class XvaApi
         ws.MapPost("/", (CreateRequest request, CurrentUser user, PortfolioWorkspaces service) => Guard(() =>
         {
             if (request.PortfolioSize is < 0 or > 100_000) throw new WorkspaceRefused("InvalidValue", "The portfolio size is from 0 to 100,000.");
-            var created = service.Create(user.Id, request.Registration, request.ValueDate, request.PortfolioSize);
+            var created = service.Create(user.Id, request.Registration, request.ValueDate, request.PortfolioSize, request.Project);
             return Results.Created($"/api/xva/workspaces/{created.WorkspaceId}", service.View(created.WorkspaceId, user.Id));
         }));
 

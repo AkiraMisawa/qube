@@ -3825,7 +3825,8 @@ was compared with it.
 ## The dummy counterparty, and the value date and the counterparty by command (ADR-0016 note 100, 2026-11-14)
 
 The owner asked for a workspace opened with no counterparty chosen to be on a dummy one, and for commands that change
-the value date and the counterparty, `cpty` spelling the second (2026-11-14). Recorded as ADR-0016 note 100 and
+the value date and the counterparty, `cpty` spelling the second (2026-11-14); then said what the dummy's Project name
+is for (below). Recorded as ADR-0016 note 100 and
 ADR-0010 §1's and §9's notes of the same day (first written as note 69, which main's official PV by leg took
 first); the dummy stands as his approval of a default (CLAUDE.md, "No fallback").
 
@@ -3839,6 +3840,15 @@ first); the dummy stands as his approval of a default (CLAUDE.md, "No fallback")
   that left empty the workspace is on the dummy. The dialog sends the dummy's key itself, read from the list at
   submit, so an Enter as the dialog opens is on the dummy too; the field is never filled in for the user. A list
   with no dummy, or several, is said as a defect.
+- **The dummy's Project name.** The owner said what it is for (2026-11-14): when the list of what users priced is
+  read, it tells which project a pricing on the dummy came from, which nothing else does. It is a setting of the
+  workspace's (`project` on the Workspace table, beside the display currency), set by `project <name>` (a short form
+  of `set workspace project <name>`) or in the context bar, cleared by `reset workspace project`, and kept by a move
+  to a booked counterparty. The dialog asks for it, required, while the counterparty is empty or the dummy, and Enter
+  with none says so under the field and puts the keyboard there; the server refuses a dummy made with none and a
+  Price on the dummy with none (`ProjectRequired`). The accepted input and the Run's context carry it, the Pricing
+  DB's XVA view has a `Project` column, the quote's header names it, and the panel on the dummy is titled
+  `XVA DUMMY/LE-00 · <project>`.
 - **A `Dummy` badge** beside the toolbar's counterparty while the workspace is on it, at every width; on a phone it
   goes under the counterparty, which beside it was cut.
 - **`value date <yyyy-MM-dd>`** (`xva.value-date.change`) and **`counterparty <code/entity>`**, spelled `cpty` too
@@ -3904,8 +3914,6 @@ Unchanged: every source and every measure is simulated, and every value is synth
 
 ### Known limits
 
-- **A dummy counterparty's Project name** (ADR-0010 §1's first line) is not built: nothing holds or asks for one
-  yet. It waits for the owner to say what it is for.
 - **The toolbar's dialog lists what drops by kind**, and the line's reading by row and field, as before this change;
   the dialog was not changed.
 

@@ -1027,7 +1027,9 @@ each is built.
       after it or neither: `set existing before on`. With no grid named it is the grid of the view behind the line;
       with no view either it is refused, naming the two grids. `currency USD` is `set workspace currency USD`.
       *Corrected as built:* this note first said `set currency USD`, which names no row; the settings are the row
-      `workspace` of their table, and naming it reads the same whatever grid is behind the line.
+      `workspace` of their table, and naming it reads the same whatever grid is behind the line. `project Alpha bid` is
+      `set workspace project Alpha bid`, the rest of the line the name as typed (added 2026-11-14 with the project a
+      workspace on the dummy counterparty needs, ADR-0010 §1's note of that day).
     - *The grids' caption buttons* (`B all`, `A none`) run the expanded line through the door.
     - *As built (3a).* `IShortForm` (`Descriptor`, `Expand`, `Complete`), listed by an `IShortFormCatalog` per
       module. A short form expands to a command or to a verb of the screen, never to another short form; one that
@@ -2789,9 +2791,9 @@ the line nor the AI could change them.
        second left a scope with its edits.
      - **The page's endpoints that wrote them are gone** (`POST …/value-date`, `POST …/counterparty`). The toolbar
        still reads what a change of counterparty would drop (`GET …/counterparty-change`, which now says the revision
-       it counted at) for its dialog. The panel is
-       titled by the counterparty it shows (`XVA XYZ/LE-03`), so a move by the line or the AI retitles it; a name the
-       user gave the panel stays (ADR-0006 note 9).
+       it counted at) for its dialog. The panel is titled by the counterparty it shows (`XVA XYZ/LE-03`; on the dummy
+       with its project after it, ADR-0010 §1's note of 2026-11-14), so a move by the line or the AI retitles it; a name
+       the user gave the panel stays (ADR-0006 note 9).
 
 ## Rejected
 

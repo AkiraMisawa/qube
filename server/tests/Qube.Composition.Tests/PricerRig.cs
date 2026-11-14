@@ -28,11 +28,12 @@ sealed class PricerRig
     public TableService Tables { get; }
     public string Id { get; }
     public RunService Runs { get; }
-    InMemoryDataStore Store { get; }
+    public InMemoryDataStore Store { get; }
 
     /// <param name="store">Where the workspaces are kept, for a test that holds one as an earlier build left it.</param>
     /// <param name="open">The workspace of that store to open; one is made where none is named.</param>
-    public PricerRig(string registration = "ABC/LE-01", IWorkspaceStore? store = null, string? open = null)
+    /// <param name="project">The project the workspace made is under, which one on the dummy counterparty needs.</param>
+    public PricerRig(string registration = "ABC/LE-01", IWorkspaceStore? store = null, string? open = null, string? project = null)
     {
         var register = new MeasureRegister([new XvaMeasures(Pv01Provider.Simulated(TimeSpan.Zero)), new CcrMeasures()]);
         Workspaces = new WorkspaceService(new Dictionary<string, IEditRules> { [PortfolioEditRules.App] = new PortfolioEditRules(register) }, TimeProvider.System, store);
@@ -49,7 +50,7 @@ sealed class PricerRig
         Service = service = new PortfolioWorkspaces(Workspaces, data, Runs, register, UnsetSettings.Pricer());
         Commands = new CommandService(registry, data);
         Lines = new CommandLines(registry, Workspaces, Register, [new PortfolioShortForms()]);
-        Id = open ?? Service.Create("akira", registration, Day1, 40).WorkspaceId;
+        Id = open ?? Service.Create("akira", registration, Day1, 40, project).WorkspaceId;
     }
 
     public WorkspaceState State => Workspaces.Find(Id)!;

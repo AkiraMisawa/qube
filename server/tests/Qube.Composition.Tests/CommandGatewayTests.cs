@@ -156,7 +156,7 @@ public class CommandGatewayTests(QubeFactory factory) : IClassFixture<QubeFactor
         Assert.Equal("""["editWorkspace","dropEdits"]""", capabilities.Single(c => c!["capabilityId"]!.GetValue<string>() == "xva.counterparty.change")!["effects"]!.ToJsonString());
         Assert.Equal("""{"words":["value date"],"arguments":[{"name":"valueDate","kind":"text","required":true}],"app":"xva"}""", typed["xva.value-date.change"]);
         // The short forms are listed apart (note 29): what runs is the kernel command each stands for.
-        Assert.Equal(["xva.before", "xva.after", "xva.currency"], catalog["shortForms"]!.AsArray().Select(f => f!["formId"]!.GetValue<string>()));
+        Assert.Equal(["xva.before", "xva.after", "xva.currency", "xva.project"], catalog["shortForms"]!.AsArray().Select(f => f!["formId"]!.GetValue<string>()));
         Assert.Equal("""{"formId":"xva.currency","title":"Show the figures in a currency, such as USD","command":{"words":["currency"],"arguments":[{"name":"currency","kind":"text","required":true}],"app":"xva"}}""",
             catalog["shortForms"]![2]!.ToJsonString());
         Assert.Equal("""{"words":["set"],"arguments":[{"name":"rows","kind":"rows","required":false},{"name":"set","kind":"assignments","required":true}]}""", typed["entity.set"]);

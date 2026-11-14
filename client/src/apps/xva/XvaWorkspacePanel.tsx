@@ -27,8 +27,8 @@ import { BASE_CASE, BASE_SCENARIO, openTrace, requestTerm } from '../../platform
 import type { TraceApi } from '../../platform/traces/api';
 import type { RunRecord } from '../../platform/contracts';
 import { dockTabs, METRICS_TAB, type DockTab, type MeasureTab } from './dock';
-import { CSAS_TABLE, EditQueue, SETTINGS_ENTITY, TRADES_TABLE, XVA_APP, refusedEdit, tradeFields, type PendingEdit, type SetText } from './editing';
-import { ToolbarField } from './fields';
+import { CSAS_TABLE, EditQueue, PROJECT_FIELD, PROJECT_TITLE, SETTINGS_ENTITY, TRADES_TABLE, XVA_APP, projectNamed, refusedEdit, tradeFields, type PendingEdit, type SetText } from './editing';
+import { CommitField, ToolbarField } from './fields';
 import { CommittedDateInput } from '../../platform/IsoDateInput';
 import { CHANGES_TAB, CREDIT_TAB, SCENARIOS_TAB, SETTINGS_TAB, shownTab, TAB_TITLES, tabShown, XvaInputs, type InputTab } from './XvaInputs';
 import { XvaRisks } from './XvaRisks';
@@ -233,6 +233,14 @@ const sourceOf = (view: XvaWorkspaceView) => `${view.registration.key} ${view.co
  * Where the display currency came from, in words (ADR-0017 §3): the user's setting, copied in as the workspace was made;
  * a choice in this workspace; or the company profile's. A workspace keeps its own whatever the setting says later.
  */
+/**
+ * What an XVA panel is titled: `XVA <counterparty>`, and on the dummy its project after it (`XVA DUMMY/LE-00 · Alpha
+ * bid`), which alone tells two such panels apart (ADR-0010 §1's note of 2026-11-14, ADR-0016 note 100).
+ */
+export function xvaPanelTitle(ws: Pick<XvaWorkspaceView, 'registration' | 'project'>): string {
+  return ws.registration.dummy && ws.project !== null ? `XVA ${ws.registration.key} · ${ws.project}` : `XVA ${ws.registration.key}`;
+}
+
 function currencyFrom(currency: string, from: XvaWorkspaceView['displayCurrencyFrom']): string {
   switch (from) {
     case 'settings': return `Display currency ${currency}, from your settings as this workspace was made.`;
@@ -380,11 +388,11 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   }, [shownRevision, shownSource, sources]);
   // The panel is titled by the counterparty it shows, as it opened (`XVA <key>`): moved to another by `counterparty`,
   // from the toolbar, the line or the AI, it is titled by that one, so the strip never names one the page has left
-  // (ADR-0016 note 100).
-  const shownKey = view.data?.registration.key;
+  // (ADR-0016 note 100). On the dummy it is titled by its project too, which alone tells two such panels apart.
+  const shownTitle = view.data === undefined ? undefined : xvaPanelTitle(view.data);
   useEffect(() => {
-    if (shownKey !== undefined) workspace.store.getState().retitlePanel(panelId, `XVA ${shownKey}`);
-  }, [shownKey, panelId, workspace]);
+    if (shownTitle !== undefined) workspace.store.getState().retitlePanel(panelId, shownTitle);
+  }, [shownTitle, panelId, workspace]);
 
   // The selected modules' trade columns (ADR-0010 §10), made again only when they change (ExGrid ADR-0003).
   const tradeColumns = view.data?.tradeColumns;
@@ -922,6 +930,10 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   // *Vary values…* (ADR-0010 §3): the cell whose Context Menu opened the dialog, while it is open.
   const [varying, setVarying] = useState<VaryTarget | undefined>(undefined);
   const setCurrency = (currency: string) => void queue.push({ entity: SETTINGS_ENTITY, field: 'displayCurrency', value: currency, title: 'The display currency' });
+  // The project as `project <name>` sets it, and cleared as `reset workspace project` clears it (ADR-0010 §1's note of 2026-11-14).
+  const setProject = (name: string | null) => void queue.push(name === null
+    ? { entity: SETTINGS_ENTITY, field: PROJECT_FIELD, resolution: 'reset', title: PROJECT_TITLE }
+    : { entity: SETTINGS_ENTITY, field: PROJECT_FIELD, value: name, title: PROJECT_TITLE });
 
   // The commands run what the page's own controls run, as the page stands when they run (ADR-0010 §9).
   const pageCommands = { takeBack, retry, openCase, copyQuote, download, explain, openResult, setDockFull, resultTabs, traceInView, measures: () => view.data?.measures ?? [] };
@@ -1015,6 +1027,12 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
             </>
           )}
         </ToolbarField>
+        {/* The project, beside the dummy it is needed for (ADR-0010 §1 and its note of 2026-11-14), and wherever one is
+            held, so a project the Runs carry is never out of sight. */}
+        {(ws.registration.dummy || ws.project !== null) && (
+          <CommitField label="Project" value={ws.project ?? ''} placeholder={ws.registration.dummy ? 'Needed to price' : 'None'} parse={projectNamed}
+            onCommit={setProject} onIssue={setIssue} />
+        )}
         <div className="qube-toolbar-field" data-testid="netting-set">
           <Text size="xs" c="dimmed" className="qube-toolbar-label">Netting set</Text>
           <Badge variant="light" color={ws.agreement.enforceable ? 'gray' : 'yellow'} size="lg" radius="sm"

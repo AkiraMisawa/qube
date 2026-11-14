@@ -113,7 +113,7 @@ test('ADR-0003 §6: a counterparty change asks before dropping its edits, and ke
   await expect(trade(page, 'DRAFT-1').getByRole('gridcell').nth(CSA)).toHaveText('CSA-C');
 });
 
-test('ADR-0010 §1, ADR-0016 note 100: a workspace opened with no counterparty chosen is on the dummy, and `cpty` and `value date` move it, saying first what they drop', async ({ page }) => {
+test('ADR-0010 §1, ADR-0016 note 100: a workspace opened with no counterparty chosen is on the dummy under a project, and `cpty` and `value date` move it, saying first what they drop', async ({ page }) => {
   await open(page);
   await command(page, 'new xva');
   const dialog = page.getByRole('dialog', { name: 'New XVA workspace' });
@@ -122,8 +122,15 @@ test('ADR-0010 §1, ADR-0016 note 100: a workspace opened with no counterparty c
   // Nothing is put in the field: the placeholder says what the workspace is on while it is empty.
   await expect(chosen).toHaveValue('');
   await expect(chosen).toHaveAttribute('placeholder', 'DUMMY/LE-00 · Dummy (synthetic)');
+  // It is opened under a project, asked for beside it, which lists its Runs in the Pricing DB (ADR-0010 §1's note of
+  // 2026-11-14): Enter with none says so where it is typed.
   await page.keyboard.press('Enter');
-  await expect(page.getByRole('tab', { name: 'XVA DUMMY/LE-00' })).toHaveAttribute('aria-selected', 'true');
+  const named = dialog.getByRole('textbox', { name: 'Project' });
+  await expect(named).toBeFocused();
+  await expect(dialog.getByText('Name the project: a workspace on the dummy is listed in the Pricing DB under it.')).toBeVisible();
+  await page.keyboard.type('Alpha bid');
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('tab', { name: 'XVA DUMMY/LE-00 · Alpha bid' })).toHaveAttribute('aria-selected', 'true');
   await settled(page, 'New trades');
   await settled(page, 'Existing trades');
   // Marked on the toolbar, beside the counterparty; nothing is booked with it.
@@ -147,6 +154,13 @@ test('ADR-0010 §1, ADR-0016 note 100: a workspace opened with no counterparty c
   await expect.poll(placed).toBe('under');
   if (wide !== null) await page.setViewportSize(wide);
 
+  // The project beside it is the toolbar's to change, and titles the panel with it.
+  const project = page.getByRole('toolbar', { name: 'Workspace' }).getByRole('textbox', { name: 'Project' });
+  await expect(project).toHaveValue('Alpha bid');
+  await project.fill('Beta deal');
+  await project.press('Enter');
+  await expect(page.getByRole('tab', { name: 'XVA DUMMY/LE-00 · Beta deal' })).toHaveAttribute('aria-selected', 'true');
+
   // `cpty` is `counterparty`'s other spelling: its reading says where it moves the workspace before Enter.
   const line = page.getByRole('combobox', { name: 'Command' });
   await page.keyboard.press('ControlOrMeta+K');
@@ -157,6 +171,8 @@ test('ADR-0010 §1, ADR-0016 note 100: a workspace opened with no counterparty c
   await expect(page.getByTestId('notice')).toHaveText('Counterparty changed to ABC/LE-01: 0 edit(s) dropped; 0 carried, 0 in conflict, 0 lost.');
   await expect(page.getByRole('tab', { name: 'XVA ABC/LE-01' })).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByTestId('dummy-counterparty')).toHaveCount(0);
+  // The project is the workspace's, and stays in sight while it holds one.
+  await expect(project).toHaveValue('Beta deal');
   await settled(page, 'New trades');
 
   // An edit made for this counterparty: Enter pressed before the line has read what moving drops runs nothing, and the

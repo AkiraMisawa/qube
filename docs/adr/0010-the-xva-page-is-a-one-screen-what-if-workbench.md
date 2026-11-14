@@ -83,12 +83,27 @@ quiet:
   list that holds no dummy, or several, is said as a defect, and no other counterparty is taken in its place. The
   field is never filled in for the user: a list that arrived as they typed would write over what they typed.
 - **How it is seen.** The context bar shows a `Dummy` badge beside the counterparty while the workspace is on it, on
-  every width, with what that means in its title, and the panel is titled `XVA DUMMY/LE-00`. `cpty <code/entity>` or
-  the toolbar moves it to a booked counterparty (ADR-0016 note 100), dropping what was made for the dummy as any
-  counterparty change does (ADR-0003 §6).
-- **Not built yet: the Project name.** This section's first line gives a dummy counterparty "a required Project name
-  beside it". Nothing holds one yet: the kernel has no free-text field to edit, and Price does not ask for it. It is
-  built when the owner says what the name is for and where it goes (the Run's header, the quote, the Pricing DB).
+  every width, with what that means in its title, and the panel is titled `XVA DUMMY/LE-00 · <project>`.
+  `cpty <code/entity>` or the toolbar moves it to a booked counterparty (ADR-0016 note 100), dropping what was made for
+  the dummy as any counterparty change does (ADR-0003 §6).
+- **The Project name (the owner, 2026-11-14, on what it is for; where it is held and asked DEFAULT).** This section's
+  first line gives a dummy counterparty "a required Project name beside it". The owner said what it is for: "so that,
+  when looking at the list of what users priced, it is clear which project a pricing on the dummy came from; without
+  it they cannot be told apart". So:
+  - It is a setting of the workspace's, `project` on the Workspace table, beside the display currency: set with
+    `project <name>` (a short form of `set workspace project <name>`, ADR-0016 note 29) or in the context bar, and
+    cleared with `reset workspace project`. As a setting it is the workspace's whichever counterparty it is on, so a
+    move to a booked counterparty keeps it. A name is 1 to 80 characters on one line, with no space at either end.
+  - **A workspace on the dummy is made and priced only under one.** The dialog shows a required Project field while
+    its Counterparty is empty or the dummy, and Create with none is refused there, with the keyboard put on it; the
+    server refuses a dummy's making with none (`ProjectRequired`), and Price, and the line's reading of `price`, on
+    the dummy with none, cleared since. A booked counterparty's workspace needs none: the counterparty says what was
+    priced.
+  - **The Run carries it.** The accepted input holds `project` (none where there is none), the Run's context names it
+    where there is one, the Pricing DB's XVA view lists it in a `Project` column, and the quote's header says
+    `Project <name>` after the counterparty.
+  - **It is in sight wherever it is held:** in the context bar beside the counterparty while the workspace is on the
+    dummy or holds one, and in the panel's title on the dummy, which alone tells two such panels apart.
 
 ### 2. Original, Before and After are layers of changes (CONFIRMED, owner 2026-11-06)
 

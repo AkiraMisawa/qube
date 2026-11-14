@@ -22,7 +22,8 @@ const post = <T>(path: string, body: unknown, signal?: AbortSignal) =>
  */
 export interface XvaApi {
   registrations(): Promise<readonly (Registration & { readonly agreement: Agreement })[]>;
-  create(registration: string, valueDate: string, portfolioSize: number): Promise<XvaWorkspaceView>;
+  /** A new workspace; one on the dummy counterparty is made only under a project (ADR-0010 §1's note of 2026-11-14). */
+  create(registration: string, valueDate: string, portfolioSize: number, project: string | null): Promise<XvaWorkspaceView>;
   view(workspaceId: string): Promise<XvaWorkspaceView>;
   rows(workspaceId: string, query: RowQuery, signal: AbortSignal): Promise<RowPage>;
   edit(workspaceId: string, revision: number, entity: string, field: string, value: unknown): Promise<XvaWorkspaceView>;
@@ -45,7 +46,7 @@ export interface XvaApi {
 
 export const httpXvaApi: XvaApi = {
   registrations: () => call('/api/xva/registrations'),
-  create: (registration, valueDate, portfolioSize) => post('/api/xva/workspaces', { registration, valueDate, portfolioSize }),
+  create: (registration, valueDate, portfolioSize, project) => post('/api/xva/workspaces', { registration, valueDate, portfolioSize, project }),
   view: (workspaceId) => call(base(workspaceId)),
   rows: (workspaceId, query, signal) => post(`${base(workspaceId)}/rows`, query, signal),
   edit: (workspaceId, revision, entity, field, value) => post(`${base(workspaceId)}/edits`, { revision, entity, field, value }),

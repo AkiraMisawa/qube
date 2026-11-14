@@ -33,7 +33,8 @@ public sealed record RowPage(IReadOnlyList<EffectiveTrade> Rows, int Start, int 
 /// a leg made under a trade among them (ADR-0016 note 49); the selection of measures is the page's choice, shown on its own. <c>TradeColumns</c> are the selected modules'
 /// (ADR-0010 §10), as are the shared tabs' <c>Inputs</c> they need, and <c>PendingCells</c> counts their cells on the new trades still waiting for a result, so the page
 /// asks again while any is. <c>DisplayCurrency</c> is the workspace's setting, <c>DisplayCurrencyFrom</c> where it came
-/// from (<c>settings</c>, <c>workspace</c> or <c>profile</c>, ADR-0017 §3), and <c>Simulated</c> names the modules whose
+/// from (<c>settings</c>, <c>workspace</c> or <c>profile</c>, ADR-0017 §3), <c>Project</c> the project its Runs are listed
+/// under, or none (ADR-0010 §1's note of 2026-11-14), and <c>Simulated</c> names the modules whose
 /// figures come from a simulated provider, which the page says (ADR-0010 §1).</summary>
 public sealed record PortfolioWorkspaceView(
     string WorkspaceId,
@@ -59,6 +60,7 @@ public sealed record PortfolioWorkspaceView(
     int PendingCells,
     string DisplayCurrency,
     string DisplayCurrencyFrom,
+    string? Project,
     IReadOnlyList<string> Currencies,
     IReadOnlyList<string> Simulated,
     IReadOnlyList<CaseView> Cases,
@@ -154,19 +156,25 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
     readonly TableRegister tables = new([new PortfolioTables(register)]);
 
     /// <summary>
-    /// A new workspace, on its owner's last selection of measures (ADR-0010 §10, DEFAULT) and in the display currency they
-    /// set (ADR-0017 §3). A display currency they set that is no longer one the pricer offers refuses the making, by the
-    /// setting's name, rather than starting in another.
+    /// A new workspace, on its owner's last selection of measures (ADR-0010 §10, DEFAULT), in the display currency they
+    /// set (ADR-0017 §3) and under the project named, if one is. A display currency they set that is no longer one the
+    /// pricer offers refuses the making, by the setting's name, rather than starting in another. A workspace on the dummy
+    /// counterparty is made only under a project (ADR-0010 §1's note of 2026-11-14).
     /// </summary>
-    public WorkspaceState Create(string user, string registration, DateOnly valueDate, int existingCount)
+    public WorkspaceState Create(string user, string registration, DateOnly valueDate, int existingCount, string? project = null)
     {
         var source = new PortfolioSourceVersion(registration, valueDate, existingCount);
-        // Both are part of the workspace's making, so `undo` never takes them back (ADR-0016 §11, note 2), and the page
+        // Each refusal names the field, so that the dialog says it under the project.
+        var named = PortfolioEditRules.Target(source, Entity.WorkspaceSettings, Entity.Project);
+        if (project is not null && !ProjectNames.Holds(project)) throw new WorkspaceRefused("InvalidValue", ProjectNames.Rule, [named]);
+        if (source.Registration.Dummy && project is null) throw ProjectNames.Required("as the workspace is made", named);
+        // Each is part of the workspace's making, so `undo` never takes it back (ADR-0016 §11, note 2), and the page
         // says the display currency came from the user's setting (ADR-0017 §3).
         var made = new List<WorkspaceChange.Set>();
         if (LastSelection(user) is { } selection) made.Add(new(PortfolioEditRules.Target(source, Entity.Measures, Entity.MeasuresField), Chosen(selection)));
         if (settings.Default(user, PortfolioSettings.DisplayCurrency) is { } currency)
             made.Add(new(PortfolioEditRules.Target(source, Entity.WorkspaceSettings, Entity.DisplayCurrency), currency));
+        if (project is not null) made.Add(new(named, project));
         return workspaces.Create(user, PortfolioEditRules.App, Context(registration, valueDate, existingCount), source, with: made);
     }
 
@@ -234,7 +242,7 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
             links, register.Measures, PortfolioMaterialiser.SelectedMeasures(state, register),
             [.. register.TradeColumns.Where(c => register.Selected(state).Any(m => m.Id == c.Module))], register.Inputs(state),
             register.WithCells(state, [.. Rows(state).Where(t => t.IsNew)]).Sum(t => t.Cells?.Values.Count(c => c.State == TradeCell.Pending) ?? 0),
-            PortfolioMaterialiser.DisplayCurrency(state), PortfolioMaterialiser.DisplayCurrencyFrom(state), PortfolioMarket.Currencies, [.. register.Selected(state).Where(m => m.Simulated).Select(m => m.Id)],
+            PortfolioMaterialiser.DisplayCurrency(state), PortfolioMaterialiser.DisplayCurrencyFrom(state), PortfolioMaterialiser.Project(state), PortfolioMarket.Currencies, [.. register.Selected(state).Where(m => m.Simulated).Select(m => m.Id)],
             PortfolioCases.All(raw), DataEdits(raw).Count() + PortfolioLegs.Made(raw).Count + BookedTrades.LoadedBy(raw).Count, PortfolioScenarios.All(raw), PortfolioScenarios.Rows(raw), register.Settings(state));
     }
 
