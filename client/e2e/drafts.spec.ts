@@ -108,6 +108,11 @@ test('ADR-0016 note 66: a CSA\'s One-way follows who posts: a side\'s Posts swit
   await expect(oneWay).toHaveAccessibleDescription('Follows counterparty posts and self posts.');
   await expect(dialog.getByText('Follows counterparty posts and self posts.')).toHaveCount(2);
   await expect(dialog.getByText('Follows counterparty posts and self posts.').last()).toBeVisible();
+  // Original, the source's row, says the same under each of the two.
+  await dialog.getByRole('tab', { name: 'Original' }).click();
+  await expect(oneWay).toHaveAccessibleDescription('Follows counterparty posts and self posts.');
+  await expect(dialog.getByText('Follows counterparty posts and self posts.')).toHaveCount(2);
+  await dialog.getByRole('tab', { name: 'Live' }).click();
 
   // We stop posting: the counterparty posts alone, and One-way says so before anything is written.
   const selfPosts = dialog.getByRole('group', { name: 'Self' }).getByRole('switch', { name: /^Posts/ });

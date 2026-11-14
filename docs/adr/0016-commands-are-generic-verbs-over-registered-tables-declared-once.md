@@ -1122,6 +1122,7 @@ each is built.
       and still makes no second Run. Invoked with no key, `price` is refused.
     - *A refusal is a sentence.* A line and a notice show a sentence alone, so a refusal that names the edits it
       waits on, or the issues the Run service found, says them in its sentence.
+      *Amended 2026-11-14 (note 66): a target that more than one layer holds is said once.*
     - *`refresh`* reads the counterparty's trades and CSAs again on the value date the workspace holds. Its reading
       reads no source: it says what would be read again. It is written as one command named `refresh`, with its
       caller's origin, and `undo` takes it back where the source's version is still the one it replaced. Its
@@ -2675,9 +2676,11 @@ later answer, is written when he answers.
       holds one is named in the refusal, to be removed whole (`Remove in Changes the case CSA-B one-way on, which
       holds an edit nothing reads in this version`): with the edit alone removed, a case made of it keeps the
       title it was made with and is priced as the Base, as a case is when any change of it is removed by hand
-      (ADR-0010 §3). A refresh holds it back as lost, as it does an edit whose row is gone (ADR-0003 §7). The row
-      shows what who posts says throughout. The check is the pricer's, and is of any field its source reads no
-      more.
+      (ADR-0010 §3). The edits and the cases are said in the order they were made. A refusal's sentence names a
+      target once however many layers hold it, here and in every refusal that names its edits (note 33): the same
+      words twice told nobody which layers. A refresh holds it back as lost, as it does an edit whose row is gone
+      (ADR-0003 §7). The row shows what who posts says throughout. The check is the pricer's, and is of any field its
+      source reads no more.
     - **The measures.** FVA's rule reads `one-way` as before, which is now what the flags say. SA-CCR still
       refuses a one-way CSA: its request carries `oneWay` and not which side posts, and its reason now says that
       the measure does not read that yet (ADR-0013's note of the same day). Reading the side is for when the

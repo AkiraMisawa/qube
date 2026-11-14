@@ -3662,15 +3662,20 @@ ADR-0016 notes 66 to 68; this change builds the one that changes the product (no
 
 | Check | Result |
 |---|---|
-| `nix develop -c dotnet test server/Qube.slnx` | 1658 passed |
-| `cd client && npm run typecheck && npm test` | typecheck clean; 485 passed in 47 files |
-| `cd client && npx playwright test` (Chromium, the built client served by the host) | 138 passed |
+| `nix develop -c dotnet test server/Qube.slnx` | 1659 passed |
+| `cd client && npm run typecheck && npm test` | typecheck clean; 495 passed in 48 files |
+| `cd client && npx playwright test` (Chromium, the built client served by the host) | 149 passed |
 | The new browser test alone, `--repeat-each=3` | 3 passed |
+
+All with main's step 2 of the panels (ExGrid 0.3.0) merged in. An earlier whole browser run on the merged code, made
+while two review agents were working on the same machine, failed one test of another feature (a phone's new
+workspace did not open within its five seconds); that test then passed three times alone, and in the run above.
 
 By hand, in the built client served by the host: pictures of the CSA grid and of the row's dialog at 390, 768, 992
 and 1440px in both themes (design guidelines §9, §11). Looked at: the dialog, whose layout gains the line under a
-field, at each of the four widths in both themes; the grid, whose layout does not change, light at 390, 768 and
-1440 and dark at 992 and 1440.
+field, at each of the four widths in both themes, and its Original tab light at 390 and 1440; the grid, whose
+layout does not change, light at 390, 768 and 1440 and dark at 992 and 1440. Taken and looked at again on ExGrid
+0.3.0, after main was merged in.
 
 ### Providers
 
@@ -3685,9 +3690,9 @@ Unchanged: every source and every measure is simulated, and every value is synth
 - **A case made before the change by varying `one-way` or `exchange` is not made anew.** Price names it to be
   removed whole. With its edit alone removed in Changes it keeps the title it was made with and is priced as the
   Base, as any case is whose change is removed by hand.
-- **Changes lists no edit of the workspace's own scope** (a setting, the display currency). None of those can be
-  an edit nothing reads today: only the CSA's two fields stopped being read. One that did would refuse Price with
-  no Remove in Changes.
+- **Changes lists no edit of the workspace's own scope but a module's setting** (the display currency, for one,
+  is not listed). None of those can be an edit nothing reads today: only the CSA's two fields stopped being read. One
+  that did would refuse Price with no Remove in Changes.
 - **The message of a cell in the CSA grid's last row is cut by the inputs band's lower edge**, as before this change:
   the grid draws the box under the cell, and the band (`qube-xva-inputs-body`, the page's own) is as tall as its
   rows. Seen on the marked One-way cell; the band's height is the page's to settle, not ExGrid's.

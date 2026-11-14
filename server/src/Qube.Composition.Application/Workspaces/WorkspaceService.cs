@@ -88,8 +88,8 @@ public sealed class WorkspaceRefused(string code, string message, IReadOnlyList<
 
     /// <summary>
     /// The refusal with the edits it waits on said in its sentence, where it names any: a line and a notice show a
-    /// sentence alone, so the targets would otherwise reach nobody (ADR-0016 note 33). An edit the Common layer and a
-    /// case both hold is said once.
+    /// sentence alone, so the targets would otherwise reach nobody (ADR-0016 note 33). A target more than one layer
+    /// holds is said once.
     /// </summary>
     public WorkspaceRefused Named() =>
         Targets.Count == 0 ? this : new(Code, $"{Message.TrimEnd('.')}: {string.Join(", ", Targets.Select(t => $"{t.Entity} {t.Field}").Distinct())}.", Targets, Word, Candidates);

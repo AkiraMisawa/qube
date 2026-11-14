@@ -49,7 +49,7 @@ public class FollowingFieldTests
         Assert.StartsWith("NotEditable: station is not a field a command sets; readings takes volume,", rig.Read("set R1 station south"));
     }
 
-    [Fact] // ADR-0016 note 66: a reset of a field that follows others, which holds no edit of its own, names the fields whose edits it shows
+    [Fact] // ADR-0016 note 66: a reset of a field that follows others, which holds no edit of its own, names the fields it is reset through
     public void A_reset_of_a_field_that_follows_others_names_the_fields_to_reset()
     {
         var rig = new Rig(Readings("window", "windSpeed", "windDirection"));

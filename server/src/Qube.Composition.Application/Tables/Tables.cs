@@ -372,7 +372,8 @@ public static class TableWords
     public static string Those(IReadOnlyList<string> followed) => followed.Count == 1 ? "that" : "those";
 
     /// <summary>The sentence that refuses to set a field that follows others (note 66), with the fields to set in its place.</summary>
-    public static string NotSet(string word, IReadOnlyList<string> followed) => $"{word} is not a field a command sets: {Follows(followed)}. Set {Those(followed)}.";
+    public static string SetWhatItFollows(IReadOnlyList<string> followed) => $"{Follows(followed)}. Set {Those(followed)}.";
+    public static string NoCommandSets(string word, IReadOnlyList<string> followed) => $"{word} is not a field a command sets: {SetWhatItFollows(followed)}";
 
     /// <summary>Items as a sentence offers them: <c>a, b or c</c>.</summary>
     public static string Or(IEnumerable<string> items) => Joined(items, "or");

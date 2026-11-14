@@ -486,10 +486,10 @@ public sealed partial class TableService(TableRegister register, WorkspaceServic
         if (field.From is { } from)
         {
             var followed = TableWords.WordsFollowed(from, table.Descriptor.Fields);
-            return new("NotEditable", TableWords.NotSet(word, followed), word, followed);
+            return new("NotEditable", TableWords.NoCommandSets(word, followed), word, followed);
         }
-        IReadOnlyList<string> set = [.. table.Descriptor.Fields.Where(f => f.Editable).Select(TableWords.Word)];
-        return new("NotEditable", $"{word} is not a field a command sets; {table.Word} takes {TableWords.And(set)}.", word, set);
+        IReadOnlyList<string> taken = [.. table.Descriptor.Fields.Where(f => f.Editable).Select(TableWords.Word)];
+        return new("NotEditable", $"{word} is not a field a command sets; {table.Word} takes {TableWords.And(taken)}.", word, taken);
     }
 
     // A few rows by their keys, more by their number and the table's word.

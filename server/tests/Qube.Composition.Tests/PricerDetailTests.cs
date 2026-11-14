@@ -263,6 +263,27 @@ public class PricerDetailTests
             both.Read("price"));
     }
 
+    [Fact] // ADR-0016 note 66: several such edits and several cases that hold one are each said, in the order they were made
+    public async Task Several_edits_held_from_before_and_several_cases_are_said_in_the_order_they_were_made()
+    {
+        var store = new InMemoryWorkspaceStore();
+        var made = new PricerRig(store: store);
+        await made.Run("vary CSA-B self vm cap 10mm, 20mm");
+        var layers = made.State.Overrides.Keys.Select(k => k.Layer).OfType<string>().Distinct().OrderBy(layer => made.State.Created[layer].Seq).ToList();
+        Assert.Equal(2, layers.Count);
+
+        // The later case's first: the cases are still said as they were made.
+        var cases = Holding(Holding(made, store, "oneWay", true, layers[1]), store, "oneWay", true, layers[0]);
+
+        Assert.Equal("UnresolvedEdits: Remove in Changes the cases CSA-B self vm cap 10mm and CSA-B self vm cap 20mm, which hold an edit nothing reads in this version: csa:CSA-B oneWay.",
+            cases.Read("price"));
+
+        var all = Holding(Holding(cases, store, "oneWay", true), store, "exchange", false);
+
+        Assert.Equal("UnresolvedEdits: Remove in Changes the edits nothing reads in this version and the cases CSA-B self vm cap 10mm and CSA-B self vm cap 20mm, which hold one: "
+            + "csa:CSA-B oneWay, csa:CSA-B exchange.", all.Read("price"));
+    }
+
     [Fact] // ADR-0016 note 66: such an edit refuses Price on a CSA no priced trade is under too, where an edit held back by a refresh would not
     public async Task An_edit_held_from_before_refuses_Price_on_a_CSA_nothing_priced_is_under()
     {
@@ -291,7 +312,7 @@ public class PricerDetailTests
 
         Assert.Equal("Reset CSA-B.", await reset.Run("reset CSA-B"));
         Assert.Empty(reset.Service.Changes(reset.Id, "akira").Common);
-        // A marked cell that follows who posts holds no edit of its own, and says whose it shows.
+        // A marked cell that follows who posts holds no edit of its own, and says which fields it is reset through.
         await reset.Run("set CSA-B self posts off");
         Assert.Equal("Nothing would change: CSA-B has no edit of one-way: it follows counterparty posts and self posts, and is reset through those.", reset.Read("reset CSA-B one-way"));
     }

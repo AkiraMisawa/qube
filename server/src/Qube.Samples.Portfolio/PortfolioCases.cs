@@ -225,11 +225,11 @@ public static class PortfolioCells
 {
     sealed record Column(string Field, FieldSpec Spec, params string[] Names);
 
-    // A column that follows others (ADR-0016 note 66) is no cell either: a case varies the columns it follows. It is
-    // kept by its field and its names, so that whoever names it, a line or a page, is told which those are.
+    // A column that follows others (ADR-0016 note 66) is no cell: a case varies the columns it follows. It is kept by
+    // its field and its names, so that whoever names it, a line or a page, is told which those are.
     sealed record Follower(string Field, IReadOnlyList<string> Names, IReadOnlyList<string> Followed)
     {
-        public WorkspaceRefused NotSet(string? word = null) => new("NotEditable", TableWords.NotSet(Names[0], Followed), word: word, candidates: Followed);
+        public WorkspaceRefused Refusal(string? word = null) => new("NotEditable", TableWords.NoCommandSets(Names[0], Followed), word: word, candidates: Followed);
     }
 
     // The columns of a kind of row, from the one list of its table's fields: the cells, and the ones that follow others.
@@ -254,11 +254,7 @@ public static class PortfolioCells
 
     // A row a cell is named on: its id as a line says it, its entity, its columns, what it is in a word or two, and
     // whether it is a trade, of which there may be ten thousand.
-    sealed record Row(string Id, string Entity, ColumnSet Set, string What, bool IsTrade = false)
-    {
-        /// <summary>The row's cells: the columns a command sets.</summary>
-        public IReadOnlyList<Column> Columns => Set.Cells;
-    }
+    sealed record Row(string Id, string Entity, ColumnSet Columns, string What, bool IsTrade = false);
 
     // The rows a cell is named on, as the state stands: each CSA, the netting set, the credit, the chosen curve where
     // there is one, each trade by its id, and a module's settings by the module's id (ADR-0010 §8: `set xva cost of
@@ -300,12 +296,12 @@ public static class PortfolioCells
                 + $"the netting set ({source.Agreement.NettingSetId}), {CreditRow},{(credit.Cds is null ? "" : $" {CdsRow},")} a trade's id{string.Concat(register.Modules.Where(m => m.Settings.Count > 0).Select(m => $", or {m.Id} for {m.Title}'s settings"))}.",
                 word: row.Trim(), candidates: [.. all.Where(r => !r.IsTrade).Select(r => r.Id)]);
         if (rows.Count > 1) throw new WorkspaceRefused("AmbiguousCell", $"{row.Trim()} names {string.Join(" and ", rows.Select(r => r.Entity))}.", word: row.Trim());
-        var (id, entity, columns) = (rows[0].Id, rows[0].Entity, rows[0].Columns);
+        var (id, entity, columns) = (rows[0].Id, rows[0].Entity, rows[0].Columns.Cells);
         var name = Words(column);
         bool Named(IReadOnlyList<string> names) => names.Any(n => string.Equals(n, name, StringComparison.OrdinalIgnoreCase));
         var found = columns.Where(c => Named(c.Names)).ToList();
         // A column that follows others is no cell: the line is told which to name in its place, as `set` is (ADR-0016 note 66).
-        if (found.Count == 0 && rows[0].Set.Followers.FirstOrDefault(f => Named(f.Names)) is { } follower) throw follower.NotSet(column.Trim());
+        if (found.Count == 0 && rows[0].Columns.Followers.FirstOrDefault(f => Named(f.Names)) is { } follower) throw follower.Refusal(column.Trim());
         if (found.Count == 0)
             throw new WorkspaceRefused("UnknownCell", $"{id} has no column {column.Trim()}; its columns are {string.Join(", ", columns.Select(c => c.Names[0]))}.",
                 word: column.Trim(), candidates: [.. columns.Select(c => c.Names[0])]);
@@ -334,7 +330,7 @@ public static class PortfolioCells
     static Row? RowSaid(IReadOnlyList<Row> rows, string word) => rows.Where(r => Says(word, r.Id)).ToList() is [var one] ? one : null;
 
     static Column? ColumnSaid(Row row, IEnumerable<string> words) =>
-        row.Columns.Where(c => c.Names.Any(n => Says(string.Join(' ', words), n))).ToList() is [var one] ? one : null;
+        row.Columns.Cells.Where(c => c.Names.Any(n => Says(string.Join(' ', words), n))).ToList() is [var one] ? one : null;
 
     // With no comma yet: the row, then its column, then the first value.
     static LineCompletions BeforeAComma(IReadOnlyList<Row> rows, string text)
@@ -352,7 +348,7 @@ public static class PortfolioCells
         // No word yet, or words that start a column's name: the columns they could be, each by the word that names it
         // and written from the column's first word.
         var start = string.Join(' ', said.Append(typing));
-        return new([.. row.Columns.Where(c => c.Names.Any(n => n.StartsWith(start, StringComparison.OrdinalIgnoreCase)))
+        return new([.. row.Columns.Cells.Where(c => c.Names.Any(n => n.StartsWith(start, StringComparison.OrdinalIgnoreCase)))
             .Select(c => new LineCompletion(c.Names[0], done.Count > 1 ? done[1].Start : at))]);
     }
 
@@ -393,7 +389,7 @@ public static class PortfolioCells
         var set = ColumnsOf(entity, register)
             ?? throw new WorkspaceRefused("UnknownCell", $"{entity} is not a row a cell is named on: a row is a CSA, the netting set, the credit, the CDS, a trade or a module's settings.");
         // A field that follows others is no cell by its name either (ADR-0016 note 66): the page and the AI are told as a line is.
-        if (set.Followers.FirstOrDefault(f => f.Field == field) is { } follower) throw follower.NotSet();
+        if (set.Followers.FirstOrDefault(f => f.Field == field) is { } follower) throw follower.Refusal();
         var columns = set.Cells;
         var column = columns.FirstOrDefault(c => c.Field == field)
             ?? throw new WorkspaceRefused("UnknownCell", $"{id} has no column {field}; its columns are {string.Join(", ", columns.Select(c => c.Names[0]))}.");
