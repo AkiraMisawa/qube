@@ -3795,35 +3795,57 @@ fallback").
   each edit it drops by row and field; Tab offers the other counterparties. A code alone, an unknown counterparty, an
   unreadable date and the date or counterparty the workspace is on already are refused on the line. The answer is
   the server's count of what dropped, carried, conflicted and was lost, and stays while an edit is held.
-- **What a counterparty change drops is the count its reading showed**: the request carries it (`drops`), and the
-  server refuses the change (`ConfirmationStale`) where the workspace holds another count by its turn.
-- **A new effect, `dropEdits`**, on the counterparty's command: a saved sequence refuses a line of it. `value date`
-  may stand in a sequence, as `refresh` does.
+- **What a counterparty change drops is what the user was shown.** The request carries the count (`drops`) and
+  the revision it was read at; a moved workspace or another count is refused (`ConfirmationStale`). The toolbar
+  reads the drop in the edit queue's turn and asks the change at the revision it counted at (the door now sends a
+  request that names its revision at that revision).
+- **A new effect, `dropEdits`**, on the counterparty's command. Enter runs it only from a reading the line shows
+  (pressed before the reading arrived, the line stays and shows it); a saved sequence refuses a line of it; and the
+  AI moves a workspace only where nothing drops (`UserConfirms` otherwise). `value date` may stand in a sequence, as
+  `refresh` does.
 - **The toolbar invokes the same commands** through the door. The endpoints `POST …/value-date` and
   `POST …/counterparty` are gone; `GET …/counterparty-change` stays for the toolbar's dialog. The AI is offered both
   commands, and the page reads the workspace again after either.
 - **The panel is titled by the counterparty it shows** (`XVA ABC/LE-01`), whoever moved it; a name the user gave it
   stays (the store's `retitlePanel`).
 
+### What the review changed
+
+The two reviews (standards and spec) found three ways an edit could be dropped without the user seeing the count
+(ADR-0003 §6), and this change closes each: the AI was offered the command with no dialog (it now moves only where
+nothing drops); Enter pressed before the reading arrived ran a reading read in the turn (it now runs nothing and
+shows the reading); and the toolbar's dialog counted outside the edit queue's turn and was guarded by the count
+alone, which an edit reset and another made could keep (it now counts in the turn and asks at that revision). Also:
+the dummy is told by its flag everywhere, the toolbar's four commands share one busy helper, rename and retitle share
+one renumbering, the badge's narrow layout has a browser test of its place, the removed endpoint is checked by its
+405, and names (`REGISTRATIONS_QUERY`, `dropping`) say what they hold. Left as they were: the description under the
+dialog's field (it says what an empty field means, which the placeholder alone does not), the sentence ending each
+carry answer written three times (each names its own action), and the dates formatted as the rest of the module
+formats them.
+
 ### Verification performed
 
 | Check | Result |
 |---|---|
-| `nix develop -c dotnet test server/Qube.slnx` | RESULT_SERVER |
-| `cd client && npm run typecheck && npm test` | RESULT_CLIENT |
-| `cd client && npm run build && npx playwright test` (Chromium, headless, Linux, the built client served by the host) | RESULT_E2E |
-| The new browser test and the changed counterparty test alone, `--repeat-each=3` | 6 passed |
+| `nix develop -c dotnet test server/Qube.slnx` | 1669 passed |
+| `cd client && npm run typecheck && npm test` | Typecheck clean; 514 passed in 49 files |
+| `cd client && npm run build && npx playwright test` (Chromium, headless, Linux, the built client served by the host) | 153 passed |
+| The new browser test and the changed counterparty test alone, `--repeat-each=3`, after the review's fixes | 6 passed |
 
 The server's tests (`PricerSourceCommandTests`, `XvaApiTests`) read both commands' readings and refusals, the count
 a stale reading is refused for (asked as the AI), the completions, a sequence that holds a value date and refuses a
-counterparty change, `undo` refused after each, and the dummy's terms and a move from it. The browser test opens a
-workspace with Enter on the empty dialog, sees the badge and an empty Existing grid, reads and runs `cpty ABC/LE-01`
-(the panel retitled, the badge gone), reads the drop of `counterparty XYZ/LE-03` after an edit and runs it, then reads
-and runs `value date 2026-10-27` and sees the same date refused. The toolbar's counterparty test now reads the
+counterparty change, `undo` refused after each, the AI refused a change that drops and taken where nothing drops, and
+the dummy's terms and a move from it. The door's unit tests read a drop command refused without a shown reading and
+run with one, and a request sent at the revision it names. The browser test opens a workspace with Enter on the empty
+dialog, sees the badge beside the counterparty and, at 390px, under it with the counterparty at least 14rem wide, and
+an empty Existing grid; reads and runs `cpty ABC/LE-01` (the panel retitled, the badge gone); presses Enter on
+`counterparty XYZ/LE-03` while its reading is held back and sees nothing run, then reads the drop and runs it; then
+reads and runs `value date 2026-10-27` and sees the same date refused. The toolbar's counterparty test now reads the
 server's sentence and the retitled panel.
 
-By hand, in the built client served by the host: pictures of the dialog (1440px and 390px), the dummy workspace
-(1440px light and dark, 390px), the readings of `cpty` and `value date`, and a GIF of the flow. Looked at each.
+By hand, in the built client served by the host: pictures of the dialog (1440px light and dark, 390px), the dummy
+workspace (1440px light and dark, 390px), the toolbar at 390, 768 and 992px in both themes, the readings of `cpty` and
+`value date` and what each did, and a GIF of the flow. Looked at each.
 
 ### Providers
 
