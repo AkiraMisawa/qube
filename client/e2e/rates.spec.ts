@@ -20,8 +20,8 @@ const lines = (page: Page) => page.getByLabel('Lines', { exact: true });
 const firstLine = (page: Page) => lines(page).getByRole('row', { name: /^L\d+ / }).first();
 const notice = (page: Page) => page.getByTestId('notice');
 const summary = (page: Page) => page.getByTestId('workspace-summary');
-// A line is named by the revision that makes it (`L3` in a workspace just made), so a test reads a line's id from the
-// grid where it needs one, and matches it by its form elsewhere.
+// A line is named L1, L2, … in the order its workspace makes them, and no number is given twice (ADR-0016 note 65), so a
+// test reads a line's id from the grid where it needs one, and matches it by its form elsewhere.
 
 /** A cell of a row by its column's position, 0 from the left: off-screen columns are not in the DOM, so never by count. */
 const cell = (page: Page, column: number) => firstLine(page).locator(`[role=gridcell][aria-colindex="${column + 1}"]`);
