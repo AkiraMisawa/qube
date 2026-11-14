@@ -306,7 +306,7 @@ public static class PortfolioInput
             var added = trades.Where(t => t.IsNew && t.After).Select(t => t.TradeId).ToList();
             if (!added.ToHashSet().SetEquals(iteration.Add))
                 throw new WorkspaceRefused("AdditionSetChanged",
-                    $"{named}its After holds {(added.Count == 0 ? "no new trade" : string.Join(", ", added))}, not {string.Join(" + ", iteration.Add)} alone. Run add each again to make the set anew.");
+                    $"{named}its After holds {(added.Count == 0 ? "no new trade" : string.Join(", ", added))}, and the case adds {(iteration.Add.Count == 0 ? "none" : string.Join(" + ", iteration.Add))}. Run add each again to make the set anew.");
             var back = trades.Where(t => !t.IsNew && t.After && iteration.Without.Contains(t.TradeId)).Select(t => t.TradeId).ToList();
             if (back.Count > 0)
                 throw new WorkspaceRefused("AdditionSetChanged",
@@ -325,7 +325,8 @@ public static class PortfolioInput
             // What a case of iterative addition carries in common is said wherever its title is (docs/03 §5).
             ["title"] = @case.Note is null ? @case.Title : $"{@case.Title} · {@case.Note}",
             ["kind"] = @case.Kind,
-            // The trades an iteration of add each adds together and takes out of After (ADR-0016 note 37); none for another case.
+            // The package of an iteration of add each, and the trades it adds together and takes out of After (ADR-0016
+            // notes 37 and 90); none for another case.
             ["iteration"] = @case.Iteration?.Lists(),
             // What makes it this case, as the Pricing DB and Download say it (ADR-0010 §3).
             ["changes"] = new JsonArray([.. PortfolioCases.ChangesOf(raw, @case.Id).Select(o => new JsonObject

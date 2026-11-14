@@ -364,41 +364,50 @@ public class PricerLineTests
         Assert.Equal("UnknownCommand", rig.Preview("add trades").Refused!.Code);
     }
 
-    [Fact] // ADR-0016 §3, note 37: the request holds the iterations as a list, checked against its contract at each item's path, and the command makes them
-    public async Task Add_each_takes_its_iterations_as_a_list_its_contract_checks()
+    [Fact] // ADR-0016 §3, note 90: the request may give a package, its name and its trades, checked against its contract at each item's path; the command writes it and makes the set in one step
+    public async Task Add_each_writes_the_package_its_request_gives_and_makes_the_set_in_one_step()
     {
         var rig = new Rig();
         var taken = rig.Service.Page(rig.Id, "akira", 0, 1, [], "existing").Rows[0].TradeId;
         var start = rig.State.Revision;
-        static JsonObject Given(params JsonNode?[] iterations) => new() { ["iterations"] = new JsonArray(iterations) };
+        static JsonObject Given(string? name, params JsonNode?[] trades)
+        {
+            var request = new JsonObject { ["trades"] = new JsonArray(trades) };
+            if (name is not null) request["package"] = name;
+            return request;
+        }
 
-        var text = await rig.Invoke("xva.trades.add", new JsonObject { ["iterations"] = "DRAFT-1" });
-        var none = await rig.Invoke("xva.trades.add", Given(new JsonObject { ["add"] = new JsonArray(), ["without"] = new JsonArray(taken) }));
-        var shape = await rig.Invoke("xva.trades.add", Given(new JsonObject { ["add"] = new JsonArray("DRAFT-1", 2) }, "DRAFT-2", new JsonObject { ["without"] = new JsonArray(taken), ["also"] = true }));
+        var text = await rig.Invoke("xva.trades.add", new JsonObject { ["trades"] = "DRAFT-1" });
+        var none = await rig.Invoke("xva.trades.add", Given("P1"));
+        var shape = await rig.Invoke("xva.trades.add", Given("P1", "DRAFT-1", 2));
+        var nameAlone = await rig.Invoke("xva.trades.add", new JsonObject { ["package"] = "P1" });
+        var comma = await rig.Invoke("xva.trades.add", Given("P1, P2", "DRAFT-1"));
+        var unknown = await rig.Invoke("xva.trades.add", Given("P1", "DRAFT-9"));
+        var twice = await rig.Invoke("xva.trades.add", Given("P1", "DRAFT-1", "draft-1"));
         var refused = rig.State.Revision;
-        var made = await rig.Invoke("xva.trades.add", Given(new JsonObject { ["add"] = new JsonArray("DRAFT-1", "DRAFT-2"), ["without"] = new JsonArray(taken) }, new JsonObject { ["add"] = new JsonArray("draft-1") }));
+        // Left out, the name is the next free one; a trade is named whatever the case of its letters.
+        var made = await rig.Invoke("xva.trades.add", Given(null, "draft-1", "DRAFT-2", taken));
         var undoes = rig.Preview("undo").Would;
-        // With keep, the cases made stay and the answer names the one made beside them (note 37, corrected in review).
-        var beside = Given(new JsonObject { ["add"] = new JsonArray("DRAFT-2", "DRAFT-3") });
-        beside["keep"] = true;
-        var kept = await rig.Invoke("xva.trades.add", beside);
-        var flag = await rig.Invoke("xva.trades.add", new JsonObject { ["keep"] = "yes" });
-        // An empty list is the command as typed: a case per New row with A ticked.
-        var typed = await rig.Invoke("xva.trades.add", Given());
+        var moved = await rig.Invoke("xva.trades.add", Given("P2", "DRAFT-2"));
+        // No package given is the command as typed: the set as the cells now write it.
+        var typed = await rig.Invoke("xva.trades.add", new JsonObject());
 
         Assert.Equal("InvalidField: A list is required.", text);
         Assert.Equal("InvalidField: At least 1 item is required.", none);
-        Assert.Equal("InvalidField: A text value is required. InvalidField: A record is required. Required: add is required. UnknownField: An item of iterations has no field also.", shape);
-        // Each issue is at its item's path in the request, where a caller that built the list finds it.
-        Assert.Equal(["/inputs/request/iterations/0/add/1", "/inputs/request/iterations/1", "/inputs/request/iterations/2/add", "/inputs/request/iterations/2/also"],
-            await rig.Paths("xva.trades.add", Given(new JsonObject { ["add"] = new JsonArray("DRAFT-1", 2) }, "DRAFT-2", new JsonObject { ["without"] = new JsonArray(taken), ["also"] = true })));
+        Assert.Equal("InvalidField: A text value is required.", shape);
+        // The issue is at its item's path in the request, where a caller that built the list finds it.
+        Assert.Equal(["/inputs/request/trades/1"], await rig.Paths("xva.trades.add", Given("P1", "DRAFT-1", 2)));
+        Assert.Equal("NothingGiven: A package takes one trade at least, and none is given for P1.", nameAlone);
+        Assert.Equal("InvalidValue: A package is a name with no comma, such as P1, or empty for none.", comma);
+        Assert.Equal("UnknownTarget: No trade DRAFT-9 in this workspace.", unknown);
+        Assert.Equal("GivenTwice: DRAFT-1 is named twice.", twice);
         Assert.Equal(start, refused);
-        Assert.Equal($"Made 3 case(s): add DRAFT-1 + DRAFT-2 without {taken}, add DRAFT-1, add DRAFT-3.", made);
-        // undo names the command by the iterations it was given, as the log does.
-        Assert.StartsWith($"Takes back: add each: DRAFT-1 + DRAFT-2 without {taken}; DRAFT-1 (you,", undoes);
-        Assert.Equal("Made 1 case(s): add DRAFT-2 + DRAFT-3.", kept);
-        Assert.Equal("InvalidField: true or false is required.", flag);
-        Assert.Equal($"Made 3 case(s): add DRAFT-1, add DRAFT-2, add DRAFT-3; replaced add DRAFT-1 + DRAFT-2 without {taken}, add DRAFT-1, add DRAFT-3, add DRAFT-2 + DRAFT-3.", typed);
+        Assert.Equal($"Wrote P1 on DRAFT-1, DRAFT-2 and {taken}; made 2 case(s): P1: add DRAFT-1 + DRAFT-2 without {taken}, add DRAFT-3.", made);
+        // undo names the command by the package it wrote, as the log does.
+        Assert.StartsWith($"Takes back: add each: package P1 on DRAFT-1, DRAFT-2 and {taken} (you,", undoes);
+        Assert.Equal($"Wrote P2 on DRAFT-2 (from P1); made 3 case(s): P1: add DRAFT-1 without {taken}, P2: add DRAFT-2, add DRAFT-3; "
+            + $"replaced P1: add DRAFT-1 + DRAFT-2 without {taken}, add DRAFT-3.", moved);
+        Assert.Equal($"Made 3 case(s): P1: add DRAFT-1 without {taken}, P2: add DRAFT-2, add DRAFT-3; replaced P1: add DRAFT-1 without {taken}, P2: add DRAFT-2, add DRAFT-3.", typed);
         Assert.StartsWith("Takes back: add each (you,", rig.Preview("undo").Would);
     }
 
@@ -424,7 +433,7 @@ public class PricerLineTests
         var none = rig.Preview("add each");
 
         Assert.Equal("CandidateInBefore: DRAFT-2 is in Before, and a new trade is priced alone only out of Before. Clear B on it, or A to leave it out, then add each again.", Read(inBefore));
-        Assert.Equal("NothingToAdd: add each makes a case per New row with A ticked, and no New row has A ticked.", Read(none));
+        Assert.Equal("NothingToAdd: add each makes a case per package and per New row with A ticked, and no trade is in a package and no New row has A ticked.", Read(none));
     }
 
     [Fact] // ADR-0016 note 28, ADR-0010 §8: cds reads its words against the catalogue as a trial, says the curve it would choose, and Enter chooses it
@@ -747,7 +756,7 @@ public class PricerLineTests
         var set = new Rig();
         await set.Run(set.Preview("add each"));
         await set.Run(set.Preview("set DRAFT-2 after off"));
-        Assert.Equal("AdditionSetChanged: add each's cases add DRAFT-1, DRAFT-2, DRAFT-3, and DRAFT-2 is in a case and no longer ticked. Run add each again to make the set anew.",
+        Assert.Equal("AdditionSetChanged: add each's cases are not what the Package column and A say. Out of date: add DRAFT-2. Run add each again to make the set anew.",
             Read(set.Preview("price")));
         Assert.Empty(rig.View.Runs.Concat(set.View.Runs));
     }

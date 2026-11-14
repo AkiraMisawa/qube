@@ -52,7 +52,10 @@ public sealed record EffectiveTrade(
     Ownership ImPOwner = Ownership.Source,
     // The trade's PV (ADR-0016 note 49): a figure of its legs in the display currency, set where rows are read for a
     // grid. Empty where the trade has no leg, and where the rows are read for a measure: none reads it.
-    decimal? Pv = null);
+    decimal? Pv = null,
+    // The package the trade is in (ADR-0016 note 90): the user's, and none until the user writes one. No measure reads
+    // it; add each makes its cases of it.
+    string? Package = null);
 
 /// <summary>
 /// A CSA of the agreement with its effective terms (ADR-0010 §8): the source's, or the user's where <c>Overridden</c>
@@ -100,6 +103,8 @@ public sealed class PortfolioEditRules(MeasureRegister? register = null) : IEdit
     public string KindOf(EditTarget target) => (Entity.Split(target.Entity).Kind, target.Field) switch
     {
         (Entity.Trade or Entity.Grid, "before" or "after") => "xva.membership",
+        // Which case of add each a trade is added or taken out in (ADR-0016 note 90): membership, as B and A are.
+        (Entity.Trade, PortfolioPackages.Field) => "xva.membership",
         (Entity.Trade, "csa" or "curve" or "imR" or "imP") => "xva.assignment",
         (Entity.Trade or Entity.Loaded, _) => "xva.trade",
         (Entity.Csa, _) => "xva.csa",
@@ -164,7 +169,9 @@ public sealed class PortfolioEditRules(MeasureRegister? register = null) : IEdit
         // The selection of measures, the settings and the scenarios are the workspace's, whichever counterparty it is on:
         // market data is no counterparty's (ADR-0010 §4's note of 2026-11-09).
         if (kind is Entity.Selection or Entity.Settings or PortfolioScenarios.ShiftKind or PortfolioScenarios.ScenariosKind) return new EditTarget(WorkspaceScope, entity, field);
-        var tradeContent = kind == Entity.Trade && field is not ("before" or "after" or "csa" or "curve" or "imR" or "imP");
+        // A package is the counterparty's as B and A are (ADR-0016 note 90): it says which case a trade is in, and the
+        // cases are the counterparty's.
+        var tradeContent = kind == Entity.Trade && field is not ("before" or "after" or "csa" or "curve" or "imR" or "imP" or PortfolioPackages.Field);
         // A leg and an independent amount are their trade's content (ADR-0016 note 49): a new trade's stay with it.
         var under = kind is Entity.Leg or Entity.Amount;
         var trade = under ? Entity.TradeOf(id) : id;
@@ -184,7 +191,7 @@ public sealed class PortfolioEditRules(MeasureRegister? register = null) : IEdit
 
 public static class PortfolioMaterialiser
 {
-    public static IReadOnlyList<string> EditableFields { get; } = ["notional", "fixedRate", "schedule", "csa", "curve", "imR", "imP", "before", "after"];
+    public static IReadOnlyList<string> EditableFields { get; } = ["notional", "fixedRate", "schedule", "csa", "curve", "imR", "imP", "before", "after", PortfolioPackages.Field];
 
     /// <summary>
     /// The CSA terms the user may set (ADR-0010 §8). Its type is the source's, and exchange and one-way follow who
@@ -475,6 +482,7 @@ public static class PortfolioMaterialiser
             [.. held[entity]],
             [.. EditableFields.Where(f => overrides.ContainsKey((entity, f)))],
             t.Start?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), t.Direction, t.CounterCurrency, t.CounterNotional,
-            ImR: imR, ImROwner: imROwner, ImP: imP, ImPOwner: imPOwner);
+            ImR: imR, ImROwner: imROwner, ImP: imP, ImPOwner: imPOwner,
+            Package: Has(PortfolioPackages.Field, out var package) ? package?.GetValue<string>() : null);
     }
 }

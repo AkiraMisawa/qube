@@ -119,6 +119,9 @@ public static partial class PortfolioFields
         // B and A are membership, and under no group.
         new("before", "Before", ["B", "before"], FieldForm.Flag, Editable: true),
         new("after", "After", ["A", "after"], FieldForm.Flag, Editable: true),
+        // The package add each adds a new trade in, or takes an existing one out of After in (ADR-0016 note 90):
+        // membership of a case, as B and A are of a side, and under no group either.
+        new(PortfolioPackages.Field, "Package", ["package", "pkg"], FieldForm.Id, Editable: true, Optional: true),
         .. register.TradeColumns.Where(c => c.Editable).Select(c => new TableField(c.Field, c.Title,
             [.. new[] { Words(c.Field[(c.Field.IndexOf('.') + 1)..]), Words(c.Title), Words(Unit().Replace(c.Title, "")) }.Distinct()], FieldForm.Number, Editable: true,
             UnitField: c.Type == "amount" ? "currency" : null, Group: Valuation)),
@@ -221,7 +224,7 @@ public static partial class PortfolioFields
     {
         "tradeId" => t.TradeId, "product" => t.Product, "currency" => t.Currency, "notional" => t.Notional, "maturity" => t.Maturity,
         "fixedRate" => t.FixedRate, "schedule" => t.Schedule, "lastFixing" => t.LastFixing, "officialPv" => t.OfficialPv, "csa" => t.Csa, "curve" => t.Curve,
-        "imR" => t.ImR, "imP" => t.ImP, "before" => t.Before, "after" => t.After,
+        "imR" => t.ImR, "imP" => t.ImP, "before" => t.Before, "after" => t.After, PortfolioPackages.Field => t.Package,
         _ => throw new InvalidOperationException($"A trade has no {field}."),
     };
 

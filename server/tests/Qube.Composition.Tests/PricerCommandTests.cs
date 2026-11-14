@@ -44,9 +44,9 @@ public class PricerCommandTests(QubeFactory factory) : IClassFixture<QubeFactory
         // A cell is named once: as the line names it, or by its entity and field as a page's dialog does (ADR-0016 note 28).
         Assert.Equal(["workspaceId", "revision", "cell", "entity", "field", "values"], Fields("xva_vary"));
         Assert.Equal(["workspaceId", "values"], Required("xva_vary"));
-        // The iterations are a list the tool takes as a typed value (ADR-0016 §3, note 37): the trades each case adds and takes out.
-        Assert.Equal(["workspaceId", "revision", "iterations", "keep"], Fields("xva_trades_add"));
-        Assert.Equal(["add", "without"], tools["xva_trades_add"].Parameters["properties"]!["request"]!["properties"]!["iterations"]!["items"]!["properties"]!.AsObject().Select(p => p.Key));
+        // A package to write first is a name and a list the tool takes as a typed value (ADR-0016 §3, note 90): the trades it is written on.
+        Assert.Equal(["workspaceId", "revision", "package", "trades"], Fields("xva_trades_add"));
+        Assert.Equal("string", tools["xva_trades_add"].Parameters["properties"]!["request"]!["properties"]!["trades"]!["items"]!["type"]!.GetValue<string>());
         // `set` is the kernel's, over the pricer's registered tables (ADR-0016 §3): no tool of the pricer's own.
         Assert.Equal(["workspaceId", "revision", "table", "rows", "set"], Fields("entity_set"));
         Assert.Equal(["workspaceId", "set"], Required("entity_set"));

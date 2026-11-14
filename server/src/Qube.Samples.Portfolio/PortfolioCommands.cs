@@ -77,7 +77,8 @@ public static partial class PortfolioCommandContracts
 
     /// <summary>What add each says back, in the command line's words.</summary>
     public static string Added(AddAnswer answer) =>
-        string.Join("; ", new[] { $"Made {answer.Made.Count} case(s): {string.Join(", ", answer.Made)}" }
+        string.Join("; ", (answer.Wrote is null ? [] : new[] { $"Wrote {answer.Wrote}" })
+            .Append($"{(answer.Wrote is null ? "Made" : "made")} {answer.Made.Count} case(s): {string.Join(", ", answer.Made)}")
             .Concat(answer.Replaced.Count == 0 ? [] : [$"replaced {string.Join(", ", answer.Replaced)}"])) + ".";
 }
 
@@ -135,17 +136,16 @@ public sealed class PortfolioVary(Func<PortfolioWorkspaces> workspaces, MeasureR
 }
 
 /// <summary>
-/// <c>xva.trades.add</c>, typed <c>add each</c> (ADR-0016 §3, note 28): a case per New row with A ticked, each that
-/// trade alone (docs/03 §5). Its reading is a trial: the cases it would make, and those it would replace. Its request
-/// may give the iterations as a list (note 37), each the new trades a case adds together and the existing trades it
-/// takes out of After; the line has no spelling of that list yet, so the line is the command with none. With
-/// <c>keep</c> the iterations given are made beside the set made before (note 37, corrected in review): what a page
-/// that adds one case asks for.
+/// <c>xva.trades.add</c>, typed <c>add each</c> (ADR-0016 §3, notes 28 and 90): a case per package the trades' Package
+/// cells write, and per New row with A ticked in none, that trade alone (docs/03 §5). Its reading is a trial: the cases
+/// it would make, and those it would replace. Its request may give a package to write first (note 90), its name and
+/// its trades, new and existing: what *Make package…* asks for. The line has no spelling of that (note 68): it writes
+/// a package with <c>set &lt;trades&gt; package &lt;name&gt;</c>, then <c>add each</c>.
 /// </summary>
 public sealed class PortfolioTradesAdd(Func<PortfolioWorkspaces> workspaces) : ICapabilityHandler, ILineCommand
 {
     public CapabilityDescriptor Descriptor { get; } = new("xva.trades.add", PortfolioContracts.Version,
-        "Price each new trade alone, a case per New row with A ticked; or the iterations given, each the new trades a case adds together and the existing trades it takes out of After",
+        "Make the cases of iterative addition from the Package column: a case per package, adding its new trades together and taking its existing trades out of After, and a case per New row with A ticked in no package; optionally write a package on trades first",
         [new("request", PortfolioCommandContracts.TradesAddRequest, PortfolioContracts.Version, Cardinality.One)],
         [new("answer", PortfolioCommandContracts.CasesMade, PortfolioContracts.Version, Cardinality.One)],
         ExecutionKind.RequestResponse, [CapabilityEffect.EditWorkspace],
@@ -164,21 +164,19 @@ public sealed class PortfolioTradesAdd(Func<PortfolioWorkspaces> workspaces) : I
     public Task<IReadOnlyDictionary<string, JsonNode?>> InvokeAsync(CapabilityInvocation invocation, CancellationToken cancellationToken) =>
         PortfolioCommand.Run(invocation, workspaces, (service, request, caller, revision) =>
         {
-            // Left out, keep is not asked for: the contract's own reading of the field (note 37, corrected in review).
-            var keep = request["keep"] is { } asked && asked.GetValue<bool>();
-            var answer = service.AddTrades(CommandRequests.Text(request, "workspaceId"), revision, caller.UserId, Iterations(request), keep, caller.Origin);
+            var answer = service.AddTrades(CommandRequests.Text(request, "workspaceId"), revision, caller.UserId, Package(request), caller.Origin);
             return (answer.State, answer.Made.Count, PortfolioCommandContracts.Added(answer));
         });
 
-    // The iterations a request gives, as its contract shapes them: `add` in each, and `without` where it takes a trade
-    // out. The contract was checked before the command ran, so a list that is none here is a defect, never an
-    // iteration of no trade.
-    static IReadOnlyList<Iteration> Iterations(JsonNode request)
+    // The package a request gives, as its contract shapes it: trades to write it on, and the name where one is given. A
+    // name with no trades writes nothing, and is refused rather than passed over. The contract was checked before the
+    // command ran, so trades that are no list here is a defect.
+    static PackageGiven? Package(JsonNode request)
     {
-        static IReadOnlyList<string> Ids(JsonNode iteration, string list) => Iteration.Ids(iteration[list])
-            ?? throw new InvalidOperationException($"An iteration's {list} passed its contract and is no list.");
-        return request["iterations"] is JsonArray given
-            ? [.. given.Select(i => new Iteration(Ids(i!, "add"), i!["without"] is null ? [] : Ids(i, "without")))] : [];
+        var name = request["package"]?.GetValue<string>();
+        if (request["trades"] is null)
+            return name is null ? null : throw new WorkspaceRefused("NothingGiven", $"A package takes one trade at least, and none is given for {name}.");
+        return new(name, Iteration.Ids(request["trades"]) ?? throw new InvalidOperationException("trades passed its contract and is no list."));
     }
 }
 
@@ -506,35 +504,16 @@ public sealed class PortfolioCommandsModule(Func<PortfolioWorkspaces> workspaces
         {
             ["type"] = "array", ["title"] = title, ["description"] = description, ["items"] = new JsonObject { ["type"] = "string", ["minLength"] = 1 },
         };
-        var adds = Ids("Adds", "The ids of the New rows the case adds together, each with A ticked and B clear: DRAFT-1, DRAFT-2.");
-        adds["minItems"] = 1;
-        Request(PortfolioCommandContracts.TradesAddRequest, "Price each new trade alone", new JsonObject
+        var trades = Ids("Trades", "The ids of the trades to write the package on, new and existing, before the cases are made: DRAFT-1, DRAFT-2, E00003. "
+            + "A new trade is then added in the package's case, and needs A ticked and B clear; an existing one is taken out of After in it, and needs A ticked. A trade in another package moves to this one.");
+        trades["minItems"] = 1;
+        Request(PortfolioCommandContracts.TradesAddRequest, "Make the cases of iterative addition", new JsonObject
         {
             ["workspaceId"] = PortfolioCommand.WorkspaceField(),
             ["revision"] = CommandRequests.RevisionField(),
-            ["iterations"] = new JsonObject
-            {
-                ["type"] = "array", ["title"] = "Iterations",
-                ["description"] = "The whole set of cases, where it is not one new trade alone each: every case to make, each the new trades it adds together and the existing trades it takes out of After. "
-                    + "A New row with A ticked that none names is one more case alone. The set made before is replaced, unless keep is true. Left out: a case per New row with A ticked.",
-                ["items"] = new JsonObject
-                {
-                    ["type"] = "object",
-                    ["properties"] = new JsonObject
-                    {
-                        ["add"] = adds,
-                        ["without"] = Ids("Takes out", "The ids of the existing trades the case takes out of After, each in After in the Base: E00003. They stay in Before."),
-                    },
-                    ["required"] = new JsonArray("add"),
-                    ["additionalProperties"] = false,
-                },
-            },
-            ["keep"] = new JsonObject
-            {
-                ["type"] = "boolean", ["title"] = "Keep the cases made",
-                ["description"] = "true to make the iterations given beside the cases of add each made before, which stay as they are; one made already is refused. "
-                    + "It needs an iteration. Left out or false: the iterations given are the whole set, and the set made before is replaced.",
-            },
+            ["package"] = Text("Package", "The package to write on trades first, a name with no comma such as P1. Left out with trades given: the next free name, P1, P2 and so on. "
+                + "It writes the same as set <trades> package <name>. Left out with no trades: nothing is written, and the cases are made from the Package column as it is."),
+            ["trades"] = trades,
         }, "workspaceId");
         Request(PortfolioCommandContracts.TradesLoadRequest, "Load booked trades", new JsonObject
         {
