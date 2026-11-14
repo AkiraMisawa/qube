@@ -3871,8 +3871,11 @@ By hand, in the built client served by the host: the trade grids with the Packag
 the Changes tab and a priced Run's cases, at 1440px in both themes, and the dialog at 390px light; then an existing
 trade in After alone in a package, made and priced, in both themes.
 
-Reviewed with the `code-review` skill twice, on two axes (standards, and notes 90 to 94 as the specification). What
-they changed: the next free name is the server's (`nextPackage`), tested whatever the case of its letters; a name
+Reviewed with the `code-review` skill after each round, on two axes (standards, and notes 90 to 94 as the
+specification). The rounds after the combinations table made P1's title leave out the common change its case does not
+carry, labelled that rule DEFAULT beside the owner's CONFIRMED choice, took out the wording that still called the
+combination refused, and made the test read all fourteen rows, with a case of `vary` beside them. The first two
+changed: the next free name is the server's (`nextPackage`), tested whatever the case of its letters; a name
 given with no trades is refused in one place; Price's refusal where the cells now make no case says to remove the
 cases (`case remove`, or Changes), since `add each` again would refuse; tests were added for the cap, a case stored
 before packages, `reset all package`, a moved trade's log entry and a package made with a trade left out; and notes
