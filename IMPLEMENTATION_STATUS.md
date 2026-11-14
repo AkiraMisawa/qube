@@ -3620,7 +3620,7 @@ file.
 | `npx playwright test` (Chromium, headless, Linux), after `theme.css`'s override was removed | 148 passed |
 | Contrast in Chromium at 1280 × 800, the Rates Lines' marked heading (the Focus on Start), without the override | One token draws the line and the corner's triangle. light: the line 4.33:1 on the marked heading's shade and 5.25:1 on the body, the Focus outline 5.25:1 (2.70:1 on 0.2.0); dark: the line 5.90:1 and 8.69:1 |
 | Seen in Chromium, both schemes | The Rates line's `Flows` button in the theme's colours; the Pricing DB's column menu, every command disabled on an empty grid, dimmed |
-| Seen in Chromium, dark scheme | Existing trades' column menu, whose only filter command is `Clear filter`; its Ccy header, filtered by `filter where ccy=USD`, with no funnel |
+| Seen in Chromium, dark scheme | Existing trades' column menu, whose only filter command is `Clear filter`; the grid filtered by `filter where ccy=USD`, its Ccy header with no funnel |
 
 `dotnet test` was not run for this change: nothing under `server/` moved.
 
@@ -3628,6 +3628,8 @@ file.
 
 - `select` still refuses rows that are not one run (ADR-0016 note 43, asked of ExGrid as #561). 0.3.0 can place a
   Selection of several ranges; taking it up changes note 43 and is left until the owner asks.
+- A page's grid still keeps a Selection of one range only (ADR-0006 note 10), though 0.3.0 can place several; keeping
+  several is left until the owner asks, as `select`'s several runs are.
 
 ## Next
 
