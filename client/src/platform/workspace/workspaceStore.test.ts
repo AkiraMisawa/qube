@@ -260,8 +260,8 @@ describe('workspace store', () => {
     expect(readName('A', '📈'.repeat(NAME_LONGEST))).toEqual({ name: '📈'.repeat(NAME_LONGEST) });
   });
 
-  // ADR-0016 note 69: the XVA page moved to another counterparty is titled by it; a name the user gave stays.
-  it('ADR-0016 note 69: retitles a panel, numbered among its new title, and keeps a name the user gave', () => {
+  // ADR-0016 note 100: the XVA page moved to another counterparty is titled by it; a name the user gave stays.
+  it('ADR-0016 note 100: retitles a panel, numbered among its new title, and keeps a name the user gave', () => {
     const store = createWorkspaceStore(valid, contextContract);
     const open = (title: string) => store.getState().openPanel({ kind: 'app', title, app: 'xva', params: { workspaceId: crypto.randomUUID() } });
     const [dummy, , named] = [open('XVA DUMMY/LE-00'), open('XVA ABC/LE-02'), open('XVA DUMMY/LE-00')];

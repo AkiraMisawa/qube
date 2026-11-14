@@ -21,7 +21,7 @@ const catalog = {
     capability('entity.set', { words: ['set'], arguments: [{ name: 'rows', kind: 'rows', required: false }, { name: 'set', kind: 'assignments', required: true }] }),
     capability('workspace.undo', { words: ['undo'], arguments: [] }),
     capability('gauge.read'),
-    // A command no line names that drops edits, as leaving a counterparty does (ADR-0016 note 69).
+    // A command no line names that drops edits, as leaving a counterparty does (ADR-0016 note 100).
     { ...capability('board.leave'), effects: ['editWorkspace', 'dropEdits'] },
   ],
   viewVerbs: [] as readonly ViewVerbDescriptor[],
@@ -341,7 +341,7 @@ describe('Enter on a line the server reads, through its page\'s door (ADR-0016 Â
     expect(p.command).toHaveBeenCalledWith('entity.set', '1.0.0', reading(7).inputs, expect.any(String));
   });
 
-  it('ADR-0016 note 69: a command that drops edits runs only a reading the line showed; with Enter pressed before one arrived, nothing runs', async () => {
+  it('ADR-0016 note 100: a command that drops edits runs only a reading the line showed; with Enter pressed before one arrived, nothing runs', async () => {
     const leave = (revision: number): LinePreview => ({
       revision, command: { id: 'board.leave', version: '1.0.0' }, inputs: { request: { workspaceId: 'ws-1', revision, board: 'B2', drops: 1 } },
       would: 'Moves to B2, and drops 1 edit made for B1: R1 checked.', complete: [], more: 0,
@@ -671,7 +671,7 @@ describe('Enter on a line the server reads, through its page\'s door (ADR-0016 Â
     expect(await p.door.invoke('workspace.undo', (revision) => ({ made: `of ${revision}` }))).toBeUndefined();
     expect(p.command).toHaveBeenCalledWith('workspace.undo', '1.0.0', { request: { made: 'of 9', workspaceId: 'ws-1', revision: 9 } }, expect.any(String));
 
-    // One made against a revision it names is sent at that one, which a workspace moved since refuses (ADR-0016 note 69).
+    // One made against a revision it names is sent at that one, which a workspace moved since refuses (ADR-0016 note 100).
     p.command.mockClear();
     expect(await p.door.invoke('workspace.undo', { made: 'of 5', revision: 5 })).toBeUndefined();
     expect(p.command).toHaveBeenCalledWith('workspace.undo', '1.0.0', { request: { made: 'of 5', revision: 5, workspaceId: 'ws-1' } }, expect.any(String));

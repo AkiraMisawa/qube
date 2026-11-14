@@ -67,7 +67,7 @@ public class XvaApiTests(QubeFactory factory) : IClassFixture<QubeFactory>
         Assert.Equal("RevisionMoved", (await stale.Content.ReadFromJsonAsync<JsonObject>())!["code"]!.GetValue<string>());
     }
 
-    [Fact] // ADR-0003 §6, ADR-0016 note 69: changing counterparty drops the confirmed edits and keeps a new trade's own content
+    [Fact] // ADR-0003 §6, ADR-0016 note 100: changing counterparty drops the confirmed edits and keeps a new trade's own content
     public async Task A_counterparty_change_needs_the_confirmed_count_and_keeps_draft_content()
     {
         var ws = await Create();
@@ -76,9 +76,9 @@ public class XvaApiTests(QubeFactory factory) : IClassFixture<QubeFactory>
         var preview = (await client.GetFromJsonAsync<JsonObject>($"/api/xva/workspaces/{Id(ws)}/counterparty-change"))!;
         Assert.Equal(1, preview["count"]!.GetValue<int>());
         Assert.Equal(1, preview["byKind"]!["xva.assignment"]!.GetValue<int>());
-        // Counted at the revision the toolbar's change is then asked at (ADR-0016 note 69).
+        // Counted at the revision the toolbar's change is then asked at (ADR-0016 note 100).
         Assert.Equal(Revision(ws), preview["revision"]!.GetValue<long>());
-        // The toolbar invokes the command the line types (ADR-0016 note 69): the plain endpoint is gone, and the path
+        // The toolbar invokes the command the line types (ADR-0016 note 100): the plain endpoint is gone, and the path
         // answers only the reading of what a change drops.
         Assert.Equal(HttpStatusCode.MethodNotAllowed, (await Post(ws, "counterparty", new { revision = Revision(ws), registration = "ABC/LE-02", confirmedCount = 1 })).StatusCode);
         Task<HttpResponseMessage> Change(int drops) => client.PostAsJsonAsync("/api/commands/xva.counterparty.change/1.0.0", new
@@ -101,7 +101,7 @@ public class XvaApiTests(QubeFactory factory) : IClassFixture<QubeFactory>
         Assert.Equal((7_000_000m, "CSA-C"), (draft["notional"]!.GetValue<decimal>(), draft["csa"]!.GetValue<string>()));
     }
 
-    [Fact] // ADR-0010 §1, ADR-0016 note 69: the counterparties a workspace is made on say which is the dummy, which a new workspace takes where none is chosen
+    [Fact] // ADR-0010 §1, ADR-0016 note 100: the counterparties a workspace is made on say which is the dummy, which a new workspace takes where none is chosen
     public async Task The_registrations_say_which_is_the_dummy()
     {
         var registrations = (await client.GetFromJsonAsync<JsonArray>("/api/xva/registrations"))!;

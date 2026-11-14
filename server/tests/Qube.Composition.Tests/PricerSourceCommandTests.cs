@@ -5,7 +5,7 @@ using Qube.Samples.Portfolio;
 
 namespace Qube.Composition.Tests;
 
-// ADR-0016 note 69, ADR-0003 §6, ADR-0010 §1: the value date and the counterparty on the line, `value date` and
+// ADR-0016 note 100, ADR-0003 §6, ADR-0010 §1: the value date and the counterparty on the line, `value date` and
 // `counterparty` (`cpty`), with the toolbar's semantics; and the dummy counterparty a workspace takes where none is
 // chosen. Every name and figure is synthetic.
 public class PricerSourceCommandTests
@@ -23,7 +23,7 @@ public class PricerSourceCommandTests
             : new JsonObject { ["refused"] = string.Join(" ", ((CommandResult.Refused)result).Issues.Select(i => $"{i.Code}: {i.Message}")) };
     }
 
-    [Fact] // ADR-0016 note 69: value date is read without being tried, says the dates it moves between, and Enter moves the source and says what carried
+    [Fact] // ADR-0016 note 100: value date is read without being tried, says the dates it moves between, and Enter moves the source and says what carried
     public async Task Value_date_is_read_without_being_tried_and_enter_moves_the_source()
     {
         var rig = new PricerRig();
@@ -46,7 +46,7 @@ public class PricerSourceCommandTests
         Assert.Equal("value date 2026-10-31", rig.State.Log[^1].Command!.Said);
     }
 
-    [Fact] // ADR-0016 note 69, spine 1: a value date that is none, or is the workspace's, is refused by name before Enter, and by the command
+    [Fact] // ADR-0016 note 100, spine 1: a value date that is none, or is the workspace's, is refused by name before Enter, and by the command
     public async Task A_value_date_that_is_none_or_the_workspaces_is_refused()
     {
         var rig = new PricerRig();
@@ -62,7 +62,7 @@ public class PricerSourceCommandTests
         Assert.Equal(before, rig.State.Revision);
     }
 
-    [Fact] // ADR-0016 note 69, ADR-0003 §6: counterparty and cpty are one command; its reading names what it drops, and Enter drops it and keeps a new trade's own edit
+    [Fact] // ADR-0016 note 100, ADR-0003 §6: counterparty and cpty are one command; its reading names what it drops, and Enter drops it and keeps a new trade's own edit
     public async Task Counterparty_says_what_it_drops_before_enter_and_keeps_a_new_trades_own_edit()
     {
         var rig = new PricerRig();
@@ -106,7 +106,7 @@ public class PricerSourceCommandTests
         Assert.Equal((1, 1), (moved["dropped"]!.GetValue<int>(), rig.State.Log.Count(e => e.Kind == EditKind.DropScope)));
     }
 
-    [Fact] // ADR-0003 §6, ADR-0016 note 69: the AI is shown no dialog, so it moves a workspace only where nothing drops
+    [Fact] // ADR-0003 §6, ADR-0016 note 100: the AI is shown no dialog, so it moves a workspace only where nothing drops
     public async Task The_ai_drops_no_edit_by_changing_counterparty()
     {
         var rig = new PricerRig();
@@ -127,7 +127,7 @@ public class PricerSourceCommandTests
         Assert.Equal(RunOrigin.Ai, rig.State.Log[^1].Origin);
     }
 
-    [Fact] // ADR-0016 note 69, CLAUDE.md: a counterparty is its code and its legal entity; a code alone, a key none has, and the workspace's own are refused by name
+    [Fact] // ADR-0016 note 100, CLAUDE.md: a counterparty is its code and its legal entity; a code alone, a key none has, and the workspace's own are refused by name
     public void A_counterparty_is_named_by_its_code_and_legal_entity()
     {
         var rig = new PricerRig();
@@ -143,7 +143,7 @@ public class PricerSourceCommandTests
         Assert.Equal(["ABC/LE-01", "ABC/LE-02"], refused.Candidates);
     }
 
-    [Fact] // ADR-0016 note 69: the line offers the counterparties by their key, their code or a word of their name, never the one the workspace is on
+    [Fact] // ADR-0016 note 100: the line offers the counterparties by their key, their code or a word of their name, never the one the workspace is on
     public void The_line_offers_the_other_counterparties()
     {
         var rig = new PricerRig();
@@ -158,7 +158,7 @@ public class PricerSourceCommandTests
         Assert.Equal("cpty ".Length, rig.Preview("cpty ab").Complete.Single().Start);
     }
 
-    [Fact] // ADR-0016 notes 61 and 69: a sequence may move the value date, and holds no counterparty change, since it would drop edits no reading showed
+    [Fact] // ADR-0016 notes 61 and 100: a sequence may move the value date, and holds no counterparty change, since it would drop edits no reading showed
     public async Task A_sequence_holds_a_value_date_and_no_counterparty_change()
     {
         var rig = new PricerRig();

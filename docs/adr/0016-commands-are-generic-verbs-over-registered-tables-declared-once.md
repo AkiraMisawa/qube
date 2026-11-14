@@ -2693,6 +2693,54 @@ later answer, is written when he answers.
     §3 left open how a line would spell the trades an iteration adds together and the ones it takes out. His
     answer: as it is now. The lists are made from the grids' selections in the page (note 37) and by the AI
     through the typed value, and `add each` on the line takes none. A spelling is designed when one is asked for.
+69. **The analytics request carries the official PV by leg (owner, 2026-11-14; answers which PV the analytics
+    reads).** This is one of the answers the lines above note 66 leave to be written when he gives them. The
+    accepted input carries a trade's `officialPv` and its legs (note 53), and the summary of decisions asked which
+    of the two the analytics' request reads. His answer is the request's own file: it holds
+    `/deals/official_pv.csv`, `id,ccy,pv,notional`, a row for each leg, whose id is `{trade id}_{leg id}` with the
+    leg id an integer from 0. That is all he said. What follows is this note's reading of it, for him to confirm.
+    - **The writer.** `XvaRequestFiles.OfficialPv` writes the file from a case of the accepted input for one of its
+      sides: Before and After are requests of their own (CLAUDE.md), so it writes the trades the side holds and no
+      other, and a case that holds a trade twice is refused. Nothing calls it yet but its tests: no engine is
+      written to. It is the XVA sample's and not the kernel's, because the file is the analytics' format.
+      `docs/08-provider-boundaries.md` §7 gives the request's files to the company's adapter, and no such project
+      exists yet: the writer moves there when one does (DEFAULT).
+    - **DEFAULT, each for the owner to confirm.**
+      - *The file's legs are the workspace's.* A row is a leg the trade holds at Price (notes 49 and 53), so a PV
+        overwritten in the workspace reaches the analytics as the one leg it leaves. `officialPv` stays on the
+        trade's row as the source's figure, which the simulated measures still read (note 53).
+      - *A leg's id* is its place under its trade at Price, from 0, in the order the trade holds its legs: the
+        source's first, then the ones made. An untouched trade's legs so keep the source's order. The one leg an
+        overwritten PV leaves is leg 0, where its key in the workspace is the next number after the source's
+        (note 49). Where a source's leg was removed, the ones left close up: with `<trade>/1` removed,
+        `<trade>/2` is leg 0. If the analytics reads a leg's id as which leg of the trade it is, that is wrong,
+        and it is his to say.
+      - *The workspace's keys* stay as they are, `<trade>/<n>` from 1.
+      - *`ccy`* is the leg's currency, and `pv` and `notional` are in it, written as the input holds them: no
+        grouping, no exponent, the decimals the input holds.
+      - *A leg with no notional* leaves that field empty: nothing stands in for it (CLAUDE.md, no fallback).
+        Such are the leg an overwritten PV leaves, a leg made without a notional, and a source's leg whose
+        notional was cleared.
+      - *A trade with no leg* has no row, such as a new trade nobody gave a PV. A side none of whose trades holds
+        a leg so gets the header alone. Price prices no side without a trade (ADR-0010 §3), so no request is
+        made for one.
+      - *The text.* A line ends in a line feed, the last one too. A trade's id is written as it is, an
+        underscore of its own included.
+      - *What is refused, not written*, each with the trade or the leg it is said of where the input names one,
+        a leg by its id in the file, which is its place: a row that a comma, a quote or a line break would
+        break; a case, a trade of the side or a leg without a field the file is written from; such a field of
+        another form, a currency or a trade id that is empty or spaces alone among them; and a trade the case
+        holds twice.
+    - **OPEN, asked of the owner.**
+      - *The file's name.* `docs/08-provider-boundaries.md` §7 names the table a trade's PV is carried in as
+        `/deals/trade_official_pv_table.csv` (owner, 2026-10-27), its layout not specified then. Whether that
+        and `/deals/official_pv.csv` are one file is not known. Nothing is written under the older name.
+      - *A new trade's PV Adj.* `docs/03-xva-domain.md` §2.5 says the official-PV table is the engine's intake
+        for the PV an adjustment aligns to, and the simulated engine takes a new trade's PV Adj as its PV. A new
+        trade with a PV Adj and no leg has no row here. Whether its PV Adj goes in as a leg is his to say.
+      - *Cases and scenarios.* Each case has its Before and its After, so the writer is given a case as it is
+        given the base. The input holds a leg's PV on the base market only: what a scenario's request carries
+        for the PV is settled when the engine is connected.
 
 ### Note of 2026-11-14: the value date and the counterparty are commands
 
@@ -2701,49 +2749,49 @@ as a second spelling, and for a workspace opened with no counterparty chosen to 
 of the same day). Until then both were changed from the toolbar alone, through endpoints of the page's own, so neither
 the line nor the AI could change them.
 
-69. **`value date <date>` and `counterparty <code/entity>` (`cpty`) are command capabilities (owner, 2026-11-14; their
-    forms DEFAULT).** `xva.value-date.change` and `xva.counterparty.change` take what the toolbar took, and the
-    toolbar invokes them through the door (§5), so the line, the toolbar and the AI cannot differ.
-    - **The line says what each would do before Enter.** `value date 2026-10-27` names the date it moves from and
-      to: `Moves the value date from 2026-10-26 to 2026-10-27: reads ABC/LE-01 as of it, and carries your edits onto
-      what it reads.` A date not written `yyyy-MM-dd`, more than one word, or the date the workspace is on already
-      is refused; the last says `refresh reads it again`, since reading the same date again is `refresh`'s (note 33).
-      `cpty XYZ/LE-03` names where it moves the workspace and what it drops, by row and field, which the toolbar's
-      dialog lists by kind (ADR-0003 §6): `Moves the workspace to XYZ/LE-03 (XYZ Industries (synthetic)) as of
-      2026-10-26, and drops 1 edit made for ABC/LE-01: DRAFT-1 csa. They stay in the log and in any Run that priced
-      them.` A counterparty is its code and its legal entity: a code alone is refused with the entities it could
-      mean, an unknown one with the list, and the one the workspace is on says so. Tab offers the others, by key or
-      by a word of the name; the dummy's says that nothing is booked with it.
-    - **What it drops is what the user was shown (ADR-0003 §6, spine 6).** The reading puts the count in the request
-      (`drops`) beside the revision it was read at, so a workspace moved since refuses the line (§5), and a count that
-      is not the workspace's is refused (`ConfirmationStale`). The toolbar reads what would drop in the edit queue's
-      turn, after the edits already sent, and asks the change at the revision that was counted at, with the count its
-      dialog showed, or 0 without a dialog where nothing drops. The door sends a request that names the revision it was
-      made against at that revision, where it otherwise stamps the turn's (amends note 37).
-    - **A new effect, `dropEdits`**, stands beside `editWorkspace` on the counterparty's command: a command that
-      discards edits the user made. Three things follow from it, each because the user would otherwise not see the
-      count before it drops:
-      - Enter runs such a command only from a reading the line shows. Pressed before the reading arrived, it runs
-        nothing, and the line stays to show it: `This command drops edits, so Enter runs it only once the line shows
-        what it drops: read it, then press Enter again.` What Enter does is what the screen showed when it was
-        pressed, so the outcome is that of the gesture, never of how fast the server read.
-      - A saved sequence (note 61) refuses a line of it (`… drops the edits its reading counts, and a sequence runs a
-        line without showing its reading`). `value date` carries the edits, and a sequence holds it as it holds
-        `refresh`.
-      - The AI is offered the command but is shown no dialog: it moves a workspace only where nothing drops, and is
-        refused otherwise (`UserConfirms: Moving to ABC/LE-02 drops 1 edit, which the user confirms: they move the
-        counterparty themselves, from the toolbar or the line.`). A count it gives that is not the workspace's is
-        refused as anyone's is, so it cannot drop an edit by saying 0.
-    - **The answer is the server's sentence**, as `refresh`'s is: `Value date moved to 2026-10-27: 0 edit(s)
-      carried, 0 in conflict, 0 lost.` and `Counterparty changed to XYZ/LE-03: 1 edit(s) dropped; 0 carried, 0 in
-      conflict, 0 lost.` It stays while an edit is held. The log names each by its words (`value date 2026-10-27`,
-      `counterparty XYZ/LE-03`). `undo` takes back neither (§11): the first read another source version, and the
-      second left a scope with its edits.
-    - **The page's endpoints that wrote them are gone** (`POST …/value-date`, `POST …/counterparty`). The toolbar
-      still reads what a change of counterparty would drop (`GET …/counterparty-change`, which now says the revision
-      it counted at) for its dialog. The panel is
-      titled by the counterparty it shows (`XVA XYZ/LE-03`), so a move by the line or the AI retitles it; a name the
-      user gave the panel stays (ADR-0006 note 9).
+100. **`value date <date>` and `counterparty <code/entity>` (`cpty`) are command capabilities (owner, 2026-11-14; their
+     forms DEFAULT).** `xva.value-date.change` and `xva.counterparty.change` take what the toolbar took, and the
+     toolbar invokes them through the door (§5), so the line, the toolbar and the AI cannot differ.
+     - **The line says what each would do before Enter.** `value date 2026-10-27` names the date it moves from and
+       to: `Moves the value date from 2026-10-26 to 2026-10-27: reads ABC/LE-01 as of it, and carries your edits onto
+       what it reads.` A date not written `yyyy-MM-dd`, more than one word, or the date the workspace is on already
+       is refused; the last says `refresh reads it again`, since reading the same date again is `refresh`'s (note 33).
+       `cpty XYZ/LE-03` names where it moves the workspace and what it drops, by row and field, which the toolbar's
+       dialog lists by kind (ADR-0003 §6): `Moves the workspace to XYZ/LE-03 (XYZ Industries (synthetic)) as of
+       2026-10-26, and drops 1 edit made for ABC/LE-01: DRAFT-1 csa. They stay in the log and in any Run that priced
+       them.` A counterparty is its code and its legal entity: a code alone is refused with the entities it could
+       mean, an unknown one with the list, and the one the workspace is on says so. Tab offers the others, by key or
+       by a word of the name; the dummy's says that nothing is booked with it.
+     - **What it drops is what the user was shown (ADR-0003 §6, spine 6).** The reading puts the count in the request
+       (`drops`) beside the revision it was read at, so a workspace moved since refuses the line (§5), and a count that
+       is not the workspace's is refused (`ConfirmationStale`). The toolbar reads what would drop in the edit queue's
+       turn, after the edits already sent, and asks the change at the revision that was counted at, with the count its
+       dialog showed, or 0 without a dialog where nothing drops. The door sends a request that names the revision it was
+       made against at that revision, where it otherwise stamps the turn's (amends note 37).
+     - **A new effect, `dropEdits`**, stands beside `editWorkspace` on the counterparty's command: a command that
+       discards edits the user made. Three things follow from it, each because the user would otherwise not see the
+       count before it drops:
+       - Enter runs such a command only from a reading the line shows. Pressed before the reading arrived, it runs
+         nothing, and the line stays to show it: `This command drops edits, so Enter runs it only once the line shows
+         what it drops: read it, then press Enter again.` What Enter does is what the screen showed when it was
+         pressed, so the outcome is that of the gesture, never of how fast the server read.
+       - A saved sequence (note 61) refuses a line of it (`… drops the edits its reading counts, and a sequence runs a
+         line without showing its reading`). `value date` carries the edits, and a sequence holds it as it holds
+         `refresh`.
+       - The AI is offered the command but is shown no dialog: it moves a workspace only where nothing drops, and is
+         refused otherwise (`UserConfirms: Moving to ABC/LE-02 drops 1 edit, which the user confirms: they move the
+         counterparty themselves, from the toolbar or the line.`). A count it gives that is not the workspace's is
+         refused as anyone's is, so it cannot drop an edit by saying 0.
+     - **The answer is the server's sentence**, as `refresh`'s is: `Value date moved to 2026-10-27: 0 edit(s)
+       carried, 0 in conflict, 0 lost.` and `Counterparty changed to XYZ/LE-03: 1 edit(s) dropped; 0 carried, 0 in
+       conflict, 0 lost.` It stays while an edit is held. The log names each by its words (`value date 2026-10-27`,
+       `counterparty XYZ/LE-03`). `undo` takes back neither (§11): the first read another source version, and the
+       second left a scope with its edits.
+     - **The page's endpoints that wrote them are gone** (`POST …/value-date`, `POST …/counterparty`). The toolbar
+       still reads what a change of counterparty would drop (`GET …/counterparty-change`, which now says the revision
+       it counted at) for its dialog. The panel is
+       titled by the counterparty it shows (`XVA XYZ/LE-03`), so a move by the line or the AI retitles it; a name the
+       user gave the panel stays (ADR-0006 note 9).
 
 ## Rejected
 

@@ -104,7 +104,7 @@ test('ADR-0003 §6: a counterparty change asks before dropping its edits, and ke
   await expect(confirm).toContainText('xva.assignment');
   await confirm.getByRole('button', { name: 'Drop 1 and change' }).click();
 
-  // The toolbar invokes `counterparty` (ADR-0016 note 69): the notice is the server's sentence, and the panel is titled
+  // The toolbar invokes `counterparty` (ADR-0016 note 100): the notice is the server's sentence, and the panel is titled
   // by the counterparty it is now on.
   await expect(page.getByTestId('notice')).toHaveText('Counterparty changed to ABC/LE-02: 1 edit(s) dropped; 1 carried, 0 in conflict, 0 lost.');
   await expect(page.getByRole('tab', { name: 'XVA ABC/LE-02' })).toHaveAttribute('aria-selected', 'true');
@@ -113,7 +113,7 @@ test('ADR-0003 §6: a counterparty change asks before dropping its edits, and ke
   await expect(trade(page, 'DRAFT-1').getByRole('gridcell').nth(CSA)).toHaveText('CSA-C');
 });
 
-test('ADR-0010 §1, ADR-0016 note 69: a workspace opened with no counterparty chosen is on the dummy, and `cpty` and `value date` move it, saying first what they drop', async ({ page }) => {
+test('ADR-0010 §1, ADR-0016 note 100: a workspace opened with no counterparty chosen is on the dummy, and `cpty` and `value date` move it, saying first what they drop', async ({ page }) => {
   await open(page);
   await command(page, 'new xva');
   const dialog = page.getByRole('dialog', { name: 'New XVA workspace' });

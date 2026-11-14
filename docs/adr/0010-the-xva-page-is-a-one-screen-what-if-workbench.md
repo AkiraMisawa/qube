@@ -84,7 +84,7 @@ quiet:
   field is never filled in for the user: a list that arrived as they typed would write over what they typed.
 - **How it is seen.** The context bar shows a `Dummy` badge beside the counterparty while the workspace is on it, on
   every width, with what that means in its title, and the panel is titled `XVA DUMMY/LE-00`. `cpty <code/entity>` or
-  the toolbar moves it to a booked counterparty (ADR-0016 note 69), dropping what was made for the dummy as any
+  the toolbar moves it to a booked counterparty (ADR-0016 note 100), dropping what was made for the dummy as any
   counterparty change does (ADR-0003 §6).
 - **Not built yet: the Project name.** This section's first line gives a dummy counterparty "a required Project name
   beside it". Nothing holds one yet: the kernel has no free-text field to edit, and Price does not ask for it. It is
@@ -471,7 +471,7 @@ buttons and a failed cell's *Ask again* invoke them, and the page's `/price`, `/
 gone. The line says what Price would price, and refuses what Price would refuse, before Enter. The dock shows the
 workspace's latest Run, whoever priced it.
 
-*Note of 2026-11-14 (ADR-0016 note 69, the owner's request):* `value date <date>` and `counterparty <code/entity>`,
+*Note of 2026-11-14 (ADR-0016 note 100, the owner's request):* `value date <date>` and `counterparty <code/entity>`,
 spelled `cpty` too, are command capabilities (`xva.value-date.change`, `xva.counterparty.change`). The toolbar's
 value date and counterparty invoke them, and the page's endpoints that wrote them are gone. The line says before Enter
 what each would do, the edits a counterparty change drops among it, and the change is refused where the workspace

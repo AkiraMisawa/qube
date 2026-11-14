@@ -168,7 +168,7 @@ export interface WorkspaceState {
   renamePanel(panelId: string, typed: string): void;
   /**
    * Gives a panel's page another title, as a page whose subject moved does: the XVA page on another counterparty
-   * (ADR-0016 note 69). A name the user gave it stays; a panel called by its title is numbered anew among those of its
+   * (ADR-0016 note 100). A name the user gave it stays; a panel called by its title is numbered anew among those of its
    * new one. Throws for a panel that is not open.
    */
   retitlePanel(panelId: string, title: string): void;

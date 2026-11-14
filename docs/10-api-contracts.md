@@ -68,7 +68,7 @@ The sample's accepted input holds a list of `cases`, the Base first. Since step 
 - A case made by `vary` or `add each` carries its own values in the same places.
 - Since step 5d (ADR-0016 note 59) the input names the booked trades the workspace loaded and the store has on the value date, in the order they were loaded (`loadedTrades`, a list of ids beside `nettingSet`, empty where none was loaded), and the version of the store their terms were read from (`loadedTradesVersion`, `booked@<value date>#<trades it has then>`; null where none was loaded). Each is in `trades` as any new trade is, with its terms, legs, independent amounts and `details`, unless the case leaves it out of After. `sourceVersion` stays the counterparty's source's: a load does not change it.
 
-What the simulated measures read is unchanged: an existing trade's `officialPv`, and for SA-CCR the CSA terms under `modules.ccr`. The input so holds both an official PV and the legs, and which of them the real analytics request reads is decided when it is connected.
+What the simulated measures read is unchanged: an existing trade's `officialPv`, and for SA-CCR the CSA terms under `modules.ccr`. The input so holds both an official PV and the legs, and which of them the real analytics request reads is decided when it is connected. *Answered 2026-11-14 (ADR-0016 note 69): the owner gave the request's `/deals/official_pv.csv`, a row for each leg, and the note takes the input's `legs` as its rows (DEFAULT, for him to confirm). The simulated measures still read `officialPv`.*
 
 ### What step 5d adds to the sample pricer (ADR-0016 notes 58 and 59)
 

@@ -380,7 +380,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   }, [shownRevision, shownSource, sources]);
   // The panel is titled by the counterparty it shows, as it opened (`XVA <key>`): moved to another by `counterparty`,
   // from the toolbar, the line or the AI, it is titled by that one, so the strip never names one the page has left
-  // (ADR-0016 note 69).
+  // (ADR-0016 note 100).
   const shownKey = view.data?.registration.key;
   useEffect(() => {
     if (shownKey !== undefined) workspace.store.getState().retitlePanel(panelId, `XVA ${shownKey}`);
@@ -541,7 +541,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   }, [panelId]);
 
   /**
-   * The toolbar's counterparty invokes `counterparty` (ADR-0016 note 69) with what it drops as read in the edit queue's
+   * The toolbar's counterparty invokes `counterparty` (ADR-0016 note 100) with what it drops as read in the edit queue's
    * turn, after the edits already sent (spine 6): where that is anything, the dialog lists it by kind first (ADR-0003
    * §6). The change is asked at the revision the drop was counted at, so a workspace moved since refuses it, and
    * nothing the dialog did not show is dropped.
@@ -709,7 +709,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
    */
   const refresh = () => invokedBusy('Refreshed', 'xva.refresh', {}, 'Refresh was refused');
   /**
-   * The toolbar's value date invokes `value date`, the command the line types (ADR-0016 note 69), so the two cannot
+   * The toolbar's value date invokes `value date`, the command the line types (ADR-0016 note 100), so the two cannot
    * differ: the notice is the server's count of what carried, and stays while an edit is held. The door reads the grids
    * from their first row again, since the source moved (ExGrid ADR-0011).
    */

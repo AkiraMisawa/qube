@@ -103,7 +103,7 @@ public static class XvaApi
 
         // What a change of counterparty would drop, which the toolbar's confirmation lists by kind before it invokes
         // `counterparty` (ADR-0003 §6). The value date and the counterparty are changed by their commands, which the
-        // toolbar invokes as the line does (ADR-0016 note 69).
+        // toolbar invokes as the line does (ADR-0016 note 100).
         ws.MapGet("/{id}/counterparty-change", (string id, CurrentUser user, PortfolioWorkspaces service) =>
             Guard(() => Results.Ok(service.PreviewCounterpartyChange(id, user.Id))));
 

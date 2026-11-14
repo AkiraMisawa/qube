@@ -26,7 +26,7 @@ public enum ExecutionKind { RequestResponse, Job, Subscription }
 /// such as an arrangement of the panels (ADR-0018 §8): it writes nothing and starts nothing, and is a command so that the
 /// agent is offered it. <c>DropEdits</c> stands beside <c>EditWorkspace</c> on a command that discards edits the user
 /// made, as leaving a counterparty drops those made for it (ADR-0003 §6): its request carries the count its reading
-/// showed, it is refused where the workspace holds another by then, and no saved sequence holds it (ADR-0016 note 69).
+/// showed, it is refused where the workspace holds another by then, and no saved sequence holds it (ADR-0016 note 100).
 /// </summary>
 public enum CapabilityEffect { ReadData, Compute, PersistAnalysis, EditWorkspace, Subscribe, ReadRun, SaveItem, Execute, ReadWorkspace, ReadSettings, EditSettings, Propose, DropEdits }
 

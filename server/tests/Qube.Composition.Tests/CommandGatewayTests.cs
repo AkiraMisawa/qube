@@ -150,7 +150,7 @@ public class CommandGatewayTests(QubeFactory factory) : IClassFixture<QubeFactor
         Assert.Equal("""{"words":["vary"],"arguments":[{"name":"cell","kind":"text","required":true},{"name":"values","kind":"text","required":true}],"app":"xva"}""", typed["xva.vary"]);
         Assert.Equal("""{"words":["add each"],"arguments":[],"app":"xva"}""", typed["xva.trades.add"]);
         Assert.Equal("""{"words":["load trades"],"arguments":[{"name":"trades","kind":"text","required":true}],"app":"xva"}""", typed["xva.trades.load"]);
-        // A command has a spelling per word it is typed by (ADR-0016 note 69): `counterparty` and `cpty`, and a
+        // A command has a spelling per word it is typed by (ADR-0016 note 100): `counterparty` and `cpty`, and a
         // command that drops edits says so by its effect.
         Assert.Equal("""{"words":["counterparty","cpty"],"arguments":[{"name":"registration","kind":"text","required":true}],"app":"xva"}""", typed["xva.counterparty.change"]);
         Assert.Equal("""["editWorkspace","dropEdits"]""", capabilities.Single(c => c!["capabilityId"]!.GetValue<string>() == "xva.counterparty.change")!["effects"]!.ToJsonString());

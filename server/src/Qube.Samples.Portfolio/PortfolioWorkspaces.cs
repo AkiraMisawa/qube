@@ -134,7 +134,7 @@ public sealed record RunLink(string RunId, long Revision);
 
 /// <summary>
 /// How many edits a counterparty change would drop, by module edit kind, for the user to confirm, and the revision they
-/// were counted at: the change confirmed is asked at that revision, so a workspace moved since refuses it (ADR-0016 note 69).
+/// were counted at: the change confirmed is asked at that revision, so a workspace moved since refuses it (ADR-0016 note 100).
 /// </summary>
 public sealed record ScopeDrop(string Scope, int Count, IReadOnlyDictionary<string, int> ByKind, long Revision);
 
@@ -967,7 +967,7 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
     }
 
     /// <summary>
-    /// Moves the value date (<c>value date</c>, ADR-0016 note 69): a new version of the same counterparty's trades; edits
+    /// Moves the value date (<c>value date</c>, ADR-0016 note 100): a new version of the same counterparty's trades; edits
     /// carry or are held. The date the workspace is on already is refused: <c>refresh</c> reads that again.
     /// </summary>
     public (WorkspaceState State, CarrySummary Summary) ChangeValueDate(string workspaceId, long revision, string user, DateOnly valueDate, RunOrigin? origin = null)
@@ -1030,7 +1030,7 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
     }
 
     /// <summary>
-    /// The counterparty a key names (<c>counterparty</c>, ADR-0016 note 69), whatever the case of its letters. A code alone
+    /// The counterparty a key names (<c>counterparty</c>, ADR-0016 note 100), whatever the case of its letters. A code alone
     /// names no counterparty, since the legal entity is part of one's identity, and is refused with the keys it could
     /// be; so is a key no counterparty has, with every key there is. The one the workspace is on is refused too.
     /// </summary>
@@ -1053,7 +1053,7 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
     }
 
     /// <summary>
-    /// Changes the counterparty (<c>counterparty</c>, ADR-0003 §6, ADR-0016 note 69): the confirmed edits of the previous
+    /// Changes the counterparty (<c>counterparty</c>, ADR-0003 §6, ADR-0016 note 100): the confirmed edits of the previous
     /// one are dropped, a new trade's own edits stay. Refused where the workspace holds another count to drop by now
     /// (<c>ConfirmationStale</c>), so nothing is dropped unseen.
     /// </summary>

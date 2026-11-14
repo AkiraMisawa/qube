@@ -79,7 +79,7 @@ registerAiContext(XVA_WORKSPACE, (panel) => panel.params.workspaceId === undefin
 });
 // The scenario commands (ADR-0010 §4) likewise, and `price`, `refresh` and `pv01 retry` (ADR-0016 note 33): the page
 // shows the Run the AI priced, and reads its grids again from the first row where a refresh moved the source. So too
-// `value date` and `counterparty` (note 69), after which the panel is titled by the counterparty it then shows.
+// `value date` and `counterparty` (note 100), after which the panel is titled by the counterparty it then shows.
 const XVA_EDITS = ['xva.vary', 'xva.trades.add', 'xva.cds', 'xva.measures', 'xva.case.remove', 'xva.cases.clear', 'xva.scenario',
   'xva.scenario.include', 'xva.scenario.exclude', 'xva.scenario.remove', 'xva.scenario.duplicate', 'xva.scenarios.clear', 'xva.scenario.ladder',
   'xva.scenario.cross', 'xva.scenario.load', 'xva.workspace.price', 'xva.refresh', 'xva.pv01.retry', 'xva.value-date.change', 'xva.counterparty.change'];

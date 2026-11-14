@@ -18,7 +18,7 @@ const post = <T>(path: string, body: unknown, signal?: AbortSignal) =>
 /**
  * The XVA workspace endpoints the page itself calls: its reads, and the edits of its cells. Every edit names the
  * revision it was taken against. What a command does (Price, Refresh, a scenario by name, the value date and the
- * counterparty; ADR-0016 notes 32, 33 and 69) is not here: it goes through the page's door to the command gateway.
+ * counterparty; ADR-0016 notes 32, 33 and 100) is not here: it goes through the page's door to the command gateway.
  */
 export interface XvaApi {
   registrations(): Promise<readonly (Registration & { readonly agreement: Agreement })[]>;

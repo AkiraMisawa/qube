@@ -9,7 +9,7 @@ namespace Qube.Samples.Portfolio;
 
 // The pricer's commands that start work or read the source again (ADR-0010 §1, §6, §9, ADR-0016 note 33 of step 3):
 // `price`, `refresh` and `pv01 retry`, and `value date` and `counterparty` (`cpty`), which read it on another date or
-// for another counterparty (note 69). Each says how it is typed and reads its own line, as the commands that edit do,
+// for another counterparty (note 100). Each says how it is typed and reads its own line, as the commands that edit do,
 // but none is tried: a Run submitted, a source read again and a result asked for again cannot be done and not done.
 // A reading says what would start, and refuses what the command would refuse before it started anything.
 
@@ -202,7 +202,7 @@ public sealed class PortfolioRefresh(Func<PortfolioWorkspaces> workspaces) : ICa
 }
 
 /// <summary>
-/// <c>xva.value-date.change</c>, typed <c>value date 2026-10-31</c> (ADR-0003 §6, ADR-0016 note 69): the counterparty's
+/// <c>xva.value-date.change</c>, typed <c>value date 2026-10-31</c> (ADR-0003 §6, ADR-0016 note 100): the counterparty's
 /// trades and CSAs read as of another date, the edits carried onto them or held, as the toolbar's Value date does,
 /// which invokes it. Its reading reads no source, as <c>refresh</c>'s does not: it says the date it would move from
 /// and to, and refuses a date that is none and the date the workspace is on.
@@ -245,7 +245,7 @@ public sealed class PortfolioValueDate(Func<PortfolioWorkspaces> workspaces) : I
 
 /// <summary>
 /// <c>xva.counterparty.change</c>, typed <c>counterparty ABC/LE-02</c> or <c>cpty ABC/LE-02</c> (ADR-0003 §6, ADR-0016
-/// note 69): the workspace moves to another counterparty on the same value date. The edits made for the one it leaves
+/// note 100): the workspace moves to another counterparty on the same value date. The edits made for the one it leaves
 /// are dropped, and a new trade's own carry, as the toolbar's Counterparty does, which invokes it. Its reading reads no
 /// source: it says what would be dropped, each edit by the page's words, and the request it gives carries that count,
 /// so that a workspace holding another by the time it runs is refused and nothing is dropped unseen. The reading is
@@ -300,7 +300,7 @@ public sealed class PortfolioCounterparty(Func<PortfolioWorkspaces> workspaces) 
             var drops = request["drops"]?.GetValue<int>() ?? throw new CapabilityFailure("InvalidInput", "counterparty takes drops, the count of edits its reading said it drops.");
             // The user confirms what a change drops (ADR-0003 §6), on the page; the AI is shown no dialog, so it moves a
             // workspace only where nothing drops, and a count it gives that is not the workspace's is refused below as
-            // anyone's is (ADR-0016 note 69).
+            // anyone's is (ADR-0016 note 100).
             if (caller.Origin == RunOrigin.Ai && drops > 0)
                 throw new WorkspaceRefused("UserConfirms", $"Moving to {CommandRequests.Text(request, "registration")} drops {TableWords.Counted(drops, "edit")}, which the user confirms: "
                     + "they move the counterparty themselves, from the toolbar or the line.");
