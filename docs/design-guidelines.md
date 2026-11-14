@@ -68,6 +68,8 @@ Four principles follow, and every rule below is one of them made concrete.
   `sm`. Its fields stand in one column, two from `xs` and three from `md`, a switch on the line of the inputs beside
   it. Cancel and Save stay in view under the form as it scrolls. A table under the row is a compact `QubeGrid` as
   high as its rows, up to eight, with no column menus. What a field takes is its placeholder, never a line under it.
+  A read-only field that follows other fields (ADR-0016 note 66) does say which under itself, as a refusal is said:
+  that is not what it takes, and a hover alone would be missing on touch (§8).
   Escape and the close button ask as Cancel does, in every state of the dialog; a grid of the dialog hands on the
   Escape it has nothing left to dismiss with (`onLeave`). The keyboard never falls to the page: it stays in the
   dialog while it is open, and goes back to the grid behind it when it closes (`returnKeyboard`).

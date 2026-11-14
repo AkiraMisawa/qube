@@ -150,6 +150,9 @@ adapter maps what the engine decided.
 - **Remargining period** in business days (CRE52.50): daily 1, weekly 5, monthly 20.
 - **A CSA SA-CCR cannot read is refused, by name.** One that is one-way, or exchanges no collateral, does not say whose
   threshold governs; the measure is refused rather than given one, and CVA and FVA stand.
+  *Note of 2026-11-14:* a CSA's terms now say which party posts, and `one-way` is what they say (ADR-0016 note 66).
+  The measure's request still carries `oneWay` alone, so a one-way CSA is refused as before, with a reason that says
+  the measure does not read which party posts yet. Reading it is for when the analytics is connected.
 - **Haircuts** are CRE22.49's at ten business days, scaled to the MPOR: 0 for cash, a sovereign bond by its issuer's
   grade and residual maturity. Any other collateral is refused by name.
 - **The bank's domestic currency is JPY** (CRE52.35), set in `CcrMeasures` and carried in the request's settings. It

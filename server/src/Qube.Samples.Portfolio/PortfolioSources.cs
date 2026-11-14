@@ -58,9 +58,10 @@ public sealed record ImClassification(string? Exemption, IReadOnlyList<RegimeSta
 }
 
 /// <summary>
-/// A CSA's terms (ADR-0010 §8): its type, currency, discount and FVA discount curves, how often it margins, whether
-/// collateral is exchanged, whether it is one-way, and each party's threshold and minimum transfer amount in its
-/// currency. The collateral desk's record adds what SA-CCR's margin period of risk reads (ADR-0013 §3): the margin call
+/// A CSA's terms (ADR-0010 §8): its type, currency, discount and FVA discount curves, how often it margins, and each
+/// party's threshold and minimum transfer amount in its currency. Whether collateral is exchanged and whether it is
+/// one-way are no terms of its own: they are what the two sides' <c>Posts</c> say (ADR-0016 note 66,
+/// <see cref="CsaPosting"/>). The collateral desk's record adds what SA-CCR's margin period of risk reads (ADR-0013 §3): the margin call
 /// disputes of the last two quarters that lasted longer than the margin period, and whether the collateral held is
 /// illiquid or a trade under it cannot easily be replaced.
 /// <para>
@@ -74,12 +75,34 @@ public sealed record ImClassification(string? Exemption, IReadOnlyList<RegimeSta
 /// <param name="Counterparty">What the counterparty posts under it, beyond its threshold and MTA.</param>
 /// <param name="Self">What we post under it, beyond our threshold and MTA.</param>
 public sealed record Csa(
-    string CsaId, string Type, string Currency, string Curve, string FvaCurve, string Frequency, bool Exchange, bool OneWay,
+    string CsaId, string Type, string Currency, string Curve, string FvaCurve, string Frequency,
     decimal CounterpartyThreshold, decimal CounterpartyMta, string CounterpartyCurrency,
     decimal SelfThreshold, decimal SelfMta, string SelfCurrency,
     [property: JsonIgnore] string AgreementName, [property: JsonIgnore] string? UserDefined,
     [property: JsonIgnore] CsaSide Counterparty, [property: JsonIgnore] CsaSide Self,
     int Disputes = 0, bool IlliquidCollateral = false);
+
+/// <summary>
+/// Who posts under a CSA, and what that says of it (ADR-0016 note 66; owner, 2026-11-14): collateral is exchanged where
+/// either party posts, and the CSA is one-way where exactly one does. Said here once, for every reader of a CSA.
+/// </summary>
+/// <param name="Counterparty">Whether the counterparty posts.</param>
+/// <param name="Self">Whether we post.</param>
+public readonly record struct CsaPosting(bool Counterparty, bool Self)
+{
+    /// <summary>The fields that hold who posts: the counterparty's, and ours.</summary>
+    public const string CounterpartyField = "counterpartyPosts", SelfField = "selfPosts";
+
+    /// <summary>The fields that follow them.</summary>
+    public const string ExchangeField = "exchange", OneWayField = "oneWay";
+
+    /// <summary>The two fields that hold who posts, as a field that follows them names them.</summary>
+    public static readonly IReadOnlyList<string> PostsFields = [CounterpartyField, SelfField];
+
+    public bool Exchange => Counterparty || Self;
+
+    public bool OneWay => Counterparty != Self;
+}
 
 /// <summary>
 /// One party's side of a CSA beyond its threshold and MTA (ADR-0016 note 51): whether it posts; the cap on the variation
@@ -163,10 +186,10 @@ public static class PortfolioCatalog
     public static readonly IReadOnlyList<Agreement> Agreements =
     [
         new("MA-001", "NS-001", "ABC/LE-01",
-            [new("CSA-A", "VM", "JPY", "jpy_ois", "jpy_funding", "daily", true, false, 0m, 50_000_000m, "JPY", 0m, 50_000_000m, "JPY",
+            [new("CSA-A", "VM", "JPY", "jpy_ois", "jpy_funding", "daily", 0m, 50_000_000m, "JPY", 0m, 50_000_000m, "JPY",
                  AgreementName: "ABC-LE01-VM-JPY", UserDefined: null,
                  Counterparty: new(true, null, "JPY", 0m, 1_000_000m, CsaSide.Up, CsaSide.Down), Self: new(true, null, "JPY", 0m, 1_000_000m, CsaSide.Up, CsaSide.Down)),
-             new("CSA-B", "VM", "USD", "usd_sofr", "usd_funding", "daily", true, false, 1_000_000m, 500_000m, "USD", 0m, 250_000m, "USD",
+             new("CSA-B", "VM", "USD", "usd_sofr", "usd_funding", "daily", 1_000_000m, 500_000m, "USD", 0m, 250_000m, "USD",
                  AgreementName: "ABC-LE01-VM-USD", UserDefined: "legacy",
                  Counterparty: new(true, 25_000_000m, "USD", 2_000_000m, 10_000m, CsaSide.Up, CsaSide.Down), Self: new(true, null, "USD", 0m, 10_000m, CsaSide.Up, CsaSide.Down), Disputes: 3)], "CSA-A")
         {
@@ -177,7 +200,7 @@ public static class PortfolioCatalog
             ],
         },
         new("MA-002", "NS-002", "ABC/LE-02",
-            [new("CSA-C", "VM", "USD", "usd_sofr", "usd_funding", "daily", true, false, 0m, 250_000m, "USD", 0m, 250_000m, "USD",
+            [new("CSA-C", "VM", "USD", "usd_sofr", "usd_funding", "daily", 0m, 250_000m, "USD", 0m, 250_000m, "USD",
                  AgreementName: "ABC-LE02-VM-USD", UserDefined: null,
                  Counterparty: new(true, null, "USD", 0m, 10_000m, CsaSide.Nearest, CsaSide.Nearest), Self: new(true, null, "USD", 0m, 10_000m, CsaSide.Nearest, CsaSide.Nearest))], "CSA-C")
         {
@@ -404,8 +427,6 @@ public sealed class PortfolioSourceVersion : ISourceVersion
                     "curve" => new(csa.Curve),
                     "fvaCurve" => new(csa.FvaCurve),
                     "frequency" => new(csa.Frequency),
-                    "exchange" => new(csa.Exchange),
-                    "oneWay" => new(csa.OneWay),
                     "counterpartyThreshold" => new(csa.CounterpartyThreshold),
                     "counterpartyMta" => new(csa.CounterpartyMta),
                     "counterpartyCurrency" => new(csa.CounterpartyCurrency),

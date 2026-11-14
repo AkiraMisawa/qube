@@ -30,10 +30,12 @@ sealed class PricerRig
     public RunService Runs { get; }
     InMemoryDataStore Store { get; }
 
-    public PricerRig(string registration = "ABC/LE-01")
+    /// <param name="store">Where the workspaces are kept, for a test that holds one as an earlier build left it.</param>
+    /// <param name="open">The workspace of that store to open; one is made where none is named.</param>
+    public PricerRig(string registration = "ABC/LE-01", IWorkspaceStore? store = null, string? open = null)
     {
         var register = new MeasureRegister([new XvaMeasures(Pv01Provider.Simulated(TimeSpan.Zero)), new CcrMeasures()]);
-        Workspaces = new WorkspaceService(new Dictionary<string, IEditRules> { [PortfolioEditRules.App] = new PortfolioEditRules(register) }, TimeProvider.System);
+        Workspaces = new WorkspaceService(new Dictionary<string, IEditRules> { [PortfolioEditRules.App] = new PortfolioEditRules(register) }, TimeProvider.System, store);
         Register = new TableRegister([new PortfolioTables(register)]);
         var tables = Tables = new TableService(Register, Workspaces);
         PortfolioWorkspaces? service = null;
@@ -42,12 +44,12 @@ sealed class PricerRig
         var sequences = new Sequences(() => Lines!, () => Commands!, () => Workspaces, new SavedItems(new InMemorySavedItemStore(), new Desks(new Dictionary<string, string>()), TimeProvider.System));
         var registry = new CompositionRegistry([new PortfolioModule(), new XvaModule(), new CcrModule(), new TablesModule(() => tables), new WorkspaceCommandsModule(() => Workspaces),
             new ProductsModule(() => products), new PortfolioCommandsModule(Pricer, register), new DraftsModule(() => Lines!), new SequencesModule(sequences)]);
-        var store = Store = new InMemoryDataStore();
-        Runs = new RunService(registry, store, TimeProvider.System);
-        Service = service = new PortfolioWorkspaces(Workspaces, store, Runs, register, UnsetSettings.Pricer());
-        Commands = new CommandService(registry, store);
+        var data = Store = new InMemoryDataStore();
+        Runs = new RunService(registry, data, TimeProvider.System);
+        Service = service = new PortfolioWorkspaces(Workspaces, data, Runs, register, UnsetSettings.Pricer());
+        Commands = new CommandService(registry, data);
         Lines = new CommandLines(registry, Workspaces, Register, [new PortfolioShortForms()]);
-        Id = Service.Create("akira", registration, Day1, 40).WorkspaceId;
+        Id = open ?? Service.Create("akira", registration, Day1, 40).WorkspaceId;
     }
 
     public WorkspaceState State => Workspaces.Find(Id)!;

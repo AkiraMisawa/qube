@@ -1230,7 +1230,7 @@ function HeldEdits({ conflicts, lost, resolve }: {
         {lost.map((l) => (
           <Group key={`${l.entity}.${l.field}`} gap="xs" wrap="wrap">
             <Text size="xs" ff="monospace">{l.entity} {l.field}</Text>
-            <Text size="xs">{value(l.value)}: the trade is not in this version{l.acknowledged ? ' (seen)' : ''}</Text>
+            <Text size="xs">{value(l.value)}: its row or its field is not in this version{l.acknowledged ? ' (seen)' : ''}</Text>
             {!l.acknowledged && <Button size="compact-xs" variant="default" onClick={() => resolve(l, 'acknowledge')}>Seen</Button>}
             <Button size="compact-xs" variant="default" onClick={() => resolve(l, 'reset')}>Discard</Button>
           </Group>

@@ -2124,7 +2124,8 @@ Unchanged: every figure of the pricer and of Rates is simulated, and says so.
 - The door cannot hear whether the browser saved a file: it says the server's sentence once the file is handed
   over. The clipboard does answer.
 - A text is written as it is: a spreadsheet reads one that begins with `=`, `+`, `-` or `@` as a formula, and may
-  drop the leading zeros of an id made of digits. What to do about it is put to the owner (note 44).
+  drop the leading zeros of an id made of digits. What to do about it is put to the owner (note 44). *Decided
+  2026-11-14 (note 67): the owner keeps it as it is.*
 - An amount copied does not read back as an amount typed here: a bare number is millions (ADR-0008).
 - The clipboard was exercised in Chromium alone. A browser gives it only over https or on localhost, and one that
   wants it written inside the key press itself may refuse it after the server's answer: `copy` then says the
@@ -2487,7 +2488,8 @@ user set.
   the sides share is refused alone with the two it could be.
 - **The CSA's four templates**: `2way`, `1way-self`, `1way-cpty` and `none`, each taking a currency. They write
   the CSA's currency and each side's, `exchange`, `one-way`, who posts, and both sides' threshold and MTA as 0;
-  curves, frequency, VM caps, independent amounts and rounding stay.
+  curves, frequency, VM caps, independent amounts and rounding stay. *Changed 2026-11-14 (note 66): a template
+  writes who posts and no longer `exchange` or `one-way`, which follow it.*
 - **The trade's fields beyond the grids**: its identity (requested id, trade type, the source's product type, SIMM
   product class, user-defined) and its agreement (master agreement, netting set), which no command sets, and its
   break (date, mandatory) and model (model, pricer and interpolation ids, domestic currency, IR model and basis,
@@ -2570,7 +2572,7 @@ worked by the synthetic source from what it holds; every name and value is made 
   the XVA analytics. FVA's rule and SA-CCR keep reading `one-way`, `exchange`, the thresholds and the MTAs.
 - **Who posts and `one-way` are two things a user can set apart.** A template writes them together; an edit by
   hand can leave `one-way` on with both sides posting. Whether `one-way` should be what the two flags say is the
-  owner's to decide.
+  owner's to decide. *Changed 2026-11-14 (ADR-0016 note 66): he decided that it is, and no edit sets it.*
 - The input holds an existing trade's official PV and its legs. Which the real request reads is not decided.
 - No dialog shows the new fields until 5c, and no grid but the CSA grid's Main column, which was there: they
   are typed in a command and read by `tables_read`.
@@ -3630,6 +3632,73 @@ file.
   Selection of several ranges; taking it up changes note 43 and is left until the owner asks.
 - A page's grid still keeps a Selection of one range only (ADR-0006 note 10), though 0.3.0 can place several; keeping
   several is left until the owner asks, as `select`'s several runs are.
+
+## A CSA's `exchange` and `one-way` follow who posts (ADR-0016 notes 66 to 68, 2026-11-14)
+
+The owner answered the summary of decisions made for him (2026-11-14). Three answers are decisions, recorded as
+ADR-0016 notes 66 to 68; this change builds the one that changes the product (note 66).
+
+### What runs
+
+- **Each side's `posts` is what a CSA holds**, and `exchange` (either side posts) and `one-way` (exactly one does)
+  are worked out from them wherever a CSA is read: the grid's row, a condition, the row's dialog, each case, and the
+  input Price freezes. No command and no edit sets either: `set CSA-B one-way on` is refused with the fields to set
+  (`counterparty posts`, `self posts`), and so are an edit that arrives as a value and a case's `vary` of one. A
+  `reset` of one that holds no edit names the fields it is reset through.
+- **The four templates write who posts**, and no longer `exchange` or `one-way`.
+- **The CSA grid's Exchange and One-way cells are read, not typed**, and one that differs from what the source's
+  flags say is marked. The dialog draws both read-only, says under each which fields it follows (drawn, so a
+  touch reads it too), and moves them as a side's Posts is switched, before Save.
+- **A table's field can say which fields of its row it follows** (the kernel's `TableField.From`): no command sets
+  it, `tables.describe` says `from`, a draft's form says `follows`, and the refusal names the fields to set.
+- **An edit of `exchange` or `one-way` held from before the change** is listed in Changes as lost and removed
+  there or by its row's `reset`. Price is refused with its name while the workspace holds one, in the Common layer
+  or a case's, on a priced CSA or another, and a case that holds one is named to be removed whole; a refresh holds
+  it back as lost.
+- **Recorded, with no change to the code** (notes 67 and 68): `copy` and `export` write a text as it is, and an
+  `add each` iteration's lists have no spelling on the line.
+
+### Verification performed
+
+| Check | Result |
+|---|---|
+| `nix develop -c dotnet test server/Qube.slnx` | 1659 passed |
+| `cd client && npm run typecheck && npm test` | typecheck clean; 495 passed in 48 files |
+| `cd client && npx playwright test` (Chromium, the built client served by the host) | 149 passed |
+| The new browser test alone, `--repeat-each=3` | 3 passed |
+
+All with main's step 2 of the panels (ExGrid 0.3.0) merged in. An earlier whole browser run on the merged code, made
+while two review agents were working on the same machine, failed one test of another feature (a phone's new
+workspace did not open within its five seconds); that test then passed three times alone, and in the run above.
+
+By hand, in the built client served by the host: pictures of the CSA grid and of the row's dialog at 390, 768, 992
+and 1440px in both themes (design guidelines §9, §11). Looked at: the dialog, whose layout gains the line under a
+field, at each of the four widths in both themes, and its Original tab light at 390 and 1440; the grid, whose
+layout does not change, light at 390, 768 and 1440 and dark at 992 and 1440. Taken and looked at again on ExGrid
+0.3.0, after main was merged in.
+
+### Providers
+
+Unchanged: every source and every measure is simulated, and every value is synthetic.
+
+### Known limits
+
+- **SA-CCR does not read which side posts.** A one-way CSA is refused as before; its reason now says the measure
+  does not read that yet. FVA's rule reads `one-way`, which is now what the flags say.
+- **The grid shows no column for who posts.** The direction is changed in the row's dialog, by a line or by a
+  template. The owner was told he may ask for the columns.
+- **A case made before the change by varying `one-way` or `exchange` is not made anew.** Price names it to be
+  removed whole. With its edit alone removed in Changes it keeps the title it was made with and is priced as the
+  Base, as any case is whose change is removed by hand.
+- **Changes lists no edit of the workspace's own scope but a module's setting** (the display currency, for one,
+  is not listed). None of those can be an edit nothing reads today: only the CSA's two fields stopped being read. One
+  that did would refuse Price with no Remove in Changes.
+- **The message of a cell in the CSA grid's last row is cut by the inputs band's lower edge**, as before this change:
+  the grid draws the box under the cell, and the band (`qube-xva-inputs-body`, the page's own) is as tall as its
+  rows. Seen on the marked One-way cell; the band's height is the page's to settle, not ExGrid's.
+- **Waiting for the owner's answer**: whether an empty Float of a Rates leg becomes an issue on its row, what the
+  Rates grid shows before it has lines, whether docs/03 §5's line on a package is rewritten as served by `add each`,
+  and where the row's Edit column stands (ticket 16).
 
 ## Next
 

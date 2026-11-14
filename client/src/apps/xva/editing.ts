@@ -87,8 +87,6 @@ export const csaFields: Readonly<Record<string, (text: string) => Parsed>> = {
     const t = text.trim().toLowerCase();
     return t === 'daily' || t === 'weekly' || t === 'monthly' ? { ok: true, value: t } : fail('Type daily, weekly or monthly.');
   },
-  exchange: parseFlag,
-  oneWay: parseFlag,
   counterpartyThreshold: amountOf,
   counterpartyMta: amountOf,
   counterpartyCurrency: currencyOf,

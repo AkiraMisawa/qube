@@ -1,5 +1,5 @@
 import type { DraftForm, DraftTable, DraftTemplate, FieldInput } from '../contracts';
-import { cellLine, fieldLine, makeLine, removeLine, sectionsOf, shownOf, templateLine } from './draftLines';
+import { cellLine, fieldLine, followsNote, makeLine, removeLine, sectionsOf, shownOf, templateLine } from './draftLines';
 
 // ADR-0016 note 57 of 2026-11-12: every change a dialog makes is a line the server reads. What the dialog writes of a
 // field, a cell, a row and a template is held here; the names are made up.
@@ -43,6 +43,13 @@ describe('the lines a dialog writes (ADR-0016 note 57)', () => {
     expect(templateLine(gauged, { unit: 'GAL', drift: ' ' })).toBe('set as gauged unit=GAL');
     expect(templateLine({ word: 'calm', title: 'Calm', takes: [] }, {})).toBe('set as calm');
     expect(makeLine({ word: 'sensor', title: 'Sensor', takes: gauged.takes }, { unit: 'M3' })).toBe('new sensor unit=M3');
+  });
+
+  it('ADR-0016 note 66: a field that follows others names them as a sentence does, and one that follows none says nothing', () => {
+    expect(followsNote({})).toBeUndefined();
+    expect(followsNote({ follows: ['note'] })).toBe('Follows note.');
+    expect(followsNote({ follows: ['wind speed', 'wind direction'] })).toBe('Follows wind speed and wind direction.');
+    expect(followsNote({ follows: ['wind speed', 'wind direction', 'note'] })).toBe('Follows wind speed, wind direction and note.');
   });
 
   it('a group is a section, in the order the groups first appear; the fields of no group come last, under Other', () => {

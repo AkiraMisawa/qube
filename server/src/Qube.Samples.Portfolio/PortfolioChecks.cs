@@ -1,4 +1,5 @@
 using System.Text.Json.Nodes;
+using Qube.Composition.Application.Tables;
 using Qube.Composition.Application.Workspaces;
 
 namespace Qube.Samples.Portfolio;
@@ -29,7 +30,9 @@ public sealed class PortfolioChecks(MeasureRegister register)
         else
         {
             if (!Editable(entity, field))
-                throw new WorkspaceRefused("NotEditable", $"{entity}.{field} is not editable in this workspace.");
+                throw new WorkspaceRefused("NotEditable", Followed(entity, field) is { } followed
+                    ? $"{entity}.{field} is not a field an edit sets: {TableWords.SetWhatItFollows(followed)}"
+                    : $"{entity}.{field} is not editable in this workspace.");
             Validate(reading, entity, field, value);
         }
     }
@@ -64,6 +67,10 @@ public sealed class PortfolioChecks(MeasureRegister register)
         if (BookedTrades.TradeNamed(id) is { } trade && Source(reading).Trade(trade) is null)
             throw new WorkspaceRefused("UnknownTarget", $"No trade {trade} in this workspace: load trades {trade} brings it in.");
     }
+
+    // The fields a CSA's field follows (ADR-0016 note 66), where its table says it follows some.
+    static IReadOnlyList<string>? Followed(string entity, string field) =>
+        Entity.Split(entity).Kind == Entity.Csa ? PortfolioFields.Csa.FirstOrDefault(f => f.Name == field)?.From : null;
 
     static bool Editable(string entity, string field) => (Entity.Split(entity).Kind, field) switch
     {
@@ -111,7 +118,6 @@ public sealed class PortfolioChecks(MeasureRegister register)
             "imR" or "imP" => value is null || value is JsonValue im && im.TryGetValue<string>(out var imId) && imId.Length > 0 ? null : $"{(field == "imR" ? "IM-R" : "IM-P")} is an IM CSA's identifier, or empty for none.",
             "frequency" => value is JsonValue f && f.TryGetValue<string>(out var often) && PortfolioCatalog.Frequencies.Contains(often)
                 ? null : $"A frequency is {string.Join(", ", PortfolioCatalog.Frequencies)}.",
-            "exchange" or "oneWay" => value is JsonValue e && e.TryGetValue<bool>(out _) ? null : $"{field} is true or false.",
             "counterpartyThreshold" or "counterpartyMta" or "selfThreshold" or "selfMta" =>
                 value is JsonValue a && a.TryGetValue<decimal>(out var amount) && amount >= 0 ? null : "A threshold or MTA is an amount of 0 or more.",
             "currency" or "counterpartyCurrency" or "selfCurrency" or Entity.DisplayCurrency => value is JsonValue c3 && c3.TryGetValue<string>(out var code) && PortfolioMarket.Currencies.Contains(code)

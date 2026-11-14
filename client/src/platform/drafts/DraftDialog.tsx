@@ -9,7 +9,7 @@ import type { DraftForm, DraftRow, DraftTable, DraftTemplate, DraftTerm, FieldIn
 import { readFlag } from '../flags';
 import { useColumnWidths } from '../grid/columnWidths';
 import { QubeGrid } from '../grid/QubeGrid';
-import { cellLine, fieldLine, makeLine, removeLine, sectionsOf, shownOf, templateLine } from './draftLines';
+import { cellLine, fieldLine, followsNote, makeLine, removeLine, sectionsOf, shownOf, templateLine } from './draftLines';
 import { compactGridHeight } from '../grid/metrics';
 import { isElement } from '../elements';
 
@@ -71,7 +71,12 @@ function FieldBox({ field, written, changed, sending }: {
   }
   const label = labelOf(field, changed);
   if (sending === undefined || !field.editable) {
-    return <TextInput size="sm" label={label} value={shown} readOnly variant="filled" {...(sending !== undefined ? { title: 'No command sets this field.' } : {})} />;
+    // What it follows is said under it, as a refusal is, on Live and on Original alike.
+    const follows = followsNote(field);
+    return (
+      <TextInput size="sm" label={label} value={shown} readOnly variant="filled" {...(sending !== undefined ? { title: 'No command sets this field.' } : {})}
+        {...(follows === undefined ? {} : { description: follows, inputWrapperOrder: ['label', 'input', 'description', 'error'] as const })} />
+    );
   }
   const commit = async (next: string) => {
     const typed = next.trim();
