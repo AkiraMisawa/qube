@@ -66,9 +66,9 @@ public static class PortfolioPackages
                 $"The packages {TableWords.And(clash)} differ only in the case of their letters, and whether they are one is not guessed. Write one name on all of their trades.");
         if (news.Where(t => t.Package is not null && !t.After).ToList() is { Count: > 0 } clear)
         {
-            var (has, them, their) = clear.Count == 1 ? ("has", "it", "its") : ("have", "them", "their");
+            var (them, their) = Pronouns(clear);
             throw new WorkspaceRefused("CandidateNotTicked",
-                $"{InPackages(clear)} and {has} A clear, and a package adds New rows with A ticked. Tick A on {them}, or clear {their} Package.");
+                $"{InPackages(clear)} and {(clear.Count == 1 ? "has" : "have")} A clear, and a package adds New rows with A ticked. Tick A on {them}, or clear {their} Package.");
         }
         if (news.Where(t => t.After && t.Before).ToList() is { Count: > 0 } inBefore)
         {
@@ -81,15 +81,15 @@ public static class PortfolioPackages
         }
         if (existing.Where(t => t.Package is not null && !t.After).ToList() is { Count: > 0 } outside)
         {
-            var (them, their) = outside.Count == 1 ? ("it", "its") : ("them", "their");
+            var (them, their) = Pronouns(outside);
             throw new WorkspaceRefused("NotInAfter",
                 $"{InPackages(outside)} and not in After in the Base, so no case takes {them} out. Tick A on {them}, or clear {their} Package.");
         }
-        // A trade After holds and Before does not would be in neither side of its case: that is not adding it, which no
-        // case of a package says, rather than taking it out (ADR-0016 note 91's combinations, put to the owner).
+        // Taken out of After, a trade Before does not hold would be in neither Before nor After of its case: the case
+        // would say "without this trade" of a trade the Before portfolio never had (ADR-0016 note 91, put to the owner).
         if (existing.Where(t => t.Package is not null && !t.Before).ToList() is { Count: > 0 } afterOnly)
         {
-            var (them, their) = afterOnly.Count == 1 ? ("it", "its") : ("them", "their");
+            var (them, their) = Pronouns(afterOnly);
             throw new WorkspaceRefused("NotInBefore",
                 $"{InPackages(afterOnly)} and not in Before in the Base, and a package takes out only a trade Before and After both hold. Tick B on {them}, or clear {their} Package.");
         }
@@ -106,6 +106,9 @@ public static class PortfolioPackages
         }
         return set;
     }
+
+    // How a refusal's sentence speaks of the trades it names: one, or several.
+    static (string Them, string Their) Pronouns(IReadOnlyList<EffectiveTrade> trades) => trades.Count == 1 ? ("it", "its") : ("them", "their");
 
     // The trades a refusal names and where they are: `DRAFT-3 is in the package P1`, or `DRAFT-3 (P1) and DRAFT-4 (P2)
     // are in packages`.

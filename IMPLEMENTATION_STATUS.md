@@ -3887,7 +3887,7 @@ Unchanged: every source and every measure is simulated, and every value is synth
   added several together or took a trade out is out of date at Price until `add each` again.
 - **The line has no spelling of a package's lists** (note 68): it writes cells with `set`, then `add each`.
 - **An existing trade in After and not in Before is refused in a package** (`NotInBefore`), DEFAULT put to the owner
-  2026-11-14 with the combinations table: allowed, its case would hold it in neither side.
+  2026-11-14 with the combinations table: were it allowed, its case would hold it in neither Before nor After.
 
 ## Rates lines named in order (ADR-0016 note 65, 2026-11-14)
 

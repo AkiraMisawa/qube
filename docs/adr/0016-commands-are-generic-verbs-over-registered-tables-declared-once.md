@@ -2811,27 +2811,30 @@ note 37, and rewrite docs/03 §5's CONFIRMED line on a package (owner, the same 
       the user.
     - *Every combination of a row's B, A and package (asked by the owner, 2026-11-14 22:32Z: "the combinations of new
       and existing, ticked and not, must be settled too").* The Base, and every case of `vary`, hold each row as its
-      B and A say, whatever its package; a package changes only the cases of `add each`. In those:
+      B and A say, whatever its package; a package changes only what the cases of `add each` hold. A combination
+      refused below refuses `add each`, and Price too once a package is written or a case of `add each` is made
+      (note 92), for the Base and every case alike. In the cases of `add each`:
 
       | Row | B | A | Package | In the cases of `add each` |
       |---|---|---|---|---|
-      | New | off | on | none | A case of its own (`add DRAFT-3`); A off in every other case |
-      | New | off | off | none | In no case |
-      | New | on | on | none | Refused (`CandidateInBefore`) |
-      | New | on | off | none | In Before in every case, as the Base has it (B and A are free, as before this note) |
-      | New | off | on | P1 | Added with P1's other new trades in P1's case; A off in every other case |
-      | New | off or on | off | P1 | Refused (`CandidateNotTicked`) |
-      | New | on | on | P1 | Refused (`CandidateInBefore`) |
-      | Existing | on | on | none | In Before and After in every case |
-      | Existing | on | off | none | Out of After in every case: a common change |
-      | Existing | off | on | none | In After alone in every case: a common change |
-      | Existing | off | off | none | In no case |
-      | Existing | on | on | P1 | Out of After in P1's case alone, and in Before; as the Base in every other case |
-      | Existing | on or off | off | P1 | Refused (`NotInAfter`) |
-      | Existing | off | on | P1 | Refused (`NotInBefore`, DEFAULT put to the owner the same day: in P1's case it would be in neither side, which is not adding it rather than taking it out) |
+      | New | clear | ticked | none | A case of its own (`add DRAFT-3`); A clear in every other case |
+      | New | clear | clear | none | In no case |
+      | New | ticked | ticked | none | Refused (`CandidateInBefore`) |
+      | New | ticked | clear | none | In Before in every case, as the Base has it (B and A are free, as before this note) |
+      | New | clear | ticked | P1 | Added with P1's other new trades in P1's case; A clear in every other case |
+      | New | either | clear | P1 | Refused (`CandidateNotTicked`) |
+      | New | ticked | ticked | P1 | Refused (`CandidateInBefore`) |
+      | Existing | ticked | ticked | none | In Before and After in every case |
+      | Existing | ticked | clear | none | Out of After in every case: a common change |
+      | Existing | clear | ticked | none | In After alone in every case: a common change |
+      | Existing | clear | clear | none | In no case |
+      | Existing | ticked | ticked | P1 | Out of After in P1's case alone, and in Before; as the Base in every other case |
+      | Existing | either | clear | P1 | Refused (`NotInAfter`, which is checked first) |
+      | Existing | clear | ticked | P1 | Refused (`NotInBefore`; DEFAULT put to the owner the same day: taken out of After, it would be in neither Before nor After of P1's case) |
 
-      *Make package…* writes the package on the rows the two selections name and nothing else, and a row it would
-      write that the table refuses refuses the whole command, with nothing written.
+      *Make package…* writes the package on the rows the two selections name and nothing else. It makes the set from
+      every row, as `add each` does, so a row the table refuses, written by it or not, refuses the whole command, with
+      nothing written.
     - *As before:* the set made before is replaced whole, the cases of `vary` stay, and the cap is Price's
       (`TooManyCases`, which now says to put new trades together in packages).
     - *A case's title:* `add DRAFT-3` for a trade alone, `P1: add DRAFT-1 + DRAFT-2 without E00003` for a package,
