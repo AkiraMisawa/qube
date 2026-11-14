@@ -3884,6 +3884,16 @@ dialog's field (it says what an empty field means, which the placeholder alone d
 carry answer written three times (each names its own action), and the dates formatted as the rest of the module
 formats them.
 
+The Project name had a review of its own (standards and spec, 2026-11-14). It changed: a move onto the dummy with no
+project now says in its reading that Price needs one; one function titles an XVA panel, used by the dialog and the
+panel alike; the rule a name holds to (1 to 80 characters on one line, no space at either end) is in a file of its
+own, `PortfolioProject.cs`, with the sentences that refuse it. Taking the pictures then found a defect neither review
+had: the wire leaves a null out, so a workspace with no project carried no `project` at all, and the client, comparing
+with `null`, titled a cleared panel `XVA DUMMY/LE-00 · undefined` and showed a Project field on every booked
+counterparty's toolbar. The contract now says the field may be absent, as the view's other such fields do, and the
+browser test clears the project and looks at a booked counterparty's toolbar; that fix was reviewed too, and found
+right.
+
 ### Verification performed
 
 | Check | Result |
@@ -3892,6 +3902,10 @@ formats them.
 | `cd client && npm run typecheck && npm test` | Typecheck clean; 514 passed in 49 files |
 | `cd client && npm run build && npx playwright test` (Chromium, headless, Linux, the built client served by the host) | 153 passed |
 | The new browser test and the changed counterparty test alone, `--repeat-each=3`, after the review's fixes | 6 passed |
+| With the Project name: `dotnet test server/Qube.slnx` | 1684 passed |
+| With the Project name: `npm run typecheck && npm test` | Typecheck clean; 514 passed in 49 files |
+| With the Project name: `npm run build && npx playwright test`, then the Pricing DB test fixed for its new column alone, `--repeat-each=3` | 152 passed and the one fixed; 3 passed |
+| After the absent-project fix: the dummy's browser test and the toolbar's counterparty test alone, `--repeat-each=3` | 6 passed |
 
 The server's tests (`PricerSourceCommandTests`, `XvaApiTests`) read both commands' readings and refusals, the count
 a stale reading is refused for (asked as the AI), the completions, a sequence that holds a value date and refuses a
@@ -3906,7 +3920,11 @@ server's sentence and the retitled panel.
 
 By hand, in the built client served by the host: pictures of the dialog (1440px light and dark, 390px), the dummy
 workspace (1440px light and dark, 390px), the toolbar at 390, 768 and 992px in both themes, the readings of `cpty` and
-`value date` and what each did, and a GIF of the flow. Looked at each.
+`value date` and what each did, and a GIF of the flow. Looked at each. For the Project name: the dialog refusing an
+Enter with none (1440px light and dark, 390px), the dummy workspace under a project (1440px light and dark), the
+toolbar at 390, 768 and 992px in both themes, `price` refused on the line once the project was cleared, the reading of
+`project Beta deal`, the Pricing DB's XVA view listing two Runs on the dummy by their projects, and a GIF of the flow.
+Looked at each; the pictures are what found the absent-project defect above.
 
 ### Providers
 
