@@ -2806,8 +2806,7 @@ note 37, and rewrite docs/03 §5's CONFIRMED line on a package (owner, the same 
     other candidate and on the trades it takes out.
     - *Refused by name, with nothing made:* two packages whose names differ only in case; a New row of a package with
       A clear (`CandidateNotTicked`); a new trade to add that is in Before (`CandidateInBefore`, as before); an
-      existing trade of a package that the Base has not in After (`NotInAfter`), or has in After and not in Before
-      (`NotInBefore`); and a set of no case (`NothingToAdd`). Nothing is ticked, cleared or taken out of a package for
+      existing trade of a package that the Base has not in After (`NotInAfter`); and a set of no case (`NothingToAdd`). Nothing is ticked, cleared or taken out of a package for
       the user.
     - *Every combination of a row's B, A and package (asked by the owner, 2026-11-14 22:32Z: "the combinations of new
       and existing, ticked and not, must be settled too").* The Base, and every case of `vary`, hold each row as its
@@ -2829,8 +2828,8 @@ note 37, and rewrite docs/03 §5's CONFIRMED line on a package (owner, the same 
       | Existing | clear | ticked | none | In After alone in every case: a common change |
       | Existing | clear | clear | none | In no case |
       | Existing | ticked | ticked | P1 | Out of After in P1's case alone, and in Before; as the Base in every other case |
-      | Existing | either | clear | P1 | Refused (`NotInAfter`, which is checked first) |
-      | Existing | clear | ticked | P1 | Refused (`NotInBefore`; DEFAULT put to the owner the same day: taken out of After, it would be in neither Before nor After of P1's case) |
+      | Existing | either | clear | P1 | Refused (`NotInAfter`) |
+      | Existing | clear | ticked | P1 | Out of After in P1's case alone, so in neither Before nor After there: P1's case is the Base as if the trade had not been added, and its title says both (`P1: add DRAFT-1 without E00004 · with existing E00004 in After only`); as the Base in every other case. Put to the owner the same day with refusing it (`NotInBefore`, recommended for a plainer reading); he chose to allow it, 2026-11-14 22:52Z, which keeps the comparison "this package instead of that trade" |
 
       *Make package…* writes the package on the rows the two selections name and nothing else. It makes the set from
       every row, as `add each` does, so a row the table refuses, written by it or not, refuses the whole command, with

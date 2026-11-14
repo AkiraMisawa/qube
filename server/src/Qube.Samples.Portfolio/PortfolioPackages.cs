@@ -85,14 +85,8 @@ public static class PortfolioPackages
             throw new WorkspaceRefused("NotInAfter",
                 $"{InPackages(outside)} and not in After in the Base, so no case takes {them} out. Tick A on {them}, or clear {their} Package.");
         }
-        // Taken out of After, a trade Before does not hold would be in neither Before nor After of its case: the case
-        // would say "without this trade" of a trade the Before portfolio never had (ADR-0016 note 91, put to the owner).
-        if (existing.Where(t => t.Package is not null && !t.Before).ToList() is { Count: > 0 } afterOnly)
-        {
-            var (them, their) = Pronouns(afterOnly);
-            throw new WorkspaceRefused("NotInBefore",
-                $"{InPackages(afterOnly)} and not in Before in the Base, and a package takes out only a trade Before and After both hold. Tick B on {them}, or clear {their} Package.");
-        }
+        // A trade After holds and Before does not may be in a package: its case holds it in neither, as if it had not
+        // been added (ADR-0016 note 91, the owner's choice of 2026-11-14 over refusing it).
         var set = new List<Iteration>();
         var made = new HashSet<string>(StringComparer.Ordinal);
         foreach (var t in news.Concat(existing))

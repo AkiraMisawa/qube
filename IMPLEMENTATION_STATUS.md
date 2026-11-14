@@ -3886,8 +3886,9 @@ Unchanged: every source and every measure is simulated, and every value is synth
 - **A case made by note 37's lists before this change** has no package. One of a trade alone still prices; one that
   added several together or took a trade out is out of date at Price until `add each` again.
 - **The line has no spelling of a package's lists** (note 68): it writes cells with `set`, then `add each`.
-- **An existing trade in After and not in Before is refused in a package** (`NotInBefore`), DEFAULT put to the owner
-  2026-11-14 with the combinations table: were it allowed, its case would hold it in neither Before nor After.
+- **An existing trade in After and not in Before may be in a package** (the owner's choice, 2026-11-14, over refusing
+  it): its case holds it in neither Before nor After, as if it had not been added, and the case's title names it both
+  as taken out and, with every case, as in After only.
 
 ## Rates lines named in order (ADR-0016 note 65, 2026-11-14)
 
