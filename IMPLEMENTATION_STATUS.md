@@ -4153,8 +4153,8 @@ not" points there.
 
 | Check | Result |
 |---|---|
-| `cd client && npm run typecheck && npx vitest run` | Typecheck clean; 535 passed in 50 files (before the review's fixes) |
-| `npx playwright test` (Chromium 153, headless, Linux, the built client served by the host) | 157 passed (before the review's fixes) |
+| `cd client && npm run typecheck && npx vitest run`, with main's #45 merged in and every fix | Typecheck clean; 534 passed in 50 files |
+| `npx playwright test` (Chromium 153, headless, Linux, the built client served by the host), with main's #45 merged in and every fix | 157 passed |
 | The new browser test, by `moveBefore` and by append, `--repeat-each=3` | 6 passed |
 | The same test without the pricer's part following the keyboard | Failed, as it should: the CVA recovery field lost the keyboard at 390px |
 | The same test without the scrolls around the keyboard put back | Failed, as it should: the New grid at 373px sideways, not 0 |
