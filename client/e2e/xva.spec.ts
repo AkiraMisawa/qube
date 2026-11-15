@@ -154,9 +154,9 @@ test('ADR-0010 §1, ADR-0016 note 100: a workspace opened with no counterparty c
   };
   await expect.poll(placed).toBe('beside');
   const wide = page.viewportSize();
-  // The panels change between the areas and the strip once the browser reports the width, and each change draws the
-  // page anew (ADR-0018 §5): a field typed in before the change is gone after it, with what was typed there (ADR-0006
-  // note 10). So each width is read once the panels are what it asks for.
+  // The panels change between the areas and the strip once the browser reports the width, and the areas take the page a
+  // moment after that (ADR-0018 §5's note of 2026-11-15): each width's place is read once the panels are what it asks
+  // for.
   const panels = page.locator('.qube-panels');
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(panels).toHaveAttribute('data-mode', 'strip');

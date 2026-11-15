@@ -226,6 +226,96 @@ test('ADR-0018 §5, UX03: the panels\' space at 390, 768, 992 and 1440px, with t
   await expect(areasRoot(page)).toHaveAttribute('data-areas', '3');
 });
 
+/** Marks an element, so that it can be told apart from one drawn anew in its place. */
+async function mark(locator: Locator): Promise<void> {
+  await locator.evaluate((element) => { (element as Element & { marked?: true }).marked = true; });
+}
+const isMarked = (locator: Locator) => locator.evaluate((element) => (element as Element & { marked?: true }).marked === true);
+/** Where the keyboard is: in a field of which part of the page, holding what. */
+const keyboardIn = (page: Page) => page.evaluate(() => {
+  const field = document.activeElement;
+  return field instanceof HTMLInputElement ? { name: field.parentElement?.closest('[aria-label]')?.getAttribute('aria-label'), value: field.value } : undefined;
+});
+
+for (const how of ['moveBefore', 'append'] as const) {
+  test(`ADR-0018 §5's note of 2026-11-15, by ${how}: the page in view is moved, not drawn anew, as the panels change between the areas and the strip; what was typed and not committed, a cell's edit, a dialog, the keyboard's place and a grid's scroll stay, and nothing is committed`, async ({ page }) => {
+    // A browser without `moveBefore` (Chromium has it from 133) moves the page by appending it.
+    if (how === 'append') await page.addInitScript(() => { delete (Element.prototype as { moveBefore?: unknown }).moveBefore; });
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await open(page);
+    expect(await page.evaluate(() => 'moveBefore' in Element.prototype)).toBe(how === 'moveBefore');
+    await newWorkspace(page, 'ABC/LE-01', 300);
+    const pricer = page.locator('.qube-panel-page');
+    await mark(pricer);
+    const summary = page.getByTestId('workspace-summary');
+    await expect(summary).toContainText('0 edit(s)');
+    /** Crosses 768px, and waits for the page to be in the place the width asks for: the areas draw it a moment after. */
+    const cross = async (width: number) => {
+      const mode = width < 768 ? 'strip' : 'areas';
+      await page.setViewportSize({ width, height: width < 768 ? 844 : 900 });
+      await expect(panels(page)).toHaveAttribute('data-mode', mode);
+      await expect(page.locator(mode === 'strip' ? '.qube-strip-place .qube-panel-page' : '.qube-area-page .qube-panel-page')).toHaveCount(1);
+      expect(await isMarked(pricer), `${width}px: the page was drawn anew`).toBe(true);
+    };
+
+    // A grid scrolled, and an edit begun in another, not committed.
+    const existing = page.getByLabel('Existing trades', { exact: true }).locator('.ex-scroller');
+    await existing.evaluate((scroller) => { scroller.scrollTop = 500; });
+    await expect.poll(() => existing.evaluate((scroller) => scroller.scrollTop)).toBe(500);
+
+    await page.keyboard.press('ControlOrMeta+Shift+G');
+    // The grid's first key only places its Focus (ex-grid ADR-0037); the next ones move it, to the Notional.
+    await page.keyboard.press('ControlOrMeta+Home');
+    await page.keyboard.press('ControlOrMeta+Home');
+    for (let i = 0; i < 4; i++) await page.keyboard.press('ArrowRight');
+    await page.keyboard.type('7000');
+    const editing = { name: 'New trades', value: '7000' };
+    await expect.poll(() => keyboardIn(page)).toEqual(editing);
+    for (const width of [390, 1440]) {
+      await cross(width);
+      await expect.poll(() => keyboardIn(page), `${width}px`).toEqual(editing);
+      expect(await existing.evaluate((scroller) => scroller.scrollTop), `${width}px`).toBe(500);
+    }
+    await page.keyboard.press('Escape');
+    await expect(summary).toContainText('0 edit(s)');
+
+    // A toolbar's field typed in, not committed: a field that commits as it is left does not commit.
+    const valueDate = page.getByRole('textbox', { name: 'Value date' });
+    const before = await valueDate.inputValue();
+    await valueDate.fill('2026-10-2');
+    for (const width of [390, 1440]) {
+      await cross(width);
+      await expect(valueDate).toBeFocused();
+      await expect(valueDate).toHaveValue('2026-10-2');
+    }
+    // Left, the field would have said that 2026-10-2 is not a date.
+    await expect(page.getByTestId('notice').filter({ hasText: 'value date' })).toHaveCount(0);
+    await valueDate.fill(before);
+
+    // A dialog of the page, open with the keyboard in it.
+    await page.keyboard.press('ControlOrMeta+Shift+G');
+    await page.keyboard.press('ControlOrMeta+Home');
+    await page.keyboard.press('ControlOrMeta+Home');
+    for (let i = 0; i < 8; i++) await page.keyboard.press('ArrowRight');
+    await page.keyboard.type('CSA-B');
+    await page.keyboard.press('Enter');
+    await expect(summary).toContainText('1 edit(s)');
+    await page.getByRole('combobox', { name: 'Counterparty' }).click();
+    await page.getByRole('option', { name: /^ABC \| LE-02 \|/ }).click();
+    const confirm = page.getByRole('dialog', { name: 'Change counterparty' });
+    await expect(confirm).toContainText('drops 1 edit(s)');
+    for (const width of [390, 1440]) {
+      await cross(width);
+      await expect(confirm).toBeVisible();
+      expect(await confirm.evaluate((dialog) => dialog.contains(document.activeElement)), `${width}px`).toBe(true);
+    }
+    await confirm.getByRole('button', { name: 'Keep ABC/LE-01' }).click();
+    await expect(confirm).toBeHidden();
+    await expect(page.getByRole('tab', { name: 'XVA ABC/LE-01' })).toHaveAttribute('aria-selected', 'true');
+    await expect(summary).toContainText('1 edit(s)');
+  });
+}
+
 test('ADR-0018 §7: a reload of the browser tab brings its panels and their arrangement back, a floating panel docking where it came from, and another tab keeps its own', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await threePanels(page);

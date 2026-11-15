@@ -4003,7 +4003,8 @@ moment later (a `ResizeObserver`, `Panels.tsx`), the panels become areas again a
 and what was typed in the strip's field is not kept (ADR-0006 note 10). A probe saw the panels still `strip` right
 after the window was widened, and a draft typed at 1440px gone once the panels were the strip. The test now waits for
 the panels to be the strip after narrowing and the areas after widening, each before it reads or types. Nothing in the
-product changed; whether a field should keep what was typed across the change is put to the owner.
+product changed then. Asked whether a field should keep what was typed across the change, the owner chose that
+everything stays (2026-11-15), which the next section builds.
 
 | Check | Result |
 |---|---|
@@ -4015,6 +4016,47 @@ product changed; whether a field should keep what was typed across the change is
   whole but the line still said `Reading the line…` after 5 seconds. No trace of a failing run was caught (none failed
   with tracing on), so whether a reading was left unanswered or the line asked again is not known. It was never seen
   without the added load.
+
+## The page in view stays as the panels change between the strip and the areas (ADR-0018 §5's note of 2026-11-15)
+
+Asked whether what is typed and not committed should stay when the window crosses 768px (a tablet turned while
+typing), the owner chose that everything stays (「すべて残す」), over losing it as ADR-0006 note 10 said and over keeping
+only the drafts of the toolbars' fields. ADR-0018 §5's note of 2026-11-15 records it, and ADR-0006 note 10's "What is
+not" points there.
+
+### What runs
+
+- A page in the main window is drawn where the panels are (`client/src/shell/pageHost.tsx`, from `Panels.tsx`) and
+  moved into the place that shows it: the strip's page (`.qube-strip-place`) or an area's (`.qube-area-page`). As the
+  panels change between the strip and the areas, the active panel's page, the one in view on both sides, is carried
+  across: the same page, with what was typed and not committed (a toolbar's field, a grid's Cell Editor), a dialog
+  open, a notice, a busy state, the keyboard's place and a grid's scroll. Nothing is committed by the change.
+- The move is the browser's `moveBefore`, which keeps the keyboard's place and each scroll and neither blurs nor
+  focuses. Without it (a browser older than Chromium 133), the page is appended: the scrolls and the keyboard's place
+  are read before and put back after, and the focus events the move makes are not let through to the page, so that a
+  field that commits as it is left does not commit.
+- The strip takes the page in the same step as the areas go. The areas take it a moment after the strip goes, once
+  dockview has drawn them: meanwhile the page waits out of sight in a box of the kind and size of the place it left,
+  its size as the browser last reported it, and the strip's room (`--qube-panel-room`) as the strip had it, so that its
+  layout does not change while it waits. A first build held it in a box of the panels' size laid out as an area: a
+  layout forced while it waited made the pricer's Existing grid as tall as its rows, and its scroll went to 0. Chromium
+  153 also loses a scroll across two `moveBefore` moves with no layout between (into the box and on into the strip in
+  one step), so a page that waited is laid out in its box before it moves on.
+- A page is shown in the last place that asks for it, and goes back to the one before as that one lets go. Two ask at
+  once as dockview brings a panel back from another window (`dock panel`): the area it is drawn in, and the one that
+  drew it before, out of the document, which dockview shows again as the panel is next chosen in its area. A place out
+  of the document asks behind one in it, so the page is in view at once; a first build put it in the one out of the
+  document, and the area was empty. A place in another window gets no page from here.
+- The other pages are as before: only the pages in view are mounted, so a page in another area goes as the strip is
+  drawn, and one that comes into view in an area is drawn as a page shown again. A page in another window is drawn
+  there, and anew in the main window as the strip closes the windows.
+
+### Decisions made for the owner (DEFAULT, each easy to change)
+
+- Only the page in view on both sides is carried. The pages of the other areas are not kept while the strip shows
+  one page: that would be keeping hidden pages mounted, which ADR-0018 rejects (a hidden page took the keyboard).
+- What the new width changes still changes: the pricer under 768px is three tabs, as on any resize.
+- A composition the keyboard was in the middle of (an IME's) is not kept where the browser has no `moveBefore`.
 
 ## The Rates line grid shows rows to type in from the start (ADR-0015's note of 2026-11-14)
 

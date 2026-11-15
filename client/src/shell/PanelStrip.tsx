@@ -8,7 +8,8 @@ import { ICON, STROKE } from './icons';
 import { registerArrangement, stripArrangement } from './arrangement';
 import type { Size } from './layout';
 import { CLOSE } from './panelVerbs';
-import { PanelContent, PanelList, renameOnLine, TabMenu, useRunVerb, type MenuAt } from './panelMenus';
+import { PanelList, renameOnLine, TabMenu, useRunVerb, type MenuAt } from './panelMenus';
+import { PageSlot } from './pageHost';
 import { lineIsOpen } from './CommandPalette';
 import { isElement } from '../platform/elements';
 
@@ -16,7 +17,8 @@ import { isElement } from '../platform/elements';
 // where its arrangement of areas has no room (ADR-0018 §5). The strip is one row that scrolls sideways and keeps the
 // active tab in sight; the list at its end names every panel. A tab's menu, the list and the keys of a tab run the verbs
 // `panelVerbs` declares, which the command line runs too; those that arrange are refused here, saying why. Only the
-// active panel's page is mounted, so the screen's cost does not grow with the panels open.
+// active panel's page is mounted, so the screen's cost does not grow with the panels open; it is drawn where the
+// panels are, and moved into the strip's page (`pageHost`).
 
 export function PanelStrip({ room, why }: {
   readonly room: Size;
@@ -166,7 +168,7 @@ export function PanelStrip({ room, why }: {
         <TabMenu key={`${menuAt.panelId} ${menuAt.x} ${menuAt.y}`} at={menuAt} panel={menuPanel} run={run} onClose={closeMenu} />
       )}
       {panels.map((p) => (
-        <Tabs.Panel key={p.id} value={p.id} className="qube-strip-page"><PanelContent panel={p} /></Tabs.Panel>
+        <Tabs.Panel key={p.id} value={p.id} className="qube-strip-page"><PageSlot panelId={p.id} className="qube-strip-place" /></Tabs.Panel>
       ))}
     </Tabs>
   );
