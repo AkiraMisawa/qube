@@ -128,7 +128,7 @@ public class PricerApiTests(QubeFactory factory) : IClassFixture<QubeFactory>
 
         (var said, ws) = await Taken(ws, "xva.trades.add", []);
         Assert.Equal("Made 3 case(s): add DRAFT-1, add DRAFT-2, add DRAFT-3.", said);
-        // A case names the trades of its iteration as lists (ADR-0016 note 37): what a page gives back to make the set by hand.
+        // A case names its package and the trades of its iteration as lists (ADR-0016 notes 37 and 90): what the Changes tab shows of it.
         Assert.Equal([("add", """{"add":["DRAFT-1"],"without":[]}"""), ("add", """{"add":["DRAFT-2"],"without":[]}"""), ("add", """{"add":["DRAFT-3"],"without":[]}""")],
             ws["cases"]!.AsArray().Skip(1).Select(c => (c!["kind"]!.GetValue<string>(), c["iteration"]!.ToJsonString())));
         var (_, rows) = await Price(ws);
@@ -140,7 +140,7 @@ public class PricerApiTests(QubeFactory factory) : IClassFixture<QubeFactory>
 
         Assert.Equal(HttpStatusCode.UnprocessableEntity, refused.StatusCode);
         var error = (await refused.Content.ReadFromJsonAsync<JsonObject>())!;
-        Assert.Equal(("AdditionSetChanged", "add each's cases add DRAFT-1, DRAFT-2, DRAFT-3, and DRAFT-2 is in a case and no longer ticked. Run add each again to make the set anew."),
+        Assert.Equal(("AdditionSetChanged", "add each's cases are not what the Package column and A say. Out of date: add DRAFT-2. Run add each again to make the set anew."),
             (error["code"]!.GetValue<string>(), error["message"]!.GetValue<string>()));
     }
 

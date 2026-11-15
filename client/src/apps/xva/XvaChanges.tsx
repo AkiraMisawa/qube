@@ -1,7 +1,6 @@
 import { useEffect, useState, type ReactNode, type Ref } from 'react';
-import { Button, Group, Table, Text, TextInput } from '@mantine/core';
-import { IconX } from '@tabler/icons-react';
-import type { CaseView, ChangeItem, ChangesList, Iteration } from './contracts';
+import { Button, Table, Text, TextInput } from '@mantine/core';
+import type { ChangeItem, ChangesList, Iteration } from './contracts';
 
 // The Changes input tab (ADR-0010 §3's note of 2026-11-08): every Common change, then each case with its own, where a
 // change is found without scanning a wide grid, its value typed again or removed, and a case removed whole. The server
@@ -15,8 +14,6 @@ export interface ChangeActions {
   readonly remove: (change: ChangeItem) => void;
   readonly removeCase: (caseId: string, title: string) => void;
   readonly clearCases: () => void;
-  /** Leaves one trade out of what a case of `add each` adds, or keeps in After one it takes out (ADR-0016 note 37). */
-  readonly leaveOut: (caseId: string, title: string, list: keyof Iteration, trade: string) => void;
 }
 
 export function XvaChanges({ list, actions, focusRef }: {
@@ -43,7 +40,7 @@ export function XvaChanges({ list, actions, focusRef }: {
             <Section key={c.id} title={c.title} kind={c.kind} note={caseNote(c.note, changes.length)}
               action={<Button size="compact-xs" variant="default" onClick={() => actions.removeCase(c.id, c.title)}
                 aria-label={`Remove case ${c.title}`}>Remove case</Button>} />,
-            ...(c.iteration === undefined ? [] : [<Trades key={`${c.id}.trades`} of={c} iteration={c.iteration} actions={actions} />]),
+            ...(c.iteration === undefined ? [] : [<Trades key={`${c.id}.trades`} iteration={c.iteration} />]),
             ...changes.map((change) => <Change key={`${c.id}.${change.entity}.${change.field}`} change={change} scope={c.title} actions={actions}
               whole={c.kind === 'add'} />),
           ])}
@@ -70,27 +67,20 @@ function Section({ title, kind, note, action }: { readonly title: string; readon
 }
 
 /**
- * What a case of `add each` adds together and takes out of After (ADR-0016 note 37), each trade a button: one the case
- * adds is left out of it, one it takes out is kept in After. The one trade a case adds is said and has no button: a
- * case that adds nothing is no case, so it is removed whole.
+ * What a case of `add each` is (ADR-0016 notes 37 and 94): its package, the new trades it adds together and the
+ * existing trades it takes out of After, read only. A trade leaves a package by its Package cell, then add each again.
  */
-function Trades({ of, iteration, actions }: { readonly of: CaseView; readonly iteration: Iteration; readonly actions: ChangeActions }) {
-  const lone = iteration.add.length === 1;
-  const trade = (list: keyof Iteration, id: string) => (
-    <Button key={`${list}.${id}`} size="compact-xs" variant="default" rightSection={<IconX size={14} stroke={1.75} aria-hidden />}
-      aria-label={list === 'add' ? `Leave ${id} out of ${of.title}` : `Keep ${id} in After in ${of.title}`}
-      title={list === 'add' ? `${of.title} adds ${id}. Press to leave it out.` : `${of.title} takes ${id} out of After. Press to keep it in After.`}
-      onClick={() => actions.leaveOut(of.id, of.title, list, id)}>{id}</Button>
-  );
+function Trades({ iteration }: { readonly iteration: Iteration }) {
+  const ids = (trades: readonly string[]) => <Text span inherit fw={600}>{trades.join(' + ')}</Text>;
+  const parts = [
+    ...(iteration.package === undefined ? [] : [<>Package {ids([iteration.package])}</>]),
+    ...(iteration.add.length === 0 ? [] : [<>Adds {ids(iteration.add)}</>]),
+    ...(iteration.without.length === 0 ? [] : [<>Takes out of After {ids(iteration.without)}</>]),
+  ];
   return (
     <Table.Tr className="qube-xva-changes-trades">
       <Table.Td colSpan={4}>
-        <Group gap="xs" wrap="wrap">
-          <Text size="sm" span>Adds</Text>
-          {lone ? <Text size="sm" span fw={600}>{iteration.add[0]}</Text> : iteration.add.map((id) => trade('add', id))}
-          {iteration.without.length > 0 && <Text size="sm" span>Takes out of After</Text>}
-          {iteration.without.map((id) => trade('without', id))}
-        </Group>
+        <Text size="sm">{parts.map((part, i) => <span key={i}>{i === 0 ? '' : ' · '}{part}</span>)}</Text>
       </Table.Td>
     </Table.Tr>
   );

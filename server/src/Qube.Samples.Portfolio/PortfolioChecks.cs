@@ -116,6 +116,9 @@ public sealed class PortfolioChecks(MeasureRegister register)
             "csa" or "curve" or "fvaCurve" => value is JsonValue x && x.TryGetValue<string>(out var id) && id.Length > 0 ? null : $"A {field} is an identifier.",
             // Empty is no IM CSA of that direction (ADR-0012 §2).
             "imR" or "imP" => value is null || value is JsonValue im && im.TryGetValue<string>(out var imId) && imId.Length > 0 ? null : $"{(field == "imR" ? "IM-R" : "IM-P")} is an IM CSA's identifier, or empty for none.",
+            // A package's name (ADR-0016 note 90): kept free of commas, which a row in several packages would need.
+            PortfolioPackages.Field when kind == Entity.Trade => value is null ? null
+                : value is JsonValue pk && pk.TryGetValue<string>(out var name) ? PortfolioPackages.Problem(name) : PortfolioPackages.Rule,
             "frequency" => value is JsonValue f && f.TryGetValue<string>(out var often) && PortfolioCatalog.Frequencies.Contains(often)
                 ? null : $"A frequency is {string.Join(", ", PortfolioCatalog.Frequencies)}.",
             "counterpartyThreshold" or "counterpartyMta" or "selfThreshold" or "selfMta" =>

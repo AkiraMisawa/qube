@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import type { Page } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 import { command, expect, newWorkspace, open, settled, test, textBelowContrast, taken } from './fixtures';
 
 // Slice 02 (docs/plans/slice-02-xva-workspace.md): the XVA workspace and the Pricing DB, driven by keyboard.
@@ -19,11 +19,21 @@ async function focusCell(page: Page, right: number): Promise<void> {
 // The CSA's column in the New grid, which has no last fixing (ADR-0010 §6), counted from the trade's id: the row's Edit
 // button stands beside the id (ADR-0016 note 57), so every column after it is one further right than its terms alone.
 const CSA = 8;
-// XVA's columns in the New grid, after B and A and the trade's PV (ADR-0010 §6, ADR-0016 note 49), by the grid's own
-// 1-based column index: the grid draws the columns in view, so a cell is found by its column, not by how many cells
-// are drawn before it.
-const XVA = { pv01: 14, margin: 15, pvAdj: 16 } as const;
+// XVA's columns in the New grid, after B, A, the Package and the trade's PV (ADR-0010 §6, ADR-0016 notes 49 and 90), by
+// the grid's own 1-based column index: the grid draws the columns in view, so a cell is found by its column, not by how
+// many cells are drawn before it.
+const XVA = { pv01: 15, margin: 16, pvAdj: 17 } as const;
 const cell = (page: Page, id: string, column: number) => trade(page, id).locator(`[aria-colindex="${column}"]`);
+/**
+ * Where an element is drawn, read once one is there: a row the grid draws again is a new element, and the box of the
+ * one it replaced is none. A press at that place reaches whichever element is drawn there then.
+ */
+async function placeOf(locator: Locator): Promise<{ x: number; y: number; width: number; height: number }> {
+  const read: { box: { x: number; y: number; width: number; height: number } | null } = { box: null };
+  await expect.poll(async () => { read.box = await locator.boundingBox(); return read.box !== null; }).toBe(true);
+  if (read.box === null) throw new Error('The element was drawn and has no box.');
+  return read.box;
+}
 /** What the open line says of its chain (ADR-0016 §9, note 24): the last it draws, a line that ran as `› <line>` and a notice as its sentence. */
 const saidIn = (page: Page) => page.getByTestId('command-said').locator('[data-kind]');
 
@@ -1814,7 +1824,7 @@ test('ADR-0016 §4, note 25: a grid\'s Context Menu offers its table\'s actions 
   await page.keyboard.press('Shift+ArrowDown');
   await page.keyboard.press('Shift+F10');
   await expect(page.getByRole('menuitem').first()).toBeFocused();
-  await expect(page.getByRole('menuitem')).toHaveText(['Copy', 'Copy with headers', ...actions, 'Make case from the selection…']);
+  await expect(page.getByRole('menuitem')).toHaveText(['Copy', 'Copy with headers', ...actions, 'Make package from the selection…']);
   for (let i = 0; i < 3; i++) await page.keyboard.press('ArrowDown');
   await expect(page.getByRole('menuitem', { name: 'Take out of After · set selected after off' })).toBeFocused();
   await page.keyboard.press('Enter');
@@ -1830,21 +1840,21 @@ test('ADR-0016 §4, note 25: a grid\'s Context Menu offers its table\'s actions 
   // A secondary press outside the Selection is on that cell alone (ExGrid): the action is its row's. One that changes
   // nothing there says so.
   await page.keyboard.press('ControlOrMeta+Home');
-  // The grid draws its rows again for what `undo` left: the cell is measured once it has.
+  // The grid draws its rows again for what `undo` left: the cell is measured once it has, by the element drawn then.
   await settled(page, 'Existing trades');
   await expect(trade(page, 'ABC-LE-01-E00004').locator('[aria-colindex="1"]')).toBeVisible();
-  const second = await trade(page, 'ABC-LE-01-E00004').locator('[aria-colindex="1"]').boundingBox();
-  await page.mouse.click(second!.x + 20, second!.y + second!.height / 2, { button: 'right' });
+  const second = await placeOf(trade(page, 'ABC-LE-01-E00004').locator('[aria-colindex="1"]'));
+  await page.mouse.click(second.x + 20, second.y + second.height / 2, { button: 'right' });
   await page.getByRole('menuitem', { name: 'Take out of Before · set selected before off' }).click();
   await expect(notice).toHaveText('Set ABC-LE-01-E00004 B to off.');
-  await page.mouse.click(second!.x + 20, second!.y + second!.height / 2, { button: 'right' });
+  await page.mouse.click(second.x + 20, second.y + second.height / 2, { button: 'right' });
   await page.getByRole('menuitem', { name: 'Take out of Before · set selected before off' }).click();
   await expect(notice).toHaveText('Nothing changed: ABC-LE-01-E00004 already holds B off.');
   await expect(summary).toContainText('1 edit(s)');
 
   // `Reset this cell` is the cell the menu was opened on: a new trade's CSA, edited, goes back to its source. The
-  // page's own items still end the menu: Vary values… on a cell that is typed, and Make case from the selection…
-  // (ADR-0016 note 37) on every row of a trade grid.
+  // page's own items still end the menu: Vary values… on a cell that is typed, and Make package from the selection…
+  // (ADR-0016 note 94) on every row of a trade grid.
   await focusCell(page, CSA);
   await page.keyboard.type('CSA-B');
   await page.keyboard.press('Enter');
@@ -1852,7 +1862,7 @@ test('ADR-0016 §4, note 25: a grid\'s Context Menu offers its table\'s actions 
   await page.keyboard.press('ArrowUp');
   await page.keyboard.press('Shift+F10');
   await expect(page.getByRole('menuitem').first()).toBeFocused();
-  await expect(page.getByRole('menuitem')).toHaveText(['Copy', 'Copy with headers', ...actions, 'Vary values…', 'Make case from the selection…']);
+  await expect(page.getByRole('menuitem')).toHaveText(['Copy', 'Copy with headers', ...actions, 'Vary values…', 'Make package from the selection…']);
   for (let i = 0; i < 2; i++) await page.keyboard.press('ArrowDown');
   await expect(page.getByRole('menuitem', { name: 'Reset this cell · reset' })).toBeFocused();
   await page.keyboard.press('Enter');
@@ -1918,8 +1928,9 @@ test('docs/03 §5, ADR-0010 §3, ADR-0016 note 28: `add each` says the cases it 
   await expect(page.getByTestId('price')).toHaveText('Price CVA FVA · 4 cases');
   // B on every new trade after the set was made: Price says which trades left it, and prices nothing. The line reads
   // `price` before it submits anything (ADR-0016 note 33), so the reason is the line's and no request was refused.
-  const left = "add each's cases add DRAFT-1, DRAFT-2, DRAFT-3, and DRAFT-1, DRAFT-2, DRAFT-3 are in Before. "
-    + 'Run add each again to make the set anew, with B clear on each.';
+  // The set the cells say now is one add each refuses, so Price says add each's reason (ADR-0016 note 92).
+  const left = 'DRAFT-1, DRAFT-2, DRAFT-3 are in Before, and a new trade is priced alone only out of Before. '
+    + 'Clear B on them, or A to leave them out, then add each again.';
   await taken(page, 'before', 'all new');
   await command(page, 'price');
   await expect(page.getByTestId('command-problems')).toHaveText(left);
@@ -1949,7 +1960,7 @@ test('docs/03 §5, ADR-0010 §3, ADR-0016 note 28: `add each` says the cases it 
   await expect(result.getByRole('table', { name: 'Metrics' }).getByRole('rowheader')).toHaveText(['Base', 'add DRAFT-1', 'add DRAFT-2', 'add DRAFT-3']);
 });
 
-test('ADR-0016 note 37, ADR-0010 §3: Add each makes a case per ticked new trade, Make case… makes one case of what the two grids\' selections name beside those made, with a pressed trade left out, a case made already is refused in the dialog, and the Changes tab lists a case\'s trades, keeps one in After and says why one is not left out', async ({ page, problems }) => {
+test('ADR-0016 notes 90 to 94, ADR-0010 §3: a package typed in the Package column is one case that adds its new trades together and takes its existing trade out, Price refuses the column until Add each makes it, Make package… writes one of the two selections, any trade left out by its press, with a trade moving from its package, a package left with its existing trade alone only takes it out, and the Changes tab lists each case\'s package and trades', async ({ page, problems }) => {
   const refused = 'error: Failed to load resource: the server responded with a status of 422 (Unprocessable Entity)';
   await open(page);
   await newWorkspace(page, 'ABC/LE-01', 5);
@@ -1961,76 +1972,104 @@ test('ADR-0016 note 37, ADR-0010 §3: Add each makes a case per ticked new trade
   const price = page.getByTestId('price');
   const fresh = page.getByLabel('New trades', { exact: true });
   const existing = page.getByLabel('Existing trades', { exact: true });
-  const dialog = page.getByRole('dialog', { name: 'Make case from the selection' });
+  const dialog = page.getByRole('dialog', { name: 'Make package from the selection' });
   const adds = dialog.getByRole('group', { name: 'Adds together' }).getByRole('button');
   const takesOut = dialog.getByRole('group', { name: 'Takes out of After' }).getByRole('button');
-  const alone = 'add DRAFT-1, add DRAFT-2, add DRAFT-3';
-  const together = 'add DRAFT-1 + DRAFT-2 without ABC-LE-01-E00003';
+  const out = 'ABC-LE-01-E00003';
+  // The Package column stands right of A: the New grid's thirteenth column, twelve to the right of a trade's id.
+  const PACKAGE = 13;
 
-  // The button is `add each` as the line types it: a case per new trade with A ticked.
+  // Typed in the Package column as any cell is: DRAFT-1 and DRAFT-2 in P1. The existing trade joins it by the line's
+  // `set`, which is what the AI says too.
+  await focusCell(page, PACKAGE - 1);
+  await page.keyboard.type('P1');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('P1');
+  await page.keyboard.press('Enter');
+  await expect(cell(page, 'DRAFT-1', PACKAGE)).toHaveText('P1');
+  await expect(cell(page, 'DRAFT-2', PACKAGE)).toHaveText('P1');
+  await taken(page, 'set', 'E00003 package P1');
+  await expect(notice).toHaveText(`Set ${out} package to P1.`);
+  // Written and not made, the package is no case, and Price says so rather than price without it.
+  await price.click();
+  await expect(notice).toHaveText('Price was refused: The Package column names P1, and no case of add each prices it. '
+    + 'Run add each to make the cases, or clear the column with reset all package to price without them.');
+  expect(problems.splice(0)).toEqual([refused]);
+
+  // Add each makes the package one case, and DRAFT-3, in no package, a case alone.
   await page.getByRole('button', { name: 'Add each' }).click();
-  await expect(notice).toHaveText(`Made 3 case(s): ${alone}.`);
-  await expect(price).toHaveText('Price CVA FVA · 4 cases');
+  await expect(notice).toHaveText(`Made 2 case(s): P1: add DRAFT-1 + DRAFT-2 without ${out}, add DRAFT-3.`);
+  await expect(price).toHaveText('Price CVA FVA · 3 cases');
 
-  // Two new trades and one existing trade selected by keyboard, each in its own grid: the dialog lists what the two
-  // selections name, as the server read them, and makes nothing until Make case.
+  // DRAFT-3 and the existing trade selected by keyboard, each in its own grid: the dialog lists what the two selections
+  // name, says the existing trade is in P1 now, offers the next free name, and writes nothing until Make package.
   await fresh.getByRole('grid').focus();
   await page.keyboard.press('ControlOrMeta+Home');
   await page.keyboard.press('ControlOrMeta+Home');
-  await page.keyboard.press('Shift+ArrowDown');
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('ArrowDown');
   await existing.getByRole('grid').focus();
   await page.keyboard.press('ControlOrMeta+Home');
   await page.keyboard.press('ControlOrMeta+Home');
-  await page.getByRole('button', { name: 'Make case…' }).click();
-  await expect(adds).toHaveText(['DRAFT-1', 'DRAFT-2']);
-  await expect(takesOut).toHaveText(['ABC-LE-01-E00003']);
-  await expect(price).toHaveText('Price CVA FVA · 4 cases');
-  await expect(dialog.getByRole('button', { name: 'Make case' })).toBeFocused();
+  await page.getByRole('button', { name: 'Make package…' }).click();
+  await expect(adds).toHaveText(['DRAFT-3']);
+  await expect(takesOut).toHaveText([`${out} from P1`]);
+  await expect(dialog.getByRole('textbox', { name: 'Package' })).toHaveValue('P2');
+  await expect(dialog.getByRole('button', { name: 'Make package' })).toBeFocused();
+  // Each trade is left out by its own press, and pressed again is back; with none kept, Make package says why it waits.
+  await adds.first().click();
+  await expect(adds.first()).toHaveAttribute('aria-pressed', 'false');
+  await takesOut.first().click();
+  await expect(takesOut.first()).toHaveAttribute('aria-pressed', 'false');
+  await expect(dialog.getByRole('button', { name: 'Make package' })).toBeDisabled();
+  await expect(dialog.getByRole('button', { name: 'Make package' })).toHaveAttribute('title', 'A package takes one trade at least: keep one.');
+  await expect(dialog.getByTestId('package-refused')).toHaveText('A package takes one trade at least: keep one.');
+  await adds.first().click();
+  await takesOut.first().click();
+  await expect(adds.first()).toHaveAttribute('aria-pressed', 'true');
+  await expect(dialog.getByRole('button', { name: 'Make package' })).toBeEnabled();
+  // A name a cell cannot hold is the server's to refuse: the dialog says so and stays, and nothing was written.
+  await dialog.getByRole('textbox', { name: 'Package' }).fill('P2, P3');
+  await dialog.getByRole('button', { name: 'Make package' }).click();
+  await expect(dialog.getByTestId('package-refused')).toHaveText('No package was made: A package is a name with no comma, such as P1, or empty for none.');
+  expect(problems.splice(0)).toEqual([refused]);
+  await dialog.getByRole('textbox', { name: 'Package' }).fill('P2');
   await page.keyboard.press('Enter');
   await expect(dialog).toBeHidden();
-  // One case more beside those made, which stay the cases they were: the sentence names the one made.
-  await expect(notice).toHaveText(`Made 1 case(s): ${together}.`);
-  await expect(price).toHaveText('Price CVA FVA · 5 cases');
+  // The cells are written and the set made anew in one command: the existing trade moves from P1 to P2.
+  await expect(notice).toHaveText(`Wrote P2 on DRAFT-3 and ${out} (from P1); made 2 case(s): P1: add DRAFT-1 + DRAFT-2, P2: add DRAFT-3 without ${out}; `
+    + `replaced P1: add DRAFT-1 + DRAFT-2 without ${out}, add DRAFT-3.`);
+  await expect(price).toHaveText('Price CVA FVA · 3 cases');
 
-  // From the Existing grid's Context Menu, with trades pressed to leave them out: what is left is a case already made,
-  // which the server refuses by name. The dialog says so and stays, and no case was made.
-  await existing.getByRole('grid').focus();
+  // From the New grid's Context Menu the dialog reads that grid as the menu has it, and the other by its Selection. The
+  // next free name is P3 now: DRAFT-3 moves to it from P2, and the existing trade, left out by its press, stays in P2,
+  // which then only takes it out.
+  await fresh.getByRole('grid').focus();
   await page.keyboard.press('Shift+F10');
-  await page.getByRole('menuitem', { name: 'Make case from the selection…' }).click();
-  await expect(adds).toHaveText(['DRAFT-1', 'DRAFT-2']);
-  await adds.filter({ hasText: 'DRAFT-2' }).click();
-  await expect(adds.filter({ hasText: 'DRAFT-2' })).toHaveAttribute('aria-pressed', 'false');
-  await takesOut.click();
-  await dialog.getByRole('button', { name: 'Make case' }).click();
-  await expect(dialog.getByTestId('case-refused')).toHaveText('No case was made: The case add DRAFT-1 is made already.');
-  expect(problems.splice(0)).toEqual([refused]);
-  await expect(price).toHaveText('Price CVA FVA · 5 cases');
-  await dialog.getByRole('button', { name: 'Close' }).click();
+  await page.getByRole('menuitem', { name: 'Make package from the selection…' }).click();
+  await expect(adds).toHaveText(['DRAFT-3 from P2']);
+  await expect(takesOut).toHaveText([`${out} from P2`]);
+  await expect(dialog.getByRole('textbox', { name: 'Package' })).toHaveValue('P3');
+  await takesOut.first().click();
+  await dialog.getByRole('button', { name: 'Make package' }).click();
   await expect(dialog).toBeHidden();
+  await expect(notice).toHaveText(`Wrote P3 on DRAFT-3 (from P2); made 3 case(s): P1: add DRAFT-1 + DRAFT-2, P3: add DRAFT-3, P2: take out ${out}; `
+    + `replaced P1: add DRAFT-1 + DRAFT-2, P2: add DRAFT-3 without ${out}.`);
+  await expect(price).toHaveText('Price CVA FVA · 4 cases');
 
-  // The Changes tab lists what a case adds and takes out, each trade a button that says what its press does. The one
-  // trade a case adds has no button: the case is removed whole. A trade kept in After there is `add each` given its
-  // set again with that one change.
+  // The Changes tab lists each Package cell written, among the Common changes, and each case's package and its trades,
+  // read only: a trade leaves a package by its cell.
   await taken(page, 'open', 'changes');
   const changes = page.getByRole('table', { name: 'Changes' });
-  const trades = () => changes.getByRole('button', { name: /^(Leave|Keep) /u }).evaluateAll((buttons) => buttons.map((b) => b.getAttribute('aria-label')));
-  await expect.poll(trades).toEqual([`Leave DRAFT-1 out of ${together}`, `Leave DRAFT-2 out of ${together}`, `Keep ABC-LE-01-E00003 in After in ${together}`]);
-  await changes.getByRole('button', { name: `Keep ABC-LE-01-E00003 in After in ${together}` }).click();
-  await expect(notice).toHaveText(`Made 4 case(s): ${alone}, add DRAFT-1 + DRAFT-2; replaced ${alone}, ${together}.`);
-  await expect.poll(trades).toEqual(['Leave DRAFT-1 out of add DRAFT-1 + DRAFT-2', 'Leave DRAFT-2 out of add DRAFT-1 + DRAFT-2']);
-  // A trade left out of what a case adds is the same command: what is left here is a case already in the set, which
-  // the server refuses by name. The page says so, and the cases are as they were.
-  await changes.getByRole('button', { name: 'Leave DRAFT-2 out of add DRAFT-1 + DRAFT-2' }).click();
-  await expect(notice).toHaveText('DRAFT-2 was not left out of add DRAFT-1 + DRAFT-2: The iteration DRAFT-1 is given twice.');
-  expect(problems.splice(0)).toEqual([refused]);
-  await expect.poll(trades).toEqual(['Leave DRAFT-1 out of add DRAFT-1 + DRAFT-2', 'Leave DRAFT-2 out of add DRAFT-1 + DRAFT-2']);
-  await expect(price).toHaveText('Price CVA FVA · 5 cases');
+  await expect(changes.getByRole('textbox', { name: 'DRAFT-3 Package in Common' })).toHaveValue('P3');
+  await expect(changes.getByRole('textbox', { name: `${out} Package in Common` })).toHaveValue('P2');
+  await expect(changes.locator('.qube-xva-changes-trades')).toHaveText(['Package P1 · Adds DRAFT-1 + DRAFT-2', 'Package P3 · Adds DRAFT-3', `Package P2 · Takes out of After ${out}`]);
 
-  // The case of two trades is priced as one case, beside each trade alone.
+  // Each package is priced as one case, beside the Base.
   await taken(page, 'price');
   const result = page.getByTestId('xva-result');
   await expect(result.getByTestId('xva-result-status')).toHaveText('succeeded');
-  await expect(result.getByRole('table', { name: 'Metrics' }).getByRole('rowheader')).toHaveText(['Base', 'add DRAFT-1', 'add DRAFT-2', 'add DRAFT-3', 'add DRAFT-1 + DRAFT-2']);
+  await expect(result.getByRole('table', { name: 'Metrics' }).getByRole('rowheader')).toHaveText(['Base', 'P1: add DRAFT-1 + DRAFT-2', 'P3: add DRAFT-3', `P2: take out ${out}`]);
   expect(problems).toEqual([]);
 });
 
@@ -2678,32 +2717,32 @@ test('ADR-0016 notes 46 to 49: each trade grid shows PV in the display currency,
   await taken(page, 'measures', 'cva fva');
   await settled(page, 'New trades');
 
-  // PV stands after B and A, the New grid's thirteenth column, and its header names the display currency. The grid draws
-  // the columns in view, so it is read once the Focus has brought it there.
-  await focusCell(page, 12);
+  // PV stands after B, A and the Package, the New grid's fourteenth column, and its header names the display currency.
+  // The grid draws the columns in view, so it is read once the Focus has brought it there.
+  await focusCell(page, 13);
   await expect(header('New trades')).toBeVisible();
   // A new trade has no leg, so no PV. Typed with its currency, the PV is one leg's, shown in yen at the synthetic
   // market's 188.1 yen and 1.1583 euro to the pound.
-  await expect(cell(page, 'DRAFT-1', 13)).toHaveText('');
+  await expect(cell(page, 'DRAFT-1', 14)).toHaveText('');
   // A PV the server cannot read is not written, and the page says so with the server's sentence.
   await page.keyboard.type('lots');
   await page.keyboard.press('Enter');
   await expect(page.getByTestId('notice')).toHaveText('The PV of DRAFT-1 was not written: DRAFT-1 pv is a number, alone or followed by what it is in: GBP, JPY, USD or EUR; lots is not.');
-  await expect(cell(page, 'DRAFT-1', 13)).toHaveText('');
+  await expect(cell(page, 'DRAFT-1', 14)).toHaveText('');
   // The browser logs the refused request, and nothing else.
   expect(problems.splice(0)).toEqual(['error: Failed to load resource: the server responded with a status of 422 (Unprocessable Entity)']);
-  await focusCell(page, 12);
+  await focusCell(page, 13);
   await page.keyboard.type('250,000 EUR');
   await page.keyboard.press('Enter');
-  await expect(cell(page, 'DRAFT-1', 13)).toHaveText('40,598,291');
+  await expect(cell(page, 'DRAFT-1', 14)).toHaveText('40,598,291');
 
-  // The Existing grid has a last fixing and an official PV, so PV is its fifteenth column. This yen swap's two legs
+  // The Existing grid has a last fixing and an official PV, so PV is its sixteenth column. This yen swap's two legs
   // are in yen and add up to the books' PV.
   await taken(page, 'go', 'existing');
   await taken(page, 'find', 'E00004 pv');
   await expect(page.getByTestId('notice')).toHaveText(`The keyboard is on ${swap} · pv in trades (existing).`);
   await expect(header('Existing trades')).toBeVisible();
-  await expect(cell(page, swap, 15)).toHaveText('14,286,696');
+  await expect(cell(page, swap, 16)).toHaveText('14,286,696');
   // The cell shows the two legs in one figure. Committed as it stands, it writes nothing: the two legs stay, which the
   // line's preview below and the count of edits after `undo` both say.
   await page.keyboard.press('F2');
@@ -2715,13 +2754,13 @@ test('ADR-0016 notes 46 to 49: each trade grid shows PV in the display currency,
   await expect(line).toBeFocused();
   await page.keyboard.type('set E00004 pv -350,000 USD');
   await expect(page.getByTestId('command-preview')).toContainText('pv: 2 legs replaced by 1 leg, USD');
-  await expect(cell(page, swap, 15)).toHaveText('14,286,696');
+  await expect(cell(page, swap, 16)).toHaveText('14,286,696');
   await page.keyboard.press('Enter');
   await expect(line).toBeHidden();
   await expect(page.getByTestId('notice')).toHaveText(`Set ${swap} pv to -350000 USD.`);
-  await expect(cell(page, swap, 15)).toHaveText('-52,362,205');
-  await expect(cell(page, swap, 15)).toHaveClass(/ex-tone-negative/);
-  await expect(cell(page, swap, 15)).toHaveClass(/ex-state-modified/);
+  await expect(cell(page, swap, 16)).toHaveText('-52,362,205');
+  await expect(cell(page, swap, 16)).toHaveClass(/ex-tone-negative/);
+  await expect(cell(page, swap, 16)).toHaveClass(/ex-state-modified/);
 
   // `undo` brings the two legs back, and with them the PV.
   await page.keyboard.press('ControlOrMeta+K');
@@ -2729,8 +2768,8 @@ test('ADR-0016 notes 46 to 49: each trade grid shows PV in the display currency,
   await page.keyboard.type('undo');
   await page.keyboard.press('Enter');
   await expect(line).toBeHidden();
-  await expect(cell(page, swap, 15)).toHaveText('14,286,696');
-  await expect(cell(page, swap, 15)).not.toHaveClass(/ex-state-modified/);
+  await expect(cell(page, swap, 16)).toHaveText('14,286,696');
+  await expect(cell(page, swap, 16)).not.toHaveClass(/ex-state-modified/);
   // One edit is left, the new trade's leg: the swap's cell committed as it stood made none.
   await expect(page.getByTestId('workspace-summary')).toContainText('1 edit(s)');
 });

@@ -473,7 +473,7 @@ public class PricerDetailTests
             "Dates: maturity, breakDate, breakMandatory",
             "Valuation: officialPv, pv, independentAmount, xva.margin, xva.pvAdj",
             "Agreement: csa, curve, imR, imP, masterAgreement, nettingSet",
-            "none: before, after",
+            "none: before, after, package",
             "Model: modelId, pricerId, interpolationId, domesticCurrency, irModel, irBasis, equityModel, creditModel, inflationModel, unmodelledMethod",
         ], Groups(PortfolioTables.Trades));
         Assert.Equal(

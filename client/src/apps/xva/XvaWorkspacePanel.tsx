@@ -14,7 +14,7 @@ import { answeredInOrder, useKeptGrid } from '../../platform/grid/keptGrid';
 import { keyOf } from '../../platform/workspace/workspaceStore';
 import { registerPlaces, type Place } from '../../shell/places';
 import type { XvaApi } from './api';
-import type { CaseView, EffectiveTrade, HeldEdit, Iteration, RegisteredColumn, RegisteredMeasure, Resolution, ScopeDrop, ShiftEdit, XvaWorkspaceView } from './contracts';
+import type { EffectiveTrade, HeldEdit, RegisteredColumn, RegisteredMeasure, Resolution, ScopeDrop, ShiftEdit, XvaWorkspaceView } from './contracts';
 import { measureNamed, registerXvaPage } from './commands';
 import { commandDoor, registerCommandDoor, tableMenu, type TableMenu } from '../../platform/commands/served';
 import { filterGrid, menuView, pagedView, placeFocus, selectRows, sortGrid, whereOf, type Answered, type ScreenGrid } from '../../platform/grid/lineView';
@@ -35,11 +35,10 @@ import { XvaRisks } from './XvaRisks';
 import type { ScenarioActions } from './XvaScenarios';
 import type { ChangeActions } from './XvaChanges';
 import { VARY_COMMAND, VaryDialog, type VaryTarget } from './VaryDialog';
-import { CASE_COMMAND, CaseDialog } from './CaseDialog';
+import { PACKAGE_COMMAND, PackageDialog, type Selected } from './PackageDialog';
 import { DraftDialog } from '../../platform/drafts/DraftDialog';
 import { useDraft } from '../../platform/drafts/useDraft';
 import { EDIT_ROW, editColumn, openRow } from '../../platform/drafts/rowButton';
-import { tradeLeftOut } from './iterations';
 import { compactGridHeight, GRID_FRAME, Resizer } from './layout';
 import { pixels } from '../../platform/themeLength';
 import { declaring, measureOfField, membershipColumn, scopesOf } from './membership';
@@ -99,7 +98,11 @@ const inputColumns: Readonly<Record<string, GridColumn<Row>>> = {
 const sides: readonly GridColumn<Row>[] = [
   column('before', 'Before', 'boolean', 88, { editable: true }),
   column('after', 'After', 'boolean', 80, { editable: true }),
+  // The package of iterative addition a trade is in (ADR-0016 notes 90 and 94), beside the membership it changes in its case.
+  column('package', 'Package', 'text', 104, { editable: true }),
 ];
+/** The columns no case of `vary` is made of: a package is made a case by add each (ADR-0016 note 90). */
+const NOT_VARIED: ReadonlySet<string> = new Set(['package']);
 /** What the screen calls each column of a trade grid the user may type in: an edit is titled with it (ADR-0006's note 2 of 2026-11-11). */
 const TRADE_HEADERS: ReadonlyMap<string, string> = new Map([...leading, ...assigned, ...Object.values(inputColumns), ...sides]
   .flatMap((c): [string, string][] => (c.header === undefined ? [] : [[c.name, c.header]])));
@@ -220,7 +223,7 @@ function cellMessage(row: Row, col: GridColumn<Row>): string | undefined {
 const RETRY = 'xva.retry';
 /** Why a button of the page is disabled while the page prices, refreshes or acquires (design guidelines §10). */
 const WAIT = 'The page is busy: wait until it has finished, then press again.';
-const pageLabel = (id: string) => (id === RETRY ? 'Ask again' : id === VARY_COMMAND ? 'Vary values…' : id === CASE_COMMAND ? 'Make case from the selection…' : undefined);
+const pageLabel = (id: string) => (id === RETRY ? 'Ask again' : id === VARY_COMMAND ? 'Vary values…' : id === PACKAGE_COMMAND ? 'Make package from the selection…' : undefined);
 /** No table's actions: what a grid's menu holds of them until the page has read its tables. */
 const NO_MENU: TableMenu = { commands: () => [], label: () => undefined };
 
@@ -602,20 +605,21 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   const declaredOf = (grid: TradeGrid): ScreenGrid => ({ table: TRADES_TABLE, subset: grid, columns: gridColumns.current[grid].map((c) => c.name) });
   // A trade grid's Context Menu: what the trades' table offers on the rows selected and the cell under the menu
   // (ADR-0016 note 25), then the page's own: Ask again on a failed result, Vary values… on a cell the user may type
-  // now (ADR-0010 §3), which a module's read-only cell, such as PV Adj while Margin is entered, is not, and Make case
-  // from the selection… (ADR-0016 note 37), of this grid's rows as the menu has them and the other grid's Selection.
+  // now (ADR-0010 §3), which a module's read-only cell, such as PV Adj while Margin is entered, is not, nor a Package
+  // cell, and Make package from the selection… (ADR-0016 note 94), of this grid's rows as the menu has them and the
+  // other grid's Selection.
   const tradeCommands = useCallback((grid: TradeGrid) => (context: GridContextMenuContext<Row>) => {
     const { row, column: name } = context;
     const column = gridColumns.current[grid].find((c) => c.name === name);
     const module = registered.current.find((c) => c.field === name);
-    const typed = column?.editable === true && (module === undefined || cellRefusal(row, module) === undefined);
+    const typed = column?.editable === true && !NOT_VARIED.has(name) && (module === undefined || cellRefusal(row, module) === undefined);
     const under = menuView((read) => pagedView(declaredOf(grid), read, sources[grid].snapshot(), sources.answered), context, row.tradeId);
     return [
       ...menus.current.trades.commands(under),
       ...(failed(row, name) ? [{ id: RETRY, enabled: true, invoke: () => void pageRef.current.retry(row.tradeId) }] : []),
       ...(typed && column !== undefined
         ? [{ id: VARY_COMMAND, enabled: true, invoke: () => setVarying({ entity: `trade:${row.tradeId}`, field: name, title: `${row.tradeId} ${column.header}` }) }] : []),
-      { id: CASE_COMMAND, enabled: true, invoke: () => void pageRef.current.openCase({ grid, view: under }) },
+      { id: PACKAGE_COMMAND, enabled: true, invoke: () => void pageRef.current.openPackage({ grid, view: under }) },
     ];
   }, [sources]);
   const newCommands = useMemo(() => tradeCommands('new'), [tradeCommands]);
@@ -835,31 +839,19 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
     remove: (change) => void queue.push({ entity: change.entity, field: change.field, resolution: 'reset', case: change.case ?? undefined, title: change.title }),
     removeCase: (caseId, title) => void removeCase(caseId, title),
     clearCases: () => void clearCases(),
-    leaveOut: (caseId, title, list, trade) => void leaveOut(caseId, title, list, trade),
   };
 
-  /** The *Add each* button (ADR-0016 note 37): `add each` as the line types it, a case per new trade with A ticked. */
+  /** The *Add each* button (ADR-0016 notes 37 and 91): `add each` as the line types it, the set the Package column and A say. */
   const addEach = () => invoked('xva.trades.add', {}, 'No case was made');
+  // *Make package…* (ADR-0016 note 94): the trades the two grids' selections name, while its dialog is open.
+  const [packaging, setPackaging] = useState<Selected | undefined>(undefined);
   /**
-   * `add each`'s whole set of iterations (ADR-0016 note 37), said again with one change: made in the command's turn, of
-   * the cases the page shows at the revision the command is sent at, so a case an edit still on its way makes or
-   * removes is in it (spine 6). A page that shows another revision by then sends nothing and says so.
-   */
-  const iterationsWith = (change: (cases: readonly CaseView[]) => readonly Iteration[]) => (revision: number): CommandRequest => {
-    const shown = queryClient.getQueryData<XvaWorkspaceView>(['xva', workspaceId]);
-    if (shown === undefined || shown.revision !== revision)
-      throw new Error(`The page shows ${shown === undefined ? 'no workspace' : `revision ${shown.revision}`}, and the command would run at revision ${revision}. Try again.`);
-    return { iterations: change(shown.cases) };
-  };
-  // *Make case…* (ADR-0016 note 37): the trades the two grids' selections name, while its dialog is open.
-  const [caseOf, setCaseOf] = useState<Iteration | undefined>(undefined);
-  /**
-   * Opens *Make case from the selection…* on what the two trade grids' selections name: read by the server, as the
+   * Opens *Make package from the selection…* on what the two trade grids' selections name: read by the server, as the
    * line's `selected` is (ADR-0016 note 17), since it pages the grids and a position means a row only in its order.
    * From a Context Menu the grid it opened on is read as the menu has it. Refused, as where a grid's order has moved
    * since its rows were read, the page says why and opens nothing.
    */
-  const openCase = async (under?: { readonly grid: TradeGrid; readonly view: LineView }) => {
+  const openPackage = async (under?: { readonly grid: TradeGrid; readonly view: LineView }) => {
     const selected = async (grid: TradeGrid) => {
       const seen = under?.grid === grid ? under.view : tradeScreen[grid]()?.view;
       if (seen === undefined) throw new Error(`The page has no grid of ${grid} trades to read a selection of.`);
@@ -867,25 +859,16 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
     };
     try {
       const [add, without] = await Promise.all([selected('new'), selected('existing')]);
-      setCaseOf({ add, without });
+      setPackaging({ add, without });
     } catch (error) {
       workspace.notify('refused', `The selection was not read: ${describe(error)}`);
     }
   };
   /**
-   * *Make case*: the dialog's case, beside the cases made, which the server keeps as they are (`keep`, note 37 as
-   * corrected in review). Refused, the answer is the server's reason, for the dialog to say.
+   * *Make package*: the dialog's package written on its trades, and add each's set made anew from the cells, in one
+   * command (ADR-0016 note 93). Refused, the answer is the server's reason, for the dialog to say.
    */
-  const makeCase = async (iteration: Iteration) => (await door.invoke('xva.trades.add', { iterations: [iteration], keep: true }))?.sentence;
-  /**
-   * The Changes tab's removal of one trade from what a case adds, or from what it takes out of After (ADR-0016 note
-   * 37): the whole set said again with that change, so the case is made anew where it stood among the others.
-   */
-  const leaveOut = async (caseId: string, title: string, list: keyof Iteration, trade: string) => {
-    const reason = await door.invoke('xva.trades.add', iterationsWith((cases) => tradeLeftOut(cases, caseId, list, trade)));
-    if (reason !== undefined)
-      workspace.notify('refused', `${trade} was not ${list === 'add' ? 'left out of' : 'kept in After in'} ${title}: ${reason.sentence}`);
-  };
+  const makePackage = async (name: string, trades: readonly string[]) => (await door.invoke('xva.trades.add', { package: name, trades }))?.sentence;
   /**
    * *Vary values…* (ADR-0010 §3): a case per value of the dialog's cell, named by its entity and field, through
    * `xva.vary` as the line's `vary` goes (ADR-0016 note 28), in the page's turn (spine 6). Answers what the server said
@@ -936,7 +919,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
     : { entity: SETTINGS_ENTITY, field: PROJECT_FIELD, value: name, title: PROJECT_TITLE });
 
   // The commands run what the page's own controls run, as the page stands when they run (ADR-0010 §9).
-  const pageCommands = { takeBack, retry, openCase, copyQuote, download, explain, openResult, setDockFull, resultTabs, traceInView, measures: () => view.data?.measures ?? [] };
+  const pageCommands = { takeBack, retry, openPackage, copyQuote, download, explain, openResult, setDockFull, resultTabs, traceInView, measures: () => view.data?.measures ?? [] };
   const pageRef = useRef(pageCommands);
   pageRef.current = pageCommands;
   useEffect(() => {
@@ -1080,7 +1063,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
           tab={inputTab} onTab={(tab) => { setInputTab(tab); setInputsOpen(true); }} open={inputsOpen} onOpen={setInputsOpen} height={inputsHeight} focusRequest={focusRequest}
           changeList={changeList.data} changeActions={changeActions} scenarioActions={scenarioActions} onVary={setVarying} commandLabel={commandLabel} csaMenu={menus} onEditRow={editRow} />
         <VaryDialog target={varying} vary={varyCell} onClose={() => setVarying(undefined)} />
-        <CaseDialog selection={caseOf} make={makeCase} onClose={() => setCaseOf(undefined)} />
+        <PackageDialog selection={packaging} packages={ws.packages} next={ws.nextPackage} make={makePackage} onClose={() => setPackaging(undefined)} />
         <DraftDialog draft={draft} workspaceId={workspaceId} revision={ws.revision} api={workspace.api} door={door} drop={drop} discard={drafts.close} note={draftNote} />
         {inputsOpen && <Resizer label="Height of the input tabs" value={inputsHeight} min={48} max={640} grows="down" onChange={setInputsDragged} />}
       </div>
@@ -1092,12 +1075,13 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
         <div className="qube-xva-grids">
           <TradeCaption title="New trades" count={ws.newTrades} grid="new" setSide={(side, value, grid) => void setSide(side, value, grid)} disabled={!notBusy}
             source={sources.new} counted={counted.new} onFilterOff={filterOff.new}>
-            {/* The cases of `add each` (ADR-0016 note 37): one per ticked new trade, or one of the two grids' selections. */}
+            {/* The cases of `add each` (ADR-0016 notes 91 and 94): a case per package and per ticked new trade in none, and
+                a package written of the two grids' selections. */}
             <Group gap="xs" role="group" aria-label="Cases that add new trades">
               <Button size="compact-xs" variant="default" disabled={!notBusy} onClick={() => void addEach()}
-                title={notBusy ? 'Make a case per new trade with A ticked, each added alone beside the Base (add each).' : WAIT}>Add each</Button>
-              <Button size="compact-xs" variant="default" disabled={!notBusy} onClick={() => void openCase()}
-                title={notBusy ? 'Make one case that adds the new trades selected together and takes the existing trades selected out of After.' : WAIT}>Make case…</Button>
+                title={notBusy ? 'Make a case per package, and per new trade with A ticked in none, each beside the Base (add each).' : WAIT}>Add each</Button>
+              <Button size="compact-xs" variant="default" disabled={!notBusy} onClick={() => void openPackage()}
+                title={notBusy ? 'Put the trades selected in one package, which adds its new trades together and takes its existing trades out of After, and make the cases anew.' : WAIT}>Make package…</Button>
             </Group>
           </TradeCaption>
           <div aria-label="New trades" onFocusCapture={() => { screen.current = tradeScreen.new; }}>

@@ -16,7 +16,7 @@ Status: **CONFIRMED** = explicit user requirement or supplied operational fact. 
 | C08 | CDS recovery and CVA recovery override are separate. CDS term structures and proxy Region/Sector/Rating are editable inputs. |
 | C09 | MA/NS and CSA grids have main selections; multiple CSAs are possible. Trade rows have independent B/A membership and per-row CSA/discount-curve selection. |
 | C10 | Before and After are independently sent to analytics. Multiple configs, scenarios, preparation steps and risk requests can belong to one business submission. |
-| C11 | Initial iterative XVA is individual addition, not cumulative. Package grouping is a later extension. |
+| C11 | Iterative XVA is not cumulative: each new trade is added alone, or with the others of its package, and a package may take named existing trades out of After (owner, 2026-11-14; the initial scope was individual addition alone). |
 | C12 | CRIF generation and IM/SIMM calculation can be invoked independently. CRIF generation alone is not IM calculation. |
 | C13 | Workspace reuse must preserve loaded draft trades across repeated submissions; a completed run does not book them or replace the original portfolio. |
 | C14 | Developer diagnostics must be retrievable from RunId, including associated input/output ZIPs where retained. |

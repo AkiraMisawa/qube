@@ -186,6 +186,9 @@ variants the workspace is one case.
   Price refuses, by name, a set that no longer matches the New rows with A checked (docs/03 §5: never another set
   quietly), and `add trades` again makes the set anew. A case of the set is not a `vary` case: its change is the
   membership, not a value, so it has no cell to be edited from.
+  *Amended 2026-11-14 (ADR-0016 notes 90 to 94):* the set is a case per package of the trades' Package column, which
+  adds its new trades together and takes its existing trades out of After, and one per New row with A checked in
+  none; Price refuses a set that is no longer what the column and A say, and `add each` again makes it anew.
 - **A case's change is an edit with the case's key** (Consequences), so it is carried and refused like any other, and
   is marked against Original in the case's own reading. Removing a case removes its changes in one entry of the log.
 - **The changes panel is an input tab, `Changes`**, last in the row, which says how many changes it holds as every tab
