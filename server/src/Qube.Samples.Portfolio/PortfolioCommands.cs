@@ -506,14 +506,14 @@ public sealed class PortfolioCommandsModule(Func<PortfolioWorkspaces> workspaces
             ["type"] = "array", ["title"] = title, ["description"] = description, ["items"] = new JsonObject { ["type"] = "string", ["minLength"] = 1 },
         };
         var trades = Ids("Trades", "The ids of the trades to write the package on, new and existing, before the cases are made: DRAFT-1, DRAFT-2, E00003. "
-            + "A new trade is then added in the package's case, and needs A ticked and B clear; an existing one is taken out of After in it, and needs A ticked. A trade in another package moves to this one.");
+            + "A new trade is then added in the package's case, and needs A ticked and B clear; an existing one is taken out of After in it, and needs A ticked. A trade in other packages stays in them too.");
         trades["minItems"] = 1;
         Request(PortfolioCommandContracts.TradesAddRequest, "Make the cases of iterative addition", new JsonObject
         {
             ["workspaceId"] = PortfolioCommand.WorkspaceField(),
             ["revision"] = CommandRequests.RevisionField(),
-            ["package"] = Text("Package", "The package to write on trades first, a name with no comma such as P1. Left out with trades given: the next free name, P1, P2 and so on. "
-                + "It writes the same as set <trades> package <name>. Left out with no trades: nothing is written, and the cases are made from the Package column as it is."),
+            ["package"] = Text("Package", "The package to add trades to first, a name with no comma such as P1. Left out with trades given: the next free name, P1, P2 and so on. "
+                + "Each trade's Package cell keeps the packages it names and gains this one; set <trades> package P1, P2 writes a cell whole instead. Left out with no trades: nothing is written, and the cases are made from the Package column as it is."),
             ["trades"] = trades,
         }, "workspaceId");
         Request(PortfolioCommandContracts.TradesLoadRequest, "Load booked trades", new JsonObject

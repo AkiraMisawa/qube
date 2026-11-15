@@ -388,7 +388,7 @@ public class PricerLineTests
         // Left out, the name is the next free one; a trade is named whatever the case of its letters.
         var made = await rig.Invoke("xva.trades.add", Given(null, "draft-1", "DRAFT-2", taken));
         var undoes = rig.Preview("undo").Would;
-        var moved = await rig.Invoke("xva.trades.add", Given("P2", "DRAFT-2"));
+        var also = await rig.Invoke("xva.trades.add", Given("P2", "DRAFT-2"));
         // No package given is the command as typed: the set as the cells now write it.
         var typed = await rig.Invoke("xva.trades.add", new JsonObject());
 
@@ -398,16 +398,19 @@ public class PricerLineTests
         // The issue is at its item's path in the request, where a caller that built the list finds it.
         Assert.Equal(["/inputs/request/trades/1"], await rig.Paths("xva.trades.add", Given("P1", "DRAFT-1", 2)));
         Assert.Equal("NothingGiven: A package takes one trade at least, and none is given for P1.", nameAlone);
-        Assert.Equal("InvalidValue: A package is a name with no comma, such as P1, or empty for none.", comma);
+        // A package given by name is one name: the cells hold the lists (ADR-0016 note 95).
+        Assert.Equal("InvalidValue: A package is one name with no comma, such as P1.", comma);
         Assert.Equal("UnknownTarget: No trade DRAFT-9 in this workspace.", unknown);
         Assert.Equal("GivenTwice: DRAFT-1 is named twice.", twice);
         Assert.Equal(start, refused);
         Assert.Equal($"Wrote P1 on DRAFT-1, DRAFT-2 and {taken}; made 2 case(s): P1: add DRAFT-1 + DRAFT-2 without {taken}, add DRAFT-3.", made);
         // undo names the command by the package it wrote, as the log does.
         Assert.StartsWith($"Takes back: add each: package P1 on DRAFT-1, DRAFT-2 and {taken} (you,", undoes);
-        Assert.Equal($"Wrote P2 on DRAFT-2 (from P1); made 3 case(s): P1: add DRAFT-1 without {taken}, P2: add DRAFT-2, add DRAFT-3; "
-            + $"replaced P1: add DRAFT-1 + DRAFT-2 without {taken}, add DRAFT-3.", moved);
-        Assert.Equal($"Made 3 case(s): P1: add DRAFT-1 without {taken}, P2: add DRAFT-2, add DRAFT-3; replaced P1: add DRAFT-1 without {taken}, P2: add DRAFT-2, add DRAFT-3.", typed);
+        // A trade in another package stays in it too (ADR-0016 note 95), and each case adds it.
+        Assert.Equal($"Wrote P2 on DRAFT-2 (also in P1); made 3 case(s): P1: add DRAFT-1 + DRAFT-2 without {taken}, P2: add DRAFT-2, add DRAFT-3; "
+            + $"replaced P1: add DRAFT-1 + DRAFT-2 without {taken}, add DRAFT-3.", also);
+        Assert.Equal($"Made 3 case(s): P1: add DRAFT-1 + DRAFT-2 without {taken}, P2: add DRAFT-2, add DRAFT-3; "
+            + $"replaced P1: add DRAFT-1 + DRAFT-2 without {taken}, P2: add DRAFT-2, add DRAFT-3.", typed);
         Assert.StartsWith("Takes back: add each (you,", rig.Preview("undo").Would);
     }
 
@@ -458,6 +461,20 @@ public class PricerLineTests
         Assert.Equal($"Reset package on {taken} and DRAFT-1; 30 had no edit.", said);
         Assert.Empty(rig.View.Packages);
         Assert.IsType<SubmissionResult.Accepted>(rig.Service.Price(rig.Id, rig.State.Revision, "akira", Guid.NewGuid().ToString()));
+    }
+
+    [Fact] // ADR-0016 note 95: set writes a Package cell of several packages whole, its value every word after the field, and add each makes a case of each
+    public async Task Set_writes_a_cell_of_several_packages_whole_and_add_each_makes_a_case_of_each()
+    {
+        var rig = new Rig();
+
+        var said = await rig.Run(rig.Preview("set DRAFT-1, DRAFT-2 package P1, P2"));
+        var cells = rig.Service.Page(rig.Id, "akira", 0, 3, [], "new").Rows.Select(r => r.Package).ToList();
+        var made = await rig.Run(rig.Preview("add each"));
+
+        Assert.Equal("Set package to P1, P2 on DRAFT-1 and DRAFT-2.", said);
+        Assert.Equal(["P1, P2", "P1, P2", null], cells);
+        Assert.Equal("Made 3 case(s): P1: add DRAFT-1 + DRAFT-2, P2: add DRAFT-1 + DRAFT-2, add DRAFT-3.", made);
     }
 
     [Fact] // ADR-0016 note 28, docs/03 §5: what add each cannot do is refused in the preview by the command's own code and sentence

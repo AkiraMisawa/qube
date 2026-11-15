@@ -3900,10 +3900,62 @@ Unchanged: every source and every measure is simulated, and every value is synth
 ### Known limits
 
 - **One package a row** (DEFAULT, put to the owner): two alternatives cannot take out the same existing trade, or
-  add the same new one. A comma is refused in a name, kept for several packages a row if he asks.
+  add the same new one. A comma is refused in a name, kept for several packages a row if he asks. *Answered
+  2026-11-15: several, built in the next section (note 95).*
 - **A case made by note 37's lists before this change** has no package. One of a trade alone still prices; one that
   added several together or took a trade out is out of date at Price until `add each` again.
 - **The line has no spelling of a package's lists** (note 68): it writes cells with `set`, then `add each`.
+
+## Several packages a row (ADR-0016 note 95, 2026-11-15)
+
+The owner answered note 90's one question on 2026-11-15 (「その後に複数パッケージのサポートを開始して」, "then start
+supporting several packages"): a row may be in several packages. How it is built is DEFAULT, recorded as note 95, with
+notes 90, 91, 93 and 94 marked where it amends them, and docs/03 §5's built line rewritten.
+
+### What runs
+
+- **A Package cell lists packages**, separated by commas (`P1, P2`), kept as written and read in that order. Refused
+  by the trade's name, with nothing written: an empty name (`P1,`, `P1,, P2`), a space at either end of a value a
+  request gives (a typed cell is trimmed, as before), and a name written twice, whatever the case of its letters.
+- **`add each`**: a row is in the case of each package it names. A new trade in P1 and P2 is added in both cases, and
+  an existing trade in both is taken out of After in both, so two alternatives can add one new trade or take out one
+  existing trade. Titles are unchanged; the cases come in the order of their first rows, a row's packages in the order
+  written. Refusals name every package a row is in (`DRAFT-1 is in the packages P1 and P2 and has A clear, …`), the
+  clash of names that differ only in case reads every name of every cell, and the next free name skips them all.
+- **Make package and `xva.trades.add` add the name** to each trade's cell that does not name it, and a trade keeps the
+  packages it is in; the answer and the log say `DRAFT-2 (also in P1)` where they said `(from P1)`. The package given
+  is still one name. `set <trades> package P1, P2` writes a cell whole.
+- **The dialog** marks a trade `also in P1, P2`, and its hint says the trade stays there.
+- **Price** checks the set as before; the input it freezes holds each trade's cell as written.
+
+### Verification performed
+
+| Check | Result |
+|---|---|
+| `nix develop -c dotnet test server/Qube.slnx` | 1692 passed, on main's ca7f60c |
+| `cd client && npm run typecheck && npm test` | typecheck clean; 525 passed in 49 files |
+| `cd client && npm run build && npx playwright test e2e/xva.spec.ts` (Chromium, headless, Linux, the built client served by the host) | 57 passed |
+| The changed package browser test, `--repeat-each=3` | 3 passed |
+
+New and changed tests: a row in several packages in each of their cases, with its refusals, its frozen input and a
+stale set at Price (`A_row_in_several_packages_is_in_each_of_their_cases`); the cell's list rules; `set` of a list
+through the line; Make package adding and keeping, a trade already in the package left as it is, and a name added in
+other letters refused; the package browser test now makes two packages that take out one existing trade and add one
+new trade.
+
+By hand, in the built client served by the host: the dialog with `also in P1` and `also in P1, P2`, the answer, the
+grids' cells `P1, P2` and `P2, P3`, the Changes tab and a priced Run of three packages, at 1440px in both themes, and
+the dialog at 390px light.
+
+### Providers
+
+Unchanged: every source and every measure is simulated, and every value is synthetic.
+
+### Known limits
+
+- **A filter does not read a list**: `package = P1` compares the whole cell, so it misses `P1, P2`; `package ~ P1`
+  matches text, so it finds `P10` too. No filter of membership is made, since no command needs it yet.
+- **A trade leaves one package by its cell** (or `set` of the whole list): no command takes one name out of a list.
 
 ## Rates lines named in order (ADR-0016 note 65, 2026-11-14)
 

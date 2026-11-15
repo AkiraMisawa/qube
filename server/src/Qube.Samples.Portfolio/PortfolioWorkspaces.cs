@@ -834,12 +834,17 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
         if (package is not null)
         {
             var (name, named) = Packaged(trades, package);
-            changes.AddRange(named.Where(t => t.Package != name).Select(t =>
-                new WorkspaceChange.Set(PortfolioEditRules.Target(source, Entity.Of(Entity.Trade, t.TradeId), PortfolioPackages.Field), JsonValue.Create(name))));
-            // A trade that was in another package says which: `P2 on DRAFT-2 (from P1) and DRAFT-3`.
-            wrote = $"{name} on {TableWords.Some([.. named.Select(t => t.Package is { } was && was != name ? $"{t.TradeId} (from {was})" : t.TradeId)])}";
-            var ids = named.Select(t => t.TradeId).ToHashSet(StringComparer.Ordinal);
-            trades = [.. trades.Select(t => ids.Contains(t.TradeId) ? t with { Package = name } : t)];
+            // The name is added to each trade's cell, after the packages it is in already, which it keeps (ADR-0016
+            // note 95): a trade already in the package is left as it is.
+            var cells = named.Where(t => !t.Packages.Contains(name, StringComparer.Ordinal))
+                .ToDictionary(t => t.TradeId, t => string.Join(", ", t.Packages.Append(name)), StringComparer.Ordinal);
+            foreach (var (trade, cell) in cells)
+                if (PortfolioPackages.Problem(cell) is { } problem) throw new WorkspaceRefused("InvalidValue", $"{trade}'s Package would read {cell}: {problem}", word: trade);
+            changes.AddRange(cells.Select(c =>
+                new WorkspaceChange.Set(PortfolioEditRules.Target(source, Entity.Of(Entity.Trade, c.Key), PortfolioPackages.Field), JsonValue.Create(c.Value))));
+            // A trade in other packages says which, and stays in them: `P2 on DRAFT-2 (also in P1) and DRAFT-3`.
+            wrote = $"{name} on {TableWords.Some([.. named.Select(t => t.Packages.Where(p => p != name).ToList() is { Count: > 0 } others ? $"{t.TradeId} (also in {TableWords.And(others)})" : t.TradeId)])}";
+            trades = [.. trades.Select(t => cells.TryGetValue(t.TradeId, out var cell) ? t with { Package = cell } : t)];
         }
         var make = PortfolioPackages.AdditionSet(trades);
         var replaced = PortfolioCases.Made(raw).Where(c => PortfolioCases.KindOf(c) == PortfolioCases.Add).ToList();
@@ -873,7 +878,7 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
     static (string Name, IReadOnlyList<EffectiveTrade> Trades) Packaged(IReadOnlyList<EffectiveTrade> trades, PackageGiven package)
     {
         var name = package.Name ?? PortfolioPackages.NextFree(trades);
-        if (PortfolioPackages.Problem(name) is { } problem) throw new WorkspaceRefused("InvalidValue", problem, word: name);
+        if (PortfolioPackages.NameProblem(name) is { } problem) throw new WorkspaceRefused("InvalidValue", problem, word: name);
         if (package.Trades.Count == 0) throw new WorkspaceRefused("NothingGiven", $"A package takes one trade at least, and none is given for {name}.");
         var held = trades.ToDictionary(t => t.TradeId, StringComparer.OrdinalIgnoreCase);
         var named = package.Trades.Select(id => held.TryGetValue(id, out var trade) ? trade : throw new WorkspaceRefused("UnknownTarget", $"No trade {id} in this workspace.", word: id)).ToList();

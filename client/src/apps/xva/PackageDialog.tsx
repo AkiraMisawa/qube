@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import { Button, Group, Modal, Stack, Text, TextInput } from '@mantine/core';
 import type { Iteration, PackageView } from './contracts';
-import { packageOf } from './packages';
+import { packagesOf } from './packages';
 
-// *Make package from the selection…* (ADR-0010 §3, ADR-0016 note 94 of 2026-11-14): writes one package on the trades
-// the two grids' selections name, the new trades it adds together and the existing trades it takes out of After, and
+// *Make package from the selection…* (ADR-0010 §3, ADR-0016 note 94 of 2026-11-14): adds one package to the trades
+// the two grids' selections name, which stay in any package they are in already (note 95 of 2026-11-15), the new trades it adds together and the existing trades it takes out of After, and
 // makes add each's cases anew from the Package column, in one command. A grid once clicked always has a row selected,
 // so the press opens this rather than writing a package on a row the user only looked at: it lists what the two
 // selections name, any trade may be left out, and *Make package* is the change. The server checks every trade named
@@ -69,11 +69,8 @@ function PackageForm({ selection, packages, next, make, onClose }: {
       setBusy(false);
     }
   };
-  // A trade in another package now moves to this one, and says so before the press.
-  const now = (trade: string) => {
-    const was = packageOf(packages, trade);
-    return was === undefined || was === typed ? undefined : was;
-  };
+  // A trade in other packages stays in them, and says which before the press (ADR-0016 note 95).
+  const also = (trade: string) => packagesOf(packages, trade).filter((p) => p !== typed);
   const list = (label: string, trades: readonly string[], empty: string, says: (trade: string, on: boolean) => string) => (
     <Stack gap="xs">
       <Text size="sm" fw={600}>{label}</Text>
@@ -83,12 +80,12 @@ function PackageForm({ selection, packages, next, make, onClose }: {
           <Group gap="xs" wrap="wrap" role="group" aria-label={label}>
             {trades.map((trade) => {
               const on = !out.has(trade);
-              const was = now(trade);
+              const others = also(trade);
               return (
                 <Button key={trade} size="sm" variant={on ? 'light' : 'default'} aria-pressed={on} disabled={busy}
-                  title={says(trade, on) + (was === undefined ? '' : ` It is in ${was} now, and moves.`)} onClick={() => toggle(trade)}>
+                  title={says(trade, on) + (others.length === 0 ? '' : ` It is in ${others.join(', ')} too, and stays there.`)} onClick={() => toggle(trade)}>
                   {/* The button lays its label out as a row, where a space draws nothing: the margin is the gap, the space the name's. */}
-                  {trade}{was !== undefined && <>{' '}<Text span size="xs" fw={400} ml="sm">{`from ${was}`}</Text></>}
+                  {trade}{others.length > 0 && <>{' '}<Text span size="xs" fw={400} ml="sm">{`also in ${others.join(', ')}`}</Text></>}
                 </Button>
               );
             })}
@@ -99,8 +96,9 @@ function PackageForm({ selection, packages, next, make, onClose }: {
   return (
     <Stack gap="sm">
       <Text size="sm">
-        Writes the package in the Package column of the trades kept, then makes add each&apos;s cases anew: the new trades of a
-        package are added together in one case, and its existing trades taken out of After there. Press a trade to leave it out.
+        Adds the package to the Package column of the trades kept, which stay in any package they are in, then makes add
+        each&apos;s cases anew: the new trades of a package are added together in one case, and its existing trades taken out
+        of After there. Press a trade to leave it out.
       </Text>
       <TextInput size="sm" label="Package" value={name} onChange={(e) => { setRefused(undefined); setName(e.currentTarget.value); }}
         onKeyDown={(e) => { if (e.key === 'Enter') void submit(); }}

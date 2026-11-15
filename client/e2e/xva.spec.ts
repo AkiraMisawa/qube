@@ -1960,7 +1960,7 @@ test('docs/03 §5, ADR-0010 §3, ADR-0016 note 28: `add each` says the cases it 
   await expect(result.getByRole('table', { name: 'Metrics' }).getByRole('rowheader')).toHaveText(['Base', 'add DRAFT-1', 'add DRAFT-2', 'add DRAFT-3']);
 });
 
-test('ADR-0016 notes 90 to 94, ADR-0010 §3: a package typed in the Package column is one case that adds its new trades together and takes its existing trade out, Price refuses the column until Add each makes it, Make package… writes one of the two selections, any trade left out by its press, with a trade moving from its package, a package left with its existing trade alone only takes it out, and the Changes tab lists each case\'s package and trades', async ({ page, problems }) => {
+test('ADR-0016 notes 90 to 95, ADR-0010 §3: a package typed in the Package column is one case that adds its new trades together and takes its existing trade out, Price refuses the column until Add each makes it, Make package… adds one of the two selections, any trade left out by its press, to a package beside those a trade is in, so two packages take out one existing trade and add one new trade, and the Changes tab lists each case\'s package and trades', async ({ page, problems }) => {
   const refused = 'error: Failed to load resource: the server responded with a status of 422 (Unprocessable Entity)';
   await open(page);
   await newWorkspace(page, 'ABC/LE-01', 5);
@@ -2002,7 +2002,7 @@ test('ADR-0016 notes 90 to 94, ADR-0010 §3: a package typed in the Package colu
   await expect(price).toHaveText('Price CVA FVA · 3 cases');
 
   // DRAFT-3 and the existing trade selected by keyboard, each in its own grid: the dialog lists what the two selections
-  // name, says the existing trade is in P1 now, offers the next free name, and writes nothing until Make package.
+  // name, says the existing trade is in P1 too, offers the next free name, and writes nothing until Make package.
   await fresh.getByRole('grid').focus();
   await page.keyboard.press('ControlOrMeta+Home');
   await page.keyboard.press('ControlOrMeta+Home');
@@ -2013,7 +2013,7 @@ test('ADR-0016 notes 90 to 94, ADR-0010 §3: a package typed in the Package colu
   await page.keyboard.press('ControlOrMeta+Home');
   await page.getByRole('button', { name: 'Make package…' }).click();
   await expect(adds).toHaveText(['DRAFT-3']);
-  await expect(takesOut).toHaveText([`${out} from P1`]);
+  await expect(takesOut).toHaveText([`${out} also in P1`]);
   await expect(dialog.getByRole('textbox', { name: 'Package' })).toHaveValue('P2');
   await expect(dialog.getByRole('button', { name: 'Make package' })).toBeFocused();
   // Each trade is left out by its own press, and pressed again is back; with none kept, Make package says why it waits.
@@ -2028,48 +2028,52 @@ test('ADR-0016 notes 90 to 94, ADR-0010 §3: a package typed in the Package colu
   await takesOut.first().click();
   await expect(adds.first()).toHaveAttribute('aria-pressed', 'true');
   await expect(dialog.getByRole('button', { name: 'Make package' })).toBeEnabled();
-  // A name a cell cannot hold is the server's to refuse: the dialog says so and stays, and nothing was written.
+  // One package is made at a time, and a list is the server's to refuse: the dialog says so and stays, and nothing was
+  // written.
   await dialog.getByRole('textbox', { name: 'Package' }).fill('P2, P3');
   await dialog.getByRole('button', { name: 'Make package' }).click();
-  await expect(dialog.getByTestId('package-refused')).toHaveText('No package was made: A package is a name with no comma, such as P1, or empty for none.');
+  await expect(dialog.getByTestId('package-refused')).toHaveText('No package was made: A package is one name with no comma, such as P1.');
   expect(problems.splice(0)).toEqual([refused]);
   await dialog.getByRole('textbox', { name: 'Package' }).fill('P2');
   await page.keyboard.press('Enter');
   await expect(dialog).toBeHidden();
-  // The cells are written and the set made anew in one command: the existing trade moves from P1 to P2.
-  await expect(notice).toHaveText(`Wrote P2 on DRAFT-3 and ${out} (from P1); made 2 case(s): P1: add DRAFT-1 + DRAFT-2, P2: add DRAFT-3 without ${out}; `
+  // The cells are written and the set made anew in one command: the existing trade stays in P1 and is in P2 too, so
+  // both alternatives take it out.
+  await expect(notice).toHaveText(`Wrote P2 on DRAFT-3 and ${out} (also in P1); made 2 case(s): P1: add DRAFT-1 + DRAFT-2 without ${out}, P2: add DRAFT-3 without ${out}; `
     + `replaced P1: add DRAFT-1 + DRAFT-2 without ${out}, add DRAFT-3.`);
   await expect(price).toHaveText('Price CVA FVA · 3 cases');
 
   // From the New grid's Context Menu the dialog reads that grid as the menu has it, and the other by its Selection. The
-  // next free name is P3 now: DRAFT-3 moves to it from P2, and the existing trade, left out by its press, stays in P2,
-  // which then only takes it out.
+  // next free name is P3 now: DRAFT-3 is added to it and stays in P2, and the existing trade, left out by its press,
+  // stays in P1 and P2 alone.
   await fresh.getByRole('grid').focus();
   await page.keyboard.press('Shift+F10');
   await page.getByRole('menuitem', { name: 'Make package from the selection…' }).click();
-  await expect(adds).toHaveText(['DRAFT-3 from P2']);
-  await expect(takesOut).toHaveText([`${out} from P2`]);
+  await expect(adds).toHaveText(['DRAFT-3 also in P2']);
+  await expect(takesOut).toHaveText([`${out} also in P1, P2`]);
   await expect(dialog.getByRole('textbox', { name: 'Package' })).toHaveValue('P3');
   await takesOut.first().click();
   await dialog.getByRole('button', { name: 'Make package' }).click();
   await expect(dialog).toBeHidden();
-  await expect(notice).toHaveText(`Wrote P3 on DRAFT-3 (from P2); made 3 case(s): P1: add DRAFT-1 + DRAFT-2, P3: add DRAFT-3, P2: take out ${out}; `
-    + `replaced P1: add DRAFT-1 + DRAFT-2, P2: add DRAFT-3 without ${out}.`);
+  await expect(notice).toHaveText(`Wrote P3 on DRAFT-3 (also in P2); made 3 case(s): P1: add DRAFT-1 + DRAFT-2 without ${out}, P2: add DRAFT-3 without ${out}, P3: add DRAFT-3; `
+    + `replaced P1: add DRAFT-1 + DRAFT-2 without ${out}, P2: add DRAFT-3 without ${out}.`);
   await expect(price).toHaveText('Price CVA FVA · 4 cases');
 
-  // The Changes tab lists each Package cell written, among the Common changes, and each case's package and its trades,
-  // read only: a trade leaves a package by its cell.
+  // The Changes tab lists each Package cell written, among the Common changes, with the packages it names in the order
+  // they were added, and each case's package and its trades, read only: a trade leaves a package by its cell.
   await taken(page, 'open', 'changes');
   const changes = page.getByRole('table', { name: 'Changes' });
-  await expect(changes.getByRole('textbox', { name: 'DRAFT-3 Package in Common' })).toHaveValue('P3');
-  await expect(changes.getByRole('textbox', { name: `${out} Package in Common` })).toHaveValue('P2');
-  await expect(changes.locator('.qube-xva-changes-trades')).toHaveText(['Package P1 · Adds DRAFT-1 + DRAFT-2', 'Package P3 · Adds DRAFT-3', `Package P2 · Takes out of After ${out}`]);
+  await expect(changes.getByRole('textbox', { name: 'DRAFT-3 Package in Common' })).toHaveValue('P2, P3');
+  await expect(changes.getByRole('textbox', { name: `${out} Package in Common` })).toHaveValue('P1, P2');
+  await expect(changes.locator('.qube-xva-changes-trades')).toHaveText([`Package P1 · Adds DRAFT-1 + DRAFT-2 · Takes out of After ${out}`,
+    `Package P2 · Adds DRAFT-3 · Takes out of After ${out}`, 'Package P3 · Adds DRAFT-3']);
 
   // Each package is priced as one case, beside the Base.
   await taken(page, 'price');
   const result = page.getByTestId('xva-result');
   await expect(result.getByTestId('xva-result-status')).toHaveText('succeeded');
-  await expect(result.getByRole('table', { name: 'Metrics' }).getByRole('rowheader')).toHaveText(['Base', 'P1: add DRAFT-1 + DRAFT-2', 'P3: add DRAFT-3', `P2: take out ${out}`]);
+  await expect(result.getByRole('table', { name: 'Metrics' }).getByRole('rowheader')).toHaveText(['Base', `P1: add DRAFT-1 + DRAFT-2 without ${out}`,
+    `P2: add DRAFT-3 without ${out}`, 'P3: add DRAFT-3']);
   expect(problems).toEqual([]);
 });
 
