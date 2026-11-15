@@ -203,7 +203,14 @@ function layOut(element: HTMLElement): void {
 function moveInto(into: HTMLElement, node: HTMLElement, kept?: Kept): void {
   if (node.parentNode === into && kept === undefined) return;
   if (movesWhole(into, node)) {
+    // Chromium scrolls the field the keyboard is in into view as it is moved: a grid's Cell Editor moved into the
+    // narrower strip was scrolled to sideways, and stayed so back in the areas. Each scroll around it is put back.
+    const around = scrollsAroundKeyboard(node);
     into.moveBefore(node, null);
+    for (const { element, top, left } of around) {
+      if (element.scrollTop !== top) element.scrollTop = top;
+      if (element.scrollLeft !== left) element.scrollLeft = left;
+    }
     return;
   }
   // Appended, a field the keyboard is in is left, and taken again as the keyboard is put back: neither is let through to
@@ -214,6 +221,16 @@ function moveInto(into: HTMLElement, node: HTMLElement, kept?: Kept): void {
     if (node.parentNode !== into) into.append(node);
     kept?.restore();
   });
+}
+
+/** The elements of a page around the field the keyboard is in, each with its scroll. */
+function scrollsAroundKeyboard(node: HTMLElement): readonly { readonly element: Element; readonly top: number; readonly left: number }[] {
+  const around = [];
+  const active = node.ownerDocument.activeElement;
+  for (let element = active === null || !node.contains(active) ? null : active.parentElement; element !== null && element !== node; element = element.parentElement) {
+    around.push({ element, top: element.scrollTop, left: element.scrollLeft });
+  }
+  return around;
 }
 
 const FOCUS_EVENTS = ['focus', 'blur', 'focusin', 'focusout'] as const;

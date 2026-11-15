@@ -271,10 +271,14 @@ for (const how of ['moveBefore', 'append'] as const) {
     await page.keyboard.type('7000');
     const editing = { name: 'New trades', value: '7000' };
     await expect.poll(() => keyboardIn(page)).toEqual(editing);
+    // The grid the keyboard is in is not scrolled to it either (Chromium's move scrolls a field it moves into view).
+    const keyboardGrid = page.getByLabel('New trades', { exact: true }).locator('.ex-scroller');
+    const sideways = await keyboardGrid.evaluate((scroller) => scroller.scrollLeft);
     for (const width of [390, 1440]) {
       await cross(width);
       await expect.poll(() => keyboardIn(page), `${width}px`).toEqual(editing);
       expect(await existing.evaluate((scroller) => scroller.scrollTop), `${width}px`).toBe(500);
+      expect(await keyboardGrid.evaluate((scroller) => scroller.scrollLeft), `${width}px`).toBe(sideways);
     }
     await page.keyboard.press('Escape');
     await expect(summary).toContainText('0 edit(s)');

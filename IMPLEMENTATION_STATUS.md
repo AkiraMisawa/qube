@@ -4112,7 +4112,11 @@ not" points there.
   layout does not change while it waits. A first build held it in a box of the panels' size laid out as an area: a
   layout forced while it waited made the pricer's Existing grid as tall as its rows, and its scroll went to 0. Chromium
   153 also loses a scroll across two `moveBefore` moves with no layout between (into the box and on into the strip in
-  one step), so a page that waited is laid out in its box before it moves on.
+  one step), so a page that waited is laid out in its box before it moves on. And it scrolls the field the keyboard is
+  in into view as it moves it: the New grid with an edit open in its Notional was scrolled 373px sideways at 390px,
+  its heading under the frozen columns, and stayed so back at 1440px (seen in the pull request's pictures). Each scroll
+  around that field is put back after the move, so the grid stays as it was, its edit out of view at 390px as a grid
+  narrowed under an edit leaves it, with the grid's Go to selection.
 - A page is shown in the last place that asks for it, and goes back to the one before as that one lets go. Two ask at
   once as dockview brings a panel back from another window (`dock panel`): the area it is drawn in, and the one that
   drew it before, out of the document, which dockview shows again as the panel is next chosen in its area. A place out
@@ -4153,6 +4157,7 @@ not" points there.
 | `npx playwright test` (Chromium 153, headless, Linux, the built client served by the host) | 157 passed (before the review's fixes) |
 | The new browser test, by `moveBefore` and by append, `--repeat-each=3` | 6 passed |
 | The same test without the pricer's part following the keyboard | Failed, as it should: the CVA recovery field lost the keyboard at 390px |
+| The same test without the scrolls around the keyboard put back | Failed, as it should: the New grid at 373px sideways, not 0 |
 | `e2e/windows.spec.ts` and `e2e/areas.spec.ts`, after the fix for a panel docked back from another window | 23 passed |
 
 ## The Rates line grid shows rows to type in from the start (ADR-0015's note of 2026-11-14)

@@ -235,7 +235,9 @@ everything stays (「すべて残す」), over losing it as until then, and over
   reported it, so that its layout does not change while it waits (a grid laid out anew as tall as its rows would lose
   its scroll). Chromium 153 keeps a scroll across one `moveBefore`, but was found to lose it across two with no layout
   between (into the box and on into the strip in one step), so a page that waited is laid out in its box before it
-  moves on.
+  moves on. It also scrolls the field the keyboard is in into view as it moves it (a grid's Cell Editor, into the
+  narrower strip, was scrolled to sideways, and stayed so back in the areas), so each scroll around that field is put
+  back after the move.
 - **What the width changes still changes**: a page lays itself out again by its new width (above), and a part it draws
   at one width only (the pricer's three tabs under 768px) goes or comes as on any resize. The keyboard going into a
   part of the pricer chooses that part's tab, at any width (DEFAULT), so a field of the inputs typed in at 1440px is
