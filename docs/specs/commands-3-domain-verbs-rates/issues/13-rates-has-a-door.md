@@ -27,4 +27,5 @@ there.
   published), Add CCS and the toggle both ways, and runs the menu's `Reset this cell`.
 - *Found, and left:* ExGrid bounds its Context Menu by the grid's own box (its ADR-0040). The lines grid shows three
   rows at least, so on a workspace of up to three lines the menu shows three of its four items and scrolls to
-  `Remove line`.
+  `Remove line`. *No longer so (2026-11-14, ADR-0015's note of that day):* the grid shows eight rows at least, its
+  blank rows among them, and the menu shows its four items at once.

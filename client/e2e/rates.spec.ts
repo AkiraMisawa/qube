@@ -17,7 +17,12 @@ async function newWorkspace(page: Page): Promise<void> {
 }
 
 const lines = (page: Page) => page.getByLabel('Lines', { exact: true });
-const firstLine = (page: Page) => lines(page).getByRole('row', { name: /^L\d+ / }).first();
+// The grid's rows: its lines, each named by its line, and the blank rows below them, which hold no name (ADR-0015 note
+// of 2026-11-14).
+const gridRows = (page: Page) => lines(page).locator('[role=row]:has([role=gridcell])');
+const lineRows = (page: Page) => lines(page).getByRole('row', { name: /^L\d+ / });
+const lineIds = (page: Page) => lineRows(page).locator('[role=gridcell][aria-colindex="1"]');
+const firstLine = (page: Page) => lineRows(page).first();
 const notice = (page: Page) => page.getByTestId('notice');
 const summary = (page: Page) => page.getByTestId('workspace-summary');
 // A line is named L1, L2, … in the order its workspace makes them, and no number is given twice (ADR-0016 note 65), so a
@@ -28,6 +33,7 @@ const cell = (page: Page, column: number) => firstLine(page).locator(`[role=grid
 
 // The inputs first and the result after them (owner, 2026-11-04): line, Flows, trade, two legs, result. Folded, each
 // leg is one column (ADR-0015); open, its basic terms and its overrides.
+const PRODUCT = 2;
 const END = 4;
 const LEG1_SUMMARY = 6;
 const FOLDED_ISSUES = 12;
@@ -335,9 +341,8 @@ test('ADR-0016 notes 16, 21, 25 and 34: with two lines selected the line says it
     await expect(summary(page)).toContainText(`${i + 1} line(s)`);
   }
   await settled(page, 'Lines');
-  const rows = lines(page).getByRole('row', { name: /^L\d+ / });
-  await expect(rows).toHaveCount(2);
-  const [FIRST, SECOND] = await rows.locator('[role=gridcell][aria-colindex="1"]').allInnerTexts() as [string, string];
+  await expect(lineRows(page)).toHaveCount(2);
+  const [FIRST, SECOND] = await lineIds(page).allInnerTexts() as [string, string];
   const leg1 = (id: string) => lines(page).getByRole('row', { name: new RegExp(`^${id} `) }).locator(`[role=gridcell][aria-colindex="${LEG1_SUMMARY + 1}"]`);
   await expect(leg1(FIRST)).toHaveText('JPY 10mm Fixed par 12m');
 
@@ -478,7 +483,7 @@ test('ADR-0016 notes 39 to 41: the line grid shows the lines the server says a f
     await expect(summary(page)).toContainText(`${i + 1} line(s)`);
   }
   await settled(page, 'Lines');
-  const ids = () => lines(page).locator('[role=row] [role=gridcell][aria-colindex="1"]');
+  const ids = () => lineIds(page);
   await expect(ids()).toHaveCount(2);
   const [FIRST, SECOND] = await ids().allInnerTexts() as [string, string];
   const filtered = page.getByTestId('grid-filter');
@@ -489,10 +494,15 @@ test('ADR-0016 notes 39 to 41: the line grid shows the lines the server says a f
   await expect(notice(page)).toHaveText('Showing 1 of 2 rows of lines where currency = USD.');
   await expect(filtered.getByRole('status')).toHaveText('Filter: ccy=USD · 1 of 2');
   await expect(ids()).toHaveText([SECOND]);
+  // ADR-0015 note of 2026-11-14: a filtered grid shows the lines the conditions leave and no blank row, and the blank
+  // rows are back once the filter is off.
+  const rows = gridRows(page);
+  await expect(rows).toHaveCount(1);
 
   await page.getByRole('button', { name: 'Take the filter off the lines' }).click();
   await expect(filtered).toHaveCount(0);
   await expect(ids()).toHaveText([FIRST, SECOND]);
+  await expect(rows).toHaveCount(8);
 
   // The line grid shows a term as typed and sorts by none: the server reads the sort, and the page says why it is not
   // done, on the line.
@@ -510,7 +520,7 @@ test('ADR-0016 notes 43 and 44: the line grid takes a Selection from the line, a
     await expect(summary(page)).toContainText(`${i + 1} line(s)`);
   }
   await settled(page, 'Lines');
-  const ids = () => lines(page).locator('[role=row] [role=gridcell][aria-colindex="1"]');
+  const ids = () => lineIds(page);
   // Both lines are drawn before their ids are read.
   await expect(ids()).toHaveCount(2);
   const [FIRST, SECOND] = await ids().allInnerTexts() as [string, string];
@@ -609,4 +619,184 @@ test('ADR-0016 §8, notes 60 to 64: a sequence is saved from the line and offere
   await expect(line).toBeHidden();
   await expect(notice(page)).toHaveText(/^Took back: /);
   await expect(summary(page)).toContainText('0 line(s)');
+});
+
+// ADR-0015's note of 2026-11-14 (owner: five to ten blank rows from the start, and more as they fill). Only a browser
+// shows the rows the grid draws, and that a line typed into one goes through the grid's editor and the page's door.
+test('ADR-0015 note of 2026-11-14: the line grid shows rows to type in from the start, and a product typed in one makes the line', async ({ page }) => {
+  await open(page);
+  await newWorkspace(page);
+  const rows = gridRows(page);
+  const result = page.getByTestId('line-result');
+  const refusal = 'This row holds no line yet: type IRS or CCS under Product to make one.';
+
+  // No line yet, and eight rows to type in.
+  await expect(summary(page)).toContainText('0 line(s)');
+  await expect(rows).toHaveCount(8);
+  await expect(lineRows(page)).toHaveCount(0);
+
+  // A product typed under Product in a blank row, the third here, makes the line: it stands first, and seven stay blank.
+  await goTo(page, PRODUCT);
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.type('IRS');
+  await page.keyboard.press('Enter');
+  await expect(notice(page)).toHaveText(/^Added L\d+, an empty irs line\.$/);
+  await expect(summary(page)).toContainText('1 line(s)');
+  await settled(page, 'Lines');
+  await expect(rows).toHaveCount(8);
+  await expect(rows.first()).toHaveAccessibleName(/^L\d+ Flows IRS /);
+  await expect(lineRows(page)).toHaveCount(1);
+  // The keyboard is on a blank row, which has no result: the strip shows the only line's, as with no row selected.
+  await expect(result).toHaveAttribute('aria-label', /^Result of L\d+$/);
+
+  // The keyboard stayed on the blank row Enter left it on, below the one typed in: the next product is typed there
+  // with no going to it, and its line stands second, above that row.
+  await page.keyboard.type('ccs');
+  await page.keyboard.press('Tab');
+  await expect(summary(page)).toContainText('2 line(s)');
+  await expect(rows.nth(1)).toHaveAccessibleName(/^L\d+ Flows CCS /);
+  await expect(result).toHaveText('Select a line to see its result here.');
+
+  // Tab left the keyboard on that blank row still, under Start. Anything but a product typed in a blank row is
+  // refused where it was typed, and makes nothing.
+  await page.keyboard.type('10y');
+  await page.keyboard.press('Enter');
+  // Said beside the editor, which stays open on what was typed, and to a screen reader.
+  await expect(page.getByText(refusal).first()).toBeVisible();
+  await expect(page.getByRole('tabpanel').getByRole('status')).toHaveText(refusal);
+  await page.keyboard.press('Escape');
+  await expect(summary(page)).toContainText('2 line(s)');
+  await expect(lineRows(page)).toHaveCount(2);
+
+  // A blank row's menu holds the grid's own items and no command of the table: there is no line to remove.
+  await page.keyboard.press('Shift+F10');
+  await expect(page.getByRole('menuitem')).toHaveText(['Copy', 'Copy with headers']);
+  await page.keyboard.press('Escape');
+
+  // What a product is stays the server's to say: the notice is its sentence, after the line the cell ran.
+  await goTo(page, PRODUCT);
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.type('swaption');
+  await page.keyboard.press('Enter');
+  await expect(notice(page)).toHaveAttribute('data-kind', 'refused');
+  await expect(notice(page)).toHaveText('add line swaption: swaption is no product a line is added for: irs or ccs.');
+
+  // A blank row has no cashflows: its button says so and opens none.
+  await rows.nth(3).getByRole('button', { name: 'Flows' }).click();
+  await expect(notice(page)).toHaveText(refusal);
+  await expect(page.getByTestId('cashflows')).toHaveCount(0);
+
+  // A blank row is no row of the table: every row selected, a command on the selection reads the two lines.
+  await goTo(page, PRODUCT);
+  await page.keyboard.press('ControlOrMeta+A');
+  const line = page.getByRole('combobox', { name: 'Command' });
+  await page.keyboard.press('ControlOrMeta+K');
+  await expect(line).toBeFocused();
+  await expect(page.getByTestId('command-context')).toHaveText(/^On screen: lines, 2 selected, L\d+ · product$/);
+  await page.keyboard.type('remove lines selected');
+  await expect(page.getByTestId('command-preview')).toContainText(/L\d+/);
+  await page.keyboard.press('Enter');
+  await expect(line).toBeHidden();
+  await expect(notice(page)).toHaveText(/^Removed L\d+ and L\d+\.$/);
+  await expect(summary(page)).toContainText('0 line(s)');
+  await expect(rows).toHaveCount(8);
+
+  // More as they fill: from the seventh line the grid grows a row a line, so two blank rows always stand below.
+  for (let made = 1; made <= 7; made++) {
+    await page.getByRole('button', { name: 'Add IRS' }).click();
+    await expect(summary(page)).toContainText(`${made} line(s)`);
+    await expect(lineRows(page)).toHaveCount(made);
+    // The keyboard is put on the first line's End once the grid shows it, to be found there after seven more lines.
+    if (made === 1) await goTo(page, END);
+  }
+  await taken(page, 'add line', 'ccs');
+  await expect(lineRows(page)).toHaveCount(8);
+  await settled(page, 'Lines');
+  await expect(rows).toHaveCount(10);
+  // A button's line and the command line's are this page's own too: the Selection is where it was, and a command reads it.
+  await page.keyboard.press('ControlOrMeta+K');
+  await expect(line).toBeFocused();
+  await expect(page.getByTestId('command-context')).toHaveText(/^On screen: lines, 1 selected, L\d+ · end$/);
+  await page.keyboard.press('Escape');
+});
+
+/**
+ * Holds `add line` from the server until the function this answers is called, so a key is typed before the line comes.
+ * Once called, every `add line` goes straight through; a later hold stands before an earlier one.
+ */
+async function holdAddLine(page: Page): Promise<() => void> {
+  let release = (): void => undefined;
+  const held = new Promise<void>((resolve) => { release = resolve; });
+  await page.route('**/api/commands/rates.line.add/**', async (route) => { await held; await route.continue(); });
+  return release;
+}
+
+// ADR-0015's note of 2026-11-14, point 8. The grid drops a Selection as its rows' order moves, and its source gathers
+// a change that comes within 250ms of the one before, so where the keyboard is after a line is made is a browser's to
+// show: by the keys typed next, at machine speed, and with the line's answer held where a key must come before it.
+test('ADR-0015 note of 2026-11-14: a line made in a blank row keeps the keyboard where its key left it, whether the line comes before the next key or after it', async ({ page }) => {
+  await open(page);
+  await newWorkspace(page);
+  const rows = gridRows(page);
+  const end = (row: number) => rows.nth(row).locator(`[role=gridcell][aria-colindex="${END + 1}"]`);
+
+  // Two products, one after the other with no wait: Enter leaves the keyboard on the blank row below, where the
+  // second is typed, and Tab on the second line's Start. Its End is typed on from there. The second line comes
+  // within the source's interval of the first, which is when the Selection was lost on the first build.
+  await goTo(page, PRODUCT);
+  await page.keyboard.type('irs');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('ccs');
+  await page.keyboard.press('Tab');
+  await expect(summary(page)).toContainText('2 line(s)');
+  await expect(rows.nth(1)).toHaveAccessibleName(/^L\d+ Flows CCS /);
+  // The grid is given the line and the Selection together, so the row once drawn is the row the keyboard is on.
+  await page.keyboard.press('Tab');
+  await page.keyboard.type('7y');
+  await page.keyboard.press('Enter');
+  await expect(end(1)).toHaveText('7y');
+  await expect(end(0)).toHaveText('');
+
+  // A product half typed as the line before it comes is not cut in two: the edit stays open in its row, and what
+  // it runs is the whole word.
+  let comes = await holdAddLine(page);
+  await goTo(page, PRODUCT);
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.type('irs');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('cc');
+  comes();
+  await expect(summary(page)).toContainText('3 line(s)');
+  await expect(rows.nth(2)).toHaveAccessibleName(/^L\d+ Flows IRS /);
+  await page.keyboard.type('s');
+  await page.keyboard.press('Tab');
+  await expect(summary(page)).toContainText('4 line(s)');
+  await expect(rows.nth(3)).toHaveAccessibleName(/^L\d+ Flows CCS /);
+  await expect(notice(page)).toHaveText(/^Added L\d+, an empty ccs line\.$/);
+  await page.keyboard.press('Tab');
+  await page.keyboard.type('3y');
+  await page.keyboard.press('Enter');
+  await expect(end(3)).toHaveText('3y');
+
+  // A term half typed in the blank row as the line takes its place is not written to the line unseen: the grid
+  // refuses the commit, the page says so, and the line's cell stays empty.
+  comes = await holdAddLine(page);
+  await goTo(page, PRODUCT);
+  for (let down = 0; down < 4; down++) await page.keyboard.press('ArrowDown');
+  await page.keyboard.type('irs');
+  await page.keyboard.press('Tab');
+  await page.keyboard.press('Tab');
+  await page.keyboard.type('5');
+  comes();
+  await expect(summary(page)).toContainText('5 line(s)');
+  await expect(rows.nth(4)).toHaveAccessibleName(/^L\d+ Flows IRS /);
+  await page.keyboard.type('y');
+  await page.keyboard.press('Enter');
+  await expect(notice(page)).toHaveAttribute('data-kind', 'refused');
+  await expect(notice(page)).toHaveText('Nothing was written: the row this was typed in is not in the grid now. The edit stays open: press Escape to leave it without writing.');
+  await page.keyboard.press('Escape');
+  await expect(end(4)).toHaveText('');
 });
