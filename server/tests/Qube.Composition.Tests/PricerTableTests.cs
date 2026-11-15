@@ -346,7 +346,7 @@ public class PricerTableTests
 
         Assert.Equal(("UnknownRow", "No row CSA-Z in trades, legs, independent amounts, csas, scenarios, shifts, netting, credit, cds, workspace or xva."), noRow);
         Assert.Equal(("InvalidValue", "CSA-A threshold is an amount of 0 or more; -1mm is not."), negative);
-        Assert.Equal(("NotEditable", "maturity is not a field a command sets; trades takes notional, rate, schedule, pv, csa, curve, im-r, im-p, B, A, margin, pvadj, "
+        Assert.Equal(("NotEditable", "maturity is not a field a command sets; trades takes notional, rate, schedule, pv, csa, curve, im-r, im-p, B, A, package, margin, pvadj, "
             + "break date, mandatory break, model id, pricer id, interpolation id, domestic currency, ir model, ir basis, equity model, credit model, inflation model and unmodelled method."), readOnly);
         Assert.Equal((typed.Code, typed.Message), filled);
         Assert.Equal("UnknownField", unknown.Code);
@@ -385,7 +385,7 @@ public class PricerTableTests
         Assert.Equal(("MixedUnits", $"pvadj is in {first} and {other} here, and an amount is not compared across them; say which, as in where ccy={first} and pvadj>100."), mixed);
         Assert.Equal("Set DRAFT-1 pvadj to -3000.", typed.Said);
         // With no measure of XVA selected the grid shows none of its columns, and a command has none of them as a field.
-        Assert.Equal(("UnknownField", "trades has no field margin; its fields are trade id, product, ccy, notional, maturity, rate, schedule, last fixing, official pv, pv, independent amount, csa, curve, im-r, im-p, B, A, "
+        Assert.Equal(("UnknownField", "trades has no field margin; its fields are trade id, product, ccy, notional, maturity, rate, schedule, last fixing, official pv, pv, independent amount, csa, curve, im-r, im-p, B, A, package, "
             + "requested id, trade type, source product type, simm product class, user-defined, master agreement, netting set, break date, mandatory break, model id, pricer id, interpolation id, domestic currency, ir model, ir basis, equity model, credit model, inflation model, unmodelled method."),
             hidden);
         // An edit of a column that does not show stays: reset of every field is of the fields the table has now.

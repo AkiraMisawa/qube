@@ -422,6 +422,8 @@ public sealed class PortfolioSourceVersion : ISourceVersion
                     "curve" => new((JsonNode?)null),
                     "before" => new(!t.IsNew),
                     "after" => new(true),
+                    // A trade is in no package until the user writes one (ADR-0016 note 90).
+                    PortfolioPackages.Field => new((JsonNode?)null),
                     // A module's own input on a trade, such as XVA's Margin (ADR-0010 §10): the source holds none.
                     _ when field.Contains('.') => new((JsonNode?)null),
                     _ => null,
