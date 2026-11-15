@@ -24,9 +24,12 @@ public static class PortfolioPackages
 
     /// <summary>
     /// The names a Package cell holds, in the order written, the spaces around each comma being the list's; none where
-    /// the cell is empty. The cell is one the check let through (<see cref="Problem"/>).
+    /// the trade has no cell. The cell is one the check let through (<see cref="Problem"/>), which refuses an empty text.
     /// </summary>
     public static IReadOnlyList<string> Names(string? cell) => cell is null ? [] : [.. cell.Split(',').Select(name => name.Trim())];
+
+    /// <summary>The Package cell that lists the names given, in their order: what <see cref="Names"/> reads back.</summary>
+    public static string Cell(IEnumerable<string> names) => string.Join(", ", names);
 
     /// <summary>
     /// Why a text is not a Package cell, or none where it is one: one name or more, separated by commas, with no space at
@@ -51,21 +54,11 @@ public static class PortfolioPackages
     /// <summary>The packages the cells name, in the order of their first trade: the New rows first, then the existing.</summary>
     public static IReadOnlyList<PackageView> Named(IReadOnlyList<EffectiveTrade> trades)
     {
-        var order = new List<string>();
-        var adds = new Dictionary<string, List<string>>(StringComparer.Ordinal);
-        var takesOut = new Dictionary<string, List<string>>(StringComparer.Ordinal);
-        foreach (var t in trades.Where(t => t.IsNew).Concat(trades.Where(t => !t.IsNew)))
-            foreach (var name in t.Packages)
-            {
-                if (!adds.ContainsKey(name))
-                {
-                    order.Add(name);
-                    adds[name] = [];
-                    takesOut[name] = [];
-                }
-                (t.IsNew ? adds : takesOut)[name].Add(t.TradeId);
-            }
-        return [.. order.Select(name => new PackageView(name, adds[name], takesOut[name]))];
+        // Each cell read once: a workspace holds thousands of trades.
+        var ordered = trades.Where(t => t.IsNew).Concat(trades.Where(t => !t.IsNew)).Select(t => (Trade: t, Names: t.Packages)).Where(t => t.Names.Count > 0).ToList();
+        return [.. ordered.SelectMany(t => t.Names).Distinct(StringComparer.Ordinal).Select(name => new PackageView(name,
+            [.. ordered.Where(t => t.Trade.IsNew && t.Names.Contains(name, StringComparer.Ordinal)).Select(t => t.Trade.TradeId)],
+            [.. ordered.Where(t => !t.Trade.IsNew && t.Names.Contains(name, StringComparer.Ordinal)).Select(t => t.Trade.TradeId)]))];
     }
 
     /// <summary>The first name of <c>P1</c>, <c>P2</c>, … that no cell names, whatever the case of its letters.</summary>
@@ -142,5 +135,5 @@ public static class PortfolioPackages
     // P2`, or `DRAFT-3 (P1) and DRAFT-4 (P1, P2) are in packages`.
     static string InPackages(IReadOnlyList<EffectiveTrade> trades) => trades.Count == 1
         ? $"{trades[0].TradeId} is in the {(trades[0].Packages.Count == 1 ? "package" : "packages")} {TableWords.And(trades[0].Packages)}"
-        : $"{TableWords.And(trades.Select(t => $"{t.TradeId} ({string.Join(", ", t.Packages)})"))} are in {(trades.SelectMany(t => t.Packages).Distinct().Count() == 1 ? "a package" : "packages")}";
+        : $"{TableWords.And(trades.Select(t => $"{t.TradeId} ({Cell(t.Packages)})"))} are in {(trades.SelectMany(t => t.Packages).Distinct().Count() == 1 ? "a package" : "packages")}";
 }

@@ -388,7 +388,7 @@ public class PricerLineTests
         // Left out, the name is the next free one; a trade is named whatever the case of its letters.
         var made = await rig.Invoke("xva.trades.add", Given(null, "draft-1", "DRAFT-2", taken));
         var undoes = rig.Preview("undo").Would;
-        var also = await rig.Invoke("xva.trades.add", Given("P2", "DRAFT-2"));
+        var stays = await rig.Invoke("xva.trades.add", Given("P2", "DRAFT-2"));
         // No package given is the command as typed: the set as the cells now write it.
         var typed = await rig.Invoke("xva.trades.add", new JsonObject());
 
@@ -408,7 +408,7 @@ public class PricerLineTests
         Assert.StartsWith($"Takes back: add each: package P1 on DRAFT-1, DRAFT-2 and {taken} (you,", undoes);
         // A trade in another package stays in it too (ADR-0016 note 95), and each case adds it.
         Assert.Equal($"Wrote P2 on DRAFT-2 (also in P1); made 3 case(s): P1: add DRAFT-1 + DRAFT-2 without {taken}, P2: add DRAFT-2, add DRAFT-3; "
-            + $"replaced P1: add DRAFT-1 + DRAFT-2 without {taken}, add DRAFT-3.", also);
+            + $"replaced P1: add DRAFT-1 + DRAFT-2 without {taken}, add DRAFT-3.", stays);
         Assert.Equal($"Made 3 case(s): P1: add DRAFT-1 + DRAFT-2 without {taken}, P2: add DRAFT-2, add DRAFT-3; "
             + $"replaced P1: add DRAFT-1 + DRAFT-2 without {taken}, P2: add DRAFT-2, add DRAFT-3.", typed);
         Assert.StartsWith("Takes back: add each (you,", rig.Preview("undo").Would);

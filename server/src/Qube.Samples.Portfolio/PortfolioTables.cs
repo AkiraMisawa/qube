@@ -123,8 +123,8 @@ public static partial class PortfolioFields
         // B and A are membership, and under no group.
         new("before", "Before", ["B", "before"], FieldForm.Flag, Editable: true),
         new("after", "After", ["A", "after"], FieldForm.Flag, Editable: true),
-        // The package add each adds a new trade in, or takes an existing one out of After in (ADR-0016 note 90):
-        // membership of a case, as B and A are of a side, and under no group either.
+        // The packages add each adds a new trade in, or takes an existing one out of After in, separated by commas
+        // (ADR-0016 notes 90 and 95): membership of cases, as B and A are of a side, and under no group either.
         new(PortfolioPackages.Field, "Package", ["package", "pkg"], FieldForm.Id, Editable: true, Optional: true),
         .. register.TradeColumns.Where(c => c.Editable).Select(c => new TableField(c.Field, c.Title,
             [.. new[] { Words(c.Field[(c.Field.IndexOf('.') + 1)..]), Words(c.Title), Words(Unit().Replace(c.Title, "")) }.Distinct()], FieldForm.Number, Editable: true,

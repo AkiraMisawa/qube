@@ -4,8 +4,9 @@ import type { Iteration, PackageView } from './contracts';
 import { packagesOf } from './packages';
 
 // *Make package from the selection…* (ADR-0010 §3, ADR-0016 note 94 of 2026-11-14): adds one package to the trades
-// the two grids' selections name, which stay in any package they are in already (note 95 of 2026-11-15), the new trades it adds together and the existing trades it takes out of After, and
-// makes add each's cases anew from the Package column, in one command. A grid once clicked always has a row selected,
+// the two grids' selections name, the new trades it adds together and the existing trades it takes out of After, and
+// makes add each's cases anew from the Package column, in one command. A trade stays in any package it is in already
+// (note 95 of 2026-11-15). A grid once clicked always has a row selected,
 // so the press opens this rather than writing a package on a row the user only looked at: it lists what the two
 // selections name, any trade may be left out, and *Make package* is the change. The server checks every trade named
 // and says which it refuses; nothing here decides what a package may hold.
@@ -70,7 +71,7 @@ function PackageForm({ selection, packages, next, make, onClose }: {
     }
   };
   // A trade in other packages stays in them, and says which before the press (ADR-0016 note 95).
-  const also = (trade: string) => packagesOf(packages, trade).filter((p) => p !== typed);
+  const othersOf = (trade: string) => packagesOf(packages, trade).filter((p) => p !== typed);
   const list = (label: string, trades: readonly string[], empty: string, says: (trade: string, on: boolean) => string) => (
     <Stack gap="xs">
       <Text size="sm" fw={600}>{label}</Text>
@@ -80,7 +81,7 @@ function PackageForm({ selection, packages, next, make, onClose }: {
           <Group gap="xs" wrap="wrap" role="group" aria-label={label}>
             {trades.map((trade) => {
               const on = !out.has(trade);
-              const others = also(trade);
+              const others = othersOf(trade);
               return (
                 <Button key={trade} size="sm" variant={on ? 'light' : 'default'} aria-pressed={on} disabled={busy}
                   title={says(trade, on) + (others.length === 0 ? '' : ` It is in ${others.join(', ')} too, and stays there.`)} onClick={() => toggle(trade)}>

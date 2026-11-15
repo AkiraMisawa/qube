@@ -837,13 +837,15 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
             // The name is added to each trade's cell, after the packages it is in already, which it keeps (ADR-0016
             // note 95): a trade already in the package is left as it is.
             var cells = named.Where(t => !t.Packages.Contains(name, StringComparer.Ordinal))
-                .ToDictionary(t => t.TradeId, t => string.Join(", ", t.Packages.Append(name)), StringComparer.Ordinal);
+                .ToDictionary(t => t.TradeId, t => PortfolioPackages.Cell(t.Packages.Append(name)), StringComparer.Ordinal);
             foreach (var (trade, cell) in cells)
                 if (PortfolioPackages.Problem(cell) is { } problem) throw new WorkspaceRefused("InvalidValue", $"{trade}'s Package would read {cell}: {problem}", word: trade);
             changes.AddRange(cells.Select(c =>
                 new WorkspaceChange.Set(PortfolioEditRules.Target(source, Entity.Of(Entity.Trade, c.Key), PortfolioPackages.Field), JsonValue.Create(c.Value))));
-            // A trade in other packages says which, and stays in them: `P2 on DRAFT-2 (also in P1) and DRAFT-3`.
-            wrote = $"{name} on {TableWords.Some([.. named.Select(t => t.Packages.Where(p => p != name).ToList() is { Count: > 0 } others ? $"{t.TradeId} (also in {TableWords.And(others)})" : t.TradeId)])}";
+            // A trade in other packages says which, and stays in them: `P2 on DRAFT-2 (also in P1) and DRAFT-3`. They are
+            // named in the order of the workspace's packages, as the dialog lists them before the press.
+            var order = PortfolioPackages.Named(trades).Select(p => p.Name).ToList();
+            wrote = $"{name} on {TableWords.Some([.. named.Select(t => t.Packages.Where(p => p != name).OrderBy(order.IndexOf).ToList() is { Count: > 0 } others ? $"{t.TradeId} (also in {TableWords.And(others)})" : t.TradeId)])}";
             trades = [.. trades.Select(t => cells.TryGetValue(t.TradeId, out var cell) ? t with { Package = cell } : t)];
         }
         var make = PortfolioPackages.AdditionSet(trades);

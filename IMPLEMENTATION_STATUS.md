@@ -3932,10 +3932,10 @@ notes 90, 91, 93 and 94 marked where it amends them, and docs/03 §5's built lin
 
 | Check | Result |
 |---|---|
-| `nix develop -c dotnet test server/Qube.slnx` | 1692 passed, on main's ca7f60c |
+| `nix develop -c dotnet test server/Qube.slnx` | 1692 passed (this branch, main's ca7f60c merged in) |
 | `cd client && npm run typecheck && npm test` | typecheck clean; 525 passed in 49 files |
 | `cd client && npm run build && npx playwright test e2e/xva.spec.ts` (Chromium, headless, Linux, the built client served by the host) | 57 passed |
-| The changed package browser test, `--repeat-each=3` | 3 passed |
+| The changed package browser test, `--repeat-each=3` | 3 passed; with the `add each` test, 6 passed again after the review's fixes |
 
 New and changed tests: a row in several packages in each of their cases, with its refusals, its frozen input and a
 stale set at Price (`A_row_in_several_packages_is_in_each_of_their_cases`); the cell's list rules; `set` of a list
@@ -3945,7 +3945,13 @@ new trade.
 
 By hand, in the built client served by the host: the dialog with `also in P1` and `also in P1, P2`, the answer, the
 grids' cells `P1, P2` and `P2, P3`, the Changes tab and a priced Run of three packages, at 1440px in both themes, and
-the dialog at 390px light.
+the dialog at 390px in both themes, 768px and 992px light.
+
+Reviewed with the `code-review` skill (standards, and note 95 as the specification). It changed: the packages a trade
+stays in are named in the order of the workspace's packages, as the dialog lists them, whatever order its cell writes
+them in (tested); the cell is written by one function beside the one that reads it, and each cell is read once when
+the packages are listed; notes 90 and 91 are marked where they still spoke of one name; note 95 says which refusals
+name a row's packages, and that the table's description of the field still says an identifier.
 
 ### Providers
 
@@ -3956,6 +3962,8 @@ Unchanged: every source and every measure is simulated, and every value is synth
 - **A filter does not read a list**: `package = P1` compares the whole cell, so it misses `P1, P2`; `package ~ P1`
   matches text, so it finds `P10` too. No filter of membership is made, since no command needs it yet.
 - **A trade leaves one package by its cell** (or `set` of the whole list): no command takes one name out of a list.
+- **The table's description of the field** still says an identifier: a field has no sentence of its own in the kernel,
+  so the AI learns lists from `xva.trades.add`'s contract and the refusal's sentence (note 95).
 
 ## Rates lines named in order (ADR-0016 note 65, 2026-11-14)
 
