@@ -18,6 +18,7 @@ import { RunDialog } from './shell/RunDialog';
 import { SettingsDialog } from './shell/SettingsDialog';
 import { AppDialogs } from './apps';
 import { Panels } from './shell/Panels';
+import { PageHost, pagePlaces, PagePlacesProvider, PageSlot, useCarried } from './shell/pageHost';
 import { KeepPanels } from './shell/keptPanels';
 import { AiProvider, useAi, useAiContext } from './ai/AiProvider';
 import { AiPane } from './ai/AiPane';
@@ -75,6 +76,9 @@ export function App({ api, initialContext, agent }: {
   );
 }
 
+const AI_PANE = 'ai';
+const aiPane = () => <AiPane />;
+
 function Shell({ notice, clearNotice }: { readonly notice: Notice | undefined; readonly clearNotice: () => void }) {
   const workspace = useWorkspaceContext();
   const aiOpen = useAi((s) => s.open);
@@ -82,6 +86,11 @@ function Shell({ notice, clearNotice }: { readonly notice: Notice | undefined; r
   // The AI pane is beside the panels (ADR-0007 §7). On a phone, where there is no room beside, it is a drawer over
   // them that does not take the keyboard when it opens.
   const phone = useMediaQuery(`(max-width: ${em(767.98)})`, false, { getInitialValueInEffect: false });
+  // The pane is drawn once and moved between the side and the drawer as the window crosses 768px, with what was typed
+  // in it and not sent, and the keyboard's place (ADR-0018 §5's note of 2026-11-15). Closed, it goes, as it did.
+  const [aiPlaces] = useState(() => pagePlaces(document));
+  const aiPlace = !aiOpen ? undefined : phone ? 'drawer' : 'side';
+  const aiCarried = useCarried(aiPlace, AI_PANE);
   // A notice is said in the window in use: this one, or another window a panel was popped out into (ADR-0018 §9).
   const said = useMemo(() => ({ notice, clearNotice }), [notice, clearNotice]);
   const inUse = useWindowInUse() === window;
@@ -99,11 +108,12 @@ function Shell({ notice, clearNotice }: { readonly notice: Notice | undefined; r
           <ContextIssues />
           <Panels />
         </AppShell.Main>
-        <AppShell.Aside>{aiOpen && !phone && <AiPane />}</AppShell.Aside>
+        <PageHost places={aiPlaces} carried={aiCarried.carried} landed={aiCarried.landed} page={aiPane} />
+        <AppShell.Aside>{aiPlace === 'side' && <PagePlacesProvider value={aiPlaces}><PageSlot pageId={AI_PANE} className="qube-ai-place" /></PagePlacesProvider>}</AppShell.Aside>
         <Drawer opened={aiOpen && phone} onClose={() => ai.getState().setOpen(false)} position="right" size="100%" withCloseButton={false}
           trapFocus={false} returnFocus={false} padding={0} transitionProps={{ duration: 0 }} aria-label="AI"
           styles={{ content: { display: 'flex', flexDirection: 'column' }, body: { flex: 1, minHeight: 0 } }}>
-          {aiOpen && phone && <AiPane />}
+          {aiPlace === 'drawer' && <PagePlacesProvider value={aiPlaces}><PageSlot pageId={AI_PANE} className="qube-ai-place" /></PagePlacesProvider>}
         </Drawer>
         {/* The shell's dialogs open in the window in use (ADR-0018 §9). */}
         <InUseWindowPortals>

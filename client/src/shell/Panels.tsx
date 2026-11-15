@@ -53,7 +53,7 @@ export function Panels() {
   return (
     <div ref={ref} className="qube-panels" data-mode={areas ? 'areas' : 'strip'}>
       <div ref={below} className="qube-panels-room" aria-hidden />
-      <PageHost places={places} carried={carried} landed={landed} page={hosted} />
+      <PageHost places={places} carried={carried} landed={landed} page={mainWindowPage} />
       <PagePlacesProvider value={places}>
         {count === 0 ? <NothingOpen /> : !measured ? null : areas ? <PanelAreas room={room} /> : (
           <PanelStrip room={room} why={stripReason(room, kept === undefined ? undefined : needs(kept))} />
@@ -90,9 +90,9 @@ function usePanelsWidth(): { readonly ref: RefObject<HTMLDivElement | null>; rea
 }
 
 /** A panel's page in the main window, drawn where the panels are and moved into the place that shows it. */
-const hosted = (panelId: string) => <Hosted panelId={panelId} />;
+const mainWindowPage = (panelId: string) => <MainWindowPage panelId={panelId} />;
 
-function Hosted({ panelId }: { readonly panelId: string }) {
+function MainWindowPage({ panelId }: { readonly panelId: string }) {
   const panel = useWorkspace((s) => s.panels.find((p) => p.id === panelId));
   // A panel closed while its page is carried has nothing to draw: the page goes once no place shows it.
   if (panel === undefined) return null;

@@ -449,8 +449,13 @@
 .qube-page-holds {
   position: fixed;
   top: 0;
+  /* Past the left of any screen, so that nothing held is in view or takes a press. */
   left: -100000px;
   pointer-events: none;
+}
+/* The AI pane's place, the shell's side or its drawer (`App.tsx`), which the pane fills. */
+.qube-ai-place {
+  height: 100%;
 }
 .qube-page-holds > * {
   box-sizing: border-box;

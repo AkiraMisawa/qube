@@ -238,7 +238,7 @@ const keyboardIn = (page: Page) => page.evaluate(() => {
 });
 
 for (const how of ['moveBefore', 'append'] as const) {
-  test(`ADR-0018 §5's note of 2026-11-15, by ${how}: the page in view is moved, not drawn anew, as the panels change between the areas and the strip; what was typed and not committed, a cell's edit, a dialog, the keyboard's place and a grid's scroll stay, and nothing is committed`, async ({ page }) => {
+  test(`ADR-0018 §5's note of 2026-11-15, by ${how}: the page in view and the AI pane are moved, not drawn anew, as the panels change between the areas and the strip; what was typed and not committed, a cell's edit, a dialog, the keyboard's place, in a part the narrow pricer hides too, and a grid's scroll stay, and nothing is committed`, async ({ page }) => {
     // A browser without `moveBefore` (Chromium has it from 133) moves the page by appending it.
     if (how === 'append') await page.addInitScript(() => { delete (Element.prototype as { moveBefore?: unknown }).moveBefore; });
     await page.setViewportSize({ width: 1440, height: 900 });
@@ -292,6 +292,20 @@ for (const how of ['moveBefore', 'append'] as const) {
     await expect(page.getByTestId('notice').filter({ hasText: 'value date' })).toHaveCount(0);
     await valueDate.fill(before);
 
+    // A field in a part the pricer hides below 768px, where it shows one part: the part the keyboard is in is the one it
+    // shows, so the keyboard stays in the field, which commits as it is left, and commits nothing.
+    const recovery = page.getByRole('textbox', { name: 'CVA recovery' });
+    const recovered = await recovery.inputValue();
+    await recovery.fill('0.37');
+    for (const width of [390, 1440]) {
+      await cross(width);
+      await expect(recovery).toBeFocused();
+      await expect(recovery).toHaveValue('0.37');
+    }
+    await page.keyboard.press('Escape');
+    await expect(recovery).toHaveValue(recovered);
+    await expect(summary).toContainText('0 edit(s)');
+
     // A dialog of the page, open with the keyboard in it.
     await page.keyboard.press('ControlOrMeta+Shift+G');
     await page.keyboard.press('ControlOrMeta+Home');
@@ -313,6 +327,18 @@ for (const how of ['moveBefore', 'append'] as const) {
     await expect(confirm).toBeHidden();
     await expect(page.getByRole('tab', { name: 'XVA ABC/LE-01' })).toHaveAttribute('aria-selected', 'true');
     await expect(summary).toContainText('1 edit(s)');
+
+    // The AI pane, beside the panels and a drawer over them below 768px, with what was typed in it and not sent.
+    await page.getByRole('button', { name: 'Show the AI pane' }).click();
+    const ask = page.getByRole('textbox', { name: 'Ask the AI' });
+    await ask.fill('What drives the CVA?');
+    await mark(ask);
+    for (const width of [390, 1440]) {
+      await cross(width);
+      await expect(ask).toBeFocused();
+      await expect(ask).toHaveValue('What drives the CVA?');
+      expect(await isMarked(ask), `${width}px: the AI pane was drawn anew`).toBe(true);
+    }
   });
 }
 

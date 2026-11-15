@@ -19,7 +19,7 @@ import { CLOSE, FLOAT, leavesNoneDocked, onNow } from './panelVerbs';
 import { PanelContent, PanelList, renameOnLine, TabMenu, useRunVerb, type MenuAt } from './panelMenus';
 import { lineIsOpen } from './CommandPalette';
 import { WindowPortals, WindowShell } from './WindowShell';
-import { PageSlot } from './pageHost';
+import { PageInPlace, PageSlot } from './pageHost';
 import { addWindow, hearWindowsChange, useOtherWindows, usedWindow, windowInUse, windowKey, type OtherWindow } from './windows';
 import { isElement, isHTMLElement } from '../platform/elements';
 
@@ -69,11 +69,11 @@ function Page({ api, params }: IDockviewPanelProps<{ readonly panelId: string }>
   // the panels are, and moved here (`pageHost`), so that it is not drawn anew as the panels become the strip or the
   // areas. In another window it is drawn there, anew in each window it is moved into, once dockview has moved it there:
   // a grid reads the window it is created in (ADR-0018 §9, ExGrid's ADR-0090), and the page takes back the screen its
-  // panel kept (ADR-0006 note 10). Its element is the one a page in the main window is drawn in, for the same layout.
-  if (win === window) return <PageSlot panelId={panel.id} className="qube-area-page" />;
+  // panel kept (ADR-0006 note 10).
+  if (win === window) return <PageSlot pageId={panel.id} className="qube-area-page" />;
   return (
     <div key={windowKey(win)} className="qube-area-page">
-      <div className="qube-page-host"><WindowPortals win={win}><PanelContent panel={panel} /></WindowPortals></div>
+      <PageInPlace><WindowPortals win={win}><PanelContent panel={panel} /></WindowPortals></PageInPlace>
     </div>
   );
 }

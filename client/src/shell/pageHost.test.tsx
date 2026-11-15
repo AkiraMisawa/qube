@@ -19,18 +19,21 @@ function Draft({ id }: { readonly id: string }) {
  * The panels as `Panels` draws them: the host, and the place that shows the active panel's page, the strip's or an
  * area's; an area's is `drawn` a moment after the areas are made, as dockview draws it.
  */
-function Harness({ shows, active = 'p1', drawn = true }: {
+function Harness({ shows, active = 'p1', drawn = true, beside = [] }: {
   readonly shows: 'strip' | 'areas';
   readonly active?: string;
   readonly drawn?: boolean;
+  /** The panels shown in the other areas, beside the active one's. */
+  readonly beside?: readonly string[];
 }) {
   const [places] = useState(() => pagePlaces(document));
   const { carried, landed } = useCarried(shows, active);
   return (
     <PagePlacesProvider value={places}>
       <PageHost places={places} carried={carried} landed={landed} page={(id) => <Draft id={id} />} />
-      {drawn && shows === 'areas' && <section aria-label="Area"><PageSlot key={active} panelId={active} className="qube-area-page" /></section>}
-      {drawn && shows === 'strip' && <section aria-label="Strip"><PageSlot key={active} panelId={active} className="qube-strip-place" /></section>}
+      {drawn && shows === 'areas' && <section aria-label="Area"><PageSlot key={active} pageId={active} className="qube-area-page" /></section>}
+      {drawn && shows === 'areas' && beside.map((id) => <section key={id} aria-label={`Area of ${id}`}><PageSlot pageId={id} className="qube-area-page" /></section>)}
+      {drawn && shows === 'strip' && <section aria-label="Strip"><PageSlot key={active} pageId={active} className="qube-strip-place" /></section>}
     </PagePlacesProvider>
   );
 }
@@ -81,6 +84,20 @@ describe('a page moved between the strip and the areas (ADR-0018 §5\'s note of 
     rerender(<Harness shows="strip" />);
     expect(draft()).not.toBe(typed);
     expect(draft()).toHaveValue('');
+  });
+
+  it('is the one page carried where other areas show other pages: theirs go as the strip, which does not show them, is drawn', () => {
+    const { rerender } = render(<Harness shows="areas" beside={['p2']} />);
+    typeIn('Typed in the area in view');
+    fireEvent.change(draft('p2'), { target: { value: 'Typed in the area beside' } });
+    rerender(<Harness shows="strip" />);
+    expect(draft()).toHaveValue('Typed in the area in view');
+    expect(screen.queryByRole('textbox', { name: 'Draft of p2' })).toBeNull();
+    expect(document.querySelectorAll('.qube-page-host')).toHaveLength(1);
+    expect(document.querySelector('.qube-page-holds')?.childElementCount).toBe(0);
+    rerender(<Harness shows="areas" beside={['p2']} />);
+    expect(draft()).toHaveValue('Typed in the area in view');
+    expect(draft('p2')).toHaveValue('');
   });
 
   it('is not carried where another panel is shown before its place comes', () => {

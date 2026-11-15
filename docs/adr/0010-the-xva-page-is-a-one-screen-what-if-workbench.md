@@ -58,7 +58,9 @@ From top to bottom:
 4. **The result dock** (§7), collapsible to one line, drag-resizable.
 
 Below `sm` (768px) the screen is three tabs, Inputs, Trades and Results, with the context bar above them. Everything
-follows `docs/design-guidelines.md`.
+follows `docs/design-guidelines.md`. *(2026-11-15: the keyboard going into a part chooses that part's tab, at any width,
+so that a page narrowed under the keyboard keeps it in view, and a field that commits as it is left is not left:
+ADR-0018 §5's note of 2026-11-15.)*
 
 *Note of 2026-11-12 (ADR-0018 §5, accepted by the owner with that record):* "below `sm`" is read by the width of the
 area the page is in, not the window's, now that a page can stand in an area beside others. A pricer in a 600px area is

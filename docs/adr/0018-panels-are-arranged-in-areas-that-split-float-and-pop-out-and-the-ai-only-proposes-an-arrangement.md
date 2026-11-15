@@ -237,12 +237,19 @@ everything stays (「すべて残す」), over losing it as until then, and over
   between (into the box and on into the strip in one step), so a page that waited is laid out in its box before it
   moves on.
 - **What the width changes still changes**: a page lays itself out again by its new width (above), and a part it draws
-  at one width only (the pricer's three tabs under 768px) goes or comes as on any resize.
+  at one width only (the pricer's three tabs under 768px) goes or comes as on any resize. The keyboard going into a
+  part of the pricer chooses that part's tab, at any width (DEFAULT), so a field of the inputs typed in at 1440px is
+  still in view, with the keyboard, at 390px: hidden, it would be left, and a field that commits as it is left would
+  commit.
+- **The AI pane too** (DEFAULT, as everything stays). It changes place at the same width, from beside the panels to a
+  drawer over them (ADR-0007 §7), and is moved, not drawn anew, with what was typed in it and not sent.
 - **The other pages are as before** (DEFAULT). Only the pages in view are mounted (§6): a page in another area, which
   the strip does not show, goes as the strip is drawn, and a page that comes into view in an area is drawn as a page
   shown again (ADR-0006 note 10). Keeping them would be keeping hidden pages mounted, rejected below. A page in
   another window, which the strip closes (§9), is drawn anew in the main window, as a grid reads the window it is
   created in.
+- **What is the strip's or the areas' own goes with them**: a tab's menu or the list of all panels open at the change
+  closes, as the strip or the areas it belongs to go. A list or a menu of the page itself stays open beside its field.
 - **A browser without `moveBefore`** (DEFAULT; Chromium has it from 133, and layer 3 runs 153) moves the page by
   appending it, which takes the keyboard off it and each scroll to 0. Both are read before the first move and put back
   at the next place, and the keyboard's leaving and coming back are not let through to the page, so that a field that

@@ -177,6 +177,7 @@ const inputsFit = (tab: InputTab, ws: XvaWorkspaceView, gap: number, catalogueRe
 
 /** The page's parts, which below its panel's `sm` are three tabs (ADR-0010 §1, ADR-0018 §5). */
 type Section = 'inputs' | 'trades' | 'results';
+const isSection = (part: string | null | undefined): part is Section => part === 'inputs' || part === 'trades' || part === 'results';
 
 // What the page shows, kept by its panel while the panel is hidden (ADR-0006 note 10): the layout of ADR-0010 §1 as the
 // user left it, the tabs open, and the case and market the dock shows.
@@ -1005,8 +1006,16 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   const failures = [...new Set([failure.new, failure.existing].filter((why) => why !== undefined))];
   const page = (
     <Stack gap="sm" className="qube-xva" data-section={section} data-dock={full ? 'full' : 'part'} style={{ ['--qube-xva-taken' as string]: `${taken}px` }}
-      // A grid entered is the screen only where it says so below, after this: a grid of no table leaves the line none.
-      onFocusCapture={(event) => { if (isElement(event.target) && event.target.closest('.ex-grid') !== null) screen.current = undefined; }}>
+      onFocusCapture={(event) => {
+        if (!isElement(event.target)) return;
+        // A grid entered is the screen only where it says so below, after this: a grid of no table leaves the line none.
+        if (event.target.closest('.ex-grid') !== null) screen.current = undefined;
+        // The part the keyboard is in is the one in view below `sm`, so that the keyboard keeps its place, and a field
+        // that commits as it is left commits nothing, as the page is narrowed under it (ADR-0018 §5's note of
+        // 2026-11-15): a field in a part hidden there would be left.
+        const part = event.target.closest('[data-part]')?.getAttribute('data-part');
+        if (isSection(part) && part !== section) setSection(part);
+      }}>
       {/* The context bar (ADR-0010 §1; docs/design-guidelines.md §3, §4): one 30px Control Height, each label beside its input. */}
       <div className="qube-toolbar" role="toolbar" aria-label="Workspace">
         <ValueDate value={ws.context.valueDate} disabled={!notBusy}

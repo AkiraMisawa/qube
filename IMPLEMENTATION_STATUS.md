@@ -4050,6 +4050,18 @@ not" points there.
 - The other pages are as before: only the pages in view are mounted, so a page in another area goes as the strip is
   drawn, and one that comes into view in an area is drawn as a page shown again. A page in another window is drawn
   there, and anew in the main window as the strip closes the windows.
+- The pricer under 768px shows one part. The keyboard going into a part now chooses that part's tab at any width, so a
+  field of the inputs typed in at 1440px (CVA recovery) stays in view and keeps the keyboard at 390px. Before, the
+  part stayed Trades, the field was hidden, the browser took the keyboard off it, and its draft was committed as an
+  edit (seen in a probe; the browser test fails without the change).
+- The AI pane changes place at the same width (the side, or a drawer below 768px) and is moved by the same host, so
+  what was typed in it and not sent stays, with the keyboard.
+- A place given up before the browser reported its size (two changes in one frame, or React's checks in development,
+  which give a place up as it comes) is read as it goes, so the page is never held in a box of no width, where it
+  would draw nothing. Each place's size is kept with the place it is of.
+- The cost of a place's going, which every tab change now pays (the page is held until the next render drops it):
+  on a pricer of 10,000 trades in Chromium, reading the place's room took 0.1ms and moving the page into its box 0.4
+  to 1.2ms (ten readings, a probe; the box is dropped before it is laid out).
 
 ### Decisions made for the owner (DEFAULT, each easy to change)
 
@@ -4057,6 +4069,20 @@ not" points there.
   one page: that would be keeping hidden pages mounted, which ADR-0018 rejects (a hidden page took the keyboard).
 - What the new width changes still changes: the pricer under 768px is three tabs, as on any resize.
 - A composition the keyboard was in the middle of (an IME's) is not kept where the browser has no `moveBefore`.
+- The keyboard going into a part of the pricer chooses that part's tab at any width (ADR-0010's note of 2026-11-15).
+- The AI pane is moved too, as the owner chose that everything stays.
+- A tab's menu or the list of all panels, open at the change, closes: it is the strip's or the areas', which go. A
+  list of the page itself (the Counterparty select) stays open under its field (looked at in a probe at 390px).
+
+### Verification
+
+| Check | Result |
+|---|---|
+| `cd client && npm run typecheck && npx vitest run` | Typecheck clean; 535 passed in 50 files (before the review's fixes) |
+| `npx playwright test` (Chromium 153, headless, Linux, the built client served by the host) | 157 passed (before the review's fixes) |
+| The new browser test, by `moveBefore` and by append, `--repeat-each=3` | 6 passed |
+| The same test without the pricer's part following the keyboard | Failed, as it should: the CVA recovery field lost the keyboard at 390px |
+| `e2e/windows.spec.ts` and `e2e/areas.spec.ts`, after the fix for a panel docked back from another window | 23 passed |
 
 ## The Rates line grid shows rows to type in from the start (ADR-0015's note of 2026-11-14)
 
