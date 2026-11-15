@@ -3934,7 +3934,7 @@ notes 90, 91, 93 and 94 marked where it amends them, and docs/03 §5's built lin
 |---|---|
 | `nix develop -c dotnet test server/Qube.slnx` | 1692 passed (this branch, main's ca7f60c merged in) |
 | `cd client && npm run typecheck && npm test` | typecheck clean; 525 passed in 49 files |
-| `cd client && npm run build && npx playwright test e2e/xva.spec.ts` (Chromium, headless, Linux, the built client served by the host) | 57 passed |
+| `cd client && npm run build && npx playwright test e2e/xva.spec.ts` (Chromium, headless, Linux, the built client served by the host) | 57 passed, before the review's fixes |
 | The changed package browser test, `--repeat-each=3` | 3 passed; with the `add each` test, 6 passed again after the review's fixes |
 
 New and changed tests: a row in several packages in each of their cases, with its refusals, its frozen input and a
