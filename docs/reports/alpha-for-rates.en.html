@@ -71,6 +71,15 @@ ol li,ul li{margin:3px 0}
 </table></div>
 <p>Checked: par 1.845719%; receiver PV at par + 10bp 92,021,962 JPY (notional 10bn). Zero delta at the node before 10y is −122,395.63 JPY/bp from the reverse gradient and from a bump alike. Par delta gathers −9,182,029 JPY/bp on FLT-6M 10y, the size of notional × annuity × 1bp (about 9mm).</p>
 
+<h3>How the risk is computed: a hand-written reverse derivative, no tape</h3>
+<p>The zero delta inside the 12 µs does not use alpha's AAD tape (<code>Xva.Aad</code>). A swap's PV is a sum of cashflows times discount factors, and discount factors and forwards are weighted sums of the curve nodes' ln P. So the code walks the PV formula backwards by hand and accumulates each node's sensitivity ∂PV/∂ln P (a sparse gradient, <code>SparseGrad</code>).</p>
+<ul>
+<li><b>Same principle as AAD</b>: one backward (adjoint) sweep gives every node's sensitivity. The difference is that no record of the calculation (tape) is built at run time. A linear product's formula has a fixed shape, so it needs none, and it is faster for it.</li>
+<li><b>How it is checked</b>: hand-written derivatives are easy to get wrong, so a test compares them with ±1e−6 bumps of ln P (alpha <code>docs/spec/rates-pricer.md</code> §8). In the spike they agreed at −122,395.63 JPY/bp.</li>
+<li><b>Zero to par</b>: par delta is the zero delta times the transpose of the quote Jacobian (about 6 µs per curve, about 18 µs per line in all). The Jacobian is to be analytic, not by differences (§4).</li>
+<li><b>Where the AAD tape is needed</b>: products with Monte Carlo or non-linear valuation, such as swaptions. The Rates page's scope (linear IRS and CCS) does not use it.</li>
+</ul>
+
 <h2>4. What is missing</h2>
 <div class="tw"><table>
 <tr><th>Item</th><th>alpha today</th><th>The Rates page needs</th><th>Size</th></tr>
