@@ -106,13 +106,34 @@ ol li,ul li{margin:3px 0}
 </ol>
 <p>Steps 1 and 3 in a first form (one JPY swap type, OIS and FLT-6M) look like a few days' work (an estimate). They touch no file the Position Keeper (PR #51) does, so both can go ahead side by side.</p>
 
-<h2>7. Decisions for the owner ("yes" accepts the recommendation)</h2>
+<h2>7. Decided (owner, 2026-11-17)</h2>
 <ol>
-<li>Connect by option A (persistent worker, alpha's C# version)?</li>
-<li>Send qube's cashflow table as it is, without building S# expression trees?</li>
-<li><b>Decided (owner, 2026-11-17): the Rates page shows par delta (sensitivity to curve quotes).</b> This answers C38's list of risk factors. Whether zero delta is shown too is not decided.</li>
-<li>Until conventions are settled, use alpha's reference quote definitions labelled "unconfirmed"?</li>
-<li>Leave averaged RFR and in-arrears term rates out at first, refusing those lines with the reason?</li>
+<li><b>Connection</b>: a persistent worker on the server side (option A, alpha's C# version).</li>
+<li><b>Trades</b>: qube's cashflow table is sent as it is; no S# expression trees.</li>
+<li><b>Risk display</b>: a switch between par delta and zero delta, par by default. The worker returns both (zero to par is one Jᵀ product, a few µs per line), so the switch recomputes nothing.</li>
+<li><b>Averaged RFR and in-arrears term rates</b>: supported from the start.</li>
+<li><b>Market refresh</b>: production market data refreshes once a second; section 8 budgets for that.</li>
+<li>Quote definitions: no answer yet, so alpha's reference definitions are used with an "unconfirmed" label until conventions (C41) are settled (the recommendation; say if otherwise).</li>
+</ol>
+
+<h2>8. Does it fit a one-second refresh?</h2>
+<ul>
+<li>Curves and Jacobians are built <b>once per market snapshot in the worker</b> and shared by every user and workspace, so their cost does not grow with users.</li>
+<li>With today's pieces, eight curves and their Jacobians take about 100 ms, and 20 users × 20 swap lines about 5 ms: within one second.</li>
+<li>For headroom, make the Jacobian analytic (77 ms by differences to a few ms) and give the bootstrap's Newton step an analytic derivative (24 ms to a few ms, an estimate).</li>
+<li>When a calculation overruns a second, the live rules already in place hold: one calculation in flight, only the newest market waiting, older ones skipped.</li>
+</ul>
+
+<h2>9. Still to decide</h2>
+<ol>
+<li><b>Convexity of in-arrears term rates</b>: a rate fixed at the period's end and paid that day carries convexity in its PV, which needs a volatility. Recommended: adjust with alpha's Hull-White (mean reversion, and σ calibrated to ATM swaption vols), the model the XVA side uses, with calibration already in alpha. The qube synthetic market then gains an ATM swaption vol surface.</li>
+<li><b>Averaged RFR</b>: valued as the simple average of daily forwards, without its (very small) convexity, written in the spec and labelled.</li>
+<li><b>Seams</b> (agreed before the first test):
+<ul>
+<li>alpha: <code>Xva.Rates</code> (pure functions). <code>CurveSet.Build(quotes, definitions, valuation date)</code> returns curves and Jacobians; <code>RatesPricer.Price(CurveSet, lines)</code> returns per line PV, par (or fair spread), zero delta and par delta. A line is the cashflow table (legs, periods, exchanges, index and its fixing kind, collateral).</li>
+<li>alpha: <code>xva-rates-worker</code> (resident; one JSON per line on stdin/stdout; curves kept by snapshot id).</li>
+<li>qube: <code>AlphaRatesPricing : IRatesPricingProvider</code> starts and calls the worker. The synthetic market emits quotes. The risk switch is display only, in the client.</li>
+</ul></li>
 </ol>
 
 <p class="small">The program used for the measurement: <code>rates/alpha-rates-spike/Program.cs</code> in the project files (built against alpha main 0558823).</p>
