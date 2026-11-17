@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>30人のときのレーツ画面</title>
+<style>
+:root{--bg:#fbfbf9;--fg:#1d1f21;--muted:#5b6066;--line:#d9dcdf;--card:#ffffff;--accent:#1f5fa8;--accent2:#7a4fb0;--good:#1d7a46;--warn:#9a5b00;--bad:#b3261e;--code:#f1f2f0;--b1:#e3edf8;--b2:#efe7f7;--b3:#e5f3ea;--b4:#fbefdc}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#16181a;--fg:#e6e7e8;--muted:#a3a8ad;--line:#3a3e42;--card:#1e2124;--accent:#7fb0ec;--accent2:#b99be0;--good:#6cc58f;--warn:#e0a84a;--bad:#f08a80;--code:#25292c;--b1:#1d2a3a;--b2:#2a2238;--b3:#1d3026;--b4:#33291a}}
+:root[data-theme="dark"]{--bg:#16181a;--fg:#e6e7e8;--muted:#a3a8ad;--line:#3a3e42;--card:#1e2124;--accent:#7fb0ec;--accent2:#b99be0;--good:#6cc58f;--warn:#e0a84a;--bad:#f08a80;--code:#25292c;--b1:#1d2a3a;--b2:#2a2238;--b3:#1d3026;--b4:#33291a}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.75 system-ui,-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif}
+main{max-width:960px;margin:0 auto;padding:28px 16px 64px}
+h1{font-size:1.6rem;margin:0 0 4px}h2{font-size:1.2rem;margin:36px 0 10px;padding-top:10px;border-top:1px solid var(--line)}h3{font-size:1.02rem;margin:20px 0 6px}
+.sub{color:var(--muted);margin:0 0 20px}
+.box{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:14px 16px;margin:14px 0}
+.box.key{border-left:4px solid var(--accent)}
+table{border-collapse:collapse;width:100%;margin:10px 0;font-size:.92rem}
+.tw{overflow-x:auto}
+th,td{border:1px solid var(--line);padding:6px 8px;vertical-align:top;text-align:left}
+th{background:var(--code)}
+td.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+code{background:var(--code);padding:1px 4px;border-radius:3px;font-size:.88em}
+.good{color:var(--good);font-weight:600}.warn{color:var(--warn);font-weight:600}.bad{color:var(--bad);font-weight:600}
+.small{font-size:.86rem;color:var(--muted)}
+svg{width:100%;height:auto;display:block}
+svg text{fill:var(--fg);font:13px system-ui,sans-serif}
+svg .m{fill:var(--muted);font-size:11.5px}
+svg .t{font-weight:600}
+svg .ln{stroke:var(--muted);stroke-width:1.4;fill:none}
+svg .hot{stroke:var(--bad);stroke-width:2;fill:none}
+.badge{display:inline-block;min-width:1.6em;padding:0 6px;border-radius:10px;background:var(--bad);color:#fff;font-size:.8rem;text-align:center;font-weight:700}
+</style>
+</head>
+<body><main>
+<h1>30人がレーツ画面を使うと、サーバー側で何が起きるか</h1>
+<p class="sub">qubeのレーツ画面をalphaで計算する形（常駐ワーカー、2026-11-17に決定）で、30人が同時にライブで使った場合の解説。クライアント、サーバー、アナリティクスのつながりと、待ちが起きうる場所、その解決の案。2026-11-17。<a href="rates-live-30-users.en.html">English</a></p>
+
+<div class="box key">
+<p><b>要点</b></p>
+<ul>
+<li>30人分の計算は、CPUの量としては小さい。1秒あたり、カーブ（全員で共有）が今の部品で約100ms、評価が全員分で数十ms。1台の常駐ワーカーで足りる見込み。</li>
+<li>遅れが出やすいのは計算そのものより、<b>カーブを作る順番待ち</b>、<b>サーバーとワーカーの間で毎回キャッシュフロー表を送ること</b>、<b>サーバーの計算の枠（今は4つ）</b>、<b>ブラウザへの配信と描画</b>の4か所。</li>
+<li>どれも設計で避けられる。カーブは市場が届いた時点で1回だけ作る。取引は版が変わったときだけ送る。ティックでは「どのスナップショットで、どの版を」だけを送る。</li>
+<li>ワーカーが止まっても、仮の計算に切り替えない。行を「計算できない」として示し、古い値には古いと札を付ける（CLAUDE.mdの決まり）。</li>
+</ul>
+</div>
+
+<h2>1. 登場するもの</h2>
+<svg viewBox="0 0 960 430" role="img" aria-label="構成図"><defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="var(--muted)"/></marker></defs><rect x="10" y="40" width="200" height="330" rx="8" fill="var(--b1)" stroke="var(--line)"/><text class="t" x="20" y="60">ブラウザ ×30人</text><text class="m" x="20" y="78">レーツ画面（React + ExGrid）</text><text class="m" x="20" y="94">1人に1〜2ワークスペース</text><text class="m" x="20" y="110">行は10〜30行</text><text class="m" x="20" y="126"></text><text class="m" x="20" y="142">EventSource で</text><text class="m" x="20" y="158">フレームを受け取る（SSE）</text><text class="m" x="20" y="174"></text><text class="m" x="20" y="190">ゼロ／パーの切替は</text><text class="m" x="20" y="206">表示だけ（再計算なし）</text><text class="m" x="20" y="222"></text><text class="m" x="20" y="238">編集・Price・Capture は</text><text class="m" x="20" y="254">HTTP の POST</text><rect x="270" y="40" width="340" height="330" rx="8" fill="var(--b2)" stroke="var(--line)"/><text class="t" x="280" y="60">qube サーバー（ASP.NET Core）</text><rect x="285" y="70" width="310" height="52" rx="8" fill="var(--card)" stroke="var(--line)"/><text class="t" x="295" y="90">市場のソース</text><text class="m" x="295" y="108">1秒に1回、スナップショット n を作る</text><rect x="285" y="132" width="310" height="68" rx="8" fill="var(--card)" stroke="var(--line)"/><text class="t" x="295" y="152">RatesLiveService</text><text class="m" x="295" y="170">ワークスペースごとに購読が1つ</text><text class="m" x="295" y="186">計算中は1つ、最新の市場だけ待つ</text><rect x="285" y="210" width="310" height="52" rx="8" fill="var(--card)" stroke="var(--line)"/><text class="t" x="295" y="230">計算の枠（今は4つ）</text><text class="m" x="295" y="248">SemaphoreSlim(maxWorkers)</text><rect x="285" y="272" width="310" height="52" rx="8" fill="var(--card)" stroke="var(--line)"/><text class="t" x="295" y="292">AlphaRatesPricing</text><text class="m" x="295" y="310">IRatesPricingProvider の実装（新規）</text><text class="m" x="285" y="350">Price は Run として SQLite に残る。ティックは残さない</text><rect x="670" y="40" width="280" height="330" rx="8" fill="var(--b3)" stroke="var(--line)"/><text class="t" x="680" y="60">alpha ワーカー（常駐、別プロセス）</text><text class="m" x="680" y="78">xva-rates-worker（C#）</text><text class="m" x="680" y="94"></text><text class="m" x="680" y="110">スナップショットごとに</text><text class="m" x="680" y="126">カーブとヤコビアンを1回作る</text><text class="m" x="680" y="142">（最後の8つを保持）</text><text class="m" x="680" y="158"></text><text class="m" x="680" y="174">バッチごとに</text><text class="m" x="680" y="190">行ごとに PV、パー、</text><text class="m" x="680" y="206">ゼロデルタ、パーデルタ</text><text class="m" x="680" y="222"></text><text class="m" x="680" y="238">Web は読み込まない（決まり）</text><path class="ln" d="M440,122 L440,132" marker-end="url(#a)"/><path class="ln" d="M440,200 L440,210" marker-end="url(#a)"/><path class="ln" d="M440,262 L440,272" marker-end="url(#a)"/><path class="ln" d="M595,298 L670,298" marker-end="url(#a)"/><text class="m" x="602" y="290">JSON</text><path class="ln" d="M595,96 L670,96" marker-end="url(#a)"/><text class="m" x="602" y="88">市場</text><path class="ln" d="M285,160 L210,160" marker-end="url(#a)"/><text class="m" x="222" y="152">SSE</text><path class="ln" d="M210,240 L285,240" marker-end="url(#a)"/><text class="m" x="222" y="232">POST</text><circle cx="640" cy="118" r="10" fill="var(--bad)"/><text x="640" y="122" text-anchor="middle" style="fill:#fff;font-weight:700;font-size:11px">1</text><circle cx="650" cy="140" r="10" fill="var(--bad)"/><text x="650" y="144" text-anchor="middle" style="fill:#fff;font-weight:700;font-size:11px">2</text><circle cx="270" cy="226" r="10" fill="var(--bad)"/><text x="270" y="230" text-anchor="middle" style="fill:#fff;font-weight:700;font-size:11px">3</text><circle cx="632" cy="316" r="10" fill="var(--bad)"/><text x="632" y="320" text-anchor="middle" style="fill:#fff;font-weight:700;font-size:11px">4</text><circle cx="650" cy="230" r="10" fill="var(--bad)"/><text x="650" y="234" text-anchor="middle" style="fill:#fff;font-weight:700;font-size:11px">5</text><circle cx="248" cy="176" r="10" fill="var(--bad)"/><text x="248" y="180" text-anchor="middle" style="fill:#fff;font-weight:700;font-size:11px">6</text><circle cx="110" cy="390" r="10" fill="var(--bad)"/><text x="110" y="394" text-anchor="middle" style="fill:#fff;font-weight:700;font-size:11px">7</text><circle cx="820" cy="390" r="10" fill="var(--bad)"/><text x="820" y="394" text-anchor="middle" style="fill:#fff;font-weight:700;font-size:11px">8</text></svg>
+<p class="small">赤い番号は、待ちが起きうる場所（第4節）。</p>
+<div class="tw"><table>
+<tr><th>部品</th><th>役目</th><th>今あるか</th></tr>
+<tr><td>ブラウザのレーツ画面</td><td>行の入力、結果の表示。ライブの結果はサーバーから押し出される（SSE、<code>EventSource</code>）。編集、Price、CaptureはHTTPのPOST</td><td>ある</td></tr>
+<tr><td>市場のソース</td><td>1秒に1回、市場のスナップショット（ID付き、同じIDなら同じ中身）を作る。今は合成市場</td><td>ある（節点の水準。クオートを出す形に変える）</td></tr>
+<tr><td><code>RatesLiveService</code></td><td>ワークスペースごとに購読を1つ持つ。計算は同時に1つ、待つのは最新の市場1つだけ。ティックごとにRunは作らない。見ている人がいなくなって300秒で止まる</td><td>ある</td></tr>
+<tr><td>計算の枠</td><td>サーバー全体で同時に走る計算の数の上限（<code>SemaphoreSlim</code>、今は4）</td><td>ある</td></tr>
+<tr><td><code>AlphaRatesPricing</code></td><td><code>IRatesPricingProvider</code>の実装。ワーカーにJSONを送って結果を受け取る</td><td>これから</td></tr>
+<tr><td>alphaのワーカー</td><td>常駐の別プロセス。スナップショットごとにカーブとヤコビアンを作って保持し、バッチごとに行を評価する</td><td>これから</td></tr>
+</table></div>
+
+<h2>2. 1回のティックで起きること</h2>
+<ol>
+<li>市場のソースがスナップショット n を作る（毎秒）。</li>
+<li>サーバーはまずワーカーに市場を渡す（<code>market</code>）。ワーカーはカーブとヤコビアンを1回だけ作る。30人いても1回。</li>
+<li><code>RatesLiveService</code>は、動いている購読ごとに「n で計算」を始める。前の計算がまだ終わっていない購読は、n を待たせるだけ（もっと新しい n+1 が来たら n は飛ばす）。</li>
+<li>計算の枠が空くと、<code>AlphaRatesPricing</code>がワーカーに「スナップショット n で、このワークスペースの版 r の行を」と頼む。</li>
+<li>ワーカーは行ごとにPV、パー、ゼロデルタ、パーデルタを返す。行ごとの拒否（確定値が無い、など）は理由付き。</li>
+<li>サーバーは結果をフレームにし、そのワークスペースを見ているページへSSEで押し出す。ページが遅れていれば、古いフレームは捨てて最新だけ渡す。</li>
+<li>ブラウザはグリッドの値を書き換える。ゼロとパーの切り替えは、届いた両方のうち表示する方を選ぶだけ。</li>
+</ol>
+<svg viewBox="0 0 960 250" role="img" aria-label="timeline"><line x1="250.0" y1="28" x2="250.0" y2="210" stroke="var(--line)"/><text class="m" x="250.0" y="20" text-anchor="middle">0ms</text><line x1="318.0" y1="28" x2="318.0" y2="210" stroke="var(--line)"/><text class="m" x="318.0" y="20" text-anchor="middle">100ms</text><line x1="386.0" y1="28" x2="386.0" y2="210" stroke="var(--line)"/><text class="m" x="386.0" y="20" text-anchor="middle">200ms</text><line x1="454.0" y1="28" x2="454.0" y2="210" stroke="var(--line)"/><text class="m" x="454.0" y="20" text-anchor="middle">300ms</text><line x1="522.0" y1="28" x2="522.0" y2="210" stroke="var(--line)"/><text class="m" x="522.0" y="20" text-anchor="middle">400ms</text><line x1="590.0" y1="28" x2="590.0" y2="210" stroke="var(--line)"/><text class="m" x="590.0" y="20" text-anchor="middle">500ms</text><line x1="658.0" y1="28" x2="658.0" y2="210" stroke="var(--line)"/><text class="m" x="658.0" y="20" text-anchor="middle">600ms</text><line x1="726.0" y1="28" x2="726.0" y2="210" stroke="var(--line)"/><text class="m" x="726.0" y="20" text-anchor="middle">700ms</text><line x1="794.0" y1="28" x2="794.0" y2="210" stroke="var(--line)"/><text class="m" x="794.0" y="20" text-anchor="middle">800ms</text><line x1="862.0" y1="28" x2="862.0" y2="210" stroke="var(--line)"/><text class="m" x="862.0" y="20" text-anchor="middle">900ms</text><line x1="930.0" y1="28" x2="930.0" y2="210" stroke="var(--line)"/><text class="m" x="930.0" y="20" text-anchor="middle">1000ms</text><text x="10" y="49">市場が届く</text><rect x="250.0" y="34" width="2" height="20" rx="3" fill="var(--accent)"/><text class="m" x="257.36" y="49">2ms</text><text x="10" y="79">カーブ＋ヤコビアン（今）</text><rect x="251.36" y="64" width="68.0" height="20" rx="3" fill="var(--bad)"/><text class="m" x="325.36" y="79">100ms</text><text x="10" y="109">カーブ＋ヤコビアン（解析化後）</text><rect x="251.36" y="94" width="6.800000000000001" height="20" rx="3" fill="var(--good)"/><text class="m" x="264.16" y="109">10ms</text><text x="10" y="139">30バッチの評価（4並列）</text><rect x="319.36" y="124" width="13.600000000000001" height="20" rx="3" fill="var(--accent2)"/><text class="m" x="338.96000000000004" y="139">20ms</text><text x="10" y="169">SSE でブラウザへ</text><rect x="332.96000000000004" y="154" width="10.200000000000001" height="20" rx="3" fill="var(--accent)"/><text class="m" x="349.16" y="169">15ms</text><text x="10" y="199">グリッドの描画</text><rect x="343.16" y="184" width="10.200000000000001" height="20" rx="3" fill="var(--accent)"/><text class="m" x="359.36" y="199">15ms</text><text class="m" x="250" y="234">次の市場（1000ms）までに終われば、遅れは積み上がらない。値は見積もり（カーブの100msだけ計測）</text></svg>
+
+<h2>3. 30人だとどのくらいの量になるか</h2>
+<p>前提（見込み）: 30人、ライブのワークスペースが合わせて45、1つに20行、市場は1秒に1回。</p>
+<div class="tw"><table>
+<tr><th>もの</th><th>1秒あたり</th><th>根拠</th></tr>
+<tr><td>カーブとヤコビアン</td><td class="n">1回（約100ms）</td><td>全員で共有。8本で計測した値。解析的にすれば10ms程度の見込み</td></tr>
+<tr><td>評価する行</td><td class="n">900行</td><td>45×20</td></tr>
+<tr><td>評価のCPU</td><td class="n">10〜45ms</td><td>10年スワップ1本12µs（計測）。平均型RFRや後決めはもっと重いとみて最大50µs</td></tr>
+<tr><td>ワーカーへの要求</td><td class="n">45回</td><td>購読1つにつき1回</td></tr>
+<tr><td>ブラウザへのフレーム</td><td class="n">45個（1人1〜2個）</td><td>1行あたり数値150個ほど（3本のカーブ×25節点×ゼロとパー）。1フレーム約60KB、1人あたり毎秒60〜120KB</td></tr>
+</table></div>
+<p>CPUは1コアの2割にも届かない。量の問題ではなく、<b>順番と送り方</b>の問題になる。</p>
+
+<h2>4. 待ちが起きうる場所と、解決の案</h2>
+<div class="tw"><table>
+<tr><th>#</th><th>場所</th><th>何が起きうるか</th><th>解決の案</th></tr>
+<tr><td><span class="badge">1</span></td><td>市場が届いてカーブを作るまで</td><td>45の計算が同時に「スナップショット n のカーブが要る」と言うと、同じカーブを何度も作るか、全員が最初の1つを待つ。今の部品では作るのに約100ms</td><td>市場が届いた時点でサーバーが <code>market</code> を1回送り、ワーカーはIDで1回だけ作る（同時の要求は同じ作業を待つ）。ヤコビアンとニュートン法の微分を解析的に（100ms→10ms程度）。通貨ごとに並列に作る。クオートが変わったカーブだけ作り直す</td></tr>
+<tr><td><span class="badge">2</span></td><td>ワーカーの中</td><td>標準入出力の1本の管を順番に処理すると、1つの遅い要求の後ろに全員が並ぶ。.NETのガベージコレクションで一瞬止まる</td><td>要求にIDを付け、ワーカーの中でスレッドに並べて処理し、終わった順に返す（またはローカルのHTTP/2やgRPC）。サーバー向けのGC、配列の使い回し</td></tr>
+<tr><td><span class="badge">3</span></td><td>サーバーの計算の枠（4つ）</td><td>45の計算が4つの枠に並ぶ。1回3msなら合計35ms程度で済むが、1つが遅いと後ろが詰まる</td><td>枠の数をワーカーのスレッド数に合わせる。同じスナップショットの計算をまとめて1回の要求にする。ワーカーへの呼び出しは待つだけの処理なので、CPUの枠とは分けて数える</td></tr>
+<tr><td><span class="badge">4</span></td><td>サーバーとワーカーの間のデータ</td><td>毎ティック、全行のキャッシュフロー表（1行40〜120期）を送ると、毎秒10MB以上のJSONを作って読むことになる</td><td>行は版（入力の版 r）が変わったときだけ送り、ワーカーは (ワークスペース, r) で保持する。ティックでは (スナップショット n, ワークスペース, r) だけを送る。ワーカーが再起動して持っていなければ、サーバーが送り直す（同じ中身なので代わりの値ではない）</td></tr>
+<tr><td><span class="badge">5</span></td><td>ワーカーが遅い、止まった</td><td>タイムアウトは計算が止まった証拠にならない。古い答えが後から届くことがある</td><td>応答はスナップショットと版を持つので、古いものは今のライブの決まりで捨てられる。止まったら行を「計算できない」にし、最後の値には時刻を付けたまま示す。仮のプロバイダには切り替えない。サーバーがワーカーを見張って起動し直す</td></tr>
+<tr><td><span class="badge">6</span></td><td>ブラウザへの配信（SSE）</td><td>中継のプロキシがSSEを溜めてしまう。HTTP/1.1ではブラウザ1つにつき同じ相手へ6本までなので、タブが多いと詰まる。データが大きい</td><td>HTTP/2で配る。プロキシのバッファを切る。圧縮する。値が変わった行だけ送る（差分）は、次の段階で測ってから</td></tr>
+<tr><td><span class="badge">7</span></td><td>ブラウザの描画</td><td>毎秒、全行を描き直すと、遅い端末や裏のタブで遅れる</td><td>行のキーで変わったセルだけ書き換える（ExGridの行キー）。裏のタブはブラウザが遅らせるが、表に戻ると最新のフレームだけを表示するので遅れは積もらない</td></tr>
+<tr><td><span class="badge">8</span></td><td>1回のティックが1秒を超えたとき</td><td>計算が次の市場に間に合わない</td><td>今の決まりのまま: 計算中は1つ、待つのは最新の市場1つだけで、途中は飛ばす。それでも足りなければワーカーを2つにしてワークスペースを分ける（カーブは各々が作る。10ms程度なら重複しても小さい）</td></tr>
+</table></div>
+
+<h2>5. Price と Capture</h2>
+<ul>
+<li><b>Price</b>（手動）は、ユーザーが見ていたスナップショットで1回だけ計算し、Runとして保存する。ワーカーがそのスナップショットをもう持っていなければ（最後の8つだけ保持）、サーバーが同じスナップショットを送り直してから計算する。新しい市場で代わりに計算しない。</li>
+<li><b>Capture</b>はもう表示したフレーム（最後の32個）を保存するだけで、ワーカーは呼ばない。</li>
+<li>編集した行は、次の計算から新しい版で計算される。最悪でも「計算中の1回＋次の1回」で反映される。</li>
+</ul>
+
+<h2>6. 今の作りで微妙なところと、どうするのがよいか</h2>
+<p><b>見立て</b>: 購読ごとの決まり（計算中は1つ、最新だけ待つ）、ティックでRunを作らないこと、SSEでの配信は、30人に合っていて変えなくてよい。弱いのは、<b>計算を同じプロセスの中でする前提</b>で作られた次の3点で、どれもカーネルを変えずに、レーツのモジュールの中で直せる。</p>
+<div class="tw"><table>
+<tr><th>今の作り</th><th>微妙な理由</th><th>提案</th><th>勧め</th></tr>
+<tr><td>プロバイダの契約 <code>PriceBatchAsync(RatesBatchInput)</code> は、呼ぶたびに市場の全部と全行を渡す</td><td>同じプロセスの中なら参照を渡すだけで安いが、別プロセスでは毎秒10MB以上のJSONになる（第4節の4）</td><td>契約は変えない。<code>AlphaRatesPricing</code>の中で、行は (ワークスペース, 版) 、市場はスナップショットのIDで覚え、ワーカーが持っていればIDだけ送る。持っていないと言われたら中身を送る</td><td class="good">する</td></tr>
+<tr><td>市場の更新（<code>PublishAsync</code>）が、すべての購読を同時に動かす</td><td>毎秒の頭に45の要求が一斉に出て、全部がカーブの出来上がりを待つ（第4節の1）</td><td>市場のフィード（<code>MarketFeed</code>）が、配る前にプロバイダに「この市場を用意して」と頼む口を足す（任意の小さなインターフェース。仮のプロバイダは何もしない）。カーブができてから一斉に配る</td><td class="good">する</td></tr>
+<tr><td>計算の枠は4つで固定（設定に無い）</td><td>CPUで計算していた頃の数。ワーカーを待つだけの呼び出しには少なすぎたり多すぎたりする</td><td><code>Rates:MaxWorkers</code> を設定にし、ワーカーの並列数と合わせる。計測して決める</td><td class="good">する</td></tr>
+<tr><td>ティックごとに全部を計算し直す</td><td>—</td><td>そのままでよい。1行十数µsなので、感応度で近似（テイラー展開）する必要はない。近似が要るのは計算の重いXVA（Position Keeper）の方</td><td>変えない</td></tr>
+<tr><td>カーブを作る場所</td><td>レーツのワーカーで作ると、Position Keeperの日中の見積もりや、SIMMのCRIF（同じレーツのプロバイダを使う）と別々にカーブを作ることになりうる</td><td>ワーカーの <code>market</code> を、カーブの共通の置き場として後で他の画面にも使う。カーブの定義を1か所にする</td><td>後で</td></tr>
+<tr><td>購読はWebのプロセスのメモリの中だけ</td><td>Webを再起動すると購読が消える</td><td>今の画面は止まった購読に「Resume」を出すので、30人なら困らない。Webを複数台にするときに考える</td><td>今は変えない</td></tr>
+</table></div>
+<p>つまり、30人で困らないための変更は <b>Rates のモジュールの中の3つ</b>（送るものを減らす、市場を先に用意する、枠を設定にする）で、<code>AlphaRatesPricing</code>を作るチケットに含める。</p>
+
+<h2>7. まとめ: 作るときに入れておくもの</h2>
+<ol>
+<li>市場が届いたら、ワーカーに1回だけカーブを作らせる（全員で共有）。</li>
+<li>行は版が変わったときだけ送り、ティックではIDだけを送る。</li>
+<li>ワーカーは要求をIDで受け、並列に処理する。</li>
+<li>計算の枠の数を、ワーカーの並列数と合わせて設定にする。</li>
+<li>市場のフィードが、配る前にワーカーに市場を用意させる。</li>
+<li>ヤコビアンを解析的にする（alpha側）。</li>
+<li>配信はHTTP/2、圧縮あり。描画は変わったセルだけ。</li>
+<li>計測を残す: ティックごとのカーブの時間、待ちの時間、計算の時間、配信までの時間（qubeにはOpenTelemetryの仕組みがある）。</li>
+</ol>
+<p class="small">数値は、カーブの100msと10年スワップの12µs（alphaの部品で計測、Xeon 2.1GHz）以外は見込み。詳しい計測は <a href="alpha-for-rates.html">alpha-for-rates.html</a>。</p>
+
+</main></body></html>
