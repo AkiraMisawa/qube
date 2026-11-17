@@ -216,4 +216,12 @@ public class PkResultFilesTests : IDisposable
         Assert.Equal(PkResultsRefusal.RowUnreadable, twice.Code);
         Assert.Contains("fx_spot", twice.Message);
     }
+
+    [Fact] // the currency of the figures is the manifest's to state
+    public void The_currency_the_manifest_states_is_read_and_none_is_assumed()
+    {
+        Assert.Null(Read().Manifest.Currency);
+        Assert.Equal("JPY", Read(manifest: Manifest.Replace("\"units\"", "\"currency\": \"JPY\", \"units\"")).Manifest.Currency);
+        Assert.Equal(PkResultsRefusal.ManifestUnreadable, Refused(manifest: Manifest.Replace("\"units\"", "\"currency\": 3, \"units\"")).Code);
+    }
 }

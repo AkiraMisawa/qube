@@ -4,6 +4,7 @@
   "inputSet": "sample cut of synthetic/small, 128 paths: base scenario, six kinds of risk (see README.md)",
   "valuationDate": "2026-11-13",
   "baseScenario": "S0000",
+  "currency": "JPY",
   "counterparties": {
     "C0001": { "legalEntity": "SYN-LE-0001" },
     "C0002": { "legalEntity": "SYN-LE-0002" },

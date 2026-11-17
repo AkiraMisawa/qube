@@ -98,9 +98,20 @@ public sealed class PkPositionRead(Func<WorkspaceService> workspaces, IHedgeRisk
             {
                 ["kind"] = r.Kind, ["input"] = r.Input, ["key"] = r.Key, ["per"] = r.Per switch { SensitivityPer.Rate => "rate", SensitivityPer.Level => "level", _ => null },
                 ["book"] = r.Book, ["whatIf"] = r.WhatIf, ["net"] = r.Net, ["marks"] = Marks(r.Marks),
+                ["tenor"] = r.Tenor, ["step"] = PkSteps.Name(r.Per),
+                ["bookStep"] = PkSteps.Of(r.Per, r.Book), ["whatIfStep"] = PkSteps.Of(r.Per, r.WhatIf), ["netStep"] = PkSteps.Of(r.Per, r.Net),
+            }))),
+            ["parallel"] = List(p.Parallel.Where(l => Named(kind, l.Kind) && Named(input, l.Input)).Select(l => (JsonNode)Without(new JsonObject
+            {
+                ["kind"] = l.Kind, ["input"] = l.Input, ["step"] = l.Step, ["book"] = l.Book, ["whatIf"] = l.WhatIf, ["net"] = l.Net, ["marks"] = Marks(l.Marks),
+            }))),
+            ["byCounterparty"] = List(p.ByCounterparty.Select(c => (JsonNode)Without(new JsonObject
+            {
+                ["counterparty"] = c.Counterparty, ["legalEntity"] = c.LegalEntity, ["total"] = c.Total,
             }))),
             ["pnl"] = List(p.Pnl.Select(l => (JsonNode)Pnl(l))),
         };
+        if (p.Book.Currency is { } currency) answer["currency"] = currency;
         if (p.PnlTotal is { } total)
         {
             answer["pnlTotalBook"] = total.Book;
@@ -229,7 +240,20 @@ public sealed class PkModule(Func<PkWorkspaces> workspaces, Func<WorkspaceServic
                 ["kind"] = Text("Kind"), ["input"] = Text("Input"), ["key"] = Text("Key"),
                 ["per"] = Text("Per what: rate (per 1.0 of a rate; a basis point is 1e-4 of it) or level (per unit of the quote); absent where the result set declares no unit"),
                 ["book"] = Number("Book"), ["whatIf"] = Maybe("What-if: the hedges' figure where any has a row here"), ["net"] = Number("Net"), ["marks"] = Words(MarksSay),
+                ["tenor"] = Text("The key as a tenor's name (5Y) where it is exactly that tenor's day from the valuation date; absent where it is not"),
+                ["step"] = Text("The step the per-step figures are for: 1bp of a rate, or quote (one unit of the quote); absent where the result set declares no unit"),
+                ["bookStep"] = Maybe("Book per step"), ["whatIfStep"] = Maybe("What-if per step"), ["netStep"] = Maybe("Net per step"),
             }),
+            ["parallel"] = Records("Each input with a declared unit moved by one step at every key: its risk lines per step, summed. " + Signs, new JsonObject
+            {
+                ["kind"] = Text("Kind"), ["input"] = Text("Input"), ["step"] = Text("1bp or quote"),
+                ["book"] = Number("Book"), ["whatIf"] = Maybe("What-if"), ["net"] = Number("Net"), ["marks"] = Words(MarksSay),
+            }),
+            ["byCounterparty"] = Records("Each counterparty's values summed over the metrics, the largest cost first. No standard error: the metrics share paths.", new JsonObject
+            {
+                ["counterparty"] = Text("Counterparty"), ["legalEntity"] = Text("Legal entity; absent where the result set maps none"), ["total"] = Number("Total"),
+            }),
+            ["currency"] = Text("The currency every figure is in; absent where the result set declares none"),
             ["pnl"] = Records("Predicted profit and loss of each move held: sensitivity times move, first order.", new JsonObject
             {
                 ["kind"] = Text("Kind"), ["input"] = Text("Input"), ["move"] = Number("Move, as typed"), ["typedIn"] = Text("bp for a rate, quote for a quoted level"),

@@ -12,7 +12,7 @@ const ENGINE_COMMIT = '30341fefae1a684ed80a705225b4362129098fce';
 async function newKeeper(page: Page): Promise<void> {
   await command(page, 'new pk');
   await expect(page.getByRole('tab', { name: `PK ${VALUATION_DATE}` })).toHaveAttribute('aria-selected', 'true');
-  await settled(page, 'Values');
+  await settled(page, 'XVA by counterparty');
   await settled(page, 'Risk');
 }
 
@@ -29,7 +29,8 @@ async function position(page: Page, filter: { readonly kind?: string; readonly i
   });
   expect(answered.ok(), await answered.text()).toBe(true);
   return ((await answered.json()) as { outputs: { answer: {
-    risk: { key: string; marks: string[] }[];
+    risk: { key: string; marks: string[]; tenor?: string; step?: string; bookStep?: number }[];
+    parallel: { kind: string; input: string; book: number }[];
     pnl: { kind: string; input: string; marks: string[] }[];
     hedges: { hedge: string; marks: string[] }[];
     pnlTotalMarks?: string[];
@@ -60,15 +61,36 @@ test('ADR-0019 §4: the Position Keeper page says which book it shows: the engin
   await expect(identity).toContainText(`valuation date ${VALUATION_DATE}`);
   await expect(identity).toContainText('result set small-128-sample');
 
-  // Four counterparties, three metrics each, with the legal entity the result set maps each to. A cost is negative, as
-  // the engine has it, and is painted as a loss (C48).
-  await expect(rows(page, 'Values')).toHaveCount(12);
-  const cva = row(page, 'Values', /^C0003 SYN-LE-0003 CVA /);
-  await expect(cva).toContainText('-123,132,885');
-  await expect(cva.locator('.ex-tone-negative').first()).toHaveText('-123,132,885');
+  // A counterparty is one row with its legal entity, the largest cost first, each metric beside its standard error
+  // and the total. A cost is negative, as the engine has it; it is every counterparty's sign, so it is not painted.
+  const xva = 'XVA by counterparty';
+  await expect(rows(page, xva)).toHaveCount(4);
+  await expect(rows(page, xva).first()).toContainText('C0003');
+  const largest = row(page, xva, /^C0003 SYN-LE-0003 -123,132,885 2,941,846 -17,750,653 /);
+  await expect(largest).toBeVisible();
+  await expect(grid(page, xva).locator('.ex-tone-negative')).toHaveCount(0);
   // The totals say what they are of: a metric summed over the counterparties, and no standard error.
   await expect(page.getByTestId('pk-totals')).toContainText('CVA -130,157,558');
   await expect(page.getByTestId('pk-totals')).toContainText('FVA -22,014,127');
+
+  // The amounts are in the currency the result set declares, and in millions of it where that is chosen.
+  const scale = page.getByRole('radiogroup', { name: 'Amounts in' });
+  await scale.getByText('JPY mm', { exact: true }).click();
+  await expect(page.getByTestId('pk-totals')).toContainText('CVA -130.16');
+  await expect(row(page, xva, /^C0003 SYN-LE-0003 -123.13 2.94 -17.75 /)).toBeVisible();
+  await scale.getByText('JPY', { exact: true }).click();
+
+  // Risk reads as a trader reads it: per basis point of a rate, the tenor by its name, and the curve moved in
+  // parallel as one line. Each is the server's figure.
+  await showRiskOf(page, 'zero_rate JPY-OIS');
+  const told = await position(page, { kind: 'zero_rate', input: 'JPY-OIS' });
+  const fiveYears = told.risk.find((line) => line.key === '1826d')!;
+  expect(fiveYears).toMatchObject({ tenor: '5Y', step: '1bp' });
+  const whole = (value: number) => new Intl.NumberFormat('en-US', { maximumFractionDigits: 0, signDisplay: 'negative' }).format(value);
+  await expect(row(page, 'Risk', /^zero_rate JPY-OIS 5Y 1bp /)).toContainText(whole(fiveYears.bookStep!));
+  await settled(page, 'Parallel risk');
+  await expect(rows(page, 'Parallel risk')).toHaveCount(1);
+  await expect(row(page, 'Parallel risk', /^zero_rate JPY-OIS 1bp /)).toContainText(whole(told.parallel[0]!.book));
 });
 
 test('ADR-0019 §3, §7: WHAT-IF, SIMULATED and FIRST ORDER are drawn from the server\'s marks on every row and total they apply to, and on no other', async ({ page }) => {
@@ -139,7 +161,7 @@ test('ADR-0019 §4: with no result set the page says so, in the server\'s words,
   const said = page.getByTestId('pk-unavailable');
   await expect(said).toContainText('The Position Keeper workspace was not made');
   await expect(said).toContainText('no-such-set');
-  await expect(grid(page, 'Values')).toHaveCount(0);
+  await expect(grid(page, 'XVA by counterparty')).toHaveCount(0);
   await expect(grid(page, 'Risk')).toHaveCount(0);
   // The browser logs the refusal it was answered; nothing else went wrong.
   expect(problems.splice(0)).toEqual(['error: Failed to load resource: the server responded with a status of 422 (Unprocessable Entity)']);

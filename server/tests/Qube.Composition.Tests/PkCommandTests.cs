@@ -488,6 +488,68 @@ public class PkCommandTests(QubeFactory factory) : IClassFixture<QubeFactory>
         await Ok(await Move(client, id, "zero_rate/JPY-OIS", "5"));
     }
 
+    [Fact] // a trader reads a rate's risk per basis point and a tenor by its name; neither is guessed where the result set does not give it
+    public async Task Risk_reads_per_step_with_the_tenor_named_where_the_key_is_one()
+    {
+        var (_, client) = Keeper();
+        var id = (await NewWorkspace(client))["workspaceId"]!.GetValue<string>();
+
+        var position = await Position(client, id);
+
+        var fiveYears = Line(position, "risk", "JPY-OIS", "1826d");
+        // 2026-11-13 plus five years is 1826 days on; 2.5e6 per 1.0 of the rate is 250 per basis point.
+        Assert.Equal(("5Y", "1bp"), (fiveYears["tenor"]!.GetValue<string>(), fiveYears["step"]!.GetValue<string>()));
+        Assert.Equal(250, fiveYears["bookStep"]!.GetValue<double>(), 9);
+        Assert.Equal(250, fiveYears["netStep"]!.GetValue<double>(), 9);
+        Assert.Null(fiveYears["whatIfStep"]);
+        // Ten years on is 3653 days: 3652d is no tenor's day, and is given no name.
+        Assert.Null(Line(position, "risk", "JPY-OIS", "3652d")["tenor"]);
+        var fx = Line(position, "risk", "USDJPY");
+        Assert.Equal(("quote", -400), (fx["step"]!.GetValue<string>(), fx["bookStep"]!.GetValue<double>()));
+        var undeclared = Line(position, "risk", "USD");
+        Assert.Null(undeclared["step"]);
+        Assert.Null(undeclared["bookStep"]);
+    }
+
+    [Fact] // the summary a trader starts from: each input moved by one step at every key, and each counterparty's adjustments summed
+    public async Task The_position_sums_each_input_over_its_keys_and_each_counterparty_over_its_metrics()
+    {
+        var (_, client) = Keeper(engine: new FakeEngine(Qube.Composition.Contracts.ExecutionMode.Simulated));
+        var id = (await NewWorkspace(client))["workspaceId"]!.GetValue<string>();
+        await Ok(await NewHedge(client, id, TenYearPayer));
+
+        var position = await Position(client, id);
+
+        var rates = Line(position, "parallel", "JPY-OIS");
+        // Book (2.5e6 - 1.0e6) * 1e-4 = 150; What-if (-2.0e6 + 0.5e6) * 1e-4 = -150; Net 0.
+        Assert.Equal("1bp", rates["step"]!.GetValue<string>());
+        Assert.Equal(150, rates["book"]!.GetValue<double>(), 9);
+        Assert.Equal(-150, rates["whatIf"]!.GetValue<double>(), 9);
+        Assert.Equal(0, rates["net"]!.GetValue<double>(), 9);
+        Assert.Equal(["WHAT-IF", "SIMULATED"], MarksOf(rates));
+        // A kind with no declared unit has no step, and no line.
+        Assert.DoesNotContain(position["parallel"]!.AsArray(), l => l!["kind"]!.GetValue<string>() == "fx_notional_delta");
+        var parties = position["byCounterparty"]!.AsArray();
+        // C0001: -1200.5 - 300 + 0.
+        Assert.Equal(-1500.5, parties.Single(c => c!["counterparty"]!.GetValue<string>() == "C0001")!["total"]!.GetValue<double>(), 9);
+        var unmapped = parties.Single(c => c!["counterparty"]!.GetValue<string>() == "C0002")!;
+        Assert.Equal(-50, unmapped["total"]!.GetValue<double>());
+        Assert.Null(unmapped["legalEntity"]);
+    }
+
+    [Fact] // the currency the figures are in is the result set's to say; unsaid, none is shown
+    public async Task The_currency_of_the_figures_is_given_only_where_the_result_set_declares_it()
+    {
+        var (_, plain) = Keeper();
+        var (_, declared) = Keeper(set: Tiny() with { Manifest = Tiny().Manifest with { Currency = "JPY" } });
+
+        var without = await Position(plain, (await NewWorkspace(plain))["workspaceId"]!.GetValue<string>());
+        var with = await Position(declared, (await NewWorkspace(declared))["workspaceId"]!.GetValue<string>());
+
+        Assert.Null(without["currency"]);
+        Assert.Equal("JPY", with["currency"]!.GetValue<string>());
+    }
+
     [Fact] // ADR-0019 §7: nothing assumes a unit
     public async Task A_move_of_a_kind_without_a_declared_unit_is_refused_by_name()
     {

@@ -4203,7 +4203,7 @@ Spec and tickets: [docs/specs/position-keeper](docs/specs/position-keeper/spec.m
 
 | Suite | Result |
 |---|---|
-| `dotnet test server/Qube.slnx` | 1,743 passed, 1 failed: the contract test below |
+| `dotnet test server/Qube.slnx` | 1,747 passed, 1 failed: the contract test below |
 | `npm run typecheck`, `npm test` (Vitest) | clean; 530 passed |
 | `npx playwright test e2e/position-keeper.spec.ts` | 5 passed |
 | `npx playwright test` (every spec) | 159 passed, 1 failed: the command line's placeholder named `new pk` in place of `open pricing db`. `new pk` now stands after it; that test and the Position Keeper spec run again, 6 passed |
@@ -4239,6 +4239,15 @@ Spec and tickets: [docs/specs/position-keeper](docs/specs/position-keeper/spec.m
 - DEFAULTs of ADR-0019 not yet reviewed by the owner: the slice reads result files (no call to the engine), the
   manifest's units and legal entities, the synthetic hedge calculator.
 - A kind of risk the manifest declares no unit for shows no `Per` and takes no move (refused `NoUnit`).
+- The page as a trader reads it, step 1 of the review of 2026-11-17 (owner: follow how risk and P&L attribution
+  tools present a position): XVA is one row a counterparty, the largest cost first, each metric beside its standard
+  error and the total; risk is written per step (a basis point of a rate, a unit of a quote) with the tenor by its
+  name where the key is exactly that tenor's day, and each input moved in parallel is a line of its own; amounts are
+  in the currency the manifest declares (`currency`), in whole units or millions. An adjustment is not painted red
+  (every one is a cost); red stays for sensitivities and profit and loss. All of it is the server's
+  (`pk.position.read`: `tenor`, `step`, `bookStep`, `parallel`, `byCounterparty`, `currency`). Not yet: the ladder by
+  currency and tenor with Book, What-if and Net stacked, vol per vol point (a vol is declared `level` today, so its
+  step is 1.0 of vol), FX delta per 1%, the P&L explain tree, drill-down to counterparties, par deltas.
 - The development sample gives levels for the FX spots and FX ATM vols only, so a move in `%` of a curve or a hazard
   rate is refused there (`NoLevel`); the engine does not write levels yet, and the sample's are copied from its inputs.
 - The risk grid sums over counterparties and metrics; it has no view by counterparty or by metric yet.

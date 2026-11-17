@@ -31,6 +31,9 @@ public sealed record PkManifest(
     /// declares it. A currency it does not name has none, and a hedge in it is refused (ADR-0019 §7).
     /// </summary>
     public IReadOnlyDictionary<string, string> HedgeCurves { get; init; } = new Dictionary<string, string>();
+
+    /// <summary>The currency every value and sensitivity of the result set is in, as the adapter declares it; null where it declares none.</summary>
+    public string? Currency { get; init; }
 }
 
 /// <summary>A curve of the input set as the engine read it: discount factors at days from the valuation date, in order.</summary>

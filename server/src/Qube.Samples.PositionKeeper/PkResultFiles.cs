@@ -188,7 +188,13 @@ public sealed class PkResultFiles(string root) : IPkResults
                         $"Result set '{reference}': {ManifestFile} names no curve for hedges in {entry.Name}.");
         }
 
-        return new PkManifest(engine, commit, inputSet, date, baseScenario, entities, units) { HedgeCurves = hedgeCurves };
+        string? currency = null;
+        if (root.TryGetProperty("currency", out var stated))
+            currency = stated.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(stated.GetString()) ? stated.GetString()
+                : throw new PkResultsRefused(PkResultsRefusal.ManifestUnreadable,
+                    $"Result set '{reference}': {ManifestFile}'s 'currency' is not a currency's code.");
+
+        return new PkManifest(engine, commit, inputSet, date, baseScenario, entities, units) { HedgeCurves = hedgeCurves, Currency = currency };
     }
 
     static PkResultsRefused UnknownUnit(string reference, JsonProperty entry) =>

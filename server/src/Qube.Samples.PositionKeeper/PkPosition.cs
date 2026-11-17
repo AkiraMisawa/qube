@@ -54,7 +54,51 @@ public static class PkMoves
 /// <summary>One sensitivity of the position: the book's, the what-if hedges' where any has a row on it, and their sum.</summary>
 /// <param name="WhatIf">Null where no hedge has a row on this input and key: there is nothing hypothetical in the line.</param>
 /// <param name="Marks">What the What-if and Net figures are (ADR-0019 §2, §4); the Book figure carries none.</param>
-public sealed record PositionRisk(string Kind, string Input, string Key, SensitivityPer? Per, double Book, double? WhatIf, double Net, IReadOnlyList<string> Marks);
+public sealed record PositionRisk(string Kind, string Input, string Key, SensitivityPer? Per, double Book, double? WhatIf, double Net, IReadOnlyList<string> Marks)
+{
+    /// <summary>The key as a tenor's name (<c>5Y</c>) where it is that tenor's day from the valuation date; null where it is not.</summary>
+    public string? Tenor { get; init; }
+}
+
+/// <summary>
+/// The step a trader reads a sensitivity per (ADR-0019 §7): one basis point of a rate, one unit of a quote. A kind
+/// with no declared unit has none, and no figure per step.
+/// </summary>
+public static class PkSteps
+{
+    public static string? Name(SensitivityPer? per) => per switch
+    {
+        SensitivityPer.Rate => "1bp",
+        SensitivityPer.Level => "quote",
+        _ => null,
+    };
+
+    public static double? Of(SensitivityPer? per, double? sensitivity) =>
+        per is { } declared && sensitivity is { } value ? PkMoves.InUnits(declared, value) : null;
+}
+
+/// <summary>A key as a tenor's name, where it is exactly that tenor's day from the valuation date; no nearest tenor is taken.</summary>
+public static class PkTenors
+{
+    public static string? Name(DateOnly valuation, string key)
+    {
+        if (!key.EndsWith('d') || !int.TryParse(key.AsSpan(0, key.Length - 1), System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var days))
+            return null;
+        if (days == 1) return "1D";
+        if (days is 7 or 14 or 21) return $"{days / 7}W";
+        for (var months = 1; months <= 18; months++)
+            if (months % 12 != 0 && valuation.AddMonths(months).DayNumber - valuation.DayNumber == days) return $"{months}M";
+        for (var years = 1; years <= 100; years++)
+            if (valuation.AddYears(years).DayNumber - valuation.DayNumber == days) return $"{years}Y";
+        return null;
+    }
+}
+
+/// <summary>One input moved by one step at every key: the sum of its sensitivities per step.</summary>
+public sealed record PositionParallel(string Kind, string Input, string Step, double Book, double? WhatIf, double Net, IReadOnlyList<string> Marks);
+
+/// <summary>A counterparty's adjustments summed over the metrics.</summary>
+public sealed record PositionCounterparty(string Counterparty, string? LegalEntity, double Total);
 
 /// <summary>The predicted profit and loss of one input's move: sensitivity times move, summed over the input's keys.</summary>
 /// <param name="TypedIn">What <paramref name="Move"/> is in: <c>bp</c> or <c>quote</c> where it is absolute, <c>%</c> where it is of each key's level.</param>
@@ -73,7 +117,11 @@ public sealed record Position(
     IReadOnlyList<PositionHedge> Hedges,
     IReadOnlyList<PositionRisk> Risk,
     IReadOnlyList<PositionPnl> Pnl,
-    PositionPnl? PnlTotal);
+    PositionPnl? PnlTotal)
+{
+    public IReadOnlyList<PositionParallel> Parallel { get; init; } = [];
+    public IReadOnlyList<PositionCounterparty> ByCounterparty { get; init; } = [];
+}
 
 /// <summary>
 /// The position as a pure function of the workspace and its acquired book (ADR-0019 §3): Book, What-if and Net for
@@ -132,7 +180,8 @@ public static class PkPosition
         var risks = lines.OrderBy(l => l.Key.Kind, StringComparer.Ordinal).ThenBy(l => l.Key.Input, StringComparer.Ordinal)
             .ThenBy(l => Days(l.Key.Key)).ThenBy(l => l.Key.Key, StringComparer.Ordinal)
             .Select(l => new PositionRisk(l.Key.Kind, l.Key.Input, l.Key.Key, set.UnitOf(l.Key.Kind), l.Value.Book, l.Value.WhatIf,
-                l.Value.Book + (l.Value.WhatIf ?? 0), Marks(l.Value.WhatIf is not null, l.Value.Simulated))).ToList();
+                l.Value.Book + (l.Value.WhatIf ?? 0), Marks(l.Value.WhatIf is not null, l.Value.Simulated))
+            { Tenor = PkTenors.Name(set.Manifest.ValuationDate, l.Key.Key) }).ToList();
 
         var pnl = new List<PositionPnl>();
         var grouped = risks.GroupBy(r => (r.Kind, r.Input)).ToDictionary(g => g.Key, g => g.ToList());
@@ -156,7 +205,24 @@ public static class PkPosition
         var total = pnl.Count == 0 ? null : new PositionPnl("", "", 0, "", pnl.Sum(p => p.Book), pnl.Any(p => p.WhatIf is not null) ? pnl.Sum(p => p.WhatIf ?? 0) : null,
             pnl.Sum(p => p.Net), Marks(pnl.Any(p => p.WhatIf is not null), pnl.Any(p => p.Marks.Contains(Simulated)), firstOrder: true));
 
-        return new(set.Manifest, set.Reference, [.. chosen], values, totals, [.. hedges.Select(h => h.Hedge)], risks, pnl, total);
+        // Each input with a declared unit moved by one step at every key, in the order of the risk lines.
+        var parallel = grouped.Where(g => set.UnitOf(g.Key.Kind) is not null).Select(g =>
+        {
+            var per = set.UnitOf(g.Key.Kind);
+            var hypothetical = g.Value.Any(r => r.WhatIf is not null);
+            return new PositionParallel(g.Key.Kind, g.Key.Input, PkSteps.Name(per)!, g.Value.Sum(r => PkSteps.Of(per, r.Book)!.Value),
+                hypothetical ? g.Value.Sum(r => PkSteps.Of(per, r.WhatIf ?? 0)!.Value) : null, g.Value.Sum(r => PkSteps.Of(per, r.Net)!.Value),
+                Marks(hypothetical, g.Value.Any(r => r.Marks.Contains(Simulated))));
+        }).ToList();
+        // Largest cost first: the order a trader reads counterparties in.
+        var byCounterparty = values.GroupBy(v => v.Counterparty, StringComparer.Ordinal)
+            .Select(g => new PositionCounterparty(g.Key, entities[g.Key], g.Sum(v => v.Value)))
+            .OrderBy(c => c.Total).ThenBy(c => c.Counterparty, StringComparer.Ordinal).ToList();
+
+        return new(set.Manifest, set.Reference, [.. chosen], values, totals, [.. hedges.Select(h => h.Hedge)], risks, pnl, total)
+        {
+            Parallel = parallel, ByCounterparty = byCounterparty,
+        };
     }
 
     // Keys that are days (1826d) sort by their number; others after them, by name.

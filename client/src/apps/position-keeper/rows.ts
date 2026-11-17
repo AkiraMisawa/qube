@@ -1,4 +1,4 @@
-import type { PkView, Mark, PositionHedge, PositionPnl, PositionRisk, TableRead } from './contracts';
+import type { PkPosition, PkView, Mark, PositionCounterparty, PositionHedge, PositionPnl, PositionRisk, TableRead } from './contracts';
 
 // The rows the Position Keeper page's grids show, made from what the server answered (ADR-0019). Nothing here computes a figure
 // or a mark: a row joins what two answers say of the same thing, and a cell the server left out stays empty.
@@ -68,3 +68,25 @@ export const riskInputOf = (line: Pick<PositionRisk, 'kind' | 'input'>): string 
 
 /** A risk line's key among the lines: its kind, its input and its key, which no two lines share. */
 export const riskKey = (line: PositionRisk): string => `${line.kind}/${line.input}/${line.key ?? ''}`;
+
+/** A counterparty's row: its total as the server summed it, and each metric's value and standard error. */
+export interface XvaRow extends PositionCounterparty {
+  readonly byMetric: Readonly<Record<string, { readonly value: number; readonly stdError: number } | undefined>>;
+}
+
+/** The metrics the book has values of, in the order the engine wrote them. */
+export const metricsOf = (position: Pick<PkPosition, 'values'>): readonly string[] => [...new Set(position.values.map((v) => v.metric))];
+
+/** Each counterparty once, in the server's order (the largest cost first), with its values by metric beside its total. */
+export function xvaRows(position: Pick<PkPosition, 'values' | 'byCounterparty'>): readonly XvaRow[] {
+  const listed = new Set(position.byCounterparty.map((c) => c.counterparty));
+  const stray = position.values.find((v) => !listed.has(v.counterparty));
+  if (stray !== undefined) throw new Error(`The position gives a value of ${stray.counterparty} and no total of it.`);
+  return position.byCounterparty.map((party) => ({
+    ...party,
+    byMetric: Object.fromEntries(position.values.filter((v) => v.counterparty === party.counterparty).map((v) => [v.metric, { value: v.value, stdError: v.stdError }])),
+  }));
+}
+
+/** A risk line's tenor as a trader names it, or its key as the engine wrote it where it is no tenor's day. */
+export const tenorOf = (line: Pick<PositionRisk, 'tenor' | 'key'>): string | undefined => line.tenor ?? line.key;

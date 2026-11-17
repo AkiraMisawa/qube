@@ -48,6 +48,27 @@ export interface PositionRisk extends Split {
   readonly key?: string;
   /** `rate`: per 1.0 of a rate; `level`: per unit of the quote. Absent where the result set declares no unit. */
   readonly per?: 'rate' | 'level';
+  /** The key as a tenor's name (`5Y`), where it is exactly that tenor's day from the valuation date. */
+  readonly tenor?: string;
+  /** The step the per-step figures are for: `1bp` of a rate, or `quote`. Absent where the result set declares no unit. */
+  readonly step?: string;
+  readonly bookStep?: number;
+  readonly whatIfStep?: number;
+  readonly netStep?: number;
+}
+
+/** One input moved by one step at every key. */
+export interface PositionParallel extends Split {
+  readonly kind: string;
+  readonly input: string;
+  readonly step: string;
+}
+
+/** A counterparty's values summed over the metrics. */
+export interface PositionCounterparty {
+  readonly counterparty: string;
+  readonly legalEntity?: string;
+  readonly total: number;
 }
 
 export interface PositionPnl extends Split {
@@ -65,6 +86,11 @@ export interface PkPosition extends Omit<PkCreated, 'revision'> {
   readonly totals: readonly { readonly metric: string; readonly value: number }[];
   readonly hedges: readonly PositionHedge[];
   readonly risk: readonly PositionRisk[];
+  readonly parallel: readonly PositionParallel[];
+  /** The largest cost first, as the server orders them. */
+  readonly byCounterparty: readonly PositionCounterparty[];
+  /** The currency every figure is in; absent where the result set declares none. */
+  readonly currency?: string;
   readonly pnl: readonly PositionPnl[];
   /** The predicted profit and loss of every move held; absent while no move is held. */
   readonly pnlTotalBook?: number;
