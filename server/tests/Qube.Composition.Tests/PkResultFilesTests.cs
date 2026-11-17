@@ -63,7 +63,13 @@ public class PkResultFilesTests : IDisposable
 
         var kinds = set.Sensitivities.Where(s => s.Scenario == set.Manifest.BaseScenario).Select(s => s.Kind).ToHashSet();
         Assert.Superset(new HashSet<string> { "zero_rate", "par_rate", "discount_factor", "fx_spot", "fx_notional_delta",
-            "hazard_rate", "survival_probability", "ir_normal_vol", "fx_atm_vol" }, kinds);
+            "hazard_rate", "survival_probability", "cds_spread", "ir_normal_vol", "fx_atm_vol" }, kinds);
+        // A hedge's curve is an input of the book's own risk, by the same name, and is carried with the set.
+        Assert.All(set.Manifest.HedgeCurves.Values, curve =>
+        {
+            Assert.Contains(set.Sensitivities, s => s.Kind == "zero_rate" && s.Input == curve);
+            Assert.NotEmpty(set.Curves[curve].Nodes);
+        });
         Assert.Contains(set.Sensitivities, s => s is { Kind: "fx_notional_delta", Key: "JPY_amount" });
 
         Assert.NotEmpty(set.Trades);
@@ -196,6 +202,13 @@ public class PkResultFilesTests : IDisposable
 
         Assert.Equal("JPY-OIS", set.Manifest.HedgeCurves["JPY"]);
         Assert.Equal([new PkCurveNode("365d", 365, 0.99), new PkCurveNode("1826d", 1826, 0.94)], set.Curves["JPY-OIS"].Nodes);
+
+        // The valuation date itself, at a discount factor of 1, is the curve's start and no node of it; said with any
+        // other factor it is refused.
+        File.WriteAllText(Path.Combine(_root, "set", "curves", "JPY-OIS.csv"), "tenor,discount_factor\n0d,1\n365d,0.99\n");
+        Assert.Equal([new PkCurveNode("365d", 365, 0.99)], Read(manifest: withCurves).Curves["JPY-OIS"].Nodes);
+        File.WriteAllText(Path.Combine(_root, "set", "curves", "JPY-OIS.csv"), "tenor,discount_factor\n0d,0.999\n365d,0.99\n");
+        Assert.Equal(PkResultsRefusal.NumberUnreadable, Refused(manifest: withCurves).Code);
     }
 
     [Fact] // ADR-0019 §7: the levels a relative move is taken against are the result set's, read strictly and part of what it is

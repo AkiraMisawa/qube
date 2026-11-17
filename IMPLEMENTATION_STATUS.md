@@ -4203,10 +4203,10 @@ Spec and tickets: [docs/specs/position-keeper](docs/specs/position-keeper/spec.m
 
 | Suite | Result |
 |---|---|
-| `dotnet test server/Qube.slnx` | 1,751 passed, 1 failed: the contract test below |
+| `dotnet test server/Qube.slnx` | 1,753 passed (2026-11-17, on the engine's vector at `aadd34b`) |
 | `npm run typecheck`, `npm test` (Vitest) | clean; 530 passed |
 | `npx playwright test e2e/position-keeper.spec.ts` | 5 passed |
-| `npx playwright test` (every spec) | 159 passed, 1 failed: the command line's placeholder named `new pk` in place of `open pricing db`. `new pk` now stands after it; that test and the Position Keeper spec run again, 6 passed |
+| `npx playwright test` (every spec) | 160 passed (2026-11-17, after the rename, the ladder and the new sample) |
 
 | Acceptance | Status |
 |---|---|
@@ -4216,7 +4216,7 @@ Spec and tickets: [docs/specs/position-keeper](docs/specs/position-keeper/spec.m
 | A hedge is added, changed, taken back and removed with the keyboard alone; a move is typed in its cell and one that cannot be read is refused at the cell (§2) | Passed (Playwright) |
 | The page reads at 1440px and 390px in both themes: no sideways scroll, text at 4.5:1 | Passed (Playwright); looked at by hand in screenshots |
 | The stand-in reads one curve's net risk after a hedge, with its marks (§6) | Passed (xUnit, over the agent's route) |
-| The engine's own small result set reads through the adapter (contract test, ADR-0019 §7) | **Failing.** The engine at the pinned commit writes interval labels with a comma in an unquoted cell of `risk.csv` (1,608 rows); the reader refuses the row and guesses nothing. The engine's input-reshaping work renames the labels; the fixture is copied again and the pin moved once that is merged |
+| The engine's own small result set reads through the adapter (contract test, ADR-0019 §7) | Passed (xUnit), on the engine's vector at `aadd34b` (its input reshaping): no label holds a comma, risk on a curve is named by the curve's file, CDS quotes are a kind of their own. Before that commit the test failed on a comma in an unquoted label, and stayed failing rather than loosened |
 | Touch | Not verified |
 
 ### Providers
@@ -4256,8 +4256,14 @@ Spec and tickets: [docs/specs/position-keeper](docs/specs/position-keeper/spec.m
   also summed by kind of risk (`pnlByKind`), and a whole kind is moved as one from the command line (`set moves where
   kind=zero_rate move 10bp`). Not yet: FX delta per 1% and by currency, the explanation against an actual profit and
   loss, drill-down from a cell to counterparties, par deltas, the ladder by metric.
-- The development sample gives levels for the FX spots and FX ATM vols only, so a move in `%` of a curve or a hazard
-  rate is refused there (`NoLevel`); the engine does not write levels yet, and the sample's are copied from its inputs.
+- The development sample gives levels for the FX spots, the FX ATM vols and the CDS quotes, so a move in `%` of a
+  curve or a hazard rate is refused there (`NoLevel`); the engine does not write levels yet, and the sample's are
+  copied from its inputs.
+- A currency's row of the rates ladder sums every curve file the manifest gives that currency: the base curve, the
+  ratio files (whose zero rate is a spread over the base) and, for JPY, funding. `By input` reads each alone; a row
+  for base curves only is not built.
+- A curve file's `0d` row at a discount factor of 1 is read as the curve's start and is no node; with another factor
+  the file is refused. A key that is a tenor's name (a CDS quote's `5Y`) stands at that tenor's day.
 - The risk grid sums over counterparties and metrics; it has no view by counterparty or by metric yet.
 - The Position Keeper tables' columns say their meaning by title only; the sign and unit of each figure are declared in the
   position's contract, not on the table's fields.

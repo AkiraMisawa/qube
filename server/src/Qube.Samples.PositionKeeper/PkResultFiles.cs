@@ -59,7 +59,7 @@ public sealed class PkResultFiles(string root) : IPkResults
                 var file = $"{CurveDirectory}/{Path.GetFileName(path)}";
                 bytes[file] = File.ReadAllBytes(path);
                 var name = Path.GetFileNameWithoutExtension(path);
-                curves[name] = new PkCurve(name, [.. Table.Parse(file, bytes[file], ["tenor", "discount_factor"]).Select(r => Node(file, r))]);
+                curves[name] = new PkCurve(name, [.. Table.Parse(file, bytes[file], ["tenor", "discount_factor"]).Where(r => !Start(file, r)).Select(r => Node(file, r))]);
             }
         foreach (var (currency, curve) in manifest.HedgeCurves)
             if (!curves.ContainsKey(curve))
@@ -83,6 +83,17 @@ public sealed class PkResultFiles(string root) : IPkResults
     const string LevelsFile = "levels.csv";
 
     const string CurveDirectory = "curves";
+
+    /// <summary>
+    /// Whether a row is the curve's start: the valuation date itself (<c>0d</c>), where the discount factor is 1 by
+    /// definition. It is read and is no node; said with another factor the file is refused.
+    /// </summary>
+    static bool Start(string file, Table.Row row)
+    {
+        if (row.Text(0) != "0d") return false;
+        return row.Number(1) == 1 ? true
+            : throw new PkResultsRefused(PkResultsRefusal.NumberUnreadable, $"{file}: the discount factor at 0d is {row.Number(1)}, which is not 1.");
+    }
 
     static PkCurveNode Node(string file, Table.Row row)
     {

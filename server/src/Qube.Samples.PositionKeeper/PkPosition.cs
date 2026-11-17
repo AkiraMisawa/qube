@@ -106,9 +106,13 @@ public static class PkTenors
         };
     }
 
+    /// <summary>The day a key stands at: the days it says (<c>1826d</c>), or the day of the tenor it names (<c>5Y</c>); null where it is neither.</summary>
+    public static int? DayOf(DateOnly valuation, string key) => DaysOf(key) ?? Days(valuation, key);
+
     public static string? Name(DateOnly valuation, string key)
     {
-        if (DaysOf(key) is not { } days) return null;
+        // A key that is a tenor's name already is its own name.
+        if (DaysOf(key) is not { } days) return Days(valuation, key) is null ? null : key;
         if (days == 1) return "1D";
         if (days is 7 or 14 or 21) return $"{days / 7}W";
         for (var months = 1; months <= 18; months++)
@@ -215,7 +219,7 @@ public static class PkPosition
             [.. new[] { whatIf ? WhatIf : null, simulated ? Simulated : null, firstOrder ? FirstOrder : null }.OfType<string>()];
 
         var risks = lines.OrderBy(l => l.Key.Kind, StringComparer.Ordinal).ThenBy(l => l.Key.Input, StringComparer.Ordinal)
-            .ThenBy(l => Days(l.Key.Key)).ThenBy(l => l.Key.Key, StringComparer.Ordinal)
+            .ThenBy(l => PkTenors.DayOf(set.Manifest.ValuationDate, l.Key.Key) ?? int.MaxValue).ThenBy(l => l.Key.Key, StringComparer.Ordinal)
             .Select(l => new PositionRisk(l.Key.Kind, l.Key.Input, l.Key.Key, set.UnitOf(l.Key.Kind), l.Value.Book, l.Value.WhatIf,
                 l.Value.Book + (l.Value.WhatIf ?? 0), Marks(l.Value.WhatIf is not null, l.Value.Simulated))
             { Tenor = PkTenors.Name(set.Manifest.ValuationDate, l.Key.Key) }).ToList();
@@ -287,12 +291,12 @@ public static class PkPosition
             // The columns: the declared tenors, or each node's own day by its name.
             List<(string Tenor, int Days)> columns = set.Manifest.Ladders.TryGetValue(kind.Key, out var declared)
                 ? [.. declared.Select(t => (t, PkTenors.Days(valuation, t)!.Value))]
-                : [.. kind.Select(r => PkTenors.DaysOf(r.Key)).OfType<int>().Distinct().Order().Select(d => (PkTenors.Name(valuation, $"{d}d") ?? $"{d}d", d))];
+                : [.. kind.Where(r => PkTenors.DayOf(valuation, r.Key) is not null).Select(r => (Tenor: r.Tenor ?? r.Key, Days: PkTenors.DayOf(valuation, r.Key)!.Value)).Distinct().OrderBy(c => c.Days)];
 
             // How a line is shared over the columns: by index, with its weight.
             IEnumerable<(int Column, double Weight)> Shares(PositionRisk line)
             {
-                if (PkTenors.DaysOf(line.Key) is not { } days || columns.Count == 0) yield break;
+                if (PkTenors.DayOf(valuation, line.Key) is not { } days || columns.Count == 0) yield break;
                 if (days <= columns[0].Days) { yield return (0, 1); yield break; }
                 if (days >= columns[^1].Days) { yield return (columns.Count - 1, 1); yield break; }
                 var after = columns.FindIndex(c => c.Days >= days);
@@ -329,9 +333,4 @@ public static class PkPosition
         }
         return cells;
     }
-
-    // Keys that are days (1826d) sort by their number; others after them, by name.
-    static int Days(string key) =>
-        key.EndsWith('d') && int.TryParse(key.AsSpan(0, key.Length - 1), System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var days)
-            ? days : int.MaxValue;
 }

@@ -636,6 +636,26 @@ public class PkCommandTests(QubeFactory factory) : IClassFixture<QubeFactory>
         Assert.Equal(["FIRST ORDER"], MarksOf(kinds[0]!));
     }
 
+    [Fact] // a key that is a tenor's name (a CDS quote's 5Y) is read as that tenor: named as it is, and placed on the ladder by its day
+    public async Task A_key_that_is_a_tenors_name_stands_on_the_ladder_at_its_day()
+    {
+        var tiny = Tiny();
+        var set = tiny with
+        {
+            Manifest = tiny.Manifest with { Units = new Dictionary<string, SensitivityPer>(tiny.Manifest.Units) { ["cds_spread"] = SensitivityPer.Rate } },
+            Sensitivities = [.. tiny.Sensitivities, new("S0000", "C0001", "CVA", "cds_spread", "N0001", "10Y", -3.0e5), new("S0000", "C0001", "CVA", "cds_spread", "N0001", "6M", -1.0e4)],
+        };
+        var (_, client) = Keeper(set: set);
+        var position = await Position(client, (await NewWorkspace(client))["workspaceId"]!.GetValue<string>());
+
+        var lines = position["risk"]!.AsArray().Where(r => r!["kind"]!.GetValue<string>() == "cds_spread").ToList();
+        // In the tenors' order, not the words': 6M before 10Y.
+        Assert.Equal(["6M", "10Y"], lines.Select(l => l!["tenor"]!.GetValue<string>()));
+        var cells = position["ladder"]!.AsArray().Where(c => c!["kind"]!.GetValue<string>() == "cds_spread" && c["level"]!.GetValue<string>() == "input")
+            .OrderBy(c => c!["order"]!.GetValue<int>()).Select(c => (c!["tenor"]!.GetValue<string>(), Math.Round(c["book"]!.GetValue<double>(), 9))).ToList();
+        Assert.Equal([("6M", -1), ("10Y", -30), ("Total", -31)], cells);
+    }
+
     [Fact] // ADR-0019 §7: nothing assumes a unit
     public async Task A_move_of_a_kind_without_a_declared_unit_is_refused_by_name()
     {

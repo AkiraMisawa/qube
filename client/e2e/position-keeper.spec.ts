@@ -7,7 +7,7 @@ import { command, expect, open, settled, taken, test, textBelowContrast } from '
 // and the what-if hedges' own risk from the synthetic calculator, which is Simulated and says so.
 
 const VALUATION_DATE = '2026-11-13';
-const ENGINE_COMMIT = '30341fefae1a684ed80a705225b4362129098fce';
+const ENGINE_COMMIT = 'aadd34b86e272b3865d2c50623542f75185fb820';
 
 async function newKeeper(page: Page): Promise<void> {
   await command(page, 'new pk');
@@ -66,18 +66,18 @@ test('ADR-0019 §4: the Position Keeper page says which book it shows: the engin
   const xva = 'XVA by counterparty';
   await expect(rows(page, xva)).toHaveCount(4);
   await expect(rows(page, xva).first()).toContainText('C0003');
-  const largest = row(page, xva, /^C0003 SYN-LE-0003 -123,132,885 2,941,846 -17,750,653 /);
+  const largest = row(page, xva, /^C0003 SYN-LE-0003 -121,795,568 2,808,652 -16,526,306 /);
   await expect(largest).toBeVisible();
   await expect(grid(page, xva).locator('.ex-tone-negative')).toHaveCount(0);
   // The totals say what they are of: a metric summed over the counterparties, and no standard error.
-  await expect(page.getByTestId('pk-totals')).toContainText('CVA -130,157,558');
-  await expect(page.getByTestId('pk-totals')).toContainText('FVA -22,014,127');
+  await expect(page.getByTestId('pk-totals')).toContainText('CVA -128,935,334');
+  await expect(page.getByTestId('pk-totals')).toContainText('FVA -20,880,352');
 
   // The amounts are in the currency the result set declares, and in millions of it where that is chosen.
   const scale = page.getByRole('radiogroup', { name: 'Amounts in' });
   await scale.getByText('JPY mm', { exact: true }).click();
-  await expect(page.getByTestId('pk-totals')).toContainText('CVA -130.16');
-  await expect(row(page, xva, /^C0003 SYN-LE-0003 -123.13 2.94 -17.75 /)).toBeVisible();
+  await expect(page.getByTestId('pk-totals')).toContainText('CVA -128.94');
+  await expect(row(page, xva, /^C0003 SYN-LE-0003 -121.80 2.81 -16.53 /)).toBeVisible();
   await scale.getByText('JPY', { exact: true }).click();
 
   // Risk reads as a trader reads it: per basis point of a rate, the tenor by its name, and the curve moved in
@@ -164,7 +164,7 @@ test('ADR-0019 §3, §7: WHAT-IF, SIMULATED and FIRST ORDER are drawn from the s
   // A whole kind is moved as one, with the tables' own condition: every curve then holds the move.
   await taken(page, 'set', 'moves where kind=zero_rate move 10bp');
   await settled(page, 'Predicted P&L by kind');
-  await expect(row(page, 'Predicted P&L by kind', /^zero_rate 8 /)).toBeVisible();
+  await expect(row(page, 'Predicted P&L by kind', /^zero_rate 9 /)).toBeVisible();
 
   // A move in % is of the input's level, which the result set gives for the vols: it is held as typed, and predicted.
   await taken(page, 'set', 'move fx_atm_vol/USDJPY move 1%');
