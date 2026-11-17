@@ -1,6 +1,6 @@
 # 04 Net, moves and the predicted profit and loss
 
-Status: ready-for-agent
+Status: done
 
 **Blocked by:** 03.
 

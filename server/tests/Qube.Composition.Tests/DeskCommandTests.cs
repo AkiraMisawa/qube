@@ -51,13 +51,29 @@ public class DeskCommandTests(QubeFactory factory) : IClassFixture<QubeFactory>
         },
     };
 
-    (WebApplicationFactory<Program> Host, HttpClient Client) Desk(string? configured = "tiny", params DeskResultSet[] sets)
+    (WebApplicationFactory<Program> Host, HttpClient Client) Desk(string? configured = "tiny", IHedgeRisk? engine = null)
     {
         var held = new HeldResults();
-        foreach (var set in sets.Length == 0 ? [Tiny()] : sets) held.Sets[set.Reference] = set;
+        held.Sets["tiny"] = Tiny();
         var host = factory.WithWebHostBuilder(b => b.UseSetting("Rates:Ticker", "false").UseSetting("Desk:ResultSet", configured ?? "")
-            .ConfigureTestServices(s => s.AddSingleton<IDeskResults>(held)));
+            .ConfigureTestServices(s =>
+            {
+                s.AddSingleton<IDeskResults>(held);
+                if (engine is not null) s.AddSingleton(engine);
+            }));
         return (host, host.CreateClient());
+    }
+
+    /// <summary>
+    /// The engine port as a test holds it (ADR-0019 §8): every hedge has the same known risk, per unit of its notional
+    /// in billions, so that Net and the prediction are checked against numbers worked by hand.
+    /// </summary>
+    sealed class FakeEngine(Qube.Composition.Contracts.ExecutionMode mode) : IHedgeRisk
+    {
+        public HedgeRiskAnswer Risk(HedgeSwap hedge, DeskResultSet book) => hedge.Currency == "JPY"
+            ? new("fake-engine", mode, 0,
+                [new("zero_rate", "JPY-OIS", "1826d", -2.0e6 * hedge.Notional / 1e9), new("zero_rate", "JPY-OIS", "7305d", 5.0e5 * hedge.Notional / 1e9)])
+            : throw new HedgeRiskRefused("NoCurve", $"The fake engine has no curve for {hedge.Currency}.");
     }
 
     static Task<HttpResponseMessage> Command(HttpClient client, string capability, JsonObject request) =>
@@ -259,5 +275,167 @@ public class DeskCommandTests(QubeFactory factory) : IClassFixture<QubeFactory>
 
         Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
         Assert.Equal("JPY", (await Read(client, id, "desk.hedges", "currency"))["rows"]![0]!["cells"]![0]!.GetValue<string>());
+    }
+
+    // ADR-0019 §3, §7: Book, What-if and Net, and the first-order prediction, read with their marks.
+
+    static async Task<JsonNode> Position(HttpClient client, string workspaceId, JsonObject? more = null)
+    {
+        var request = new JsonObject { ["workspaceId"] = workspaceId };
+        foreach (var (name, value) in more ?? []) request[name] = value?.DeepClone();
+        return (await Ok(await Command(client, "desk.position.read", request)))["outputs"]!["answer"]!;
+    }
+
+    static Task<HttpResponseMessage> Move(HttpClient client, string workspaceId, string row, string value) =>
+        Command(client, "entity.set", new JsonObject { ["workspaceId"] = workspaceId, ["table"] = "desk.moves", ["rows"] = row, ["set"] = $"move={value}" });
+
+    static JsonNode Line(JsonNode position, string list, string input, string? key = null) =>
+        position[list]!.AsArray().Single(r => r!["input"]!.GetValue<string>() == input && (key is null || r["key"]!.GetValue<string>() == key))!;
+
+    static string[] MarksOf(JsonNode figure) => [.. figure["marks"]!.AsArray().Select(m => m!.GetValue<string>())];
+
+    [Fact]
+    public async Task The_book_alone_reads_with_no_mark_and_its_totals_have_no_standard_error()
+    {
+        var (_, client) = Desk(engine: new FakeEngine(Qube.Composition.Contracts.ExecutionMode.Simulated));
+        var id = (await NewWorkspace(client))["workspaceId"]!.GetValue<string>();
+
+        var position = await Position(client, id);
+
+        Assert.Equal(("tiny", "abc123", "2026-11-13"), (position["resultSet"]!.GetValue<string>(), position["engineCommit"]!.GetValue<string>(), position["valuationDate"]!.GetValue<string>()));
+        // CVA: -1200.5 and -50 over the two counterparties; a cost is negative and is not turned over.
+        Assert.Equal(-1250.5, position["totals"]!.AsArray().Single(t => t!["metric"]!.GetValue<string>() == "CVA")!["value"]!.GetValue<double>());
+        Assert.Null(position["totals"]![0]!["stdError"]);
+        var node = Line(position, "risk", "JPY-OIS", "1826d");
+        Assert.Equal((2.5e6, 2.5e6), (node["book"]!.GetValue<double>(), node["net"]!.GetValue<double>()));
+        Assert.Null(node["whatIf"]);
+        Assert.All(position["risk"]!.AsArray(), r => Assert.Empty(MarksOf(r!)));
+        Assert.Empty(position["pnl"]!.AsArray());
+        Assert.Null(position["pnlTotalNet"]);
+    }
+
+    [Fact]
+    public async Task Net_is_book_plus_what_if_on_matching_keys_and_a_key_only_one_side_holds_is_kept()
+    {
+        var (_, client) = Desk(engine: new FakeEngine(Qube.Composition.Contracts.ExecutionMode.Simulated));
+        var id = (await NewWorkspace(client))["workspaceId"]!.GetValue<string>();
+        await Ok(await NewHedge(client, id, TenYearPayer));
+
+        var position = await Position(client, id, new JsonObject { ["kind"] = "zero_rate" });
+
+        (double Book, double? WhatIf, double Net) Of(string key)
+        {
+            var line = Line(position, "risk", "JPY-OIS", key);
+            return (line["book"]!.GetValue<double>(), line["whatIf"]?.GetValue<double>(), line["net"]!.GetValue<double>());
+        }
+        Assert.Equal((2.5e6, -2.0e6, 0.5e6), Of("1826d"));    // both sides
+        Assert.Equal((-1.0e6, null, -1.0e6), Of("3652d"));    // the book alone
+        Assert.Equal((0, 5.0e5, 5.0e5), Of("7305d"));         // the hedge alone
+        Assert.Equal(["1826d", "3652d", "7305d"], position["risk"]!.AsArray().Select(r => r!["key"]!.GetValue<string>()));
+    }
+
+    [Theory] // ADR-0019 §2, §4: the marks are the server's, on every figure they apply to and on no other
+    [InlineData(Qube.Composition.Contracts.ExecutionMode.Simulated, "WHAT-IF|SIMULATED")]
+    [InlineData(Qube.Composition.Contracts.ExecutionMode.Actual, "WHAT-IF")]
+    public async Task A_figure_with_a_hedge_in_it_is_marked_and_a_book_only_figure_is_not(Qube.Composition.Contracts.ExecutionMode mode, string marks)
+    {
+        var (_, client) = Desk(engine: new FakeEngine(mode));
+        var id = (await NewWorkspace(client))["workspaceId"]!.GetValue<string>();
+        await Ok(await NewHedge(client, id, TenYearPayer));
+        await Ok(await Move(client, id, "zero_rate/JPY-OIS", "10"));
+        await Ok(await Move(client, id, "fx_spot/USDJPY", "2"));
+
+        var position = await Position(client, id);
+
+        Assert.Equal(marks, string.Join("|", MarksOf(Line(position, "risk", "JPY-OIS", "1826d"))));
+        Assert.Equal(marks, string.Join("|", MarksOf(Line(position, "risk", "JPY-OIS", "7305d"))));
+        Assert.Empty(MarksOf(Line(position, "risk", "JPY-OIS", "3652d")));
+        Assert.Empty(MarksOf(Line(position, "risk", "USDJPY")));
+        Assert.Equal(marks, string.Join("|", MarksOf(position["hedges"]![0]!)));
+        Assert.Equal(marks + "|FIRST ORDER", string.Join("|", MarksOf(Line(position, "pnl", "JPY-OIS"))));
+        Assert.Equal("FIRST ORDER", string.Join("|", MarksOf(Line(position, "pnl", "USDJPY"))));
+        Assert.Equal(marks + "|FIRST ORDER", string.Join("|", position["pnlTotalMarks"]!.AsArray().Select(m => m!.GetValue<string>())));
+    }
+
+    [Fact] // sensitivity times move: 10bp is 0.001 of a rate, and a quote's move is itself
+    public async Task The_predicted_profit_and_loss_is_sensitivity_times_move()
+    {
+        var (_, client) = Desk(engine: new FakeEngine(Qube.Composition.Contracts.ExecutionMode.Simulated));
+        var id = (await NewWorkspace(client))["workspaceId"]!.GetValue<string>();
+        await Ok(await NewHedge(client, id, TenYearPayer));
+        await Ok(await Move(client, id, "zero_rate/JPY-OIS", "10"));
+        await Ok(await Move(client, id, "fx_spot/USDJPY", "2"));
+
+        var position = await Position(client, id);
+
+        var rates = Line(position, "pnl", "JPY-OIS");
+        // Book (2.5e6 - 1.0e6) * 0.001 = 1500; What-if (-2.0e6 + 0.5e6) * 0.001 = -1500; Net 0.
+        Assert.Equal((10, "bp"), (rates["move"]!.GetValue<double>(), rates["typedIn"]!.GetValue<string>()));
+        Assert.Equal(1500, rates["book"]!.GetValue<double>(), 9);
+        Assert.Equal(-1500, rates["whatIf"]!.GetValue<double>(), 9);
+        Assert.Equal(0, rates["net"]!.GetValue<double>(), 9);
+        var fx = Line(position, "pnl", "USDJPY");
+        // Book -400 per unit of the quote, moved by 2: -800. No hedge has a row on it.
+        Assert.Equal((-800, -800), (fx["book"]!.GetValue<double>(), fx["net"]!.GetValue<double>()));
+        Assert.Null(fx["whatIf"]);
+        Assert.Equal(700, position["pnlTotalBook"]!.GetValue<double>(), 9);
+        Assert.Equal(-1500, position["pnlTotalWhatIf"]!.GetValue<double>(), 9);
+        Assert.Equal(-800, position["pnlTotalNet"]!.GetValue<double>(), 9);
+    }
+
+    [Fact] // ADR-0019 §7: nothing assumes a unit
+    public async Task A_move_of_a_kind_without_a_declared_unit_is_refused_by_name()
+    {
+        var (_, client) = Desk();
+        var id = (await NewWorkspace(client))["workspaceId"]!.GetValue<string>();
+
+        var (status, code, message) = await Refused(await Move(client, id, "fx_notional_delta/USD", "1"));
+
+        Assert.Equal((HttpStatusCode.UnprocessableEntity, "NoUnit"), (status, code));
+        Assert.Contains("fx_notional_delta", message);
+        Assert.Empty((await Position(client, id))["pnl"]!.AsArray());
+    }
+
+    [Fact]
+    public async Task A_move_is_in_the_log_and_emptied_it_predicts_nothing()
+    {
+        var (host, client) = Desk();
+        var id = (await NewWorkspace(client))["workspaceId"]!.GetValue<string>();
+
+        await Ok(await Move(client, id, "zero_rate/JPY-OIS", "-25"));
+        var held = (await Position(client, id))["pnl"]!.AsArray().Count;
+        await Ok(await Move(client, id, "zero_rate/JPY-OIS", "empty"));
+
+        Assert.Equal(1, held);
+        Assert.Empty((await Position(client, id))["pnl"]!.AsArray());
+        Assert.Contains(host.Services.GetRequiredService<WorkspaceService>().Find(id)!.Log, e => e.Kind == EditKind.Set && e.Target?.Scope == DeskMoves.Scope);
+    }
+
+    [Fact]
+    public async Task The_position_of_some_counterparties_reads_their_book_alone()
+    {
+        var (_, client) = Desk();
+        var id = (await NewWorkspace(client))["workspaceId"]!.GetValue<string>();
+
+        var position = await Position(client, id, new JsonObject { ["counterparties"] = new JsonArray("C0002") });
+        var unknown = await Refused(await Command(client, "desk.position.read", new JsonObject { ["workspaceId"] = id, ["counterparties"] = new JsonArray("C9999") }));
+
+        Assert.Equal(-50, position["totals"]!.AsArray().Single()!["value"]!.GetValue<double>());
+        Assert.Empty(position["risk"]!.AsArray());
+        Assert.Equal("UnknownCounterparty", unknown.Code);
+    }
+
+    [Fact] // ADR-0019 §3: reading, making a hedge and holding a move make no Run
+    public async Task No_command_of_the_slice_makes_a_run()
+    {
+        var (host, client) = Desk();
+        Task<int> Runs() => Task.FromResult(host.Services.GetRequiredService<Qube.Composition.Application.IRunStore>().List(new(null, 0, 1)).Total);
+        var before = await Runs();
+        var id = (await NewWorkspace(client))["workspaceId"]!.GetValue<string>();
+        await Ok(await NewHedge(client, id, TenYearPayer));
+        await Ok(await Move(client, id, "zero_rate/JPY-OIS", "10"));
+        await Position(client, id);
+
+        Assert.Equal(before, await Runs());
     }
 }

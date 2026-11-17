@@ -12,12 +12,13 @@ namespace Qube.Samples.Desk;
 public sealed class DeskTables(IHedgeRisk provider) : ITableCatalog
 {
     public const string Hedges = "desk.hedges";
+    public const string Moves = "desk.moves";
 
     public const string Version = "1.0.0";
     public const string Values = "desk.values";
     public const string Risk = "desk.risk";
 
-    public IEnumerable<IWorkspaceTable> Tables { get; } = [new ValueTable(), new RiskTable(), new HedgeTable(provider)];
+    public IEnumerable<IWorkspaceTable> Tables { get; } = [new ValueTable(), new RiskTable(), new HedgeTable(provider), new MoveTable()];
 
     static string Unit(SensitivityPer? per) => per switch
     {
@@ -158,5 +159,69 @@ public sealed class DeskTables(IHedgeRisk provider) : ITableCatalog
                 .OrderBy(t => t.Field, StringComparer.Ordinal).Select(t => new WorkspaceChange.Reset(t))];
 
         public IReadOnlyList<WorkspaceChange> Remove(WorkspaceState state, ITableRow row) => [new WorkspaceChange.Remove(row.Key)];
+    }
+
+    /// <summary>
+    /// The market moves the prediction is made for (ADR-0019 §7): a row per kind and input, its move the user's. A move
+    /// of a rate is typed in basis points and one of a quoted level in the quote's own units, as the row's
+    /// <c>typedIn</c> says. A kind whose unit the result set does not declare takes no move, and is told so by name.
+    /// </summary>
+    sealed class MoveTable : IWorkspaceTable
+    {
+        static readonly TableDescriptor Descriptor = new(Moves, Version, DeskEditRules.App, "Moves", ["moves", "move"], "id",
+        [
+            new("id", "Row", ["id"], FieldForm.Id),
+            new("kind", "Kind", ["kind"], FieldForm.Id),
+            new("input", "Input", ["input"], FieldForm.Id),
+            new(DeskMoves.Field, "Move", [DeskMoves.Field], FieldForm.Number, Editable: true, Optional: true, UnitField: "typedIn"),
+            new("typedIn", "Typed in", ["typed in"], FieldForm.Id, Optional: true),
+        ], []);
+
+        public string TableId => Moves;
+        public string App => DeskEditRules.App;
+        public TableDescriptor Describe(WorkspaceState state) => Descriptor;
+
+        public IReadOnlyList<ITableRow> Rows(WorkspaceState state)
+        {
+            var book = DeskBookSource.Of(state);
+            return [.. book.Inputs.Select(i => (ITableRow)new MoveRow(i.Kind, i.Input, new Dictionary<string, JsonNode?>
+            {
+                ["id"] = $"{i.Kind}/{i.Input}", ["kind"] = i.Kind, ["input"] = i.Input,
+                [DeskMoves.Field] = DeskMoves.Held(state, i.Kind, i.Input),
+                ["typedIn"] = DeskMoves.TypedIn(book.Set.UnitOf(i.Kind)),
+            }))];
+        }
+
+        sealed class MoveRow(string kind, string input, IReadOnlyDictionary<string, JsonNode?> cells) : ITableRow
+        {
+            public string Kind => kind;
+            public string Input => input;
+            public string Key => $"{kind}/{input}";
+            public string? Subset => null;
+            public JsonNode? Value(string field) =>
+                cells.TryGetValue(field, out var value) ? value?.DeepClone() : throw new InvalidOperationException($"A move has no {field}.");
+        }
+
+        public IReadOnlyList<WorkspaceChange> Set(WorkspaceState state, ITableRow row, TableField field, JsonNode? value)
+        {
+            var move = (MoveRow)row;
+            var set = DeskBookSource.Of(state).Set;
+            if (set.UnitOf(move.Kind) is null)
+                throw new WorkspaceRefused("NoUnit",
+                    $"Result set '{set.Reference}' declares no unit for {move.Kind}, so a move of {move.Key} cannot be read and none is taken.", word: move.Key);
+            var target = DeskMoves.Target(move.Kind, move.Input);
+            // An empty move is no move: the field follows its empty start again.
+            return value is null ? Reset(state, row, field) : [new WorkspaceChange.Set(target, value)];
+        }
+
+        public IReadOnlyList<WorkspaceChange> Reset(WorkspaceState state, ITableRow row, TableField? field)
+        {
+            var move = (MoveRow)row;
+            var target = DeskMoves.Target(move.Kind, move.Input);
+            return state.Overrides.ContainsKey(target) ? [new WorkspaceChange.Reset(target)] : [];
+        }
+
+        public IReadOnlyList<WorkspaceChange> Remove(WorkspaceState state, ITableRow row) =>
+            throw new WorkspaceRefused("NotRemovable", "A move is emptied, not removed: reset it.");
     }
 }

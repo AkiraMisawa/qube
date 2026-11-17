@@ -35,8 +35,15 @@ public sealed class DeskBookSource(DeskResultSet set) : ISourceVersion
 
     public JsonObject Descriptor => new() { ["reference"] = set.Reference, ["contentHash"] = set.ContentHash };
 
-    // No edit is read against a book row: its tables refuse every write (ADR-0019 §2).
-    public SourceValue? Read(string entity, string field) => null;
+    /// <summary>The kinds and inputs a move can be held for: the book's and the hedge curves', each once.</summary>
+    public IReadOnlyList<(string Kind, string Input)> Inputs { get; } =
+        [.. set.Sensitivities.Where(s => s.Scenario == set.Manifest.BaseScenario).Select(s => (s.Kind, s.Input))
+            .Concat(set.Manifest.HedgeCurves.Values.Select(curve => ("zero_rate", curve))).Distinct()];
+
+    // No edit is read against a book row: its tables refuse every write (ADR-0019 §2). A move starts empty for each
+    // kind and input the result set has (ADR-0019 §7), and the user's value is an edit on that.
+    public SourceValue? Read(string entity, string field) =>
+        field == DeskMoves.Field && Inputs.Any(i => DeskMoves.Entity(i.Kind, i.Input) == entity) ? new SourceValue(null) : null;
 
     public static string ValueKey(DeskValue v) => $"{v.Counterparty}/{v.Metric}";
 

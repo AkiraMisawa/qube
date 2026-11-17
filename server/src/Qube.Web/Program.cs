@@ -82,7 +82,7 @@ builder.Services.AddSingleton<ITableCatalog>(new RatesTables(conventions));
 builder.Services.AddSingleton<IDeskResults>(_ => builder.Configuration["Desk:ResultsRoot"] is { Length: > 0 } root ? new DeskResultFiles(root) : new NoDeskResults());
 builder.Services.AddSingleton(new DeskOptions(builder.Configuration["Desk:ResultSet"] is { Length: > 0 } set ? set : null));
 builder.Services.AddSingleton<DeskWorkspaces>();
-builder.Services.AddSingleton<IQubeModule>(sp => new DeskModule(sp.GetRequiredService<DeskWorkspaces>));
+builder.Services.AddSingleton<IQubeModule>(sp => new DeskModule(sp.GetRequiredService<DeskWorkspaces>, sp.GetRequiredService<WorkspaceService>, sp.GetRequiredService<IHedgeRisk>()));
 // A what-if hedge's own risk (ADR-0019 §7): the synthetic calculator, Simulated, until the engine answers it. There
 // is no real provider to fall back from, and its figures are marked wherever they show.
 builder.Services.AddSingleton<IHedgeRisk, SyntheticHedgeRisk>();
