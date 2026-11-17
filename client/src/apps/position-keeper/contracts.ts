@@ -47,7 +47,7 @@ export interface PositionRisk extends Split {
   readonly input: string;
   readonly key?: string;
   /** `rate`: per 1.0 of a rate; `level`: per unit of the quote. Absent where the result set declares no unit. */
-  readonly per?: 'rate' | 'level';
+  readonly per?: 'rate' | 'level' | 'vol';
   /** The key as a tenor's name (`5Y`), where it is exactly that tenor's day from the valuation date. */
   readonly tenor?: string;
   /** The step the per-step figures are for: `1bp` of a rate, or `quote`. Absent where the result set declares no unit. */
@@ -61,6 +61,18 @@ export interface PositionRisk extends Split {
 export interface PositionParallel extends Split {
   readonly kind: string;
   readonly input: string;
+  readonly step: string;
+}
+
+/** One cell of a kind's ladder: per step, at one tenor or over them all (`Total`). */
+export interface PositionLadder extends Split {
+  readonly kind: string;
+  /** `total`: the whole kind; `group`: the curves of one currency; `input`: one input. */
+  readonly level: 'total' | 'group' | 'input';
+  readonly name: string;
+  readonly tenor: string;
+  /** The tenor's place among the kind's columns. */
+  readonly order: number;
   readonly step: string;
 }
 
@@ -87,6 +99,7 @@ export interface PkPosition extends Omit<PkCreated, 'revision'> {
   readonly hedges: readonly PositionHedge[];
   readonly risk: readonly PositionRisk[];
   readonly parallel: readonly PositionParallel[];
+  readonly ladder: readonly PositionLadder[];
   /** The largest cost first, as the server orders them. */
   readonly byCounterparty: readonly PositionCounterparty[];
   /** The currency every figure is in; absent where the result set declares none. */

@@ -10,6 +10,8 @@ public enum SensitivityPer
     Rate,
     /// <summary>Per one unit of the input as it is quoted.</summary>
     Level,
+    /// <summary>Per 1.0 of a volatility, so one vol point is 0.01 of it.</summary>
+    Vol,
 }
 
 /// <summary>
@@ -31,6 +33,15 @@ public sealed record PkManifest(
     /// declares it. A currency it does not name has none, and a hedge in it is refused (ADR-0019 §7).
     /// </summary>
     public IReadOnlyDictionary<string, string> HedgeCurves { get; init; } = new Dictionary<string, string>();
+
+    /// <summary>The currency of each curve, by the curve's name, as the adapter declares it: what the ladder groups curves by. A curve it does not name stands alone.</summary>
+    public IReadOnlyDictionary<string, string> CurveCurrencies { get; init; } = new Dictionary<string, string>();
+
+    /// <summary>
+    /// The tenors a kind's ladder is read on, in order (<c>1Y</c>, <c>2Y</c>, <c>5Y</c>), as the adapter declares
+    /// them. A kind it declares none for is read on its own nodes.
+    /// </summary>
+    public IReadOnlyDictionary<string, IReadOnlyList<string>> Ladders { get; init; } = new Dictionary<string, IReadOnlyList<string>>();
 
     /// <summary>The currency every value and sensitivity of the result set is in, as the adapter declares it; null where it declares none.</summary>
     public string? Currency { get; init; }

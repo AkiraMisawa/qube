@@ -1,4 +1,4 @@
-import type { PkPosition, PkView, Mark, PositionCounterparty, PositionHedge, PositionPnl, PositionRisk, TableRead } from './contracts';
+import type { PkPosition, PkView, Mark, PositionCounterparty, PositionLadder, PositionHedge, PositionPnl, PositionRisk, TableRead } from './contracts';
 
 // The rows the Position Keeper page's grids show, made from what the server answered (ADR-0019). Nothing here computes a figure
 // or a mark: a row joins what two answers say of the same thing, and a cell the server left out stays empty.
@@ -90,3 +90,45 @@ export function xvaRows(position: Pick<PkPosition, 'values' | 'byCounterparty'>)
 
 /** A risk line's tenor as a trader names it, or its key as the engine wrote it where it is no tenor's day. */
 export const tenorOf = (line: Pick<PositionRisk, 'tenor' | 'key'>): string | undefined => line.tenor ?? line.key;
+
+/** Which figure of a ladder a row holds. */
+export type LadderSide = 'Book' | 'What-if' | 'Net';
+
+/** A ladder's row: one name's Book, What-if or Net, a cell a tenor. */
+export interface LadderRow {
+  readonly key: string;
+  readonly name: string;
+  readonly side: LadderSide;
+  readonly step: string;
+  /** The figure at each tenor, by the tenor's name. */
+  readonly cells: Readonly<Record<string, number | undefined>>;
+  /** The marks of the row: none on Book, which is the engine's. */
+  readonly marks: readonly Mark[];
+}
+
+/** The kinds that have a ladder, in the server's order. */
+export const ladderKinds = (ladder: readonly PositionLadder[]): readonly string[] => [...new Set(ladder.map((c) => c.kind))];
+
+/** The levels a kind's ladder can be read at: a group only where the result set groups its inputs. */
+export const ladderLevels = (ladder: readonly PositionLadder[], kind: string): readonly PositionLadder['level'][] =>
+  (['total', 'group', 'input'] as const).filter((level) => ladder.some((c) => c.kind === kind && c.level === level));
+
+/** A kind's tenors as its columns, in the server's order, the total last. */
+export const ladderTenors = (ladder: readonly PositionLadder[], kind: string): readonly string[] =>
+  [...new Map(ladder.filter((c) => c.kind === kind).sort((a, b) => a.order - b.order).map((c) => [c.tenor, c.order])).keys()];
+
+/**
+ * A kind's ladder at one level as rows: each name's Book, and under it What-if and Net where a hedge has a figure
+ * in it. With no hedge Net is Book, and is not said twice.
+ */
+export function ladderRows(ladder: readonly PositionLadder[], kind: string, level: PositionLadder['level']): readonly LadderRow[] {
+  const cells = ladder.filter((c) => c.kind === kind && c.level === level);
+  return [...new Set(cells.map((c) => c.name))].flatMap((name) => {
+    const own = cells.filter((c) => c.name === name);
+    const first = own[0]!;
+    const row = (side: LadderSide, of: (c: PositionLadder) => number | undefined, marks: readonly Mark[]): LadderRow =>
+      ({ key: `${name}/${side}`, name, side, step: first.step, cells: Object.fromEntries(own.map((c) => [c.tenor, of(c)])), marks });
+    const book = row('Book', (c) => c.book, []);
+    return own.some((c) => c.whatIf !== undefined) ? [book, row('What-if', (c) => c.whatIf, first.marks), row('Net', (c) => c.net, first.marks)] : [book];
+  });
+}

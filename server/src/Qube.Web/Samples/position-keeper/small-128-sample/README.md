@@ -13,5 +13,9 @@ set the vector was computed from (the engine's `data/synthetic/small/market`, at
 `risk.csv` keys them, with the vol expiries matched to the keys in order. It is what a move in `%` is taken of. No
 level is given for a rate, so a move in `%` of a curve is refused here, by the key.
 
+The manifest's declarations are the sample's own: the currency of the figures, each curve's currency (a cross-currency
+curve stands with the currency it discounts), the ladders' tenors (the regulatory ones for rates and credit spreads)
+and the units (`fx_atm_vol` is a vol, read per vol point).
+
 The whole vector, uncut, is the contract fixture under
 `server/tests/Qube.Composition.Tests/Fixtures/position-keeper/alpha-small-128`.

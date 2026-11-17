@@ -224,4 +224,17 @@ public class PkResultFilesTests : IDisposable
         Assert.Equal("JPY", Read(manifest: Manifest.Replace("\"units\"", "\"currency\": \"JPY\", \"units\"")).Manifest.Currency);
         Assert.Equal(PkResultsRefusal.ManifestUnreadable, Refused(manifest: Manifest.Replace("\"units\"", "\"currency\": 3, \"units\"")).Code);
     }
+
+    [Fact] // the ladder's tenors and each curve's currency are the manifest's to declare, and a tenor that is none is refused
+    public void The_ladders_and_curve_currencies_the_manifest_declares_are_read()
+    {
+        var declared = Manifest.Replace("\"units\"", "\"ladders\": { \"zero_rate\": [\"1Y\", \"5Y\"] }, \"curveCurrencies\": { \"JPY-OIS\": \"JPY\" }, \"units\"");
+        var set = Read(manifest: declared);
+
+        Assert.Equal(["1Y", "5Y"], set.Manifest.Ladders["zero_rate"]);
+        Assert.Equal("JPY", set.Manifest.CurveCurrencies["JPY-OIS"]);
+        Assert.Empty(Read().Manifest.Ladders);
+        Assert.Equal(PkResultsRefusal.ManifestUnreadable, Refused(manifest: declared.Replace("\"5Y\"", "\"five\"")).Code);
+        Assert.Equal(PkResultsRefusal.ManifestUnreadable, Refused(manifest: declared.Replace("[\"1Y\", \"5Y\"]", "[\"5Y\", \"1Y\"]")).Code);
+    }
 }

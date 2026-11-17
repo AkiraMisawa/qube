@@ -29,7 +29,11 @@ public class PkCommandTests(QubeFactory factory) : IClassFixture<QubeFactory>
         new PkManifest("alpha", "abc123", "synthetic/tiny", new DateOnly(2026, 11, 13), "S0000",
             new Dictionary<string, string> { ["C0001"] = "SYN-LE-0001" },
             new Dictionary<string, SensitivityPer> { ["zero_rate"] = SensitivityPer.Rate, ["fx_spot"] = SensitivityPer.Level })
-        { HedgeCurves = new Dictionary<string, string> { ["JPY"] = "JPY-OIS" } },
+        {
+            HedgeCurves = new Dictionary<string, string> { ["JPY"] = "JPY-OIS" },
+            CurveCurrencies = new Dictionary<string, string> { ["JPY-OIS"] = "JPY" },
+            Ladders = new Dictionary<string, IReadOnlyList<string>> { ["zero_rate"] = ["1Y", "2Y", "5Y", "10Y", "30Y"] },
+        },
         [new("C0001", "SYN-LE-0001"), new("C0002", null)],
         [
             new("S0000", "C0001", "CVA", -1200.5, 30), new("S0000", "C0001", "FVA", -300, 10), new("S0000", "C0001", "ColVA", 0, 0),
@@ -548,6 +552,66 @@ public class PkCommandTests(QubeFactory factory) : IClassFixture<QubeFactory>
 
         Assert.Null(without["currency"]);
         Assert.Equal("JPY", with["currency"]!.GetValue<string>());
+    }
+
+    [Fact] // the ladder a trader reads: a kind's risk per step on the tenors the result set declares, a node between two shared by its distance in days
+    public async Task The_ladder_puts_each_node_on_the_declared_tenors_and_stacks_book_what_if_and_net()
+    {
+        var (_, client) = Keeper(engine: new FakeEngine(Qube.Composition.Contracts.ExecutionMode.Simulated));
+        var id = (await NewWorkspace(client))["workspaceId"]!.GetValue<string>();
+        await Ok(await NewHedge(client, id, TenYearPayer));
+
+        var ladder = (await Position(client, id))["ladder"]!.AsArray();
+
+        JsonNode Cell(string level, string name, string tenor) => ladder.Single(c => c!["kind"]!.GetValue<string>() == "zero_rate"
+            && c["level"]!.GetValue<string>() == level && c["name"]!.GetValue<string>() == name && c["tenor"]!.GetValue<string>() == tenor)!;
+        // From 2026-11-13 the tenors stand at 5Y = 1826d, 10Y = 3653d, 30Y = 10958d. Per basis point the book is
+        // 250 at 1826d and -100 at 3652d, which is 1/1827 of the way back from 10Y to 5Y.
+        var five = Cell("input", "JPY-OIS", "5Y");
+        Assert.Equal(250 - 100.0 / 1827, five["book"]!.GetValue<double>(), 9);
+        Assert.Equal(-100.0 * 1826 / 1827, Cell("input", "JPY-OIS", "10Y")["book"]!.GetValue<double>(), 9);
+        // The hedge: -200 at 1826d, and 50 at 7305d, which is 3653/7305 of the way back from 30Y to 10Y.
+        Assert.Equal(-200, five["whatIf"]!.GetValue<double>(), 9);
+        Assert.Equal(50.0 * 3653 / 7305, Cell("input", "JPY-OIS", "10Y")["whatIf"]!.GetValue<double>(), 9);
+        Assert.Equal(50.0 * 3652 / 7305, Cell("input", "JPY-OIS", "30Y")["whatIf"]!.GetValue<double>(), 9);
+        Assert.Equal(50 - 100.0 / 1827, five["net"]!.GetValue<double>(), 9);
+        Assert.Equal(["WHAT-IF", "SIMULATED"], MarksOf(five));
+        Assert.Equal("1bp", five["step"]!.GetValue<string>());
+        // A tenor no node reaches is a cell of zero, so that the ladder has no hole; the total is the parallel line.
+        Assert.Equal(0, Cell("input", "JPY-OIS", "1Y")["book"]!.GetValue<double>());
+        var total = Cell("input", "JPY-OIS", "Total");
+        Assert.Equal((150, -150, 0), (Math.Round(total["book"]!.GetValue<double>(), 9), Math.Round(total["whatIf"]!.GetValue<double>(), 9), Math.Round(total["net"]!.GetValue<double>(), 9)));
+        // The curve's currency is the result set's to declare: its group and the kind's total hold the same here, one curve.
+        Assert.Equal(five["book"]!.GetValue<double>(), Cell("group", "JPY", "5Y")["book"]!.GetValue<double>(), 9);
+        Assert.Equal(five["net"]!.GetValue<double>(), Cell("total", "All", "5Y")["net"]!.GetValue<double>(), 9);
+        // The columns come in the tenors' order, the total last.
+        Assert.Equal(["1Y", "2Y", "5Y", "10Y", "30Y", "Total"], ladder.Where(c => c!["kind"]!.GetValue<string>() == "zero_rate" && c["level"]!.GetValue<string>() == "total")
+            .OrderBy(c => c!["order"]!.GetValue<int>()).Select(c => c!["tenor"]!.GetValue<string>()));
+    }
+
+    [Fact] // a vol's risk is read per vol point, and its move typed in vol points
+    public async Task A_vol_is_read_per_vol_point()
+    {
+        var tiny = Tiny();
+        var set = tiny with
+        {
+            Manifest = tiny.Manifest with { Units = new Dictionary<string, SensitivityPer>(tiny.Manifest.Units) { ["fx_atm_vol"] = SensitivityPer.Vol } },
+            Sensitivities = [.. tiny.Sensitivities, new("S0000", "C0001", "CVA", "fx_atm_vol", "USDJPY", "365d", 30000)],
+        };
+        var (_, client) = Keeper(set: set);
+        var id = (await NewWorkspace(client))["workspaceId"]!.GetValue<string>();
+        await Ok(await Move(client, id, "fx_atm_vol/USDJPY", "2"));
+
+        var position = await Position(client, id);
+
+        // 30000 per 1.0 of vol is 300 a vol point; two points predict 600.
+        var line = position["risk"]!.AsArray().Single(r => r!["kind"]!.GetValue<string>() == "fx_atm_vol")!;
+        Assert.Equal(("vol", "1 vol pt", 300), (line["per"]!.GetValue<string>(), line["step"]!.GetValue<string>(), Math.Round(line["bookStep"]!.GetValue<double>(), 9)));
+        var pnl = position["pnl"]!.AsArray().Single()!;
+        Assert.Equal(("vol pt", 600), (pnl["typedIn"]!.GetValue<string>(), Math.Round(pnl["book"]!.GetValue<double>(), 9)));
+        // The book's table says the unit too.
+        var table = await Read(client, id, "pk.risk", "kind", "per");
+        Assert.Contains(table["rows"]!.AsArray(), r => r!["cells"]![0]!.GetValue<string>() == "fx_atm_vol" && r["cells"]![1]!.GetValue<string>() == "vol");
     }
 
     [Fact] // ADR-0019 §7: nothing assumes a unit

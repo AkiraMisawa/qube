@@ -24,6 +24,7 @@ public sealed class PkTables(IHedgeRisk provider) : ITableCatalog
     {
         SensitivityPer.Rate => "rate",
         SensitivityPer.Level => "level",
+        SensitivityPer.Vol => "vol",
         _ => throw new InvalidOperationException($"A sensitivity is per {per}, which the Position Keeper does not write."),
     };
 

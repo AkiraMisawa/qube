@@ -170,6 +170,7 @@ public sealed class PkResultFiles(string root) : IPkResults
                 {
                     "rate" => SensitivityPer.Rate,
                     "level" => SensitivityPer.Level,
+                    "vol" => SensitivityPer.Vol,
                     _ => throw UnknownUnit(reference, entry),
                 } : throw UnknownUnit(reference, entry);
             }
@@ -194,12 +195,43 @@ public sealed class PkResultFiles(string root) : IPkResults
                 : throw new PkResultsRefused(PkResultsRefusal.ManifestUnreadable,
                     $"Result set '{reference}': {ManifestFile}'s 'currency' is not a currency's code.");
 
-        return new PkManifest(engine, commit, inputSet, date, baseScenario, entities, units) { HedgeCurves = hedgeCurves, Currency = currency };
+        var curveCurrencies = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (root.TryGetProperty("curveCurrencies", out var ofCurves))
+        {
+            if (ofCurves.ValueKind != JsonValueKind.Object)
+                throw new PkResultsRefused(PkResultsRefusal.ManifestUnreadable, $"Result set '{reference}': {ManifestFile}'s 'curveCurrencies' is not an object.");
+            foreach (var entry in ofCurves.EnumerateObject())
+                curveCurrencies[entry.Name] = entry.Value.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(entry.Value.GetString())
+                    ? entry.Value.GetString()!
+                    : throw new PkResultsRefused(PkResultsRefusal.ManifestUnreadable, $"Result set '{reference}': {ManifestFile} names no currency for the curve {entry.Name}.");
+        }
+
+        var ladders = new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal);
+        if (root.TryGetProperty("ladders", out var ofKinds))
+        {
+            if (ofKinds.ValueKind != JsonValueKind.Object)
+                throw new PkResultsRefused(PkResultsRefusal.ManifestUnreadable, $"Result set '{reference}': {ManifestFile}'s 'ladders' is not an object.");
+            foreach (var entry in ofKinds.EnumerateObject())
+            {
+                var tenors = entry.Value.ValueKind == JsonValueKind.Array
+                    ? entry.Value.EnumerateArray().Select(t => t.ValueKind == JsonValueKind.String ? t.GetString()! : "").ToList() : [];
+                var days = tenors.Select(t => PkTenors.Days(date, t)).ToList();
+                if (tenors.Count == 0 || days.Any(d => d is null) || days.Zip(days.Skip(1)).Any(pair => pair.First >= pair.Second))
+                    throw new PkResultsRefused(PkResultsRefusal.ManifestUnreadable,
+                        $"Result set '{reference}': {ManifestFile}'s ladder of '{entry.Name}' is not a list of tenors such as 6M, 1Y, 5Y, each later than the one before.");
+                ladders[entry.Name] = tenors;
+            }
+        }
+
+        return new PkManifest(engine, commit, inputSet, date, baseScenario, entities, units)
+        {
+            HedgeCurves = hedgeCurves, Currency = currency, CurveCurrencies = curveCurrencies, Ladders = ladders,
+        };
     }
 
     static PkResultsRefused UnknownUnit(string reference, JsonProperty entry) =>
         new(PkResultsRefusal.UnitUnknown,
-            $"Result set '{reference}': {ManifestFile} declares the unit of '{entry.Name}' as {entry.Value.GetRawText()}, which is neither \"rate\" nor \"level\".");
+            $"Result set '{reference}': {ManifestFile} declares the unit of '{entry.Name}' as {entry.Value.GetRawText()}, which is none of \"rate\", \"level\" and \"vol\".");
 
     /// <summary>A CSV file's rows, with the named columns found by the header and in the order asked for.</summary>
     sealed class Table

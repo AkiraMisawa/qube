@@ -16,8 +16,8 @@ import { EditQueue } from '../../platform/workspace/editQueue';
 import { useWorkspaceContext } from '../../platform/workspace/WorkspaceProvider';
 import { registerPlaces, type Place } from '../../shell/places';
 import type { PkApi } from './api';
-import type { PkPosition, PkView, Mark, PositionParallel, PositionRisk } from './contracts';
-import { hedgeRows, marksSaid, metricsOf, moveRows, riskInputOf, riskInputs, riskKey, tenorOf, xvaRows, type HedgeRow, type MoveRow, type XvaRow } from './rows';
+import type { PkPosition, PkView, Mark, PositionLadder, PositionRisk } from './contracts';
+import { hedgeRows, ladderKinds, ladderLevels, ladderRows, ladderTenors, marksSaid, metricsOf, moveRows, riskInputOf, riskInputs, riskKey, tenorOf, xvaRows, type HedgeRow, type LadderRow, type MoveRow, type XvaRow } from './rows';
 import './pk.css';
 
 // The Position Keeper (ADR-0019): the book an engine computed, read from its result set, with what-if hedges and moves the user
@@ -41,7 +41,7 @@ const written = (scale: Scale) => (scale === 'millions' ? formatMillions : forma
 const text = (value: unknown) => String(value);
 
 /** The page's columns, written in the scale chosen. */
-function columnsIn(scale: Scale, metrics: readonly string[]) {
+function columnsIn(scale: Scale, metrics: readonly string[], tenors: readonly string[]) {
   const format = written(scale);
   // A sensitivity, a hedge's value and a profit and loss change sign with the position: a negative one is painted as a loss.
   const figure = { type: 'number' as const, format, tone: toneOf(format), width: 150 };
@@ -70,13 +70,12 @@ function columnsIn(scale: Scale, metrics: readonly string[]) {
     { name: 'marks', header: 'Marks', type: 'text', width: 190, value: (h) => marksSaid(h.marks), format: text },
   ];
 
-  const parallel: GridColumn<PositionParallel>[] = [
-    { name: 'kind', header: 'Kind', type: 'text', width: 120, value: (r) => r.kind, format: text },
-    { name: 'input', header: 'Input', type: 'text', width: 130, value: (r) => r.input, format: text },
-    { name: 'step', header: 'Per', type: 'text', width: 64, value: (r) => r.step, format: text },
-    { name: 'book', header: 'Book', ...figure, value: (r) => r.book },
-    { name: 'whatIf', header: 'What-if', ...figure, value: (r) => r.whatIf },
-    { name: 'net', header: 'Net', ...figure, value: (r) => r.net },
+  // The ladder: a name's Book, What-if and Net under one another, a column a tenor, the total last.
+  const ladder: GridColumn<LadderRow>[] = [
+    { name: 'name', header: 'Of', type: 'text', width: 130, value: (r) => r.name, format: text },
+    { name: 'side', header: 'Figure', type: 'text', width: 84, value: (r) => r.side, format: text },
+    { name: 'step', header: 'Per', type: 'text', width: 84, value: (r) => r.step, format: text },
+    ...tenors.map((tenor): GridColumn<LadderRow> => ({ name: tenor, header: tenor, ...figure, width: 116, value: (r) => r.cells[tenor] })),
     { name: 'marks', header: 'Marks', type: 'text', width: 190, value: (r) => marksSaid(r.marks), format: text },
   ];
 
@@ -104,7 +103,7 @@ function columnsIn(scale: Scale, metrics: readonly string[]) {
     { name: 'net', header: 'Net P&L', ...figure, value: (m) => m.pnl?.net },
     { name: 'marks', header: 'Marks', type: 'text', width: 250, value: (m) => (m.pnl === undefined ? undefined : marksSaid(m.pnl.marks)), format: text },
   ];
-  return { xva, hedges, parallel, risk, moves };
+  return { xva, hedges, ladder, risk, moves };
 }
 
 /** What a risk line's Per says where the result set declares no unit for its kind: the figure is the engine's, unscaled. */
@@ -116,7 +115,7 @@ const MOVE = 'move';
 /** A curve's ladder is seen whole: the risk grid grows to this many rows before it scrolls. */
 const RISK_ROWS = 25;
 const MOVES_ROWS = 12;
-const PARALLEL_ROWS = 10;
+const LADDER_ROWS = 12;
 const VALUES_ROWS = 12;
 
 /** The risk lines shown, kept by the panel while it is hidden (ADR-0006 note 10): one kind and input, or every line. */
@@ -179,7 +178,12 @@ function PkGrid<Row>({ name, label, rows, rowKey, columns, most, pinned, gridRef
 }
 
 const xvaKey = (c: XvaRow) => c.counterparty;
-const parallelKey = (l: PositionParallel) => `${l.kind}/${l.input}`;
+const ladderKey = (r: LadderRow) => r.key;
+
+/** The ladder shown, kept by the panel while it is hidden: its kind, and whether by total, by currency or by input. */
+const LADDER_OF = panelKey<string | null>('pk.ladderOf');
+const LADDER_LEVEL = panelKey<PositionLadder['level'] | null>('pk.ladderLevel');
+const LEVEL_SAYS: Readonly<Record<PositionLadder['level'], string>> = { total: 'Total', group: 'By currency', input: 'By input' };
 const hedgeKey = (h: HedgeRow) => h.hedge;
 const moveKey = (m: MoveRow) => m.key;
 
@@ -219,7 +223,7 @@ export function PkWorkspacePanel({ panelId, workspaceId, api }: { readonly panel
   }, [door, workspace]);
 
   const valuesGrid = useRef<ExGridApi<XvaRow>>(null);
-  const parallelGrid = useRef<ExGridApi<PositionParallel>>(null);
+  const ladderGrid = useRef<ExGridApi<LadderRow>>(null);
   const hedgesGrid = useRef<ExGridApi<HedgeRow>>(null);
   const riskGrid = useRef<ExGridApi<PositionRisk>>(null);
   const movesGrid = useRef<ExGridApi<MoveRow>>(null);
@@ -228,7 +232,17 @@ export function PkWorkspacePanel({ panelId, workspaceId, api }: { readonly panel
   const [scale, setScale] = usePanelState(SCALE, 'units');
   const position = view.data?.position;
   const metrics = useMemo(() => (position === undefined ? [] : metricsOf(position)), [position]);
-  const columns = useMemo(() => columnsIn(scale, metrics), [scale, metrics]);
+  // The ladder shown: the kind kept, or the first the result set groups by currency (the rates), or the first there is.
+  const [ladderOf, setLadderOf] = usePanelState(LADDER_OF, null);
+  const [ladderLevel, setLadderLevel] = usePanelState(LADDER_LEVEL, null);
+  const laddered = useMemo(() => ladderKinds(position?.ladder ?? []), [position]);
+  const ladderKind = ladderOf !== null && laddered.includes(ladderOf) ? ladderOf
+    : laddered.find((kind) => ladderLevels(position?.ladder ?? [], kind).includes('group')) ?? laddered[0];
+  const levels = useMemo(() => (ladderKind === undefined ? [] : ladderLevels(position?.ladder ?? [], ladderKind)), [position, ladderKind]);
+  const level = ladderLevel !== null && levels.includes(ladderLevel) ? ladderLevel : levels.includes('group') ? 'group' : levels.at(-1);
+  const tenors = useMemo(() => (ladderKind === undefined ? [] : ladderTenors(position?.ladder ?? [], ladderKind)), [position, ladderKind]);
+  const ladder = useMemo(() => (ladderKind === undefined || level === undefined ? [] : ladderRows(position?.ladder ?? [], ladderKind, level)), [position, ladderKind, level]);
+  const columns = useMemo(() => columnsIn(scale, metrics, tenors), [scale, metrics, tenors]);
   const xva = useMemo(() => (position === undefined ? [] : xvaRows(position)), [position]);
   const hedges = useMemo(() => (view.data === undefined ? [] : hedgeRows(view.data)), [view.data]);
   const moves = useMemo(() => (view.data === undefined ? [] : moveRows(view.data)), [view.data]);
@@ -236,7 +250,6 @@ export function PkWorkspacePanel({ panelId, workspaceId, api }: { readonly panel
   // An input kept from before that this book has no risk on narrows to nothing: every line is shown instead, and the control says so.
   const narrowed = riskOf !== null && inputs.includes(riskOf) ? riskOf : null;
   const risk = useMemo(() => (position?.risk ?? []).filter((line) => narrowed === null || riskInputOf(line) === narrowed), [position, narrowed]);
-  const parallel = useMemo(() => (position?.parallel ?? []).filter((line) => narrowed === null || riskInputOf(line) === narrowed), [position, narrowed]);
 
   // The page's places (ADR-0016 §9): each grid it draws, by one word.
   const places = (): readonly Place[] => {
@@ -248,7 +261,7 @@ export function PkWorkspacePanel({ panelId, workspaceId, api }: { readonly panel
     return [
       grid('values', 'the values', valuesGrid),
       ...(hedges.length === 0 ? [] : [grid('hedges', 'the what-if hedges', hedgesGrid)]),
-      grid('parallel', 'the parallel risk', parallelGrid),
+      ...(ladder.length === 0 ? [] : [grid('ladder', 'the risk ladder', ladderGrid)]),
       grid('risk', 'the risk', riskGrid),
       grid('moves', 'the moves', movesGrid),
     ];
@@ -309,16 +322,26 @@ export function PkWorkspacePanel({ panelId, workspaceId, api }: { readonly panel
             : <PkGrid name="pk/hedges" label="What-if hedges" rows={hedges} rowKey={hedgeKey} columns={columns.hedges} most={8} pinned={1} gridRef={hedgesGrid} />}
         </section>
 
+        {ladderKind !== undefined && level !== undefined && (
+          <section>
+            <Group gap="sm" wrap="wrap" align="flex-end">
+              <Title order={3} size="sm">Risk ladder</Title>
+              <Select size="xs" w={160} label="Ladder of" allowDeselect={false} value={ladderKind} onChange={setLadderOf} data={[...laddered]} />
+              <SegmentedControl size="xs" aria-label="Ladder rows" value={level} onChange={(next) => setLadderLevel(next as PositionLadder['level'])}
+                data={levels.map((value) => ({ value, label: LEVEL_SAYS[value] }))} />
+              <Text size="xs" c="dimmed">Per step, summed over counterparties and metrics. A node between two tenors is shared between them by its distance in days.</Text>
+            </Group>
+            <PkGrid key={ladderKind} name={`pk/ladder/${ladderKind}`} label="Risk ladder" rows={ladder} rowKey={ladderKey} columns={columns.ladder} most={LADDER_ROWS} pinned={2} gridRef={ladderGrid} />
+          </section>
+        )}
+
         <section>
           <Group gap="sm" wrap="wrap" align="flex-end">
-            <Title order={3} size="sm">Risk</Title>
+            <Title order={3} size="sm">Risk by node</Title>
             {/* 240px: the longest kind and input of a book (`zero_rate USD-XCCY-JPY`) with the control's two marks. */}
             <Select size="xs" w={240} label="Risk of" searchable clearable placeholder="Every kind and input" value={narrowed} onChange={setRiskOf} data={[...inputs]} />
-            <Text size="xs" c="dimmed">First-order sensitivities of the adjustments, summed over counterparties and metrics: per basis point of a rate, per unit of a quote.</Text>
+            <Text size="xs" c="dimmed">Each node as the engine wrote it: per basis point of a rate, per vol point of a volatility, per unit of a quote.</Text>
           </Group>
-          <Text size="xs" c="dimmed">Each input moved by one step at every tenor:</Text>
-          <PkGrid name="pk/parallel" label="Parallel risk" rows={parallel} rowKey={parallelKey} columns={columns.parallel} most={PARALLEL_ROWS} pinned={2} gridRef={parallelGrid} />
-          <Text size="xs" c="dimmed">By tenor:</Text>
           <PkGrid name="pk/risk" label="Risk" rows={risk} rowKey={riskKey} columns={columns.risk} most={RISK_ROWS} pinned={3} gridRef={riskGrid} />
         </section>
 

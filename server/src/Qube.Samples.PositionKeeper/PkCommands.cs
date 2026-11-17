@@ -96,7 +96,7 @@ public sealed class PkPositionRead(Func<WorkspaceService> workspaces, IHedgeRisk
             })),
             ["risk"] = List(p.Risk.Where(r => Named(kind, r.Kind) && Named(input, r.Input)).Select(r => (JsonNode)Without(new JsonObject
             {
-                ["kind"] = r.Kind, ["input"] = r.Input, ["key"] = r.Key, ["per"] = r.Per switch { SensitivityPer.Rate => "rate", SensitivityPer.Level => "level", _ => null },
+                ["kind"] = r.Kind, ["input"] = r.Input, ["key"] = r.Key, ["per"] = r.Per switch { SensitivityPer.Rate => "rate", SensitivityPer.Level => "level", SensitivityPer.Vol => "vol", _ => null },
                 ["book"] = r.Book, ["whatIf"] = r.WhatIf, ["net"] = r.Net, ["marks"] = Marks(r.Marks),
                 ["tenor"] = r.Tenor, ["step"] = PkSteps.Name(r.Per),
                 ["bookStep"] = PkSteps.Of(r.Per, r.Book), ["whatIfStep"] = PkSteps.Of(r.Per, r.WhatIf), ["netStep"] = PkSteps.Of(r.Per, r.Net),
@@ -104,6 +104,11 @@ public sealed class PkPositionRead(Func<WorkspaceService> workspaces, IHedgeRisk
             ["parallel"] = List(p.Parallel.Where(l => Named(kind, l.Kind) && Named(input, l.Input)).Select(l => (JsonNode)Without(new JsonObject
             {
                 ["kind"] = l.Kind, ["input"] = l.Input, ["step"] = l.Step, ["book"] = l.Book, ["whatIf"] = l.WhatIf, ["net"] = l.Net, ["marks"] = Marks(l.Marks),
+            }))),
+            ["ladder"] = List(p.Ladder.Where(c => Named(kind, c.Kind)).Select(c => (JsonNode)Without(new JsonObject
+            {
+                ["kind"] = c.Kind, ["level"] = c.Level, ["name"] = c.Name, ["tenor"] = c.Tenor, ["order"] = c.Order, ["step"] = c.Step,
+                ["book"] = c.Book, ["whatIf"] = c.WhatIf, ["net"] = c.Net, ["marks"] = Marks(c.Marks),
             }))),
             ["byCounterparty"] = List(p.ByCounterparty.Select(c => (JsonNode)Without(new JsonObject
             {
@@ -238,15 +243,22 @@ public sealed class PkModule(Func<PkWorkspaces> workspaces, Func<WorkspaceServic
             ["risk"] = Records("First-order sensitivities, summed over the counterparties read and their metrics: the derivative of the adjustment to the input.", new JsonObject
             {
                 ["kind"] = Text("Kind"), ["input"] = Text("Input"), ["key"] = Text("Key"),
-                ["per"] = Text("Per what: rate (per 1.0 of a rate; a basis point is 1e-4 of it) or level (per unit of the quote); absent where the result set declares no unit"),
+                ["per"] = Text("Per what: rate (per 1.0 of a rate; a basis point is 1e-4 of it), vol (per 1.0 of a volatility; a vol point is 0.01 of it) or level (per unit of the quote); absent where the result set declares no unit"),
                 ["book"] = Number("Book"), ["whatIf"] = Maybe("What-if: the hedges' figure where any has a row here"), ["net"] = Number("Net"), ["marks"] = Words(MarksSay),
                 ["tenor"] = Text("The key as a tenor's name (5Y) where it is exactly that tenor's day from the valuation date; absent where it is not"),
-                ["step"] = Text("The step the per-step figures are for: 1bp of a rate, or quote (one unit of the quote); absent where the result set declares no unit"),
+                ["step"] = Text("The step the per-step figures are for: 1bp of a rate, 1 vol pt of a volatility, or quote (one unit of the quote); absent where the result set declares no unit"),
                 ["bookStep"] = Maybe("Book per step"), ["whatIfStep"] = Maybe("What-if per step"), ["netStep"] = Maybe("Net per step"),
             }),
             ["parallel"] = Records("Each input with a declared unit moved by one step at every key: its risk lines per step, summed. " + Signs, new JsonObject
             {
-                ["kind"] = Text("Kind"), ["input"] = Text("Input"), ["step"] = Text("1bp or quote"),
+                ["kind"] = Text("Kind"), ["input"] = Text("Input"), ["step"] = Text("1bp, 1 vol pt or quote"),
+                ["book"] = Number("Book"), ["whatIf"] = Maybe("What-if"), ["net"] = Number("Net"), ["marks"] = Words(MarksSay),
+            }),
+            ["ladder"] = Records("Each kind with a declared unit as a ladder, per step: a cell for each tenor the result set declares for the kind (its own nodes where it declares none) and one for their total. A node between two tenors is shared by its distance in days. " + Signs, new JsonObject
+            {
+                ["kind"] = Text("Kind"), ["level"] = Text("total (the whole kind), group (the curves of one currency) or input"),
+                ["name"] = Text("All, the currency, or the input"), ["tenor"] = Text("The tenor, or Total"),
+                ["order"] = new JsonObject { ["type"] = "integer", ["title"] = "The tenor's place among the kind's columns" }, ["step"] = Text("1bp, 1 vol pt or quote"),
                 ["book"] = Number("Book"), ["whatIf"] = Maybe("What-if"), ["net"] = Number("Net"), ["marks"] = Words(MarksSay),
             }),
             ["byCounterparty"] = Records("Each counterparty's values summed over the metrics, the largest cost first. No standard error: the metrics share paths.", new JsonObject
@@ -256,7 +268,7 @@ public sealed class PkModule(Func<PkWorkspaces> workspaces, Func<WorkspaceServic
             ["currency"] = Text("The currency every figure is in; absent where the result set declares none"),
             ["pnl"] = Records("Predicted profit and loss of each move held: sensitivity times move, first order.", new JsonObject
             {
-                ["kind"] = Text("Kind"), ["input"] = Text("Input"), ["move"] = Number("Move, as typed"), ["typedIn"] = Text("bp for a rate, quote for a quoted level"),
+                ["kind"] = Text("Kind"), ["input"] = Text("Input"), ["move"] = Number("Move, as typed"), ["typedIn"] = Text("bp for a rate, vol pt for a volatility, quote for a quoted level, % where the move is of the level"),
                 ["book"] = Number("Book"), ["whatIf"] = Maybe("What-if"), ["net"] = Number("Net"), ["marks"] = Words(MarksSay),
             }),
             ["pnlTotalBook"] = Maybe("The predicted profit and loss of every move held, Book"),

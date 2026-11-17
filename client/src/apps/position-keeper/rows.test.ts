@@ -1,13 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import type { PkView } from './contracts';
-import { hedgeRows, marksSaid, metricsOf, moveRows, riskInputs, tenorOf, xvaRows } from './rows';
+import type { PositionLadder } from './contracts';
+import { hedgeRows, ladderKinds, ladderLevels, ladderRows, ladderTenors, marksSaid, metricsOf, moveRows, riskInputs, tenorOf, xvaRows } from './rows';
 
 // ADR-0019 §3, §7: the page joins what the server answered and computes nothing. Synthetic figures throughout.
 
 const view = (over: Partial<PkView['position']> = {}, moves: readonly (readonly string[])[] = [['zero_rate', 'JPY-OIS', 'bp', 'empty']]): PkView => ({
   position: {
     workspaceId: 'ws-1', revision: 3, resultSet: 'set', engine: 'engine', engineCommit: 'abc', inputSet: 'inputs', valuationDate: '2026-11-13',
-    counterparties: ['C1'], values: [], totals: [], hedges: [], risk: [], parallel: [], byCounterparty: [], pnl: [], ...over,
+    counterparties: ['C1'], values: [], totals: [], hedges: [], risk: [], parallel: [], ladder: [], byCounterparty: [], pnl: [], ...over,
   },
   hedges: { revision: 3, fields: ['product', 'currency', 'direction', 'notional', 'end', 'rate'], rows: [], more: 0 },
   moves: { revision: 3, fields: ['kind', 'input', 'typedIn', 'move'], rows: moves.map((cells) => ({ key: `${cells[0]}/${cells[1]}`, cells })), more: 0 },
@@ -63,5 +64,22 @@ describe('the Position Keeper page\'s rows', () => {
 
   it('a risk line is named by its tenor where the server gave one, and by its key where it gave none', () => {
     expect([tenorOf({ tenor: '5Y', key: '1826d' }), tenorOf({ key: '3652d' }), tenorOf({})]).toEqual(['5Y', '3652d', undefined]);
+  });
+
+  it('a ladder is a row for each name and side, a cell a tenor in the server\'s order, and Net is said only where a hedge is in it', () => {
+    const cell = (name: string, tenor: string, order: number, book: number, whatIf?: number): PositionLadder => ({
+      kind: 'zero_rate', level: 'group', name, tenor, order, step: '1bp', book, net: book + (whatIf ?? 0),
+      marks: whatIf === undefined ? [] : ['WHAT-IF'], ...(whatIf === undefined ? {} : { whatIf }),
+    });
+    const ladder = [cell('JPY', 'Total', 2, -30, 25), cell('JPY', '5Y', 1, -20, 25), cell('JPY', '1Y', 0, -10, 0), cell('USD', '1Y', 0, -1), cell('USD', '5Y', 1, -2), cell('USD', 'Total', 2, -3)];
+    expect(ladderKinds(ladder)).toEqual(['zero_rate']);
+    expect(ladderLevels(ladder, 'zero_rate')).toEqual(['group']);
+    expect(ladderTenors(ladder, 'zero_rate')).toEqual(['1Y', '5Y', 'Total']);
+    expect(ladderRows(ladder, 'zero_rate', 'group')).toEqual([
+      { key: 'JPY/Book', name: 'JPY', side: 'Book', step: '1bp', cells: { Total: -30, '5Y': -20, '1Y': -10 }, marks: [] },
+      { key: 'JPY/What-if', name: 'JPY', side: 'What-if', step: '1bp', cells: { Total: 25, '5Y': 25, '1Y': 0 }, marks: ['WHAT-IF'] },
+      { key: 'JPY/Net', name: 'JPY', side: 'Net', step: '1bp', cells: { Total: -5, '5Y': 5, '1Y': -10 }, marks: ['WHAT-IF'] },
+      { key: 'USD/Book', name: 'USD', side: 'Book', step: '1bp', cells: { '1Y': -1, '5Y': -2, Total: -3 }, marks: [] },
+    ]);
   });
 });

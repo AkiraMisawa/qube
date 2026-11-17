@@ -28,11 +28,17 @@ public static class PkMoves
     {
         SensitivityPer.Rate => Bp,
         SensitivityPer.Level => "quote",
+        SensitivityPer.Vol => "vol pt",
         _ => null,
     };
 
-    /// <summary>An absolute move as the sensitivity's unit has it: a basis point is 1e-4 of a rate, and a quote's move is itself.</summary>
-    public static double InUnits(SensitivityPer per, double typed) => per == SensitivityPer.Rate ? typed * 1e-4 : typed;
+    /// <summary>An absolute move as the sensitivity's unit has it: a basis point is 1e-4 of a rate, a vol point 0.01 of a vol, and a quote's move is itself.</summary>
+    public static double InUnits(SensitivityPer per, double typed) => per switch
+    {
+        SensitivityPer.Rate => typed * 1e-4,
+        SensitivityPer.Vol => typed * 0.01,
+        _ => typed,
+    };
 
     /// <summary>The move the workspace holds for a kind and input, as typed, and whether it is of the level; null where it holds none.</summary>
     public static (double Amount, bool Relative)? Held(WorkspaceState state, string kind, string input) =>
@@ -70,6 +76,7 @@ public static class PkSteps
     {
         SensitivityPer.Rate => "1bp",
         SensitivityPer.Level => "quote",
+        SensitivityPer.Vol => "1 vol pt",
         _ => null,
     };
 
@@ -80,10 +87,28 @@ public static class PkSteps
 /// <summary>A key as a tenor's name, where it is exactly that tenor's day from the valuation date; no nearest tenor is taken.</summary>
 public static class PkTenors
 {
+    /// <summary>The days a key such as <c>1826d</c> says; null where it is no number of days.</summary>
+    public static int? DaysOf(string key) =>
+        key.EndsWith('d') && int.TryParse(key.AsSpan(0, key.Length - 1), System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var days) ? days : null;
+
+    /// <summary>The days from the valuation date to a tenor such as <c>1D</c>, <c>2W</c>, <c>6M</c> or <c>5Y</c>; null where the word is no tenor.</summary>
+    public static int? Days(DateOnly valuation, string tenor)
+    {
+        if (tenor.Length < 2 || !int.TryParse(tenor.AsSpan(0, tenor.Length - 1), System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var count) || count <= 0)
+            return null;
+        return tenor[^1] switch
+        {
+            'D' => count,
+            'W' => 7 * count,
+            'M' => valuation.AddMonths(count).DayNumber - valuation.DayNumber,
+            'Y' => valuation.AddYears(count).DayNumber - valuation.DayNumber,
+            _ => null,
+        };
+    }
+
     public static string? Name(DateOnly valuation, string key)
     {
-        if (!key.EndsWith('d') || !int.TryParse(key.AsSpan(0, key.Length - 1), System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var days))
-            return null;
+        if (DaysOf(key) is not { } days) return null;
         if (days == 1) return "1D";
         if (days is 7 or 14 or 21) return $"{days / 7}W";
         for (var months = 1; months <= 18; months++)
@@ -96,6 +121,12 @@ public static class PkTenors
 
 /// <summary>One input moved by one step at every key: the sum of its sensitivities per step.</summary>
 public sealed record PositionParallel(string Kind, string Input, string Step, double Book, double? WhatIf, double Net, IReadOnlyList<string> Marks);
+
+/// <summary>
+/// One cell of a kind's ladder: its risk per step at one tenor, or over them all (<c>Total</c>), for the whole kind
+/// (<c>total</c>), a currency's curves (<c>group</c>) or one input (<c>input</c>).
+/// </summary>
+public sealed record PositionLadder(string Kind, string Level, string Name, string Tenor, int Order, string Step, double Book, double? WhatIf, double Net, IReadOnlyList<string> Marks);
 
 /// <summary>A counterparty's adjustments summed over the metrics.</summary>
 public sealed record PositionCounterparty(string Counterparty, string? LegalEntity, double Total);
@@ -121,6 +152,7 @@ public sealed record Position(
 {
     public IReadOnlyList<PositionParallel> Parallel { get; init; } = [];
     public IReadOnlyList<PositionCounterparty> ByCounterparty { get; init; } = [];
+    public IReadOnlyList<PositionLadder> Ladder { get; init; } = [];
 }
 
 /// <summary>
@@ -221,8 +253,70 @@ public static class PkPosition
 
         return new(set.Manifest, set.Reference, [.. chosen], values, totals, [.. hedges.Select(h => h.Hedge)], risks, pnl, total)
         {
-            Parallel = parallel, ByCounterparty = byCounterparty,
+            Parallel = parallel, ByCounterparty = byCounterparty, Ladder = Ladders(set, risks),
         };
+    }
+
+    public const string Total = "Total", All = "All";
+
+    /// <summary>
+    /// Each kind with a declared unit as a ladder (ADR-0019 §7): its lines per step, on the tenors the result set
+    /// declares for the kind or, where it declares none, on the kind's own nodes. A node between two declared tenors
+    /// is shared between them by its distance in days, one before the first or after the last goes to that one, so
+    /// a ladder's total is the parallel line. A line whose key is no number of days is in the total alone.
+    /// </summary>
+    static IReadOnlyList<PositionLadder> Ladders(PkResultSet set, IReadOnlyList<PositionRisk> risks)
+    {
+        var valuation = set.Manifest.ValuationDate;
+        var cells = new List<PositionLadder>();
+        foreach (var kind in risks.GroupBy(r => r.Kind))
+        {
+            if (set.UnitOf(kind.Key) is not { } per) continue;
+            var step = PkSteps.Name(per)!;
+            // The columns: the declared tenors, or each node's own day by its name.
+            List<(string Tenor, int Days)> columns = set.Manifest.Ladders.TryGetValue(kind.Key, out var declared)
+                ? [.. declared.Select(t => (t, PkTenors.Days(valuation, t)!.Value))]
+                : [.. kind.Select(r => PkTenors.DaysOf(r.Key)).OfType<int>().Distinct().Order().Select(d => (PkTenors.Name(valuation, $"{d}d") ?? $"{d}d", d))];
+
+            // How a line is shared over the columns: by index, with its weight.
+            IEnumerable<(int Column, double Weight)> Shares(PositionRisk line)
+            {
+                if (PkTenors.DaysOf(line.Key) is not { } days || columns.Count == 0) yield break;
+                if (days <= columns[0].Days) { yield return (0, 1); yield break; }
+                if (days >= columns[^1].Days) { yield return (columns.Count - 1, 1); yield break; }
+                var after = columns.FindIndex(c => c.Days >= days);
+                if (columns[after].Days == days) { yield return (after, 1); yield break; }
+                var width = (double)(columns[after].Days - columns[after - 1].Days);
+                yield return (after - 1, (columns[after].Days - days) / width);
+                yield return (after, (days - columns[after - 1].Days) / width);
+            }
+
+            void Row(string level, string name, IReadOnlyList<PositionRisk> lines)
+            {
+                var hypothetical = lines.Any(r => r.WhatIf is not null);
+                var marks = (IReadOnlyList<string>)[.. new[] { hypothetical ? WhatIf : null, lines.Any(r => r.Marks.Contains(Simulated)) ? Simulated : null }.OfType<string>()];
+                var book = new double[columns.Count];
+                var whatIf = new double[columns.Count];
+                foreach (var line in lines)
+                    foreach (var (column, weight) in Shares(line))
+                    {
+                        book[column] += PkSteps.Of(per, line.Book)!.Value * weight;
+                        whatIf[column] += PkSteps.Of(per, line.WhatIf ?? 0)!.Value * weight;
+                    }
+                for (var c = 0; c < columns.Count; c++)
+                    cells.Add(new(kind.Key, level, name, columns[c].Tenor, c, step, book[c], hypothetical ? whatIf[c] : null, book[c] + whatIf[c], marks));
+                var bookTotal = lines.Sum(r => PkSteps.Of(per, r.Book)!.Value);
+                var whatIfTotal = lines.Sum(r => PkSteps.Of(per, r.WhatIf ?? 0)!.Value);
+                cells.Add(new(kind.Key, level, name, Total, columns.Count, step, bookTotal, hypothetical ? whatIfTotal : null, bookTotal + whatIfTotal, marks));
+            }
+
+            Row("total", All, [.. kind]);
+            foreach (var group in kind.Where(r => set.Manifest.CurveCurrencies.ContainsKey(r.Input)).GroupBy(r => set.Manifest.CurveCurrencies[r.Input]).OrderBy(g => g.Key, StringComparer.Ordinal))
+                Row("group", group.Key, [.. group]);
+            foreach (var input in kind.GroupBy(r => r.Input))
+                Row("input", input.Key, [.. input]);
+        }
+        return cells;
     }
 
     // Keys that are days (1826d) sort by their number; others after them, by name.

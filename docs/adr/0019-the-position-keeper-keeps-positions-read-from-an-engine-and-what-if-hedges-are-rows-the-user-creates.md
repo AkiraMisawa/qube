@@ -97,6 +97,11 @@ DEFAULT, for this slice:
 - A sensitivity's unit (per what move of what quantity) is declared by the result set's adapter for each kind. A
   move can be entered only for a kind whose unit is declared; other kinds are shown and take no move. Nothing
   assumes a unit.
+- The position is shown as a trader reads it (owner, 2026-11-17): per step (a basis point of a rate, a vol point
+  of a volatility, a unit of a quote), tenors by name, and a ladder on the tenors the result set's adapter declares
+  for a kind, grouped by the currency it declares for each curve. The tenors, the grouping and the currency of the
+  figures are declarations of the manifest, not of the module: a kind with none is read on its own nodes, a curve
+  with none stands alone, and no currency is shown where none is declared.
 - A move is absolute or relative (owner, 2026-11-17: both are wanted). A plain number is absolute, in basis points
   for a rate (`10`, or `10bp`) and in the quote's own units for a level. A number in `%` is relative: for each key,
   that percentage of the level the input stood at when the engine ran. Levels are the result set's (`levels.csv`: kind,

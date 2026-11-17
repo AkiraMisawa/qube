@@ -4203,7 +4203,7 @@ Spec and tickets: [docs/specs/position-keeper](docs/specs/position-keeper/spec.m
 
 | Suite | Result |
 |---|---|
-| `dotnet test server/Qube.slnx` | 1,747 passed, 1 failed: the contract test below |
+| `dotnet test server/Qube.slnx` | 1,750 passed, 1 failed: the contract test below |
 | `npm run typecheck`, `npm test` (Vitest) | clean; 530 passed |
 | `npx playwright test e2e/position-keeper.spec.ts` | 5 passed |
 | `npx playwright test` (every spec) | 159 passed, 1 failed: the command line's placeholder named `new pk` in place of `open pricing db`. `new pk` now stands after it; that test and the Position Keeper spec run again, 6 passed |
@@ -4245,9 +4245,16 @@ Spec and tickets: [docs/specs/position-keeper](docs/specs/position-keeper/spec.m
   name where the key is exactly that tenor's day, and each input moved in parallel is a line of its own; amounts are
   in the currency the manifest declares (`currency`), in whole units or millions. An adjustment is not painted red
   (every one is a cost); red stays for sensitivities and profit and loss. All of it is the server's
-  (`pk.position.read`: `tenor`, `step`, `bookStep`, `parallel`, `byCounterparty`, `currency`). Not yet: the ladder by
-  currency and tenor with Book, What-if and Net stacked, vol per vol point (a vol is declared `level` today, so its
-  step is 1.0 of vol), FX delta per 1%, the P&L explain tree, drill-down to counterparties, par deltas.
+  (`pk.position.read`: `tenor`, `step`, `bookStep`, `parallel`, `byCounterparty`, `currency`).
+- Step 2 (2026-11-17): the risk ladder. A kind with a declared unit is read per step on the tenors the manifest
+  declares for it (`ladders`; its own nodes where none is declared), a row the whole kind, a currency's curves
+  (`curveCurrencies`) or one input, with What-if and Net under Book where a hedge is in them. A node between two
+  tenors is shared by its distance in days, and one outside them goes to the nearest, so a row's total is the
+  parallel line (`pk.position.read`: `ladder`). A volatility is a unit of its own (`vol`): read per vol point, its
+  move typed in vol points. The sample declares the regulatory tenors for rates (1Y, 2Y, 5Y, 10Y, 30Y) and credit
+  (6M, 1Y, 3Y, 5Y, 10Y), as DEFAULT (the owner was asked; unanswered, the recommendation stands). Not yet: FX delta
+  per 1% and by currency, the P&L explain tree with scenarios, drill-down from a cell to counterparties, par
+  deltas, the ladder by metric.
 - The development sample gives levels for the FX spots and FX ATM vols only, so a move in `%` of a curve or a hazard
   rate is refused there (`NoLevel`); the engine does not write levels yet, and the sample's are copied from its inputs.
 - The risk grid sums over counterparties and metrics; it has no view by counterparty or by metric yet.

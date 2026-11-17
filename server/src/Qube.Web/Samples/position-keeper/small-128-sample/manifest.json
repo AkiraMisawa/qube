@@ -12,10 +12,19 @@
     "C0004": { "legalEntity": "SYN-LE-0004" }
   },
   "hedgeCurves": { "JPY": "JPY-OIS", "USD": "USD-OIS", "EUR": "EUR-OIS" },
+  "curveCurrencies": {
+    "JPY-OIS": "JPY", "JPY-FLT-6M": "JPY",
+    "USD-OIS": "USD", "USD-FLT-3M": "USD", "USD-XCCY-JPY": "USD",
+    "EUR-OIS": "EUR", "EUR-FLT-6M": "EUR", "EUR-XCCY-JPY": "EUR"
+  },
+  "ladders": {
+    "zero_rate": ["1Y", "2Y", "5Y", "10Y", "30Y"],
+    "hazard_rate": ["6M", "1Y", "3Y", "5Y", "10Y"]
+  },
   "units": {
     "zero_rate": "rate",
     "hazard_rate": "rate",
     "fx_spot": "level",
-    "fx_atm_vol": "level"
+    "fx_atm_vol": "vol"
   }
 }
