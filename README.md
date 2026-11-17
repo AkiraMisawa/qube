@@ -39,6 +39,11 @@ tools/dev.sh
 # Development: Vite on http://localhost:5173, forwarding /api to the host above
 nix develop -c bash -c 'cd client && npm run dev'
 
+# The Desk (ADR-0019) reads result sets an engine wrote: Desk:ResultsRoot names their directory and Desk:ResultSet
+# the one a new workspace is on. Development reads the synthetic sample under server/src/Qube.Web/Samples/desk.
+# With neither set, `new desk` says that no result set is configured.
+Desk__ResultsRoot=/path/to/results Desk__ResultSet=<directory> nix develop -c dotnet run --project server/src/Qube.Web --urls http://localhost:5080
+
 # Browser tests (Playwright); start the host themselves unless one is already on the port
 nix develop -c bash -c 'cd client && npm run build && npx playwright test'
 ```

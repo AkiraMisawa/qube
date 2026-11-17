@@ -1,6 +1,6 @@
 # 06 The AI's reads, the documents and the status
 
-Status: ready-for-agent
+Status: done
 
 **Blocked by:** 05.
 
@@ -8,6 +8,6 @@ Status: ready-for-agent
 column's meaning (sign and unit) in its declaration, and the documents: README commands, `IMPLEMENTATION_STATUS.md`
 (what is real, what is simulated, the next gap).
 
-- [ ] A scripted agent request reads the net risk of one curve after a hedge through the commands, with its marks.
-- [ ] `IMPLEMENTATION_STATUS.md` states that the book is the engine's output on synthetic input and that the hedge's
+- [x] A scripted agent request reads the net risk of one curve after a hedge through the commands, with its marks.
+- [x] `IMPLEMENTATION_STATUS.md` states that the book is the engine's output on synthetic input and that the hedge's
       risk is simulated.

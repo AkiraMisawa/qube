@@ -55,6 +55,9 @@ public sealed class DeskPositionRead(Func<WorkspaceService> workspaces, IHedgeRi
         }
     }
 
+    // A kind or an input is named whatever its case, as a table's row is on the line: `jpy-ois` is JPY-OIS. Left out, every one is read.
+    static bool Named(string? asked, string name) => asked is null || string.Equals(asked, name, StringComparison.OrdinalIgnoreCase);
+
     static JsonArray List(IEnumerable<JsonNode?> items) => new([.. items]);
     static JsonArray Marks(IReadOnlyList<string> marks) => List(marks.Select(m => (JsonNode)m));
 
@@ -91,7 +94,7 @@ public sealed class DeskPositionRead(Func<WorkspaceService> workspaces, IHedgeRi
                 ["hedge"] = h.Hedge, ["value"] = h.Value, ["provider"] = h.Provider, ["executionMode"] = h.Mode.ToString(),
                 ["marks"] = Marks([DeskPosition.WhatIf, .. h.Mode == ExecutionMode.Simulated ? new[] { DeskPosition.Simulated } : []]),
             })),
-            ["risk"] = List(p.Risk.Where(r => (kind is null || r.Kind == kind) && (input is null || r.Input == input)).Select(r => (JsonNode)Without(new JsonObject
+            ["risk"] = List(p.Risk.Where(r => Named(kind, r.Kind) && Named(input, r.Input)).Select(r => (JsonNode)Without(new JsonObject
             {
                 ["kind"] = r.Kind, ["input"] = r.Input, ["key"] = r.Key, ["per"] = r.Per switch { SensitivityPer.Rate => "rate", SensitivityPer.Level => "level", _ => null },
                 ["book"] = r.Book, ["whatIf"] = r.WhatIf, ["net"] = r.Net, ["marks"] = Marks(r.Marks),

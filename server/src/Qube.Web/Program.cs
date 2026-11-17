@@ -181,6 +181,8 @@ builder.Services.AddSingleton<AgentService>();
 foreach (var request in RatesScriptedRequests.All(conventions)) builder.Services.AddSingleton(request);
 // The stand-in's words for the kernel's readings (ADR-0016 note 38): describe, read and preview, of the workspace shown.
 foreach (var request in ReadingScriptedRequests.All()) builder.Services.AddSingleton(request);
+// The Desk's reading for the stand-in (ADR-0019 §6): one kind and input's Book, What-if and Net.
+foreach (var request in DeskScriptedRequests.All()) builder.Services.AddSingleton(request);
 // And for a proposal of the panels' arrangement (ADR-0018 §8): two panels side by side, or one beside another.
 foreach (var request in LayoutScriptedRequests.All()) builder.Services.AddSingleton(request);
 var agentRuntime = builder.Configuration["Agent:Runtime"];

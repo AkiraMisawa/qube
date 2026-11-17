@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Qube.Composition.Application\Qube.Composition.Application.csproj" />
+    <ProjectReference Include="..\Qube.Agent\Qube.Agent.csproj" />
   </ItemGroup>
 
 </Project>

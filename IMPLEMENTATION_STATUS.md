@@ -4170,6 +4170,78 @@ Unchanged: the Rates market, its conventions' development profiles and every fig
   ADR-0040) and showed three of its four items in a grid three rows high. At eight rows it shows the four at once
   (seen in the built client).
 
+## The Desk, first slice: the position keeper (ADR-0019, 2026-11-17)
+
+Spec and tickets: [docs/specs/desk-position-keeper](docs/specs/desk-position-keeper/spec.md) (tickets 01 to 06).
+
+### What runs
+
+- **Results port** (`Qube.Samples.Desk`, `IDeskResults`): a result set is a directory of the engine's files
+  (`xva.csv`, `risk.csv`, `trades.csv`, optional `curves/*.csv`) with a `manifest.json` beside them that says the
+  engine and its commit, the input set, the valuation date, the base scenario, each counterparty's legal entity, the
+  unit of each kind of risk and the curve a what-if swap is valued on. `DeskResultFiles` reads it strictly: a missing
+  file or column, a row of the wrong width, a number that is no number, a manifest without one of its facts are each
+  refused by name. A set is identified by its reference and the SHA-256 of its files; a workspace on a set whose files
+  changed is refused (`Changed`).
+- **Workspace and tables**: a Desk workspace is on one result set (`desk.workspace.create`). Its tables are
+  `desk.values` and `desk.risk` (read-only), `desk.hedges` (what-if swaps the user creates with `new irs`) and
+  `desk.moves` (a move per kind and input, in basis points for a rate and in the quote's units for a level). The
+  kernel's `set`, `reset`, `remove`, `undo` and `redo` act on them.
+- **Position** (`desk.position.read`): values and their totals, Book / What-if / Net risk, and the predicted profit
+  and loss of the moves held (sensitivity times move). The server marks every line and total: `WHAT-IF` where a
+  hypothetical hedge is in a figure, `SIMULATED` where a figure is not the engine's, `FIRST ORDER` for a prediction.
+  Signs are the engine's: a cost is negative.
+- **Page** (`new desk`, optionally `set=<result set>`): the book's identity, the values, the what-if hedges, the risk
+  (narrowed to one kind and input by `Risk of`), and the moves with their predicted profit and loss, each in ExGrid
+  through `QubeGrid`. The marks are drawn as the server gives them. A hedge is made, changed and removed from the
+  command line through the page's door; a move is typed in its cell. Where the result set cannot be read the panel
+  says why in the server's words and draws no grid.
+- **AI**: the pane's context names the open Desk workspace; the stand-in reads `net risk of <kind> <input>` through
+  `desk.position.read` and says how many lines are marked and with what.
+
+### Verification performed (2026-11-17, Linux, Chromium headless)
+
+| Suite | Result |
+|---|---|
+| `dotnet test server/Qube.slnx` | 1,737 passed, 1 failed: the contract test below |
+| `npm run typecheck`, `npm test` (Vitest) | clean; 530 passed |
+| `npx playwright test e2e/desk.spec.ts` | 5 passed |
+
+| Acceptance | Status |
+|---|---|
+| The page says the engine, its commit, the input set and the valuation date (ADR-0019 §4) | Passed (Playwright) |
+| `WHAT-IF`, `SIMULATED` and `FIRST ORDER` are on every row and total the server marks, and on no other (§3, §7) | Passed (Playwright against the command's answer; xUnit for the marks themselves) |
+| With no result set the page says so and shows no grid (§4) | Passed (Playwright, a result set that is not there) |
+| A hedge is added, changed, taken back and removed with the keyboard alone; a move is typed in its cell and one that cannot be read is refused at the cell (§2) | Passed (Playwright) |
+| The page reads at 1440px and 390px in both themes: no sideways scroll, text at 4.5:1 | Passed (Playwright); looked at by hand in screenshots |
+| The stand-in reads one curve's net risk after a hedge, with its marks (§6) | Passed (xUnit, over the agent's route) |
+| The engine's own small result set reads through the adapter (contract test, ADR-0019 §7) | **Failing.** The engine at the pinned commit writes interval labels with a comma in an unquoted cell of `risk.csv` (1,608 rows); the reader refuses the row and guesses nothing. The engine's input-reshaping work renames the labels; the fixture is copied again and the pin moved once that is merged |
+| Touch | Not verified |
+
+### Providers
+
+- **The book: real engine output on synthetic input.** The development host and the browser tests read
+  `server/src/Qube.Web/Samples/desk/small-128-sample`, a cut of the engine's synthetic `small-128` test vector (base
+  scenario, six kinds of risk; its README says what was left out). No production data, and no engine is run by Qube:
+  the files were written by the engine beforehand.
+- **A what-if hedge's value and risk: simulated.** `SyntheticHedgeRisk` (`desk.synthetic-hedge-risk`): one curve,
+  yearly fixed payments, linear interpolation of the zero rate times time. It is not a model of anything, there is no
+  real provider it stands in for, and every figure it is in is marked `SIMULATED`.
+- **The predicted profit and loss** is arithmetic on the sensitivities, first order only, marked `FIRST ORDER`.
+
+### Known limits
+
+- DEFAULTs of ADR-0019 not yet reviewed by the owner: the slice reads result files (no call to the engine), the
+  manifest's units and legal entities, the synthetic hedge calculator.
+- A kind of risk the manifest declares no unit for shows no `Per` and takes no move (refused `NoUnit`).
+- The risk grid sums over counterparties and metrics; it has no view by counterparty or by metric yet.
+- The Desk tables' columns say their meaning by title only; the sign and unit of each figure are declared in the
+  position's contract, not on the table's fields.
+- Hedges are edited from the command line, not in their grid's cells, and the page gives the line no grid view of
+  its own (`selected`, `shown`).
+- The page reads the whole position after every command. Measured on the sample (307 risk lines): about 40 ms a read.
+- A panel that could not make its workspace keeps saying so until `new desk` is run again.
+
 ## Next
 
 1. The owner's answer on one package a row or several (ADR-0016 note 90).
