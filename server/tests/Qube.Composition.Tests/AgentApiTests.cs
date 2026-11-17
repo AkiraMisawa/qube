@@ -292,20 +292,20 @@ public class AgentApiTests : IClassFixture<QubeFactory>
         Assert.Contains("it needs workspaceId", Reply(events));
     }
 
-    [Fact] // ADR-0019 §3, §6, §7, ADR-0007 §6: the stand-in reads one curve's Book, What-if and Net through the Desk's command, with the marks the server gives each line, and says them
+    [Fact] // ADR-0019 §3, §6, §7, ADR-0007 §6: the stand-in reads one curve's Book, What-if and Net through the Position Keeper's command, with the marks the server gives each line, and says them
     public async Task The_scripted_agent_reads_the_net_risk_of_one_curve_after_a_hedge_with_its_marks()
     {
         async Task<JsonObject> Command(string capability, JsonObject request) =>
             (await (await client.PostAsJsonAsync($"/api/commands/{capability}/1.0.0", new { inputs = new { request }, idempotencyKey = Guid.NewGuid().ToString() })).Content.ReadFromJsonAsync<JsonObject>())!;
-        // The development host's sample cut of the engine's synthetic small vector (Samples/desk): synthetic figures.
-        var id = (await Command("desk.workspace.create", []))["outputs"]!["workspace"]!["workspaceId"]!.GetValue<string>();
-        Assert.Equal("H1", (await Command("entity.create", new JsonObject { ["workspaceId"] = id, ["product"] = "desk.irs", ["terms"] = "5y jpy 1bn pay 1.2%" }))["outputs"]!["entity"]!["entity"]!.GetValue<string>());
+        // The development host's sample cut of the engine's synthetic small vector (Samples/position-keeper): synthetic figures.
+        var id = (await Command("pk.workspace.create", []))["outputs"]!["workspace"]!["workspaceId"]!.GetValue<string>();
+        Assert.Equal("H1", (await Command("entity.create", new JsonObject { ["workspaceId"] = id, ["product"] = "pk.irs", ["terms"] = "5y jpy 1bn pay 1.2%" }))["outputs"]!["entity"]!["entity"]!.GetValue<string>());
 
         // The stand-in holds a request in lower case: the curve is found whatever case it is said in.
-        var read = await Asked("t-desk", "net risk of zero_rate jpy-ois", Showing(id));
-        var other = await Asked("t-desk-usd", "net risk of zero_rate usd-ois", Showing(id));
+        var read = await Asked("t-pk", "net risk of zero_rate jpy-ois", Showing(id));
+        var other = await Asked("t-pk-usd", "net risk of zero_rate usd-ois", Showing(id));
 
-        Assert.Equal(["desk_position_read"], Called(read));
+        Assert.Equal(["pk_position_read"], Called(read));
         var lines = Results(read).Single()["outputs"]!["answer"]!["risk"]!.AsArray();
         Assert.Equal(25, lines.Count);
         Assert.All(lines, line =>

@@ -6,7 +6,7 @@
     <ProjectReference Include="..\Qube.Samples.Portfolio\Qube.Samples.Portfolio.csproj" />
     <ProjectReference Include="..\Qube.Samples.Ccr\Qube.Samples.Ccr.csproj" />
     <ProjectReference Include="..\Qube.Samples.Xva\Qube.Samples.Xva.csproj" />
-    <ProjectReference Include="..\Qube.Samples.Desk\Qube.Samples.Desk.csproj" />
+    <ProjectReference Include="..\Qube.Samples.PositionKeeper\Qube.Samples.PositionKeeper.csproj" />
     <ProjectReference Include="..\Qube.Samples.Rates\Qube.Samples.Rates.csproj" />
     <ProjectReference Include="..\Qube.Samples.Simm\Qube.Samples.Simm.csproj" />
     <ProjectReference Include="..\Qube.Agent\Qube.Agent.csproj" />
