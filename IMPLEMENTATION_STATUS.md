@@ -4206,6 +4206,7 @@ Spec and tickets: [docs/specs/desk-position-keeper](docs/specs/desk-position-kee
 | `dotnet test server/Qube.slnx` | 1,737 passed, 1 failed: the contract test below |
 | `npm run typecheck`, `npm test` (Vitest) | clean; 530 passed |
 | `npx playwright test e2e/desk.spec.ts` | 5 passed |
+| `npx playwright test` (every spec) | 159 passed, 1 failed: the command line's placeholder named `new desk` in place of `open pricing db`. `new desk` now stands after it; that test and the Desk spec run again, 6 passed |
 
 | Acceptance | Status |
 |---|---|

@@ -362,6 +362,13 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
     },
     // Every other Rates command is the server's (ADR-0016 notes 34 to 36): `new irs`, `add line`, `price`, `live
     // start`, `live stop`, `capture`, and the kernel's `set`, `reset` and `remove` over its lines and defaults.
+    {
+      id: 'history.open',
+      words: 'open pricing db',
+      title: 'Open the Pricing DB of past Runs',
+      group: 'History',
+      run: () => state.showApp(PRICING_DB, 'Pricing DB', {}),
+    },
     // Every other Desk command is the server's (ADR-0019 §2): `new irs`, and the kernel's `set`, `reset`, `remove`,
     // `undo` and `redo` over its hedges and moves.
     {
@@ -371,13 +378,6 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
       group: 'Desk',
       args: [{ name: 'set', required: false, hint: 'a result set by name; the configured one where left out' }],
       run: (a) => void newDesk(state, a.set),
-    },
-    {
-      id: 'history.open',
-      words: 'open pricing db',
-      title: 'Open the Pricing DB of past Runs',
-      group: 'History',
-      run: () => state.showApp(PRICING_DB, 'Pricing DB', {}),
     },
   ];
 }
