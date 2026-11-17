@@ -241,18 +241,32 @@ public sealed class RatesLiveService(IRatesPricingProvider provider, Func<string
         get { lock (gate) return latest; }
     }
 
-    public Task PublishAsync(MarketUpdate update)
+    /// <summary>Preparations (<see cref="IRatesMarketPreparation"/>) that failed; the pricing that followed answered for itself.</summary>
+    public int PreparationFailures => Volatile.Read(ref preparationFailures);
+    int preparationFailures;
+
+    public async Task PublishAsync(MarketUpdate update)
     {
+        lock (gate)
+            if (latest is not null && update.Sequence <= latest.Sequence) return;
+        if (provider is IRatesMarketPreparation preparation && resolveMarket(update.SnapshotId) is { } snapshot)
+        {
+            try { await preparation.PrepareMarketAsync(snapshot, CancellationToken.None); }
+            catch (Exception)
+            {
+                // Not a fallback: nothing is substituted. Each calculation still goes to the provider and shows its outcome.
+                Interlocked.Increment(ref preparationFailures);
+            }
+        }
         var started = new List<LiveWork>();
         lock (gate)
         {
-            if (latest is not null && update.Sequence <= latest.Sequence) return Task.CompletedTask;
+            if (latest is not null && update.Sequence <= latest.Sequence) return;
             latest = update;
             foreach (var entry in subscriptions.Values)
                 if (entry.Rules.OnMarket(update) is { } work) started.Add(work);
         }
         foreach (var work in started) Launch(work);
-        return Task.CompletedTask;
     }
 
     Entry Owned(string owner, string subscriptionId) =>

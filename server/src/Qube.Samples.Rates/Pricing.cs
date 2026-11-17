@@ -28,6 +28,17 @@ public interface IRatesPricingProvider
     Task<RatesBatchResult> PriceBatchAsync(RatesBatchInput input, CancellationToken cancellationToken);
 }
 
+/// <summary>
+/// A provider that builds something per market snapshot (an out-of-process engine's curves and Jacobians) can do it
+/// once, when the snapshot arrives, before any subscription prices on it (docs/reports/rates-live-30-users.html §6).
+/// Optional: a provider without it builds on demand. Preparing is not pricing: a failure here is counted (<see cref="RatesLiveService.PreparationFailures"/>),
+/// and the calculations that follow still ask the provider, which answers for itself.
+/// </summary>
+public interface IRatesMarketPreparation
+{
+    Task PrepareMarketAsync(MarketSnapshot market, CancellationToken cancellationToken);
+}
+
 /// <summary>Measure names on the wire. A par rate and a fair spread are different measures (docs/08).</summary>
 public static class Measures
 {

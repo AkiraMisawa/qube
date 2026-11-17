@@ -43,7 +43,7 @@ var syntheticMarket = new SyntheticMarket(rates.SyntheticMarket.Config());
 builder.Services.AddSingleton(conventions);
 builder.Services.AddSingleton<IRatesPricingProvider, FakeRatesPricing>();
 builder.Services.AddSingleton(sp => new RatesLiveService(sp.GetRequiredService<IRatesPricingProvider>(), syntheticMarket.Resolve, sp.GetRequiredService<TimeProvider>(),
-    TimeSpan.FromSeconds(rates.LiveIdleStopSeconds)));
+    TimeSpan.FromSeconds(rates.LiveIdleStopSeconds), rates.LiveCalculationSlots()));
 builder.Services.AddSingleton(sp => new MarketFeed(syntheticMarket, sp.GetRequiredService<RatesLiveService>()));
 builder.Services.AddSingleton<IQubeModule>(sp => new RatesModule(sp.GetRequiredService<IRatesPricingProvider>(), syntheticMarket.Resolve));
 builder.Services.AddSingleton<RatesWorkspaces>();

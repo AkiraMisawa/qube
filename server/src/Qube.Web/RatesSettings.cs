@@ -14,6 +14,14 @@ public sealed class RatesSettings
     public bool Ticker { get; set; } = true;
     /// <summary>How long a live subscription runs with no page watching it before it stops (owner, 2026-10-27).</summary>
     public int LiveIdleStopSeconds { get; set; } = 300;
+    /// <summary>
+    /// How many live calculations run at once across the server (docs/reports/rates-live-30-users.html §6). Set it to the
+    /// engine's parallelism: with an out-of-process engine a calculation mostly waits on the engine, not on this CPU.
+    /// </summary>
+    public int LiveMaxCalculations { get; set; } = 4;
+
+    public int LiveCalculationSlots() => LiveMaxCalculations >= 1 ? LiveMaxCalculations
+        : throw new InvalidOperationException($"Rates:LiveMaxCalculations is {LiveMaxCalculations}; at least 1 is needed.");
 
     public ConventionRegistry Registry()
     {
