@@ -12,4 +12,4 @@ Before implementing fixed XVA, read `docs/03-xva-domain.md` and `docs/04-client-
 
 Use deterministic providers initially, clearly marked as simulated. The Rates real-engine milestone and real-AI milestone require actual integration, not renamed mocks. Keep native libraries out of the Web process and all company SDKs out of the standalone core build.
 
-Create `IMPLEMENTATION_STATUS.md` containing actual run/build/test commands, completed acceptance IDs, real versus mocked providers, observed limitations and the next slice. Report working behavior with evidence. Do not publish, deploy or claim production readiness merely because the handoff describes a future rollout.
+Create `IMPLEMENTATION_STATUS.md` containing actual run/build/test commands, completed acceptance IDs, real versus mocked providers, observed limitations, shortcuts the owner approved (`CLAUDE.md` "Production-grade robustness") and the next slice. Report working behavior with evidence. Do not publish, deploy or claim production readiness merely because the handoff describes a future rollout.
