@@ -1,6 +1,6 @@
 # 02 The module, the Desk workspace and the book's tables
 
-Status: ready-for-agent
+Status: done
 
 **Blocked by:** 01.
 

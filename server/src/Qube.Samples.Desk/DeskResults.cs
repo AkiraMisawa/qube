@@ -62,7 +62,9 @@ public interface IDeskResults
 
 public enum DeskResultsRefusal
 {
+    NotConfigured,
     NotFound,
+    Changed,
     FileMissing,
     ColumnMissing,
     RowUnreadable,

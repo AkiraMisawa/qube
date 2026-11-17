@@ -10,6 +10,7 @@ using Qube.Composition.Application.Traces;
 using Qube.Composition.Application.Workspaces;
 using Qube.Composition.Contracts;
 using Qube.Persistence.Sqlite;
+using Qube.Samples.Desk;
 using Qube.Samples.Rates;
 using Qube.Samples.Simm;
 using Qube.Samples.Synthetic;
@@ -75,6 +76,14 @@ builder.Services.AddSingleton<IQubeModule>(sp => new DraftsModule(sp.GetRequired
 builder.Services.AddSingleton<ITableCatalog>(sp => new PortfolioTables(sp.GetRequiredService<MeasureRegister>()));
 // Rates registers its lines and its workspace's own settings, which hold the defaults of new lines (ADR-0016 note 34).
 builder.Services.AddSingleton<ITableCatalog>(new RatesTables(conventions));
+// The Desk (ADR-0019): result sets are read from a directory of the engine's files, and a workspace is made on the
+// configured one unless its request names another. With no directory configured every read is refused by that name;
+// no book stands in.
+builder.Services.AddSingleton<IDeskResults>(_ => builder.Configuration["Desk:ResultsRoot"] is { Length: > 0 } root ? new DeskResultFiles(root) : new NoDeskResults());
+builder.Services.AddSingleton(new DeskOptions(builder.Configuration["Desk:ResultSet"] is { Length: > 0 } set ? set : null));
+builder.Services.AddSingleton<DeskWorkspaces>();
+builder.Services.AddSingleton<IQubeModule>(sp => new DeskModule(sp.GetRequiredService<DeskWorkspaces>));
+builder.Services.AddSingleton<ITableCatalog, DeskTables>();
 builder.Services.AddSingleton<TableRegister>();
 // Short forms are a module's words for a line of a kernel verb (ADR-0016 note 29): the pricer's before, after and currency.
 builder.Services.AddSingleton<IShortFormCatalog, PortfolioShortForms>();
@@ -102,12 +111,17 @@ Directory.CreateDirectory(Path.GetDirectoryName(database)!);
 builder.Services.AddSingleton(_ => new SqliteRunStore(database));
 builder.Services.AddSingleton<IRunStore>(sp => sp.GetRequiredService<SqliteRunStore>());
 builder.Services.AddSingleton<IDataStore>(sp => sp.GetRequiredService<SqliteRunStore>());
-builder.Services.AddSingleton<IWorkspaceStore>(_ => new SqliteWorkspaceStore(database,
-    new Dictionary<string, SourceResolver> { [PortfolioEditRules.App] = PortfolioSourceVersion.Resolve, [RatesEditRules.App] = RatesWorkspaces.Resolve }));
+builder.Services.AddSingleton<IWorkspaceStore>(sp => new SqliteWorkspaceStore(database,
+    new Dictionary<string, SourceResolver>
+    {
+        [PortfolioEditRules.App] = PortfolioSourceVersion.Resolve, [RatesEditRules.App] = RatesWorkspaces.Resolve,
+        [DeskEditRules.App] = DeskBookSource.Resolver(sp.GetRequiredService<IDeskResults>),
+    }));
 builder.Services.AddSingleton(sp => new WorkspaceService(
     new Dictionary<string, IEditRules>
     {
         [PortfolioEditRules.App] = new PortfolioEditRules(sp.GetRequiredService<MeasureRegister>()), [RatesEditRules.App] = new RatesEditRules(conventions),
+        [DeskEditRules.App] = new DeskEditRules(),
     },
     sp.GetRequiredService<TimeProvider>(), sp.GetRequiredService<IWorkspaceStore>(), sp.GetServices<IWorkspaceObserver>()));
 // A workspace's observers are told of each accepted command (ADR-0016 note 35): Rates keeps its live subscriptions on

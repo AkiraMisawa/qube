@@ -1,6 +1,6 @@
 # 01 The results port and the files adapter
 
-Status: ready-for-agent
+Status: done except the contract test, which waits for the engine to stop writing a comma inside an unquoted cell of risk.csv
 
 **Blocked by:** none.
 
