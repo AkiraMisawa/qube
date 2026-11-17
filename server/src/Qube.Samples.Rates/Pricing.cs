@@ -1,7 +1,12 @@
 namespace Qube.Samples.Rates;
 
 /// <summary>What one line asks the provider for. The legs are the effective ones: the user's cashflow edits applied.</summary>
-public sealed record PricingLine(string RowKey, long InputRevision, Direction Direction, IReadOnlyList<EffectiveLeg> Legs, int? ParLeg, bool Risk);
+/// <summary>
+/// A line as a provider takes it. <paramref name="Collateral"/> is the line's Collateral field as typed (null when empty);
+/// a provider that discounts on the collateral's curve reads it, and refuses the line when it is needed and absent.
+/// </summary>
+public sealed record PricingLine(string RowKey, long InputRevision, Direction Direction, IReadOnlyList<EffectiveLeg> Legs, int? ParLeg, bool Risk,
+    string? Collateral = null);
 
 /// <summary>A fixed batch against a fixed snapshot (docs/07 §5). No mutable "latest market" is looked up inside.</summary>
 public sealed record RatesBatchInput(long InputRevision, DateOnly ValuationDate, MarketSnapshot Market, IReadOnlyList<PricingLine> Lines);
@@ -175,6 +180,6 @@ public static class PricingLines
 {
     /// <summary>The priceable lines of a workspace revision, as the provider takes them. Lines that are not priceable are left to the caller.</summary>
     public static PricingLine From(EffectiveLine line, long inputRevision) => line.Priceable
-        ? new(line.Line, inputRevision, line.Terms!.Direction, line.Legs, line.ParLeg, line.Terms.Risk)
+        ? new(line.Line, inputRevision, line.Terms!.Direction, line.Legs, line.ParLeg, line.Terms.Risk, line.Terms.Collateral)
         : throw new InvalidOperationException($"{line.Line} is not priceable: {string.Join("; ", line.Issues.Concat(line.Held))}");
 }
