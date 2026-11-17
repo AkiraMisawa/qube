@@ -29,12 +29,11 @@ public class CrifGenerationTests
 
     static SimmTrade Trade(string id, PricingLine pricing) => new(id, pricing, null, ["JFSA", "CFTC"], ["JFSA"]);
 
-    static readonly MarketSnapshot Market = new("test:simm:1", 1, new DateTimeOffset(2026, 11, 6, 0, 0, 0, TimeSpan.Zero), "synthetic", 1, "test",
-        new Dictionary<string, CurveQuotes>
-        {
-            ["JPY/TONA"] = new("JPY", "TONA", [(Tenor.Parse("1y"), 0.5), (Tenor.Parse("10y"), 1.0)]),
-            ["USD/SOFR"] = new("USD", "SOFR", [(Tenor.Parse("1y"), 4.0), (Tenor.Parse("10y"), 4.0)]),
-        },
+    static readonly MarketSnapshot Market = SyntheticMarket.Build("test:simm:1", 1, new DateTimeOffset(2026, 11, 6, 0, 0, 0, TimeSpan.Zero), "synthetic", 1, "test",
+        [
+            new SyntheticCurve("JPY", "TONA", [(Tenor.Parse("1y"), 0.5), (Tenor.Parse("10y"), 1.0)]),
+            new SyntheticCurve("USD", "SOFR", [(Tenor.Parse("1y"), 4.0), (Tenor.Parse("10y"), 4.0)]),
+        ],
         new Dictionary<string, double> { ["USD"] = 1, ["JPY"] = 150 });
 
     /// <summary>A provider whose every figure is chosen by the test: a PV in the line's first leg's currency, and deltas.</summary>

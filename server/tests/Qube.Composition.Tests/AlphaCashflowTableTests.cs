@@ -13,14 +13,16 @@ public class AlphaCashflowTableTests
         new($"t.{ccy}.{index}", "1", ccy, index, DayCountBasis.Act360, Calendar.Id, BusinessDayAdjustment.ModifiedFollowing, 2, 0, StubRule.ShortFront, false, overnight);
 
     static readonly AlphaCurveMap Map = new(
-        [
-            new("JPY-OIS", "JPY", "discount", 0, "", "log_linear_df", "JPY/TONA"),
-            new("USD-OIS", "USD", "discount", 0, "", "log_linear_df", "USD/SOFR"),
-            new("JPY-FLT-6M", "JPY", "forward", 6, "JPY-OIS", "linear_zero", "JPY/TIBOR6M"),
-            new("USD-XCCY-JPY", "USD", "xccy_discount", 0, "USD-OIS", "log_linear_df", "USD/XCCY-JPY"),
-        ],
         new Dictionary<string, string> { ["JPY/TONA"] = "JPY-OIS", ["USD/SOFR"] = "USD-OIS", ["JPY/TIBOR6M"] = "JPY-FLT-6M" },
         new Dictionary<string, string> { ["JPY@JPY"] = "JPY-OIS", ["USD@USD"] = "USD-OIS", ["USD@JPY"] = "USD-XCCY-JPY" });
+
+    static MarketCurve Curve(string name, string ccy, string index, string role, int? indexMonths = null) =>
+        new(name, ccy, index, role, "base", CurveMath.LogLinearDf, [new("1y", 365, 0.99), new("10y", 3650, 0.9)], indexMonths);
+
+    static readonly MarketSnapshot Market = new("m:1", 1, DateTimeOffset.UnixEpoch, "synthetic", 1, "t",
+        new[] { Curve("JPY-OIS", "JPY", "TONA", "discount"), Curve("USD-OIS", "USD", "SOFR", "discount"),
+                Curve("JPY-FLT-6M", "JPY", "TIBOR6M", "forward", 6), Curve("USD-XCCY-JPY", "USD", "XCCY-JPY", "xccy_discount") }.ToDictionary(c => c.Name),
+        new Dictionary<string, QuoteSet>(), [], new Dictionary<string, double> { ["JPY"] = 150, ["USD"] = 1 });
 
     static EffectivePeriod Period(int n, double? rate, double notional = 1e9) =>
         new($"p{n}", ValuationDate.AddMonths(12 * n), ValuationDate.AddMonths(12 * (n + 1)), ValuationDate.AddMonths(12 * (n + 1)), notional, rate, 1.0, []);
@@ -36,7 +38,7 @@ public class AlphaCashflowTableTests
     [Fact]
     public void A_paid_fixed_received_overnight_swap_becomes_two_signed_legs_on_the_collateral_curve()
     {
-        var (table, refusals) = CashflowTables.From(Irs(), Map, ValuationDate, _ => Calendar);
+        var (table, refusals) = CashflowTables.From(Irs(), Map, Market, ValuationDate, _ => Calendar);
 
         Assert.Empty(refusals);
         Assert.Equal(("L1", "JPY"), (table!.Id, table.ReportingCurrency));
@@ -53,7 +55,7 @@ public class AlphaCashflowTableTests
     [Fact]
     public void Receiving_flips_both_signs()
     {
-        var (table, _) = CashflowTables.From(Irs(Direction.Receive), Map, ValuationDate, _ => Calendar);
+        var (table, _) = CashflowTables.From(Irs(Direction.Receive), Map, Market, ValuationDate, _ => Calendar);
         Assert.Equal([1, -1], table!.Legs.Select(l => l.Sign));
     }
 
@@ -61,7 +63,7 @@ public class AlphaCashflowTableTests
     public void Second_level_terms_choose_the_kind_and_shift_the_observation()
     {
         var (table, _) = CashflowTables.From(Irs(floatDetail: new LegDetail(DailyAverage: true, ObservationShiftDays: 2, LookbackDays: 0, Gearing: 0.5)),
-            Map, ValuationDate, _ => Calendar);
+            Map, Market, ValuationDate, _ => Calendar);
 
         var p = table!.Legs[1].Periods[0];
         Assert.Equal("average", table.Legs[1].Kind);
@@ -73,12 +75,12 @@ public class AlphaCashflowTableTests
     [Fact]
     public void A_term_index_fixes_two_business_days_before_its_period_and_in_arrears_at_its_end()
     {
-        var (advance, _) = CashflowTables.From(Irs(floatIndex: "TIBOR6M", overnight: false), Map, ValuationDate, _ => Calendar);
+        var (advance, _) = CashflowTables.From(Irs(floatIndex: "TIBOR6M", overnight: false), Map, Market, ValuationDate, _ => Calendar);
         var a = advance!.Legs[1].Periods[1];
         Assert.Equal(("term", "JPY-FLT-6M"), (advance.Legs[1].Kind, advance.Legs[1].ForwardCurve));
         Assert.Equal((DateRules.AddBusinessDays(a.AccrualStart, -2, Calendar), a.AccrualStart, a.AccrualStart.AddMonths(6)), (a.Fixing, a.IndexStart, a.IndexEnd));
 
-        var (arrears, _) = CashflowTables.From(Irs(floatIndex: "TIBOR6M", overnight: false, floatDetail: new LegDetail(InArrears: true)), Map, ValuationDate, _ => Calendar);
+        var (arrears, _) = CashflowTables.From(Irs(floatIndex: "TIBOR6M", overnight: false, floatDetail: new LegDetail(InArrears: true)), Map, Market, ValuationDate, _ => Calendar);
         var r = arrears!.Legs[1].Periods[1];
         Assert.Equal("term_in_arrears", arrears.Legs[1].Kind);
         Assert.Equal((DateRules.AddBusinessDays(r.AccrualEnd, -2, Calendar), r.AccrualEnd, r.AccrualEnd.AddMonths(6)), (r.Fixing, r.IndexStart, r.IndexEnd));
@@ -87,7 +89,7 @@ public class AlphaCashflowTableTests
     [Fact] // CLAUDE.md: nothing defaults the discounting; an empty Collateral is refused on the row
     public void A_line_without_collateral_is_refused_with_its_reason()
     {
-        var (table, refusals) = CashflowTables.From(Irs(collateral: null), Map, ValuationDate, _ => Calendar);
+        var (table, refusals) = CashflowTables.From(Irs(collateral: null), Map, Market, ValuationDate, _ => Calendar);
         Assert.Null(table);
         Assert.Contains(refusals, r => r.Contains("Collateral"));
     }
@@ -96,7 +98,7 @@ public class AlphaCashflowTableTests
     public void A_curve_the_engine_has_no_definition_for_is_refused_by_name()
     {
         var line = new PricingLine("L1", 1, Direction.Pay, [Leg("EUR", "FIXED", false, false, 1.0), Leg("EUR", "ESTR", true, true, 0)], null, false, "EUR");
-        var (_, refusals) = CashflowTables.From(line, Map, ValuationDate, _ => Calendar);
+        var (_, refusals) = CashflowTables.From(line, Map, Market, ValuationDate, _ => Calendar);
         Assert.Contains(refusals, r => r.Contains("EUR/ESTR"));
         Assert.Contains(refusals, r => r.Contains("EUR collateralised in EUR"));
     }
@@ -107,7 +109,7 @@ public class AlphaCashflowTableTests
         var exchanges = new[] { new NotionalExchange(ExchangeKind.Initial, ValuationDate, 1e7), new NotionalExchange(ExchangeKind.Final, ValuationDate.AddYears(2), 1e7) };
         var line = new PricingLine("X1", 1, Direction.Pay,
             [Leg("USD", "SOFR", true, true, 0, exchanges: exchanges), Leg("JPY", "TONA", true, true, 0, exchanges: exchanges)], 2, true, "JPY");
-        var (table, refusals) = CashflowTables.From(line, Map, ValuationDate, _ => Calendar);
+        var (table, refusals) = CashflowTables.From(line, Map, Market, ValuationDate, _ => Calendar);
 
         Assert.Empty(refusals);
         Assert.Equal(("USD-XCCY-JPY", "USD-OIS"), (table!.Legs[0].DiscountCurve, table.Legs[0].ForwardCurve));
@@ -119,10 +121,10 @@ public class AlphaCashflowTableTests
     public void A_period_without_a_rate_is_refused_unless_its_leg_is_solved()
     {
         var line = new PricingLine("L1", 1, Direction.Pay, [Leg("JPY", "FIXED", false, false, null), Leg("JPY", "TONA", true, true, 0)], null, false, "JPY");
-        Assert.Contains(CashflowTables.From(line, Map, ValuationDate, _ => Calendar).Refusals, r => r.Contains("no rate"));
+        Assert.Contains(CashflowTables.From(line, Map, Market, ValuationDate, _ => Calendar).Refusals, r => r.Contains("no rate"));
 
         var solved = line with { ParLeg = 1 };
-        var (table, refusals) = CashflowTables.From(solved, Map, ValuationDate, _ => Calendar);
+        var (table, refusals) = CashflowTables.From(solved, Map, Market, ValuationDate, _ => Calendar);
         Assert.Empty(refusals);
         Assert.Null(table!.Legs[0].Periods[0].Rate);
     }

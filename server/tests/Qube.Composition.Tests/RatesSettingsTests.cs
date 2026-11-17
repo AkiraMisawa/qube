@@ -34,7 +34,6 @@ public class RatesProviderSettingsTests
             Alpha = new AlphaSetting
             {
                 Command = "/opt/alpha/xva-rates-worker",
-                Curves = [new() { Name = "JPY-OIS", Currency = "JPY", Role = "discount", Interpolation = "log_linear_df", Quotes = "JPY/TONA" }],
                 Forward = new() { ["JPY/TONA"] = "JPY-OIS" },
                 Discount = new() { ["JPY@JPY"] = "JPY-OIS" },
             },
@@ -56,7 +55,7 @@ public class RatesProviderSettingsTests
         Assert.Equal("alpha", s.ProviderChoice());
         var map = s.Alpha.CurveMap();
         Assert.Equal("JPY-OIS", map.Forward["JPY/TONA"]);
-        Assert.Equal(("JPY-OIS", "JPY/TONA"), (map.Curves[0].Name, map.Curves[0].Quotes));
+        Assert.Equal("JPY-OIS", map.Discount["JPY@JPY"]);
     }
 
     [Fact]
@@ -67,10 +66,10 @@ public class RatesProviderSettingsTests
     }
 
     [Fact]
-    public void A_map_naming_a_curve_that_is_not_defined_stops_startup()
+    public void A_map_naming_no_curve_stops_startup()
     {
-        var failure = Assert.Throws<InvalidOperationException>(() => Alpha(a => a.Forward["USD/SOFR"] = "USD-OIS").ProviderChoice());
-        Assert.Contains("USD-OIS", failure.Message);
+        var failure = Assert.Throws<InvalidOperationException>(() => Alpha(a => a.Forward["USD/SOFR"] = " ").ProviderChoice());
+        Assert.Contains("USD/SOFR", failure.Message);
     }
 
     [Fact]

@@ -25,14 +25,11 @@ public sealed class AlphaRatesPricing(IAlphaChannel channel, AlphaCurveMap map, 
     public string Name => "alpha-rates";
     public IReadOnlyList<PricedProduct> Products { get; } = [new(RatesProducts.Irs, RatesProducts.Version), new(RatesProducts.Ccs, RatesProducts.Version)];
 
-    /// <summary>The measure name of a zero-rate delta (par delta keeps <see cref="Measures.Delta"/>, the page's default).</summary>
-    public static string ZeroDelta(string curve, Tenor pillar) => $"zero:{curve}:{pillar}";
-
     readonly Lock gate = new();
     readonly HashSet<string> markets = [];
     readonly HashSet<string> lineSets = [];
-    // engine curve name -> days -> (snapshot curve key, tenor), per market key
-    readonly Dictionary<string, Dictionary<string, Dictionary<int, (string Key, Tenor Tenor)>>> nodes = [];
+    // per market key, the delta names the market allows: zero deltas by curve node, par deltas by quote
+    readonly Dictionary<string, HashSet<string>> named = [];
 
     static string MarketKey(MarketSnapshot market, DateOnly valuationDate) => $"{market.Id}@{valuationDate:yyyy-MM-dd}";
 
@@ -43,46 +40,49 @@ public sealed class AlphaRatesPricing(IAlphaChannel channel, AlphaCurveMap map, 
     {
         var key = MarketKey(market, valuationDate);
         lock (gate) if (markets.Contains(key)) return;
-        var (request, curveNodes) = MarketRequest(key, market, valuationDate);
-        Check(await channel.SendAsync(request, cancellationToken), "market");
+        Check(await channel.SendAsync(MarketRequest(key, market, valuationDate), cancellationToken), "market");
         lock (gate)
         {
             markets.Add(key);
-            nodes[key] = curveNodes;
+            named[key] = [
+                .. market.Curves.Values.SelectMany(c => c.Nodes.Select(n => Measures.Zero(c.Name, n.Tenor))),
+                .. market.Quotes.Values.SelectMany(q => q.Quotes.Select(x => Measures.Delta(q.Name, x.Tenor))),
+            ];
         }
     }
 
-    (JsonObject, Dictionary<string, Dictionary<int, (string, Tenor)>>) MarketRequest(string key, MarketSnapshot market, DateOnly valuationDate)
+    /// <summary>
+    /// The market as delivered: curves (nodes in days from the valuation date, discount factors), the quotes and the
+    /// Jacobians, and FX. The worker reads them and builds nothing (owner, 2026-11-17: curves and Jacobians arrive
+    /// together every second).
+    /// </summary>
+    static JsonObject MarketRequest(string key, MarketSnapshot market, DateOnly valuationDate)
     {
         var curves = new JsonArray();
-        var quotes = new JsonObject();
-        var curveNodes = new Dictionary<string, Dictionary<int, (string, Tenor)>>();
-        foreach (var c in map.Curves)
-        {
-            if (!market.Curves.TryGetValue(c.Quotes, out var q)) continue;  // a curve without quotes is absent; lines on it are refused by the engine
+        foreach (var c in market.Curves.Values.OrderBy(c => c.Name, StringComparer.Ordinal))
             curves.Add(new JsonObject
             {
-                ["name"] = c.Name, ["currency"] = c.Currency, ["role"] = c.Role, ["indexMonths"] = c.IndexMonths,
-                ["base"] = c.Base, ["interpolation"] = c.Interpolation,
+                ["name"] = c.Name, ["currency"] = c.Currency, ["index"] = c.Index, ["role"] = c.Role, ["composition"] = c.Composition,
+                ["interpolation"] = c.Interpolation, ["indexMonths"] = c.IndexMonths, ["numerator"] = c.Numerator, ["denominator"] = c.Denominator,
+                ["nodes"] = new JsonArray([.. c.Nodes.Select(n => (JsonNode)new JsonObject { ["tenor"] = n.Tenor, ["days"] = n.Days, ["df"] = n.DiscountFactor })]),
             });
-            var points = new JsonArray();
-            var byDays = new Dictionary<int, (string, Tenor)>();
-            foreach (var (tenor, level) in q.Pillars.OrderBy(p => p.Tenor.AddTo(valuationDate)))
+        var quotes = new JsonObject();
+        foreach (var q in market.Quotes.Values.OrderBy(q => q.Name, StringComparer.Ordinal))
+            quotes[q.Name] = new JsonArray([.. q.Quotes.Select(x => (JsonNode)new JsonObject { ["tenor"] = x.Tenor, ["days"] = x.Days, ["rate"] = x.RatePercent / 100 })]);
+        var jacobians = new JsonArray();
+        foreach (var j in market.Jacobians)
+            jacobians.Add(new JsonObject
             {
-                var days = tenor.AddTo(valuationDate).DayNumber - valuationDate.DayNumber;
-                points.Add(new JsonObject { ["days"] = days, ["rate"] = level / 100 });
-                byDays[days] = (c.Quotes, tenor);
-            }
-            quotes[c.Name] = points;
-            curveNodes[c.Name] = byDays;
-        }
+                ["quotes"] = j.QuoteSet, ["curve"] = j.Curve,
+                ["rows"] = new JsonArray([.. j.Rows.Select(r => (JsonNode)new JsonArray([.. r.Select(v => (JsonNode)JsonValue.Create(v))]))]),
+            });
         var fx = new JsonObject();
         foreach (var (ccy, rate) in market.Fx) fx[ccy] = rate;
-        return (new JsonObject
+        return new JsonObject
         {
             ["op"] = "market", ["market"] = key, ["valuationDate"] = valuationDate.ToString("yyyy-MM-dd"), ["origin"] = market.Origin,
-            ["curves"] = curves, ["quotes"] = quotes, ["fx"] = fx,
-        }, curveNodes);
+            ["curves"] = curves, ["quotes"] = quotes, ["jacobians"] = jacobians, ["fx"] = fx,
+        };
     }
 
     public async Task<RatesBatchResult> PriceBatchAsync(RatesBatchInput input, CancellationToken cancellationToken)
@@ -92,7 +92,7 @@ public sealed class AlphaRatesPricing(IAlphaChannel channel, AlphaCurveMap map, 
         var lines = new Dictionary<string, PricingLine>();
         foreach (var line in input.Lines)
         {
-            var (table, refusals) = CashflowTables.From(line, map, input.ValuationDate, calendar);
+            var (table, refusals) = CashflowTables.From(line, map, input.Market, input.ValuationDate, calendar);
             if (table is null) refused.Add(new RowResult(line.RowKey, new Dictionary<string, Measure>(), string.Join(" ", refusals)));
             else { tables.Add(table); lines[line.RowKey] = line; }
         }
@@ -123,16 +123,16 @@ public sealed class AlphaRatesPricing(IAlphaChannel channel, AlphaCurveMap map, 
                 }
                 throw new InvalidOperationException($"The engine refused the batch: {error}");
             }
-            Dictionary<string, Dictionary<int, (string Key, Tenor Tenor)>> curveNodes;
-            lock (gate) curveNodes = nodes[key];
+            HashSet<string> allowed;
+            lock (gate) allowed = named[key];
             foreach (var r in answer["rows"]!.AsArray())
-                rows.Add(Row(r!.AsObject(), lines, curveNodes));
+                rows.Add(Row(r!.AsObject(), lines, allowed));
         }
         var order = input.Lines.Select((l, i) => (l.RowKey, i)).ToDictionary(x => x.RowKey, x => x.i);
         return new RatesBatchResult(Name, Mode, [.. rows.OrderBy(r => order[r.RowKey])]);
     }
 
-    static RowResult Row(JsonObject r, Dictionary<string, PricingLine> lines, Dictionary<string, Dictionary<int, (string Key, Tenor Tenor)>> curveNodes)
+    static RowResult Row(JsonObject r, Dictionary<string, PricingLine> lines, HashSet<string> allowed)
     {
         var id = (string)r["id"]!;
         if ((string?)r["refused"] is { } reason) return new RowResult(id, new Dictionary<string, Measure>(), reason);
@@ -143,20 +143,21 @@ public sealed class AlphaRatesPricing(IAlphaChannel channel, AlphaCurveMap map, 
             measures[line.Legs[p - 1].Terms.Floating ? Measures.FairSpread : Measures.ParRate] = new((double)par * 100, $"%/leg{p}");
         if (line.Risk)
         {
-            void Deltas(string field, Func<string, Tenor, string> name)
+            // The engine names a delta by the market's own names: "{curve}:{node tenor}" or "{quote set}:{quote tenor}".
+            void Deltas(string field, Func<string, string, string> name)
             {
                 if (r[field] is not JsonObject deltas) return;
                 foreach (var (k, v) in deltas)
                 {
                     var cut = k.LastIndexOf(':');
-                    var (curve, days) = (k[..cut], int.Parse(k[(cut + 1)..]));
-                    if (!curveNodes.TryGetValue(curve, out var byDays) || !byDays.TryGetValue(days, out var node))
-                        throw new InvalidOperationException($"The engine answered a delta on {k}, which no quote of this market names.");
-                    measures[name(node.Key, node.Tenor)] = new((double)v!, $"{reporting}/bp");
+                    var measure = cut < 0 ? k : name(k[..cut], k[(cut + 1)..]);
+                    if (!allowed.Contains(measure))
+                        throw new InvalidOperationException($"The engine answered a delta on {k}, which this market does not name.");
+                    measures[measure] = new((double)v!, $"{reporting}/bp");
                 }
             }
             Deltas("parDelta", Measures.Delta);
-            Deltas("zero", ZeroDelta);
+            Deltas("zero", Measures.Zero);
         }
         return new RowResult(id, measures, null);
     }

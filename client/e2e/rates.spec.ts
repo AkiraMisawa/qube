@@ -801,10 +801,10 @@ test('ADR-0015 note of 2026-11-14: a line made in a blank row keeps the keyboard
   await expect(end(4)).toHaveText('');
 });
 
-// The owner's switch of 2026-11-17: a line that asks for risk shows its deltas per curve pillar under the result
-// strip, tenors across and curves down, par by default and zero on the switch. The simulated provider returns par deltas only, so Zero says that
-// none came back rather than show zeros (CLAUDE.md, no fallback).
-test('owner 2026-11-17: a line with risk shows its par deltas by default, and Zero says the provider returned none', async ({ page }) => {
+// The owner's switch of 2026-11-17: a line that asks for risk shows its deltas under the result strip, tenors across and
+// curves down, par (per quote) by default and zero (per curve node) on the switch. The market holds the curves and their
+// Jacobians (ADR-0020), so the simulated provider returns both.
+test('owner 2026-11-17, ADR-0020: a line with risk shows its par deltas by default and its zero deltas on the switch', async ({ page }) => {
   await open(page);
   await newWorkspace(page);
   await taken(page, 'new', 'irs jpy 10mm 10y pay');
@@ -828,6 +828,10 @@ test('owner 2026-11-17: a line with risk shows its par deltas by default, and Ze
 
   await risk.getByText('Zero', { exact: true }).click();
   await expect(risk).toHaveAttribute('data-kind', 'zero');
-  await expect(page.getByTestId('line-risk-none')).toHaveText(/^The provider returned no zero delta for L\d+\.$/);
-  if (process.env.QUBE_SCREENS !== undefined) await page.screenshot({ path: `${process.env.QUBE_SCREENS}/rates-zero-delta.png` });
+  const zero = risk.getByRole('table', { name: /^Zero delta of L\d+$/ });
+  await expect(zero.getByRole('rowheader', { name: 'JPY/TONA' })).toBeVisible();
+  await expect(zero.getByRole('cell', { name: /^Zero delta JPY\/TONA 10y: [\d,]+$/ })).toBeVisible();
+  await expect(risk.getByRole('radio', { name: 'Zero' })).toBeChecked();
+  // The switch's highlight slides; a screenshot for a pull request waits for it to settle.
+  if (process.env.QUBE_SCREENS !== undefined) { await page.waitForTimeout(500); await page.screenshot({ path: `${process.env.QUBE_SCREENS}/rates-zero-delta.png` }); }
 });

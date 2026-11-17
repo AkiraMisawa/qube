@@ -2,14 +2,12 @@ using Qube.Samples.Rates;
 
 namespace Qube.Samples.Rates.Alpha;
 
-/// <summary>A curve as the engine defines it (alpha docs/spec/rates-pricer.md §3.1). <c>Quotes</c> is the snapshot's curve key that carries its quotes.</summary>
-public sealed record AlphaCurve(string Name, string Currency, string Role, int IndexMonths, string Base, string Interpolation, string Quotes);
-
 /// <summary>
-/// Which engine curve projects an index (<c>"JPY/TONA"</c>) and which discounts a currency under a collateral currency
-/// (<c>"USD@JPY"</c>). Configuration, never guessed: what is not here is refused on the row.
+/// Which of the market's curves projects an index (<c>"JPY/TONA"</c>) and which discounts a currency under a collateral
+/// currency (<c>"USD@JPY"</c>). Configuration, never guessed: what is not here, or names a curve the market lacks, is
+/// refused on the row.
 /// </summary>
-public sealed record AlphaCurveMap(IReadOnlyList<AlphaCurve> Curves, IReadOnlyDictionary<string, string> Forward, IReadOnlyDictionary<string, string> Discount);
+public sealed record AlphaCurveMap(IReadOnlyDictionary<string, string> Forward, IReadOnlyDictionary<string, string> Discount);
 
 public sealed record CashflowTable(string Id, string ReportingCurrency, int? ParLeg, IReadOnlyList<TableLeg> Legs);
 
@@ -27,8 +25,8 @@ public sealed record TableExchange(DateOnly Date, double Amount);
 /// <summary>A Rates line as the engine's cashflow table (alpha docs/spec/rates-pricer.md §3.2), or every reason it cannot be.</summary>
 public static class CashflowTables
 {
-    public static (CashflowTable? Table, IReadOnlyList<string> Refusals) From(PricingLine line, AlphaCurveMap map, DateOnly valuationDate,
-        Func<string, IBusinessCalendar> calendar)
+    public static (CashflowTable? Table, IReadOnlyList<string> Refusals) From(PricingLine line, AlphaCurveMap map, MarketSnapshot market,
+        DateOnly valuationDate, Func<string, IBusinessCalendar> calendar)
     {
         var refusals = new List<string>();
         if (string.IsNullOrWhiteSpace(line.Collateral))
@@ -43,17 +41,23 @@ public static class CashflowTables
             string? discount = null;
             if (collateral is not null && !map.Discount.TryGetValue($"{terms.Currency}@{collateral}", out discount))
                 refusals.Add($"Leg {n}: the engine has no curve for {terms.Currency} collateralised in {collateral}.");
+            else if (discount is not null && !market.Curves.ContainsKey(discount))
+                refusals.Add($"Leg {n}: the market {market.Id} has no curve {discount}.");
             string? forward = null, kind = "fixed";
             if (terms.Floating)
             {
                 var key = MarketSnapshot.CurveKey(terms.Currency, terms.Index);
                 if (!map.Forward.TryGetValue(key, out forward)) refusals.Add($"Leg {n}: the engine has no curve for {key}.");
+                else if (!market.Curves.ContainsKey(forward)) refusals.Add($"Leg {n}: the market {market.Id} has no curve {forward}.");
                 kind = leg.Profile.Overnight
                     ? (terms.Detail.InArrears == true ? null : terms.Detail.DailyAverage == true ? "average" : "compounded")
                     : terms.Detail.InArrears == true ? "term_in_arrears" : "term";
                 if (kind is null) refusals.Add($"Leg {n}: in arrears applies to a term index, not to the overnight {terms.Index}.");
             }
-            var indexMonths = forward is null ? 0 : map.Curves.FirstOrDefault(c => c.Name == forward)?.IndexMonths ?? 0;
+            // A term index's tenor is its forward curve's; a curve that does not say it is refused, never taken as some tenor.
+            int? indexMonths = forward is not null && market.Curves.TryGetValue(forward, out var fc) ? fc.IndexMonths : null;
+            if (kind is "term" or "term_in_arrears" && forward is not null && market.Curves.ContainsKey(forward) && indexMonths is null)
+                refusals.Add($"Leg {n}: the curve {forward} does not say the tenor of its index.");
             var cal = calendar(leg.Profile.CalendarId);
             var periods = new List<TablePeriod>();
             foreach (var p in leg.Periods)
@@ -79,7 +83,7 @@ public static class CashflowTables
                     {
                         Fixing = DateRules.AddBusinessDays(start, -leg.Profile.SpotLagDays, cal),
                         IndexStart = start,
-                        IndexEnd = start.AddMonths(indexMonths),
+                        IndexEnd = indexMonths is { } months ? start.AddMonths(months) : null, // absent only on a row refused above
                     };
                 }
                 if (terms.Floating && terms.Detail.CurrentResetPercent is { } known && p.AccrualStart <= valuationDate && valuationDate < p.AccrualEnd)

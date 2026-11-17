@@ -34,7 +34,8 @@ public class RatesLiveServiceTests
             new("held", "simulated", [.. input.Lines.Select(l => new RowResult(l.RowKey, new Dictionary<string, Measure> { ["pv"] = new(input.InputRevision, "TST") }, null))]);
     }
 
-    static MarketSnapshot Snapshot(long n) => new($"m:{n}", n, DateTimeOffset.UnixEpoch.AddSeconds(n), "synthetic", 1, "t", new Dictionary<string, CurveQuotes>(), new Dictionary<string, double>());
+    static MarketSnapshot Snapshot(long n) => new($"m:{n}", n, DateTimeOffset.UnixEpoch.AddSeconds(n), "synthetic", 1, "t", new Dictionary<string, MarketCurve>(),
+        new Dictionary<string, QuoteSet>(), [], new Dictionary<string, double>());
 
     static LiveInput Input(long revision) => new(revision, ValuationDate,
         [new PricingLine("L1", revision, Direction.Pay, [], null, false)], []);
