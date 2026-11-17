@@ -4203,7 +4203,7 @@ Spec and tickets: [docs/specs/position-keeper](docs/specs/position-keeper/spec.m
 
 | Suite | Result |
 |---|---|
-| `dotnet test server/Qube.slnx` | 1,750 passed, 1 failed: the contract test below |
+| `dotnet test server/Qube.slnx` | 1,751 passed, 1 failed: the contract test below |
 | `npm run typecheck`, `npm test` (Vitest) | clean; 530 passed |
 | `npx playwright test e2e/position-keeper.spec.ts` | 5 passed |
 | `npx playwright test` (every spec) | 159 passed, 1 failed: the command line's placeholder named `new pk` in place of `open pricing db`. `new pk` now stands after it; that test and the Position Keeper spec run again, 6 passed |
@@ -4252,9 +4252,10 @@ Spec and tickets: [docs/specs/position-keeper](docs/specs/position-keeper/spec.m
   tenors is shared by its distance in days, and one outside them goes to the nearest, so a row's total is the
   parallel line (`pk.position.read`: `ladder`). A volatility is a unit of its own (`vol`): read per vol point, its
   move typed in vol points. The sample declares the regulatory tenors for rates (1Y, 2Y, 5Y, 10Y, 30Y) and credit
-  (6M, 1Y, 3Y, 5Y, 10Y), as DEFAULT (the owner was asked; unanswered, the recommendation stands). Not yet: FX delta
-  per 1% and by currency, the P&L explain tree with scenarios, drill-down from a cell to counterparties, par
-  deltas, the ladder by metric.
+  (6M, 1Y, 3Y, 5Y, 10Y), as DEFAULT (the owner was asked; unanswered, the recommendation stands). The prediction is
+  also summed by kind of risk (`pnlByKind`), and a whole kind is moved as one from the command line (`set moves where
+  kind=zero_rate move 10bp`). Not yet: FX delta per 1% and by currency, the explanation against an actual profit and
+  loss, drill-down from a cell to counterparties, par deltas, the ladder by metric.
 - The development sample gives levels for the FX spots and FX ATM vols only, so a move in `%` of a curve or a hazard
   rate is refused there (`NoLevel`); the engine does not write levels yet, and the sample's are copied from its inputs.
 - The risk grid sums over counterparties and metrics; it has no view by counterparty or by metric yet.

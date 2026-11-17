@@ -157,6 +157,15 @@ test('ADR-0019 §3, §7: WHAT-IF, SIMULATED and FIRST ORDER are drawn from the s
   await expect(fx).not.toContainText(/WHAT-IF/);
   // A row with no move predicts nothing, and is marked with nothing.
   await expect(row(page, 'Moves', /^zero_rate USD-OIS bp\b/)).not.toContainText('FIRST ORDER');
+  // The prediction by kind of risk, as the server sums it: the rates with the hedge in them, the FX spot without.
+  await settled(page, 'Predicted P&L by kind');
+  await expect(row(page, 'Predicted P&L by kind', /^zero_rate 1 /)).toContainText('WHAT-IF · SIMULATED · FIRST ORDER');
+  await expect(row(page, 'Predicted P&L by kind', /^fx_spot 1 /)).not.toContainText(/WHAT-IF/);
+  // A whole kind is moved as one, with the tables' own condition: every curve then holds the move.
+  await taken(page, 'set', 'moves where kind=zero_rate move 10bp');
+  await settled(page, 'Predicted P&L by kind');
+  await expect(row(page, 'Predicted P&L by kind', /^zero_rate 8 /)).toBeVisible();
+
   // A move in % is of the input's level, which the result set gives for the vols: it is held as typed, and predicted.
   await taken(page, 'set', 'move fx_atm_vol/USDJPY move 1%');
   await settled(page, 'Moves');

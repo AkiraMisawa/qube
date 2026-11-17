@@ -91,6 +91,13 @@ export interface PositionPnl extends Split {
   readonly typedIn: string;
 }
 
+/** The predicted profit and loss of one kind of risk: its moves' lines summed. */
+export interface PositionPnlKind extends Split {
+  readonly kind: string;
+  /** The inputs of the kind that hold a move. */
+  readonly moves: number;
+}
+
 export interface PkPosition extends Omit<PkCreated, 'revision'> {
   readonly revision: number;
   readonly counterparties: readonly string[];
@@ -105,6 +112,7 @@ export interface PkPosition extends Omit<PkCreated, 'revision'> {
   /** The currency every figure is in; absent where the result set declares none. */
   readonly currency?: string;
   readonly pnl: readonly PositionPnl[];
+  readonly pnlByKind: readonly PositionPnlKind[];
   /** The predicted profit and loss of every move held; absent while no move is held. */
   readonly pnlTotalBook?: number;
   readonly pnlTotalWhatIf?: number;

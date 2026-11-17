@@ -115,6 +115,10 @@ public sealed class PkPositionRead(Func<WorkspaceService> workspaces, IHedgeRisk
                 ["counterparty"] = c.Counterparty, ["legalEntity"] = c.LegalEntity, ["total"] = c.Total,
             }))),
             ["pnl"] = List(p.Pnl.Select(l => (JsonNode)Pnl(l))),
+            ["pnlByKind"] = List(p.PnlByKind.Select(k => (JsonNode)Without(new JsonObject
+            {
+                ["kind"] = k.Kind, ["moves"] = k.Moves, ["book"] = k.Book, ["whatIf"] = k.WhatIf, ["net"] = k.Net, ["marks"] = Marks(k.Marks),
+            }))),
         };
         if (p.Book.Currency is { } currency) answer["currency"] = currency;
         if (p.PnlTotal is { } total)
@@ -269,6 +273,11 @@ public sealed class PkModule(Func<PkWorkspaces> workspaces, Func<WorkspaceServic
             ["pnl"] = Records("Predicted profit and loss of each move held: sensitivity times move, first order.", new JsonObject
             {
                 ["kind"] = Text("Kind"), ["input"] = Text("Input"), ["move"] = Number("Move, as typed"), ["typedIn"] = Text("bp for a rate, vol pt for a volatility, quote for a quoted level, % where the move is of the level"),
+                ["book"] = Number("Book"), ["whatIf"] = Maybe("What-if"), ["net"] = Number("Net"), ["marks"] = Words(MarksSay),
+            }),
+            ["pnlByKind"] = Records("The predicted profit and loss by kind of risk: the lines of the kind's moves, summed.", new JsonObject
+            {
+                ["kind"] = Text("Kind"), ["moves"] = new JsonObject { ["type"] = "integer", ["title"] = "The inputs of the kind that hold a move" },
                 ["book"] = Number("Book"), ["whatIf"] = Maybe("What-if"), ["net"] = Number("Net"), ["marks"] = Words(MarksSay),
             }),
             ["pnlTotalBook"] = Maybe("The predicted profit and loss of every move held, Book"),

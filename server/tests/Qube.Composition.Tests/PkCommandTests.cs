@@ -614,6 +614,28 @@ public class PkCommandTests(QubeFactory factory) : IClassFixture<QubeFactory>
         Assert.Contains(table["rows"]!.AsArray(), r => r!["cells"]![0]!.GetValue<string>() == "fx_atm_vol" && r["cells"]![1]!.GetValue<string>() == "vol");
     }
 
+    [Fact] // the explanation a trader reads first: the prediction by kind of risk, and a kind moved as one with the tables' own condition
+    public async Task The_prediction_is_summed_by_kind_and_a_kind_is_moved_as_one()
+    {
+        var (_, client) = Keeper(engine: new FakeEngine(Qube.Composition.Contracts.ExecutionMode.Simulated));
+        var id = (await NewWorkspace(client))["workspaceId"]!.GetValue<string>();
+        await Ok(await NewHedge(client, id, TenYearPayer));
+        await Ok(await Move(client, id, "where kind=zero_rate", "10"));
+        await Ok(await Move(client, id, "fx_spot/USDJPY", "2"));
+
+        var kinds = (await Position(client, id))["pnlByKind"]!.AsArray();
+
+        // As the lines: rates Book 1500, What-if -1500, Net 0; the FX spot -800 with no hedge in it.
+        Assert.Equal(["fx_spot", "zero_rate"], kinds.Select(k => k!["kind"]!.GetValue<string>()));
+        var rates = kinds[1]!;
+        Assert.Equal((1500, -1500, 0), (Math.Round(rates["book"]!.GetValue<double>(), 9), Math.Round(rates["whatIf"]!.GetValue<double>(), 9), Math.Round(rates["net"]!.GetValue<double>(), 9)));
+        Assert.Equal(["WHAT-IF", "SIMULATED", "FIRST ORDER"], MarksOf(rates));
+        Assert.Equal(1, rates["moves"]!.GetValue<int>());
+        Assert.Equal((-800, -800), (kinds[0]!["book"]!.GetValue<double>(), kinds[0]!["net"]!.GetValue<double>()));
+        Assert.Null(kinds[0]!["whatIf"]);
+        Assert.Equal(["FIRST ORDER"], MarksOf(kinds[0]!));
+    }
+
     [Fact] // ADR-0019 §7: nothing assumes a unit
     public async Task A_move_of_a_kind_without_a_declared_unit_is_refused_by_name()
     {

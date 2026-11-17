@@ -16,7 +16,7 @@ import { EditQueue } from '../../platform/workspace/editQueue';
 import { useWorkspaceContext } from '../../platform/workspace/WorkspaceProvider';
 import { registerPlaces, type Place } from '../../shell/places';
 import type { PkApi } from './api';
-import type { PkPosition, PkView, Mark, PositionLadder, PositionRisk } from './contracts';
+import type { PkPosition, PkView, Mark, PositionLadder, PositionPnlKind, PositionRisk } from './contracts';
 import { hedgeRows, ladderKinds, ladderLevels, ladderRows, ladderTenors, marksSaid, metricsOf, moveRows, riskInputOf, riskInputs, riskKey, tenorOf, xvaRows, type HedgeRow, type LadderRow, type MoveRow, type XvaRow } from './rows';
 import './pk.css';
 
@@ -103,7 +103,15 @@ function columnsIn(scale: Scale, metrics: readonly string[], tenors: readonly st
     { name: 'net', header: 'Net P&L', ...figure, value: (m) => m.pnl?.net },
     { name: 'marks', header: 'Marks', type: 'text', width: 250, value: (m) => (m.pnl === undefined ? undefined : marksSaid(m.pnl.marks)), format: text },
   ];
-  return { xva, hedges, ladder, risk, moves };
+  const explain: GridColumn<PositionPnlKind>[] = [
+    { name: 'kind', header: 'Kind', type: 'text', width: 120, value: (k) => k.kind, format: text },
+    { name: 'moves', header: 'Inputs moved', type: 'number', width: 110, value: (k) => k.moves, format: text },
+    { name: 'book', header: 'Book P&L', ...figure, value: (k) => k.book },
+    { name: 'whatIf', header: 'What-if P&L', ...figure, value: (k) => k.whatIf },
+    { name: 'net', header: 'Net P&L', ...figure, value: (k) => k.net },
+    { name: 'marks', header: 'Marks', type: 'text', width: 250, value: (k) => marksSaid(k.marks), format: text },
+  ];
+  return { xva, hedges, ladder, risk, moves, explain };
 }
 
 /** What a risk line's Per says where the result set declares no unit for its kind: the figure is the engine's, unscaled. */
@@ -179,6 +187,7 @@ function PkGrid<Row>({ name, label, rows, rowKey, columns, most, pinned, gridRef
 
 const xvaKey = (c: XvaRow) => c.counterparty;
 const ladderKey = (r: LadderRow) => r.key;
+const explainKey = (k: PositionPnlKind) => k.kind;
 
 /** The ladder shown, kept by the panel while it is hidden: its kind, and whether by total, by currency or by input. */
 const LADDER_OF = panelKey<string | null>('pk.ladderOf');
@@ -224,6 +233,7 @@ export function PkWorkspacePanel({ panelId, workspaceId, api }: { readonly panel
 
   const valuesGrid = useRef<ExGridApi<XvaRow>>(null);
   const ladderGrid = useRef<ExGridApi<LadderRow>>(null);
+  const explainGrid = useRef<ExGridApi<PositionPnlKind>>(null);
   const hedgesGrid = useRef<ExGridApi<HedgeRow>>(null);
   const riskGrid = useRef<ExGridApi<PositionRisk>>(null);
   const movesGrid = useRef<ExGridApi<MoveRow>>(null);
@@ -360,6 +370,13 @@ export function PkWorkspacePanel({ panelId, workspaceId, api }: { readonly panel
                 </>
               )}
           </Group>
+          {/* Not dimmed: the lines to type are read (docs/design-guidelines.md §7). */}
+          <Text size="xs">
+            A whole kind is moved from the command line: <Code>set moves where kind=zero_rate move 10bp</Code>, <Code>set moves where kind=fx_spot move 1%</Code>.
+          </Text>
+          {p.pnlByKind.length > 0 && (
+            <PkGrid name="pk/explain" label="Predicted P&L by kind" rows={p.pnlByKind} rowKey={explainKey} columns={columns.explain} most={8} pinned={1} gridRef={explainGrid} />
+          )}
           <PkGrid name="pk/moves" label="Moves" rows={moves} rowKey={moveKey} columns={columns.moves} most={MOVES_ROWS} pinned={2} gridRef={movesGrid} onEdit={onMoveEdit} />
         </section>
       </Stack>

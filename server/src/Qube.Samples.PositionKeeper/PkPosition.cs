@@ -128,6 +128,10 @@ public sealed record PositionParallel(string Kind, string Input, string Step, do
 /// </summary>
 public sealed record PositionLadder(string Kind, string Level, string Name, string Tenor, int Order, string Step, double Book, double? WhatIf, double Net, IReadOnlyList<string> Marks);
 
+/// <summary>The predicted profit and loss of the moves held for one kind of risk: its lines summed.</summary>
+/// <param name="Moves">How many inputs of the kind hold a move.</param>
+public sealed record PositionPnlKind(string Kind, int Moves, double Book, double? WhatIf, double Net, IReadOnlyList<string> Marks);
+
 /// <summary>A counterparty's adjustments summed over the metrics.</summary>
 public sealed record PositionCounterparty(string Counterparty, string? LegalEntity, double Total);
 
@@ -153,6 +157,7 @@ public sealed record Position(
     public IReadOnlyList<PositionParallel> Parallel { get; init; } = [];
     public IReadOnlyList<PositionCounterparty> ByCounterparty { get; init; } = [];
     public IReadOnlyList<PositionLadder> Ladder { get; init; } = [];
+    public IReadOnlyList<PositionPnlKind> PnlByKind { get; init; } = [];
 }
 
 /// <summary>
@@ -254,6 +259,12 @@ public static class PkPosition
         return new(set.Manifest, set.Reference, [.. chosen], values, totals, [.. hedges.Select(h => h.Hedge)], risks, pnl, total)
         {
             Parallel = parallel, ByCounterparty = byCounterparty, Ladder = Ladders(set, risks),
+            PnlByKind = [.. pnl.GroupBy(l => l.Kind, StringComparer.Ordinal).OrderBy(g => g.Key, StringComparer.Ordinal).Select(g =>
+            {
+                var hypothetical = g.Any(l => l.WhatIf is not null);
+                return new PositionPnlKind(g.Key, g.Count(), g.Sum(l => l.Book), hypothetical ? g.Sum(l => l.WhatIf ?? 0) : null, g.Sum(l => l.Net),
+                    Marks(hypothetical, g.Any(l => l.Marks.Contains(Simulated)), firstOrder: true));
+            })],
         };
     }
 

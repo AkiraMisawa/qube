@@ -8,7 +8,7 @@ import { hedgeRows, ladderKinds, ladderLevels, ladderRows, ladderTenors, marksSa
 const view = (over: Partial<PkView['position']> = {}, moves: readonly (readonly string[])[] = [['zero_rate', 'JPY-OIS', 'bp', 'empty']]): PkView => ({
   position: {
     workspaceId: 'ws-1', revision: 3, resultSet: 'set', engine: 'engine', engineCommit: 'abc', inputSet: 'inputs', valuationDate: '2026-11-13',
-    counterparties: ['C1'], values: [], totals: [], hedges: [], risk: [], parallel: [], ladder: [], byCounterparty: [], pnl: [], ...over,
+    counterparties: ['C1'], values: [], totals: [], hedges: [], risk: [], parallel: [], ladder: [], byCounterparty: [], pnl: [], pnlByKind: [], ...over,
   },
   hedges: { revision: 3, fields: ['product', 'currency', 'direction', 'notional', 'end', 'rate'], rows: [], more: 0 },
   moves: { revision: 3, fields: ['kind', 'input', 'typedIn', 'move'], rows: moves.map((cells) => ({ key: `${cells[0]}/${cells[1]}`, cells })), more: 0 },
