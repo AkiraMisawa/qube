@@ -41,7 +41,26 @@ var rates = builder.Configuration.GetSection("Rates").Get<RatesSettings>() ?? ne
 var conventions = rates.Registry();
 var syntheticMarket = new SyntheticMarket(rates.SyntheticMarket.Config());
 builder.Services.AddSingleton(conventions);
-builder.Services.AddSingleton<IRatesPricingProvider, FakeRatesPricing>();
+switch (rates.ProviderChoice())
+{
+    case "alpha":
+        // The engine runs in its own process (CLAUDE.md, docs/08); this host only speaks JSON to it.
+        var alpha = rates.Alpha;
+        builder.Services.AddSingleton<IRatesPricingProvider>(sp =>
+        {
+            var log = sp.GetRequiredService<ILoggerFactory>().CreateLogger("Qube.Rates.AlphaWorker");
+            var channel = new Qube.Samples.Rates.Alpha.AlphaProcessChannel(
+                () => Qube.Samples.Rates.Alpha.AlphaProcessChannel.StartProcess(alpha.Command, alpha.Arguments, line => log.LogInformation("{Line}", line)),
+                TimeSpan.FromSeconds(alpha.TimeoutSeconds));
+            var calendars = sp.GetRequiredService<ConventionRegistry>();
+            return new Qube.Samples.Rates.Alpha.AlphaRatesPricing(channel, alpha.CurveMap(),
+                id => calendars.Calendar(id) ?? throw new InvalidOperationException($"Calendar {id} is not configured."));
+        });
+        break;
+    default:
+        builder.Services.AddSingleton<IRatesPricingProvider, FakeRatesPricing>();
+        break;
+}
 builder.Services.AddSingleton(sp => new RatesLiveService(sp.GetRequiredService<IRatesPricingProvider>(), syntheticMarket.Resolve, sp.GetRequiredService<TimeProvider>(),
     TimeSpan.FromSeconds(rates.LiveIdleStopSeconds), rates.LiveCalculationSlots()));
 builder.Services.AddSingleton(sp => new MarketFeed(syntheticMarket, sp.GetRequiredService<RatesLiveService>()));

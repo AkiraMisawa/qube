@@ -7,6 +7,7 @@
     <ProjectReference Include="..\Qube.Samples.Ccr\Qube.Samples.Ccr.csproj" />
     <ProjectReference Include="..\Qube.Samples.Xva\Qube.Samples.Xva.csproj" />
     <ProjectReference Include="..\Qube.Samples.Rates\Qube.Samples.Rates.csproj" />
+    <ProjectReference Include="..\Qube.Samples.Rates.Alpha\Qube.Samples.Rates.Alpha.csproj" />
     <ProjectReference Include="..\Qube.Samples.Simm\Qube.Samples.Simm.csproj" />
     <ProjectReference Include="..\Qube.Agent\Qube.Agent.csproj" />
     <ProjectReference Include="..\Qube.Persistence.Sqlite\Qube.Persistence.Sqlite.csproj" />

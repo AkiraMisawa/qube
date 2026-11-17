@@ -20,6 +20,24 @@ public sealed class RatesSettings
     /// </summary>
     public int LiveMaxCalculations { get; set; } = 4;
 
+    /// <summary>The pricing provider: <c>fake</c> (simulated, the default) or <c>alpha</c> (the resident worker, docs/reports/alpha-for-rates.html).</summary>
+    public string Provider { get; set; } = "fake";
+    public AlphaSetting Alpha { get; set; } = new();
+
+    /// <summary>The provider chosen, after checking that it is fully configured; anything else stops startup (never a fallback to the fake).</summary>
+    public string ProviderChoice()
+    {
+        switch (Provider)
+        {
+            case "fake": return Provider;
+            case "alpha":
+                if (string.IsNullOrWhiteSpace(Alpha.Command)) throw new InvalidOperationException("Rates:Provider is alpha but Rates:Alpha:Command is empty.");
+                Alpha.CurveMap();
+                return Provider;
+            default: throw new InvalidOperationException($"Rates:Provider '{Provider}' is not a provider (fake or alpha).");
+        }
+    }
+
     public int LiveCalculationSlots() => LiveMaxCalculations >= 1 ? LiveMaxCalculations
         : throw new InvalidOperationException($"Rates:LiveMaxCalculations is {LiveMaxCalculations}; at least 1 is needed.");
 
@@ -89,4 +107,43 @@ public sealed class CurveSetting
     public string Index { get; set; } = "";
     /// <summary>Pillar levels in percent by tenor, such as <c>"1y": 0.5</c>.</summary>
     public Dictionary<string, double> Pillars { get; set; } = [];
+}
+
+/// <summary>The alpha worker (section <c>Rates:Alpha</c>): the command pinned by the deployment and the engine's curve definitions.</summary>
+public sealed class AlphaSetting
+{
+    public string Command { get; set; } = "";
+    public List<string> Arguments { get; set; } = [];
+    public int TimeoutSeconds { get; set; } = 10;
+    public List<AlphaCurveSetting> Curves { get; set; } = [];
+    /// <summary>Index (<c>JPY/TONA</c>) to the engine curve that projects it.</summary>
+    public Dictionary<string, string> Forward { get; set; } = [];
+    /// <summary>Currency under collateral currency (<c>USD@JPY</c>) to the engine curve that discounts it.</summary>
+    public Dictionary<string, string> Discount { get; set; } = [];
+
+    public Qube.Samples.Rates.Alpha.AlphaCurveMap CurveMap()
+    {
+        var curves = Curves.Select(c =>
+        {
+            if (string.IsNullOrWhiteSpace(c.Name) || string.IsNullOrWhiteSpace(c.Currency) || string.IsNullOrWhiteSpace(c.Role)
+                || string.IsNullOrWhiteSpace(c.Interpolation) || string.IsNullOrWhiteSpace(c.Quotes))
+                throw new InvalidOperationException($"Rates:Alpha:Curves '{c.Name}' leaves a field unset; name, currency, role, interpolation and quotes are required.");
+            return new Qube.Samples.Rates.Alpha.AlphaCurve(c.Name, c.Currency, c.Role, c.IndexMonths, c.Base ?? "", c.Interpolation, c.Quotes);
+        }).ToList();
+        var names = curves.Select(c => c.Name).ToHashSet();
+        foreach (var (key, curve) in Forward.Concat(Discount))
+            if (!names.Contains(curve)) throw new InvalidOperationException($"Rates:Alpha maps {key} to {curve}, which Rates:Alpha:Curves does not define.");
+        return new(curves, Forward, Discount);
+    }
+}
+
+public sealed class AlphaCurveSetting
+{
+    public string Name { get; set; } = "";
+    public string Currency { get; set; } = "";
+    public string Role { get; set; } = "";
+    public int IndexMonths { get; set; }
+    public string? Base { get; set; }
+    public string Interpolation { get; set; } = "";
+    public string Quotes { get; set; } = "";
 }
