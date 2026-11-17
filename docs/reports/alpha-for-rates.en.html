@@ -121,16 +121,19 @@ ol li,ul li{margin:3px 0}
 <li><b>Trades</b>: qube's cashflow table is sent as it is; no S# expression trees.</li>
 <li><b>Risk display</b>: a switch between par delta and zero delta, par by default. The worker returns both (zero to par is one Jᵀ product, a few µs per line), so the switch recomputes nothing.</li>
 <li><b>Averaged RFR and in-arrears term rates</b>: supported from the start.</li>
-<li><b>Market refresh</b>: production market data refreshes once a second; section 8 budgets for that.</li>
+<li><b>Market refresh</b>: production delivers finished curves and their Jacobians once a second (not quotes; corrected 16:40); section 8 budgets for that.</li>
 <li>Quote definitions: no answer yet, so alpha's reference definitions are used with an "unconfirmed" label until conventions (C41) are settled (the recommendation; say if otherwise).</li>
 </ol>
 
 <h2>8. Does it fit a one-second refresh?</h2>
+<p><b>Corrected premise (Akira, 2026-11-17 16:40)</b>: what production delivers every second is not quotes but <b>finished curves (discount-factor nodes) together with the par-delta Jacobian J = dz/dq</b>. The worker builds neither; it only reads them, in the same shape as alpha's XVA input (discount factors and Jacobians).</p>
 <ul>
-<li>Curves and Jacobians are built <b>once per market snapshot in the worker</b> and shared by every user and workspace, so their cost does not grow with users.</li>
-<li>With today's pieces, eight curves and their Jacobians take about 100 ms, and 20 users × 20 swap lines about 5 ms: within one second.</li>
-<li>For headroom, make the Jacobian analytic (77 ms by differences to a few ms) and give the bootstrap's Newton step an analytic derivative (24 ms to a few ms, an estimate).</li>
+<li><b>Zero delta</b>: the gradient to the delivered curve's ln P nodes.</li>
+<li><b>Par delta</b>: the zero delta times the delivered Jᵀ (about 6 µs per curve).</li>
+<li>Curves and Jacobians are taken <b>once per snapshot in the worker</b>, held, and shared by every user and workspace. Reading them should take a few ms (not measured).</li>
+<li>Estimate: 30 users × 50 lines about 30 ms, 90 users about 80 ms (about 18 µs a line). Well within one second; the result JSON volume is likely to bind before the arithmetic does.</li>
 <li>When a calculation overruns a second, the live rules already in place hold: one calculation in flight, only the newest market waiting, older ones skipped.</li>
+<li>No piece builds curves or Jacobians from quotes (<code>CurveSet.Build</code> is dropped). To run the page on synthetic data, alpha's synthetic market (discount factors and Jacobians, the same files as the XVA input) is passed as is.</li>
 </ul>
 
 <h2>9. Still to decide</h2>
