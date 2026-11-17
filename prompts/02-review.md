@@ -12,5 +12,6 @@ Prioritize concrete defects and unsupported completion claims. Inspect these bou
 8. The actual ExGrid is used. Keyboard, touch and target-browser claims have real evidence.
 9. AI calls registered application services, resolves material ambiguity and uses validated view definitions. Scripted UI text is not reported as real agent integration.
 10. Existing company bulk/HPC execution is reused, with explicit case mapping and no accidental duplicate scheduler.
+11. Production-grade robustness (C51, `CLAUDE.md`): boundaries refuse loudly; failure paths have defined outcomes and tests; edits are not lost or applied twice; nothing interactive degrades at the sizes that section names; failures are logged with their identifiers; every shortcut is marked and carries the owner's OK.
 
 Run the smallest relevant checks that resolve concrete risks. Report findings by severity with file locations, failing scenarios and recommended fixes. Separate verified defects from open product decisions. Fix authorized reversible defects if implementation work is in scope, then recheck. Do not add unrelated frameworks or expand the product scope during review.
