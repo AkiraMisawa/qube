@@ -38,7 +38,10 @@ public sealed class PkBookSource(PkResultSet set) : ISourceVersion
     /// <summary>The kinds and inputs a move can be held for: the book's and the hedge curves', each once.</summary>
     public IReadOnlyList<(string Kind, string Input)> Inputs { get; } =
         [.. set.Sensitivities.Where(s => s.Scenario == set.Manifest.BaseScenario).Select(s => (s.Kind, s.Input))
-            .Concat(set.Manifest.HedgeCurves.Values.Select(curve => ("zero_rate", curve))).Distinct()];
+            .Concat(set.Manifest.HedgeCurves.Values.Select(curve => (HedgeKind, curve))).Distinct()];
+
+    /// <summary>The kind a hedge's risk on its curve is of.</summary>
+    public const string HedgeKind = "zero_rate";
 
     // No edit is read against a book row: its tables refuse every write (ADR-0019 §2). A move starts empty for each
     // kind and input the result set has (ADR-0019 §7), and the user's value is an edit on that.

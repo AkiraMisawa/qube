@@ -33,8 +33,9 @@ result set and provider it came from.
    `WHAT-IF`; I remove it, and undo either.
 5. As a pk user, I see Book, What-if and Net for each sensitivity, with What-if and Net marked `SIMULATED` while
    the hedge's risk comes from the synthetic calculator.
-6. As a pk user, I enter a move for an input (a curve in basis points, an FX spot in percent) and see the predicted
-   profit and loss of Book, What-if and Net, labelled first order.
+6. As a pk user, I enter a move for an input, absolute (`10` or `10bp` for a curve, `1.5` for an FX spot) or relative
+   (`1%` of the input's level), and see the predicted profit and loss of Book, What-if and Net, labelled first order.
+   A relative move of an input whose level the result set does not give is refused, and I am told which key lacks it.
 7. As a pk user, I cannot enter a move for a kind whose unit the result set does not declare, and I am told why.
 8. As a pk user, when no result set is configured or it cannot be read, the page says so by name and shows no
    positions.
@@ -62,7 +63,8 @@ result set and provider it came from.
   provider and execution mode. The slice's implementation is the synthetic calculator, `Simulated` (ADR-0019 §7).
   A hedge it cannot answer for (a currency whose curve the result set does not hold) is refused by name.
 - **Net and prediction.** Pure functions in the module: Net is Book plus What-if on matching kind, input and key;
-  the predicted profit and loss is the sum of sensitivity times move over the inputs that have a move. Moves are
+  the predicted profit and loss is the sum of sensitivity times move over the inputs that have a move, where a
+  move in `%` is, key by key, that percentage of the level the result set gives (`levels.csv`). Moves are
   workspace fields (`pk.moves`), so they are in the log and undo reaches them. Read through one command,
   `pk.position.read` (`ReadWorkspace`), which returns each figure with its marks.
 - **Marks.** A figure's marks (`WHAT-IF`, `SIMULATED`, `first order`) are computed on the server and travel with

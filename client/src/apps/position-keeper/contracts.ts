@@ -54,6 +54,7 @@ export interface PositionPnl extends Split {
   readonly kind: string;
   readonly input: string;
   readonly move: number;
+  /** What the move is in: `bp` or `quote` where it is absolute, `%` where it is of each key's level. */
   readonly typedIn: string;
 }
 

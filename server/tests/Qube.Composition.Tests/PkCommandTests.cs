@@ -49,6 +49,12 @@ public class PkCommandTests(QubeFactory factory) : IClassFixture<QubeFactory>
         {
             ["JPY-OIS"] = new("JPY-OIS", [new("365d", 365, 0.99), new("1826d", 1826, 0.94), new("3652d", 3652, 0.86), new("7305d", 7305, 0.70)]),
         },
+        Levels = new Dictionary<(string, string, string), double>
+        {
+            [("fx_spot", "USDJPY", "")] = 150,
+            [("zero_rate", "JPY-OIS", "365d")] = 0.005, [("zero_rate", "JPY-OIS", "1826d")] = 0.01,
+            [("zero_rate", "JPY-OIS", "3652d")] = 0.02, [("zero_rate", "JPY-OIS", "7305d")] = 0.025,
+        },
     };
 
     (WebApplicationFactory<Program> Host, HttpClient Client) Keeper(string? configured = "tiny", IHedgeRisk? engine = null, PkResultSet? set = null)
@@ -424,6 +430,62 @@ public class PkCommandTests(QubeFactory factory) : IClassFixture<QubeFactory>
         Assert.Equal(700, position["pnlTotalBook"]!.GetValue<double>(), 9);
         Assert.Equal(-1500, position["pnlTotalWhatIf"]!.GetValue<double>(), 9);
         Assert.Equal(-800, position["pnlTotalNet"]!.GetValue<double>(), 9);
+    }
+
+    [Fact] // ADR-0019 §7: a move in % is of the input's level, key by key: sensitivity times level times the percentage
+    public async Task A_relative_move_is_sensitivity_times_the_level_times_the_percentage()
+    {
+        var (_, client) = Keeper(engine: new FakeEngine(Qube.Composition.Contracts.ExecutionMode.Simulated));
+        var id = (await NewWorkspace(client))["workspaceId"]!.GetValue<string>();
+        await Ok(await NewHedge(client, id, TenYearPayer));
+        await Ok(await Move(client, id, "fx_spot/USDJPY", "1%"));
+        await Ok(await Move(client, id, "zero_rate/JPY-OIS", "10 %"));
+
+        var position = await Position(client, id);
+
+        var fx = Line(position, "pnl", "USDJPY");
+        // -400 per unit of the quote, the quote at 150, up 1%: -400 * 150 * 0.01 = -600.
+        Assert.Equal((1, "%"), (fx["move"]!.GetValue<double>(), fx["typedIn"]!.GetValue<string>()));
+        Assert.Equal(-600, fx["book"]!.GetValue<double>(), 9);
+        var rates = Line(position, "pnl", "JPY-OIS");
+        // Book (2.5e6 * 0.01 - 1.0e6 * 0.02) * 0.1 = 500; What-if (-2.0e6 * 0.01 + 0.5e6 * 0.025) * 0.1 = -750; Net -250.
+        Assert.Equal(500, rates["book"]!.GetValue<double>(), 9);
+        Assert.Equal(-750, rates["whatIf"]!.GetValue<double>(), 9);
+        Assert.Equal(-250, rates["net"]!.GetValue<double>(), 9);
+        var moves = await Read(client, id, "pk.moves", "move");
+        Assert.Equal("1 %", moves["rows"]!.AsArray().Single(r => r!["key"]!.GetValue<string>() == "fx_spot/USDJPY")!["cells"]![0]!.GetValue<string>());
+    }
+
+    [Fact] // a bare number is absolute, in the kind's own unit; bp said is the same for a rate, and is not a quote's unit
+    public async Task An_absolute_move_may_say_bp_for_a_rate_and_not_for_a_quote()
+    {
+        var (_, client) = Keeper();
+        var id = (await NewWorkspace(client))["workspaceId"]!.GetValue<string>();
+
+        await Ok(await Move(client, id, "zero_rate/JPY-OIS", "10bp"));
+        var (status, code, message) = await Refused(await Move(client, id, "fx_spot/USDJPY", "10bp"));
+
+        var rates = Line(await Position(client, id), "pnl", "JPY-OIS");
+        Assert.Equal((10, "bp"), (rates["move"]!.GetValue<double>(), rates["typedIn"]!.GetValue<string>()));
+        Assert.Equal(1500, rates["book"]!.GetValue<double>(), 9);
+        Assert.Equal((HttpStatusCode.UnprocessableEntity, "WrongUnit"), (status, code));
+        Assert.Contains("fx_spot/USDJPY", message);
+    }
+
+    [Fact] // no level is assumed: a relative move of an input the result set gives no level of is refused, and names the key
+    public async Task A_relative_move_of_an_input_without_its_levels_is_refused_by_name()
+    {
+        var tiny = Tiny();
+        var set = tiny with { Levels = tiny.Levels.Where(l => l.Key != ("zero_rate", "JPY-OIS", "3652d")).ToDictionary(l => l.Key, l => l.Value) };
+        var (_, client) = Keeper(set: set);
+        var id = (await NewWorkspace(client))["workspaceId"]!.GetValue<string>();
+
+        var (status, code, message) = await Refused(await Move(client, id, "zero_rate/JPY-OIS", "5%"));
+
+        Assert.Equal((HttpStatusCode.UnprocessableEntity, "NoLevel"), (status, code));
+        Assert.Contains("3652d", message);
+        Assert.Empty((await Position(client, id))["pnl"]!.AsArray());
+        await Ok(await Move(client, id, "zero_rate/JPY-OIS", "5"));
     }
 
     [Fact] // ADR-0019 §7: nothing assumes a unit

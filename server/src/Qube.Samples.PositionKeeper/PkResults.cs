@@ -65,6 +65,12 @@ public sealed record PkResultSet(
     /// <summary>The input set's curves the result set carries, by name; none where it carries none.</summary>
     public IReadOnlyDictionary<string, PkCurve> Curves { get; init; } = new Dictionary<string, PkCurve>();
 
+    /// <summary>
+    /// The level each input stood at when the engine ran, by kind, input and key, in the unit its sensitivity is per:
+    /// what a move said in % is taken of (ADR-0019 §7). None where the result set carries none, and none is assumed.
+    /// </summary>
+    public IReadOnlyDictionary<(string Kind, string Input, string Key), double> Levels { get; init; } = new Dictionary<(string, string, string), double>();
+
     /// <summary>The declared unit of a kind, or null when the result set declares none.</summary>
     public SensitivityPer? UnitOf(string kind) =>
         Manifest.Units.TryGetValue(kind, out var per) ? per : null;

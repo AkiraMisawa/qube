@@ -8,5 +8,10 @@ It is not a whole result set: `risk.csv` keeps the base scenario's rows of six k
 the engine wrote them. `recovery` and `funding_spread` are left without a declared unit on purpose, so the page shows
 a kind no move can be typed for.
 
+`levels.csv` is not the engine's output: it is the level of each FX spot and each FX ATM vol in the synthetic input
+set the vector was computed from (the engine's `data/synthetic/small/market`, at the same commit), keyed as
+`risk.csv` keys them, with the vol expiries matched to the keys in order. It is what a move in `%` is taken of. No
+level is given for a rate, so a move in `%` of a curve is refused here, by the key.
+
 The whole vector, uncut, is the contract fixture under
 `server/tests/Qube.Composition.Tests/Fixtures/position-keeper/alpha-small-128`.

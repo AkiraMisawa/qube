@@ -119,6 +119,11 @@ test('ADR-0019 §3, §7: WHAT-IF, SIMULATED and FIRST ORDER are drawn from the s
   await expect(fx).not.toContainText(/WHAT-IF/);
   // A row with no move predicts nothing, and is marked with nothing.
   await expect(row(page, 'Moves', /^zero_rate USD-OIS bp\b/)).not.toContainText('FIRST ORDER');
+  // A move in % is of the input's level, which the result set gives for the vols: it is held as typed, and predicted.
+  await taken(page, 'set', 'move fx_atm_vol/USDJPY move 1%');
+  await settled(page, 'Moves');
+  await expect(row(page, 'Moves', /^fx_atm_vol USDJPY quote 1 % /)).toContainText('FIRST ORDER');
+  expect((await position(page)).pnl.find((line) => line.kind === 'fx_atm_vol')).toMatchObject({ move: 1, typedIn: '%' });
   const total = page.getByTestId('pk-pnl-total');
   expect(told.pnlTotalMarks).toEqual(['WHAT-IF', 'SIMULATED', 'FIRST ORDER']);
   for (const mark of ['WHAT-IF', 'SIMULATED', 'FIRST ORDER']) await expect(total.getByText(mark, { exact: true })).toBeVisible();
@@ -168,7 +173,7 @@ test('ADR-0019 §2, ADR-0006: a what-if hedge is added, changed and removed with
   await page.keyboard.type('ten');
   await page.keyboard.press('Enter');
   // Said beside the editor, which stays open on what was typed, and to a screen reader.
-  const refusal = 'zero_rate/JPY-OIS move is a number, with k, mm or bn for its scale, or bp, or empty; ten is not.';
+  const refusal = 'zero_rate/JPY-OIS move is a number, alone or followed by what it is in: bp or %, or empty; ten is not.';
   await expect(page.getByText(refusal).first()).toBeVisible();
   await expect(grid(page, 'Moves').getByRole('status')).toHaveText(refusal);
   await page.keyboard.press('Escape');

@@ -66,8 +66,21 @@ public sealed class PkResultFiles(string root) : IPkResults
                 throw new PkResultsRefused(PkResultsRefusal.FileMissing,
                     $"Result set '{reference}' declares {curve} for hedges in {currency} and has no {CurveDirectory}/{curve}.csv.");
 
-        return new PkResultSet(reference, Hash(bytes), manifest, counterparties, values, sensitivities, trades) { Curves = curves };
+        // The levels of the inputs, where the result set carries them: levels.csv, one row for a kind, input and key.
+        var levels = new Dictionary<(string, string, string), double>();
+        if (File.Exists(Path.Combine(directory, LevelsFile)))
+        {
+            bytes[LevelsFile] = File.ReadAllBytes(Path.Combine(directory, LevelsFile));
+            foreach (var row in Table.Parse(LevelsFile, bytes[LevelsFile], ["kind", "input", "key", "level"]))
+                if (!levels.TryAdd((row.Text(0), row.Text(1), row.Text(2)), row.Number(3)))
+                    throw new PkResultsRefused(PkResultsRefusal.RowUnreadable,
+                        $"{LevelsFile} gives the level of {row.Text(0)} {row.Text(1)} {row.Text(2)} more than once.");
+        }
+
+        return new PkResultSet(reference, Hash(bytes), manifest, counterparties, values, sensitivities, trades) { Curves = curves, Levels = levels };
     }
+
+    const string LevelsFile = "levels.csv";
 
     const string CurveDirectory = "curves";
 

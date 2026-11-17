@@ -36,9 +36,9 @@ export interface MoveRow {
   readonly key: string;
   readonly kind: string;
   readonly input: string;
-  /** `bp` or `quote`; none where the result set declares no unit for the kind, and no move can be typed. */
+  /** What a plain number typed as the move is in, `bp` or `quote`; none where the result set declares no unit for the kind, and no move can be typed. */
   readonly typedIn: string | undefined;
-  /** The move held, as typed; none where none is held. */
+  /** The move held, as the server writes it: `10` absolute, `1 %` of the input's level; none where none is held. */
   readonly move: string | undefined;
   /** What the move predicts; none where no move is held. */
   readonly pnl: PositionPnl | undefined;

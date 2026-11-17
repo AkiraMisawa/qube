@@ -197,4 +197,23 @@ public class PkResultFilesTests : IDisposable
         Assert.Equal("JPY-OIS", set.Manifest.HedgeCurves["JPY"]);
         Assert.Equal([new PkCurveNode("365d", 365, 0.99), new PkCurveNode("1826d", 1826, 0.94)], set.Curves["JPY-OIS"].Nodes);
     }
+
+    [Fact] // ADR-0019 §7: the levels a relative move is taken against are the result set's, read strictly and part of what it is
+    public void The_levels_the_result_set_carries_are_read_and_are_part_of_its_content()
+    {
+        var without = Read();
+        Assert.Empty(without.Levels);
+
+        File.WriteAllText(Path.Combine(_root, "set", "levels.csv"), "kind,input,key,level\nfx_spot,USDJPY,,151.5\nzero_rate,JPY-OIS,1d,0.004\n");
+        var with = Read();
+
+        Assert.Equal(151.5, with.Levels[("fx_spot", "USDJPY", "")]);
+        Assert.Equal(0.004, with.Levels[("zero_rate", "JPY-OIS", "1d")]);
+        Assert.NotEqual(without.ContentHash, with.ContentHash);
+
+        File.AppendAllText(Path.Combine(_root, "set", "levels.csv"), "fx_spot,USDJPY,,152\n");
+        var twice = Refused();
+        Assert.Equal(PkResultsRefusal.RowUnreadable, twice.Code);
+        Assert.Contains("fx_spot", twice.Message);
+    }
 }

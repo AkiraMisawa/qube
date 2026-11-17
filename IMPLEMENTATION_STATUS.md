@@ -4185,7 +4185,7 @@ Spec and tickets: [docs/specs/position-keeper](docs/specs/position-keeper/spec.m
   changed is refused (`Changed`).
 - **Workspace and tables**: a Position Keeper workspace is on one result set (`pk.workspace.create`). Its tables are
   `pk.values` and `pk.risk` (read-only), `pk.hedges` (what-if swaps the user creates with `new irs`) and
-  `pk.moves` (a move per kind and input, in basis points for a rate and in the quote's units for a level). The
+  `pk.moves` (a move per kind and input: a plain number is absolute, in basis points for a rate and in the quote's units for a level; a number in `%` is relative, of the level the result set gives in `levels.csv`, and refused by the key where it gives none; since 2026-11-17). The
   kernel's `set`, `reset`, `remove`, `undo` and `redo` act on them.
 - **Position** (`pk.position.read`): values and their totals, Book / What-if / Net risk, and the predicted profit
   and loss of the moves held (sensitivity times move). The server marks every line and total: `WHAT-IF` where a
@@ -4203,7 +4203,7 @@ Spec and tickets: [docs/specs/position-keeper](docs/specs/position-keeper/spec.m
 
 | Suite | Result |
 |---|---|
-| `dotnet test server/Qube.slnx` | 1,739 passed, 1 failed: the contract test below |
+| `dotnet test server/Qube.slnx` | 1,743 passed, 1 failed: the contract test below |
 | `npm run typecheck`, `npm test` (Vitest) | clean; 530 passed |
 | `npx playwright test e2e/position-keeper.spec.ts` | 5 passed |
 | `npx playwright test` (every spec) | 159 passed, 1 failed: the command line's placeholder named `new pk` in place of `open pricing db`. `new pk` now stands after it; that test and the Position Keeper spec run again, 6 passed |
@@ -4232,14 +4232,15 @@ Spec and tickets: [docs/specs/position-keeper](docs/specs/position-keeper/spec.m
 
 ### Known limits
 
-- Against the spec's stories (found by the review of 2026-11-17): a move of an FX spot is typed in the quote's units,
-  where story 6 says percent (the owner's to decide); the page reads every counterparty and has no selection of them,
+- Against the spec's stories (found by the review of 2026-11-17): the page reads every counterparty and has no selection of them,
   though the command takes one; the notional FX delta is in the engine's files but not in the development sample, and
   no screen shows it by currency; the totals carry no standard error, since the counterparties share paths; the
   hedge calculator's bump test is on a swap away from par.
 - DEFAULTs of ADR-0019 not yet reviewed by the owner: the slice reads result files (no call to the engine), the
   manifest's units and legal entities, the synthetic hedge calculator.
 - A kind of risk the manifest declares no unit for shows no `Per` and takes no move (refused `NoUnit`).
+- The development sample gives levels for the FX spots and FX ATM vols only, so a move in `%` of a curve or a hazard
+  rate is refused there (`NoLevel`); the engine does not write levels yet, and the sample's are copied from its inputs.
 - The risk grid sums over counterparties and metrics; it has no view by counterparty or by metric yet.
 - The Position Keeper tables' columns say their meaning by title only; the sign and unit of each figure are declared in the
   position's contract, not on the table's fields.

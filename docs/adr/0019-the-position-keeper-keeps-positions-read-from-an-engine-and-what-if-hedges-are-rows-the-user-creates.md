@@ -97,6 +97,12 @@ DEFAULT, for this slice:
 - A sensitivity's unit (per what move of what quantity) is declared by the result set's adapter for each kind. A
   move can be entered only for a kind whose unit is declared; other kinds are shown and take no move. Nothing
   assumes a unit.
+- A move is absolute or relative (owner, 2026-11-17: both are wanted). A plain number is absolute, in basis points
+  for a rate (`10`, or `10bp`) and in the quote's own units for a level. A number in `%` is relative: for each key,
+  that percentage of the level the input stood at when the engine ran. Levels are the result set's (`levels.csv`: kind,
+  input, key, level, in the unit the sensitivity is per) and are part of its content hash. A relative move of an
+  input the result set gives no level of, for any key it can have risk on, is refused by the key; no level is
+  derived or assumed.
 - A counterparty is the engine's code together with its legal entity (CLAUDE.md). The synthetic result set carries
   the mapping; a counterparty in the results that the mapping does not hold is shown as unmapped by its code, and
   its legal entity is not guessed.

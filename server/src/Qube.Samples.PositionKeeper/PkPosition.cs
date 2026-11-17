@@ -20,20 +20,35 @@ public static class PkMoves
 
     public static EditTarget Target(string kind, string input) => new(Scope, Entity(kind, input), Field);
 
-    /// <summary>What a move is typed in: basis points of a rate, or the input's own quote. Null where the kind has no declared unit.</summary>
+    /// <summary>What a move may say it is in: basis points of a rate, or percent of the input's own level.</summary>
+    public const string Bp = "bp", Percent = "%";
+
+    /// <summary>What a move's bare number is in: basis points of a rate, or the input's own quote. Null where the kind has no declared unit.</summary>
     public static string? TypedIn(SensitivityPer? per) => per switch
     {
-        SensitivityPer.Rate => "bp",
+        SensitivityPer.Rate => Bp,
         SensitivityPer.Level => "quote",
         _ => null,
     };
 
-    /// <summary>The move as the sensitivity's unit has it: a basis point is 1e-4 of a rate, and a quote's move is itself.</summary>
+    /// <summary>An absolute move as the sensitivity's unit has it: a basis point is 1e-4 of a rate, and a quote's move is itself.</summary>
     public static double InUnits(SensitivityPer per, double typed) => per == SensitivityPer.Rate ? typed * 1e-4 : typed;
 
-    /// <summary>The move the workspace holds for a kind and input, as typed; null where it holds none.</summary>
-    public static double? Held(WorkspaceState state, string kind, string input) =>
-        state.Overrides.GetValueOrDefault(Target(kind, input))?.Value is JsonValue value ? (double)FieldForms.Held(value) : null;
+    /// <summary>The move the workspace holds for a kind and input, as typed, and whether it is of the level; null where it holds none.</summary>
+    public static (double Amount, bool Relative)? Held(WorkspaceState state, string kind, string input) =>
+        state.Overrides.GetValueOrDefault(Target(kind, input))?.Value is JsonObject held
+            ? ((double)FieldForms.Held(held["amount"]!), held["unit"]?.GetValue<string>() == Percent)
+            : null;
+
+    /// <summary>
+    /// A relative move of one key as the sensitivity's unit has it: the percentage of the level the result set gives.
+    /// A key it gives no level of is refused by name: none is assumed (ADR-0019 §7).
+    /// </summary>
+    public static double OfLevel(PkResultSet set, string kind, string input, string key, double percent) =>
+        set.Levels.TryGetValue((kind, input, key), out var level) ? level * percent / 100
+            : throw new WorkspaceRefused("NoLevel",
+                $"Result set '{set.Reference}' gives no level of {kind} {input}{(key.Length > 0 ? " at " + key : "")}, so a move in % of it cannot be read: say the move as it is, without %.",
+                word: $"{kind}/{input}");
 }
 
 /// <summary>One sensitivity of the position: the book's, the what-if hedges' where any has a row on it, and their sum.</summary>
@@ -42,6 +57,7 @@ public static class PkMoves
 public sealed record PositionRisk(string Kind, string Input, string Key, SensitivityPer? Per, double Book, double? WhatIf, double Net, IReadOnlyList<string> Marks);
 
 /// <summary>The predicted profit and loss of one input's move: sensitivity times move, summed over the input's keys.</summary>
+/// <param name="TypedIn">What <paramref name="Move"/> is in: <c>bp</c> or <c>quote</c> where it is absolute, <c>%</c> where it is of each key's level.</param>
 public sealed record PositionPnl(string Kind, string Input, double Move, string TypedIn, double Book, double? WhatIf, double Net, IReadOnlyList<string> Marks);
 
 public sealed record PositionValue(string Counterparty, string? LegalEntity, string Metric, double Value, double StdError);
@@ -119,26 +135,23 @@ public static class PkPosition
                 l.Value.Book + (l.Value.WhatIf ?? 0), Marks(l.Value.WhatIf is not null, l.Value.Simulated))).ToList();
 
         var pnl = new List<PositionPnl>();
-        foreach (var group in risks.GroupBy(r => (r.Kind, r.Input)))
+        var grouped = risks.GroupBy(r => (r.Kind, r.Input)).ToDictionary(g => g.Key, g => g.ToList());
+        // Every move held has its line. One for an input the position has no risk line of predicts nothing: the sum
+        // over no line, said as a line.
+        foreach (var (kind, input) in grouped.Keys.Concat(source.Inputs).Distinct())
         {
-            if (PkMoves.Held(state, group.Key.Kind, group.Key.Input) is not { } typed) continue;
+            if (PkMoves.Held(state, kind, input) is not var (typed, relative)) continue;
             // A move is held only for a kind with a declared unit (the table refuses another); one found without is the store's defect.
-            var per = set.UnitOf(group.Key.Kind)
-                ?? throw new InvalidOperationException($"Workspace {state.WorkspaceId} holds a move of {group.Key.Kind}, whose unit the result set does not declare.");
-            var move = PkMoves.InUnits(per, typed);
-            var hypothetical = group.Any(r => r.WhatIf is not null);
-            pnl.Add(new(group.Key.Kind, group.Key.Input, typed, PkMoves.TypedIn(per)!, group.Sum(r => r.Book) * move,
-                hypothetical ? group.Sum(r => r.WhatIf ?? 0) * move : null, group.Sum(r => r.Net) * move,
-                Marks(hypothetical, group.Any(r => r.Marks.Contains(Simulated)), firstOrder: true)));
-        }
-        // A move held for an input the position has no risk line of predicts nothing: the sum over no line. It is
-        // said as a line, so that every move held has one.
-        foreach (var (kind, input) in source.Inputs.Where(i => !pnl.Any(p => p.Kind == i.Kind && p.Input == i.Input)))
-        {
-            if (PkMoves.Held(state, kind, input) is not { } typed) continue;
             var per = set.UnitOf(kind)
                 ?? throw new InvalidOperationException($"Workspace {state.WorkspaceId} holds a move of {kind}, whose unit the result set does not declare.");
-            pnl.Add(new(kind, input, typed, PkMoves.TypedIn(per)!, 0, null, 0, Marks(false, false, firstOrder: true)));
+            var ofInput = grouped.GetValueOrDefault((kind, input)) ?? [];
+            // The move of each key in the sensitivity's unit: the same for every key where it is absolute, and the
+            // percentage of the key's own level where it is relative.
+            double Move(PositionRisk r) => relative ? PkMoves.OfLevel(set, kind, input, r.Key, typed) : PkMoves.InUnits(per, typed);
+            var hypothetical = ofInput.Any(r => r.WhatIf is not null);
+            pnl.Add(new(kind, input, typed, relative ? PkMoves.Percent : PkMoves.TypedIn(per)!, ofInput.Sum(r => r.Book * Move(r)),
+                hypothetical ? ofInput.Sum(r => (r.WhatIf ?? 0) * Move(r)) : null, ofInput.Sum(r => r.Net * Move(r)),
+                Marks(hypothetical, ofInput.Any(r => r.Marks.Contains(Simulated)), firstOrder: true)));
         }
         var total = pnl.Count == 0 ? null : new PositionPnl("", "", 0, "", pnl.Sum(p => p.Book), pnl.Any(p => p.WhatIf is not null) ? pnl.Sum(p => p.WhatIf ?? 0) : null,
             pnl.Sum(p => p.Net), Marks(pnl.Any(p => p.WhatIf is not null), pnl.Any(p => p.Marks.Contains(Simulated)), firstOrder: true));

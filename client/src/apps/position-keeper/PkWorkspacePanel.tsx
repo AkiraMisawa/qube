@@ -74,7 +74,7 @@ const MOVE = 'move';
 const MOVE_COLUMNS: readonly GridColumn<MoveRow>[] = [
   { name: 'kind', header: 'Kind', type: 'text', width: 120, value: (m) => m.kind, format: text },
   { name: 'input', header: 'Input', type: 'text', width: 130, value: (m) => m.input, format: text },
-  { name: 'typedIn', header: 'Typed in', type: 'text', width: 84, value: (m) => m.typedIn, format: text },
+  { name: 'typedIn', header: 'Plain number in', type: 'text', width: 124, value: (m) => m.typedIn, format: text },
   // The move as typed, which the server reads: the grid orders none of it.
   { name: MOVE, header: 'Move', type: 'text', width: 84, editable: true, queryable: false, value: (m) => m.move, format: text },
   { name: 'book', header: 'Book P&L', ...figure, value: (m) => m.pnl?.book },
@@ -281,7 +281,7 @@ export function PkWorkspacePanel({ panelId, workspaceId, api }: { readonly panel
           <Title order={3} size="sm">Moves and predicted P&amp;L</Title>
           <Group gap="md" wrap="wrap" data-testid="pk-pnl-total" aria-live="polite">
             {p.pnlTotalBook === undefined || p.pnlTotalNet === undefined
-              ? <Text size="sm">No move is held: type one under Move, in basis points for a rate or in the quote&apos;s units.</Text>
+              ? <Text size="sm">No move is held: type one under Move. A plain number is absolute, in basis points for a rate and in the quote&apos;s own units otherwise; a number with % is relative, of the input&apos;s level.</Text>
               : (
                 <>
                   <Text size="sm" fw={600}>Predicted P&amp;L</Text>

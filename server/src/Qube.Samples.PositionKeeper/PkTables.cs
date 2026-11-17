@@ -161,19 +161,23 @@ public sealed class PkTables(IHedgeRisk provider) : ITableCatalog
     }
 
     /// <summary>
-    /// The market moves the prediction is made for (ADR-0019 §7): a row per kind and input, its move the user's. A move
-    /// of a rate is typed in basis points and one of a quoted level in the quote's own units, as the row's
-    /// <c>typedIn</c> says. A kind whose unit the result set does not declare takes no move, and is told so by name.
+    /// The market moves the prediction is made for (ADR-0019 §7): a row per kind and input, its move the user's. A bare
+    /// number is absolute: basis points of a rate (<c>10</c> or <c>10bp</c>) and a quoted level's own units, as the
+    /// row's <c>typedIn</c> says. A number in <c>%</c> is relative: that percentage of the level the result set gives
+    /// for each key, and refused where it gives none. A kind whose unit the result set does not declare takes no move.
     /// </summary>
     sealed class MoveTable : IWorkspaceTable
     {
+        // Before the descriptor, which is made from it.
+        static readonly IReadOnlyDictionary<string, string> MoveUnits = new Dictionary<string, string> { [PkMoves.Bp] = PkMoves.Bp, [PkMoves.Percent] = PkMoves.Percent };
+
         static readonly TableDescriptor Descriptor = new(Moves, Version, PkEditRules.App, "Moves", ["moves", "move"], "id",
         [
             new("id", "Row", ["id"], FieldForm.Id),
             new("kind", "Kind", ["kind"], FieldForm.Id),
             new("input", "Input", ["input"], FieldForm.Id),
-            new(PkMoves.Field, "Move", [PkMoves.Field], FieldForm.Number, Editable: true, Optional: true, UnitField: "typedIn"),
-            new("typedIn", "Typed in", ["typed in"], FieldForm.Id, Optional: true),
+            new(PkMoves.Field, "Move", [PkMoves.Field], FieldForm.Money, Editable: true, Optional: true, Choices: MoveUnits),
+            new("typedIn", "Bare number in", ["typed in"], FieldForm.Id, Optional: true),
         ], []);
 
         public string TableId => Moves;
@@ -186,7 +190,7 @@ public sealed class PkTables(IHedgeRisk provider) : ITableCatalog
             return [.. book.Inputs.Select(i => (ITableRow)new MoveRow(i.Kind, i.Input, new Dictionary<string, JsonNode?>
             {
                 ["id"] = $"{i.Kind}/{i.Input}", ["kind"] = i.Kind, ["input"] = i.Input,
-                [PkMoves.Field] = PkMoves.Held(state, i.Kind, i.Input),
+                [PkMoves.Field] = state.Overrides.GetValueOrDefault(PkMoves.Target(i.Kind, i.Input))?.Value?.DeepClone(),
                 ["typedIn"] = PkMoves.TypedIn(book.Set.UnitOf(i.Kind)),
             }))];
         }
@@ -205,12 +209,24 @@ public sealed class PkTables(IHedgeRisk provider) : ITableCatalog
         {
             var move = (MoveRow)row;
             var set = PkBookSource.Of(state).Set;
-            if (set.UnitOf(move.Kind) is null)
+            if (set.UnitOf(move.Kind) is not { } per)
                 throw new WorkspaceRefused("NoUnit",
                     $"Result set '{set.Reference}' declares no unit for {move.Kind}, so a move of {move.Key} cannot be read and none is taken.", word: move.Key);
             var target = PkMoves.Target(move.Kind, move.Input);
             // An empty move is no move: the field follows its empty start again.
-            return value is null ? Reset(state, row, field) : [new WorkspaceChange.Set(target, value)];
+            if (value is null) return Reset(state, row, field);
+            var unit = value["unit"]?.GetValue<string>();
+            if (unit == PkMoves.Bp && per != SensitivityPer.Rate)
+                throw new WorkspaceRefused("WrongUnit",
+                    $"{move.Key} is not a rate, so its move is not in bp: say it in the quote's own units, or in % of its level.", word: move.Key);
+            // A move in % is taken of each key's level, so every key the input can have risk on has one, or it is
+            // refused here, by the key, before it is held: the book's keys, and a hedge curve's nodes.
+            if (unit == PkMoves.Percent)
+                foreach (var key in set.Sensitivities.Where(s => s.Scenario == set.Manifest.BaseScenario && s.Kind == move.Kind && s.Input == move.Input).Select(s => s.Key)
+                    .Concat(move.Kind == PkBookSource.HedgeKind && set.Manifest.HedgeCurves.Values.Contains(move.Input) ? set.Curves[move.Input].Nodes.Select(n => n.Key) : [])
+                    .Distinct())
+                    PkMoves.OfLevel(set, move.Kind, move.Input, key, 0);
+            return [new WorkspaceChange.Set(target, value)];
         }
 
         public IReadOnlyList<WorkspaceChange> Reset(WorkspaceState state, ITableRow row, TableField? field)
