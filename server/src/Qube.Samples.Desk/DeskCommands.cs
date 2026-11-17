@@ -239,6 +239,6 @@ public sealed class DeskModule(Func<DeskWorkspaces> workspaces, Func<WorkspaceSe
             ["pnlTotalWhatIf"] = Maybe("The same, What-if"),
             ["pnlTotalNet"] = Maybe("The same, Net"),
             ["pnlTotalMarks"] = Words(MarksSay),
-        }, "workspaceId", "revision", "resultSet", "engineCommit", "inputSet", "valuationDate", "values", "risk", "pnl");
+        }, "workspaceId", "revision", "resultSet", "engine", "engineCommit", "inputSet", "valuationDate", "values", "risk", "pnl");
     }
 }

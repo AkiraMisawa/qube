@@ -20,11 +20,10 @@ public sealed class DeskTables(IHedgeRisk provider) : ITableCatalog
 
     public IEnumerable<IWorkspaceTable> Tables { get; } = [new ValueTable(), new RiskTable(), new HedgeTable(provider), new MoveTable()];
 
-    static string Unit(SensitivityPer? per) => per switch
+    static string Unit(SensitivityPer per) => per switch
     {
         SensitivityPer.Rate => "rate",
         SensitivityPer.Level => "level",
-        null => "",
         _ => throw new InvalidOperationException($"A sensitivity is per {per}, which the Desk does not write."),
     };
 

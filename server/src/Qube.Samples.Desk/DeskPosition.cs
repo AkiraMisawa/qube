@@ -75,7 +75,10 @@ public static class DeskPosition
         var known = set.Counterparties.Select(c => c.Code).ToList();
         if (counterparties?.FirstOrDefault(c => !known.Contains(c)) is { } unknown)
             throw new WorkspaceRefused("UnknownCounterparty", $"The book has no counterparty {unknown}.", word: unknown, candidates: known);
-        var chosen = counterparties is { Count: > 0 } ? counterparties : known;
+        // Left out, every counterparty is read; a list that names none asks for no book, and is refused as that.
+        if (counterparties is { Count: 0 })
+            throw new WorkspaceRefused("NoCounterparty", "The counterparties to read are named, or left out for all of them: the list names none.", candidates: known);
+        var chosen = counterparties ?? known;
         var entities = set.Counterparties.ToDictionary(c => c.Code, c => c.LegalEntity);
 
         var values = source.Values.Where(v => chosen.Contains(v.Counterparty))
@@ -127,6 +130,15 @@ public static class DeskPosition
             pnl.Add(new(group.Key.Kind, group.Key.Input, typed, DeskMoves.TypedIn(per)!, group.Sum(r => r.Book) * move,
                 hypothetical ? group.Sum(r => r.WhatIf ?? 0) * move : null, group.Sum(r => r.Net) * move,
                 Marks(hypothetical, group.Any(r => r.Marks.Contains(Simulated)), firstOrder: true)));
+        }
+        // A move held for an input the position has no risk line of predicts nothing: the sum over no line. It is
+        // said as a line, so that every move held has one.
+        foreach (var (kind, input) in source.Inputs.Where(i => !pnl.Any(p => p.Kind == i.Kind && p.Input == i.Input)))
+        {
+            if (DeskMoves.Held(state, kind, input) is not { } typed) continue;
+            var per = set.UnitOf(kind)
+                ?? throw new InvalidOperationException($"Workspace {state.WorkspaceId} holds a move of {kind}, whose unit the result set does not declare.");
+            pnl.Add(new(kind, input, typed, DeskMoves.TypedIn(per)!, 0, null, 0, Marks(false, false, firstOrder: true)));
         }
         var total = pnl.Count == 0 ? null : new PositionPnl("", "", 0, "", pnl.Sum(p => p.Book), pnl.Any(p => p.WhatIf is not null) ? pnl.Sum(p => p.WhatIf ?? 0) : null,
             pnl.Sum(p => p.Net), Marks(pnl.Any(p => p.WhatIf is not null), pnl.Any(p => p.Marks.Contains(Simulated)), firstOrder: true));

@@ -131,7 +131,8 @@ test('ADR-0019 §4: with no result set the page says so, in the server\'s words,
   await open(page);
   await command(page, 'new desk', 'set=no-such-set');
   await expect(page.getByRole('tab', { name: 'Desk' })).toHaveAttribute('aria-selected', 'true');
-  const said = page.getByRole('alert').filter({ hasText: 'No result set' });
+  const said = page.getByTestId('desk-unavailable');
+  await expect(said).toContainText('The Desk workspace was not made');
   await expect(said).toContainText('no-such-set');
   await expect(grid(page, 'Values')).toHaveCount(0);
   await expect(grid(page, 'Risk')).toHaveCount(0);

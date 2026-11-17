@@ -60,9 +60,19 @@ public sealed class DeskBookSource(DeskResultSet set) : ISourceVersion
     {
         var reference = descriptor["reference"]?.GetValue<string>() ?? throw new InvalidOperationException("A Desk workspace's source names no result set.");
         var hash = descriptor["contentHash"]?.GetValue<string>() ?? throw new InvalidOperationException("A Desk workspace's source names no content hash.");
-        var set = results().Read(reference);
+        // Refused as the workspace's own refusal, by the result set's code: every command that loads the workspace
+        // answers it as a refusal by name, whichever command it is.
+        DeskResultSet set;
+        try
+        {
+            set = results().Read(reference);
+        }
+        catch (DeskResultsRefused refused)
+        {
+            throw new WorkspaceRefused(refused.Code.ToString(), refused.Message);
+        }
         return set.ContentHash == hash ? new DeskBookSource(set)
-            : throw new DeskResultsRefused(DeskResultsRefusal.Changed,
+            : throw new WorkspaceRefused(nameof(DeskResultsRefusal.Changed),
                 $"Result set '{reference}' has changed since the workspace was made on it (it was {hash[..12]}, it is {set.ContentHash[..12]}).");
     };
 }

@@ -111,6 +111,12 @@ function Marks({ marks }: { readonly marks: readonly Mark[] }) {
   return <>{marks.map((mark) => <Badge key={mark} variant="light" color="yellow" title={MARK_SAYS[mark]}>{mark}</Badge>)}</>;
 }
 
+/** The marks of the predicted total. A total answered without them is a defect said as one: it is never drawn as unmarked, which would read as the engine's own figure. */
+function totalMarks(p: DeskPosition): readonly Mark[] {
+  if (p.pnlTotalMarks === undefined) throw new Error('The position answered a predicted total without its marks.');
+  return p.pnlTotalMarks;
+}
+
 /** One grid of the page under its label: read-only unless it is given `onEdit`. */
 function DeskGrid<Row>({ name, label, rows, rowKey, columns, most, pinned, gridRef, onEdit }: {
   /** The grid's name among the user's widths and what the panel keeps (`desk/values`). */
@@ -264,6 +270,7 @@ export function DeskWorkspacePanel({ panelId, workspaceId, api }: { readonly pan
         <section>
           <Group gap="sm" wrap="wrap" align="flex-end">
             <Title order={3} size="sm">Risk</Title>
+            {/* 240px: the longest kind and input of a book (`zero_rate USD-XCCY-JPY`) with the control's two marks. */}
             <Select size="xs" w={240} label="Risk of" searchable clearable placeholder="Every kind and input" value={narrowed} onChange={setRiskOf} data={[...inputs]} />
             <Text size="xs" c="dimmed">First-order sensitivities of the adjustments, summed over counterparties and metrics. Per rate: per 1.0 of the rate (1bp is 1e-4 of it).</Text>
           </Group>
@@ -281,7 +288,7 @@ export function DeskWorkspacePanel({ panelId, workspaceId, api }: { readonly pan
                   <Amount label="Book" value={p.pnlTotalBook} />
                   {p.pnlTotalWhatIf !== undefined && <Amount label="What-if" value={p.pnlTotalWhatIf} />}
                   <Amount label="Net" value={p.pnlTotalNet} />
-                  <Marks marks={p.pnlTotalMarks ?? []} />
+                  <Marks marks={totalMarks(p)} />
                 </>
               )}
           </Group>
@@ -295,7 +302,7 @@ export function DeskWorkspacePanel({ panelId, workspaceId, api }: { readonly pan
 /** The page of a Desk workspace that could not be made (ADR-0019 §4): why, in the server's words, and no grid. */
 export function DeskUnavailable({ reason }: { readonly reason: string }) {
   return (
-    <Alert color="yellow" title="No result set" data-testid="desk-unavailable">
+    <Alert color="yellow" title="The Desk workspace was not made" data-testid="desk-unavailable">
       <Text size="sm">{reason}</Text>
       <Text size="sm" mt="xs">Nothing stands in for a book that could not be read. Once the result set is there, run <Code>new desk</Code> again.</Text>
     </Alert>

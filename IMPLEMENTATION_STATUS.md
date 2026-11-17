@@ -4203,7 +4203,7 @@ Spec and tickets: [docs/specs/desk-position-keeper](docs/specs/desk-position-kee
 
 | Suite | Result |
 |---|---|
-| `dotnet test server/Qube.slnx` | 1,737 passed, 1 failed: the contract test below |
+| `dotnet test server/Qube.slnx` | 1,739 passed, 1 failed: the contract test below |
 | `npm run typecheck`, `npm test` (Vitest) | clean; 530 passed |
 | `npx playwright test e2e/desk.spec.ts` | 5 passed |
 | `npx playwright test` (every spec) | 159 passed, 1 failed: the command line's placeholder named `new desk` in place of `open pricing db`. `new desk` now stands after it; that test and the Desk spec run again, 6 passed |
@@ -4232,6 +4232,11 @@ Spec and tickets: [docs/specs/desk-position-keeper](docs/specs/desk-position-kee
 
 ### Known limits
 
+- Against the spec's stories (found by the review of 2026-11-17): a move of an FX spot is typed in the quote's units,
+  where story 6 says percent (the owner's to decide); the page reads every counterparty and has no selection of them,
+  though the command takes one; the notional FX delta is in the engine's files but not in the development sample, and
+  no screen shows it by currency; the totals carry no standard error, since the counterparties share paths; the
+  hedge calculator's bump test is on a swap away from par.
 - DEFAULTs of ADR-0019 not yet reviewed by the owner: the slice reads result files (no call to the engine), the
   manifest's units and legal entities, the synthetic hedge calculator.
 - A kind of risk the manifest declares no unit for shows no `Per` and takes no move (refused `NoUnit`).

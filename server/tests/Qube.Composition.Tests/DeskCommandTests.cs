@@ -51,10 +51,10 @@ public class DeskCommandTests(QubeFactory factory) : IClassFixture<QubeFactory>
         },
     };
 
-    (WebApplicationFactory<Program> Host, HttpClient Client) Desk(string? configured = "tiny", IHedgeRisk? engine = null)
+    (WebApplicationFactory<Program> Host, HttpClient Client) Desk(string? configured = "tiny", IHedgeRisk? engine = null, DeskResultSet? set = null)
     {
         var held = new HeldResults();
-        held.Sets["tiny"] = Tiny();
+        held.Sets["tiny"] = set ?? Tiny();
         var host = factory.WithWebHostBuilder(b => b.UseSetting("Rates:Ticker", "false").UseSetting("Desk:ResultSet", configured ?? "")
             .ConfigureTestServices(s =>
             {
@@ -234,12 +234,52 @@ public class DeskCommandTests(QubeFactory factory) : IClassFixture<QubeFactory>
         Assert.Empty(await Hedges(client, id));
     }
 
+    [Fact] // ADR-0019 §4: a workspace loaded again on a result set that reads differently, or is gone, is refused by name, as a workspace's refusal
+    public void A_workspace_is_not_loaded_on_a_result_set_that_changed_or_is_gone()
+    {
+        var held = new HeldResults();
+        held.Sets["tiny"] = Tiny();
+        var made = new DeskBookSource(Tiny()).Descriptor;
+        var resolve = DeskBookSource.Resolver(() => held);
+
+        Assert.IsType<DeskBookSource>(resolve(made));
+        held.Sets["tiny"] = Tiny(hash: "2222222222222222222222222222222222222222222222222222222222222222");
+        var changed = Assert.Throws<WorkspaceRefused>(() => resolve(made));
+        held.Sets.Clear();
+        var gone = Assert.Throws<WorkspaceRefused>(() => resolve(made));
+
+        Assert.Equal(("Changed", "NotFound"), (changed.Code, gone.Code));
+        Assert.Contains("has changed since the workspace was made on it", changed.Message);
+    }
+
+    [Fact] // ADR-0019 §3: every move held has its line; one for an input the book has no risk on predicts nothing, and says so as a line
+    public async Task A_move_held_for_a_curve_the_position_has_no_risk_on_predicts_zero_as_a_line()
+    {
+        var tiny = Tiny();
+        var set = tiny with
+        {
+            Manifest = tiny.Manifest with { HedgeCurves = new Dictionary<string, string> { ["JPY"] = "JPY-OIS", ["USD"] = "USD-OIS" } },
+            Curves = new Dictionary<string, DeskCurve>(tiny.Curves) { ["USD-OIS"] = new("USD-OIS", [new("365d", 365, 0.96), new("3652d", 3652, 0.66)]) },
+        };
+        var (_, client) = Desk(set: set);
+        var id = (await NewWorkspace(client))["workspaceId"]!.GetValue<string>();
+
+        await Ok(await Command(client, "entity.set", new JsonObject { ["workspaceId"] = id, ["rows"] = "move zero_rate/USD-OIS", ["set"] = "move 10" }));
+        var line = Assert.Single((await Position(client, id))["pnl"]!.AsArray())!;
+
+        Assert.Equal(("zero_rate", "USD-OIS", 10d, 0d, 0d), (line["kind"]!.GetValue<string>(), line["input"]!.GetValue<string>(), line["move"]!.GetValue<double>(), line["book"]!.GetValue<double>(), line["net"]!.GetValue<double>()));
+        Assert.Null(line["whatIf"]);
+        Assert.Equal(["FIRST ORDER"], line["marks"]!.AsArray().Select(m => m!.GetValue<string>()));
+    }
+
     [Fact]
     public async Task A_hedge_is_changed_and_removed_through_the_tables_verbs()
     {
         var (_, client) = Desk();
         var id = (await NewWorkspace(client))["workspaceId"]!.GetValue<string>();
+        var before = (await Position(client, id))["risk"]!.ToJsonString();
         await Ok(await NewHedge(client, id, TenYearPayer));
+        var hedged = (await Position(client, id))["risk"]!.ToJsonString();
 
         await Ok(await Command(client, "entity.set", new JsonObject { ["workspaceId"] = id, ["table"] = "desk.hedges", ["rows"] = "H1", ["set"] = "notional=2bn" }));
         var notional = (await Read(client, id, "desk.hedges", "notional"))["rows"]![0]!["cells"]![0]!.GetValue<string>();
@@ -247,6 +287,9 @@ public class DeskCommandTests(QubeFactory factory) : IClassFixture<QubeFactory>
 
         Assert.Equal("2bn", notional);
         Assert.Empty(await Hedges(client, id));
+        // A removed hedge leaves the figures as they were before it (ADR-0019 §2): every line, mark and Net.
+        Assert.NotEqual(before, hedged);
+        Assert.Equal(before, (await Position(client, id))["risk"]!.ToJsonString());
         // A name is never given twice: the next hedge is H2, though H1 is gone.
         Assert.Equal("H2", (await Ok(await NewHedge(client, id, TenYearPayer)))["outputs"]!["entity"]!["entity"]!.GetValue<string>());
     }
