@@ -183,4 +183,18 @@ public class DeskResultFilesTests : IDisposable
 
         Assert.NotEqual(before, after);
     }
+
+    [Fact] // ADR-0019 §7: the curve a hedge in a currency is valued on is the one the manifest declares, read as the engine read it
+    public void The_curves_the_result_set_carries_are_read_and_a_declared_one_that_is_missing_is_refused()
+    {
+        var withCurves = Manifest.Replace("\"units\"", "\"hedgeCurves\": { \"JPY\": \"JPY-OIS\" }, \"units\"");
+        Assert.Equal(DeskResultsRefusal.FileMissing, Refused(manifest: withCurves).Code);
+
+        Directory.CreateDirectory(Path.Combine(_root, "set", "curves"));
+        File.WriteAllText(Path.Combine(_root, "set", "curves", "JPY-OIS.csv"), "tenor,discount_factor\n365d,0.99\n1826d,0.94\n");
+        var set = Read(manifest: withCurves);
+
+        Assert.Equal("JPY-OIS", set.Manifest.HedgeCurves["JPY"]);
+        Assert.Equal([new DeskCurveNode("365d", 365, 0.99), new DeskCurveNode("1826d", 1826, 0.94)], set.Curves["JPY-OIS"].Nodes);
+    }
 }

@@ -83,7 +83,12 @@ builder.Services.AddSingleton<IDeskResults>(_ => builder.Configuration["Desk:Res
 builder.Services.AddSingleton(new DeskOptions(builder.Configuration["Desk:ResultSet"] is { Length: > 0 } set ? set : null));
 builder.Services.AddSingleton<DeskWorkspaces>();
 builder.Services.AddSingleton<IQubeModule>(sp => new DeskModule(sp.GetRequiredService<DeskWorkspaces>));
-builder.Services.AddSingleton<ITableCatalog, DeskTables>();
+// A what-if hedge's own risk (ADR-0019 §7): the synthetic calculator, Simulated, until the engine answers it. There
+// is no real provider to fall back from, and its figures are marked wherever they show.
+builder.Services.AddSingleton<IHedgeRisk, SyntheticHedgeRisk>();
+builder.Services.AddSingleton<ITableCatalog>(sp => new DeskTables(sp.GetRequiredService<IHedgeRisk>()));
+builder.Services.AddSingleton<IProductCatalog>(new DeskProducts());
+builder.Services.AddSingleton<IProductRules>(sp => new DeskIrsRules(sp.GetRequiredService<WorkspaceService>, sp.GetRequiredService<IHedgeRisk>()));
 builder.Services.AddSingleton<TableRegister>();
 // Short forms are a module's words for a line of a kernel verb (ADR-0016 note 29): the pricer's before, after and currency.
 builder.Services.AddSingleton<IShortFormCatalog, PortfolioShortForms>();

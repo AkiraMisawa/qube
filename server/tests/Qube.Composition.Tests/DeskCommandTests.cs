@@ -28,7 +28,8 @@ public class DeskCommandTests(QubeFactory factory) : IClassFixture<QubeFactory>
     internal static DeskResultSet Tiny(string hash = "1111111111111111111111111111111111111111111111111111111111111111") => new("tiny", hash,
         new DeskManifest("alpha", "abc123", "synthetic/tiny", new DateOnly(2026, 11, 13), "S0000",
             new Dictionary<string, string> { ["C0001"] = "SYN-LE-0001" },
-            new Dictionary<string, SensitivityPer> { ["zero_rate"] = SensitivityPer.Rate, ["fx_spot"] = SensitivityPer.Level }),
+            new Dictionary<string, SensitivityPer> { ["zero_rate"] = SensitivityPer.Rate, ["fx_spot"] = SensitivityPer.Level })
+        { HedgeCurves = new Dictionary<string, string> { ["JPY"] = "JPY-OIS" } },
         [new("C0001", "SYN-LE-0001"), new("C0002", null)],
         [
             new("S0000", "C0001", "CVA", -1200.5, 30), new("S0000", "C0001", "FVA", -300, 10), new("S0000", "C0001", "ColVA", 0, 0),
@@ -42,7 +43,13 @@ public class DeskCommandTests(QubeFactory factory) : IClassFixture<QubeFactory>
             new("S0000", "C0001", "CVA", "fx_notional_delta", "USD", "JPY_amount", -60000),
             new("S0001", "C0001", "CVA", "zero_rate", "JPY-OIS", "1826d", 7),
         ],
-        [new("S0000", "T1", "C0001", "C0001-MA1", 12.5, 0)]);
+        [new("S0000", "T1", "C0001", "C0001-MA1", 12.5, 0)])
+    {
+        Curves = new Dictionary<string, DeskCurve>
+        {
+            ["JPY-OIS"] = new("JPY-OIS", [new("365d", 365, 0.99), new("1826d", 1826, 0.94), new("3652d", 3652, 0.86), new("7305d", 7305, 0.70)]),
+        },
+    };
 
     (WebApplicationFactory<Program> Host, HttpClient Client) Desk(string? configured = "tiny", params DeskResultSet[] sets)
     {
@@ -175,5 +182,82 @@ public class DeskCommandTests(QubeFactory factory) : IClassFixture<QubeFactory>
 
         Assert.Equal((HttpStatusCode.UnprocessableEntity, "NotFound"), (status, code));
         Assert.Contains("nothing", message);
+    }
+
+    // ADR-0019 §2: a what-if hedge is an entity the workspace makes, in the one log.
+
+    const string TenYearPayer = "jpy 10y 1bn pay 1.5%";
+
+    static Task<HttpResponseMessage> NewHedge(HttpClient client, string workspaceId, string terms) =>
+        Command(client, "entity.create", new JsonObject { ["product"] = DeskProducts.Irs, ["workspaceId"] = workspaceId, ["terms"] = terms });
+
+    static async Task<string[]> Hedges(HttpClient client, string workspaceId) =>
+        [.. (await Read(client, workspaceId, "desk.hedges", "currency"))["rows"]!.AsArray().Select(r => r!["key"]!.GetValue<string>())];
+
+    [Fact]
+    public async Task A_swap_made_from_its_short_terms_is_a_row_of_the_log_and_undo_takes_it_back()
+    {
+        var (host, client) = Desk();
+        var id = (await NewWorkspace(client))["workspaceId"]!.GetValue<string>();
+
+        var made = (await Ok(await NewHedge(client, id, TenYearPayer)))["outputs"]!["entity"]!["entity"]!.GetValue<string>();
+
+        Assert.Equal("H1", made);
+        var row = (await Read(client, id, "desk.hedges", "product", "end", "currency", "notional", "direction", "rate"))["rows"]!.AsArray().Single()!;
+        Assert.Equal(new[] { "irs", "10y", "JPY", "1bn", "pay", "1.5%" }, row["cells"]!.AsArray().Select(c => c!.GetValue<string>()));
+        var log = host.Services.GetRequiredService<WorkspaceService>().Find(id)!.Log;
+        Assert.Contains(log, e => e.Kind == EditKind.Create && e.Target is { Scope: DeskHedges.Scope, Entity: "H1" });
+
+        // The page's door: it names the revision it saw, where the agent's names the command.
+        await Ok(await client.PostAsJsonAsync("/api/commands/workspace.undo/1.0.0", new
+        {
+            inputs = new JsonObject { ["request"] = new JsonObject { ["workspaceId"] = id, ["revision"] = log[^1].Seq } },
+            idempotencyKey = Guid.NewGuid().ToString(),
+        }));
+
+        Assert.Empty(await Hedges(client, id));
+    }
+
+    [Fact]
+    public async Task A_hedge_is_changed_and_removed_through_the_tables_verbs()
+    {
+        var (_, client) = Desk();
+        var id = (await NewWorkspace(client))["workspaceId"]!.GetValue<string>();
+        await Ok(await NewHedge(client, id, TenYearPayer));
+
+        await Ok(await Command(client, "entity.set", new JsonObject { ["workspaceId"] = id, ["table"] = "desk.hedges", ["rows"] = "H1", ["set"] = "notional=2bn" }));
+        var notional = (await Read(client, id, "desk.hedges", "notional"))["rows"]![0]!["cells"]![0]!.GetValue<string>();
+        await Ok(await Command(client, "entity.remove", new JsonObject { ["workspaceId"] = id, ["table"] = "desk.hedges", ["rows"] = "H1" }));
+
+        Assert.Equal("2bn", notional);
+        Assert.Empty(await Hedges(client, id));
+        // A name is never given twice: the next hedge is H2, though H1 is gone.
+        Assert.Equal("H2", (await Ok(await NewHedge(client, id, TenYearPayer)))["outputs"]!["entity"]!["entity"]!.GetValue<string>());
+    }
+
+    [Fact] // ADR-0019 §7: a hedge whose risk the provider cannot answer is not made
+    public async Task A_hedge_in_a_currency_whose_curve_the_result_set_does_not_hold_is_refused_by_name()
+    {
+        var (_, client) = Desk();
+        var id = (await NewWorkspace(client))["workspaceId"]!.GetValue<string>();
+
+        var response = await NewHedge(client, id, "usd 10y 1bn pay 1.5%");
+
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        Assert.Contains("declares no curve for a hedge in USD", await response.Content.ReadAsStringAsync());
+        Assert.Empty(await Hedges(client, id));
+    }
+
+    [Fact]
+    public async Task A_change_that_leaves_no_swap_is_refused_and_the_hedge_stays_as_it_was()
+    {
+        var (_, client) = Desk();
+        var id = (await NewWorkspace(client))["workspaceId"]!.GetValue<string>();
+        await Ok(await NewHedge(client, id, TenYearPayer));
+
+        var response = await Command(client, "entity.set", new JsonObject { ["workspaceId"] = id, ["table"] = "desk.hedges", ["rows"] = "H1", ["set"] = "currency=usd" });
+
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        Assert.Equal("JPY", (await Read(client, id, "desk.hedges", "currency"))["rows"]![0]!["cells"]![0]!.GetValue<string>());
     }
 }

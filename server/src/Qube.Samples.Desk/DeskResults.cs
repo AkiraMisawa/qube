@@ -24,7 +24,20 @@ public sealed record DeskManifest(
     DateOnly ValuationDate,
     string BaseScenario,
     IReadOnlyDictionary<string, string> LegalEntities,
-    IReadOnlyDictionary<string, SensitivityPer> Units);
+    IReadOnlyDictionary<string, SensitivityPer> Units)
+{
+    /// <summary>
+    /// The curve of the input set a hedge in a currency is valued on and has its risk on, by currency, as the adapter
+    /// declares it. A currency it does not name has none, and a hedge in it is refused (ADR-0019 §7).
+    /// </summary>
+    public IReadOnlyDictionary<string, string> HedgeCurves { get; init; } = new Dictionary<string, string>();
+}
+
+/// <summary>A curve of the input set as the engine read it: discount factors at days from the valuation date, in order.</summary>
+public sealed record DeskCurve(string Name, IReadOnlyList<DeskCurveNode> Nodes);
+
+/// <param name="Key">The node as the engine's sensitivities name it (<c>1826d</c>).</param>
+public sealed record DeskCurveNode(string Key, int Days, double DiscountFactor);
 
 /// <summary>A counterparty of the results. A null legal entity is one the manifest's mapping does not hold: it is
 /// shown as unmapped by its code, never given an entity (ADR-0019 §7).</summary>
@@ -49,6 +62,9 @@ public sealed record DeskResultSet(
     IReadOnlyList<DeskSensitivity> Sensitivities,
     IReadOnlyList<DeskTrade> Trades)
 {
+    /// <summary>The input set's curves the result set carries, by name; none where it carries none.</summary>
+    public IReadOnlyDictionary<string, DeskCurve> Curves { get; init; } = new Dictionary<string, DeskCurve>();
+
     /// <summary>The declared unit of a kind, or null when the result set declares none.</summary>
     public SensitivityPer? UnitOf(string kind) =>
         Manifest.Units.TryGetValue(kind, out var per) ? per : null;

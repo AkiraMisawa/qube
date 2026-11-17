@@ -9,13 +9,15 @@ namespace Qube.Samples.Desk;
 /// The book's tables (ADR-0019 §2, ADR-0016 §1): the values and the first-order sensitivities of the base scenario, as
 /// the engine wrote them and with its signs (ADR-0019 §9). They are read-only: a write of any kind is refused by name.
 /// </summary>
-public sealed class DeskTables : ITableCatalog
+public sealed class DeskTables(IHedgeRisk provider) : ITableCatalog
 {
+    public const string Hedges = "desk.hedges";
+
     public const string Version = "1.0.0";
     public const string Values = "desk.values";
     public const string Risk = "desk.risk";
 
-    public IEnumerable<IWorkspaceTable> Tables { get; } = [new ValueTable(), new RiskTable()];
+    public IEnumerable<IWorkspaceTable> Tables { get; } = [new ValueTable(), new RiskTable(), new HedgeTable(provider)];
 
     static string Unit(SensitivityPer? per) => per switch
     {
@@ -102,5 +104,59 @@ public sealed class DeskTables : ITableCatalog
                 ["per"] = book.Set.UnitOf(s.Kind) is { } per ? Unit(per) : null,
             }))];
         }
+    }
+
+    /// <summary>
+    /// The what-if hedges (ADR-0019 §2): rows the workspace made, each marked hypothetical by being here at all. A write
+    /// is checked as the making is: the terms after it must describe a swap whose risk the provider answers.
+    /// </summary>
+    sealed class HedgeTable(IHedgeRisk provider) : IWorkspaceTable
+    {
+        static readonly TableDescriptor Descriptor = new(Hedges, Version, DeskEditRules.App, "What-if hedges", ["hedges", "hedge"], "id",
+        [
+            new("id", "Hedge", ["id"], FieldForm.Id),
+            new(DeskHedges.Product, "Product", [DeskHedges.Product], FieldForm.Id),
+            new(DeskHedges.End, "End", [DeskHedges.End], FieldForm.PeriodOrDate, Editable: true),
+            new(DeskHedges.Currency, "Currency", [DeskHedges.Currency, "ccy"], FieldForm.Choice, Editable: true, Choices: DeskProducts.Currencies),
+            new(DeskHedges.Notional, "Notional", [DeskHedges.Notional], FieldForm.Amount, Editable: true, UnitField: DeskHedges.Currency),
+            new(DeskHedges.Direction, "Direction", [DeskHedges.Direction], FieldForm.Choice, Editable: true, Choices: DeskProducts.Directions),
+            new(DeskHedges.Rate, "Fixed rate", [DeskHedges.Rate], FieldForm.Percent, Editable: true),
+        ], [], Actions: [new("Remove hedge", "remove selected")]);
+
+        public string TableId => Hedges;
+        public string App => DeskEditRules.App;
+        public TableDescriptor Describe(WorkspaceState state) => Descriptor;
+        public DateOnly? AsOf(WorkspaceState state) => DeskBookSource.Of(state).Set.Manifest.ValuationDate;
+
+        public IReadOnlyList<ITableRow> Rows(WorkspaceState state) => [.. DeskHedges.In(state).Select(c =>
+        {
+            var cells = DeskHedges.Fields(state, c.Entity).ToDictionary(f => f.Key, f => f.Value);
+            cells["id"] = c.Entity;
+            return (ITableRow)new Row(c.Entity, cells);
+        })];
+
+        public IReadOnlyList<WorkspaceChange> Set(WorkspaceState state, ITableRow row, TableField field, JsonNode? value)
+        {
+            var fields = DeskHedges.Fields(state, row.Key).ToDictionary(f => f.Key, f => f.Value);
+            fields[field.Name] = value;
+            var book = DeskBookSource.Of(state).Set;
+            var (swap, issues) = DeskHedges.Read(row.Key, fields, book.Manifest.ValuationDate);
+            if (swap is null) throw new WorkspaceRefused("InvalidValue", $"{row.Key}: {string.Join(" ", issues)}");
+            try
+            {
+                provider.Risk(swap, book);
+            }
+            catch (HedgeRiskRefused refused)
+            {
+                throw new WorkspaceRefused(refused.Code, $"{row.Key}: {refused.Message}");
+            }
+            return [new WorkspaceChange.Set(new EditTarget(DeskHedges.Scope, row.Key, field.Name), value)];
+        }
+
+        public IReadOnlyList<WorkspaceChange> Reset(WorkspaceState state, ITableRow row, TableField? field) =>
+            [.. state.Overrides.Keys.Where(t => t.Scope == DeskHedges.Scope && t.Entity == row.Key && (field is null || t.Field == field.Name))
+                .OrderBy(t => t.Field, StringComparer.Ordinal).Select(t => new WorkspaceChange.Reset(t))];
+
+        public IReadOnlyList<WorkspaceChange> Remove(WorkspaceState state, ITableRow row) => [new WorkspaceChange.Remove(row.Key)];
     }
 }

@@ -50,13 +50,41 @@ public sealed class DeskResultFiles(string root) : IDeskResults
             .Select(code => new DeskCounterparty(code, manifest.LegalEntities.TryGetValue(code, out var entity) ? entity : null))
             .ToList();
 
-        return new DeskResultSet(reference, Hash(bytes), manifest, counterparties, values, sensitivities, trades);
+        // The input set's curves, where the result set carries them: curves/<name>.csv, discount factors by days.
+        var curves = new Dictionary<string, DeskCurve>(StringComparer.Ordinal);
+        var curveDirectory = Path.Combine(directory, CurveDirectory);
+        if (Directory.Exists(curveDirectory))
+            foreach (var path in Directory.GetFiles(curveDirectory, "*.csv").Order(StringComparer.Ordinal))
+            {
+                var file = $"{CurveDirectory}/{Path.GetFileName(path)}";
+                bytes[file] = File.ReadAllBytes(path);
+                var name = Path.GetFileNameWithoutExtension(path);
+                curves[name] = new DeskCurve(name, [.. Table.Parse(file, bytes[file], ["tenor", "discount_factor"]).Select(r => Node(file, r))]);
+            }
+        foreach (var (currency, curve) in manifest.HedgeCurves)
+            if (!curves.ContainsKey(curve))
+                throw new DeskResultsRefused(DeskResultsRefusal.FileMissing,
+                    $"Result set '{reference}' declares {curve} for hedges in {currency} and has no {CurveDirectory}/{curve}.csv.");
+
+        return new DeskResultSet(reference, Hash(bytes), manifest, counterparties, values, sensitivities, trades) { Curves = curves };
+    }
+
+    const string CurveDirectory = "curves";
+
+    static DeskCurveNode Node(string file, Table.Row row)
+    {
+        var key = row.Text(0);
+        if (!key.EndsWith('d') || !int.TryParse(key.AsSpan(0, key.Length - 1), NumberStyles.None, CultureInfo.InvariantCulture, out var days) || days <= 0)
+            throw new DeskResultsRefused(DeskResultsRefusal.RowUnreadable, $"{file}: the tenor '{key}' is not a number of days such as 1826d.");
+        var df = row.Number(1);
+        return df > 0 ? new DeskCurveNode(key, days, df)
+            : throw new DeskResultsRefused(DeskResultsRefusal.NumberUnreadable, $"{file}: the discount factor at {key} is {df}, which is not more than 0.");
     }
 
     static string Hash(Dictionary<string, byte[]> bytes)
     {
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-        foreach (var file in Files)
+        foreach (var file in bytes.Keys.Order(StringComparer.Ordinal))
         {
             hash.AppendData(Encoding.UTF8.GetBytes(file + "\n"));
             hash.AppendData(SHA256.HashData(bytes[file]));
@@ -134,7 +162,20 @@ public sealed class DeskResultFiles(string root) : IDeskResults
             }
         }
 
-        return new DeskManifest(engine, commit, inputSet, date, baseScenario, entities, units);
+        var hedgeCurves = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (root.TryGetProperty("hedgeCurves", out var hedges))
+        {
+            if (hedges.ValueKind != JsonValueKind.Object)
+                throw new DeskResultsRefused(DeskResultsRefusal.ManifestUnreadable,
+                    $"Result set '{reference}': {ManifestFile}'s 'hedgeCurves' is not an object.");
+            foreach (var entry in hedges.EnumerateObject())
+                hedgeCurves[entry.Name] = entry.Value.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(entry.Value.GetString())
+                    ? entry.Value.GetString()!
+                    : throw new DeskResultsRefused(DeskResultsRefusal.ManifestUnreadable,
+                        $"Result set '{reference}': {ManifestFile} names no curve for hedges in {entry.Name}.");
+        }
+
+        return new DeskManifest(engine, commit, inputSet, date, baseScenario, entities, units) { HedgeCurves = hedgeCurves };
     }
 
     static DeskResultsRefused UnknownUnit(string reference, JsonProperty entry) =>

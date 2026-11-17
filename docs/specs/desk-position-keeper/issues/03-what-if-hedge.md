@@ -1,6 +1,6 @@
 # 03 A what-if hedge and its risk
 
-Status: ready-for-agent
+Status: done
 
 **Blocked by:** 02.
 
