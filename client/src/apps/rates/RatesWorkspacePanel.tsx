@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
-import { Alert, Badge, Button, Group, Stack, Table, Text } from '@mantine/core';
+import './rates.css';
+import { Alert, Badge, Button, Group, SegmentedControl, Stack, Table, Text } from '@mantine/core';
+import { formatAmount, isLoss } from '../../platform/grid/amounts';
 import { GridSource, type CellPosition, type GridActionEvent, type GridColumn, type GridContextMenuContext, type GridEditIntent, type GridRefusal, type GridSelection, type HeaderGroupToggle } from '@ex-grid/core';
 import type { ExGridApi } from '@ex-grid/react';
 import { QubeGrid } from '../../platform/grid/QubeGrid';
@@ -25,7 +27,7 @@ import { isElement } from '../../platform/elements';
 import {
   FOLDED, PINNED_COLUMNS, defaultsSaid, headerTiers, lineCellMessage, lineResult, lineCellState, lineColumns, hiddenEdits, lineHeaderGroups, lineRows, openedAt, parserOf, periodCellState,
   lineFieldTitle, periodColumns, periodFieldTitle, periodParserOf, toggled, type HiddenEdits, type LineLayout, type LineRow,
-  ADDED_PRODUCTS, NO_LINE_YET, ROW_LEFT, blankRows, isBlank, linesIn, linesOnly, madeLinesCame, rowKey, rowsPx, typedInBlankRow, type LineGridRow,
+  ADDED_PRODUCTS, NO_LINE_YET, riskLadder, type RiskKind, ROW_LEFT, blankRows, isBlank, linesIn, linesOnly, madeLinesCame, rowKey, rowsPx, typedInBlankRow, type LineGridRow,
 } from './lines';
 
 // The fixed Rates line pricer (docs/07, C37 to C43): one line per trade in ExGrid, its terms sparse, its
@@ -84,6 +86,7 @@ function groupsOf(layout: LineLayout, hides: HiddenEdits) {
 // so a page left and come back to is as it was, and the line whose cashflows are open.
 const OPENED = panelKey<LineLayout>('rates.opened');
 const DETAIL = panelKey<string | undefined>('rates.detail');
+const RISK_KIND = panelKey<RiskKind>('rates.riskKind');
 
 /** A market snapshot as a Run's panel is titled by it: what follows its last colon. */
 const snapshotTail = (snapshotId: string) => snapshotId.slice(snapshotId.lastIndexOf(':') + 1);
@@ -490,6 +493,7 @@ export function RatesWorkspacePanel({ panelId, workspaceId, api }: { readonly pa
       </Group>
       <HeldEdits conflicts={ws.conflicts} lost={ws.lost} resolve={(held, resolution) => void queue.push({ kind: 'resolve', held, resolution })} />
       <ResultStrip row={(focusLine === undefined ? undefined : shownRows?.get(focusLine)) ?? (everyRow.length === 1 ? everyRow[0] : undefined)} />
+      <RiskPanel row={(focusLine === undefined ? undefined : shownRows?.get(focusLine)) ?? (everyRow.length === 1 ? everyRow[0] : undefined)} />
       <GridFilterLine said={filter} grid="the lines" onOff={filterOff} />
       <div aria-label="Lines" onFocusCapture={() => { screen.current = lineScreen; }}>
         <QubeGrid<LineGridRow> ref={grid} columns={columns} onColumnWidthChanged={onColumnWidthChanged} headerGroups={groups} source={source}
@@ -527,6 +531,62 @@ function ResultStrip({ row }: { readonly row: LineRow | undefined }) {
       {r.par !== undefined && <Text size="sm" data-testid="line-result-par">{r.parLabel} {r.par}</Text>}
       {r.issues !== undefined && <Text size="xs" c="red" data-testid="line-result-issues">{r.issues}</Text>}
     </Group>
+  );
+}
+
+const RISK_KINDS = [{ value: 'par', label: 'Par' }, { value: 'zero', label: 'Zero' }];
+
+/**
+ * The focused line's deltas per curve pillar, par (to the curve's quotes) or zero (to its zero rates), par by
+ * default (owner, 2026-11-17). A kind the provider did not return says so; it is never drawn as zeros.
+ */
+function RiskPanel({ row }: { readonly row: LineRow | undefined }) {
+  const [kind, setKind] = usePanelState(RISK_KIND, 'par');
+  const risk = row?.figures?.risk;
+  if (row === undefined || risk === undefined) return null;
+  const ladder = riskLadder(risk[kind]);
+  const title = kind === 'par' ? 'Par delta' : 'Zero delta';
+  return (
+    <Stack gap={4} data-testid="line-risk" data-kind={kind}>
+      <Group gap="sm" wrap="wrap">
+        <SegmentedControl size="xs" data={RISK_KINDS} value={kind} onChange={(v) => setKind(v as RiskKind)} aria-label="Delta kind" />
+        {ladder !== undefined && <Text size="xs" c="dimmed">{title} of {row.line}, {ladder.unit}{row.figuresStale ? ' · older revision' : ''}</Text>}
+      </Group>
+      {ladder === undefined
+        ? <Text size="sm" data-testid="line-risk-none">The provider returned no {title.toLowerCase()} for {row.line}.</Text>
+        : (
+          <div className="qube-rates-risk">
+            {/* Tenors across and curves down, as a ladder is read, so a line's risk takes a few rows above the grid. */}
+            <Table withTableBorder withColumnBorders verticalSpacing={2} horizontalSpacing="sm" fz="sm" w="auto" aria-label={`${title} of ${row.line}`}>
+              <Table.Thead>
+                <Table.Tr>
+                  <Table.Th>Curve</Table.Th>
+                  {ladder.rows.map((r) => <Table.Th key={r.tenor} className="qube-number">{r.tenor}</Table.Th>)}
+                  <Table.Th className="qube-number">Total</Table.Th>
+                </Table.Tr>
+              </Table.Thead>
+              <Table.Tbody>
+                {ladder.curves.map((curve, i) => (
+                  <Table.Tr key={curve}>
+                    <Table.Th scope="row" fw={400}>{curve}</Table.Th>
+                    {ladder.rows.map((r) => <RiskCell key={r.tenor} value={r.values[i]} label={`${title} ${curve} ${r.tenor}`} />)}
+                    <RiskCell value={ladder.totals[i]} label={`${title} ${curve} total`} strong />
+                  </Table.Tr>
+                ))}
+              </Table.Tbody>
+            </Table>
+          </div>
+        )}
+    </Stack>
+  );
+}
+
+/** A delta, grouped in threes and red when negative; empty where the curve has no such pillar, never 0. */
+function RiskCell({ value, label, strong = false }: { readonly value: number | undefined; readonly label: string; readonly strong?: boolean }) {
+  const text = value === undefined ? '' : formatAmount(value);
+  return (
+    <Table.Td className="qube-number" fw={strong ? 600 : 400} aria-label={`${label}: ${text === '' ? 'none' : text}`}
+      {...(value !== undefined && isLoss(value) ? { 'data-negative': true } : {})}>{text}</Table.Td>
   );
 }
 

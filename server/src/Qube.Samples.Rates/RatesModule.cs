@@ -131,7 +131,7 @@ public static class RatesResults
                     o["parLeg"] = line.ParLeg;
                 }
             rows.Add(o);
-            foreach (var (name, m) in row.Measures.Where(m => m.Key.StartsWith("delta:", StringComparison.Ordinal)).OrderBy(m => m.Key, StringComparer.Ordinal))
+            foreach (var (name, m) in row.Measures.Where(m => m.Key.StartsWith("delta:", StringComparison.Ordinal) || m.Key.StartsWith("zero:", StringComparison.Ordinal)).OrderBy(m => m.Key, StringComparer.Ordinal))
                 risk.Add(new() { ["line"] = line.RowKey, ["measure"] = name, ["value"] = m.Value, ["unit"] = m.Unit });
         }
         foreach (var left in notPriced)

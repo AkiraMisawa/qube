@@ -800,3 +800,34 @@ test('ADR-0015 note of 2026-11-14: a line made in a blank row keeps the keyboard
   await page.keyboard.press('Escape');
   await expect(end(4)).toHaveText('');
 });
+
+// The owner's switch of 2026-11-17: a line that asks for risk shows its deltas per curve pillar under the result
+// strip, tenors across and curves down, par by default and zero on the switch. The simulated provider returns par deltas only, so Zero says that
+// none came back rather than show zeros (CLAUDE.md, no fallback).
+test('owner 2026-11-17: a line with risk shows its par deltas by default, and Zero says the provider returned none', async ({ page }) => {
+  await open(page);
+  await newWorkspace(page);
+  await taken(page, 'new', 'irs jpy 10mm 10y pay');
+  await settled(page, 'Lines');
+  await page.keyboard.press('ControlOrMeta+Shift+G');
+  await page.keyboard.press('ControlOrMeta+Home');
+  await taken(page, 'set', 'risk true');
+  await page.getByTestId('live-toggle').click();
+  await expect(page.getByTestId('line-result-status')).toHaveText('priced');
+
+  const risk = page.getByTestId('line-risk');
+  await expect(risk).toHaveAttribute('data-kind', 'par');
+  const ladder = risk.getByRole('table', { name: /^Par delta of L\d+$/ });
+  await expect(ladder.getByRole('rowheader', { name: 'JPY/TONA' })).toBeVisible();
+  await expect(ladder.getByRole('columnheader', { name: 'Total' })).toBeVisible();
+  // A 10y payer gains as its rates rise; a negative figure is red (C48), a positive one is not.
+  await expect(ladder.getByRole('cell', { name: /^Par delta JPY\/TONA 10y: [\d,]+$/ })).not.toHaveAttribute('data-negative');
+  const negative = ladder.getByRole('cell', { name: /: -[\d,]+$/ });
+  await expect(ladder.locator('td[data-negative]')).toHaveCount(await negative.count());
+  if (process.env.QUBE_SCREENS !== undefined) await page.screenshot({ path: `${process.env.QUBE_SCREENS}/rates-par-delta.png` });
+
+  await risk.getByText('Zero', { exact: true }).click();
+  await expect(risk).toHaveAttribute('data-kind', 'zero');
+  await expect(page.getByTestId('line-risk-none')).toHaveText(/^The provider returned no zero delta for L\d+\.$/);
+  if (process.env.QUBE_SCREENS !== undefined) await page.screenshot({ path: `${process.env.QUBE_SCREENS}/rates-zero-delta.png` });
+});

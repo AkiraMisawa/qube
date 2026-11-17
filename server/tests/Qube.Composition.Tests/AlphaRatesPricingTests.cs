@@ -128,4 +128,21 @@ public class AlphaRatesPricingTests
         var provider = Provider(new ScriptedChannel(_ => throw new IOException("worker exited")));
         await Assert.ThrowsAsync<IOException>(() => provider.PriceBatchAsync(Batch(1, Line()), CancellationToken.None));
     }
+
+    [Fact]
+    public void The_risk_dataset_carries_zero_deltas_beside_par_deltas_so_a_run_keeps_both_the_page_switches_between()
+    {
+        var line = Line();
+        var result = new RatesBatchResult("alpha-rates", AlphaRatesPricing.Mode, [new(line.RowKey, new Dictionary<string, Measure>
+        {
+            [Measures.Pv] = new(1, "JPY"),
+            ["delta:JPY/TONA:10y"] = new(-2, "JPY/bp"),
+            ["zero:JPY-OIS:10y"] = new(-3, "JPY/bp"),
+        }, null)]);
+
+        var (_, risk) = RatesResults.Datasets(result, [line], [], new MarketUpdate(1, "m:1", DateTimeOffset.UnixEpoch, "synthetic"), "inv");
+
+        var measures = risk["rows"]!.AsArray().Select(r => (string)r!["measure"]!).ToList();
+        Assert.Equal(["delta:JPY/TONA:10y", "zero:JPY-OIS:10y"], measures);
+    }
 }

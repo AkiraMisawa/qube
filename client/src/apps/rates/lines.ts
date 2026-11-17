@@ -5,7 +5,7 @@ import { parseFlag, parseNumber, type Parsed } from '../xva/editing';
 import { amountTone, formatAmount } from '../../platform/grid/amounts';
 import { compactRowPx } from '../../platform/grid/metrics';
 import type { LineView as CommandLineView } from '../../platform/contracts';
-import type { LineView, LiveFrame, PeriodView, RatesWorkspaceView } from './contracts';
+import type { LineView, LiveFrame, Measure, PeriodView, RatesWorkspaceView } from './contracts';
 
 // The line grid's model (C40, C43): a line's flat fields as columns, the second level of each leg shown on
 // request, and the latest figures beside them. Only the form of what was typed is checked here; whether the
@@ -20,10 +20,28 @@ export interface LineFigures {
   readonly par?: number;
   readonly parMeasure?: string;
   readonly message?: string;
+  /** The deltas the provider returned, if the line asked for risk: par (to quotes) and zero (to zero rates), per bp. */
+  readonly risk?: LineRisk;
   /** The input revision and the market the figures were calculated on. */
   readonly inputRevision: number;
   readonly snapshotId: string;
   readonly mode: string;
+}
+
+/** One delta: a curve's pillar and the change of the PV for 1bp on it. */
+export interface RiskPoint { readonly curve: string; readonly tenor: string; readonly value: number; readonly unit: string }
+
+/** The deltas of a line by kind; a kind the provider did not return is empty, never filled with zeros. */
+export interface LineRisk { readonly par: readonly RiskPoint[]; readonly zero: readonly RiskPoint[] }
+
+export type RiskKind = keyof LineRisk;
+
+/** A kind's deltas as a ladder: tenors in time order down, curves across, a total per curve. */
+export interface RiskLadder {
+  readonly curves: readonly string[];
+  readonly unit: string;
+  readonly rows: readonly { readonly tenor: string; readonly values: readonly (number | undefined)[] }[];
+  readonly totals: readonly number[];
 }
 
 /** A row of the line grid that is a line: the line, and its figures if a frame has any. */
@@ -688,6 +706,7 @@ export function figuresOf(frame: LiveFrame): ReadonlyMap<string, LineFigures> {
       ...base, status: 'priced',
       ...(pv === undefined ? {} : { pv: pv.value, pvCurrency: pv.unit }),
       ...(parName === undefined ? {} : { par: row.measures[parName]!.value, parMeasure: parName }),
+      ...riskOf(row.measures),
     });
   }
   for (const left of frame.notPriced) out.set(left.line, { ...base, status: 'notPriced' });
@@ -712,7 +731,49 @@ export function lineRows(lines: readonly LineView[], revision: number, frame: Li
 }
 
 function sameFigures(a: LineFigures, b: LineFigures): boolean {
-  return a.status === b.status && a.pv === b.pv && a.par === b.par && a.message === b.message && a.inputRevision === b.inputRevision && a.snapshotId === b.snapshotId;
+  return a.status === b.status && a.pv === b.pv && a.par === b.par && a.message === b.message && a.inputRevision === b.inputRevision && a.snapshotId === b.snapshotId
+    && samePoints(a.risk?.par, b.risk?.par) && samePoints(a.risk?.zero, b.risk?.zero);
+}
+
+function samePoints(a: readonly RiskPoint[] | undefined, b: readonly RiskPoint[] | undefined): boolean {
+  if (a === undefined || b === undefined) return a === b;
+  return a.length === b.length && a.every((p, i) => p.curve === b[i]!.curve && p.tenor === b[i]!.tenor && p.value === b[i]!.value && p.unit === b[i]!.unit);
+}
+
+const RISK_PREFIX: Readonly<Record<string, RiskKind>> = { delta: 'par', zero: 'zero' };
+
+/** The measures named `delta:{curve}:{tenor}` (par) and `zero:{curve}:{tenor}`, in the order the server sent them. */
+function riskOf(measures: Readonly<Record<string, Measure>>): { readonly risk?: LineRisk } {
+  const risk: { par: RiskPoint[]; zero: RiskPoint[] } = { par: [], zero: [] };
+  for (const [name, m] of Object.entries(measures)) {
+    const parts = name.split(':');
+    const kind = RISK_PREFIX[parts[0]!];
+    if (kind === undefined || parts.length !== 3) continue;
+    risk[kind].push({ curve: parts[1]!, tenor: parts[2]!, value: m.value, unit: m.unit });
+  }
+  return risk.par.length === 0 && risk.zero.length === 0 ? {} : { risk };
+}
+
+/** A tenor such as 6m or 10y in years, for ordering only; one the server never sends sorts last. */
+function tenorYears(tenor: string): number {
+  const m = /^(\d+)([dwmy])$/i.exec(tenor);
+  if (m === null) return Number.POSITIVE_INFINITY;
+  const n = Number(m[1]);
+  return { d: n / 365, w: (7 * n) / 365, m: n / 12, y: n }[m[2]!.toLowerCase() as 'd' | 'w' | 'm' | 'y'];
+}
+
+/** The ladder of one kind's deltas, or none when the provider returned none of that kind. */
+export function riskLadder(points: readonly RiskPoint[]): RiskLadder | undefined {
+  if (points.length === 0) return undefined;
+  const curves = [...new Set(points.map((p) => p.curve))];
+  const tenors = [...new Set(points.map((p) => p.tenor))].sort((a, b) => tenorYears(a) - tenorYears(b));
+  const at = new Map(points.map((p) => [`${p.curve}\u0000${p.tenor}`, p.value]));
+  return {
+    curves,
+    unit: points[0]!.unit,
+    rows: tenors.map((tenor) => ({ tenor, values: curves.map((c) => at.get(`${c}\u0000${tenor}`)) })),
+    totals: curves.map((c) => points.filter((p) => p.curve === c).reduce((sum, p) => sum + p.value, 0)),
+  };
 }
 
 /** The cashflow grid: one row per period, the user's edits marked. */

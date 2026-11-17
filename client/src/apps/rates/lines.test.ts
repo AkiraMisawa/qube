@@ -2,7 +2,7 @@ import type { LineView, LiveFrame } from './contracts';
 import { gridHeaderRequiredPx } from '@ex-grid/core';
 import {
   FOLDED, blankRows, defaultsSaid, hiddenEdits, isBlank, legOverrides, legSummary, lineCellMessage, lineCellState, lineColumns, lineFieldTitle,
-  lineHeaderGroups, lineResult, lineRows, linesIn, linesOnly, madeLinesCame, openedAt, parserOf, periodFieldTitle, rowKey, rowsPx, toggled, typedInBlankRow,
+  lineHeaderGroups, lineResult, lineRows, riskLadder, linesIn, linesOnly, madeLinesCame, openedAt, parserOf, periodFieldTitle, rowKey, rowsPx, toggled, typedInBlankRow,
   type LineLayout,
 } from './lines';
 
@@ -369,5 +369,58 @@ describe('rows to type in from the start (ADR-0015 note of 2026-11-14)', () => {
       .toEqual({ table: 'rates.lines', keys: ['L1', 'L2'], shown: ['L1'], where: 'end 5y' });
     expect(linesOnly({ table: 'rates.lines', keys: [third], focus: { field: 'end', key: 'L2' } }, held)).toEqual({ table: 'rates.lines', focus: { field: 'end', key: 'L2' } });
     expect(linesOnly({ table: 'rates.lines' }, held)).toEqual({ table: 'rates.lines' });
+  });
+});
+
+describe('the risk of the focused line, par or zero (owner, 2026-11-17: a switch, par by default)', () => {
+  const risky: LiveFrame = {
+    ...frame(7),
+    rows: [{
+      rowKey: 'L2',
+      measures: {
+        pv: { value: 12.5, unit: 'JPY' },
+        'delta:JPY/TONA:10y': { value: -9000, unit: 'JPY/bp' },
+        'delta:JPY/TONA:6m': { value: 40, unit: 'JPY/bp' },
+        'delta:USD@JPY:10y': { value: 5, unit: 'JPY/bp' },
+        'zero:JPY-OIS:1y': { value: 12, unit: 'JPY/bp' },
+      },
+    }],
+  };
+
+  it('reads par deltas and zero deltas apart, each by curve and tenor', () => {
+    const [row] = lineRows([line('L2')], 7, risky, new Map());
+    expect(row!.figures!.risk).toEqual({
+      par: [
+        { curve: 'JPY/TONA', tenor: '10y', value: -9000, unit: 'JPY/bp' },
+        { curve: 'JPY/TONA', tenor: '6m', value: 40, unit: 'JPY/bp' },
+        { curve: 'USD@JPY', tenor: '10y', value: 5, unit: 'JPY/bp' },
+      ],
+      zero: [{ curve: 'JPY-OIS', tenor: '1y', value: 12, unit: 'JPY/bp' }],
+    });
+  });
+
+  it('lays a kind out as tenors in time order down and curves across, with totals, leaving a missing pillar empty', () => {
+    const [row] = lineRows([line('L2')], 7, risky, new Map());
+    expect(riskLadder(row!.figures!.risk!.par)).toEqual({
+      curves: ['JPY/TONA', 'USD@JPY'],
+      unit: 'JPY/bp',
+      rows: [{ tenor: '6m', values: [40, undefined] }, { tenor: '10y', values: [-9000, 5] }],
+      totals: [-8960, 5],
+    });
+  });
+
+  it('gives no ladder for a kind the provider did not return, rather than a ladder of zeros', () => {
+    expect(riskLadder([])).toBeUndefined();
+    const [row] = lineRows([line('L2')], 7, frame(7), new Map());
+    expect(row!.figures!.risk).toBeUndefined();
+  });
+
+  it('repaints a row whose risk moved even when its PV did not', () => {
+    const [before] = lineRows([line('L2')], 7, risky, new Map());
+    const moved: LiveFrame = { ...risky, rows: [{ rowKey: 'L2', measures: { ...risky.rows[0]!.measures, 'delta:JPY/TONA:6m': { value: 41, unit: 'JPY/bp' } } }] };
+    const [after] = lineRows([before!.view], 7, moved, new Map([['L2', before!]]));
+    expect(after).not.toBe(before);
+    const [same] = lineRows([before!.view], 7, risky, new Map([['L2', before!]]));
+    expect(same).toBe(before);
   });
 });
