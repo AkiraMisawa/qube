@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Alpha for Rates</title>
+<style>
+:root{--bg:#fbfbf9;--fg:#1d1f21;--muted:#5b6066;--line:#d9dcdf;--card:#ffffff;--accent:#1f5fa8;--good:#1d7a46;--warn:#9a5b00;--bad:#b3261e;--code:#f1f2f0}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#16181a;--fg:#e6e7e8;--muted:#a3a8ad;--line:#33373b;--card:#1e2124;--accent:#7fb0ec;--good:#6cc58f;--warn:#e0a84a;--bad:#f08a80;--code:#25292c}}
+:root[data-theme="dark"]{--bg:#16181a;--fg:#e6e7e8;--muted:#a3a8ad;--line:#33373b;--card:#1e2124;--accent:#7fb0ec;--good:#6cc58f;--warn:#e0a84a;--bad:#f08a80;--code:#25292c}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.75 system-ui,-apple-system,sans-serif}
+main{max-width:920px;margin:0 auto;padding:28px 16px 64px}
+h1{font-size:1.6rem;margin:0 0 4px}h2{font-size:1.2rem;margin:36px 0 10px;padding-top:10px;border-top:1px solid var(--line)}h3{font-size:1.02rem;margin:22px 0 6px}
+.sub{color:var(--muted);margin:0 0 20px}
+.box{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:14px 16px;margin:14px 0}
+.box.key{border-left:4px solid var(--accent)}
+table{border-collapse:collapse;width:100%;margin:10px 0;font-size:.93rem}
+.tw{overflow-x:auto}
+th,td{border:1px solid var(--line);padding:6px 8px;vertical-align:top;text-align:left}
+th{background:var(--code)}
+td.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+code{background:var(--code);padding:1px 4px;border-radius:3px;font-size:.88em}
+.good{color:var(--good);font-weight:600}.warn{color:var(--warn);font-weight:600}.bad{color:var(--bad);font-weight:600}
+ol li,ul li{margin:3px 0}
+.small{font-size:.86rem;color:var(--muted)}
+</style>
+</head>
+<body><main>
+<h1>Using alpha for PV, par rates and risk on the Rates page</h1>
+<p class="sub">Whether qube's Rates page (the one-line IRS and CCS pricer) can use alpha's curve building and flow-table valuation, and a proposal. 2026-11-17. Every figure is synthetic. <a href="alpha-for-rates.html">日本語</a></p>
+
+<div class="box key">
+<p><b>Answer: yes.</b> Not by wiring today's alpha in as it is, though: add one entry to alpha for deterministic (no Monte Carlo) rates valuation, and call it from qube as a <b>persistent worker in a separate process</b>.</p>
+<ul>
+<li>With alpha's pieces (curve building, interpolation, the flow table's approach, the par-delta Jacobian), a 10-year JPY swap takes <b>12 µs for PV, par rate and zero delta on every node</b>. The gradient matched a bump to two decimals.</li>
+<li>The cost is on the curve side. Alpha's reference bootstrap takes <b>1.8 ms</b> for the two JPY curves and <b>24 ms</b> for all eight; the Jacobian for par delta takes <b>12 ms</b> and <b>77 ms</b> (it uses finite differences). Redoing everything on every tick stays near 100 ms, and an analytic Jacobian should bring it to a few ms.</li>
+<li>What is missing is not speed but <b>how trades come in</b> (alpha reads S# expression trees; qube holds an edited cashflow table) and <b>the market's conventions</b> (quote definitions, calendars, spot lag: alpha's bootstrap is a simplified reference).</li>
+</ul>
+</div>
+
+<h2>1. How the Rates page computes today</h2>
+<ul>
+<li>Valuation is one call, <code>IRatesPricingProvider.PriceBatchAsync</code> (<code>server/src/Qube.Samples.Rates/Pricing.cs</code>). The provider in place is <code>FakeRatesPricing</code> (<code>fake-rates/1</code>, every figure <code>simulated</code>): a toy curve of pillar levels in percent, continuously compounded and linearly interpolated, and risk as a 1bp difference per pillar.</li>
+<li>Input per line is the <b>generated and edited cashflow table</b> (each period's start, end, payment date, notional, rate and year fraction, plus notional exchanges), the direction, the leg to solve and the risk flag. Output is <code>pv</code>, <code>parRate</code> or <code>fairSpread</code>, and <code>delta:{curve}:{tenor}</code>.</li>
+<li>Live keeps one calculation in flight with the newest market waiting; no Run per tick. A Price is one Run.</li>
+<li>Rules: the Web server loads no calculation engine (CLAUDE.md, docs/08). For the Position Keeper (ADR-0019 §4) alpha runs as a separate process at a commit pinned in the flake, and an unreachable engine is refused, never replaced by a simulation. A missing value is never filled with a default.</li>
+<li>Still open: each currency's conventions (C41: calendars, day counts, lags) and the list of risk factors (C38).</li>
+</ul>
+
+<h2>2. What alpha has</h2>
+<div class="tw"><table>
+<tr><th>Piece</th><th>Where</th><th>Use on the Rates page</th></tr>
+<tr><td>Reference bootstrap (OIS, index curves, cross-currency; dual curve)</td><td><code>core/engine/bootstrap.hpp</code>, <code>Xva.Engine/Input/Bootstrap.cs</code></td><td>Builds curves from quotes. Simplified definitions (section 4)</td></tr>
+<tr><td>Curve interpolation (<code>log_linear_df</code>, <code>linear_zero</code>) and node weights</td><td><code>Calibration/Curve.cs</code></td><td>Discounting and forwards; the weights are the gradient's weights</td></tr>
+<tr><td>Jacobian dz/dq (implicit function theorem, including the path through base curves)</td><td><code>Bootstrap.Jacobians</code></td><td>Turns zero delta into par delta (sensitivity to quotes)</td></tr>
+<tr><td>Flow table and the valuation-date PV <code>Pv0</code></td><td><code>Cva/FlowTable.cs</code></td><td>Fixed, term rates, compounded RFR (lookback, lockout), payment delay, notional exchanges, NDF</td></tr>
+<tr><td>C++ and C# versions (same results)</td><td><code>core/</code>, <code>csharp-core/</code></td><td>qube is .NET, so the C# version fits</td></tr>
+<tr><td>AAD tape (one node holds all paths)</td><td><code>Xva.Aad</code></td><td>Not needed for deterministic linear products (the gradient is a weighted sum); useful once options come in</td></tr>
+</table></div>
+
+<h2>3. Measurement (spike)</h2>
+<p>A small program calls alpha's <code>Bootstrap.SolveAll</code>, <code>Bootstrap.Jacobians</code> and <code>Curves.Weights</code> as they are, and writes only the swap valuation and its reverse gradient (alpha's flow table needs an expression tree per trade). Data: alpha's <code>data/synthetic/small</code> (valuation 2026-11-13, eight curves of 25 nodes). Xeon 2.1 GHz, .NET 10, Release, TieredPGO off.</p>
+<div class="tw"><table>
+<tr><th>Step</th><th>Time</th><th>Note</th></tr>
+<tr><td>10y JPY swap (annual fixed vs FLT-6M, OIS discounting): PV, par, zero delta on every node</td><td class="n">12 µs</td><td>Per line; 0.3 ms for 20 lines</td></tr>
+<tr><td>Par delta (Jᵀ × zero delta, one curve)</td><td class="n">6 µs</td><td></td></tr>
+<tr><td>Bootstrap: two JPY curves / all eight</td><td class="n">1.8 / 24 ms</td><td>Newton with a finite-difference derivative, rebuilding the curve each time</td></tr>
+<tr><td>Jacobian: two JPY curves / all eight</td><td class="n">12 / 77 ms</td><td>Central differences. Analytic should be a few ms or less (not measured)</td></tr>
+<tr><td>Process start to first result (eight curves and Jacobians)</td><td class="n">about 290 ms</td><td>The floor for starting an exe per call</td></tr>
+</table></div>
+<p>Checked: par 1.845719%; receiver PV at par + 10bp 92,021,962 JPY (notional 10bn). Zero delta at the node before 10y is −122,395.63 JPY/bp from the reverse gradient and from a bump alike. Par delta gathers −9,182,029 JPY/bp on FLT-6M 10y, the size of notional × annuity × 1bp (about 9mm).</p>
+
+<h2>4. What is missing</h2>
+<div class="tw"><table>
+<tr><th>Item</th><th>alpha today</th><th>The Rates page needs</th><th>Size</th></tr>
+<tr><td>Trade entry</td><td>Folds S# expression trees (<code>deals/</code>) into the flow table</td><td>Take qube's edited cashflow table as it is (users change period dates and rates, so this is simpler than regenerating a tree)</td><td class="warn">Medium</td></tr>
+<tr><td>Quote definitions</td><td>Reference: years = days/365, annual fixed, weekends-only calendar, no spot lag</td><td>Each currency's real instruments (OIS, FRA/futures, basis). Until C41 is settled, used with an "unconfirmed" label</td><td class="warn">Medium (depends on conventions)</td></tr>
+<tr><td>Solving for par</td><td>Par is closed form; fair spread is linear too</td><td>Usable as is</td><td class="good">Small</td></tr>
+<tr><td>Averaged RFR (simple daily average)</td><td>Compounded only</td><td>C43's daily-average flag</td><td class="warn">Small to medium</td></tr>
+<tr><td>Term rate in arrears</td><td>None (needs a convexity adjustment)</td><td>C43's in-arrears flag; refused per line until added</td><td class="warn">Medium</td></tr>
+<tr><td>Jacobian speed</td><td>77 ms by differences</td><td>Analytic A = ∂Q/∂z (AAD or by hand) for par delta on every tick</td><td class="good">Small</td></tr>
+<tr><td>Collateral and discounting</td><td>OIS or cross-currency discounting by collateral currency</td><td>Map the line's Collateral field to the curve choice</td><td class="good">Small</td></tr>
+<tr><td>FX</td><td>Spot used as of the valuation date (no settlement lag)</td><td>Converting a CCS's PV to the reporting currency; spot lag once conventions are set</td><td class="good">Small</td></tr>
+<tr><td>Past fixings</td><td><code>fixings.csv</code></td><td>The line's current reset and market fixings; refused when absent</td><td class="good">Small</td></tr>
+<tr><td>Call interface</td><td>Exes that read files</td><td>A resident process that takes a JSON batch and answers</td><td class="warn">Medium</td></tr>
+</table></div>
+
+<h2>5. Ways to connect</h2>
+<div class="tw"><table>
+<tr><th>Option</th><th>What</th><th>One live tick</th><th>Verdict</th></tr>
+<tr><td><b>A. Persistent worker</b></td><td>Add a <code>rates</code> entry to alpha's C# version and keep one process running. qube implements <code>IRatesPricingProvider</code> (<code>AlphaRatesPricing</code>) and sends JSON over local HTTP or stdin/stdout. Curves are built once per market snapshot and kept in the worker</td><td>Curves 2–25 ms + Jacobian (12–77 ms now, a few ms analytic) + tens of µs per line + under 1 ms transport</td><td class="good">Recommended</td></tr>
+<tr><td>B. An exe per call</td><td>As the Position Keeper does: start once per request with files or JSON</td><td>About 300 ms or more each time</td><td class="warn">Enough for Price, slow for live</td></tr>
+<tr><td>C. Reference from qube's Web</td><td>Load alpha's C# library into the Web process</td><td>Fastest</td><td class="bad">Against CLAUDE.md and ADR-0019 §4 (libm P/Invoke, the TieredPGO setting, engine updates tied to Web restarts)</td></tr>
+<tr><td>D. WASM in the browser</td><td>Compute in the browser</td><td>Fast</td><td class="bad">Breaks Run/Price records and provider identity. Not recommended</td></tr>
+<tr><td>E. Port a small pricer to qube</td><td>Write only the swap formulas in qube</td><td>Fast</td><td class="bad">Curves and discounting drift from the XVA side; two engines</td></tr>
+</table></div>
+<p class="small">With A, an unreachable worker shows its lines as not priced and never switches to the fake provider (CLAUDE.md). The label becomes "real engine / synthetic market".</p>
+
+<h2>6. Proposed steps</h2>
+<ol>
+<li><b>alpha</b>: add the deterministic rates entry (TDD). Input: the cashflow table as JSON (legs, periods, exchanges, index, collateral) and quotes. Output: PV, par (or fair spread), zero delta, par delta. Same formulas as the flow table's <code>Pv0</code>, tested to agree with the same trade built from an expression tree. Make the Jacobian analytic. Whether the C++ version gets the same entry is decided later (C# alone is enough at first).</li>
+<li><b>alpha</b>: the resident interface (takes a batch and answers; keeps curves by market snapshot id).</li>
+<li><b>qube</b>: <code>AlphaRatesPricing</code> and starting the worker (commit pinned in the flake). Change the synthetic market from pillar levels to quotes (today's toy curve is not alpha's definition). Return risk as par delta under <code>delta:{curve}:{tenor}</code>.</li>
+<li>When conventions (C41) are settled, replace the quote definitions and calendars with the real ones.</li>
+</ol>
+<p>Steps 1 and 3 in a first form (one JPY swap type, OIS and FLT-6M) look like a few days' work (an estimate). They touch no file the Position Keeper (PR #51) does, so both can go ahead side by side.</p>
+
+<h2>7. Decisions for the owner ("yes" accepts the recommendation)</h2>
+<ol>
+<li>Connect by option A (persistent worker, alpha's C# version)?</li>
+<li>Send qube's cashflow table as it is, without building S# expression trees?</li>
+<li>Rates risk primarily as par delta to curve quotes, with zero delta returned for reference (an answer to C38's list of risk factors)?</li>
+<li>Until conventions are settled, use alpha's reference quote definitions labelled "unconfirmed"?</li>
+<li>Leave averaged RFR and in-arrears term rates out at first, refusing those lines with the reason?</li>
+</ol>
+
+<p class="small">The program used for the measurement: <code>rates/alpha-rates-spike/Program.cs</code> in the project files (built against alpha main 0558823).</p>
+</main></body></html>

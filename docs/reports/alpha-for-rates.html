@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>レーツ画面にalphaを使う</title>
+<style>
+:root{--bg:#fbfbf9;--fg:#1d1f21;--muted:#5b6066;--line:#d9dcdf;--card:#ffffff;--accent:#1f5fa8;--good:#1d7a46;--warn:#9a5b00;--bad:#b3261e;--code:#f1f2f0}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#16181a;--fg:#e6e7e8;--muted:#a3a8ad;--line:#33373b;--card:#1e2124;--accent:#7fb0ec;--good:#6cc58f;--warn:#e0a84a;--bad:#f08a80;--code:#25292c}}
+:root[data-theme="dark"]{--bg:#16181a;--fg:#e6e7e8;--muted:#a3a8ad;--line:#33373b;--card:#1e2124;--accent:#7fb0ec;--good:#6cc58f;--warn:#e0a84a;--bad:#f08a80;--code:#25292c}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.75 system-ui,-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif}
+main{max-width:920px;margin:0 auto;padding:28px 16px 64px}
+h1{font-size:1.6rem;margin:0 0 4px}h2{font-size:1.2rem;margin:36px 0 10px;padding-top:10px;border-top:1px solid var(--line)}h3{font-size:1.02rem;margin:22px 0 6px}
+.sub{color:var(--muted);margin:0 0 20px}
+.box{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:14px 16px;margin:14px 0}
+.box.key{border-left:4px solid var(--accent)}
+table{border-collapse:collapse;width:100%;margin:10px 0;font-size:.93rem}
+.tw{overflow-x:auto}
+th,td{border:1px solid var(--line);padding:6px 8px;vertical-align:top;text-align:left}
+th{background:var(--code)}
+td.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+code{background:var(--code);padding:1px 4px;border-radius:3px;font-size:.88em}
+.good{color:var(--good);font-weight:600}.warn{color:var(--warn);font-weight:600}.bad{color:var(--bad);font-weight:600}
+ol li,ul li{margin:3px 0}
+.small{font-size:.86rem;color:var(--muted)}
+</style>
+</head>
+<body><main>
+<h1>レーツ画面の時価・パーレート・リスクにalphaを使う</h1>
+<p class="sub">qubeのレーツ画面（金利スワップと通貨スワップの1行プライサー）で、alphaのカーブ構築とフロー表の評価を使えるかの調査と提案。2026-11-17。数値はすべて合成データ。<a href="alpha-for-rates.en.html">English</a></p>
+
+<div class="box key">
+<p><b>答え: 使えます。</b>ただし、今のalphaをそのまま繋ぐのではなく、alphaに「確定的な（モンテカルロを使わない）レーツの評価」の入口を1つ足し、qubeからは<b>常駐する別プロセスのワーカー</b>として呼ぶ形を勧めます。</p>
+<ul>
+<li>alphaの部品（カーブ構築、補間、フロー表の考え方、パーデルタのヤコビアン）で10年の円金利スワップを計算すると、<b>PV、パーレート、ゼロデルタ（全節点）で1本12µs</b>でした。勾配はバンプと小数2桁まで一致しました。</li>
+<li>重いのはカーブの側です。今のalphaの参照用ブートストラップは、円の2本で<b>1.8ms</b>、全8本で<b>24ms</b>、パーデルタ用のヤコビアンは円の2本で<b>12ms</b>、8本で<b>77ms</b>（差分で作っているため）。ティックごとに全部やり直しても100ms程度で、解析的なヤコビアンにすれば数msに下がる見込みです。</li>
+<li>足りないのは速さではなく、<b>取引の受け取り方</b>（今のalphaはS#の式木を読む。qubeは編集済みのキャッシュフロー表を持つ）と、<b>市場の約束</b>（クオートの定義、暦、スポットラグなど。alphaのブートストラップは簡略化した参照用）です。</li>
+</ul>
+</div>
+
+<h2>1. qubeのレーツ画面は今どう計算しているか</h2>
+<ul>
+<li>評価は <code>IRatesPricingProvider.PriceBatchAsync</code>（<code>server/src/Qube.Samples.Rates/Pricing.cs</code>）の1か所です。今入っているのは仮の <code>FakeRatesPricing</code>（<code>fake-rates/1</code>、結果はすべて <code>simulated</code>）。おもちゃのカーブ（節点の水準を％で持ち、連続複利で線形補間）で割り引き、リスクは節点ごとに1bp動かした差です。</li>
+<li>入力は、行ごとに<b>生成と編集が済んだキャッシュフロー表</b>（期ごとの開始日・終了日・支払日・元本・レート・年数、元本の交換）と方向、パーを解く脚、リスクの要否です。出力は <code>pv</code>、<code>parRate</code> か <code>fairSpread</code>、<code>delta:{カーブ}:{年限}</code>。</li>
+<li>ライブでは、計算は同時に1つ、最新の市場が1つ待つだけ。ティックごとにRunは作りません。Priceは1回で1つのRunです。</li>
+<li>決まりごと: Webのサーバーは計算エンジンを読み込まない（CLAUDE.md、docs/08）。Position Keeper（ADR-0019 §4）では、alphaは別プロセスでflakeに固定したコミットを使い、届かなければ拒否してシミュレーションに切り替えない、と決めています。値が無いときに既定値で埋めることも禁止です。</li>
+<li>まだ決まっていないこと: 通貨ごとの規約（C41、暦、日数計算、ラグ）と、リスクを出す要因の一覧（C38）。</li>
+</ul>
+
+<h2>2. alphaにある部品</h2>
+<div class="tw"><table>
+<tr><th>部品</th><th>場所</th><th>レーツ画面での使い道</th></tr>
+<tr><td>参照用のブートストラップ（OIS、指標カーブ、クロスカレンシー。デュアルカーブ）</td><td><code>core/engine/bootstrap.hpp</code>、<code>Xva.Engine/Input/Bootstrap.cs</code></td><td>クオートからカーブを作る。定義は簡略版（下の第4節）</td></tr>
+<tr><td>カーブの補間（<code>log_linear_df</code>、<code>linear_zero</code>）と節点の重み</td><td><code>Calibration/Curve.cs</code></td><td>割引、フォワード。重みがそのまま勾配の重みになる</td></tr>
+<tr><td>ヤコビアン dz/dq（陰関数の定理。基のカーブを通した分も含む）</td><td><code>Bootstrap.Jacobians</code></td><td>ゼロデルタをパーデルタ（クオートへの感応度）に直す</td></tr>
+<tr><td>フロー表と評価日の時価 <code>Pv0</code></td><td><code>Cva/FlowTable.cs</code></td><td>固定、ターム物、後決めRFR（ルックバック、ロックアウト）、支払の遅れ、元本の交換、NDF</td></tr>
+<tr><td>C++版とC#版（同じ結果）</td><td><code>core/</code>、<code>csharp-core/</code></td><td>qubeは.NETなのでC#版が扱いやすい</td></tr>
+<tr><td>AADのテープ（1つのノードが全パス）</td><td><code>Xva.Aad</code></td><td>確定的な線形商品では不要（勾配は重みの和で済む）。スワップションなどを入れる時に効く</td></tr>
+</table></div>
+
+<h2>3. 計測（スパイク）</h2>
+<p>alphaの <code>Bootstrap.SolveAll</code>、<code>Bootstrap.Jacobians</code>、<code>Curves.Weights</code> をそのまま呼び、スワップの評価と逆向きの勾配だけを小さなプログラムで書きました（alphaのフロー表は取引ごとに式木を要るため）。データはalphaの <code>data/synthetic/small</code>（評価日 2026-11-13、8本、各25節点）。Xeon 2.1GHz、.NET 10、Release、TieredPGO切り。</p>
+<div class="tw"><table>
+<tr><th>処理</th><th>時間</th><th>メモ</th></tr>
+<tr><td>10年 円スワップ（固定年1回 対 FLT-6M、OIS割引）のPV、パー、全節点のゼロデルタ</td><td class="n">12 µs</td><td>1本あたり。20行なら0.3ms</td></tr>
+<tr><td>パーデルタ（Jᵀ×ゼロデルタ、1カーブ）</td><td class="n">6 µs</td><td></td></tr>
+<tr><td>ブートストラップ 円2本 / 全8本</td><td class="n">1.8 / 24 ms</td><td>ニュートン法の微分を差分で取り、毎回カーブを作り直している</td></tr>
+<tr><td>ヤコビアン 円2本 / 全8本</td><td class="n">12 / 77 ms</td><td>中心差分。解析的にすれば数ms以下の見込み（未計測）</td></tr>
+<tr><td>プロセスの起動から最初の結果まで（8本＋ヤコビアン）</td><td class="n">約290 ms</td><td>呼ぶたびにexeを起動する形の下限</td></tr>
+</table></div>
+<p>確かめたこと: パー 1.845719%、パー＋10bpで受けの時価 92,021,962円（元本100億円）。10年手前の節点のゼロデルタは、逆向きの勾配もバンプも −122,395.63 円/bp。パーデルタはFLT-6Mの10年に −9,182,029 円/bp が集まり、元本×年金×1bp の大きさ（約900万円）と合います。</p>
+
+<h2>4. 足りないもの</h2>
+<div class="tw"><table>
+<tr><th>項目</th><th>今のalpha</th><th>レーツ画面に要るもの</th><th>大きさ</th></tr>
+<tr><td>取引の入口</td><td>S#の式木（<code>deals/</code>）をフロー表に畳む</td><td>qubeが編集したキャッシュフロー表をそのまま受け取る（ユーザーが期の日付やレートを変えられるため、式木を作り直すより素直）</td><td class="warn">中</td></tr>
+<tr><td>クオートの定義</td><td>参照用: 年数は日数/365、固定は年1回、暦は土日だけ、スポットラグ無し</td><td>通貨ごとの本当の商品（OIS、FRA/先物、ベーシス）。qubeのC41が決まるまで「未確認」の札を付けて使う</td><td class="warn">中（規約次第）</td></tr>
+<tr><td>パー以外の解</td><td>パーは解析的、フェアスプレッドも線形</td><td>そのまま使える</td><td class="good">小</td></tr>
+<tr><td>平均型のRFR（日次の単純平均）</td><td>複利だけ</td><td>C43の daily-average フラグ</td><td class="warn">小〜中</td></tr>
+<tr><td>後決めのターム物（in arrears）</td><td>無し（凸性の調整が要る）</td><td>C43の in-arrears フラグ。入れるまでは行ごとに拒否</td><td class="warn">中</td></tr>
+<tr><td>ヤコビアンの速さ</td><td>差分で77ms</td><td>ライブで毎ティック出すなら解析的な A=∂Q/∂z（AADか手書き）</td><td class="good">小</td></tr>
+<tr><td>担保と割引</td><td>担保通貨ごとのOIS／クロスカレンシー割引あり</td><td>行のCollateral欄をカーブの選び方に対応させる</td><td class="good">小</td></tr>
+<tr><td>為替</td><td>直物を基準日の値として使う（受渡のずれを見ない）</td><td>通貨スワップのPVの報告通貨換算。スポットラグは規約が決まってから</td><td class="good">小</td></tr>
+<tr><td>過去の確定値</td><td><code>fixings.csv</code></td><td>行の current reset と市場の確定値。無ければ拒否</td><td class="good">小</td></tr>
+<tr><td>呼ぶ口</td><td>ファイルを読むexe</td><td>常駐して、JSONでバッチを受けて返す口</td><td class="warn">中</td></tr>
+</table></div>
+
+<h2>5. 繋ぎ方の案</h2>
+<div class="tw"><table>
+<tr><th>案</th><th>内容</th><th>ライブの1ティック</th><th>評価</th></tr>
+<tr><td><b>A. 常駐ワーカー</b></td><td>alphaのC#版に <code>rates</code> の入口を足し、1つのプロセスを常駐させる。qubeは <code>IRatesPricingProvider</code> の実装（<code>AlphaRatesPricing</code>）からローカルのHTTPか標準入出力でJSONを送る。カーブは市場のスナップショットごとに1回作ってワーカーに保持</td><td>カーブ 2〜25ms＋ヤコビアン（今 12〜77ms、解析化で数ms）＋行あたり十数µs＋通信 1ms未満</td><td class="good">推奨</td></tr>
+<tr><td>B. 呼ぶたびにexe</td><td>Position Keeperと同じ。ファイルかJSONを渡して1回ずつ起動</td><td>毎回 約300ms〜</td><td class="warn">Priceには足りるが、ライブには遅い</td></tr>
+<tr><td>C. qubeのWebに直接参照</td><td>alphaのC#ライブラリをWebのプロセスに読み込む</td><td>最速</td><td class="bad">CLAUDE.mdとADR-0019 §4に反する（libmのP/Invoke、TieredPGOの設定、エンジンの更新がWebの再起動に縛られる）</td></tr>
+<tr><td>D. WASMでブラウザ</td><td>ブラウザで計算</td><td>速い</td><td class="bad">RunやPriceの記録、プロバイダの同一性が崩れる。勧めない</td></tr>
+<tr><td>E. qubeに小さい評価を移植</td><td>スワップの式だけqubeに書く</td><td>速い</td><td class="bad">XVA側のカーブと割引がずれる。エンジンが2つになる</td></tr>
+</table></div>
+<p class="small">Aでも、ワーカーに届かないときは行を「計算できない」として示し、仮のプロバイダには切り替えません（CLAUDE.mdの決まり）。結果の札は「real engine / synthetic market」になります。</p>
+
+<h2>6. 進め方の提案</h2>
+<ol>
+<li><b>alpha</b>: 確定的なレーツ評価の入口を足す（TDD）。入力はキャッシュフロー表のJSON（脚、期、元本の交換、指標、担保）とクオート、出力はPV、パー（またはフェアスプレッド）、ゼロデルタ、パーデルタ。フロー表の <code>Pv0</code> と同じ式で、式木から作った同じ取引と値が一致することをテストする。ヤコビアンを解析的にする。C++版にも同じものを入れるかは後で決める（最初はC#版だけで足りる）。</li>
+<li><b>alpha</b>: 常駐の口（バッチを受けて返す。市場のスナップショットのIDでカーブを保持）。</li>
+<li><b>qube</b>: <code>AlphaRatesPricing</code> とワーカーの起動（flakeで固定したコミット）。合成市場を「節点の水準」から「クオート」に変える（今のおもちゃのカーブはalphaの定義とは別物のため）。リスクの列を <code>delta:{カーブ}:{年限}</code> のパーデルタで返す。</li>
+<li>規約（C41）が決まったら、クオートの定義と暦を本当のものに替える。</li>
+</ol>
+<p>1と3の最初の形（円のスワップ1種類、OISとFLT-6M）までなら、数日の規模と見ています（見込み）。Position Keeper（PR #51）とは触るファイルが重ならないので、並べて進められます。</p>
+
+<h2>7. 決めてほしいこと（「はい」で推奨どおり）</h2>
+<ol>
+<li>繋ぎ方は案A（常駐ワーカー、alphaのC#版）でよいですか。</li>
+<li>取引はqubeのキャッシュフロー表をそのまま渡し、S#の式木は作らない、でよいですか。</li>
+<li>レーツ画面のリスクは、カーブのクオートへのパーデルタを主にし、ゼロデルタは参考として返す、でよいですか（C38のリスク要因の一覧への答えになります）。</li>
+<li>規約が決まるまでは、alphaの参照用のクオート定義を「未確認」の札付きで使う、でよいですか。</li>
+<li>平均型RFRと後決めのターム物は最初は入れず、その行は理由付きで「計算できない」にする、でよいですか。</li>
+</ol>
+
+<p class="small">計測に使ったプログラム: プロジェクトファイルの <code>rates/alpha-rates-spike/Program.cs</code>（alphaの main 0558823 に対してビルド）。</p>
+</main></body></html>
