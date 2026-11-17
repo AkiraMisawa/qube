@@ -79,7 +79,9 @@ builder.Services.AddSingleton<ITableCatalog>(new RatesTables(conventions));
 // The Desk (ADR-0019): result sets are read from a directory of the engine's files, and a workspace is made on the
 // configured one unless its request names another. With no directory configured every read is refused by that name;
 // no book stands in.
-builder.Services.AddSingleton<IDeskResults>(_ => builder.Configuration["Desk:ResultsRoot"] is { Length: > 0 } root ? new DeskResultFiles(root) : new NoDeskResults());
+// A relative directory is the host's own, under its content root, wherever the host was started from.
+builder.Services.AddSingleton<IDeskResults>(_ => builder.Configuration["Desk:ResultsRoot"] is { Length: > 0 } root
+    ? new DeskResultFiles(Path.GetFullPath(root, builder.Environment.ContentRootPath)) : new NoDeskResults());
 builder.Services.AddSingleton(new DeskOptions(builder.Configuration["Desk:ResultSet"] is { Length: > 0 } set ? set : null));
 builder.Services.AddSingleton<DeskWorkspaces>();
 builder.Services.AddSingleton<IQubeModule>(sp => new DeskModule(sp.GetRequiredService<DeskWorkspaces>, sp.GetRequiredService<WorkspaceService>, sp.GetRequiredService<IHedgeRisk>()));
