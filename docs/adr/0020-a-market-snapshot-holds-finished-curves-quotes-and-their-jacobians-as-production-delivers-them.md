@@ -35,7 +35,8 @@ read the same market, and none of them should build curves.
 ## Consequences
 
 - Connecting production means one adapter that fills a snapshot from the delivered curves, quotes and Jacobians.
-- Nodes are counted in days from the snapshot's valuation date. The synthetic market's are tenor-relative, so a
-  workspace on another valuation date reads them as of its own date; a production snapshot will carry its date, and
-  a workspace on another date will need it said (OPEN, when the adapter is written).
+- Nodes are counted in days from the workspace's selected valuation date, taken as today. A workspace reads the
+  market of its own valuation date: when its valuation date changes, the market it reads changes with it (owner,
+  2026-11-18), so a curve's days never count from another date. The synthetic market's nodes are tenor-relative and
+  are read as of whichever date the workspace has selected.
 - The fake provider's figures and risk moved: its curve is now a discount-factor curve, and its par risk is per quote.
