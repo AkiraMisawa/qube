@@ -98,12 +98,12 @@ public class AlphaCashflowTableTests
         Assert.Equal((p.IndexEnd!.Value.DayNumber - p.IndexStart!.Value.DayNumber) / 360.0, p.IndexYearFraction!.Value, 15);
     }
 
-    [Fact] // Akira 2026-11-17 (shared pricing layer): an empty Collateral discounts each leg on its own currency's RFR curve
-    public void A_line_without_collateral_discounts_each_leg_on_its_own_currencys_curve()
+    [Fact] // owner 2026-11-18: a line with an empty Collateral is not priced; it is refused on the row
+    public void A_line_without_collateral_is_refused_with_its_reason()
     {
         var (table, refusals) = CashflowTables.From(Irs(collateral: null), Map, Market, ValuationDate, _ => Calendar);
-        Assert.Empty(refusals);
-        Assert.All(table!.Legs, l => Assert.Equal("JPY-OIS", l.DiscountCurve));   // JPY@JPY
+        Assert.Null(table);
+        Assert.Contains(refusals, r => r.Contains("Collateral"));
     }
 
     [Fact]
