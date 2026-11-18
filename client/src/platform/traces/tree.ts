@@ -124,3 +124,30 @@ export function childrenShown(rows: readonly TreeRow[], termId: string): Childre
   if (next.kind === 'loading') return { kind: 'reading' };
   return { kind: 'shown', first: next.kind === 'term' ? next.termId : undefined };
 }
+
+/**
+ * The rows a grid held under each of its last few Row Sequence Versions, so that a key is read against the rows it was
+ * pressed on (spine 6): a press names its row by position in the rows of its version, which a key just before it may
+ * have changed since.
+ */
+export class RowVersions {
+  private readonly held = new Map<number, { readonly start: number; readonly rows: readonly TreeRow[] }>();
+
+  /** `kept`: how many versions before the latest are kept. */
+  constructor(private readonly kept: number) {}
+
+  /** The rows of a version, from the position of the first. */
+  put(version: number, start: number, rows: readonly TreeRow[]): void {
+    this.held.set(version, { start, rows });
+    for (const held of this.held.keys()) if (held < version - this.kept) this.held.delete(held);
+  }
+
+  /** Whether the rows of a version are still kept. */
+  has(version: number): boolean { return this.held.has(version); }
+
+  /** The row at a position of the rows a version held; none where that version is no longer kept or the position is outside them. */
+  rowAt(version: number, position: number | undefined): TreeRow | undefined {
+    const held = this.held.get(version);
+    return held === undefined || position === undefined ? undefined : held.rows[position - held.start];
+  }
+}

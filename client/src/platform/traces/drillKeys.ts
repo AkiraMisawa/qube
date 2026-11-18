@@ -1,24 +1,20 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type RefObject } from 'react';
-import type { TermCrumb } from './contracts';
+import type { TermCrumb, TraceAddress } from './contracts';
+import { CHILDREN_WAIT_MS, CHILDREN_WAIT_WORDS, reportChildrenNotRead } from './keyHolds';
 import type { ChildrenRead } from './tree';
-import { telemetry } from '../telemetry';
 
 // Below `sm` the trace drills in a level at a time (ADR-0011 §6), and its list of the selected term's children takes the
 // arrow keys (the note of 2026-11-18, after Akira: "exploring the drill-down with the arrow keys, one after another"):
-// ↑ and ↓ choose a child, Home and End the first and the last, → or Enter goes into the child, ← or Backspace goes up to
-// the parent. The list is drawn anew for every term, so a move hands the keyboard to the list's frame until the new list
-// is drawn, and the keys pressed meanwhile are taken in their order once it is: a reader at machine speed ends where a
-// slow one does (spine 6). The keyboard then goes to the first child of the term gone into, or back to the child come up
-// from, or stays on the frame where the term has no children, so that ← still goes up.
+// ↑ and ↓ choose a child, Home and End the first and the last, → or Enter (or Space, as on any button) goes into the
+// child, ← or Backspace goes up to the parent. The list is drawn anew for every term, so a move hands the keyboard to the
+// list's frame until the new list is drawn, and the keys pressed meanwhile are taken in their order once it is: a reader
+// at machine speed ends where a slow one does (spine 6). The keyboard then goes to the first child of the term gone
+// into, or back to the child come up from, or stays on the frame where the term has no children, so that ← still goes
+// up. A move waits `CHILDREN_WAIT_MS` at most; past it, the keys pressed meanwhile are dropped, said under the list and
+// logged.
 
 /** The keys the list takes, pressed without a modifier. */
 const KEYS: ReadonlySet<string> = new Set(['ArrowDown', 'ArrowUp', 'Home', 'End', 'ArrowRight', 'Enter', ' ', 'ArrowLeft', 'Backspace']);
-
-/**
- * How long a move waits for its term's children to be read before it is given up: a bound for a server that does not
- * answer, not a wait for a race. Past it the keys pressed meanwhile are dropped, said under the list and logged.
- */
-export const DRILL_WAIT_MS = 10_000;
 
 /** A move the list waits to draw: from the term selected, to a term, with the keyboard to go to one of its children. */
 interface Move {
@@ -42,11 +38,12 @@ export interface DrillKeys {
 }
 
 /**
- * The keys of the drill-in list. `selected` is the term selected, `path` its path from the root as read with it,
- * `children` its children as read, and `select` selects another term. Items of the list carry `data-drill-item`, and a
- * child's item its id in `data-child-id` and its label in `data-child-label`.
+ * The keys of the drill-in list. `where` is the trace, for the log; `selected` is the term selected, `path` its path from
+ * the root as read with it, `children` its children as read, and `select` selects another term. Items of the list carry
+ * `data-drill-item`, and a child's item its id in `data-child-id` and its label in `data-child-label`.
  */
-export function useDrillKeys({ selected, path, children, select }: {
+export function useDrillKeys({ where, selected, path, children, select }: {
+  readonly where: TraceAddress;
   readonly selected: string | undefined;
   readonly path: readonly TermCrumb[] | undefined;
   readonly children: ChildrenRead | undefined;
@@ -57,8 +54,8 @@ export function useDrillKeys({ selected, path, children, select }: {
   const queued = useRef<string[]>([]);
   const [note, setNote] = useState<string | undefined>(undefined);
   // What this render read, for keys taken after it: the parent to go up to is the one the term was read with.
-  const latest = useRef({ selected, path, select });
-  latest.current = { selected, path, select };
+  const latest = useRef({ where, selected, path, select });
+  latest.current = { where, selected, path, select };
 
   const settle = (wanted: Move) => {
     clearTimeout(wanted.timer);
@@ -66,7 +63,8 @@ export function useDrillKeys({ selected, path, children, select }: {
     if (frame.current !== null) delete frame.current.dataset.moving;
   };
 
-  const go = (term: string, label: string, child: string | undefined, scroll: boolean) => {
+  /** Moves the list to a term, the keyboard to go to `child` of it (none: its first) once its list is drawn. */
+  const moveTo = (term: string, label: string, child: string | undefined, scroll: boolean) => {
     const at = frame.current;
     // The item the keyboard is on goes with the list it is in: the frame holds the keyboard until the new list shows.
     at?.focus({ preventScroll: true });
@@ -79,9 +77,9 @@ export function useDrillKeys({ selected, path, children, select }: {
         settle(wanted);
         const dropped = queued.current.length;
         queued.current = [];
-        setNote(`The terms below ${label} are still being read${dropped > 0 ? ', so the keys pressed meanwhile were not taken' : ''}.`);
-        telemetry.report({ level: 'warning', kind: 'trace-key', message: `The children of trace term ${term} were not read within ${DRILL_WAIT_MS} ms; ${dropped} key(s) pressed in the drill-in list meanwhile were dropped.` });
-      }, DRILL_WAIT_MS),
+        setNote(`The terms below ${label} were not read within ${CHILDREN_WAIT_WORDS}${dropped > 0 ? ', so the keys pressed meanwhile were not taken' : ''}.`);
+        reportChildrenNotRead(latest.current.where, term, `${dropped} key(s) pressed in the drill-in list meanwhile were dropped`);
+      }, CHILDREN_WAIT_MS),
     };
     // Only a press can move while a move waits (keys wait behind it): the keys pressed for the list it replaces go too.
     if (move.current !== undefined) { settle(move.current); queued.current = []; }
@@ -89,8 +87,8 @@ export function useDrillKeys({ selected, path, children, select }: {
     latest.current.select(term);
   };
 
-  /** One key, at the item the keyboard is on (none: the frame). */
-  const act = (key: string, item: HTMLElement | undefined) => {
+  /** Takes one key, at the item the keyboard is on (none: the frame). */
+  const press = (key: string, item: HTMLElement | undefined) => {
     const at = frame.current;
     if (at === null) return;
     const items = [...at.querySelectorAll<HTMLElement>('[data-drill-item]')];
@@ -102,7 +100,11 @@ export function useDrillKeys({ selected, path, children, select }: {
       case 'End': items.at(-1)?.focus(); return;
       case 'ArrowRight': case 'Enter': case ' ': {
         const child = item?.dataset.childId;
-        if (child !== undefined) go(child, item?.dataset.childLabel ?? child, undefined, true);
+        if (child !== undefined) {
+          const label = item?.dataset.childLabel;
+          if (label === undefined) throw new Error(`The drill-in list's item of ${child} carries no data-child-label.`);
+          moveTo(child, label, undefined, true);
+        }
         // The button that reads more children is pressed by Enter and Space, as a button is.
         else if (item !== undefined && key !== 'ArrowRight') item.click();
         return;
@@ -110,7 +112,7 @@ export function useDrillKeys({ selected, path, children, select }: {
       case 'ArrowLeft': case 'Backspace': {
         const { selected: from, path: shown } = latest.current;
         const parent = shown?.at(-2);
-        if (parent !== undefined && from !== undefined) go(parent.id, parent.label, from, true);
+        if (parent !== undefined && from !== undefined) moveTo(parent.id, parent.label, from, true);
         return;
       }
     }
@@ -127,16 +129,19 @@ export function useDrillKeys({ selected, path, children, select }: {
     if (item === undefined && event.target !== frame.current) return;
     event.preventDefault();
     if (move.current !== undefined) { queued.current.push(event.key); return; }
-    act(event.key, item);
+    press(event.key, item);
   };
 
   // Once the term moved to is selected, read and its children read (or not readable), the keyboard goes to its list and
   // the keys pressed meanwhile are taken; a move another hand made first (the breadcrumb, an operand, a command) drops
-  // them, since they were pressed for a list that is no longer shown.
+  // them, since they were pressed for a list that is no longer shown, and so does the list going, the view widened into
+  // the tree.
   useEffect(() => {
     const wanted = move.current;
+    if (wanted === undefined) return;
     const at = frame.current;
-    if (wanted === undefined || at === null || selected === wanted.from) return;
+    if (at === null) { settle(wanted); queued.current = []; return; }
+    if (selected === wanted.from) return;
     if (selected !== wanted.term) { settle(wanted); queued.current = []; return; }
     const failed = children?.kind === 'failed';
     if (!failed && (path?.at(-1)?.id !== wanted.term || children === undefined || children.kind === 'loading')) return;
@@ -149,12 +154,12 @@ export function useDrillKeys({ selected, path, children, select }: {
     while (move.current === undefined) {
       const key = queued.current.shift();
       if (key === undefined) break;
-      act(key, itemOf(at.ownerDocument.activeElement));
+      press(key, itemOf(at.ownerDocument.activeElement));
     }
   });
 
   // A view taken away waits for nothing.
   useEffect(() => () => { if (move.current !== undefined) settle(move.current); }, []);
 
-  return { frame, onKeyDown, pick: (id, label) => go(id, label, undefined, false), note };
+  return { frame, onKeyDown, pick: (id, label) => moveTo(id, label, undefined, false), note };
 }

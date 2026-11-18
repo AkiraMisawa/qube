@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
-import { Alert, Anchor, Badge, Breadcrumbs, Button, Code, CopyButton, Group, Kbd, SegmentedControl, Stack, Text, UnstyledButton } from '@mantine/core';
+import { Alert, Anchor, Badge, Breadcrumbs, Button, Code, CopyButton, Group, SegmentedControl, Stack, Text, UnstyledButton } from '@mantine/core';
 import { useQueries, useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
 import { useStore } from 'zustand';
 import { firstPageQuery, readTerm, refusalText as describe, termKey, TERM_PAGE, type ChildOrder, type TraceApi } from './api';
@@ -9,6 +9,7 @@ import { EntityRows } from './EntityRows';
 import { belowViews, entitySetOf, splits } from './entities';
 import { LeafRows } from './LeafRows';
 import { useDrillKeys } from './drillKeys';
+import { KeyHints, type KeyHint } from './KeyHints';
 import { DEFAULT_TRACE_VIEW, explainLine, keptTrace, setTraceView, traceViews, useTermRequestOnce } from './open';
 import { TermDetail } from './TermDetail';
 import { TraceTree } from './TraceTree';
@@ -174,7 +175,7 @@ export function TraceView({ viewId, address, api, registerFocus, root }: {
   const reorder = (next: ChildOrder) => setTraceView(viewId, { order: next });
 
   // Below `sm`, the list of the selected term's children takes the arrow keys (ADR-0011 §6's note of 2026-11-18).
-  const drill = useDrillKeys({ selected: selectedId, path: selectedPage?.path, children: selectedId === undefined ? undefined : childrenOf(selectedId), select });
+  const drill = useDrillKeys({ where: address, selected: selectedId, path: selectedPage?.path, children: selectedId === undefined ? undefined : childrenOf(selectedId), select });
 
   if (first.isPending) return <Text size="sm" data-testid="trace-loading">Reading the trace…</Text>;
   if (first.isError) return <Alert color="red" variant="light" title="The trace could not be read" data-testid="trace-refused">{describe(first.error)}</Alert>;
@@ -239,7 +240,7 @@ export function TraceView({ viewId, address, api, registerFocus, root }: {
           {detail}
           {selectedId !== undefined && <ChildrenList header={trace} read={childrenOf(selectedId)} onSelect={drill.pick} onMore={() => more(selectedId)} />}
           {drill.note !== undefined && <Text size="xs" role="status" data-testid="trace-drill-note">{drill.note}</Text>}
-          <DrillKeys />
+          <KeyHints label="Keys in the list" testId="trace-drill-keys" hints={DRILL_KEYS} />
           {leafRows}
         </Stack>
       ) : (
@@ -359,13 +360,9 @@ function ChildrenList({ header, read, onSelect, onMore }: {
   );
 }
 
-/** The list's keys, said below it where a keyboard is likely (design guidelines §8: from `sm` up). */
-function DrillKeys() {
-  return (
-    <Group gap="md" wrap="wrap" visibleFrom="sm" className="qube-trace-keys" data-testid="trace-drill-keys" aria-label="Keys in the list">
-      <Text size="xs"><Kbd size="xs">↑</Kbd> <Kbd size="xs">↓</Kbd> choose</Text>
-      <Text size="xs"><Kbd size="xs">→</Kbd> or <Kbd size="xs">Enter</Kbd> go in</Text>
-      <Text size="xs"><Kbd size="xs">←</Kbd> or <Kbd size="xs">Backspace</Kbd> go up</Text>
-    </Group>
-  );
-}
+// The list's keys, said below it: ↑ and ↓ choose a child, → or Enter goes into it, ← or Backspace goes up.
+const DRILL_KEYS: readonly KeyHint[] = [
+  { keys: [['↑'], ['↓']], does: 'choose' },
+  { keys: [['→'], ['Enter']], or: true, does: 'go in' },
+  { keys: [['←'], ['Backspace']], or: true, does: 'go up' },
+];

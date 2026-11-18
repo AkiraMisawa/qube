@@ -133,5 +133,11 @@
   outline: 2px solid var(--mantine-primary-color-filled);
   outline-offset: 2px;
 }
-/* While a move waits for its list, the frame holds the keyboard unseen: the ring would flash around the whole term. */
-.qube-trace-drill[data-moving]:focus-visible { outline: none; }
+/* While a move waits for its list the frame holds the keyboard, and its ring shows only once the wait is long enough to
+   see (a slow read), so that a move by key does not flash a ring around the whole term; the keyboard's place is never
+   hidden for longer (design guidelines §8). */
+.qube-trace-drill[data-moving]:focus-visible { animation: qube-trace-ring-late 0s linear 400ms both; }
+@keyframes qube-trace-ring-late {
+  from { outline-color: transparent; }
+  to { outline-color: var(--mantine-primary-color-filled); }
+}

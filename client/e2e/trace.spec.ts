@@ -9,6 +9,11 @@ const term = (page: Page) => page.getByTestId('trace-detail-label');
 const sideways = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
 /** The formula's lines, by what each says: the symbols, a side's values, or the Diff. */
 const lines = (page: Page) => page.getByTestId('trace-formula').locator('[data-side]').evaluateAll((all) => all.map((l) => l.getAttribute('data-side')));
+/** The column of the cell the tree's Focus is on, by its position, read from the grid ExGrid draws; `none` where it has none. */
+const focusColumn = (page: Page) => page.getByLabel('Terms', { exact: true }).getByRole('grid').evaluate((root) => {
+  const id = root.getAttribute('data-ex-follow-focus');
+  return id === null ? 'none' : root.querySelector(`[id="${CSS.escape(id)}"]`)?.getAttribute('aria-colindex') ?? `not painted: ${id}`;
+});
 
 /** A workspace of ABC/LE-01 priced with spot capital on; `before: 'none'` leaves its existing trades out of Before. */
 async function priced(page: Page, before: 'ticked' | 'none'): Promise<void> {
@@ -48,15 +53,20 @@ test('ADR-0011 §6: a figure opens its trace, each side\'s values typeset in its
   // The keyboard (ADR-0011 §6's notes of 2026-11-08 and 2026-11-18; Akira, 2026-11-18: exploring with the arrow keys,
   // one press after another): the panel's grid is the tree, its Focus on the term just opened, and the keys are said
   // under it. Alt+→ opens a term and, pressed again, goes into its first child; Alt+← goes up to the parent, and on an
-  // open term closes it; → and ← stay the grid's. The keys are pressed at machine speed and end where they would by
-  // hand: a key that waits for a term's children holds the keys after it.
+  // open term closes it; → and ← stay the grid's, between columns, and the Focus keeps its column as it walks. The keys
+  // are pressed at machine speed and end where they would by hand: a key that waits for a term's children holds the
+  // keys after it.
   await settled(page, 'Terms');
   await page.keyboard.press('ControlOrMeta+Shift+G');
   await expect(page.getByTestId('trace-tree-keys')).toContainText('open, then go in');
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowRight');
+  await expect.poll(() => focusColumn(page)).toBe('3');
   await page.keyboard.press('Alt+ArrowRight');
   await page.keyboard.press('Alt+ArrowRight');
   await expect(term(page)).toHaveText('Risk weight');
   await expect(tree).toHaveAttribute('data-rows', '4');
+  expect(await focusColumn(page)).toBe('3');
   // The risk weight is a decision: its steps in order, each with its outcome.
   await expect(page.getByTestId('trace-steps')).toContainText('Exposure class');
   // ↓ to the EAD beside it, then in twice, down to its first netting set in the formula's order; up, closing the EAD, and
@@ -72,6 +82,7 @@ test('ADR-0011 §6: a figure opens its trace, each side\'s values typeset in its
   await expect(tree).toHaveAttribute('data-rows', '4');
   await page.keyboard.press('Alt+ArrowLeft');
   await expect(tree).toHaveAttribute('data-rows', '2');
+  expect(await focusColumn(page)).toBe('3');
 
   // The tree is the page's place `trace` while its tab is widened over the grids (ADR-0016 §9, note 20).
   await command(page, 'go', 'trace');

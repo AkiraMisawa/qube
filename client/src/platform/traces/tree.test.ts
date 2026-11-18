@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { TermPage, TermRead } from './contracts';
-import { childrenOf, childrenShown, opened, treeMove, treeRows, type ChildrenRead } from './tree';
+import { RowVersions, childrenOf, childrenShown, opened, treeMove, treeRows, type ChildrenRead } from './tree';
 
 // ADR-0011 §6: the tree holds only the terms on the paths opened, each indented by its depth. Synthetic terms.
 
@@ -113,5 +113,23 @@ describe('the keys of the tree (ADR-0011 §6)', () => {
   it('says a term is gone where it was closed, or is no row of the tree, so that nothing waits on it', () => {
     expect(childrenShown(rows, 'ead')).toEqual({ kind: 'gone' });
     expect(childrenShown(rows, 'NS-404')).toEqual({ kind: 'gone' });
+  });
+
+  it('reads a press against the rows of its version while that version is kept, and refuses an older one', () => {
+    const versions = new RowVersions(2);
+    const closed = treeRows([capital], new Set(), () => undefined);
+    versions.put(5, 0, closed);
+    versions.put(6, 10, rows);
+    // A position is read in the rows of its version, from that version's first position.
+    expect(versions.rowAt(5, 0)?.key).toBe('capital');
+    expect(versions.rowAt(6, 12)?.key).toBe('rw');
+    expect(versions.rowAt(6, 9)).toBeUndefined();
+    expect(versions.rowAt(6, undefined)).toBeUndefined();
+    // Past two versions on, version 5 is no longer kept: a press under it is not read against the rows of another.
+    versions.put(8, 0, rows);
+    expect(versions.has(5)).toBe(false);
+    expect(versions.rowAt(5, 0)).toBeUndefined();
+    expect(versions.has(6)).toBe(true);
+    expect(versions.has(7)).toBe(false);
   });
 });

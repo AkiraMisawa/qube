@@ -241,15 +241,23 @@ of that day; the CCR sample was ported to it the same day (links in §6's last p
   walks down the tree in the order the children are drawn, the formula's or the largest first; Alt+← on a row that
   stands for a term's children (being read, more to read, failed) goes up to that term. A key that opens a term or goes
   into it answers once the term's children are shown, and the grid holds the keys pressed after it until then (ex-grid
-  ADR-0050 item 14), so keys sent at machine speed end where keys pressed by hand do; a read that has not answered
-  after 10 seconds gives the key up, said in the grid's live region and logged. Rows that open or close around the
-  Focus leave it on its term and column, which the grid's own rule would drop with the Selection (ex-grid ADR-0011).
-  The keys are said under the tree from `sm` up (design guidelines §8). Below `sm` the list takes the arrow keys: ↑
-  and ↓ choose a child, → or Enter goes in, ← or Backspace goes up, and the keyboard follows to the first child of the
-  term gone into, or back to the child come up from; keys pressed while a list is drawn anew are taken once it is
-  drawn, with the same bound. Plain → and ← in the tree stay the grid's: ExGrid refuses a key it answers itself as a
-  declared one, so taking them would need ExGrid to answer them on a tree's column, which was put to the owner the
-  same day. One view draws every trace, so spot IM's tree takes the same keys.)*
+  ADR-0050 item 14), so keys sent at machine speed end where keys pressed by hand do. A read that has not answered
+  after 10 seconds, a bound for a server that does not answer, gives the key up, said in the grid's live region and
+  logged with the Run, case, scenario and measure; ExGrid then takes the keys it held behind it against the rows as
+  they stand (the term open, its children still being read), since a grid's own keys are not the page's to drop, and
+  the sentence says so. Rows that open or close around the Focus leave it on its term and column, which the grid's own
+  rule would drop with the Selection (ex-grid ADR-0011). The keys are said under the tree from `sm` up (design
+  guidelines §8): a key hint answers to the device, so it reads the window, where the page's layout reads its panel
+  (§9). Below `sm` the list takes the arrow keys: ↑ and ↓ choose a child, Home and End the first and the last, → or
+  Enter (or Space, as on any button) goes in, ← or Backspace goes up, and the keyboard follows to the first child of the
+  term gone into, or back to the child come up from, or stays on the list's frame where the term has none. Keys pressed
+  while a list is drawn anew are taken once it is drawn, with the same bound; past it, they are the page's own, and are
+  dropped, said under the list and logged. The list's frame shows its focus ring only once a wait is long enough to
+  see, so that a move by key does not flash it. The list's keys are said under it where the window is `sm` or wider, a
+  trace in a narrow area of a desktop. Plain → and ← in the tree stay the grid's: ExGrid refuses a key it answers
+  itself as a declared one, and so do Enter and Backspace, so taking them would need ExGrid to answer them on a tree's
+  column, which was put to the owner the same day. One view draws every trace, so spot IM's tree takes the same
+  keys.)*
 - **A breadcrumb** of the path from the root (`K › RWA › EAD › NS-002 › PFE › AddOn › IR › USD`), each step a link,
   above the tree and the formula; it is what a phone shows instead of the tree.
 - **The formula** of the selected term, typeset: first its kind's TeX, then the same formula with the values

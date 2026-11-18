@@ -60,8 +60,9 @@ async function drillToFactor(page: Page): Promise<string> {
     // The formula pane draws the term's parameters with it, so once it names the term, a factor's weight is there.
     if (await weight.count() > 0) break;
     const label = await detail.innerText();
-    // Alt+→ opens the term and, pressed again, goes into its first child, once its children are read (ADR-0011 §6's
-    // note of 2026-11-18): pressed at once, the second waits for them.
+    // Alt+→ opens a closed term and goes into an open one, once its children are read (ADR-0011 §6's note of
+    // 2026-11-18): pressed twice at once, the second waits for them, and the two go down one level, the term gone into
+    // opened or not.
     await page.keyboard.press('Alt+ArrowRight');
     await page.keyboard.press('Alt+ArrowRight');
     await expect(tree.getByRole('button', { name: `Close ${label}`, exact: true })).toHaveCount(1);
