@@ -30,19 +30,21 @@ public static class CashflowTables
         DateOnly valuationDate, Func<string, IBusinessCalendar> calendar)
     {
         var refusals = new List<string>();
-        if (string.IsNullOrWhiteSpace(line.Collateral))
-            refusals.Add("Collateral is empty; the engine discounts each leg on its collateral's curve.");
-        var collateral = line.Collateral?.Trim().ToUpperInvariant();
+        // An empty Collateral discounts each leg on its own currency's RFR curve (its "{ccy}@{ccy}" entry). Approved by
+        // the owner, Akira, 2026-11-17, for the shared pricing layer ("empty collateral -> native RFR curve"); the
+        // row's Collateral stays empty, so a user sees it was not given.
+        var given = line.Collateral?.Trim().ToUpperInvariant();
+        var collateralOf = (string currency) => string.IsNullOrEmpty(given) ? currency : given;
         var legs = new List<TableLeg>();
         for (var n = 1; n <= line.Legs.Count; n++)
         {
             var leg = line.Legs[n - 1];
             var terms = leg.Terms;
             var received = (line.Direction == Direction.Pay) == (n == 2);
-            string? discount = null;
-            if (collateral is not null && !map.Discount.TryGetValue($"{terms.Currency}@{collateral}", out discount))
+            var collateral = collateralOf(terms.Currency);
+            if (!map.Discount.TryGetValue($"{terms.Currency}@{collateral}", out var discount))
                 refusals.Add($"Leg {n}: the engine has no curve for {terms.Currency} collateralised in {collateral}.");
-            else if (discount is not null && !market.Curves.ContainsKey(discount))
+            else if (!market.Curves.ContainsKey(discount))
                 refusals.Add($"Leg {n}: the market {market.Id} has no curve {discount}.");
             string? forward = null, kind = "fixed";
             if (terms.Floating)

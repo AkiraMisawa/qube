@@ -118,10 +118,10 @@ public class AlphaRatesPricingTests
         var channel = new ScriptedChannel(r => (string)r["op"]! == "price"
             ? new JsonObject { ["ok"] = true, ["rows"] = new JsonArray(new JsonObject { ["id"] = "L1", ["refused"] = "no fixing for JPY-RFR on 2026-11-16" }) }
             : Ok(r));
-        var result = await Provider(channel).PriceBatchAsync(Batch(1, Line("L1"), Line("L2", collateral: null)), CancellationToken.None);
+        var result = await Provider(channel).PriceBatchAsync(Batch(1, Line("L1"), Line("L2", collateral: "CHF")), CancellationToken.None);
 
         Assert.Equal("no fixing for JPY-RFR on 2026-11-16", result.Rows.Single(r => r.RowKey == "L1").Failure);
-        Assert.Contains("Collateral", result.Rows.Single(r => r.RowKey == "L2").Failure);
+        Assert.Contains("collateralised in CHF", result.Rows.Single(r => r.RowKey == "L2").Failure);
         Assert.Single(channel.Sent.Single(s => (string)s["op"]! == "lines")["lines"]!.AsArray());
     }
 
