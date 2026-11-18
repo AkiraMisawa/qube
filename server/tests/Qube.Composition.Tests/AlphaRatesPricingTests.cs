@@ -79,7 +79,7 @@ public class AlphaRatesPricingTests
         Assert.Equal(("JPY/TONA", "JPY/TONA", 2), ((string)channel.Sent[0]["jacobians"]![0]!["quotes"]!, (string)channel.Sent[0]["jacobians"]![0]!["curve"]!,
             channel.Sent[0]["jacobians"]![0]!["rows"]!.AsArray().Count));
         Assert.IsType<JsonValue>(channel.Sent[2]["lines"], exactMatch: false);   // an id, not the tables
-        Assert.Equal(channel.Sent[1]["id"]!.ToString(), channel.Sent[4]["lines"]!.ToString());
+        Assert.Equal(channel.Sent[1]["key"]!.ToString(), channel.Sent[4]["lines"]!.ToString());   // "id" is the channel's own
     }
 
     [Fact] // a restarted worker forgets: the provider sends the same content again, never another value

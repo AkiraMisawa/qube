@@ -86,6 +86,18 @@ public class AlphaCashflowTableTests
         Assert.Equal((DateRules.AddBusinessDays(r.AccrualEnd, -2, Calendar), r.AccrualEnd, r.AccrualEnd.AddMonths(6)), (r.Fixing, r.IndexStart, r.IndexEnd));
     }
 
+    [Fact] // alpha rates-pricer.md §7: the worker makes no year fraction; an overnight leg says its day basis, a term period its index's
+    public void An_overnight_leg_carries_its_day_basis_and_a_term_period_its_index_year_fraction()
+    {
+        var (overnight, _) = CashflowTables.From(Irs(), Map, Market, ValuationDate, _ => Calendar);
+        Assert.Equal(360.0, overnight!.Legs[1].DayBasis);   // the leg's ACT/360
+        Assert.Null(overnight.Legs[0].DayBasis);
+
+        var (term, _) = CashflowTables.From(Irs(floatIndex: "TIBOR6M", overnight: false), Map, Market, ValuationDate, _ => Calendar);
+        var p = term!.Legs[1].Periods[0];
+        Assert.Equal((p.IndexEnd!.Value.DayNumber - p.IndexStart!.Value.DayNumber) / 360.0, p.IndexYearFraction!.Value, 15);
+    }
+
     [Fact] // CLAUDE.md: nothing defaults the discounting; an empty Collateral is refused on the row
     public void A_line_without_collateral_is_refused_with_its_reason()
     {

@@ -110,7 +110,7 @@ public sealed class AlphaRatesPricing(IAlphaChannel channel, AlphaCurveMap map, 
                 lock (gate) known = lineSets.Contains(linesId);
                 if (!known)
                 {
-                    Check(await channel.SendAsync(new JsonObject { ["op"] = "lines", ["id"] = linesId, ["lines"] = linesJson.DeepClone() }, cancellationToken), "lines");
+                    Check(await channel.SendAsync(new JsonObject { ["op"] = "lines", ["key"] = linesId, ["lines"] = linesJson.DeepClone() }, cancellationToken), "lines");
                     lock (gate) lineSets.Add(linesId);
                 }
                 answer = await channel.SendAsync(new JsonObject { ["op"] = "price", ["market"] = key, ["lines"] = linesId }, cancellationToken);

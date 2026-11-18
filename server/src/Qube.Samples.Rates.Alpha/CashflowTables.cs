@@ -12,12 +12,13 @@ public sealed record AlphaCurveMap(IReadOnlyDictionary<string, string> Forward, 
 public sealed record CashflowTable(string Id, string ReportingCurrency, int? ParLeg, IReadOnlyList<TableLeg> Legs);
 
 public sealed record TableLeg(int Sign, string Currency, string DiscountCurve, string Kind, string? Index, string? ForwardCurve,
-    IReadOnlyList<TablePeriod> Periods, IReadOnlyList<TableExchange> Exchanges);
+    IReadOnlyList<TablePeriod> Periods, IReadOnlyList<TableExchange> Exchanges, double? DayBasis = null);
 
 /// <summary>One period. Rates are decimals (the grid's percent / 100). <c>Rate</c> is null only on the leg solved at par.</summary>
 public sealed record TablePeriod(DateOnly AccrualStart, DateOnly AccrualEnd, DateOnly Payment, double Notional, double YearFraction, double? Rate,
     double Gearing, DateOnly? Fixing = null, DateOnly? IndexStart = null, DateOnly? IndexEnd = null,
-    DateOnly? ObservationStart = null, DateOnly? ObservationEnd = null, int? Lookback = null, int? Lockout = null, double? KnownRate = null);
+    DateOnly? ObservationStart = null, DateOnly? ObservationEnd = null, int? Lookback = null, int? Lockout = null, double? KnownRate = null,
+    double? IndexYearFraction = null);
 
 /// <summary>An exchange of notional; positive is received on the leg (the leg's sign then applies).</summary>
 public sealed record TableExchange(DateOnly Date, double Amount);
@@ -84,6 +85,8 @@ public static class CashflowTables
                         Fixing = DateRules.AddBusinessDays(start, -leg.Profile.SpotLagDays, cal),
                         IndexStart = start,
                         IndexEnd = indexMonths is { } months ? start.AddMonths(months) : null, // absent only on a row refused above
+                        // the index period on the leg's day count (a definition of this sample, unconfirmed like the others)
+                        IndexYearFraction = indexMonths is { } m ? DateRules.YearFraction(start, start.AddMonths(m), leg.Profile.DayCount) : null,
                     };
                 }
                 if (terms.Floating && terms.Detail.CurrentResetPercent is { } known && p.AccrualStart <= valuationDate && valuationDate < p.AccrualEnd)
@@ -91,8 +94,17 @@ public static class CashflowTables
                 periods.Add(period);
             }
             var exchanges = leg.Exchanges.Select(e => new TableExchange(e.PaymentDate, e.Kind == ExchangeKind.Final ? e.Amount : -e.Amount)).ToList();
-            legs.Add(new TableLeg(received ? 1 : -1, terms.Currency, discount ?? "", kind ?? "", terms.Floating ? terms.Index : null, forward, periods, exchanges));
+            // An overnight leg's compounding counts days on its day count's basis.
+            double? dayBasis = terms.Floating && leg.Profile.Overnight ? DayBasis(leg.Profile.DayCount) : null;
+            legs.Add(new TableLeg(received ? 1 : -1, terms.Currency, discount ?? "", kind ?? "", terms.Floating ? terms.Index : null, forward, periods, exchanges, dayBasis));
         }
         return refusals.Count > 0 ? (null, refusals) : (new CashflowTable(line.RowKey, line.Legs[0].Terms.Currency, line.ParLeg, legs), refusals);
     }
+
+    static double DayBasis(DayCountBasis basis) => basis switch
+    {
+        DayCountBasis.Act360 => 360.0,
+        DayCountBasis.Act365Fixed => 365.0,
+        _ => throw new NotSupportedException($"The day count {basis} has no basis the engine knows."),
+    };
 }
