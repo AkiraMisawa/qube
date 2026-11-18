@@ -442,9 +442,12 @@ provider is wired.
   by Vite): the symbols, then each priced side's values, then the Diff, each operand selecting its term. A decision
   shows its steps and reasons, a parameter its source, a matrix the row the lookup took. A term with leaf rows shows
   them in a grid paged and sorted by the server, a side at a time, with each row's membership and reconciliation; the
-  row at the Focus has its column formulas typeset. Alt+→ and Alt+← open and close (ADR-0011 §6's note), and
-  `focus grid` gives the tree the keyboard. Below `sm` the view drills in: the breadcrumb, the formula, then the
-  children as a list. A case priced on After alone has no Before or Diff column and says so once.
+  row at the Focus has its column formulas typeset. Alt+→ opens a term and, pressed again, goes into its first child;
+  Alt+← closes it or goes up to the parent (ADR-0011 §6's notes of 2026-11-08 and 2026-11-18), said under the tree;
+  a key waiting for a term's children holds the keys after it, bounded at 10 seconds; and `focus grid` gives the tree
+  the keyboard. Below `sm` the view drills in: the breadcrumb, the formula, then the children as a list, which takes
+  ↑/↓, →/Enter and ←/Backspace, keys pressed while a list is drawn anew taken once it is. A case priced on After alone
+  has no Before or Diff column and says so once.
 
 ### Providers
 

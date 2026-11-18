@@ -73,3 +73,54 @@ export function opened(open: ReadonlySet<string>, path: readonly { readonly id: 
   for (const crumb of path.slice(0, -1)) next.add(crumb.id);
   return next;
 }
+
+/**
+ * What the tree's two keys do at the row the Focus is on (ADR-0011 §6, its notes of 2026-11-08 and 2026-11-18). `in`
+ * (Alt+→) opens a closed term and goes into an open one, to its first child, so that pressed again and again it walks
+ * down; `out` (Alt+←) closes an open term and goes up from a closed one to its parent, and from a row that stands for a
+ * term's children (being read, more to read, or failed) to that term. A term with nothing to open, a closed root, and a
+ * position the rows do not have are answered with nothing, never with another row.
+ */
+export type TreeMove =
+  | { readonly kind: 'open' | 'close' | 'into' | 'goTo'; readonly termId: string }
+  | { readonly kind: 'none' };
+
+const NONE: TreeMove = { kind: 'none' };
+
+export function treeMove(rows: readonly TreeRow[], at: number, key: 'in' | 'out'): TreeMove {
+  const row = rows[at];
+  if (row === undefined) return NONE;
+  if (row.kind !== 'term') return key === 'out' ? { kind: 'goTo', termId: row.termId } : NONE;
+  if (key === 'in') {
+    if (!row.opens) return NONE;
+    return { kind: row.open ? 'into' : 'open', termId: row.termId };
+  }
+  if (row.open) return { kind: 'close', termId: row.termId };
+  // Rows are depth first, so a term's parent is the nearest term above it a level up.
+  for (let i = at - 1; i >= 0; i--) {
+    const above = rows[i]!;
+    if (above.kind === 'term' && above.depth === row.depth - 1) return { kind: 'goTo', termId: above.termId };
+  }
+  return NONE;
+}
+
+/**
+ * Where an open term's children stand in the rows: still being read, or shown, with the first of them where it has one;
+ * or `gone`, where the term is no longer an open row of the tree (closed, or under a term closed since). Going into a
+ * term waits while they are read, so a key pressed before they arrive ends where one pressed after does (spine 6), and
+ * goes nowhere where they could not be read, whose row says why, or where it has none.
+ */
+export type ChildrenShown =
+  | { readonly kind: 'reading' }
+  | { readonly kind: 'shown'; readonly first: string | undefined }
+  | { readonly kind: 'gone' };
+
+export function childrenShown(rows: readonly TreeRow[], termId: string): ChildrenShown {
+  const at = rows.findIndex((r) => r.kind === 'term' && r.termId === termId);
+  const row = rows[at];
+  if (row === undefined || !row.open) return { kind: 'gone' };
+  const next = rows[at + 1];
+  if (next === undefined || next.depth !== row.depth + 1) return { kind: 'shown', first: undefined };
+  if (next.kind === 'loading') return { kind: 'reading' };
+  return { kind: 'shown', first: next.kind === 'term' ? next.termId : undefined };
+}

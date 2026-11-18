@@ -236,6 +236,20 @@ of that day; the CCR sample was ported to it the same day (links in §6's last p
   at the Focus is the selected one, DEFAULT 2026-11-08. In ExGrid → and ← move the Focus between columns, and the
   tree's columns are wider than its part of a laptop's screen, so the tree takes the two keys with Alt, as declared
   keys; the formula follows the Focus as it moves, so no Enter is needed. `focus grid` gives the tree the keyboard.)*
+  *(Note of 2026-11-18, DEFAULT, after the owner: "it might be easier to use if, while drilling down, I could keep
+  exploring with the arrow keys". Alt+→ on an open term goes into its first child, so that pressed again and again it
+  walks down the tree in the order the children are drawn, the formula's or the largest first; Alt+← on a row that
+  stands for a term's children (being read, more to read, failed) goes up to that term. A key that opens a term or goes
+  into it answers once the term's children are shown, and the grid holds the keys pressed after it until then (ex-grid
+  ADR-0050 item 14), so keys sent at machine speed end where keys pressed by hand do; a read that has not answered
+  after 10 seconds gives the key up, said in the grid's live region and logged. Rows that open or close around the
+  Focus leave it on its term and column, which the grid's own rule would drop with the Selection (ex-grid ADR-0011).
+  The keys are said under the tree from `sm` up (design guidelines §8). Below `sm` the list takes the arrow keys: ↑
+  and ↓ choose a child, → or Enter goes in, ← or Backspace goes up, and the keyboard follows to the first child of the
+  term gone into, or back to the child come up from; keys pressed while a list is drawn anew are taken once it is
+  drawn, with the same bound. Plain → and ← in the tree stay the grid's: ExGrid refuses a key it answers itself as a
+  declared one, so taking them would need ExGrid to answer them on a tree's column, which was put to the owner the
+  same day. One view draws every trace, so spot IM's tree takes the same keys.)*
 - **A breadcrumb** of the path from the root (`K › RWA › EAD › NS-002 › PFE › AddOn › IR › USD`), each step a link,
   above the tree and the formula; it is what a phone shows instead of the tree.
 - **The formula** of the selected term, typeset: first its kind's TeX, then the same formula with the values

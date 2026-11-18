@@ -122,3 +122,16 @@
 }
 .qube-trace-card-figures dt { font-size: var(--mantine-font-size-xs); }
 .qube-trace-card-figures dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+/* The keys of the tree and of the list below `sm`, said under them where a keyboard is likely (design guidelines §8). */
+.qube-trace-keys { row-gap: 0; }
+
+/* Below `sm` the drill-in's frame holds the keyboard where the term gone into has no children, so that ← still goes
+   up; it shows the theme's focus ring for the keyboard alone, as Mantine's controls do (`focusRing: 'auto'`). */
+.qube-trace-drill:focus { outline: none; }
+.qube-trace-drill:focus-visible {
+  outline: 2px solid var(--mantine-primary-color-filled);
+  outline-offset: 2px;
+}
+/* While a move waits for its list, the frame holds the keyboard unseen: the ring would flash around the whole term. */
+.qube-trace-drill[data-moving]:focus-visible { outline: none; }

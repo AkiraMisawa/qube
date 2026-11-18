@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
-import { ActionIcon, Badge, Button, Text } from '@mantine/core';
+import { flushSync } from 'react-dom';
+import { ActionIcon, Badge, Button, Group, Kbd, Text } from '@mantine/core';
 import { IconChevronDown, IconChevronRight } from '@tabler/icons-react';
 import { GridSource, type CellState, type GridColumn, type GridDeclaredKeyPress, type GridSelection, type GridTemplateCell } from '@ex-grid/core';
 import { templateColumn, type ExGridApi } from '@ex-grid/react';
@@ -8,19 +9,38 @@ import { QubeGrid } from '../grid/QubeGrid';
 import type { TraceHeader } from './contracts';
 import { symbolTex } from './formula';
 import { Tex } from './Tex';
-import type { TreeRow } from './tree';
+import { childrenShown, treeMove, type TreeRow } from './tree';
 import { SIDE_TITLE, allocationCell, allocationDiffCell, citationCell, diffCell, governedCell, governsMark, sideCell, stateCell, unitText } from './words';
 import { useColumnWidths } from '../grid/columnWidths';
+import { telemetry } from '../telemetry';
 
 // The tree of terms (ADR-0011 §6) in ExGrid, drawn as ExPivot draws its Compact form: the term column is a pinned
 // Template Column with the label, its indent and the open/close button; the grid reports the press, and the page holds
 // what is open and pushes the rows. The grid neither sorts nor filters the tree: its order is the formula's or the
-// change's, which the server gives. Alt+→ opens the term at the Focus and Alt+← closes it or goes to its parent;
-// → and ← stay the grid's, between columns (DEFAULT 2026-11-08, ADR-0011 §6's note).
+// change's, which the server gives. Alt+→ opens the term at the Focus, and on an open term goes into its first child, so
+// that pressed again and again it walks down; Alt+← closes the term or goes up to its parent. → and ← stay the grid's,
+// between columns: ExGrid refuses a key it answers itself as a declared one (ex-grid ADR-0050 item 14), so the tree takes
+// the two with Alt (ADR-0011 §6's notes of 2026-11-08 and 2026-11-18).
 
 const OPEN_KEY = 'Alt+ArrowRight';
 const CLOSE_KEY = 'Alt+ArrowLeft';
 const DECLARED_KEYS = [OPEN_KEY, CLOSE_KEY];
+// How many Row Sequence Versions of rows the tree keeps for the keys pressed under them: a press is read within a
+// frame or two of the rows it was pressed on, so a handful covers keys sent at machine speed.
+const KEPT_VERSIONS = 8;
+// How long a key that opens a term, or goes into it, holds the keys pressed after it while the term's children are
+// read. A bound for a server that does not answer, not a wait for a race: while the read answers, the keys after it are
+// taken in their order once the children are shown. Past it the key is given up, said in the grid's live region and
+// logged, and the keys after it are let go.
+const CHILDREN_WAIT_MS = 10_000;
+
+/** A key that waits for a term's children to be shown, and, going into the term, for the Focus to move to the first. */
+interface Waiter {
+  readonly termId: string;
+  readonly into: boolean;
+  readonly column: number;
+  readonly settle: () => void;
+}
 
 interface TreeActions {
   readonly toggle: (row: TreeRow) => void;
@@ -61,7 +81,7 @@ function TermCell({ cell }: { readonly cell: GridTemplateCell<TreeRow> }) {
     <div className="qube-trace-term" style={indent} data-open={row.open} {...(mark === undefined ? {} : { 'data-governs': mark.governs })}>
       {row.opens ? (
         <ActionIcon ref={button} size="sm" variant="subtle" tabIndex={-1} className="ex-interactive" aria-expanded={row.open}
-          aria-label={`${row.open ? 'Close' : 'Open'} ${label}`} title={`${row.open ? 'Close' : 'Open'} ${label} (${row.open ? 'Alt+←' : 'Alt+→'})`}
+          aria-label={`${row.open ? 'Close' : 'Open'} ${label}`} title={`${row.open ? `Close ${label} (Alt+←)` : `Open ${label} (Alt+→)`}`}
           onClick={() => actions.toggle(row)}>
           {row.open ? <IconChevronDown size={14} stroke={1.75} /> : <IconChevronRight size={14} stroke={1.75} />}
         </ActionIcon>
@@ -131,8 +151,10 @@ export function TraceTree({ header, rows, selected, onSelect, onGoTo, onToggle, 
   readonly selected: string | undefined;
   /** The grid moved its Focus onto a term. */
   readonly onSelect: (id: string) => void;
-  /** A key asks for a term the Focus is not on (Alt+← on a closed term, its parent): the Focus goes there. */
+  /** A press asks for a term the Focus may not be on (the open or close button of another row): the Focus goes there. */
   readonly onGoTo: (id: string) => void;
+  /** Opens or closes a term, and nothing else. The tree's keys call it inside `flushSync`, so that the rows it draws are
+   * the grid's before the next key is read. */
   readonly onToggle: (id: string, open: boolean) => void;
   readonly onMore: (id: string) => void;
   /** Asks the grid to put its Focus on the selected term once its row is among those it holds; numbered per ask. */
@@ -155,16 +177,50 @@ export function TraceTree({ header, rows, selected, onSelect, onGoTo, onToggle, 
   handlers.current = { onSelect, onGoTo, onToggle, onMore };
   const selectedRef = useRef(selected);
   selectedRef.current = selected;
+  // The last placement the page asked for (`place`), and the last the tree took up: while they differ, the page has asked
+  // for a term the tree has not yet placed the Focus on, and that ask outranks keeping the Focus where it was.
+  const placeAsked = useRef(place);
+  placeAsked.current = place;
+  const placeTaken = useRef(place);
+  // A placement the page asked for that still waits for its term's row; the call gives it up.
+  const pending = useRef<(() => void) | undefined>(undefined);
 
   // A tree is no live feed: its rows are put out at once, not gathered over an interval (ADR-0141), so the rows the
-  // grid holds are the rows the page drew, and a placement made for them is made under the grid's own version.
-  useEffect(() => { source.replaceAll(rows); source.publishGathered(); }, [source, rows]);
+  // grid holds are the rows the page drew, and a placement made for them is made under the grid's own version. They are
+  // put out as the page commits them (a layout effect), so that a key that opens or closes a term, drawn inside
+  // `flushSync`, leaves the grid holding the rows it drew before the next key is read. The rows of the last few versions
+  // are kept, so that a key is read against the rows it was pressed on (spine 6).
+  const versions = useRef(new Map<number, { readonly start: number; readonly rows: readonly TreeRow[] }>());
+  const waiters = useRef<readonly Waiter[]>([]);
+  useLayoutEffect(() => {
+    const before = grid.current?.readView();
+    const kept = before === undefined ? undefined : rowIn(before.rowSequenceVersion, before.selection.focus?.row);
+    source.replaceAll(rows);
+    source.publishGathered();
+    const state = source.snapshot();
+    versions.current.set(state.rowSequenceVersion, { start: state.windowStart, rows: state.window });
+    for (const version of versions.current.keys()) if (version < state.rowSequenceVersion - KEPT_VERSIONS) versions.current.delete(version);
+    // Rows that open or close around the Focus move the sequence, and the grid drops its Selection (ex-grid ADR-0011,
+    // ADR-0141). The term at the Focus is the same term, so the Focus is put back on it, in its column: unless the page
+    // asked for another term (an ask not yet taken up, or one still waiting for its row), or something placed a Focus as
+    // the rows came, or the term's row went with them.
+    const after = grid.current?.readView();
+    const dropped = after !== undefined && (after.selection.focus === undefined || after.rowSequenceVersion !== state.rowSequenceVersion);
+    const asked = placeAsked.current !== placeTaken.current || pending.current !== undefined;
+    if (kept !== undefined && before?.selection.focus !== undefined && dropped && !asked) {
+      placeOnKey(kept.key, before.selection.focus.column);
+    }
+    // A key held for a term's children goes on once they are shown, or once the term is no longer there to wait on.
+    for (const waiter of waiters.current) if (shownFor(waiter.termId, waiter.into, waiter.column)) waiter.settle();
+  }, [source, rows]);
+  // A tree taken away lets every key it holds go: the grid that held them goes with it.
+  useEffect(() => () => { for (const waiter of waiters.current) waiter.settle(); }, []);
 
   // Put the Focus on the selected term's row, under the Row Sequence Version that holds it: a placement for rows the
   // grid has moved past is refused by the grid, and one still waiting for its row is given up once the user moves the
   // Focus, never made late over what the user did since (spine 6).
-  const pending = useRef<(() => void) | undefined>(undefined);
   useEffect(() => {
+    placeTaken.current = place;
     if (place === 0) return undefined;
     const placeNow = () => {
       source.publishGathered();
@@ -182,6 +238,22 @@ export function TraceTree({ header, rows, selected, onSelect, onGoTo, onToggle, 
     return stop;
     // Only when asked, never on every new row: the Focus the user moves is the Selection's own.
   }, [place, source]);
+
+  /** The row at a position of the rows a version held, where the tree still keeps that version. */
+  function rowIn(version: number, position: number | undefined): TreeRow | undefined {
+    const held = versions.current.get(version);
+    return held === undefined || position === undefined ? undefined : held.rows[position - held.start];
+  }
+
+  /** Puts the Focus on the row of a key (a term's is its id), in a column, under the version the source holds now; false
+   * where it has no such row. */
+  function placeOnKey(key: string, column: number): boolean {
+    const state = source.snapshot();
+    const at = state.window.findIndex((r) => r.key === key);
+    if (at < 0 || grid.current === null) return false;
+    const row = state.windowStart + at;
+    return grid.current.placeSelection({ topRow: row, leftColumn: column, rowCount: 1, columnCount: 1 }, { row, column }, state.rowSequenceVersion);
+  }
 
   const rowAt = useCallback((position: number): TreeRow | undefined => {
     const state = source.snapshot();
@@ -202,23 +274,75 @@ export function TraceTree({ header, rows, selected, onSelect, onGoTo, onToggle, 
     handlers.current.onSelect(termId);
   }, [rowAt]);
 
-  const onDeclaredKey = useCallback((press: GridDeclaredKeyPress) => {
-    if (press.editOpen || press.selection.focus === undefined) return;
-    const row = rowAt(press.selection.focus.row);
-    if (row === undefined || row.kind !== 'term') return;
-    if (press.key === OPEN_KEY && row.opens && !row.open) handlers.current.onToggle(row.termId, true);
-    if (press.key === CLOSE_KEY) {
-      if (row.open) { handlers.current.onToggle(row.termId, false); return; }
-      // Left on a closed term goes to its parent, the nearest row above it one level up.
-      const state = source.snapshot();
-      const at = state.window.indexOf(row);
-      const parent = state.window.slice(0, at).reverse().find((r) => r.kind === 'term' && r.depth === row.depth - 1);
-      if (parent !== undefined) handlers.current.onGoTo(parent.termId);
+  /** The term at the grid's Focus as it holds it now, read in the rows of the version its Selection is written in. */
+  const focusedTerm = (): string | undefined => {
+    const view = grid.current?.readView();
+    const row = view === undefined ? undefined : rowIn(view.rowSequenceVersion, view.selection.focus?.row);
+    return row?.kind === 'term' ? row.termId : undefined;
+  };
+
+  /**
+   * Whether a key waiting on a term's children can go on: they are shown, or the term is gone. Going into it, the Focus
+   * moves to the first child, but only while it is still on the term the key was pressed on: a reader who moved it
+   * meanwhile, by a click or a command, keeps it where they put it.
+   */
+  function shownFor(termId: string, into: boolean, column: number): boolean {
+    const shown = childrenShown(source.snapshot().window, termId);
+    if (shown.kind === 'reading') return false;
+    if (into && shown.kind === 'shown' && shown.first !== undefined && focusedTerm() === termId) placeOnKey(shown.first, column);
+    return true;
+  }
+
+  /** Holds the keys after this one until the term's children are shown, unless they already are. */
+  const heldFor = (termId: string, into: boolean, column: number): Promise<void> | undefined => {
+    if (shownFor(termId, into, column)) return undefined;
+    return new Promise<void>((resolve) => {
+      const waiter: Waiter = {
+        termId, into, column,
+        settle: () => { clearTimeout(timer); waiters.current = waiters.current.filter((w) => w !== waiter); resolve(); },
+      };
+      const timer = setTimeout(() => {
+        waiter.settle();
+        const label = source.snapshot().window.find((r) => r.kind === 'term' && r.termId === termId)?.term?.label ?? termId;
+        grid.current?.announce(`The terms below ${label} are still being read, so the key was not taken. Press it again once they show.`);
+        telemetry.report({ level: 'warning', kind: 'trace-key', message: `The children of trace term ${termId} were not read within ${CHILDREN_WAIT_MS} ms; the key ${into ? 'going into it' : 'opening it'} was given up.` });
+      }, CHILDREN_WAIT_MS);
+      waiters.current = [...waiters.current, waiter];
+    });
+  };
+
+  // A key acts on the row it was pressed on, found by the position the press names in the rows of its version, and
+  // then by its key in the rows the grid holds now, which a key just before it may have changed. What it does is read
+  // from those rows: Alt+→ on a term just opened goes into it. A press under a version no longer kept is not acted on.
+  // A key that opens a term or goes into it answers once the term's children are shown, and the grid holds the keys
+  // pressed after it until then (ex-grid ADR-0050 item 14), so a reader at machine speed ends where a slow one does.
+  const onDeclaredKey = (press: GridDeclaredKeyPress): Promise<void> | undefined => {
+    const focus = press.selection.focus;
+    if (press.editOpen || focus === undefined) return undefined;
+    if (!versions.current.has(press.rowSequenceVersion)) {
+      telemetry.report({ level: 'info', kind: 'trace-key', message: `${press.key} was pressed under row version ${press.rowSequenceVersion}, which the trace tree no longer holds, so it was not acted on.` });
+      return undefined;
     }
-  }, [rowAt, source]);
+    const pressed = rowIn(press.rowSequenceVersion, focus.row);
+    const now = source.snapshot().window;
+    const move = treeMove(now, pressed === undefined ? -1 : now.findIndex((r) => r.key === pressed.key), press.key === OPEN_KEY ? 'in' : 'out');
+    switch (move.kind) {
+      case 'open':
+        flushSync(() => handlers.current.onToggle(move.termId, true));
+        return heldFor(move.termId, false, focus.column);
+      case 'into': return heldFor(move.termId, true, focus.column);
+      case 'close': flushSync(() => handlers.current.onToggle(move.termId, false)); return undefined;
+      case 'goTo': placeOnKey(move.termId, focus.column); return undefined;
+      case 'none': return undefined;
+    }
+  };
+  // The grid is handed one function for its life; it reads the latest of what it calls.
+  const keyHandler = useRef(onDeclaredKey);
+  keyHandler.current = onDeclaredKey;
+  const onDeclaredKeyStable = useCallback((press: GridDeclaredKeyPress) => keyHandler.current(press), []);
 
   const actions = useMemo<TreeActions>(() => ({
-    toggle: (row) => handlers.current.onToggle(row.termId, !row.open),
+    toggle: (row) => { handlers.current.onToggle(row.termId, !row.open); handlers.current.onGoTo(row.termId); },
     more: (row) => handlers.current.onMore(row.termId),
     header,
   }), [header]);
@@ -230,8 +354,24 @@ export function TraceTree({ header, rows, selected, onSelect, onGoTo, onToggle, 
       <div aria-label="Terms" data-testid="trace-tree" data-rows={rows.length}>
         <QubeGrid<TreeRow> ref={grid} columns={columns} onColumnWidthChanged={onColumnWidthChanged} source={source} density="compact" viewportWidth="stretch" viewportHeight={height}
           pinnedColumnCount={1} locale="en-US" headerClickSelects hideColumnMenu highlightFocusRow
-          cellType={cellType} cellState={cellState} declaredKeys={DECLARED_KEYS} onDeclaredKey={onDeclaredKey} onSelectionChanged={onSelectionChanged} />
+          cellType={cellType} cellState={cellState} declaredKeys={DECLARED_KEYS} onDeclaredKey={onDeclaredKeyStable} onSelectionChanged={onSelectionChanged} />
       </div>
+      <TreeKeys />
     </Actions.Provider>
+  );
+}
+
+/**
+ * The tree's keys, said under it where a keyboard is likely (design guidelines §8: from `sm` up), since Alt is not what
+ * a reader tries first: ↑ and ↓ move between terms and the formula follows, Alt+→ opens and goes in, Alt+← closes and
+ * goes up.
+ */
+function TreeKeys() {
+  return (
+    <Group gap="md" wrap="wrap" visibleFrom="sm" className="qube-trace-keys" data-testid="trace-tree-keys" aria-label="Keys in the tree">
+      <Text size="xs"><Kbd size="xs">↑</Kbd> <Kbd size="xs">↓</Kbd> move</Text>
+      <Text size="xs"><Kbd size="xs">Alt</Kbd>+<Kbd size="xs">→</Kbd> open, then go in</Text>
+      <Text size="xs"><Kbd size="xs">Alt</Kbd>+<Kbd size="xs">←</Kbd> close, then go up</Text>
+    </Group>
   );
 }

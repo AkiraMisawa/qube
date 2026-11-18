@@ -45,18 +45,31 @@ test('ADR-0011 §6: a figure opens its trace, each side\'s values typeset in its
   const tree = page.getByTestId('trace-tree');
   await expect(tree).toHaveAttribute('data-rows', '2');
 
-  // The keyboard: the panel's grid is the tree, its Focus on the term just opened. Alt+→ opens it, ↓ selects the next
-  // term, Alt+← on a closed term goes to its parent and on an open one closes it; → and ← stay the grid's.
+  // The keyboard (ADR-0011 §6's notes of 2026-11-08 and 2026-11-18; Akira, 2026-11-18: exploring with the arrow keys,
+  // one press after another): the panel's grid is the tree, its Focus on the term just opened, and the keys are said
+  // under it. Alt+→ opens a term and, pressed again, goes into its first child; Alt+← goes up to the parent, and on an
+  // open term closes it; → and ← stay the grid's. The keys are pressed at machine speed and end where they would by
+  // hand: a key that waits for a term's children holds the keys after it.
   await settled(page, 'Terms');
   await page.keyboard.press('ControlOrMeta+Shift+G');
+  await expect(page.getByTestId('trace-tree-keys')).toContainText('open, then go in');
   await page.keyboard.press('Alt+ArrowRight');
-  await expect(tree).toHaveAttribute('data-rows', '4');
-  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Alt+ArrowRight');
   await expect(term(page)).toHaveText('Risk weight');
+  await expect(tree).toHaveAttribute('data-rows', '4');
   // The risk weight is a decision: its steps in order, each with its outcome.
   await expect(page.getByTestId('trace-steps')).toContainText('Exposure class');
+  // ↓ to the EAD beside it, then in twice, down to its first netting set in the formula's order; up, closing the EAD, and
+  // up again.
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Alt+ArrowRight');
+  await page.keyboard.press('Alt+ArrowRight');
+  await expect(term(page)).toHaveText('EAD of NS-001 CSA-B');
+  await page.keyboard.press('Alt+ArrowLeft');
+  await page.keyboard.press('Alt+ArrowLeft');
   await page.keyboard.press('Alt+ArrowLeft');
   await expect(term(page)).toHaveText('Risk-weighted assets');
+  await expect(tree).toHaveAttribute('data-rows', '4');
   await page.keyboard.press('Alt+ArrowLeft');
   await expect(tree).toHaveAttribute('data-rows', '2');
 
@@ -118,7 +131,7 @@ test('ADR-0011 §4, §6: with Before not priced, the trace is drawn on After alo
 
 // Below `sm` the view drills in a level at a time (ADR-0011 §6, design guidelines §9), and every text reads at 4.5:1 in
 // both themes, there and on a desktop screen (§7).
-test('ADR-0011 §6, docs/design-guidelines.md §7, §9: at 390px the trace drills in and back, never scrolls sideways, and reads at 4.5:1', async ({ page }) => {
+test('ADR-0011 §6, docs/design-guidelines.md §7, §9: at 390px the trace drills in and back by pointer and keys, never scrolls sideways, and reads at 4.5:1', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await open(page);
   await newWorkspace(page, 'ABC/LE-01', 3);
@@ -138,6 +151,17 @@ test('ADR-0011 §6, docs/design-guidelines.md §7, §9: at 390px the trace drill
   await expect(term(page)).toHaveText('EAD of the counterparty');
   await expect(children.getByRole('button', { name: /^EAD of NS-001 CSA-A/ })).toBeVisible();
   expect(await sideways(page)).toBe(0);
+
+  // The list takes the arrow keys (ADR-0011 §6's note of 2026-11-18): a pressed child leaves the keyboard on the first
+  // term below it; → or Enter goes in, ← or Backspace up, ↑ and ↓ choose. At machine speed, the keys pressed while a
+  // list is drawn anew are taken once it is, so the reader ends where a slow one would.
+  await expect(children.getByRole('button', { name: /^EAD of NS-001 CSA-B/ })).toBeFocused();
+  for (const key of ['ArrowRight', 'Backspace', 'ArrowLeft', 'ArrowUp', 'Enter']) await page.keyboard.press(key);
+  await expect(term(page)).toHaveText('Risk weight');
+  await expect(children.getByRole('button', { name: /^Exposure class/ })).toBeFocused();
+  await page.keyboard.press('ArrowLeft');
+  await expect(term(page)).toHaveText('Risk-weighted assets');
+  await expect(children.getByRole('button', { name: /^Risk weight/ })).toBeFocused();
   await page.getByTestId('trace-path').getByRole('button', { name: 'Spot CCR capital' }).click();
   await expect(term(page)).toHaveText('Spot CCR capital');
   expect(await sideways(page)).toBe(0);
