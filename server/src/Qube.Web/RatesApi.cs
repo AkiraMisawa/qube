@@ -22,9 +22,9 @@ public static class RatesApi
     public sealed record ValuationDateRequest(long Revision, DateOnly ValuationDate);
     public sealed record Rederived(RatesWorkspaceView Workspace, CarrySummary Carried);
     public sealed record WorkspaceSummary(string WorkspaceId, long Revision, JsonObject Context, int Lines);
-    public sealed record CurveView(string Key, string Currency, string Index, IReadOnlyList<PillarView> Pillars);
-    public sealed record PillarView(string Tenor, double LevelPercent);
-    public sealed record MarketView(string SnapshotId, long Sequence, DateTimeOffset AsOf, string Origin, IReadOnlyList<CurveView> Curves, IReadOnlyDictionary<string, double> Fx);
+    public sealed record CurveView(string Key, string Currency, string Index, string Role, string Interpolation, IReadOnlyList<CurveNode> Nodes);
+    public sealed record MarketView(string SnapshotId, long Sequence, DateTimeOffset AsOf, string Origin, IReadOnlyList<CurveView> Curves,
+        IReadOnlyList<QuoteSet> Quotes, IReadOnlyDictionary<string, double> Fx);
 
     public static void MapRatesApi(this IEndpointRouteBuilder app)
     {
@@ -32,8 +32,9 @@ public static class RatesApi
 
         api.MapGet("/market", (MarketFeed feed) => feed.Latest is { } m
             ? Results.Ok(new MarketView(m.Id, m.Sequence, m.AsOf, m.Origin,
-                [.. m.Curves.OrderBy(c => c.Key, StringComparer.Ordinal).Select(c => new CurveView(c.Key, c.Value.Currency, c.Value.Index,
-                    [.. c.Value.Pillars.Select(p => new PillarView(p.Tenor.ToString(), p.LevelPercent))]))],
+                [.. m.Curves.OrderBy(c => c.Key, StringComparer.Ordinal).Select(c => new CurveView(c.Key, c.Value.Currency, c.Value.Index, c.Value.Role,
+                    c.Value.Interpolation, c.Value.Nodes))],
+                [.. m.Quotes.Values.OrderBy(q => q.Name, StringComparer.Ordinal)],
                 m.Fx))
             : Results.Json(new Api.ErrorEnvelope("NoMarket", "No market snapshot has been published yet.", [], Retryable: true), statusCode: 503));
 

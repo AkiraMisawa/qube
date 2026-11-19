@@ -52,8 +52,8 @@ public class RatesPricingTests
     {
         var (a, b) = (new SyntheticMarket(Config()), new SyntheticMarket(Config()));
 
-        Assert.Equal(a.Snapshot(40).Curves["TST/TEST-ON"].Pillars, b.Snapshot(40).Curves["TST/TEST-ON"].Pillars);
-        Assert.NotEqual(a.Snapshot(40).Curves["TST/TEST-ON"].Pillars, new SyntheticMarket(Config(8)).Snapshot(40).Curves["TST/TEST-ON"].Pillars);
+        Assert.Equal(a.Snapshot(40).Curves["TST/TEST-ON"].Nodes, b.Snapshot(40).Curves["TST/TEST-ON"].Nodes);
+        Assert.NotEqual(a.Snapshot(40).Curves["TST/TEST-ON"].Nodes, new SyntheticMarket(Config(8)).Snapshot(40).Curves["TST/TEST-ON"].Nodes);
         Assert.Same(a.Snapshot(40), a.Resolve(a.Snapshot(40).Id));
         Assert.Null(a.Resolve("synthetic:other:7:40"));
         Assert.Equal("synthetic", a.Snapshot(3).Origin);
@@ -65,8 +65,8 @@ public class RatesPricingTests
         var market = new SyntheticMarket(Config());
         for (var n = 1; n <= 200; n++)
         {
-            var (before, after) = (market.Snapshot(n - 1).Curves["TST/TEST-ON"].Pillars[0].LevelPercent, market.Snapshot(n).Curves["TST/TEST-ON"].Pillars[0].LevelPercent);
-            Assert.InRange(Math.Abs(after - before), 0, (0.5 + 0.2) / 100 + 1e-12);
+            var (before, after) = (CurveMath.Zero(market.Snapshot(n - 1).Curves["TST/TEST-ON"].Nodes[0]), CurveMath.Zero(market.Snapshot(n).Curves["TST/TEST-ON"].Nodes[0]));
+            Assert.InRange(Math.Abs(after - before), 0, (0.5 + 0.2) / 1e4 + 1e-12);
         }
     }
 
@@ -87,7 +87,51 @@ public class RatesPricingTests
     public void Risk_follows_the_line_flag()
     {
         Assert.Equal(3, Price(Line()).Measures.Keys.Count(k => k.StartsWith("delta:", StringComparison.Ordinal)));
-        Assert.DoesNotContain(Price(Line(risk: false)).Measures.Keys, k => k.StartsWith("delta:", StringComparison.Ordinal));
+        Assert.Equal(3, Price(Line()).Measures.Keys.Count(k => k.StartsWith("zero:", StringComparison.Ordinal)));
+        Assert.DoesNotContain(Price(Line(risk: false)).Measures.Keys, k => k.StartsWith("delta:", StringComparison.Ordinal) || k.StartsWith("zero:", StringComparison.Ordinal));
+    }
+
+    [Fact] // owner 2026-11-17: the market carries quotes and their Jacobian dz/dq; the synthetic one's is exact
+    public void The_synthetic_jacobian_inverts_the_quotes_derivative_and_matches_bumps()
+    {
+        var market = new SyntheticMarket(Config()).Snapshot(5);
+        var curve = market.Curves["TST/TEST-ON"];
+        var j = market.Jacobians.Single(x => x.Curve == curve.Name);
+        var n = curve.Nodes.Count;
+
+        // A[i, k] = ∂q_i/∂z_k by central differences of the zero rates; Jᵀ A must be the identity.
+        var a = new double[n, n];
+        for (var k = 0; k < n; k++)
+        {
+            double Q(int i, double h) => CurveMath.ParAndGradient(CurveMath.ShiftZeros(curve, d => d == curve.Nodes[k].Days ? h : 0), curve.Nodes[i].Days).Rate;
+            for (var i = 0; i < n; i++) a[i, k] = (Q(i, 1e-6) - Q(i, -1e-6)) / 2e-6;
+        }
+        for (var i = 0; i < n; i++)
+            for (var m = 0; m < n; m++)
+            {
+                double sum = 0;
+                for (var k = 0; k < n; k++) sum += j.Rows[i][k] * a[m, k];   // Σ_k ∂z_k/∂q_i · ∂q_m/∂z_k
+                Assert.Equal(i == m ? 1 : 0, sum, 6);
+            }
+        // The quotes are the curve's own par rates.
+        Assert.Equal(CurveMath.ParAndGradient(curve, curve.Nodes[1].Days).Rate * 100, market.Quotes[curve.Name].Quotes[1].RatePercent, 12);
+    }
+
+    [Fact] // owner 2026-11-17: par delta is the zero delta through the Jacobian, as a real provider's
+    public void Par_delta_is_the_jacobian_times_the_zero_delta()
+    {
+        var market = new SyntheticMarket(Config()).Snapshot(3);
+        var row = Price(Line(fixedRate: 1.2), market);
+        var curve = market.Curves["TST/TEST-ON"];
+        var j = market.Jacobians.Single(x => x.Curve == curve.Name);
+        var zero = curve.Nodes.Select(x => row.Measures[Measures.Zero(curve.Name, x.Tenor)].Value).ToArray();
+
+        for (var i = 0; i < curve.Nodes.Count; i++)
+            Assert.Equal(j.Rows[i].Zip(zero, (r, z) => r * z).Sum(), row.Measures[Measures.Delta(curve.Name, curve.Nodes[i].Tenor)].Value, 9);
+        // A parallel 1bp on every zero rate is about the sum of the zero deltas.
+        var shifted = market with { Curves = market.Curves.ToDictionary(c => c.Key, c => CurveMath.ShiftZeros(c.Value, _ => 1e-4)) };
+        var parallel = Price(Line(fixedRate: 1.2), shifted).Measures[Measures.Pv].Value - row.Measures[Measures.Pv].Value;
+        Assert.Equal(parallel, zero.Sum(), Math.Abs(parallel) * 1e-3);
     }
 
     [Fact] // docs/07 §9.6: a row that cannot be priced is a failure on that row, never a zero

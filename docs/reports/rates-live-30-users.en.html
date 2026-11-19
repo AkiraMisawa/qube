@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rates page with 30 users</title>
+<style>
+:root{--bg:#fbfbf9;--fg:#1d1f21;--muted:#5b6066;--line:#d9dcdf;--card:#ffffff;--accent:#1f5fa8;--accent2:#7a4fb0;--good:#1d7a46;--warn:#9a5b00;--bad:#b3261e;--code:#f1f2f0;--b1:#e3edf8;--b2:#efe7f7;--b3:#e5f3ea;--b4:#fbefdc}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#16181a;--fg:#e6e7e8;--muted:#a3a8ad;--line:#3a3e42;--card:#1e2124;--accent:#7fb0ec;--accent2:#b99be0;--good:#6cc58f;--warn:#e0a84a;--bad:#f08a80;--code:#25292c;--b1:#1d2a3a;--b2:#2a2238;--b3:#1d3026;--b4:#33291a}}
+:root[data-theme="dark"]{--bg:#16181a;--fg:#e6e7e8;--muted:#a3a8ad;--line:#3a3e42;--card:#1e2124;--accent:#7fb0ec;--accent2:#b99be0;--good:#6cc58f;--warn:#e0a84a;--bad:#f08a80;--code:#25292c;--b1:#1d2a3a;--b2:#2a2238;--b3:#1d3026;--b4:#33291a}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.75 system-ui,-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif}
+main{max-width:960px;margin:0 auto;padding:28px 16px 64px}
+h1{font-size:1.6rem;margin:0 0 4px}h2{font-size:1.2rem;margin:36px 0 10px;padding-top:10px;border-top:1px solid var(--line)}h3{font-size:1.02rem;margin:20px 0 6px}
+.sub{color:var(--muted);margin:0 0 20px}
+.box{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:14px 16px;margin:14px 0}
+.box.key{border-left:4px solid var(--accent)}
+table{border-collapse:collapse;width:100%;margin:10px 0;font-size:.92rem}
+.tw{overflow-x:auto}
+th,td{border:1px solid var(--line);padding:6px 8px;vertical-align:top;text-align:left}
+th{background:var(--code)}
+td.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+code{background:var(--code);padding:1px 4px;border-radius:3px;font-size:.88em}
+.good{color:var(--good);font-weight:600}.warn{color:var(--warn);font-weight:600}.bad{color:var(--bad);font-weight:600}
+.small{font-size:.86rem;color:var(--muted)}
+svg{width:100%;height:auto;display:block}
+svg text{fill:var(--fg);font:13px system-ui,sans-serif}
+svg .m{fill:var(--muted);font-size:11.5px}
+svg .t{font-weight:600}
+svg .ln{stroke:var(--muted);stroke-width:1.4;fill:none}
+svg .hot{stroke:var(--bad);stroke-width:2;fill:none}
+.badge{display:inline-block;min-width:1.6em;padding:0 6px;border-radius:10px;background:var(--bad);color:#fff;font-size:.8rem;text-align:center;font-weight:700}
+</style>
+</head>
+<body><main>
+<h1>What happens on the server when 30 people use the Rates page</h1>
+<p class="sub">An explainer for the Rates page priced by alpha (resident worker, decided 2026-11-17) with 30 people live at once: how the client, the server and the analytics work together, where waits can arise, and how to avoid them. 2026-11-17. <a href="rates-live-30-users.html">日本語</a></p>
+
+<div class="box key">
+<p><b>In short</b></p>
+<p><b>Corrected premise (Akira, 2026-11-17 16:40)</b>: what production delivers every second is not quotes but finished curves together with the par-delta Jacobians. The worker only reads them and builds neither. This explainer follows that premise.</p>
+<ul>
+<li>Thirty people's calculations are little CPU. Per second, reading curves and Jacobians (shared by everyone) takes a few ms, and valuation for everyone tens of ms. One resident worker should be enough.</li>
+<li>Delays come less from calculation than from four places: <b>everyone waiting for curves to be read</b>, <b>sending every cashflow table to the worker on every tick</b>, <b>the server's calculation slots (4 today)</b>, and <b>delivery to and drawing in the browser</b>.</li>
+<li>All four are avoided by design: read curves once when the market arrives; send trades only when their revision changes; on a tick send only "which snapshot, which revision".</li>
+<li>If the worker stops, nothing switches to a fake calculation: lines show as not priced and the last values keep their time (CLAUDE.md).</li>
+</ul>
+</div>
+
+<h2>1. The parts</h2>
+<svg viewBox="0 0 960 430" role="img" aria-label="Architecture"><defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="var(--muted)"/></marker></defs><rect x="10" y="40" width="200" height="330" rx="8" fill="var(--b1)" stroke="var(--line)"/><text class="t" x="20" y="60">Browsers ×30</text><text class="m" x="20" y="78">Rates page (React + ExGrid)</text><text class="m" x="20" y="94">1–2 workspaces each</text><text class="m" x="20" y="110">10–30 lines each</text><text class="m" x="20" y="126"></text><text class="m" x="20" y="142">Frames arrive over</text><text class="m" x="20" y="158">EventSource (SSE)</text><text class="m" x="20" y="174"></text><text class="m" x="20" y="190">Zero/par switch is</text><text class="m" x="20" y="206">display only</text><text class="m" x="20" y="222"></text><text class="m" x="20" y="238">Edits, Price, Capture</text><text class="m" x="20" y="254">are HTTP POSTs</text><rect x="270" y="40" width="340" height="330" rx="8" fill="var(--b2)" stroke="var(--line)"/><text class="t" x="280" y="60">qube server (ASP.NET Core)</text><rect x="285" y="70" width="310" height="52" rx="8" fill="var(--card)" stroke="var(--line)"/><text class="t" x="295" y="90">Market source</text><text class="m" x="295" y="108">snapshot n once a second</text><rect x="285" y="132" width="310" height="68" rx="8" fill="var(--card)" stroke="var(--line)"/><text class="t" x="295" y="152">RatesLiveService</text><text class="m" x="295" y="170">one subscription per workspace</text><text class="m" x="295" y="186">one in flight, newest market waits</text><rect x="285" y="210" width="310" height="52" rx="8" fill="var(--card)" stroke="var(--line)"/><text class="t" x="295" y="230">Calculation slots (4 today)</text><text class="m" x="295" y="248">SemaphoreSlim(maxWorkers)</text><rect x="285" y="272" width="310" height="52" rx="8" fill="var(--card)" stroke="var(--line)"/><text class="t" x="295" y="292">AlphaRatesPricing</text><text class="m" x="295" y="310">IRatesPricingProvider (new)</text><text class="m" x="285" y="350">A Price is a Run in SQLite; ticks are not</text><rect x="670" y="40" width="280" height="330" rx="8" fill="var(--b3)" stroke="var(--line)"/><text class="t" x="680" y="60">alpha worker (resident process)</text><text class="m" x="680" y="78">xva-rates-worker (C#)</text><text class="m" x="680" y="94"></text><text class="m" x="680" y="110">Per snapshot, once:</text><text class="m" x="680" y="126">read delivered curves + Jacobians</text><text class="m" x="680" y="142">(last 8 kept)</text><text class="m" x="680" y="158"></text><text class="m" x="680" y="174">Per batch:</text><text class="m" x="680" y="190">per line PV, par,</text><text class="m" x="680" y="206">zero delta, par delta</text><text class="m" x="680" y="222"></text><text class="m" x="680" y="238">Web never loads it (rule)</text><path class="ln" d="M440,122 L440,132" marker-end="url(#a)"/><path class="ln" d="M440,200 L440,210" marker-end="url(#a)"/><path class="ln" d="M440,262 L440,272" marker-end="url(#a)"/><path class="ln" d="M595,298 L670,298" marker-end="url(#a)"/><text class="m" x="602" y="290">JSON</text><path class="ln" d="M595,96 L670,96" marker-end="url(#a)"/><text class="m" x="602" y="88">market</text><path class="ln" d="M285,160 L210,160" marker-end="url(#a)"/><text class="m" x="222" y="152">SSE</text><path class="ln" d="M210,240 L285,240" marker-end="url(#a)"/><text class="m" x="222" y="232">POST</text><circle cx="640" cy="118" r="10" fill="var(--bad)"/><text x="640" y="122" text-anchor="middle" style="fill:#fff;font-weight:700;font-size:11px">1</text><circle cx="650" cy="140" r="10" fill="var(--bad)"/><text x="650" y="144" text-anchor="middle" style="fill:#fff;font-weight:700;font-size:11px">2</text><circle cx="270" cy="226" r="10" fill="var(--bad)"/><text x="270" y="230" text-anchor="middle" style="fill:#fff;font-weight:700;font-size:11px">3</text><circle cx="632" cy="316" r="10" fill="var(--bad)"/><text x="632" y="320" text-anchor="middle" style="fill:#fff;font-weight:700;font-size:11px">4</text><circle cx="650" cy="230" r="10" fill="var(--bad)"/><text x="650" y="234" text-anchor="middle" style="fill:#fff;font-weight:700;font-size:11px">5</text><circle cx="248" cy="176" r="10" fill="var(--bad)"/><text x="248" y="180" text-anchor="middle" style="fill:#fff;font-weight:700;font-size:11px">6</text><circle cx="110" cy="390" r="10" fill="var(--bad)"/><text x="110" y="394" text-anchor="middle" style="fill:#fff;font-weight:700;font-size:11px">7</text><circle cx="820" cy="390" r="10" fill="var(--bad)"/><text x="820" y="394" text-anchor="middle" style="fill:#fff;font-weight:700;font-size:11px">8</text></svg>
+<p class="small">Red numbers mark where waits can arise (section 4).</p>
+<div class="tw"><table>
+<tr><th>Part</th><th>Role</th><th>Exists?</th></tr>
+<tr><td>The Rates page in the browser</td><td>Typing lines, showing results. Live results are pushed by the server (SSE, <code>EventSource</code>); edits, Price and Capture are HTTP POSTs</td><td>Yes</td></tr>
+<tr><td>Market source</td><td>Makes a market snapshot once a second (with an id; the same id is the same content). Synthetic today</td><td>Yes (pillar levels; to emit quotes)</td></tr>
+<tr><td><code>RatesLiveService</code></td><td>One subscription per workspace; one calculation in flight and only the newest market waiting; no Run per tick; stops 300 s after nobody watches</td><td>Yes</td></tr>
+<tr><td>Calculation slots</td><td>The cap on calculations running at once across the server (<code>SemaphoreSlim</code>, 4 today)</td><td>Yes</td></tr>
+<tr><td><code>AlphaRatesPricing</code></td><td>The <code>IRatesPricingProvider</code> that sends JSON to the worker and reads the answer</td><td>To build</td></tr>
+<tr><td>alpha worker</td><td>A resident separate process: reads and keeps the delivered curves and Jacobians per snapshot, values lines per batch</td><td>To build</td></tr>
+</table></div>
+
+<h2>2. One tick</h2>
+<ol>
+<li>The market source makes snapshot n (every second).</li>
+<li>The server first hands the market to the worker (<code>market</code>). The worker reads the delivered curves and Jacobians once, however many people there are.</li>
+<li><code>RatesLiveService</code> starts "price on n" for each running subscription. One still busy only keeps n waiting (and drops it if n+1 comes).</li>
+<li>When a slot is free, <code>AlphaRatesPricing</code> asks the worker for "snapshot n, this workspace's lines at revision r".</li>
+<li>The worker answers per line with PV, par, zero delta and par delta, or a refusal with its reason (a missing fixing, for example).</li>
+<li>The server makes a frame and pushes it over SSE to the pages watching that workspace. A page that falls behind gets only the newest frame.</li>
+<li>The browser updates the grid. The zero/par switch only picks which of the two delivered sets to show.</li>
+</ol>
+<svg viewBox="0 0 960 220" role="img" aria-label="timeline"><line x1="250.0" y1="28" x2="250.0" y2="180" stroke="var(--line)"/><text class="m" x="250.0" y="20" text-anchor="middle">0ms</text><line x1="318.0" y1="28" x2="318.0" y2="180" stroke="var(--line)"/><text class="m" x="318.0" y="20" text-anchor="middle">100ms</text><line x1="386.0" y1="28" x2="386.0" y2="180" stroke="var(--line)"/><text class="m" x="386.0" y="20" text-anchor="middle">200ms</text><line x1="454.0" y1="28" x2="454.0" y2="180" stroke="var(--line)"/><text class="m" x="454.0" y="20" text-anchor="middle">300ms</text><line x1="522.0" y1="28" x2="522.0" y2="180" stroke="var(--line)"/><text class="m" x="522.0" y="20" text-anchor="middle">400ms</text><line x1="590.0" y1="28" x2="590.0" y2="180" stroke="var(--line)"/><text class="m" x="590.0" y="20" text-anchor="middle">500ms</text><line x1="658.0" y1="28" x2="658.0" y2="180" stroke="var(--line)"/><text class="m" x="658.0" y="20" text-anchor="middle">600ms</text><line x1="726.0" y1="28" x2="726.0" y2="180" stroke="var(--line)"/><text class="m" x="726.0" y="20" text-anchor="middle">700ms</text><line x1="794.0" y1="28" x2="794.0" y2="180" stroke="var(--line)"/><text class="m" x="794.0" y="20" text-anchor="middle">800ms</text><line x1="862.0" y1="28" x2="862.0" y2="180" stroke="var(--line)"/><text class="m" x="862.0" y="20" text-anchor="middle">900ms</text><line x1="930.0" y1="28" x2="930.0" y2="180" stroke="var(--line)"/><text class="m" x="930.0" y="20" text-anchor="middle">1000ms</text><text x="10" y="49">Market arrives</text><rect x="250.0" y="34" width="2" height="20" rx="3" fill="var(--accent)"/><text class="m" x="257.36" y="49">2ms</text><text x="10" y="79">Read curves + Jacobians</text><rect x="251.36" y="64" width="3.4000000000000004" height="20" rx="3" fill="var(--good)"/><text class="m" x="260.76" y="79">5ms</text><text x="10" y="109">30 batches (4 at a time)</text><rect x="254.76" y="94" width="20.400000000000002" height="20" rx="3" fill="var(--accent2)"/><text class="m" x="281.16" y="109">30ms</text><text x="10" y="139">SSE to browsers</text><rect x="275.16" y="124" width="10.200000000000001" height="20" rx="3" fill="var(--accent)"/><text class="m" x="291.36" y="139">15ms</text><text x="10" y="169">Grid render</text><rect x="285.36" y="154" width="10.200000000000001" height="20" rx="3" fill="var(--accent)"/><text class="m" x="301.56" y="169">15ms</text><text class="m" x="250" y="204">If it ends before the next market (1000 ms), nothing piles up. Estimates, not measured</text></svg>
+
+<h2>3. How much is 30 people?</h2>
+<p>Assumptions (estimates): 30 people, 45 live workspaces in all, 20 lines each, a market a second.</p>
+<div class="tw"><table>
+<tr><th>Thing</th><th>Per second</th><th>Basis</th></tr>
+<tr><td>Curves and Jacobians</td><td class="n">once (a few ms)</td><td>Shared by everyone. Read, not built (estimate, not measured)</td></tr>
+<tr><td>Lines valued</td><td class="n">900</td><td>45 × 20</td></tr>
+<tr><td>Valuation CPU</td><td class="n">10–45 ms</td><td>12 µs for a 10y swap (measured); up to 50 µs assumed for averaged RFR and in-arrears</td></tr>
+<tr><td>Requests to the worker</td><td class="n">45</td><td>One per subscription</td></tr>
+<tr><td>Frames to browsers</td><td class="n">45 (1–2 per person)</td><td>About 150 numbers per line (3 curves × 25 nodes × zero and par); about 60 KB a frame, 60–120 KB a second per person</td></tr>
+</table></div>
+<p>The CPU is under a fifth of one core. The problem is <b>ordering and transport</b>, not volume.</p>
+
+<h2>4. Where waits can arise, and what to do</h2>
+<div class="tw"><table>
+<tr><th>#</th><th>Where</th><th>What can happen</th><th>Remedy</th></tr>
+<tr><td><span class="badge">1</span></td><td>From market arrival to curves</td><td>If 45 calculations each ask for snapshot n's curves at once, the same curves are read many times, or everyone waits for the first read</td><td>The server sends <code>market</code> once when it arrives and the worker reads it once by id (concurrent asks wait on the same read). Resend only curves that changed</td></tr>
+<tr><td><span class="badge">2</span></td><td>Inside the worker</td><td>Serving one stdin/stdout pipe in order queues everyone behind one slow request. .NET garbage collection can pause briefly</td><td>Requests carry ids, run on threads inside the worker and answer as they finish (or local HTTP/2 or gRPC). Server GC, reused buffers</td></tr>
+<tr><td><span class="badge">3</span></td><td>The server's calculation slots (4)</td><td>45 calculations queue on 4 slots: about 35 ms in all at 3 ms each, but one slow call holds up the rest</td><td>Match the slots to the worker's threads; batch the calculations on one snapshot into one request; count calls to the worker (waiting, not CPU) apart from CPU slots</td></tr>
+<tr><td><span class="badge">4</span></td><td>Data between server and worker</td><td>Sending every line's cashflow table (40–120 periods a line) on every tick means writing and reading over 10 MB of JSON a second</td><td>Send lines only when their input revision r changes; the worker keeps them by (workspace, r). A tick sends only (snapshot n, workspace, r). After a worker restart the server sends them again (same content, so not a substitute value)</td></tr>
+<tr><td><span class="badge">5</span></td><td>A slow or stopped worker</td><td>A timeout does not prove the calculation stopped; an old answer can arrive late</td><td>Answers carry snapshot and revision, so the live rules drop stale ones. If it stops, lines show as not priced and the last values keep their time; no switch to the fake provider. The server watches the worker and restarts it</td></tr>
+<tr><td><span class="badge">6</span></td><td>Delivery to browsers (SSE)</td><td>A proxy may buffer SSE. HTTP/1.1 allows 6 connections per browser to one host, so many tabs block. Frames are large</td><td>Serve over HTTP/2, turn proxy buffering off, compress. Sending only changed lines (deltas) is for later, after measuring</td></tr>
+<tr><td><span class="badge">7</span></td><td>Drawing in the browser</td><td>Redrawing every line every second lags on slow devices and background tabs</td><td>Update only changed cells by row key (ExGrid's row keys). Background tabs are slowed by the browser, but on return only the newest frame is shown, so no backlog</td></tr>
+<tr><td><span class="badge">8</span></td><td>A tick longer than a second</td><td>A calculation misses the next market</td><td>The rules already in place: one in flight, only the newest market waits, the rest skipped. If still short, run two workers and split workspaces between them (each reads its curves; at a few ms the duplicate is small)</td></tr>
+</table></div>
+
+<h2>5. Price and Capture</h2>
+<ul>
+<li><b>Price</b> (manual) values once on the snapshot the user saw and saves a Run. If the worker no longer holds that snapshot (it keeps the last 8), the server sends the same snapshot again first; it never values on a newer market instead.</li>
+<li><b>Capture</b> saves a frame already shown (the last 32) and does not call the worker.</li>
+<li>An edited line is valued at its new revision from the next calculation: at worst one in flight plus one more.</li>
+</ul>
+
+<h2>6. What in today's design is weak, and what to do</h2>
+<p><b>Verdict</b>: the per-subscription rules (one in flight, newest waits), no Run per tick, and SSE delivery fit 30 people and need no change. The weak points are three made on the assumption that <b>calculation runs in the same process</b>, and each can be fixed inside the Rates module without touching the kernel.</p>
+<div class="tw"><table>
+<tr><th>Today</th><th>Why it is weak</th><th>Proposal</th><th>Advice</th></tr>
+<tr><td>The provider contract <code>PriceBatchAsync(RatesBatchInput)</code> passes the whole market and every line on every call</td><td>Cheap in-process (references), but across processes it is over 10 MB of JSON a second (section 4, #4)</td><td>Keep the contract. Inside <code>AlphaRatesPricing</code>, remember lines by (workspace, revision) and the market by snapshot id, and send only ids when the worker has them; send content when it says it does not</td><td class="good">Do</td></tr>
+<tr><td>A market update (<code>PublishAsync</code>) starts every subscription at once</td><td>At the top of each second 45 requests go out together and all wait for curves to be read (section 4, #1)</td><td>Give the market feed (<code>MarketFeed</code>) a hook asking the provider to "prepare this market" before fanning out (a small optional interface; the fake provider does nothing). Fan out once curves are read</td><td class="good">Do</td></tr>
+<tr><td>Four calculation slots, fixed (no setting)</td><td>A number from when calculation was CPU in-process; too few or too many for calls that only wait on the worker</td><td>Make <code>Rates:MaxWorkers</code> a setting matched to the worker's parallelism; set it by measurement</td><td class="good">Do</td></tr>
+<tr><td>Full revaluation on every tick</td><td>—</td><td>Keep it. At tens of µs a line there is no need for a Taylor estimate from sensitivities; that is for the heavy XVA (Position Keeper)</td><td>Keep</td></tr>
+<tr><td>Where curves are held</td><td>Held in the rates worker, curves may also be read separately for the Position Keeper's intraday estimate and SIMM's CRIF (which uses the same Rates provider)</td><td>Later, use the worker's <code>market</code> as the shared place for curves across pages</td><td>Later</td></tr>
+<tr><td>Subscriptions live only in the Web process's memory</td><td>A Web restart loses them</td><td>The page already offers Resume on a stopped subscription; fine for 30 people. Revisit with several Web servers</td><td>Not now</td></tr>
+</table></div>
+<p>So what 30 people need is <b>three changes inside the Rates module</b> (send less, prepare the market first, make the slots a setting), included in the ticket that builds <code>AlphaRatesPricing</code>.</p>
+
+<h2>7. What to build in</h2>
+<ol>
+<li>When the market arrives, have the worker read curves and Jacobians once (shared by all).</li>
+<li>Send lines only on a new revision; ticks send ids only.</li>
+<li>The worker takes requests by id and serves them in parallel.</li>
+<li>The number of slots is a setting, matched to the worker's parallelism.</li>
+<li>The market feed has the worker prepare the market before fanning out.</li>
+<li>Deliver over HTTP/2 with compression; draw only changed cells.</li>
+<li>Record timings: per tick, curve read time, wait, calculation and delivery (qube already has OpenTelemetry).</li>
+</ol>
+<p class="small">Figures are estimates except the 12 µs for a 10y swap (measured with alpha's pieces, Xeon 2.1 GHz). Measurements: <a href="alpha-for-rates.en.html">alpha-for-rates.en.html</a>.</p>
+
+</main></body></html>

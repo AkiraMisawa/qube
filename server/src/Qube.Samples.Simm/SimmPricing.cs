@@ -278,8 +278,8 @@ public sealed class SpotImPrice(IRatesPricingProvider provider, Func<string, Mar
 
     /// <summary>
     /// The pinned market: the snapshot's curves, with the portfolio's FX, so one set of rates converts every amount. Under a
-    /// scenario (ADR-0010 §4's note of 2026-11-09) each discount curve's shift moves the snapshot's curve of its currency at
-    /// every pillar by its key-rate weight there, and the FX is the scenario's, as the part already holds it; CRIF is then
+    /// scenario (ADR-0010 §4's note of 2026-11-09) each discount curve's shift moves the snapshot's curve of its currency's zero
+    /// rate at every node by its key-rate weight there, and the FX is the scenario's, as the part already holds it; CRIF is then
     /// generated again on it. A funding curve's shift moves nothing spot IM reads.
     /// </summary>
     MarketSnapshot Market(SpotImInput part, DateOnly valueDate, ScenarioMarket scenario, string title)
@@ -295,16 +295,21 @@ public sealed class SpotImPrice(IRatesPricingProvider provider, Func<string, Mar
             ?? throw new CapabilityFailure("UnknownMarket", $"The market snapshot {part.Market.Snapshot} does not resolve.");
         var pinned = snapshot with { Id = $"{snapshot.Id} with the portfolio's FX of {valueDate:yyyy-MM-dd}", Fx = part.Market.Fx };
         if (scenario.IsBase) return pinned;
-        var curves = pinned.Curves.ToDictionary(p => p.Key, p =>
+        // The shifted curve's quotes and Jacobian are solved again with the synthetic market's quote definitions, the only
+        // ones this host knows: a market from elsewhere is refused under a scenario, never given the base Jacobian.
+        if (pinned.Origin != SyntheticMarket.Origin)
+            throw new CapabilityFailure("ScenarioMarket", $"A scenario moves only a synthetic market's curves; {pinned.Id} is {pinned.Origin}.");
+        var moved = pinned;
+        foreach (var curve in pinned.Curves.Values.OrderBy(c => c.Name, StringComparer.Ordinal))
         {
-            var discount = ScenarioCatalog.Indices.SingleOrDefault(i => i.Kind == ScenarioCatalog.Discount && i.Currency == p.Value.Currency
-                && PortfolioRatesLines.OvernightIndex.GetValueOrDefault(p.Value.Currency) == p.Value.Index);
-            return discount is null || !scenario.Moves(discount.Id) ? p.Value : p.Value with
-            {
-                Pillars = [.. p.Value.Pillars.Select(x => (x.Tenor, x.LevelPercent + (double)scenario.RateShiftBp(discount.Id, SyntheticMarket.YearsOf(x.Tenor)) / 100))],
-            };
-        });
-        return pinned with { Id = $"{pinned.Id} under {title}", Curves = curves };
+            var discount = ScenarioCatalog.Indices.SingleOrDefault(i => i.Kind == ScenarioCatalog.Discount && i.Currency == curve.Currency
+                && PortfolioRatesLines.OvernightIndex.GetValueOrDefault(curve.Currency) == curve.Index);
+            if (discount is null || !scenario.Moves(discount.Id)) continue;
+            var shifted = CurveMath.ShiftZeros(curve, days => (double)scenario.RateShiftBp(discount.Id, days / 365.0) / 1e4);
+            var (quotes, jacobian) = CurveMath.OisQuotes(shifted);
+            moved = moved.With(shifted, quotes, jacobian);
+        }
+        return moved with { Id = $"{pinned.Id} under {title}" };
     }
 
     async Task<(IReadOnlyDictionary<string, MeasureResult.Side> Figures, CrifDocument? Crif, CalculationTrace? Trace)> PriceSide(string side,

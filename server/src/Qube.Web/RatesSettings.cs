@@ -14,6 +14,32 @@ public sealed class RatesSettings
     public bool Ticker { get; set; } = true;
     /// <summary>How long a live subscription runs with no page watching it before it stops (owner, 2026-10-27).</summary>
     public int LiveIdleStopSeconds { get; set; } = 300;
+    /// <summary>
+    /// How many live calculations run at once across the server (docs/reports/rates-live-30-users.html §6). Set it to the
+    /// engine's parallelism: with an out-of-process engine a calculation mostly waits on the engine, not on this CPU.
+    /// </summary>
+    public int LiveMaxCalculations { get; set; } = 4;
+
+    /// <summary>The pricing provider: <c>fake</c> (simulated, the default) or <c>alpha</c> (the resident worker, docs/reports/alpha-for-rates.html).</summary>
+    public string Provider { get; set; } = "fake";
+    public AlphaSetting Alpha { get; set; } = new();
+
+    /// <summary>The provider chosen, after checking that it is fully configured; anything else stops startup (never a fallback to the fake).</summary>
+    public string ProviderChoice()
+    {
+        switch (Provider)
+        {
+            case "fake": return Provider;
+            case "alpha":
+                if (string.IsNullOrWhiteSpace(Alpha.Command)) throw new InvalidOperationException("Rates:Provider is alpha but Rates:Alpha:Command is empty.");
+                Alpha.CurveMap();
+                return Provider;
+            default: throw new InvalidOperationException($"Rates:Provider '{Provider}' is not a provider (fake or alpha).");
+        }
+    }
+
+    public int LiveCalculationSlots() => LiveMaxCalculations >= 1 ? LiveMaxCalculations
+        : throw new InvalidOperationException($"Rates:LiveMaxCalculations is {LiveMaxCalculations}; at least 1 is needed.");
 
     public ConventionRegistry Registry()
     {
@@ -52,7 +78,7 @@ public sealed class ProfileSetting
     public Dictionary<string, string> Standard { get; set; } = [];
 }
 
-/// <summary>A synthetic market's starting point. Its levels are inputs to a toy curve, never quotes of any market.</summary>
+/// <summary>A synthetic market's starting point: zero rates by tenor, never quotes of any market. Snapshots carry curves, OIS quotes and Jacobians.</summary>
 public sealed class MarketSetting
 {
     public string ScenarioVersion { get; set; } = "empty-1";
@@ -70,7 +96,7 @@ public sealed class MarketSetting
     {
         if (StepMilliseconds < 50) throw new InvalidOperationException("The synthetic market steps at most every 50 ms.");
         return new(ScenarioVersion, Seed, Start, TimeSpan.FromMilliseconds(StepMilliseconds),
-            [.. Curves.Select(c => new CurveQuotes(c.Currency, c.Index, [.. c.Pillars.Select(p => (Tenor.Parse(p.Key), p.Value)).OrderBy(p => SyntheticMarket.YearsOf(p.Item1))]))],
+            [.. Curves.Select(c => new SyntheticCurve(c.Currency, c.Index, [.. c.Pillars.Select(p => (Tenor.Parse(p.Key), p.Value)).OrderBy(p => SyntheticMarket.YearsOf(p.Item1))]))],
             Fx, MaxLevelStepBp, MaxSlopeStepBp, MaxFxLogStep);
     }
 }
@@ -79,6 +105,25 @@ public sealed class CurveSetting
 {
     public string Currency { get; set; } = "";
     public string Index { get; set; } = "";
-    /// <summary>Pillar levels in percent by tenor, such as <c>"1y": 0.5</c>.</summary>
+    /// <summary>Zero rates in percent (continuously compounded, ACT/365F) by tenor, such as <c>"1y": 0.5</c>.</summary>
     public Dictionary<string, double> Pillars { get; set; } = [];
+}
+
+/// <summary>The alpha worker (section <c>Rates:Alpha</c>): the command pinned by the deployment, and which of the market's curves each leg uses.</summary>
+public sealed class AlphaSetting
+{
+    public string Command { get; set; } = "";
+    public List<string> Arguments { get; set; } = [];
+    public int TimeoutSeconds { get; set; } = 10;
+    /// <summary>Index (<c>JPY/TONA</c>) to the market curve that projects it.</summary>
+    public Dictionary<string, string> Forward { get; set; } = [];
+    /// <summary>Currency under collateral currency (<c>USD@JPY</c>) to the market curve that discounts it.</summary>
+    public Dictionary<string, string> Discount { get; set; } = [];
+
+    public Qube.Samples.Rates.Alpha.AlphaCurveMap CurveMap()
+    {
+        foreach (var (key, curve) in Forward.Concat(Discount))
+            if (string.IsNullOrWhiteSpace(curve)) throw new InvalidOperationException($"Rates:Alpha maps {key} to no curve.");
+        return new(Forward, Discount);
+    }
 }

@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The Rates provider that prices with alpha's resident worker (docs/reports/alpha-for-rates.html). It starts the
+       worker as a separate process and speaks JSON to it; it loads no engine library (CLAUDE.md, docs/08). -->
+  <ItemGroup>
+    <ProjectReference Include="..\Qube.Samples.Rates\Qube.Samples.Rates.csproj" />
+  </ItemGroup>
+
+</Project>

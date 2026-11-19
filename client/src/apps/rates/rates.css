@@ -1,0 +1,15 @@
+/* The focused line's delta ladder: figures right-aligned in tabular digits, a negative one in red's text colour,
+   which reads at 4.5:1 in both schemes (C48, docs/design-guidelines.md §7). A ladder wider than the panel scrolls
+   inside it. */
+.qube-rates-risk .qube-number {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.qube-rates-risk .qube-number[data-negative] {
+  color: var(--mantine-color-red-text);
+}
+.qube-rates-risk {
+  max-width: 100%;
+  overflow-x: auto;
+}

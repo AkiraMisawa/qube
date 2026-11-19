@@ -34,7 +34,8 @@ public class RatesLiveServiceTests
             new("held", "simulated", [.. input.Lines.Select(l => new RowResult(l.RowKey, new Dictionary<string, Measure> { ["pv"] = new(input.InputRevision, "TST") }, null))]);
     }
 
-    static MarketSnapshot Snapshot(long n) => new($"m:{n}", n, DateTimeOffset.UnixEpoch.AddSeconds(n), "synthetic", 1, "t", new Dictionary<string, CurveQuotes>(), new Dictionary<string, double>());
+    static MarketSnapshot Snapshot(long n) => new($"m:{n}", n, DateTimeOffset.UnixEpoch.AddSeconds(n), "synthetic", 1, "t", new Dictionary<string, MarketCurve>(),
+        new Dictionary<string, QuoteSet>(), [], new Dictionary<string, double>());
 
     static LiveInput Input(long revision) => new(revision, ValuationDate,
         [new PricingLine("L1", revision, Direction.Pay, [], null, false)], []);
@@ -153,6 +154,57 @@ public class RatesLiveServiceTests
         Assert.True(late.TryRead(out var shown));
         Assert.Equal(first.Market.SnapshotId, shown!.Market.SnapshotId);
         Assert.Equal(1, service.Count);
+    }
+
+    sealed class PreparingProvider(Func<MarketSnapshot, Task> prepare) : IRatesPricingProvider, IRatesMarketPreparation
+    {
+        public readonly ConcurrentQueue<string> Events = new();
+        public string Name => "preparing";
+        public IReadOnlyList<PricedProduct> Products { get; } = [new(RatesProducts.Irs, RatesProducts.Version)];
+
+        public async Task PrepareMarketAsync(MarketSnapshot market, CancellationToken cancellationToken)
+        {
+            Events.Enqueue($"prepare {market.Id}");
+            await prepare(market);
+        }
+
+        public Task<RatesBatchResult> PriceBatchAsync(RatesBatchInput input, CancellationToken cancellationToken)
+        {
+            Events.Enqueue($"price {input.Market.Id}");
+            return Task.FromResult(HeldProvider.Rows(input));
+        }
+    }
+
+    [Fact] // docs/reports/rates-live-30-users.html §6: the market is prepared once, before any subscription prices on it
+    public async Task A_provider_that_prepares_markets_prepares_each_snapshot_once_before_pricing_on_it()
+    {
+        var provider = new PreparingProvider(_ => Task.CompletedTask);
+        var service = Service(provider);
+        var a = service.Start("akira", "ws-1", Input(1));
+        var b = service.Start("akira", "ws-2", Input(1));
+        var (fa, _) = service.Attach("akira", a);
+        var (fb, _) = service.Attach("akira", b);
+
+        await service.PublishAsync(Snapshot(1).Update);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await fa.ReadAsync(timeout.Token);
+        await fb.ReadAsync(timeout.Token);
+
+        Assert.Equal(["prepare m:1", "price m:1", "price m:1"], provider.Events.ToArray());
+    }
+
+    [Fact] // CLAUDE.md, no quiet fallback: a failed preparation is not hidden; pricing still asks the provider, which answers for itself
+    public async Task A_failed_preparation_still_prices_and_the_provider_answers_for_itself()
+    {
+        var provider = new PreparingProvider(_ => throw new InvalidOperationException("worker down"));
+        var service = Service(provider);
+        var id = service.Start("akira", "ws-1", Input(1));
+
+        var frame = await AttachedFrame(service, id, Snapshot(1));
+
+        Assert.Equal(1L, frame.Market.Sequence);
+        Assert.Equal(["prepare m:1", "price m:1"], provider.Events.ToArray());
+        Assert.Equal(1, service.PreparationFailures);
     }
 
     static async Task<LiveDelivery> AttachedFrame(RatesLiveService service, string id, MarketSnapshot snapshot)
