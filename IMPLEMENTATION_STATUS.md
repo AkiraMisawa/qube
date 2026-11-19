@@ -4153,7 +4153,7 @@ not" points there.
 - A tab's menu or the list of all panels, open at the change, closes: it is the strip's or the areas', which go. A
   list of the page itself (the Counterparty select) stays open under its field (looked at in a probe at 390px).
 
-### Shortcuts (C51), for the owner's OK with the merge
+### Shortcuts (C51), approved by the owner with the merge (2026-11-19, 「マージしていいよ」)
 
 - A browser without `moveBefore` moves the page by appending it, and an IME composition the keyboard was in the middle
   of is not kept there (marked in `client/src/shell/pageHost.tsx`). The rest is put back.
