@@ -20,7 +20,8 @@ import { commandDoor, registerCommandDoor, tableMenu, type TableMenu } from '../
 import { filterGrid, menuView, pagedView, placeFocus, selectRows, sortGrid, whereOf, type Answered, type ScreenGrid } from '../../platform/grid/lineView';
 import { GridFilterLine, type FilterSaid } from '../../platform/grid/GridFilterLine';
 import { useWhere, type Heard } from '../../platform/grid/heldFilter';
-import type { CommandRequest, Screen } from '../../platform/commands/commands';
+import type { DoorRequest, Screen } from '../../platform/commands/commands';
+import { ApiError } from '../../platform/api';
 import type { LineView } from '../../platform/contracts';
 import { XvaResult } from './XvaResult';
 import { BASE_CASE, BASE_SCENARIO, openTrace, requestTerm } from '../../platform/traces/open';
@@ -577,12 +578,12 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
     invokedBusy('Counterparty changed', 'xva.counterparty.change', { registration, drops: drop.count, revision: drop.revision }, 'The counterparty was not changed');
 
   /** A control's command through the door (ADR-0016 §5): a refusal is a notice that opens with what was not done. */
-  const invoked = async (capability: string, request: CommandRequest | ((revision: number) => CommandRequest), notDone: string) => {
+  const invoked = async (capability: string, request: DoorRequest, notDone: string) => {
     const reason = await door.invoke(capability, request);
     if (reason !== undefined) workspace.notify('refused', `${notDone}: ${reason.sentence}`);
   };
   /** A toolbar button's command, the toolbar held while it runs: its button turns, and the others wait. */
-  const invokedBusy = async (label: string, capability: string, request: CommandRequest | ((revision: number) => CommandRequest), notDone: string) => {
+  const invokedBusy = async (label: string, capability: string, request: DoorRequest, notDone: string) => {
     setBusy(label);
     try {
       await invoked(capability, request, notDone);
@@ -597,11 +598,20 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
    * (XvaResult), and the Run itself opens in a panel only when asked.
    */
   const price = async () => {
-    // What Price would price is read once the edits already sent have landed (spine 6), and listed before it starts
-    // (ADR-0010 §3's note of 2026-11-19). A plan Price would refuse is refused here, with Price's own reason.
+    // What Price would price is read at the revision the page shows once the edits already sent have landed (spine
+    // 6), and listed before it starts (ADR-0010 §3's note of 2026-11-19). A plan Price would refuse is refused here,
+    // with Price's own reason. A workspace moved where the page has not seen it, by the AI or another page, is refused
+    // too, and read again, so the next press lists what the page then shows.
     setBusy('Pricing');
     try {
-      setPricing(await queue.after(() => api.pricePlan(workspaceId)));
+      setPricing(await queue.after(async (revision) => {
+        try {
+          return await api.pricePlan(workspaceId, revision);
+        } catch (error) {
+          if (error instanceof ApiError && error.envelope.code === 'RevisionMoved') queue.rebase(await readAgain(error));
+          throw error;
+        }
+      }));
     } catch (error) {
       workspace.notify('refused', `Price was refused: ${describe(error)}`);
     } finally {
@@ -787,6 +797,17 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
    */
   // A row's dialog and its draft (ADR-0016 §10, note 54): view state of this page, which the door reads in its turn.
   const { draft, drafts, drop } = useDraft();
+  // The workspace read again and shown, where it moved where the page did not see it; answers the revision it read.
+  const reread = useCallback(async () => {
+    const fresh = await api.view(workspaceId);
+    // What `refresh` read, or what `undo` put back of it, may have moved the order: the grids start over then.
+    // Otherwise the rows in view are read again where they are.
+    const moved = ownSource.current !== undefined && ownSource.current !== sourceOf(fresh);
+    show(fresh);
+    if (moved) sources.requery();
+    else sources.changed();
+    return fresh.revision;
+  }, [api, workspaceId, show, sources]);
   const door = useMemo(() => commandDoor({
     workspaceId,
     app: XVA_APP,
@@ -795,18 +816,14 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
     turns: queue,
     drafts,
     screen: () => screen.current?.(),
-    reread: async () => {
-      const fresh = await api.view(workspaceId);
-      // What `refresh` read, or what `undo` put back of it, may have moved the order: the grids start over then.
-      // Otherwise the rows in view are read again where they are.
-      const moved = ownSource.current !== undefined && ownSource.current !== sourceOf(fresh);
-      show(fresh);
-      if (moved) sources.requery();
-      else sources.changed();
-      return fresh.revision;
-    },
+    reread,
     notify: workspace.notify,
-  }), [api, workspaceId, workspace, queue, show, sources, drafts]);
+  }), [workspaceId, workspace, queue, reread, drafts]);
+  // A workspace a read was refused for having moved, read again: the revision it stands at, or why it could not be
+  // read, said after the refusal.
+  const readAgain = (moved: Error) => reread().catch((unread: unknown) => {
+    throw new Error(`${moved.message} The page could not read the workspace again: ${describe(unread)}`);
+  });
   // A row's edit button opens its dialog as `open <row>` typed does (ADR-0016 note 57). One function for the page's
   // life while the door is, so no grid is made again for it.
   const editRow = useCallback((table: string, key: string) => { void openRow(door, table, key, workspace.notify); }, [door, workspace]);
@@ -886,10 +903,13 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
     };
     try {
       const named = (await Promise.all([selected('new'), selected('existing')])).flat();
-      // What a package would do with each trade is the server's to say: a New row in Before is taken out, as an
-      // existing trade is (ADR-0016 note 96), whichever grid it was selected in.
-      const roles = named.length === 0 ? { adds: [], takesOut: [] } : await queue.after(() => api.packageRoles(workspaceId, named));
-      setPackaging({ add: roles.adds, without: roles.takesOut });
+      // What a package would do with each trade is the server's to say, at the revision the page shows, which the
+      // press then writes at: a New row in Before is taken out, as an existing trade is (ADR-0016 note 96), whichever
+      // grid it was selected in, and a workspace moved since refuses the press rather than do otherwise than listed.
+      setPackaging(await queue.after(async (revision) => {
+        const roles = named.length === 0 ? { adds: [], takesOut: [] } : await api.packageRoles(workspaceId, revision, named);
+        return { add: roles.adds, without: roles.takesOut, revision };
+      }));
     } catch (error) {
       workspace.notify('refused', `The selection was not read: ${describe(error)}`);
     }
@@ -898,7 +918,8 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
    * *Make package*: the dialog's package written on its trades, and add each's set made anew from the cells, in one
    * command (ADR-0016 note 93). Refused, the answer is the server's reason, for the dialog to say.
    */
-  const makePackage = async (name: string, trades: readonly string[]) => (await door.invoke('xva.trades.add', { package: name, trades }))?.sentence;
+  const makePackage = async (name: string, trades: readonly string[], revision: number) =>
+    (await door.invoke('xva.trades.add', { package: name, trades, revision }))?.sentence;
   /**
    * *Vary values…* (ADR-0010 §3): a case per value of the dialog's cell, named by its entity and field, through
    * `xva.vary` as the line's `vary` goes (ADR-0016 note 28), in the page's turn (spine 6). Answers what the server said

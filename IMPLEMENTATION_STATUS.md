@@ -1686,6 +1686,8 @@ Unchanged: every figure on these pages is simulated, and says so.
 
 - What reading `price` costs on a workspace of 10,000 trades is not measured: the reading builds the Run's whole
   input each time the line is read. To be measured before the line is used at that size (ADR-0016 note 33).
+  *Measured 2026-11-19, with Price's confirmation: about 0.5 s at 10,000 trades and 2.5 to 2.9 s at 50,000 (the
+  section on ADR-0016 note 96).*
 - A scenario is named by its name alone: the kernel's `set`, `remove` and the row selector do not reach scenarios
   until they are a table (step 5).
 - What the line showed of a generator while it was typed, part by part, is now the server's sentence, which is
@@ -3985,12 +3987,14 @@ same day, recorded as ADR-0010 §3's note of 2026-11-19.
   package takes it out of After in that case alone (`P2: take out DRAFT-3`). `CandidateInBefore` is gone; with A
   clear in a package it is refused as an existing trade is (`NotInAfter`). `NothingToAdd` and Price's sentence where
   the cells make no case say so.
-- **Make package…** lists each selected trade as the server says a package would take it (`POST …/package-roles`),
-  so a New row in Before is among those it takes out, whichever grid it was selected in.
-- **Price asks first.** The Price button reads `GET …/price-plan` (the input built as Price builds it, at the
-  workspace's revision) and opens a dialog listing every case by the title the Run gives it, with its common change,
-  the markets, and the figures Price will refuse. Enter prices the revision listed, through `xva.workspace.price`
-  with that revision; Escape or Back prices nothing. A plan Price would refuse is a refused Price, with no dialog.
+- **Make package…** lists each selected trade as the server says a package would take it (`POST …/package-roles`,
+  at the revision the page shows), so a New row in Before is among those it takes out, whichever grid it was selected
+  in, and *Make package* writes at that revision.
+- **Price asks first.** The Price button reads `GET …/price-plan?revision=N` (the input built as Price builds it, at
+  the revision the page shows; a workspace moved past it is refused, and the page reads it again) and opens a dialog
+  listing every case by the title the Run gives it, with its common change, the markets, and the figures Price would
+  refuse as the workspace stands. Enter prices the revision listed, through `xva.workspace.price` with that
+  revision; Escape or Back prices nothing. A plan Price would refuse is a refused Price, with no dialog.
 - **The line's `price`** names the cases after its counts, the first ten and how many more; Enter there prices, as
   before.
 
@@ -4000,18 +4004,24 @@ same day, recorded as ADR-0010 §3's note of 2026-11-19.
 |---|---|
 | `nix develop -c dotnet test server/Qube.slnx` | 1695 passed |
 | `cd client && npm run typecheck && npm test` | typecheck clean; 553 passed |
-| The changed and new browser tests (`add each` and Price refusing a set the rows left; Price's confirmation; the 390px page), `--repeat-each=3`, Chromium headless on Linux, the built client served by the host | 9 passed |
+| The changed and new browser tests (`add each` and Price refusing a set the rows left; Price's confirmation; the AI moving the workspace while it is open; Make package…; the 390px page), `--repeat-each=3`, Chromium headless on Linux, the built client served by the host | 15 passed |
+| `cd client && npm run build && npx playwright test` (every spec, Chromium headless on Linux) | 159 passed |
 
-New and changed tests: a New row in Before and After in every case and named in each title, taken out by a package
-and refused there with A clear, and no candidate when every New row is in Before
+New and changed tests, the failure paths among them: a New row in Before and After in every case and named in each
+title, taken out by a package and refused there with A clear, and no candidate when every New row is in Before
 (`A_new_row_in_before_and_after_is_read_as_an_existing_trade`); note 91's table test with New rows in Before; the
-line's `price` naming its cases, ten and the rest counted; the package-roles read, and the price plan listing every
-case and Price at its revision refused once the workspace moved (409 `RevisionMoved`), and a refused plan (422
-`AdditionSetChanged`); in the browser, the dialog's list, Escape pricing nothing and Enter pricing what it listed.
+line's `price` naming its cases, ten and the rest counted; the package-roles read at the page's revision, refused at
+a revision the workspace has moved past (409 `RevisionMoved`) and with none named (422 `InvalidValue`); the price
+plan listing every case at the revision named, refused unnamed (422) and stale (409), Price at a stale revision
+refused (409), and a refused plan (422 `AdditionSetChanged`); in the browser, the dialog's list, Escape pricing
+nothing and Enter pricing what it listed, the dialog with two markets and the figures `cds none` would refuse, Price
+refused with no dialog once B reads every new trade as booked today, and a workspace the AI moves while the dialog
+is open refused at Enter (`The workspace is at revision N+1, not N.`), the next press listing what the AI changed.
 
-By hand, in the built client served by the host: the dialog at 1440px in both themes and at 390px dark (no sideways
-scroll), the line's reading, the priced titles, and Make package with a New row in Before. The dialog's dimmed note
-reads at 8.18:1 light and 4.88:1 dark, measured in Chromium.
+By hand, in the built client served by the host: the dialog at 1440px in both themes, at 390px in both themes, and at
+768px and 992px light, none scrolling sideways and none logging a console warning; the figures it would refuse; the
+line's reading; the priced titles; and Make package with a New row in Before. The note after each title is drawn as
+the title is, not dimmed (docs/design-guidelines.md §7).
 
 ### Providers
 
@@ -4020,10 +4030,38 @@ Unchanged: every source and every measure is simulated, and every value is synth
 ### Known limits
 
 - **A press builds Price's input twice**, once to list it and once to price it, as the line's reading already did.
-  Measured below.
+  Measured below; a plan kept by revision, which Price would reuse, would halve it and is not built.
 - **The plan is the state at the moment it was read.** A workspace that moves while the dialog is open is refused
   at the press (`RevisionMoved`, or the page's own sentence where it has seen the move), never priced unseen; the
   dialog does not refresh itself.
+- **The figures it would refuse may read otherwise at Enter.** One that waits on a market read, as PV01 does, can
+  arrive or fail between the list and the press; the dialog says them `as the workspace stands`, and Price itself
+  decides at Enter, as it did before the dialog.
+
+### What the review changed
+
+The code review (both axes) found that the plan and *Make package…*'s roles were read at the server's latest
+revision, so a workspace the AI moved after the page's last read was listed, and then priced or packaged, though the
+page had not shown it; both now name the page's revision and are refused past it (spine 6 of ADR-0016). It also
+found the refused figures stated as certain, the note after each title dimmed, the AI's contract still describing
+note 91's refusal, Japanese in a code comment, and measurements not yet recorded; each is fixed above.
+
+### Measurements
+
+Release build on this Linux container, one request at a time from a script, the workspace with two new trades in P1
+and one booked today (`add each`: Base and one case), CVA and FVA, the base market alone. 10,000 requested existing
+trades are 7,000 alive and 50,000 are 35,137, as in slice 02's table. Four reads of the plan and three Prices in a
+row; the first of each is the slowest. Recorded, not gated; no target is agreed.
+
+| Step | 10,000 | 50,000 |
+|---|---|---|
+| The plan the dialog lists (`GET …/price-plan`) | 503 to 1,468 ms | 2,365 to 2,978 ms |
+| The line's reading of `price` | 445 to 537 ms | 2,522 to 2,926 ms |
+| Price accepted (freeze, build and store the input) | 924 to 1,471 ms | 5,111 to 6,730 ms |
+
+So a press of Price at 10,000 trades waits about half a second to a second and a half for its list, with the
+button's spinner turning, and Enter then waits as Price did before. This answers the known limit of generic commands'
+delivery step 3b on what reading `price` costs at that size.
 
 ## Rates lines named in order (ADR-0016 note 65, 2026-11-14)
 

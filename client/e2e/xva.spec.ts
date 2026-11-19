@@ -1976,7 +1976,7 @@ test('docs/03 §5, ADR-0010 §3, ADR-0016 notes 28 and 96: `add each` says the c
   await expect(result.getByRole('table', { name: 'Metrics' }).getByRole('rowheader')).toHaveText(['Base', 'add DRAFT-1', 'add DRAFT-2', 'add DRAFT-3']);
 });
 
-test('ADR-0010 §3 note of 2026-11-19, ADR-0016 note 96: Price lists the cases it would price by title before it starts, each with the change every case carries, Escape prices nothing, and Enter prices what it listed, a new trade in Before and After being in every case as booked today', async ({ page }) => {
+test('ADR-0010 §3 note of 2026-11-19, ADR-0016 note 96: Price lists the cases it would price by title before it starts, each with the change every case carries, Escape prices nothing, and Enter prices what it listed, a new trade in Before and After being in every case as booked today; the list says the markets and the figures Price would refuse', async ({ page }) => {
   await open(page);
   await newWorkspace(page, 'ABC/LE-01', 5);
   await taken(page, 'measures', 'cva fva');
@@ -2014,6 +2014,64 @@ test('ADR-0010 §3 note of 2026-11-19, ADR-0016 note 96: Price lists the cases i
   await expect(dialog).toBeHidden();
   await expect(result.getByTestId('xva-result-status')).toHaveText('succeeded');
   await expect(result.getByRole('table', { name: 'Metrics' }).getByRole('rowheader')).toHaveText(['Base', `P1: add DRAFT-1 + DRAFT-2 · ${booked}`]);
+
+  // A second market, and no CDS for the counterparty: the list says the markets, and each figure Price would refuse,
+  // by its measure and case, while it prices the rest.
+  await taken(page, 'scenario', 'up jpy_ois +10bp');
+  await taken(page, 'cds none');
+  await price.click();
+  await expect(dialog.getByTestId('price-plan-summary')).toHaveText('Price CVA FVA · 2 cases × 2 markets');
+  await expect(dialog.getByTestId('price-plan-markets')).toHaveText('Markets: Base market, up.');
+  const figures = dialog.getByTestId('price-plan-refused').locator('p');
+  await expect(figures).toHaveCount(3);
+  await expect(figures.first()).toHaveText('As the workspace stands, 2 figures would be refused, and the rest priced:');
+  await expect(figures.nth(1)).toHaveText(/^CVA of Base: No CDS for ABC\/LE-01: /);
+  await expect(figures.nth(2)).toHaveText(new RegExp(`^CVA of P1: add DRAFT-1 \\+ DRAFT-2 · ${booked}: No CDS for ABC/LE-01: `));
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
+});
+
+test('ADR-0010 §3 note of 2026-11-19, ADR-0016 §2: a workspace the AI moves while Price lists its cases is refused at Enter, never priced unseen, and read again, so the next Price lists it as it stands', async ({ page, problems }) => {
+  await open(page);
+  await newWorkspace(page, 'ABC/LE-01', 5);
+  await taken(page, 'measures', 'cva fva');
+  await taken(page, 'set', 'DRAFT-3 before on');
+  await taken(page, 'add each');
+  await expect(page.getByTestId('notice')).toHaveText('Made 2 case(s): add DRAFT-1, add DRAFT-2.');
+  const price = page.getByTestId('price');
+  const dialog = page.getByRole('dialog', { name: 'Price' });
+  const cases = dialog.getByRole('list', { name: 'Cases' }).getByRole('listitem');
+
+  // The list is read at the revision the page shows.
+  const listed = page.waitForRequest((r) => r.url().includes('/price-plan?revision='));
+  await price.click();
+  const url = new URL((await listed).url());
+  const named = /\/workspaces\/([^/]+)\/price-plan$/.exec(url.pathname)?.[1];
+  if (named === undefined) throw new Error(`Price's list was read at ${url.pathname}, which names no workspace.`);
+  const workspaceId = decodeURIComponent(named);
+  const revision = Number(url.searchParams.get('revision'));
+  await expect(cases.nth(1)).toHaveText(/with new DRAFT-3 in Before and After$/);
+
+  // The AI, for the same user, takes DRAFT-3 out of After while the list is open.
+  const moved = await page.request.post('/api/agent/commands/entity.set/1.0.0',
+    { data: { inputs: { request: { workspaceId, revision, rows: 'DRAFT-3', set: 'a=off' } }, idempotencyKey: `e2e-${Date.now()}` } });
+  expect(moved.status()).toBe(200);
+
+  // Enter prices what was listed or nothing: the workspace moved, so nothing, and the page reads it again.
+  await expect(dialog.getByTestId('price-confirm')).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(page.getByTestId('notice')).toHaveText(`Price was refused: The workspace is at revision ${revision + 1}, not ${revision}.`);
+  expect(problems.splice(0)).toEqual(['error: Failed to load resource: the server responded with a status of 409 (Conflict)']);
+  await expect(page.getByTestId('xva-result-none')).toBeVisible();
+
+  // The next Price lists the workspace as it now stands, and Enter prices that.
+  await price.click();
+  await expect(cases.nth(1)).toHaveText(/with new DRAFT-3 out of After$/);
+  await page.keyboard.press('Enter');
+  const result = page.getByTestId('xva-result');
+  await expect(result.getByTestId('xva-result-status')).toHaveText('succeeded');
+  await expect(result.getByRole('table', { name: 'Metrics' }).getByRole('rowheader'))
+    .toHaveText(['Base', 'add DRAFT-1 · with new DRAFT-3 out of After', 'add DRAFT-2 · with new DRAFT-3 out of After']);
 });
 
 test('ADR-0016 notes 90 to 95, ADR-0010 §3: a package typed in the Package column is one case that adds its new trades together and takes its existing trade out, Price refuses the column until Add each makes it, Make package… adds one of the two selections, any trade left out by its press, to a package beside those a trade is in, so two packages take out one existing trade and add one new trade, and the Changes tab lists each case\'s package and trades', async ({ page, problems }) => {

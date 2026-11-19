@@ -310,7 +310,7 @@ public static class PortfolioInput
         {
             var iteration = @case.Iteration ?? throw new InvalidOperationException($"{named}a case of add each names no iteration.");
             // A New row in Before is read as an existing trade, never as one the case adds (ADR-0016 note 96).
-            var added = trades.Where(t => PortfolioPackages.IsAdded(t) && t.After).Select(t => t.TradeId).ToList();
+            var added = trades.Where(PortfolioPackages.IsCandidate).Select(t => t.TradeId).ToList();
             if (!added.ToHashSet().SetEquals(iteration.Add))
                 throw new WorkspaceRefused("AdditionSetChanged",
                     $"{named}its After holds {(added.Count == 0 ? "no new trade" : string.Join(", ", added))}, and the case adds {(iteration.Add.Count == 0 ? "none" : string.Join(" + ", iteration.Add))}. Run add each again to make the set anew.");

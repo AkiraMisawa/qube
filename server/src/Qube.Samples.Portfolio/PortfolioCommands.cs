@@ -145,7 +145,7 @@ public sealed class PortfolioVary(Func<PortfolioWorkspaces> workspaces, MeasureR
 public sealed class PortfolioTradesAdd(Func<PortfolioWorkspaces> workspaces) : ICapabilityHandler, ILineCommand
 {
     public CapabilityDescriptor Descriptor { get; } = new("xva.trades.add", PortfolioContracts.Version,
-        "Make the cases of iterative addition from the Package column: a case per package, adding its new trades together and taking its existing trades out of After, and a case per New row with A ticked in no package; optionally write a package on trades first",
+        "Make the cases of iterative addition from the Package column: a case per package, adding its new trades with B clear together and taking its other trades out of After, and a case per New row with A ticked and B clear in no package. A New row with B ticked is a trade booked today, read as an existing trade. Optionally write a package on trades first",
         [new("request", PortfolioCommandContracts.TradesAddRequest, PortfolioContracts.Version, Cardinality.One)],
         [new("answer", PortfolioCommandContracts.CasesMade, PortfolioContracts.Version, Cardinality.One)],
         ExecutionKind.RequestResponse, [CapabilityEffect.EditWorkspace],
@@ -506,7 +506,7 @@ public sealed class PortfolioCommandsModule(Func<PortfolioWorkspaces> workspaces
             ["type"] = "array", ["title"] = title, ["description"] = description, ["items"] = new JsonObject { ["type"] = "string", ["minLength"] = 1 },
         };
         var trades = Ids("Trades", "The ids of the trades to write the package on, new and existing, before the cases are made: DRAFT-1, DRAFT-2, E00003. "
-            + "A new trade is then added in the package's case, and needs A ticked and B clear; an existing one is taken out of After in it, and needs A ticked. A trade in other packages stays in them too.");
+            + "A new trade with B clear is then added in the package's case, and needs A ticked; an existing one, or a new one with B ticked (a trade booked today, read as existing), is taken out of After in it, and needs A ticked. Never change B to fit a package: it says whether the trade is in the book. A trade in other packages stays in them too.");
         trades["minItems"] = 1;
         Request(PortfolioCommandContracts.TradesAddRequest, "Make the cases of iterative addition", new JsonObject
         {

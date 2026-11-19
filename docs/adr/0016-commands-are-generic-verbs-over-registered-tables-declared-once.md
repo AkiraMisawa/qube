@@ -2997,7 +2997,10 @@ note 37, and rewrite docs/03 §5's CONFIRMED line on a package (owner, the same 
       91's table is amended where it says so.
     - *The page.* *Make package…* lists each trade the two selections name as the server says a package would take
       it (`POST …/package-roles`, a read that writes nothing), so a New row in Before is among the trades it takes out,
-      whichever grid it was selected in, and the dialog says so. The page decides no role of its own.
+      whichever grid it was selected in, and the dialog says so. The page decides no role of its own. The read names
+      the revision the page shows (`{revision, trades}`), and *Make package* writes at that revision, so a workspace
+      moved between the read and the press is refused (`RevisionMoved`) rather than given a package the dialog did not
+      list (spine 6; *changed in review, the same day*: the read first took the server's latest revision).
     - *Why (the owner's question, 17:42Z: 「既存トレードのパッケージを許可してるのに新規のB／Aは拒否するの？」, "you allow
       existing trades in a package and refuse a new one with B and A?").* It was first proposed to read such a row as
       an existing trade alone and refuse it in a package, since a package would then take out a New row that, with B

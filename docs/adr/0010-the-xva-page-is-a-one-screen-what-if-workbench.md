@@ -227,9 +227,15 @@ titles before Price starts would give confidence; not everyone knows the specifi
   says (the sides, the measures and the number of cases, `Price CVA FVA · 4 cases × 3 markets`); below it, the
   markets where there are several (§4), and the figures Price will refuse while it prices the rest. *Price N cases*
   holds the keyboard, so Enter prices; Escape, or *Back*, goes back and prices nothing.
-- **What it lists is the server's.** The page reads `GET …/price-plan`, which builds the input as Price builds it,
-  at the workspace's revision once the edits sent have landed. What Price would refuse is refused there with Price's
-  own code and sentence, which the page says as a refused Price (`Price was refused: …`), and no dialog opens.
+- **What it lists is the server's, at the revision the page shows.** Once the edits sent have landed, the page reads
+  `GET …/price-plan?revision=N`, which builds the input as Price builds it at that revision. A read that names none
+  is refused (`InvalidValue`), and a workspace moved past it, by the AI or another page, is refused (`RevisionMoved`),
+  so the list is never of a workspace the page has not shown; the page then reads the workspace again, and the next
+  press lists it. What Price would refuse is refused there with Price's own code and sentence, which the page says
+  as a refused Price (`Price was refused: …`), and no dialog opens.
+- **The figures it would refuse are said as the workspace stands.** A figure that waits on a market read, as PV01
+  does (§6), may read otherwise when Enter prices, so the dialog says `As the workspace stands, N figures would be
+  refused, and the rest priced:` and lists each by measure and case.
 - **It prices what it listed and nothing else.** *Price N cases* invokes `xva.workspace.price` with the revision the
   list was read at, so a workspace that moved after the list was read is refused (`RevisionMoved`), and the page
   sends nothing where it has seen the move itself (ADR-0003; the page's `Press Price to see them again.`). One press
@@ -240,6 +246,9 @@ titles before Price starts would give confidence; not everyone knows the specifi
   second Enter.
 - *What it costs.* A press builds the input twice, once to list it and once to price it, as the line's reading did
   already. Measured in `IMPLEMENTATION_STATUS.md`.
+- *Changed in review, the same day:* the list was first read at whatever revision the server held, so a workspace the
+  AI moved between the page's last read and the press was listed though the page had not shown it, and Enter then
+  priced it; it is now read at the page's revision, as above.
 
 ### 4. Scenarios (CONFIRMED, owner 2026-11-07)
 

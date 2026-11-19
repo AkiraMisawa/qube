@@ -129,7 +129,7 @@ public static class PortfolioCases
     // docs/03 §5: the existing trades whose After the Base holds otherwise than their Before, and the New rows in
     // Before, which stand in for trades booked today that the source does not hold yet (ADR-0016 note 96).
     static IReadOnlyList<EffectiveTrade> ChangedInBase(WorkspaceState baseline) =>
-        [.. PortfolioMaterialiser.Trades(baseline).Where(t => !PortfolioPackages.IsAdded(t) && (t.IsNew || t.Before != t.After))];
+        [.. PortfolioMaterialiser.Trades(baseline).Where(t => !PortfolioPackages.IsNewToBook(t) && (t.IsNew || t.Before != t.After))];
 
     /// <summary>
     /// The common change a case of iterative addition carries (docs/03 §5): the trades the Base holds otherwise than
@@ -142,8 +142,8 @@ public static class PortfolioCases
         var moved = changedInBase.Where(t => !takenOut.Contains(t.TradeId)).ToList();
         if (moved.Count == 0) return null;
         // `existing E00001, E00002`, `4 existing trades`, `existing E00001 and new DRAFT-5`.
-        static string Named(List<EffectiveTrade> trades) => string.Join(" and ", new[] { ("existing", false), ("new", true) }
-            .Select(kind => (Word: kind.Item1, Of: trades.Where(t => t.IsNew == kind.Item2).ToList()))
+        static string Named(List<EffectiveTrade> trades) => string.Join(" and ", new[] { (Word: "existing", IsNew: false), (Word: "new", IsNew: true) }
+            .Select(kind => (kind.Word, Of: trades.Where(t => t.IsNew == kind.IsNew).ToList()))
             .Where(kind => kind.Of.Count > 0)
             .Select(kind => kind.Of.Count <= 3 ? $"{kind.Word} {string.Join(", ", kind.Of.Select(t => t.TradeId))}" : $"{kind.Of.Count} {kind.Word} trades"));
         var parts = new List<string>();

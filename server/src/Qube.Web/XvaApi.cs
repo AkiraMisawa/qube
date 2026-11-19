@@ -20,8 +20,11 @@ public static class XvaApi
     /// <summary>A change's value as written, set from the Changes tab in the Base or a case (ADR-0010 §3's note).</summary>
     public sealed record ChangeRequest(long Revision, string Entity, string Field, string Text, string? Case = null);
 
-    /// <summary>The trades *Make package…* lists, to be told which a package would add and which it would take out (ADR-0016 note 96).</summary>
-    public sealed record PackageRolesRequest(IReadOnlyList<string>? Trades);
+    /// <summary>
+    /// The trades *Make package…* lists, to be told which a package would add and which it would take out, at the revision
+    /// the page shows, which the press then writes at (ADR-0016 note 96).
+    /// </summary>
+    public sealed record PackageRolesRequest(long? Revision = null, IReadOnlyList<string>? Trades = null);
     /// <summary>The CDS catalogue the Credit tab searches: the single names, and the keys a proxy is chosen by.</summary>
     public sealed record CdsCatalogue(IReadOnlyList<CdsCurve> SingleNames, IReadOnlyList<string> Sectors, IReadOnlyList<string> Regions,
         IReadOnlyList<string> Ratings, IReadOnlyList<string> Tenors);
@@ -113,13 +116,13 @@ public static class XvaApi
         // Which of the trades named a package would add and which it would take out, as *Make package…* lists them
         // before its press: a New row in Before is taken out, as an existing trade is (ADR-0016 note 96).
         ws.MapPost("/{id}/package-roles", (string id, PackageRolesRequest request, CurrentUser user, PortfolioWorkspaces service) =>
-            Guard(() => Results.Ok(service.RolesInPackage(id, user.Id, request.Trades))));
+            Guard(() => Results.Ok(service.RolesInPackage(id, Read(request.Revision), user.Id, request.Trades))));
 
-        // What Price would price as the workspace stands, which Price's confirmation lists case by case before it
-        // invokes `price` at the revision listed (ADR-0010 §3's note of 2026-11-19), so a workspace moved since is
-        // refused rather than priced unseen.
-        ws.MapGet("/{id}/price-plan", (string id, CurrentUser user, PortfolioWorkspaces service) =>
-            Guard(() => Results.Ok(service.PreviewPrice(id, user.Id))));
+        // What Price would price at the revision the page shows, which Price's confirmation lists case by case before
+        // it invokes `price` at that revision (ADR-0010 §3's note of 2026-11-19): a workspace moved since is refused,
+        // here and at the press, rather than listed or priced unseen.
+        ws.MapGet("/{id}/price-plan", (string id, long? revision, CurrentUser user, PortfolioWorkspaces service) =>
+            Guard(() => Results.Ok(service.PlanPrice(id, Read(revision), user.Id))));
 
         ws.MapDelete("/{id}", (string id, CurrentUser user, PortfolioWorkspaces service) => Guard(() =>
         {
@@ -127,6 +130,11 @@ public static class XvaApi
             return Results.NoContent();
         }));
     }
+
+    // The revision a read is asked at, which a read that a command then acts on must name (spine 6): never the latest
+    // taken in its stead.
+    static long Read(long? revision) =>
+        revision ?? throw new WorkspaceRefused("InvalidValue", "Name the revision the page shows: what is read here is what the press that follows acts on.");
 
     static IResult Guard(Func<IResult> handle)
     {

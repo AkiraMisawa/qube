@@ -467,9 +467,8 @@ export interface ScopeDrop { readonly scope: string; readonly count: number; rea
  */
 export interface PlannedCase {
   readonly title: string;
-  readonly kind: 'base' | 'vary' | 'add';
   // A field the server has no value for is left out of its answer, as every empty field of the wire is.
-  readonly note?: string | null;
+  readonly note?: string;
 }
 
 /** A measure the input of a case already refuses, which the Run would say of that case, pricing the rest. */

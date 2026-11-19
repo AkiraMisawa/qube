@@ -53,12 +53,25 @@ public static class PortfolioPackages
         name.Length > 0 && name == name.Trim() && !name.Contains(',') ? null : "A package is one name with no comma, such as P1.";
 
     /// <summary>
-    /// Whether <c>add each</c> adds a trade: a New row out of Before. A New row in Before is a trade the user booked today
-    /// and the source does not hold yet (ADR-0016 note 96; owner, 2026-11-19: 「既存の時と同じように扱えると思うけど」), and
-    /// is read as an existing trade in every way: in Before and After in every case as its B and A say, and taken out of
-    /// After by a package it is in.
+    /// Whether a trade is new to the book, which <c>add each</c> adds: a New row out of Before. A New row in Before is a
+    /// trade the user booked today and the source does not hold yet (ADR-0016 note 96; owner, 2026-11-19: "I think it
+    /// can be handled the same as an existing one"), and is read as an existing trade in every way: in Before and After
+    /// in every case as its B and A say, and taken out of After by a package it is in.
     /// </summary>
-    public static bool IsAdded(EffectiveTrade trade) => trade.IsNew && !trade.Before;
+    public static bool IsNewToBook(EffectiveTrade trade) => trade.IsNew && !trade.Before;
+
+    /// <summary>A candidate of <c>add each</c>: a trade new to the book with A ticked, which some case adds alone or in its package.</summary>
+    public static bool IsCandidate(EffectiveTrade trade) => IsNewToBook(trade) && trade.After;
+
+    /// <summary>
+    /// What a package of these trades does with each, in their order: it adds those new to the book, and takes the
+    /// others out of After, an existing trade and a New row in Before alike (ADR-0016 notes 90 and 96).
+    /// </summary>
+    public static PackageRoles Roles(IEnumerable<EffectiveTrade> trades)
+    {
+        var listed = trades.ToList();
+        return new([.. listed.Where(IsNewToBook).Select(t => t.TradeId)], [.. listed.Where(t => !IsNewToBook(t)).Select(t => t.TradeId)]);
+    }
 
     /// <summary>
     /// The packages the cells name, in the order of their first trade as the grids hold them: the New rows first, then
@@ -68,9 +81,12 @@ public static class PortfolioPackages
     {
         // Each cell read once: a workspace holds thousands of trades.
         var ordered = InGridOrder(trades).Select(t => (Trade: t, Names: t.Packages)).Where(t => t.Names.Count > 0).ToList();
-        return [.. ordered.SelectMany(t => t.Names).Distinct(StringComparer.Ordinal).Select(name => new PackageView(name,
-            [.. ordered.Where(t => IsAdded(t.Trade) && t.Names.Contains(name, StringComparer.Ordinal)).Select(t => t.Trade.TradeId)],
-            [.. ordered.Where(t => !IsAdded(t.Trade) && t.Names.Contains(name, StringComparer.Ordinal)).Select(t => t.Trade.TradeId)]))];
+        PackageView Of(string name)
+        {
+            var roles = Roles(ordered.Where(t => t.Names.Contains(name, StringComparer.Ordinal)).Select(t => t.Trade));
+            return new(name, roles.Adds, roles.TakesOut);
+        }
+        return [.. ordered.SelectMany(t => t.Names).Distinct(StringComparer.Ordinal).Select(Of)];
     }
 
     // The trades as the two grids hold them, the New grid's first: the order cases and packages are named in.
@@ -105,19 +121,19 @@ public static class PortfolioPackages
     {
         var ordered = InGridOrder(trades).ToList();
         // What a package adds, and what it takes out: a New row in Before is read as an existing trade (note 96).
-        var added = ordered.Where(IsAdded).ToList();
-        var existing = ordered.Where(t => !IsAdded(t)).ToList();
+        var newToBook = ordered.Where(IsNewToBook).ToList();
+        var inBook = ordered.Where(t => !IsNewToBook(t)).ToList();
         if (ordered.SelectMany(t => t.Packages).Distinct(StringComparer.Ordinal).GroupBy(name => name, StringComparer.OrdinalIgnoreCase)
             .Select(g => g.ToList()).FirstOrDefault(names => names.Count > 1) is { } clash)
             throw new WorkspaceRefused("PackageNamesDiffer",
                 $"The packages {TableWords.And(clash)} differ only in the case of their letters, and whether they are one is not guessed. Write one name on all of their trades.");
-        if (added.Where(t => t.Packages.Count > 0 && !t.After).ToList() is { Count: > 0 } clear)
+        if (newToBook.Where(t => t.Packages.Count > 0 && !t.After).ToList() is { Count: > 0 } clear)
         {
             var (them, their) = Pronouns(clear);
             throw new WorkspaceRefused("CandidateNotTicked",
                 $"{InPackages(clear)} and {(clear.Count == 1 ? "has" : "have")} A clear, and a package adds New rows with A ticked. Tick A on {them}, or clear {their} Package.");
         }
-        if (existing.Where(t => t.Packages.Count > 0 && !t.After).ToList() is { Count: > 0 } outside)
+        if (inBook.Where(t => t.Packages.Count > 0 && !t.After).ToList() is { Count: > 0 } outside)
         {
             var (them, their) = Pronouns(outside);
             throw new WorkspaceRefused("NotInAfter",
@@ -132,7 +148,7 @@ public static class PortfolioPackages
         {
             foreach (var name in t.Packages)
                 if (made.Add(name)) set.Add(new(packages[name].Adds, packages[name].TakesOut, name));
-            if (t.Packages.Count == 0 && IsAdded(t) && t.After) set.Add(new([t.TradeId], []));
+            if (t.Packages.Count == 0 && IsCandidate(t)) set.Add(new([t.TradeId], []));
         }
         return set;
     }
