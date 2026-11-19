@@ -1,10 +1,10 @@
 # 01 The results port and the files adapter
 
-Status: ready-for-agent
+Status: done except the contract test, which waits for the engine to stop writing a comma inside an unquoted cell of risk.csv
 
 **Blocked by:** none.
 
-**What to build:** `IDeskResults`, the result set's types (manifest, values, sensitivities, trades), and the adapter
+**What to build:** `IPkResults`, the result set's types (manifest, values, sensitivities, trades), and the adapter
 that reads a directory of the engine's files with a manifest beside them (ADR-0019 §4, §7). The engine's small result
 files are copied into the test project, with the commit they came from in the manifest.
 

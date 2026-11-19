@@ -9,6 +9,7 @@
     <Project Path="src/Qube.Samples.Portfolio/Qube.Samples.Portfolio.csproj" />
     <Project Path="src/Qube.Samples.Xva/Qube.Samples.Xva.csproj" />
     <Project Path="src/Qube.Samples.Ccr/Qube.Samples.Ccr.csproj" />
+    <Project Path="src/Qube.Samples.PositionKeeper/Qube.Samples.PositionKeeper.csproj" />
     <Project Path="src/Qube.Samples.Rates/Qube.Samples.Rates.csproj" />
     <Project Path="src/Qube.Samples.Rates.Alpha/Qube.Samples.Rates.Alpha.csproj" />
     <Project Path="src/Qube.Samples.Simm/Qube.Samples.Simm.csproj" />

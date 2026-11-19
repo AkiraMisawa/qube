@@ -1,10 +1,10 @@
 # 04 Net, moves and the predicted profit and loss
 
-Status: ready-for-agent
+Status: done
 
 **Blocked by:** 03.
 
-**What to build:** `desk.moves`, the pure functions for Net and for the prediction, and `desk.position.read`
+**What to build:** `pk.moves`, the pure functions for Net and for the prediction, and `pk.position.read`
 (`ReadWorkspace`), which returns Book, What-if and Net with their marks (ADR-0019 §3, §7).
 
 - [ ] Net is Book plus What-if on matching kind, input and key; a key only one side holds is kept.

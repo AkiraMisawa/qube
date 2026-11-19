@@ -4,6 +4,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { CommandRefused, type Command } from '../platform/commands/commands';
 import { useWorkspace, useWorkspaceContext } from '../platform/workspace/WorkspaceProvider';
 import { panelLabel, type Panel, type WorkspaceState } from '../platform/workspace/workspaceStore';
+import { httpPkApi, type PkApi } from './position-keeper/api';
+import { PkUnavailable, PkWorkspacePanel, pkPanelTitle, pkQueryKey } from './position-keeper/PkWorkspacePanel';
 import { PricingDbPanel } from './history/PricingDbPanel';
 import { httpRatesApi, type RatesApi } from './rates/api';
 import { RatesWorkspacePanel } from './rates/RatesWorkspacePanel';
@@ -30,6 +32,7 @@ const TraceView = lazy(() => import('../platform/traces/TraceView').then((m) => 
 export const XVA_WORKSPACE = 'xva.workspace';
 export const PRICING_DB = 'history.pricingDb';
 export const RATES_WORKSPACE = 'rates.workspace';
+export const PK_WORKSPACE = 'pk.workspace';
 const NEW_XVA = 'xva.new';
 const NEW_RATES = 'rates.new';
 
@@ -51,6 +54,24 @@ export function setRatesApi(api: RatesApi): void {
   ratesApi = api;
 }
 
+let pkApi: PkApi = httpPkApi;
+/** For tests: the Position Keeper commands a page reads through. */
+export function setPkApi(api: PkApi): void {
+  pkApi = api;
+}
+
+// What the AI pane knows of the Position Keeper (ADR-0019 §6): the workspace open is the one a request reads and the kernel's
+// verbs act on, and a workspace the AI makes opens behind the panel in use. What `entity.create` and the kernel's
+// verbs change is read again where the page shows it.
+registerAiContext(PK_WORKSPACE, (panel) => panel.params.workspaceId === undefined ? undefined : {
+  description: 'The Position Keeper workspace open in the active panel',
+  value: JSON.stringify({ kind: 'pk.workspace', workspaceId: panel.params.workspaceId }),
+});
+registerAiEffect('pk.workspace.create', (outputs, { workspace }) => {
+  const made = outputs.workspace as { readonly workspaceId: string; readonly valuationDate: string };
+  return workspace.openPanelBehind(PK_WORKSPACE, pkPanelTitle(made), { workspaceId: made.workspaceId });
+});
+
 // What the AI pane knows of Rates (ADR-0007 §7, §8): an open workspace is the context a request acts on, a line the AI
 // creates opens its workspace behind the active panel, and what the AI changes is fetched again where it is shown.
 registerAiContext(RATES_WORKSPACE, (panel) => panel.params.workspaceId === undefined ? undefined : {
@@ -65,6 +86,8 @@ registerAiEffect('rates.workspace.create', (outputs, { workspace }) => {
 // and its workspace opened behind the panel in use when it is not open yet.
 registerAiEffect('entity.create', (outputs, { workspace, queryClient }) => {
   const entity = outputs.entity as { readonly workspaceId: string; readonly product: string };
+  // A what-if hedge of the Position Keeper (ADR-0019 §2) is read again where its workspace is shown.
+  if (entity.product.startsWith('pk.')) { void queryClient.invalidateQueries({ queryKey: pkQueryKey(entity.workspaceId) }); return undefined; }
   if (!entity.product.startsWith('rates.')) return undefined;
   void queryClient.invalidateQueries({ queryKey: ['rates', entity.workspaceId] });
   const open = workspace.panels.some((p) => p.kind === 'app' && p.app === RATES_WORKSPACE && p.params.workspaceId === entity.workspaceId);
@@ -134,6 +157,15 @@ registerPageOpener({
   },
 });
 
+registerPageOpener({
+  app: PK_WORKSPACE, title: 'Position Keeper workspace', workspace: true,
+  open: async (workspaceId) => {
+    if (workspaceId === undefined) throw new Error('A Position Keeper workspace is opened by its id.');
+    const view = await pkApi.view(workspaceId);
+    return { kind: 'app', title: pkPanelTitle(view.position), app: PK_WORKSPACE, params: { workspaceId } };
+  },
+});
+
 export function AppPanel({ panel }: { readonly panel: Extract<Panel, { kind: 'app' }> }): ReactNode {
   switch (panel.app) {
     case XVA_WORKSPACE: {
@@ -145,6 +177,13 @@ export function AppPanel({ panel }: { readonly panel: Extract<Panel, { kind: 'ap
       const id = panel.params.workspaceId;
       if (id === undefined) throw new Error('A Rates workspace panel names its workspace.');
       return <RatesWorkspacePanel panelId={panel.id} workspaceId={id} api={ratesApi} />;
+    }
+    case PK_WORKSPACE: {
+      // A workspace that could not be made has no id: its panel says why (ADR-0019 §4).
+      if (panel.params.refused !== undefined) return <PkUnavailable reason={panel.params.refused} />;
+      const id = panel.params.workspaceId;
+      if (id === undefined) throw new Error('A Position Keeper workspace panel names its workspace.');
+      return <PkWorkspacePanel panelId={panel.id} workspaceId={id} api={pkApi} />;
     }
     case PRICING_DB:
       return <PricingDbPanel panelId={panel.id} />;
@@ -330,7 +369,30 @@ export function appCommands(state: Pick<WorkspaceState, 'showApp' | 'openAppDial
       group: 'History',
       run: () => state.showApp(PRICING_DB, 'Pricing DB', {}),
     },
+    // Every other Position Keeper command is the server's (ADR-0019 §2): `new irs`, and the kernel's `set`, `reset`, `remove`,
+    // `undo` and `redo` over its hedges and moves.
+    {
+      id: 'pk.new',
+      words: 'new pk',
+      title: 'New Position Keeper workspace on a result set of the engine',
+      group: 'Position Keeper',
+      args: [{ name: 'set', required: false, hint: 'a result set by name; the configured one where left out' }],
+      run: (a) => void newKeeper(state, a.set),
+    },
   ];
+}
+
+/**
+ * Makes a Position Keeper workspace and shows it (ADR-0019 §2, §4). Where the result set cannot be read the panel opened says
+ * why, in the server's words, and shows no grid: nothing stands in for the book.
+ */
+async function newKeeper(state: Pick<WorkspaceState, 'showApp'>, resultSet: string | undefined): Promise<void> {
+  try {
+    const made = await pkApi.create(resultSet);
+    state.showApp(PK_WORKSPACE, pkPanelTitle(made), { workspaceId: made.workspaceId });
+  } catch (error) {
+    state.showApp(PK_WORKSPACE, 'Position Keeper', { refused: error instanceof Error ? error.message : String(error) });
+  }
 }
 
 /** The dialogs apps open. Enter submits; Escape closes. */

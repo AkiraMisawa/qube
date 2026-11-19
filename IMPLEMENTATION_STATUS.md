@@ -4339,6 +4339,108 @@ Unchanged: the Rates market, its conventions' development profiles and every fig
   ADR-0040) and showed three of its four items in a grid three rows high. At eight rows it shows the four at once
   (seen in the built client).
 
+## The Position Keeper, first slice: the position keeper (ADR-0019, 2026-11-17)
+
+Spec and tickets: [docs/specs/position-keeper](docs/specs/position-keeper/spec.md) (tickets 01 to 06).
+
+### What runs
+
+- **Results port** (`Qube.Samples.PositionKeeper`, `IPkResults`): a result set is a directory of the engine's files
+  (`xva.csv`, `risk.csv`, `trades.csv`, optional `curves/*.csv`) with a `manifest.json` beside them that says the
+  engine and its commit, the input set, the valuation date, the base scenario, each counterparty's legal entity, the
+  unit of each kind of risk and the curve a what-if swap is valued on. `PkResultFiles` reads it strictly: a missing
+  file or column, a row of the wrong width, a number that is no number, a manifest without one of its facts are each
+  refused by name. A set is identified by its reference and the SHA-256 of its files; a workspace on a set whose files
+  changed is refused (`Changed`).
+- **Workspace and tables**: a Position Keeper workspace is on one result set (`pk.workspace.create`). Its tables are
+  `pk.values` and `pk.risk` (read-only), `pk.hedges` (what-if swaps the user creates with `new irs`) and
+  `pk.moves` (a move per kind and input: a plain number is absolute, in basis points for a rate and in the quote's units for a level; a number in `%` is relative, of the level the result set gives in `levels.csv`, and refused by the key where it gives none; since 2026-11-17). The
+  kernel's `set`, `reset`, `remove`, `undo` and `redo` act on them.
+- **Position** (`pk.position.read`): values and their totals, Book / What-if / Net risk, and the predicted profit
+  and loss of the moves held (sensitivity times move). The server marks every line and total: `WHAT-IF` where a
+  hypothetical hedge is in a figure, `SIMULATED` where a figure is not the engine's, `FIRST ORDER` for a prediction.
+  Signs are the engine's: a cost is negative.
+- **Page** (`new pk`, optionally `set=<result set>`): the book's identity, the values, the what-if hedges, the risk
+  (narrowed to one kind and input by `Risk of`), and the moves with their predicted profit and loss, each in ExGrid
+  through `QubeGrid`. The marks are drawn as the server gives them. A hedge is made, changed and removed from the
+  command line through the page's door; a move is typed in its cell. Where the result set cannot be read the panel
+  says why in the server's words and draws no grid.
+- **AI**: the pane's context names the open Position Keeper workspace; the stand-in reads `net risk of <kind> <input>` through
+  `pk.position.read` and says how many lines are marked and with what.
+
+### Verification performed (2026-11-17, Linux, Chromium headless)
+
+| Suite | Result |
+|---|---|
+| `dotnet test server/Qube.slnx` | 1,753 passed (2026-11-17, on the engine's vector at `aadd34b`) |
+| `npm run typecheck`, `npm test` (Vitest) | clean; 530 passed |
+| `npx playwright test e2e/position-keeper.spec.ts` | 5 passed |
+| `npx playwright test` (every spec) | 160 passed (2026-11-17, after the rename, the ladder and the new sample) |
+
+| Acceptance | Status |
+|---|---|
+| The page says the engine, its commit, the input set and the valuation date (ADR-0019 §4) | Passed (Playwright) |
+| `WHAT-IF`, `SIMULATED` and `FIRST ORDER` are on every row and total the server marks, and on no other (§3, §7) | Passed (Playwright against the command's answer; xUnit for the marks themselves) |
+| With no result set the page says so and shows no grid (§4) | Passed (Playwright, a result set that is not there) |
+| A hedge is added, changed, taken back and removed with the keyboard alone; a move is typed in its cell and one that cannot be read is refused at the cell (§2) | Passed (Playwright) |
+| The page reads at 1440px and 390px in both themes: no sideways scroll, text at 4.5:1 | Passed (Playwright); looked at by hand in screenshots |
+| The stand-in reads one curve's net risk after a hedge, with its marks (§6) | Passed (xUnit, over the agent's route) |
+| The engine's own small result set reads through the adapter (contract test, ADR-0019 §7) | Passed (xUnit), on the engine's vector at `aadd34b` (its input reshaping): no label holds a comma, risk on a curve is named by the curve's file, CDS quotes are a kind of their own. Before that commit the test failed on a comma in an unquoted label, and stayed failing rather than loosened |
+| Touch | Not verified |
+
+### Providers
+
+- **The book: real engine output on synthetic input.** The development host and the browser tests read
+  `server/src/Qube.Web/Samples/position-keeper/small-128-sample`, a cut of the engine's synthetic `small-128` test vector (base
+  scenario, six kinds of risk; its README says what was left out). No production data, and no engine is run by Qube:
+  the files were written by the engine beforehand.
+- **A what-if hedge's value and risk: simulated.** `SyntheticHedgeRisk` (`pk.synthetic-hedge-risk`): one curve,
+  yearly fixed payments, linear interpolation of the zero rate times time. It is not a model of anything, there is no
+  real provider it stands in for, and every figure it is in is marked `SIMULATED`.
+- **The predicted profit and loss** is arithmetic on the sensitivities, first order only, marked `FIRST ORDER`.
+
+### Known limits
+
+- Against the spec's stories (found by the review of 2026-11-17): the page reads every counterparty and has no selection of them,
+  though the command takes one; the notional FX delta is in the engine's files but not in the development sample, and
+  no screen shows it by currency; the totals carry no standard error, since the counterparties share paths; the
+  hedge calculator's bump test is on a swap away from par.
+- DEFAULTs of ADR-0019 not yet reviewed by the owner: the slice reads result files (no call to the engine), the
+  manifest's units and legal entities, the synthetic hedge calculator.
+- A kind of risk the manifest declares no unit for shows no `Per` and takes no move (refused `NoUnit`).
+- The page as a trader reads it, step 1 of the review of 2026-11-17 (owner: follow how risk and P&L attribution
+  tools present a position): XVA is one row a counterparty, the largest cost first, each metric beside its standard
+  error and the total; risk is written per step (a basis point of a rate, a unit of a quote) with the tenor by its
+  name where the key is exactly that tenor's day, and each input moved in parallel is a line of its own; amounts are
+  in the currency the manifest declares (`currency`), in whole units or millions. An adjustment is not painted red
+  (every one is a cost); red stays for sensitivities and profit and loss. All of it is the server's
+  (`pk.position.read`: `tenor`, `step`, `bookStep`, `parallel`, `byCounterparty`, `currency`).
+- Step 2 (2026-11-17): the risk ladder. A kind with a declared unit is read per step on the tenors the manifest
+  declares for it (`ladders`; its own nodes where none is declared), a row the whole kind, a currency's curves
+  (`curveCurrencies`) or one input, with What-if and Net under Book where a hedge is in them. A node between two
+  tenors is shared by its distance in days, and one outside them goes to the nearest, so a row's total is the
+  parallel line (`pk.position.read`: `ladder`). A volatility is a unit of its own (`vol`): read per vol point, its
+  move typed in vol points. The sample declares the regulatory tenors for rates (1Y, 2Y, 5Y, 10Y, 30Y) and credit
+  (6M, 1Y, 3Y, 5Y, 10Y), as DEFAULT (the owner was asked; unanswered, the recommendation stands). The prediction is
+  also summed by kind of risk (`pnlByKind`), and a whole kind is moved as one from the command line (`set moves where
+  kind=zero_rate move 10bp`). Not yet: FX delta per 1% and by currency, the explanation against an actual profit and
+  loss, drill-down from a cell to counterparties, par deltas, the ladder by metric.
+- The development sample gives levels for the FX spots, the FX ATM vols and the CDS quotes, so a move in `%` of a
+  curve or a hazard rate is refused there (`NoLevel`); the engine does not write levels yet, and the sample's are
+  copied from its inputs.
+- A currency's row of the rates ladder sums every curve file the manifest gives that currency: the base curve, the
+  ratio files (whose zero rate is a spread over the base) and, for JPY, funding. `By input` reads each alone; a row
+  for base curves only is not built.
+- A curve file's `0d` row at a discount factor of 1 is read as the curve's start and is no node; with another factor
+  the file is refused. A key that is a tenor's name (a CDS quote's `5Y`) stands at that tenor's day.
+- The risk grid sums over counterparties and metrics; it has no view by counterparty or by metric yet.
+- The Position Keeper tables' columns say their meaning by title only; the sign and unit of each figure are declared in the
+  position's contract, not on the table's fields.
+- Hedges are edited from the command line, not in their grid's cells, and the page gives the line no grid view of
+  its own (`selected`, `shown`).
+- The page reads the whole position after every command. Measured on the sample (307 risk lines): about 40 ms a read.
+- A panel that could not make its workspace keeps saying so until `new pk` is run again.
+
 ## Next
 
 1. The owner's answer on one package a row or several (ADR-0016 note 90).

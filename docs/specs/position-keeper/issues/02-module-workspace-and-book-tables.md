@@ -1,11 +1,11 @@
-# 02 The module, the Desk workspace and the book's tables
+# 02 The module, the Position Keeper workspace and the book's tables
 
-Status: ready-for-agent
+Status: done
 
 **Blocked by:** 01.
 
-**What to build:** `Qube.Samples.Desk` and its registration, `desk.workspace.create` on a result set, and the
-read-only tables `desk.values` and `desk.risk` (ADR-0019 §2, §5; ADR-0016).
+**What to build:** `Qube.Samples.PositionKeeper` and its registration, `pk.workspace.create` on a result set, and the
+read-only tables `pk.values` and `pk.risk` (ADR-0019 §2, §5; ADR-0016).
 
 - [ ] A workspace made on a result set holds its reference and content hash as the acquired source version.
 - [ ] `tables.read` returns the book's values and sensitivities of the base scenario, with the engine's signs.

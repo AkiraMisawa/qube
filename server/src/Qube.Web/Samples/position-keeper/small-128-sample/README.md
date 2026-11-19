@@ -1,0 +1,22 @@
+# Position Keeper sample result set (development and browser tests)
+
+A cut of the engine's synthetic `small-128` test vector (alpha at the commit `manifest.json` names), for the
+development host and `client/e2e/position-keeper.spec.ts`. Every figure is synthetic.
+
+It is not a whole result set: `risk.csv` keeps the base scenario's rows of six kinds only (`zero_rate`,
+`hazard_rate`, `cds_spread`, `fx_spot`, `fx_atm_vol`, `recovery`). `xva.csv`, `trades.csv` and `curves/` are as
+the engine wrote them. `recovery` is left without a declared unit on purpose, so the page shows
+a kind no move can be typed for.
+
+`levels.csv` is not the engine's output: it is the level of each FX spot, each FX ATM vol and each CDS quote in the synthetic input
+set the vector was computed from (the engine's `data/synthetic/small/market`, at the same commit), keyed as
+`risk.csv` keys them, with the vol expiries matched to the keys in order. It is what a move in `%` is taken of. No
+level is given for a rate, so a move in `%` of a curve is refused here, by the key.
+
+The manifest's declarations are the sample's own: the currency of the figures, each curve's currency (a cross-currency
+curve stands with the currency it discounts; a curve file named `X-Y` is the engine's ratio of X to Y, whose zero
+rate is a spread over Y, and funding is the file `JPY-FUNDING-JPY-OIS`), the ladders' tenors (the regulatory ones for rates and credit spreads)
+and the units (`fx_atm_vol` is a vol, read per vol point).
+
+The whole vector, uncut, is the contract fixture under
+`server/tests/Qube.Composition.Tests/Fixtures/position-keeper/alpha-small-128`.

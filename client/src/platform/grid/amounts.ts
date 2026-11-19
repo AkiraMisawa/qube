@@ -21,3 +21,8 @@ export const amountTone = toneOf(formatAmount);
 
 /** Whether an amount is shown as a loss, for a figure outside a grid, which marks its cell `data-negative`. */
 export const isLoss = (value: unknown): boolean => amountTone(value) === 'negative';
+
+const millions = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2, signDisplay: 'negative' });
+
+/** An amount in millions with two decimals, for a page that says its amounts are in millions. One that rounds to zero shows no sign. */
+export const formatMillions = (value: unknown): string => millions.format((value as number) / 1e6);

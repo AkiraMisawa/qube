@@ -1,0 +1,68 @@
+{
+  "engine": "alpha",
+  "engineCommit": "aadd34b86e272b3865d2c50623542f75185fb820",
+  "inputSet": "sample cut of synthetic/small, 128 paths: base scenario, six kinds of risk (see README.md)",
+  "valuationDate": "2026-11-13",
+  "baseScenario": "S0000",
+  "currency": "JPY",
+  "counterparties": {
+    "C0001": {
+      "legalEntity": "SYN-LE-0001"
+    },
+    "C0002": {
+      "legalEntity": "SYN-LE-0002"
+    },
+    "C0003": {
+      "legalEntity": "SYN-LE-0003"
+    },
+    "C0004": {
+      "legalEntity": "SYN-LE-0004"
+    }
+  },
+  "hedgeCurves": {
+    "JPY": "JPY-OIS",
+    "USD": "USD-OIS",
+    "EUR": "EUR-OIS"
+  },
+  "curveCurrencies": {
+    "JPY-OIS": "JPY",
+    "JPY-FLT-6M-JPY-OIS": "JPY",
+    "JPY-FUNDING-JPY-OIS": "JPY",
+    "USD-OIS": "USD",
+    "USD-FLT-3M-USD-OIS": "USD",
+    "USD-XCCY-JPY-USD-OIS": "USD",
+    "EUR-OIS": "EUR",
+    "EUR-FLT-6M-EUR-OIS": "EUR",
+    "EUR-XCCY-JPY-EUR-OIS": "EUR"
+  },
+  "ladders": {
+    "zero_rate": [
+      "1Y",
+      "2Y",
+      "5Y",
+      "10Y",
+      "30Y"
+    ],
+    "hazard_rate": [
+      "6M",
+      "1Y",
+      "3Y",
+      "5Y",
+      "10Y"
+    ],
+    "cds_spread": [
+      "6M",
+      "1Y",
+      "3Y",
+      "5Y",
+      "10Y"
+    ]
+  },
+  "units": {
+    "zero_rate": "rate",
+    "hazard_rate": "rate",
+    "cds_spread": "rate",
+    "fx_spot": "level",
+    "fx_atm_vol": "vol"
+  }
+}
