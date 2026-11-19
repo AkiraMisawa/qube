@@ -4153,12 +4153,23 @@ not" points there.
 - A tab's menu or the list of all panels, open at the change, closes: it is the strip's or the areas', which go. A
   list of the page itself (the Counterparty select) stays open under its field (looked at in a probe at 390px).
 
+### Shortcuts (C51), for the owner's OK with the merge
+
+- A browser without `moveBefore` moves the page by appending it, and an IME composition the keyboard was in the middle
+  of is not kept there (marked in `client/src/shell/pageHost.tsx`). The rest is put back.
+- That path was run only in Chromium with `moveBefore` taken away: the browser tests run Chromium alone, so Safari (an
+  iPad turned while typing) and Firefox were not tried.
+
+The paths that are not the happy one, tested in `pageHost.test.tsx`: a place in another window is refused the page; a
+page waiting for its place is dropped when another panel is shown before the place comes; a place that lets go gives
+the page back to the one before, and a detached place asks behind a connected one.
+
 ### Verification
 
 | Check | Result |
 |---|---|
-| `cd client && npm run typecheck && npx vitest run`, with main's #45 merged in and every fix | Typecheck clean; 534 passed in 50 files |
-| `npx playwright test` (Chromium 153, headless, Linux, the built client served by the host), with main's #45 merged in and every fix | 157 passed |
+| `cd client && npm run typecheck && npx vitest run`, with main's #54 merged in and every fix | Typecheck clean; 553 passed in 52 files |
+| `npx playwright test` (Chromium 153, headless, Linux, the built client served by the host), with main's #54 merged in and every fix | 157 passed |
 | The new browser test, by `moveBefore` and by append, `--repeat-each=3` | 6 passed |
 | The same test without the pricer's part following the keyboard | Failed, as it should: the CVA recovery field lost the keyboard at 390px |
 | The same test without the scrolls around the keyboard put back | Failed, as it should: the New grid at 373px sideways, not 0 |
