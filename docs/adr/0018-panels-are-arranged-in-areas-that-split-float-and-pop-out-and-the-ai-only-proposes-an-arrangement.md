@@ -245,11 +245,15 @@ everything stays (「すべて残す」), over losing it as until then, and over
   commit.
 - **The AI pane too** (DEFAULT, as everything stays). It changes place at the same width, from beside the panels to a
   drawer over them (ADR-0007 §7), and is moved, not drawn anew, with what was typed in it and not sent.
-- **The other pages are as before** (DEFAULT). Only the pages in view are mounted (§6): a page in another area, which
-  the strip does not show, goes as the strip is drawn, and a page that comes into view in an area is drawn as a page
-  shown again (ADR-0006 note 10). Keeping them would be keeping hidden pages mounted, rejected below. A page in
-  another window, which the strip closes (§9), is drawn anew in the main window, as a grid reads the window it is
-  created in.
+- **The other pages are as before** (CONFIRMED, the owner, 2026-11-19; first a DEFAULT). Only the pages in view are
+  mounted (§6): a page in another area, which the strip does not show, goes as the strip is drawn, and a page that
+  comes into view in an area is drawn as a page shown again (ADR-0006 note 10). Keeping them would be keeping hidden
+  pages mounted, rejected below. A page in another window, which the strip closes (§9), is drawn anew in the main
+  window, as a grid reads the window it is created in. Asked whether the other areas' pages should be kept too, the
+  owner answered that what was only begun there need not stay (「編集しかけのやつなら全然残さなくていい」), the page in
+  view being another matter: what is lost there is only what was not committed, such as a Cell Editor left open, a
+  dialog or a scroll, while every committed edit is the server's (ADR-0003) and the panel's kept state (ADR-0006
+  note 10) comes back.
 - **What is the strip's or the areas' own goes with them**: a tab's menu or the list of all panels open at the change
   closes, as the strip or the areas it belongs to go. A list or a menu of the page itself stays open beside its field.
 - **A browser without `moveBefore`** (DEFAULT; Chromium has it from 133, and layer 3 runs 153) moves the page by

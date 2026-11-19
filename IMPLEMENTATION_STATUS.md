@@ -4142,6 +4142,7 @@ not" points there.
 
 - Only the page in view on both sides is carried. The pages of the other areas are not kept while the strip shows
   one page: that would be keeping hidden pages mounted, which ADR-0018 rejects (a hidden page took the keyboard).
+  The owner confirmed this on 2026-11-19: what was only begun in another area need not stay (ADR-0018 §5's note).
 - What the new width changes still changes: the pricer under 768px is three tabs, as on any resize.
 - A composition the keyboard was in the middle of (an IME's) is not kept where the browser has no `moveBefore`.
 - The keyboard going into a part of the pricer chooses that part's tab at any width (ADR-0010's note of 2026-11-15).
