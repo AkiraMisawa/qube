@@ -14,7 +14,11 @@ import { packagesOf } from './packages';
 /** *Make package from the selection…*'s id on a Context Menu of the trade grids (ex-grid ADR-0036). */
 export const PACKAGE_COMMAND = 'xva.package.selection';
 
-/** What the two trade grids' selections name, as the server read them: the New grid's, and the Existing grid's. */
+/**
+ * What the two trade grids' selections name, as the server read them and said what a package would do with each: the
+ * trades it would add, the New grid's out of Before, and those it would take out of After, the Existing grid's and the
+ * New grid's in Before, which are read as existing trades (ADR-0016 note 96).
+ */
 export type Selected = Pick<Iteration, 'add' | 'without'>;
 
 export function PackageDialog({ selection, packages, next, make, onClose }: {
@@ -99,14 +103,14 @@ function PackageForm({ selection, packages, next, make, onClose }: {
       <Text size="sm">
         Adds the package to the Package column of the trades kept, which stay in any package they are in, then makes add
         each&apos;s cases anew: the new trades of a package are added together in one case, and its existing trades taken out
-        of After there. Press a trade to leave it out.
+        of After there. A new trade in Before is taken out, as an existing one is. Press a trade to leave it out.
       </Text>
       <TextInput size="sm" label="Package" value={name} onChange={(e) => { setRefused(undefined); setName(e.currentTarget.value); }}
         onKeyDown={(e) => { if (e.key === 'Enter') void submit(); }}
         description="The next free name, or a package's name to add the trades to it." disabled={busy} />
-      {list('Adds together', selection.add, 'No row of New trades is selected: the package adds none.',
+      {list('Adds together', selection.add, 'No new trade out of Before is selected: the package adds none.',
         (trade, on) => (on ? `The package adds ${trade}. Press to leave it out.` : `${trade} is left out. Press to add it.`))}
-      {list('Takes out of After', selection.without, 'No row of Existing trades is selected: the package takes none out.',
+      {list('Takes out of After', selection.without, 'No existing trade, nor new trade in Before, is selected: the package takes none out.',
         (trade, on) => (on ? `The package takes ${trade} out of After. Press to leave it in.` : `${trade} stays in After. Press to take it out.`))}
       {said !== undefined && <Text size="sm" c="red" role="alert" data-testid="package-refused">{said}</Text>}
       <Group justify="flex-end" gap="xs">

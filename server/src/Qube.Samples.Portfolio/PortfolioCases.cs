@@ -100,6 +100,9 @@ public static class PortfolioCases
         return [new(BaseId, BaseTitle, "base", 0), .. made.Select(View)];
     }
 
+    /// <summary>A case as the Run titles it: its title, and the common change it carries after a dot (docs/03 §5).</summary>
+    public static string Titled(string title, string? note) => note is null ? title : $"{title} · {note}";
+
     /// <summary>A case's title, as it was made.</summary>
     public static string Title(CreatedEntity c) => c.Fields["title"]!.GetValue<string>();
 
@@ -122,24 +125,31 @@ public static class PortfolioCases
     /// <summary>The iterations of iterative addition, one per case, in the order their cases were made.</summary>
     public static IReadOnlyList<Iteration> Iterations(WorkspaceState state) => [.. Made(state).Where(c => KindOf(c) == Add).Select(IterationOf)];
 
-    // The existing trades whose After the Base holds otherwise than their Before: the common change of docs/03 §5.
+    // The trades every case of iterative addition holds otherwise than the counterparty's book, the common change of
+    // docs/03 §5: the existing trades whose After the Base holds otherwise than their Before, and the New rows in
+    // Before, which stand in for trades booked today that the source does not hold yet (ADR-0016 note 96).
     static IReadOnlyList<EffectiveTrade> ChangedInBase(WorkspaceState baseline) =>
-        [.. PortfolioMaterialiser.Trades(baseline).Where(t => !t.IsNew && t.Before != t.After)];
+        [.. PortfolioMaterialiser.Trades(baseline).Where(t => !PortfolioPackages.IsAdded(t) && (t.IsNew || t.Before != t.After))];
 
     /// <summary>
-    /// The common change a case of iterative addition carries (docs/03 §5): the existing trades the Base moves, but for
-    /// those the case takes out of After, which it does not carry (an existing trade in After alone may be in a
-    /// package, ADR-0016 note 91). Null where it carries none, so no case says a change it does not carry.
+    /// The common change a case of iterative addition carries (docs/03 §5): the trades the Base holds otherwise than
+    /// the book, but for those the case takes out of After, which it does not carry (a trade in After alone may be in a
+    /// package, ADR-0016 note 91): <c>with existing E00002 out of After and new DRAFT-4 in Before and After</c>. Null
+    /// where it carries none, so no case says a change it does not carry.
     /// </summary>
     static string? CommonChange(IReadOnlyList<EffectiveTrade> changedInBase, IReadOnlyList<string> takenOut)
     {
         var moved = changedInBase.Where(t => !takenOut.Contains(t.TradeId)).ToList();
         if (moved.Count == 0) return null;
-        static string Named(List<EffectiveTrade> trades) =>
-            trades.Count <= 3 ? $"existing {string.Join(", ", trades.Select(t => t.TradeId))}" : $"{trades.Count} existing trades";
+        // `existing E00001, E00002`, `4 existing trades`, `existing E00001 and new DRAFT-5`.
+        static string Named(List<EffectiveTrade> trades) => string.Join(" and ", new[] { ("existing", false), ("new", true) }
+            .Select(kind => (Word: kind.Item1, Of: trades.Where(t => t.IsNew == kind.Item2).ToList()))
+            .Where(kind => kind.Of.Count > 0)
+            .Select(kind => kind.Of.Count <= 3 ? $"{kind.Word} {string.Join(", ", kind.Of.Select(t => t.TradeId))}" : $"{kind.Of.Count} {kind.Word} trades"));
         var parts = new List<string>();
-        if (moved.Where(t => t.Before).ToList() is { Count: > 0 } outOf) parts.Add($"{Named(outOf)} out of After");
-        if (moved.Where(t => t.After).ToList() is { Count: > 0 } into) parts.Add($"{Named(into)} in After only");
+        if (moved.Where(t => t.Before && !t.After).ToList() is { Count: > 0 } outOf) parts.Add($"{Named(outOf)} out of After");
+        if (moved.Where(t => !t.Before && t.After).ToList() is { Count: > 0 } into) parts.Add($"{Named(into)} in After only");
+        if (moved.Where(t => t.Before && t.After).ToList() is { Count: > 0 } booked) parts.Add($"{Named(booked)} in Before and After");
         return $"with {string.Join(" and ", parts)}";
     }
 
@@ -173,7 +183,7 @@ public static class PortfolioCases
         if (wanted.Count == 0)
             throw new WorkspaceRefused("AdditionSetChanged",
                 $"{differs}, which make no case now. Out of date: {Titles(stale)}. "
-                + "Remove them with case remove or in Changes, or tick A on a new trade or write a package and run add each again.");
+                + "Remove them with case remove or in Changes, or tick A on a new trade with B clear or write a package and run add each again.");
         var problems = new List<string>();
         if (missing.Count > 0) problems.Add($"Missing: {Titles(missing)}.");
         if (stale.Count > 0) problems.Add($"Out of date: {Titles(stale)}.");

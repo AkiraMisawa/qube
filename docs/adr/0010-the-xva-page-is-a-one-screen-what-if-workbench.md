@@ -165,7 +165,9 @@ variants the workspace is one case.
   them, `mm` and never `m`).
 - **Iterative individual addition** (docs/03 §5) is a generated set of cases, one `add <trade>` per eligible new
   trade with After checked, with docs/03 §5's rules unchanged: not cumulative, a common change to existing trades is
-  stated in every case, a candidate in Before is refused rather than unchecked.
+  stated in every case, a candidate in Before is refused rather than unchecked. *Amended 2026-11-19 (the owner;
+  ADR-0016 note 96): a New row in Before is no candidate. It stands for a trade booked today, is read as an existing
+  trade, and is a common change each case states.*
 - **The changes panel** lists the Common and side-only changes and each case's own, and edits or removes them there,
   so nobody has to find a changed cell in a wide grid.
 - **A Price without Before prices After alone** (owner, 2026-11-07: with B not selected only After has a result, no
@@ -213,6 +215,31 @@ what the case adds and keeps in After one it takes out; the one trade a case add
 case is removed whole. How the line spells the lists is still open. *Changed in review, the same day:* the buttons
 were first named `One case…`, and *Make case* first said the whole set again, which a stale case of the set
 refused by a trade the dialog does not list (ADR-0016 note 37's corrections).
+
+*Note of 2026-11-19 (the owner's request that day; how it is built is DEFAULT, told to him the same day):* **Price
+lists what it would price before it starts.** The owner: 「何が実行されるかの確認ビューはほしいかもね。計算終わるまでわからない
+のは厳しいものがある。…ケースタイトルのリストがPrice開始前に見れたら自信持てるよね。全員が仕様に精通してるわけではないだろうし」
+("a view confirming what will run would be good; not knowing until the computation ends is hard. … a list of the case
+titles before Price starts would give confidence; not everyone knows the specification well").
+
+- **The Price button opens a dialog, *Price*,** that lists every case in the order Price prices it, titled as the
+  Run titles it, with the common change it carries after the title (docs/03 §5). Above the list is what the button
+  says (the sides, the measures and the number of cases, `Price CVA FVA · 4 cases × 3 markets`); below it, the
+  markets where there are several (§4), and the figures Price will refuse while it prices the rest. *Price N cases*
+  holds the keyboard, so Enter prices; Escape, or *Back*, goes back and prices nothing.
+- **What it lists is the server's.** The page reads `GET …/price-plan`, which builds the input as Price builds it,
+  at the workspace's revision once the edits sent have landed. What Price would refuse is refused there with Price's
+  own code and sentence, which the page says as a refused Price (`Price was refused: …`), and no dialog opens.
+- **It prices what it listed and nothing else.** *Price N cases* invokes `xva.workspace.price` with the revision the
+  list was read at, so a workspace that moved after the list was read is refused (`RevisionMoved`), and the page
+  sends nothing where it has seen the move itself (ADR-0003; the page's `Press Price to see them again.`). One press
+  is still one Run (§9).
+- **The line and the AI read the same.** `price`'s reading (ADR-0016 note 33) names the cases by title after the
+  counts, the first ten and how many more (`Prices CVA and FVA for 2 cases, as one Run: Base; P1: add DRAFT-1 +
+  DRAFT-2 · with new DRAFT-3 in Before and After.`). Enter on the line is its confirmation, so the line takes no
+  second Enter.
+- *What it costs.* A press builds the input twice, once to list it and once to price it, as the line's reading did
+  already. Measured in `IMPLEMENTATION_STATUS.md`.
 
 ### 4. Scenarios (CONFIRMED, owner 2026-11-07)
 

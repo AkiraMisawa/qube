@@ -24,18 +24,27 @@ public static class PortfolioPriceContracts
     public const string CounterpartyRequest = "xva.counterparty-request";
     public const string Moved = "xva.source-moved";
 
+    /// <summary>How many cases a reading of <c>price</c> names by title; Price's confirmation lists every one.</summary>
+    public const int CasesNamed = 10;
+
     /// <summary>
-    /// What a reading of <c>price</c> says Price would price: the measures, the cases, the markets where a scenario is
-    /// included, the side priced alone where the other holds no trade, and what a case's input already refuses.
+    /// What a reading of <c>price</c> says Price would price: the measures, the cases, by title where there is more than
+    /// the Base (owner, 2026-11-19: what will run is seen before it runs), the markets where a scenario is included, the
+    /// side priced alone where the other holds no trade, and what a case's input already refuses. Titles are told apart
+    /// by semicolons, since a common change may name trades with commas.
     /// </summary>
     public static string WouldPrice(PricePlan plan)
     {
-        var cases = TableWords.Counted(plan.Cases, "case");
-        var on = plan.Markets == 1 ? cases : $"{cases} on {plan.Markets} markets (the base market and {TableWords.Counted(plan.Markets - 1, "scenario")})";
+        var cases = TableWords.Counted(plan.Cases.Count, "case");
+        var markets = plan.Markets.Count;
+        var on = markets == 1 ? cases : $"{cases} on {markets} markets (the base market and {TableWords.Counted(markets - 1, "scenario")})";
         var side = plan.Before && !plan.After ? ", Before only" : !plan.Before && plan.After ? ", After only" : "";
+        var more = plan.Cases.Count - CasesNamed;
+        var named = plan.Cases.Count == 1 ? ""
+            : $": {string.Join("; ", plan.Cases.Take(CasesNamed).Select(c => PortfolioCases.Titled(c.Title, c.Note)))}{(more > 0 ? $"; and {more} more" : "")}";
         var refused = plan.Refused.Count == 0 ? ""
             : $" {TableWords.Counted(plan.Refused.Count, "figure")} of it would be refused, first {plan.Refused[0].Measure} of {plan.Refused[0].Case}: {plan.Refused[0].Message}";
-        return $"Prices {TableWords.And(plan.Measures)} for {on}{side}, as one Run.{refused}";
+        return $"Prices {TableWords.And(plan.Measures)} for {on}{side}, as one Run{named}.{refused}";
     }
 
     /// <summary>What <c>refresh</c> says back: the edits to the portfolio's data that carried, and those held for the user.</summary>

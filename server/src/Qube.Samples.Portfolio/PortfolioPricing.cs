@@ -309,11 +309,12 @@ public static class PortfolioInput
         if (@case.Kind == PortfolioCases.Add)
         {
             var iteration = @case.Iteration ?? throw new InvalidOperationException($"{named}a case of add each names no iteration.");
-            var added = trades.Where(t => t.IsNew && t.After).Select(t => t.TradeId).ToList();
+            // A New row in Before is read as an existing trade, never as one the case adds (ADR-0016 note 96).
+            var added = trades.Where(t => PortfolioPackages.IsAdded(t) && t.After).Select(t => t.TradeId).ToList();
             if (!added.ToHashSet().SetEquals(iteration.Add))
                 throw new WorkspaceRefused("AdditionSetChanged",
                     $"{named}its After holds {(added.Count == 0 ? "no new trade" : string.Join(", ", added))}, and the case adds {(iteration.Add.Count == 0 ? "none" : string.Join(" + ", iteration.Add))}. Run add each again to make the set anew.");
-            var back = trades.Where(t => !t.IsNew && t.After && iteration.Without.Contains(t.TradeId)).Select(t => t.TradeId).ToList();
+            var back = trades.Where(t => t.After && iteration.Without.Contains(t.TradeId)).Select(t => t.TradeId).ToList();
             if (back.Count > 0)
                 throw new WorkspaceRefused("AdditionSetChanged",
                     $"{named}its After holds {string.Join(", ", back)}, which the case takes out. Run add each again to make the set anew.");
@@ -329,7 +330,7 @@ public static class PortfolioInput
         {
             ["id"] = @case.Id,
             // What a case of iterative addition carries in common is said wherever its title is (docs/03 §5).
-            ["title"] = @case.Note is null ? @case.Title : $"{@case.Title} · {@case.Note}",
+            ["title"] = PortfolioCases.Titled(@case.Title, @case.Note),
             ["kind"] = @case.Kind,
             // The package of an iteration of add each, and the trades it adds together and takes out of After (ADR-0016
             // notes 37 and 90); none for another case.

@@ -3968,6 +3968,63 @@ Unchanged: every source and every measure is simulated, and every value is synth
 - **The table's description of the field** still says an identifier: a field has no sentence of its own in the kernel,
   so the AI learns lists from `xva.trades.add`'s contract and the refusal's sentence (note 95).
 
+## A new trade in Before read as booked today, and Price's confirmation (ADR-0016 note 96, ADR-0010 §3's note of 2026-11-19)
+
+The owner raised two things on 2026-11-19. A New row with B and A ticked stands for a trade booked today that the
+source does not hold yet, and should be priced as if it were existing; asked how, he answered 「既存の時と同じように扱えると
+思うけど」 ("I think it can be handled the same as an existing one"), packages included: CONFIRMED, built as ADR-0016
+note 96 (DEFAULT in how), with notes 90 to 95 and docs/03 §5 marked where it amends them. And he asked to see what
+Price would run before it starts (「ケースタイトルのリストがPrice開始前に見れたら自信持てるよね」): DEFAULT, told to him the
+same day, recorded as ADR-0010 §3's note of 2026-11-19.
+
+### What runs
+
+- **A New row in Before is an existing trade to iterative addition.** `add each` adds only New rows out of Before;
+  one in Before is in every case as its B and A say, a common change each case's title names after a dot (`add
+  DRAFT-1 · with new DRAFT-2 in Before and After`, `… · with existing E00002 and new DRAFT-4 out of After`), and a
+  package takes it out of After in that case alone (`P2: take out DRAFT-3`). `CandidateInBefore` is gone; with A
+  clear in a package it is refused as an existing trade is (`NotInAfter`). `NothingToAdd` and Price's sentence where
+  the cells make no case say so.
+- **Make package…** lists each selected trade as the server says a package would take it (`POST …/package-roles`),
+  so a New row in Before is among those it takes out, whichever grid it was selected in.
+- **Price asks first.** The Price button reads `GET …/price-plan` (the input built as Price builds it, at the
+  workspace's revision) and opens a dialog listing every case by the title the Run gives it, with its common change,
+  the markets, and the figures Price will refuse. Enter prices the revision listed, through `xva.workspace.price`
+  with that revision; Escape or Back prices nothing. A plan Price would refuse is a refused Price, with no dialog.
+- **The line's `price`** names the cases after its counts, the first ten and how many more; Enter there prices, as
+  before.
+
+### Verification performed
+
+| Check | Result |
+|---|---|
+| `nix develop -c dotnet test server/Qube.slnx` | 1695 passed |
+| `cd client && npm run typecheck && npm test` | typecheck clean; 553 passed |
+| The changed and new browser tests (`add each` and Price refusing a set the rows left; Price's confirmation; the 390px page), `--repeat-each=3`, Chromium headless on Linux, the built client served by the host | 9 passed |
+
+New and changed tests: a New row in Before and After in every case and named in each title, taken out by a package
+and refused there with A clear, and no candidate when every New row is in Before
+(`A_new_row_in_before_and_after_is_read_as_an_existing_trade`); note 91's table test with New rows in Before; the
+line's `price` naming its cases, ten and the rest counted; the package-roles read, and the price plan listing every
+case and Price at its revision refused once the workspace moved (409 `RevisionMoved`), and a refused plan (422
+`AdditionSetChanged`); in the browser, the dialog's list, Escape pricing nothing and Enter pricing what it listed.
+
+By hand, in the built client served by the host: the dialog at 1440px in both themes and at 390px dark (no sideways
+scroll), the line's reading, the priced titles, and Make package with a New row in Before. The dialog's dimmed note
+reads at 8.18:1 light and 4.88:1 dark, measured in Chromium.
+
+### Providers
+
+Unchanged: every source and every measure is simulated, and every value is synthetic.
+
+### Known limits
+
+- **A press builds Price's input twice**, once to list it and once to price it, as the line's reading already did.
+  Measured below.
+- **The plan is the state at the moment it was read.** A workspace that moves while the dialog is open is refused
+  at the press (`RevisionMoved`, or the page's own sentence where it has seen the move), never priced unseen; the
+  dialog does not refresh itself.
+
 ## Rates lines named in order (ADR-0016 note 65, 2026-11-14)
 
 The owner asked for the lines' numbers to be easier to follow.

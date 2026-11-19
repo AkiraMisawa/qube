@@ -477,17 +477,23 @@ public class PricerLineTests
         Assert.Equal("Made 3 case(s): P1: add DRAFT-1 + DRAFT-2, P2: add DRAFT-1 + DRAFT-2, add DRAFT-3.", made);
     }
 
-    [Fact] // ADR-0016 note 28, docs/03 §5: what add each cannot do is refused in the preview by the command's own code and sentence
+    [Fact] // ADR-0016 notes 28 and 96, docs/03 §5: what add each cannot do is refused in the preview by the command's own code and sentence; a New row in Before is read as an existing trade, never refused
     public async Task Add_each_is_refused_in_the_preview_as_the_command_would_refuse_it()
     {
         var rig = new Rig();
         await rig.Run(rig.Preview("set DRAFT-2 before on"));
-        var inBefore = rig.Preview("add each");
+        var booked = rig.Preview("add each");
+        await rig.Run(rig.Preview("set DRAFT-1 package P1"));
+        await rig.Run(rig.Preview("set DRAFT-1 after off"));
+        var notTicked = rig.Preview("add each");
+        await rig.Run(rig.Preview("reset all package"));
         await rig.Run(rig.Preview("after none new"));
         var none = rig.Preview("add each");
 
-        Assert.Equal("CandidateInBefore: DRAFT-2 is in Before, and a new trade is priced alone only out of Before. Clear B on it, or A to leave it out, then add each again.", Read(inBefore));
-        Assert.Equal("NothingToAdd: add each makes a case per package and per New row with A ticked, and no trade is in a package and no New row has A ticked.", Read(none));
+        Assert.Equal("Makes 2 case(s): add DRAFT-1, add DRAFT-3.", booked.Would);
+        Assert.Equal("CandidateNotTicked: DRAFT-1 is in the package P1 and has A clear, and a package adds New rows with A ticked. Tick A on it, or clear its Package.", Read(notTicked));
+        Assert.Equal("NothingToAdd: add each makes a case per package and per New row with A ticked and B clear, and no trade is in a package and no New row has A ticked and B clear. "
+            + "A New row in Before is read as an existing trade.", Read(none));
     }
 
     [Fact] // ADR-0016 note 28, ADR-0010 §8: cds reads its words against the catalogue as a trial, says the curve it would choose, and Enter chooses it
@@ -759,6 +765,25 @@ public class PricerLineTests
         Assert.Equal("Made 2 scenario(s): jpy_ois -10bp, jpy_ois +10bp.", await rig.Invoke("xva.scenario.ladder", new JsonObject { ["factors"] = "jpy_ois -10bp..+10bp step 10bp" }, RunOrigin.Ai));
         Assert.StartsWith("UnknownScenario: There is no scenario dn", await rig.Invoke("xva.scenario.remove", new JsonObject { ["name"] = "dn" }));
         Assert.Equal(RunOrigin.Ai, rig.State.Log.First(e => e.Kind == EditKind.Create).Origin);
+    }
+
+    [Fact] // ADR-0010 §3's note of 2026-11-19 (owner: what will run is seen before Price starts): price's reading names the cases by title, the common change each carries after it, the first ten and how many more
+    public async Task Price_is_read_with_the_cases_it_would_price_by_title()
+    {
+        var rig = new Rig();
+        await rig.Run(rig.Preview("measures cva fva"));
+        await rig.Run(rig.Preview("set DRAFT-1, DRAFT-2 package P1"));
+        await rig.Run(rig.Preview("set DRAFT-3 before on"));
+        await rig.Run(rig.Preview("add each"));
+
+        var two = rig.Preview("price").Would;
+        await rig.Run(rig.Preview("vary CSA-A threshold 1mm, 2mm, 3mm, 4mm, 5mm, 6mm, 7mm, 8mm, 9mm, 10mm"));
+        var twelve = rig.Preview("price").Would;
+
+        Assert.Equal("Prices CVA and FVA for 2 cases, as one Run: Base; P1: add DRAFT-1 + DRAFT-2 · with new DRAFT-3 in Before and After.", two);
+        Assert.Equal("Prices CVA and FVA for 12 cases, as one Run: Base; P1: add DRAFT-1 + DRAFT-2 · with new DRAFT-3 in Before and After; "
+            + "CSA-A threshold 1mm; CSA-A threshold 2mm; CSA-A threshold 3mm; CSA-A threshold 4mm; CSA-A threshold 5mm; CSA-A threshold 6mm; "
+            + "CSA-A threshold 7mm; CSA-A threshold 8mm; and 2 more.", twelve);
     }
 
     [Fact] // ADR-0016 note 33, ADR-0010 §1, §9: price is not tried: its reading says what Price would price and starts nothing, and Enter submits one Run with the caller's origin

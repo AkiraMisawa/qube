@@ -14,7 +14,7 @@ import { answeredInOrder, useKeptGrid } from '../../platform/grid/keptGrid';
 import { keyOf } from '../../platform/workspace/workspaceStore';
 import { registerPlaces, type Place } from '../../shell/places';
 import type { XvaApi } from './api';
-import type { EffectiveTrade, HeldEdit, RegisteredColumn, RegisteredMeasure, Resolution, ScopeDrop, ShiftEdit, XvaWorkspaceView } from './contracts';
+import type { EffectiveTrade, HeldEdit, RegisteredColumn, RegisteredMeasure, Resolution, PricePlan, ScopeDrop, ShiftEdit, XvaWorkspaceView } from './contracts';
 import { measureNamed, registerXvaPage } from './commands';
 import { commandDoor, registerCommandDoor, tableMenu, type TableMenu } from '../../platform/commands/served';
 import { filterGrid, menuView, pagedView, placeFocus, selectRows, sortGrid, whereOf, type Answered, type ScreenGrid } from '../../platform/grid/lineView';
@@ -36,6 +36,7 @@ import type { ScenarioActions } from './XvaScenarios';
 import type { ChangeActions } from './XvaChanges';
 import { VARY_COMMAND, VaryDialog, type VaryTarget } from './VaryDialog';
 import { PACKAGE_COMMAND, PackageDialog, type Selected } from './PackageDialog';
+import { PriceDialog } from './PriceDialog';
 import { DraftDialog } from '../../platform/drafts/DraftDialog';
 import { useDraft } from '../../platform/drafts/useDraft';
 import { EDIT_ROW, editColumn, openRow } from '../../platform/drafts/rowButton';
@@ -298,6 +299,8 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   const menus = useRef<{ readonly trades: TableMenu; readonly csas: TableMenu }>({ trades: NO_MENU, csas: NO_MENU });
   const [busy, setBusy] = useState<string | undefined>(undefined);
   const [confirm, setConfirm] = useState<{ readonly registration: string; readonly drop: ScopeDrop } | undefined>(undefined);
+  // What Price would price, while its confirmation is open (ADR-0010 §3's note of 2026-11-19).
+  const [pricing, setPricing] = useState<PricePlan | undefined>(undefined);
   // Why each trade grid's rows could not be read, until its reader answers again: a grid's own, so that the other's
   // answer does not take it back.
   const [failure, setFailure] = useState<Readonly<Record<TradeGrid, string | undefined>>>(NOT_FAILED);
@@ -574,12 +577,12 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
     invokedBusy('Counterparty changed', 'xva.counterparty.change', { registration, drops: drop.count, revision: drop.revision }, 'The counterparty was not changed');
 
   /** A control's command through the door (ADR-0016 §5): a refusal is a notice that opens with what was not done. */
-  const invoked = async (capability: string, request: CommandRequest, notDone: string) => {
+  const invoked = async (capability: string, request: CommandRequest | ((revision: number) => CommandRequest), notDone: string) => {
     const reason = await door.invoke(capability, request);
     if (reason !== undefined) workspace.notify('refused', `${notDone}: ${reason.sentence}`);
   };
   /** A toolbar button's command, the toolbar held while it runs: its button turns, and the others wait. */
-  const invokedBusy = async (label: string, capability: string, request: CommandRequest, notDone: string) => {
+  const invokedBusy = async (label: string, capability: string, request: CommandRequest | ((revision: number) => CommandRequest), notDone: string) => {
     setBusy(label);
     try {
       await invoked(capability, request, notDone);
@@ -593,7 +596,29 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
    * in that turn, and the dock shows its latest Run, which is the one just accepted; the figures stay on the page
    * (XvaResult), and the Run itself opens in a panel only when asked.
    */
-  const price = () => invokedBusy('Pricing', 'xva.workspace.price', {}, 'Price was refused');
+  const price = async () => {
+    // What Price would price is read once the edits already sent have landed (spine 6), and listed before it starts
+    // (ADR-0010 §3's note of 2026-11-19). A plan Price would refuse is refused here, with Price's own reason.
+    setBusy('Pricing');
+    try {
+      setPricing(await queue.after(() => api.pricePlan(workspaceId)));
+    } catch (error) {
+      workspace.notify('refused', `Price was refused: ${describe(error)}`);
+    } finally {
+      setBusy(undefined);
+    }
+  };
+  /**
+   * The confirmation's Price: the revision it listed and no other. A workspace the page has seen move since sends
+   * nothing; one moved where the page has not seen it yet is refused by the server (spine 6).
+   */
+  const pricePlanned = (plan: PricePlan) => {
+    setPricing(undefined);
+    void invokedBusy('Pricing', 'xva.workspace.price', (revision: number) => {
+      if (revision !== plan.revision) throw new Error('The workspace changed after Price listed its cases. Press Price to see them again.');
+      return { revision: plan.revision };
+    }, 'Price was refused');
+  };
 
   const openRun = (runId: string) => {
     const resultView = workspace.catalog.views.find((v) => v.definitionId === XVA_RESULT_VIEW);
@@ -848,7 +873,8 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
   const [packaging, setPackaging] = useState<Selected | undefined>(undefined);
   /**
    * Opens *Make package from the selection…* on what the two trade grids' selections name: read by the server, as the
-   * line's `selected` is (ADR-0016 note 17), since it pages the grids and a position means a row only in its order.
+   * line's `selected` is (ADR-0016 note 17), since it pages the grids and a position means a row only in its order, and
+   * each listed as the server says a package would take it.
    * From a Context Menu the grid it opened on is read as the menu has it. Refused, as where a grid's order has moved
    * since its rows were read, the page says why and opens nothing.
    */
@@ -859,8 +885,11 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
       return (await workspace.api.selection(workspaceId, seen)).keys;
     };
     try {
-      const [add, without] = await Promise.all([selected('new'), selected('existing')]);
-      setPackaging({ add, without });
+      const named = (await Promise.all([selected('new'), selected('existing')])).flat();
+      // What a package would do with each trade is the server's to say: a New row in Before is taken out, as an
+      // existing trade is (ADR-0016 note 96), whichever grid it was selected in.
+      const roles = named.length === 0 ? { adds: [], takesOut: [] } : await queue.after(() => api.packageRoles(workspaceId, named));
+      setPackaging({ add: roles.adds, without: roles.takesOut });
     } catch (error) {
       workspace.notify('refused', `The selection was not read: ${describe(error)}`);
     }
@@ -1073,6 +1102,7 @@ export function XvaWorkspacePanel({ panelId, workspaceId, api, traceApi }: {
           changeList={changeList.data} changeActions={changeActions} scenarioActions={scenarioActions} onVary={setVarying} commandLabel={commandLabel} csaMenu={menus} onEditRow={editRow} />
         <VaryDialog target={varying} vary={varyCell} onClose={() => setVarying(undefined)} />
         <PackageDialog selection={packaging} packages={ws.packages} next={ws.nextPackage} make={makePackage} onClose={() => setPackaging(undefined)} />
+        <PriceDialog plan={pricing} price={pricePlanned} onClose={() => setPricing(undefined)} />
         <DraftDialog draft={draft} workspaceId={workspaceId} revision={ws.revision} api={workspace.api} door={door} drop={drop} discard={drafts.close} note={draftNote} />
         {inputsOpen && <Resizer label="Height of the input tabs" value={inputsHeight} min={48} max={640} grows="down" onChange={setInputsDragged} />}
       </div>

@@ -110,6 +110,12 @@ public sealed record AddPlan(CommandPlan Command, IReadOnlyList<string> Made, IR
 /// is given, and the trades it names, new and existing.</summary>
 public sealed record PackageGiven(string? Name, IReadOnlyList<string> Trades);
 
+/// <summary>
+/// What a package of some trades would do with each (ADR-0016 notes 94 and 96): the New rows out of Before it would add,
+/// and the trades it would take out of After, the existing ones and the New rows in Before, each in the order named.
+/// </summary>
+public sealed record PackageRoles(IReadOnlyList<string> Adds, IReadOnlyList<string> TakesOut);
+
 /// <summary><c>load trades</c> as planned (ADR-0016 note 59): the booked trades it would load, each as the store holds it on the value date.</summary>
 public sealed record LoadPlan(CommandPlan Command, IReadOnlyList<SourceTrade> Loaded);
 
@@ -117,11 +123,20 @@ public sealed record LoadPlan(CommandPlan Command, IReadOnlyList<SourceTrade> Lo
 public sealed record CasesPlan(CommandPlan Command, IReadOnlyList<(string Title, int Changes)> Removed);
 
 /// <summary>
-/// What Price would price (ADR-0016 note 33): the measures by their titles, the cases with the Base, the markets with
-/// the base market, whether the Base holds a trade in Before and in After, and each measure a case's input already
-/// refuses, which the Run would say of that case and price the rest.
+/// What Price would price at <paramref name="Revision"/> (ADR-0016 note 33): the measures by their titles, the cases
+/// with the Base first, the markets with the base market first, whether the Base holds a trade in Before and in After,
+/// and each measure a case's input already refuses, which the Run would say of that case and price the rest. Price's
+/// confirmation lists it before Price starts (ADR-0010 §3's note of 2026-11-19; owner, the same day), and the line's
+/// reading of <c>price</c> says it.
 /// </summary>
-public sealed record PricePlan(IReadOnlyList<string> Measures, int Cases, int Markets, bool Before, bool After, IReadOnlyList<PriceRefusal> Refused);
+public sealed record PricePlan(long Revision, IReadOnlyList<string> Measures, IReadOnlyList<PlannedCase> Cases, IReadOnlyList<string> Markets, bool Before, bool After, IReadOnlyList<PriceRefusal> Refused);
+
+/// <summary>
+/// A case Price would price, as the Run will title it: <paramref name="Title"/> as it was made (<c>P1: add DRAFT-1 +
+/// DRAFT-2 without E00003</c>), and <paramref name="Note"/> the common change it carries, where it carries one
+/// (<c>with existing E00002 out of After</c>, docs/03 §5). <paramref name="Kind"/> is <c>base</c>, <c>vary</c> or <c>add</c>.
+/// </summary>
+public sealed record PlannedCase(string Title, string Kind, string? Note);
 
 /// <summary>A measure refused for a case before Price starts, with why.</summary>
 public sealed record PriceRefusal(string Measure, string Case, string Message);
@@ -855,7 +870,9 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
         if (count > caseCap)
             throw new WorkspaceRefused("TooManyCases", $"add each would make {make.Count} case(s), and Price prices {caseCap} at most, the Base among them: {count - caseCap} over. "
                 + "Put new trades together in packages, or clear A on new trades in none.");
-        var candidates = trades.Where(t => t.IsNew && t.After).Select(t => t.TradeId).ToList();
+        // The candidates: the New rows out of Before with A ticked. A New row in Before is read as an existing trade
+        // (ADR-0016 note 96): in each case as its B and A say, but for the case of a package that takes it out.
+        var candidates = trades.Where(t => PortfolioPackages.IsAdded(t) && t.After).Select(t => t.TradeId).ToList();
         WorkspaceChange Off(string trade, string layer) =>
             new WorkspaceChange.Set(PortfolioEditRules.Target(source, Entity.Of(Entity.Trade, trade), "after", layer), JsonValue.Create(false));
         changes.AddRange(replaced.Select(r => new WorkspaceChange.Remove(r.Entity, r.Entity)));
@@ -872,6 +889,19 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
         // The log, and undo, name the command by the words of its page where no line types it (§3, note 68).
         var said = wrote is null ? "add each" : $"add each: package {wrote}";
         return new(new(changes, said), [.. make.Select(i => i.Title())], [.. replaced.Select(PortfolioCases.Title)], wrote);
+    }
+
+    /// <summary>
+    /// What a package of the trades named would do with each, as the workspace stands, for *Make package…*'s dialog to
+    /// say before the press (ADR-0016 notes 94 and 96): a New row in Before is taken out, as an existing trade is, and
+    /// the dialog lists it so. A trade the workspace does not hold, or one named twice, is refused by name.
+    /// </summary>
+    public PackageRoles RolesInPackage(string workspaceId, string user, IReadOnlyList<string>? trades)
+    {
+        if (trades is null || trades.Count == 0) throw new WorkspaceRefused("NothingGiven", "Name one trade at least to say what a package would do with it.");
+        var held = PortfolioMaterialiser.Trades(PortfolioCases.Base(Owned(workspaceId, user)));
+        var (_, named) = Packaged(held, new PackageGiven(null, trades));
+        return new([.. named.Where(PortfolioPackages.IsAdded).Select(t => t.TradeId)], [.. named.Where(t => !PortfolioPackages.IsAdded(t)).Select(t => t.TradeId)]);
     }
 
     // The package a request gives (ADR-0016 note 90): its name, the next free one where none is given, and its trades,
@@ -1062,12 +1092,30 @@ public sealed class PortfolioWorkspaces(WorkspaceService workspaces, IDataStore 
         var rows = Rows(PortfolioCases.Base(freeze.State));
         var titles = register.Measures.ToDictionary(m => m.Id, m => m.Title);
         var cases = input["cases"]!.AsArray();
-        return new(
+        // The cases as the input titles them, which is how the Run will: a case's own title and the common change it
+        // carries are read from the same view the input was built of, never pulled apart again from the frozen text.
+        var views = PortfolioCases.All(freeze.State).ToDictionary(c => c.Id, StringComparer.Ordinal);
+        PlannedCase Planned(JsonNode c)
+        {
+            var id = c["id"]!.GetValue<string>();
+            var view = views.TryGetValue(id, out var found) ? found
+                : throw new InvalidOperationException($"Price's input holds a case {id} the workspace at revision {freeze.Revision} does not.");
+            return new(view.Title, view.Kind, view.Note);
+        }
+        return new(freeze.Revision,
             [.. input["selection"]!.AsArray().Select(id => titles[id!.GetValue<string>()])],
-            cases.Count, input["scenarios"]!.AsArray().Count, rows.Any(t => t.Before), rows.Any(t => t.After),
+            [.. cases.Select(c => Planned(c!))],
+            [.. input["scenarios"]!.AsArray().Select(m => m!["title"]!.GetValue<string>())],
+            rows.Any(t => t.Before), rows.Any(t => t.After),
             [.. cases.SelectMany(c => c!["measures"]!.AsArray().Where(m => m!["refused"] is not null)
                 .Select(m => new PriceRefusal(titles[m!["id"]!.GetValue<string>()], c["title"]!.GetValue<string>(), m["refused"]!["message"]!.GetValue<string>())))]);
     }
+
+    /// <summary>
+    /// What Price would price as the workspace stands now, for Price's confirmation (ADR-0010 §3's note of 2026-11-19):
+    /// the plan of its current revision, which the confirmation then prices, refused where the workspace has moved since.
+    /// </summary>
+    public PricePlan PreviewPrice(string workspaceId, string user) => PlanPrice(workspaceId, Owned(workspaceId, user).Revision, user);
 
     public void Delete(string workspaceId, string user) => workspaces.Delete(workspaceId, user);
 

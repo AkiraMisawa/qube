@@ -262,7 +262,15 @@ export function pricedMeasures(input: Readonly<Record<string, unknown>>): readon
  */
 export function priceLabel(register: readonly RegisteredMeasure[], selected: readonly string[], cases: number,
   sides: { readonly before: boolean; readonly after: boolean } = { before: true, after: true }, markets = 1): string {
-  const titles = selected.map((id) => register.find((m) => m.id === id)?.title ?? id);
+  return pricedAs(selected.map((id) => register.find((m) => m.id === id)?.title ?? id), cases, sides, markets);
+}
+
+/**
+ * What Price will run, said of the measures by their titles, as the Price button and Price's confirmation both say it
+ * (ADR-0010 §3's note of 2026-11-19): `Price CVA FVA · 4 cases × 3 markets`, `Price After only · CVA FVA · 1 case`.
+ */
+export function pricedAs(titles: readonly string[], cases: number,
+  sides: { readonly before: boolean; readonly after: boolean }, markets: number): string {
   const only = sides.before && !sides.after ? 'Before only · ' : !sides.before && sides.after ? 'After only · ' : '';
   const crossed = markets === 1 ? '' : ` × ${markets} markets`;
   return `Price ${only}${titles.join(' ')} · ${cases} ${cases === 1 ? 'case' : 'cases'}${crossed}`;
